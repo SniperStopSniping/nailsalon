@@ -90,6 +90,19 @@ const liveBookingPageSide: React.ComponentProps<typeof PublicSalonPageShell>['bo
   hiddenSections: [],
   businessMode: 'solo',
   startMode: 'services_first',
+  quickBookProfile: {
+    showTechName: false,
+    showTechPhoto: false,
+    showLocation: false,
+    showHours: false,
+    showPhone: false,
+    showEmail: false,
+    showBookingPolicy: false,
+    showCancellationPolicy: false,
+    showReviews: false,
+    showInstagram: false,
+    showBio: false,
+  },
 };
 
 const draftBookingPageSide: React.ComponentProps<typeof PublicSalonPageShell>['bookingPage'] = {
@@ -241,6 +254,32 @@ describe('PublicSalonPageShell location privacy (locationDisplayMode) — per-lo
     expect(place.address.zipCode).toBe(PRIVATE_POSTAL_CODE);
     expect(place.locations[0].address).toBe(PRIVATE_FULL_ADDRESS);
     expect(place.locations[0].phone).toBe(PRIVATE_PHONE);
+  });
+
+  it('booking-only contact strips the location phone even when the address is public', () => {
+    render(
+      <PublicSalonPageShell
+        appearance={{ mode: 'custom', themeKey: null }}
+        pageName="book-service"
+        salon={{
+          ...baseSalon,
+          settings: { sharedProfile: { bookingOnlyContact: true } },
+        }}
+        bookingPage={liveBookingPageSide}
+        salonContentInput={{ locations: [privateLocation] }}
+      >
+        <SalonContentPlaceProbe />
+      </PublicSalonPageShell>,
+    );
+
+    const place = JSON.parse(screen.getByTestId('salon-content-place-probe').textContent ?? '{}');
+
+    expect(place.address.address).toBe(PRIVATE_FULL_ADDRESS);
+    expect(place.locations[0]).toMatchObject({
+      address: PRIVATE_FULL_ADDRESS,
+      phone: null,
+    });
+    expect(JSON.stringify(place)).not.toContain(PRIVATE_PHONE);
   });
 
   it('city_only redacts address/zipCode/phone from salonContent.place.address and every place.locations entry', () => {

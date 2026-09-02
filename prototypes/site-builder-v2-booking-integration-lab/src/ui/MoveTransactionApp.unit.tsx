@@ -70,18 +70,14 @@ function sectionOrder(pageName = 'Home'): string[] {
 
 const QUICK_BOOK_DEFAULT_ORDER = [
   'Salon intro',
-  'Gallery',
   'Booking',
-  'About',
-  'Visit & Contact',
+  'Gallery',
 ];
 
 const QUICK_BOOK_BOOKING_FIRST_ORDER = [
   'Booking',
   'Salon intro',
   'Gallery',
-  'About',
-  'Visit & Contact',
 ];
 
 const MULTI_PAGE_HOME_ORDER = ['Welcome', 'Reviews'];
@@ -136,7 +132,7 @@ describe('transactional shared Move surface', () => {
     await new Promise((resolve) => window.setTimeout(resolve, 230));
     expect(write).not.toHaveBeenCalled();
     expect(screen.getByTestId('reorder-live-region'))
-      .toHaveTextContent('Order restored. Booking is back at position 3.');
+      .toHaveTextContent('Order restored. Booking is back at position 2.');
   });
 
   it('Done commits once, persists once, and produces one undoable change', async () => {
@@ -234,7 +230,7 @@ describe('transactional shared Move surface', () => {
 
     expect(screen.getByRole('dialog', { name: 'Move Booking' })).toBeVisible();
     expect(screen.queryByRole('dialog', { name: 'Keep this new order?' })).not.toBeInTheDocument();
-    expect(position).toHaveValue(3);
+    expect(position).toHaveValue(2);
     expect(position.closest('.reorder-row')).toHaveFocus();
 
     await user.click(within(dialog).getByRole('button', { name: 'Done' }));
@@ -254,7 +250,7 @@ describe('transactional shared Move surface', () => {
     await moveBookingToFirst(user, moveDialog);
     await user.click(within(moveDialog).getByRole('button', { name: 'Close Move Booking' }));
     let confirmation = await screen.findByRole('dialog', { name: 'Keep this new order?' });
-    expect(confirmation).toHaveTextContent('Booking is at position 1 instead of 3.');
+    expect(confirmation).toHaveTextContent('Booking is at position 1 instead of 2.');
     await user.click(within(confirmation).getByRole('button', { name: 'Discard changes' }));
     expect(sectionOrder()).toEqual(QUICK_BOOK_DEFAULT_ORDER);
 

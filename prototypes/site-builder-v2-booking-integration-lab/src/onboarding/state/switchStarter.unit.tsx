@@ -70,10 +70,8 @@ const expectStarterShape = (
       names: ['Home'],
       sections: [[
         'hero',
-        'gallery',
         'booking',
-        'about',
-        'visit_us',
+        'gallery',
       ]],
     },
   }[starter];

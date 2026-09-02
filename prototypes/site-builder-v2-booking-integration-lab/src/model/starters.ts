@@ -61,20 +61,18 @@ const STARTER_PAGES: Record<OriginStarter, readonly StarterPageDefinition[]> = {
   quick_book: [{
     name: 'Home',
     sections: [
-      { label: 'Salon intro', preset: 'booking_first', previewLabel: 'Salon intro', sectionType: 'hero' },
+      {
+        label: 'Salon intro',
+        preset: 'booking_first',
+        previewLabel: 'Salon intro',
+        sectionType: 'hero',
+      },
+      { previewLabel: 'Services & Booking', sectionType: 'booking' },
       {
         galleryPresentationOwner: 'onboarding',
         preset: 'carousel',
         previewLabel: 'Nail work',
         sectionType: 'gallery',
-      },
-      { previewLabel: 'Services & Booking', sectionType: 'booking' },
-      { previewLabel: 'About', sectionType: 'about' },
-      {
-        label: 'Visit & Contact',
-        preset: 'compact_info',
-        previewLabel: 'Visit & Contact',
-        sectionType: 'visit_us',
       },
     ],
     slug: '',

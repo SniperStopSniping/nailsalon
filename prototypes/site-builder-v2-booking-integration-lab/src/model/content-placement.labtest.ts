@@ -62,6 +62,41 @@ const sectionOf = (document: SiteBuilderDocument, type: SectionType) => {
 };
 
 describe('site content placement plan', () => {
+  it('gives Quick Book shared profile content to its one compact profile section', () => {
+    const state = stateWithMedia();
+    state.recipe.starter = 'quick_book';
+    const document = initializeStarter('quick_book');
+    document.siteContent = structuredClone(DEMO_SITE_CONTENT);
+    const { contentPlacement, pages } = compositionFor(document, state);
+    const profile = sectionOf(document, 'hero');
+    const booking = sectionOf(document, 'booking');
+
+    expect(pages[0]?.sections.map(section => section.sectionType))
+      .toEqual(['hero', 'booking', 'gallery']);
+    expect(getContentPlacement(contentPlacement, 'brand_logo').ownerSectionId)
+      .toBe(profile.id);
+    expect(getContentPlacement(contentPlacement, 'owner_profile_photo').ownerSectionId)
+      .toBe(profile.id);
+    expect(getContentPlacement(contentPlacement, 'location').ownerSectionId)
+      .toBe(profile.id);
+    expect(getContentPlacement(contentPlacement, 'business_hours').ownerSectionId)
+      .toBe(profile.id);
+    expect(getContentPlacement(contentPlacement, 'phone').ownerSectionId)
+      .toBe(profile.id);
+    expect(getContentPlacement(contentPlacement, 'email').ownerSectionId)
+      .toBe(profile.id);
+    expect(getContentPlacement(contentPlacement, 'instagram').ownerSectionId)
+      .toBe(profile.id);
+    expect(getContentPlacement(contentPlacement, 'deposit_cancellation_policy').ownerSectionId)
+      .toBe(profile.id);
+    expect(getContentPlacement(contentPlacement, 'before_you_book_policies').ownerSectionId)
+      .toBe(profile.id);
+    expect(getContentPlacement(contentPlacement, 'reviews', pages[0]!.id).ownerSectionId)
+      .toBe(profile.id);
+    expect(getContentPlacement(contentPlacement, 'service_catalogue').ownerSectionId)
+      .toBe(booking.id);
+  });
+
   it('uses one versioned plan for all substantive one-page owners', () => {
     const state = stateWithMedia();
     state.recipe.starter = 'one_page';

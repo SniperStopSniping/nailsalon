@@ -122,10 +122,18 @@ function lifecycleSettings(): SalonSettings {
       draft: {
         ...BOOKING_PAGE_CONFIG_SIDE_DEFAULTS,
         businessMode: 'team',
+        quickBookProfile: {
+          ...BOOKING_PAGE_CONFIG_SIDE_DEFAULTS.quickBookProfile,
+          showTechName: true,
+        },
       },
       live: {
         ...BOOKING_PAGE_CONFIG_SIDE_DEFAULTS,
         businessMode: 'solo',
+        quickBookProfile: {
+          ...BOOKING_PAGE_CONFIG_SIDE_DEFAULTS.quickBookProfile,
+          showLocation: true,
+        },
       },
       draftPresetBase: { presetId: 'collective', recipeVersion: 1 },
       livePresetBase: { presetId: 'quick_book', recipeVersion: 1 },
@@ -253,6 +261,8 @@ describe('booking-page lifecycle synchronization (PGlite)', () => {
     expect(content.live).toEqual(content.draft);
     expect(stored).toMatchObject({ unrelated: { retained: true } });
     expect(config.draft.businessMode).toBe('team');
+    expect(config.live.quickBookProfile.showTechName).toBe(true);
+    expect(config.live.quickBookProfile.showLocation).toBe(false);
     expect(content.draft.bio).toBe('Draft biography');
   });
 
@@ -272,6 +282,8 @@ describe('booking-page lifecycle synchronization (PGlite)', () => {
     expect(content.draft).toEqual(content.live);
     expect(stored).toMatchObject({ unrelated: { retained: true } });
     expect(config.live.businessMode).toBe('solo');
+    expect(config.draft.quickBookProfile.showTechName).toBe(false);
+    expect(config.draft.quickBookProfile.showLocation).toBe(true);
     expect(content.live.bio).toBe('Live biography');
   });
 

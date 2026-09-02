@@ -10,6 +10,7 @@ import {
   getBookingPagePresentationSignature,
   resolveBookingPagePresetRecipe,
 } from '@/libs/bookingPagePresetRecipes';
+import { isQuickBookProfileOwnedLegacySection } from '@/libs/quickBookProfilePresentation';
 import {
   getAllowedSectionVariants,
   getSectionPresentationPlacement,
@@ -245,10 +246,15 @@ export function getBookingPageBuilderSectionDefinition(
 
 export function listBookingPageBuilderSections(
   layout: BookingPageLayout | string | null | undefined,
+  quickBookProfile: BookingPageConfigSide['quickBookProfile'] | null | undefined = null,
 ) {
-  return SECTION_PRESENTATION_SECTION_IDS.map(sectionId => (
-    getBookingPageBuilderSectionDefinition(sectionId, layout)
-  ));
+  return SECTION_PRESENTATION_SECTION_IDS
+    .filter(sectionId => !isQuickBookProfileOwnedLegacySection(
+      layout,
+      sectionId,
+      quickBookProfile,
+    ))
+    .map(sectionId => getBookingPageBuilderSectionDefinition(sectionId, layout));
 }
 
 function sameValues(left: readonly string[], right: readonly string[]): boolean {

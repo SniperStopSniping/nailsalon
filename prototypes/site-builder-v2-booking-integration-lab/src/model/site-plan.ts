@@ -128,6 +128,21 @@ const attachesToNext = (section: SectionInstance): boolean =>
     : false;
 
 /**
+ * Quick Book presents these shared-data responsibilities in its compact
+ * profile header. Older Quick Book documents can still contain the retired
+ * standalone sections, but One-page and Multi-page must keep rendering them.
+ */
+const QUICK_BOOK_PROFILE_OWNED_SECTION_TYPES: ReadonlySet<LibrarySectionType> = new Set([
+  'about',
+  'contact',
+  'deposits_cancellations',
+  'hours',
+  'policies',
+  'team',
+  'visit_us',
+]);
+
+/**
  * Should this section render for a customer right now? Booking is canonical;
  * Custom Design must own artwork before its renderer has customer content.
  * Library sections render unless their shared authority has nothing truthful
@@ -139,6 +154,7 @@ const sectionRendersForCustomer = (
   toggles: SitePlanOptionalToggles,
   includeOptionalSections: boolean,
   customDesignIsRenderable: (settings: CustomDesignSettings) => boolean,
+  quickBookUsesCompactProfile: boolean,
 ): boolean => {
   if (section.sectionType === 'booking') return true;
   if (section.sectionType === 'custom_design') {
@@ -146,6 +162,12 @@ const sectionRendersForCustomer = (
       && (!includeOptionalSections || toggles.canvaEnabled);
   }
   if (!isLibrarySection(section)) return false; // legacy placeholders render nothing
+  if (
+    quickBookUsesCompactProfile
+    && QUICK_BOOK_PROFILE_OWNED_SECTION_TYPES.has(section.sectionType)
+  ) {
+    return false;
+  }
   if (
     section.sectionType === 'about'
     && includeOptionalSections
@@ -356,6 +378,13 @@ const buildStructuralCustomerPagePlan = (
     ...document.pages.flatMap(page => page.sections),
     ...document.unusedSections,
   ];
+  const quickBookUsesCompactProfile = document.originStarter === 'quick_book'
+    && visiblePages.some(page => page.sections.some(
+      section => section.visible && section.sectionType === 'hero',
+    ))
+    && visiblePages.some(page => page.sections.some(
+      section => section.visible && section.sectionType === 'booking',
+    ));
   const hasType = (types: readonly LibrarySectionType[]): boolean =>
     allSections.some(section =>
       isLibrarySectionType(section.sectionType)
@@ -377,10 +406,12 @@ const buildStructuralCustomerPagePlan = (
 
   const injections = includeOptionalSections
     ? INJECTION_RULES.filter(rule =>
-        // Quick Book owns its compact policy disclosure inside the canonical
-        // Services & Booking section. Injecting a second standalone Policies
-        // section would violate the locked five-slot product recipe.
-        !(document.originStarter === 'quick_book' && rule.type === 'policies')
+        // Quick Book's compact profile owns shared identity, About, public
+        // contact, hours, and policy presentation. Its real recipe sections
+        // must remain Profile → Booking → optional Gallery; legacy injections
+        // may not recreate the retired About/Visit/Policies duplicates.
+        !(document.originStarter === 'quick_book'
+          && (rule.type === 'about' || rule.type === 'contact' || rule.type === 'policies'))
         && rule.wanted(context, toggles)
         && !hasType(rule.satisfiedBy))
     : [];
@@ -407,6 +438,7 @@ const buildStructuralCustomerPagePlan = (
         toggles,
         includeOptionalSections,
         customDesignIsRenderable,
+        quickBookUsesCompactProfile,
       ))
       .map(section => ({
         attachedToPrevious: false,
@@ -510,10 +542,18 @@ export const buildCustomerSiteComposition = (
   options: BuildCustomerPagePlanOptions,
 ): CustomerSiteComposition => {
   const structuralPages = buildStructuralCustomerPagePlan(document, options);
+  const quickBookProfileSectionId = document.originStarter === 'quick_book'
+    ? structuralPages.flatMap(page => page.sections).find(
+        section => section.sectionType === 'hero',
+      )?.id ?? null
+    : null;
   const contentPlacement = buildSiteContentPlacementPlan(
     structuralPages,
     getSiteContentAvailability(options.context),
-    { ownerStaffMemberId: options.context.ownerStaffMemberId },
+    {
+      ownerStaffMemberId: options.context.ownerStaffMemberId,
+      quickBookProfileSectionId,
+    },
   );
   const pages = filterCustomerPagePlanSections(structuralPages, section => (
     !getSectionContentSuppressions(contentPlacement, section.id)
@@ -534,11 +574,19 @@ export const getSectionContentPlacementSuppressions = (
   options: BuildCustomerPagePlanOptions,
 ): readonly SectionContentSuppression[] => {
   const structuralPages = buildStructuralCustomerPagePlan(document, options);
+  const quickBookProfileSectionId = document.originStarter === 'quick_book'
+    ? structuralPages.flatMap(page => page.sections).find(
+        section => section.sectionType === 'hero',
+      )?.id ?? null
+    : null;
   return getSectionContentSuppressions(
     buildSiteContentPlacementPlan(
       structuralPages,
       getSiteContentAvailability(options.context),
-      { ownerStaffMemberId: options.context.ownerStaffMemberId },
+      {
+        ownerStaffMemberId: options.context.ownerStaffMemberId,
+        quickBookProfileSectionId,
+      },
     ),
     sectionId,
   );

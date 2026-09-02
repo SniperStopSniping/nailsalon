@@ -3,6 +3,20 @@ import 'server-only';
 import { and, eq, inArray, isNotNull, isNull, ne, or, sql } from 'drizzle-orm';
 
 import { formatPhoneE164 } from '@/libs/adminAuth';
+import {
+  BOOKING_EXPERIENCE_LIMITS,
+  bookingExperienceUpdateSchema,
+  resolveBookingExperience,
+} from '@/libs/bookingExperience';
+import {
+  type BookingPageConfigTransaction,
+  updateBookingPageDraftInTransaction,
+} from '@/libs/bookingPageConfig';
+import {
+  bookingPageContentPatchSchema,
+  type BookingPageContentTransaction,
+  updateBookingPageContentDraftInTransaction,
+} from '@/libs/bookingPageContent';
 import { type DatabaseSessionHandle, db } from '@/libs/DB';
 import { hashOpaqueToken } from '@/libs/lusterSecurity';
 import { seedStarterMenuForSalon } from '@/libs/starterMenu';
@@ -16,6 +30,7 @@ import {
   onboardingSiteRevisionSchema,
   onboardingSiteSchema,
   salonLocationSchema,
+  salonRetentionSettingsSchema,
   salonSchema,
   serviceSchema,
   technicianSchema,
@@ -30,6 +45,10 @@ import {
   ADD_ON_PRODUCTION_MAPPINGS,
   SERVICE_MENU_PRODUCTION_MAPPINGS,
 } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/integrations/contracts/service-menu-production-mapping';
+import { resolveInstagramUsername } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/model/contact';
+import {
+  getDepositsAndCancellationsDisplayWording,
+} from '../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/model/policies';
 import {
   compileOnboardingToSiteDocument,
   fingerprintOnboardingValue,
@@ -120,18 +139,23 @@ const WEEKDAYS = [
   'sunday',
 ] as const;
 
-function publicPhone(snapshot: OnboardingPersistedSnapshot): string | null {
-  if (snapshot.profile.bookingOnlyContact) {
-    return null;
-  }
-  if (!snapshot.profile.clientContact.callEnabled && !snapshot.profile.clientContact.textEnabled) {
-    return null;
-  }
+/**
+ * Canonical salon contact data is independent from every public presentation
+ * decision. `bookingOnlyContact`, the call/text preferences, and Quick Book's
+ * visibility switches decide whether a renderer may expose this number; they
+ * must never erase the value the owner entered into the shared profile.
+ */
+function canonicalSalonPhone(snapshot: OnboardingPersistedSnapshot): string | null {
   try {
     return formatPhoneE164(snapshot.profile.clientContact.primaryNumber);
   } catch {
     return null;
   }
+}
+
+function canonicalSalonEmail(snapshot: OnboardingPersistedSnapshot): string | null {
+  const email = snapshot.profile.email.trim();
+  return email || null;
 }
 
 function identityPhone(
@@ -180,8 +204,253 @@ function technicianHours(snapshot: OnboardingPersistedSnapshot) {
 }
 
 function normalizedInstagram(username: string): string | null {
-  const value = username.trim();
-  return value ? `https://instagram.com/${encodeURIComponent(value)}` : null;
+  const resolution = resolveInstagramUsername(username);
+  return resolution.status === 'resolved'
+    ? `https://www.instagram.com/${resolution.username}/`
+    : null;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function appointmentModeLabel(
+  snapshot: OnboardingPersistedSnapshot,
+): string | null {
+  switch (snapshot.profile.bookingPreferences.visitMode) {
+    case 'appointment_only': return 'Appointment only';
+    case 'walk_ins_only': return 'Walk-ins accepted';
+    case 'appointments_and_walk_ins': return 'Appointments and walk-ins';
+    default: return null;
+  }
+}
+
+function depositLabel(snapshot: OnboardingPersistedSnapshot): string | null {
+  const { deposits } = snapshot.profile.policies;
+  if (deposits.mode === 'none') {
+    return 'No deposit required';
+  }
+  if (deposits.amountCents === null) {
+    return null;
+  }
+  const amount = new Intl.NumberFormat('en-CA', {
+    currency: 'CAD',
+    currencyDisplay: 'narrowSymbol',
+    maximumFractionDigits: deposits.amountCents % 100 === 0 ? 0 : 2,
+    minimumFractionDigits: deposits.amountCents % 100 === 0 ? 0 : 2,
+    style: 'currency',
+  }).format(deposits.amountCents / 100);
+  return `${amount} deposit required`;
+}
+
+function cancellationNoticeLabel(
+  snapshot: OnboardingPersistedSnapshot,
+): string | null {
+  const { cancellations } = snapshot.profile.policies;
+  const label = (() => {
+    switch (cancellations.notice) {
+      case 'same_day': return 'Cancel before appointment day';
+      case '12_hours': return '12 hours’ cancellation notice';
+      case '24_hours': return '24 hours’ cancellation notice';
+      case '48_hours': return '48 hours’ cancellation notice';
+      case '72_hours': return '72 hours’ cancellation notice';
+      case 'custom': return cancellations.customNotice.trim();
+      default: return '';
+    }
+  })();
+  return label && Array.from(label).length <= BOOKING_EXPERIENCE_LIMITS.quickFactLabel
+    ? label
+    : null;
+}
+
+function onboardingPolicyText(
+  snapshot: OnboardingPersistedSnapshot,
+): string | null {
+  if (!snapshot.site.policiesEnabled) {
+    return null;
+  }
+  const wording = getDepositsAndCancellationsDisplayWording(
+    snapshot.profile.policies,
+  ).trim();
+  return wording
+    && Array.from(wording).length <= BOOKING_EXPERIENCE_LIMITS.policyText
+    ? wording
+    : null;
+}
+
+/**
+ * Maps onboarding's shared profile values into the same canonical authorities
+ * the real public booking route resolves. Quick Book visibility remains in
+ * bookingPage.draft; no template-owned copy of Instagram, policy text, or
+ * directions is created here.
+ */
+async function syncSharedSalonProfileContent(input: {
+  database: QueryDatabase;
+  salonId: string;
+  snapshot: OnboardingPersistedSnapshot;
+}): Promise<void> {
+  const { database, salonId, snapshot } = input;
+  const [salon] = await database
+    .select({ settings: salonSchema.settings })
+    .from(salonSchema)
+    .where(eq(salonSchema.id, salonId))
+    .for('update')
+    .limit(1);
+  if (!salon) {
+    throw new OnboardingPersistenceError(
+      'BUSINESS_PROFILE_SAVE_FAILED',
+      'The salon profile could not be saved.',
+      500,
+    );
+  }
+
+  const currentSettings = isRecord(salon.settings)
+    ? salon.settings
+    : {};
+  const currentBookingExperience = resolveBookingExperience(
+    salon.settings,
+    { includeAcknowledgmentConfiguration: true },
+  );
+  const policyText = onboardingPolicyText(snapshot);
+  const appointmentLabel = appointmentModeLabel(snapshot);
+  const resolvedDepositLabel = depositLabel(snapshot);
+  const cancellationLabel = snapshot.site.policiesEnabled
+    && snapshot.profile.policies.copy.cancellations.visible
+    ? cancellationNoticeLabel(snapshot)
+    : null;
+  const instagram = normalizedInstagram(snapshot.profile.instagram);
+  const policyChanged = policyText !== currentBookingExperience.policy.text;
+  const candidate = bookingExperienceUpdateSchema.parse({
+    bookingMessage: currentBookingExperience.bookingMessage,
+    confirmationMessage: currentBookingExperience.confirmationMessage,
+    policy: {
+      acknowledgment: policyChanged
+        ? { required: false, text: null }
+        : currentBookingExperience.policy.acknowledgment,
+      enabled: policyText !== null,
+      showAfterConfirmation: currentBookingExperience.policy.showAfterConfirmation,
+      showBeforeConfirmation: currentBookingExperience.policy.showBeforeConfirmation,
+      showInConfirmationEmail: currentBookingExperience.policy.showInConfirmationEmail,
+      showOnServicePage: true,
+      text: policyText,
+      title: policyText ? 'Deposits & cancellations' : null,
+    },
+    primaryColor: currentBookingExperience.primaryColor,
+    quickFacts: {
+      appointmentOnly: {
+        enabled: appointmentLabel !== null,
+        label: appointmentLabel,
+      },
+      cancellationNotice: {
+        enabled: cancellationLabel !== null,
+        label: cancellationLabel,
+      },
+      depositNotice: {
+        enabled: resolvedDepositLabel !== null,
+        label: resolvedDepositLabel,
+      },
+    },
+    socialLinks: {
+      ...currentBookingExperience.socialLinks,
+      instagram,
+    },
+  });
+
+  const rawBookingExperience = isRecord(currentSettings.bookingExperience)
+    ? currentSettings.bookingExperience
+    : {};
+  const rawPolicy = isRecord(rawBookingExperience.policy)
+    ? rawBookingExperience.policy
+    : {};
+  const rawQuickFacts = isRecord(rawBookingExperience.quickFacts)
+    ? rawBookingExperience.quickFacts
+    : {};
+  const rawSocialLinks = isRecord(rawBookingExperience.socialLinks)
+    ? rawBookingExperience.socialLinks
+    : {};
+  const rawSharedProfile: Record<string, unknown> = isRecord(currentSettings.sharedProfile)
+    ? currentSettings.sharedProfile
+    : {};
+  const {
+    addressVisibility: _legacyAddressVisibility,
+    parkingInstructions: _legacyParkingInstructions,
+    ...retainedSharedProfile
+  } = rawSharedProfile;
+  const textNumber = snapshot.profile.clientContact.textEnabled
+    ? snapshot.profile.clientContact.useDifferentTextNumber
+      ? snapshot.profile.clientContact.differentTextNumber.trim() || null
+      : snapshot.profile.clientContact.primaryNumber.trim() || null
+    : null;
+
+  await database.update(salonSchema).set({
+    settings: {
+      ...currentSettings,
+      bookingExperience: {
+        ...rawBookingExperience,
+        ...candidate,
+        policy: {
+          ...rawPolicy,
+          ...candidate.policy,
+        },
+        quickFacts: { ...rawQuickFacts, ...candidate.quickFacts },
+        socialLinks: { ...rawSocialLinks, ...candidate.socialLinks },
+      },
+      sharedProfile: {
+        ...retainedSharedProfile,
+        bookingOnlyContact: snapshot.profile.bookingOnlyContact,
+        callEnabled: snapshot.profile.clientContact.callEnabled,
+        entranceInstructions: snapshot.profile.location.entranceInstructions.trim() || null,
+        textEnabled: snapshot.profile.clientContact.textEnabled,
+        textNumber,
+        transitInformation: snapshot.profile.location.transitInformation.trim() || null,
+      },
+    },
+  }).where(eq(salonSchema.id, salonId));
+
+  await database.insert(salonRetentionSettingsSchema).values({
+    salonId,
+    parkingInstructions: snapshot.profile.location.parking.trim() || null,
+  }).onConflictDoUpdate({
+    target: salonRetentionSettingsSchema.salonId,
+    set: {
+      parkingInstructions: snapshot.profile.location.parking.trim() || null,
+      updatedAt: new Date(),
+    },
+  });
+}
+
+/**
+ * Claims Quick Book's presentation-only visibility into the existing owner
+ * booking-page draft. The shared values themselves continue to be persisted
+ * by createBusiness/syncExistingBusinessProfile; this helper never copies
+ * profile content into template-owned storage and never touches the live side.
+ *
+ * Both helpers below write only the draft side. An existing published site
+ * therefore remains unchanged until the owner explicitly publishes this new
+ * configuration, while a claimed replacement/new draft still retains the
+ * choices the owner just made.
+ */
+async function syncQuickBookProfilePresentationDraft(input: {
+  database: QueryDatabase;
+  salonId: string;
+  snapshot: OnboardingPersistedSnapshot;
+}): Promise<void> {
+  const { database, salonId, snapshot } = input;
+  await updateBookingPageDraftInTransaction(
+    database as BookingPageConfigTransaction,
+    salonId,
+    { quickBookProfile: snapshot.site.quickBookProfile },
+  );
+  await updateBookingPageContentDraftInTransaction(
+    database as BookingPageContentTransaction,
+    salonId,
+    bookingPageContentPatchSchema.parse({
+      bio: snapshot.profile.about.shortBio.trim() || null,
+      locationDisplayMode: snapshot.profile.location.addressVisibility === 'public'
+        ? 'full_address'
+        : 'city_only',
+    }),
+  );
 }
 
 function baseSlug(businessName: string): string {
@@ -367,10 +636,8 @@ async function createBusiness(
   const salonSlug = await uniqueSalonSlug(database, snapshot.profile.businessName, salonId);
   const locationId = crypto.randomUUID();
   const technicianId = crypto.randomUUID();
-  const phone = publicPhone(snapshot);
-  const email = snapshot.profile.bookingOnlyContact || !snapshot.profile.email
-    ? null
-    : snapshot.profile.email;
+  const phone = canonicalSalonPhone(snapshot);
+  const email = canonicalSalonEmail(snapshot);
   const hours = businessHours(snapshot);
   const publicAddress = snapshot.profile.location.addressVisibility === 'public'
     ? snapshot.profile.location.exactAddress || null
@@ -396,9 +663,6 @@ async function createBusiness(
     publishedAt: null,
     slug: salonSlug,
     slugLockedAt: null,
-    socialLinks: {
-      instagram: normalizedInstagram(snapshot.profile.instagram) ?? undefined,
-    },
     status: 'active',
   });
   await database.insert(adminSalonMembershipSchema).values({
@@ -450,25 +714,14 @@ async function syncExistingBusinessProfile(input: {
   snapshot: OnboardingPersistedSnapshot;
 }): Promise<string | null> {
   const { database, identity, salonId, snapshot } = input;
-  const phone = publicPhone(snapshot);
-  const email = snapshot.profile.bookingOnlyContact || !snapshot.profile.email
-    ? null
-    : snapshot.profile.email;
+  const phone = canonicalSalonPhone(snapshot);
+  const email = canonicalSalonEmail(snapshot);
   const hours = businessHours(snapshot);
   const exactAddress = snapshot.profile.location.exactAddress || null;
   const publicAddress = snapshot.profile.location.addressVisibility === 'public'
     ? exactAddress
     : null;
   const ownerPhone = identityPhone(identity, snapshot);
-  const [existingSalon] = await database.select({
-    socialLinks: salonSchema.socialLinks,
-  }).from(salonSchema).where(eq(salonSchema.id, salonId)).limit(1);
-  const {
-    instagram: _existingInstagram,
-    ...unmanagedSocialLinks
-  } = existingSalon?.socialLinks ?? {};
-  const instagram = normalizedInstagram(snapshot.profile.instagram);
-
   await database.update(salonSchema).set({
     address: publicAddress,
     businessHours: hours,
@@ -482,9 +735,6 @@ async function syncExistingBusinessProfile(input: {
     ownerName: snapshot.profile.ownerName,
     ownerPhone,
     phone,
-    socialLinks: instagram
-      ? { ...unmanagedSocialLinks, instagram }
-      : unmanagedSocialLinks,
   }).where(eq(salonSchema.id, salonId));
 
   const [primaryLocation] = await database.select({ id: salonLocationSchema.id })
@@ -562,6 +812,92 @@ async function syncExistingBusinessProfile(input: {
     return null;
   }
   return technicianId;
+}
+
+/**
+ * A replace-draft claim is the one save path where absence can be proven to
+ * mean removal: the immediately previous onboarding revision owned an exact
+ * role row, while the replacement snapshot no longer references that role.
+ * New drafts for existing businesses have no such prior role evidence and
+ * therefore never clear pre-existing Product media merely because a field was
+ * omitted. Published businesses cannot enter replace_draft, so their live
+ * media remains unchanged until the explicit Booking Page Publish lifecycle.
+ */
+async function clearExplicitlyRemovedDraftIdentityMedia(input: {
+  database: QueryDatabase;
+  previousRevision: number;
+  salonId: string;
+  siteId: string;
+  snapshot: OnboardingPersistedSnapshot;
+  technicianId: string | null;
+}): Promise<void> {
+  const [previous] = await input.database.select({
+    id: onboardingSiteRevisionSchema.id,
+    snapshot: onboardingSiteRevisionSchema.snapshot,
+  }).from(onboardingSiteRevisionSchema).where(and(
+    eq(onboardingSiteRevisionSchema.salonId, input.salonId),
+    eq(onboardingSiteRevisionSchema.siteId, input.siteId),
+    eq(onboardingSiteRevisionSchema.revision, input.previousRevision),
+  )).limit(1);
+  if (!previous) {
+    return;
+  }
+
+  const candidates = [
+    {
+      currentItemId: input.snapshot.profile.logoItemId,
+      previousItemId: previous.snapshot.profile.logoItemId,
+      role: 'logo' as const,
+    },
+    {
+      currentItemId: input.snapshot.profile.profilePhotoItemId,
+      previousItemId: previous.snapshot.profile.profilePhotoItemId,
+      role: 'profile' as const,
+    },
+  ];
+  for (const candidate of candidates) {
+    if (candidate.currentItemId !== null || candidate.previousItemId === null) {
+      continue;
+    }
+    const [owned] = await input.database.select({
+      claimStatus: onboardingSiteMediaSchema.claimStatus,
+      metadata: onboardingSiteMediaSchema.metadata,
+    })
+      .from(onboardingSiteMediaSchema).where(and(
+        eq(onboardingSiteMediaSchema.salonId, input.salonId),
+        eq(onboardingSiteMediaSchema.siteId, input.siteId),
+        eq(onboardingSiteMediaSchema.revisionId, previous.id),
+        eq(onboardingSiteMediaSchema.role, candidate.role),
+        eq(onboardingSiteMediaSchema.localItemId, candidate.previousItemId),
+      )).limit(1);
+    const canonicalPublicUrl = owned?.claimStatus === 'ready'
+      && typeof owned.metadata.canonicalPublicUrl === 'string'
+      && typeof owned.metadata.canonicalStorageKey === 'string'
+      && (
+        owned.metadata.canonicalStorageProvider === 'cloudinary'
+        || owned.metadata.canonicalStorageProvider === 'development_public'
+      )
+      ? owned.metadata.canonicalPublicUrl
+      : null;
+    if (!canonicalPublicUrl) {
+      continue;
+    }
+    if (candidate.role === 'logo') {
+      await input.database.update(salonSchema).set({ logoUrl: null })
+        .where(and(
+          eq(salonSchema.id, input.salonId),
+          eq(salonSchema.logoUrl, canonicalPublicUrl),
+        ));
+    } else if (input.technicianId) {
+      await input.database.update(technicianSchema).set({ avatarUrl: null })
+        .where(and(
+          eq(technicianSchema.id, input.technicianId),
+          eq(technicianSchema.salonId, input.salonId),
+          eq(technicianSchema.avatarUrl, canonicalPublicUrl),
+          eq(technicianSchema.isActive, true),
+        ));
+    }
+  }
 }
 
 function onboardingServicePrice(service: (typeof CANONICAL_SERVICES)[number]): {
@@ -963,8 +1299,8 @@ async function claimSuccess(
   ));
   const ownerCreatedServiceIds = site.serviceMenuApplied
     ? ownerServices.flatMap(item => (
-        item.onboardingSourceServiceId ? [item.onboardingSourceServiceId] : []
-      ))
+      item.onboardingSourceServiceId ? [item.onboardingSourceServiceId] : []
+    ))
     : [];
   const ownerCreated = new Set(ownerCreatedServiceIds);
   return {
@@ -1132,7 +1468,7 @@ async function claimOnboardingDraftUnlocked(
         );
       }
       preserveExistingProductData = target.existingSiteStrategy === 'new_draft'
-        && (currentSite !== null || membership.publicationStatus === 'published');
+      && (currentSite !== null || membership.publicationStatus === 'published');
       admin = await ensureIdentityAdmin(tx as QueryDatabase, identity, input.snapshot);
       if (!preserveExistingProductData) {
         technicianId = await syncExistingBusinessProfile({
@@ -1151,6 +1487,11 @@ async function claimOnboardingDraftUnlocked(
     }
 
     if (!preserveExistingProductData) {
+      await syncSharedSalonProfileContent({
+        database: tx as QueryDatabase,
+        salonId,
+        snapshot: input.snapshot,
+      });
       const selection = resolveProductionServiceSelection(input.snapshot);
       const seeded = await seedStarterMenuForSalon({
         db: tx,
@@ -1179,6 +1520,11 @@ async function claimOnboardingDraftUnlocked(
         technicianId,
       });
     }
+    await syncQuickBookProfilePresentationDraft({
+      database: tx as QueryDatabase,
+      salonId,
+      snapshot: input.snapshot,
+    });
 
     const replaceTarget = target?.mode === 'existing_business'
       && target.existingSiteStrategy === 'replace_draft'
@@ -1187,6 +1533,16 @@ async function claimOnboardingDraftUnlocked(
     const replacing = Boolean(replaceTarget && currentSite?.status === 'draft');
     const siteId = replacing ? currentSite!.id : crypto.randomUUID();
     const revision = replacing ? replaceTarget!.expectedRevision! + 1 : 1;
+    if (replacing) {
+      await clearExplicitlyRemovedDraftIdentityMedia({
+        database: tx as QueryDatabase,
+        previousRevision: replaceTarget!.expectedRevision!,
+        salonId,
+        siteId,
+        snapshot: input.snapshot,
+        technicianId,
+      });
+    }
     if (!replacing) {
       if (currentSite) {
         await tx.update(onboardingSiteSchema)

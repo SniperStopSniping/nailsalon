@@ -1,5 +1,8 @@
 import { resolveBookingPageContent } from '@/libs/bookingPageContent';
-import { applyPhoneDisplayMode } from '@/libs/salonContent';
+import {
+  resolvePublicSalonPhone,
+  resolveSharedSalonProfile,
+} from '@/libs/sharedSalonProfile';
 import { requirePublishedTenantSalon } from '@/libs/tenant';
 
 import { FindBookingForm } from './FindBookingForm';
@@ -21,7 +24,11 @@ export default async function FindBookingPage({ params }: { params: { slug: stri
   // — the exact same scalar redaction `book/confirm/page.tsx`'s `salonPhone`
   // now uses — never a second, independently-decided rule.
   const locationDisplayMode = resolveBookingPageContent(salon.settings ?? null).live.locationDisplayMode;
-  const salonPhone = applyPhoneDisplayMode(salon.phone ?? null, locationDisplayMode);
+  const salonPhone = resolvePublicSalonPhone(
+    resolveSharedSalonProfile(salon.settings ?? null),
+    salon.phone ?? null,
+    locationDisplayMode,
+  );
   return (
     <main className="min-h-[calc(100vh-60px)] bg-[#fbf6f1] px-4 py-14">
       <div className="mx-auto max-w-md">

@@ -92,9 +92,17 @@ describe('starter initialization', () => {
       },
       {
         id: 'section_quick_2',
+        sectionType: 'booking',
+        label: 'Booking',
+        order: 1,
+        visible: true,
+        settings: V1_BOOKING_PRESENTATION_SETTINGS,
+      },
+      {
+        id: 'section_quick_3',
         sectionType: 'gallery',
         label: 'Gallery',
-        order: 1,
+        order: 2,
         visible: true,
         galleryPresentationOwner: 'onboarding',
         settings: {
@@ -103,45 +111,9 @@ describe('starter initialization', () => {
           version: 1,
         },
       },
-      {
-        id: 'section_quick_3',
-        sectionType: 'booking',
-        label: 'Booking',
-        order: 2,
-        visible: true,
-        settings: V1_BOOKING_PRESENTATION_SETTINGS,
-      },
-      {
-        id: 'section_quick_4',
-        sectionType: 'about',
-        label: 'About',
-        order: 3,
-        visible: true,
-        settings: {
-          intro: { source: 'shared' },
-          preset: 'photo_right',
-          version: 1,
-        },
-      },
-      {
-        id: 'section_quick_5',
-        sectionType: 'visit_us',
-        label: 'Visit & Contact',
-        order: 4,
-        visible: true,
-        settings: {
-          contactSummary: 'auto',
-          hoursSummary: 'auto',
-          preset: 'compact_info',
-          showEntrance: true,
-          showParking: true,
-          showTransit: true,
-          version: 1,
-        },
-      },
     ]);
 
-    const booking = document.pages[0]?.sections[2];
+    const booking = document.pages[0]?.sections[1];
     expect(booking?.sectionType).toBe('booking');
     if (booking?.sectionType !== 'booking') {
       throw new Error('Quick Book is missing Booking.');
@@ -477,7 +449,7 @@ describe('starter freedom', () => {
     if (!home) {
       throw new Error('Quick Book is missing Home.');
     }
-    expect(home.sections).toHaveLength(5);
+    expect(home.sections).toHaveLength(3);
 
     for (const item of SECTION_CATALOGUE.slice(2, 17)) {
       document = addSection(
@@ -490,7 +462,7 @@ describe('starter freedom', () => {
       document = addPage(document, { name: `Added page ${pageNumber}` }, ids);
     }
 
-    expect(document.pages[0]?.sections).toHaveLength(20);
+    expect(document.pages[0]?.sections).toHaveLength(18);
     expect(document.pages).toHaveLength(6);
   });
 

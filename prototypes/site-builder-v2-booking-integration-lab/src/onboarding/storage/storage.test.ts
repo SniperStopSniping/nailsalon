@@ -11,10 +11,10 @@ import {
   clearOnboardingState,
   loadOnboardingState,
   ONBOARDING_STORAGE_KEY,
+  type OnboardingStorage,
   parseOnboardingState,
   saveOnboardingState,
   serializeOnboardingState,
-  type OnboardingStorage,
 } from './storage';
 
 const createMemoryStorage = (
@@ -778,6 +778,81 @@ describe('onboarding browser-local storage', () => {
     expect(migrated.state.progress.currentScreen).toBe('starter');
     expect(migrated.state.progress.screenHistory).toEqual(['starter']);
     expect(migrated.state.progress.visitedScreens).toEqual(['starter']);
+  });
+
+  it('migrates schema v9 Quick Book visibility only from already-public fields', () => {
+    const legacy = createDanielaFixtureState() as unknown as Record<string, unknown>;
+    legacy.schemaVersion = 9;
+    const recipe = legacy.recipe as Record<string, unknown>;
+    delete recipe.quickBookProfile;
+    const profile = legacy.profile as ReturnType<typeof createDanielaFixtureState>['profile'];
+    profile.bookingOnlyContact = false;
+    profile.clientContact = {
+      ...profile.clientContact,
+      callEnabled: true,
+      primaryNumber: '647-555-0199',
+    };
+    profile.email = 'hello@islanails.example';
+
+    const migrated = parseOnboardingState(JSON.stringify(legacy));
+
+    expect(migrated.status).toBe('loaded');
+    expect(migrated.state.recipe.quickBookProfile).toEqual({
+      showBio: true,
+      showBookingPolicy: true,
+      showCancellationPolicy: true,
+      showEmail: true,
+      showHours: true,
+      showInstagram: true,
+      showLocation: true,
+      showPhone: true,
+      showReviews: false,
+      showTechName: true,
+      showTechPhoto: true,
+    });
+    expect(migrated.state.profile.clientContact.primaryNumber).toBe('647-555-0199');
+    expect(migrated.state.profile.email).toBe('hello@islanails.example');
+    expect(migrated.state.schemaVersion).toBe(ONBOARDING_SCHEMA_VERSION);
+  });
+
+  it('keeps ambiguous schema v9 profile fields private during migration', () => {
+    const legacyState = createDefaultOnboardingState();
+    legacyState.profile.ownerName = 'Private owner';
+    legacyState.profile.about.shortBio = 'Stored for a future website design.';
+    legacyState.profile.clientContact.primaryNumber = '647-555-0123';
+    legacyState.profile.clientContact.callEnabled = true;
+    legacyState.profile.email = 'private@example.test';
+    legacyState.profile.location.cityOrArea = 'Toronto';
+    legacyState.profile.location.addressVisibility = 'hidden';
+    legacyState.profile.hours.setupState = 'configured';
+    legacyState.profile.hours.showOnSite = false;
+    legacyState.recipe.aboutEnabled = false;
+    legacyState.recipe.policiesEnabled = false;
+    const legacy = legacyState as unknown as Record<string, unknown>;
+    legacy.schemaVersion = 9;
+    delete (legacy.recipe as Record<string, unknown>).quickBookProfile;
+
+    const migrated = parseOnboardingState(JSON.stringify(legacy));
+
+    expect(migrated.status).toBe('loaded');
+    expect(migrated.state.recipe.quickBookProfile).toEqual({
+      showBio: false,
+      showBookingPolicy: false,
+      showCancellationPolicy: false,
+      showEmail: false,
+      showHours: false,
+      showInstagram: false,
+      showLocation: false,
+      showPhone: false,
+      showReviews: false,
+      showTechName: false,
+      showTechPhoto: false,
+    });
+    expect(migrated.state.profile).toMatchObject({
+      email: 'private@example.test',
+      ownerName: 'Private owner',
+    });
+    expect(migrated.state.profile.clientContact.primaryNumber).toBe('647-555-0123');
   });
 
   it('preserves an explicit Screen 4 location and a text-only number during v2 migration', () => {

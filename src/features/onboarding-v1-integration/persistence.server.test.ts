@@ -5,7 +5,15 @@ import { and, asc, eq, isNotNull } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/pglite';
 import { migrate } from 'drizzle-orm/pglite/migrator';
 
+import { resolvePublicQuickBookProfile } from '@/app/(unauth)/book/service/quickBookProfile';
+import { resolveBookingExperience } from '@/libs/bookingExperience';
+import {
+  QUICK_BOOK_PROFILE_VISIBILITY_DEFAULTS,
+  resolveBookingPageConfig,
+} from '@/libs/bookingPageConfig';
+import { resolveBookingPageContent } from '@/libs/bookingPageContent';
 import type { DatabaseSessionHandle } from '@/libs/DB';
+import { resolveSharedSalonProfile } from '@/libs/sharedSalonProfile';
 import * as schema from '@/models/Schema';
 
 import { createDeterministicIdFactory } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/model/ids';
@@ -36,10 +44,31 @@ const identity = (suffix: string): AuthenticatedOnboardingIdentity => ({
 
 const opaque = (prefix: string) => `${prefix}_${'x'.repeat(48)}`;
 
+const QUICK_BOOK_PROFILE_VISIBLE = {
+  showBio: true,
+  showBookingPolicy: true,
+  showCancellationPolicy: false,
+  showEmail: true,
+  showHours: true,
+  showInstagram: true,
+  showLocation: true,
+  showPhone: true,
+  showReviews: false,
+  showTechName: true,
+  showTechPhoto: true,
+} as const;
+
+const privateSnapshotVisibility = () => {
+  const { version: _version, ...visibility }
+    = QUICK_BOOK_PROFILE_VISIBILITY_DEFAULTS;
+  return visibility;
+};
+
 const request = (
   suffix: string,
   options: {
     idempotencyKey?: string;
+    includeProfilePhoto?: boolean;
     localPhotoId?: string;
     ownerOverridesByServiceId?: Record<string, { durationMinutes?: number; priceCents?: number }>;
     selectedAddOnIds?: string[];
@@ -82,17 +111,19 @@ const request = (
     state.profile.serviceMenu.ownerOverridesByServiceId = options.ownerOverridesByServiceId;
   }
   const localPhotoId = options.localPhotoId ?? `profile_${suffix}`;
-  state.profile.profilePhoto = {
-    altText: 'Daniela, owner of Isla Nail Studio',
-    fileName: 'daniela.webp',
-    height: 1_000,
-    id: localPhotoId,
-    mimeType: 'image/webp',
-    previewUrl: 'blob:http://localhost/must-not-persist',
-    source: 'indexed_db',
-    storageId: `indexed_db_${suffix}_must_not_persist`,
-    width: 800,
-  };
+  if (options.includeProfilePhoto !== false) {
+    state.profile.profilePhoto = {
+      altText: 'Daniela, owner of Isla Nail Studio',
+      fileName: 'daniela.webp',
+      height: 1_000,
+      id: localPhotoId,
+      mimeType: 'image/webp',
+      previewUrl: 'blob:http://localhost/must-not-persist',
+      source: 'indexed_db',
+      storageId: `indexed_db_${suffix}_must_not_persist`,
+      width: 800,
+    };
+  }
   const document = initializeStarter('one_page', {
     idFactory: createDeterministicIdFactory(suffix),
     siteId: `site_${suffix}`,
@@ -232,6 +263,374 @@ describe.sequential('account-backed onboarding persistence', () => {
     });
   });
 
+  it('preserves booking-only canonical contact while private and can display it after an explicit visibility change', async () => {
+    const owner = identity('private_contact_preserved');
+    const input = request('private_contact_preserved');
+    input.snapshot.site.starter = 'quick_book';
+    input.snapshot.site.quickBookProfile = privateSnapshotVisibility();
+    input.snapshot.profile.bookingOnlyContact = true;
+    input.snapshot.profile.clientContact.callEnabled = true;
+    input.snapshot.profile.clientContact.textEnabled = false;
+    input.snapshot.profile.clientContact.primaryNumber = '+14165550177';
+    input.snapshot.profile.email = 'private-contact@islanails.example';
+
+    const initial = await claimOnboardingDraft(owner, input, handle());
+    if (initial.kind !== 'success') {
+      throw new Error('Expected the private-contact draft to save.');
+    }
+
+    const [privateSalon] = await database.select({
+      email: schema.salonSchema.email,
+      phone: schema.salonSchema.phone,
+      settings: schema.salonSchema.settings,
+    }).from(schema.salonSchema)
+      .where(eq(schema.salonSchema.id, initial.data.salonId));
+    const [privateLocation] = await database.select({
+      email: schema.salonLocationSchema.email,
+      phone: schema.salonLocationSchema.phone,
+    }).from(schema.salonLocationSchema)
+      .where(and(
+        eq(schema.salonLocationSchema.salonId, initial.data.salonId),
+        eq(schema.salonLocationSchema.isPrimary, true),
+      ));
+
+    expect(privateSalon).toMatchObject({
+      email: 'private-contact@islanails.example',
+      phone: '+14165550177',
+    });
+    expect(privateLocation).toEqual({
+      email: 'private-contact@islanails.example',
+      phone: '+14165550177',
+    });
+    expect(resolveBookingPageConfig(privateSalon?.settings).draft.quickBookProfile)
+      .toEqual(QUICK_BOOK_PROFILE_VISIBILITY_DEFAULTS);
+
+    const visibleInput = request('private_contact_visible', {
+      target: {
+        existingSiteStrategy: 'replace_draft',
+        expectedRevision: initial.data.revision,
+        expectedSiteId: initial.data.siteId,
+        mode: 'existing_business',
+        salonId: initial.data.salonId,
+      },
+      token: opaque('draft_private_contact_visible'),
+    });
+    visibleInput.snapshot.site.starter = 'quick_book';
+    visibleInput.snapshot.site.quickBookProfile = {
+      ...privateSnapshotVisibility(),
+      showEmail: true,
+      showPhone: true,
+    };
+    visibleInput.snapshot.profile.bookingOnlyContact = false;
+    visibleInput.snapshot.profile.clientContact.callEnabled = true;
+    visibleInput.snapshot.profile.clientContact.textEnabled = false;
+    visibleInput.snapshot.profile.clientContact.primaryNumber = '+14165550177';
+    visibleInput.snapshot.profile.email = 'private-contact@islanails.example';
+
+    const visible = await claimOnboardingDraft(owner, visibleInput, handle());
+    if (visible.kind !== 'success') {
+      throw new Error('Expected the visible-contact replacement to save.');
+    }
+
+    const [visibleSalon] = await database.select({
+      address: schema.salonSchema.address,
+      businessHours: schema.salonSchema.businessHours,
+      city: schema.salonSchema.city,
+      email: schema.salonSchema.email,
+      logoUrl: schema.salonSchema.logoUrl,
+      name: schema.salonSchema.name,
+      phone: schema.salonSchema.phone,
+      settings: schema.salonSchema.settings,
+      state: schema.salonSchema.state,
+      zipCode: schema.salonSchema.zipCode,
+    }).from(schema.salonSchema)
+      .where(eq(schema.salonSchema.id, initial.data.salonId));
+    const [visibleLocation] = await database.select({
+      address: schema.salonLocationSchema.address,
+      businessHours: schema.salonLocationSchema.businessHours,
+      city: schema.salonLocationSchema.city,
+      email: schema.salonLocationSchema.email,
+      isPrimary: schema.salonLocationSchema.isPrimary,
+      name: schema.salonLocationSchema.name,
+      phone: schema.salonLocationSchema.phone,
+      state: schema.salonLocationSchema.state,
+      zipCode: schema.salonLocationSchema.zipCode,
+    }).from(schema.salonLocationSchema)
+      .where(and(
+        eq(schema.salonLocationSchema.salonId, initial.data.salonId),
+        eq(schema.salonLocationSchema.isPrimary, true),
+      ));
+    if (!visibleSalon || !visibleLocation) {
+      throw new Error('Expected canonical salon and primary-location contact.');
+    }
+    const visibleConfig = resolveBookingPageConfig(visibleSalon.settings);
+    const sharedProfile = resolveSharedSalonProfile(visibleSalon.settings);
+    const view = resolvePublicQuickBookProfile({
+      bio: null,
+      bookingExperience: resolveBookingExperience(visibleSalon.settings),
+      locationDisplayMode: 'city_only',
+      locations: [visibleLocation],
+      now: new Date('2026-09-02T16:00:00.000Z'),
+      parkingInstructions: null,
+      publicContactPreferences: {
+        callEnabled: sharedProfile.callEnabled ?? false,
+        textEnabled: sharedProfile.textEnabled ?? false,
+        textNumber: sharedProfile.textNumber,
+      },
+      reviewUrl: null,
+      salon: visibleSalon,
+      sharedProfile,
+      technicians: [],
+      timeZone: 'America/Toronto',
+      visibility: visibleConfig.draft.quickBookProfile,
+    });
+
+    expect(visibleConfig.draft.quickBookProfile).toMatchObject({
+      showEmail: true,
+      showPhone: true,
+    });
+    expect(view.contact).toEqual({
+      email: {
+        display: 'private-contact@islanails.example',
+        href: 'mailto:private-contact@islanails.example',
+      },
+      phone: {
+        actionLabel: 'Call',
+        display: '+14165550177',
+        href: 'tel:+14165550177',
+      },
+    });
+  });
+
+  it('claims Quick Book visibility into the unpublished draft without exposing live or faking media URLs', async () => {
+    const owner = identity('quick_book_profile_draft');
+    const input = request('quick_book_profile_draft');
+    input.snapshot.site.starter = 'quick_book';
+    input.snapshot.site.quickBookProfile = { ...QUICK_BOOK_PROFILE_VISIBLE };
+    input.snapshot.site.policiesEnabled = true;
+    input.snapshot.profile.instagram = '@isla.nails';
+    input.snapshot.profile.clientContact.textEnabled = true;
+    input.snapshot.profile.clientContact.useDifferentTextNumber = false;
+    input.snapshot.profile.about.shortBio = 'Healthy nails, flawless results.';
+    input.snapshot.profile.bookingPreferences.visitMode = 'appointment_only';
+    input.snapshot.profile.location.addressVisibility = 'public';
+    input.snapshot.profile.location.entranceInstructions = 'Inside TB Nails · Back entrance';
+    input.snapshot.profile.location.parking = 'Use the rear lot';
+    input.snapshot.profile.location.transitInformation = 'Near Ellesmere station';
+    input.snapshot.profile.policies.deposits = {
+      amountCents: 1500,
+      mode: 'fixed',
+      refundable: false,
+      transferable: false,
+      wordingOverride: '',
+    };
+    input.snapshot.profile.policies.cancellations.notice = '24_hours';
+    input.snapshot.profile.policies.cancellations.consequence = 'deposit_lost';
+
+    const claim = await claimOnboardingDraft(owner, input, handle());
+    if (claim.kind !== 'success') {
+      throw new Error('Expected Quick Book claim.');
+    }
+
+    const [salon] = await database.select({
+      logoUrl: schema.salonSchema.logoUrl,
+      name: schema.salonSchema.name,
+      phone: schema.salonSchema.phone,
+      publicationStatus: schema.salonSchema.publicationStatus,
+      settings: schema.salonSchema.settings,
+    }).from(schema.salonSchema)
+      .where(eq(schema.salonSchema.id, claim.data.salonId));
+    const [technician] = await database.select({
+      avatarUrl: schema.technicianSchema.avatarUrl,
+    }).from(schema.technicianSchema)
+      .where(eq(schema.technicianSchema.salonId, claim.data.salonId));
+
+    const bookingPage = resolveBookingPageConfig(salon?.settings);
+    const bookingPageContent = resolveBookingPageContent(salon?.settings);
+    const bookingExperience = resolveBookingExperience(salon?.settings);
+    const sharedProfile = resolveSharedSalonProfile(salon?.settings);
+
+    expect(bookingPage.draft.quickBookProfile).toEqual({
+      ...QUICK_BOOK_PROFILE_VISIBLE,
+      version: 1,
+    });
+    expect(bookingPage.live.quickBookProfile).toEqual(QUICK_BOOK_PROFILE_VISIBILITY_DEFAULTS);
+    expect(bookingPageContent.draft).toMatchObject({
+      bio: 'Healthy nails, flawless results.',
+      heroImageUrl: null,
+      locationDisplayMode: 'full_address',
+      specialtyLine: null,
+    });
+    expect(bookingPageContent.live.bio).toBeNull();
+    expect(bookingExperience).toMatchObject({
+      policy: {
+        enabled: true,
+        showOnServicePage: true,
+        title: 'Deposits & cancellations',
+      },
+      quickFacts: {
+        appointmentOnly: { enabled: true, label: 'Appointment only' },
+        cancellationNotice: { enabled: true, label: '24 hours’ cancellation notice' },
+        depositNotice: { enabled: true, label: '$15 deposit required' },
+      },
+      socialLinks: {
+        instagram: 'https://www.instagram.com/isla.nails/',
+      },
+    });
+    expect(bookingExperience.policy.text).toContain('A $15 deposit is required to book.');
+    expect(bookingExperience.policy.text).toContain('24 hours’ notice');
+    expect(sharedProfile).toEqual({
+      bookingOnlyContact: false,
+      callEnabled: true,
+      entranceInstructions: 'Inside TB Nails · Back entrance',
+      textEnabled: true,
+      textNumber: '+14165550199',
+      transitInformation: 'Near Ellesmere station',
+    });
+
+    const [retentionSettings] = await database.select({
+      parkingInstructions: schema.salonRetentionSettingsSchema.parkingInstructions,
+    }).from(schema.salonRetentionSettingsSchema)
+      .where(eq(schema.salonRetentionSettingsSchema.salonId, claim.data.salonId));
+
+    expect(retentionSettings?.parkingInstructions).toBe('Use the rear lot');
+    expect(salon).toMatchObject({
+      logoUrl: null,
+      name: input.snapshot.profile.businessName,
+      phone: '+14165550199',
+      publicationStatus: 'draft',
+    });
+    expect(technician?.avatarUrl).toBeNull();
+
+    const [profileMedia] = await database.select({
+      claimStatus: schema.onboardingSiteMediaSchema.claimStatus,
+      publicUrl: schema.onboardingSiteMediaSchema.publicUrl,
+    }).from(schema.onboardingSiteMediaSchema)
+      .where(and(
+        eq(schema.onboardingSiteMediaSchema.revisionId, claim.data.revisionId),
+        eq(schema.onboardingSiteMediaSchema.role, 'profile'),
+      ));
+
+    expect(profileMedia).toEqual({ claimStatus: 'pending', publicUrl: null });
+  });
+
+  it('does not publish a cancellation quick fact when that shared policy is hidden', async () => {
+    const owner = identity('quick_book_hidden_cancellation');
+    const input = request('quick_book_hidden_cancellation');
+    input.snapshot.site.starter = 'quick_book';
+    input.snapshot.site.policiesEnabled = true;
+    input.snapshot.profile.policies.copy.cancellations.visible = false;
+    input.snapshot.profile.policies.cancellations.notice = '24_hours';
+    input.snapshot.profile.policies.cancellations.consequence = 'cancellation_fee';
+
+    const claim = await claimOnboardingDraft(owner, input, handle());
+    if (claim.kind !== 'success') {
+      throw new Error('Expected Quick Book claim.');
+    }
+
+    const [salon] = await database.select({ settings: schema.salonSchema.settings })
+      .from(schema.salonSchema)
+      .where(eq(schema.salonSchema.id, claim.data.salonId));
+    const bookingExperience = resolveBookingExperience(salon?.settings);
+
+    expect(bookingExperience.quickFacts.cancellationNotice).toEqual({
+      enabled: false,
+      label: null,
+    });
+  });
+
+  it('updates unpublished replacement/new drafts while preserving live Quick Book visibility', async () => {
+    const owner = identity('quick_book_profile_replace');
+    const initialInput = request('quick_book_profile_replace_initial');
+    initialInput.snapshot.site.quickBookProfile = { ...QUICK_BOOK_PROFILE_VISIBLE };
+    const initial = await claimOnboardingDraft(owner, initialInput, handle());
+    if (initial.kind !== 'success') {
+      throw new Error('Expected initial Quick Book claim.');
+    }
+
+    const [stored] = await database.select({ settings: schema.salonSchema.settings })
+      .from(schema.salonSchema)
+      .where(eq(schema.salonSchema.id, initial.data.salonId));
+    const firstConfig = resolveBookingPageConfig(stored?.settings);
+    const publishedVisibility = {
+      ...QUICK_BOOK_PROFILE_VISIBILITY_DEFAULTS,
+      showInstagram: true,
+    };
+    await database.update(schema.salonSchema).set({
+      settings: {
+        ...(stored?.settings ?? {}),
+        bookingPage: {
+          ...firstConfig,
+          live: {
+            ...firstConfig.live,
+            quickBookProfile: publishedVisibility,
+          },
+        },
+      } as never,
+    }).where(eq(schema.salonSchema.id, initial.data.salonId));
+
+    const replacementInput = request('quick_book_profile_replace_next', {
+      target: {
+        existingSiteStrategy: 'replace_draft',
+        expectedRevision: initial.data.revision,
+        expectedSiteId: initial.data.siteId,
+        mode: 'existing_business',
+        salonId: initial.data.salonId,
+      },
+      token: opaque('draft_quick_book_profile_replace_next'),
+    });
+    replacementInput.snapshot.site.quickBookProfile = {
+      ...privateSnapshotVisibility(),
+      showBio: true,
+      showTechName: true,
+    };
+
+    const replacement = await claimOnboardingDraft(owner, replacementInput, handle());
+
+    expect(replacement).toMatchObject({ kind: 'success' });
+
+    const [updated] = await database.select({ settings: schema.salonSchema.settings })
+      .from(schema.salonSchema)
+      .where(eq(schema.salonSchema.id, initial.data.salonId));
+    const updatedConfig = resolveBookingPageConfig(updated?.settings);
+
+    expect(updatedConfig.draft.quickBookProfile).toEqual({
+      ...replacementInput.snapshot.site.quickBookProfile,
+      version: 1,
+    });
+    expect(updatedConfig.live.quickBookProfile).toEqual(publishedVisibility);
+
+    const newDraftInput = request('quick_book_profile_new_draft', {
+      target: {
+        existingSiteStrategy: 'new_draft',
+        mode: 'existing_business',
+        salonId: initial.data.salonId,
+      },
+      token: opaque('draft_quick_book_profile_new_draft'),
+    });
+    newDraftInput.snapshot.site.quickBookProfile = {
+      ...privateSnapshotVisibility(),
+      showPhone: true,
+    };
+    const newDraft = await claimOnboardingDraft(owner, newDraftInput, handle());
+
+    expect(newDraft).toMatchObject({
+      data: { serviceMenuApplied: false },
+      kind: 'success',
+    });
+
+    const [afterNewDraft] = await database.select({ settings: schema.salonSchema.settings })
+      .from(schema.salonSchema)
+      .where(eq(schema.salonSchema.id, initial.data.salonId));
+    const newDraftConfig = resolveBookingPageConfig(afterNewDraft?.settings);
+
+    expect(newDraftConfig.draft.quickBookProfile).toEqual({
+      ...newDraftInput.snapshot.site.quickBookProfile,
+      version: 1,
+    });
+    expect(newDraftConfig.live.quickBookProfile).toEqual(publishedVisibility);
+  });
+
   it('rejects a changed snapshot when an anonymous claim token is replayed', async () => {
     const owner = identity('changed_claim_replay');
     const input = request('changed_claim_replay');
@@ -363,15 +762,18 @@ describe.sequential('account-backed onboarding persistence', () => {
       .toEqual(new Set(['profile_conflict_initial']));
 
     const [updatedSalon] = await database.select({
+      settings: schema.salonSchema.settings,
       socialLinks: schema.salonSchema.socialLinks,
     }).from(schema.salonSchema)
       .where(eq(schema.salonSchema.id, initial.data.salonId));
 
     expect(updatedSalon?.socialLinks).toEqual({
       facebook: 'https://facebook.example/isla',
-      instagram: 'https://instagram.com/islanailstudio',
+      instagram: 'old-instagram',
       tiktok: 'https://tiktok.example/@isla',
     });
+    expect(resolveBookingExperience(updatedSalon?.settings).socialLinks.instagram)
+      .toBe('https://www.instagram.com/islanailstudio/');
     await expect(claimOnboardingDraft(owner, request('conflict_stale_replacement', {
       target: {
         existingSiteStrategy: 'replace_draft',
@@ -444,14 +846,21 @@ describe.sequential('account-backed onboarding persistence', () => {
     });
     const before = await readCanonicalProductState();
 
-    const savedDraft = await claimOnboardingDraft(owner, request('published_new_draft', {
+    const publishedDraftInput = request('published_new_draft', {
       target: {
         existingSiteStrategy: 'new_draft',
         mode: 'existing_business',
         salonId: initial.data.salonId,
       },
       token: opaque('draft_published_new_draft'),
-    }), handle());
+    });
+    publishedDraftInput.snapshot.site.quickBookProfile = {
+      ...privateSnapshotVisibility(),
+      showEmail: true,
+      showLocation: true,
+      showPhone: true,
+    };
+    const savedDraft = await claimOnboardingDraft(owner, publishedDraftInput, handle());
 
     expect(savedDraft).toMatchObject({
       data: {
@@ -460,7 +869,43 @@ describe.sequential('account-backed onboarding persistence', () => {
       },
       kind: 'success',
     });
-    expect(await readCanonicalProductState()).toEqual(before);
+
+    const afterDraftSave = await readCanonicalProductState();
+
+    expect(afterDraftSave.locations).toEqual(before.locations);
+    expect(afterDraftSave.services).toEqual(before.services);
+    expect(afterDraftSave.technicians).toEqual(before.technicians);
+    expect(afterDraftSave.technicianServices).toEqual(before.technicianServices);
+
+    const beforeSalon = before.salon[0];
+    const afterSalon = afterDraftSave.salon[0];
+
+    if (!beforeSalon || !afterSalon) {
+      throw new Error('Expected the published salon state.');
+    }
+
+    const {
+      settings: beforeSettings,
+      updatedAt: _beforeUpdatedAt,
+      ...beforeCanonicalSalon
+    } = beforeSalon;
+    const {
+      settings: afterSettings,
+      updatedAt: _afterUpdatedAt,
+      ...afterCanonicalSalon
+    } = afterSalon;
+
+    expect(afterCanonicalSalon).toEqual(beforeCanonicalSalon);
+    expect(resolveBookingPageConfig(afterSettings).live).toEqual(
+      resolveBookingPageConfig(beforeSettings).live,
+    );
+    expect(resolveBookingPageContent(afterSettings).live).toEqual(
+      resolveBookingPageContent(beforeSettings).live,
+    );
+    expect(resolveBookingPageConfig(afterSettings).draft.quickBookProfile).toEqual({
+      ...publishedDraftInput.snapshot.site.quickBookProfile,
+      version: 1,
+    });
 
     if (savedDraft.kind !== 'success') {
       throw new Error('Expected saved draft.');
@@ -480,7 +925,7 @@ describe.sequential('account-backed onboarding persistence', () => {
       conflict: { canReplaceDraft: false, code: 'SITE_CONFLICT' },
       kind: 'conflict',
     });
-    expect(await readCanonicalProductState()).toEqual(before);
+    expect(await readCanonicalProductState()).toEqual(afterDraftSave);
   });
 
   it('reconciles only onboarding-owned services when replacing an unpublished draft', async () => {
@@ -544,10 +989,206 @@ describe.sequential('account-backed onboarding persistence', () => {
       eq(schema.addOnSchema.salonId, initial.data.salonId),
       isNotNull(schema.addOnSchema.onboardingSourceAddOnId),
     ));
+
     expect(ownedAddOns.filter(row => row.isActive).map(
       row => row.onboardingSourceAddOnId,
     ).sort()).toEqual([...selectedAddOnIds].sort());
   });
+
+  it('clears an explicitly removed draft profile before owner Preview without publishing', async () => {
+    const owner = identity('draft_profile_remove');
+    const initial = await claimOnboardingDraft(
+      owner,
+      request('draft_profile_remove_initial'),
+      handle(),
+    );
+    if (initial.kind !== 'success') {
+      throw new Error('Expected initial profile draft.');
+    }
+    const [technician] = await database.select({ id: schema.technicianSchema.id })
+      .from(schema.technicianSchema)
+      .where(eq(schema.technicianSchema.salonId, initial.data.salonId));
+    const canonicalProfileUrl = 'https://images.example/profile/initial.webp';
+    await database.update(schema.onboardingSiteMediaSchema).set({
+      claimStatus: 'ready',
+      metadata: {
+        canonicalPublicUrl: canonicalProfileUrl,
+        canonicalStorageKey: 'canonical/profile/initial',
+        canonicalStorageProvider: 'cloudinary',
+      },
+      storageKey: 'private/profile-initial.webp',
+      storageProvider: 'development_local',
+    }).where(and(
+      eq(schema.onboardingSiteMediaSchema.revisionId, initial.data.revisionId),
+      eq(schema.onboardingSiteMediaSchema.role, 'profile'),
+    ));
+    await database.update(schema.technicianSchema).set({
+      avatarUrl: canonicalProfileUrl,
+    }).where(eq(schema.technicianSchema.id, technician!.id));
+
+    const replacementInput = request('draft_profile_remove_replacement', {
+      includeProfilePhoto: false,
+      target: {
+        existingSiteStrategy: 'replace_draft',
+        expectedRevision: initial.data.revision,
+        expectedSiteId: initial.data.siteId,
+        mode: 'existing_business',
+        salonId: initial.data.salonId,
+      },
+      token: opaque('draft_profile_remove_replacement'),
+    });
+    replacementInput.snapshot.site.starter = 'quick_book';
+    replacementInput.snapshot.site.quickBookProfile = {
+      ...privateSnapshotVisibility(),
+      showTechName: true,
+      showTechPhoto: true,
+    };
+    const replacement = await claimOnboardingDraft(owner, replacementInput, handle());
+
+    expect(replacement).toMatchObject({ data: { revision: 2 }, kind: 'success' });
+
+    const [salon] = await database.select().from(schema.salonSchema)
+      .where(eq(schema.salonSchema.id, initial.data.salonId));
+    const [updatedTechnician] = await database.select().from(schema.technicianSchema)
+      .where(eq(schema.technicianSchema.id, technician!.id));
+
+    expect(salon?.publicationStatus).toBe('draft');
+    expect(updatedTechnician?.avatarUrl).toBeNull();
+
+    const config = resolveBookingPageConfig(salon?.settings);
+    const sharedProfile = resolveSharedSalonProfile(salon?.settings);
+    const preview = resolvePublicQuickBookProfile({
+      bio: null,
+      bookingExperience: resolveBookingExperience(salon?.settings),
+      locationDisplayMode: 'city_only',
+      locations: [],
+      now: new Date('2026-09-02T16:00:00.000Z'),
+      parkingInstructions: null,
+      publicContactPreferences: null,
+      reviewUrl: null,
+      salon: salon!,
+      sharedProfile,
+      technicians: [{
+        imageUrl: updatedTechnician?.avatarUrl ?? null,
+        name: updatedTechnician!.name,
+        rating: null,
+        reviewCount: 0,
+      }],
+      timeZone: 'America/Toronto',
+      visibility: config.draft.quickBookProfile,
+    });
+
+    expect(preview.identity.technicianName).toBe('Daniela');
+    expect(preview.identity.technicianPhotoUrl).toBeNull();
+  });
+
+  it('preserves a manual draft profile replacement after onboarding-managed history', async () => {
+    const owner = identity('draft_profile_manual_replacement');
+    const initial = await claimOnboardingDraft(
+      owner,
+      request('draft_profile_manual_replacement_initial'),
+      handle(),
+    );
+    if (initial.kind !== 'success') {
+      throw new Error('Expected initial profile draft.');
+    }
+    const [technician] = await database.select({ id: schema.technicianSchema.id })
+      .from(schema.technicianSchema)
+      .where(eq(schema.technicianSchema.salonId, initial.data.salonId));
+    const onboardingProjectionUrl = 'https://images.example/profile/onboarding-owned.webp';
+    const manualReplacementUrl = 'https://manual.example/profile/replacement.webp';
+    await database.update(schema.onboardingSiteMediaSchema).set({
+      claimStatus: 'ready',
+      metadata: {
+        canonicalPublicUrl: onboardingProjectionUrl,
+        canonicalStorageKey: 'canonical/profile/onboarding-owned',
+        canonicalStorageProvider: 'cloudinary',
+      },
+      storageKey: 'private/profile-onboarding-owned.webp',
+      storageProvider: 'development_local',
+    }).where(and(
+      eq(schema.onboardingSiteMediaSchema.revisionId, initial.data.revisionId),
+      eq(schema.onboardingSiteMediaSchema.role, 'profile'),
+    ));
+    await database.update(schema.technicianSchema).set({
+      avatarUrl: manualReplacementUrl,
+    }).where(eq(schema.technicianSchema.id, technician!.id));
+
+    const replacement = await claimOnboardingDraft(owner, request(
+      'draft_profile_manual_replacement_next',
+      {
+        includeProfilePhoto: false,
+        target: {
+          existingSiteStrategy: 'replace_draft',
+          expectedRevision: initial.data.revision,
+          expectedSiteId: initial.data.siteId,
+          mode: 'existing_business',
+          salonId: initial.data.salonId,
+        },
+        token: opaque('draft_profile_manual_replacement_next'),
+      },
+    ), handle());
+
+    expect(replacement).toMatchObject({ data: { revision: 2 }, kind: 'success' });
+
+    const [updatedTechnician] = await database.select({
+      avatarUrl: schema.technicianSchema.avatarUrl,
+    }).from(schema.technicianSchema)
+      .where(eq(schema.technicianSchema.id, technician!.id));
+
+    expect(updatedTechnician?.avatarUrl).toBe(manualReplacementUrl);
+  });
+
+  it.each(['pending', 'failed'] as const)(
+    'does not treat a %s draft media row as canonical ownership',
+    async (claimStatus) => {
+      const suffix = `draft_profile_${claimStatus}_history`;
+      const owner = identity(suffix);
+      const initial = await claimOnboardingDraft(owner, request(`${suffix}_initial`), handle());
+      if (initial.kind !== 'success') {
+        throw new Error('Expected initial profile draft.');
+      }
+      const [technician] = await database.select({ id: schema.technicianSchema.id })
+        .from(schema.technicianSchema)
+        .where(eq(schema.technicianSchema.salonId, initial.data.salonId));
+      const existingProfileUrl = `https://existing.example/profile/${claimStatus}.webp`;
+      await database.update(schema.onboardingSiteMediaSchema).set({
+        claimStatus,
+        metadata: {
+          canonicalPublicUrl: existingProfileUrl,
+          canonicalStorageKey: `canonical/profile/${claimStatus}`,
+          canonicalStorageProvider: 'cloudinary',
+        },
+      }).where(and(
+        eq(schema.onboardingSiteMediaSchema.revisionId, initial.data.revisionId),
+        eq(schema.onboardingSiteMediaSchema.role, 'profile'),
+      ));
+      await database.update(schema.technicianSchema).set({
+        avatarUrl: existingProfileUrl,
+      }).where(eq(schema.technicianSchema.id, technician!.id));
+
+      const replacement = await claimOnboardingDraft(owner, request(`${suffix}_next`, {
+        includeProfilePhoto: false,
+        target: {
+          existingSiteStrategy: 'replace_draft',
+          expectedRevision: initial.data.revision,
+          expectedSiteId: initial.data.siteId,
+          mode: 'existing_business',
+          salonId: initial.data.salonId,
+        },
+        token: opaque(`${suffix}_next`),
+      }), handle());
+
+      expect(replacement).toMatchObject({ data: { revision: 2 }, kind: 'success' });
+
+      const [updatedTechnician] = await database.select({
+        avatarUrl: schema.technicianSchema.avatarUrl,
+      }).from(schema.technicianSchema)
+        .where(eq(schema.technicianSchema.id, technician!.id));
+
+      expect(updatedTechnician?.avatarUrl).toBe(existingProfileUrl);
+    },
+  );
 
   it('requires an owner membership before an existing-business claim can mutate Product data', async () => {
     const owner = identity('membership_owner');

@@ -786,6 +786,30 @@ describe('BookConfirmPage location privacy (locationDisplayMode) — Blocker 1',
       expect(salonPhone).toBe(PRIVATE_PHONE);
     });
 
+    it('booking-only contact redacts salonPhone even when the public location uses full_address', async () => {
+      getPublicPageContext.mockResolvedValueOnce({
+        appearance: null,
+        salon: {
+          id: 'salon_1',
+          slug: 'salon-a',
+          name: 'Salon A',
+          address: PRIVATE_FULL_ADDRESS,
+          city: 'Homeburg',
+          state: 'ON',
+          zipCode: PRIVATE_POSTAL_CODE,
+          phone: PRIVATE_PHONE,
+          bookingFlow: ['service', 'tech', 'time', 'confirm'],
+          features: {},
+          settings: { sharedProfile: { bookingOnlyContact: true } },
+        },
+      });
+
+      const salonPhone = await renderAndCaptureSalonPhone();
+
+      expect(salonPhone).toBeNull();
+      expect(JSON.stringify(bookConfirmClientSpy.mock.calls.at(-1)![0])).not.toContain(PRIVATE_PHONE);
+    });
+
     it('city_only redacts salonPhone to null — the exact string never reaches the captured BookConfirmClient props', async () => {
       vi.mocked(resolveBookingPageContent).mockReturnValueOnce(bookingPageContentReturn('city_only'));
 

@@ -54,6 +54,20 @@ describe('bookingPageConfig defaults', () => {
       hiddenSections: [],
       businessMode: 'solo',
       startMode: 'services_first',
+      quickBookProfile: {
+        version: 1,
+        showTechName: false,
+        showTechPhoto: false,
+        showLocation: false,
+        showHours: false,
+        showPhone: false,
+        showEmail: false,
+        showBookingPolicy: false,
+        showCancellationPolicy: false,
+        showReviews: false,
+        showInstagram: false,
+        showBio: false,
+      },
     });
   });
 
@@ -90,6 +104,32 @@ describe('bookingPageConfig defaults', () => {
 });
 
 describe('bookingPageDraftPatchSchema typed section-variant writes', () => {
+  it('accepts a strict partial Quick Book visibility patch', () => {
+    const result = bookingPageDraftPatchSchema.safeParse({
+      quickBookProfile: {
+        showTechName: true,
+        showPhone: false,
+      },
+    });
+
+    expect(result.success).toBe(true);
+
+    if (result.success) {
+      expect(result.data.quickBookProfile).toEqual({
+        showTechName: true,
+        showPhone: false,
+      });
+    }
+  });
+
+  it.each([
+    ['a non-boolean visibility value', { showPhone: 'yes' }],
+    ['an unknown visibility key', { exposeEverything: true }],
+    ['the internal compatibility marker', { version: 1 }],
+  ])('rejects %s', (_label, quickBookProfile) => {
+    expect(bookingPageDraftPatchSchema.safeParse({ quickBookProfile }).success).toBe(false);
+  });
+
   it('accepts canonical variants only on the section that owns them', () => {
     const sectionVariants = {
       salonProfile: 'hero_image',
@@ -211,6 +251,85 @@ describe('resolveBookingPageConfig', () => {
       expect(resolved.draft.sectionOrder).toContain('serviceMenu');
       expect(resolved.draft.sectionOrder).toContain('bookingCta');
     }
+  });
+
+  it('keeps every Quick Book profile field private for old settings', () => {
+    const resolved = resolveBookingPageConfig({
+      bookingPage: {
+        version: 1,
+        draft: { layout: 'quick_book' },
+        live: { layout: 'quick_book' },
+      },
+    });
+
+    const { version: draftVersion, ...draftVisibility } = resolved.draft.quickBookProfile;
+    const { version: liveVersion, ...liveVisibility } = resolved.live.quickBookProfile;
+    const { version: _defaultVersion, ...privateDefaults }
+      = BOOKING_PAGE_CONFIG_SIDE_DEFAULTS.quickBookProfile;
+
+    expect(draftVersion).toBe(0);
+    expect(liveVersion).toBe(0);
+    expect(draftVisibility).toEqual(privateDefaults);
+    expect(liveVisibility).toEqual(privateDefaults);
+  });
+
+  it('recognizes the predecessor boolean object as compact-profile adoption', () => {
+    const resolved = resolveBookingPageConfig({
+      bookingPage: {
+        draft: {
+          layout: 'quick_book',
+          quickBookProfile: {
+            showTechName: false,
+            showPhone: false,
+          },
+        },
+      },
+    });
+
+    expect(resolved.draft.quickBookProfile).toMatchObject({
+      version: 1,
+      showTechName: false,
+      showPhone: false,
+    });
+  });
+
+  it('does not adopt compact presentation from an empty, malformed, or future profile object', () => {
+    const inputs = [
+      {},
+      { showPhone: 'yes' },
+      { version: 2, showPhone: false },
+    ];
+
+    for (const quickBookProfile of inputs) {
+      const resolved = resolveBookingPageConfig({
+        bookingPage: { draft: { layout: 'quick_book', quickBookProfile } },
+      });
+
+      expect(resolved.draft.quickBookProfile.version).toBe(0);
+      expect(resolved.draft.quickBookProfile.showPhone).toBe(false);
+    }
+  });
+
+  it('resolves Quick Book visibility field-by-field and never treats malformed values as consent', () => {
+    const resolved = resolveBookingPageConfig({
+      bookingPage: {
+        draft: {
+          quickBookProfile: {
+            showTechName: true,
+            showLocation: 'true',
+            showHours: 1,
+            showPhone: false,
+            showBio: true,
+          },
+        },
+      },
+    });
+
+    expect(resolved.draft.quickBookProfile).toEqual({
+      ...BOOKING_PAGE_CONFIG_SIDE_DEFAULTS.quickBookProfile,
+      showTechName: true,
+      showBio: true,
+    });
   });
 
   it('resolves an unknown layout to the fallback default layout', () => {
@@ -561,11 +680,21 @@ describe('validateSectionOrder', () => {
       expect(result.sectionOrder[0]).toBe('salonProfile');
     });
 
-    it('leaves an already-present salonProfile exactly where it was — repair only inserts when missing', () => {
+    it('moves an already-present Quick Book salonProfile back to the first position', () => {
       const result = validateSectionOrder(
         ['featuredServices', 'salonProfile', 'serviceMenu', 'bookingCta'],
         [],
         'quick_book',
+      );
+
+      expect(result.sectionOrder).toEqual(['salonProfile', 'featuredServices', 'serviceMenu', 'bookingCta']);
+    });
+
+    it('does not reorder an existing Editorial section sequence', () => {
+      const result = validateSectionOrder(
+        ['featuredServices', 'salonProfile', 'serviceMenu', 'bookingCta'],
+        [],
+        'editorial',
       );
 
       expect(result.sectionOrder).toEqual(['featuredServices', 'salonProfile', 'serviceMenu', 'bookingCta']);

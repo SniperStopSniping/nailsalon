@@ -14,6 +14,7 @@ import type {
   SalonContentTechnicianInput,
 } from '@/libs/salonContent';
 import { resolveSalonContent } from '@/libs/salonContent';
+import { resolveSharedSalonProfile } from '@/libs/sharedSalonProfile';
 import type { Salon, SalonStatus } from '@/models/Schema';
 import { type SalonOwnerPreviewState, SalonProvider } from '@/providers/SalonProvider';
 
@@ -161,6 +162,7 @@ export function PublicSalonPageShell({
   const activeBookingPageContentSide = isPreviewingDraftConfig
     ? bookingPageContent.draft
     : bookingPageContent.live;
+  const sharedProfile = resolveSharedSalonProfile(salon.settings);
 
   const salonContent = resolveSalonContent({
     salon: {
@@ -181,6 +183,7 @@ export function PublicSalonPageShell({
     content: {
       ...salonContentInput?.content,
       locationDisplayMode: activeBookingPageContentSide.locationDisplayMode,
+      publicContactAllowed: sharedProfile.bookingOnlyContact !== true,
     },
   });
 

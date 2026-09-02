@@ -112,7 +112,10 @@ describe('section overlap resolutions', () => {
   });
 
   it('warns about Featured Services only at an insertion adjacent to Booking', () => {
-    const document = initializeStarter('quick_book');
+    // Featured Services is intentionally unavailable in the normal Quick Book
+    // product. Exercise the advanced overlap advisory against the one-page
+    // document, where the underlying section registry remains available.
+    const document = initializeStarter('one_page');
     const home = document.pages[0]!;
     const context = deriveSiteLibraryContext(createDemoOnboardingState(), document);
 

@@ -465,10 +465,8 @@ describe('unified section movement', () => {
     let dialog = await screen.findByRole('dialog', { name: 'Move Booking' });
 
     expect(within(dialog).getByLabelText('Position for Salon intro')).toHaveValue(1);
-    expect(within(dialog).getByLabelText('Position for Gallery')).toHaveValue(2);
-    expect(within(dialog).getByLabelText('Position for Booking')).toHaveValue(3);
-    expect(within(dialog).getByLabelText('Position for About')).toHaveValue(4);
-    expect(within(dialog).getByLabelText('Position for Visit & Contact')).toHaveValue(5);
+    expect(within(dialog).getByLabelText('Position for Booking')).toHaveValue(2);
+    expect(within(dialog).getByLabelText('Position for Gallery')).toHaveValue(3);
     expect(within(dialog).getByLabelText('Position for Booking'))
       .toHaveAttribute('aria-describedby', 'move-position-help');
     expect(within(dialog).queryByRole('list', { name: 'Destination pages' }))
@@ -477,12 +475,12 @@ describe('unified section movement', () => {
     await user.clear(within(dialog).getByLabelText('Position for Booking'));
     await user.type(within(dialog).getByLabelText('Position for Booking'), '1{Enter}');
     expect(sectionOrder()).toEqual([
-      'Booking', 'Salon intro', 'Gallery', 'About', 'Visit & Contact',
+      'Booking', 'Salon intro', 'Gallery',
     ]);
 
     await user.click(within(dialog).getByRole('button', { name: 'Cancel' }));
     expect(sectionOrder()).toEqual([
-      'Salon intro', 'Gallery', 'Booking', 'About', 'Visit & Contact',
+      'Salon intro', 'Booking', 'Gallery',
     ]);
 
     await user.click(within(screen.getByRole('group', { name: 'Booking actions' }))
@@ -496,7 +494,7 @@ describe('unified section movement', () => {
     await user.click(within(dialog).getByRole('button', { name: 'Done' }));
 
     expect(sectionOrder()).toEqual([
-      'Booking', 'Salon intro', 'Gallery', 'About', 'Visit & Contact',
+      'Booking', 'Salon intro', 'Gallery',
     ]);
   });
 

@@ -226,7 +226,7 @@ describe('account-backed onboarding document compiler', () => {
       });
 
       const expected = starter === 'quick_book'
-        ? [['hero', 'gallery', 'booking', 'about', 'visit_us']]
+        ? [['hero', 'booking', 'gallery']]
         : starter === 'one_page'
           ? [[
               'hero',
@@ -270,7 +270,7 @@ describe('account-backed onboarding document compiler', () => {
     },
   );
 
-  it('keeps the optional recipe floor at Quick 4, One-page 5, and Multi-page five pages', () => {
+  it('keeps the optional recipe floor at Quick 2, One-page 5, and Multi-page five pages', () => {
     const compile = (
       starter: 'quick_book' | 'one_page' | 'multi_page',
       includeGallery: boolean,
@@ -304,7 +304,7 @@ describe('account-backed onboarding document compiler', () => {
     const multiPage = compile('multi_page', true);
 
     expect(pageSectionTypes(quick.builderDocument)).toEqual([
-      ['hero', 'booking', 'about', 'visit_us'],
+      ['hero', 'booking'],
     ]);
     expect(pageSectionTypes(onePage.builderDocument)).toEqual([[
       'hero',
@@ -333,11 +333,9 @@ describe('account-backed onboarding document compiler', () => {
   it.each([
     {
       expectedCounts: {
-        about: 1,
         booking: 1,
         gallery: 1,
         hero: 1,
-        visit_us: 1,
       },
       starter: 'quick_book',
     },
@@ -645,7 +643,7 @@ describe('account-backed onboarding document compiler', () => {
     expect(renamed.recipeMigrationResult).toBe('preserved_manual_edits');
     expect(renamed.builderDocument.pages[0]?.slug).toBe('daniela-home');
     expect(renamed.builderDocument.pages[0]?.sections.map(section => section.sectionType))
-      .toEqual(['hero', 'gallery', 'booking', 'about', 'visit_us']);
+      .toEqual(['hero', 'booking', 'gallery']);
     expect(renamedIds.some(id => id.includes(':onboarding:'))).toBe(false);
     const renamedCustomerTypes = renamed.pages.flatMap(
       page => page.sections.map(section => section.type),
@@ -865,12 +863,12 @@ describe('account-backed onboarding document compiler', () => {
   });
 
   it.each([
-    { expectedVisitUsCount: 1, starter: 'quick_book' },
-    { expectedVisitUsCount: 1, starter: 'one_page' },
-    { expectedVisitUsCount: 1, starter: 'multi_page' },
+    { expectedBuilderVisitUsCount: 0, expectedVisitUsCount: 0, starter: 'quick_book' },
+    { expectedBuilderVisitUsCount: 1, expectedVisitUsCount: 1, starter: 'one_page' },
+    { expectedBuilderVisitUsCount: 1, expectedVisitUsCount: 1, starter: 'multi_page' },
   ] as const)(
     'keeps exactly one truthful customer contact surface for public $starter profile data',
-    ({ expectedVisitUsCount, starter }) => {
+    ({ expectedBuilderVisitUsCount, expectedVisitUsCount, starter }) => {
       const state = acceptedState(starter);
       state.profile.location.cityOrArea = 'Toronto';
       state.profile.location.locationType = 'salon_suite';
@@ -899,11 +897,11 @@ describe('account-backed onboarding document compiler', () => {
       expect(contacts).toEqual([]);
       expect(compiled.builderDocument.pages.flatMap(page => page.sections)
         .filter(section => section.sectionType === 'visit_us'))
-        .toHaveLength(1);
+        .toHaveLength(expectedBuilderVisitUsCount);
     },
   );
 
-  it('compiles Booking-only as one truthful Visit & Contact surface', () => {
+  it('keeps Booking-only contact inside the Quick Book profile instead of injecting Contact', () => {
     const state = acceptedState('quick_book');
     state.profile.bookingOnlyContact = true;
     const source = initializeStarter('quick_book', {
@@ -924,8 +922,9 @@ describe('account-backed onboarding document compiler', () => {
     }).pages.flatMap(page => page.sections);
 
     expect(sections.filter(section => section.type === 'booking')).toHaveLength(1);
+    expect(sections.filter(section => section.type === 'hero')).toHaveLength(1);
     expect(sections).not.toContainEqual(expect.objectContaining({ type: 'contact' }));
-    expect(sections.filter(section => section.type === 'visit_us')).toHaveLength(1);
+    expect(sections.filter(section => section.type === 'visit_us')).toHaveLength(0);
   });
 
   it.each(['quick_book', 'one_page', 'multi_page'] as const)(

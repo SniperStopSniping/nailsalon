@@ -46,6 +46,9 @@ const auditCurrentCustomerPage = async (page: Page): Promise<CustomerAudit> =>
         && bounds.height > 0;
     };
     const sectionKind = (section: HTMLElement): string => {
+      if (section.classList.contains('onboarding-quick-book-profile')) {
+        return 'hero';
+      }
       if (section.classList.contains('onboarding-customer-hero')) {
         return 'hero';
       }
@@ -189,21 +192,30 @@ const multiPageNavigation = (page: Page): Locator => page.locator(
 test.describe('three locked V1 customer recipes', () => {
   test.use({ viewport: { height: 844, width: 390 } });
 
-  test('Quick Book is the exact direct five-section journey with one Booking engine', async ({ page }) => {
+  test('Quick Book is the compact shared profile followed by one Booking engine', async ({ page }) => {
     await openRecipe(page, 'quick_book');
     const audit = await auditCurrentCustomerPage(page);
 
     expect(audit.sectionKinds).toEqual([
       'hero',
-      'gallery',
       'booking',
-      'about_team',
-      'visit_contact',
+      'gallery',
     ]);
     expect(audit.serviceCatalogueOwners).toHaveLength(1);
 
     expectCleanCustomerPage(audit);
     await expectSingleCataloguePresentation(page);
+    const profile = page.locator('.onboarding-quick-book-profile');
+
+    await expect(profile).toBeVisible();
+    await expect(profile.getByRole('heading', { level: 1 })).toHaveCount(1);
+    expect(await profile.evaluate((element) => {
+      const bookingSection = document.querySelector('[data-testid="booking-section-preview"]');
+      return Boolean(
+        bookingSection
+        && (element.compareDocumentPosition(bookingSection) & Node.DOCUMENT_POSITION_FOLLOWING),
+      );
+    })).toBe(true);
     await expect(page.getByTestId('selected-service-summary')).toHaveCount(0);
 
     await page.getByRole('button', {
@@ -267,9 +279,8 @@ test.describe('three locked V1 customer recipes', () => {
       );
     }
 
-    await expect(page.locator('nav[aria-label="Customer preview navigation"] a')).toHaveCount(1);
-
-    await expectHeroShortcutContract(page);
+    // A single-page Quick Book needs no redundant anchor-navigation row.
+    await expect(page.locator('nav[aria-label="Customer preview navigation"] a')).toHaveCount(0);
   });
 
   test('One-page website owns each responsibility once and generates working anchor navigation', async ({ page }) => {

@@ -21,8 +21,8 @@ import type {
   SiteBuilderDocument,
 } from './types';
 
-export const V1_STARTER_RECIPE_VERSION = 1 as const;
-export const V1_STARTER_COMPILER_VERSION = 1 as const;
+export const V1_STARTER_RECIPE_VERSION = 2 as const;
+export const V1_STARTER_COMPILER_VERSION = 2 as const;
 
 export type V1StarterRecipeMigrationResult =
   | 'fresh_v1'
@@ -189,6 +189,12 @@ const matchesLegacyRecipe = (document: SiteBuilderDocument): boolean => {
 const matchesOptionalProfile = (type: SectionType | undefined): boolean =>
   type === 'about' || type === 'team';
 
+/**
+ * Quick Book v1 spread the shared salon profile across About and Visit after
+ * Booking. It is an onboarding-owned shape, so v2 can safely collapse those
+ * duplicate presentation slots into the profile Hero while preserving their
+ * shared profile data.
+ */
 const matchesQuickBookV1Types = (types: readonly SectionType[]): boolean => {
   let cursor = 0;
   if (types[cursor++] !== 'hero') {
@@ -204,6 +210,17 @@ const matchesQuickBookV1Types = (types: readonly SectionType[]): boolean => {
     cursor += 1;
   }
   return types[cursor++] === 'visit_us' && cursor === types.length;
+};
+
+const matchesQuickBookV2Types = (types: readonly SectionType[]): boolean => {
+  let cursor = 0;
+  if (types[cursor++] !== 'hero' || types[cursor++] !== 'booking') {
+    return false;
+  }
+  if (types[cursor] === 'gallery') {
+    cursor += 1;
+  }
+  return cursor === types.length;
 };
 
 const matchesOnePageV1Types = (types: readonly SectionType[]): boolean => {
@@ -291,7 +308,10 @@ const matchesV1RecipeShape = (document: SiteBuilderDocument): boolean => {
     return pages.length === 1
       && home?.name === 'Home'
       && home.slug === ''
-      && matchesQuickBookV1Types(coreTypesOn(home));
+      && (
+        matchesQuickBookV2Types(coreTypesOn(home))
+        || matchesQuickBookV1Types(coreTypesOn(home))
+      );
   }
   if (document.originStarter === 'one_page') {
     const home = pages[0];
@@ -366,10 +386,8 @@ const desiredRecipe = (
       name: 'Home',
       sections: [
         { label: 'Salon intro', presetId: 'booking_first', type: 'hero' },
-        ...gallery,
         { type: 'booking' },
-        ...profile,
-        { label: 'Visit & Contact', presetId: 'compact_info', type: 'visit_us' },
+        ...gallery,
       ],
       slug: '',
     }];
@@ -508,6 +526,11 @@ export const reconcileV1StarterDocument = (
   input: V1StarterRecipeContext,
 ): V1StarterRecipeReconciliation => {
   const legacy = matchesLegacyRecipe(document);
+  const quickBookHome = document.pages.find(page => page.isHome);
+  const quickBookV1 = document.originStarter === 'quick_book'
+    && matchesV1RecipeShape(document)
+    && quickBookHome !== undefined
+    && matchesQuickBookV1Types(coreTypesOn(quickBookHome));
   if (!legacy && !matchesV1RecipeShape(document)) {
     return {
       compilerVersion: V1_STARTER_COMPILER_VERSION,
@@ -591,7 +614,7 @@ export const reconcileV1StarterDocument = (
   return {
     compilerVersion: V1_STARTER_COMPILER_VERSION,
     document: reconciled,
-    migrationResult: legacy ? 'migrated_legacy_recipe' : 'fresh_v1',
+    migrationResult: legacy || quickBookV1 ? 'migrated_legacy_recipe' : 'fresh_v1',
     recipeVersion: V1_STARTER_RECIPE_VERSION,
   };
 };

@@ -5,28 +5,31 @@ import type {
   LegacyV5DepositArchive,
 } from '../integrations/contracts/booking-preferences';
 import type { ServiceMenuSelectionDraft } from '../integrations/contracts/service-menu';
-import { createDefaultOnboardingState } from '../model/defaults';
 import {
   getCoherentPreferredContact,
   resolveInstagramUsername,
 } from '../model/contact';
+import { createDefaultOnboardingState } from '../model/defaults';
+import { getResolvedPolicyWording } from '../model/policies';
 import {
-  ONBOARDING_SCHEMA_VERSION,
   type BusinessProfileDraft,
   type BusinessStructure,
   type CanvaDraft,
   type ClientContactDraft,
   type DashboardHandoffDraft,
+  DEFAULT_QUICK_BOOK_PROFILE_VISIBILITY,
   type FoundingOfferMode,
   type GalleryDraft,
   type LocalImageReference,
   type LocationType,
+  ONBOARDING_SCHEMA_VERSION,
   type OnboardingLabState,
-  type OnboardingSessionStatus,
   type OnboardingScreenId,
+  type OnboardingSessionStatus,
   type PlanIntent,
-  type SitePalettePresetId,
+  type QuickBookProfileVisibilityDraft,
   type SetupChecklistFixtureStatus,
+  type SitePalettePresetId,
   type Weekday,
   type WeeklyHoursDraft,
 } from '../model/types';
@@ -220,6 +223,27 @@ const SITE_PALETTE_IDS = new Set<SitePalettePresetId>([
 
 const isSitePalettePresetId = (value: unknown): value is SitePalettePresetId =>
   typeof value === 'string' && SITE_PALETTE_IDS.has(value as SitePalettePresetId);
+
+const QUICK_BOOK_PROFILE_VISIBILITY_KEYS = [
+  'showBio',
+  'showBookingPolicy',
+  'showCancellationPolicy',
+  'showEmail',
+  'showHours',
+  'showInstagram',
+  'showLocation',
+  'showPhone',
+  'showReviews',
+  'showTechName',
+  'showTechPhoto',
+] as const satisfies readonly (keyof QuickBookProfileVisibilityDraft)[];
+
+const isQuickBookProfileVisibility = (
+  value: unknown,
+): value is QuickBookProfileVisibilityDraft => isRecord(value)
+  && QUICK_BOOK_PROFILE_VISIBILITY_KEYS.every(
+    key => typeof value[key] === 'boolean',
+  );
 
 const isFoundingOfferMode = (value: unknown): value is FoundingOfferMode =>
   value === 'lifetime'
@@ -434,6 +458,7 @@ const isOnboardingState = (value: unknown): value is OnboardingLabState => {
     && isRecord(value.recipe)
     && isSitePalettePresetId(value.recipe.palettePreset)
     && typeof value.recipe.paletteConfirmed === 'boolean'
+    && isQuickBookProfileVisibility(value.recipe.quickBookProfile)
     && isRecord(value.profile.location)
     && typeof value.profile.location.allowGeneralAreaDirections === 'boolean'
     && isSessionStatus(value.progress.sessionStatus)
@@ -741,6 +766,74 @@ const migrateBusinessProfile = (
 };
 
 /**
+ * Schema 9 had no Quick Book-specific visibility record. Preserve fields that
+ * were provably public through existing profile/policy switches, but keep
+ * ambiguous or unsupported data (notably reviews) private. This migration
+ * changes presentation only and never removes the canonical profile values.
+ */
+const migrateQuickBookProfileVisibility = (
+  recipe: Record<string, unknown>,
+  profile: BusinessProfileDraft,
+): QuickBookProfileVisibilityDraft => {
+  if (isQuickBookProfileVisibility(recipe.quickBookProfile)) {
+    return { ...recipe.quickBookProfile };
+  }
+
+  const aboutWasPublic = recipe.aboutEnabled === true;
+  const policiesWerePublic = recipe.policiesEnabled === true;
+  const instagram = resolveInstagramUsername(profile.instagram);
+  const depositsWording = getResolvedPolicyWording(profile.policies, 'deposits').trim();
+  const depositWasConfigured = (
+    profile.policies.deposits.mode === 'fixed'
+    && profile.policies.deposits.amountCents !== null
+  ) || Boolean(
+      profile.policies.deposits.wordingOverride.trim()
+      || profile.policies.copy.deposits.wordingOverride.trim(),
+    );
+  const cancellationWording = getResolvedPolicyWording(
+    profile.policies,
+    'cancellations',
+  ).trim();
+  const locationWasPublic = profile.location.addressVisibility !== 'hidden'
+    && Boolean(
+      profile.location.cityOrArea.trim()
+      || (profile.location.addressVisibility === 'public'
+        && profile.location.exactAddress.trim()),
+    );
+  const phoneWasPublic = !profile.bookingOnlyContact
+    && Boolean(profile.clientContact.primaryNumber.trim())
+    && (profile.clientContact.callEnabled || profile.clientContact.textEnabled);
+
+  return {
+    ...DEFAULT_QUICK_BOOK_PROFILE_VISIBILITY,
+    showBio: aboutWasPublic
+      && profile.about.visibility.bio
+      && Boolean(profile.about.shortBio.trim() || profile.about.fullBio.trim()),
+    showBookingPolicy: Boolean(
+      profile.bookingPreferences.visitMode
+      || (policiesWerePublic
+        && profile.policies.copy.deposits.visible
+        && depositWasConfigured
+        && depositsWording),
+    ),
+    showCancellationPolicy: policiesWerePublic
+      && profile.policies.copy.cancellations.visible
+      && Boolean(cancellationWording),
+    showEmail: !profile.bookingOnlyContact && Boolean(profile.email.trim()),
+    showHours: profile.hours.showOnSite && profile.hours.setupState === 'configured',
+    showInstagram: instagram.status === 'resolved',
+    showLocation: locationWasPublic,
+    showPhone: phoneWasPublic,
+    showTechName: aboutWasPublic
+      && profile.about.visibility.owner_name
+      && Boolean(profile.ownerName.trim()),
+    showTechPhoto: aboutWasPublic
+      && profile.about.visibility.profile_photo
+      && Boolean(profile.profilePhoto),
+  };
+};
+
+/**
  * Screens removed from the live flow by the starter-first opening (schema 9).
  * Old drafts can still point at them, so they remap onto the screens that
  * absorbed them rather than invalidating the whole saved state.
@@ -786,6 +879,10 @@ const migrateLegacyOnboardingState = (
         showOnSite: !legacyHours.skipped,
       }
     : profile.hours as WeeklyHoursDraft;
+  const migratedProfile = {
+    ...migrateBusinessProfile(profile),
+    hours,
+  };
   return {
     ...(value as unknown as OnboardingLabState),
     canva: {
@@ -822,10 +919,7 @@ const migrateLegacyOnboardingState = (
       && /^draft_[a-z0-9_-]{12,100}$/iu.test(value.anonymousDraftId)
       ? value.anonymousDraftId
       : defaults.anonymousDraftId,
-    profile: {
-      ...migrateBusinessProfile(profile),
-      hours,
-    },
+    profile: migratedProfile,
     progress: remapLegacyProgressScreens(
       value.progress,
     ) as unknown as OnboardingLabState['progress'],
@@ -847,6 +941,10 @@ const migrateLegacyOnboardingState = (
       palettePreset: isSitePalettePresetId(value.recipe.palettePreset)
         ? value.recipe.palettePreset
         : defaults.recipe.palettePreset,
+      quickBookProfile: migrateQuickBookProfileVisibility(
+        value.recipe,
+        migratedProfile,
+      ),
     },
     schemaVersion: ONBOARDING_SCHEMA_VERSION,
   };
@@ -863,6 +961,7 @@ const isLegacyOnboardingState = (value: unknown): value is SharedStateShape =>
     || (value.schemaVersion === 6 && isWeeklyHoursDraft(value.profile.hours))
     || (value.schemaVersion === 7 && isWeeklyHoursDraft(value.profile.hours))
     || (value.schemaVersion === 8 && isWeeklyHoursDraft(value.profile.hours))
+    || (value.schemaVersion === 9 && isWeeklyHoursDraft(value.profile.hours))
   );
 
 const defaultStorage = (): OnboardingStorage => {

@@ -7,6 +7,7 @@ import {
   applyBookingPageBuilderOperation,
   listBookingPageBuilderSections,
 } from '@/libs/bookingPageBuilder';
+import type { QuickBookProfileVisibility } from '@/libs/bookingPageConfig';
 import {
   BOOKING_PAGE_PRESET_RECIPES,
   getBookingPagePresentationSignature,
@@ -25,10 +26,25 @@ vi.mock('next/navigation', () => ({
   useSearchParams: () => searchParamsMock.value,
 }));
 
+const QUICK_BOOK_PROFILE_DEFAULTS: QuickBookProfileVisibility = {
+  showBio: false,
+  showBookingPolicy: false,
+  showCancellationPolicy: false,
+  showEmail: false,
+  showHours: false,
+  showInstagram: false,
+  showLocation: false,
+  showPhone: false,
+  showReviews: false,
+  showTechName: false,
+  showTechPhoto: false,
+};
+
 function baseConfig(overrides: Partial<{
   layout: string;
   stylePack: string;
   businessMode: string;
+  quickBookProfile: QuickBookProfileVisibility;
   sectionOrder: string[];
   sectionVariants: Partial<Record<string, string>>;
   hiddenSections: string[];
@@ -42,6 +58,7 @@ function baseConfig(overrides: Partial<{
     hiddenSections: [] as string[],
     businessMode: 'solo',
     startMode: 'services_first',
+    quickBookProfile: { ...QUICK_BOOK_PROFILE_DEFAULTS },
     ...overrides,
   };
   return {
@@ -207,7 +224,21 @@ describe('BookingPageOwnerSurface', () => {
             } as typeof config;
           }
           if (body.config) {
-            config = { ...config, draft: { ...config.draft, ...body.config } };
+            config = {
+              ...config,
+              draft: {
+                ...config.draft,
+                ...body.config,
+                ...(body.config.quickBookProfile
+                  ? {
+                      quickBookProfile: {
+                        ...config.draft.quickBookProfile,
+                        ...body.config.quickBookProfile,
+                      },
+                    }
+                  : {}),
+              },
+            };
           }
           if (body.content) {
             content = { ...content, draft: { ...content.draft, ...body.content } };
@@ -315,6 +346,59 @@ describe('BookingPageOwnerSurface', () => {
 
     expect(screen.queryByRole('button', { name: 'Use Quick Book' })).not.toBeInTheDocument();
     expect(fetchMock.mock.calls.filter(([, init]) => init?.method === 'PATCH')).toHaveLength(0);
+  });
+
+  it('saves one Quick Book visibility switch with a narrow config patch and refreshes the preview', async () => {
+    config = baseConfig({
+      quickBookProfile: {
+        ...QUICK_BOOK_PROFILE_DEFAULTS,
+        showEmail: true,
+      },
+    });
+    render(<BookingPageOwnerSurface />);
+
+    const card = await screen.findByTestId('quick-book-profile-visibility-card');
+    const phoneSwitch = within(card).getByRole('switch', { name: /Show phone/i });
+    const emailSwitch = within(card).getByRole('switch', { name: /Show email/i });
+
+    expect(within(card).getAllByRole('switch')).toHaveLength(11);
+    expect(phoneSwitch).not.toBeChecked();
+    expect(emailSwitch).toBeChecked();
+    expect(screen.getByTitle('Live booking page preview')).toHaveAttribute(
+      'src',
+      '/admin/booking-page/preview/salon-a?builderPreview=0',
+    );
+
+    await userEvent.click(phoneSwitch);
+
+    await waitFor(() => {
+      const visibilityWrites = fetchMock.mock.calls
+        .filter(([, init]) => init?.method === 'PATCH')
+        .map(([, init]) => JSON.parse(String(init?.body)))
+        .filter(body => body.config?.quickBookProfile);
+
+      expect(visibilityWrites).toEqual([{
+        config: { quickBookProfile: { showPhone: true } },
+      }]);
+    });
+
+    expect(phoneSwitch).toBeChecked();
+    expect(emailSwitch).toBeChecked();
+    expect(content).toEqual(baseContent());
+    expect(screen.getByTitle('Live booking page preview')).toHaveAttribute(
+      'src',
+      '/admin/booking-page/preview/salon-a?builderPreview=1',
+    );
+  });
+
+  it('does not render Quick Book visibility controls for Editorial', async () => {
+    config = baseConfig({ layout: 'editorial' });
+    render(<BookingPageOwnerSurface />);
+
+    await screen.findByTestId('booking-page-preset-picker');
+
+    expect(screen.queryByTestId('quick-book-profile-visibility-card')).not.toBeInTheDocument();
+    expect(screen.queryByRole('switch', { name: /Show phone/i })).not.toBeInTheDocument();
   });
 
   it('previews a guarded switch and PATCHes one semantic preset operation only after confirmation', async () => {

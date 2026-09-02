@@ -200,7 +200,10 @@ describe('Builder overlap resolution UI', () => {
   });
 
   it('walks the duplicate About warning before opening the real move flow', async () => {
-    seedBuilder(initializeStarter('quick_book'));
+    // About is not part of the locked Quick Book document. The duplicate
+    // warning remains an advanced Builder behavior and is exercised on the
+    // one-page recipe, where About is an approved core section.
+    seedBuilder(initializeStarter('one_page'));
     const user = userEvent.setup();
     render(<App />);
 

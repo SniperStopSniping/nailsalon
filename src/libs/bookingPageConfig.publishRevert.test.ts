@@ -372,6 +372,139 @@ describe('bookingPage draft/publish/revert lifecycle (PGlite)', () => {
     });
   });
 
+  describe('Quick Book profile visibility lifecycle', () => {
+    const QUICK_BOOK_PROFILE_SALON_ID = 'salon_quick_book_profile_visibility';
+    const LEGACY_QUICK_BOOK_PROFILE_SALON_ID = 'salon_legacy_quick_book_profile_visibility';
+
+    beforeAll(async () => {
+      await db.insert(schema.salonSchema).values({
+        id: QUICK_BOOK_PROFILE_SALON_ID,
+        name: 'Quick Book Profile Visibility Salon',
+        slug: 'quick-book-profile-visibility-salon',
+        settings: {},
+      });
+      await db.insert(schema.salonSchema).values({
+        id: LEGACY_QUICK_BOOK_PROFILE_SALON_ID,
+        name: 'Legacy Quick Book Profile Visibility Salon',
+        slug: 'legacy-quick-book-profile-visibility-salon',
+        settings: {
+          bookingPage: {
+            version: 1,
+            draft: { layout: 'quick_book' },
+            live: { layout: 'quick_book' },
+          },
+        } as unknown as SalonSettings,
+      });
+    });
+
+    it('preserves legacy mode until the owner writes a compact-profile setting', async () => {
+      const untouched = await updateBookingPageDraft(
+        LEGACY_QUICK_BOOK_PROFILE_SALON_ID,
+        { businessMode: 'solo' },
+      );
+
+      expect(untouched?.draft.quickBookProfile.version).toBe(0);
+      expect(untouched?.draft.quickBookProfile.showPhone).toBe(false);
+
+      const legacyPublished = await publishBookingPageConfig(
+        LEGACY_QUICK_BOOK_PROFILE_SALON_ID,
+      );
+
+      expect(legacyPublished?.draft.quickBookProfile.version).toBe(0);
+      expect(legacyPublished?.live.quickBookProfile.version).toBe(0);
+
+      const adopted = await updateBookingPageDraft(
+        LEGACY_QUICK_BOOK_PROFILE_SALON_ID,
+        { quickBookProfile: { showPhone: false } },
+      );
+
+      expect(adopted?.draft.quickBookProfile.version).toBe(1);
+      expect(adopted?.draft.quickBookProfile.showPhone).toBe(false);
+      expect(adopted?.live.quickBookProfile.version).toBe(0);
+    });
+
+    it('merges toggle patches and preserves them across layout, preset, publish, and revert', async () => {
+      await updateBookingPageDraft(QUICK_BOOK_PROFILE_SALON_ID, {
+        quickBookProfile: {
+          showTechName: true,
+          showPhone: true,
+        },
+      });
+
+      const merged = await updateBookingPageDraft(QUICK_BOOK_PROFILE_SALON_ID, {
+        quickBookProfile: {
+          showPhone: false,
+          showBio: true,
+        },
+      });
+
+      expect(merged?.draft.quickBookProfile).toEqual({
+        ...BOOKING_PAGE_CONFIG_SIDE_DEFAULTS.quickBookProfile,
+        showTechName: true,
+        showBio: true,
+      });
+      expect(merged?.live.quickBookProfile).toEqual(
+        BOOKING_PAGE_CONFIG_SIDE_DEFAULTS.quickBookProfile,
+      );
+
+      const layoutSwitched = await updateBookingPageDraft(
+        QUICK_BOOK_PROFILE_SALON_ID,
+        { layout: 'editorial' },
+      );
+
+      expect(layoutSwitched?.draft.quickBookProfile).toEqual(merged?.draft.quickBookProfile);
+
+      const currentState = getBookingPageDraftPresentationState(layoutSwitched!);
+      const operation = {
+        type: 'apply_preset',
+        presetId: 'collective',
+        presetVersion: BOOKING_PAGE_PRESET_RECIPE_VERSION,
+        expectedPresentationSignature: getBookingPagePresentationSignature({
+          ...currentState,
+          presetBase: currentState.presetBase ?? null,
+        }),
+      } as const satisfies BookingPageBuilderOperation;
+      const presetResult = applyBookingPageBuilderOperation(currentState, operation);
+
+      expect(presetResult.ok).toBe(true);
+
+      if (!presetResult.ok) {
+        throw new Error(`Expected profile-preserving preset switch, got ${presetResult.code}`);
+      }
+
+      const presetSwitched = await updateBookingPageDraft(
+        QUICK_BOOK_PROFILE_SALON_ID,
+        presetResult.patch,
+        { builderOperation: operation },
+      );
+
+      expect(presetSwitched?.draft.quickBookProfile).toEqual(merged?.draft.quickBookProfile);
+
+      const published = await publishBookingPageConfig(QUICK_BOOK_PROFILE_SALON_ID);
+
+      expect(published?.live.quickBookProfile).toEqual(merged?.draft.quickBookProfile);
+
+      const unpublished = await updateBookingPageDraft(QUICK_BOOK_PROFILE_SALON_ID, {
+        quickBookProfile: {
+          showTechName: false,
+          showLocation: true,
+        },
+      });
+
+      expect(unpublished?.draft.quickBookProfile).toEqual({
+        ...BOOKING_PAGE_CONFIG_SIDE_DEFAULTS.quickBookProfile,
+        showLocation: true,
+        showBio: true,
+      });
+      expect(unpublished?.live.quickBookProfile).toEqual(merged?.draft.quickBookProfile);
+
+      const reverted = await revertBookingPageDraft(QUICK_BOOK_PROFILE_SALON_ID);
+
+      expect(reverted?.draft.quickBookProfile).toEqual(reverted?.live.quickBookProfile);
+      expect(reverted?.draft.quickBookProfile).toEqual(merged?.draft.quickBookProfile);
+    });
+  });
+
   describe('typed section-variant lifecycle', () => {
     const VARIANT_PUBLISH_SALON_ID = 'salon_booking_page_variant_publish';
     const VARIANT_LAYOUT_SALON_ID = 'salon_booking_page_variant_layout';

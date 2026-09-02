@@ -8,6 +8,7 @@ import { Suspense } from 'react';
 import type { PreviewBannerVariant } from '@/components/PreviewBanner';
 import { PublicSalonPageShell } from '@/components/PublicSalonPageShell';
 import { getBookingConfigForSalon, resolveIntroPriceLabel } from '@/libs/bookingConfig';
+import { resolveBookingExperience } from '@/libs/bookingExperience';
 import { type BookingStep, normalizeBookingFlow } from '@/libs/bookingFlow';
 import { resolveBookingPageConfig } from '@/libs/bookingPageConfig';
 import { resolveBookingPageContent } from '@/libs/bookingPageContent';
@@ -18,16 +19,22 @@ import { isClientEligibleForFirstVisitDiscount } from '@/libs/firstVisitDiscount
 import { resolveDraftSalonAccess } from '@/libs/ownerPreview';
 import { mapPublicTechnician } from '@/libs/publicBookingTechnicians';
 import { getActiveAddOnsBySalonId, getActiveLocationsBySalonId, getServiceAddOnRulesBySalonId, getServicesBySalonId, getTechniciansBySalonId } from '@/libs/queries';
+import { getRetentionSettingsForSalon } from '@/libs/retentionSettings.server';
 import { applyLocationDisplayMode } from '@/libs/salonContent';
 import { resolveMerchandisingSettings } from '@/libs/salonMerchandisingSettings';
 import { buildTenantRedirectPath, checkFeatureEnabled, checkSalonStatus } from '@/libs/salonStatus';
 import { getPublicBookableServiceIds } from '@/libs/serviceAssignments';
 import { resolveServiceCardImage } from '@/libs/serviceImage';
+import {
+  resolvePublicSalonPhone,
+  resolveSharedSalonProfile,
+} from '@/libs/sharedSalonProfile';
 import { getPublicPageContext } from '@/libs/tenant';
 import type { SalonOwnerPreviewState } from '@/providers/SalonProvider';
 import type { SalonSettings } from '@/types/salonPolicy';
 
 import { BookServiceClient } from './BookServiceClient';
+import { resolvePublicQuickBookProfile } from './quickBookProfile';
 
 const NEW_CLIENT_PROMO_END_DATE = '2026-04-30';
 
@@ -264,7 +271,12 @@ export async function renderBookServicePage({
   // - Multi-location salons: must have 1+ active locations, invalid locationId → redirect to primary
   // - Single-address salons: activeLocations is empty, locationId stays null (valid)
   // - If multi-location salon has 0 active locations (admin misconfig), booking proceeds with null
-  const activeLocations = await getActiveLocationsBySalonId(salon.id);
+  const [activeLocations, retentionSettings] = await Promise.all([
+    getActiveLocationsBySalonId(salon.id),
+    activeBookingPageSide.layout === 'quick_book'
+      ? getRetentionSettingsForSalon(salon.id)
+      : Promise.resolve(null),
+  ]);
   const primaryLocation = activeLocations.find(l => l.isPrimary) || activeLocations[0];
 
   // Server-side locationId validation: if provided but invalid, redirect with primary
@@ -292,6 +304,10 @@ export async function renderBookServicePage({
     }
   }
 
+  const sharedProfile = resolveSharedSalonProfile(
+    (salon.settings as SalonSettings | null | undefined) ?? null,
+  );
+
   // Map locations to the shape expected by the client component.
   // Post-launch privacy fix: `activeBookingPageContentSide.locationDisplayMode`
   // is applied here via `applyLocationDisplayMode` (`@/libs/salonContent`) —
@@ -309,7 +325,11 @@ export async function renderBookServicePage({
     city: loc.city,
     state: loc.state,
     zipCode: loc.zipCode,
-    phone: loc.phone,
+    phone: resolvePublicSalonPhone(
+      sharedProfile,
+      loc.phone,
+      activeBookingPageContentSide.locationDisplayMode,
+    ),
     isPrimary: loc.isPrimary ?? false,
   }, activeBookingPageContentSide.locationDisplayMode));
 
@@ -320,6 +340,51 @@ export async function renderBookServicePage({
     }));
   const showNewClientPromo = showFirstVisitOffer
     && getDateKeyInTimeZone(new Date(), bookingConfig.timezone) <= NEW_CLIENT_PROMO_END_DATE;
+  const bookingExperience = resolveBookingExperience(salon.settings);
+  const quickBookProfile = activeBookingPageSide.layout === 'quick_book'
+    ? resolvePublicQuickBookProfile({
+      salon: {
+        name: salon.name,
+        logoUrl: salon.logoUrl ?? null,
+        phone: salon.phone ?? null,
+        email: salon.email ?? null,
+        address: salon.address ?? null,
+        city: salon.city ?? null,
+        state: salon.state ?? null,
+        zipCode: salon.zipCode ?? null,
+        businessHours: salon.businessHours ?? null,
+      },
+      technicians,
+      locations: activeLocations.map(location => ({
+        name: location.name,
+        address: location.address ?? null,
+        city: location.city ?? null,
+        state: location.state ?? null,
+        zipCode: location.zipCode ?? null,
+        phone: location.phone ?? null,
+        email: location.email ?? null,
+        businessHours: location.businessHours ?? null,
+        isPrimary: location.isPrimary ?? false,
+      })),
+      bookingExperience,
+      reviewUrl: retentionSettings?.googleReviewUrl ?? null,
+      parkingInstructions: retentionSettings?.parkingInstructions ?? null,
+      sharedProfile,
+      visibility: activeBookingPageSide.quickBookProfile,
+      bio: activeBookingPageContentSide.bio,
+      locationDisplayMode: activeBookingPageContentSide.locationDisplayMode,
+      publicContactPreferences: sharedProfile.callEnabled === null
+        && sharedProfile.textEnabled === null
+        && sharedProfile.textNumber === null
+        ? null
+        : {
+            callEnabled: sharedProfile.callEnabled === true,
+            textEnabled: sharedProfile.textEnabled === true,
+            textNumber: sharedProfile.textNumber,
+          },
+      timeZone: bookingConfig.timezone,
+    })
+    : undefined;
 
   return (
     <PublicSalonPageShell
@@ -356,6 +421,7 @@ export async function renderBookServicePage({
           lusterFeaturingEnabled={merchandising.featureLusterManicure}
           showServiceImages={merchandising.showServiceImages}
           isEmbeddedBuilderPreview={isEmbeddedBuilderPreview}
+          quickBookProfile={quickBookProfile}
         />
       </Suspense>
     </PublicSalonPageShell>

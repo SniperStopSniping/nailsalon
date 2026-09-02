@@ -12,13 +12,12 @@ import { useState } from 'react';
  * through the token API). No public-email preference exists to consult, and
  * Stage 1 does not invent one, so the address is simply not serialized.
  *
- * `salonPhone` is retained but is now redacted UPSTREAM through
- * `applyPhoneDisplayMode` — the same landed rule the public booking and
- * find-booking surfaces use — so a `city_only` salon no longer exposes a raw
- * `tel:` value here merely because the visitor holds a valid token. When the
- * salon has hidden its phone the surrounding copy still tells the client to
- * contact the salon, matching the contact-less variants the repo already ships
- * elsewhere in this same view.
+ * `salonPhone` is retained but is now redacted UPSTREAM through the shared
+ * public-salon-phone resolver — the same global booking-only and location-mode
+ * gates used by public booking and find-booking surfaces. When the salon has
+ * hidden its phone the surrounding copy still tells the client to contact the
+ * salon, matching the contact-less variants the repo already ships elsewhere
+ * in this same view.
  */
 export function ManageAppointmentActions({ token, rescheduleUrl, isActive, canChange, cutoffHours, salonPhone }: { token: string; rescheduleUrl: string; isActive: boolean; canChange: boolean; cutoffHours: number; salonPhone?: string | null }) {
   const [status, setStatus] = useState<'idle' | 'working' | 'cancelled' | 'error'>(isActive ? 'idle' : 'cancelled');

@@ -80,6 +80,19 @@ const EDITORIAL_BOOKING_PAGE_SIDE: BookingPageConfigSide = {
   hiddenSections: [],
   businessMode: 'solo',
   startMode: 'services_first',
+  quickBookProfile: {
+    showTechName: false,
+    showTechPhoto: false,
+    showLocation: false,
+    showHours: false,
+    showPhone: false,
+    showEmail: false,
+    showBookingPolicy: false,
+    showCancellationPolicy: false,
+    showReviews: false,
+    showInstagram: false,
+    showBio: false,
+  },
 };
 
 const EDITORIAL_PRESET_IDS = [

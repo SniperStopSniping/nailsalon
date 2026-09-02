@@ -15,6 +15,7 @@ const {
   getClientSession,
   getPublicPageContext,
   getPublicBookableServiceIds,
+  getRetentionSettingsForSalon,
   getServiceAddOnRulesBySalonId,
   getServicesBySalonId,
   getTechniciansBySalonId,
@@ -39,6 +40,7 @@ const {
   getClientSession: vi.fn(),
   getPublicPageContext: vi.fn(),
   getPublicBookableServiceIds: vi.fn(),
+  getRetentionSettingsForSalon: vi.fn(),
   getServiceAddOnRulesBySalonId: vi.fn(),
   getServicesBySalonId: vi.fn(),
   getTechniciansBySalonId: vi.fn(),
@@ -139,6 +141,10 @@ vi.mock('@/libs/serviceAssignments', () => ({
   getPublicBookableServiceIds,
 }));
 
+vi.mock('@/libs/retentionSettings.server', () => ({
+  getRetentionSettingsForSalon,
+}));
+
 // S5 (Stage 1): the page now projects technicians through the shared
 // `mapPublicTechnician` instead of an inline copy. That module starts with
 // `import 'server-only'`, so it is mocked here with a SIMPLIFIED stand-in —
@@ -206,6 +212,7 @@ describe('BookServicePage first-visit offer visibility', () => {
     getTechniciansBySalonId.mockResolvedValue([]);
     getPublicBookableServiceIds.mockResolvedValue(null);
     getActiveLocationsBySalonId.mockResolvedValue([]);
+    getRetentionSettingsForSalon.mockResolvedValue({ googleReviewUrl: null });
   });
 
   afterEach(() => {
@@ -654,6 +661,19 @@ describe('BookServicePage owner-preview wiring', () => {
         hiddenSections: [],
         businessMode: 'solo',
         startMode: 'services_first',
+        quickBookProfile: {
+          showTechName: true,
+          showTechPhoto: false,
+          showLocation: false,
+          showHours: false,
+          showPhone: false,
+          showEmail: false,
+          showBookingPolicy: false,
+          showCancellationPolicy: false,
+          showReviews: false,
+          showInstagram: false,
+          showBio: false,
+        },
       },
       live: {
         layout: 'editorial',
@@ -664,6 +684,19 @@ describe('BookServicePage owner-preview wiring', () => {
         hiddenSections: [],
         businessMode: 'team',
         startMode: 'services_first',
+        quickBookProfile: {
+          showTechName: false,
+          showTechPhoto: false,
+          showLocation: true,
+          showHours: false,
+          showPhone: false,
+          showEmail: false,
+          showBookingPolicy: false,
+          showCancellationPolicy: false,
+          showReviews: false,
+          showInstagram: false,
+          showBio: false,
+        },
       },
       draftPresetBase: { presetId: 'quick_book', recipeVersion: 1 },
       livePresetBase: { presetId: 'signature', recipeVersion: 1 },
@@ -976,6 +1009,7 @@ describe('BookServicePage owner-preview wiring', () => {
         hiddenSections: [],
         businessMode: 'solo',
         startMode: 'services_first',
+        quickBookProfile: {},
       },
     }));
     expect(bookServiceClientSpy).toHaveBeenCalledWith(expect.objectContaining({
@@ -1180,6 +1214,35 @@ describe('BookServicePage location privacy (locationDisplayMode)', () => {
         phone: PRIVATE_PHONE,
       }),
     ]);
+  });
+
+  it('booking-only contact strips phone from the public location payload even with full_address', async () => {
+    getPublicPageContext.mockResolvedValueOnce({
+      appearance: null,
+      salon: {
+        id: 'salon_1',
+        slug: 'salon-a',
+        bookingFlow: ['service', 'tech', 'time', 'confirm'],
+        settings: { sharedProfile: { bookingOnlyContact: true } },
+      },
+    });
+
+    const element = await BookServicePage({
+      searchParams: { salonSlug: 'salon-a' },
+      params: { locale: 'en', slug: 'salon-a' },
+    });
+    render(element);
+
+    const passedLocations = bookServiceClientSpy.mock.calls.at(-1)?.[0]?.locations;
+
+    expect(passedLocations).toEqual([
+      expect.objectContaining({
+        address: PRIVATE_FULL_ADDRESS,
+        phone: null,
+        zipCode: PRIVATE_POSTAL_CODE,
+      }),
+    ]);
+    expect(JSON.stringify(passedLocations)).not.toContain(PRIVATE_PHONE);
   });
 
   // Post-launch privacy fix: this test previously asserted `phone:

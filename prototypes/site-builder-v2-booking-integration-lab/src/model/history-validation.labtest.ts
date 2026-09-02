@@ -77,7 +77,9 @@ describe('structural history', () => {
     const initial = initializeStarter('quick_book', {
       idFactory: createDeterministicIdFactory('remove-history'),
     });
-    const section = initial.pages[0]?.sections[1];
+    const section = initial.pages[0]?.sections.find(
+      candidate => candidate.sectionType === 'gallery',
+    );
     if (!section) {
       throw new Error('Missing section.');
     }

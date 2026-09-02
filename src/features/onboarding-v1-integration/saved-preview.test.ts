@@ -335,13 +335,15 @@ describe('createSavedSitePreviewModel', () => {
     })))).toEqual(expectedSections);
   });
 
-  it('keeps an after-Booking Custom Design and public Contact in the same place live and saved', () => {
+  it('keeps an after-Booking Custom Design and profile-owned public info aligned live and saved', () => {
     const { state } = accountDraft();
     state.recipe.aboutEnabled = false;
     state.recipe.canvaEnabled = true;
     state.recipe.galleryEnabled = false;
     state.recipe.policiesEnabled = true;
     state.recipe.starter = 'quick_book';
+    state.recipe.quickBookProfile.showBookingPolicy = true;
+    state.recipe.quickBookProfile.showLocation = true;
     state.profile.location.cityOrArea = 'Toronto';
     state.profile.location.locationType = 'salon_suite';
     state.profile.policies.other.custom = 'Please arrive with bare nails.';
@@ -417,10 +419,14 @@ describe('createSavedSitePreviewModel', () => {
         'hero',
         'booking',
         'custom_design',
-        'visit_us',
       ],
     }]);
     expect(topology(saved.pagePlan)).toEqual(topology(live));
+    expect(saved.state.profile.location.cityOrArea).toBe('Toronto');
+    expect(saved.state.recipe.quickBookProfile).toMatchObject({
+      showBookingPolicy: true,
+      showLocation: true,
+    });
   });
 
   it('keeps a partial policy out of both the in-progress and saved customer tree', () => {

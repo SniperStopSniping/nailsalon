@@ -383,6 +383,20 @@ export type SalonSettings = {
   // Public Google review link used by the post-appointment review follow-up.
   // When empty, the "Send Google review link" option is disabled in the UI.
   googleReviewUrl?: string | null;
+
+  /**
+   * Canonical salon-profile details that do not have a dedicated relational
+   * column yet. These values belong to the salon, not to a booking-page
+   * template; Quick Book is only the first presentation that consumes them.
+   */
+  sharedProfile?: {
+    bookingOnlyContact?: boolean | null;
+    callEnabled?: boolean | null;
+    entranceInstructions?: string | null;
+    textEnabled?: boolean | null;
+    textNumber?: string | null;
+    transitInformation?: string | null;
+  };
   booking?: {
     bufferMinutes?: number;
     slotIntervalMinutes?: number;

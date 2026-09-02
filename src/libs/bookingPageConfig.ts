@@ -158,6 +158,69 @@ export type BookingPageTokenOverrides = {
 };
 
 // =============================================================================
+// QUICK BOOK PROFILE VISIBILITY
+// =============================================================================
+
+/**
+ * Presentation-only public visibility for the compact Quick Book profile.
+ *
+ * The values themselves continue to live in their canonical salon, staff,
+ * contact, hours, policy and social-profile authorities. These switches only
+ * decide whether Quick Book may present those values; switching templates
+ * must never copy, delete, or otherwise mutate the underlying information.
+ *
+ * Every flag deliberately defaults to false. Older salons did not consent to
+ * this new compact profile exposing stored contact or business information,
+ * so a missing or malformed stored value always resolves private.
+ */
+export type QuickBookProfileVisibilityValues = {
+  showTechName: boolean;
+  showTechPhoto: boolean;
+  showLocation: boolean;
+  showHours: boolean;
+  showPhone: boolean;
+  showEmail: boolean;
+  showBookingPolicy: boolean;
+  showCancellationPolicy: boolean;
+  showReviews: boolean;
+  showInstagram: boolean;
+  showBio: boolean;
+};
+
+export type QuickBookProfileVisibility = QuickBookProfileVisibilityValues & {
+  /**
+   * Marks adoption of the compact Quick Book profile presentation.
+   *
+   * This is intentionally optional in the TypeScript shape so the resolver
+   * can recognize the predecessor unversioned boolean object. Resolved legacy
+   * sides use version 0; new defaults and every profile write use version 1.
+   */
+  version?: 0 | 1;
+};
+
+export type QuickBookProfileVisibilityPatch = Partial<QuickBookProfileVisibilityValues>;
+
+function createDefaultQuickBookProfileVisibility(): QuickBookProfileVisibility {
+  return {
+    version: 1,
+    showTechName: false,
+    showTechPhoto: false,
+    showLocation: false,
+    showHours: false,
+    showPhone: false,
+    showEmail: false,
+    showBookingPolicy: false,
+    showCancellationPolicy: false,
+    showReviews: false,
+    showInstagram: false,
+    showBio: false,
+  };
+}
+
+export const QUICK_BOOK_PROFILE_VISIBILITY_DEFAULTS: QuickBookProfileVisibility
+  = createDefaultQuickBookProfileVisibility();
+
+// =============================================================================
 // SIDE SHAPE (identical for draft and live)
 // =============================================================================
 
@@ -170,6 +233,7 @@ export type BookingPageConfigSide = {
   hiddenSections: SectionId[];
   businessMode: BusinessMode;
   startMode: StartMode;
+  quickBookProfile: QuickBookProfileVisibility;
 };
 
 export type BookingPageConfig = {
@@ -249,6 +313,7 @@ function createDefaultSide(): BookingPageConfigSide {
     hiddenSections: [],
     businessMode: 'solo',
     startMode: 'services_first',
+    quickBookProfile: createDefaultQuickBookProfileVisibility(),
   };
 }
 
@@ -388,6 +453,26 @@ const sectionVariantsSchema = z.record(sectionIdSchema, z.string().min(1)).super
   }
 }).transform(value => value as SectionVariantOverrides);
 
+const quickBookProfileVisibilitySchema = z.object({
+  version: z.union([z.literal(0), z.literal(1)]).optional(),
+  showTechName: z.boolean(),
+  showTechPhoto: z.boolean(),
+  showLocation: z.boolean(),
+  showHours: z.boolean(),
+  showPhone: z.boolean(),
+  showEmail: z.boolean(),
+  showBookingPolicy: z.boolean(),
+  showCancellationPolicy: z.boolean(),
+  showReviews: z.boolean(),
+  showInstagram: z.boolean(),
+  showBio: z.boolean(),
+}).strict();
+
+const quickBookProfileVisibilityPatchSchema = quickBookProfileVisibilitySchema
+  .omit({ version: true })
+  .partial()
+  .strict();
+
 /**
  * Full, non-partial side schema. Used to validate a caller-supplied draft
  * patch wholesale (see updateBookingPageDraft) — invalid patches are the
@@ -405,11 +490,15 @@ const bookingPageSideSchema = z.object({
   hiddenSections: sectionIdArraySchema,
   businessMode: businessModeSchema,
   startMode: startModeSchema,
+  quickBookProfile: quickBookProfileVisibilitySchema,
 });
 
 export type WritableBookingPageLayout = (typeof WRITABLE_BOOKING_PAGE_LAYOUTS)[number];
 
-export type BookingPageDraftPatch = Omit<Partial<BookingPageConfigSide>, 'layout' | 'sectionVariants'> & {
+export type BookingPageDraftPatch = Omit<
+  Partial<BookingPageConfigSide>,
+  'layout' | 'quickBookProfile' | 'sectionVariants'
+> & {
   /**
    * S4 (Stage 1) — narrowed at the TYPE level as well as at runtime, so a
    * direct `updateBookingPageDraft` caller writing an unimplemented layout is
@@ -418,6 +507,8 @@ export type BookingPageDraftPatch = Omit<Partial<BookingPageConfigSide>, 'layout
   layout?: WritableBookingPageLayout;
   /** New writes accept only section-compatible canonical variant IDs. */
   sectionVariants?: SectionVariantOverrides;
+  /** Merge-only Quick Book presentation switches; omitted flags are preserved. */
+  quickBookProfile?: QuickBookProfileVisibilityPatch;
   /**
    * S2 (Stage 1) — the ONLY way to replace `sectionOrder`/`hiddenSections`
    * with the selected layout's defaults. Absent means preserve.
@@ -430,6 +521,7 @@ export const bookingPageDraftPatchSchema = bookingPageSideSchema
   .extend({
     // S4: writes are restricted to implemented layouts. Reads are not.
     layout: writableLayoutSchema.optional(),
+    quickBookProfile: quickBookProfileVisibilityPatchSchema.optional(),
     // S2: an explicit, narrowly named intent. `z.literal(true)` means a caller
     // cannot ask for a reset by accident with a falsy value, and the key is
     // never persisted into the stored side — it only selects a branch below.
@@ -606,6 +698,13 @@ export function validateSectionOrder(
   // append bug.
   if (!finalOrder.includes('salonProfile')) {
     finalOrder.unshift('salonProfile');
+  } else if (layout === 'quick_book' && finalOrder[0] !== 'salonProfile') {
+    // Quick Book's compact salon profile is the page header, not a movable
+    // content block. Older or hand-crafted configuration can contain the
+    // required id in a stale mid-page position; repair that input instead of
+    // rendering the page identity below customer booking controls.
+    finalOrder.splice(finalOrder.indexOf('salonProfile'), 1);
+    finalOrder.unshift('salonProfile');
   }
 
   for (const requiredId of REQUIRED_SECTION_IDS) {
@@ -668,7 +767,51 @@ function resolveStylePack(value: unknown): StylePack {
   return resolveWithDefault(stylePackSchema, value, DEFAULT_STYLE_PACK);
 }
 
-function resolveSide(rawSide: unknown): BookingPageConfigSide {
+function resolveQuickBookProfileVisibility(value: unknown): QuickBookProfileVisibility {
+  const source = isRecord(value) ? value : {};
+  const knownVisibilityValues = [
+    source.showTechName,
+    source.showTechPhoto,
+    source.showLocation,
+    source.showHours,
+    source.showPhone,
+    source.showEmail,
+    source.showBookingPolicy,
+    source.showCancellationPolicy,
+    source.showReviews,
+    source.showInstagram,
+    source.showBio,
+  ];
+  // Configs written before the explicit marker landed already persisted the
+  // full boolean object. Recognize that exact predecessor shape as adopted,
+  // but do not treat an absent, empty, malformed, or future-version object as
+  // consent to replace the legacy public presentation.
+  const adoptedVersion = source.version === 1
+    || (source.version === undefined
+      && knownVisibilityValues.some(entry => typeof entry === 'boolean'));
+
+  // Resolve every field independently. A malformed sibling must not expose
+  // anything or discard a separate explicit consent value.
+  return {
+    version: adoptedVersion ? 1 : 0,
+    showTechName: source.showTechName === true,
+    showTechPhoto: source.showTechPhoto === true,
+    showLocation: source.showLocation === true,
+    showHours: source.showHours === true,
+    showPhone: source.showPhone === true,
+    showEmail: source.showEmail === true,
+    showBookingPolicy: source.showBookingPolicy === true,
+    showCancellationPolicy: source.showCancellationPolicy === true,
+    showReviews: source.showReviews === true,
+    showInstagram: source.showInstagram === true,
+    showBio: source.showBio === true,
+  };
+}
+
+function resolveSide(
+  rawSide: unknown,
+  defaultToNewQuickBookProfile = false,
+): BookingPageConfigSide {
   const source = isRecord(rawSide) ? rawSide : {};
 
   const layout = resolveWithDefault(layoutSchema, source.layout, BOOKING_PAGE_CONFIG_SIDE_DEFAULTS.layout);
@@ -687,6 +830,9 @@ function resolveSide(rawSide: unknown): BookingPageConfigSide {
     source.startMode,
     BOOKING_PAGE_CONFIG_SIDE_DEFAULTS.startMode,
   );
+  const quickBookProfile = defaultToNewQuickBookProfile && !hasOwn(source, 'quickBookProfile')
+    ? createDefaultQuickBookProfileVisibility()
+    : resolveQuickBookProfileVisibility(source.quickBookProfile);
   /**
    * PR 6 (Rev 3 plan section 6): "Editorial requires startMode:
    * services_first — the config layer rejects Editorial + staff_first with
@@ -718,6 +864,7 @@ function resolveSide(rawSide: unknown): BookingPageConfigSide {
     hiddenSections,
     businessMode,
     startMode,
+    quickBookProfile,
   };
 }
 
@@ -743,8 +890,8 @@ export function resolveBookingPageConfig(settings: unknown): BookingPageConfig {
 
   return {
     version,
-    draft: resolveSide(rawBookingPage.draft),
-    live: resolveSide(rawBookingPage.live),
+    draft: resolveSide(rawBookingPage.draft, !hasOwn(rawBookingPage, 'draft')),
+    live: resolveSide(rawBookingPage.live, !hasOwn(rawBookingPage, 'live')),
     draftPresetBase: hasOwn(rawBookingPage, 'draftPresetBase')
       ? resolvePresetBase(rawBookingPage.draftPresetBase)
       : (isRecord(rawBookingPage.draft)
@@ -995,6 +1142,25 @@ export async function updateBookingPageDraftInTransaction(
   if (validatedPatch.startMode !== undefined) {
     settingsExpression = sql`jsonb_set(${settingsExpression}, '{bookingPage,draft,startMode}', ${JSON.stringify(validatedPatch.startMode)}::jsonb)`;
   }
+  if (validatedPatch.quickBookProfile !== undefined) {
+    const nextQuickBookProfile = {
+      ...currentConfig.draft.quickBookProfile,
+      ...validatedPatch.quickBookProfile,
+      version: 1 as const,
+    };
+    settingsExpression = sql`jsonb_set(${settingsExpression}, '{bookingPage,draft,quickBookProfile}', ${JSON.stringify(nextQuickBookProfile)}::jsonb)`;
+  } else if (validatedPatch.layout === 'quick_book'
+    && currentConfig.draft.layout !== 'quick_book') {
+    // Choosing Quick Book from another presentation is an explicit adoption
+    // of the current compact product. Preserve every visibility value while
+    // stamping the presentation version; template switching never mutates
+    // the canonical salon information itself.
+    const adoptedQuickBookProfile = {
+      ...currentConfig.draft.quickBookProfile,
+      version: 1 as const,
+    };
+    settingsExpression = sql`jsonb_set(${settingsExpression}, '{bookingPage,draft,quickBookProfile}', ${JSON.stringify(adoptedQuickBookProfile)}::jsonb)`;
+  }
   if (validatedPatch.presetBase !== undefined) {
     settingsExpression = sql`jsonb_set(${settingsExpression}, '{bookingPage,draftPresetBase}', ${JSON.stringify(validatedPatch.presetBase)}::jsonb)`;
   }
@@ -1023,6 +1189,13 @@ export async function updateBookingPageDraftInTransaction(
     const { sectionOrder, hiddenSections } = validateSectionOrder([], [], resetLayout);
     settingsExpression = sql`jsonb_set(${settingsExpression}, '{bookingPage,draft,sectionOrder}', ${JSON.stringify(sectionOrder)}::jsonb)`;
     settingsExpression = sql`jsonb_set(${settingsExpression}, '{bookingPage,draft,hiddenSections}', ${JSON.stringify(hiddenSections)}::jsonb)`;
+    if (resetLayout === 'quick_book') {
+      const adoptedQuickBookProfile = {
+        ...currentConfig.draft.quickBookProfile,
+        version: 1 as const,
+      };
+      settingsExpression = sql`jsonb_set(${settingsExpression}, '{bookingPage,draft,quickBookProfile}', ${JSON.stringify(adoptedQuickBookProfile)}::jsonb)`;
+    }
   } else if (validatedPatch.sectionOrder !== undefined || validatedPatch.hiddenSections !== undefined) {
     const layout = validatedPatch.layout ?? currentConfig.draft.layout;
     const nextOrderInput = validatedPatch.sectionOrder ?? currentConfig.draft.sectionOrder;
