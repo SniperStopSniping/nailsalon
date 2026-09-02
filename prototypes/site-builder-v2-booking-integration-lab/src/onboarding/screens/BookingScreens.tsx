@@ -13,6 +13,8 @@ import { StarterChoiceGrid, useMediaQuery } from '../../ui/StarterChooser';
 import {
   ChoiceGroup,
   focusFirstInvalidControl,
+  NativeSwitch,
+  TextAreaField,
   TextField,
   ValidationSummary,
   type ChoiceOption,
@@ -39,11 +41,13 @@ import {
   getMinimumNoticeCopy,
 } from '../model/minimum-notice';
 import { getDepositPolicyMode } from '../model/policies';
+import { QUICK_BOOK_SHORT_BIO_MAX_LENGTH } from '../model/quick-book-profile';
 import type {
   BookingPreferencesDraft,
   BusinessProfileDraft,
   LocationDraft,
   NewClientStatus,
+  QuickBookProfileVisibilityDraft,
   StarterId,
   VisitMode,
 } from '../model/types';
@@ -907,8 +911,11 @@ type StartingPreviewScreenProps = {
   onBack: () => void;
   onContinue: () => void;
   onOpenPreview: () => void;
+  onQuickBookBioChange?: (value: string) => void;
+  onQuickBookProfileChange?: (patch: Partial<QuickBookProfileVisibilityDraft>) => void;
   preview: ReactNode;
   profile: BusinessProfileDraft;
+  quickBookProfile?: QuickBookProfileVisibilityDraft;
   reveal?: boolean;
   starter: StarterId;
 };
@@ -923,12 +930,25 @@ export function StartingPreviewScreen({
   onBack,
   onContinue,
   onOpenPreview,
+  onQuickBookBioChange,
+  onQuickBookProfileChange,
   preview,
   profile,
+  quickBookProfile,
   reveal = false,
   starter,
 }: StartingPreviewScreenProps) {
   const copy = SCREEN_METADATA.starting_preview;
+  const showQuickBookSettings = starter === 'quick_book'
+    && quickBookProfile
+    && onQuickBookProfileChange;
+  const shortBio = profile.about.shortBio;
+
+  const updateQuickBookVisibility = <Key extends keyof QuickBookProfileVisibilityDraft>(
+    key: Key,
+  ) => (checked: QuickBookProfileVisibilityDraft[Key]) => {
+    onQuickBookProfileChange?.({ [key]: checked });
+  };
 
   return (
     <section
@@ -944,6 +964,130 @@ export function StartingPreviewScreen({
         <strong>{profile.businessName || 'Your business'}</strong>
         {profile.location.cityOrArea ? <span>{profile.location.cityOrArea}</span> : null}
       </div>
+      {showQuickBookSettings ? (
+        <section
+          aria-labelledby="quick-book-profile-settings-heading"
+          className="onboarding-quick-book-profile-settings"
+        >
+          <header>
+            <p className="onboarding-screen-kicker">QUICK BOOK PROFILE</p>
+            <h2 id="quick-book-profile-settings-heading">Choose what clients see</h2>
+            <p>
+              These switches change only Quick Book. Your salon details stay saved if you
+              choose another website design later.
+            </p>
+            <p>
+              You can add location, hours, contact details and policies in the next setup
+              steps. This preview updates automatically as those shared details are saved.
+            </p>
+          </header>
+
+          <div className="onboarding-quick-book-profile-settings__groups">
+            <section aria-labelledby="quick-book-identity-settings-heading">
+              <h3 id="quick-book-identity-settings-heading">Business identity</h3>
+              <NativeSwitch
+                checked={quickBookProfile.showTechName}
+                description={profile.ownerName.trim()
+                  ? `Show ${profile.ownerName.trim()} below your salon name.`
+                  : 'Add your name in Business details to show it here.'}
+                label="Show nail tech name"
+                onChange={updateQuickBookVisibility('showTechName')}
+              />
+              <NativeSwitch
+                checked={quickBookProfile.showTechPhoto}
+                description={profile.profilePhoto
+                  ? 'Show your accepted profile photo beside your salon identity.'
+                  : 'Add a profile photo in Business details to show it here.'}
+                label="Show nail tech photo"
+                onChange={updateQuickBookVisibility('showTechPhoto')}
+              />
+            </section>
+
+            <section aria-labelledby="quick-book-visit-settings-heading">
+              <h3 id="quick-book-visit-settings-heading">Location and hours</h3>
+              <NativeSwitch
+                checked={quickBookProfile.showLocation}
+                description="Use your saved public location and directions settings. Private addresses stay private."
+                label="Show location"
+                onChange={updateQuickBookVisibility('showLocation')}
+              />
+              <NativeSwitch
+                checked={quickBookProfile.showHours}
+                description="Use the same weekly business hours saved for your salon."
+                label="Show business hours"
+                onChange={updateQuickBookVisibility('showHours')}
+              />
+            </section>
+
+            <section aria-labelledby="quick-book-contact-settings-heading">
+              <h3 id="quick-book-contact-settings-heading">Contact</h3>
+              <NativeSwitch
+                checked={quickBookProfile.showPhone}
+                description="Use your saved public call or text number."
+                label="Show phone"
+                onChange={updateQuickBookVisibility('showPhone')}
+              />
+              <NativeSwitch
+                checked={quickBookProfile.showEmail}
+                description="Use your saved public email address."
+                label="Show email"
+                onChange={updateQuickBookVisibility('showEmail')}
+              />
+              <NativeSwitch
+                checked={quickBookProfile.showInstagram}
+                description="Use your saved, valid Instagram profile."
+                label="Show Instagram / work"
+                onChange={updateQuickBookVisibility('showInstagram')}
+              />
+            </section>
+
+            <section aria-labelledby="quick-book-trust-settings-heading">
+              <h3 id="quick-book-trust-settings-heading">Policies and reviews</h3>
+              <NativeSwitch
+                checked={quickBookProfile.showBookingPolicy}
+                description="Show a compact Policies action with your saved booking rules."
+                label="Show booking policy"
+                onChange={updateQuickBookVisibility('showBookingPolicy')}
+              />
+              <NativeSwitch
+                checked={quickBookProfile.showCancellationPolicy}
+                description="Include your saved cancellation wording in the same Policies action."
+                label="Show cancellation policy"
+                onChange={updateQuickBookVisibility('showCancellationPolicy')}
+              />
+              <NativeSwitch
+                checked={quickBookProfile.showReviews}
+                description="Appears after saving only when verified review data is connected. Luster never invents a rating."
+                label="Show reviews"
+                onChange={updateQuickBookVisibility('showReviews')}
+              />
+            </section>
+
+            <section aria-labelledby="quick-book-bio-settings-heading">
+              <h3 id="quick-book-bio-settings-heading">Short bio</h3>
+              <NativeSwitch
+                checked={quickBookProfile.showBio}
+                description="Use one short introduction in the profile card."
+                label="Show short bio"
+                onChange={updateQuickBookVisibility('showBio')}
+              />
+              {quickBookProfile.showBio ? (
+                <div className="onboarding-quick-book-profile-settings__bio">
+                  <TextAreaField
+                    label="Short salon or nail tech bio"
+                    maxLength={QUICK_BOOK_SHORT_BIO_MAX_LENGTH}
+                    value={shortBio}
+                    onChange={(event) => onQuickBookBioChange?.(event.target.value)}
+                  />
+                  <small>
+                    {shortBio.length}/{QUICK_BOOK_SHORT_BIO_MAX_LENGTH} characters
+                  </small>
+                </div>
+              ) : null}
+            </section>
+          </div>
+        </section>
+      ) : null}
       <section
         aria-label={`${profile.businessName || 'Your business'} starting website preview`}
         className="onboarding-starting-preview__canvas"

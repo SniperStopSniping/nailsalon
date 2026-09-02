@@ -124,7 +124,7 @@ const getAllowedTypesForPage = (
 
   if (document.originStarter === 'quick_book') {
     return role === 'home'
-      ? ['hero', 'gallery', 'booking', profileSectionType, 'visit_us']
+      ? ['hero', 'booking', 'gallery']
       : [];
   }
   if (document.originStarter === 'one_page') {

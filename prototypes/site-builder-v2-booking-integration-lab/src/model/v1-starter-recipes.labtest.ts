@@ -211,13 +211,11 @@ const recipeInput = (
 };
 
 describe('locked V1 starter recipes', () => {
-  it('materializes only the five Quick Book content responsibilities', () => {
+  it('materializes the compact profile, Booking, and optional work proof for Quick Book', () => {
     expect(pageTypes(initializeStarter('quick_book'))).toEqual([[
       'hero',
-      'gallery',
       'booking',
-      'about',
-      'visit_us',
+      'gallery',
     ]]);
   });
 
@@ -332,7 +330,7 @@ describe('legacy starter recipe migration', () => {
       recipeVersion: V1_STARTER_RECIPE_VERSION,
     });
     expect(pageTypes(result.document)).toEqual(starter === 'quick_book'
-      ? [['hero', 'gallery', 'booking', 'about', 'visit_us']]
+      ? [['hero', 'booking', 'gallery']]
       : starter === 'one_page'
         ? [[
             'hero',
@@ -378,6 +376,45 @@ describe('legacy starter recipe migration', () => {
     expect(aboutPage?.sections[0]?.id).toBe(originalAbout.id);
     expect(second.document).toEqual(first.document);
     expect(second.migrationResult).toBe('fresh_v1');
+  });
+
+  it('migrates the untouched five-slot Quick Book recipe without losing retained section IDs', () => {
+    const source = initializeStarter('quick_book', { siteId: 'site-quick-book-v1' });
+    const home = source.pages[0];
+    if (!home) throw new Error('Quick Book fixture has no Home page.');
+    const hero = home.sections.find(section => section.sectionType === 'hero');
+    const gallery = home.sections.find(section => section.sectionType === 'gallery');
+    const booking = home.sections.find(section => section.sectionType === 'booking');
+    if (!hero || !gallery || !booking) {
+      throw new Error('Quick Book v2 fixture is incomplete.');
+    }
+    const ids = createDeterministicIdFactory('quick-book-v1-slots');
+    const about = createLibrarySectionInstance('about', ids, { order: 3 });
+    const visit = createLibrarySectionInstance('visit_us', ids, {
+      label: 'Visit & Contact',
+      order: 4,
+      presetId: 'compact_info',
+    });
+    source.pages[0]!.sections = [
+      { ...hero, label: 'Salon intro', order: 0 },
+      { ...gallery, order: 1 },
+      { ...booking, order: 2 },
+      about,
+      visit,
+    ];
+
+    const result = reconcileV1StarterDocument(source, recipeInput(source, {
+      gallery: true,
+    }));
+
+    expect(result.migrationResult).toBe('migrated_legacy_recipe');
+    expect(pageTypes(result.document)).toEqual([['hero', 'booking', 'gallery']]);
+    expect(result.document.pages[0]?.sections.map(section => section.id)).toEqual([
+      hero.id,
+      booking.id,
+      gallery.id,
+    ]);
+    expect(result.document.pages[0]?.sections[0]?.label).toBe('Salon intro');
   });
 
   it('does not migrate an old shape after a deliberate Builder edit', () => {
@@ -428,14 +465,14 @@ describe('legacy starter recipe migration', () => {
   it('does not reorder a V1 document after an owner moves core sections', () => {
     const edited = initializeStarter('quick_book', { siteId: 'site-manual-order' });
     const sections = [...edited.pages[0]!.sections];
-    const about = sections.find(section => section.sectionType === 'about');
+    const gallery = sections.find(section => section.sectionType === 'gallery');
     const booking = sections.find(section => section.sectionType === 'booking');
-    if (!about || !booking) {
+    if (!gallery || !booking) {
       throw new Error('Quick Book fixture is incomplete.');
     }
-    const moved = sections.filter(section => section.id !== about.id);
+    const moved = sections.filter(section => section.id !== gallery.id);
     const bookingIndex = moved.findIndex(section => section.id === booking.id);
-    moved.splice(bookingIndex, 0, about);
+    moved.splice(bookingIndex, 0, gallery);
     edited.pages[0]!.sections = moved.map((section, order) => ({ ...section, order }));
 
     const result = reconcileV1StarterDocument(edited, recipeInput(edited));

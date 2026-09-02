@@ -237,7 +237,10 @@ export function BookingPageBuilder({
   onOperation,
 }: BookingPageBuilderProps) {
   const presentationState = { ...draft, presetBase };
-  const sectionDefinitions = listBookingPageBuilderSections(draft.layout);
+  const sectionDefinitions = listBookingPageBuilderSections(
+    draft.layout,
+    draft.quickBookProfile,
+  );
   const definitionsById = new Map(
     sectionDefinitions.map(definition => [definition.id, definition]),
   );
@@ -329,7 +332,10 @@ export function BookingPageBuilder({
       previewedReorderableSectionOrder,
     );
     const currentPosition = currentOrder.indexOf(completed.sectionId);
-    const label = listBookingPageBuilderSections(currentDraft.layout)
+    const label = listBookingPageBuilderSections(
+      currentDraft.layout,
+      currentDraft.quickBookProfile,
+    )
       .find(definition => definition.id === completed.sectionId)?.label
       ?? completed.sectionId;
     restoreMoveFocusIfLost({

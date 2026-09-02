@@ -34,6 +34,14 @@ const storage = vi.hoisted(() => ({
 const authorization = vi.hoisted(() => ({
   authorize: vi.fn(async () => holder.authorized),
 }));
+const canonical = vi.hoisted(() => ({
+  deleteMedia: vi.fn(async () => undefined),
+  saveMedia: vi.fn(async ({ mediaId, role }: { mediaId: string; role: string }) => ({
+    publicUrl: `https://images.example/${role}/${mediaId}.webp`,
+    storageKey: `salons/salon_media_route/${role}/${mediaId}`,
+    storageProvider: 'cloudinary' as const,
+  })),
+}));
 
 vi.mock('@/libs/DB', () => ({
   get db() {
@@ -48,6 +56,18 @@ vi.mock('@/features/onboarding-v1-integration/media-authorization.server', () =>
 }));
 vi.mock('@/features/onboarding-v1-integration/config.server', () => ({
   isOnboardingV1IntegrationEnabled: () => true,
+}));
+vi.mock('@/features/onboarding-v1-integration/canonical-profile-media.server', () => ({
+  CanonicalOnboardingProfileMediaError: class CanonicalOnboardingProfileMediaError extends Error {
+    code: string;
+
+    constructor(code: string, message: string) {
+      super(message);
+      this.code = code;
+    }
+  },
+  deleteCanonicalOnboardingProfileMedia: canonical.deleteMedia,
+  saveCanonicalOnboardingProfileMedia: canonical.saveMedia,
 }));
 vi.mock('@/features/onboarding-v1-integration/media-storage.server', () => ({
   deleteOnboardingMediaFile: storage.deleteFile,
@@ -71,17 +91,23 @@ const SITE_ID = '22222222-2222-4222-8222-222222222222';
 let client: PGlite;
 let db: ReturnType<typeof drizzle<typeof schema>>;
 
-const uploadRequest = ({ localItemId = 'logo-item' } = {}) => {
+const uploadRequest = ({
+  localItemId = 'logo-item',
+  role = 'logo',
+}: {
+  localItemId?: string;
+  role?: 'logo' | 'profile';
+} = {}) => {
   const form = new FormData();
-  form.set('altText', 'Isla Nail Studio logo');
+  form.set('altText', role === 'logo' ? 'Isla Nail Studio logo' : 'Daniela portrait');
   form.set('draftId', 'draft_123456789012345678901234567890');
   form.set('file', new File(['image'], 'logo.png', { type: 'image/png' }));
   form.set('fileName', 'logo.png');
-  form.set('idempotencyKey', 'claim_123456789012345678901234567890:logo-item:logo:0');
+  form.set('idempotencyKey', `claim_123456789012345678901234567890:${localItemId}:${role}:0`);
   form.set('localItemId', localItemId);
   form.set('mimeType', 'image/png');
   form.set('order', '0');
-  form.set('role', 'logo');
+  form.set('role', role);
   form.set('siteId', SITE_ID);
   form.set('siteRevision', '1');
   return new Request('http://localhost/api/onboarding/v1/media', {
@@ -101,7 +127,12 @@ beforeAll(async () => {
     `INSERT INTO admin_user (id, name, email) VALUES ('${ADMIN_ID}', 'Daniela', 'daniela-media@example.test')`,
   );
   await client.query(
-    `INSERT INTO salon (id, name, slug) VALUES ('${SALON_ID}', 'Isla Nail Studio', 'isla-media-route')`,
+    `INSERT INTO salon (id, name, slug, publication_status)
+     VALUES ('${SALON_ID}', 'Isla Nail Studio', 'isla-media-route', 'draft')`,
+  );
+  await client.query(
+    `INSERT INTO technician (id, salon_id, name, is_active)
+     VALUES ('technician_media_route', '${SALON_ID}', 'Daniela', true)`,
   );
   await client.query(`
     INSERT INTO onboarding_site
@@ -114,7 +145,8 @@ beforeAll(async () => {
       (id, salon_id, site_id, revision, created_by_admin_id, snapshot_version, snapshot,
        snapshot_fingerprint, document_version, document, document_fingerprint)
     VALUES
-      ('${REVISION_ID}', '${SALON_ID}', '${SITE_ID}', 1, '${ADMIN_ID}', 1, '{}',
+      ('${REVISION_ID}', '${SALON_ID}', '${SITE_ID}', 1, '${ADMIN_ID}', 1,
+       '{"profile":{"logoItemId":"logo-item","profilePhotoItemId":"profile-item"}}',
        'snapshot-fingerprint', 1, '{}', 'document-fingerprint')
   `);
 }, 60_000);
@@ -129,6 +161,14 @@ beforeEach(async () => {
     salonId: SALON_ID,
     siteId: SITE_ID,
   };
+  await db.update(schema.salonSchema).set({
+    logoUrl: null,
+    publicationStatus: 'draft',
+  }).where(eq(schema.salonSchema.id, SALON_ID));
+  await db.update(schema.technicianSchema).set({
+    avatarUrl: null,
+    isActive: true,
+  }).where(eq(schema.technicianSchema.id, 'technician_media_route'));
   await db.delete(schema.onboardingSiteMediaSchema);
   await db.insert(schema.onboardingSiteMediaSchema).values({
     fileName: 'logo.png',
@@ -168,17 +208,141 @@ describe('POST /api/onboarding/v1/media', () => {
 
     expect(row).toMatchObject({
       claimStatus: 'ready',
+      metadata: {
+        byteSize: 321,
+        canonicalPublicUrl: `https://images.example/logo/${MEDIA_ID}.webp`,
+        canonicalStorageProvider: 'cloudinary',
+      },
       storageProvider: 'development_local',
       uploadLeaseId: null,
     });
     expect(row?.storageKey).toMatch(/^salon\/site\/logo\/[a-f0-9-]+\.webp$/);
     expect(authorization.authorize).toHaveBeenCalledWith(SITE_ID, { ownerOnly: true });
+
+    const [salon] = await db.select({ logoUrl: schema.salonSchema.logoUrl })
+      .from(schema.salonSchema)
+      .where(eq(schema.salonSchema.id, SALON_ID));
+
+    expect(salon?.logoUrl).toBe(`https://images.example/logo/${MEDIA_ID}.webp`);
+    expect(canonical.saveMedia).toHaveBeenCalledWith(expect.objectContaining({
+      bytes: Buffer.from('saved-image'),
+      mediaId: MEDIA_ID,
+      role: 'logo',
+      salonId: SALON_ID,
+      technicianId: null,
+    }));
+  });
+
+  it('projects a profile image only to its one exact active technician', async () => {
+    await db.delete(schema.onboardingSiteMediaSchema);
+    await db.insert(schema.onboardingSiteMediaSchema).values({
+      fileName: 'profile.png',
+      id: MEDIA_ID,
+      localItemId: 'profile-item',
+      mimeType: 'image/png',
+      revisionId: REVISION_ID,
+      role: 'profile',
+      salonId: SALON_ID,
+      siteId: SITE_ID,
+      sortOrder: 0,
+    });
+
+    const response = await POST(uploadRequest({
+      localItemId: 'profile-item',
+      role: 'profile',
+    }));
+
+    expect(response.status).toBe(200);
+
+    const [technician] = await db.select({ avatarUrl: schema.technicianSchema.avatarUrl })
+      .from(schema.technicianSchema)
+      .where(eq(schema.technicianSchema.id, 'technician_media_route'));
+
+    expect(technician?.avatarUrl).toBe(`https://images.example/profile/${MEDIA_ID}.webp`);
+
+    const [salon] = await db.select({ logoUrl: schema.salonSchema.logoUrl })
+      .from(schema.salonSchema)
+      .where(eq(schema.salonSchema.id, SALON_ID));
+
+    expect(salon?.logoUrl).toBeNull();
+    expect(canonical.saveMedia).toHaveBeenCalledWith(expect.objectContaining({
+      role: 'profile',
+      technicianId: 'technician_media_route',
+    }));
+  });
+
+  it('does not project saved-draft identity media over an already-published salon', async () => {
+    await db.update(schema.salonSchema).set({
+      logoUrl: 'https://images.example/live-logo.webp',
+      publicationStatus: 'published',
+    }).where(eq(schema.salonSchema.id, SALON_ID));
+
+    expect((await POST(uploadRequest())).status).toBe(200);
+
+    expect(canonical.saveMedia).not.toHaveBeenCalled();
+
+    const [salon] = await db.select({ logoUrl: schema.salonSchema.logoUrl })
+      .from(schema.salonSchema)
+      .where(eq(schema.salonSchema.id, SALON_ID));
+
+    expect(salon?.logoUrl).toBe('https://images.example/live-logo.webp');
+  });
+
+  it('fails closed instead of guessing between multiple active profile owners', async () => {
+    await db.insert(schema.technicianSchema).values({
+      id: 'technician_media_route_second',
+      isActive: true,
+      name: 'Maya',
+      salonId: SALON_ID,
+    });
+    await db.delete(schema.onboardingSiteMediaSchema);
+    await db.insert(schema.onboardingSiteMediaSchema).values({
+      fileName: 'profile.png',
+      id: MEDIA_ID,
+      localItemId: 'profile-item',
+      mimeType: 'image/png',
+      revisionId: REVISION_ID,
+      role: 'profile',
+      salonId: SALON_ID,
+      siteId: SITE_ID,
+      sortOrder: 0,
+    });
+
+    const response = await POST(uploadRequest({
+      localItemId: 'profile-item',
+      role: 'profile',
+    }));
+
+    expect(response.status).toBe(422);
+    await expect(response.json()).resolves.toMatchObject({
+      error: {
+        code: 'CANONICAL_PROFILE_OWNER_UNRESOLVED',
+        message: 'Choose which team member this profile photo belongs to, then try again.',
+      },
+    });
+    expect(canonical.saveMedia).not.toHaveBeenCalled();
+    expect(storage.deleteFile).not.toHaveBeenCalled();
+
+    const [savedPrivateMedia] = await db.select({
+      claimStatus: schema.onboardingSiteMediaSchema.claimStatus,
+      storageKey: schema.onboardingSiteMediaSchema.storageKey,
+    }).from(schema.onboardingSiteMediaSchema)
+      .where(eq(schema.onboardingSiteMediaSchema.id, MEDIA_ID));
+
+    expect(savedPrivateMedia).toMatchObject({
+      claimStatus: 'ready',
+      storageKey: expect.any(String),
+    });
+
+    await db.delete(schema.technicianSchema)
+      .where(eq(schema.technicianSchema.id, 'technician_media_route_second'));
   });
 
   it('is idempotent after the declared media row is ready', async () => {
     expect((await POST(uploadRequest())).status).toBe(200);
     expect((await POST(uploadRequest())).status).toBe(200);
     expect(storage.saveFile).toHaveBeenCalledOnce();
+    expect(canonical.saveMedia).toHaveBeenCalledOnce();
   });
 
   it('recovers an abandoned upload lease without racing a current upload', async () => {
@@ -262,6 +426,7 @@ describe('POST /api/onboarding/v1/media', () => {
     expect(storage.deleteFile).toHaveBeenCalledOnce();
     expect(storage.deleteFile).toHaveBeenCalledWith(losingKey);
     expect(storage.deleteFile).not.toHaveBeenCalledWith(winningKey);
+    expect(canonical.saveMedia).toHaveBeenCalledOnce();
 
     const [row] = await db
       .select()

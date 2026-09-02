@@ -300,6 +300,12 @@ export type ResolveSalonContentInput = {
      * `applyLocationDisplayMode` below.
      */
     locationDisplayMode?: LocationDisplayMode;
+    /**
+     * Global salon-profile contact eligibility. `false` strips public phone
+     * output without clearing the canonical salon/location value. Missing
+     * legacy state preserves the established location-mode behavior.
+     */
+    publicContactAllowed?: boolean;
   };
 };
 
@@ -506,6 +512,7 @@ function resolveLocation(input: SalonContentLocationInput): SalonContentLocation
 
 export function resolveSalonContent(input: ResolveSalonContentInput): SalonContent {
   const locationDisplayMode: LocationDisplayMode = input.content?.locationDisplayMode ?? 'full_address';
+  const publicContactAllowed = input.content?.publicContactAllowed !== false;
   const technicians = input.technicians.map(resolveTechnician);
   const services = input.services.map(resolveService);
   const servicesById = new Map(services.map(service => [service.id, service]));
@@ -573,7 +580,10 @@ export function resolveSalonContent(input: ResolveSalonContentInput): SalonConte
       // the real primary location, and `resolvedAddress`'s own
       // primary-vs-salon-level fallback logic must run before redaction, not
       // choose between two already-redacted candidates.
-      locations: locations.map(location => applyLocationDisplayMode(location, locationDisplayMode)),
+      locations: locations.map((location) => {
+        const projected = applyLocationDisplayMode(location, locationDisplayMode);
+        return publicContactAllowed ? projected : { ...projected, phone: null };
+      }),
       address: resolvedAddress ? applyLocationDisplayMode(resolvedAddress, locationDisplayMode) : null,
       hours: primaryLocation?.hours ?? input.salon.businessHours ?? null,
       entranceInstructions: null,

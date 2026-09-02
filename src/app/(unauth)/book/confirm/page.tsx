@@ -22,8 +22,12 @@ import { resolveDraftSalonAccess } from '@/libs/ownerPreview';
 import { resolvePublicBookingTechnicianContext } from '@/libs/publicBookingTechnicians';
 import { resolvePublicRetentionCampaignPreview } from '@/libs/publicRetentionCampaign';
 import { getLocationById, getPrimaryLocation } from '@/libs/queries';
-import { applyLocationDisplayMode, applyPhoneDisplayMode } from '@/libs/salonContent';
+import { applyLocationDisplayMode } from '@/libs/salonContent';
 import { buildTenantRedirectPath, checkFeatureEnabled, checkSalonStatus, isRewardsEnabled, isSmsEnabled } from '@/libs/salonStatus';
+import {
+  resolvePublicSalonPhone,
+  resolveSharedSalonProfile,
+} from '@/libs/sharedSalonProfile';
 import { buildTaxConfigurationSnapshot, resolveTaxConfig } from '@/libs/taxConfig';
 import { getPublicPageContext } from '@/libs/tenant';
 import { getDateKeyInTimeZone, getTimeKeyInTimeZone } from '@/libs/timeZone';
@@ -141,6 +145,7 @@ export default async function BookConfirmPage({
   const activeBookingPageContentSide = previewGate.isPreviewingDraftConfig
     ? bookingPageContent.draft
     : bookingPageContent.live;
+  const sharedProfile = resolveSharedSalonProfile(salon.settings);
   const ownerPreviewState: SalonOwnerPreviewState = {
     isPreviewing: previewGate.isPreviewingDraftSalon || previewGate.isPreviewingDraftConfig,
     actorType: previewGate.actorType,
@@ -449,7 +454,11 @@ export default async function BookConfirmPage({
           // counterpart of the `applyLocationDisplayMode` calls above — same
           // choke point, same `activeBookingPageContentSide.locationDisplayMode`
           // gate, never a second/drifting redaction decision.
-          salonPhone={applyPhoneDisplayMode(salon.phone ?? null, activeBookingPageContentSide.locationDisplayMode)}
+          salonPhone={resolvePublicSalonPhone(
+            sharedProfile,
+            salon.phone ?? null,
+            activeBookingPageContentSide.locationDisplayMode,
+          )}
           depositDisclosure={depositDisclosure}
           depositNoticeSuppressed={depositNoticeSuppressed}
           depositFingerprint={depositFingerprint}

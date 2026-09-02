@@ -235,6 +235,7 @@ export function createSavedSitePreviewModel(input: {
         paletteConfirmed: true,
         palettePreset: snapshot.site.palettePresetId,
         policiesEnabled: snapshot.site.policiesEnabled,
+        quickBookProfile: { ...snapshot.site.quickBookProfile },
         starter: snapshot.site.starter,
         starterDocumentSiteId: document.builderDocument.siteId,
         styleConfirmed: true,

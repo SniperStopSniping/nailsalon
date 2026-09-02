@@ -504,7 +504,7 @@ describe('StartingPointScreen', () => {
     // Each card describes the exact locked customer recipe. Site-shell chrome
     // is automatic and therefore never appears in this content/page summary.
     expect(screen.getByText(
-      'Salon intro · Nail work · Services & Booking · About · Visit & Contact',
+      'Salon intro · Services & Booking · Nail work',
     )).toBeVisible();
     expect(screen.getByText(
       'Welcome · Gallery · About · Services & Booking · Reviews · Before You Book · Visit & Contact',

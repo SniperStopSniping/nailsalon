@@ -20,7 +20,7 @@ import type {
 export type LayoutRenderProps = {
   layout: BookingMenuLayout;
   fixture: MockMenuFixture;
-  headingLevel?: 'h1' | 'h2';
+  headingLevel?: 'h1' | 'h2' | 'h3';
   settings: BookingSectionPresentationSettings;
   selection: BookingSelection;
   activeCategory: ServiceCategory | 'all';
@@ -39,7 +39,7 @@ function BookingPageHeading({
   level = 'h1',
 }: {
   children: ReactNode;
-  level?: 'h1' | 'h2';
+  level?: 'h1' | 'h2' | 'h3';
 }) {
   const Heading = level;
   return <Heading className="booking-page-heading">{children}</Heading>;

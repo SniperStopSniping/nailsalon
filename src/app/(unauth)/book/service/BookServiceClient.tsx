@@ -26,6 +26,10 @@ import {
   type PublicTechnicianPreview,
   technicianSupportsPublicLocation,
 } from '@/libs/publicTechnicianCompatibility';
+import {
+  resolveQuickBookPublicSectionOrder,
+  usesCompactQuickBookProfile,
+} from '@/libs/quickBookProfilePresentation';
 import { EMPTY_SALON_CONTENT } from '@/libs/salonContent';
 import { deriveSalonProfileHeroAlt, resolveSectionPresentation } from '@/libs/sectionPresentation';
 import {
@@ -39,6 +43,9 @@ import { BOOKING_CATEGORIES, type BookingCategory } from '@/models/Schema';
 import { useSalon } from '@/providers/SalonProvider';
 import { themeVars } from '@/theme';
 import { formatDuration } from '@/utils/Helpers';
+
+import type { QuickBookProfileView } from './quickBookProfile';
+import { QuickBookProfileHeader } from './QuickBookProfileHeader';
 
 type ServiceCategory =
   | 'manicure'
@@ -124,6 +131,8 @@ type BookServiceClientProps = {
    * entrance state visible without waiting for an effect that cannot run.
    */
   isEmbeddedBuilderPreview?: boolean;
+  /** Server-projected public data; disabled Quick Book fields never reach the client. */
+  quickBookProfile?: QuickBookProfileView;
 };
 
 // Height reserved for the fixed CTA bar. The in-page spacer and the tenant
@@ -262,6 +271,7 @@ export function BookServiceClient({
   lusterFeaturingEnabled = true,
   showServiceImages = true,
   isEmbeddedBuilderPreview = false,
+  quickBookProfile,
 }: BookServiceClientProps) {
   const router = useRouter();
   const params = useParams();
@@ -274,7 +284,14 @@ export function BookServiceClient({
   // only undefined in test doubles that mock `useSalon()` with a partial
   // object; the real SalonProvider always supplies both, resolved
   // server-side, so these fallbacks only ever apply outside production.
-  const quickBookSectionOrder = bookingPage?.sectionOrder ?? QUICK_BOOK_SECTION_ORDER_FALLBACK;
+  const layout = bookingPage?.layout ?? 'quick_book';
+  const compactQuickBookProfileEnabled = layout === 'quick_book'
+    && usesCompactQuickBookProfile(bookingPage?.quickBookProfile);
+  const quickBookSectionOrder = resolveQuickBookPublicSectionOrder(
+    layout,
+    bookingPage?.sectionOrder ?? QUICK_BOOK_SECTION_ORDER_FALLBACK,
+    bookingPage?.quickBookProfile,
+  );
   // Post-launch fix: resolved `bookingPage.{draft,live}.hiddenSections` —
   // previously written by the admin surface, validated by
   // validateSectionOrder, and round-tripped through publish/revert, but
@@ -307,7 +324,21 @@ export function BookServiceClient({
       },
       social: bookingExperience.socialLinks,
     };
-  const layout = bookingPage?.layout ?? 'quick_book';
+  const resolvedQuickBookProfile: QuickBookProfileView = quickBookProfile ?? {
+    identity: {
+      salonName,
+      logoUrl: quickBookContent.identity.logoUrl,
+      technicianName: null,
+      technicianPhotoUrl: null,
+    },
+    location: null,
+    hours: null,
+    contact: null,
+    policies: [],
+    reviews: null,
+    instagram: null,
+    bio: null,
+  };
   const sectionPresentation = resolveSectionPresentation({
     layout,
     sectionVariants: bookingPage?.sectionVariants,
@@ -1257,14 +1288,18 @@ export function BookServiceClient({
             menuVariant: 'list' | 'grouped_categories';
           }) => (
             <>
-              {(shouldRenderSection(sectionPlan, 'announcement') || shouldRenderSection(sectionPlan, 'bookingFacts')) && (
+              {(shouldRenderSection(sectionPlan, 'announcement') || (
+                !compactQuickBookProfileEnabled && shouldRenderSection(sectionPlan, 'bookingFacts')
+              )) && (
                 <section
                   data-public-surfaces="announcement bookingFacts"
                   data-testid="booking-experience-intro"
                   aria-label="Booking information"
                   className="mb-4 space-y-2.5"
                 >
-                  {shouldRenderSection(sectionPlan, 'bookingFacts') && serviceQuickFacts.length > 0 && (
+                  {!compactQuickBookProfileEnabled
+                  && shouldRenderSection(sectionPlan, 'bookingFacts')
+                  && serviceQuickFacts.length > 0 && (
                     <ul
                       data-public-surface="bookingFacts"
                       data-testid="booking-quick-facts"
@@ -2001,47 +2036,60 @@ export function BookServiceClient({
           // it resolves defaults/placement in `sectionPresentation` above.
           const sectionRenderers: SectionVariantRenderers = {
             salonProfile: {
-              compact: () => (
-                <BookingStepHeader
-                  salonName={salonName}
-                  mounted={previewContentReady}
-                  salonNameVariant="editorial"
-                  announcement={campaignOffer
+              compact: () => {
+                const announcement = campaignOffer
+                  ? (
+                      <div className="inline-flex max-w-full items-center justify-center rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-center text-[11px] font-semibold leading-tight text-emerald-900 shadow-[0_4px_14px_rgba(0,0,0,0.04)]">
+                        ✨
+                        {' '}
+                        {campaignOffer.name}
+                        {' · '}
+                        {campaignOffer.displayOffer}
+                        {campaignOffer.code ? ` · ${campaignOffer.code}` : ''}
+                      </div>
+                    )
+                  : showNewClientPromo
                     ? (
-                        <div className="inline-flex max-w-full items-center justify-center rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-center text-[11px] font-semibold leading-tight text-emerald-900 shadow-[0_4px_14px_rgba(0,0,0,0.04)]">
-                          ✨
-                          {' '}
-                          {campaignOffer.name}
-                          {' · '}
-                          {campaignOffer.displayOffer}
-                          {campaignOffer.code ? ` · ${campaignOffer.code}` : ''}
+                        <div
+                          className="inline-flex max-w-full items-center justify-center rounded-full border px-3 py-1.5 text-center text-[11px] font-medium leading-tight shadow-[0_4px_14px_rgba(0,0,0,0.04)]"
+                          style={{
+                            borderColor: `color-mix(in srgb, ${themeVars.accent} 18%, ${themeVars.cardBorder})`,
+                            backgroundColor: `color-mix(in srgb, white 84%, ${themeVars.accent} 16%)`,
+                            color: hasBookingBrandColor
+                              ? themeVars.accent
+                              : `color-mix(in srgb, ${themeVars.primaryDark} 74%, ${themeVars.accent})`,
+                          }}
+                        >
+                          ✨ 25% off for new clients — until April 30
                         </div>
                       )
-                    : showNewClientPromo
-                      ? (
-                          <div
-                            className="inline-flex max-w-full items-center justify-center rounded-full border px-3 py-1.5 text-center text-[11px] font-medium leading-tight shadow-[0_4px_14px_rgba(0,0,0,0.04)]"
-                            style={{
-                              borderColor: `color-mix(in srgb, ${themeVars.accent} 18%, ${themeVars.cardBorder})`,
-                              backgroundColor: `color-mix(in srgb, white 84%, ${themeVars.accent} 16%)`,
-                              color: hasBookingBrandColor
-                                ? themeVars.accent
-                                : `color-mix(in srgb, ${themeVars.primaryDark} 74%, ${themeVars.accent})`,
-                            }}
-                          >
-                            ✨ 25% off for new clients — until April 30
-                          </div>
-                        )
-                      : undefined}
-                  title="Choose Your Service"
-                  description="Pick your main service, then add optional extras."
-                  bookingFlow={effectiveBookingFlow}
-                  currentStep="service"
-                  isFirstStep={isFirstStep}
-                  onBack={handleBack}
-                  className="-mb-1"
-                />
-              ),
+                    : undefined;
+
+                return compactQuickBookProfileEnabled
+                  ? (
+                      <QuickBookProfileHeader
+                        profile={resolvedQuickBookProfile}
+                        mounted={previewContentReady}
+                        bookingFlow={effectiveBookingFlow}
+                        announcement={announcement}
+                      />
+                    )
+                  : (
+                      <BookingStepHeader
+                        salonName={salonName}
+                        mounted={previewContentReady}
+                        salonNameVariant="editorial"
+                        announcement={announcement}
+                        title="Choose Your Service"
+                        description="Pick your main service, then add optional extras."
+                        bookingFlow={effectiveBookingFlow}
+                        currentStep="service"
+                        isFirstStep={isFirstStep}
+                        onBack={handleBack}
+                        className="-mb-1"
+                      />
+                    );
+              },
               hero_image: () => (
                 <section data-public-surface="salonProfile" data-testid="editorial-hero" className="-mx-4 -mt-4 mb-4 lg:mx-0 lg:mb-8 lg:mt-0">
                   <div className="relative aspect-[4/5] w-full overflow-hidden sm:aspect-video lg:aspect-[21/9] lg:rounded-3xl">

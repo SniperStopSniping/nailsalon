@@ -64,6 +64,7 @@ yarn-error.log*
 # local folder
 local
 /public/uploads/services/
+/public/uploads/onboarding-profile/
 
 # vercel
 .vercel

@@ -95,5 +95,6 @@ export function resolveBookingPagePresetPreviewSide({
     hiddenSections: [...recipe.hiddenSections],
     businessMode: currentSide.businessMode,
     startMode: currentSide.startMode,
+    quickBookProfile: { ...currentSide.quickBookProfile },
   };
 }

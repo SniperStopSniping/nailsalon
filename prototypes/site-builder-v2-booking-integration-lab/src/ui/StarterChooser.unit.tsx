@@ -22,7 +22,7 @@ const EXPECTED_STARTERS: ReadonlyArray<{
     cta: 'Start with Quick Book',
     description: 'Start taking bookings with only the essentials.',
     id: 'quick_book',
-    included: 'Salon intro · Nail work · Services & Booking · About · Visit & Contact',
+    included: 'Salon intro · Services & Booking · Nail work',
     includesLabel: 'Includes',
     title: 'Quick Book',
   },

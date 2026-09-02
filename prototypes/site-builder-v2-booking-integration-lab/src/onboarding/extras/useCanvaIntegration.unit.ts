@@ -151,15 +151,15 @@ describe('Canva placement', () => {
     });
     const location = locateCanonicalBookingPage(quick);
     expect(location?.page.name).toBe('Home');
-    // The locked Quick Book recipe is Hero, Gallery, Booking, About, and
-    // Visit & Contact. Booking therefore sits at zero-based index 2.
+    // The locked Quick Book recipe is Profile Hero, Booking, then compact
+    // Gallery. Booking therefore sits at zero-based index 1.
     expect(getCanvaPlacementTarget(quick, 'before_booking')).toMatchObject({
       pageId: location?.page.id,
-      position: 3,
+      position: 2,
     });
     expect(getCanvaPlacementTarget(quick, 'after_booking')).toMatchObject({
       pageId: location?.page.id,
-      position: 4,
+      position: 3,
     });
 
     const multi = initializeStarter('multi_page', {

@@ -46,6 +46,20 @@ const CLIENT_SAFE_BOOKING_PAGE_SIDE_DEFAULTS: BookingPageConfigSide = {
   hiddenSections: [],
   businessMode: 'solo',
   startMode: 'services_first',
+  quickBookProfile: {
+    version: 1,
+    showTechName: false,
+    showTechPhoto: false,
+    showLocation: false,
+    showHours: false,
+    showPhone: false,
+    showEmail: false,
+    showBookingPolicy: false,
+    showCancellationPolicy: false,
+    showReviews: false,
+    showInstagram: false,
+    showBio: false,
+  },
 };
 
 // Empty values force callers to resolve tenant context explicitly.

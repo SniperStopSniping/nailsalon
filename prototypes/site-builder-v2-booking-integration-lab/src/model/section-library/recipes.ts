@@ -143,7 +143,7 @@ const buildRecipePages = (
 export const WEBSITE_RECIPES: readonly WebsiteRecipe[] = [
   {
     audience: 'Solo tech who wants clients booking in under a minute.',
-    description: 'The fastest path from a social profile to an appointment: nail work, one service catalogue, booking, a compact introduction, and practical visit details.',
+    description: 'The fastest path from a compact salon profile to an appointment: essential business details, one service catalogue and booking flow, then a concise nail-work gallery.',
     id: 'quick_book',
     name: 'Quick Book',
     originStarter: 'quick_book',

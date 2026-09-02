@@ -8,6 +8,7 @@ import { validateCustomDesignSettings } from '../../../prototypes/site-builder-v
 import type { CustomDesignSettings } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/custom-design/model/types';
 import type { SiteBuilderDocument } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/model/types';
 import { validateImportedDocumentValue } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/model/validation';
+import { DEFAULT_QUICK_BOOK_PROFILE_VISIBILITY } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/model/types';
 
 export const ONBOARDING_SITE_SNAPSHOT_VERSION = 1 as const;
 export const ONBOARDING_SITE_DOCUMENT_VERSION = 1 as const;
@@ -282,6 +283,19 @@ const siteRecipeSchema = z.object({
   galleryEnabled: z.boolean(),
   palettePresetId: z.enum(ONBOARDING_PALETTE_PRESET_IDS),
   policiesEnabled: z.boolean(),
+  quickBookProfile: z.object({
+    showBio: z.boolean(),
+    showBookingPolicy: z.boolean(),
+    showCancellationPolicy: z.boolean(),
+    showEmail: z.boolean(),
+    showHours: z.boolean(),
+    showInstagram: z.boolean(),
+    showLocation: z.boolean(),
+    showPhone: z.boolean(),
+    showReviews: z.boolean(),
+    showTechName: z.boolean(),
+    showTechPhoto: z.boolean(),
+  }).strict().default({ ...DEFAULT_QUICK_BOOK_PROFILE_VISIBILITY }),
   starter: z.enum(['quick_book', 'one_page', 'multi_page']),
   stylePresetId: z.enum(ONBOARDING_STYLE_PRESET_IDS),
 }).strict();
@@ -494,7 +508,7 @@ const compiledPageSchema = z.object({
 
 export const onboardingCompiledSiteDocumentSchema = z.object({
   builderDocument: siteBuilderDocumentSchema,
-  compilerVersion: z.literal(1).default(1),
+  compilerVersion: z.union([z.literal(1), z.literal(2)]).default(2),
   navigation: z.array(z.object({
     label: nonEmptyText(100),
     order: z.number().int().min(0),
@@ -508,7 +522,7 @@ export const onboardingCompiledSiteDocumentSchema = z.object({
     'migrated_legacy_recipe',
     'preserved_manual_edits',
   ]).default('preserved_manual_edits'),
-  recipeVersion: z.literal(1).default(1),
+  recipeVersion: z.union([z.literal(1), z.literal(2)]).default(2),
   revision: z.number().int().positive(),
   schemaVersion: z.literal(ONBOARDING_SITE_DOCUMENT_VERSION),
   serviceSelection: z.object({

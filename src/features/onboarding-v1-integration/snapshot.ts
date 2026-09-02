@@ -205,6 +205,7 @@ export function createPersistableOnboardingDraft(
       galleryEnabled: state.recipe.galleryEnabled,
       palettePresetId,
       policiesEnabled: state.recipe.policiesEnabled,
+      quickBookProfile: { ...state.recipe.quickBookProfile },
       starter: state.recipe.starter,
       stylePresetId: state.recipe.stylePreset,
     },

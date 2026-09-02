@@ -87,6 +87,25 @@ describe('FindBookingPage phone privacy (locationDisplayMode)', () => {
     }));
   });
 
+  it('booking-only contact redacts salonPhone even when full_address is enabled', async () => {
+    requirePublishedTenantSalon.mockResolvedValueOnce({
+      id: 'salon_1',
+      slug: 'salon-a',
+      name: 'Salon A',
+      phone: PRIVATE_PHONE,
+      publicationStatus: 'published',
+      settings: { sharedProfile: { bookingOnlyContact: true } },
+    });
+
+    const element = await FindBookingPage({ params: { slug: 'salon-a' } });
+    render(element);
+
+    expect(findBookingFormSpy).toHaveBeenCalledWith(expect.objectContaining({
+      salonPhone: null,
+    }));
+    expect(JSON.stringify(findBookingFormSpy.mock.calls.at(-1)![0])).not.toContain(PRIVATE_PHONE);
+  });
+
   it('city_only redacts salonPhone to null — the exact string never reaches the FindBookingForm props', async () => {
     resolveBookingPageContent.mockReturnValue(bookingPageContentReturn('city_only'));
 

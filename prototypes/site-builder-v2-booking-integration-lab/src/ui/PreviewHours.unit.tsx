@@ -65,10 +65,8 @@ describe('Builder handoff business metadata', () => {
     expect(screen.getByRole('heading', { name: 'Salon intro' })).toBeVisible();
     expect(activePage.sections.map(section => section.sectionType)).toEqual([
       'hero',
-      'gallery',
       'booking',
-      'about',
-      'visit_us',
+      'gallery',
     ]);
     expect(view.container.querySelectorAll('[data-section-type="booking"]')).toHaveLength(1);
     expect(view.container.querySelector('[data-section-type="featured_services"]'))

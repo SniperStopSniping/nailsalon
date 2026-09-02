@@ -3,6 +3,11 @@ import { randomUUID } from 'node:crypto';
 import { and, eq, or } from 'drizzle-orm';
 import { z } from 'zod';
 
+import {
+  type CanonicalOnboardingProfileMedia,
+  CanonicalOnboardingProfileMediaError,
+} from '@/features/onboarding-v1-integration/canonical-profile-media.server';
+import { promoteCurrentDraftCanonicalIdentityMedia } from '@/features/onboarding-v1-integration/canonical-profile-media-lifecycle.server';
 import { isOnboardingV1IntegrationEnabled } from '@/features/onboarding-v1-integration/config.server';
 import { authorizeOnboardingSite } from '@/features/onboarding-v1-integration/media-authorization.server';
 import {
@@ -13,7 +18,9 @@ import {
 } from '@/features/onboarding-v1-integration/media-storage.server';
 import { getAdminSession } from '@/libs/adminAuth';
 import { db } from '@/libs/DB';
-import { onboardingSiteMediaSchema } from '@/models/Schema';
+import {
+  onboardingSiteMediaSchema,
+} from '@/models/Schema';
 
 export const dynamic = 'force-dynamic';
 
@@ -48,6 +55,16 @@ const mediaResponse = (media: typeof onboardingSiteMediaSchema.$inferSelect) => 
     },
   },
 });
+
+const canonicalProjectionMetadata = (
+  projection: CanonicalOnboardingProfileMedia | null,
+): Record<string, string> => projection
+  ? {
+      canonicalPublicUrl: projection.publicUrl,
+      canonicalStorageKey: projection.storageKey,
+      canonicalStorageProvider: projection.storageProvider,
+    }
+  : {};
 
 export async function POST(request: Request): Promise<Response> {
   if (!isOnboardingV1IntegrationEnabled()) {
@@ -134,10 +151,11 @@ export async function POST(request: Request): Promise<Response> {
     && manifestItem.height
     && manifestItem.storageKey
   ) {
+    let storedFileReadable = true;
     try {
       await readOnboardingMediaFile(manifestItem.storageKey);
-      return Response.json(mediaResponse(manifestItem));
     } catch {
+      storedFileReadable = false;
       await db
         .update(onboardingSiteMediaSchema)
         .set({ claimStatus: 'failed', failureCode: 'STORED_MEDIA_MISSING', uploadLeaseId: null })
@@ -145,6 +163,56 @@ export async function POST(request: Request): Promise<Response> {
           eq(onboardingSiteMediaSchema.id, manifestItem.id),
           eq(onboardingSiteMediaSchema.claimStatus, 'ready'),
         ));
+    }
+
+    if (storedFileReadable) {
+      if (
+        (
+          manifestItem.role !== 'logo'
+          && manifestItem.role !== 'profile'
+        )
+        || typeof manifestItem.metadata.canonicalPublicUrl === 'string'
+      ) {
+        return Response.json(mediaResponse(manifestItem));
+      }
+
+      try {
+        const projection = manifestItem.role === 'logo' || manifestItem.role === 'profile'
+          ? await promoteCurrentDraftCanonicalIdentityMedia(
+            manifestItem.id,
+            manifestItem.role,
+            manifestItem.salonId,
+          )
+          : null;
+        if (projection) {
+          const [projected] = await db.update(onboardingSiteMediaSchema).set({
+            metadata: {
+              ...manifestItem.metadata,
+              ...canonicalProjectionMetadata(projection),
+            },
+          }).where(and(
+            eq(onboardingSiteMediaSchema.id, manifestItem.id),
+            eq(onboardingSiteMediaSchema.claimStatus, 'ready'),
+            eq(onboardingSiteMediaSchema.storageKey, manifestItem.storageKey),
+          )).returning();
+          if (projected) {
+            return Response.json(mediaResponse(projected));
+          }
+        }
+        return Response.json(mediaResponse(manifestItem));
+      } catch (error) {
+        const code = error instanceof CanonicalOnboardingProfileMediaError
+          ? error.code
+          : 'MEDIA_STORAGE_FAILED';
+        return Response.json({
+          error: {
+            code,
+            message: error instanceof CanonicalOnboardingProfileMediaError
+              ? error.message
+              : 'This image could not be connected to your public profile. Your saved copy is still safe.',
+          },
+        }, { status: 422 });
+      }
     }
   }
 
@@ -230,14 +298,54 @@ export async function POST(request: Request): Promise<Response> {
         error: { code: 'MEDIA_SAVE_CONFLICT', message: 'This image changed while it was saving. Try again.' },
       }, { status: 409 });
     }
-    return Response.json(mediaResponse(ready));
+
+    // Only the request that won the immutable private-media lease may update
+    // the public role-owned projection. Projecting before this compare-and-set
+    // would let a reclaimed, stale request overwrite the newer logo/photo.
+    try {
+      const canonicalProjection = ready.role === 'logo' || ready.role === 'profile'
+        ? await promoteCurrentDraftCanonicalIdentityMedia(
+          ready.id,
+          ready.role,
+          ready.salonId,
+        )
+        : null;
+      if (!canonicalProjection) {
+        return Response.json(mediaResponse(ready));
+      }
+      const [projected] = await db.update(onboardingSiteMediaSchema).set({
+        metadata: {
+          ...ready.metadata,
+          ...canonicalProjectionMetadata(canonicalProjection),
+        },
+      }).where(and(
+        eq(onboardingSiteMediaSchema.id, ready.id),
+        eq(onboardingSiteMediaSchema.claimStatus, 'ready'),
+        eq(onboardingSiteMediaSchema.storageKey, ready.storageKey!),
+      )).returning();
+      return Response.json(mediaResponse(projected ?? ready));
+    } catch (error) {
+      const code = error instanceof CanonicalOnboardingProfileMediaError
+        ? error.code
+        : 'MEDIA_STORAGE_FAILED';
+      return Response.json({
+        error: {
+          code,
+          message: error instanceof CanonicalOnboardingProfileMediaError
+            ? error.message
+            : 'This image could not be connected to your public profile. Your saved copy is still safe.',
+        },
+      }, { status: 422 });
+    }
   } catch (error) {
     if (storageKey) {
       await deleteOnboardingMediaFile(storageKey).catch(() => undefined);
     }
     const code = error instanceof OnboardingMediaStorageError
       ? error.code
-      : 'MEDIA_STORAGE_FAILED';
+      : error instanceof CanonicalOnboardingProfileMediaError
+        ? error.code
+        : 'MEDIA_STORAGE_FAILED';
     await db
       .update(onboardingSiteMediaSchema)
       .set({ claimStatus: 'failed', failureCode: code, uploadLeaseId: null })
@@ -250,6 +358,7 @@ export async function POST(request: Request): Promise<Response> {
       error: {
         code,
         message: error instanceof OnboardingMediaStorageError
+          || error instanceof CanonicalOnboardingProfileMediaError
           ? error.message
           : 'This image could not be saved. Your local copy is still safe.',
       },

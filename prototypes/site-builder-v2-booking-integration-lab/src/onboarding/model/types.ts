@@ -1,7 +1,7 @@
 import type { DepositDraft } from '../integrations/contracts/booking-preferences';
 import type { ServiceMenuSelectionDraft } from '../integrations/contracts/service-menu';
 
-export const ONBOARDING_SCHEMA_VERSION = 9 as const;
+export const ONBOARDING_SCHEMA_VERSION = 10 as const;
 
 export type OnboardingStage = 'basics' | 'booking' | 'design' | 'review';
 
@@ -264,6 +264,40 @@ export type SitePalettePresetId =
 
 export type StarterId = 'quick_book' | 'one_page' | 'multi_page';
 
+/**
+ * Quick Book-specific presentation choices. The values decide whether one
+ * shared salon-profile field may be rendered by Quick Book; the underlying
+ * business, staff, contact, policy, and social content remains canonical in
+ * `BusinessProfileDraft`.
+ */
+export type QuickBookProfileVisibilityDraft = {
+  showBio: boolean;
+  showBookingPolicy: boolean;
+  showCancellationPolicy: boolean;
+  showEmail: boolean;
+  showHours: boolean;
+  showInstagram: boolean;
+  showLocation: boolean;
+  showPhone: boolean;
+  showReviews: boolean;
+  showTechName: boolean;
+  showTechPhoto: boolean;
+};
+
+export const DEFAULT_QUICK_BOOK_PROFILE_VISIBILITY = {
+  showBio: false,
+  showBookingPolicy: false,
+  showCancellationPolicy: false,
+  showEmail: false,
+  showHours: false,
+  showInstagram: false,
+  showLocation: false,
+  showPhone: false,
+  showReviews: false,
+  showTechName: false,
+  showTechPhoto: false,
+} as const satisfies QuickBookProfileVisibilityDraft;
+
 export type OnboardingSiteRecipe = {
   starter: StarterId | null;
   starterDocumentSiteId: string | null;
@@ -277,6 +311,7 @@ export type OnboardingSiteRecipe = {
   styleConfirmed: boolean;
   palettePreset: SitePalettePresetId;
   paletteConfirmed: boolean;
+  quickBookProfile: QuickBookProfileVisibilityDraft;
 };
 
 export type GalleryLayout = 'grid' | 'carousel' | 'editorial';

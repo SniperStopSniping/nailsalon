@@ -4,6 +4,7 @@ import {
   type BusinessProfileDraft,
   type CanvaDraft,
   type DashboardHandoffDraft,
+  DEFAULT_QUICK_BOOK_PROFILE_VISIBILITY,
   type GalleryDraft,
   ONBOARDING_SCHEMA_VERSION,
   type OnboardingLabState,
@@ -208,6 +209,16 @@ export const createDefaultSiteRecipe = (): OnboardingSiteRecipe => ({
   canvaEnabled: false,
   galleryEnabled: false,
   policiesEnabled: true,
+  // A fresh owner has just supplied their name and explicitly chosen any
+  // profile photo during onboarding, so recommend the compact identity shown
+  // in the Quick Book reference. Legacy drafts are migrated separately with
+  // conservative, evidence-based visibility and account-side config still
+  // defaults every flag to private.
+  quickBookProfile: {
+    ...DEFAULT_QUICK_BOOK_PROFILE_VISIBILITY,
+    showTechName: true,
+    showTechPhoto: true,
+  },
   paletteConfirmed: false,
   palettePreset: 'luster_berry',
   starter: null,

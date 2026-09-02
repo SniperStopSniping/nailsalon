@@ -5,7 +5,7 @@ import type { SectionInstance, SectionType } from './types';
  * Customer content is resolved once for the complete semantic site. Renderers
  * consume this plan; they do not independently decide where shared data lives.
  */
-export const SITE_CONTENT_PLACEMENT_VERSION = 1 as const;
+export const SITE_CONTENT_PLACEMENT_VERSION = 2 as const;
 
 export type SiteContentKey =
   | 'brand_logo'
@@ -64,6 +64,8 @@ export type SiteContentAvailability = Partial<Record<SiteContentKey, boolean>>;
 export type SiteContentPlacementOptions = {
   /** Exact shared staff record representing the Business Profile owner. */
   ownerStaffMemberId?: string | null;
+  /** Quick Book's compact profile Hero owns its optional public profile facts. */
+  quickBookProfileSectionId?: string | null;
 };
 
 /** Shared-data eligibility is computed once beside readiness, never in render order. */
@@ -247,6 +249,9 @@ export const buildSiteContentPlacementPlan = (
   const byType = (type: SectionType): SectionCandidate[] => candidates.filter(
     section => section.sectionType === type,
   );
+  const quickBookProfileOwner = options.quickBookProfileSectionId
+    ? candidates.find(section => section.id === options.quickBookProfileSectionId) ?? null
+    : null;
   const supportsContent = (
     candidate: SectionCandidate,
     key: SiteContentKey,
@@ -338,10 +343,16 @@ export const buildSiteContentPlacementPlan = (
     }
   };
 
-  placements.brand_logo = {
-    ...defaultPlacement('brand_logo'),
-    ownerSectionId: 'site_header',
-  };
+  placements.brand_logo = quickBookProfileOwner
+    ? {
+        ...defaultPlacement('brand_logo'),
+        ownerPageId: quickBookProfileOwner.pageId,
+        ownerSectionId: quickBookProfileOwner.id,
+      }
+    : {
+        ...defaultPlacement('brand_logo'),
+        ownerSectionId: 'site_header',
+      };
   // No dedicated Hero-media authority exists in V1. Legacy Profile/Logo
   // choices migrate to the style-owned no-media treatment.
   placements.hero_media = defaultPlacement('hero_media');
@@ -354,12 +365,20 @@ export const buildSiteContentPlacementPlan = (
     )) ?? null
     : null;
   assign('owner_profile_photo', ['about', 'team'], ['about', 'team', 'hero'], {
-    owner: aboutProfileOwner ?? teamProfileOwner,
+    owner: quickBookProfileOwner ?? aboutProfileOwner ?? teamProfileOwner,
   });
-  assign('instagram', ['visit_us', 'contact'], ['visit_us', 'contact', 'footer', 'about']);
-  assign('phone', ['visit_us', 'contact'], ['visit_us', 'contact', 'footer', 'about']);
-  assign('text', ['visit_us', 'contact'], ['visit_us', 'contact', 'footer', 'about']);
-  assign('email', ['visit_us', 'contact'], ['visit_us', 'contact', 'footer', 'about']);
+  assign('instagram', ['visit_us', 'contact'], ['hero', 'visit_us', 'contact', 'footer', 'about'], {
+    owner: quickBookProfileOwner ?? undefined,
+  });
+  assign('phone', ['visit_us', 'contact'], ['hero', 'visit_us', 'contact', 'footer', 'about'], {
+    owner: quickBookProfileOwner ?? undefined,
+  });
+  assign('text', ['visit_us', 'contact'], ['hero', 'visit_us', 'contact', 'footer', 'about'], {
+    owner: quickBookProfileOwner ?? undefined,
+  });
+  assign('email', ['visit_us', 'contact'], ['hero', 'visit_us', 'contact', 'footer', 'about'], {
+    owner: quickBookProfileOwner ?? undefined,
+  });
   assign('booking_only_contact', ['visit_us', 'contact'], ['visit_us', 'contact']);
   assign('location', ['visit_us', 'contact'], [
     'visit_us',
@@ -368,7 +387,7 @@ export const buildSiteContentPlacementPlan = (
     'hero',
     'booking',
     'footer',
-  ]);
+  ], { owner: quickBookProfileOwner ?? undefined });
   assign('exact_address', ['visit_us', 'contact'], [
     'visit_us',
     'contact',
@@ -376,8 +395,10 @@ export const buildSiteContentPlacementPlan = (
     'hero',
     'booking',
     'footer',
-  ]);
-  assign('arrival_details', ['visit_us'], ['visit_us', 'contact', 'footer']);
+  ], { owner: quickBookProfileOwner ?? undefined });
+  assign('arrival_details', ['visit_us'], ['hero', 'visit_us', 'contact', 'footer'], {
+    owner: quickBookProfileOwner ?? undefined,
+  });
   assign('business_hours', ['visit_us', 'hours'], [
     'hours',
     'visit_us',
@@ -386,8 +407,10 @@ export const buildSiteContentPlacementPlan = (
     'hero',
     'about',
     'footer',
-  ]);
-  assign('appointment_mode', ['quick_info', 'booking'], ['quick_info', 'booking', 'hero', 'about']);
+  ], { owner: quickBookProfileOwner ?? undefined });
+  assign('appointment_mode', ['quick_info', 'booking'], ['quick_info', 'booking', 'hero', 'about'], {
+    owner: quickBookProfileOwner ?? undefined,
+  });
   assign('new_client_status', ['quick_info', 'booking'], ['quick_info', 'booking', 'hero', 'about']);
   assign('minimum_notice', ['quick_info', 'booking'], ['quick_info', 'booking', 'hero', 'about']);
   assign('deposit_cancellation_policy', ['policies', 'deposits_cancellations', 'booking'], [
@@ -397,14 +420,14 @@ export const buildSiteContentPlacementPlan = (
     'hero',
     'quick_info',
     'footer',
-  ]);
+  ], { owner: quickBookProfileOwner ?? undefined });
   assign('before_you_book_policies', ['policies', 'booking'], [
     'policies',
     'about',
     'faq',
     'contact',
     'footer',
-  ]);
+  ], { owner: quickBookProfileOwner ?? undefined });
   assign('service_catalogue', ['booking'], ['booking']);
   const galleryCandidates = byType('gallery');
   const dedicatedGalleryOwner = galleryCandidates.find(candidate => (
@@ -465,7 +488,20 @@ export const buildSiteContentPlacementPlan = (
       assignPageUnique('service_marketing', ['featured_services']);
     }
     assignPageUnique('team_profiles', ['team']);
-    assignPageUnique('reviews', ['reviews']);
+    if (
+      quickBookProfileOwner?.pageId === page.id
+      && availability.reviews !== false
+    ) {
+      (pagePlacements[page.id] ??= {}).reviews = {
+        contentKey: 'reviews',
+        ownerPageId: page.id,
+        ownerSectionId: quickBookProfileOwner.id,
+        reasonBySectionId: {},
+        suppressedSectionIds: [],
+      };
+    } else {
+      assignPageUnique('reviews', ['reviews']);
+    }
     assignPageUnique('custom_design', ['custom_design']);
   }
 
