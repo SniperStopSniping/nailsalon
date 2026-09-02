@@ -961,11 +961,6 @@ function BookingSection({
           <strong>{fact.value}</strong>
         </section>
       ))}
-      <div
-        className="onboarding-booking-selection-host"
-        data-testid="onboarding-booking-selection-host"
-        ref={setSummaryHost}
-      />
       <BookingSectionRenderer
         fixture={fixture}
         headingLevel="h2"
@@ -978,6 +973,11 @@ function BookingSection({
         showSalonIdentity={false}
         summaryHost={summaryHost}
         tokenPreset="warm"
+      />
+      <div
+        className="onboarding-booking-selection-host"
+        data-testid="onboarding-booking-selection-host"
+        ref={setSummaryHost}
       />
       {policyEntries.length > 0 ? (
         <details className="onboarding-quick-book-policies">

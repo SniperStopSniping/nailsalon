@@ -1053,11 +1053,13 @@ describe('OnboardingSitePreview shared profile composition', () => {
 
     const preview = screen.getByRole('region', { name: 'Unselected Booking preview' });
     const booking = within(preview).getByRole('region', { name: 'Booking' });
+    const bookingRenderer = within(booking).getByTestId('booking-section-preview');
     const summaryHost = within(booking).getByTestId('onboarding-booking-selection-host');
     const overlayHost = preview.querySelector<HTMLElement>('.onboarding-preview-overlay-host');
 
     expect(within(preview).queryByTestId('selected-service-summary')).not.toBeInTheDocument();
     expect(summaryHost).toBeEmptyDOMElement();
+    expect(bookingRenderer.nextElementSibling).toBe(summaryHost);
 
     await user.click(within(booking).getAllByRole('button', {
       name: /View details for Gel Manicure, 1 hr, \$50/,
@@ -1072,6 +1074,7 @@ describe('OnboardingSitePreview shared profile composition', () => {
     expect(screen.queryByTestId('service-detail-dialog')).not.toBeInTheDocument();
     expect(summary).toBeVisible();
     expect(summaryHost).toContainElement(summary);
+    expect(bookingRenderer.nextElementSibling).toBe(summaryHost);
     expect(overlayHost).not.toContainElement(summary);
     expect(within(summary).getByText('Gel Manicure')).toBeVisible();
   });
