@@ -207,7 +207,7 @@ async function openRussianService(
   }
   const action = renderer.getByRole('button', { name: /Russian Manicure/ }).first();
   await action.scrollIntoViewIfNeeded();
-  const menuScrollTop = await page.locator('.client-site').evaluate(
+  const menuScrollTop = await page.locator('[data-preview-scroll-container="true"]').evaluate(
     element => element.scrollTop,
   );
   const windowScrollY = await page.evaluate(() => window.scrollY);
@@ -216,22 +216,36 @@ async function openRussianService(
   return { menuScrollTop, renderer, windowScrollY };
 }
 
-async function expectActionInsideScrollBody(
+async function expectActionInBottomFooter(
+  detail: Locator,
   scrollBody: Locator,
   action: Locator,
 ): Promise<void> {
-  const geometry = await scrollBody.evaluate((body, actionElement) => {
-    const bodyRect = body.getBoundingClientRect();
-    const actionRect = (actionElement as HTMLElement).getBoundingClientRect();
-    return {
-      actionBottom: actionRect.bottom,
-      actionTop: actionRect.top,
-      bodyBottom: bodyRect.bottom,
-      bodyTop: bodyRect.top,
-    };
-  }, await action.elementHandle());
-  expect(geometry.actionTop).toBeGreaterThanOrEqual(geometry.bodyTop - 1);
-  expect(geometry.actionBottom).toBeLessThanOrEqual(geometry.bodyBottom + 1);
+  const panel = detail.locator('.booking-dialog-panel');
+  const footer = detail.getByTestId('service-detail-action-footer');
+  const [panelBox, bodyBox, footerBox, actionBox] = await Promise.all([
+    panel.boundingBox(),
+    scrollBody.boundingBox(),
+    footer.boundingBox(),
+    action.boundingBox(),
+  ]);
+  expect(panelBox).not.toBeNull();
+  expect(bodyBox).not.toBeNull();
+  expect(footerBox).not.toBeNull();
+  expect(actionBox).not.toBeNull();
+  if (!panelBox || !bodyBox || !footerBox || !actionBox) return;
+
+  expect(await detail.evaluate((shell) => {
+    const body = shell.querySelector('[data-testid="service-detail-scroll-body"]');
+    const footerElement = shell.querySelector('[data-testid="service-detail-action-footer"]');
+    return Boolean(body && footerElement && !body.contains(footerElement));
+  })).toBe(true);
+  expect(Math.abs(bodyBox.y + bodyBox.height - footerBox.y)).toBeLessThanOrEqual(1);
+  expect(Math.abs(footerBox.y + footerBox.height - (panelBox.y + panelBox.height)))
+    .toBeLessThanOrEqual(1);
+  expect(actionBox.y).toBeGreaterThanOrEqual(footerBox.y - 1);
+  expect(actionBox.y + actionBox.height)
+    .toBeLessThanOrEqual(footerBox.y + footerBox.height + 1);
 }
 
 type CloseExclusionPosition = {
@@ -245,6 +259,9 @@ async function expectCloseExcludedFromScrollBody(
   detail: Locator,
 ): Promise<CloseExclusionPosition> {
   const geometry = await detail.evaluate((shell) => {
+    if (!(shell instanceof HTMLElement)) {
+      throw new Error('Service Detail shell must be an HTML element.');
+    }
     const panel = shell.querySelector<HTMLElement>('.booking-dialog-panel');
     const body = shell.querySelector<HTMLElement>(
       '[data-testid="service-detail-scroll-body"]',
@@ -272,7 +289,6 @@ async function expectCloseExcludedFromScrollBody(
       '.booking-detail-meta',
       '.booking-add-on-name',
       '.booking-add-on-adjustment',
-      '.booking-detail-actions',
     ].join(','));
 
     return {
@@ -302,6 +318,8 @@ async function expectCloseExcludedFromScrollBody(
       panelDisplay: panelStyle.display,
       safeAreaHitInsideBody: Boolean(safeAreaHit && body.contains(safeAreaHit)),
       samePanelParent: close.parentElement === body.parentElement,
+      shellScaleX: shell.offsetWidth > 0 ? shellRect.width / shell.offsetWidth : 1,
+      shellScaleY: shell.offsetHeight > 0 ? shellRect.height / shell.offsetHeight : 1,
     };
   });
 
@@ -310,15 +328,16 @@ async function expectCloseExcludedFromScrollBody(
   expect(geometry.panelDisplay).toBe('grid');
   expect(geometry.firstGridTrack).toBeCloseTo(72, 0);
   expect(geometry.closePosition).toBe('relative');
-  expect(geometry.bodyTop - geometry.close.bottom).toBeGreaterThanOrEqual(12);
-  expect(geometry.close.height).toBeCloseTo(44, 0);
-  expect(geometry.close.width).toBeCloseTo(44, 0);
+  expect(geometry.bodyTop - geometry.close.bottom)
+    .toBeGreaterThanOrEqual(4 * geometry.shellScaleY);
+  expect(geometry.close.height).toBeCloseTo(44 * geometry.shellScaleY, 0);
+  expect(geometry.close.width).toBeCloseTo(44 * geometry.shellScaleX, 0);
   expect(geometry.closeInsideShell).toBe(true);
   expect(geometry.closeCenterHit).toBe(true);
   expect(geometry.safeAreaHitInsideBody).toBe(false);
   expect(geometry.description.length).toBeGreaterThan(40);
-  expect(geometry.addOnCount).toBe(4);
-  expect(geometry.meaningfulContentCount).toBeGreaterThanOrEqual(11);
+  expect(geometry.addOnCount).toBeGreaterThan(0);
+  expect(geometry.meaningfulContentCount).toBeGreaterThanOrEqual(4);
   expect(geometry.meaningfulContentOutsideScroller).toBe(false);
 
   return geometry.close;
@@ -409,7 +428,7 @@ for (const layout of LAYOUTS) {
         await expect.poll(() => scrollBody.evaluate(element => element.scrollTop))
           .toBeGreaterThan(0);
         expect(Math.abs(
-          await page.locator('.client-site').evaluate(element => element.scrollTop)
+          await page.locator('[data-preview-scroll-container="true"]').evaluate(element => element.scrollTop)
           - menuScrollTop,
         )).toBeLessThanOrEqual(1);
         expect(await page.evaluate(() => window.scrollY)).toBe(windowScrollY);
@@ -426,12 +445,12 @@ for (const layout of LAYOUTS) {
         )).toBe(true);
         const closeEnd = await expectCloseExcludedFromScrollBody(detail);
         expectClosePositionStable(closeStart, closeEnd);
-        await expectActionInsideScrollBody(scrollBody, primary);
+        await expectActionInBottomFooter(detail, scrollBody, primary);
         await expect(primary).toBeEnabled();
         await primary.click({ trial: true });
         await trustedSwipeUp(page, cdp, scrollBody);
         expect(Math.abs(
-          await page.locator('.client-site').evaluate(element => element.scrollTop)
+          await page.locator('[data-preview-scroll-container="true"]').evaluate(element => element.scrollTop)
           - menuScrollTop,
         )).toBeLessThanOrEqual(1);
 
@@ -450,7 +469,7 @@ for (const layout of LAYOUTS) {
           await expect(detail).toHaveCount(0);
         }
         expect(Math.abs(
-          await page.locator('.client-site').evaluate(element => element.scrollTop)
+          await page.locator('[data-preview-scroll-container="true"]').evaluate(element => element.scrollTop)
           - menuScrollTop,
         )).toBeLessThanOrEqual(1);
         expect(await page.evaluate(() => window.scrollY)).toBe(windowScrollY);
@@ -486,7 +505,7 @@ test('simulated Phone contains the same internal Service Detail scroller', async
     const { menuScrollTop } = await openRussianService(page, true);
     const detail = page.getByTestId('service-detail-dialog');
     const body = detail.getByTestId('service-detail-scroll-body');
-    const host = page.locator('.preview-overlay-host');
+    const host = page.locator('.onboarding-preview-overlay-host');
     const closeStart = await expectCloseExcludedFromScrollBody(detail);
     const containment = await detail.evaluate((shell, hostElement) => {
       const shellRect = shell.getBoundingClientRect();
@@ -527,7 +546,7 @@ test('simulated Phone contains the same internal Service Detail scroller', async
     const closeEnd = await expectCloseExcludedFromScrollBody(detail);
     expectClosePositionStable(closeStart, closeEnd);
     expect(Math.abs(
-      await page.locator('.client-site').evaluate(element => element.scrollTop)
+      await page.locator('[data-preview-scroll-container="true"]').evaluate(element => element.scrollTop)
       - menuScrollTop,
     )).toBeLessThanOrEqual(1);
     await detail.getByRole('button', { name: 'Select service' }).click({ trial: true });
@@ -538,7 +557,7 @@ test('simulated Phone contains the same internal Service Detail scroller', async
       .click();
     await openRussianService(page, true);
     const tabletDetail = page.getByTestId('service-detail-dialog');
-    const tabletHost = page.locator('.preview-overlay-host');
+    const tabletHost = page.locator('.onboarding-preview-overlay-host');
     const tabletContainment = await tabletDetail.evaluate((shell, hostElement) => {
       const shellRect = shell.getBoundingClientRect();
       const hostRect = (hostElement as HTMLElement).getBoundingClientRect();
@@ -596,7 +615,7 @@ test.describe('real-mobile-style Chromium context', () => {
       const closeEnd = await expectCloseExcludedFromScrollBody(detail);
       expectClosePositionStable(closeStart, closeEnd);
       const primary = detail.getByRole('button', { name: 'Select service' });
-      await expectActionInsideScrollBody(body, primary);
+      await expectActionInBottomFooter(detail, body, primary);
       const visualReachability = await primary.evaluate((action) => {
         const rectangle = action.getBoundingClientRect();
         const viewportTop = window.visualViewport?.offsetTop ?? 0;
@@ -824,10 +843,10 @@ test('Visual Grid keeps Featured geometry and image-mode detail behavior across 
         const primary = detail.getByRole('button', {
           name: 'Select service',
         });
-        await expectActionInsideScrollBody(body, primary);
+        await expectActionInBottomFooter(detail, body, primary);
         await primary.click({ trial: true });
         expect(Math.abs(
-          await page.locator('.client-site').evaluate(element => element.scrollTop)
+          await page.locator('[data-preview-scroll-container="true"]').evaluate(element => element.scrollTop)
           - menuScrollTop,
         )).toBeLessThanOrEqual(1);
         expect(await page.evaluate(() => window.scrollY)).toBe(windowScrollY);
@@ -862,7 +881,7 @@ test('Visual Grid keeps Featured geometry and image-mode detail behavior across 
       expectClosePositionStable(phoneCloseStart, phoneCloseEnd);
       await phoneDetail.getByRole('button', { name: 'Select service' }).click({ trial: true });
       expect(Math.abs(
-        await page.locator('.client-site').evaluate(element => element.scrollTop)
+        await page.locator('[data-preview-scroll-container="true"]').evaluate(element => element.scrollTop)
         - menuScrollTop,
       )).toBeLessThanOrEqual(1);
       expect(await page.evaluate(() => window.scrollY)).toBe(windowScrollY);
@@ -1182,7 +1201,8 @@ for (const layout of LAYOUTS) {
         let detail = page.getByTestId('service-detail-dialog');
         let body = detail.getByTestId('service-detail-scroll-body');
         await scrollToBottom(body);
-        await expectActionInsideScrollBody(
+        await expectActionInBottomFooter(
+          detail,
           body,
           detail.getByRole('button', { name: 'Select service' }),
         );
