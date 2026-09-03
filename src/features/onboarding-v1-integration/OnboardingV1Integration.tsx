@@ -28,6 +28,7 @@ import { recordOnboardingEvent } from '../../../prototypes/site-builder-v2-booki
 import { FeedbackProvider } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/feedback/FeedbackProvider';
 import { useFeedback } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/feedback/useFeedback';
 import { createAnonymousDraftId } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/model/defaults';
+import { goBack, goToScreen } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/model/routing';
 import type {
   OnboardingEventInput,
   OnboardingLabState,
@@ -633,7 +634,9 @@ function OnboardingIntegrationController({
   const startSave = useCallback((nextPayload: OnboardingSavePayload) => {
     payloadRef.current = nextPayload;
     setPayload(nextPayload);
-    recordIntegrationEvent({ type: 'final_review_completed' }, true);
+    if (nextPayload.state.progress.currentScreen === 'final_preview') {
+      recordIntegrationEvent({ type: 'final_review_completed' }, true);
+    }
     recordIntegrationEvent({ type: 'save_site_started' });
     if (authSettled && accountReady) {
       void claim(undefined, latestFlowRef.current.claimIdempotencyKey);
@@ -654,7 +657,29 @@ function OnboardingIntegrationController({
 
   const returnToReview = useCallback(() => {
     setConflict(null);
+    const loaded = loadOnboardingState();
+    if (loaded.state.progress.currentScreen === 'save_progress') {
+      saveOnboardingState(goBack(loaded.state));
+    }
     setFlow(current => ({ ...current, errorMessage: null, phase: 'onboarding' }));
+    window.history.replaceState({}, '', getOnboardingIntegrationRoute(locale));
+  }, [locale, setFlow]);
+
+  const continueAfterEarlySave = useCallback(() => {
+    const loaded = loadOnboardingState();
+    const nextState = goToScreen(loaded.state, 'booking_preferences');
+    const saved = saveOnboardingState(nextState);
+    if (saved.success && payloadRef.current) {
+      const nextPayload = { ...payloadRef.current, state: saved.state };
+      payloadRef.current = nextPayload;
+      setPayload(nextPayload);
+    }
+    setFlow(current => ({
+      ...current,
+      celebrationSeen: true,
+      claimIdempotencyKey: renewClaimIdempotencyKey(),
+      phase: 'onboarding',
+    }));
     window.history.replaceState({}, '', getOnboardingIntegrationRoute(locale));
   }, [locale, setFlow]);
 
@@ -823,9 +848,12 @@ function OnboardingIntegrationController({
       return flow.savedSite && currentPayload
         ? (
             <SavedCelebration
+              earlySave={currentPayload.state.progress.currentScreen === 'save_progress'}
               locale={locale}
               mediaComplete={flow.mediaComplete}
-              onContinue={() => setFlow(current => ({ ...current, phase: 'plans' }))}
+              onContinue={currentPayload.state.progress.currentScreen === 'save_progress'
+                ? continueAfterEarlySave
+                : () => setFlow(current => ({ ...current, phase: 'plans' }))}
               savedSite={flow.savedSite}
               state={currentPayload.state}
             />
@@ -1058,12 +1086,14 @@ function ConflictScreen({
 }
 
 function SavedCelebration({
+  earlySave,
   locale,
   mediaComplete,
   onContinue,
   savedSite,
   state,
 }: {
+  earlySave: boolean;
   locale: string;
   mediaComplete: boolean;
   onContinue: () => void;
@@ -1077,11 +1107,11 @@ function SavedCelebration({
     headingRef.current?.focus({ preventScroll: true });
     feedback.send({
       kind: 'milestone',
-      message: 'Your Luster site is saved.',
+      message: earlySave ? 'Your progress is saved.' : 'Your Luster site is saved.',
       onceKey: `account-site-saved:${savedSite.siteId}:${savedSite.revision}`,
       replaceVisual: true,
     });
-  }, [feedback, savedSite.revision, savedSite.siteId]);
+  }, [earlySave, feedback, savedSite.revision, savedSite.siteId]);
   return (
     <OwnerSurface modifier="is-saved">
       <section className="onboarding-saved-card" aria-labelledby="onboarding-saved-title">
@@ -1093,11 +1123,11 @@ function SavedCelebration({
             <i />
           </div>
           <p className="onboarding-integration-eyebrow">Saved to your account</p>
-          <h1 id="onboarding-saved-title" ref={headingRef} tabIndex={-1}>Your Luster site is saved</h1>
+          <h1 id="onboarding-saved-title" ref={headingRef} tabIndex={-1}>{earlySave ? 'Your progress is saved' : 'Your Luster site is saved'}</h1>
           <p>
-            {salonName}
-            {' '}
-            is now connected to your account. Your website, booking settings and services will be waiting whenever you return.
+            {earlySave
+              ? 'Your site is now saved to your Luster account.'
+              : `${salonName} is now connected to your account. Your website, booking settings and services will be waiting whenever you return.`}
           </p>
           {!mediaComplete
             ? (
@@ -1108,7 +1138,7 @@ function SavedCelebration({
             : null}
           <div className="onboarding-integration-action-stack">
             <button className="onboarding-integration-primary" type="button" onClick={onContinue}>
-              Choose how to start
+              {earlySave ? 'Continue setting up' : 'Choose how to start'}
             </button>
             <a
               className="onboarding-integration-secondary"

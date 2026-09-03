@@ -1659,22 +1659,26 @@ export function SiteStyleScreen({
   const confirmedPaletteAtEntry = useRef(state.recipe.palettePreset);
   const selectedStyle = SITE_STYLE_PRESETS.find((preset) =>
     preset.id === state.recipe.stylePreset) ?? SITE_STYLE_PRESETS[0];
-  const primaryLabel = state.recipe.styleConfirmed && state.recipe.paletteConfirmed
-    ? `Continue with ${selectedStyle?.label ?? 'this style'}`
-    : `Use ${selectedStyle?.label ?? 'this style'}`;
+  const selectedPalette = SITE_PALETTE_PRESETS.find((preset) =>
+    preset.id === state.recipe.palettePreset) ?? SITE_PALETTE_PRESETS[0];
   return (
     <div className="onboarding-screen onboarding-screen--style" data-screen="site_style">
       <div className="onboarding-screen__form">
-        <ScreenHeading id="site_style" status="Required step" />
-        <p className="onboarding-style-reassurance">
-          Your pages, photos and information stay the same — only the style changes.
-        </p>
+        <ScreenHeading id="site_style" status="Step 5 — Style & colours" />
+        <section className="onboarding-style-choice" aria-labelledby="website-style-heading">
+          <div className="onboarding-choice-heading">
+            <Sparkles aria-hidden="true" size={20} />
+            <div>
+              <h2 id="website-style-heading">Choose your website style</h2>
+              <p>Pick the overall look and feel of your site.</p>
+            </div>
+          </div>
         <div aria-label="Site style presets" className="onboarding-style-grid" role="group">
           {SITE_STYLE_PRESETS.map((preset) => {
             const roles = ONBOARDING_STYLE_ROLES[preset.id];
             const isCurrentStyle = preset.id === confirmedStyleAtEntry.current;
             const isSelectedStyle = preset.id === state.recipe.stylePreset;
-            const isPreviewingStyle = isSelectedStyle && !state.recipe.styleConfirmed;
+            const isPreviewingStyle = isSelectedStyle;
             return (
               <button
                 aria-pressed={state.recipe.stylePreset === preset.id}
@@ -1713,29 +1717,31 @@ export function SiteStyleScreen({
                 </span>
                 <strong>{preset.label}</strong>
                 <small>{preset.description}</small>
-                {isCurrentStyle || isPreviewingStyle ? (
+                {isSelectedStyle ? (
                   <span className="onboarding-style-card__statuses">
-                    {isCurrentStyle ? <em>On your site now</em> : null}
-                    {isPreviewingStyle ? (
-                      <em className="is-previewing"><Check aria-hidden="true" size={14} /> Previewing</em>
-                    ) : null}
+                    <em className="is-previewing"><Check aria-hidden="true" size={14} /> Previewing</em>
                   </span>
                 ) : null}
               </button>
             );
           })}
         </div>
+        </section>
         <section className="onboarding-palette-section" aria-labelledby="onboarding-palette-heading">
           <div className="onboarding-palette-section__heading">
-            <p className="onboarding-screen-kicker">Colours</p>
-            <h2 id="onboarding-palette-heading">Choose your colours</h2>
-            <p>Keep the same layout and fonts, then choose the colours that feel most like your brand.</p>
+            <div className="onboarding-choice-heading">
+              <span aria-hidden="true">◉</span>
+              <div>
+                <h2 id="onboarding-palette-heading">Choose your colours</h2>
+                <p>Keep the same layout and style, then choose the colours that feel most like your brand.</p>
+              </div>
+            </div>
           </div>
           <div aria-label="Website colour palettes" className="onboarding-palette-grid" role="group">
             {SITE_PALETTE_PRESETS.map((preset) => {
               const isCurrentPalette = preset.id === confirmedPaletteAtEntry.current;
               const isSelectedPalette = preset.id === state.recipe.palettePreset;
-              const isPreviewingPalette = isSelectedPalette && !state.recipe.paletteConfirmed;
+              const isPreviewingPalette = isSelectedPalette;
               return (
                 <button
                   aria-pressed={isSelectedPalette}
@@ -1772,12 +1778,9 @@ export function SiteStyleScreen({
                   </span>
                   <strong>{preset.label}</strong>
                   <small>{preset.description}</small>
-                  {isCurrentPalette || isPreviewingPalette ? (
+                  {isSelectedPalette ? (
                     <span className="onboarding-palette-card__status">
-                      {isCurrentPalette ? <em>Current colours</em> : null}
-                      {isPreviewingPalette ? (
-                        <em className="is-previewing"><Check aria-hidden="true" size={14} /> Previewing</em>
-                      ) : null}
+                      <em className="is-previewing"><Check aria-hidden="true" size={14} /> Previewing</em>
                     </span>
                   ) : null}
                 </button>
@@ -1786,13 +1789,38 @@ export function SiteStyleScreen({
           </div>
         </section>
       </div>
-      <aside className="onboarding-screen__preview is-preview-first">
-        <OnboardingSitePreview document={document} label="Live personalized style preview" state={state} />
+      <aside className="onboarding-screen__preview onboarding-look-preview">
+        <div className="onboarding-choice-heading">
+          <Sparkles aria-hidden="true" size={20} />
+          <div>
+            <h2>Live site sample</h2>
+            <p>See your choices in action.</p>
+          </div>
+        </div>
+        <div
+          aria-label={`Preview of ${state.profile.businessName || 'your site'} in ${selectedStyle?.label} with ${selectedPalette?.label}`}
+          className="onboarding-look-preview__frame"
+          ref={(element) => { if (element) element.inert = true; }}
+        >
+          <OnboardingSitePreview
+            document={document}
+            fitAvailable
+            interactionMode="inline"
+            label="Live personalized style preview"
+            state={state}
+          />
+        </div>
         <button className="onboarding-full-preview-button" type="button" onClick={onFullPreview}>View full preview</button>
+        <section className="onboarding-look-summary" aria-label="Your selected look" aria-live="polite">
+          <p>YOUR LOOK</p>
+          <div><span aria-hidden="true">Aa</span><strong>{selectedStyle?.label}</strong><Check aria-hidden="true" size={17} /></div>
+          <div><span aria-hidden="true">◉</span><strong>{selectedPalette?.label}</strong><Check aria-hidden="true" size={17} /></div>
+        </section>
+        <p className="onboarding-look-change-note">You can change your style and colours anytime.</p>
       </aside>
       <StickyOnboardingActions
         backLabel="Back"
-        primaryLabel={primaryLabel}
+        primaryLabel="Use this look"
         onBack={onBack}
         onPrimary={onContinue}
       />

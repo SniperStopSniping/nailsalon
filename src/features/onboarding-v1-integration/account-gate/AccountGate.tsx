@@ -7,7 +7,15 @@ import {
   useSignUp,
   useUser,
 } from '@clerk/nextjs';
-import { ArrowLeft, Check, LockKeyhole, Mail, Sparkles } from 'lucide-react';
+import {
+  ArrowLeft,
+  Cloud,
+  LockKeyhole,
+  Mail,
+  ShieldCheck,
+  Smartphone,
+  Sparkles,
+} from 'lucide-react';
 import {
   type FormEvent,
   type ReactNode,
@@ -128,6 +136,7 @@ export function PremiumAccountGate({
   const claimUrl = `${onboardingRoute}?claim=1`;
   const salonName = state.profile.businessName.trim() || 'Your nail studio';
   const selectedServices = state.profile.serviceMenu.selectedServiceIds.length;
+  const isEarlySave = state.progress.currentScreen === 'save_progress';
   const clerkReady = signInLoaded && signUpLoaded;
 
   const sessionEmail = user?.primaryEmailAddress;
@@ -544,22 +553,16 @@ export function PremiumAccountGate({
         ? (
             <section className="onboarding-gate__hero" aria-label="Save your site">
               <p className="onboarding-integration-eyebrow is-on-dark" data-entrance="1">
-                {intent === 'sign-up' ? 'Your site is ready' : 'Welcome back'}
+                {intent === 'sign-up' ? 'Step 6 — Save your progress' : 'Welcome back'}
               </p>
               <h1 className="onboarding-gate__title" data-entrance="2" ref={headingRef} tabIndex={-1}>
                 {intent === 'sign-up'
-                  ? (
-                      <>
-                        Save your site.
-                        <br />
-                        Keep building anywhere.
-                      </>
-                    )
+                  ? <>Your site is coming together <span aria-hidden="true">✨</span></>
                   : 'Log in to keep building.'}
               </h1>
               <p className="onboarding-gate__support" data-entrance="3">
                 {intent === 'sign-up'
-                  ? 'Create your free Luster account to keep your website, services, photos and booking setup safe—and continue from any device.'
+                  ? 'Create your free Luster account to save your progress and keep building your online booking site.'
                   : 'Log in to connect this website to your Luster account.'}
               </p>
               {errorMessage
@@ -579,43 +582,23 @@ export function PremiumAccountGate({
                     state={state}
                   />
                 </div>
-                <p className="onboarding-gate__proof-line">
-                  <Check aria-hidden="true" size={15} />
-                  <span>
-                    <strong>{salonName}</strong>
-                    {' '}
-                    is ready to save
-                  </span>
-                </p>
-                <p className="onboarding-gate__proof-meta">
-                  {getSiteStyleLabel(state.recipe.stylePreset)}
-                  {' · '}
-                  {SITE_PALETTE_BY_ID[state.recipe.palettePreset].label}
-                  {' · '}
-                  {selectedServices}
-                  {' '}
-                  {selectedServices === 1 ? 'service' : 'services'}
-                </p>
+                <p className="onboarding-gate__proof-line"><strong>{salonName}</strong></p>
+                <p className="onboarding-gate__proof-meta">{getSiteStyleLabel(state.recipe.stylePreset)} · {SITE_PALETTE_BY_ID[state.recipe.palettePreset].label}{selectedServices > 0 ? ` · ${selectedServices} ${selectedServices === 1 ? 'service' : 'services'}` : ''}</p>
+              </div>
+              <ul className="onboarding-gate__benefits" aria-label="Account benefits" data-entrance="4">
+                <li><ShieldCheck aria-hidden="true" size={19} />Fully secure</li>
+                <li><Cloud aria-hidden="true" size={19} />Save anytime</li>
+                <li><Smartphone aria-hidden="true" size={19} />Access anywhere</li>
+                <li><LockKeyhole aria-hidden="true" size={19} />Free to create</li>
+              </ul>
+              <div className="onboarding-gate__account-heading">
+                <h2>Create your free account</h2>
+                <p>No payment required. You can change everything later.</p>
               </div>
               {formError
                 ? <p className="onboarding-gate__error" role="alert">{formError}</p>
                 : null}
               <div className="onboarding-gate__actions" data-entrance="4">
-                {providers.apple
-                  ? (
-                      <button
-                        className="onboarding-gate__provider is-apple"
-                        disabled={busy || !clerkReady}
-                        type="button"
-                        onClick={() => {
-                          void startOAuth('oauth_apple');
-                        }}
-                      >
-                        <AppleMark />
-                        <span>Continue with Apple</span>
-                      </button>
-                    )
-                  : null}
                 {providers.google
                   ? (
                       <button
@@ -628,6 +611,21 @@ export function PremiumAccountGate({
                       >
                         <GoogleMark />
                         <span>Continue with Google</span>
+                      </button>
+                    )
+                  : null}
+                {providers.apple
+                  ? (
+                      <button
+                        className="onboarding-gate__provider is-apple"
+                        disabled={busy || !clerkReady}
+                        type="button"
+                        onClick={() => {
+                          void startOAuth('oauth_apple');
+                        }}
+                      >
+                        <AppleMark />
+                        <span>Continue with Apple</span>
                       </button>
                     )
                   : null}
@@ -674,9 +672,7 @@ export function PremiumAccountGate({
               </p>
               <p className="onboarding-gate__reassure" data-entrance="5">
                 <LockKeyhole aria-hidden="true" size={15} />
-                <span>
-                  No payment required. You’ll choose how you want to start next.
-                </span>
+                <span>Free to create · No payment required</span>
               </p>
               <p className="onboarding-gate__reassure is-secondary" data-entrance="5">
                 Your work stays safe on this device until saving is complete.
@@ -919,7 +915,7 @@ export function PremiumAccountGate({
           )
         : null}
 
-      <GateFooterNote onCancel={onCancel} />
+      <GateFooterNote label={isEarlySave ? 'Back' : 'Return to Review'} onCancel={onCancel} />
     </GateShell>
   );
 }
@@ -941,11 +937,11 @@ function GateShell({ children }: { children: ReactNode }) {
   );
 }
 
-function GateFooterNote({ onCancel }: { onCancel: () => void }) {
+function GateFooterNote({ label = 'Return to Review', onCancel }: { label?: string; onCancel: () => void }) {
   return (
     <p className="onboarding-gate__footer">
       <button className="onboarding-gate__text-action" type="button" onClick={onCancel}>
-        Return to Review
+        {label}
       </button>
     </p>
   );

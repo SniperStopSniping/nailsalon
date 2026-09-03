@@ -10,6 +10,7 @@ import './onboarding/gallery-policy-polish.css';
 import './onboarding/daniela-about-style.css';
 import './onboarding/section-library.css';
 import './onboarding/palette.css';
+import './onboarding/style-colours-save.css';
 import './onboarding/feedback/feedback.css';
 
 const rootElement = document.getElementById('root');

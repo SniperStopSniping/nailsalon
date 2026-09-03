@@ -529,6 +529,188 @@ body:has(.onboarding-integration-owner.is-account) {
   }
 }
 
+/* Screen 6: the owner sees the site reward before authentication. */
+.onboarding-integration-owner.is-account {
+  --gate-ground: #fbf7f4;
+  --gate-ground-deep: #f6eeea;
+  --gate-ink: #30262a;
+  --gate-muted: #706267;
+  --gate-faint: #8a7b80;
+  --gate-line: #dfd1d4;
+  --gate-accent: #8f3155;
+  --gate-accent-dark: #70213f;
+  --gate-accent-soft: #f4dce5;
+  --gate-danger: #9f1f42;
+  --gate-focus: #6544b8;
+  --gate-surface: #fffdfb;
+  background: var(--gate-ground);
+  color: var(--gate-ink);
+}
+
+body:has(.onboarding-integration-owner.is-account) {
+  background: #fbf7f4;
+}
+
+.onboarding-gate__glow {
+  background:
+    radial-gradient(ellipse 70% 30% at 12% 4%, rgb(244 220 229 / 70%), transparent 72%),
+    linear-gradient(180deg, #fffdfb 0%, var(--gate-ground) 100%);
+}
+
+.onboarding-integration-owner.is-account .onboarding-integration-owner__brand,
+.onboarding-integration-eyebrow.is-on-dark {
+  color: var(--gate-accent) !important;
+}
+
+.onboarding-gate__column {
+  max-width: 760px;
+}
+
+.onboarding-gate__hero {
+  padding-top: clamp(18px, 3vh, 34px);
+}
+
+.onboarding-gate__title {
+  color: var(--gate-ink);
+  font-size: clamp(2rem, 7vw, 3rem);
+}
+
+.onboarding-gate__support,
+.onboarding-gate__proof-meta,
+.onboarding-gate__reassure,
+.onboarding-gate__reassure.is-secondary {
+  color: var(--gate-muted);
+}
+
+.onboarding-gate__proof {
+  margin: clamp(18px, 3vh, 26px) auto 12px;
+  width: 100%;
+}
+
+.onboarding-gate__thumb {
+  width: min(100%, 620px);
+  height: clamp(260px, 42vh, 430px);
+  border-color: var(--gate-line);
+  border-radius: 24px;
+  background: #fff;
+  box-shadow: 0 20px 56px rgb(78 38 54 / 16%);
+}
+
+.onboarding-gate__proof-line {
+  color: var(--gate-ink);
+}
+
+.onboarding-gate__benefits {
+  display: grid;
+  width: 100%;
+  max-width: 620px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0;
+  margin: 10px auto 24px;
+  padding: 0;
+  border: 1px solid var(--gate-line);
+  border-radius: 16px;
+  background: var(--gate-surface);
+  list-style: none;
+}
+
+.onboarding-gate__benefits li {
+  display: grid;
+  min-width: 0;
+  min-height: 72px;
+  place-items: center;
+  gap: 6px;
+  padding: 10px 5px;
+  color: var(--gate-ink);
+  font-size: 0.72rem;
+  font-weight: 720;
+}
+
+.onboarding-gate__benefits li + li {
+  border-left: 1px solid var(--gate-line);
+}
+
+.onboarding-gate__benefits svg {
+  color: var(--gate-accent);
+}
+
+.onboarding-gate__account-heading {
+  display: grid;
+  gap: 4px;
+  margin: 0 auto 12px;
+  text-align: center;
+}
+
+.onboarding-gate__account-heading h2,
+.onboarding-gate__account-heading p {
+  margin: 0;
+}
+
+.onboarding-gate__account-heading h2 {
+  color: var(--gate-accent-dark);
+  font-family: Newsreader, Georgia, 'Times New Roman', serif;
+  font-size: 1.45rem;
+}
+
+.onboarding-gate__account-heading p {
+  color: var(--gate-muted);
+  font-size: 0.88rem;
+}
+
+.onboarding-gate__title:focus {
+  outline: none;
+}
+
+.onboarding-gate__provider {
+  border-color: var(--gate-line);
+  border-radius: 12px;
+  color: var(--gate-ink);
+  background: #fff;
+}
+
+.onboarding-gate__provider.is-apple,
+.onboarding-gate__provider.is-google,
+.onboarding-gate__provider.is-email {
+  color: var(--gate-ink);
+  background: #fff;
+}
+
+.onboarding-gate__switch,
+.onboarding-gate__footer {
+  color: var(--gate-muted);
+}
+
+.onboarding-gate__switch button,
+.onboarding-gate__text-action {
+  color: var(--gate-accent-dark);
+}
+
+@media (max-width: 520px) {
+  .onboarding-gate {
+    padding-inline: 16px;
+  }
+
+  .onboarding-gate__thumb {
+    height: min(42svh, 360px);
+  }
+
+  .onboarding-gate__benefits li {
+    min-height: 66px;
+    font-size: 0.64rem;
+    text-align: center;
+  }
+}
+
+@media (max-height: 680px) {
+  .onboarding-gate__thumb {
+    height: 210px;
+  }
+
+  .onboarding-gate__benefits {
+    margin-block: 8px 14px;
+  }
+}
+
 /* Short phones: decorative space and the thumbnail give way before buttons. */
 @media (max-height: 640px) {
   .onboarding-gate__thumb {
@@ -575,5 +757,19 @@ body:has(.onboarding-integration-owner.is-account) {
 
   .onboarding-gate__actions {
     max-width: 400px;
+  }
+}
+
+@media (max-height: 640px) {
+  .onboarding-gate__thumb {
+    display: block;
+    height: 160px;
+  }
+}
+
+@media (min-width: 900px) {
+  .onboarding-gate__thumb {
+    width: min(100%, 620px);
+    height: 410px;
   }
 }

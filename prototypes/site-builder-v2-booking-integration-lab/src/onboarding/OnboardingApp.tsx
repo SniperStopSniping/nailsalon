@@ -80,6 +80,7 @@ import {
 import { BrandBasicsScreen } from './screens/BasicsScreens';
 import { HoursScreen } from './screens/HoursScreen';
 import { LocationContactScreen } from './screens/LocationContactScreen';
+import { SaveProgressScreen } from './screens/SaveProgressScreen';
 import {
   BUILDER_HANDOFF_TRIGGER_ID,
   FinalReviewScreen,
@@ -139,6 +140,22 @@ export type OnboardingSavePayload = {
   document: SiteBuilderDocument;
   state: OnboardingLabState;
 };
+
+function AccountGateBridge({ onOpen }: { onOpen: () => void }) {
+  const openedRef = useRef(false);
+  useEffect(() => {
+    if (openedRef.current) return;
+    openedRef.current = true;
+    onOpen();
+  }, [onOpen]);
+  return (
+    <main className="onboarding-account-bridge" aria-busy="true" aria-live="polite">
+      <span aria-hidden="true" />
+      <h1>Preparing your secure account options…</h1>
+      <p>Your site choices are safe on this device.</p>
+    </main>
+  );
+}
 
 const STARTER_LABELS: Record<StarterId, string> = {
   multi_page: 'Multi-page website',
@@ -1429,6 +1446,25 @@ export function OnboardingApp({
               onboarding.continueFlow();
             }}
             onUpdate={updateState}
+            state={onboarding.state}
+          />
+        );
+      case 'save_progress':
+        if (integration && acceptedBuilderDocument) {
+          return (
+            <AccountGateBridge
+              onOpen={() => integration.onSaveSite({
+                document: structuredClone(acceptedBuilderDocument),
+                state: structuredClone(onboarding.state),
+              })}
+            />
+          );
+        }
+        return (
+          <SaveProgressScreen
+            document={acceptedBuilderDocument ?? lab.document}
+            onBack={goBack}
+            onUnavailable={() => setError('Open the connected Luster onboarding route to create or sign in to an account. Your local site preview is still safe.')}
             state={onboarding.state}
           />
         );

@@ -86,6 +86,7 @@ const SCREEN_IDS = new Set<OnboardingScreenId>([
   'about_design',
   'policies',
   'site_style',
+  'save_progress',
   'extras',
   'final_preview',
 ]);
@@ -997,6 +998,7 @@ const isLegacyOnboardingState = (value: unknown): value is SharedStateShape =>
     || (value.schemaVersion === 8 && isWeeklyHoursDraft(value.profile.hours))
     || (value.schemaVersion === 9 && isWeeklyHoursDraft(value.profile.hours))
     || (value.schemaVersion === 10 && isWeeklyHoursDraft(value.profile.hours))
+    || (value.schemaVersion === 11 && isWeeklyHoursDraft(value.profile.hours))
   );
 
 const defaultStorage = (): OnboardingStorage => {

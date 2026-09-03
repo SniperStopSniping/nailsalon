@@ -8,6 +8,7 @@ import '../../../../prototypes/site-builder-v2-booking-integration-lab/src/onboa
 import '../../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/daniela-about-style.css';
 import '../../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/section-library.css';
 import '../../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/palette.css';
+import '../../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/style-colours-save.css';
 import '../../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/feedback/feedback.css';
 import '@/features/onboarding-v1-integration/onboarding-integration.css';
 import '@/features/onboarding-v1-integration/account-gate/account-gate.css';

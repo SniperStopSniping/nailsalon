@@ -332,11 +332,10 @@ describe('SiteStyleScreen', () => {
     const ownerSurface = container.querySelector('.onboarding-screen--style');
     expect(ownerSurface).toBeInTheDocument();
     expect(ownerSurface).not.toHaveAttribute('data-style-preset');
-    expect(screen.getByText('On your site now')).toBeVisible();
-    expect(screen.getAllByText('Previewing')).toHaveLength(1);
+    expect(screen.getAllByText('Previewing')).toHaveLength(2);
     expect(within(screen.getByRole('group', { name: 'Website colour palettes' }))
       .getAllByRole('button')).toHaveLength(8);
-    expect(screen.getByText('Current colours')).toBeVisible();
+    expect(screen.getByRole('region', { name: 'Live personalized style preview' })).toBeVisible();
 
     await user.click(screen.getByRole('button', { name: /Luxury/ }));
     expect(preview.querySelector('[data-style-preset]')).toHaveAttribute(
@@ -360,7 +359,7 @@ describe('SiteStyleScreen', () => {
       'data-previewing',
       'true',
     );
-    await user.click(screen.getByRole('button', { name: 'Use Luxury' }));
+    await user.click(screen.getByRole('button', { name: 'Use this look' }));
     expect(latestState.recipe).toMatchObject({
       paletteConfirmed: true,
       palettePreset: 'black_champagne',
@@ -388,12 +387,10 @@ describe('SiteStyleScreen', () => {
 
     expect(within(screen.getByRole('group', { name: 'Site style presets' }))
       .getByRole('button', { name: /Modern/ })).toHaveAttribute('aria-pressed', 'true');
-    expect(screen.getByText(
-      'Your pages, photos and information stay the same — only the style changes.',
-    )).toBeVisible();
+    expect(screen.getByText('Choose a style and colours for your site. You can change them anytime.')).toBeVisible();
     expect(screen.queryByRole('button', { name: 'Keep current style' }))
       .not.toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: 'Use Modern' }));
+    await user.click(screen.getByRole('button', { name: 'Use this look' }));
     expect(onContinue).toHaveBeenCalledOnce();
   });
 });
