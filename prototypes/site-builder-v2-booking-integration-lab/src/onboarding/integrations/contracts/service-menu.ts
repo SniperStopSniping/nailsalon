@@ -31,7 +31,7 @@ export type ServiceMenuCategory = {
 };
 
 export type ServiceMenuPort = {
-  readonly implementation: 'lab-only';
+  readonly implementation: 'product-template-library';
   createDefaultSelection: () => ServiceMenuSelectionDraft;
   getCategories: () => readonly ServiceMenuCategory[];
   getLibraryAddOns: () => readonly ServiceMenuItem[];

@@ -1,7 +1,8 @@
-import { createLabServiceMenuPort } from '../lab/service-menu-port';
+import { createServiceTemplateMenuPort } from '../lab/service-menu-port';
 
 /**
- * Replace this binding with the authenticated owner-menu adapter during
- * Production integration. Screens import this seam, never the Lab fixture.
+ * Read-only access to the shared Product template library. Tenant-owned rows
+ * are resolved only by the authenticated claim; this never reads another
+ * owner's menu or replaces their custom services with template defaults.
  */
-export const serviceMenuPort = createLabServiceMenuPort();
+export const serviceMenuPort = createServiceTemplateMenuPort();

@@ -77,7 +77,7 @@ describe('shared Booking Section renderer', () => {
     const region = screen.getByTestId('booking-section-edit')
       .querySelector('.booking-customer-region');
     expect(screen.getByRole('group', {
-      name: 'Booking menu preview — 24 services, Visual Grid. Not interactive while editing.',
+      name: `Booking menu preview — ${createMenuFixture().services.length} services, Visual Grid. Not interactive while editing.`,
     })).toBe(region);
     expect(region).not.toHaveAttribute('inert');
     expect(region).not.toHaveAttribute('aria-hidden');

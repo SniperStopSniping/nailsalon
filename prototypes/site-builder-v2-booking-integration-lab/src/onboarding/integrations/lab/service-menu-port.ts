@@ -1,5 +1,7 @@
+import { getTemplateByKey } from '../../../../../../src/libs/serviceTemplateCatalog';
 import { CANONICAL_SERVICES, CATEGORY_DEFINITIONS, MOCK_ADD_ONS } from '../../../booking/data';
 import { formatDuration, formatPrice } from '../../../booking/helpers';
+import { ADD_ON_PRODUCTION_MAPPINGS } from '../contracts/service-menu-production-mapping';
 import type {
   ServiceMenuItem,
   ServiceMenuOwnerOverride,
@@ -25,24 +27,29 @@ const LIBRARY_SERVICES = Object.freeze(CANONICAL_SERVICES.map((service) => Objec
   priceLabel: formatPrice(service.price),
 } satisfies ServiceMenuItem)));
 
-const LIBRARY_ADD_ONS = Object.freeze(MOCK_ADD_ONS.map((addOn) => Object.freeze({
-  categoryId: addOn.name.toLowerCase().includes('remov')
-    ? 'removal'
-    : addOn.name.toLowerCase().includes('chrome')
-      ? 'finishes'
-      : 'nail_art',
-  categoryLabel: addOn.name.toLowerCase().includes('remov')
-    ? 'Removal'
-    : addOn.name.toLowerCase().includes('chrome')
-      ? 'Finishes'
-      : 'Nail art',
-  durationLabel: formatDuration(addOn.durationMinutes),
-  id: addOn.id,
-  itemKind: 'add_on' as const,
-  name: addOn.name,
-  popular: true,
-  priceLabel: `$${(addOn.priceCents / 100).toFixed(0)}`,
-} satisfies ServiceMenuItem)));
+const ADD_ON_CATEGORY_LABELS: Record<string, string> = {
+  nail_art: 'Nail art',
+  pedicure_addon: 'Care & spa',
+  removal: 'Removal',
+  repair: 'Repair',
+};
+
+const LIBRARY_ADD_ONS = Object.freeze(MOCK_ADD_ONS.map((addOn) => {
+  const mapping = ADD_ON_PRODUCTION_MAPPINGS.find(item => item.labServiceId === addOn.id);
+  const template = mapping ? getTemplateByKey(mapping.productionCanonicalId) : undefined;
+  const categoryId = template?.addOnCategory ?? 'nail_art';
+  return Object.freeze({
+    categoryId,
+    categoryLabel: ADD_ON_CATEGORY_LABELS[categoryId] ?? categoryId,
+    durationLabel: formatDuration(addOn.durationMinutes),
+    id: addOn.id,
+    itemKind: 'add_on' as const,
+    name: addOn.name,
+    popular: !addOn.id.startsWith('addon-template-') || template?.popularityRank !== undefined,
+    priceLabel: (addOn.id.startsWith('addon-template-') ? template?.priceDisplayText : null)
+      ?? formatPrice({ amountCents: addOn.priceCents, behavior: 'fixed' }),
+  } satisfies ServiceMenuItem);
+}));
 
 const DEFAULT_SELECTED_SERVICE_IDS = Object.freeze(
   CANONICAL_SERVICES.filter(({ featured }) => featured).map(({ id }) => id),
@@ -100,8 +107,8 @@ const normalizeSelection = (
   };
 };
 
-export const createLabServiceMenuPort = (): ServiceMenuPort => ({
-  implementation: 'lab-only',
+export const createServiceTemplateMenuPort = (): ServiceMenuPort => ({
+  implementation: 'product-template-library',
   createDefaultSelection: () => ({
     ownerOverridesByServiceId: {},
     reviewed: false,

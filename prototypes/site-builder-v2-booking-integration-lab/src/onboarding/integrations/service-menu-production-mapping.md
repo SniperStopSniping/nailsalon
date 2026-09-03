@@ -1,8 +1,12 @@
 # Service-menu Production mapping
 
-Lab IDs identify only the canonical UX-Lab Booking fixture. Production must
-resolve the corresponding `templateKey`, then resolve the tenant-owned service
-row. Adding uses the existing authenticated `POST
+The chooser includes the full Product `serviceTemplateCatalog`. The legacy IDs
+below remain stable for accepted drafts; templates without an exact legacy
+mapping receive `svc-template-<templateKey>` or `addon-template-<templateKey>`.
+These mappings are derived from the shared catalogue, not a second maintained
+list. The account-backed claim resolves the corresponding `templateKey`, then
+creates or resolves the tenant-owned row through the existing menu seeder.
+Dashboard adding also uses the existing authenticated `POST
 /api/salon/services/from-templates`; removing means updating the resolved
 tenant-owned service through the existing PATCH route. It does not delete or
 rewrite a Library template.
@@ -38,8 +42,8 @@ This table is migration metadata, not a second catalogue. Names, prices,
 durations, categories, images, and compatibility remain owned by the existing
 Production Library and owner-menu records.
 
-The separate Add-ons tab derives from the canonical Booking `MOCK_ADD_ONS`
-fixture and stores only these stable IDs:
+The separate Add-ons tab includes all Product add-on templates. Its original
+four selections retain these stable IDs and are not automatically expanded:
 
 | Lab selected add-on ID | Production canonical add-on/library ID | Future owner-service operation |
 | --- | --- | --- |

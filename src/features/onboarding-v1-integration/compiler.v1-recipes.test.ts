@@ -102,7 +102,7 @@ const pageTypes = (document: SiteBuilderDocument): SectionType[][] =>
 describe('compiled locked V1 starter recipes', () => {
   it.each([
     {
-      expected: [['hero', 'booking', 'gallery']],
+      expected: [['hero', 'booking', 'gallery', 'visit_us']],
       starter: 'quick_book',
     },
     {

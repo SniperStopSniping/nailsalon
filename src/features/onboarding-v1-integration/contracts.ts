@@ -259,7 +259,7 @@ const profileSchema = z.object({
     }).strict()),
     reviewed: z.boolean(),
     selectedAddOnIds: z.array(nonEmptyText(100)).max(100),
-    selectedServiceIds: z.array(nonEmptyText(100)).max(100),
+    selectedServiceIds: z.array(nonEmptyText(100)).max(CANONICAL_SERVICE_IDS.length),
   }).strict(),
   siteSlug: text(64).default(''),
   siteSlugCustomized: z.boolean().default(false),
@@ -551,7 +551,7 @@ export const onboardingCompiledSiteDocumentSchema = z.object({
   schemaVersion: z.literal(ONBOARDING_SITE_DOCUMENT_VERSION),
   serviceSelection: z.object({
     selectedAddOnIds: z.array(nonEmptyText(100)).max(100),
-    selectedServiceIds: z.array(nonEmptyText(100)).max(100),
+    selectedServiceIds: z.array(nonEmptyText(100)).max(CANONICAL_SERVICE_IDS.length),
   }).strict(),
   siteId: nonEmptyText(160),
   siteName: nonEmptyText(80),

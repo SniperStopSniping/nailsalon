@@ -13,12 +13,17 @@ import {
 } from '@/libs/bookingPageConfig';
 import { resolveBookingPageContent } from '@/libs/bookingPageContent';
 import type { DatabaseSessionHandle } from '@/libs/DB';
+import { SERVICE_TEMPLATES } from '@/libs/serviceTemplateCatalog';
 import { resolveSharedSalonProfile } from '@/libs/sharedSalonProfile';
 import * as schema from '@/models/Schema';
 
 import { switchBookingLayout } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/booking/presentation';
 import { createDeterministicIdFactory } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/model/ids';
 import { initializeStarter } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/model/starters';
+import {
+  ADD_ON_PRODUCTION_MAPPINGS,
+  SERVICE_MENU_PRODUCTION_MAPPINGS,
+} from '../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/integrations/contracts/service-menu-production-mapping';
 import { createDefaultOnboardingState } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/model/defaults';
 
 vi.mock('server-only', () => ({}));
@@ -156,6 +161,65 @@ describe.sequential('account-backed onboarding persistence', () => {
   });
 
   const handle = () => database as unknown as DatabaseSessionHandle;
+
+  it('claims the complete Product library into tenant-owned rows and rejects another owner', async () => {
+    const owner = identity('full_product_library');
+    const selectedServiceIds = SERVICE_TEMPLATES.filter(template => template.serviceType !== 'addon')
+      .map(template => SERVICE_MENU_PRODUCTION_MAPPINGS.find(mapping => (
+        mapping.mappingKind === 'exact_template'
+        && mapping.productionCanonicalId === template.systemKey
+      ))!.labServiceId);
+    const selectedAddOnIds = ADD_ON_PRODUCTION_MAPPINGS.map(mapping => mapping.labServiceId);
+    const input = request('full_product_library', {
+      ownerOverridesByServiceId: { 'svc-template-luster_manicure': { priceCents: 8100 } },
+      selectedAddOnIds,
+      selectedServiceIds,
+    });
+    const claim = await claimOnboardingDraft(owner, input, handle());
+    if (claim.kind !== 'success') {
+      throw new Error('Expected full library claim.');
+    }
+    const services = await database.select().from(schema.serviceSchema)
+      .where(eq(schema.serviceSchema.salonId, claim.data.salonId));
+    const addOns = await database.select().from(schema.addOnSchema)
+      .where(eq(schema.addOnSchema.salonId, claim.data.salonId));
+
+    expect(claim.data.serviceMappingIssues).toEqual([]);
+    expect(services.map(service => service.templateKey).sort()).toEqual(
+      SERVICE_TEMPLATES.filter(template => template.serviceType !== 'addon').map(template => template.systemKey).sort(),
+    );
+    expect(addOns.map(addOn => addOn.templateKey).sort()).toEqual(
+      SERVICE_TEMPLATES.filter(template => template.serviceType === 'addon').map(template => template.systemKey).sort(),
+    );
+    expect(services.find(service => service.templateKey === 'luster_manicure')).toMatchObject({
+      onboardingSourceServiceId: 'svc-template-luster_manicure',
+      price: 8100,
+    });
+
+    const service = services.find(item => item.templateKey === 'shellac_gel_toes')!;
+    const compatible = await database.select().from(schema.serviceAddOnSchema)
+      .where(eq(schema.serviceAddOnSchema.serviceId, service.id));
+
+    expect(compatible.map(link => link.addOnId)).toContain(
+      addOns.find(item => item.templateKey === 'french_toes')!.id,
+    );
+    expect(compatible.map(link => link.addOnId)).not.toContain(
+      addOns.find(item => item.templateKey === 'french_tips')!.id,
+    );
+    await expect(claimOnboardingDraft(identity('foreign_library_owner'), request('foreign_library_owner', {
+      selectedAddOnIds: [],
+      selectedServiceIds: ['svc-template-luster_manicure'],
+      target: {
+        existingSiteStrategy: 'replace_draft',
+        expectedRevision: claim.data.revision,
+        expectedSiteId: claim.data.siteId,
+        mode: 'existing_business',
+        salonId: claim.data.salonId,
+      },
+    }), handle())).rejects.toMatchObject({ code: 'BUSINESS_ACCESS_DENIED', status: 403 });
+    expect(await database.select().from(schema.serviceSchema)
+      .where(eq(schema.serviceSchema.salonId, claim.data.salonId))).toEqual(services);
+  });
 
   it('creates one tenant, exact revision, media manifest, and complete canonical service selection', async () => {
     const owner = identity('first_claim');

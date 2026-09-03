@@ -3,16 +3,16 @@ import {
   ADD_ON_PRODUCTION_MAPPINGS,
   SERVICE_MENU_PRODUCTION_MAPPINGS,
 } from '../contracts/service-menu-production-mapping';
-import { createLabServiceMenuPort } from './service-menu-port';
+import { createServiceTemplateMenuPort } from './service-menu-port';
 
-describe('Lab ServiceMenuPort', () => {
-  const port = createLabServiceMenuPort();
+describe('Product-template ServiceMenuPort', () => {
+  const port = createServiceTemplateMenuPort();
 
   it('stores canonical IDs and narrow overrides instead of duplicate service records', () => {
     const draft = port.createDefaultSelection();
     const canonicalIds = new Set(CANONICAL_SERVICES.map(({ id }) => id));
 
-    expect(port.implementation).toBe('lab-only');
+    expect(port.implementation).toBe('product-template-library');
     expect(draft.selectedServiceIds.length).toBeGreaterThan(0);
     expect(draft.selectedServiceIds.every((id) => canonicalIds.has(id))).toBe(true);
     expect(new Set(draft.selectedServiceIds).size).toBe(draft.selectedServiceIds.length);
@@ -53,7 +53,7 @@ describe('Lab ServiceMenuPort', () => {
   it('keeps add-ons distinct and stores canonical add-on IDs only', () => {
     const initial = port.createDefaultSelection();
     const firstAddOn = port.getLibraryAddOns()[0]!;
-    const expectedDefaultIds = MOCK_ADD_ONS.map(({ id }) => id);
+    const expectedDefaultIds = ['addon-french', 'addon-chrome', 'addon-simple-art', 'addon-detailed-art'];
     const removed = port.setAddOnSelected(initial, firstAddOn.id, false);
     const restored = port.setAddOnSelected(removed, firstAddOn.id, true);
 

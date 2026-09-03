@@ -19,6 +19,15 @@ import {
   uuid,
 } from 'drizzle-orm/pg-core';
 
+export {
+  ADD_ON_CATEGORIES,
+  type AddOnCategory,
+  BOOKING_CATEGORIES,
+  type BookingCategory,
+  SERVICE_CATEGORIES,
+  type ServiceCategory,
+} from './serviceCatalogTypes';
+
 // This file defines the structure of your database tables using the Drizzle ORM.
 
 // To modify the database schema:
@@ -2613,17 +2622,6 @@ export type NotificationDelivery = typeof notificationDeliverySchema.$inferSelec
 // CONST EXPORTS
 // =============================================================================
 
-export const SERVICE_CATEGORIES = [
-  'manicure',
-  'builder_gel',
-  'extensions',
-  'pedicure',
-  'hands',
-  'feet',
-  'combo',
-] as const;
-export type ServiceCategory = (typeof SERVICE_CATEGORIES)[number];
-
 export const PUBLIC_SERVICE_CATEGORIES = [
   'manicure',
   'builder_gel',
@@ -2632,21 +2630,6 @@ export const PUBLIC_SERVICE_CATEGORIES = [
   'combo',
 ] as const;
 export type PublicServiceCategory = (typeof PUBLIC_SERVICE_CATEGORIES)[number];
-
-export const BOOKING_CATEGORIES = [
-  'manicure',
-  'pedicure',
-  'combo',
-] as const;
-export type BookingCategory = (typeof BOOKING_CATEGORIES)[number];
-
-export const ADD_ON_CATEGORIES = [
-  'nail_art',
-  'repair',
-  'removal',
-  'pedicure_addon',
-] as const;
-export type AddOnCategory = (typeof ADD_ON_CATEGORIES)[number];
 
 export const ADD_ON_PRICING_TYPES = ['fixed', 'per_unit'] as const;
 export type AddOnPricingType = (typeof ADD_ON_PRICING_TYPES)[number];

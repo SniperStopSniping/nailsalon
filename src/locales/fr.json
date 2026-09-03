@@ -3,6 +3,27 @@
     "meta_title": "Luster — Réservation et CRM gratuits pour techniciennes en ongles",
     "meta_description": "Réservations, gestion de clientes, synchronisation Google Agenda et outils de croissance pour les professionnelles des ongles."
   },
+  "LusterHome": {
+    "owner_sign_in": "Connexion propriétaire",
+    "eyebrow": "Luster pour les pros des ongles",
+    "headline": "Créons votre site web.",
+    "description": "Créez un site à l’image de votre entreprise. Ajoutez vos services, proposez la réservation en ligne et gérez le tout depuis votre tableau de bord Luster.",
+    "build_website": "Créer mon site web",
+    "open_dashboard": "Ouvrir mon tableau de bord",
+    "preview_reassurance": "Prévisualisez votre site avant de choisir un forfait. Vous utilisez déjà Luster? Votre tableau de bord reste accessible ici.",
+    "legacy_headline": "Des outils de réservation gratuits pour votre activité ongulaire.",
+    "legacy_description": "Gérez vos rendez-vous, clients, services, Google Agenda et rappels facultatifs dans un espace soigné, propulsé par Luster Builder Gel.",
+    "request_invite": "Demander une invitation",
+    "customer_help": "Vous avez déjà réservé dans un salon? Utilisez le lien privé de votre courriel de confirmation ou la page « Retrouver ma réservation » du salon.",
+    "scheduling_title": "Un agenda plus intelligent",
+    "scheduling_copy": "Les services, délais, disponibilités et événements Google fonctionnent ensemble pour éviter les doubles réservations.",
+    "booking_title": "Une réservation simple",
+    "booking_copy": "Les clients réservent sans compte et gèrent leurs rendez-vous grâce à des liens sécurisés par courriel.",
+    "website_title": "Votre site, votre style",
+    "website_copy": "Choisissez votre style, ajoutez vos services et permettez aux clients de réserver depuis votre propre page.",
+    "growth_title": "Conçu pour développer votre activité",
+    "growth_copy": "Gestion des clients, page de réservation et formation Luster réunies dans un même espace gratuit."
+  },
   "Navbar": {
     "sign_in": "Se connecter",
     "sign_up": "S'inscrire",

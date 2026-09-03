@@ -219,9 +219,26 @@ describe('BookingPreferencesScreen', () => {
     for (const addOn of MOCK_ADD_ONS) {
       const item = within(library).getByText(addOn.name).closest('li');
       expect(item).not.toBeNull();
-      expect(within(item!).getByRole('button', { name: `Remove ${addOn.name}` }))
+      const action = ['addon-french', 'addon-chrome', 'addon-simple-art', 'addon-detailed-art'].includes(addOn.id)
+        ? 'Remove'
+        : 'Add';
+      expect(within(item!).getByRole('button', { name: `${action} ${addOn.name}` }))
         .toBeVisible();
     }
+
+    await user.click(within(library).getByRole('tab', { name: 'Services' }));
+    await user.type(within(library).getByRole('searchbox', { name: 'Search services' }), 'Shellac');
+    const shellacItem = within(library).getByText('Shellac / Gel Toes').closest('li');
+    expect(shellacItem).not.toBeNull();
+    expect(shellacItem).toHaveTextContent('Pedicure · 45 min$30');
+    await user.click(within(shellacItem!).getByRole('button', { name: 'Add Shellac / Gel Toes' }));
+    expect(within(library).getByText('7 services selected')).toBeVisible();
+    await user.click(within(library).getByRole('button', { name: 'Done' }));
+    expect(screen.queryByRole('dialog', { name: 'Choose your services' })).not.toBeInTheDocument();
+    expect(latest.serviceMenu.selectedServiceIds).toContain('svc-template-shellac_gel_toes');
+    await user.click(screen.getByRole('button', { name: 'Review services & add-ons' }));
+    library = screen.getByRole('dialog', { name: 'Choose your services' });
+    expect(within(library).getByRole('button', { name: 'Remove Shellac / Gel Toes' })).toBeVisible();
   });
 
   it('opens the canonical library on Add-ons from the compact add-ons summary', async () => {

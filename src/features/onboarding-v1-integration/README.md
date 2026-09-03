@@ -48,6 +48,20 @@ avoidable duplicate work.
 
 ## Preview and editing
 
+The service chooser reads the full shared `serviceTemplateCatalog` used by the
+Workspace Service Library. Original accepted service/add-on IDs, values, photos,
+and explicit selections remain stable; additional templates receive deterministic
+IDs and exact template-key mappings. New choices use Product template prices,
+durations and compatibility, then save through the existing tenant-scoped menu
+seeder. No new catalogue table or tenant-menu replacement path is introduced.
+
+This is global template access, not authenticated hydration of an existing
+owner's custom menu. The anonymous flow does not read tenant-custom services,
+owner-edited prices, or tenant-uploaded service images. Existing Product rows
+remain authoritative and are not silently adopted or overwritten by a claim.
+Templates without a global photo remain image-free; the original accepted
+preview photos are preserved.
+
 Final Review and the saved-site route use the accepted customer renderer. The
 saved route rebuilds its model from one tenant-authorized revision and
 role-specific server media; it has no starter/fallback document path.

@@ -111,7 +111,7 @@ describe('Booking editor selection boundary', () => {
     );
 
     const editorPreview = screen.getByRole('group', {
-      name: 'Booking menu preview — 24 services, Visual Grid. Not interactive while editing.',
+      name: `Booking menu preview — ${createMenuFixture().services.length} services, Visual Grid. Not interactive while editing.`,
     });
     expect(editorPreview).not.toHaveAttribute('inert');
     expect(editorPreview).not.toHaveAttribute('aria-hidden');

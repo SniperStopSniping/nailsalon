@@ -379,7 +379,7 @@ describe('Booking renderer mode and session boundaries', () => {
     const editor = screen.getByTestId('booking-section-edit');
     const customerRegion = editor.querySelector('.booking-customer-region');
     expect(screen.getByRole('group', {
-      name: 'Booking menu preview — 24 services, Visual Grid. Not interactive while editing.',
+      name: `Booking menu preview — ${createMenuFixture().services.length} services, Visual Grid. Not interactive while editing.`,
     })).toBe(customerRegion);
     expect(customerRegion).not.toHaveAttribute('inert');
     expect(customerRegion).not.toHaveAttribute('aria-hidden');
@@ -425,7 +425,7 @@ describe('Booking renderer mode and session boundaries', () => {
     const customerRegion = editor.querySelector<HTMLElement>('.booking-customer-region');
     if (!customerRegion) throw new Error(`${layout} did not render its customer region.`);
     expect(customerRegion).toHaveAccessibleName(
-      `Booking menu preview — 24 services, ${LAYOUT_LABELS[layout]}. Not interactive while editing.`,
+      `Booking menu preview — ${createMenuFixture().services.length} services, ${LAYOUT_LABELS[layout]}. Not interactive while editing.`,
     );
     expect(customerRegion).toHaveTextContent('Russian Manicure');
     expect(customerRegion).toHaveTextContent('From $65');
@@ -778,12 +778,13 @@ describe('Booking renderer mode and session boundaries', () => {
     );
 
     const headings = screen.getAllByRole('heading', { level: 2 });
-    expect(headings.some(heading => heading.textContent === 'Manicure · 3 services'))
+    const manicureCount = fixture.services.filter(service => service.category === 'manicure').length;
+    expect(headings.some(heading => heading.textContent === `Manicure · ${manicureCount} services`))
       .toBe(true);
     expect(headings.some(heading => /·\d/.test(heading.textContent ?? '')))
       .toBe(false);
 
-    await user.type(screen.getByRole('searchbox', { name: 'Search services' }), 'Russian');
+    await user.type(screen.getByRole('searchbox', { name: 'Search services' }), 'Russian Manicure — No Colour');
     expect(container.querySelector('.clean-category-heading'))
       .toHaveTextContent('Manicure · 1 service');
   });

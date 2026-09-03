@@ -320,7 +320,9 @@ test.describe('Customer journeys', () => {
     await page.getByRole('button', { name: /confirm appointment/i }).click();
 
     await expect(page.getByRole('heading', { name: /appointment confirmed/i })).toBeVisible();
-    await expect(page.getByRole('status')).toContainText(/private management link is not available/i);
+    await expect(page.getByRole('status').filter({
+      hasText: /private management link is not available/i,
+    })).toBeVisible();
 
     const recoveryLink = page.getByRole('link', { name: /find my booking to receive a secure management link/i });
 

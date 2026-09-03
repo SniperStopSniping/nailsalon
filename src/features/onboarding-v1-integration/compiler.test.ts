@@ -212,7 +212,9 @@ describe('account-backed onboarding document compiler', () => {
         siteId: `site_${starter}`,
         siteName: state.profile.businessName,
       });
-      if (starter !== 'quick_book') source = addRealReview(source);
+      if (starter !== 'quick_book') {
+        source = addRealReview(source);
+      }
       const { snapshot } = createPersistableOnboardingDraft(
         state,
         'luster_berry',
@@ -226,7 +228,7 @@ describe('account-backed onboarding document compiler', () => {
       });
 
       const expected = starter === 'quick_book'
-        ? [['hero', 'booking', 'gallery']]
+        ? [['hero', 'booking', 'gallery', 'visit_us']]
         : starter === 'one_page'
           ? [[
               'hero',
@@ -270,7 +272,7 @@ describe('account-backed onboarding document compiler', () => {
     },
   );
 
-  it('keeps the optional recipe floor at Quick 2, One-page 5, and Multi-page five pages', () => {
+  it('keeps the optional recipe floor at Quick 3, One-page 5, and Multi-page five pages', () => {
     const compile = (
       starter: 'quick_book' | 'one_page' | 'multi_page',
       includeGallery: boolean,
@@ -280,7 +282,9 @@ describe('account-backed onboarding document compiler', () => {
       state.recipe.galleryEnabled = includeGallery;
       state.recipe.policiesEnabled = false;
       state.profile.bookingOnlyContact = true;
-      if (includeGallery) addGalleryContent(state);
+      if (includeGallery) {
+        addGalleryContent(state);
+      }
       const source = initializeStarter(starter, {
         idFactory: createDeterministicIdFactory(`recipe-floor-${starter}`),
         siteId: `site_${starter}`,
@@ -304,7 +308,7 @@ describe('account-backed onboarding document compiler', () => {
     const multiPage = compile('multi_page', true);
 
     expect(pageSectionTypes(quick.builderDocument)).toEqual([
-      ['hero', 'booking'],
+      ['hero', 'booking', 'visit_us'],
     ]);
     expect(pageSectionTypes(onePage.builderDocument)).toEqual([[
       'hero',
@@ -336,6 +340,7 @@ describe('account-backed onboarding document compiler', () => {
         booking: 1,
         gallery: 1,
         hero: 1,
+        visit_us: 1,
       },
       starter: 'quick_book',
     },
@@ -408,9 +413,11 @@ describe('account-backed onboarding document compiler', () => {
       expect(sections).not.toContainEqual(
         expect.objectContaining({ type: 'deposits_cancellations' }),
       );
+
       for (const shellType of AUTOMATIC_SHELL_TYPES) {
         expect(sections).not.toContainEqual(expect.objectContaining({ type: shellType }));
       }
+
       expect(sections.map(item => item.presentation.label))
         .not.toContainEqual(expect.stringMatching(/^Section \d+$/u));
       expect(typeCounts).toEqual(expectedCounts);
@@ -643,8 +650,9 @@ describe('account-backed onboarding document compiler', () => {
     expect(renamed.recipeMigrationResult).toBe('preserved_manual_edits');
     expect(renamed.builderDocument.pages[0]?.slug).toBe('daniela-home');
     expect(renamed.builderDocument.pages[0]?.sections.map(section => section.sectionType))
-      .toEqual(['hero', 'booking', 'gallery']);
+      .toEqual(['hero', 'booking', 'gallery', 'visit_us']);
     expect(renamedIds.some(id => id.includes(':onboarding:'))).toBe(false);
+
     const renamedCustomerTypes = renamed.pages.flatMap(
       page => page.sections.map(section => section.type),
     );
@@ -848,6 +856,7 @@ describe('account-backed onboarding document compiler', () => {
       ['about'],
       ['visit_us'],
     ]);
+
     const customerTypes = compiled.pages.flatMap(
       page => page.sections.map(section => section.type),
     );
@@ -863,7 +872,7 @@ describe('account-backed onboarding document compiler', () => {
   });
 
   it.each([
-    { expectedBuilderVisitUsCount: 0, expectedVisitUsCount: 0, starter: 'quick_book' },
+    { expectedBuilderVisitUsCount: 1, expectedVisitUsCount: 1, starter: 'quick_book' },
     { expectedBuilderVisitUsCount: 1, expectedVisitUsCount: 1, starter: 'one_page' },
     { expectedBuilderVisitUsCount: 1, expectedVisitUsCount: 1, starter: 'multi_page' },
   ] as const)(
@@ -901,7 +910,7 @@ describe('account-backed onboarding document compiler', () => {
     },
   );
 
-  it('keeps Booking-only contact inside the Quick Book profile instead of injecting Contact', () => {
+  it('keeps Booking-only contact in the shared Visit & Contact section instead of injecting Contact', () => {
     const state = acceptedState('quick_book');
     state.profile.bookingOnlyContact = true;
     const source = initializeStarter('quick_book', {
@@ -924,7 +933,16 @@ describe('account-backed onboarding document compiler', () => {
     expect(sections.filter(section => section.type === 'booking')).toHaveLength(1);
     expect(sections.filter(section => section.type === 'hero')).toHaveLength(1);
     expect(sections).not.toContainEqual(expect.objectContaining({ type: 'contact' }));
-    expect(sections.filter(section => section.type === 'visit_us')).toHaveLength(0);
+
+    const visitUs = sections.filter(section => section.type === 'visit_us');
+
+    expect(visitUs).toHaveLength(1);
+    expect(visitUs[0]?.source).toBe('business_profile');
+    expect(visitUs[0]?.presentation).toMatchObject({
+      addressVisibility: snapshot.profile.location.addressVisibility,
+      label: 'Visit & Contact',
+      originalSectionType: 'visit_us',
+    });
   });
 
   it.each(['quick_book', 'one_page', 'multi_page'] as const)(

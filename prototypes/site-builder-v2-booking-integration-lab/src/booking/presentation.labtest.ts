@@ -95,10 +95,10 @@ describe('Booking presentation contract', () => {
 });
 
 describe('canonical mock booking adapter', () => {
-  it('keeps the exact immutable 24-service fixture and deterministic variants', () => {
-    expect(CANONICAL_SERVICES).toHaveLength(24);
-    expect(CANONICAL_SERVICE_IDS).toHaveLength(24);
-    expect(new Set(CANONICAL_SERVICE_IDS).size).toBe(24);
+  it('keeps the accepted photos and expands the immutable shared template library', () => {
+    expect(CANONICAL_SERVICES.length).toBeGreaterThan(24);
+    expect(CANONICAL_SERVICE_IDS).toHaveLength(CANONICAL_SERVICES.length);
+    expect(new Set(CANONICAL_SERVICE_IDS).size).toBe(CANONICAL_SERVICES.length);
     expect(Object.isFrozen(CANONICAL_SERVICES)).toBe(true);
     expect(createMenuFixture({ imageFixture: 'image_rich' }).services.filter(service => service.image)).toHaveLength(24);
     expect(createMenuFixture({ imageFixture: 'partial_images' }).services.filter(service => service.image)).toHaveLength(12);

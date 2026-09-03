@@ -1,8 +1,8 @@
+import { connectProductAddOnCatalogue, connectProductServiceCatalogue } from './product-catalogue';
 import type {
   CategoryDefinition,
   MockAddOn,
   MockSalon,
-  MockService,
   ServiceImage,
 } from './types';
 
@@ -35,12 +35,14 @@ export const CATEGORY_DEFINITIONS = deepFreeze<readonly CategoryDefinition[]>([
   { id: 'add_ons', label: 'Add-ons' },
 ]);
 
-export const MOCK_ADD_ONS = deepFreeze<readonly MockAddOn[]>([
+const ACCEPTED_ADD_ONS: readonly MockAddOn[] = [
   { id: 'addon-french', name: 'French', priceCents: 1500, durationMinutes: 15 },
   { id: 'addon-chrome', name: 'Chrome', priceCents: 1000, durationMinutes: 10 },
   { id: 'addon-simple-art', name: 'Simple Nail Art', priceCents: 1500, durationMinutes: 15 },
   { id: 'addon-detailed-art', name: 'Detailed Nail Art', priceCents: 3000, durationMinutes: 30 },
-]);
+];
+
+export const MOCK_ADD_ONS = deepFreeze(connectProductAddOnCatalogue(ACCEPTED_ADD_ONS));
 
 const IMAGE_CATALOG = deepFreeze<Record<string, ServiceImage>>({
   bareNatural: {
@@ -125,10 +127,10 @@ const IMAGE_CATALOG = deepFreeze<Record<string, ServiceImage>>({
   },
 });
 
-const ART_ADD_ON_IDS = MOCK_ADD_ONS.map(addOn => addOn.id);
+const ART_ADD_ON_IDS = ACCEPTED_ADD_ONS.map(addOn => addOn.id);
 const LIGHT_ART_ADD_ON_IDS = ['addon-french', 'addon-chrome', 'addon-simple-art'];
 
-export const CANONICAL_SERVICES = deepFreeze<readonly MockService[]>([
+export const CANONICAL_SERVICES = deepFreeze(connectProductServiceCatalogue([
   {
     id: 'svc-manicure-russian',
     name: 'Russian Manicure',
@@ -427,7 +429,7 @@ export const CANONICAL_SERVICES = deepFreeze<readonly MockService[]>([
     badge: 'Complimentary',
     compatibleAddOnIds: [],
   },
-]);
+]));
 
 export const CANONICAL_SERVICE_IDS = deepFreeze(
   CANONICAL_SERVICES.map(service => service.id),

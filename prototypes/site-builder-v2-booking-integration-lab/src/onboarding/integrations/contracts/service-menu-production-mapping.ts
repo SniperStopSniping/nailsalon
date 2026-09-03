@@ -1,3 +1,5 @@
+import { SERVICE_TEMPLATES } from '../../../../../../src/libs/serviceTemplateCatalog';
+
 export type ServiceMenuProductionMapping = {
   futureOwnerServiceOperation: string;
   labServiceId: string;
@@ -7,7 +9,7 @@ export type ServiceMenuProductionMapping = {
 
 const TEMPLATE_OPERATION = 'Resolve the owner service by templateKey; add missing templates through POST /api/salon/services/from-templates, or PATCH the tenant-scoped owner service isActive state.';
 
-export const SERVICE_MENU_PRODUCTION_MAPPINGS = [
+const LEGACY_SERVICE_MENU_PRODUCTION_MAPPINGS = [
   ['svc-manicure-russian', 'russian_manicure_no_colour', 'closest_template'],
   ['svc-manicure-gel', 'gel_manicure', 'exact_template'],
   ['svc-manicure-classic', 'classic_manicure', 'exact_template'],
@@ -41,7 +43,7 @@ export const SERVICE_MENU_PRODUCTION_MAPPINGS = [
   productionCanonicalId,
 })) as readonly ServiceMenuProductionMapping[];
 
-export const ADD_ON_PRODUCTION_MAPPINGS = [
+const LEGACY_ADD_ON_PRODUCTION_MAPPINGS = [
   ['addon-french', 'french_tips', 'exact_template'],
   ['addon-chrome', 'chrome', 'exact_template'],
   ['addon-simple-art', 'simple_nail_art', 'exact_template'],
@@ -52,3 +54,35 @@ export const ADD_ON_PRODUCTION_MAPPINGS = [
   mappingKind,
   productionCanonicalId,
 })) as readonly ServiceMenuProductionMapping[];
+
+/** Preserve accepted draft IDs while making every Dashboard library template selectable. */
+export const SERVICE_MENU_PRODUCTION_MAPPINGS: readonly ServiceMenuProductionMapping[] = [
+  ...LEGACY_SERVICE_MENU_PRODUCTION_MAPPINGS,
+  ...SERVICE_TEMPLATES.filter(template => (
+    template.serviceType !== 'addon'
+    && !LEGACY_SERVICE_MENU_PRODUCTION_MAPPINGS.some(mapping => (
+      mapping.mappingKind === 'exact_template'
+      && mapping.productionCanonicalId === template.systemKey
+    ))
+  )).map(template => ({
+    futureOwnerServiceOperation: TEMPLATE_OPERATION,
+    labServiceId: `svc-template-${template.systemKey}`,
+    mappingKind: 'exact_template' as const,
+    productionCanonicalId: template.systemKey,
+  })),
+];
+
+export const ADD_ON_PRODUCTION_MAPPINGS: readonly ServiceMenuProductionMapping[] = [
+  ...LEGACY_ADD_ON_PRODUCTION_MAPPINGS,
+  ...SERVICE_TEMPLATES.filter(template => (
+    template.serviceType === 'addon'
+    && !LEGACY_ADD_ON_PRODUCTION_MAPPINGS.some(mapping => (
+      mapping.productionCanonicalId === template.systemKey
+    ))
+  )).map(template => ({
+    futureOwnerServiceOperation: TEMPLATE_OPERATION,
+    labServiceId: `addon-template-${template.systemKey}`,
+    mappingKind: 'exact_template' as const,
+    productionCanonicalId: template.systemKey,
+  })),
+];

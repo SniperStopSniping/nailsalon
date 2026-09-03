@@ -98,7 +98,7 @@ function exportedBookingRecord(): {
 }
 
 describe('approved Booking data adapter', () => {
-  it('pins the exact immutable 24-service identity and Isla salon fixture', () => {
+  it('preserves accepted service identities before the shared Product library and Isla fixture', () => {
     const fixture = createMenuFixture();
 
     expect(fixture.salon).toMatchObject({
@@ -106,14 +106,15 @@ describe('approved Booking data adapter', () => {
       name: 'Isla Nail Studio',
       slug: 'isla-nail-studio',
     });
-    expect(CANONICAL_SERVICE_IDS).toEqual(EXPECTED_CANONICAL_SERVICE_IDS);
-    expect(fixture.services.map(service => service.id))
+    expect(CANONICAL_SERVICE_IDS.slice(0, EXPECTED_CANONICAL_SERVICE_IDS.length))
       .toEqual(EXPECTED_CANONICAL_SERVICE_IDS);
+    expect(fixture.services.map(service => service.id))
+      .toEqual(CANONICAL_SERVICE_IDS);
     expect(fixture.services).toBe(CANONICAL_SERVICES);
     expect(Object.isFrozen(CANONICAL_SERVICES)).toBe(true);
     expect(CANONICAL_SERVICES.every(service => Object.isFrozen(service)))
       .toBe(true);
-    expect(fixture.addOns.map(addOn => addOn.id)).toEqual([
+    expect(fixture.addOns.slice(0, 4).map(addOn => addOn.id)).toEqual([
       'addon-french',
       'addon-chrome',
       'addon-simple-art',
