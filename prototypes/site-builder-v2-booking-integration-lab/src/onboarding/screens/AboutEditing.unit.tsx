@@ -13,7 +13,7 @@ import { createDanielaFixtureState } from '../fixtures';
 import type { OnboardingLabState } from '../model/types';
 import {
   AboutDesignScreen,
-  AboutScreen,
+  LegacyAboutScreen as AboutScreen,
   type OnboardingStateUpdater,
 } from './DesignScreens';
 

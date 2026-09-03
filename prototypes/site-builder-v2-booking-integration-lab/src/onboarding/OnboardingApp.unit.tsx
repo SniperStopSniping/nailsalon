@@ -315,13 +315,12 @@ describe('OnboardingApp handoff boundaries', () => {
     const preservedBio = state.profile.about.shortBio;
     renderAt(state);
 
-    const bio = screen.getByRole('textbox', { name: 'Short bio' });
+    const bio = screen.getByRole('textbox', { name: 'Short introduction' });
     expect(bio).toHaveValue(preservedBio);
-    await user.click(screen.getByRole('switch', { name: 'Include an About section' }));
-    expect(bio).toBeDisabled();
-    expect(bio).toHaveValue(preservedBio);
+    await user.click(screen.getByRole('switch', { name: 'Show an About section' }));
+    expect(screen.queryByRole('textbox', { name: 'Short introduction' })).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole('button', { name: 'Continue without About' }));
+    await user.click(screen.getByRole('button', { name: 'Skip for now' }));
     expect(await screen.findByRole('heading', { name: 'Set clear expectations' })).toBeVisible();
     expect(screen.queryByRole('heading', { name: 'Choose your About design' })).not.toBeInTheDocument();
 
@@ -337,9 +336,9 @@ describe('OnboardingApp handoff boundaries', () => {
     state.recipe.aboutEnabled = false;
     renderAt(state);
 
-    await expectFocusedHeadingAtTop('Would you like an About section?');
+    await expectFocusedHeadingAtTop('Tell clients a little about you');
     setPageScroll(640);
-    await user.click(screen.getByRole('button', { name: 'Continue without About' }));
+    await user.click(screen.getByRole('button', { name: 'Skip for now' }));
     await expectFocusedHeadingAtTop('Set clear expectations');
     const { onboardingSession } = currentBrowserHistoryEntry();
     const aboutEntry: BrowserHistoryEntry = {
@@ -358,7 +357,7 @@ describe('OnboardingApp handoff boundaries', () => {
     for (let cycle = 0; cycle < 3; cycle += 1) {
       setPageScroll(420 + cycle);
       dispatchBrowserHistoryEntry(aboutEntry);
-      await expectFocusedHeadingAtTop('Would you like an About section?');
+      await expectFocusedHeadingAtTop('Tell clients a little about you');
       expect(screen.queryByRole('heading', {
         name: 'Choose your About design',
       })).not.toBeInTheDocument();
@@ -384,7 +383,7 @@ describe('OnboardingApp handoff boundaries', () => {
     });
 
     expect(forward).toHaveBeenCalledOnce();
-    expect(screen.getByRole('heading', { name: 'Would you like an About section?' }))
+    expect(screen.getByRole('heading', { name: 'Tell clients a little about you' }))
       .toBeVisible();
     expect(screen.queryByRole('heading', { name: 'Choose your About design' }))
       .not.toBeInTheDocument();
@@ -397,7 +396,7 @@ describe('OnboardingApp handoff boundaries', () => {
     state.recipe.aboutEnabled = true;
     renderAt(state);
 
-    await user.click(screen.getByRole('button', { name: 'Choose an About design' }));
+    await user.click(screen.getByRole('button', { name: 'Save and continue' }));
     await expectFocusedHeadingAtTop('Choose your About design');
     await user.click(screen.getByRole('button', { name: 'Use this design' }));
     await expectFocusedHeadingAtTop('Set clear expectations');
@@ -427,7 +426,7 @@ describe('OnboardingApp handoff boundaries', () => {
       dispatchBrowserHistoryEntry(entries.aboutDesign);
       await expectFocusedHeadingAtTop('Choose your About design');
       dispatchBrowserHistoryEntry(entries.about);
-      await expectFocusedHeadingAtTop('Would you like an About section?');
+      await expectFocusedHeadingAtTop('Tell clients a little about you');
       dispatchBrowserHistoryEntry(entries.aboutDesign);
       await expectFocusedHeadingAtTop('Choose your About design');
       dispatchBrowserHistoryEntry(entries.policies);

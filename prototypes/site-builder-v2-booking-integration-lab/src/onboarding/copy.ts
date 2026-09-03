@@ -44,11 +44,11 @@ export const CORE_SCREEN_ORDER: readonly OnboardingScreenId[] = [
 
 export const SCREEN_METADATA: Record<OnboardingScreenId, OnboardingScreenMetadata> = {
   about: {
-    heading: 'Would you like an About section?',
-    primaryAction: 'Choose an About design',
+    heading: 'Tell clients a little about you',
+    primaryAction: 'Save and continue',
     stage: 'design',
     status: 'optional',
-    supportingCopy: 'Share a little about yourself so clients feel comfortable booking with you.',
+    supportingCopy: 'Add as much or as little as you like. You can always update this from your dashboard.',
   },
   about_design: {
     heading: 'Choose your About design',
