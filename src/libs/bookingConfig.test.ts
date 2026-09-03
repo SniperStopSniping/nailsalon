@@ -12,6 +12,7 @@ describe('bookingConfig', () => {
       booking: {
         bufferMinutes: 15,
         slotIntervalMinutes: 10,
+        minimumNoticeMinutes: 480,
         currency: 'USD',
         timezone: 'America/New_York',
         introPriceDefaultLabel: 'Soft Opening Price',
@@ -20,6 +21,7 @@ describe('bookingConfig', () => {
     })).toEqual({
       bufferMinutes: 15,
       slotIntervalMinutes: 10,
+      minimumNoticeMinutes: 480,
       currency: 'USD',
       timezone: 'America/New_York',
       introPriceDefaultLabel: 'Soft Opening Price',
@@ -29,6 +31,13 @@ describe('bookingConfig', () => {
       // inherited from an unrelated booking-settings edit (PR 1 stage e).
       enforceRequiredAddOns: false,
     });
+  });
+
+  it('falls back to two hours when minimum notice is absent or malformed', () => {
+    expect(resolveBookingConfigFromSettings({ booking: {} }).minimumNoticeMinutes).toBe(120);
+    expect(resolveBookingConfigFromSettings({
+      booking: { minimumNoticeMinutes: -1 },
+    }).minimumNoticeMinutes).toBe(120);
   });
 
   it('enforces the salon client-change cutoff at the exact boundary', () => {

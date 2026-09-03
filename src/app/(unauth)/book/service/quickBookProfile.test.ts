@@ -73,6 +73,7 @@ function buildSource(
     reviewUrl: 'https://g.page/r/isla/review',
     sharedProfile: {
       bookingOnlyContact: null,
+      businessType: null,
       callEnabled: null,
       entranceInstructions: 'Inside TB Nails · Back of building',
       textEnabled: null,
@@ -119,7 +120,7 @@ describe('resolvePublicQuickBookProfile', () => {
         'Transit: Two minutes from the station',
       ],
     });
-    expect(profile.hours).toMatchObject({ statusLabel: 'Open today', todayLabel: '10:00 AM – 9:30 PM' });
+    expect(profile.hours).toMatchObject({ statusLabel: 'Open now', todayLabel: 'Until 9:30 PM' });
     expect(profile.contact).toEqual({
       phone: { actionLabel: 'Call', display: '(647) 123-4567', href: 'tel:6471234567' },
       email: { display: 'hello@islanails.com', href: 'mailto:hello@islanails.com' },
@@ -164,6 +165,41 @@ describe('resolvePublicQuickBookProfile', () => {
     expect(JSON.stringify(profile)).not.toContain('(647) 123-4567');
     expect(JSON.stringify(profile)).not.toContain('hello@islanails.com');
     expect(JSON.stringify(profile)).not.toContain('880 Ellesmere');
+  });
+
+  it('derives open and closed status from the salon timezone at the injected time', () => {
+    const source = buildSource({ ...HIDDEN, showHours: true });
+
+    source.now = new Date('2026-09-07T13:00:00.000Z');
+
+    expect(resolvePublicQuickBookProfile(source).hours).toMatchObject({
+      statusLabel: 'Closed',
+      todayLabel: 'Opens today at 10:00 AM',
+    });
+
+    source.now = new Date('2026-09-07T15:00:00.000Z');
+
+    expect(resolvePublicQuickBookProfile(source).hours).toMatchObject({
+      statusLabel: 'Open now',
+      todayLabel: 'Until 9:30 PM',
+    });
+
+    source.now = new Date('2026-09-08T02:00:00.000Z');
+
+    expect(resolvePublicQuickBookProfile(source).hours).toMatchObject({
+      statusLabel: 'Closed',
+      todayLabel: 'Opens tomorrow at 10:00 AM',
+    });
+  });
+
+  it('finds the next configured opening after a closed day in the salon timezone', () => {
+    const source = buildSource({ ...HIDDEN, showHours: true });
+    source.now = new Date('2026-09-09T15:00:00.000Z');
+
+    expect(resolvePublicQuickBookProfile(source).hours).toMatchObject({
+      statusLabel: 'Closed',
+      todayLabel: 'Opens Monday at 10:00 AM',
+    });
   });
 
   it('honours independent contact toggles and existing city-only privacy', () => {

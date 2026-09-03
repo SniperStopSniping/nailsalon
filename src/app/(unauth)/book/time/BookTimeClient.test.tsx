@@ -148,6 +148,27 @@ describe('BookTimeClient', () => {
     expect(container.querySelector('main main')).toBeNull();
   });
 
+  it('shows the tenant-configured minimum notice instead of fixed two-hour copy', async () => {
+    fetchMock.mockResolvedValue(new Response(JSON.stringify({
+      visibleSlots: ['09:00'],
+      bookedSlots: [],
+    }), { status: 200 }));
+
+    render(
+      <BookTimeClient
+        services={[{ id: 'srv_1', name: 'Gel', price: 65, duration: 60 }]}
+        totalPrice={65}
+        totalDuration={60}
+        technician={{ id: 'tech_1', name: 'Taylor', imageUrl: '/tech.jpg' }}
+        bookingFlow={['service', 'tech', 'time', 'confirm']}
+        minimumNoticeMinutes={240}
+      />,
+    );
+
+    expect(screen.getByText(/Book at least 4 hours before your appointment starts\./)).toBeInTheDocument();
+    expect(screen.queryByText(/Same-day bookings need 2 hours notice\./)).not.toBeInTheDocument();
+  });
+
   it('prefers the URL technician when fetching availability for a specific artist', async () => {
     fetchMock.mockImplementation(() => Promise.resolve(new Response(JSON.stringify({
       visibleSlots: ['09:00'],

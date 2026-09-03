@@ -12,6 +12,7 @@ describe('sharedSalonProfile', () => {
     expect(resolveSharedSalonProfile({
       sharedProfile: {
         bookingOnlyContact: true,
+        businessType: 'home_based',
         callEnabled: true,
         entranceInstructions: '  Inside TB Nails · back entrance  ',
         textEnabled: true,
@@ -20,6 +21,7 @@ describe('sharedSalonProfile', () => {
       },
     })).toEqual({
       bookingOnlyContact: true,
+      businessType: 'home_based',
       callEnabled: true,
       entranceInstructions: 'Inside TB Nails · back entrance',
       textEnabled: true,
@@ -43,6 +45,7 @@ describe('sharedSalonProfile', () => {
   it('publishes instructions only for an explicitly public location', () => {
     const profile = {
       bookingOnlyContact: null,
+      businessType: null,
       callEnabled: null,
       entranceInstructions: 'Use the back entrance.',
       textEnabled: null,

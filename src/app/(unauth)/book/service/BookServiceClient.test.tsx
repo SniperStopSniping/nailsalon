@@ -47,6 +47,7 @@ const {
   salonContextMock: {
     bookingPage: {
       layout: 'quick_book',
+      serviceMenuLayout: 'visual_grid',
       stylePack: 'default',
       tokenOverrides: null,
       sectionOrder: ['salonProfile', 'serviceMenu', 'featuredServices', 'policies', 'socialLinks', 'bookingCta'],
@@ -335,6 +336,9 @@ function resetBookingExperienceMock() {
     confirmationMessage: null,
   };
   salonContextMock.bookingPage.layout = 'quick_book';
+  salonContextMock.bookingPage.serviceMenuLayout = 'visual_grid';
+  delete (salonContextMock.bookingPage as { sitePalettePreset?: string }).sitePalettePreset;
+  delete (salonContextMock.bookingPage as { siteStylePreset?: string }).siteStylePreset;
   salonContextMock.bookingPage.sectionOrder = [
     'salonProfile',
     'serviceMenu',
@@ -567,6 +571,85 @@ describe('BookServiceClient', () => {
 
     expect(screen.getByText('Online booking is not ready yet')).toBeInTheDocument();
     expect(screen.getByText(/does not have any active services available to book right now/i)).toBeInTheDocument();
+  });
+
+  it.each([
+    'visual_grid',
+    'clean_list',
+    'editorial_cards',
+    'category_menu',
+    'editorial_price_list',
+  ] as const)('renders the %s catalogue with the shared service-selection behavior', (layout) => {
+    salonContextMock.bookingPage.serviceMenuLayout = layout;
+
+    render(
+      <BookServiceClient
+        services={services}
+        addOns={addOns}
+        serviceAddOnRules={serviceAddOnRules}
+        bookingFlow={['service', 'tech', 'time', 'confirm']}
+        locations={locations}
+      />,
+    );
+
+    const menu = layout === 'category_menu'
+      ? screen.getByTestId('service-menu-grouped-categories')
+      : screen.getByTestId('service-menu-list');
+    const serviceCard = screen.getByTestId('service-card-svc-1');
+
+    expect(menu).toHaveAttribute('data-booking-menu-layout', layout);
+    expect(screen.getByTestId(`service-menu-presentation-${layout}`)).toBeInTheDocument();
+
+    if (layout === 'visual_grid') {
+      expect(serviceCard).toHaveClass('flex-col', 'rounded-2xl');
+      expect(screen.getByTestId('service-card-image-svc-1')).toHaveClass('h-[68px]');
+    } else if (layout === 'clean_list') {
+      expect(serviceCard).toHaveClass('flex-row', 'rounded-xl');
+      expect(screen.getByTestId('service-card-image-svc-1')).toHaveClass('w-24');
+    } else if (layout === 'editorial_cards') {
+      expect(serviceCard).toHaveClass('flex-col', 'rounded-[24px]');
+      expect(screen.getByTestId('service-card-image-svc-1')).toHaveClass('h-[148px]');
+    } else if (layout === 'category_menu') {
+      expect(screen.getByTestId('service-category-group-manicure')).toBeInTheDocument();
+      expect(screen.queryByTestId('service-category-scroll')).not.toBeInTheDocument();
+    } else {
+      expect(serviceCard).toHaveClass('rounded-none', 'border-x-0', 'border-t-0');
+      expect(screen.queryByTestId('service-card-image-svc-1')).not.toBeInTheDocument();
+    }
+
+    fireEvent.click(serviceCard);
+
+    expect(serviceCard).toHaveAttribute('data-selected', 'true');
+    expect(screen.getByTestId('service-inline-addons-panel')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Add French Tip' })).toBeInTheDocument();
+  });
+
+  it('applies the saved free site style and palette only to the customer booking surface', () => {
+    Object.assign(salonContextMock.bookingPage, {
+      sitePalettePreset: 'black_champagne',
+      siteStylePreset: 'luxury',
+    });
+
+    const { container } = render(
+      <BookServiceClient
+        services={services}
+        addOns={addOns}
+        serviceAddOnRules={serviceAddOnRules}
+        bookingFlow={['service', 'tech', 'time', 'confirm']}
+        locations={locations}
+      />,
+    );
+
+    const viewport = container.querySelector('main.service-page-viewport');
+
+    expect(viewport).toHaveAttribute('data-customer-site-palette', 'black_champagne');
+    expect(viewport).toHaveAttribute('data-customer-site-style', 'luxury');
+    expect(viewport).toHaveStyle({
+      '--booking-brand-foreground': '#211a16',
+      '--booking-brand-primary': '#e1c27e',
+      '--customer-site-card-radius': '10px',
+      '--theme-background': '#151315',
+    });
   });
 
   it('renders the salon profile only for Quick Book and preserves the existing Editorial renderer', () => {

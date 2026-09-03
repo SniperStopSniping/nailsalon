@@ -587,6 +587,32 @@ describe('POST /api/appointments booking policy', () => {
     }));
   }
 
+  it('rejects a booking inside the salon-configured minimum notice window', async () => {
+    getSalonById.mockResolvedValue({
+      id: 'salon_1',
+      slug: 'salon-a',
+      name: 'Salon A',
+      settings: {
+        booking: {
+          minimumNoticeMinutes: 480,
+          timezone: 'America/Toronto',
+        },
+      },
+    });
+    const startTime = new Date(Date.now() + 4 * 60 * 60_000).toISOString();
+
+    const response = await postBooking({ startTime });
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      error: {
+        code: 'TOO_SOON',
+        message: 'Appointments must be booked at least 8 hours in advance. Please select a later time.',
+      },
+    });
+    expect(db.transaction).not.toHaveBeenCalled();
+  });
+
   function requireBookingPolicyAcknowledgment() {
     getSalonBySlug.mockResolvedValue({
       id: 'salon_1',

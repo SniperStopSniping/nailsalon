@@ -391,6 +391,7 @@ export type SalonSettings = {
    */
   sharedProfile?: {
     bookingOnlyContact?: boolean | null;
+    businessType?: 'independent_salon' | 'home_based' | 'mobile' | 'salon_team' | null;
     callEnabled?: boolean | null;
     entranceInstructions?: string | null;
     textEnabled?: boolean | null;
@@ -400,6 +401,7 @@ export type SalonSettings = {
   booking?: {
     bufferMinutes?: number;
     slotIntervalMinutes?: number;
+    minimumNoticeMinutes?: number;
     currency?: string;
     timezone?: string;
     introPriceDefaultLabel?: string | null;

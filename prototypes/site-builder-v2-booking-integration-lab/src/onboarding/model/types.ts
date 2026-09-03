@@ -23,6 +23,7 @@ export type OnboardingScreenId =
   | 'about'
   | 'about_design'
   | 'policies'
+  | 'booking_layout'
   | 'site_style'
   | 'save_progress'
   | 'extras'
@@ -433,8 +434,8 @@ export type OnboardingEventInput =
   | { type: 'about_toggled'; enabled: boolean }
   | { type: 'policies_toggled'; enabled: boolean }
   | { type: 'preset_changed'; presetKind: 'about' | 'palette' | 'style'; presetId: AboutPresetId | SitePalettePresetId | SiteStylePresetId }
-  | { type: 'preview_opened'; source: 'starting_preview' | 'about' | 'about_design' | 'site_style' | 'final_preview' }
-  | { type: 'preview_closed'; source: 'starting_preview' | 'about' | 'about_design' | 'site_style' | 'final_preview' }
+  | { type: 'preview_opened'; source: 'starting_preview' | 'about' | 'about_design' | 'booking_layout' | 'site_style' | 'final_preview' }
+  | { type: 'preview_closed'; source: 'starting_preview' | 'about' | 'about_design' | 'booking_layout' | 'site_style' | 'final_preview' }
   | { type: 'starter_selected'; starter: StarterId }
   | { type: 'extras_selected'; extras: Array<'gallery' | 'canva'> }
   | { type: 'open_builder' }

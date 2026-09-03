@@ -1,5 +1,6 @@
 import type { CustomDesignSettings } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/custom-design/model/types';
 import type { SiteBuilderDocument } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/model/types';
+import { getAvailableContactMethods } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/model/contact';
 import { applyOnboardingSitePresentation } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/model/site-document-presentation';
 import type { OnboardingLabState } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/model/types';
 import {
@@ -148,6 +149,25 @@ export function createPersistableOnboardingDraft(
     [profilePhoto, logo, ...galleryMedia, ...customDesignMedia]
       .filter((item): item is OnboardingMediaManifestItem => item !== null),
   );
+  const publicContactMethods = state.profile.bookingOnlyContact
+    ? []
+    : getAvailableContactMethods(state.profile);
+  const quickBookProfile = {
+    ...state.recipe.quickBookProfile,
+    // Screens 1, 3, and 4 own these public visibility decisions. The old
+    // Quick Book switches remain in the recipe for draft compatibility, but
+    // persisting them verbatim would make the real account-backed page hide
+    // information that the owner just saw in the Screen 6 preview.
+    showEmail: publicContactMethods.includes('email'),
+    showHours: state.profile.hours.setupState === 'configured'
+      && state.profile.hours.showOnSite,
+    showInstagram: state.profile.about.visibility.instagram,
+    showLocation: Boolean(state.profile.location.cityOrArea.trim()),
+    showPhone: publicContactMethods.includes('call')
+      || publicContactMethods.includes('text'),
+    showTechName: state.profile.about.visibility.owner_name,
+    showTechPhoto: state.profile.about.visibility.profile_photo,
+  };
 
   const snapshot = onboardingPersistedSnapshotSchema.parse({
     customDesign: {
@@ -180,6 +200,7 @@ export function createPersistableOnboardingDraft(
       brand: state.profile.brand,
       businessName: state.profile.businessName,
       businessStructure: state.profile.businessStructure,
+      businessType: state.profile.businessType,
       clientContact: state.profile.clientContact,
       email: state.profile.email,
       hours: state.profile.hours,
@@ -196,6 +217,9 @@ export function createPersistableOnboardingDraft(
         selectedAddOnIds: state.profile.serviceMenu.selectedAddOnIds ?? [],
         selectedServiceIds: state.profile.serviceMenu.selectedServiceIds,
       },
+      siteSlug: state.profile.siteSlug,
+      siteSlugCustomized: state.profile.siteSlugCustomized,
+      timeZone: state.profile.timeZone,
     },
     site: {
       aboutEnabled: state.recipe.aboutEnabled,
@@ -205,7 +229,8 @@ export function createPersistableOnboardingDraft(
       galleryEnabled: state.recipe.galleryEnabled,
       palettePresetId,
       policiesEnabled: state.recipe.policiesEnabled,
-      quickBookProfile: { ...state.recipe.quickBookProfile },
+      quickBookLayout: state.recipe.quickBookLayout,
+      quickBookProfile,
       starter: state.recipe.starter,
       stylePresetId: state.recipe.stylePreset,
     },

@@ -15,6 +15,7 @@ import {
   normalizeSiteSlug,
 } from '../model/business-identity';
 import { getResolvedPolicyWording } from '../model/policies';
+import { reconcileConditionalHistory } from '../model/routing';
 import {
   type BusinessProfileDraft,
   type BusinessStructure,
@@ -86,6 +87,7 @@ const SCREEN_IDS = new Set<OnboardingScreenId>([
   'about',
   'about_design',
   'policies',
+  'booking_layout',
   'site_style',
   'save_progress',
   'extras',
@@ -1057,7 +1059,10 @@ export const parseOnboardingState = (
   }
   const normalizedValue = normalizeOnboardingMediaReferences(value);
   if (isLegacyOnboardingState(normalizedValue)) {
-    return { state: migrateLegacyOnboardingState(normalizedValue), status: 'loaded' };
+    return {
+      state: reconcileConditionalHistory(migrateLegacyOnboardingState(normalizedValue)),
+      status: 'loaded',
+    };
   }
   if (!isOnboardingState(normalizedValue)) {
     return {
@@ -1075,7 +1080,7 @@ export const parseOnboardingState = (
     profile.preferredContact = getCoherentPreferredContact(profile);
   }
   return {
-    state: {
+    state: reconcileConditionalHistory({
       ...normalizedValue,
       profile,
       reviewOptions: {
@@ -1084,7 +1089,7 @@ export const parseOnboardingState = (
           normalizedValue.reviewOptions.feedbackMilestones,
         ),
       },
-    },
+    }),
     status: 'loaded',
   };
 };

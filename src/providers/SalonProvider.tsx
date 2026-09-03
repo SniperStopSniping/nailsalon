@@ -39,6 +39,8 @@ const EMPTY_OWNER_PREVIEW: SalonOwnerPreviewState = {
  */
 const CLIENT_SAFE_BOOKING_PAGE_SIDE_DEFAULTS: BookingPageConfigSide = {
   layout: 'quick_book',
+  quickBookLayout: 'clean_card',
+  serviceMenuLayout: 'visual_grid',
   stylePack: 'default',
   tokenOverrides: null,
   sectionOrder: ['salonProfile', 'serviceMenu', 'featuredServices', 'policies', 'socialLinks', 'bookingCta'],

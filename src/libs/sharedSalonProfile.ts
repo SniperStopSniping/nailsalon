@@ -3,8 +3,15 @@ import type { SalonSettings } from '@/types/salonPolicy';
 import type { LocationDisplayMode } from './bookingPageContent';
 import { applyPhoneDisplayMode } from './salonContent';
 
+export type SharedSalonBusinessType =
+  | 'independent_salon'
+  | 'home_based'
+  | 'mobile'
+  | 'salon_team';
+
 export type SharedSalonProfile = {
   bookingOnlyContact: boolean | null;
+  businessType: SharedSalonBusinessType | null;
   callEnabled: boolean | null;
   entranceInstructions: string | null;
   textEnabled: boolean | null;
@@ -14,6 +21,7 @@ export type SharedSalonProfile = {
 
 export const EMPTY_SHARED_SALON_PROFILE: SharedSalonProfile = {
   bookingOnlyContact: null,
+  businessType: null,
   callEnabled: null,
   entranceInstructions: null,
   textEnabled: null,
@@ -39,6 +47,15 @@ function optionalBoolean(value: unknown): boolean | null {
   return typeof value === 'boolean' ? value : null;
 }
 
+function optionalBusinessType(value: unknown): SharedSalonBusinessType | null {
+  return value === 'independent_salon'
+    || value === 'home_based'
+    || value === 'mobile'
+    || value === 'salon_team'
+    ? value
+    : null;
+}
+
 /**
  * Resolves the shared salon-profile JSON defensively. A malformed field fails
  * closed on its own and cannot hide another valid field or leak unvalidated
@@ -51,6 +68,7 @@ export function resolveSharedSalonProfile(
 
   return {
     bookingOnlyContact: optionalBoolean(raw.bookingOnlyContact),
+    businessType: optionalBusinessType(raw.businessType),
     callEnabled: optionalBoolean(raw.callEnabled),
     entranceInstructions: optionalText(raw.entranceInstructions, 2_000),
     textEnabled: optionalBoolean(raw.textEnabled),

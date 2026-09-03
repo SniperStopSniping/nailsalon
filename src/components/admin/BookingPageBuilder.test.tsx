@@ -10,6 +10,7 @@ import { BookingPageBuilder } from './BookingPageBuilder';
 function side(overrides: Partial<BookingPageConfigSide> = {}): BookingPageConfigSide {
   return {
     layout: 'quick_book',
+    serviceMenuLayout: 'visual_grid',
     stylePack: 'default',
     tokenOverrides: null,
     sectionOrder: [

@@ -27,6 +27,8 @@ import {
 import { useSalon } from '@/providers/SalonProvider';
 import { themeVars } from '@/theme';
 
+import { getMinimumNoticeCustomerCopy } from './minimumNoticeCopy';
+
 export type ServiceSummary = {
   id: string;
   name: string;
@@ -57,6 +59,7 @@ type BookTimeClientProps = {
   technician: TechnicianSummary;
   technicianSelectionSource?: 'explicit' | 'auto' | null;
   bookingFlow: BookingStep[];
+  minimumNoticeMinutes?: number;
   salonTimeZone?: string;
 };
 
@@ -238,6 +241,7 @@ export function BookTimeClient({
   technician,
   technicianSelectionSource = null,
   bookingFlow,
+  minimumNoticeMinutes,
   salonTimeZone = DEFAULT_SALON_TIMEZONE,
 }: BookTimeClientProps) {
   const router = useRouter();
@@ -889,7 +893,9 @@ export function BookTimeClient({
         />
 
         <p className="mb-4 text-center text-xs font-medium text-neutral-500">
-          Same-day bookings need 2 hours notice.
+          {minimumNoticeMinutes === undefined
+            ? 'Available times reflect the salon’s booking notice.'
+            : getMinimumNoticeCustomerCopy(minimumNoticeMinutes)}
           {' '}
           All times are shown in salon time (
           {getTimeZoneLabel(salonTimeZone)}

@@ -16,6 +16,7 @@ import type { DatabaseSessionHandle } from '@/libs/DB';
 import { resolveSharedSalonProfile } from '@/libs/sharedSalonProfile';
 import * as schema from '@/models/Schema';
 
+import { switchBookingLayout } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/booking/presentation';
 import { createDeterministicIdFactory } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/model/ids';
 import { initializeStarter } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/model/starters';
 import { createDefaultOnboardingState } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/model/defaults';
@@ -74,7 +75,8 @@ const request = (
     selectedAddOnIds?: string[];
     selectedServiceIds?: string[];
     target?: { mode: 'create_business' } | {
-      existingSiteStrategy?: 'new_draft' | 'replace_draft';
+      continuationClaimId?: string;
+      existingSiteStrategy?: 'continue_onboarding_draft' | 'new_draft' | 'replace_draft';
       expectedRevision?: number;
       expectedSiteId?: string;
       mode: 'existing_business';
@@ -263,6 +265,40 @@ describe.sequential('account-backed onboarding persistence', () => {
     });
   });
 
+  it('persists onboarding routing and booking rules into canonical salon settings', async () => {
+    const owner = identity('canonical_booking_settings');
+    const input = request('canonical_booking_settings');
+    input.snapshot.profile.businessType = 'home_based';
+    input.snapshot.profile.bookingPreferences.minimumNoticeMinutes = 480;
+    input.snapshot.profile.siteSlug = 'daniela-private-studio';
+    input.snapshot.profile.siteSlugCustomized = true;
+    input.snapshot.profile.timeZone = 'America/Vancouver';
+
+    const claim = await claimOnboardingDraft(owner, input, handle());
+    if (claim.kind !== 'success') {
+      throw new Error('Expected the canonical-settings draft to save.');
+    }
+
+    const [salon] = await database.select({
+      settings: schema.salonSchema.settings,
+      slug: schema.salonSchema.slug,
+    }).from(schema.salonSchema)
+      .where(eq(schema.salonSchema.id, claim.data.salonId));
+
+    expect(salon).toMatchObject({
+      settings: {
+        booking: {
+          minimumNoticeMinutes: 480,
+          timezone: 'America/Vancouver',
+        },
+        sharedProfile: {
+          businessType: 'home_based',
+        },
+      },
+      slug: 'daniela-private-studio',
+    });
+  });
+
   it('preserves booking-only canonical contact while private and can display it after an explicit visibility change', async () => {
     const owner = identity('private_contact_preserved');
     const input = request('private_contact_preserved');
@@ -406,7 +442,19 @@ describe.sequential('account-backed onboarding persistence', () => {
     const owner = identity('quick_book_profile_draft');
     const input = request('quick_book_profile_draft');
     input.snapshot.site.starter = 'quick_book';
+    input.snapshot.site.palettePresetId = 'black_champagne';
+    input.snapshot.site.quickBookLayout = 'profile_story';
     input.snapshot.site.quickBookProfile = { ...QUICK_BOOK_PROFILE_VISIBLE };
+    input.snapshot.site.stylePresetId = 'luxury';
+    const bookingSection = input.snapshot.site.builderDocument?.pages
+      .flatMap(page => page.sections)
+      .find(section => section.sectionType === 'booking');
+    if (bookingSection?.sectionType === 'booking') {
+      bookingSection.settings = switchBookingLayout(
+        bookingSection.settings,
+        'editorial_cards',
+      );
+    }
     input.snapshot.site.policiesEnabled = true;
     input.snapshot.profile.instagram = '@isla.nails';
     input.snapshot.profile.clientContact.textEnabled = true;
@@ -454,7 +502,13 @@ describe.sequential('account-backed onboarding persistence', () => {
       ...QUICK_BOOK_PROFILE_VISIBLE,
       version: 1,
     });
+    expect(bookingPage.draft.quickBookLayout).toBe('profile_story');
+    expect(bookingPage.draft.serviceMenuLayout).toBe('editorial_cards');
+    expect(bookingPage.draft.sitePalettePreset).toBe('black_champagne');
+    expect(bookingPage.draft.siteStylePreset).toBe('luxury');
     expect(bookingPage.live.quickBookProfile).toEqual(QUICK_BOOK_PROFILE_VISIBILITY_DEFAULTS);
+    expect(bookingPage.live.sitePalettePreset).toBeUndefined();
+    expect(bookingPage.live.siteStylePreset).toBeUndefined();
     expect(bookingPageContent.draft).toMatchObject({
       bio: 'Healthy nails, flawless results.',
       heroImageUrl: null,
@@ -481,6 +535,7 @@ describe.sequential('account-backed onboarding persistence', () => {
     expect(bookingExperience.policy.text).toContain('24 hours’ notice');
     expect(sharedProfile).toEqual({
       bookingOnlyContact: false,
+      businessType: null,
       callEnabled: true,
       entranceInstructions: 'Inside TB Nails · Back entrance',
       textEnabled: true,
@@ -794,7 +849,7 @@ describe.sequential('account-backed onboarding persistence', () => {
     )).rejects.toMatchObject({ code: 'CLAIM_REVISION_STALE', status: 409 });
   });
 
-  it('saves a new draft for a published business without mutating canonical Product data', async () => {
+  it('continues its exact onboarding draft for a published business without mutating canonical Product data', async () => {
     const owner = identity('published_new_draft');
     const initial = await claimOnboardingDraft(
       owner,
@@ -926,6 +981,78 @@ describe.sequential('account-backed onboarding persistence', () => {
       kind: 'conflict',
     });
     expect(await readCanonicalProductState()).toEqual(afterDraftSave);
+
+    await expect(claimOnboardingDraft(owner, request('published_wrong_continuation', {
+      target: {
+        continuationClaimId: '11111111-1111-4111-8111-111111111111',
+        existingSiteStrategy: 'continue_onboarding_draft',
+        expectedRevision: savedDraft.data.revision,
+        expectedSiteId: savedDraft.data.siteId,
+        mode: 'existing_business',
+        salonId: initial.data.salonId,
+      },
+      token: opaque('draft_published_wrong_continuation'),
+    }), handle())).rejects.toMatchObject({
+      code: 'SITE_REVISION_CONFLICT',
+      status: 409,
+    });
+
+    const continuationInput = request('published_continuation', {
+      target: {
+        continuationClaimId: savedDraft.data.claimId,
+        existingSiteStrategy: 'continue_onboarding_draft',
+        expectedRevision: savedDraft.data.revision,
+        expectedSiteId: savedDraft.data.siteId,
+        mode: 'existing_business',
+        salonId: initial.data.salonId,
+      },
+      token: opaque('draft_published_continuation'),
+    });
+    continuationInput.snapshot.site.quickBookProfile = {
+      ...privateSnapshotVisibility(),
+      showHours: true,
+      showInstagram: true,
+    };
+    const continued = await claimOnboardingDraft(owner, continuationInput, handle());
+
+    expect(continued).toMatchObject({
+      data: {
+        ownerCreatedServiceIds: [],
+        revision: savedDraft.data.revision + 1,
+        serviceMenuApplied: false,
+        siteId: savedDraft.data.siteId,
+      },
+      kind: 'success',
+    });
+
+    const afterContinuation = await readCanonicalProductState();
+
+    expect(afterContinuation.locations).toEqual(afterDraftSave.locations);
+    expect(afterContinuation.services).toEqual(afterDraftSave.services);
+    expect(afterContinuation.technicians).toEqual(afterDraftSave.technicians);
+    expect(afterContinuation.technicianServices).toEqual(afterDraftSave.technicianServices);
+
+    const afterContinuationSalon = afterContinuation.salon[0];
+    if (!afterContinuationSalon) {
+      throw new Error('Expected the continued published salon state.');
+    }
+    const {
+      settings: continuationSettings,
+      updatedAt: _continuationUpdatedAt,
+      ...continuationCanonicalSalon
+    } = afterContinuationSalon;
+
+    expect(continuationCanonicalSalon).toEqual(beforeCanonicalSalon);
+    expect(resolveBookingPageConfig(continuationSettings).live).toEqual(
+      resolveBookingPageConfig(beforeSettings).live,
+    );
+    expect(resolveBookingPageContent(continuationSettings).live).toEqual(
+      resolveBookingPageContent(beforeSettings).live,
+    );
+    expect(resolveBookingPageConfig(continuationSettings).draft.quickBookProfile).toEqual({
+      ...continuationInput.snapshot.site.quickBookProfile,
+      version: 1,
+    });
   });
 
   it('reconciles only onboarding-owned services when replacing an unpublished draft', async () => {

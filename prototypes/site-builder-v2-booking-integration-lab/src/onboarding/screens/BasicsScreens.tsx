@@ -94,15 +94,6 @@ const ADDRESS_VISIBILITY: readonly ChoiceOption<AddressVisibility>[] = [
   { label: 'Do not show', value: 'hidden' },
 ];
 
-function initialsFor(profile: BusinessProfileDraft): string {
-  const source = profile.ownerName.trim() || profile.businessName.trim() || 'Luster';
-  return source
-    .split(/\s+/)
-    .slice(0, 2)
-    .map((part) => part[0]?.toUpperCase() ?? '')
-    .join('');
-}
-
 type BrandBasicsScreenProps = SharedBasicsScreenProps & {
   onContinue: () => void;
   onLogoSelected: (file: File) => Promise<void>;

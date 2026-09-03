@@ -121,10 +121,9 @@ const getTorontoToday = () => {
   return torontoNow;
 };
 
-// Minimum lead time in minutes (must book at least this far in advance)
-const MIN_LEAD_TIME_MINUTES = 120;
-
-// Filter out past time slots and slots within the lead time buffer (using Toronto timezone)
+// The tenant-scoped availability endpoint owns configured minimum-notice
+// enforcement. This retired client only guards against displaying a slot that
+// became past while its already-filtered response was rendering.
 const filterPastTimeSlots = (
   slotTimes: string[],
   date: Date | null,
@@ -145,13 +144,11 @@ const filterPastTimeSlots = (
     return slotTimes;
   }
 
-  const minimumBookingTime = new Date(torontoNow.getTime() + MIN_LEAD_TIME_MINUTES * 60 * 1000);
-
   return slotTimes.filter((slotTimeValue) => {
     const [hours, minutes] = slotTimeValue.split(':').map(Number);
     const slotTime = new Date(selectedDateMidnight);
     slotTime.setHours(hours || 0, minutes || 0, 0, 0);
-    return slotTime >= minimumBookingTime;
+    return slotTime > torontoNow;
   });
 };
 
@@ -600,10 +597,6 @@ export function ChangeAppointmentClient({
           totalPrice={totalPrice}
           technician={technician}
         />
-
-        <p className="mb-4 text-center text-xs font-medium text-neutral-500">
-          Same-day bookings need 2 hours notice.
-        </p>
 
         {/* Title */}
         <div

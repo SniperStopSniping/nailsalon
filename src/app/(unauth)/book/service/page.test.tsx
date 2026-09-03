@@ -654,6 +654,7 @@ describe('BookServicePage owner-preview wiring', () => {
       version: 1,
       draft: {
         layout: 'quick_book',
+        serviceMenuLayout: 'visual_grid',
         stylePack: 'default',
         tokenOverrides: null,
         sectionOrder: ['salonProfile', 'serviceMenu', 'bookingCta'],
@@ -677,6 +678,7 @@ describe('BookServicePage owner-preview wiring', () => {
       },
       live: {
         layout: 'editorial',
+        serviceMenuLayout: 'visual_grid',
         stylePack: 'default',
         tokenOverrides: null,
         sectionOrder: ['salonProfile', 'featuredServices', 'technicianProfile', 'serviceMenu', 'bookingCta'],

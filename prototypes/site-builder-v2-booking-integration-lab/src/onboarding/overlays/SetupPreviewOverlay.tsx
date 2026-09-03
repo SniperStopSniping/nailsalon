@@ -17,7 +17,7 @@ type SetupPreviewOverlayProps = {
   onClose: () => void;
   onContinue: () => void;
   open: boolean;
-  source: 'starting_preview' | 'about' | 'about_design' | 'site_style' | 'final_preview';
+  source: 'starting_preview' | 'about' | 'about_design' | 'booking_layout' | 'site_style' | 'final_preview';
   state: OnboardingLabState;
 };
 
@@ -35,6 +35,8 @@ export function SetupPreviewOverlay({
   const returnActionsRef = useRef<HTMLElement>(null);
   const title = source === 'starting_preview'
     ? 'Preview your starting site'
+    : source === 'booking_layout'
+      ? 'Preview your booking layout'
     : source === 'about_design' && state.recipe.starter === 'quick_book'
       ? 'Preview your Quick Book layout'
     : source === 'about' || source === 'about_design'

@@ -794,6 +794,32 @@ describe('OnboardingApp handoff boundaries', () => {
       .toEqual(['editorial']);
   });
 
+  it('finishes the saved site revision without presenting a second account-save gate', async () => {
+    const user = userEvent.setup();
+    const state = stateAt('final_preview');
+    window.localStorage.setItem(
+      ONBOARDING_STORAGE_KEY,
+      serializeOnboardingState(state),
+    );
+    const lab = createLab(initializeStarter('quick_book', {
+      siteId: state.recipe.starterDocumentSiteId ?? undefined,
+      siteName: state.profile.businessName,
+    }));
+    const onSaveSite = vi.fn<(payload: OnboardingSavePayload) => void>();
+    render(
+      <OnboardingApp
+        auditMode
+        integration={{ hasSavedSite: true, onSaveSite }}
+        lab={lab}
+      />,
+    );
+
+    expect(screen.getByText(/Finish setup to save these final choices/i)).toBeVisible();
+    expect(screen.queryByRole('button', { name: 'Save my site' })).not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Finish setup' }));
+    expect(onSaveSite).toHaveBeenCalledOnce();
+  });
+
   it('treats the plan offer as a Review overlay for browser Back and Forward', async () => {
     const user = userEvent.setup();
     const state = stateAt('final_preview');
@@ -984,6 +1010,44 @@ describe('OnboardingApp handoff boundaries', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it('flushes the exact Screen 6 draft before the account gate replaces onboarding', async () => {
+    const state = stateAt('site_style');
+    state.profile.businessName = 'Luster Auth Probe';
+    state.recipe.styleConfirmed = false;
+    const document = initializeStarter('quick_book', {
+      siteId: state.recipe.starterDocumentSiteId ?? undefined,
+      siteName: state.profile.businessName,
+    });
+    const lab = createLab(document);
+    const onSaveSite = vi.fn<(payload: OnboardingSavePayload) => void>(() => {
+      const persisted = parseOnboardingState(
+        window.localStorage.getItem(ONBOARDING_STORAGE_KEY) ?? '',
+      );
+      expect(persisted.status).toBe('loaded');
+      expect(persisted.state.profile.businessName).toBe('Luster Auth Probe');
+      expect(persisted.state.progress.currentScreen).toBe('save_progress');
+    });
+    window.localStorage.setItem(
+      ONBOARDING_STORAGE_KEY,
+      serializeOnboardingState(state),
+    );
+
+    render(
+      <OnboardingApp
+        auditMode
+        integration={{ onSaveSite }}
+        lab={lab}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Use this look' }));
+    await waitFor(() => expect(onSaveSite).toHaveBeenCalledOnce());
+    expect(onSaveSite.mock.calls[0]?.[0].state).toMatchObject({
+      profile: { businessName: 'Luster Auth Probe' },
+      progress: { currentScreen: 'save_progress' },
+    });
   });
 });
 

@@ -8,8 +8,8 @@ import {
 } from './copy';
 
 describe('centralized onboarding metadata', () => {
-  it('maps all thirteen live screens to four ordered stages', () => {
-    expect(CORE_SCREEN_ORDER).toHaveLength(13);
+  it('maps all fourteen live screens to four ordered stages', () => {
+    expect(CORE_SCREEN_ORDER).toHaveLength(14);
     expect(CORE_SCREEN_ORDER[0]).toBe('starter');
     expect(CORE_SCREEN_ORDER[1]).toBe('business');
     expect(CORE_SCREEN_ORDER).not.toContain('welcome');
@@ -33,6 +33,7 @@ describe('centralized onboarding metadata', () => {
       'design',
       'design',
       'design',
+      'design',
       'review',
     ]);
   });
@@ -41,6 +42,7 @@ describe('centralized onboarding metadata', () => {
     expect(SCREEN_METADATA.starter.status).toBe('essential');
     expect(SCREEN_METADATA.about.status).toBe('optional');
     expect(SCREEN_METADATA.policies.status).toBe('recommended');
+    expect(SCREEN_METADATA.booking_layout.status).toBe('essential');
     expect(SCREEN_METADATA.extras.status).toBe('optional');
     expect(SCREEN_METADATA.site_style.status).toBe('essential');
   });

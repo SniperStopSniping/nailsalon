@@ -13,9 +13,18 @@ const appendUnique = <Value extends string>(values: Value[], value: Value): Valu
 export const isScreenAvailable = (
   screen: OnboardingScreenId,
   state: OnboardingLabState,
-): boolean => screen !== 'about_design'
-  || state.recipe.aboutEnabled
-  || state.recipe.starter === 'quick_book';
+): boolean => {
+  if (screen === 'about_design') {
+    return state.recipe.aboutEnabled || state.recipe.starter === 'quick_book';
+  }
+  if (screen === 'booking_layout') {
+    return state.recipe.starter === 'quick_book';
+  }
+  if (screen === 'extras') {
+    return state.recipe.starter !== 'quick_book';
+  }
+  return true;
+};
 
 export const getReachableCoreScreens = (
   state: OnboardingLabState,
@@ -149,15 +158,26 @@ export const skipOptionalScreen = (
 export const reconcileConditionalHistory = (
   state: OnboardingLabState,
 ): OnboardingLabState => {
-  if (state.recipe.aboutEnabled || state.recipe.starter === 'quick_book') {
-    return state;
-  }
-  const screenHistory = state.progress.screenHistory.filter(
-    (screen) => screen !== 'about_design',
-  );
-  const currentScreen = state.progress.currentScreen === 'about_design'
-    ? 'about'
-    : state.progress.currentScreen;
+  const reconcileScreen = (screen: OnboardingScreenId): OnboardingScreenId => {
+    if (isScreenAvailable(screen, state)) {
+      return screen;
+    }
+    if (screen === 'about_design') {
+      return 'about';
+    }
+    if (screen === 'extras' && state.recipe.starter === 'quick_book') {
+      return 'booking_layout';
+    }
+    if (screen === 'booking_layout' && state.recipe.starter !== 'quick_book') {
+      return 'final_preview';
+    }
+    return 'starter';
+  };
+  const currentScreen = reconcileScreen(state.progress.currentScreen);
+  const lastActiveScreen = reconcileScreen(state.progress.lastActiveScreen);
+  const screenHistory = state.progress.screenHistory
+    .map(reconcileScreen)
+    .filter((screen, index, all) => index === 0 || screen !== all[index - 1]);
   const normalizedHistory = screenHistory.at(-1) === currentScreen
     ? screenHistory
     : [...screenHistory, currentScreen];
@@ -166,8 +186,9 @@ export const reconcileConditionalHistory = (
     progress: {
       ...state.progress,
       currentScreen,
-      lastActiveScreen: currentScreen,
+      lastActiveScreen,
       screenHistory: normalizedHistory.length > 0 ? normalizedHistory : ['starter'],
+      visitedScreens: [...new Set(state.progress.visitedScreens.map(reconcileScreen))],
     },
   };
 };

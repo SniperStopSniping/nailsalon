@@ -1,6 +1,8 @@
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 
+import { QUICK_BOOK_SITE_LAYOUTS } from '@/libs/quickBookSiteLayout';
+
 import type { QuickBookProfileView } from './quickBookProfile';
 import { QuickBookProfileHeader } from './QuickBookProfileHeader';
 
@@ -66,6 +68,40 @@ const FULL_PROFILE: QuickBookProfileView = {
 };
 
 describe('QuickBookProfileHeader', () => {
+  it('renders six distinct presentations without changing canonical profile data', () => {
+    const sourceBefore = structuredClone(FULL_PROFILE);
+    const fingerprints = new Set<string>();
+
+    for (const layout of QUICK_BOOK_SITE_LAYOUTS) {
+      const view = render(
+        <QuickBookProfileHeader
+          profile={FULL_PROFILE}
+          bookingFlow={['service', 'tech', 'time', 'confirm']}
+          layout={layout}
+          mounted
+        />,
+      );
+      const header = screen.getByTestId('booking-step-header');
+      const profile = screen.getByTestId('quick-book-profile');
+      const identity = screen.getByTestId('quick-book-identity');
+      const details = screen.getByTestId('quick-book-business-details');
+
+      expect(header).toHaveAttribute('data-quick-book-layout', layout);
+      expect(profile).toHaveAttribute('data-layout-presentation', layout);
+
+      fingerprints.add([
+        profile.className,
+        identity.className,
+        details.className,
+        screen.getByTestId('quick-book-bio').className,
+      ].join('|'));
+      view.unmount();
+    }
+
+    expect(fingerprints).toHaveLength(QUICK_BOOK_SITE_LAYOUTS.length);
+    expect(FULL_PROFILE).toEqual(sourceBefore);
+  });
+
   it('renders a compact minimal identity immediately above booking', () => {
     render(
       <QuickBookProfileHeader

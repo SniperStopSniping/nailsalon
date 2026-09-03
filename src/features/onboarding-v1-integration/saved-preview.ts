@@ -141,14 +141,14 @@ export function createSavedSitePreviewModel(input: {
   } = snapshot.profile;
   const gallery = snapshot.gallery.source === 'mock_luster'
     ? snapshot.gallery.imageItemIds.flatMap((id) => {
-        const example = ONBOARDING_EXAMPLE_GALLERY_IMAGES.find(item => item.id === id);
-        return example ? [{ ...example }] : [];
-      })
+      const example = ONBOARDING_EXAMPLE_GALLERY_IMAGES.find(item => item.id === id);
+      return example ? [{ ...example }] : [];
+    })
     : snapshot.gallery.imageItemIds.flatMap((id) => {
-        const item = galleryMedia.find(candidate => candidate.localItemId === id);
-        const reference = imageReference(item);
-        return reference ? [reference] : [];
-      });
+      const item = galleryMedia.find(candidate => candidate.localItemId === id);
+      const reference = imageReference(item);
+      return reference ? [reference] : [];
+    });
   const canvaImages = snapshot.customDesign.imageItemIds.flatMap((id) => {
     const item = customDesignMedia.find(candidate => candidate.localItemId === id);
     const reference = imageReference(item);
@@ -197,50 +197,51 @@ export function createSavedSitePreviewModel(input: {
 
   const previewDocument = remapCustomDesignAssets(document.builderDocument);
   const savedState: OnboardingLabState = {
-      ...state,
-      canva: {
-        ...state.canva,
-        customDesignSectionId: snapshot.customDesign.customDesignSectionId,
-        displayMode: snapshot.customDesign.displayMode,
-        images: canvaImages,
-        ownedAssetIds: [],
-        placement: snapshot.customDesign.placement,
-        status: snapshot.customDesign.status,
-      },
-      gallery: {
-        images: gallery,
-        layout: snapshot.gallery.layout,
-        source: snapshot.gallery.source,
-      },
-      profile: {
-        ...state.profile,
-        ...persistedProfile,
-        logo: imageReference(
-          logos.find(item => item.localItemId === snapshot.profile.logoItemId),
-        ),
-        profilePhoto: imageReference(
-          profiles.find(item => item.localItemId === snapshot.profile.profilePhotoItemId),
-        ),
-      },
-      reviewOptions: {
-        ...state.reviewOptions,
-        previewTimestamp: snapshot.previewTimestamp,
-      },
-      recipe: {
-        ...state.recipe,
-        aboutEnabled: snapshot.site.aboutEnabled,
-        aboutPreset: snapshot.site.aboutPreset,
-        canvaEnabled: snapshot.site.canvaEnabled,
-        galleryEnabled: snapshot.site.galleryEnabled,
-        paletteConfirmed: true,
-        palettePreset: snapshot.site.palettePresetId,
-        policiesEnabled: snapshot.site.policiesEnabled,
-        quickBookProfile: { ...snapshot.site.quickBookProfile },
-        starter: snapshot.site.starter,
-        starterDocumentSiteId: document.builderDocument.siteId,
-        styleConfirmed: true,
-        stylePreset: snapshot.site.stylePresetId,
-      },
+    ...state,
+    canva: {
+      ...state.canva,
+      customDesignSectionId: snapshot.customDesign.customDesignSectionId,
+      displayMode: snapshot.customDesign.displayMode,
+      images: canvaImages,
+      ownedAssetIds: [],
+      placement: snapshot.customDesign.placement,
+      status: snapshot.customDesign.status,
+    },
+    gallery: {
+      images: gallery,
+      layout: snapshot.gallery.layout,
+      source: snapshot.gallery.source,
+    },
+    profile: {
+      ...state.profile,
+      ...persistedProfile,
+      logo: imageReference(
+        logos.find(item => item.localItemId === snapshot.profile.logoItemId),
+      ),
+      profilePhoto: imageReference(
+        profiles.find(item => item.localItemId === snapshot.profile.profilePhotoItemId),
+      ),
+    },
+    reviewOptions: {
+      ...state.reviewOptions,
+      previewTimestamp: snapshot.previewTimestamp,
+    },
+    recipe: {
+      ...state.recipe,
+      aboutEnabled: snapshot.site.aboutEnabled,
+      aboutPreset: snapshot.site.aboutPreset,
+      canvaEnabled: snapshot.site.canvaEnabled,
+      galleryEnabled: snapshot.site.galleryEnabled,
+      paletteConfirmed: true,
+      palettePreset: snapshot.site.palettePresetId,
+      policiesEnabled: snapshot.site.policiesEnabled,
+      quickBookLayout: snapshot.site.quickBookLayout,
+      quickBookProfile: { ...snapshot.site.quickBookProfile },
+      starter: snapshot.site.starter,
+      starterDocumentSiteId: document.builderDocument.siteId,
+      styleConfirmed: true,
+      stylePreset: snapshot.site.stylePresetId,
+    },
   };
 
   // The saved plan re-derives from the persisted Builder document through the

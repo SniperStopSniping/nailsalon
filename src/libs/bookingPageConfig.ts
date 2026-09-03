@@ -3,9 +3,10 @@
  *
  * This module owns the versioned persisted shape, safe resolution,
  * section-order safety net, and targeted draft writer. The public renderer
- * consumes only the validated layout/order/visibility and `sectionVariants`
- * presentation seam; `stylePack` and `tokenOverrides` deliberately remain
- * renderer-inert until their separately entitled release boundary.
+ * consumes only the validated page layout/order/visibility, independent
+ * `serviceMenuLayout`, and `sectionVariants` presentation seams; `stylePack`
+ * and `tokenOverrides` deliberately remain renderer-inert until their
+ * separately entitled release boundary.
  *
  * Mirrors the pattern in src/libs/bookingExperience.ts: a DEFAULTS constant,
  * zod schemas, a resolver that uses zod safeParse with a documented
@@ -37,11 +38,31 @@ import {
   isBookingPagePresetRecipeVersion,
   resolveBookingPagePresetRecipe,
 } from '@/libs/bookingPagePresetRecipes';
+import {
+  CUSTOMER_SITE_PALETTE_PRESETS,
+  CUSTOMER_SITE_STYLE_PRESETS,
+  type CustomerSitePalettePreset,
+  type CustomerSiteStylePreset,
+  resolveCustomerSitePalettePreset,
+  resolveCustomerSiteStylePreset,
+} from '@/libs/customerSitePresentation';
 import { db } from '@/libs/DB';
+import {
+  DEFAULT_QUICK_BOOK_SITE_LAYOUT,
+  QUICK_BOOK_SITE_LAYOUTS,
+  type QuickBookSiteLayout,
+  resolveQuickBookSiteLayout,
+} from '@/libs/quickBookSiteLayout';
 import {
   isSupportedSectionVariant,
   type SectionVariantOverrides,
 } from '@/libs/sectionPresentation';
+import {
+  DEFAULT_SERVICE_MENU_LAYOUT,
+  resolveServiceMenuLayout,
+  SERVICE_MENU_LAYOUTS,
+  type ServiceMenuLayout,
+} from '@/libs/serviceMenuLayout';
 import { salonSchema } from '@/models/Schema';
 
 // The full "one appearance pipeline" (plan section 4A.D) is:
@@ -226,6 +247,14 @@ export const QUICK_BOOK_PROFILE_VISIBILITY_DEFAULTS: QuickBookProfileVisibility
 
 export type BookingPageConfigSide = {
   layout: BookingPageLayout;
+  /** Free customer-site colour selected during onboarding; not a premium token override. */
+  sitePalettePreset?: CustomerSitePalettePreset;
+  /** Free customer-site visual character selected during onboarding; not a premium style pack. */
+  siteStylePreset?: CustomerSiteStylePreset;
+  /** Presentation of canonical business data above Quick Book's service menu. */
+  quickBookLayout?: QuickBookSiteLayout;
+  /** Presentation of the canonical catalogue inside the shared booking engine. */
+  serviceMenuLayout: ServiceMenuLayout;
   stylePack: StylePack;
   tokenOverrides: BookingPageTokenOverrides | null;
   sectionOrder: SectionId[];
@@ -306,6 +335,8 @@ function layoutDefaultSectionOrder(layout: BookingPageLayout): SectionId[] {
 function createDefaultSide(): BookingPageConfigSide {
   return {
     layout: 'quick_book',
+    quickBookLayout: DEFAULT_QUICK_BOOK_SITE_LAYOUT,
+    serviceMenuLayout: DEFAULT_SERVICE_MENU_LAYOUT,
     stylePack: DEFAULT_STYLE_PACK,
     tokenOverrides: null,
     sectionOrder: [...DEFAULT_SECTION_ORDER],
@@ -359,6 +390,10 @@ function resolveWithDefault<T>(schema: z.ZodType<T>, value: unknown, fallback: T
 }
 
 const layoutSchema = z.enum(BOOKING_PAGE_LAYOUTS);
+const sitePalettePresetSchema = z.enum(CUSTOMER_SITE_PALETTE_PRESETS);
+const siteStylePresetSchema = z.enum(CUSTOMER_SITE_STYLE_PRESETS);
+const quickBookSiteLayoutSchema = z.enum(QUICK_BOOK_SITE_LAYOUTS);
+const serviceMenuLayoutSchema = z.enum(SERVICE_MENU_LAYOUTS);
 
 /**
  * S4 (Stage 1) — the layouts a NEW write may set.
@@ -483,6 +518,10 @@ const quickBookProfileVisibilityPatchSchema = quickBookProfileVisibilitySchema
  */
 const bookingPageSideSchema = z.object({
   layout: layoutSchema,
+  sitePalettePreset: sitePalettePresetSchema.optional(),
+  siteStylePreset: siteStylePresetSchema.optional(),
+  quickBookLayout: quickBookSiteLayoutSchema.optional(),
+  serviceMenuLayout: serviceMenuLayoutSchema,
   stylePack: stylePackSchema,
   tokenOverrides: tokenOverridesSchema,
   sectionOrder: sectionIdArraySchema,
@@ -815,11 +854,26 @@ function resolveSide(
   const source = isRecord(rawSide) ? rawSide : {};
 
   const layout = resolveWithDefault(layoutSchema, source.layout, BOOKING_PAGE_CONFIG_SIDE_DEFAULTS.layout);
+  const sitePalettePreset = hasOwn(source, 'sitePalettePreset')
+    ? resolveCustomerSitePalettePreset(source.sitePalettePreset)
+    : undefined;
+  const siteStylePreset = hasOwn(source, 'siteStylePreset')
+    ? resolveCustomerSiteStylePreset(source.siteStylePreset)
+    : undefined;
+  const quickBookLayout = resolveQuickBookSiteLayout(source.quickBookLayout);
   const stylePack = resolveStylePack(source.stylePack);
   const tokenOverrides = resolveTokenOverrides(
     hasOwn(source, 'tokenOverrides') ? source.tokenOverrides : null,
   );
   const sectionVariants = resolveSectionVariants(source.sectionVariants);
+  // Before the dedicated catalogue field existed, grouped service menus were
+  // represented by the section variant. Preserve that public presentation on
+  // read while making every new write use the independent five-layout field.
+  const serviceMenuLayout = hasOwn(source, 'serviceMenuLayout')
+    ? resolveServiceMenuLayout(source.serviceMenuLayout)
+    : sectionVariants.serviceMenu === 'grouped_categories'
+      ? 'category_menu'
+      : DEFAULT_SERVICE_MENU_LAYOUT;
   const businessMode = resolveWithDefault(
     businessModeSchema,
     source.businessMode,
@@ -857,6 +911,10 @@ function resolveSide(
 
   return {
     layout,
+    ...(sitePalettePreset ? { sitePalettePreset } : {}),
+    ...(siteStylePreset ? { siteStylePreset } : {}),
+    quickBookLayout,
+    serviceMenuLayout,
     stylePack,
     tokenOverrides,
     sectionOrder,
@@ -1127,6 +1185,25 @@ export async function updateBookingPageDraftInTransaction(
   if (validatedPatch.layout !== undefined) {
     settingsExpression = sql`jsonb_set(${settingsExpression}, '{bookingPage,draft,layout}', ${JSON.stringify(validatedPatch.layout)}::jsonb)`;
   }
+  if (validatedPatch.sitePalettePreset !== undefined) {
+    settingsExpression = sql`jsonb_set(${settingsExpression}, '{bookingPage,draft,sitePalettePreset}', ${JSON.stringify(validatedPatch.sitePalettePreset)}::jsonb)`;
+  }
+  if (validatedPatch.siteStylePreset !== undefined) {
+    settingsExpression = sql`jsonb_set(${settingsExpression}, '{bookingPage,draft,siteStylePreset}', ${JSON.stringify(validatedPatch.siteStylePreset)}::jsonb)`;
+  }
+  // Materialize the resolved legacy default on the next config write while
+  // preserving it unless this patch explicitly selects another composition.
+  const nextQuickBookLayout = validatedPatch.quickBookLayout
+    ?? currentConfig.draft.quickBookLayout
+    ?? DEFAULT_QUICK_BOOK_SITE_LAYOUT;
+  settingsExpression = sql`jsonb_set(${settingsExpression}, '{bookingPage,draft,quickBookLayout}', ${JSON.stringify(nextQuickBookLayout)}::jsonb)`;
+  // Materialize the resolved value on every legacy draft's next write. This
+  // freezes the old section-variant fallback before a site preset changes
+  // sectionVariants, keeping the newly independent catalogue presentation
+  // stable unless its own field is explicitly changed.
+  const nextServiceMenuLayout = validatedPatch.serviceMenuLayout
+    ?? currentConfig.draft.serviceMenuLayout;
+  settingsExpression = sql`jsonb_set(${settingsExpression}, '{bookingPage,draft,serviceMenuLayout}', ${JSON.stringify(nextServiceMenuLayout)}::jsonb)`;
   if (validatedPatch.stylePack !== undefined) {
     settingsExpression = sql`jsonb_set(${settingsExpression}, '{bookingPage,draft,stylePack}', ${JSON.stringify(validatedPatch.stylePack)}::jsonb)`;
   }

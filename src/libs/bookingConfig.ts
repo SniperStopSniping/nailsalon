@@ -7,6 +7,7 @@ export const SUPPORTED_BOOKING_CURRENCIES = ['CAD', 'USD'] as const;
 export const DEFAULT_BOOKING_CONFIG = {
   bufferMinutes: 10,
   slotIntervalMinutes: 15,
+  minimumNoticeMinutes: 120,
   currency: 'CAD',
   timezone: 'America/Toronto',
   introPriceDefaultLabel: null,
@@ -26,6 +27,8 @@ export const bookingConfigSchema = z.object({
     z.ZodLiteral<15>,
     z.ZodLiteral<30>,
   ]).default(DEFAULT_BOOKING_CONFIG.slotIntervalMinutes),
+  minimumNoticeMinutes: z.number().int().min(0).max(525_600)
+    .default(DEFAULT_BOOKING_CONFIG.minimumNoticeMinutes),
   currency: z.union(SUPPORTED_BOOKING_CURRENCIES.map(value => z.literal(value)) as [
     z.ZodLiteral<'CAD'>,
     z.ZodLiteral<'USD'>,

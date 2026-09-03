@@ -106,7 +106,7 @@ import {
 } from './section-renderers';
 
 export type OnboardingPreviewDevice = 'phone' | 'tablet' | 'desktop';
-export type OnboardingPreviewInitialTarget = 'top' | 'about';
+export type OnboardingPreviewInitialTarget = 'top' | 'about' | 'booking';
 export type OnboardingPreviewInteractionMode = 'inline' | 'interactive' | 'scrollable';
 export type OnboardingPreviewOverlayMode = 'contained' | 'page';
 export type QuickBookPreviewPhase = 'business' | 'final' | 'identity';
@@ -393,12 +393,14 @@ function QuickBookIdentity({
   layout,
   profile,
   sectionId,
+  suppressPageHeadingSemantics,
   title,
   view,
 }: {
   layout: QuickBookLayoutId;
   profile: BusinessProfileDraft;
   sectionId: string;
+  suppressPageHeadingSemantics: boolean;
   title: string;
   view: QuickBookProfileViewModel;
 }) {
@@ -415,6 +417,7 @@ function QuickBookIdentity({
           data-business-identity="quick_book_profile"
           data-preview-page-heading="true"
           id={`${sectionId}-title`}
+          role={suppressPageHeadingSemantics ? 'presentation' : undefined}
           tabIndex={-1}
         >
           {title}
@@ -644,11 +647,13 @@ function QuickBookProfileHeader({
   profile,
   sectionId,
   state,
+  suppressPageHeadingSemantics,
 }: {
   phase: QuickBookPreviewPhase;
   profile: BusinessProfileDraft;
   sectionId: string;
   state: OnboardingLabState;
+  suppressPageHeadingSemantics: boolean;
 }) {
   const final = phase === 'final';
   const business = phase !== 'identity';
@@ -729,6 +734,7 @@ function QuickBookProfileHeader({
       layout={layout}
       profile={profile}
       sectionId={sectionId}
+      suppressPageHeadingSemantics={suppressPageHeadingSemantics}
       title={title}
       view={view}
     />
@@ -1383,6 +1389,7 @@ function BookingSection({
       className="onboarding-customer-booking"
       data-content-key="service_catalogue"
       data-content-owner={sectionId ?? documentBookingSection?.id}
+      data-preview-target="booking"
       data-section-id={sectionId ?? documentBookingSection?.id}
       id={sectionAnchorId(sectionId ?? documentBookingSection?.id ?? '', 'booking')}
     >
@@ -1510,6 +1517,7 @@ export type OnboardingSitePreviewProps = {
   preserveDocumentPresentation?: boolean;
   quickBookPhase?: QuickBookPreviewPhase;
   state: OnboardingLabState;
+  suppressPageHeadingSemantics?: boolean;
 };
 
 export function OnboardingSitePreview({
@@ -1529,6 +1537,7 @@ export function OnboardingSitePreview({
   preserveDocumentPresentation = false,
   quickBookPhase = 'final',
   state,
+  suppressPageHeadingSemantics = false,
 }: OnboardingSitePreviewProps) {
   const frameRef = useRef<HTMLDivElement>(null);
   const measurementHostRef = useRef<HTMLDivElement>(null);
@@ -1829,9 +1838,9 @@ export function OnboardingSitePreview({
   useLayoutEffect(() => {
     const frame = frameRef.current;
     if (!frame) return;
-    const target = initialTarget === 'about'
-      ? frame.querySelector<HTMLElement>('[data-preview-target="about"]')
-      : null;
+    const target = initialTarget === 'top'
+      ? null
+      : frame.querySelector<HTMLElement>(`[data-preview-target="${initialTarget}"]`);
     frame.scrollTop = target?.offsetTop ?? 0;
   }, [activePage?.id, device, includeOptionalSections, initialTarget, recipe.aboutEnabled, recipe.aboutPreset]);
 
@@ -1871,6 +1880,7 @@ export function OnboardingSitePreview({
             profile={profile}
             sectionId={planSection.id}
             state={state}
+            suppressPageHeadingSemantics={suppressPageHeadingSemantics}
           />
         );
       }
@@ -1898,6 +1908,7 @@ export function OnboardingSitePreview({
             <h1
               data-business-identity={headline === title ? 'hero' : undefined}
               data-preview-page-heading="true"
+              role={suppressPageHeadingSemantics ? 'presentation' : undefined}
               tabIndex={-1}
             >
               {headline}
@@ -2129,6 +2140,7 @@ export function OnboardingSitePreview({
                   <h1
                     className="onboarding-customer-page-title"
                     data-preview-page-heading="true"
+                    role={suppressPageHeadingSemantics ? 'presentation' : undefined}
                     tabIndex={-1}
                   >
                     {page.label}

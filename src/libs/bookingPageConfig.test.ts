@@ -40,6 +40,8 @@ describe('bookingPageConfig defaults', () => {
   it('reproduces current rendering exactly', () => {
     expect(BOOKING_PAGE_CONFIG_SIDE_DEFAULTS).toEqual({
       layout: 'quick_book',
+      quickBookLayout: 'clean_card',
+      serviceMenuLayout: 'visual_grid',
       stylePack: 'default',
       tokenOverrides: null,
       sectionOrder: [
@@ -104,6 +106,77 @@ describe('bookingPageConfig defaults', () => {
 });
 
 describe('bookingPageDraftPatchSchema typed section-variant writes', () => {
+  it.each([
+    'compact_dropdown',
+    'clean_card',
+    'editorial',
+    'hub_menu',
+    'profile_story',
+    'ultra_minimal',
+  ])('accepts the Quick Book profile composition %s', (quickBookLayout) => {
+    expect(bookingPageDraftPatchSchema.safeParse({ quickBookLayout }).success).toBe(true);
+    expect(resolveBookingPageConfig({
+      bookingPage: { draft: { quickBookLayout } },
+    }).draft.quickBookLayout).toBe(quickBookLayout);
+  });
+
+  it('falls back safely when a stored Quick Book profile composition is unknown', () => {
+    expect(resolveBookingPageConfig({
+      bookingPage: { draft: { quickBookLayout: 'invented_layout' } },
+    }).draft.quickBookLayout).toBe('clean_card');
+  });
+
+  it('validates and resolves free customer-site style and palette independently', () => {
+    expect(bookingPageDraftPatchSchema.safeParse({
+      sitePalettePreset: 'black_champagne',
+      siteStylePreset: 'luxury',
+    }).success).toBe(true);
+
+    const resolved = resolveBookingPageConfig({
+      bookingPage: {
+        draft: {
+          sitePalettePreset: 'black_champagne',
+          siteStylePreset: 'luxury',
+        },
+      },
+    });
+
+    expect(resolved.draft.sitePalettePreset).toBe('black_champagne');
+    expect(resolved.draft.siteStylePreset).toBe('luxury');
+    expect(resolved.live.sitePalettePreset).toBeUndefined();
+    expect(resolved.live.siteStylePreset).toBeUndefined();
+  });
+
+  it('fails closed to the safe free-site defaults for stored unknown appearance ids', () => {
+    const resolved = resolveBookingPageConfig({
+      bookingPage: {
+        draft: {
+          sitePalettePreset: 'invented_palette',
+          siteStylePreset: 'invented_style',
+        },
+      },
+    });
+
+    expect(resolved.draft.sitePalettePreset).toBe('luster_berry');
+    expect(resolved.draft.siteStylePreset).toBe('modern');
+  });
+
+  it.each([
+    'visual_grid',
+    'clean_list',
+    'editorial_cards',
+    'category_menu',
+    'editorial_price_list',
+  ])('accepts the service-menu presentation %s', (serviceMenuLayout) => {
+    expect(bookingPageDraftPatchSchema.safeParse({ serviceMenuLayout }).success).toBe(true);
+  });
+
+  it('rejects an unsupported service-menu presentation', () => {
+    expect(bookingPageDraftPatchSchema.safeParse({
+      serviceMenuLayout: 'invented_menu',
+    }).success).toBe(false);
+  });
+
   it('accepts a strict partial Quick Book visibility patch', () => {
     const result = bookingPageDraftPatchSchema.safeParse({
       quickBookProfile: {
@@ -340,6 +413,38 @@ describe('resolveBookingPageConfig', () => {
     });
 
     expect(resolved.draft.layout).toBe(BOOKING_PAGE_CONFIG_SIDE_DEFAULTS.layout);
+  });
+
+  it('resolves draft and live service-menu presentations independently', () => {
+    const resolved = resolveBookingPageConfig({
+      bookingPage: {
+        draft: { serviceMenuLayout: 'editorial_cards' },
+        live: { serviceMenuLayout: 'clean_list' },
+      },
+    });
+
+    expect(resolved.draft.serviceMenuLayout).toBe('editorial_cards');
+    expect(resolved.live.serviceMenuLayout).toBe('clean_list');
+  });
+
+  it('preserves the legacy grouped service-menu variant when the new field is absent', () => {
+    const resolved = resolveBookingPageConfig({
+      bookingPage: {
+        live: { sectionVariants: { serviceMenu: 'grouped_categories' } },
+      },
+    });
+
+    expect(resolved.live.serviceMenuLayout).toBe('category_menu');
+  });
+
+  it('falls back to the visual grid for an unsupported service-menu value', () => {
+    const resolved = resolveBookingPageConfig({
+      bookingPage: {
+        draft: { serviceMenuLayout: 'unknown_menu' },
+      },
+    });
+
+    expect(resolved.draft.serviceMenuLayout).toBe('visual_grid');
   });
 
   it('reads and respects the version field when it is the supported value', () => {
