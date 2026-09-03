@@ -162,38 +162,6 @@ input:checked + span > .onboarding-address-visibility__check {
   background: var(--onboarding-accent);
 }
 
-.onboarding-address-summary {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0;
-  overflow: hidden;
-  border: 1px solid var(--onboarding-line);
-  border-radius: 13px;
-  background: var(--onboarding-surface-soft);
-}
-
-.onboarding-address-summary > div {
-  display: grid;
-  min-width: 0;
-  gap: 4px;
-  padding: 11px 12px;
-}
-
-.onboarding-address-summary > div + div {
-  border-left: 1px solid var(--onboarding-line);
-}
-
-.onboarding-address-summary span {
-  color: var(--onboarding-muted);
-  font-size: 0.63rem;
-}
-
-.onboarding-address-summary strong {
-  overflow-wrap: anywhere;
-  font-size: 0.7rem;
-  line-height: 1.35;
-}
-
 .onboarding-shared-instagram small {
   color: var(--onboarding-success);
 }
@@ -246,12 +214,4 @@ input:checked + span > .onboarding-address-visibility__check {
     justify-self: start;
   }
 
-  .onboarding-address-summary {
-    grid-template-columns: 1fr;
-  }
-
-  .onboarding-address-summary > div + div {
-    border-top: 1px solid var(--onboarding-line);
-    border-left: 0;
-  }
 }
