@@ -56,7 +56,11 @@ const setCurrentScreen = (
   const history = CORE_SCREEN_ORDER.slice(
     0,
     CORE_SCREEN_ORDER.indexOf(currentScreen) + 1,
-  ).filter((screen) => state.recipe.aboutEnabled || screen !== 'about_design');
+  ).filter((screen) => (
+    state.recipe.aboutEnabled
+    || state.recipe.starter === 'quick_book'
+    || screen !== 'about_design'
+  ));
   return {
     ...state,
     progress: {

@@ -13,7 +13,9 @@ const appendUnique = <Value extends string>(values: Value[], value: Value): Valu
 export const isScreenAvailable = (
   screen: OnboardingScreenId,
   state: OnboardingLabState,
-): boolean => screen !== 'about_design' || state.recipe.aboutEnabled;
+): boolean => screen !== 'about_design'
+  || state.recipe.aboutEnabled
+  || state.recipe.starter === 'quick_book';
 
 export const getReachableCoreScreens = (
   state: OnboardingLabState,
@@ -25,7 +27,9 @@ export const getNextScreen = (
   state: OnboardingLabState,
 ): OnboardingScreenId | null => {
   if (screen === 'about') {
-    return state.recipe.aboutEnabled ? 'about_design' : 'policies';
+    return state.recipe.aboutEnabled || state.recipe.starter === 'quick_book'
+      ? 'about_design'
+      : 'policies';
   }
   const screens = getReachableCoreScreens(state);
   const currentIndex = screens.indexOf(screen);
@@ -145,7 +149,7 @@ export const skipOptionalScreen = (
 export const reconcileConditionalHistory = (
   state: OnboardingLabState,
 ): OnboardingLabState => {
-  if (state.recipe.aboutEnabled) {
+  if (state.recipe.aboutEnabled || state.recipe.starter === 'quick_book') {
     return state;
   }
   const screenHistory = state.progress.screenHistory.filter(

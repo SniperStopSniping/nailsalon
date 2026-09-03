@@ -62,7 +62,7 @@ const sectionOf = (document: SiteBuilderDocument, type: SectionType) => {
 };
 
 describe('site content placement plan', () => {
-  it('gives Quick Book shared profile content to its one compact profile section', () => {
+  it('splits Quick Book compact profile facts from full Visit & Contact details', () => {
     const state = stateWithMedia();
     state.recipe.starter = 'quick_book';
     const document = initializeStarter('quick_book');
@@ -70,21 +70,28 @@ describe('site content placement plan', () => {
     const { contentPlacement, pages } = compositionFor(document, state);
     const profile = sectionOf(document, 'hero');
     const booking = sectionOf(document, 'booking');
+    const visit = sectionOf(document, 'visit_us');
 
     expect(pages[0]?.sections.map(section => section.sectionType))
-      .toEqual(['hero', 'booking', 'gallery']);
+      .toEqual(['hero', 'booking', 'gallery', 'visit_us']);
     expect(getContentPlacement(contentPlacement, 'brand_logo').ownerSectionId)
       .toBe(profile.id);
     expect(getContentPlacement(contentPlacement, 'owner_profile_photo').ownerSectionId)
       .toBe(profile.id);
     expect(getContentPlacement(contentPlacement, 'location').ownerSectionId)
-      .toBe(profile.id);
+      .toBe(visit.id);
+    expect(getContentPlacement(contentPlacement, 'exact_address').ownerSectionId)
+      .toBe(visit.id);
+    expect(getContentPlacement(contentPlacement, 'arrival_details').ownerSectionId)
+      .toBe(visit.id);
     expect(getContentPlacement(contentPlacement, 'business_hours').ownerSectionId)
-      .toBe(profile.id);
+      .toBe(visit.id);
     expect(getContentPlacement(contentPlacement, 'phone').ownerSectionId)
-      .toBe(profile.id);
+      .toBe(visit.id);
+    expect(getContentPlacement(contentPlacement, 'text').ownerSectionId)
+      .toBe(visit.id);
     expect(getContentPlacement(contentPlacement, 'email').ownerSectionId)
-      .toBe(profile.id);
+      .toBe(visit.id);
     expect(getContentPlacement(contentPlacement, 'instagram').ownerSectionId)
       .toBe(profile.id);
     expect(getContentPlacement(contentPlacement, 'deposit_cancellation_policy').ownerSectionId)
@@ -95,6 +102,63 @@ describe('site content placement plan', () => {
       .toBe(profile.id);
     expect(getContentPlacement(contentPlacement, 'service_catalogue').ownerSectionId)
       .toBe(booking.id);
+  });
+
+  it('keeps booking-only contact in Quick Book Visit & Contact', () => {
+    const state = stateWithMedia();
+    state.recipe.starter = 'quick_book';
+    state.profile.bookingOnlyContact = true;
+    state.profile.clientContact.callEnabled = false;
+    state.profile.clientContact.textEnabled = false;
+    const document = initializeStarter('quick_book');
+    const { contentPlacement, pages } = compositionFor(document, state);
+    const visit = sectionOf(document, 'visit_us');
+
+    expect(pages[0]?.sections.map(section => section.sectionType))
+      .toContain('visit_us');
+    expect(getContentPlacement(contentPlacement, 'booking_only_contact').ownerSectionId)
+      .toBe(visit.id);
+  });
+
+  it('compacts Quick Book when Visit & Contact has no unique public details', () => {
+    const state = stateWithMedia();
+    state.recipe.starter = 'quick_book';
+    state.recipe.galleryEnabled = false;
+    state.gallery.images = [];
+    state.profile.bookingOnlyContact = false;
+    state.profile.clientContact = {
+      callEnabled: false,
+      differentTextNumber: '',
+      primaryNumber: '',
+      textEnabled: false,
+      useDifferentTextNumber: false,
+    };
+    state.profile.email = '';
+    state.profile.location = {
+      ...state.profile.location,
+      cityOrArea: '',
+      entranceInstructions: '',
+      exactAddress: '',
+      parking: '',
+      transitInformation: '',
+    };
+    state.profile.hours = {
+      ...state.profile.hours,
+      setupState: 'skipped',
+      showOnSite: false,
+    };
+    const document = initializeStarter('quick_book');
+    const visit = sectionOf(document, 'visit_us');
+    const { contentPlacement, pages } = compositionFor(document, state);
+
+    // Instagram remains valid but belongs to the compact Profile, so it may
+    // not keep an otherwise empty Visit section on the customer page.
+    expect(getContentPlacement(contentPlacement, 'instagram').ownerSectionId)
+      .toBe(sectionOf(document, 'hero').id);
+    expect(pages[0]?.sections.map(section => section.sectionType))
+      .toEqual(['hero', 'booking']);
+    expect(getSectionContentSuppressions(contentPlacement, visit.id))
+      .toContainEqual(expect.objectContaining({ suppressEntireSection: true }));
   });
 
   it('uses one versioned plan for all substantive one-page owners', () => {

@@ -7,6 +7,7 @@ import {
 import {
   useId,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type CSSProperties,
@@ -15,6 +16,7 @@ import {
 } from 'react';
 import { flushSync } from 'react-dom';
 
+import { useCustomDesignAssetMap } from '../../custom-design/integration/CustomDesignAssetProvider';
 import type { SiteBuilderDocument } from '../../model/types';
 import { Dialog } from '../../ui/Dialog';
 import {
@@ -27,6 +29,7 @@ import { StickyOnboardingActions } from '../components/StickyOnboardingActions';
 import { SCREEN_METADATA } from '../copy';
 import { recordOnboardingEvent } from '../events/journal';
 import { useFeedback } from '../feedback/useFeedback';
+import { resolveOnboardingImageUrl } from '../integrations/adapters/media';
 import {
   buildAboutWordingSuggestion,
   formatAboutListInput,
@@ -36,6 +39,7 @@ import {
   getInstagramInputError,
   resolveInstagramUsername,
 } from '../model/contact';
+import { resolveQuickBookProfile } from '../model/quick-book-profile';
 import {
   deriveDepositsAndCancellationsSummary,
   deriveDepositPolicySummary,
@@ -53,7 +57,7 @@ import {
   type LateCancellationChoice,
   updateDepositDraft,
 } from '../model/policies';
-import { SITE_PALETTE_PRESETS } from '../model/palettes';
+import { SITE_PALETTE_BY_ID, SITE_PALETTE_PRESETS } from '../model/palettes';
 import { SITE_STYLE_PRESETS } from '../model/site-styles';
 import type {
   AboutElementId,
@@ -62,11 +66,13 @@ import type {
   OnboardingLabState,
   PoliciesDraft,
   PolicySectionId,
+  QuickBookLayoutId,
 } from '../model/types';
 import {
   ONBOARDING_STYLE_ROLES,
   OnboardingSitePreview,
 } from '../preview/OnboardingSitePreview';
+import { labelForVisitMode } from '../preview/customer-facts';
 import { AboutSetupScreen } from './AboutSetupScreen';
 
 export type OnboardingStateUpdater = (
@@ -99,6 +105,126 @@ const ABOUT_PRESETS: Array<{
   { description: 'Profile, biography, and an easy-to-scan fact grid.', id: 'profile_quick_facts', label: 'Profile + Quick Facts' },
   { description: 'Your story paired with booking and policy details.', id: 'about_before_you_book', label: 'About + Before You Book' },
 ];
+
+const QUICK_BOOK_LAYOUTS: Array<{
+  description: string;
+  id: QuickBookLayoutId;
+  label: string;
+}> = [
+  {
+    description: 'The shortest complete, booking-first profile.',
+    id: 'compact_dropdown',
+    label: 'Compact Dropdown',
+  },
+  {
+    description: 'Soft details in one easy-to-scan card.',
+    id: 'clean_card',
+    label: 'Clean Card',
+  },
+  {
+    description: 'Elegant typography with crisp, refined facts.',
+    id: 'editorial',
+    label: 'Editorial',
+  },
+  {
+    description: 'Simple icon links that keep details tucked away.',
+    id: 'hub_menu',
+    label: 'Hub Menu',
+  },
+  {
+    description: 'A more personal introduction before booking.',
+    id: 'profile_story',
+    label: 'Profile Story',
+  },
+  {
+    description: 'Only the essentials before clients choose a service.',
+    id: 'ultra_minimal',
+    label: 'Ultra Minimal',
+  },
+];
+
+type QuickBookLayoutPosterProps = {
+  aboutSummary: string | null;
+  businessName: string;
+  contacts: readonly string[];
+  hours: string | null;
+  instagram: string | null;
+  layout: QuickBookLayoutId;
+  location: string | null;
+  logoUrl: string | null;
+  policyAvailable: boolean;
+  profilePhotoUrl: string | null;
+  presentationStyle: CSSProperties;
+  techName: string | null;
+  visitMode: string | null;
+};
+
+function QuickBookLayoutPoster({
+  aboutSummary,
+  businessName,
+  contacts,
+  hours,
+  instagram,
+  layout,
+  location,
+  logoUrl,
+  policyAvailable,
+  profilePhotoUrl,
+  presentationStyle,
+  techName,
+  visitMode,
+}: QuickBookLayoutPosterProps) {
+  const fallback = businessName.trim().charAt(0).toLocaleUpperCase() || 'L';
+  const facts = [hours, location, visitMode].filter(
+    (value): value is string => Boolean(value),
+  );
+
+  return (
+    <span
+      aria-hidden="true"
+      className={`onboarding-quick-book-layout-poster is-${layout}`}
+      style={presentationStyle}
+    >
+      <span className="onboarding-quick-book-layout-poster__identity">
+        {logoUrl ? <img alt="" src={logoUrl} /> : <i>{fallback}</i>}
+        <span>
+          <b>{businessName}</b>
+          {techName ? <small>{techName}</small> : null}
+        </span>
+        {profilePhotoUrl ? <img alt="" src={profilePhotoUrl} /> : null}
+      </span>
+      {instagram ? (
+        <span className="onboarding-quick-book-layout-poster__social">◎ {instagram}</span>
+      ) : null}
+      {facts.length > 0 ? (
+        <span className="onboarding-quick-book-layout-poster__facts">
+          {facts.map((fact) => <i key={fact}>{fact}</i>)}
+        </span>
+      ) : null}
+      {contacts.length > 0 ? (
+        <span className="onboarding-quick-book-layout-poster__contacts">
+          {contacts.slice(0, 2).map(contact => <i key={contact}>{contact}</i>)}
+        </span>
+      ) : null}
+      {aboutSummary ? (
+        <span className="onboarding-quick-book-layout-poster__about">
+          <b>{techName ? `About ${techName}` : 'About the studio'}</b>
+          <small>{aboutSummary}</small>
+        </span>
+      ) : null}
+      {policyAvailable ? (
+        <span className="onboarding-quick-book-layout-poster__policy">
+          <b>Before you book</b><i>+</i>
+        </span>
+      ) : null}
+      <span className="onboarding-quick-book-layout-poster__booking">
+        <small>BOOK AN APPOINTMENT</small>
+        <b>Find your next polished look.</b>
+        <i>Book now</i>
+      </span>
+    </span>
+  );
+}
 
 function AboutPresetPoster({
   preset,
@@ -813,6 +939,177 @@ export function AboutDesignScreen({
         backLabel="Back to edit About"
         primaryFirst
         primaryLabel="Use this design"
+        onBack={onBack}
+        onPrimary={onContinue}
+      />
+    </div>
+  );
+}
+
+export function QuickBookLayoutScreen({
+  document,
+  onBack,
+  onContinue,
+  onFullPreview,
+  onUpdate,
+  state,
+}: SharedScreenProps & {
+  document: SiteBuilderDocument | null;
+  onContinue: () => void;
+  onFullPreview: () => void;
+}) {
+  const feedback = useFeedback();
+  const selectedLayout = QUICK_BOOK_LAYOUTS.find(
+    ({ id }) => id === state.recipe.quickBookLayout,
+  ) ?? QUICK_BOOK_LAYOUTS[0]!;
+  const imageAssetIds = useMemo(() => [
+    state.profile.logo?.storageId,
+    state.profile.profilePhoto?.storageId,
+  ].filter((assetId): assetId is string => Boolean(assetId)), [
+    state.profile.logo?.storageId,
+    state.profile.profilePhoto?.storageId,
+  ]);
+  const imageAssets = useCustomDesignAssetMap(imageAssetIds);
+  const logoUrl = resolveOnboardingImageUrl(state.profile.logo, imageAssets);
+  const profilePhotoUrl = resolveOnboardingImageUrl(state.profile.profilePhoto, imageAssets);
+  const policiesReached = state.progress.visitedScreens.includes('policies');
+  const quickBookProfile = useMemo(() => resolveQuickBookProfile({
+    previewTimestamp: state.reviewOptions.previewTimestamp,
+    profile: state.profile,
+    visibility: {
+      ...state.recipe.quickBookProfile,
+      showBio: state.recipe.aboutEnabled,
+      showBookingPolicy: state.recipe.policiesEnabled && policiesReached,
+      showCancellationPolicy: state.recipe.policiesEnabled && policiesReached,
+    },
+  }), [
+    state.profile,
+    policiesReached,
+    state.recipe.aboutEnabled,
+    state.recipe.policiesEnabled,
+    state.recipe.quickBookProfile,
+    state.reviewOptions.previewTimestamp,
+  ]);
+  const aboutSummary = state.recipe.aboutEnabled
+    ? state.profile.about.specialties.slice(0, 3).join(' · ')
+      || state.profile.about.shortBio.trim()
+      || state.profile.about.fullBio.trim()
+      || null
+    : null;
+  const policyAvailable = quickBookProfile.policies.length > 0
+    || state.profile.bookingPreferences.minimumNoticeMinutes > 0
+    || getDepositPolicyMode(state.profile.policies) === 'fixed';
+  const palette = SITE_PALETTE_BY_ID[state.recipe.palettePreset];
+  const styleRoles = ONBOARDING_STYLE_ROLES[state.recipe.stylePreset];
+  const posterPresentationStyle = {
+    '--quick-book-poster-accent': palette.roles.accent,
+    '--quick-book-poster-body-font': styleRoles.bodyFont,
+    '--quick-book-poster-button': palette.roles.button,
+    '--quick-book-poster-button-radius': styleRoles.buttonRadius,
+    '--quick-book-poster-button-text': palette.roles.buttonText,
+    '--quick-book-poster-ground': palette.roles.ground,
+    '--quick-book-poster-heading-font': styleRoles.headingFont,
+    '--quick-book-poster-ink': palette.roles.ink,
+    '--quick-book-poster-line': palette.roles.line,
+    '--quick-book-poster-muted': palette.roles.muted,
+    '--quick-book-poster-radius': styleRoles.radius,
+    '--quick-book-poster-secondary': palette.roles.secondaryAccent,
+    '--quick-book-poster-surface': palette.roles.surface,
+  } as CSSProperties;
+  const posterProps = {
+    aboutSummary,
+    businessName: state.profile.businessName.trim() || 'Your business',
+    contacts: state.profile.bookingOnlyContact
+      ? []
+      : quickBookProfile.contacts.map(contact => `${contact.detail}: ${contact.label}`),
+    hours: quickBookProfile.hours?.label ?? null,
+    instagram: quickBookProfile.instagram?.label ?? null,
+    location: quickBookProfile.location?.primary ?? null,
+    logoUrl,
+    policyAvailable,
+    profilePhotoUrl: quickBookProfile.techPhotoVisible ? profilePhotoUrl : null,
+    presentationStyle: posterPresentationStyle,
+    techName: quickBookProfile.techName,
+    visitMode: labelForVisitMode(state.profile),
+  } satisfies Omit<QuickBookLayoutPosterProps, 'layout'>;
+
+  return (
+    <div
+      className="onboarding-screen onboarding-screen--designer onboarding-screen--quick-book-layout"
+      data-quick-book-layout-screen="true"
+      data-screen="about_design"
+    >
+      <header className="onboarding-screen-heading">
+        <span className="onboarding-screen-status">Step 9 — Choose your layout</span>
+        <h1>Choose your Quick Book layout</h1>
+        <p>
+          Choose how your business information appears above booking. Your booking section stays the same.
+        </p>
+      </header>
+      <div
+        aria-label="Quick Book layouts"
+        className="onboarding-quick-book-layout-grid"
+        role="group"
+      >
+        {QUICK_BOOK_LAYOUTS.map((layout) => {
+          const selected = state.recipe.quickBookLayout === layout.id;
+          return (
+            <button
+              aria-pressed={selected}
+              className="onboarding-quick-book-layout-card"
+              data-selected={selected ? 'true' : 'false'}
+              key={layout.id}
+              type="button"
+              onClick={() => {
+                if (selected) return;
+                feedback.send({ kind: 'selection' });
+                onUpdate((current) => ({
+                  ...current,
+                  recipe: { ...current.recipe, quickBookLayout: layout.id },
+                }));
+              }}
+            >
+              <QuickBookLayoutPoster {...posterProps} layout={layout.id} />
+              <span className="onboarding-quick-book-layout-card__copy">
+                <strong>{layout.label}</strong>
+                <small>{layout.description}</small>
+                {selected ? (
+                  <em><Check aria-hidden="true" size={14} /> Previewing</em>
+                ) : null}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+      <p aria-live="polite" className="onboarding-about-design-selection-status">
+        {selectedLayout.label} selected
+      </p>
+      <section
+        aria-labelledby="quick-book-layout-preview-heading"
+        className="onboarding-designer-preview onboarding-about-design-preview onboarding-quick-book-layout-preview"
+      >
+        <div className="onboarding-quick-book-layout-preview__heading">
+          <span>
+            <small>LIVE PREVIEW</small>
+            <h2 id="quick-book-layout-preview-heading">See this layout on your site</h2>
+          </span>
+          <strong>{selectedLayout.label}</strong>
+        </div>
+        <OnboardingSitePreview
+          document={document}
+          initialTarget="top"
+          label={`Selected Quick Book layout preview: ${selectedLayout.label}`}
+          quickBookPhase="final"
+          state={state}
+        />
+        <button className="onboarding-full-preview-button" type="button" onClick={onFullPreview}>
+          View full preview
+        </button>
+      </section>
+      <StickyOnboardingActions
+        backLabel="Back to edit About"
+        primaryFirst
+        primaryLabel="Use this layout"
         onBack={onBack}
         onPrimary={onContinue}
       />
@@ -1838,6 +2135,7 @@ export function SiteStyleScreen({
             fitAvailable
             interactionMode="inline"
             label="Live personalized style preview"
+            quickBookPhase="business"
             state={state}
           />
         </div>

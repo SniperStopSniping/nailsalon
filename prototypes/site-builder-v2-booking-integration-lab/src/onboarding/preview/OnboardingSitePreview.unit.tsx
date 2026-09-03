@@ -28,7 +28,11 @@ import {
   deriveSiteLibraryContext,
   deriveSitePlanToggles,
 } from '../model/site-library-context';
-import type { AboutPresetId, OnboardingLabState } from '../model/types';
+import type {
+  AboutPresetId,
+  OnboardingLabState,
+  QuickBookLayoutId,
+} from '../model/types';
 import { parseOnboardingState } from '../storage/storage';
 import {
   calculateOnboardingPreviewScale,
@@ -130,6 +134,15 @@ const customSection = (
   },
   visible: true,
 });
+
+const QUICK_BOOK_LAYOUTS: readonly QuickBookLayoutId[] = [
+  'compact_dropdown',
+  'clean_card',
+  'editorial',
+  'hub_menu',
+  'profile_story',
+  'ultra_minimal',
+];
 
 describe('OnboardingSitePreview shared profile composition', () => {
   it.each([
@@ -251,6 +264,7 @@ describe('OnboardingSitePreview shared profile composition', () => {
     );
     const preview = screen.getByRole('region', { name: 'Full Quick Book profile' });
     const profile = within(preview).getByRole('region', { name: 'Isla Nail Studio' });
+    const visit = within(preview).getByRole('region', { name: 'Visit and contact' });
 
     expect(within(profile).getByRole('img', { name: 'Isla Nail Studio logo' })).toBeVisible();
     expect(within(profile).getByRole('img', { name: 'Daniela portrait illustration' }))
@@ -258,10 +272,11 @@ describe('OnboardingSitePreview shared profile composition', () => {
     expect(within(profile).getByText('Daniela')).toBeVisible();
     expect(within(profile).getByRole('link', { name: /880 Ellesmere Rd, Unit 2/u }))
       .toHaveAttribute('href', expect.stringContaining('880%20Ellesmere'));
-    expect(within(profile).getByText('Inside TB Nails · Back entrance')).toBeVisible();
+    expect(within(visit).getByText('Inside TB Nails · Back entrance')).toBeVisible();
     expect(within(profile).getByText('Open now')).toBeVisible();
-    expect(within(profile).getByRole('link', { name: /\(647\) 123-4567/u }))
-      .toHaveAttribute('href', 'tel:6471234567');
+    const phoneLinks = within(profile).getAllByRole('link', { name: /\(647\) 123-4567/u });
+    expect(phoneLinks.some(link => link.getAttribute('href') === 'tel:6471234567')).toBe(true);
+    expect(phoneLinks.some(link => link.getAttribute('href') === 'sms:6471234567')).toBe(true);
     expect(within(profile).getByRole('link', { name: /hello@islanails\.com/u }))
       .toHaveAttribute('href', 'mailto:hello@islanails.com');
     expect(profile.querySelector('[data-content-key="before_you_book_policies"] summary'))
@@ -269,15 +284,111 @@ describe('OnboardingSitePreview shared profile composition', () => {
     // Document-authored testimonial cards are not the verified aggregate used
     // by the real public Quick Book route, so the Lab must not invent parity.
     expect(within(profile).queryByText('5.0 ★ (1)')).not.toBeInTheDocument();
-    expect(within(profile).getByRole('link', { name: /Instagram\s+@islanail\.studio/u }))
+    expect(within(profile).getByRole('link', { name: '@islanail.studio' }))
       .toHaveAttribute('href', 'https://www.instagram.com/islanail.studio/');
-    expect(within(profile).getByText(state.profile.about.shortBio)).toBeVisible();
+    expect(within(profile).getByText(state.profile.about.shortBio)).toBeInTheDocument();
     expect(preview.querySelectorAll('[data-content-key="location"]')).toHaveLength(1);
     expect(preview.querySelectorAll('[data-content-key="business_hours"]')).toHaveLength(1);
     expect(preview.querySelectorAll('[data-content-key="instagram"]')).toHaveLength(1);
     expect(within(preview).queryByRole('region', { name: 'About' })).not.toBeInTheDocument();
-    expect(within(preview).queryByRole('region', { name: 'Visit and contact' }))
-      .not.toBeInTheDocument();
+    expect(visit).toBeVisible();
+  });
+
+  it('renders the same final customer facts through all six Quick Book layouts', () => {
+    const state = createDanielaFixtureState();
+    state.recipe.starter = 'quick_book';
+    state.recipe.aboutEnabled = true;
+    state.recipe.policiesEnabled = true;
+    state.recipe.quickBookProfile = {
+      ...state.recipe.quickBookProfile,
+      showEmail: true,
+      showHours: true,
+      showInstagram: true,
+      showLocation: true,
+      showPhone: true,
+      showTechName: true,
+      showTechPhoto: true,
+    };
+    state.profile.location.addressVisibility = 'public';
+    state.profile.location.exactAddress = '880 Ellesmere Rd, Unit 2';
+    state.profile.bookingOnlyContact = false;
+    state.profile.clientContact = {
+      callEnabled: true,
+      differentTextNumber: '',
+      primaryNumber: '(647) 123-4567',
+      textEnabled: true,
+      useDifferentTextNumber: false,
+    };
+    state.profile.email = 'hello@islanails.com';
+
+    for (const layout of QUICK_BOOK_LAYOUTS) {
+      const layoutState = structuredClone(state);
+      layoutState.recipe.quickBookLayout = layout;
+      const view = render(
+        <OnboardingSitePreview
+          document={initializeStarter('quick_book')}
+          label={`${layout} final preview`}
+          quickBookPhase="final"
+          state={layoutState}
+        />,
+      );
+      const preview = screen.getByRole('region', { name: `${layout} final preview` });
+      const profile = within(preview).getByRole('region', { name: 'Isla Nail Studio' });
+      const booking = within(preview).getByRole('region', { name: 'Booking' });
+      const visit = within(preview).getByRole('region', { name: 'Visit and contact' });
+
+      expect(profile).toHaveAttribute('data-preview-phase', 'final');
+      expect(profile).toHaveAttribute('data-quick-book-layout', layout);
+      expect(within(profile).getByRole('heading', { level: 1, name: 'Isla Nail Studio' }))
+        .toBeVisible();
+      expect(within(profile).getByRole('img', { name: 'Daniela portrait illustration' }))
+        .toBeVisible();
+      expect(profile.querySelector('[data-quick-book-fact="location"]'))
+        .toHaveTextContent('880 Ellesmere Rd, Unit 2');
+      expect(profile.querySelector('[data-quick-book-fact="hours"]'))
+        .toHaveTextContent(/Open now|Closed/u);
+      expect(profile).toHaveTextContent('@islanail.studio');
+      expect(profile).toHaveTextContent('About Daniela');
+      expect(profile).toHaveTextContent('Before you book');
+      expect(profile).toHaveTextContent('(647) 123-4567');
+      expect(profile).toHaveTextContent('hello@islanails.com');
+      expect(preview.querySelectorAll('[aria-label="Booking"]')).toHaveLength(1);
+      expect(preview.querySelectorAll('.customer-lib-visit')).toHaveLength(1);
+      expect(preview.querySelectorAll('[data-content-key="service_catalogue"]')).toHaveLength(1);
+      expect(preview.querySelectorAll('[data-content-key="before_you_book_policies"]'))
+        .toHaveLength(1);
+      expect(preview.querySelectorAll('[data-content-key="location"]')).toHaveLength(1);
+      expect(preview.querySelectorAll('[data-content-key="business_hours"]')).toHaveLength(1);
+      expect(preview.querySelectorAll('[data-content-key="instagram"]')).toHaveLength(1);
+      expect(profile.compareDocumentPosition(booking) & Node.DOCUMENT_POSITION_FOLLOWING)
+        .not.toBe(0);
+      expect(booking.compareDocumentPosition(visit) & Node.DOCUMENT_POSITION_FOLLOWING)
+        .not.toBe(0);
+
+      view.unmount();
+    }
+  });
+
+  it('does not repeat appointment-only contact wording in a final Quick Book profile', () => {
+    const state = createDanielaFixtureState();
+    state.recipe.starter = 'quick_book';
+    state.recipe.quickBookLayout = 'clean_card';
+    state.profile.bookingOnlyContact = true;
+    state.profile.bookingPreferences.visitMode = 'appointment_only';
+
+    render(
+      <OnboardingSitePreview
+        document={initializeStarter('quick_book')}
+        label="Booking-only final preview"
+        quickBookPhase="final"
+        state={state}
+      />,
+    );
+
+    const preview = screen.getByRole('region', { name: 'Booking-only final preview' });
+    const profile = within(preview).getByRole('region', { name: 'Isla Nail Studio' });
+    expect(profile).toHaveTextContent('Appointment only');
+    expect(profile).not.toHaveTextContent('Online booking only');
   });
 
   it('never publishes one stored asset under both Logo and Profile roles', () => {
@@ -330,12 +441,17 @@ describe('OnboardingSitePreview shared profile composition', () => {
       .toHaveAttribute('data-media-role', 'profile');
   });
 
-  it('keeps minimum-notice data out of the compact Quick Book page without seeded availability claims', () => {
+  it('keeps later booking-notice content out of the Screen 5 Quick Book preview', () => {
     const state = createDefaultOnboardingState();
     state.profile.bookingPreferences.minimumNoticeMinutes = 1_440;
 
     const { rerender } = render(
-      <OnboardingSitePreview document={initializeStarter('quick_book')} label="Notice preview" state={state} />,
+      <OnboardingSitePreview
+        document={initializeStarter('quick_book')}
+        label="Notice preview"
+        quickBookPhase="business"
+        state={state}
+      />,
     );
     let preview = screen.getByRole('region', { name: 'Notice preview' });
 
@@ -356,7 +472,12 @@ describe('OnboardingSitePreview shared profile composition', () => {
       },
     };
     rerender(
-      <OnboardingSitePreview document={initializeStarter('quick_book')} label="Notice preview" state={withoutNotice} />,
+      <OnboardingSitePreview
+        document={initializeStarter('quick_book')}
+        label="Notice preview"
+        quickBookPhase="business"
+        state={withoutNotice}
+      />,
     );
     preview = screen.getByRole('region', { name: 'Notice preview' });
     expect(within(preview).queryByRole('region', { name: 'Minimum booking notice' }))
@@ -801,12 +922,9 @@ describe('OnboardingSitePreview shared profile composition', () => {
     expect(noDepositPolicies).not.toHaveTextContent(/refundable|transferred|deposit being lost/iu);
   });
 
-  it('keeps non-Quick-Book policy topics out of the compact public projection', () => {
-    const state = createDefaultOnboardingState();
-    state.profile.businessName = 'Isla Nail Studio';
-    state.profile.businessStructure = 'solo';
-    state.profile.ownerName = 'Daniela';
-    state.profile.policies.lateArrivals.gracePeriodMinutes = '10';
+  it('keeps final Quick Book policy content compact above Booking', () => {
+    const state = createDanielaFixtureState();
+    state.recipe.starter = 'quick_book';
     state.recipe.policiesEnabled = true;
     state.recipe.quickBookProfile.showBookingPolicy = true;
     const document = initializeStarter('quick_book');
@@ -820,10 +938,10 @@ describe('OnboardingSitePreview shared profile composition', () => {
     );
 
     const preview = screen.getByRole('region', { name: 'Partial policy preview' });
-    // The compact profile and canonical Booking section are the only required
-    // Quick Book responsibilities when Gallery has no accepted media.
+    // Quick Book keeps policies compact above the one Booking engine and owns
+    // complete business information in the deterministic Visit section below.
     expect(planTypes(customerPagePlanFor(document, state)))
-      .toEqual(['hero', 'booking']);
+      .toEqual(['hero', 'booking', 'visit_us']);
     expect(preview.querySelector('[data-library-type="deposits_cancellations"]')).toBeNull();
     expect(preview.querySelector('[data-library-type="policies"]')).toBeNull();
 
@@ -831,10 +949,11 @@ describe('OnboardingSitePreview shared profile composition', () => {
       '[data-content-key="before_you_book_policies"]',
     );
     expect(disclosure).not.toBeNull();
-    expect(within(disclosure!).getByText('No deposit is required.')).toBeInTheDocument();
-    expect(disclosure).not.toHaveTextContent('A 10-minute grace period is available.');
-    expect(within(preview).queryByRole('region', { name: 'Visit and contact' }))
-      .not.toBeInTheDocument();
+    expect(disclosure).toHaveTextContent('Deposits & cancellations');
+    expect(disclosure).toHaveTextContent('Late arrivals');
+    expect(disclosure).toHaveTextContent('No-shows');
+    expect(within(preview).getByRole('region', { name: 'Visit and contact' }))
+      .toBeVisible();
   });
 
   it('keeps Quick Book policies in one compact profile action outside its Booking engine', () => {
@@ -1017,10 +1136,12 @@ describe('OnboardingSitePreview shared profile composition', () => {
     state.profile.location.cityOrArea = '';
     state.profile.location.exactAddress = '';
     state.profile.hours.showOnSite = false;
+    state.profile.bookingOnlyContact = false;
     const document = initializeStarter('quick_book');
     const page = document.pages[0]!;
     const heroId = sectionOn(page, 'hero').id;
     const bookingId = sectionOn(page, 'booking').id;
+    const visitId = sectionOn(page, 'visit_us').id;
     const teamEntry = getSectionRegistryEntry('team');
     const legacyTeam: SectionInstance = {
       id: 'legacy-lower-team',
@@ -1051,7 +1172,8 @@ describe('OnboardingSitePreview shared profile composition', () => {
       heroId,
       bookingId,
     ]);
-    expect(planTypes(plan)).toEqual(['hero', 'booking']);
+    expect(planTypes(plan)).toEqual(['hero', 'booking', 'visit_us']);
+    expect(planIds(plan)).toContain(visitId);
     expect(planIds(plan)).not.toContain('legacy-lower-team');
     expect(preview.querySelectorAll('.onboarding-quick-book-profile')).toHaveLength(1);
     expect(within(preview).getAllByRole('region', { name: 'Booking' })).toHaveLength(1);
@@ -1262,7 +1384,7 @@ describe('OnboardingSitePreview shared profile composition', () => {
     expect(within(summary).getByText('Gel Manicure')).toBeVisible();
   });
 
-  it('keeps booking-only Quick Book at two truthful sections without exposing stored contact data', () => {
+  it('keeps booking-only Quick Book truthful in one Booking engine and one Visit owner', () => {
     const state = createDefaultOnboardingState();
     state.profile.businessName = 'Isla Nail Studio';
     state.profile.businessStructure = 'solo';
@@ -1283,14 +1405,14 @@ describe('OnboardingSitePreview shared profile composition', () => {
     const preview = screen.getByRole('region', { name: 'Booking-only customer preview' });
     const plan = customerPagePlanFor(initializeStarter('quick_book'), state);
 
-    expect(planTypes(plan)).toEqual(['hero', 'booking']);
+    expect(planTypes(plan)).toEqual(['hero', 'booking', 'visit_us']);
     expect(preview.querySelectorAll('.onboarding-customer-booking')).toHaveLength(1);
     expect(preview.querySelector('.onboarding-customer-contact')).toBeNull();
-    expect(preview.querySelectorAll('.customer-lib-visit')).toHaveLength(0);
+    expect(preview.querySelectorAll('.customer-lib-visit')).toHaveLength(1);
     expect(preview.querySelectorAll('[data-content-key="booking_only_contact"]'))
-      .toHaveLength(0);
-    expect(within(preview).queryByText('Online booking is the best way to reach us.'))
-      .not.toBeInTheDocument();
+      .toHaveLength(1);
+    expect(within(preview).getByText('Online booking is the best way to reach us.'))
+      .toBeVisible();
     expect(preview.querySelector('a[href^="tel:"]')).toBeNull();
     expect(state.profile.bookingOnlyContact).toBe(true);
   });
@@ -2102,7 +2224,12 @@ describe('OnboardingSitePreview shared profile composition', () => {
     state.profile.clientContact.callEnabled = true;
     state.profile.preferredContact = 'call';
     const view = render(
-      <OnboardingSitePreview document={null} label="Privacy preview" state={state} />,
+      <OnboardingSitePreview
+        document={null}
+        label="Privacy preview"
+        quickBookPhase="business"
+        state={state}
+      />,
     );
     const preview = screen.getByRole('region', { name: 'Privacy preview' });
     const profile = within(preview).getByRole('region', { name: state.profile.businessName });
@@ -2126,10 +2253,15 @@ describe('OnboardingSitePreview shared profile composition', () => {
       },
     };
     view.rerender(
-      <OnboardingSitePreview document={null} label="Privacy preview" state={publicArea} />,
+      <OnboardingSitePreview
+        document={null}
+        label="Privacy preview"
+        quickBookPhase="business"
+        state={publicArea}
+      />,
     );
 
-    expect(within(profile).getByRole('link', { name: 'Scarborough, Ontario' }))
+    expect(within(profile).getByRole('link', { name: /Scarborough, Ontario/u }))
       .toHaveAttribute('href', expect.stringContaining('Scarborough'));
 
     const publicExact = {
@@ -2143,11 +2275,17 @@ describe('OnboardingSitePreview shared profile composition', () => {
       },
     };
     view.rerender(
-      <OnboardingSitePreview document={null} interactionMode="interactive" label="Privacy preview" state={publicExact} />,
+      <OnboardingSitePreview
+        document={null}
+        interactionMode="interactive"
+        label="Privacy preview"
+        quickBookPhase="business"
+        state={publicExact}
+      />,
     );
 
     expect(within(profile).getByText('123 Example Avenue')).toBeVisible();
-    expect(within(profile).getByRole('link', { name: '123 Example Avenue' }))
+    expect(within(profile).getByRole('link', { name: /123 Example Avenue/u }))
       .toHaveAttribute('href', expect.stringContaining('123%20Example%20Avenue'));
 
     const hidden = {
@@ -2158,7 +2296,12 @@ describe('OnboardingSitePreview shared profile composition', () => {
       },
     };
     view.rerender(
-      <OnboardingSitePreview document={null} label="Privacy preview" state={hidden} />,
+      <OnboardingSitePreview
+        document={null}
+        label="Privacy preview"
+        quickBookPhase="business"
+        state={hidden}
+      />,
     );
 
     expect(within(profile).queryByRole('link')).not.toBeInTheDocument();

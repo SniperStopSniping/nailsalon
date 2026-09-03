@@ -519,7 +519,7 @@ export function StartAgainDialog({ onChoose, onClose, open }: StartAgainDialogPr
   return (
     <Dialog description="This replaces the current local document. Export first if you want a backup." onClose={onClose} open={open} title="Start again from a kit">
       <div className="move-page-list" role="group" aria-label="Starting kits">
-        <button className="sheet-list-button" type="button" onClick={() => onChoose('quick_book')}><strong>Quick Book</strong><span>3 sections</span></button>
+        <button className="sheet-list-button" type="button" onClick={() => onChoose('quick_book')}><strong>Quick Book</strong><span>4 sections</span></button>
         <button className="sheet-list-button" type="button" onClick={() => onChoose('one_page')}><strong>One-page website</strong><span>6 sections</span></button>
         <button className="sheet-list-button" type="button" onClick={() => onChoose('multi_page')}><strong>Multi-page website</strong><span>5 pages</span></button>
       </div>

@@ -62,6 +62,7 @@ export function SaveProgressScreen({
             fitAvailable
             interactionMode="scrollable"
             label="Your personalized website preview"
+            quickBookPhase="business"
             state={state}
           />
           <span aria-hidden="true" className="onboarding-save-progress__swipe-hint">Swipe to explore</span>

@@ -915,6 +915,22 @@
   font-weight: 800;
 }
 
+.customer-lib-visit-map {
+  overflow: hidden;
+  min-height: 180px;
+  border: 1px solid var(--customer-line);
+  border-radius: var(--customer-card-radius);
+  background: color-mix(in srgb, var(--customer-surface) 86%, var(--customer-accent));
+  grid-column: 1 / -1;
+}
+
+.customer-lib-visit-map iframe {
+  display: block;
+  width: 100%;
+  height: clamp(180px, 48cqw, 300px);
+  border: 0;
+}
+
 .customer-lib-visit-contact {
   display: flex;
   align-items: flex-start;

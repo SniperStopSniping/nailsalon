@@ -72,12 +72,14 @@ const QUICK_BOOK_DEFAULT_ORDER = [
   'Salon intro',
   'Booking',
   'Gallery',
+  'Visit & Contact',
 ];
 
 const QUICK_BOOK_BOOKING_FIRST_ORDER = [
   'Booking',
   'Salon intro',
   'Gallery',
+  'Visit & Contact',
 ];
 
 const MULTI_PAGE_HOME_ORDER = ['Welcome', 'Reviews'];

@@ -72,6 +72,7 @@ const expectStarterShape = (
         'hero',
         'booking',
         'gallery',
+        'visit_us',
       ]],
     },
   }[starter];

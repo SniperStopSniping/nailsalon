@@ -67,6 +67,7 @@ describe('Builder handoff business metadata', () => {
       'hero',
       'booking',
       'gallery',
+      'visit_us',
     ]);
     expect(view.container.querySelectorAll('[data-section-type="booking"]')).toHaveLength(1);
     expect(view.container.querySelector('[data-section-type="featured_services"]'))

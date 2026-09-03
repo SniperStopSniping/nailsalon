@@ -111,6 +111,22 @@ describe('starter initialization', () => {
           version: 1,
         },
       },
+      {
+        id: 'section_quick_4',
+        sectionType: 'visit_us',
+        label: 'Visit & Contact',
+        order: 3,
+        visible: true,
+        settings: {
+          contactSummary: 'auto',
+          hoursSummary: 'auto',
+          preset: 'map_details',
+          showEntrance: true,
+          showParking: true,
+          showTransit: true,
+          version: 1,
+        },
+      },
     ]);
 
     const booking = document.pages[0]?.sections[1];
@@ -449,7 +465,7 @@ describe('starter freedom', () => {
     if (!home) {
       throw new Error('Quick Book is missing Home.');
     }
-    expect(home.sections).toHaveLength(3);
+    expect(home.sections).toHaveLength(4);
 
     for (const item of SECTION_CATALOGUE.slice(2, 17)) {
       document = addSection(
@@ -462,7 +478,7 @@ describe('starter freedom', () => {
       document = addPage(document, { name: `Added page ${pageNumber}` }, ids);
     }
 
-    expect(document.pages[0]?.sections).toHaveLength(18);
+    expect(document.pages[0]?.sections).toHaveLength(19);
     expect(document.pages).toHaveLength(6);
   });
 

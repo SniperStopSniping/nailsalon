@@ -148,14 +148,14 @@ describe('shared section movement rows', () => {
     await user.clear(bookingPosition);
     await user.type(bookingPosition, '7{Enter}');
 
-    const error = screen.getByText('Enter a position from 1 to 3.', {
+    const error = screen.getByText('Enter a position from 1 to 4.', {
       selector: '.position-input__error',
     });
-    expect(error).toHaveTextContent('Enter a position from 1 to 3.');
+    expect(error).toHaveTextContent('Enter a position from 1 to 4.');
     expect(bookingPosition).toHaveAttribute('aria-invalid', 'true');
     expect(bookingPosition).toHaveFocus();
     expect(onMove).not.toHaveBeenCalled();
-    expect(onAnnounce).toHaveBeenCalledWith('Enter a position from 1 to 3.');
+    expect(onAnnounce).toHaveBeenCalledWith('Enter a position from 1 to 4.');
   });
 
   it('keeps boundary arrows focusable, clearly unavailable, and singly announced', async () => {
@@ -174,7 +174,7 @@ describe('shared section movement rows', () => {
       name: 'Move Salon intro up, unavailable — already first',
     });
     const lastUnavailable = screen.getByRole('button', {
-      name: 'Move Gallery down, unavailable — already last',
+      name: 'Move Visit & Contact down, unavailable — already last',
     });
     expect(firstUnavailable).toHaveAttribute('aria-disabled', 'true');
     expect(lastUnavailable).toHaveAttribute('aria-disabled', 'true');
@@ -190,7 +190,7 @@ describe('shared section movement rows', () => {
     );
     expect(onAnnounce).toHaveBeenNthCalledWith(
       2,
-      'Gallery is already at the last position.',
+      'Visit & Contact is already at the last position.',
     );
     expect(onAnnounce).toHaveBeenCalledTimes(2);
   });

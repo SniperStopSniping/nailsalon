@@ -1,7 +1,7 @@
 import type { DepositDraft } from '../integrations/contracts/booking-preferences';
 import type { ServiceMenuSelectionDraft } from '../integrations/contracts/service-menu';
 
-export const ONBOARDING_SCHEMA_VERSION = 12 as const;
+export const ONBOARDING_SCHEMA_VERSION = 13 as const;
 
 export type OnboardingStage = 'basics' | 'booking' | 'design' | 'review';
 
@@ -275,6 +275,14 @@ export type SitePalettePresetId =
   | 'monochrome'
   | 'black_champagne';
 
+export type QuickBookLayoutId =
+  | 'compact_dropdown'
+  | 'clean_card'
+  | 'editorial'
+  | 'hub_menu'
+  | 'profile_story'
+  | 'ultra_minimal';
+
 export type StarterId = 'quick_book' | 'one_page' | 'multi_page';
 
 /**
@@ -325,6 +333,7 @@ export type OnboardingSiteRecipe = {
   styleConfirmed: boolean;
   palettePreset: SitePalettePresetId;
   paletteConfirmed: boolean;
+  quickBookLayout: QuickBookLayoutId;
   quickBookProfile: QuickBookProfileVisibilityDraft;
 };
 

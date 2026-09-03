@@ -200,6 +200,7 @@ test.describe('three locked V1 customer recipes', () => {
       'hero',
       'booking',
       'gallery',
+      'visit_contact',
     ]);
     expect(audit.serviceCatalogueOwners).toHaveLength(1);
 

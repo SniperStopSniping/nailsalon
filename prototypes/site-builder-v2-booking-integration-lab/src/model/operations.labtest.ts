@@ -58,11 +58,12 @@ describe('section operations', () => {
       'section_11',
       'booking',
       'gallery',
+      'visit_us',
     ]);
     expect(document.pages[0]?.sections.map((section) => section.order)).toEqual([
-      0, 1, 2, 3,
+      0, 1, 2, 3, 4,
     ]);
-    expect(original.pages[0]?.sections).toHaveLength(3);
+    expect(original.pages[0]?.sections).toHaveLength(4);
   });
 
   it('removes and restores the same placeholder instance with settings intact', () => {
@@ -90,7 +91,7 @@ describe('section operations', () => {
     });
     const removed = removeSection(edited, section.id);
 
-    expect(removed.pages[0]?.sections).toHaveLength(3);
+    expect(removed.pages[0]?.sections).toHaveLength(4);
     expect(removed.unusedSections[0]).toMatchObject({
       id: section.id,
       sectionType: 'section_11',
@@ -129,6 +130,7 @@ describe('section operations', () => {
     expect(removed.pages[0]?.sections.map((section) => section.sectionType)).toEqual([
       'booking',
       'gallery',
+      'visit_us',
     ]);
     expect(removed.unusedSections[0]).toMatchObject({
       id: hero.id,
@@ -173,7 +175,7 @@ describe('section operations', () => {
     }
     document = moveSection(document, section11.id, 2);
     expect(getSectionMoveAnnouncement(document, section11.id)).toBe(
-      'Section 11 moved to position 2 of 4.',
+      'Section 11 moved to position 2 of 5.',
     );
     document = moveSectionDown(document, section11.id);
     expect(document.pages[0]?.sections[2]?.id).toBe(section11.id);
@@ -226,7 +228,7 @@ describe('section operations', () => {
       requestedIds,
     );
     expect(reordered.pages[0]?.sections.map((section) => section.order)).toEqual([
-      0, 1, 2,
+      0, 1, 2, 3,
     ]);
     expect(original.pages[0]?.sections.map((section) => section.id)).toEqual(
       originalIds,
@@ -531,6 +533,7 @@ describe('Booking section operations and outcome invariants', () => {
     expect(committed.pages.find((page) => page.id === home.id)?.sections.map(
       (section) => section.label,
     )).toEqual([
+      'Visit & Contact',
       'Gallery',
       'Salon intro',
     ]);
@@ -689,7 +692,7 @@ describe('library section operations', () => {
       id: 'section_plain_1',
       sectionType: 'offers',
       label: 'Offers',
-      order: 3,
+      order: 4,
       visible: true,
       settings: { offerIds: [], preset: 'cards', version: 1 },
     });

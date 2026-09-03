@@ -8,6 +8,7 @@ import {
   OnboardingSitePreview,
   type OnboardingPreviewDevice,
   type OnboardingPreviewInitialTarget,
+  type QuickBookPreviewPhase,
 } from '../preview/OnboardingSitePreview';
 
 type SetupPreviewOverlayProps = {
@@ -34,13 +35,23 @@ export function SetupPreviewOverlay({
   const returnActionsRef = useRef<HTMLElement>(null);
   const title = source === 'starting_preview'
     ? 'Preview your starting site'
+    : source === 'about_design' && state.recipe.starter === 'quick_book'
+      ? 'Preview your Quick Book layout'
     : source === 'about' || source === 'about_design'
       ? 'Preview your About section'
     : source === 'site_style'
       ? 'Preview your look'
       : 'Preview your site';
   const resolvedInitialTarget = initialTarget
-    ?? (source === 'about' || source === 'about_design' ? 'about' : 'top');
+    ?? (source === 'about'
+      || (source === 'about_design' && state.recipe.starter !== 'quick_book')
+      ? 'about'
+      : 'top');
+  const quickBookPhase: QuickBookPreviewPhase = source === 'starting_preview'
+    ? 'identity'
+    : source === 'site_style'
+      ? 'business'
+      : 'final';
 
   return (
     <Dialog
@@ -75,6 +86,7 @@ export function SetupPreviewOverlay({
           initialTarget={resolvedInitialTarget}
           interactionMode="interactive"
           label={`${title} — ${device}`}
+          quickBookPhase={quickBookPhase}
           state={state}
         />
         <footer

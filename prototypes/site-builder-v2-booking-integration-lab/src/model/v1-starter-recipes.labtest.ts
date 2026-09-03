@@ -211,11 +211,12 @@ const recipeInput = (
 };
 
 describe('locked V1 starter recipes', () => {
-  it('materializes the compact profile, Booking, and optional work proof for Quick Book', () => {
+  it('materializes compact Profile, Booking, optional work proof, and Visit for Quick Book', () => {
     expect(pageTypes(initializeStarter('quick_book'))).toEqual([[
       'hero',
       'booking',
       'gallery',
+      'visit_us',
     ]]);
   });
 
@@ -330,7 +331,7 @@ describe('legacy starter recipe migration', () => {
       recipeVersion: V1_STARTER_RECIPE_VERSION,
     });
     expect(pageTypes(result.document)).toEqual(starter === 'quick_book'
-      ? [['hero', 'booking', 'gallery']]
+      ? [['hero', 'booking', 'gallery', 'visit_us']]
       : starter === 'one_page'
         ? [[
             'hero',
@@ -408,13 +409,43 @@ describe('legacy starter recipe migration', () => {
     }));
 
     expect(result.migrationResult).toBe('migrated_legacy_recipe');
-    expect(pageTypes(result.document)).toEqual([['hero', 'booking', 'gallery']]);
+    expect(pageTypes(result.document)).toEqual([[
+      'hero',
+      'booking',
+      'gallery',
+      'visit_us',
+    ]]);
     expect(result.document.pages[0]?.sections.map(section => section.id)).toEqual([
       hero.id,
       booking.id,
       gallery.id,
+      visit.id,
     ]);
     expect(result.document.pages[0]?.sections[0]?.label).toBe('Salon intro');
+  });
+
+  it('adds the stable Visit & Contact slot to an untouched v2 Quick Book document', () => {
+    const source = initializeStarter('quick_book', { siteId: 'site-quick-book-v2' });
+    source.pages[0]!.sections = source.pages[0]!.sections
+      .filter(section => section.sectionType !== 'visit_us')
+      .map((section, order) => ({ ...section, order }));
+    const retainedIds = source.pages[0]!.sections.map(section => section.id);
+
+    const result = reconcileV1StarterDocument(source, recipeInput(source, {
+      gallery: true,
+    }));
+
+    expect(result.migrationResult).toBe('migrated_legacy_recipe');
+    expect(pageTypes(result.document)).toEqual([[
+      'hero',
+      'booking',
+      'gallery',
+      'visit_us',
+    ]]);
+    expect(result.document.pages[0]?.sections.slice(0, 3).map(section => section.id))
+      .toEqual(retainedIds);
+    expect(result.document.pages[0]?.sections[3]?.id)
+      .toBe('site-quick-book-v2:recipe-v3:home:visit_us');
   });
 
   it('does not migrate an old shape after a deliberate Builder edit', () => {
