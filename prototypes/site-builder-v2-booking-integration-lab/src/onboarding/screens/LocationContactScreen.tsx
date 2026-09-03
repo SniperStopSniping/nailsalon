@@ -327,14 +327,6 @@ export function LocationContactScreen({
                   </label>
                 ))}
               </div>
-              <div className="onboarding-address-summary" aria-live="polite">
-                <div><span>Before booking</span><strong>{profile.location.addressVisibility === 'public'
-                  ? profile.location.exactAddress.trim() || 'Add your address'
-                  : profile.location.cityOrArea.trim() || 'Add your city'}</strong></div>
-                <div><span>After booking</span><strong>{profile.location.addressVisibility === 'hidden'
-                  ? profile.location.cityOrArea.trim() || 'Add your city'
-                  : profile.location.exactAddress.trim() || 'Add your address'}</strong></div>
-              </div>
             </fieldset>
           ) : (
             <p className="onboarding-mobile-location-note">

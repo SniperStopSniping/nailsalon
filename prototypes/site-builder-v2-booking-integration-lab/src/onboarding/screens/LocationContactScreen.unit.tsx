@@ -43,7 +43,7 @@ describe('LocationContactScreen', () => {
     expect(screen.queryByText('Business hours')).not.toBeInTheDocument();
   });
 
-  it('collects an address once and explains all three privacy outcomes', async () => {
+  it('collects an address once and keeps the three privacy choices self-contained', async () => {
     const user = userEvent.setup();
     renderScreen();
     await user.type(screen.getByLabelText('City *'), 'Toronto');
@@ -53,17 +53,13 @@ describe('LocationContactScreen', () => {
       name: /Show my full address after they book/u,
     });
     expect(balanced).toBeChecked();
-    expect(screen.getByText('Before booking').nextSibling).toHaveTextContent('Toronto');
-    expect(screen.getByText('After booking').nextSibling).toHaveTextContent(
-      '880 Ellesmere Rd, Scarborough, ON',
-    );
+    expect(screen.queryByText('Before booking')).not.toBeInTheDocument();
+    expect(screen.queryByText('After booking')).not.toBeInTheDocument();
 
     await user.click(screen.getByRole('radio', { name: /Show only my city/u }));
-    expect(screen.getByText('After booking').nextSibling).toHaveTextContent('Toronto');
+    expect(screen.getByRole('radio', { name: /Show only my city/u })).toBeChecked();
     await user.click(screen.getByRole('radio', { name: /Always show my full address/u }));
-    expect(screen.getByText('Before booking').nextSibling).toHaveTextContent(
-      '880 Ellesmere Rd, Scarborough, ON',
-    );
+    expect(screen.getByRole('radio', { name: /Always show my full address/u })).toBeChecked();
   });
 
   it('uses a service-area form for mobile nail techs without an address question', async () => {
