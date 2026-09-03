@@ -113,43 +113,46 @@ describe('focusFirstInvalidControl', () => {
 
     render(<Harness />);
     const businessName = screen.getByRole('textbox', {
-      name: 'Salon or studio name',
+      name: 'Salon or studio name *',
     });
-    const ownerName = screen.getByRole('textbox', { name: 'Your name' });
-    const summaryScroll = vi.fn();
+    const scrollIntoView = vi.fn();
+    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
+      configurable: true,
+      value: scrollIntoView,
+    });
 
-    await user.click(screen.getByRole('button', { name: 'Continue' }));
+    await user.click(screen.getByRole('button', { name: 'Show me my site →' }));
 
     await waitFor(() => expect(businessName).toHaveFocus());
     const summary = screen.getByRole('alert');
-    summary.scrollIntoView = summaryScroll;
     expect(summary).toHaveTextContent(
-      'Check the highlighted information.3 answers need attention.',
+      'Check the highlighted information.2 answers need attention.',
     );
     expect(businessName).toHaveAttribute('aria-invalid', 'true');
     expect(businessName).toHaveAccessibleDescription('Add your salon or studio name.');
-    expect(ownerName).toHaveAccessibleDescription('Add your name.');
     expect(screen.getByRole('group', {
-      name: 'Who are you setting Luster up for?',
-    })).toHaveAccessibleDescription('Choose who you’re setting Luster up for.');
+      name: 'Which best describes your business?',
+    })).toHaveAttribute('aria-invalid', 'true');
     expect(onValidationFailure).toHaveBeenLastCalledWith([
       'businessName',
-      'ownerName',
-      'businessStructure',
+      'businessType',
     ]);
 
     await user.type(businessName, 'Isla Nail Studio');
-    await user.click(screen.getByRole('button', { name: 'Continue' }));
+    await user.click(screen.getByRole('button', { name: 'Show me my site →' }));
+    await user.click(screen.getByRole('radio', { name: /Independent nail tech/u }));
+    const ownerName = screen.getByRole('textbox', { name: 'Your name *' });
+    await user.click(screen.getByRole('button', { name: 'Show me my site →' }));
     await waitFor(() => expect(ownerName).toHaveFocus());
-    expect(summaryScroll).toHaveBeenCalledWith({
+    await waitFor(() => expect(scrollIntoView).toHaveBeenCalledWith({
       block: 'start',
       inline: 'nearest',
-    });
+    }));
 
     await user.type(ownerName, 'Daniela');
-    await user.click(screen.getByRole('radio', { name: 'Solo nail tech' }));
-    await user.click(screen.getByRole('button', { name: 'Continue' }));
+    await user.click(screen.getByRole('button', { name: 'Show me my site →' }));
     expect(onContinue).toHaveBeenCalledOnce();
+    delete (HTMLElement.prototype as Partial<HTMLElement>).scrollIntoView;
   });
 });
 

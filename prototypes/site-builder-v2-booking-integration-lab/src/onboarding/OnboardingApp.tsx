@@ -1406,6 +1406,7 @@ export function OnboardingApp({
             document={lab.document}
             onBack={goBack}
             onContinue={onboarding.continueFlow}
+            onEditProfile={() => onboarding.viewScreen('business')}
             onFullPreview={() => openPreview('about')}
             onUpdate={updateState}
             onWritingHelperOpenChange={setWritingHelperOpen}

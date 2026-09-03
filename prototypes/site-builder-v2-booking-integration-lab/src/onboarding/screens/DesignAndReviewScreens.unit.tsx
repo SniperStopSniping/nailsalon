@@ -73,15 +73,13 @@ describe('About onboarding screens', () => {
     }
 
     render(<Harness />);
-    const bio = screen.getByRole('textbox', { name: 'Short bio' });
+    const bio = screen.getByRole('textbox', { name: 'Short introduction' });
     expect(bio).toHaveValue(preservedBio);
 
-    await user.click(screen.getByRole('switch', { name: 'Include an About section' }));
-    expect(screen.getByText(/About section is not shown on your site/i)).toBeVisible();
-    expect(bio).toBeDisabled();
-    expect(bio).toHaveValue(preservedBio);
+    await user.click(screen.getByRole('switch', { name: 'Show an About section' }));
+    expect(screen.queryByRole('textbox', { name: 'Short introduction' })).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole('button', { name: 'Continue without About' }));
+    await user.click(screen.getByRole('button', { name: 'Skip for now' }));
     expect(screen.getByRole('status', { name: 'Current onboarding screen' })).toHaveTextContent('policies');
     expect(screen.queryByText('about_design')).not.toBeInTheDocument();
   });
@@ -162,8 +160,7 @@ describe('About onboarding screens', () => {
       .toBeLessThan(tabOrder.indexOf('Back to edit About'));
   });
 
-  it('keeps shared Instagram saved while Booking-only prevents publication', async () => {
-    const user = userEvent.setup();
+  it('keeps Instagram in the saved profile without creating another About input', () => {
     const initial = aboutState();
     initial.profile.bookingOnlyContact = true;
     initial.profile.about.visibility.instagram = true;
@@ -178,54 +175,32 @@ describe('About onboarding screens', () => {
       />,
     );
 
-    await user.click(screen.getByText('Details from your setup'));
-    expect(screen.getByRole('textbox', { name: 'Instagram handle' }))
-      .toHaveValue('@islanail.studio');
-    expect(screen.getByText('Instagram is shown once in Contact or Footer, not repeated in About.'))
-      .toBeVisible();
+    expect(initial.profile.instagram).toBe('@islanail.studio');
+    expect(screen.queryByRole('textbox', { name: /Instagram/i })).not.toBeInTheDocument();
     expect(screen.queryByRole('switch', { name: 'Show Instagram in About' }))
       .not.toBeInTheDocument();
-    expect(within(screen.getByRole('region', { name: 'About section live preview' }))
-      .queryByText('@islanail.studio')).not.toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'About section live preview' }))
+      .not.toBeInTheDocument();
   });
 
-  it('normalizes the shared Instagram value from About and blocks malformed input', async () => {
+  it('routes Edit profile to the canonical Screen 1 identity instead of duplicating it', async () => {
     const user = userEvent.setup();
     const initial = aboutState();
-    const onContinue = vi.fn();
+    const onEditProfile = vi.fn();
 
-    function Harness() {
-      const [state, setState] = useState(initial);
-      return (
-        <AboutScreen
-          onBack={vi.fn()}
-          onContinue={onContinue}
-          onFullPreview={vi.fn()}
-          onUpdate={setState}
-          state={state}
-        />
-      );
-    }
-
-    render(<Harness />);
-    await user.click(screen.getByText('Details from your setup'));
-    const instagram = screen.getByRole('textbox', { name: 'Instagram handle' });
-    await user.clear(instagram);
-    await user.type(instagram, 'https://www.instagram.com/islanailstudio/');
-    await user.tab();
-    expect(instagram).toHaveValue('islanailstudio');
-    expect(within(screen.getByRole('region', { name: 'About section live preview' }))
-      .queryByText('@islanailstudio')).not.toBeInTheDocument();
-
-    await user.clear(instagram);
-    await user.type(instagram, 'instagram.com/islanailstudio/reels');
-    expect(instagram).toHaveAttribute('aria-invalid', 'true');
-    await user.click(screen.getByText('Details from your setup'));
-    expect(instagram).not.toBeVisible();
-    await user.click(screen.getByRole('button', { name: 'Choose an About design' }));
-    expect(onContinue).not.toHaveBeenCalled();
-    expect(instagram).toBeVisible();
-    await waitFor(() => expect(instagram).toHaveFocus());
+    render(
+      <AboutScreen
+        onBack={vi.fn()}
+        onContinue={vi.fn()}
+        onEditProfile={onEditProfile}
+        onFullPreview={vi.fn()}
+        onUpdate={vi.fn()}
+        state={initial}
+      />,
+    );
+    await user.click(screen.getByRole('button', { name: 'Edit profile' }));
+    expect(onEditProfile).toHaveBeenCalledOnce();
+    expect(screen.queryByRole('textbox', { name: /Instagram/i })).not.toBeInTheDocument();
   });
 });
 

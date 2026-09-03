@@ -290,9 +290,9 @@ describe('Builder overlap resolution UI', () => {
       name: 'Change business setup',
     }));
 
-    expect(await screen.findByRole('heading', { name: 'Make it yours' })).toBeVisible();
+    expect(await screen.findByRole('heading', { name: 'Let’s start with your business' })).toBeVisible();
     expect(screen.getByRole('group', {
-      name: 'Who are you setting Luster up for?',
+      name: 'Which best describes your business?',
     })).toBeVisible();
   });
 });

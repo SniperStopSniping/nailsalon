@@ -67,6 +67,7 @@ import {
   ONBOARDING_STYLE_ROLES,
   OnboardingSitePreview,
 } from '../preview/OnboardingSitePreview';
+import { AboutSetupScreen } from './AboutSetupScreen';
 
 export type OnboardingStateUpdater = (
   update: (current: OnboardingLabState) => OnboardingLabState,
@@ -178,6 +179,36 @@ function AboutFieldVisibility({
 }
 
 export function AboutScreen({
+  onBack,
+  onContinue,
+  onEditProfile,
+  onUpdate,
+  onWritingHelperOpenChange,
+  state,
+}: SharedScreenProps & {
+  document?: SiteBuilderDocument | null;
+  onContinue: () => void;
+  onEditProfile?: () => void;
+  onFullPreview: () => void;
+  onWritingHelperOpenChange?: (open: boolean) => void;
+}) {
+  return (
+    <AboutSetupScreen
+      onBack={onBack}
+      onContinue={onContinue}
+      onEditProfile={onEditProfile}
+      onUpdate={onUpdate}
+      onWritingHelperOpenChange={onWritingHelperOpenChange}
+      state={state}
+    />
+  );
+}
+
+/**
+ * Kept as an audit-only reference while the accepted Screen 8 replaces the
+ * previous long-form editor. Normal onboarding never renders this component.
+ */
+export function LegacyAboutScreen({
   document: siteDocument,
   onBack,
   onContinue,
