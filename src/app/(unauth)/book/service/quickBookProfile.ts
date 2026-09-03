@@ -189,6 +189,22 @@ function formatTime(value: string): string | null {
   return `${twelveHour}:${String(minutes).padStart(2, '0')} ${suffix}`;
 }
 
+function timeInMinutes(value: string): number | null {
+  const match = /^(\d{1,2}):(\d{2})$/.exec(value.trim());
+  if (!match) {
+    return null;
+  }
+  const hours = Number(match[1]);
+  const minutes = Number(match[2]);
+  return Number.isInteger(hours)
+    && hours >= 0
+    && hours <= 23
+    && minutes >= 0
+    && minutes <= 59
+    ? hours * 60 + minutes
+    : null;
+}
+
 function formatInterval(value: { open: string; close: string } | null | undefined): string | null {
   if (!value) {
     return null;
@@ -196,6 +212,25 @@ function formatInterval(value: { open: string; close: string } | null | undefine
   const open = formatTime(value.open);
   const close = formatTime(value.close);
   return open && close ? `${open} – ${close}` : null;
+}
+
+function validScheduleInterval(
+  value: { open: string; close: string } | null | undefined,
+): { closesAt: number; closeLabel: string; opensAt: number; openLabel: string } | null {
+  if (!value) {
+    return null;
+  }
+  const opensAt = timeInMinutes(value.open);
+  const closesAt = timeInMinutes(value.close);
+  const openLabel = formatTime(value.open);
+  const closeLabel = formatTime(value.close);
+  return opensAt !== null
+    && closesAt !== null
+    && closesAt > opensAt
+    && openLabel
+    && closeLabel
+    ? { closesAt, closeLabel, opensAt, openLabel }
+    : null;
 }
 
 function resolveHours(
@@ -215,21 +250,84 @@ function resolveHours(
     return null;
   }
 
-  let todayKey: (typeof DAY_KEYS)[number] | null = null;
+  let todayIndex = -1;
+  let currentMinute = -1;
   try {
-    const weekday = new Intl.DateTimeFormat('en-US', {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      hour: '2-digit',
+      hourCycle: 'h23',
+      minute: '2-digit',
       timeZone,
       weekday: 'long',
-    }).format(now).toLowerCase();
-    todayKey = DAY_KEYS.find(day => day === weekday) ?? null;
+    }).formatToParts(now);
+    const weekday = parts.find(part => part.type === 'weekday')?.value.toLowerCase();
+    const hour = Number(parts.find(part => part.type === 'hour')?.value);
+    const minute = Number(parts.find(part => part.type === 'minute')?.value);
+    todayIndex = DAY_KEYS.findIndex(day => day === weekday);
+    currentMinute = Number.isInteger(hour) && Number.isInteger(minute)
+      ? hour * 60 + minute
+      : -1;
   } catch {
-    todayKey = null;
+    todayIndex = -1;
+    currentMinute = -1;
   }
 
-  const todayLabel = todayKey ? formatInterval(hours[todayKey]) : null;
+  if (todayIndex < 0 || currentMinute < 0) {
+    return {
+      statusLabel: 'Hours',
+      todayLabel: 'See weekly hours',
+      weekly,
+    };
+  }
+
+  const todayKey = DAY_KEYS[todayIndex]!;
+  const todayHours = validScheduleInterval(hours[todayKey]);
+
+  if (
+    todayHours
+    && currentMinute >= todayHours.opensAt
+    && currentMinute < todayHours.closesAt
+  ) {
+    return {
+      statusLabel: 'Open now',
+      todayLabel: `Until ${todayHours.closeLabel}`,
+      weekly,
+    };
+  }
+
+  const nextOpening = (() => {
+    if (todayHours && currentMinute < todayHours.opensAt) {
+      return { dayOffset: 0, day: todayKey, openLabel: todayHours.openLabel };
+    }
+    for (let dayOffset = 1; dayOffset <= DAY_KEYS.length; dayOffset += 1) {
+      const day = DAY_KEYS[(todayIndex + dayOffset) % DAY_KEYS.length]!;
+      const interval = validScheduleInterval(hours[day]);
+      if (interval) {
+        return { dayOffset, day, openLabel: interval.openLabel };
+      }
+    }
+    return null;
+  })();
+
+  const nextOpeningLabel = (() => {
+    if (!nextOpening) {
+      return 'See weekly hours';
+    }
+    if (nextOpening.dayOffset === 0) {
+      return `Opens today at ${nextOpening.openLabel}`;
+    }
+    if (nextOpening.dayOffset === 1) {
+      return `Opens tomorrow at ${nextOpening.openLabel}`;
+    }
+    if (nextOpening.dayOffset === DAY_KEYS.length) {
+      return `Opens next ${DAY_LABELS[nextOpening.day]} at ${nextOpening.openLabel}`;
+    }
+    return `Opens ${DAY_LABELS[nextOpening.day]} at ${nextOpening.openLabel}`;
+  })();
+
   return {
-    statusLabel: todayLabel ? 'Open today' : 'Closed today',
-    todayLabel,
+    statusLabel: 'Closed',
+    todayLabel: nextOpeningLabel,
     weekly,
   };
 }

@@ -52,7 +52,6 @@ import type { SalonSettings } from '@/types/salonPolicy';
 export const dynamic = 'force-dynamic';
 
 const DEFAULT_DURATION_MINUTES = 30;
-const MIN_LEAD_TIME_MINUTES = 120;
 
 type PublicAvailabilityError = {
   kind: 'unsupported_technician' | 'invalid_service' | 'missing_required_add_on' | 'temporary_failure';
@@ -472,6 +471,7 @@ export async function GET(request: Request): Promise<Response> {
           timeZone: bookingConfig.timezone,
           slotIntervalMinutes: bookingConfig.slotIntervalMinutes,
           gridAnchorMs: startOfDay.getTime(),
+          minLeadTimeMinutes: bookingConfig.minimumNoticeMinutes,
           nowMs,
         });
         if (dayContext) {
@@ -483,7 +483,9 @@ export async function GET(request: Request): Promise<Response> {
     const visibleSlots: string[] = [];
     const slots: Array<{ time: string; startTime: string; smartFit?: SmartFitSlotAnnotation }> = [];
     const blockedSlots = new Set<string>();
-    const minimumStartTime = new Date(Date.now() + MIN_LEAD_TIME_MINUTES * 60 * 1000);
+    const minimumStartTime = new Date(
+      Date.now() + bookingConfig.minimumNoticeMinutes * 60 * 1000,
+    );
 
     for (const slot of allSlots) {
       const startTime = zonedTimeToUtc({ date, time: slot, timeZone: bookingConfig.timezone });

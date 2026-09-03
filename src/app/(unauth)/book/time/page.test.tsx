@@ -1,3 +1,4 @@
+import { render } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { DraftSalonGateResult } from '@/libs/ownerPreview';
@@ -5,9 +6,11 @@ import type { DraftSalonGateResult } from '@/libs/ownerPreview';
 import BookTimePage from './page';
 
 const {
+  bookTimeClientMock,
   buildTenantRedirectPath,
   checkFeatureEnabled,
   checkSalonStatus,
+  getBookingConfigForSalon,
   getClientSession,
   getLocationById,
   getPrimaryLocation,
@@ -16,9 +19,14 @@ const {
   resolvePublicBookingTechnicianContext,
   redirectMock,
 } = vi.hoisted(() => ({
+  bookTimeClientMock: vi.fn((_props: Record<string, unknown>) => null),
   buildTenantRedirectPath: vi.fn((path: string | null) => path),
   checkFeatureEnabled: vi.fn(),
   checkSalonStatus: vi.fn(),
+  getBookingConfigForSalon: vi.fn(async () => ({
+    minimumNoticeMinutes: 240,
+    timezone: 'America/Toronto',
+  })),
   getClientSession: vi.fn(),
   getLocationById: vi.fn(),
   getPrimaryLocation: vi.fn(),
@@ -53,7 +61,7 @@ vi.mock('@/libs/queries', () => ({
 }));
 
 vi.mock('@/libs/bookingConfig', () => ({
-  getBookingConfigForSalon: vi.fn(async () => ({ timezone: 'America/Toronto' })),
+  getBookingConfigForSalon,
 }));
 
 vi.mock('@/libs/salonStatus', () => ({
@@ -101,7 +109,7 @@ vi.mock('@/libs/tenant', () => ({
 }));
 
 vi.mock('./BookTimeClient', () => ({
-  BookTimeClient: () => null,
+  BookTimeClient: bookTimeClientMock,
 }));
 
 describe('BookTimePage', () => {
@@ -402,6 +410,13 @@ describe('BookTimePage', () => {
     expect(resolvePublicBookingTechnicianContext).toHaveBeenCalledWith(expect.objectContaining({
       clientPhone: '+14165550123',
     }));
+
+    render(element);
+
+    expect(bookTimeClientMock.mock.calls.at(-1)?.[0]).toMatchObject({
+      minimumNoticeMinutes: 240,
+      salonTimeZone: 'America/Toronto',
+    });
 
     // Post-launch privacy fix ("Blocker 2"): this page mounts
     // `PublicSalonPageShell` with NO `salonContentInput`, so the shell's own

@@ -200,6 +200,29 @@ describe('GET /api/appointments/availability', () => {
     expect(body.visibleSlots).toContain('16:15');
   });
 
+  it('uses the salon minimum notice when filtering public slots', async () => {
+    getSalonById.mockResolvedValue({
+      id: 'salon_1',
+      slug: 'salon-a',
+      settings: {
+        booking: {
+          minimumNoticeMinutes: 1_560,
+          timezone: 'America/Toronto',
+        },
+      },
+    });
+    selectResults.push([], [], [], []);
+
+    const response = await GET(
+      new Request('http://localhost/api/appointments/availability?date=2026-03-13&salonSlug=salon-a&technicianId=tech_1'),
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.visibleSlots).not.toContain('09:45');
+    expect(body.visibleSlots).toContain('10:00');
+  });
+
   it('returns a friendly recoverable error without leaking internal codes for a missing assignment', async () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     findService.mockResolvedValue({

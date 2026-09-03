@@ -38,6 +38,7 @@ export const CORE_SCREEN_ORDER: readonly OnboardingScreenId[] = [
   'about',
   'about_design',
   'policies',
+  'booking_layout',
   'extras',
   'final_preview',
 ];
@@ -64,6 +65,14 @@ export const SCREEN_METADATA: Record<OnboardingScreenId, OnboardingScreenMetadat
     stage: 'booking',
     status: 'essential',
     supportingCopy: 'Choose what clients can book and set your basic appointment rules.',
+  },
+  booking_layout: {
+    heading: 'Choose how clients browse your services',
+    primaryAction: 'Use this booking layout',
+    secondaryAction: 'Back',
+    stage: 'design',
+    status: 'essential',
+    supportingCopy: 'Your services, prices, durations and add-ons stay the same when you switch layouts.',
   },
   business: {
     heading: 'Let’s start with your business',

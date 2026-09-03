@@ -16,6 +16,9 @@ import {
 function currentSide(): BookingPageConfigSide {
   return {
     layout: 'quick_book',
+    serviceMenuLayout: 'clean_list',
+    sitePalettePreset: 'black_champagne',
+    siteStylePreset: 'luxury',
     stylePack: 'future-premium-style',
     tokenOverrides: {
       accentColor: '#AABBCC',
@@ -84,6 +87,10 @@ describe('booking-page preset target preview', () => {
 
     expect(result).toEqual({
       layout: recipe!.layout,
+      quickBookLayout: current.quickBookLayout,
+      serviceMenuLayout: current.serviceMenuLayout,
+      sitePalettePreset: current.sitePalettePreset,
+      siteStylePreset: current.siteStylePreset,
       stylePack: current.stylePack,
       tokenOverrides,
       sectionOrder: [...recipe!.sectionOrder],

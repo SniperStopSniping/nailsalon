@@ -132,6 +132,7 @@ export function OnboardingWorkspaceHandoff({
   const [canChangeSetup, setCanChangeSetup] = useState(false);
   const [dismissStatus, setDismissStatus] = useState<'idle' | 'saving' | 'error'>('idle');
   const welcomeHeadingRef = useRef<HTMLHeadingElement>(null);
+  const bookingPageUrl = `/${locale}/admin/booking-page?salon=${encodeURIComponent(salonSlug)}`;
 
   const loadHandoff = useCallback(async (signal?: AbortSignal) => {
     if (!salonSlug) {
@@ -334,6 +335,13 @@ export function OnboardingWorkspaceHandoff({
                     <MonitorSmartphone aria-hidden="true" size={18} />
                     Preview website
                   </a>
+                  <a
+                    className="flex min-h-11 items-center justify-center gap-2 rounded-full border border-[var(--owner-line-strong)] bg-white px-5 text-sm font-semibold text-[var(--owner-ink)] transition-colors hover:bg-[var(--owner-ground)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)]"
+                    href={bookingPageUrl}
+                  >
+                    <CalendarCheck aria-hidden="true" size={18} />
+                    Manage &amp; publish Booking Page
+                  </a>
                   {canChangeSetup
                     ? (
                         <a
@@ -385,6 +393,15 @@ export function OnboardingWorkspaceHandoff({
             Take tour
           </button>
         </div>
+
+        <a
+          className="mt-4 flex min-h-12 items-center gap-3 rounded-2xl border border-[var(--owner-line)] bg-[var(--owner-ground)] px-4 py-2 text-sm font-semibold text-[var(--owner-ink)] transition-colors hover:border-[var(--owner-line-strong)] hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)]"
+          href={bookingPageUrl}
+        >
+          <CalendarCheck aria-hidden="true" className="text-[var(--owner-accent)]" size={20} />
+          <span className="flex-1">Manage &amp; publish Booking Page</span>
+          <ExternalLink aria-hidden="true" className="text-[var(--owner-muted)]" size={16} />
+        </a>
 
         {checklist.done.length > 0
           ? (

@@ -83,6 +83,7 @@ const baseSalon = {
 
 const liveBookingPageSide: React.ComponentProps<typeof PublicSalonPageShell>['bookingPage'] = {
   layout: 'quick_book',
+  serviceMenuLayout: 'visual_grid',
   stylePack: 'default',
   tokenOverrides: null,
   sectionOrder: ['salonProfile', 'serviceMenu', 'featuredServices', 'policies', 'socialLinks', 'bookingCta'],

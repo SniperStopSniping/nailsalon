@@ -2180,10 +2180,11 @@ export async function POST(request: Request): Promise<Response> {
     const endTime = new Date(startTime.getTime() + totalDurationMinutes * 60 * 1000);
     const blockedEndTime = new Date(startTime.getTime() + blockedDurationMinutes * 60 * 1000);
 
-    // 6b. Validate that start time is in the future with 2-hour minimum lead time.
-    const MIN_LEAD_TIME_MINUTES = 120;
+    // 6b. Validate the start time against this salon's configured minimum notice.
     const now = new Date();
-    const minimumStartTime = new Date(now.getTime() + MIN_LEAD_TIME_MINUTES * 60 * 1000);
+    const minimumStartTime = new Date(
+      now.getTime() + bookingConfig.minimumNoticeMinutes * 60 * 1000,
+    );
 
     if (startTime <= now) {
       return Response.json(
@@ -2198,11 +2199,16 @@ export async function POST(request: Request): Promise<Response> {
     }
 
     if (!googleReviewEvent && startTime < minimumStartTime) {
+      const notice = bookingConfig.minimumNoticeMinutes % (24 * 60) === 0
+        ? `${bookingConfig.minimumNoticeMinutes / (24 * 60)} ${bookingConfig.minimumNoticeMinutes === 24 * 60 ? 'day' : 'days'}`
+        : bookingConfig.minimumNoticeMinutes % 60 === 0
+          ? `${bookingConfig.minimumNoticeMinutes / 60} ${bookingConfig.minimumNoticeMinutes === 60 ? 'hour' : 'hours'}`
+          : `${bookingConfig.minimumNoticeMinutes} ${bookingConfig.minimumNoticeMinutes === 1 ? 'minute' : 'minutes'}`;
       return Response.json(
         {
           error: {
             code: 'TOO_SOON',
-            message: 'Appointments must be booked at least 2 hours in advance. Please select a later time.',
+            message: `Appointments must be booked at least ${notice} in advance. Please select a later time.`,
           },
         } satisfies ErrorResponse,
         { status: 400 },
@@ -2340,6 +2346,7 @@ export async function POST(request: Request): Promise<Response> {
       timeZone: bookingConfig.timezone,
       slotIntervalMinutes: bookingConfig.slotIntervalMinutes,
       gridAnchorMs: bookingStartOfDay.getTime(),
+      minLeadTimeMinutes: bookingConfig.minimumNoticeMinutes,
       nowMs: args.nowMs,
     });
 

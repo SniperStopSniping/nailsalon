@@ -222,6 +222,12 @@ const profileSchema = z.object({
   }).strict(),
   businessName: nonEmptyText(80),
   businessStructure: z.enum(['solo', 'multi_tech']),
+  businessType: z.enum([
+    'independent_salon',
+    'home_based',
+    'mobile',
+    'salon_team',
+  ]).nullable().default(null),
   clientContact: z.object({
     callEnabled: z.boolean(),
     differentTextNumber: text(64),
@@ -255,6 +261,16 @@ const profileSchema = z.object({
     selectedAddOnIds: z.array(nonEmptyText(100)).max(100),
     selectedServiceIds: z.array(nonEmptyText(100)).max(100),
   }).strict(),
+  siteSlug: text(64).default(''),
+  siteSlugCustomized: z.boolean().default(false),
+  timeZone: z.string().default('America/Toronto').refine((value) => {
+    try {
+      Intl.DateTimeFormat(undefined, { timeZone: value });
+      return true;
+    } catch {
+      return false;
+    }
+  }, 'Invalid timezone'),
   hours: weeklyHoursSchema,
 }).strict();
 
@@ -283,6 +299,14 @@ const siteRecipeSchema = z.object({
   galleryEnabled: z.boolean(),
   palettePresetId: z.enum(ONBOARDING_PALETTE_PRESET_IDS),
   policiesEnabled: z.boolean(),
+  quickBookLayout: z.enum([
+    'compact_dropdown',
+    'clean_card',
+    'editorial',
+    'hub_menu',
+    'profile_story',
+    'ultra_minimal',
+  ]).default('compact_dropdown'),
   quickBookProfile: z.object({
     showBio: z.boolean(),
     showBookingPolicy: z.boolean(),
@@ -508,7 +532,7 @@ const compiledPageSchema = z.object({
 
 export const onboardingCompiledSiteDocumentSchema = z.object({
   builderDocument: siteBuilderDocumentSchema,
-  compilerVersion: z.union([z.literal(1), z.literal(2)]).default(2),
+  compilerVersion: z.union([z.literal(1), z.literal(2), z.literal(3)]).default(3),
   navigation: z.array(z.object({
     label: nonEmptyText(100),
     order: z.number().int().min(0),
@@ -522,7 +546,7 @@ export const onboardingCompiledSiteDocumentSchema = z.object({
     'migrated_legacy_recipe',
     'preserved_manual_edits',
   ]).default('preserved_manual_edits'),
-  recipeVersion: z.union([z.literal(1), z.literal(2)]).default(2),
+  recipeVersion: z.union([z.literal(1), z.literal(2), z.literal(3)]).default(3),
   revision: z.number().int().positive(),
   schemaVersion: z.literal(ONBOARDING_SITE_DOCUMENT_VERSION),
   serviceSelection: z.object({
@@ -543,20 +567,48 @@ const opaqueTokenSchema = z.string().min(32).max(256).regex(/^[\w-]+$/);
 const targetSchema = z.union([
   z.object({ mode: z.literal('create_business') }).strict(),
   z.object({
-    existingSiteStrategy: z.enum(['new_draft', 'replace_draft']).optional(),
+    continuationClaimId: z.string().uuid().optional(),
+    existingSiteStrategy: z.enum([
+      'continue_onboarding_draft',
+      'new_draft',
+      'replace_draft',
+    ]).optional(),
     expectedRevision: z.number().int().positive().optional(),
     expectedSiteId: z.string().uuid().optional(),
     mode: z.literal('existing_business'),
     salonId: nonEmptyText(160),
   }).strict().superRefine((value, context) => {
     if (
-      value.existingSiteStrategy === 'replace_draft'
+      (
+        value.existingSiteStrategy === 'continue_onboarding_draft'
+        || value.existingSiteStrategy === 'replace_draft'
+      )
       && (!value.expectedSiteId || !value.expectedRevision)
     ) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
         message: 'Replacing a draft requires the exact site and revision that the owner confirmed.',
         path: ['expectedRevision'],
+      });
+    }
+    if (
+      value.existingSiteStrategy === 'continue_onboarding_draft'
+      && !value.continuationClaimId
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Continuing onboarding requires the exact prior claim.',
+        path: ['continuationClaimId'],
+      });
+    }
+    if (
+      value.existingSiteStrategy !== 'continue_onboarding_draft'
+      && value.continuationClaimId
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'A continuation claim is valid only for an onboarding continuation.',
+        path: ['continuationClaimId'],
       });
     }
   }),

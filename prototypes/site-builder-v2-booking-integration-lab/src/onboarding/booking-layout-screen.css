@@ -1,0 +1,125 @@
+.onboarding-screen--booking-layout {
+  display: grid;
+  gap: 20px;
+  padding-bottom: calc(126px + env(safe-area-inset-bottom));
+}
+
+.onboarding-booking-layout-options,
+.onboarding-booking-layout-preview {
+  padding: 18px;
+  background: var(--onboarding-surface, #fffdfa);
+  border: 1px solid var(--onboarding-line, rgb(83 55 63 / 16%));
+  border-radius: 24px;
+  box-shadow: 0 12px 30px rgb(68 42 48 / 5%);
+}
+
+.onboarding-booking-layout-options__heading,
+.onboarding-booking-layout-preview__heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 14px;
+}
+
+.onboarding-booking-layout-options__heading span,
+.onboarding-booking-layout-preview__heading span {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+
+.onboarding-booking-layout-options__heading small,
+.onboarding-booking-layout-preview__heading small {
+  color: var(--onboarding-accent, #8f3155);
+  font-size: 0.7rem;
+  font-weight: 850;
+  letter-spacing: 0.1em;
+}
+
+.onboarding-booking-layout-options__heading h2,
+.onboarding-booking-layout-preview__heading h2 {
+  margin: 0;
+  font-family: Georgia, 'Times New Roman', serif;
+  font-size: clamp(1.3rem, 5vw, 1.75rem);
+  line-height: 1.08;
+}
+
+.onboarding-booking-layout-options__heading strong,
+.onboarding-booking-layout-preview__heading strong {
+  display: inline-flex;
+  min-height: 34px;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+  padding: 7px 10px;
+  color: #24734f;
+  background: #edf8f1;
+  border-radius: 999px;
+  font-size: 0.74rem;
+}
+
+.onboarding-booking-layout-options .booking-settings-panel > section:first-of-type {
+  padding-top: 0;
+  border-top: 0;
+}
+
+.onboarding-booking-layout-options .booking-photo-guidance {
+  color: var(--onboarding-muted, #766a69);
+  font-size: 0.78rem;
+}
+
+.onboarding-booking-layout-preview .onboarding-site-preview {
+  margin-inline: auto;
+}
+
+.onboarding-booking-layout-error {
+  padding: 16px;
+  color: #7b2447;
+  background: #fff4f7;
+  border: 1px solid #ecc5d3;
+  border-radius: 16px;
+}
+
+.onboarding-booking-layout-reassurance {
+  margin: -4px 4px 0;
+  color: var(--onboarding-muted, #766a69);
+  font-size: 0.82rem;
+  text-align: center;
+}
+
+@media (min-width: 760px) {
+  .onboarding-screen--booking-layout {
+    grid-template-columns: minmax(320px, 0.85fr) minmax(380px, 1.15fr);
+    align-items: start;
+  }
+
+  .onboarding-screen--booking-layout > .onboarding-screen-heading,
+  .onboarding-screen--booking-layout > .onboarding-booking-layout-reassurance,
+  .onboarding-screen--booking-layout > .sticky-onboarding-actions {
+    grid-column: 1 / -1;
+  }
+
+  .onboarding-booking-layout-preview {
+    position: sticky;
+    top: 24px;
+  }
+}
+
+@media (max-width: 360px) {
+  .onboarding-booking-layout-options,
+  .onboarding-booking-layout-preview {
+    padding: 14px;
+    border-radius: 20px;
+  }
+
+  .onboarding-booking-layout-options__heading,
+  .onboarding-booking-layout-preview__heading {
+    display: grid;
+  }
+
+  .onboarding-booking-layout-options__heading strong,
+  .onboarding-booking-layout-preview__heading strong {
+    justify-self: start;
+  }
+}

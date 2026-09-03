@@ -52,6 +52,7 @@ function baseArgs() {
     timeZone: TIME_ZONE,
     slotIntervalMinutes: 15,
     gridAnchorMs: GRID_ANCHOR_MS,
+    minLeadTimeMinutes: 120,
     nowMs: NOW_MS,
   };
 }
@@ -86,6 +87,31 @@ describe('buildSmartFitDayContext — working window', () => {
     expect(context!.workEndMs).toBe(atMs('17:00'));
     expect(context!.technicianId).toBe('tech_1');
     expect(context!.gridAnchorMs).toBe(GRID_ANCHOR_MS);
+    expect(context!.minLeadTimeMinutes).toBe(120);
+  });
+
+  it('carries the salon minimum notice into Smart Fit evaluation', () => {
+    const context = buildSmartFitDayContext({
+      ...baseArgs(),
+      minLeadTimeMinutes: 240,
+    });
+    const evaluation = evaluateSmartFitSlot({
+      config: ENABLED,
+      candidate: {
+        startMs: NOW_MS + 180 * 60_000,
+        visibleDurationMinutes: 60,
+        bufferMinutes: 0,
+        serviceId: 'srv_1',
+        technicianId: 'tech_1',
+        locationId: null,
+      },
+      day: context!,
+    });
+
+    expect(evaluation).toMatchObject({
+      eligible: false,
+      reason: 'MINIMUM_NOTICE',
+    });
   });
 
   it('intersects location business hours into the working window', () => {

@@ -14,6 +14,7 @@ import type {
 
 export type BookingSettingsPanelProps = {
   allowFeaturedServices?: boolean;
+  layoutOnly?: boolean;
   settings: BookingSectionPresentationSettings;
   showIntro?: boolean;
   onChange: (settings: BookingSectionPresentationSettings) => void;
@@ -336,6 +337,7 @@ function LayoutControls({
 
 export function BookingSettingsPanel({
   allowFeaturedServices = true,
+  layoutOnly = false,
   settings,
   showIntro = true,
   onChange,
@@ -411,7 +413,7 @@ export function BookingSettingsPanel({
         </p>
       </section>
 
-      <section aria-labelledby={`${id}-type-heading`}>
+      {layoutOnly ? null : <section aria-labelledby={`${id}-type-heading`}>
         <h3 id={`${id}-type-heading`}>Typography</h3>
         <Control label="Preset">
           <select
@@ -462,9 +464,9 @@ export function BookingSettingsPanel({
             onChange={spacing => updateGlobal({ spacing })}
           />
         </Control>
-      </section>
+      </section>}
 
-      <section aria-labelledby={`${id}-options-heading`}>
+      {layoutOnly ? null : <section aria-labelledby={`${id}-options-heading`}>
         <h3 id={`${id}-options-heading`}>Layout options</h3>
         <p className="booking-settings-caption">Compatible controls only</p>
         <div className="booking-layout-controls">
@@ -474,12 +476,14 @@ export function BookingSettingsPanel({
             onChange={onChange}
           />
         </div>
-      </section>
+      </section>}
 
-      <button className="booking-reset-presentation" type="button" onClick={reset}>
-        <RotateCcw aria-hidden="true" size={16} />
-        Reset presentation
-      </button>
+      {layoutOnly ? null : (
+        <button className="booking-reset-presentation" type="button" onClick={reset}>
+          <RotateCcw aria-hidden="true" size={16} />
+          Reset presentation
+        </button>
+      )}
     </div>
   );
 }

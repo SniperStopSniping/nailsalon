@@ -166,7 +166,7 @@ export default async function middleware(
     // But NOT for super-admin-login (that's a public login page)
     const isSuperAdminPage
       = (p === '/super-admin' || p.startsWith('/super-admin/'))
-        || /^\/[a-z]{2}\/super-admin(?:\/|$)/.test(p);
+      || /^\/[a-z]{2}\/super-admin(?:\/|$)/.test(p);
     const isSuperAdminLogin
       = p.includes('super-admin-login');
 
@@ -250,14 +250,20 @@ export default async function middleware(
   }
 
   // Onboarding V1 intentionally shows the completed customer-site value
-  // before account creation. Clerk context is still established so an
-  // existing owner can save immediately, but the route itself remains public
-  // and fail-closed behind its server-side feature flag.
+  // before account creation. Anonymous requests deliberately avoid Clerk's
+  // development-browser handshake: on a plain local/LAN HTTP origin that
+  // handshake cannot retain its cross-site cookie and loops before the public
+  // onboarding page can render. Once Clerk has established a real `__session`
+  // cookie, preserve server auth context so an existing owner can resume and
+  // save immediately. The claim APIs establish their own Clerk context and
+  // remain the authenticated persistence boundary.
   if (isPublicOnboardingV1Route(request)) {
-    const response = await clerkMiddleware(
-      async (_auth, req) => intlMiddleware(req),
-      clerkOptions,
-    )(request, event);
+    const response = request.cookies.get('__session')?.value
+      ? await clerkMiddleware(
+        async (_auth, req) => intlMiddleware(req),
+        clerkOptions,
+      )(request, event)
+      : intlMiddleware(request);
     return finalizeResponse((response as NextResponse | undefined) ?? NextResponse.next());
   }
 

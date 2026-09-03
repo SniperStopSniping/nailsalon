@@ -150,6 +150,27 @@ describe('onboarding browser-local storage', () => {
     expect(loaded.state.recipe.quickBookLayout).toBe('profile_story');
   });
 
+  it('resumes a current-schema Quick Book draft on the new Booking layout step', () => {
+    const state = createDefaultOnboardingState();
+    state.recipe.starter = 'quick_book';
+    state.progress.currentScreen = 'extras';
+    state.progress.lastActiveScreen = 'extras';
+    state.progress.screenHistory = ['starter', 'policies', 'extras'];
+    state.progress.visitedScreens = ['starter', 'policies', 'extras'];
+
+    const loaded = parseOnboardingState(JSON.stringify(state));
+
+    expect(loaded.status).toBe('loaded');
+    expect(loaded.state.schemaVersion).toBe(ONBOARDING_SCHEMA_VERSION);
+    expect(loaded.state.progress.currentScreen).toBe('booking_layout');
+    expect(loaded.state.progress.lastActiveScreen).toBe('booking_layout');
+    expect(loaded.state.progress.screenHistory).toEqual([
+      'starter',
+      'policies',
+      'booking_layout',
+    ]);
+  });
+
   it('migrates schema v12 drafts to the compact Quick Book layout', () => {
     const legacy = createDefaultOnboardingState() as unknown as Record<string, unknown>;
     legacy.schemaVersion = 12;

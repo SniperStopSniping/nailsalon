@@ -20,6 +20,11 @@ import { type BookingStep, getFirstStep, getNextStep, getPrevStep } from '@/libs
 import { getFeaturedServices, sortServicesForCategory } from '@/libs/bookingMerchandising';
 import type { SectionId } from '@/libs/bookingPageConfig';
 import { buildBookingUrl, parseSelectedAddOnsParam, type SelectedAddOnParam, serializeSelectedAddOns } from '@/libs/bookingParams';
+import {
+  getCustomerSitePresentationCssVariables,
+  resolveCustomerSitePalettePreset,
+  resolveCustomerSiteStylePreset,
+} from '@/libs/customerSitePresentation';
 import { triggerHaptic } from '@/libs/haptics';
 import {
   getPublicTechnicianCompatibility,
@@ -38,6 +43,7 @@ import {
   SECTION_REGISTRY,
   shouldRenderSection,
 } from '@/libs/sectionRegistry';
+import { resolveServiceMenuPresentation } from '@/libs/serviceMenuLayout';
 import { getPublicTechnicianRatingDisplay } from '@/libs/technicianRating';
 import { BOOKING_CATEGORIES, type BookingCategory } from '@/models/Schema';
 import { useSalon } from '@/providers/SalonProvider';
@@ -159,7 +165,7 @@ function formatMoney(cents: number, currency: string): string {
   }).format(cents / 100);
 }
 
-function buildServiceRows(services: ServiceData[]): ServiceData[][] {
+function buildServiceRows(services: ServiceData[], columns: 1 | 2 = 2): ServiceData[][] {
   const rows: ServiceData[][] = [];
   let currentRow: ServiceData[] = [];
 
@@ -174,7 +180,7 @@ function buildServiceRows(services: ServiceData[]): ServiceData[][] {
     }
 
     currentRow.push(service);
-    if (currentRow.length === 2) {
+    if (currentRow.length === columns) {
       rows.push(currentRow);
       currentRow = [];
     }
@@ -185,6 +191,15 @@ function buildServiceRows(services: ServiceData[]): ServiceData[][] {
   }
 
   return rows;
+}
+
+function shouldGroupServiceMenu(
+  configuredLayout: unknown,
+  configuredPresentationIsGrouped: boolean,
+  sectionVariant: 'list' | 'grouped_categories',
+): boolean {
+  return configuredPresentationIsGrouped
+    || (configuredLayout === undefined && sectionVariant === 'grouped_categories');
 }
 
 function buildDefaultSelectedAddOns(
@@ -285,6 +300,23 @@ export function BookServiceClient({
   // object; the real SalonProvider always supplies both, resolved
   // server-side, so these fallbacks only ever apply outside production.
   const layout = bookingPage?.layout ?? 'quick_book';
+  const serviceMenuPresentation = resolveServiceMenuPresentation(
+    bookingPage?.serviceMenuLayout,
+  );
+  const hasCustomerSitePresentation = bookingPage?.siteStylePreset !== undefined
+    || bookingPage?.sitePalettePreset !== undefined;
+  const customerSiteStylePreset = hasCustomerSitePresentation
+    ? resolveCustomerSiteStylePreset(bookingPage?.siteStylePreset)
+    : undefined;
+  const customerSitePalettePreset = hasCustomerSitePresentation
+    ? resolveCustomerSitePalettePreset(bookingPage?.sitePalettePreset)
+    : undefined;
+  const customerSitePresentationStyles = hasCustomerSitePresentation
+    ? getCustomerSitePresentationCssVariables({
+      palettePreset: customerSitePalettePreset,
+      stylePreset: customerSiteStylePreset,
+    })
+    : {};
   const compactQuickBookProfileEnabled = layout === 'quick_book'
     && usesCompactQuickBookProfile(bookingPage?.quickBookProfile);
   const quickBookSectionOrder = resolveQuickBookPublicSectionOrder(
@@ -345,7 +377,8 @@ export function BookServiceClient({
     content: quickBookContent,
   });
   const usesEditorialBookingHandoff = sectionPresentation.bookingAccess === 'editorial-handoff';
-  const hasBookingBrandColor = bookingExperience.primaryColor !== null;
+  const hasBookingBrandColor = bookingExperience.primaryColor !== null
+    || hasCustomerSitePresentation;
   const bookingBrandForeground = hasBookingBrandColor
     ? 'var(--booking-brand-foreground, #000000)'
     : undefined;
@@ -1086,7 +1119,7 @@ export function BookServiceClient({
     content: quickBookContent,
     announcement: bookingExperience.bookingMessage,
   });
-  const serviceRows = buildServiceRows(filteredServices);
+  const serviceRows = buildServiceRows(filteredServices, serviceMenuPresentation.columns);
   const groupedServiceRows = BOOKING_CATEGORIES.flatMap((category) => {
     const categoryServices = sortServicesForCategory(
       (isSearching ? filteredServices : services).filter(
@@ -1094,7 +1127,7 @@ export function BookServiceClient({
       ),
       category,
     );
-    const rows = buildServiceRows(categoryServices);
+    const rows = buildServiceRows(categoryServices, serviceMenuPresentation.columns);
 
     return rows.length > 0 ? [{ category, rows }] : [];
   });
@@ -1232,7 +1265,10 @@ export function BookServiceClient({
   return (
     <main
       className="service-page-viewport"
+      data-customer-site-palette={customerSitePalettePreset}
+      data-customer-site-style={customerSiteStylePreset}
       style={{
+        ...customerSitePresentationStyles,
         background: hasBookingBrandColor
           ? `linear-gradient(to bottom, color-mix(in srgb, ${themeVars.background} 95%, white), ${themeVars.background})`
           : `linear-gradient(to bottom, color-mix(in srgb, ${themeVars.background} 95%, white), ${themeVars.background}, color-mix(in srgb, ${themeVars.background} 95%, ${themeVars.primaryDark}))`,
@@ -1606,7 +1642,11 @@ export function BookServiceClient({
 
                       {/* Category chips are useless during a search (results already span
                     every category), so they collapse too — only results remain. */}
-                      {menuVariant === 'list' && !isSearching && (
+                      {!shouldGroupServiceMenu(
+                        bookingPage?.serviceMenuLayout,
+                        serviceMenuPresentation.grouped,
+                        menuVariant,
+                      ) && !isSearching && (
                         <div
                           className="scrollbar-hide -mx-4 mb-5 w-[calc(100%+2rem)] overflow-x-auto overflow-y-hidden px-4 md:mx-0 md:w-full md:overflow-visible md:px-0"
                           style={{
@@ -1673,16 +1713,35 @@ export function BookServiceClient({
 
                       <div
                         className="space-y-4"
-                        data-testid={menuVariant === 'grouped_categories'
+                        data-booking-menu-layout={serviceMenuPresentation.layout}
+                        data-testid={shouldGroupServiceMenu(
+                          bookingPage?.serviceMenuLayout,
+                          serviceMenuPresentation.grouped,
+                          menuVariant,
+                        )
                           ? 'service-menu-grouped-categories'
                           : 'service-menu-list'}
                       >
-                        {menuVariant === 'grouped_categories' && (
+                        <div
+                          className="sr-only"
+                          data-testid={`service-menu-presentation-${serviceMenuPresentation.layout}`}
+                        >
+                          {serviceMenuPresentation.layout}
+                        </div>
+                        {shouldGroupServiceMenu(
+                          bookingPage?.serviceMenuLayout,
+                          serviceMenuPresentation.grouped,
+                          menuVariant,
+                        ) && (
                           <h2 className="text-base font-semibold text-neutral-900">
                             Services
                           </h2>
                         )}
-                        {menuVariant === 'list' && !isSearching && filteredServices.length === 0 && (
+                        {!shouldGroupServiceMenu(
+                          bookingPage?.serviceMenuLayout,
+                          serviceMenuPresentation.grouped,
+                          menuVariant,
+                        ) && !isSearching && filteredServices.length === 0 && (
                           <div
                             data-testid="service-category-empty"
                             className="rounded-2xl border border-dashed px-4 py-8 text-center text-sm text-neutral-500"
@@ -1709,7 +1768,11 @@ export function BookServiceClient({
                             </div>
                           </div>
                         )}
-                        {(menuVariant === 'grouped_categories'
+                        {(shouldGroupServiceMenu(
+                          bookingPage?.serviceMenuLayout,
+                          serviceMenuPresentation.grouped,
+                          menuVariant,
+                        )
                           ? groupedServiceRows
                           : [{ category: null, rows: serviceRows }]).map((group, groupIndex) => {
                           const groupHeadingId = group.category
@@ -1741,7 +1804,10 @@ export function BookServiceClient({
 
                                   return (
                                     <div key={`service-row-${row.map(service => service.id).join('-')}`} className="space-y-2">
-                                      <div className="grid grid-cols-2 gap-3">
+                                      <div className={serviceMenuPresentation.columns === 2
+                                        ? 'grid grid-cols-2 gap-3'
+                                        : 'grid grid-cols-1 gap-2'}
+                                      >
                                         {row.map((service, serviceIndex) => {
                                           const isSelected = selectedBaseServiceId === service.id;
                                           const previewDescription = service.descriptionItems[0] ?? service.description ?? 'Bookable base service';
@@ -1756,8 +1822,19 @@ export function BookServiceClient({
                                               data-testid={`service-card-${service.id}`}
                                               data-selected={isSelected ? 'true' : 'false'}
                                               aria-pressed={isSelected}
-                                              className={`relative flex h-full flex-col overflow-hidden rounded-2xl text-left transition-all duration-200 ${
-                                                service.bookingCategory === 'combo' ? 'col-span-full' : ''
+                                              className={`relative flex h-full overflow-hidden text-left transition-all duration-200 ${
+                                                serviceMenuPresentation.layout === 'visual_grid'
+                                                  ? 'flex-col rounded-2xl'
+                                                  : serviceMenuPresentation.layout === 'editorial_cards'
+                                                    ? 'flex-col rounded-[24px]'
+                                                    : serviceMenuPresentation.layout === 'editorial_price_list'
+                                                      ? 'flex-row rounded-none border-x-0 border-t-0'
+                                                      : 'min-h-[88px] flex-row rounded-xl'
+                                              } ${
+                                                service.bookingCategory === 'combo'
+                                                && serviceMenuPresentation.columns === 2
+                                                  ? 'col-span-full'
+                                                  : ''
                                               }`}
                                               style={{
                                                 transform: previewContentReady ? 'translateY(0)' : 'translateY(15px)',
@@ -1767,10 +1844,14 @@ export function BookServiceClient({
                                                     ? 'var(--booking-brand-selection-background, #fdf8f1)'
                                                     : '#fdf8f1'
                                                   : 'white',
-                                                boxShadow: isSelected
-                                                  ? '0 10px 22px rgba(0,0,0,0.08)'
-                                                  : '0 4px 20px rgba(0,0,0,0.06)',
-                                                borderWidth: '1px',
+                                                boxShadow: serviceMenuPresentation.layout === 'editorial_price_list'
+                                                  ? undefined
+                                                  : isSelected
+                                                    ? '0 10px 22px rgba(0,0,0,0.08)'
+                                                    : '0 4px 20px rgba(0,0,0,0.06)',
+                                                borderWidth: serviceMenuPresentation.layout === 'editorial_price_list'
+                                                  ? '0 0 1px'
+                                                  : '1px',
                                                 borderStyle: 'solid',
                                                 borderColor: isSelected
                                                   ? hasBookingBrandColor
@@ -1780,10 +1861,19 @@ export function BookServiceClient({
                                                 transition: `opacity 300ms ease-out ${200 + animationIndex * 50}ms, transform 300ms ease-out ${200 + animationIndex * 50}ms, box-shadow 200ms ease-out, border-color 200ms ease-out`,
                                               }}
                                             >
-                                              {showServiceImages && (
+                                              {showServiceImages
+                                              && serviceMenuPresentation.image !== 'hidden' && (
                                                 <div
                                                   data-testid={`service-card-image-${service.id}`}
-                                                  className={`relative overflow-hidden ${service.bookingCategory === 'combo' ? 'h-[96px]' : 'h-[68px]'}`}
+                                                  className={`relative overflow-hidden ${
+                                                    serviceMenuPresentation.image === 'hero'
+                                                      ? 'h-[148px] w-full'
+                                                      : serviceMenuPresentation.image === 'thumbnail'
+                                                        ? 'min-h-[88px] w-24 shrink-0 self-stretch'
+                                                        : service.bookingCategory === 'combo'
+                                                          ? 'h-[96px]'
+                                                          : 'h-[68px]'
+                                                  }`}
                                                   style={{
                                                     background: hasBookingBrandColor
                                                       ? `linear-gradient(to bottom right, ${themeVars.background}, ${themeVars.selectedBackground})`
@@ -1810,9 +1900,21 @@ export function BookServiceClient({
 
                                               <div
                                                 data-testid={`service-card-content-${service.id}`}
-                                                className={`flex flex-1 flex-col ${service.bookingCategory === 'combo' ? 'p-2.5' : 'min-h-[104px] p-2.5'}`}
+                                                className={`flex min-w-0 flex-1 flex-col ${
+                                                  serviceMenuPresentation.layout === 'visual_grid'
+                                                    ? service.bookingCategory === 'combo'
+                                                      ? 'p-2.5'
+                                                      : 'min-h-[104px] p-2.5'
+                                                    : serviceMenuPresentation.layout === 'editorial_cards'
+                                                      ? 'min-h-[132px] p-4'
+                                                      : serviceMenuPresentation.layout === 'editorial_price_list'
+                                                        ? 'min-h-[76px] px-0 py-3'
+                                                        : 'min-h-[88px] p-3'
+                                                }`}
                                               >
-                                                {!showServiceImages && service.resolvedIntroPriceLabel && (
+                                                {(!showServiceImages
+                                                  || serviceMenuPresentation.image === 'hidden')
+                                                  && service.resolvedIntroPriceLabel && (
                                                   <div
                                                     data-testid={`service-card-intro-badge-${service.id}`}
                                                     className="mb-1 w-fit max-w-full whitespace-normal break-words rounded-full bg-neutral-100 px-2 py-1 text-[10px] font-semibold uppercase leading-tight tracking-[0.08em] text-neutral-800"
@@ -1820,12 +1922,24 @@ export function BookServiceClient({
                                                     {service.resolvedIntroPriceLabel}
                                                   </div>
                                                 )}
-                                                <div className="break-words text-[14px] font-bold leading-tight text-neutral-900">
+                                                <div className={`break-words font-bold leading-tight text-neutral-900 ${
+                                                  serviceMenuPresentation.layout === 'editorial_cards'
+                                                    ? 'text-lg'
+                                                    : serviceMenuPresentation.layout === 'editorial_price_list'
+                                                      ? 'font-serif text-base'
+                                                      : 'text-[14px]'
+                                                }`}
+                                                >
                                                   {service.name}
                                                 </div>
-                                                <div className="mt-0.5 line-clamp-2 text-[10px] leading-[1.35] text-neutral-500">
-                                                  {previewDescription}
-                                                </div>
+                                                {serviceMenuPresentation.description !== 'hidden' && (
+                                                  <div className={serviceMenuPresentation.description === 'editorial'
+                                                    ? 'mt-1 line-clamp-3 text-[13px] leading-5 text-neutral-600'
+                                                    : 'mt-0.5 line-clamp-2 text-[10px] leading-[1.35] text-neutral-500'}
+                                                  >
+                                                    {previewDescription}
+                                                  </div>
+                                                )}
                                                 {isSelected && hasVisibleAddOns && (
                                                   <div
                                                     data-testid={`service-card-addon-cue-${service.id}`}
@@ -1841,14 +1955,22 @@ export function BookServiceClient({
                                                 )}
                                                 <div
                                                   data-testid={`service-card-meta-row-${service.id}`}
-                                                  className="mt-auto flex items-end justify-between gap-3 pt-2.5"
+                                                  className={`mt-auto flex items-end justify-between gap-3 ${
+                                                    serviceMenuPresentation.layout === 'editorial_price_list'
+                                                      ? 'pt-1.5'
+                                                      : 'pt-2.5'
+                                                  }`}
                                                 >
                                                   <span className="text-[11px] leading-none text-neutral-500">
                                                     {formatDuration(service.durationMinutes)}
                                                   </span>
                                                   <span
                                                     data-testid={`service-card-price-${service.id}`}
-                                                    className="shrink-0 text-right text-lg font-bold leading-none"
+                                                    className={`shrink-0 text-right font-bold leading-none ${
+                                                      serviceMenuPresentation.layout === 'editorial_price_list'
+                                                        ? 'text-base'
+                                                        : 'text-lg'
+                                                    }`}
                                                     style={{ color: themeVars.accent }}
                                                   >
                                                     {service.priceDisplayText || formatMoney(service.priceCents, currency)}
@@ -2071,6 +2193,7 @@ export function BookServiceClient({
                         profile={resolvedQuickBookProfile}
                         mounted={previewContentReady}
                         bookingFlow={effectiveBookingFlow}
+                        layout={bookingPage?.quickBookLayout}
                         announcement={announcement}
                       />
                     )

@@ -13,6 +13,7 @@ import './onboarding/palette.css';
 import './onboarding/style-colours-save.css';
 import './onboarding/screen-seven-booking.css';
 import './onboarding/screen-eight-about.css';
+import './onboarding/booking-layout-screen.css';
 import './onboarding/feedback/feedback.css';
 
 const rootElement = document.getElementById('root');

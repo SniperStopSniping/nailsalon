@@ -82,12 +82,6 @@ const derivePendingSessionTask = (candidate: unknown): PendingSessionTask | null
   return { sessionId: session.id, taskKey: session.currentTask.key };
 };
 
-const makePreviewInert = (element: HTMLDivElement | null): void => {
-  if (element) {
-    element.inert = true;
-  }
-};
-
 export type PremiumAccountGateProps = {
   authMode: GateIntent;
   document: SiteBuilderDocument;
@@ -557,7 +551,12 @@ export function PremiumAccountGate({
               </p>
               <h1 className="onboarding-gate__title" data-entrance="2" ref={headingRef} tabIndex={-1}>
                 {intent === 'sign-up'
-                  ? <>Your site is coming together <span aria-hidden="true">✨</span></>
+                  ? (
+                      <>
+                        Your site is coming together
+                        <span aria-hidden="true">✨</span>
+                      </>
+                    )
                   : 'Log in to keep building.'}
               </h1>
               <p className="onboarding-gate__support" data-entrance="3">
@@ -570,26 +569,46 @@ export function PremiumAccountGate({
                 : null}
               <div className="onboarding-gate__proof" data-entrance="3">
                 <div
-                  aria-hidden="true"
                   className="onboarding-gate__thumb"
-                  ref={makePreviewInert}
                 >
                   <OnboardingSitePreview
                     document={document}
                     fitAvailable
-                    interactionMode="inline"
+                    interactionMode="scrollable"
                     label={`Preview of ${salonName}`}
+                    quickBookPhase="business"
                     state={state}
+                    suppressPageHeadingSemantics
                   />
                 </div>
+                <p className="onboarding-gate__preview-hint">Swipe to explore your site</p>
                 <p className="onboarding-gate__proof-line"><strong>{salonName}</strong></p>
-                <p className="onboarding-gate__proof-meta">{getSiteStyleLabel(state.recipe.stylePreset)} · {SITE_PALETTE_BY_ID[state.recipe.palettePreset].label}{selectedServices > 0 ? ` · ${selectedServices} ${selectedServices === 1 ? 'service' : 'services'}` : ''}</p>
+                <p className="onboarding-gate__proof-meta">
+                  {getSiteStyleLabel(state.recipe.stylePreset)}
+                  {' '}
+                  ·
+                  {' '}
+                  {SITE_PALETTE_BY_ID[state.recipe.palettePreset].label}
+                  {selectedServices > 0 ? ` · ${selectedServices} ${selectedServices === 1 ? 'service' : 'services'}` : ''}
+                </p>
               </div>
               <ul className="onboarding-gate__benefits" aria-label="Account benefits" data-entrance="4">
-                <li><ShieldCheck aria-hidden="true" size={19} />Fully secure</li>
-                <li><Cloud aria-hidden="true" size={19} />Save anytime</li>
-                <li><Smartphone aria-hidden="true" size={19} />Access anywhere</li>
-                <li><LockKeyhole aria-hidden="true" size={19} />Free to create</li>
+                <li>
+                  <ShieldCheck aria-hidden="true" size={19} />
+                  Fully secure
+                </li>
+                <li>
+                  <Cloud aria-hidden="true" size={19} />
+                  Save anytime
+                </li>
+                <li>
+                  <Smartphone aria-hidden="true" size={19} />
+                  Access anywhere
+                </li>
+                <li>
+                  <LockKeyhole aria-hidden="true" size={19} />
+                  Free to create
+                </li>
               </ul>
               <div className="onboarding-gate__account-heading">
                 <h2>Create your free account</h2>

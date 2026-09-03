@@ -41,8 +41,7 @@ body:has(.onboarding-integration-owner.is-account) {
 }
 
 .onboarding-gate__glow {
-  background:
-    radial-gradient(ellipse 90% 46% at 50% -8%, rgb(143 49 85 / 42%), transparent 70%),
+  background: radial-gradient(ellipse 90% 46% at 50% -8%, rgb(143 49 85 / 42%), transparent 70%),
     radial-gradient(ellipse 70% 40% at 84% 108%, rgb(112 33 63 / 30%), transparent 72%),
     linear-gradient(180deg, var(--gate-ground) 0%, var(--gate-ground-deep) 100%);
   inset: 0;
@@ -128,8 +127,8 @@ body:has(.onboarding-integration-owner.is-account) {
   height: clamp(120px, 18vh, 176px);
   margin-bottom: 10px;
   overflow: hidden;
-  pointer-events: none;
   position: relative;
+  touch-action: pan-y;
   width: min(100%, 300px);
 }
 
@@ -147,6 +146,14 @@ body:has(.onboarding-integration-owner.is-account) {
   font-size: 0.95rem;
   gap: 7px;
   margin: 0;
+}
+
+.onboarding-gate__preview-hint {
+  margin: -2px 0 2px;
+  color: var(--gate-muted);
+  font-size: 0.72rem;
+  font-weight: 720;
+  letter-spacing: 0.02em;
 }
 
 .onboarding-gate__proof-line svg {
@@ -552,8 +559,7 @@ body:has(.onboarding-integration-owner.is-account) {
 }
 
 .onboarding-gate__glow {
-  background:
-    radial-gradient(ellipse 70% 30% at 12% 4%, rgb(244 220 229 / 70%), transparent 72%),
+  background: radial-gradient(ellipse 70% 30% at 12% 4%, rgb(244 220 229 / 70%), transparent 72%),
     linear-gradient(180deg, #fffdfb 0%, var(--gate-ground) 100%);
 }
 

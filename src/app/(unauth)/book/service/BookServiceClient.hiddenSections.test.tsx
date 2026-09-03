@@ -63,6 +63,7 @@ const BASE_BOOKING_EXPERIENCE: BookingExperience = {
 
 const QUICK_BOOK_BOOKING_PAGE_SIDE: BookingPageConfigSide = {
   layout: 'quick_book',
+  serviceMenuLayout: 'visual_grid',
   stylePack: 'default',
   tokenOverrides: null,
   sectionOrder: ['salonProfile', 'serviceMenu', 'featuredServices', 'policies', 'socialLinks', 'bookingCta'],

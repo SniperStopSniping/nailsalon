@@ -61,6 +61,7 @@ import {
   OnboardingIntegrationRequestError,
   saveOnboardingPlanIntent,
 } from './client';
+import { continuationTargetForSavedSite } from './continuation-target';
 import type {
   OnboardingClaimConflict,
   OnboardingClaimSuccess,
@@ -424,12 +425,14 @@ function OnboardingIntegrationController({
         currentPayload.document,
         existingCustomMediaByLogicalId,
       );
+      const resolvedTarget = target
+        ?? continuationTargetForSavedSite(latestFlowRef.current.savedSite);
       const result = await claimOnboardingDraft({
         anonymousDraftToken: currentPayload.state.anonymousDraftId,
         idempotencyKey,
         media: persisted.media,
         snapshot: persisted.snapshot,
-        ...(target ? { target } : {}),
+        ...(resolvedTarget ? { target: resolvedTarget } : {}),
       });
       if (result.status === 'conflict') {
         setConflict(result.conflict);
@@ -667,7 +670,13 @@ function OnboardingIntegrationController({
 
   const continueAfterEarlySave = useCallback(() => {
     const loaded = loadOnboardingState();
-    const nextState = goToScreen(loaded.state, 'booking_preferences');
+    const nextState = {
+      ...goToScreen(loaded.state, 'booking_preferences'),
+      // The first token is permanently bound to the exact early-save
+      // fingerprint. A fresh opaque token creates the next revision of the
+      // same server-owned draft after Services, About, layouts and Policies.
+      anonymousDraftId: createAnonymousDraftId(),
+    };
     const saved = saveOnboardingState(nextState);
     if (saved.success && payloadRef.current) {
       const nextPayload = { ...payloadRef.current, state: saved.state };
@@ -879,6 +888,7 @@ function OnboardingIntegrationController({
         <OnboardingApp
           forceReview={forceReview}
           integration={{
+            hasSavedSite: flow.savedSite !== null,
             onSaveSite: startSave,
             onStartOver: () => {
               clearOnboardingIntegrationBrowserState();

@@ -1,4 +1,4 @@
-import { clerkClient, currentUser } from '@clerk/nextjs/server';
+import { auth, clerkClient } from '@clerk/nextjs/server';
 import { z } from 'zod';
 
 import { requireOnboardingV1IntegrationEnabled } from '@/features/onboarding-v1-integration/config.server';
@@ -27,18 +27,19 @@ const FALLBACK_ORGANIZATION_NAME = 'My nail studio';
 export async function POST(request: Request): Promise<Response> {
   try {
     requireOnboardingV1IntegrationEnabled();
-    const user = await currentUser({ treatPendingAsSignedOut: false });
-    if (!user) {
+    const { userId } = await auth();
+    if (!userId) {
       throw new OnboardingPersistenceError(
         'UNAUTHENTICATED',
         'Sign in to save your Luster site.',
         401,
       );
     }
+    const client = await clerkClient();
+    const user = await client.users.getUser(userId);
     const input = organizationRequestSchema.parse(
       await request.json().catch(() => ({})),
     );
-    const client = await clerkClient();
     const memberships = await client.users.getOrganizationMembershipList({
       limit: 20,
       userId: user.id,

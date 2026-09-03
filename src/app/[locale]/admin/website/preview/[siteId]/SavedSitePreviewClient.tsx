@@ -1,6 +1,6 @@
 'use client';
 
-import { ArrowLeft, Monitor, MonitorSmartphone, Settings2, Smartphone, Tablet } from 'lucide-react';
+import { ArrowLeft, CalendarCheck, Monitor, MonitorSmartphone, Settings2, Smartphone, Tablet } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 
 import {
@@ -49,6 +49,7 @@ export function SavedSitePreviewClient({
 }) {
   const [device, setDevice] = useState<OnboardingPreviewDevice>('phone');
   const [canChangeSetup, setCanChangeSetup] = useState(false);
+  const bookingPageUrl = `/${locale}/admin/booking-page?salon=${encodeURIComponent(salonSlug)}`;
   useEffect(() => {
     setCanChangeSetup(setupAvailable && canResumeVerifiedOnboardingSetup({
       siteId,
@@ -143,6 +144,13 @@ export function SavedSitePreviewClient({
               <div className="saved-site-preview-content px-3 pb-[calc(env(safe-area-inset-bottom,0px)+2rem)] sm:px-6">
                 {preview}
                 <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:justify-end">
+                  <a
+                    className="inline-flex min-h-11 items-center justify-center gap-2 rounded-full border border-[var(--owner-line-strong)] bg-white px-5 text-sm font-semibold text-[var(--owner-ink)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)]"
+                    href={bookingPageUrl}
+                  >
+                    <CalendarCheck aria-hidden="true" size={18} />
+                    Manage &amp; publish Booking Page
+                  </a>
                   {canChangeSetup
                     ? (
                         <a

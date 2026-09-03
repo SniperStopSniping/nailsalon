@@ -170,6 +170,54 @@
     overflow-x: hidden;
   }
 
+  /*
+   * Free customer-site presentation selected during onboarding. This is
+   * deliberately scoped to the public booking viewport: owner/dashboard
+   * colours never inherit a customer's style or palette. Legacy salons have
+   * no data attribute and retain their existing tenant theme unchanged.
+   */
+  .service-page-viewport[data-customer-site-style] {
+    color: var(--customer-site-ink);
+    font-family: var(--customer-site-body-font);
+  }
+
+  .service-page-viewport[data-customer-site-style] :where(h1, h2, h3) {
+    color: var(--customer-site-ink);
+    font-family: var(--customer-site-heading-font);
+  }
+
+  .service-page-viewport[data-customer-site-style] :where(.text-neutral-950, .text-neutral-900, .text-neutral-800) {
+    color: var(--customer-site-ink);
+  }
+
+  .service-page-viewport[data-customer-site-style]
+    :where(.text-neutral-700, .text-neutral-600, .text-neutral-500, .text-neutral-400) {
+    color: var(--customer-site-muted);
+  }
+
+  .service-page-viewport[data-customer-site-style] :where(.bg-white) {
+    background-color: var(--theme-card-background);
+  }
+
+  .service-page-viewport[data-customer-site-style] :where(.bg-neutral-50, .bg-neutral-100) {
+    background-color: var(--theme-surface-alt);
+  }
+
+  .service-page-viewport[data-customer-site-style]
+    :where(.border-neutral-100, .border-neutral-200, .border-neutral-300) {
+    border-color: var(--theme-card-border);
+  }
+
+  .service-page-viewport[data-customer-site-style] [data-testid='quick-book-profile'],
+  .service-page-viewport[data-customer-site-style] button[data-testid^='service-card-'] {
+    border-radius: var(--customer-site-card-radius);
+  }
+
+  .service-page-viewport[data-customer-site-style]
+    :where([data-testid='service-continue-button'], [data-testid='editorial-hero-book-cta']) {
+    border-radius: var(--customer-site-button-radius);
+  }
+
   @supports (min-height: 100dvh) {
     .service-page-viewport {
       min-height: 100dvh;

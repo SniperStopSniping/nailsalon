@@ -49,6 +49,7 @@ import {
   getBookingPagePresentationSignature,
   resolveBookingPagePresetRecipe,
 } from './bookingPagePresetRecipes';
+import { QUICK_BOOK_SITE_LAYOUTS } from './quickBookSiteLayout';
 /* eslint-enable import/first */
 
 const SALON_ID = 'salon_booking_page_lifecycle';
@@ -164,10 +165,15 @@ async function readStoredSettings(salonId = SALON_ID): Promise<unknown> {
 
 describe('bookingPage draft/publish/revert lifecycle (PGlite)', () => {
   it('updateBookingPageDraft writes only the draft side, leaving live at defaults', async () => {
-    const result = await updateBookingPageDraft(SALON_ID, { businessMode: 'team' });
+    const result = await updateBookingPageDraft(SALON_ID, {
+      businessMode: 'team',
+      serviceMenuLayout: 'clean_list',
+    });
 
     expect(result?.draft.businessMode).toBe('team');
+    expect(result?.draft.serviceMenuLayout).toBe('clean_list');
     expect(result?.live.businessMode).toBe('solo');
+    expect(result?.live.serviceMenuLayout).toBe('visual_grid');
     expect(result?.live).toEqual(BOOKING_PAGE_CONFIG_SIDE_DEFAULTS);
 
     // updateBookingPageDraft only ever writes the `draft` key — `live` is not
@@ -179,9 +185,42 @@ describe('bookingPage draft/publish/revert lifecycle (PGlite)', () => {
     expect(stored).toMatchObject({
       bookingPage: {
         version: 1,
-        draft: { businessMode: 'team' },
+        draft: { businessMode: 'team', serviceMenuLayout: 'clean_list' },
       },
     });
+  });
+
+  it.each(QUICK_BOOK_SITE_LAYOUTS)(
+    'persists and publishes the %s Quick Book profile composition',
+    async (quickBookLayout) => {
+      const updated = await updateBookingPageDraft(SALON_ID, { quickBookLayout });
+
+      expect(updated?.draft.quickBookLayout).toBe(quickBookLayout);
+
+      const published = await publishBookingPageConfig(SALON_ID);
+
+      expect(published?.live.quickBookLayout).toBe(quickBookLayout);
+      expect(published?.draft.quickBookLayout).toBe(quickBookLayout);
+    },
+  );
+
+  it('persists and publishes the free customer-site appearance without using premium fields', async () => {
+    const updated = await updateBookingPageDraft(SALON_ID, {
+      sitePalettePreset: 'black_champagne',
+      siteStylePreset: 'luxury',
+    });
+
+    expect(updated?.draft.sitePalettePreset).toBe('black_champagne');
+    expect(updated?.draft.siteStylePreset).toBe('luxury');
+    expect(updated?.draft.stylePack).toBe('default');
+    expect(updated?.draft.tokenOverrides).toBeNull();
+
+    const published = await publishBookingPageConfig(SALON_ID);
+
+    expect(published?.live.sitePalettePreset).toBe('black_champagne');
+    expect(published?.live.siteStylePreset).toBe('luxury');
+    expect(published?.live.stylePack).toBe('default');
+    expect(published?.live.tokenOverrides).toBeNull();
   });
 
   it('publishBookingPageConfig copies the current draft into live and leaves draft untouched', async () => {

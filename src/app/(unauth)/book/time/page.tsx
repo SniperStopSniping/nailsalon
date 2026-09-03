@@ -297,6 +297,7 @@ export default async function BookTimePage({
           technician={technician}
           technicianSelectionSource={resolvedTechnicianContext.effectiveTechnicianSelectionSource}
           bookingFlow={effectiveBookingFlow}
+          minimumNoticeMinutes={bookingConfig.minimumNoticeMinutes}
           salonTimeZone={bookingConfig.timezone}
         />
       </Suspense>

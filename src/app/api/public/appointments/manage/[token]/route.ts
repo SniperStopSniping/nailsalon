@@ -72,6 +72,7 @@ async function evaluateSmartFitForNewSlot(args: {
   startTime: Date;
   timeZone: string;
   slotIntervalMinutes: number;
+  minLeadTimeMinutes: number;
   googleBusyWindows: GoogleCalendarBusyWindow[];
 }): Promise<SmartFitEvaluation | null> {
   const config = resolveSmartFitConfig((args.salonSettings as SalonSettings | null | undefined) ?? null);
@@ -117,6 +118,7 @@ async function evaluateSmartFitForNewSlot(args: {
     timeZone: args.timeZone,
     slotIntervalMinutes: args.slotIntervalMinutes,
     gridAnchorMs: startOfDay.getTime(),
+    minLeadTimeMinutes: args.minLeadTimeMinutes,
     nowMs: Date.now(),
   });
   if (!day) {
@@ -414,6 +416,7 @@ export async function POST(request: Request, context: { params: { token: string 
         startTime,
         timeZone: bookingConfig.timezone,
         slotIntervalMinutes: bookingConfig.slotIntervalMinutes,
+        minLeadTimeMinutes: bookingConfig.minimumNoticeMinutes,
         googleBusyWindows,
       });
 

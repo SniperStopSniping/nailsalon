@@ -20,7 +20,7 @@ import {
 import { type DatabaseSessionHandle, db } from '@/libs/DB';
 import { hashOpaqueToken } from '@/libs/lusterSecurity';
 import { seedStarterMenuForSalon } from '@/libs/starterMenu';
-import { isReservedSalonSlug, isValidSalonSlug } from '@/libs/tenantSlug';
+import { isReservedSalonSlug, isValidSalonSlug, normalizeSalonSlug } from '@/libs/tenantSlug';
 import {
   addOnSchema,
   adminSalonMembershipSchema,
@@ -359,6 +359,9 @@ async function syncSharedSalonProfileContent(input: {
   const rawBookingExperience = isRecord(currentSettings.bookingExperience)
     ? currentSettings.bookingExperience
     : {};
+  const rawBooking = isRecord(currentSettings.booking)
+    ? currentSettings.booking
+    : {};
   const rawPolicy = isRecord(rawBookingExperience.policy)
     ? rawBookingExperience.policy
     : {};
@@ -385,6 +388,11 @@ async function syncSharedSalonProfileContent(input: {
   await database.update(salonSchema).set({
     settings: {
       ...currentSettings,
+      booking: {
+        ...rawBooking,
+        minimumNoticeMinutes: snapshot.profile.bookingPreferences.minimumNoticeMinutes,
+        timezone: snapshot.profile.timeZone,
+      },
       bookingExperience: {
         ...rawBookingExperience,
         ...candidate,
@@ -398,6 +406,7 @@ async function syncSharedSalonProfileContent(input: {
       sharedProfile: {
         ...retainedSharedProfile,
         bookingOnlyContact: snapshot.profile.bookingOnlyContact,
+        businessType: snapshot.profile.businessType,
         callEnabled: snapshot.profile.clientContact.callEnabled,
         entranceInstructions: snapshot.profile.location.entranceInstructions.trim() || null,
         textEnabled: snapshot.profile.clientContact.textEnabled,
@@ -436,10 +445,22 @@ async function syncQuickBookProfilePresentationDraft(input: {
   snapshot: OnboardingPersistedSnapshot;
 }): Promise<void> {
   const { database, salonId, snapshot } = input;
+  const bookingSection = snapshot.site.builderDocument?.pages
+    .flatMap(page => page.sections)
+    .find(section => section.sectionType === 'booking');
+  const serviceMenuLayout = bookingSection?.sectionType === 'booking'
+    ? bookingSection.settings.layout
+    : null;
   await updateBookingPageDraftInTransaction(
     database as BookingPageConfigTransaction,
     salonId,
-    { quickBookProfile: snapshot.site.quickBookProfile },
+    {
+      quickBookLayout: snapshot.site.quickBookLayout,
+      quickBookProfile: snapshot.site.quickBookProfile,
+      sitePalettePreset: snapshot.site.palettePresetId,
+      siteStylePreset: snapshot.site.stylePresetId,
+      ...(serviceMenuLayout ? { serviceMenuLayout } : {}),
+    },
   );
   await updateBookingPageContentDraftInTransaction(
     database as BookingPageContentTransaction,
@@ -483,6 +504,38 @@ async function uniqueSalonSlug(
   }
   const suffix = salonId.replace(/-/g, '').slice(0, 8).toLowerCase();
   return `${base.slice(0, 38)}-${suffix}`;
+}
+
+async function salonSlugForSnapshot(
+  database: QueryDatabase,
+  snapshot: OnboardingPersistedSnapshot,
+  salonId: string,
+): Promise<string> {
+  if (!snapshot.profile.siteSlugCustomized) {
+    return uniqueSalonSlug(database, snapshot.profile.businessName, salonId);
+  }
+
+  const requestedSlug = normalizeSalonSlug(snapshot.profile.siteSlug);
+  if (!requestedSlug || !isValidSalonSlug(requestedSlug)) {
+    throw new OnboardingPersistenceError(
+      'SITE_SLUG_INVALID',
+      'Choose a valid Luster URL before saving your site.',
+      400,
+    );
+  }
+  const [existing] = await database
+    .select({ id: salonSchema.id })
+    .from(salonSchema)
+    .where(eq(salonSchema.slug, requestedSlug))
+    .limit(1);
+  if (existing) {
+    throw new OnboardingPersistenceError(
+      'SITE_SLUG_UNAVAILABLE',
+      'That Luster URL is no longer available. Choose another URL and try again.',
+      409,
+    );
+  }
+  return requestedSlug;
 }
 
 async function resolveIdentityAdmin(
@@ -633,7 +686,7 @@ async function createBusiness(
   snapshot: OnboardingPersistedSnapshot,
 ): Promise<{ salonId: string; salonSlug: string; technicianId: string }> {
   const salonId = crypto.randomUUID();
-  const salonSlug = await uniqueSalonSlug(database, snapshot.profile.businessName, salonId);
+  const salonSlug = await salonSlugForSnapshot(database, snapshot, salonId);
   const locationId = crypto.randomUUID();
   const technicianId = crypto.randomUUID();
   const phone = canonicalSalonPhone(snapshot);
@@ -1454,10 +1507,16 @@ async function claimOnboardingDraftUnlocked(
           } satisfies OnboardingClaimConflict,
         };
       }
+      const continuingOnboardingDraft
+        = target.existingSiteStrategy === 'continue_onboarding_draft';
       if (
-        target.existingSiteStrategy === 'replace_draft'
+        (
+          continuingOnboardingDraft
+          || target.existingSiteStrategy === 'replace_draft'
+        )
         && (
-          currentSite?.id !== target.expectedSiteId
+          (continuingOnboardingDraft && currentSite?.status !== 'draft')
+          || currentSite?.id !== target.expectedSiteId
           || currentSite?.currentRevision !== target.expectedRevision
         )
       ) {
@@ -1467,8 +1526,44 @@ async function claimOnboardingDraftUnlocked(
           409,
         );
       }
-      preserveExistingProductData = target.existingSiteStrategy === 'new_draft'
-      && (currentSite !== null || membership.publicationStatus === 'published');
+      if (continuingOnboardingDraft) {
+        const [continuationClaim] = await tx.select({
+          claimedByAdminId: onboardingDraftClaimSchema.claimedByAdminId,
+          revisionId: onboardingDraftClaimSchema.revisionId,
+        }).from(onboardingDraftClaimSchema).where(and(
+          eq(onboardingDraftClaimSchema.id, target.continuationClaimId!),
+          eq(onboardingDraftClaimSchema.salonId, salonId),
+          eq(onboardingDraftClaimSchema.siteId, target.expectedSiteId!),
+        )).limit(1);
+        const [continuedRevision] = continuationClaim
+          ? await tx.select({ revision: onboardingSiteRevisionSchema.revision })
+            .from(onboardingSiteRevisionSchema)
+            .where(and(
+              eq(onboardingSiteRevisionSchema.id, continuationClaim.revisionId),
+              eq(onboardingSiteRevisionSchema.salonId, salonId),
+              eq(onboardingSiteRevisionSchema.siteId, target.expectedSiteId!),
+            ))
+            .limit(1)
+          : [];
+        if (
+          !existingAdmin
+          || continuationClaim?.claimedByAdminId !== existingAdmin.id
+          || continuedRevision?.revision !== target.expectedRevision
+        ) {
+          throw new OnboardingPersistenceError(
+            'SITE_REVISION_CONFLICT',
+            'That website changed after you opened it. Reload the current draft before replacing it.',
+            409,
+          );
+        }
+      }
+      preserveExistingProductData = (
+        target.existingSiteStrategy === 'new_draft'
+        && (currentSite !== null || membership.publicationStatus === 'published')
+      ) || (
+        continuingOnboardingDraft
+        && membership.publicationStatus === 'published'
+      );
       admin = await ensureIdentityAdmin(tx as QueryDatabase, identity, input.snapshot);
       if (!preserveExistingProductData) {
         technicianId = await syncExistingBusinessProfile({
@@ -1527,7 +1622,10 @@ async function claimOnboardingDraftUnlocked(
     });
 
     const replaceTarget = target?.mode === 'existing_business'
-      && target.existingSiteStrategy === 'replace_draft'
+      && (
+        target.existingSiteStrategy === 'continue_onboarding_draft'
+        || target.existingSiteStrategy === 'replace_draft'
+      )
       ? target
       : null;
     const replacing = Boolean(replaceTarget && currentSite?.status === 'draft');
@@ -1567,7 +1665,7 @@ async function claimOnboardingDraftUnlocked(
       const [updatedSite] = await tx.update(onboardingSiteSchema).set({
         currentRevision: revision,
         palettePresetId: input.snapshot.site.palettePresetId,
-        serviceMenuApplied: true,
+        serviceMenuApplied: !preserveExistingProductData,
         stylePresetId: input.snapshot.site.stylePresetId,
         updatedAt: new Date(),
       }).where(and(

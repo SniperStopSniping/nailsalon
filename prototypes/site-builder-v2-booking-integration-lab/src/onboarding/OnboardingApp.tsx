@@ -79,6 +79,7 @@ import {
   StartingPreviewScreen,
 } from './screens/BookingScreens';
 import { BrandBasicsScreen } from './screens/BasicsScreens';
+import { BookingLayoutScreen } from './screens/BookingLayoutScreen';
 import { HoursScreen } from './screens/HoursScreen';
 import { LocationContactScreen } from './screens/LocationContactScreen';
 import { SaveProgressScreen } from './screens/SaveProgressScreen';
@@ -93,6 +94,7 @@ type PreviewSource =
   | 'starting_preview'
   | 'about'
   | 'about_design'
+  | 'booking_layout'
   | 'site_style'
   | 'final_preview';
 
@@ -116,7 +118,7 @@ const isOnboardingBrowserHistoryState = (
   const validOverlay = candidate.overlay === undefined
     || candidate.overlay?.kind === 'plan'
     || (candidate.overlay?.kind === 'preview'
-      && ['starting_preview', 'about', 'about_design', 'site_style', 'final_preview']
+      && ['starting_preview', 'about', 'about_design', 'booking_layout', 'site_style', 'final_preview']
         .includes(candidate.overlay.source));
   return candidate.lusterOnboarding === true
     && typeof candidate.onboardingCursor === 'number'
@@ -130,6 +132,7 @@ type OnboardingAppProps = {
   forceReview?: boolean;
   lab: LabDocumentController;
   integration?: {
+    hasSavedSite?: boolean;
     onSaveSite: (payload: OnboardingSavePayload) => void;
     onStartOver?: () => void;
   };
@@ -1305,6 +1308,7 @@ export function OnboardingApp({
   };
 
   const renderScreen = (): ReactNode => {
+    const finalSiteAlreadySaved = integration?.hasSavedSite === true;
     switch (screen) {
       case 'business':
         return (
@@ -1441,6 +1445,26 @@ export function OnboardingApp({
             state={onboarding.state}
           />
         );
+      case 'booking_layout':
+        return (
+          <BookingLayoutScreen
+            document={acceptedBuilderDocument}
+            onBack={goBack}
+            onChange={(sectionId, settings) => {
+              const result = lab.runCommand({
+                sectionId,
+                settings,
+                type: 'update_booking_presentation',
+              });
+              if (!result.success) {
+                setError(result.message);
+              }
+            }}
+            onContinue={onboarding.continueFlow}
+            onFullPreview={() => openPreview('booking_layout')}
+            state={onboarding.state}
+          />
+        );
       case 'site_style':
         return (
           <SiteStyleScreen
@@ -1463,10 +1487,21 @@ export function OnboardingApp({
         if (integration && acceptedBuilderDocument) {
           return (
             <AccountGateBridge
-              onOpen={() => integration.onSaveSite({
-                document: structuredClone(acceptedBuilderDocument),
-                state: structuredClone(onboarding.state),
-              })}
+              onOpen={() => {
+                // Opening the account gate replaces this onboarding tree. Flush
+                // the current draft before that unmount so Clerk redirects,
+                // development-browser handshakes, and ordinary reloads can all
+                // reconstruct the exact site the owner just previewed.
+                const saved = onboarding.saveNow();
+                if (!saved.success) {
+                  setError(saved.message);
+                  return;
+                }
+                integration.onSaveSite({
+                  document: structuredClone(acceptedBuilderDocument),
+                  state: structuredClone(saved.state),
+                });
+              }}
             />
           );
         }
@@ -1505,9 +1540,13 @@ export function OnboardingApp({
             }}
             onOpenBuilder={openBuilder}
             onOpenPreview={() => openPreview('final_preview')}
-            primaryActionLabel={integration ? 'Save my site' : undefined}
+            primaryActionLabel={integration
+              ? finalSiteAlreadySaved ? 'Finish setup' : 'Save my site'
+              : undefined}
             primarySupportingCopy={integration
-              ? 'Your website is ready. Save it to your Luster account before choosing how you want to start.'
+              ? finalSiteAlreadySaved
+                ? 'Review the site your clients will see. Finish setup to save these final choices and choose how you want to start.'
+                : 'Your website is ready. Save it to your Luster account before choosing how you want to start.'
               : undefined}
             state={onboarding.state}
           />

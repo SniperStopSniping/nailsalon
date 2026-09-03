@@ -165,27 +165,20 @@ describe('§15 — isRequestBookableLeadTime (the preserved 120-minute edge)', (
   });
 });
 
-describe('§15 — MIN_LEAD_TIME_MINUTES structural parity with the platform constant', () => {
-  // The platform redeclares `const MIN_LEAD_TIME_MINUTES = 120` locally in
-  // three places rather than exporting one shared constant (pre-existing —
-  // not something this PR may refactor, see "no broad refactor"). This test
-  // pins REQUEST_APPROVAL_MIN_LEAD_TIME_MINUTES equal to each of them so a
-  // future change to one without the others fails here instead of silently
-  // diverging.
-  const SITES = [
+describe('§15 — minimum-notice structural parity with the platform fallback', () => {
+  it.each([
     'src/app/api/appointments/route.ts',
     'src/app/api/appointments/availability/route.ts',
-    'src/app/(unauth)/change-appointment/ChangeAppointmentContent.tsx',
-  ];
-
-  it('the pattern is actually detectable (non-vacuous)', () => {
-    expect(/const MIN_LEAD_TIME_MINUTES = 120;/.test('const MIN_LEAD_TIME_MINUTES = 120;')).toBe(true);
-  });
-
-  it.each(SITES)('%s still declares MIN_LEAD_TIME_MINUTES = 120', (relativePath) => {
+  ])('%s consumes the salon booking configuration', (relativePath) => {
     const source = readFileSync(path.join(process.cwd(), relativePath), 'utf8');
 
-    expect(source).toMatch(/const MIN_LEAD_TIME_MINUTES = 120;/);
+    expect(source).toContain('bookingConfig.minimumNoticeMinutes');
+  });
+
+  it('keeps the established 120-minute fallback for legacy salon settings', () => {
+    const source = readFileSync(path.join(process.cwd(), 'src/libs/bookingConfig.ts'), 'utf8');
+
+    expect(source).toMatch(/minimumNoticeMinutes:\s*120/);
   });
 
   it('REQUEST_APPROVAL_MIN_LEAD_TIME_MINUTES equals the platform value', () => {

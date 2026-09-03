@@ -68,6 +68,17 @@ describe('OnboardingWorkspaceHandoff', () => {
       'href',
       '/en/onboarding-v1?resume=review&site=site_1&revision=4',
     );
+
+    const bookingPageLinks = screen.getAllByRole('link', {
+      name: /Manage & publish Booking Page/i,
+    });
+
+    expect(bookingPageLinks).toHaveLength(2);
+
+    bookingPageLinks.forEach((link) => {
+      expect(link).toHaveAttribute('href', '/en/admin/booking-page?salon=isla');
+    });
+
     expect(screen.getByText('Website created')).toBeInTheDocument();
     expect(screen.getByText('Booking page ready')).toBeInTheDocument();
     expect(screen.getByText('Services added')).toBeInTheDocument();
@@ -82,7 +93,7 @@ describe('OnboardingWorkspaceHandoff', () => {
     expect(onTakeTour).toHaveBeenCalledTimes(1);
   });
 
-  it('omits the unsafe setup/editor fallback when Booking is not ready', async () => {
+  it('keeps real Booking Page management available while omitting the unsafe setup fallback', async () => {
     resume.allowed = false;
     fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({
       data: {
@@ -101,6 +112,17 @@ describe('OnboardingWorkspaceHandoff', () => {
 
     expect(await screen.findByRole('link', { name: /Preview website/i })).toBeInTheDocument();
     expect(screen.queryByRole('link', { name: /Change website setup/i })).not.toBeInTheDocument();
+
+    const bookingPageLinks = screen.getAllByRole('link', {
+      name: /Manage & publish Booking Page/i,
+    });
+
+    expect(bookingPageLinks).toHaveLength(2);
+
+    bookingPageLinks.forEach((link) => {
+      expect(link).toHaveAttribute('href', '/en/admin/booking-page?salon=isla');
+    });
+
     expect(screen.queryByRole('link', { name: /Booking page ready/i })).not.toBeInTheDocument();
   });
 
