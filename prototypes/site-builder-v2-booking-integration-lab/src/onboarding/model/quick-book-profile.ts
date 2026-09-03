@@ -3,7 +3,6 @@ import type { ReviewRecord } from '../../model/section-library/site-content';
 import { labelForVisitMode } from '../preview/customer-facts';
 import { getClientTextNumber, resolveInstagramUsername } from './contact';
 import {
-  formatHoursInterval,
   getPublicWeeklyHours,
   getWeeklyHoursPreviewStatus,
 } from './hours';
@@ -206,8 +205,12 @@ export const resolveQuickBookProfile = (input: {
     previewTimestamp,
     profile.timeZone,
   );
-  const phone = visibility.showPhone ? resolvePhone(profile) : null;
-  const email = visibility.showEmail ? resolveEmail(profile) : null;
+  // Location, contact, and hours visibility are canonical profile decisions
+  // made on Screens 3 and 4. Quick Book consumes those decisions; it must not
+  // require a second set of template toggles before the same saved facts can
+  // appear in progressive previews.
+  const phone = resolvePhone(profile);
+  const email = resolveEmail(profile);
   const visibleReviews = visibility.showReviews
     ? verifiedReviews.filter(review => review.visible)
     : [];
@@ -218,7 +221,6 @@ export const resolveQuickBookProfile = (input: {
     ? ratedReviews.reduce((total, review) => total + review.rating, 0) / ratedReviews.length
     : null;
   const todayHours = hoursStatus ? profile.hours.days[hoursStatus.weekday] : null;
-  const isScheduledToday = Boolean(todayHours && !todayHours.closed && todayHours.open && todayHours.close);
   const profilePhotoId = profile.profilePhoto?.storageId ?? profile.profilePhoto?.id ?? null;
   const logoId = profile.logo?.storageId ?? profile.logo?.id ?? null;
   const hasDistinctProfilePhoto = Boolean(
@@ -232,19 +234,19 @@ export const resolveQuickBookProfile = (input: {
     contacts: [phone, email].filter(
       (contact): contact is QuickBookProfileContact => contact !== null,
     ),
-    hours: visibility.showHours && hoursStatus && todayHours
+    hours: hoursStatus && todayHours
       ? {
-          detail: isScheduledToday ? formatHoursInterval(todayHours) : hoursStatus.label,
+          detail: hoursStatus.kind === 'open'
+            ? hoursStatus.label.replace(/^Open until /u, 'Until ')
+            : hoursStatus.label,
           label: hoursStatus.kind === 'open'
-            ? 'Open today'
-            : todayHours.closed
-              ? 'Closed today'
-              : 'Closed now',
+            ? 'Open now'
+            : 'Closed',
           weekly: getPublicWeeklyHours(profile.hours),
         }
       : null,
-    instagram: visibility.showInstagram ? resolveInstagram(profile) : null,
-    location: visibility.showLocation && publicLocation.primary
+    instagram: profile.about.visibility.instagram ? resolveInstagram(profile) : null,
+    location: publicLocation.primary
       ? {
           detail: publicLocation.detail,
           directions: getPublicDirectionsAction(profile.location),
@@ -272,9 +274,9 @@ export const resolveQuickBookProfile = (input: {
           ratedCount: ratedReviews.length,
         }
       : null,
-    techName: visibility.showTechName && profile.ownerName.trim()
+    techName: profile.about.visibility.owner_name && profile.ownerName.trim()
       ? profile.ownerName.trim()
       : null,
-    techPhotoVisible: visibility.showTechPhoto && hasDistinctProfilePhoto,
+    techPhotoVisible: profile.about.visibility.profile_photo && hasDistinctProfilePhoto,
   };
 };

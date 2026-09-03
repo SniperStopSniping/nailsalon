@@ -278,10 +278,11 @@ export type SitePalettePresetId =
 export type StarterId = 'quick_book' | 'one_page' | 'multi_page';
 
 /**
- * Quick Book-specific presentation choices. The values decide whether one
- * shared salon-profile field may be rendered by Quick Book; the underlying
- * business, staff, contact, policy, and social content remains canonical in
- * `BusinessProfileDraft`.
+ * Quick Book-specific presentation choices retained for draft compatibility.
+ * Identity, location, contact, and hours now resolve from their canonical
+ * shared-profile visibility/privacy fields. The remaining flags only control
+ * genuinely Quick Book-specific optional presentations such as the compact
+ * bio, policy action, and connected reviews.
  */
 export type QuickBookProfileVisibilityDraft = {
   showBio: boolean;

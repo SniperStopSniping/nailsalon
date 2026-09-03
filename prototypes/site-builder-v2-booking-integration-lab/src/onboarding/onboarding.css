@@ -2936,6 +2936,16 @@ body.onboarding-modal-open {
   container: onboarding-preview / inline-size;
 }
 
+.onboarding-preview-stage[data-preview-interaction="scrollable"] .onboarding-preview-frame {
+  overscroll-behavior-y: auto;
+  touch-action: pan-y;
+  -webkit-overflow-scrolling: touch;
+}
+
+.onboarding-preview-stage[data-preview-interaction="scrollable"] .onboarding-site-preview {
+  pointer-events: none;
+}
+
 /*
  * Booking dialogs live beside the scrolling customer document so their
  * backdrop and sheet stay attached to the simulated viewport, not to the

@@ -112,7 +112,7 @@ const REVIEWS: ReviewRecord[] = [
 ];
 
 describe('resolveQuickBookProfile', () => {
-  it('keeps a data-rich shared salon profile minimal when every Quick Book option is off', () => {
+  it('uses canonical public settings even when deprecated duplicated Quick Book gates are off', () => {
     const view = resolveQuickBookProfile({
       previewTimestamp: MONDAY_AT_NOON_IN_TORONTO,
       profile: createFullProfile(),
@@ -132,17 +132,40 @@ describe('resolveQuickBookProfile', () => {
       },
     });
 
-    expect(view).toEqual({
+    expect(view).toMatchObject({
       bio: null,
-      contacts: [],
-      hours: null,
-      instagram: null,
-      location: null,
       policies: [],
       reviews: null,
-      techName: null,
-      techPhotoVisible: false,
+      techName: 'Daniela',
+      techPhotoVisible: true,
     });
+    expect(view.contacts).toHaveLength(2);
+    expect(view.hours?.label).toBe('Open now');
+    expect(view.instagram?.label).toBe('@isla.nails');
+    expect(view.location?.primary).toBe('880 Ellesmere Rd, Unit 2');
+  });
+
+  it('removes canonically hidden identity and hours without deleting their saved values', () => {
+    const profile = createFullProfile();
+    profile.about.visibility.instagram = false;
+    profile.about.visibility.owner_name = false;
+    profile.about.visibility.profile_photo = false;
+    profile.hours.showOnSite = false;
+    const savedPhoto = profile.profilePhoto;
+    const savedHours = structuredClone(profile.hours.days);
+
+    const view = resolveQuickBookProfile({
+      previewTimestamp: MONDAY_AT_NOON_IN_TORONTO,
+      profile,
+      visibility: FULL_VISIBILITY,
+    });
+
+    expect(view.hours).toBeNull();
+    expect(view.instagram).toBeNull();
+    expect(view.techName).toBeNull();
+    expect(view.techPhotoVisible).toBe(false);
+    expect(profile.profilePhoto).toEqual(savedPhoto);
+    expect(profile.hours.days).toEqual(savedHours);
   });
 
   it('builds the full compact profile only from enabled canonical data and real visible reviews', () => {
@@ -169,8 +192,8 @@ describe('resolveQuickBookProfile', () => {
       target: '_blank',
     });
     expect(view.hours).toMatchObject({
-      detail: '10:00 AM–9:30 PM',
-      label: 'Open today',
+      detail: 'Until 9:30 PM',
+      label: 'Open now',
     });
     expect(view.hours?.weekly).toHaveLength(7);
     expect(view.contacts).toEqual([
