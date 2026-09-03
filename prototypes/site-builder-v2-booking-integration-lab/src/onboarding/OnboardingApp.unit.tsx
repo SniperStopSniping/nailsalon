@@ -962,23 +962,19 @@ describe('OnboardingApp handoff boundaries', () => {
       state.recipe.styleConfirmed = false;
       renderAtWithFeedback(state);
 
-      fireEvent.click(screen.getByRole('button', { name: /^Use /u }));
+      fireEvent.click(screen.getByRole('button', { name: 'Use this look' }));
 
-      expect(screen.getByRole('heading', { name: 'Add something extra' })).toBeVisible();
+      expect(screen.getByRole('heading', { name: /Your site is coming together/u })).toBeVisible();
       // The design-stage toast survives the coinciding navigation, then hands
       // off to the everything-ready milestone before the visuals go quiet.
       expect(document.querySelector('.onboarding-feedback')).toHaveTextContent(
         'Your website design is set',
       );
       act(() => vi.advanceTimersByTime(2_300));
-      expect(screen.getByText('All required steps complete')).toBeVisible();
       expect(document.querySelector('.onboarding-feedback')).toHaveTextContent(
         'Everything you need is ready',
       );
       act(() => vi.advanceTimersByTime(2_800));
-      expect(document.querySelector('.onboarding-feedback')).toBeNull();
-      fireEvent.click(screen.getByRole('button', { name: 'Continue to review' }));
-      expect(screen.getByRole('heading', { name: 'Review your site' })).toBeVisible();
       expect(document.querySelector('.onboarding-feedback')).toBeNull();
       const saved = parseOnboardingState(
         window.localStorage.getItem(ONBOARDING_STORAGE_KEY) ?? '',

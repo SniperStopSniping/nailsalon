@@ -1,7 +1,7 @@
 import type { DepositDraft } from '../integrations/contracts/booking-preferences';
 import type { ServiceMenuSelectionDraft } from '../integrations/contracts/service-menu';
 
-export const ONBOARDING_SCHEMA_VERSION = 11 as const;
+export const ONBOARDING_SCHEMA_VERSION = 12 as const;
 
 export type OnboardingStage = 'basics' | 'booking' | 'design' | 'review';
 
@@ -24,6 +24,7 @@ export type OnboardingScreenId =
   | 'about_design'
   | 'policies'
   | 'site_style'
+  | 'save_progress'
   | 'extras'
   | 'final_preview';
 

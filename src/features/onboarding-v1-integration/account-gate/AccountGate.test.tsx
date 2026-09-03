@@ -160,7 +160,7 @@ describe('PremiumAccountGate', () => {
   it('still looks intentional when email is the only method', () => {
     renderGate({ providers: { apple: false, email: true, google: false, source: 'fallback' } });
 
-    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Save your site');
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Your site is coming together');
     expect(screen.getAllByRole('button', { name: /^Continue with/u })).toHaveLength(1);
   });
 

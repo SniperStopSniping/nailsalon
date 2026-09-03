@@ -30,11 +30,12 @@ describe('onboarding conditional routing', () => {
       'starting_preview',
       'location_contact',
       'hours',
+      'site_style',
+      'save_progress',
       'booking_preferences',
       'about',
       'about_design',
       'policies',
-      'site_style',
       'extras',
       'final_preview',
     ]);
@@ -132,7 +133,7 @@ describe('onboarding conditional routing', () => {
   it('records optional skips without changing conditional screen ordering', () => {
     let state = goToScreen(createDefaultOnboardingState(), 'policies');
     state = skipOptionalScreen(state, 'policies');
-    expect(state.progress.currentScreen).toBe('site_style');
+    expect(state.progress.currentScreen).toBe('extras');
     expect(state.progress.skippedOptionalItems).toEqual(['policies']);
 
     state = goToScreen(state, 'extras');

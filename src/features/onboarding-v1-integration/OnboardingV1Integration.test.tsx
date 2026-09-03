@@ -161,7 +161,7 @@ describe('OnboardingV1Integration rendered account-save flow', () => {
 
     expect(await screen.findByRole('heading', {
       level: 1,
-      name: 'Save your site. Keep building anywhere.',
+      name: /Your site is coming together/u,
     })).toBeVisible();
     expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1);
     expect(screen.getByRole('button', { name: 'Continue with Apple' })).toBeVisible();
@@ -169,8 +169,8 @@ describe('OnboardingV1Integration rendered account-save flow', () => {
     expect(screen.getByRole('button', { name: 'Continue with email' })).toBeVisible();
     expect(screen.queryByText(/facebook/iu)).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Log in' })).toBeVisible();
-    expect(screen.getByText(/is ready to save/u)).toBeVisible();
-    expect(screen.getByText(/No payment required/u)).toBeVisible();
+    expect(screen.getAllByText('Isla Nail Studio')).not.toHaveLength(0);
+    expect(screen.getAllByText(/No payment required/u)).not.toHaveLength(0);
     expect(mocks.claim).not.toHaveBeenCalled();
   });
 
