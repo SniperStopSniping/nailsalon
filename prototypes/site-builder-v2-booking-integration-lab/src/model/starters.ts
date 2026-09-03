@@ -74,6 +74,11 @@ const STARTER_PAGES: Record<OriginStarter, readonly StarterPageDefinition[]> = {
         previewLabel: 'Nail work',
         sectionType: 'gallery',
       },
+      {
+        label: 'Visit & Contact',
+        previewLabel: 'Visit & Contact',
+        sectionType: 'visit_us',
+      },
     ],
     slug: '',
   }],

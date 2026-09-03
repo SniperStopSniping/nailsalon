@@ -188,4 +188,51 @@ describe('locked V1 customer section renderers', () => {
     expect(within(visit).queryByRole('link', { name: 'Book now' })).not.toBeInTheDocument();
     expect(visit.querySelector('a[href="#booking"]')).toBeNull();
   });
+
+  it('uses only the privacy-safe public location in the Quick Book map', () => {
+    const state = createDemoOnboardingState();
+    state.recipe.starter = 'quick_book';
+    state.profile.location = {
+      ...state.profile.location,
+      addressVisibility: 'after_booking',
+      cityOrArea: 'Toronto',
+      exactAddress: '999 Private Lane, Toronto',
+    };
+
+    const { container } = renderLibrarySection('visit_us', { state });
+    const map = screen.getByTitle('Map showing Toronto');
+
+    expect(map).toHaveAttribute(
+      'src',
+      'https://www.google.com/maps?q=Toronto&output=embed',
+    );
+    expect(container.innerHTML).not.toContain('999 Private Lane');
+  });
+
+  it('includes the exact address in the Quick Book map only when it is public', () => {
+    const state = createDemoOnboardingState();
+    state.recipe.starter = 'quick_book';
+    state.profile.location = {
+      ...state.profile.location,
+      addressVisibility: 'public',
+      cityOrArea: 'Toronto',
+      exactAddress: '880 Ellesmere Rd, Unit 2',
+    };
+
+    renderLibrarySection('visit_us', { state });
+
+    expect(screen.getByTitle('Map showing 880 Ellesmere Rd, Unit 2')).toHaveAttribute(
+      'src',
+      'https://www.google.com/maps?q=880%20Ellesmere%20Rd%2C%20Unit%202&output=embed',
+    );
+  });
+
+  it('does not add the Quick Book map to another website type', () => {
+    const state = createDemoOnboardingState();
+    state.recipe.starter = 'one_page';
+
+    renderLibrarySection('visit_us', { state });
+
+    expect(screen.queryByTitle(/Map showing/iu)).not.toBeInTheDocument();
+  });
 });

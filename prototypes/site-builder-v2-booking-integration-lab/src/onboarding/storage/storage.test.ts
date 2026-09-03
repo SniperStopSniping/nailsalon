@@ -138,6 +138,30 @@ describe('onboarding browser-local storage', () => {
     expect(storage.values.get('unrelated')).toBe('keep me');
   });
 
+  it('round-trips the selected Quick Book layout', () => {
+    const storage = createMemoryStorage();
+    const state = createDefaultOnboardingState();
+    state.recipe.quickBookLayout = 'profile_story';
+
+    expect(saveOnboardingState(state, { storage }).success).toBe(true);
+    const loaded = loadOnboardingState(storage);
+
+    expect(loaded.status).toBe('loaded');
+    expect(loaded.state.recipe.quickBookLayout).toBe('profile_story');
+  });
+
+  it('migrates schema v12 drafts to the compact Quick Book layout', () => {
+    const legacy = createDefaultOnboardingState() as unknown as Record<string, unknown>;
+    legacy.schemaVersion = 12;
+    delete (legacy.recipe as Record<string, unknown>).quickBookLayout;
+
+    const migrated = parseOnboardingState(JSON.stringify(legacy));
+
+    expect(migrated.status).toBe('loaded');
+    expect(migrated.state.recipe.quickBookLayout).toBe('compact_dropdown');
+    expect(migrated.state.schemaVersion).toBe(ONBOARDING_SCHEMA_VERSION);
+  });
+
   it('preserves separate saved cancellation and deposit records for the combined policy', () => {
     const storage = createMemoryStorage();
     const state = createDefaultOnboardingState();

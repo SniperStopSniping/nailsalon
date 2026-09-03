@@ -100,14 +100,14 @@ describe('universal Custom Design section model', () => {
       idFactory: createDeterministicIdFactory('base'),
     });
     const added = addCustomDesign(initial, 'custom');
-    // Quick Book's three core library/booking sections come first; Custom Design is
+    // Quick Book's four core library/booking sections come first; Custom Design is
     // appended, keeping its own settings contract rather than a library one.
-    expect(initial.pages[0]?.sections).toHaveLength(3);
+    expect(initial.pages[0]?.sections).toHaveLength(4);
     expect(added.section).toEqual({
       id: 'section_custom_1',
       sectionType: 'custom_design',
       label: 'Custom Design',
-      order: 3,
+      order: 4,
       visible: true,
       settings: createDefaultCustomDesignSettings(),
     });
@@ -117,6 +117,7 @@ describe('universal Custom Design section model', () => {
         'hero',
         'booking',
         'gallery',
+        'visit_us',
         'custom_design',
       ]);
     expect(validateSiteBuilderDocument(added.document).success).toBe(true);

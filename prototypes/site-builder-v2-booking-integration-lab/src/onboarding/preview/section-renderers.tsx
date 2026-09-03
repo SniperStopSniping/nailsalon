@@ -771,6 +771,13 @@ function VisitUs({ planSection, section, shared }: LibraryPreviewSectionProps) {
   ].filter(Boolean) : [];
   const showBookingOnlyContact = settings.contactSummary !== 'hide'
     && profile.bookingOnlyContact;
+  const quickBookMapLocation = shared.state.recipe.starter === 'quick_book'
+    && ownsLocation
+    ? location.primary.trim()
+    : '';
+  const quickBookMapSrc = quickBookMapLocation
+    ? `https://www.google.com/maps?q=${encodeURIComponent(quickBookMapLocation)}&output=embed`
+    : null;
   if ((!ownsLocation || !location.primary.trim())
     && practicalNotes.length === 0
     && hoursRows.length === 0
@@ -824,6 +831,16 @@ function VisitUs({ planSection, section, shared }: LibraryPreviewSectionProps) {
             </ul>
           ) : null}
         </div>
+        {quickBookMapSrc ? (
+          <div className="customer-lib-visit-map">
+            <iframe
+              loading="lazy"
+              referrerPolicy="no-referrer-when-downgrade"
+              src={quickBookMapSrc}
+              title={`Map showing ${quickBookMapLocation}`}
+            />
+          </div>
+        ) : null}
         {hoursRows.length > 0 ? (
           <div
             {...contentAttributes(shared, 'business_hours', planSection.id)}

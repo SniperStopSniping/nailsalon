@@ -32,6 +32,7 @@ import {
   type OnboardingScreenId,
   type OnboardingSessionStatus,
   type PlanIntent,
+  type QuickBookLayoutId,
   type QuickBookProfileVisibilityDraft,
   type SetupChecklistFixtureStatus,
   type SitePalettePresetId,
@@ -147,6 +148,14 @@ const isOnboardingBusinessType = (
   || value === 'home_based'
   || value === 'mobile'
   || value === 'salon_team';
+
+const isQuickBookLayoutId = (value: unknown): value is QuickBookLayoutId =>
+  value === 'compact_dropdown'
+  || value === 'clean_card'
+  || value === 'editorial'
+  || value === 'hub_menu'
+  || value === 'profile_story'
+  || value === 'ultra_minimal';
 
 const isNullableBoolean = (value: unknown): value is boolean | null =>
   value === null || typeof value === 'boolean';
@@ -476,6 +485,7 @@ const isOnboardingState = (value: unknown): value is OnboardingLabState => {
     && isRecord(value.recipe)
     && isSitePalettePresetId(value.recipe.palettePreset)
     && typeof value.recipe.paletteConfirmed === 'boolean'
+    && isQuickBookLayoutId(value.recipe.quickBookLayout)
     && isQuickBookProfileVisibility(value.recipe.quickBookProfile)
     && isRecord(value.profile.location)
     && typeof value.profile.location.allowGeneralAreaDirections === 'boolean'
@@ -976,6 +986,9 @@ const migrateLegacyOnboardingState = (
       palettePreset: isSitePalettePresetId(value.recipe.palettePreset)
         ? value.recipe.palettePreset
         : defaults.recipe.palettePreset,
+      quickBookLayout: isQuickBookLayoutId(value.recipe.quickBookLayout)
+        ? value.recipe.quickBookLayout
+        : defaults.recipe.quickBookLayout,
       quickBookProfile: migrateQuickBookProfileVisibility(
         value.recipe,
         migratedProfile,
@@ -999,6 +1012,7 @@ const isLegacyOnboardingState = (value: unknown): value is SharedStateShape =>
     || (value.schemaVersion === 9 && isWeeklyHoursDraft(value.profile.hours))
     || (value.schemaVersion === 10 && isWeeklyHoursDraft(value.profile.hours))
     || (value.schemaVersion === 11 && isWeeklyHoursDraft(value.profile.hours))
+    || (value.schemaVersion === 12 && isWeeklyHoursDraft(value.profile.hours))
   );
 
 const defaultStorage = (): OnboardingStorage => {

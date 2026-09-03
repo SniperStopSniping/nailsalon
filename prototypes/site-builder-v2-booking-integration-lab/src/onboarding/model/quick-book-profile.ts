@@ -1,7 +1,7 @@
 import { resolveCustomDesignAction } from '../../custom-design/model/actions';
 import type { ReviewRecord } from '../../model/section-library/site-content';
 import { labelForVisitMode } from '../preview/customer-facts';
-import { getClientTextNumber, resolveInstagramUsername } from './contact';
+import { getPublicContactActions, resolveInstagramUsername } from './contact';
 import {
   getPublicWeeklyHours,
   getWeeklyHoursPreviewStatus,
@@ -24,7 +24,7 @@ export type QuickBookProfileContact = {
   label: string;
   rel?: 'noopener noreferrer';
   target?: '_blank';
-  type: 'email' | 'instagram' | 'phone';
+  type: 'call' | 'email' | 'instagram' | 'text';
 };
 
 export type QuickBookProfilePolicy = {
@@ -67,71 +67,6 @@ const clampBio = (value: string): string => {
     return normalized;
   }
   return `${normalized.slice(0, QUICK_BOOK_SHORT_BIO_MAX_LENGTH - 1).trimEnd()}…`;
-};
-
-const resolvePhone = (
-  profile: BusinessProfileDraft,
-): QuickBookProfileContact | null => {
-  if (profile.bookingOnlyContact) {
-    return null;
-  }
-  const { clientContact } = profile;
-  const primaryNumber = clientContact.primaryNumber.trim();
-  const textNumber = getClientTextNumber(profile);
-  if (clientContact.callEnabled && primaryNumber) {
-    const resolution = resolveCustomDesignAction({
-      destination: { phoneNumber: primaryNumber },
-      type: 'call',
-    });
-    if (resolution.status !== 'resolved') {
-      return null;
-    }
-    return {
-      detail: clientContact.textEnabled && textNumber === primaryNumber
-        ? 'Call or text'
-        : 'Call',
-      href: resolution.href,
-      label: primaryNumber,
-      type: 'phone',
-    };
-  }
-  if (clientContact.textEnabled && textNumber) {
-    const resolution = resolveCustomDesignAction({
-      destination: { phoneNumber: textNumber },
-      type: 'text',
-    });
-    if (resolution.status !== 'resolved') {
-      return null;
-    }
-    return {
-      detail: 'Text',
-      href: resolution.href,
-      label: textNumber,
-      type: 'phone',
-    };
-  }
-  return null;
-};
-
-const resolveEmail = (
-  profile: BusinessProfileDraft,
-): QuickBookProfileContact | null => {
-  if (profile.bookingOnlyContact || !profile.email.trim()) {
-    return null;
-  }
-  const resolution = resolveCustomDesignAction({
-    destination: { email: profile.email.trim() },
-    type: 'email',
-  });
-  if (resolution.status !== 'resolved') {
-    return null;
-  }
-  return {
-    detail: 'Email',
-    href: resolution.href,
-    label: profile.email.trim(),
-    type: 'email',
-  };
 };
 
 const resolveInstagram = (
@@ -209,8 +144,20 @@ export const resolveQuickBookProfile = (input: {
   // made on Screens 3 and 4. Quick Book consumes those decisions; it must not
   // require a second set of template toggles before the same saved facts can
   // appear in progressive previews.
-  const phone = resolvePhone(profile);
-  const email = resolveEmail(profile);
+  const contacts = getPublicContactActions(profile)
+    .filter((action) => action.method === 'call'
+      || action.method === 'email'
+      || action.method === 'text')
+    .map((action): QuickBookProfileContact => ({
+      detail: action.preferred
+        ? `${action.actionLabel} · Preferred`
+        : action.actionLabel,
+      href: action.href,
+      label: action.detail,
+      ...(action.rel ? { rel: action.rel } : {}),
+      ...(action.target ? { target: action.target } : {}),
+      type: action.method as 'call' | 'email' | 'text',
+    }));
   const visibleReviews = visibility.showReviews
     ? verifiedReviews.filter(review => review.visible)
     : [];
@@ -231,9 +178,7 @@ export const resolveQuickBookProfile = (input: {
     bio: visibility.showBio && profile.about.shortBio.trim()
       ? clampBio(profile.about.shortBio)
       : null,
-    contacts: [phone, email].filter(
-      (contact): contact is QuickBookProfileContact => contact !== null,
-    ),
+    contacts,
     hours: hoursStatus && todayHours
       ? {
           detail: hoursStatus.kind === 'open'

@@ -55,6 +55,25 @@ describe('onboarding conditional routing', () => {
     expect(goBack(state).progress.currentScreen).toBe('about');
   });
 
+  it('routes Quick Book through its layout selector when About is off', () => {
+    let state = createDefaultOnboardingState();
+    state.recipe.starter = 'quick_book';
+    state.recipe.aboutEnabled = false;
+    state = goToScreen(state, 'about');
+
+    expect(getNextScreen('about', state)).toBe('about_design');
+    state = goForward(state);
+    expect(state.progress.currentScreen).toBe('about_design');
+
+    state = reconcileConditionalHistory(state);
+    expect(state.progress.currentScreen).toBe('about_design');
+    expect(state.progress.screenHistory).toEqual([
+      'starter',
+      'about',
+      'about_design',
+    ]);
+  });
+
   it('includes About design when enabled and preserves About data when disabled', () => {
     let state = createDefaultOnboardingState();
     state.profile.about.shortBio = 'This content remains stored.';

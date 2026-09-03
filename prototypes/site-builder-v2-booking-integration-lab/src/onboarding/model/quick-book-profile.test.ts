@@ -139,7 +139,7 @@ describe('resolveQuickBookProfile', () => {
       techName: 'Daniela',
       techPhotoVisible: true,
     });
-    expect(view.contacts).toHaveLength(2);
+    expect(view.contacts).toHaveLength(3);
     expect(view.hours?.label).toBe('Open now');
     expect(view.instagram?.label).toBe('@isla.nails');
     expect(view.location?.primary).toBe('880 Ellesmere Rd, Unit 2');
@@ -198,10 +198,16 @@ describe('resolveQuickBookProfile', () => {
     expect(view.hours?.weekly).toHaveLength(7);
     expect(view.contacts).toEqual([
       {
-        detail: 'Call or text',
+        detail: 'Text · Preferred',
+        href: 'sms:6471234567',
+        label: '(647) 123-4567',
+        type: 'text',
+      },
+      {
+        detail: 'Call',
         href: 'tel:6471234567',
         label: '(647) 123-4567',
-        type: 'phone',
+        type: 'call',
       },
       {
         detail: 'Email',
@@ -246,6 +252,34 @@ describe('resolveQuickBookProfile', () => {
       ratedCount: 1,
     });
     expect(JSON.stringify(view)).not.toContain('Hidden reviewer');
+  });
+
+  it('puts the preferred contact first and preserves a distinct text number', () => {
+    const profile = createFullProfile();
+    profile.preferredContact = 'text';
+    profile.clientContact.useDifferentTextNumber = true;
+    profile.clientContact.differentTextNumber = '(416) 555-0199';
+
+    const view = resolveQuickBookProfile({
+      previewTimestamp: MONDAY_AT_NOON_IN_TORONTO,
+      profile,
+      visibility: FULL_VISIBILITY,
+    });
+
+    expect(view.contacts.slice(0, 2)).toEqual([
+      {
+        detail: 'Text · Preferred',
+        href: 'sms:4165550199',
+        label: '(416) 555-0199',
+        type: 'text',
+      },
+      {
+        detail: 'Call',
+        href: 'tel:6471234567',
+        label: '(647) 123-4567',
+        type: 'call',
+      },
+    ]);
   });
 
   it('does not publish a deposit policy that the owner has hidden', () => {

@@ -33,8 +33,44 @@ const publicFacts = (root: ParentNode): string[] => Array.from(
   root.querySelectorAll<HTMLElement>('[data-content-key]'),
 ).map(element => `${element.dataset.contentKey}:${element.textContent?.replace(/\s+/gu, ' ').trim()}`);
 
+const quickBookProfileText = (root: ParentNode): string => root
+  .querySelector<HTMLElement>('.onboarding-quick-book-profile')
+  ?.textContent?.replace(/\s+/gu, ' ')
+  .trim() ?? '';
+
 describe('progressive customer-site previews through Screen 6', () => {
-  it('renders canonical identity, privacy-safe location, hours, Instagram, and starter Booking', () => {
+  it('keeps Preview 1 to public Screen 1 identity and the existing Booking section', () => {
+    const state = createScreenSixState();
+    const document = initializeStarter('quick_book');
+    const view = render(
+      <OnboardingSitePreview
+        document={document}
+        interactionMode="interactive"
+        label="Screen 2 first preview"
+        quickBookPhase="identity"
+        state={state}
+      />,
+    );
+    const stage = view.container.querySelector<HTMLElement>('.onboarding-preview-stage')!;
+    const profile = stage.querySelector<HTMLElement>('.onboarding-quick-book-profile')!;
+
+    expect(profile).toHaveAttribute('data-preview-phase', 'identity');
+    expect(profile).toHaveTextContent('Isla Nail');
+    expect(profile).toHaveTextContent('Daniela');
+    expect(profile).toHaveTextContent('@Isla_nails');
+    expect(stage.querySelectorAll('[aria-label="Booking"]')).toHaveLength(1);
+    expect(profile.querySelector('[data-quick-book-fact]')).toBeNull();
+    expect(profile.querySelector('.onboarding-quick-book-profile__contacts')).toBeNull();
+    expect(stage).not.toHaveTextContent('Toronto');
+    expect(stage).not.toHaveTextContent('880 Ellesmere Rd');
+    expect(stage).not.toHaveTextContent(/Open now|Closed · Opens|Opens tomorrow/u);
+    expect(stage).not.toHaveTextContent('Online booking only');
+    expect(stage).not.toHaveTextContent('About Daniela');
+    expect(stage).not.toHaveTextContent('Before you book');
+    expect(stage.querySelector('.customer-lib-visit')).toBeNull();
+  });
+
+  it('renders privacy-safe business information through Screen 5 without later content', () => {
     const state = createScreenSixState();
     const document = initializeStarter('quick_book');
     const view = render(
@@ -42,6 +78,7 @@ describe('progressive customer-site previews through Screen 6', () => {
         document={document}
         interactionMode="interactive"
         label="Screen 5 full preview"
+        quickBookPhase="business"
         state={state}
       />,
     );
@@ -54,7 +91,11 @@ describe('progressive customer-site previews through Screen 6', () => {
     expect(stage).toHaveTextContent('Exact address shared after booking.');
     expect(stage).not.toHaveTextContent('880 Ellesmere Rd');
     expect(stage).toHaveTextContent(/Open now|Closed/u);
+    expect(stage).toHaveTextContent('Online booking only');
     expect(stage).toHaveTextContent('Services & Booking');
+    expect(stage).not.toHaveTextContent('About Daniela');
+    expect(stage).not.toHaveTextContent('Before you book');
+    expect(stage.querySelector('.customer-lib-visit')).toBeNull();
     expect(stage.querySelector('[data-style-preset]')).toHaveAttribute('data-style-preset', 'modern');
     expect(stage.querySelector('[data-palette-preset]')).toHaveAttribute('data-palette-preset', 'luster_berry');
   });
@@ -67,10 +108,12 @@ describe('progressive customer-site previews through Screen 6', () => {
         document={document}
         interactionMode="interactive"
         label="Screen 5 full preview"
+        quickBookPhase="business"
         state={state}
       />,
     );
     const expected = publicFacts(full.container);
+    const expectedProfile = quickBookProfileText(full.container);
     full.unmount();
 
     const reward = render(
@@ -84,6 +127,7 @@ describe('progressive customer-site previews through Screen 6', () => {
     const preview = reward.container.querySelector<HTMLElement>('.onboarding-save-progress__preview')!;
 
     expect(publicFacts(preview)).toEqual(expected);
+    expect(quickBookProfileText(preview)).toBe(expectedProfile);
     expect(preview.querySelector('.onboarding-preview-stage'))
       .toHaveAttribute('data-preview-interaction', 'scrollable');
     expect(preview.querySelector<HTMLElement>('.onboarding-preview-frame')?.inert).toBe(false);
@@ -97,6 +141,9 @@ describe('progressive customer-site previews through Screen 6', () => {
 
     expect(onboardingCss).toMatch(
       /data-preview-interaction="scrollable"[^}]*\.onboarding-preview-frame \{[^}]*overscroll-behavior-y: auto;[^}]*touch-action: pan-y;/su,
+    );
+    expect(onboardingCss).toMatch(
+      /\.onboarding-preview-stage\.is-fit-available \.onboarding-preview-measurement-host \{[^}]*height: 100%;/su,
     );
     expect(screenCss).toMatch(
       /\.onboarding-look-preview__frame \{[^}]*pointer-events: none;/su,

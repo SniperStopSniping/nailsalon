@@ -67,7 +67,7 @@ describe('normal V1 Add Section products', () => {
       businessStructure: 'solo',
       document,
       page: home,
-    })).toEqual(['booking', 'gallery']);
+    })).toEqual(['booking', 'gallery', 'visit_us']);
   });
 
   it('chooses Team for a multi-tech one-page business and excludes advanced sections', () => {

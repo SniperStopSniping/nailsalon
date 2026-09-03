@@ -5,7 +5,7 @@ import type { SectionInstance, SectionType } from './types';
  * Customer content is resolved once for the complete semantic site. Renderers
  * consume this plan; they do not independently decide where shared data lives.
  */
-export const SITE_CONTENT_PLACEMENT_VERSION = 2 as const;
+export const SITE_CONTENT_PLACEMENT_VERSION = 3 as const;
 
 export type SiteContentKey =
   | 'brand_logo'
@@ -64,7 +64,7 @@ export type SiteContentAvailability = Partial<Record<SiteContentKey, boolean>>;
 export type SiteContentPlacementOptions = {
   /** Exact shared staff record representing the Business Profile owner. */
   ownerStaffMemberId?: string | null;
-  /** Quick Book's compact profile Hero owns its optional public profile facts. */
+  /** Quick Book's compact Hero owns branding/Profile/Instagram/policy facts. */
   quickBookProfileSectionId?: string | null;
 };
 
@@ -370,15 +370,9 @@ export const buildSiteContentPlacementPlan = (
   assign('instagram', ['visit_us', 'contact'], ['hero', 'visit_us', 'contact', 'footer', 'about'], {
     owner: quickBookProfileOwner ?? undefined,
   });
-  assign('phone', ['visit_us', 'contact'], ['hero', 'visit_us', 'contact', 'footer', 'about'], {
-    owner: quickBookProfileOwner ?? undefined,
-  });
-  assign('text', ['visit_us', 'contact'], ['hero', 'visit_us', 'contact', 'footer', 'about'], {
-    owner: quickBookProfileOwner ?? undefined,
-  });
-  assign('email', ['visit_us', 'contact'], ['hero', 'visit_us', 'contact', 'footer', 'about'], {
-    owner: quickBookProfileOwner ?? undefined,
-  });
+  assign('phone', ['visit_us', 'contact'], ['hero', 'visit_us', 'contact', 'footer', 'about']);
+  assign('text', ['visit_us', 'contact'], ['hero', 'visit_us', 'contact', 'footer', 'about']);
+  assign('email', ['visit_us', 'contact'], ['hero', 'visit_us', 'contact', 'footer', 'about']);
   assign('booking_only_contact', ['visit_us', 'contact'], ['visit_us', 'contact']);
   assign('location', ['visit_us', 'contact'], [
     'visit_us',
@@ -387,7 +381,7 @@ export const buildSiteContentPlacementPlan = (
     'hero',
     'booking',
     'footer',
-  ], { owner: quickBookProfileOwner ?? undefined });
+  ]);
   assign('exact_address', ['visit_us', 'contact'], [
     'visit_us',
     'contact',
@@ -395,10 +389,8 @@ export const buildSiteContentPlacementPlan = (
     'hero',
     'booking',
     'footer',
-  ], { owner: quickBookProfileOwner ?? undefined });
-  assign('arrival_details', ['visit_us'], ['hero', 'visit_us', 'contact', 'footer'], {
-    owner: quickBookProfileOwner ?? undefined,
-  });
+  ]);
+  assign('arrival_details', ['visit_us'], ['hero', 'visit_us', 'contact', 'footer']);
   assign('business_hours', ['visit_us', 'hours'], [
     'hours',
     'visit_us',
@@ -407,7 +399,7 @@ export const buildSiteContentPlacementPlan = (
     'hero',
     'about',
     'footer',
-  ], { owner: quickBookProfileOwner ?? undefined });
+  ]);
   assign('appointment_mode', ['quick_info', 'booking'], ['quick_info', 'booking', 'hero', 'about'], {
     owner: quickBookProfileOwner ?? undefined,
   });

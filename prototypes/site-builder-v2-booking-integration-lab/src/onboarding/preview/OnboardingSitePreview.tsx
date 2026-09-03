@@ -7,7 +7,6 @@ import {
   MapPin,
   MessageCircle,
   Phone,
-  Star,
 } from 'lucide-react';
 import {
   type CSSProperties,
@@ -79,13 +78,18 @@ import {
   getDepositPolicyMode,
 } from '../model/policies';
 import { getCustomerProfileFacts } from '../model/profile-facts';
-import { resolveQuickBookProfile } from '../model/quick-book-profile';
+import {
+  resolveQuickBookProfile,
+  type QuickBookProfileContact,
+  type QuickBookProfileViewModel,
+} from '../model/quick-book-profile';
 import { applyOnboardingSitePresentation } from '../model/site-document-presentation';
 import type {
   AboutElementId,
   AboutPresetId,
   BusinessProfileDraft,
   OnboardingLabState,
+  QuickBookLayoutId,
   SiteStylePresetId,
 } from '../model/types';
 import {
@@ -105,6 +109,7 @@ export type OnboardingPreviewDevice = 'phone' | 'tablet' | 'desktop';
 export type OnboardingPreviewInitialTarget = 'top' | 'about';
 export type OnboardingPreviewInteractionMode = 'inline' | 'interactive' | 'scrollable';
 export type OnboardingPreviewOverlayMode = 'contained' | 'page';
+export type QuickBookPreviewPhase = 'business' | 'final' | 'identity';
 
 type PreviewBounds = {
   height: number;
@@ -384,224 +389,406 @@ function Portrait({
   );
 }
 
+function QuickBookIdentity({
+  layout,
+  profile,
+  sectionId,
+  title,
+  view,
+}: {
+  layout: QuickBookLayoutId;
+  profile: BusinessProfileDraft;
+  sectionId: string;
+  title: string;
+  view: QuickBookProfileViewModel;
+}) {
+  return (
+    <div className="onboarding-quick-book-profile__identity" data-identity-layout={layout}>
+      <Brand
+        ownerId={sectionId}
+        profile={profile}
+        showFallback={false}
+        showName={false}
+      />
+      <div className="onboarding-quick-book-profile__identity-copy">
+        <h1
+          data-business-identity="quick_book_profile"
+          data-preview-page-heading="true"
+          id={`${sectionId}-title`}
+          tabIndex={-1}
+        >
+          {title}
+        </h1>
+        {view.techName ? <p>{view.techName}</p> : null}
+      </div>
+      {view.techPhotoVisible ? (
+        <Portrait ownerId={sectionId} profile={profile} showFallback={false} />
+      ) : null}
+    </div>
+  );
+}
+
+function QuickBookInstagramLink({
+  instagram,
+  sectionId,
+}: {
+  instagram: QuickBookProfileContact | null;
+  sectionId: string;
+}) {
+  if (!instagram) return null;
+  return (
+    <a
+      className="onboarding-quick-book-profile__instagram"
+      data-content-key="instagram"
+      data-content-owner={sectionId}
+      href={instagram.href}
+      rel={instagram.rel}
+      target={instagram.target}
+    >
+      <Instagram aria-hidden="true" size={18} />
+      <span>{instagram.label}</span>
+    </a>
+  );
+}
+
+type QuickBookFact = {
+  detail?: string | null;
+  href?: string;
+  icon: ReactNode;
+  id: string;
+  label: string;
+  rel?: 'noopener noreferrer';
+  target?: '_blank';
+  value: string;
+};
+
+function QuickBookFacts({ facts }: { facts: readonly QuickBookFact[] }) {
+  if (facts.length === 0) return null;
+  return (
+    <div className="onboarding-quick-book-profile__facts" data-fact-count={facts.length}>
+      {facts.map((fact) => {
+        const body = (
+          <>
+            {fact.icon}
+            <span>
+              <small>{fact.label}</small>
+              <strong>{fact.value}</strong>
+              {fact.detail ? <em>{fact.detail}</em> : null}
+            </span>
+            {fact.href ? <ChevronRight aria-hidden="true" size={16} /> : null}
+          </>
+        );
+        return fact.href ? (
+          <a
+            className="onboarding-quick-book-profile__fact"
+            data-quick-book-fact={fact.id}
+            href={fact.href}
+            key={fact.id}
+            rel={fact.rel}
+            target={fact.target}
+          >
+            {body}
+          </a>
+        ) : (
+          <div
+            className="onboarding-quick-book-profile__fact"
+            data-quick-book-fact={fact.id}
+            key={fact.id}
+          >
+            {body}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function QuickBookContactSummary({
+  bookingOnly,
+  contacts,
+}: {
+  bookingOnly: boolean;
+  contacts: readonly QuickBookProfileContact[];
+}) {
+  if (contacts.length === 0 && !bookingOnly) return null;
+  return (
+    <div className="onboarding-quick-book-profile__contacts" data-contact-count={contacts.length}>
+      {bookingOnly ? (
+        <span className="is-booking-only">
+          <CalendarDays aria-hidden="true" size={18} />
+          <span><strong>Online booking only</strong><small>Book here anytime</small></span>
+        </span>
+      ) : null}
+      {contacts.map(contact => (
+        <a
+          href={contact.href}
+          key={`${contact.type}-${contact.href}`}
+          rel={contact.rel}
+          target={contact.target}
+        >
+          {contact.type === 'call'
+            ? <Phone aria-hidden="true" size={18} />
+            : contact.type === 'text'
+              ? <MessageCircle aria-hidden="true" size={18} />
+              : <Mail aria-hidden="true" size={18} />}
+          <span>
+            <strong>{contact.label}</strong>
+            <small>{contact.detail}</small>
+          </span>
+        </a>
+      ))}
+    </div>
+  );
+}
+
+function QuickBookAboutDisclosure({
+  profile,
+  story = false,
+  techName,
+}: {
+  profile: BusinessProfileDraft;
+  story?: boolean;
+  techName: string | null;
+}) {
+  const shortBio = profile.about.shortBio.trim();
+  const fullBio = profile.about.fullBio.trim();
+  const specialties = profile.about.specialties.filter(Boolean);
+  const experience = profile.about.yearsOfExperience.trim();
+  if (!shortBio && !fullBio && specialties.length === 0 && !experience) return null;
+  const label = techName ? `About ${techName}` : 'About the studio';
+  const summary = specialties.length > 0
+    ? specialties.slice(0, 3).join(' · ')
+    : shortBio || fullBio;
+
+  if (story) {
+    return (
+      <article className="onboarding-quick-book-profile__story">
+        <p className="onboarding-customer-eyebrow">{label}</p>
+        {shortBio ? <p>{shortBio}</p> : fullBio ? <p>{fullBio}</p> : null}
+        {specialties.length > 0 ? (
+          <ul aria-label="Specialties">
+            {specialties.slice(0, 4).map(item => <li key={item}>{item}</li>)}
+          </ul>
+        ) : null}
+        {fullBio && fullBio !== shortBio ? (
+          <details className="onboarding-quick-book-profile__disclosure is-about">
+            <summary><span>More about {techName || 'us'}</span><ChevronRight aria-hidden="true" size={17} /></summary>
+            <div><p>{fullBio}</p>{experience ? <p>{experience} years of experience</p> : null}</div>
+          </details>
+        ) : null}
+      </article>
+    );
+  }
+
+  return (
+    <details className="onboarding-quick-book-profile__disclosure is-about">
+      <summary>
+        <span><strong>{label}</strong><small>{summary}</small></span>
+        <ChevronRight aria-hidden="true" size={17} />
+      </summary>
+      <div>
+        {shortBio ? <p>{shortBio}</p> : null}
+        {fullBio && fullBio !== shortBio ? <p>{fullBio}</p> : null}
+        {specialties.length > 0 ? (
+          <ul aria-label="Specialties">
+            {specialties.map(item => <li key={item}>{item}</li>)}
+          </ul>
+        ) : null}
+        {experience ? <p>{experience} years of experience</p> : null}
+      </div>
+    </details>
+  );
+}
+
+function QuickBookPolicyDisclosure({
+  deposit,
+  entries,
+  notice,
+  sectionId,
+}: {
+  deposit: string | null;
+  entries: ReturnType<typeof getBeforeYouBookEntries>;
+  notice: string | null;
+  sectionId: string;
+}) {
+  if (entries.length === 0 && !notice && !deposit) return null;
+  return (
+    <details
+      className="onboarding-quick-book-profile__disclosure is-policies"
+      data-content-key={entries.length > 0 ? 'before_you_book_policies' : undefined}
+      data-content-owner={entries.length > 0 ? sectionId : undefined}
+    >
+      <summary>
+        <span>
+          <strong>Before you book</strong>
+          <small>Policies, deposits, cancellations, late arrivals &amp; more</small>
+        </span>
+        <ChevronRight aria-hidden="true" size={17} />
+      </summary>
+      <div>
+        {notice ? <p><strong>Booking notice</strong>{notice}</p> : null}
+        {deposit ? <p><strong>Deposit</strong>{deposit}</p> : null}
+        {entries.map(entry => (
+          <p key={entry.id}><strong>{entry.heading}</strong>{entry.wording}</p>
+        ))}
+        <span className="onboarding-quick-book-profile__policy-action">
+          View all policies &amp; important info
+        </span>
+      </div>
+    </details>
+  );
+}
+
 function QuickBookProfileHeader({
+  phase,
   profile,
   sectionId,
   state,
 }: {
+  phase: QuickBookPreviewPhase;
   profile: BusinessProfileDraft;
   sectionId: string;
   state: OnboardingLabState;
 }) {
-  const visibility = state.recipe.quickBookProfile;
+  const final = phase === 'final';
+  const business = phase !== 'identity';
+  const visibility = useMemo(() => ({
+    ...state.recipe.quickBookProfile,
+    showBio: final && state.recipe.aboutEnabled,
+    showBookingPolicy: final,
+    showCancellationPolicy: final && state.recipe.policiesEnabled,
+  }), [final, state.recipe.aboutEnabled, state.recipe.policiesEnabled, state.recipe.quickBookProfile]);
   const view = useMemo(() => resolveQuickBookProfile({
     previewTimestamp: state.reviewOptions.previewTimestamp,
     profile,
     visibility,
   }), [profile, state.reviewOptions.previewTimestamp, visibility]);
   const title = profile.businessName.trim() || 'Your nail studio';
-  const hasSecondaryActions = view.policies.length > 0
-    || view.reviews !== null
-    || view.instagram !== null;
+  const layout = phase === 'identity' ? 'compact_dropdown' : state.recipe.quickBookLayout;
+  const visitMode = final ? labelForVisitMode(profile) : null;
+  const newClients = final ? labelForNewClients(profile) : null;
+  const facts: QuickBookFact[] = business ? [
+    ...(view.location ? [{
+      detail: view.location.detail,
+      href: view.location.directions?.href,
+      icon: <MapPin aria-hidden="true" size={18} />,
+      id: 'location',
+      label: 'Location',
+      rel: view.location.directions?.rel,
+      target: view.location.directions?.target,
+      value: view.location.primary,
+    }] : []),
+    ...(view.hours ? [{
+      detail: view.hours.detail,
+      icon: <Clock3 aria-hidden="true" size={18} />,
+      id: 'hours',
+      label: 'Hours',
+      value: view.hours.label,
+    }] : []),
+    ...(visitMode ? [{
+      icon: <CalendarDays aria-hidden="true" size={18} />,
+      id: 'appointments',
+      label: 'Booking',
+      value: visitMode,
+    }] : []),
+    ...(newClients ? [{
+      icon: <MessageCircle aria-hidden="true" size={18} />,
+      id: 'new-clients',
+      label: 'Clients',
+      value: newClients,
+    }] : []),
+  ] : [];
+  const about = final && state.recipe.aboutEnabled ? (
+    <QuickBookAboutDisclosure profile={profile} techName={view.techName} />
+  ) : null;
+  const story = final && state.recipe.aboutEnabled ? (
+    <QuickBookAboutDisclosure profile={profile} story techName={view.techName} />
+  ) : null;
+  const policiesReached = state.progress.visitedScreens.includes('policies');
+  const policyEntries = final && policiesReached && state.recipe.policiesEnabled
+    ? getBeforeYouBookEntries(profile.policies)
+    : [];
+  const notice = final && profile.bookingPreferences.minimumNoticeMinutes > 0
+    ? getMinimumNoticeCopy(profile.bookingPreferences.minimumNoticeMinutes).customer
+    : null;
+  const deposit = final
+    && !policyEntries.some(entry => entry.id === 'deposits_cancellations')
+    && getDepositPolicyMode(profile.policies) === 'fixed'
+    ? deriveDepositPolicySummary(profile.policies)
+    : null;
+  const policies = final ? (
+    <QuickBookPolicyDisclosure
+      deposit={deposit}
+      entries={policyEntries}
+      notice={notice}
+      sectionId={sectionId}
+    />
+  ) : null;
+  const identity = (
+    <QuickBookIdentity
+      layout={layout}
+      profile={profile}
+      sectionId={sectionId}
+      title={title}
+      view={view}
+    />
+  );
+  const instagram = <QuickBookInstagramLink instagram={view.instagram} sectionId={sectionId} />;
+  const factGrid = <QuickBookFacts facts={facts} />;
+  const showBookingOnlyContact = business && profile.bookingOnlyContact && !visitMode;
+  const contacts = business && (showBookingOnlyContact || view.contacts.length > 0) ? (
+    <QuickBookContactSummary bookingOnly={showBookingOnlyContact} contacts={view.contacts} />
+  ) : null;
+  const details = about || policies ? (
+    <div className="onboarding-quick-book-profile__details">{about}{policies}</div>
+  ) : null;
 
   return (
     <section
       aria-labelledby={`${sectionId}-title`}
-      className="onboarding-quick-book-profile"
+      className={`onboarding-quick-book-profile is-${layout.replaceAll('_', '-')}`}
+      data-preview-phase={phase}
+      data-quick-book-layout={layout}
       data-section-id={sectionId}
       id={sectionAnchorId(sectionId, 'hero')}
     >
-      <div className="onboarding-quick-book-profile__identity">
-        <Brand
-          ownerId={sectionId}
-          profile={profile}
-          showFallback={false}
-          showName={false}
-        />
-        <div>
-          <h1
-            data-business-identity="quick_book_profile"
-            data-preview-page-heading="true"
-            id={`${sectionId}-title`}
-            tabIndex={-1}
-          >
-            {title}
-          </h1>
-          {view.techName
-            ? <p>{view.techName}</p>
-            : null}
-        </div>
-        {view.techPhotoVisible
-          ? (
-              <Portrait
-                ownerId={sectionId}
-                profile={profile}
-                showFallback={false}
-              />
-            )
-          : null}
-      </div>
-
-      {view.location
-        ? (
-            <div
-              className="onboarding-quick-book-profile__row is-location"
-              data-content-key="location"
-              data-content-owner={sectionId}
-            >
-              <MapPin aria-hidden="true" size={22} />
-              <div>
-                {view.location.directions
-                  ? (
-                      <a
-                        href={view.location.directions.href}
-                        rel={view.location.directions.rel}
-                        target={view.location.directions.target}
-                      >
-                        <strong>{view.location.primary}</strong>
-                        <ChevronRight aria-hidden="true" size={20} />
-                      </a>
-                    )
-                  : <strong>{view.location.primary}</strong>}
-                {view.location.detail
-                  ? <span>{view.location.detail}</span>
-                  : null}
-                {view.location.notes.map(note => <small key={note}>{note}</small>)}
-              </div>
-            </div>
-          )
-        : null}
-
-      {view.hours
-        ? (
-            <details
-              className="onboarding-quick-book-profile__row is-hours"
-              data-content-key="business_hours"
-              data-content-owner={sectionId}
-            >
-              <summary>
-                <Clock3 aria-hidden="true" size={22} />
-                <span>
-                  <strong>{view.hours.label}</strong>
-                  <small>{view.hours.detail}</small>
-                </span>
-                <ChevronRight aria-hidden="true" size={20} />
-              </summary>
-              <dl aria-label="Weekly hours">
-                {view.hours.weekly.map(day => (
-                  <div key={day.weekday}>
-                    <dt>{day.label}</dt>
-                    <dd>{day.hours}</dd>
-                  </div>
-                ))}
-              </dl>
+      {layout === 'clean_card' ? (
+        <>{identity}{instagram}<div className="onboarding-quick-book-profile__business-card">{factGrid}{contacts}</div>{details}</>
+      ) : layout === 'editorial' ? (
+        <>{identity}{instagram}<div className="onboarding-quick-book-profile__editorial-facts">{factGrid}{contacts}</div>{details}</>
+      ) : layout === 'hub_menu' ? (
+        <>{identity}{instagram}<div className="onboarding-quick-book-profile__hub">{factGrid}{contacts}{details}</div></>
+      ) : layout === 'profile_story' ? (
+        <>{identity}{instagram}{story}<div className="onboarding-quick-book-profile__story-facts">{factGrid}{contacts}</div>{policies}</>
+      ) : layout === 'ultra_minimal' ? (
+        <>
+          {identity}
+          {instagram}
+          {facts.length > 0 ? <div className="onboarding-quick-book-profile__status-line">{factGrid}</div> : null}
+          {details}
+          {contacts ? (
+            <details className="onboarding-quick-book-profile__more">
+              <summary>More details <ChevronRight aria-hidden="true" size={17} /></summary>
+              <div>{contacts}</div>
             </details>
-          )
-        : null}
-
-      {view.contacts.length > 0
-        ? (
-            <div className="onboarding-quick-book-profile__contacts">
-              {view.contacts.map(contact => (
-                <a href={contact.href} key={contact.type}>
-                  {contact.type === 'phone'
-                    ? <Phone aria-hidden="true" size={21} />
-                    : <Mail aria-hidden="true" size={21} />}
-                  <span>
-                    <strong>{contact.label}</strong>
-                    <small>{contact.detail}</small>
-                  </span>
-                </a>
-              ))}
-            </div>
-          )
-        : null}
-
-      {hasSecondaryActions
-        ? (
-            <div className="onboarding-quick-book-profile__actions">
-              {view.policies.length > 0
-                ? (
-                    <details data-content-key="before_you_book_policies" data-content-owner={sectionId}>
-                      <summary>
-                        <CalendarDays aria-hidden="true" size={21} />
-                        <span>Policies</span>
-                      </summary>
-                      <div className="onboarding-quick-book-profile__popover">
-                        <h2>Policies</h2>
-                        <dl>
-                          {view.policies.map(policy => (
-                            <div key={policy.id}>
-                              <dt>{policy.label}</dt>
-                              <dd>{policy.wording}</dd>
-                            </div>
-                          ))}
-                        </dl>
-                      </div>
-                    </details>
-                  )
-                : null}
-              {view.reviews
-                ? (
-                    <details data-content-key="reviews" data-content-owner={sectionId}>
-                      <summary>
-                        <Star aria-hidden="true" size={21} />
-                        <span>
-                          Reviews
-                          <small>
-                            {view.reviews.averageRating === null
-                              ? `${view.reviews.count} client review${view.reviews.count === 1 ? '' : 's'}`
-                              : view.reviews.ratedCount === view.reviews.count
-                                ? `${view.reviews.averageRating.toFixed(1)} ★ (${view.reviews.count})`
-                                : `${view.reviews.averageRating.toFixed(1)} ★ (${view.reviews.ratedCount} rated) · ${view.reviews.count} reviews`}
-                          </small>
-                        </span>
-                      </summary>
-                      <div className="onboarding-quick-book-profile__popover">
-                        <h2>Client reviews</h2>
-                        {view.reviews.items.map(review => (
-                          <blockquote key={review.id}>
-                            <p>
-                              “
-                              {review.quote}
-                              ”
-                            </p>
-                            <footer>
-                              —
-                              {' '}
-                              {review.authorName}
-                              {review.rating ? ` · ${review.rating} ★` : ''}
-                            </footer>
-                          </blockquote>
-                        ))}
-                      </div>
-                    </details>
-                  )
-                : null}
-              {view.instagram
-                ? (
-                    <a
-                      data-content-key="instagram"
-                      data-content-owner={sectionId}
-                      href={view.instagram.href}
-                      rel={view.instagram.rel}
-                      target={view.instagram.target}
-                    >
-                      <Instagram aria-hidden="true" size={21} />
-                      <span>
-                        Instagram
-                        <small>{view.instagram.label}</small>
-                      </span>
-                    </a>
-                  )
-                : null}
-            </div>
-          )
-        : null}
-
-      {view.bio
-        ? <p className="onboarding-quick-book-profile__bio">{view.bio}</p>
-        : null}
+          ) : null}
+        </>
+      ) : (
+        <>
+          {identity}
+          {instagram}
+          {facts.length > 0 ? (
+            <div className="onboarding-quick-book-profile__status-line">{factGrid}</div>
+          ) : null}
+          {contacts ? (
+            <details className="onboarding-quick-book-profile__more is-salon-details">
+              <summary>Salon details <ChevronRight aria-hidden="true" size={17} /></summary>
+              <div>{contacts}</div>
+            </details>
+          ) : null}
+          {details}
+        </>
+      )}
     </section>
   );
 }
@@ -1321,6 +1508,7 @@ export type OnboardingSitePreviewProps = {
   onBookingSessionChange?: BookingSessionUpdater;
   overlayMode?: OnboardingPreviewOverlayMode;
   preserveDocumentPresentation?: boolean;
+  quickBookPhase?: QuickBookPreviewPhase;
   state: OnboardingLabState;
 };
 
@@ -1339,6 +1527,7 @@ export function OnboardingSitePreview({
   onBookingSessionChange,
   overlayMode = 'contained',
   preserveDocumentPresentation = false,
+  quickBookPhase = 'final',
   state,
 }: OnboardingSitePreviewProps) {
   const frameRef = useRef<HTMLDivElement>(null);
@@ -1678,6 +1867,7 @@ export function OnboardingSitePreview({
         return (
           <QuickBookProfileHeader
             key={planSection.id}
+            phase={quickBookPhase}
             profile={profile}
             sectionId={planSection.id}
             state={state}
@@ -1805,6 +1995,9 @@ export function OnboardingSitePreview({
       );
     }
     if (!isLibrarySection(instance)) return null;
+    if (starter === 'quick_book'
+      && instance.sectionType === 'visit_us'
+      && quickBookPhase !== 'final') return null;
     const Renderer = LIBRARY_SECTION_PREVIEW_RENDERERS[instance.sectionType];
     if (!Renderer) return null;
     const shared: LibraryPreviewShared = {

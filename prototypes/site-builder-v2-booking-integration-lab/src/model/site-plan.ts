@@ -128,9 +128,10 @@ const attachesToNext = (section: SectionInstance): boolean =>
     : false;
 
 /**
- * Quick Book presents these shared-data responsibilities in its compact
- * profile header. Older Quick Book documents can still contain the retired
- * standalone sections, but One-page and Multi-page must keep rendering them.
+ * Quick Book presents branding, Profile, Instagram, and compact policy
+ * disclosure in its profile header. Older Quick Book documents can still
+ * contain retired standalone sections, but Visit & Contact is now a real
+ * bottom-of-page responsibility and must remain renderable.
  */
 const QUICK_BOOK_PROFILE_OWNED_SECTION_TYPES: ReadonlySet<LibrarySectionType> = new Set([
   'about',
@@ -139,7 +140,6 @@ const QUICK_BOOK_PROFILE_OWNED_SECTION_TYPES: ReadonlySet<LibrarySectionType> = 
   'hours',
   'policies',
   'team',
-  'visit_us',
 ]);
 
 /**
@@ -406,10 +406,10 @@ const buildStructuralCustomerPagePlan = (
 
   const injections = includeOptionalSections
     ? INJECTION_RULES.filter(rule =>
-        // Quick Book's compact profile owns shared identity, About, public
-        // contact, hours, and policy presentation. Its real recipe sections
-        // must remain Profile → Booking → optional Gallery; legacy injections
-        // may not recreate the retired About/Visit/Policies duplicates.
+        // Quick Book's compact profile owns shared identity, About, and policy
+        // presentation. Visit & Contact is a real recipe section after Booking
+        // (and optional Gallery); legacy injections may not recreate retired
+        // About/Contact/Policies duplicates.
         !(document.originStarter === 'quick_book'
           && (rule.type === 'about' || rule.type === 'contact' || rule.type === 'policies'))
         && rule.wanted(context, toggles)

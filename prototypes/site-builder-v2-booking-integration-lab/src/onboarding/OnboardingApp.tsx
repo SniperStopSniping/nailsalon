@@ -69,6 +69,7 @@ import {
   AboutScreen,
   ExtrasScreen,
   PoliciesScreen,
+  QuickBookLayoutScreen,
   SiteStyleScreen,
   type OnboardingStateUpdater,
 } from './screens/DesignScreens';
@@ -419,6 +420,7 @@ const previewFor = (
     includeOptionalSections={false}
     interactionMode="scrollable"
     label={label}
+    quickBookPhase="identity"
     state={state}
   />
 );
@@ -482,6 +484,7 @@ export function OnboardingApp({
   const screen = onboarding.state.progress.currentScreen;
   const previousFeedbackScreenRef = useRef(screen);
   const aboutEnabled = onboarding.state.recipe.aboutEnabled;
+  const selectedStarter = onboarding.state.recipe.starter;
   const builderHasBeenEntered = onboarding.state.planOffer.planIntent !== null
     || onboarding.state.progress.sessionStatus === 'builder'
     || onboarding.state.progress.sessionStatus === 'dashboard';
@@ -749,7 +752,9 @@ export function OnboardingApp({
           ? 'forward'
           : null;
       if (!direction) return;
-      if (event.state.screen === 'about_design' && !aboutEnabled) {
+      if (event.state.screen === 'about_design'
+        && !aboutEnabled
+        && selectedStarter !== 'quick_book') {
         if (direction === 'back') window.history.back();
         else window.history.forward();
         return;
@@ -814,6 +819,7 @@ export function OnboardingApp({
     onboarding.continueFlow,
     onboarding.navigateFromBrowser,
     onboarding.recordEvent,
+    selectedStarter,
   ]);
 
   const goBack = () => {
@@ -1415,7 +1421,9 @@ export function OnboardingApp({
           />
         );
       case 'about_design':
-        return <AboutDesignScreen document={lab.document} onBack={goBack} onContinue={onboarding.continueFlow} onFullPreview={() => openPreview('about_design')} onUpdate={updateState} state={onboarding.state} />;
+        return onboarding.state.recipe.starter === 'quick_book'
+          ? <QuickBookLayoutScreen document={lab.document} onBack={goBack} onContinue={onboarding.continueFlow} onFullPreview={() => openPreview('about_design')} onUpdate={updateState} state={onboarding.state} />
+          : <AboutDesignScreen document={lab.document} onBack={goBack} onContinue={onboarding.continueFlow} onFullPreview={() => openPreview('about_design')} onUpdate={updateState} state={onboarding.state} />;
       case 'policies':
         return (
           <PoliciesScreen
