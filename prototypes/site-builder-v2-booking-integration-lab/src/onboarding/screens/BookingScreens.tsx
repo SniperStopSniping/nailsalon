@@ -1,4 +1,12 @@
-import { Check, Plus, Search, Sparkles } from 'lucide-react';
+import {
+  Check,
+  ChevronDown,
+  Info,
+  LockKeyhole,
+  Plus,
+  Search,
+  Sparkles,
+} from 'lucide-react';
 import {
   useEffect,
   useId,
@@ -93,6 +101,7 @@ const DEPOSIT_AMOUNT_LABELS = Object.fromEntries([
 ]) as Record<DepositAmountChoice, string>;
 
 type ServiceLibraryDialogProps = {
+  initialTab: 'services' | 'add_ons';
   onClose: () => void;
   onServiceMenuChange: (draft: ServiceMenuSelectionDraft) => void;
   open: boolean;
@@ -100,13 +109,14 @@ type ServiceLibraryDialogProps = {
 };
 
 function ServiceLibraryDialog({
+  initialTab,
   onClose,
   onServiceMenuChange,
   open,
   serviceMenu,
 }: ServiceLibraryDialogProps) {
   const feedback = useFeedback();
-  const [activeTab, setActiveTab] = useState<'services' | 'add_ons'>('services');
+  const [activeTab, setActiveTab] = useState<'services' | 'add_ons'>(initialTab);
   const [activeCategoryId, setActiveCategoryId] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
   const categoryScrollerRef = useRef<HTMLDivElement>(null);
@@ -135,6 +145,12 @@ function ServiceLibraryDialog({
   ).values());
   const selectedServiceCount = selectedIds.size;
   const selectedAddOnCount = selectedAddOnIds.size;
+
+  useEffect(() => {
+    if (!open) return;
+    setActiveTab(initialTab);
+    setActiveCategoryId('all');
+  }, [initialTab, open]);
 
   useEffect(() => {
     if (!open) return undefined;
@@ -322,6 +338,15 @@ function ServiceLibraryDialog({
         {libraryItems.length === 0 ? (
           <p className="onboarding-service-library__empty">No matching {activeTab === 'services' ? 'services' : 'add-ons'}.</p>
         ) : null}
+        {activeTab === 'add_ons' ? (
+          <aside className="onboarding-service-library__tip" aria-label="Add-ons are optional">
+            <Info aria-hidden="true" size={18} />
+            <div>
+              <strong>ADD-ONS ARE OPTIONAL</strong>
+              <p>Add-ons help clients customize their service, but you can skip them for now and add them anytime from your dashboard.</p>
+            </div>
+          </aside>
+        ) : null}
         <footer className="onboarding-service-library__footer">
           <span>
             <strong>{selectedServiceCount} {selectedServiceCount === 1 ? 'service' : 'services'} selected</strong>
@@ -345,6 +370,56 @@ type BookingPreferencesScreenProps = {
   profile: BusinessProfileDraft;
 };
 
+type BookingTaskId = 'services' | 'clients' | 'notice' | 'deposits';
+
+type BookingTaskCardProps = {
+  children: ReactNode;
+  celebrating?: boolean;
+  complete: boolean;
+  description: string;
+  id: BookingTaskId;
+  number: number;
+  onToggle: () => void;
+  open: boolean;
+  summary: string;
+  title: string;
+};
+
+function BookingTaskCard({
+  children,
+  celebrating = false,
+  complete,
+  description,
+  id,
+  number,
+  onToggle,
+  open,
+  summary,
+  title,
+}: BookingTaskCardProps) {
+  const contentId = `booking-task-${id}`;
+  return (
+    <section className={`onboarding-booking-task${open ? ' is-open' : ''}${complete ? ' is-complete' : ''}${celebrating ? ' is-celebrating' : ''}`} data-booking-task={id}>
+      <button
+        aria-controls={contentId}
+        aria-expanded={open}
+        className="onboarding-booking-task__header"
+        type="button"
+        onClick={onToggle}
+      >
+        <span className="onboarding-booking-task__number">{complete ? <Check aria-hidden="true" size={15} /> : number}</span>
+        <span className="onboarding-booking-task__heading">
+          <strong>{title}</strong>
+          <small>{open ? description : summary}</small>
+        </span>
+        {complete ? <span className="onboarding-booking-task__complete">Complete <Check aria-hidden="true" size={13} /></span> : null}
+        <ChevronDown aria-hidden="true" className="onboarding-booking-task__chevron" size={18} />
+      </button>
+      {open ? <div className="onboarding-booking-task__content" id={contentId}>{children}</div> : null}
+    </section>
+  );
+}
+
 export function BookingPreferencesScreen({
   onBack,
   onBookingPreferencesChange,
@@ -359,6 +434,8 @@ export function BookingPreferencesScreen({
   const formId = useId();
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [serviceLibraryOpen, setServiceLibraryOpen] = useState(false);
+  const [serviceLibraryTab, setServiceLibraryTab] = useState<'services' | 'add_ons'>('services');
+  const [openTask, setOpenTask] = useState<BookingTaskId | null>('services');
   const [editingCustomNotice, setEditingCustomNotice] = useState(false);
   const initialCustomNotice = bookingPreferencesPort.getCustomMinimumNoticeInput(
     profile.bookingPreferences.minimumNoticeMinutes,
@@ -378,7 +455,6 @@ export function BookingPreferencesScreen({
   const selectedServices = serviceMenuPort.getSelectedServices(profile.serviceMenu);
   const selectedAddOns = serviceMenuPort.getSelectedAddOns(profile.serviceMenu);
   const [celebrationCount, setCelebrationCount] = useState(selectedServices.length);
-  const selectedService = selectedServices[0];
   const storedNoticeChoice = bookingPreferencesPort.getMinimumNoticeChoice(
     preferences.minimumNoticeMinutes,
   );
@@ -390,6 +466,16 @@ export function BookingPreferencesScreen({
     ? 'custom'
     : storedDepositAmountChoice;
   const minimumNoticeCopy = getMinimumNoticeCopy(preferences.minimumNoticeMinutes);
+  const servicesComplete = selectedServices.length > 0 && profile.serviceMenu.reviewed === true;
+  const clientsComplete = preferences.visitMode !== null && preferences.newClientStatus !== null;
+  const noticeComplete = Number.isFinite(preferences.minimumNoticeMinutes)
+    && preferences.minimumNoticeMinutes >= 0;
+  const depositMode = getDepositPolicyMode(profile.policies);
+  const depositComplete = depositMode === 'none'
+    || (depositMode === 'fixed'
+      && profile.policies.deposits.amountCents !== null
+      && profile.policies.deposits.amountCents > 0);
+  const allTasksComplete = servicesComplete && clientsComplete && noticeComplete && depositComplete;
 
   useEffect(() => {
     if (!menuCelebrating) setCelebrationCount(selectedServices.length);
@@ -425,7 +511,12 @@ export function BookingPreferencesScreen({
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
+    const form = event.currentTarget;
     const nextErrors: Record<string, string> = {};
+    if (selectedServices.length === 0) nextErrors.services = 'Choose at least one service.';
+    if (selectedServices.length > 0 && !profile.serviceMenu.reviewed) {
+      nextErrors.services = 'Confirm the services you want to start with.';
+    }
     if (!preferences.visitMode) nextErrors.visitMode = 'Choose how clients can visit you.';
     if (!preferences.newClientStatus) nextErrors.newClientStatus = 'Choose your new-client status.';
     if (noticeChoice === 'custom'
@@ -444,80 +535,101 @@ export function BookingPreferencesScreen({
     const failedFields = Object.keys(nextErrors);
     if (failedFields.length > 0) {
       onValidationFailure?.(failedFields);
-      focusFirstInvalidControl(event.currentTarget);
+      const firstFailedTask: BookingTaskId = failedFields.some((field) => field === 'services')
+        ? 'services'
+        : failedFields.some((field) => field === 'visitMode' || field === 'newClientStatus')
+          ? 'clients'
+          : failedFields.some((field) => field === 'customNoticeAmount')
+            ? 'notice'
+            : 'deposits';
+      setOpenTask(firstFailedTask);
+      window.requestAnimationFrame(() => focusFirstInvalidControl(form));
       return;
     }
     onContinue();
   };
 
+  const revealTask = (task: BookingTaskId) => {
+    setOpenTask(task);
+    window.requestAnimationFrame(() => {
+      document.querySelector<HTMLElement>(`[data-booking-task="${task}"]`)?.scrollIntoView?.({
+        behavior: window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth',
+        block: 'start',
+      });
+    });
+  };
+
+  const openServiceLibrary = (tab: 'services' | 'add_ons') => {
+    setServiceLibraryTab(tab);
+    setServiceLibraryOpen(true);
+  };
+
+  const finishLastTask = () => {
+    celebrationTimersRef.current.push(window.setTimeout(() => {
+      setOpenTask(null);
+    }, 450));
+  };
+
   const visitModeLabel = VISIT_MODES.find(({ value }) => value === preferences.visitMode)?.label;
   const acceptingLabel = preferences.newClientStatus === 'yes'
-    ? 'New clients welcome'
+    ? 'Accepting new clients'
     : preferences.newClientStatus === 'waitlist_only'
       ? 'Waitlist only'
       : preferences.newClientStatus === 'ask_first'
-        ? 'Ask before booking'
+        ? 'New clients by request'
         : preferences.newClientStatus === 'no'
           ? 'Not accepting new clients'
           : null;
+  const servicesSummary = `${selectedServices.length} ${selectedServices.length === 1 ? 'service' : 'services'} · ${selectedAddOns.length} add-on${selectedAddOns.length === 1 ? '' : 's'}`;
+  const clientsSummary = visitModeLabel && acceptingLabel
+    ? `${visitModeLabel} · ${acceptingLabel}`
+    : 'Finish your client settings';
+  const depositSummary = depositMode === 'fixed' && profile.policies.deposits.amountCents !== null
+    ? `$${profile.policies.deposits.amountCents / 100} for every service`
+    : depositMode === 'fixed'
+      ? 'Finish your deposit amount'
+      : 'No deposit';
 
   return (
     <section aria-labelledby="booking-preferences-heading" className="onboarding-screen onboarding-booking-preferences-screen">
       <header className="onboarding-screen__heading">
-        <p className="onboarding-screen-status">Required step</p>
+        <p className="onboarding-screen-status">Step 7 — Services &amp; booking</p>
         <h1 id="booking-preferences-heading">{copy.heading}</h1>
         <p>{copy.supportingCopy}</p>
       </header>
-      <div className="onboarding-split-layout">
-        <form id={formId} noValidate onSubmit={submit}>
+      <form className="onboarding-booking-tasks" id={formId} noValidate onSubmit={submit}>
           <ValidationSummary errors={errors} />
-          <ChoiceGroup
-            error={errors.visitMode}
-            legend="How do you accept clients?"
-            name="visit-mode"
-            options={VISIT_MODES}
-            value={preferences.visitMode}
-            onChange={(visitMode) => {
-              setErrors((current) => ({ ...current, visitMode: '' }));
-              onBookingPreferencesChange({ visitMode });
-            }}
-          />
-          <ChoiceGroup
-            error={errors.newClientStatus}
-            legend="Are you accepting new clients?"
-            name="new-client-status"
-            options={NEW_CLIENT_STATUSES}
-            value={preferences.newClientStatus}
-            onChange={(newClientStatus) => {
-              setErrors((current) => ({ ...current, newClientStatus: '' }));
-              onBookingPreferencesChange({ newClientStatus });
-            }}
-          />
-          <section
-            aria-labelledby="service-menu-heading"
-            className={`onboarding-service-menu-card${menuCelebrating ? ' is-celebrating' : ''}`}
+          <BookingTaskCard
+            celebrating={menuCelebrating}
+            complete={servicesComplete}
+            description="Choose what clients can book."
+            id="services"
+            number={1}
+            open={openTask === 'services'}
+            summary={servicesComplete ? servicesSummary : 'Choose what clients can book'}
+            title="Services"
+            onToggle={() => setOpenTask((current) => current === 'services' ? null : 'services')}
           >
-            <div>
-              <h2 id="service-menu-heading">Your service menu is ready</h2>
-              <p>
-                We added popular nail services and common add-ons to get you started. Remove
-                anything you don’t offer. You can change prices, durations and photos later.
-              </p>
-            </div>
+            <aside className="onboarding-booking-guidance is-services">
+              <Sparkles aria-hidden="true" size={18} />
+              <div>
+                <strong>YOUR STARTER MENU IS READY</strong>
+                <p>We added popular services to get you started. You don’t need to finish your full menu now — choose what you want to start with and update everything later from your dashboard.</p>
+              </div>
+            </aside>
             <p aria-live="polite" className="onboarding-service-menu-count">
               <strong>
                 <span aria-hidden={menuCelebrating || undefined}>{celebrationCount}</span>
                 {menuCelebrating ? <span className="visually-hidden">{selectedServices.length}</span> : null}
-                {' '}{selectedServices.length === 1 ? 'service' : 'services'} on your menu
+                {' '}{selectedServices.length === 1 ? 'service selected' : 'services selected'}
               </strong>
-              {selectedServices.length > 6 ? <span> · showing 6</span> : null}
               <span>
                 {' · '}{selectedAddOns.length} {selectedAddOns.length === 1 ? 'add-on' : 'add-ons'} ready
               </span>
             </p>
             {selectedServices.length > 0 ? (
               <ul className="onboarding-service-menu-sample" aria-label="Selected services">
-                {selectedServices.slice(0, 6).map((service: ServiceMenuItem) => (
+                {selectedServices.slice(0, 3).map((service: ServiceMenuItem) => (
                   <li key={service.id}>
                     {service.imageSrc ? <img alt={service.imageAlt ?? ''} src={service.imageSrc} /> : <span aria-hidden="true" className="onboarding-service-menu-sample__icon">LN</span>}
                     <span className="onboarding-service-menu-sample__copy">
@@ -529,13 +641,17 @@ export function BookingPreferencesScreen({
                 ))}
               </ul>
             ) : <p>No services selected yet.</p>}
-            {selectedServices.length > 6 ? (
-              <button className="onboarding-service-menu-card__more" type="button" onClick={() => setServiceLibraryOpen(true)}>
-                See the other {selectedServices.length - 6}
+            {selectedServices.length > 3 ? (
+              <button className="onboarding-service-menu-card__more" type="button" onClick={() => openServiceLibrary('services')}>
+                + {selectedServices.length - 3} more {selectedServices.length - 3 === 1 ? 'service' : 'services'}
               </button>
             ) : null}
+            <button className="onboarding-booking-addons-summary" type="button" onClick={() => openServiceLibrary('add_ons')}>
+              <span><strong>Add-ons · Optional</strong><Info aria-hidden="true" size={15} /></span>
+              <span>{selectedAddOns.length} add-on{selectedAddOns.length === 1 ? '' : 's'} <ChevronDown aria-hidden="true" size={16} /></span>
+            </button>
             <div className="onboarding-inline-actions">
-              <button type="button" onClick={() => setServiceLibraryOpen(true)}>
+              <button type="button" onClick={() => openServiceLibrary('services')}>
                 Review services &amp; add-ons
               </button>
               <button
@@ -551,226 +667,231 @@ export function BookingPreferencesScreen({
                       kind: 'milestone',
                       message: `Your service menu is ready. ${selectedServices.length} ${selectedServices.length === 1 ? 'service' : 'services'} added.`,
                       onceKey: 'service_menu_ready',
+                      visual: false,
                     });
                   }
+                  setErrors((current) => ({ ...current, services: '' }));
+                  revealTask('clients');
                 }}
               >
-                Continue with these {selectedServices.length} {selectedServices.length === 1 ? 'service' : 'services'}
+                Use these {selectedServices.length} {selectedServices.length === 1 ? 'service' : 'services'}
               </button>
             </div>
-            {profile.serviceMenu.reviewed
-              ? <p role="status">Service menu reviewed. You can change it anytime.</p>
-              : null}
-          </section>
-          <label className="onboarding-select-field">
-            <span id={`${formId}-minimum-notice-label`}>
-              How much notice do you need before an appointment?
-            </span>
-            <select
-              aria-describedby={`${formId}-minimum-notice-hint`}
-              aria-labelledby={`${formId}-minimum-notice-label`}
-              value={noticeChoice}
-              onChange={(event) => {
-                const choice = event.target.value as MinimumNoticeChoice;
-                if (choice === 'custom') {
-                  setEditingCustomNotice(true);
-                  setErrors((current) => ({ ...current, customNoticeAmount: '' }));
-                  return;
-                }
-                setEditingCustomNotice(false);
-                setErrors((current) => ({ ...current, customNoticeAmount: '' }));
-                onBookingPreferencesChange({
-                  minimumNoticeMinutes: Number(choice.replace('preset:', '')),
-                });
+            <p className="onboarding-booking-later-note"><LockKeyhole aria-hidden="true" size={13} /> You can change prices, durations, photos, options and add-ons later.</p>
+            {errors.services ? <p className="onboarding-field-error" role="alert">{errors.services}</p> : null}
+          </BookingTaskCard>
+
+          <BookingTaskCard
+            complete={clientsComplete}
+            description="Choose how you currently accept clients."
+            id="clients"
+            number={2}
+            open={openTask === 'clients'}
+            summary={clientsSummary}
+            title="Clients"
+            onToggle={() => setOpenTask((current) => current === 'clients' ? null : 'clients')}
+          >
+            <ChoiceGroup
+              error={errors.visitMode}
+              legend="How do you accept clients?"
+              name="visit-mode"
+              options={VISIT_MODES}
+              value={preferences.visitMode}
+              onChange={(visitMode) => {
+                setErrors((current) => ({ ...current, visitMode: '' }));
+                onBookingPreferencesChange({ visitMode });
+                if (preferences.newClientStatus) revealTask('notice');
               }}
-            >
-              {minimumNoticeOptions.map(([value, label]) => (
-                <option key={value} value={value}>{label}</option>
-              ))}
-            </select>
-            <small className="onboarding-field__hint" id={`${formId}-minimum-notice-hint`}>
-              {minimumNoticeCopy.helper}
-            </small>
-          </label>
-          {noticeChoice === 'custom' ? (
-            <div className="onboarding-inline-fields">
-              <TextField
-                error={errors.customNoticeAmount}
-                inputMode="decimal"
-                label="Custom amount"
-                min="0"
-                type="number"
-                value={customNoticeAmount}
+            />
+            <ChoiceGroup
+              error={errors.newClientStatus}
+              legend="Are you accepting new clients?"
+              name="new-client-status"
+              options={NEW_CLIENT_STATUSES}
+              value={preferences.newClientStatus}
+              onChange={(newClientStatus) => {
+                setErrors((current) => ({ ...current, newClientStatus: '' }));
+                onBookingPreferencesChange({ newClientStatus });
+                if (preferences.visitMode) revealTask('notice');
+              }}
+            />
+          </BookingTaskCard>
+
+          <BookingTaskCard
+            complete={noticeComplete}
+            description="Choose how far ahead clients need to book."
+            id="notice"
+            number={3}
+            open={openTask === 'notice'}
+            summary={formatMinimumNoticeDuration(preferences.minimumNoticeMinutes)}
+            title="Booking notice"
+            onToggle={() => setOpenTask((current) => current === 'notice' ? null : 'notice')}
+          >
+            <label className="onboarding-select-field">
+              <span id={`${formId}-minimum-notice-label`}>How much notice do you need before an appointment?</span>
+              <select
+                aria-describedby={`${formId}-minimum-notice-hint`}
+                aria-labelledby={`${formId}-minimum-notice-label`}
+                value={noticeChoice}
                 onChange={(event) => {
-                  const amount = event.target.value;
-                  setCustomNoticeAmount(amount);
-                  const minimumNoticeMinutes =
-                    bookingPreferencesPort.normalizeCustomMinimumNotice(
-                      amount,
-                      customNoticeUnit,
-                    );
-                  setErrors((current) => ({
-                    ...current,
-                    customNoticeAmount: minimumNoticeMinutes === null
-                      ? current.customNoticeAmount ?? ''
-                      : '',
-                  }));
-                  if (minimumNoticeMinutes !== null) {
-                    onBookingPreferencesChange({ minimumNoticeMinutes });
+                  const choice = event.target.value as MinimumNoticeChoice;
+                  if (choice === 'custom') {
+                    setEditingCustomNotice(true);
+                    setErrors((current) => ({ ...current, customNoticeAmount: '' }));
+                    return;
                   }
+                  setEditingCustomNotice(false);
+                  setErrors((current) => ({ ...current, customNoticeAmount: '' }));
+                  onBookingPreferencesChange({ minimumNoticeMinutes: Number(choice.replace('preset:', '')) });
+                  revealTask('deposits');
                 }}
-              />
-              <label className="onboarding-select-field">
-                <span>Unit</span>
-                <select
-                  value={customNoticeUnit}
-                  onChange={(event) => {
-                    const unit = event.target.value as MinimumNoticeUnit;
-                    setCustomNoticeUnit(unit);
-                    const minimumNoticeMinutes =
-                      bookingPreferencesPort.normalizeCustomMinimumNotice(
-                        customNoticeAmount,
-                        unit,
-                      );
-                    if (minimumNoticeMinutes !== null) {
-                      setErrors((current) => ({ ...current, customNoticeAmount: '' }));
-                      onBookingPreferencesChange({ minimumNoticeMinutes });
-                    }
-                  }}
-                >
-                  <option value="hours">Hours</option>
-                  <option value="days">Days</option>
-                </select>
-              </label>
-            </div>
-          ) : null}
-          <ChoiceGroup
-            legend="How do you handle booking deposits?"
-            name="deposit-policy-mode"
-            options={DEPOSIT_MODE_OPTIONS}
-            value={getDepositPolicyMode(profile.policies)}
-            onChange={(mode) => {
-              setErrors((current) => ({ ...current, customDepositAmount: '' }));
-              onDepositChange(
-                bookingPreferencesPort.updateDepositDraft(
-                  profile.policies.deposits,
-                  {
-                    amountCents: mode === 'fixed'
-                      ? profile.policies.deposits.amountCents ?? 2_000
-                      : null,
-                    mode,
-                  },
-                ),
-              );
-            }}
-          />
-          {profile.policies.deposits.mode === 'fixed' ? (
-            <fieldset className="onboarding-choice-group">
-              <legend>Deposit amount</legend>
-              <div className="onboarding-choice-group__options">
-                {(Object.entries(DEPOSIT_AMOUNT_LABELS) as Array<[
-                  DepositAmountChoice,
-                  string,
-                ]>).map(([value, label]) => (
-                  <label className="onboarding-choice" key={value}>
-                    <input
-                      checked={depositAmountChoice === value}
-                      name="deposit-amount"
-                      type="radio"
-                      value={value}
-                      onChange={() => {
-                        if (value === 'custom') {
-                          setEditingCustomDeposit(true);
-                          setErrors((current) => ({ ...current, customDepositAmount: '' }));
-                          return;
-                        }
-                        setEditingCustomDeposit(false);
-                        setErrors((current) => ({ ...current, customDepositAmount: '' }));
-                        onDepositChange(bookingPreferencesPort.updateDepositDraft(
-                          profile.policies.deposits,
-                          { amountCents: Number(value.replace('preset:', '')) },
-                        ));
-                      }}
-                    />
-                    <span><strong>{label}</strong></span>
-                  </label>
-                ))}
-              </div>
-              {depositAmountChoice === 'custom' ? (
+              >
+                {minimumNoticeOptions.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+              </select>
+              <small className="onboarding-field__hint" id={`${formId}-minimum-notice-hint`}>
+                {preferences.minimumNoticeMinutes === 0
+                  ? 'Clients can book any available appointment without a minimum advance notice.'
+                  : minimumNoticeCopy.helper}
+              </small>
+            </label>
+            {noticeChoice === 'custom' ? (
+              <div className="onboarding-inline-fields">
                 <TextField
-                  error={errors.customDepositAmount}
+                  error={errors.customNoticeAmount}
                   inputMode="decimal"
-                  label="Custom deposit amount"
+                  label="Amount"
                   min="0"
-                  step="0.01"
                   type="number"
-                  value={customDepositAmount}
+                  value={customNoticeAmount}
                   onChange={(event) => {
                     const amount = event.target.value;
-                    setCustomDepositAmount(amount);
-                    const amountCents =
-                      bookingPreferencesPort.normalizeCustomDepositAmount(amount);
-                    setErrors((current) => ({
-                      ...current,
-                      customDepositAmount: amountCents === null
-                        ? current.customDepositAmount ?? ''
-                        : '',
-                    }));
-                    if (amountCents !== null) {
-                      onDepositChange(bookingPreferencesPort.updateDepositDraft(
-                        profile.policies.deposits,
-                        { amountCents },
-                      ));
-                    }
+                    setCustomNoticeAmount(amount);
+                    const minimumNoticeMinutes = bookingPreferencesPort.normalizeCustomMinimumNotice(amount, customNoticeUnit);
+                    setErrors((current) => ({ ...current, customNoticeAmount: minimumNoticeMinutes === null ? current.customNoticeAmount ?? '' : '' }));
+                    if (minimumNoticeMinutes !== null) onBookingPreferencesChange({ minimumNoticeMinutes });
                   }}
                 />
-              ) : null}
-            </fieldset>
-          ) : null}
-        </form>
-        <div className="onboarding-booking-preview-column">
-          <aside aria-label="Booking connection status" className="onboarding-booking-status-card">
-            <h2>Your Booking settings are connected</h2>
-            <dl>
-              <div><dt>Services</dt><dd>{selectedServices.length} selected</dd></div>
-              <div><dt>Prices and durations</dt><dd>{selectedServices.length > 0 ? 'Ready' : 'Choose services'}</dd></div>
-              <div><dt>Minimum notice</dt><dd>{formatMinimumNoticeDuration(preferences.minimumNoticeMinutes)}</dd></div>
-              <div><dt>Deposits</dt><dd>{profile.policies.deposits.mode === 'fixed'
-                ? profile.policies.deposits.amountCents === null
-                  ? 'Fixed amount to finish'
-                  : `$${profile.policies.deposits.amountCents / 100} for every service`
-                : 'No deposit'}</dd></div>
-            </dl>
-            <p className="onboarding-booking-status-card__notice">{minimumNoticeCopy.helper}</p>
-            <p>Your customer preview updates as you make these choices.</p>
-          </aside>
-          <aside aria-label="Customer booking information preview" className="onboarding-booking-info-preview">
-            {visitModeLabel ? <strong>{visitModeLabel}</strong> : null}
-            {acceptingLabel ? <span>{acceptingLabel}</span> : null}
-            <div className="onboarding-booking-notice-preview">
-              <small>Minimum booking notice</small>
-              <strong>{minimumNoticeCopy.customer}</strong>
-            </div>
-            {selectedService ? (
-              <div className="onboarding-booking-info-preview__service">
-                <small>First service</small>
-                <strong>{selectedService.name}</strong>
-                <span>
-                  {selectedService.durationLabel}
-                  {' · '}
-                  {selectedService.priceLabel}
-                </span>
+                <label className="onboarding-select-field">
+                  <span>Unit</span>
+                  <select
+                    value={customNoticeUnit}
+                    onChange={(event) => {
+                      const unit = event.target.value as MinimumNoticeUnit;
+                      setCustomNoticeUnit(unit);
+                      const minimumNoticeMinutes = bookingPreferencesPort.normalizeCustomMinimumNotice(customNoticeAmount, unit);
+                      if (minimumNoticeMinutes !== null) {
+                        setErrors((current) => ({ ...current, customNoticeAmount: '' }));
+                        onBookingPreferencesChange({ minimumNoticeMinutes });
+                      }
+                    }}
+                  >
+                    <option value="hours">Hours</option>
+                    <option value="days">Days</option>
+                  </select>
+                </label>
               </div>
             ) : null}
-          </aside>
-        </div>
-      </div>
-      <StickyOnboardingActions
-        formId={formId}
-        onBack={onBack}
-        primaryLabel={copy.primaryAction}
-      />
+          </BookingTaskCard>
+
+          <BookingTaskCard
+            complete={depositComplete}
+            description="Choose whether clients pay something when they book."
+            id="deposits"
+            number={4}
+            open={openTask === 'deposits'}
+            summary={depositSummary}
+            title="Deposits"
+            onToggle={() => setOpenTask((current) => current === 'deposits' ? null : 'deposits')}
+          >
+            <ChoiceGroup
+              legend="How do you handle booking deposits?"
+              name="deposit-policy-mode"
+              options={DEPOSIT_MODE_OPTIONS}
+              value={depositMode}
+              onChange={(mode) => {
+                setErrors((current) => ({ ...current, customDepositAmount: '' }));
+                onDepositChange(bookingPreferencesPort.updateDepositDraft(profile.policies.deposits, {
+                  amountCents: mode === 'fixed' ? profile.policies.deposits.amountCents : null,
+                  mode,
+                }));
+                if (mode === 'none') finishLastTask();
+              }}
+            />
+            {profile.policies.deposits.mode === 'fixed' ? (
+              <>
+                <fieldset className="onboarding-choice-group onboarding-deposit-amounts">
+                  <legend>Deposit amount</legend>
+                  <div className="onboarding-choice-group__options">
+                    {(Object.entries(DEPOSIT_AMOUNT_LABELS) as Array<[DepositAmountChoice, string]>).map(([value, label]) => (
+                      <label className="onboarding-choice" key={value}>
+                        <input
+                          checked={depositAmountChoice === value}
+                          name="deposit-amount"
+                          type="radio"
+                          value={value}
+                          onChange={() => {
+                            if (value === 'custom') {
+                              setEditingCustomDeposit(true);
+                              setErrors((current) => ({ ...current, customDepositAmount: '' }));
+                              return;
+                            }
+                            setEditingCustomDeposit(false);
+                            setErrors((current) => ({ ...current, customDepositAmount: '' }));
+                            onDepositChange(bookingPreferencesPort.updateDepositDraft(profile.policies.deposits, { amountCents: Number(value.replace('preset:', '')) }));
+                            finishLastTask();
+                          }}
+                        />
+                        <span><strong>{label === 'Custom amount' ? 'Custom' : label}</strong></span>
+                      </label>
+                    ))}
+                  </div>
+                  {depositAmountChoice === 'custom' ? (
+                    <TextField
+                      error={errors.customDepositAmount}
+                      inputMode="decimal"
+                      label="Custom deposit amount"
+                      min="0"
+                      step="0.01"
+                      type="number"
+                      value={customDepositAmount}
+                      onChange={(event) => {
+                        const amount = event.target.value;
+                        setCustomDepositAmount(amount);
+                        const amountCents = bookingPreferencesPort.normalizeCustomDepositAmount(amount);
+                        setErrors((current) => ({ ...current, customDepositAmount: amountCents === null ? current.customDepositAmount ?? '' : '' }));
+                        if (amountCents !== null) onDepositChange(bookingPreferencesPort.updateDepositDraft(profile.policies.deposits, { amountCents }));
+                      }}
+                    />
+                  ) : null}
+                </fieldset>
+                {profile.policies.deposits.amountCents ? <p className="onboarding-booking-confirmation"><Check aria-hidden="true" size={15} /> Clients will pay a ${profile.policies.deposits.amountCents / 100} deposit when booking.</p> : null}
+                <aside className="onboarding-booking-guidance is-payments">
+                  <Info aria-hidden="true" size={18} />
+                  <div><strong>PAYMENTS LATER</strong><p>You’ll connect payments after setup. We’ll guide you through it before you start collecting deposits.</p></div>
+                </aside>
+              </>
+            ) : <p className="onboarding-booking-confirmation"><Check aria-hidden="true" size={15} /> Clients book without paying a deposit.</p>}
+          </BookingTaskCard>
+
+          {allTasksComplete ? (
+            <section className="onboarding-booking-ready" aria-labelledby="booking-ready-heading">
+              <h2 id="booking-ready-heading"><Check aria-hidden="true" size={19} /> Your booking setup is ready</h2>
+              <dl>
+                <div><dt>Clients</dt><dd>{clientsSummary}</dd><Check aria-hidden="true" size={15} /></div>
+                <div><dt>Services</dt><dd>{servicesSummary}</dd><Check aria-hidden="true" size={15} /></div>
+                <div><dt>Booking notice</dt><dd>{formatMinimumNoticeDuration(preferences.minimumNoticeMinutes)}</dd><Check aria-hidden="true" size={15} /></div>
+                <div><dt>Deposits</dt><dd>{depositSummary}</dd><Check aria-hidden="true" size={15} /></div>
+              </dl>
+            </section>
+          ) : null}
+      </form>
+      <footer aria-label="Onboarding actions" className="sticky-onboarding-actions onboarding-booking-actions is-primary-first">
+        <button className="sticky-onboarding-actions__back" type="button" onClick={onBack}>Back</button>
+        <button className="sticky-onboarding-actions__primary" form={formId} type="submit">Save and continue</button>
+        <p className="onboarding-booking-dashboard-note"><LockKeyhole aria-hidden="true" size={13} /> You can change any of this later in your dashboard.</p>
+      </footer>
       <ServiceLibraryDialog
+        initialTab={serviceLibraryTab}
         onClose={() => setServiceLibraryOpen(false)}
         onServiceMenuChange={onServiceMenuChange}
         open={serviceLibraryOpen}

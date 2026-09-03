@@ -59,11 +59,11 @@ export const SCREEN_METADATA: Record<OnboardingScreenId, OnboardingScreenMetadat
     supportingCopy: 'Your information stays the same when you switch designs.',
   },
   booking_preferences: {
-    heading: 'How do clients book with you?',
-    primaryAction: 'Save booking setup',
+    heading: 'Let’s get you ready to take bookings',
+    primaryAction: 'Save and continue',
     stage: 'booking',
     status: 'essential',
-    supportingCopy: 'We’ll use these settings on your website and when showing available appointments.',
+    supportingCopy: 'Choose what clients can book and set your basic appointment rules.',
   },
   business: {
     heading: 'Let’s start with your business',

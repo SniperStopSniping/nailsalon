@@ -134,7 +134,9 @@ export function FeedbackProvider({
         });
       }
     }
-    if (manualVisualSuppressedRef.current || dialogVisualSuppressedRef.current) return;
+    if (request.visual === false
+      || manualVisualSuppressedRef.current
+      || dialogVisualSuppressedRef.current) return;
     idRef.current += 1;
     const nextVisible = {
       id: idRef.current,

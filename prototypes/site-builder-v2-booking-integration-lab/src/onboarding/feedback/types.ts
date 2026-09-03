@@ -16,6 +16,7 @@ export type FeedbackRequest = {
   preserveOnNavigation?: boolean;
   replaceVisual?: boolean;
   targetId?: string;
+  visual?: boolean;
 };
 
 export type FeedbackController = {

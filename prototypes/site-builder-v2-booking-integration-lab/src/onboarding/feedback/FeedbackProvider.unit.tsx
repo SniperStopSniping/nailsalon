@@ -49,6 +49,11 @@ function Harness() {
         kind: 'added',
         message: 'Photo ready',
       })}>Visual only</button>
+      <button type="button" onClick={() => feedback.send({
+        kind: 'completed',
+        message: 'Starter menu confirmed.',
+        visual: false,
+      })}>Announce only</button>
       <button type="button" onClick={() => feedback.setVisualSuppressed(true)}>
         Suppress visual
       </button>
@@ -97,6 +102,17 @@ describe('FeedbackProvider', () => {
 
     expect(document.querySelectorAll('.onboarding-feedback')).toHaveLength(1);
     await waitFor(() => expect(screen.getAllByText('Russian Manicure added.')).toHaveLength(2));
+  });
+
+  it('can announce inline completion without adding a floating visual', async () => {
+    const user = userEvent.setup();
+    render(<FeedbackProvider testMode><Harness /></FeedbackProvider>);
+
+    await user.click(screen.getByRole('button', { name: 'Announce only' }));
+
+    expect(document.querySelector('.onboarding-feedback')).toBeNull();
+    await waitFor(() => expect(document.querySelector('.visually-hidden[role="status"]'))
+      .toHaveTextContent('Starter menu confirmed.'));
   });
 
   it('honours one-time milestone keys without delaying the triggering action', async () => {
