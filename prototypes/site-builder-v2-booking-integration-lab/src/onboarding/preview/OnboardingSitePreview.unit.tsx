@@ -259,7 +259,7 @@ describe('OnboardingSitePreview shared profile composition', () => {
     expect(within(profile).getByRole('link', { name: /880 Ellesmere Rd, Unit 2/u }))
       .toHaveAttribute('href', expect.stringContaining('880%20Ellesmere'));
     expect(within(profile).getByText('Inside TB Nails · Back entrance')).toBeVisible();
-    expect(within(profile).getByText('Open today')).toBeVisible();
+    expect(within(profile).getByText('Open now')).toBeVisible();
     expect(within(profile).getByRole('link', { name: /\(647\) 123-4567/u }))
       .toHaveAttribute('href', 'tel:6471234567');
     expect(within(profile).getByRole('link', { name: /hello@islanails\.com/u }))
@@ -1011,6 +1011,12 @@ describe('OnboardingSitePreview shared profile composition', () => {
       showTechName: false,
       showTechPhoto: false,
     };
+    state.profile.about.visibility.instagram = false;
+    state.profile.about.visibility.owner_name = false;
+    state.profile.about.visibility.profile_photo = false;
+    state.profile.location.cityOrArea = '';
+    state.profile.location.exactAddress = '';
+    state.profile.hours.showOnSite = false;
     const document = initializeStarter('quick_book');
     const page = document.pages[0]!;
     const heroId = sectionOn(page, 'hero').id;
@@ -1770,6 +1776,20 @@ describe('OnboardingSitePreview shared profile composition', () => {
     expect(frame.inert).toBe(false);
     expect(frame).toHaveAttribute('tabindex', '0');
     expect(customerSurface.inert).toBe(false);
+
+    view.rerender(
+      <OnboardingSitePreview
+        device={device}
+        document={initializeStarter('multi_page')}
+        interactionMode="scrollable"
+        label={`${device} inline preview`}
+        state={state}
+      />,
+    );
+    expect(frame.inert).toBe(false);
+    expect(frame).toHaveAttribute('tabindex', '0');
+    expect(customerSurface.inert).toBe(true);
+    expect(stage).toHaveAccessibleDescription(expect.stringContaining('Swipe or scroll'));
   });
 
   it('recomputes each device from one stable unscaled host without ratcheting', async () => {
@@ -2075,6 +2095,7 @@ describe('OnboardingSitePreview shared profile composition', () => {
     state.recipe.quickBookProfile.showLocation = true;
     state.recipe.quickBookProfile.showPhone = true;
     state.recipe.quickBookProfile.showInstagram = false;
+    state.profile.about.visibility.instagram = false;
     state.profile.location.exactAddress = '123 Example Avenue';
     state.profile.bookingOnlyContact = true;
     state.profile.clientContact.primaryNumber = '416-555-0100';

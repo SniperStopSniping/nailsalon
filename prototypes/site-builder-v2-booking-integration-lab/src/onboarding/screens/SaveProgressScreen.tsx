@@ -56,15 +56,15 @@ export function SaveProgressScreen({
         <div
           aria-label={`${state.profile.businessName || 'Your site'} preview in ${getSiteStyleLabel(state.recipe.stylePreset)} with ${palette.label}`}
           className="onboarding-save-progress__preview"
-          ref={(element) => { if (element) element.inert = true; }}
         >
           <OnboardingSitePreview
             document={document}
             fitAvailable
-            interactionMode="inline"
+            interactionMode="scrollable"
             label="Your personalized website preview"
             state={state}
           />
+          <span aria-hidden="true" className="onboarding-save-progress__swipe-hint">Swipe to explore</span>
         </div>
       </section>
 

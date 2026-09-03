@@ -417,6 +417,7 @@ const previewFor = (
   <OnboardingSitePreview
     document={document}
     includeOptionalSections={false}
+    interactionMode="scrollable"
     label={label}
     state={state}
   />

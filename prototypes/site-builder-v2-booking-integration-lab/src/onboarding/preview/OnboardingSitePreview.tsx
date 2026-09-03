@@ -103,7 +103,7 @@ import {
 
 export type OnboardingPreviewDevice = 'phone' | 'tablet' | 'desktop';
 export type OnboardingPreviewInitialTarget = 'top' | 'about';
-export type OnboardingPreviewInteractionMode = 'inline' | 'interactive';
+export type OnboardingPreviewInteractionMode = 'inline' | 'interactive' | 'scrollable';
 export type OnboardingPreviewOverlayMode = 'contained' | 'page';
 
 type PreviewBounds = {
@@ -1633,7 +1633,7 @@ export function OnboardingSitePreview({
       frameRef.current.inert = interactionMode === 'inline';
     }
     if (previewRef.current) {
-      previewRef.current.inert = interactionMode === 'inline';
+      previewRef.current.inert = interactionMode !== 'interactive';
     }
   }, [interactionMode]);
 
@@ -1848,16 +1848,17 @@ export function OnboardingSitePreview({
       <span className="visually-hidden" id={summaryId}>
         Visual preview of {title} at a {viewport.width}-pixel {device} viewport.
         {interactionMode === 'inline' ? ' Open the full preview to use customer controls.' : ''}
+        {interactionMode === 'scrollable' ? ' Swipe or scroll inside this viewport to explore the site.' : ''}
       </span>
       <div
-        aria-label={interactionMode === 'interactive' ? 'Customer website viewport' : undefined}
+        aria-label={interactionMode !== 'inline' ? 'Customer website viewport' : undefined}
         className={`onboarding-preview-frame is-${device}`}
         data-preview-device={device}
         data-preview-scroll-container="true"
         data-palette-preset={recipe.palettePreset}
         data-style-preset={recipe.stylePreset}
         ref={frameRef}
-        role={interactionMode === 'interactive' ? 'region' : undefined}
+        role={interactionMode !== 'inline' ? 'region' : undefined}
         tabIndex={interactionMode === 'inline' ? -1 : 0}
       >
       <div className="onboarding-site-preview" ref={previewRef} style={style}>
