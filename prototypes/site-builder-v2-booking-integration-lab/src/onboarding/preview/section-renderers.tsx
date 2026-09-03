@@ -57,8 +57,8 @@ import {
 } from '../model/location';
 import {
   deriveDepositsAndCancellationsSummary,
-  getDepositsAndCancellationsDisplayWording,
-  getPolicyDisplayWording,
+  getPublicDepositsAndCancellationsDisplayWording,
+  getPublicPolicyDisplayWording,
   isDepositsAndCancellationsComplete,
   isDepositsAndCancellationsVisible,
 } from '../model/policies';
@@ -516,7 +516,7 @@ function DepositsCancellations({ planSection, section, shared }: LibraryPreviewS
   const { policies } = shared.state.profile;
   // The one-line summary exists only once the deposit/cancellation rules are
   // complete; before that its helper returns owner-facing prompt copy, which
-  // must never reach a customer. Fall back to the full owner-authored wording.
+  // must never reach a customer. Full wording uses the same readiness gate.
   // The summary is also derived straight from the answers, so it has to be
   // gated on the same visibility flags the long wording honours — otherwise
   // an owner who hid this copy still sees it published.
@@ -524,7 +524,7 @@ function DepositsCancellations({ planSection, section, shared }: LibraryPreviewS
     && isDepositsAndCancellationsVisible(policies)
     && isDepositsAndCancellationsComplete(policies)
     ? deriveDepositsAndCancellationsSummary(policies)
-    : getDepositsAndCancellationsDisplayWording(policies);
+    : getPublicDepositsAndCancellationsDisplayWording(policies);
   if (!wording.trim()) return null;
   return (
     <section
@@ -575,7 +575,7 @@ export const getBeforeYouBookEntries = (
     ? (
         isDepositsAndCancellationsComplete(policies)
           ? deriveDepositsAndCancellationsSummary(policies)
-          : getDepositsAndCancellationsDisplayWording(policies)
+          : getPublicDepositsAndCancellationsDisplayWording(policies)
       ).trim()
     : '';
   const entries: BeforeYouBookEntry[] = depositsAndCancellations
@@ -589,7 +589,7 @@ export const getBeforeYouBookEntries = (
 
   includedSections.forEach((toggleId) => {
     const sectionId = POLICY_TOGGLE_TO_SECTION[toggleId];
-    const wording = getPolicyDisplayWording(policies, sectionId).trim();
+    const wording = getPublicPolicyDisplayWording(policies, sectionId).trim();
     if (!wording) return;
     entries.push({
       contentKey: 'before_you_book_policies',

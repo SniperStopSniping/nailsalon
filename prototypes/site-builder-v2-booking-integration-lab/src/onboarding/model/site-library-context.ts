@@ -23,8 +23,8 @@ import { getPublicWeeklyHours, hasCompleteWeeklyHours } from './hours';
 import { getPublicLocationPreview } from './location';
 import {
   deriveDepositsAndCancellationsSummary,
-  getDepositsAndCancellationsDisplayWording,
-  getPolicyDisplayWording,
+  getPublicDepositsAndCancellationsDisplayWording,
+  getPublicPolicyDisplayWording,
   hasMeaningfulPublishablePolicies,
   isDepositsAndCancellationsComplete,
   isDepositsAndCancellationsVisible,
@@ -70,7 +70,7 @@ export const deriveSiteLibraryContextFromProfile = (input: {
    * question that section never asks.
    */
   const availablePolicyTopics: PolicyToggleId[] = POLICY_TOGGLE_IDS.filter(
-    topic => getPolicyDisplayWording(profile.policies, topic).trim().length > 0,
+    topic => getPublicPolicyDisplayWording(profile.policies, topic).trim().length > 0,
   );
 
   /*
@@ -104,7 +104,7 @@ export const deriveSiteLibraryContextFromProfile = (input: {
     bookingOnlyContact: profile.bookingOnlyContact,
     availableQuickFacts,
     depositsSummaryPublishable,
-    depositsWordingPublishable: getDepositsAndCancellationsDisplayWording(profile.policies)
+    depositsWordingPublishable: getPublicDepositsAndCancellationsDisplayWording(profile.policies)
       .trim().length > 0,
     businessStructure: profile.businessStructure,
     canonicalServiceIds: [...selectedServiceIds],

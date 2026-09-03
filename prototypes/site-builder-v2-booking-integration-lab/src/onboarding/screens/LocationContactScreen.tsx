@@ -1,5 +1,7 @@
 import { useId, useRef, useState, type FormEvent } from 'react';
 
+import { useMediaQuery } from '../../ui/StarterChooser';
+
 import {
   getAvailableContactMethods,
   getCoherentPreferredContact,
@@ -27,7 +29,9 @@ import '../location-contact-screen.css';
 type ProfilePatch = Partial<BusinessProfileDraft>;
 
 type LocationContactScreenProps = {
+  contactSetupConfirmed?: boolean;
   onBack: () => void;
+  onContactConfirmed?: () => void;
   onContinue: () => void;
   onProfileChange: (patch: ProfilePatch) => void;
   onValidationFailure?: (fieldIds: string[]) => void;
@@ -86,8 +90,19 @@ const addressVisibilitySummary = (
     ? 'Address after booking'
     : 'City only';
 
+const hasCompleteLocation = (profile: BusinessProfileDraft): boolean =>
+  profile.businessType === 'mobile'
+    ? Boolean(profile.location.cityOrArea.trim())
+    : Boolean(
+        profile.location.cityOrArea.trim()
+        && profile.location.exactAddress.trim()
+        && profile.location.addressVisibility,
+      );
+
 export function LocationContactScreen({
+  contactSetupConfirmed = false,
   onBack,
+  onContactConfirmed,
   onContinue,
   onProfileChange,
   onValidationFailure,
@@ -95,9 +110,14 @@ export function LocationContactScreen({
 }: LocationContactScreenProps) {
   const formId = useId();
   const formRef = useRef<HTMLFormElement>(null);
-  const [openCard, setOpenCard] = useState<CardId | null>('location');
+  const isShortPhone = useMediaQuery('(max-width: 479px) and (max-height: 700px)');
+  const [openCard, setOpenCard] = useState<CardId | null>(() =>
+    isShortPhone && hasCompleteLocation(profile) ? null : 'location');
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [editingInstagram, setEditingInstagram] = useState(false);
+  const [contactConfirmed, setContactConfirmed] = useState(
+    contactSetupConfirmed || !profile.bookingOnlyContact,
+  );
   const mobileBusiness = profile.businessType === 'mobile';
   const instagram = resolveInstagramUsername(profile.instagram);
   const instagramError = getInstagramInputError(profile.instagram);
@@ -115,16 +135,11 @@ export function LocationContactScreen({
   const hasPreferredContact = profile.preferredContact
     ? availableMethods.includes(profile.preferredContact)
     : false;
-  const contactComplete = profile.bookingOnlyContact || (
+  const contactValid = profile.bookingOnlyContact || (
     availableMethods.length === 1 || hasPreferredContact
   );
-  const locationComplete = mobileBusiness
-    ? Boolean(profile.location.cityOrArea.trim())
-    : Boolean(
-        profile.location.cityOrArea.trim()
-        && profile.location.exactAddress.trim()
-        && profile.location.addressVisibility,
-      );
+  const contactComplete = contactConfirmed && contactValid;
+  const locationComplete = hasCompleteLocation(profile);
   const arrivalComplete = Boolean(
     profile.location.parking.trim()
     || profile.location.entranceInstructions.trim()
@@ -154,13 +169,15 @@ export function LocationContactScreen({
         : profile.preferredContact === 'email'
           ? profile.email.trim()
           : '';
-  const contactSummary = profile.bookingOnlyContact
-    ? 'Online booking only'
-    : contactComplete && preferredLabel
-      ? `${preferredLabel} preferred${preferredDetail ? ` · ${preferredDetail}` : ''}`
-      : availableMethods.length === 1
-        ? `${CONTACT_METHODS.find(({ value }) => value === availableMethods[0])?.label} added`
-        : 'Choose how clients can reach you';
+  const contactSummary = !contactConfirmed
+    ? 'Add phone or email, or use online booking only'
+    : profile.bookingOnlyContact
+      ? 'Online booking only'
+      : contactComplete && preferredLabel
+        ? `${preferredLabel} preferred${preferredDetail ? ` · ${preferredDetail}` : ''}`
+        : availableMethods.length === 1
+          ? `${CONTACT_METHODS.find(({ value }) => value === availableMethods[0])?.label} added`
+          : 'Choose how clients can reach you';
 
   const revealError = (fieldId: string) => {
     const card: CardId = fieldId === 'contact'
@@ -201,7 +218,9 @@ export function LocationContactScreen({
     }
     if (instagramError) nextErrors.instagram = instagramError;
     if (emailError) nextErrors.email = emailError;
-    if (!profile.bookingOnlyContact && availableMethods.length === 0) {
+    if (!contactConfirmed) {
+      nextErrors.contact = 'Choose online booking only or add a direct contact method.';
+    } else if (!profile.bookingOnlyContact && availableMethods.length === 0) {
       nextErrors.contact = 'Add at least one usable contact method or choose Online booking only.';
     } else if (!profile.bookingOnlyContact
       && availableMethods.length > 1
@@ -222,6 +241,8 @@ export function LocationContactScreen({
   };
 
   const selectContactMode = (bookingOnlyContact: boolean) => {
+    setContactConfirmed(true);
+    onContactConfirmed?.();
     setErrors((current) => ({
       ...current,
       contact: '',
@@ -249,6 +270,7 @@ export function LocationContactScreen({
       <form id={formId} noValidate ref={formRef} onSubmit={submit}>
         <ValidationSummary errors={errors} onSelectError={revealError} />
         <CollapsibleFormCard
+          collapsedActionLabel="Edit"
           completed={locationComplete}
           errorCount={[errors.cityOrArea, errors.exactAddress].filter(Boolean).length}
           id="onboarding-location-card"
@@ -333,9 +355,22 @@ export function LocationContactScreen({
               Your customer site and map will show your service area, not a salon address.
             </p>
           )}
+          {isShortPhone
+            ? (
+                <button
+                  className="onboarding-location-contact-v2__done"
+                  disabled={!locationComplete}
+                  type="button"
+                  onClick={() => setOpenCard(null)}
+                >
+                  Done editing location
+                </button>
+              )
+            : null}
         </CollapsibleFormCard>
 
         <CollapsibleFormCard
+          collapsedActionLabel={contactConfirmed ? 'Edit' : 'Choose'}
           completed={contactComplete && !instagramError && !emailError}
           errorCount={[errors.contact, errors.email, errors.instagram, errors.preferredContact]
             .filter(Boolean).length}
@@ -349,7 +384,7 @@ export function LocationContactScreen({
             <legend>How should clients reach you?</legend>
             <label>
               <input
-                checked={profile.bookingOnlyContact}
+                checked={contactConfirmed && profile.bookingOnlyContact}
                 name="contact-mode"
                 type="radio"
                 onChange={() => selectContactMode(true)}
@@ -358,7 +393,7 @@ export function LocationContactScreen({
             </label>
             <label>
               <input
-                checked={!profile.bookingOnlyContact}
+                checked={contactConfirmed && !profile.bookingOnlyContact}
                 name="contact-mode"
                 type="radio"
                 onChange={() => selectContactMode(false)}

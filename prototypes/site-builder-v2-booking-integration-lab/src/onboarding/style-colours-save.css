@@ -1,10 +1,6 @@
 .onboarding-screen--style {
   align-items: start;
-}
-
-.onboarding-screen--style .onboarding-screen-heading h1:focus,
-.onboarding-save-progress__heading h1:focus {
-  outline: none;
+  padding-bottom: calc(144px + env(safe-area-inset-bottom));
 }
 
 .onboarding-style-choice,

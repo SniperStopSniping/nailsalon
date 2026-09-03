@@ -463,6 +463,23 @@ export const getDepositsAndCancellationsDisplayWording = (
 };
 
 /**
+ * Customer policy presentation waits for all required answers. Draft editors
+ * and the transactional Booking deposit disclosure retain their own wording.
+ */
+export const getPublicPolicyDisplayWording = (
+  policies: PoliciesDraft,
+  sectionId: PolicySectionId,
+): string => isPolicySectionComplete(policies, sectionId)
+  ? getPolicyDisplayWording(policies, sectionId)
+  : '';
+
+export const getPublicDepositsAndCancellationsDisplayWording = (
+  policies: PoliciesDraft,
+): string => isDepositsAndCancellationsComplete(policies)
+  ? getDepositsAndCancellationsDisplayWording(policies)
+  : '';
+
+/**
  * Whether Save policies has at least one visible, customer-ready policy to
  * publish. The master recipe flag deliberately is not part of this decision:
  * saving meaningful content is what may turn that one existing flag back on.

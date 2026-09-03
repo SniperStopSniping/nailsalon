@@ -12,12 +12,10 @@ import {
 
 import { useFeedback } from '../feedback/useFeedback';
 
-export const focusAndRevealControl = (
+const revealControlWithinOnboardingChrome = (
   target: HTMLElement,
   targetGroup: HTMLElement = target,
-  summary?: HTMLElement | null,
 ): void => {
-  target.focus({ preventScroll: true });
   const headerBottom = [
     document.querySelector<HTMLElement>('.onboarding-shell__header'),
     document.querySelector<HTMLElement>('.onboarding-shell__progress'),
@@ -28,45 +26,40 @@ export const focusAndRevealControl = (
   const stickyActionsTop = document
     .querySelector<HTMLElement>('.sticky-onboarding-actions')
     ?.getBoundingClientRect().top;
+  const visualViewportTop = window.visualViewport?.offsetTop ?? 0;
   const viewportBottom = Math.min(
-    window.visualViewport?.height ?? window.innerHeight,
+    visualViewportTop + (window.visualViewport?.height ?? window.innerHeight),
     stickyActionsTop && stickyActionsTop > 0
       ? stickyActionsTop
       : Number.POSITIVE_INFINITY,
   );
-  const safeTop = headerBottom + 8;
-  const safeBottom = viewportBottom - 8;
-
-  if (summary) {
-    summary.classList.add('is-revealed');
-    summary.style.setProperty(
-      '--onboarding-validation-sticky-top',
-      `${safeTop}px`,
-    );
-  }
+  const safeTop = Math.max(headerBottom, visualViewportTop) + 12;
+  const safeBottom = viewportBottom - 12;
 
   targetGroup.scrollIntoView?.({ block: 'center', inline: 'nearest' });
 
-  let targetRect = target.getBoundingClientRect();
-  if (targetRect.width === 0 && targetRect.height === 0) return;
-  let summaryRect = summary?.getBoundingClientRect();
-
-  if (summaryRect && summaryRect.top < safeTop) {
-    window.scrollBy({ behavior: 'auto', top: summaryRect.top - safeTop });
-    summaryRect = summary?.getBoundingClientRect() ?? summaryRect;
-    targetRect = target.getBoundingClientRect();
+  const targetRect = target.getBoundingClientRect();
+  if (targetRect.width === 0 && targetRect.height === 0) {
+    return;
   }
-
-  const targetSafeTop = summaryRect
-    && summaryRect.top >= safeTop - 1
-    && summaryRect.bottom < safeBottom
-    ? summaryRect.bottom + 8
-    : safeTop;
 
   if (targetRect.bottom > safeBottom) {
     window.scrollBy({ behavior: 'auto', top: targetRect.bottom - safeBottom });
-  } else if (targetRect.top < targetSafeTop) {
-    window.scrollBy({ behavior: 'auto', top: targetRect.top - targetSafeTop });
+  } else if (targetRect.top < safeTop) {
+    window.scrollBy({ behavior: 'auto', top: targetRect.top - safeTop });
+  }
+};
+
+export const focusAndRevealControl = (
+  target: HTMLElement,
+  targetGroup: HTMLElement = target,
+  summary?: HTMLElement | null,
+): void => {
+  target.focus({ preventScroll: true });
+  revealControlWithinOnboardingChrome(target, targetGroup);
+
+  if (summary) {
+    summary.classList.add('is-revealed');
   }
 };
 
@@ -83,7 +76,6 @@ export const focusFirstInvalidControl = (root: Element): void => {
       '.onboarding-field, .onboarding-choice-group, .onboarding-contact-uses, [aria-invalid="true"]',
     ) ?? invalid;
     const summary = root.querySelector<HTMLElement>('.onboarding-validation-summary');
-    summary?.scrollIntoView?.({ block: 'start', inline: 'nearest' });
     focusAndRevealControl(target, invalidGroup, summary);
   });
 };
@@ -289,6 +281,7 @@ export function NativeSwitch({
 
 type CollapsibleFormCardProps = {
   children: ReactNode;
+  collapsedActionLabel?: string;
   completed?: boolean;
   errorCount?: number;
   id: string;
@@ -301,6 +294,7 @@ type CollapsibleFormCardProps = {
 
 export function CollapsibleFormCard({
   children,
+  collapsedActionLabel,
   completed = false,
   errorCount = 0,
   id,
@@ -325,6 +319,8 @@ export function CollapsibleFormCard({
         ? 'Finish'
         : 'Set up';
   const previousStatusRef = useRef(resolvedStatus);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const wasOpenRef = useRef(open);
 
   useEffect(() => {
     if (previousStatusRef.current !== 'complete' && resolvedStatus === 'complete') {
@@ -337,12 +333,27 @@ export function CollapsibleFormCard({
     previousStatusRef.current = resolvedStatus;
   }, [feedback, id, resolvedStatus, title]);
 
+  useEffect(() => {
+    const opened = open && !wasOpenRef.current;
+    wasOpenRef.current = open;
+    if (!opened) {
+      return;
+    }
+    const animationFrame = window.requestAnimationFrame(() => {
+      if (triggerRef.current) {
+        revealControlWithinOnboardingChrome(triggerRef.current);
+      }
+    });
+    return () => window.cancelAnimationFrame(animationFrame);
+  }, [open]);
+
   return (
     <section
       aria-invalid={errorCount > 0 ? 'true' : undefined}
       className={`onboarding-collapsible-card is-${resolvedStatus}${open ? ' is-open' : ''}${errorCount > 0 ? ' has-error' : ''}`}
     >
       <button
+        ref={triggerRef}
         aria-controls={panelId}
         aria-expanded={open}
         className="onboarding-collapsible-card__trigger"
@@ -359,6 +370,13 @@ export function CollapsibleFormCard({
               ? `${statusLabel} · ${errorCount} ${errorCount === 1 ? 'issue' : 'issues'}`
               : statusLabel}
           </span>
+          {collapsedActionLabel && !open
+            ? (
+                <span className="onboarding-collapsible-card__compact-action">
+                  {collapsedActionLabel}
+                </span>
+              )
+            : null}
           <span aria-hidden="true" className="onboarding-collapsible-card__chevron">
             {resolvedStatus === 'complete' && !open ? (
               <Check size={15} strokeWidth={2.5} />
@@ -498,6 +516,7 @@ export function ImageUploadField({
         aria-labelledby={`${id}-label`}
         className="visually-hidden"
         id={id}
+        tabIndex={-1}
         type="file"
         onChange={handleChange}
       />

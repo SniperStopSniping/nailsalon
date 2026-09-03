@@ -85,6 +85,11 @@ describe('PoliciesScreen', () => {
     expect(screen.queryByRole('combobox', {
       name: 'How late can a client be?',
     })).not.toBeInTheDocument();
+    expect(within(previewCard('No-shows')).getByText('Not ready — not shown'))
+      .toBeVisible();
+    expect(within(previewCard('Repairs')).getByText('Not ready — not shown'))
+      .toBeVisible();
+    expect(screen.queryByText('Shown on site')).not.toBeInTheDocument();
 
     await user.selectOptions(
       screen.getByLabelText('How much notice do clients need to cancel?'),

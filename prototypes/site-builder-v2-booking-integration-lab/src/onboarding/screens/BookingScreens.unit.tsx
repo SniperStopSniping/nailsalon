@@ -318,6 +318,38 @@ describe('BookingPreferencesScreen', () => {
     }
   });
 
+  it('returns the results list to the top when tabs, categories, or search results change', async () => {
+    const user = userEvent.setup();
+    render(
+      <BookingPreferencesScreen
+        profile={createDefaultBusinessProfile()}
+        onBack={vi.fn()}
+        onBookingPreferencesChange={vi.fn()}
+        onContinue={vi.fn()}
+        onDepositChange={vi.fn()}
+        onServiceMenuChange={vi.fn()}
+      />,
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Review services & add-ons' }));
+    const library = screen.getByRole('dialog', { name: 'Choose your services' });
+    const results = within(library).getByRole('tabpanel');
+
+    results.scrollTop = 700;
+    await user.click(within(library).getByRole('tab', { name: 'Add-ons' }));
+    await waitFor(() => expect(results.scrollTop).toBe(0));
+
+    results.scrollTop = 70;
+    await user.type(within(library).getByRole('searchbox', { name: 'Search services' }), 'French');
+    await waitFor(() => expect(results.scrollTop).toBe(0));
+
+    await user.clear(within(library).getByRole('searchbox', { name: 'Search services' }));
+    await user.click(within(library).getByRole('tab', { name: 'Services' }));
+    results.scrollTop = 500;
+    await user.click(within(library).getByRole('button', { name: 'Manicure' }));
+    await waitFor(() => expect(results.scrollTop).toBe(0));
+  });
+
   it('normalizes notice presets and custom day amounts to minutes', async () => {
     const user = userEvent.setup();
     let latest = createDefaultBusinessProfile();

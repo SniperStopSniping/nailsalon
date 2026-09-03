@@ -664,6 +664,19 @@ describe('Booking renderer mode and session boundaries', () => {
     expect(simulatedPhonePanelRule)
       .toContain('grid-template-rows: 72px minmax(0, 1fr) auto;');
 
+    const containedPanelRule = bookingCss.match(
+      /\.booking-contained-dialog\.booking-service-detail-shell > \.booking-dialog-panel \{([^}]*)\}/,
+    )?.[1];
+
+    expect(containedPanelRule).toContain('height: 100%;');
+    expect(containedPanelRule).toContain('max-height: 100%;');
+
+    const simulatedPhoneShellRule = bookingCss.match(
+      /\.booking-preview-overlays\[data-preview-viewport='mobile'\]\s+\.booking-contained-dialog\.booking-service-detail-shell \{([^}]*)\}/,
+    )?.[1];
+
+    expect(simulatedPhoneShellRule).toContain('height: 94%;');
+
     const footerRule = bookingCss.match(
       /\.booking-service-detail-footer \{([^}]*)\}/,
     )?.[1];

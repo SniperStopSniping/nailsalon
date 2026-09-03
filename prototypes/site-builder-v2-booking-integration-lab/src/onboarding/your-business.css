@@ -1,7 +1,7 @@
 .onboarding-your-business-screen {
   --business-card-radius: 18px;
   max-width: 960px;
-  padding-bottom: calc(112px + env(safe-area-inset-bottom));
+  padding-bottom: calc(144px + env(safe-area-inset-bottom));
 }
 
 .onboarding-your-business-screen > .onboarding-screen__heading {
@@ -95,7 +95,7 @@
 }
 
 .onboarding-site-url button {
-  min-height: 36px;
+  min-height: 44px;
   padding: 7px 10px;
   border: 1px solid color-mix(in srgb, var(--onboarding-accent) 36%, var(--onboarding-line));
   border-radius: 9px;
@@ -255,6 +255,25 @@
   margin: 0;
 }
 
+.onboarding-business-card--optional > header {
+  grid-template-columns: 38px minmax(0, 1fr) auto;
+}
+
+.onboarding-business-card__compact-summary,
+.onboarding-business-card__compact-action {
+  display: none;
+}
+
+.onboarding-business-card__optional-body {
+  display: grid;
+  min-width: 0;
+  gap: 14px;
+}
+
+.onboarding-business-card__optional-body[hidden] {
+  display: none;
+}
+
 .onboarding-business-reassurance {
   margin: 14px 0 -12px;
   color: var(--onboarding-muted);
@@ -300,11 +319,111 @@
     align-self: center;
     margin-top: 0;
   }
+
+  .onboarding-business-card--optional.is-two-column
+    > .onboarding-business-card__optional-body {
+    grid-template-columns: minmax(0, 1.35fr) minmax(220px, 0.65fr);
+    gap: 12px 24px;
+  }
+
+  .onboarding-business-card--optional.is-two-column
+    > .onboarding-business-card__optional-body
+    > .onboarding-switch-row {
+    align-self: center;
+  }
 }
 
 @media (min-width: 900px) {
   .onboarding-business-type > div {
     grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 430px) {
+  .onboarding-your-business-screen > .onboarding-screen__heading {
+    margin-bottom: 14px;
+  }
+
+  .onboarding-your-business-screen > form {
+    gap: 9px;
+  }
+
+  .onboarding-business-card,
+  .onboarding-business-type {
+    padding: 12px;
+  }
+
+  .onboarding-business-card > header {
+    gap: 9px;
+    margin-bottom: 10px;
+  }
+
+  .onboarding-business-card > header > svg {
+    width: 34px;
+    height: 34px;
+    padding: 8px;
+  }
+
+  .onboarding-site-url {
+    margin-top: 10px;
+    padding: 10px;
+  }
+
+  .onboarding-business-type > p {
+    margin-bottom: 10px;
+  }
+
+  .onboarding-business-type label > span {
+    min-height: 112px;
+    gap: 5px;
+    padding: 10px 8px;
+  }
+
+  .onboarding-business-type label small {
+    line-height: 1.3;
+  }
+
+  .onboarding-business-card .onboarding-image-upload {
+    padding: 10px;
+  }
+}
+
+@media (max-width: 479px) and (max-height: 700px) {
+  .onboarding-business-card--optional > header {
+    grid-template-columns: 34px minmax(0, 1fr) auto;
+    align-items: center;
+    margin-bottom: 0;
+  }
+
+  .onboarding-business-card--optional:has(
+    > .onboarding-business-card__optional-body:not([hidden])
+  ) > header {
+    align-items: start;
+    margin-bottom: 10px;
+  }
+
+  .onboarding-business-card__compact-summary {
+    display: block;
+    margin-top: 4px;
+    color: var(--onboarding-muted);
+    font-size: 0.69rem;
+    font-weight: 650;
+    line-height: 1.35;
+    overflow-wrap: anywhere;
+  }
+
+  .onboarding-business-card__compact-action {
+    display: inline-grid;
+    min-width: 58px;
+    min-height: 44px;
+    place-items: center;
+    padding: 8px 10px;
+    border: 1px solid var(--onboarding-line);
+    border-radius: 10px;
+    color: var(--onboarding-accent-dark);
+    background: white;
+    font-size: 0.7rem;
+    font-weight: 790;
   }
 }
 

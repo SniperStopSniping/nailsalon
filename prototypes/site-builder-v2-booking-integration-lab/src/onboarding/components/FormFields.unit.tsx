@@ -8,6 +8,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { createDefaultBusinessProfile } from '../model/defaults';
 import { BrandBasicsScreen } from '../screens/BasicsScreens';
 import {
+  CollapsibleFormCard,
   focusFirstInvalidControl,
   ImageUploadField,
   NativeSwitch,
@@ -82,7 +83,8 @@ describe('focusFirstInvalidControl', () => {
     focusFirstInvalidControl(form);
 
     await waitFor(() => expect(target).toHaveFocus());
-    expect(scrollBy).toHaveBeenCalledWith({ behavior: 'auto', top: 43 });
+
+    expect(scrollBy).toHaveBeenCalledWith({ behavior: 'auto', top: 47 });
     scrollBy.mockRestore();
   });
 
@@ -145,14 +147,63 @@ describe('focusFirstInvalidControl', () => {
     await user.click(screen.getByRole('button', { name: 'Show me my site →' }));
     await waitFor(() => expect(ownerName).toHaveFocus());
     await waitFor(() => expect(scrollIntoView).toHaveBeenCalledWith({
-      block: 'start',
+      block: 'center',
       inline: 'nearest',
     }));
+
+    expect(scrollIntoView).not.toHaveBeenCalledWith({
+      block: 'start',
+      inline: 'nearest',
+    });
 
     await user.type(ownerName, 'Daniela');
     await user.click(screen.getByRole('button', { name: 'Show me my site →' }));
     expect(onContinue).toHaveBeenCalledOnce();
     delete (HTMLElement.prototype as Partial<HTMLElement>).scrollIntoView;
+  });
+});
+
+describe('CollapsibleFormCard', () => {
+  it('reveals a newly opened accordion within the sticky chrome safe area', async () => {
+    const user = userEvent.setup();
+    const scrollIntoView = vi.fn();
+    const originalScrollIntoView = HTMLElement.prototype.scrollIntoView;
+    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
+      configurable: true,
+      value: scrollIntoView,
+    });
+
+    function Harness() {
+      const [open, setOpen] = useState(false);
+      return (
+        <CollapsibleFormCard
+          id="contact"
+          onToggle={() => setOpen(current => !current)}
+          open={open}
+          title="Contact"
+        >
+          <input aria-label="Phone" />
+        </CollapsibleFormCard>
+      );
+    }
+
+    try {
+      render(<Harness />);
+      await user.click(screen.getByRole('button', { name: /Contact/u }));
+      await waitFor(() => expect(scrollIntoView).toHaveBeenCalledWith({
+        block: 'center',
+        inline: 'nearest',
+      }));
+    } finally {
+      if (originalScrollIntoView) {
+        Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
+          configurable: true,
+          value: originalScrollIntoView,
+        });
+      } else {
+        delete (HTMLElement.prototype as { scrollIntoView?: unknown }).scrollIntoView;
+      }
+    }
   });
 });
 
@@ -214,6 +265,26 @@ describe('NativeSwitch', () => {
 });
 
 describe('ImageUploadField', () => {
+  it('uses one keyboard stop while retaining an accessible native file input', async () => {
+    const user = userEvent.setup();
+    render(
+      <ImageUploadField
+        chooseLabel="Choose profile photo"
+        label="Profile photo"
+        onSelect={vi.fn()}
+      />,
+    );
+
+    const nativeInput = screen.getByLabelText('Profile photo');
+
+    expect(nativeInput).toHaveAttribute('type', 'file');
+    expect(nativeInput).toHaveAttribute('tabindex', '-1');
+
+    await user.tab();
+
+    expect(screen.getByRole('button', { name: 'Choose profile photo' })).toHaveFocus();
+  });
+
   it('shows processing and then a ready thumbnail before offering Replace or Remove', async () => {
     const user = userEvent.setup();
     let finishUpload: (() => void) | undefined;

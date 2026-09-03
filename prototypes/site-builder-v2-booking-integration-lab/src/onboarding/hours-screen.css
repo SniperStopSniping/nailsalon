@@ -1,7 +1,7 @@
 .onboarding-hours-screen {
   --hours-card-padding: clamp(16px, 3vw, 28px);
   max-width: 980px;
-  padding-bottom: calc(112px + env(safe-area-inset-bottom));
+  padding-bottom: calc(144px + env(safe-area-inset-bottom));
 }
 
 .onboarding-hours-screen > .onboarding-screen__heading {
@@ -302,7 +302,7 @@
 
 .onboarding-hours-card .onboarding-individual-hours li > button {
   min-width: 58px;
-  min-height: 38px;
+  min-height: 44px;
   padding: 6px 10px;
   border-radius: 9px;
 }
@@ -359,7 +359,7 @@
 
 .onboarding-hours-timezone > button {
   min-width: 76px;
-  min-height: 42px;
+  min-height: 44px;
   padding: 8px 12px;
   border: 1px solid var(--onboarding-line);
   border-radius: 10px;

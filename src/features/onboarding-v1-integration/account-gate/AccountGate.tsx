@@ -21,6 +21,7 @@ import {
   type ReactNode,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
 } from 'react';
@@ -573,7 +574,6 @@ export function PremiumAccountGate({
                 >
                   <OnboardingSitePreview
                     document={document}
-                    fitAvailable
                     interactionMode="scrollable"
                     label={`Preview of ${salonName}`}
                     quickBookPhase="business"
@@ -940,6 +940,17 @@ export function PremiumAccountGate({
 }
 
 function GateShell({ children }: { children: ReactNode }) {
+  useLayoutEffect(() => {
+    // Account Gate replaces the onboarding surface in place. Reset every
+    // document scroll root before paint so Screen 6 always begins with its
+    // reward headline instead of inheriting Screen 5's scroll position.
+    if (document.scrollingElement) {
+      document.scrollingElement.scrollTop = 0;
+    }
+    document.documentElement.scrollTop = 0;
+    document.body.scrollTop = 0;
+  }, []);
+
   return (
     <main className="onboarding-integration-owner is-account">
       <div className="onboarding-gate">

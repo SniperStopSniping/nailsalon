@@ -124,3 +124,22 @@
     --onboarding-feedback-footer-gap: 12px;
   }
 }
+
+@media (max-width: 479px) {
+  .onboarding-feedback {
+    right: max(10px, env(safe-area-inset-right));
+    max-width: min(240px, calc(100vw - 20px));
+    min-height: 44px;
+    padding: 9px 11px;
+    font-size: 0.76rem;
+  }
+}
+
+/* Compact card completion already has a visible inline check. On short
+   phones, keep the live announcement but omit the transient overlay so it
+   cannot cover the next question or its action. */
+@media (max-width: 479px) and (max-height: 700px) {
+  .onboarding-feedback.is-completed {
+    display: none;
+  }
+}

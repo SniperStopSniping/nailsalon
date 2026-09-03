@@ -71,6 +71,21 @@ describe('Screen 8 About', () => {
     expect(screen.queryByText(/clients appreciate/i)).not.toBeInTheDocument();
   });
 
+  it('uses a clearly labelled neutral example instead of another owner’s identity', () => {
+    const state = createState();
+    state.profile.ownerName = 'Maya';
+    state.profile.businessName = 'Polished Studio';
+
+    render(<AboutHarness initial={state} />);
+
+    const introduction = screen.getByRole('textbox', { name: 'Short introduction' });
+    const placeholder = introduction.getAttribute('placeholder') ?? '';
+
+    expect(placeholder).toMatch(/^Example:/u);
+    expect(placeholder).not.toMatch(/Daniela|Isla/u);
+    expect(introduction).toHaveValue('');
+  });
+
   it('preserves About data when hidden and when Skip for now continues', async () => {
     const user = userEvent.setup();
     const initial = createState();

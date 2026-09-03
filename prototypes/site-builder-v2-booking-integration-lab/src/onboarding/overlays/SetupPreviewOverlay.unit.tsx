@@ -27,32 +27,32 @@ const installMatchMedia = () => {
 describe('SetupPreviewOverlay shared preview targeting', () => {
   beforeEach(installMatchMedia);
 
-  it('shrink-wraps the shared overlay around the scaled stage instead of reserving a blank flex row', () => {
+  it('keeps the preview and its return actions in one bounded dialog viewport', () => {
     const css = readFileSync(
       join(process.cwd(), 'src/onboarding/onboarding.css'),
       'utf8',
     );
 
     expect(css).toMatch(
-      /\.dialog-panel--sheet:has\(\.onboarding-preview-overlay\) \{[^}]*height: auto;/su,
+      /\.dialog-panel--sheet:has\(\.onboarding-preview-overlay\) \{[^}]*height: min\(900px, calc\(100dvh - 16px\)\);/u,
     );
     expect(css).toMatch(
-      /\.onboarding-preview-overlay \{[^}]*height: auto;[^}]*grid-template-rows: auto auto auto;/su,
+      /\.dialog-panel:has\(\.onboarding-preview-overlay\) \.dialog-body \{[^}]*display: flex;[^}]*flex: 1 1 auto;[^}]*overflow: hidden;/u,
     );
     expect(css).toMatch(
-      /\.onboarding-preview-overlay \.onboarding-preview-stage \{[^}]*height: var\(--preview-stage-height\)/su,
+      /\.onboarding-preview-overlay \{[^}]*height: 100%;[^}]*grid-template-rows: auto minmax\(0, 1fr\) auto;/u,
     );
     expect(css).toMatch(
-      /\.onboarding-preview-overlay \.onboarding-preview-measurement-host \{[^}]*height: min\(var\(--preview-target-height\), clamp\(210px, 64dvh, 600px\)\)/su,
-    );
-    expect(css).not.toMatch(
-      /\.onboarding-preview-overlay \.onboarding-preview-measurement-host \{[^}]*preview-stage-height/su,
-    );
-    expect(css).not.toMatch(
       /\.onboarding-preview-overlay \.onboarding-preview-stage \{[^}]*height: 100%/su,
     );
-    expect(css).not.toMatch(
-      /\.dialog-panel--sheet:has\(\.onboarding-preview-overlay\) \{[^}]*\n\s+height: (?:100d?vh|calc\(100vh - 28px\))/su,
+    expect(css).toMatch(
+      /\.onboarding-preview-overlay \.onboarding-preview-measurement-host \{[^}]*height: 100%/u,
+    );
+    expect(css).toMatch(
+      /\.onboarding-overlay-actions \{[^}]*position: relative;[^}]*z-index: 2;[^}]*background: #e8e2df;/u,
+    );
+    expect(css).toMatch(
+      /@media \(max-width: 479px\) \{[\s\S]*?\.dialog-panel--sheet:has\(\.onboarding-preview-overlay\) \{[^}]*height: min\(760px, 90dvh\);[^}]*max-height: 90dvh;/u,
     );
   });
 

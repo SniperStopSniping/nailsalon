@@ -142,6 +142,29 @@
   }
 }
 
+@media (max-width: 479px) {
+  .onboarding-palette-section {
+    gap: 12px;
+    margin-top: 20px;
+    padding-top: 18px;
+  }
+
+  .onboarding-palette-grid {
+    gap: 8px;
+  }
+
+  .onboarding-palette-card {
+    min-height: 138px;
+    gap: 5px;
+    padding: 8px;
+  }
+
+  .onboarding-palette-card__preview {
+    min-height: 44px;
+    padding: 6px;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .onboarding-palette-card {
     transition: none;

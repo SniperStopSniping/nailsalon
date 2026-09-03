@@ -313,6 +313,11 @@
   line-height: 1.5;
 }
 
+.screen-eight-short-intro textarea::placeholder {
+  color: color-mix(in srgb, var(--onboarding-muted) 72%, white);
+  opacity: 1;
+}
+
 .screen-eight-character-count {
   justify-self: end;
   margin-top: 5px;

@@ -8,8 +8,8 @@ import {
 } from './hours';
 import { getPublicDirectionsAction, getPublicLocationPreview } from './location';
 import {
-  getDepositsAndCancellationsDisplayWording,
   getPolicyDisplayWording,
+  getPublicDepositsAndCancellationsDisplayWording,
 } from './policies';
 import type {
   BusinessProfileDraft,
@@ -99,7 +99,7 @@ const resolvePolicies = (
 ): QuickBookProfilePolicy[] => {
   const policies: QuickBookProfilePolicy[] = [];
   const combinedWording = visibility.showCancellationPolicy
-    ? getDepositsAndCancellationsDisplayWording(profile.policies).trim()
+    ? getPublicDepositsAndCancellationsDisplayWording(profile.policies).trim()
     : '';
   if (visibility.showBookingPolicy) {
     const visitMode = labelForVisitMode(profile);

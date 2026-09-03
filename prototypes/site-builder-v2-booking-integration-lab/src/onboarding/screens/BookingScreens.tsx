@@ -121,6 +121,7 @@ function ServiceLibraryDialog({
   const [searchQuery, setSearchQuery] = useState('');
   const categoryScrollerRef = useRef<HTMLDivElement>(null);
   const activeCategoryRef = useRef<HTMLButtonElement>(null);
+  const resultsListRef = useRef<HTMLUListElement>(null);
   const [categoryOverflow, setCategoryOverflow] = useState({ left: false, right: false });
   const normalizedSearch = searchQuery.trim().toLocaleLowerCase();
   const selectedIds = new Set(
@@ -184,6 +185,13 @@ function ServiceLibraryDialog({
       window.removeEventListener('resize', revealSelected);
     };
   }, [activeCategoryId, activeTab, open]);
+
+  useEffect(() => {
+    if (!open || !resultsListRef.current) {
+      return;
+    }
+    resultsListRef.current.scrollTop = 0;
+  }, [activeCategoryId, activeTab, normalizedSearch, open]);
 
   return (
     <Dialog
@@ -285,6 +293,7 @@ function ServiceLibraryDialog({
           </div>
         </div>
         <ul
+          ref={resultsListRef}
           aria-label={activeTab === 'services' ? 'Library services' : 'Library add-ons'}
           aria-labelledby={activeTab === 'services'
             ? 'onboarding-service-library-tab-services'

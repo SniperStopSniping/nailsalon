@@ -359,7 +359,7 @@ export function AboutSetupScreen({
               <textarea
                 id="screen-eight-short-intro"
                 maxLength={SHORT_INTRODUCTION_LIMIT}
-                placeholder="I’m Daniela, the nail artist behind Isla Nail Studio. I create calm, detail-focused appointments and specialize in clean, long-lasting nails."
+                placeholder="Example: Share what clients can expect at an appointment, what you specialize in, and what makes your approach yours."
                 rows={5}
                 value={about.shortBio}
                 onChange={(event) => {

@@ -118,6 +118,29 @@ describe('PremiumAccountGate', () => {
     mocks.clerk.addListener.mockReturnValue(() => undefined);
   });
 
+  it('opens Screen 6 at the document top before focusing its reward heading', () => {
+    document.documentElement.scrollTop = 325;
+    document.body.scrollTop = 325;
+
+    renderGate();
+
+    expect(document.documentElement.scrollTop).toBe(0);
+    expect(document.body.scrollTop).toBe(0);
+    expect(screen.getByRole('heading', {
+      level: 1,
+      name: /Your site is coming together/u,
+    })).toHaveFocus();
+  });
+
+  it('keeps the short-phone reward preview scaled to its width instead of shrinking it to its cropped height', () => {
+    renderGate();
+
+    const preview = screen.getByRole('region', { name: 'Preview of Isla Nail Studio' });
+
+    expect(preview).not.toHaveClass('is-fit-available');
+    expect(preview).toHaveAttribute('data-preview-interaction', 'scrollable');
+  });
+
   it('renders exact provider labels for the configured set and hides the rest entirely', () => {
     renderGate({ providers: { apple: false, email: true, google: true, source: 'clerk-environment' } });
 

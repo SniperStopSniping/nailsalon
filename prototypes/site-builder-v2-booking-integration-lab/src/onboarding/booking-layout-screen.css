@@ -88,6 +88,35 @@
   text-align: center;
 }
 
+/* Keep commitment visually primary even when legacy positional button rules load. */
+.onboarding-screen--booking-layout
+  > footer.sticky-onboarding-actions.is-primary-first
+  > button.sticky-onboarding-actions__primary {
+  width: 100%;
+  min-width: 0;
+  grid-column: 1 / -1;
+  grid-row: 1;
+  justify-self: stretch;
+  color: white;
+  border-color: var(--onboarding-accent);
+  background: var(--onboarding-accent);
+  box-shadow: 0 8px 20px rgb(116 35 66 / 18%);
+}
+
+.onboarding-screen--booking-layout
+  > footer.sticky-onboarding-actions.is-primary-first
+  > button.sticky-onboarding-actions__back {
+  width: auto;
+  min-width: min(130px, 100%);
+  grid-column: 1;
+  grid-row: 2;
+  justify-self: start;
+  color: var(--onboarding-ink);
+  border-color: var(--onboarding-line);
+  background: var(--onboarding-surface);
+  box-shadow: none;
+}
+
 @media (min-width: 760px) {
   .onboarding-screen--booking-layout {
     grid-template-columns: minmax(320px, 0.85fr) minmax(380px, 1.15fr);

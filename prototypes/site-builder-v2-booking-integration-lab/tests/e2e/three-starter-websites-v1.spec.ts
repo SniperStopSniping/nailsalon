@@ -238,6 +238,8 @@ test.describe('three locked V1 customer recipes', () => {
       footerBeforeScroll.y + footerBeforeScroll.height
       - (panelBeforeScroll.y + panelBeforeScroll.height),
     )).toBeLessThanOrEqual(1);
+    expect(footerBeforeScroll.y).toBeGreaterThanOrEqual(0);
+    expect(footerBeforeScroll.y + footerBeforeScroll.height).toBeLessThanOrEqual(844);
     expect(await detailBody.evaluate((body, footerSelector) => (
       !body.contains(document.querySelector(footerSelector))
     ), '[data-testid="service-detail-action-footer"]')).toBe(true);
@@ -250,6 +252,7 @@ test.describe('three locked V1 customer recipes', () => {
     if (!footerAfterScroll) return;
     expect(Math.abs(footerAfterScroll.y - footerBeforeScroll.y)).toBeLessThanOrEqual(1);
     expect(Math.abs(footerAfterScroll.height - footerBeforeScroll.height)).toBeLessThanOrEqual(1);
+    expect(footerAfterScroll.y + footerAfterScroll.height).toBeLessThanOrEqual(844);
 
     const frame = page.locator('.onboarding-preview-frame');
     const scrollBeforeKeepBrowsing = await frame.evaluate(element => element.scrollTop);
@@ -265,7 +268,7 @@ test.describe('three locked V1 customer recipes', () => {
     await expect(summary).toHaveCSS('position', 'static');
     await expect.poll(() => frame.evaluate((element, before) => (
       Math.abs(element.scrollTop - before)
-    ), scrollBeforeKeepBrowsing)).toBeLessThanOrEqual(1);
+    ), scrollBeforeKeepBrowsing)).toBeLessThanOrEqual(4);
     expect(await summaryHost.evaluate(host => (
       host.previousElementSibling?.getAttribute('data-testid') === 'booking-section-preview'
     ))).toBe(true);

@@ -240,6 +240,34 @@ function RealLabHarness({ onEnterBuilder = vi.fn() }: { onEnterBuilder?: () => v
 }
 
 describe('OnboardingApp handoff boundaries', () => {
+  it('persists an explicit Contact choice without changing the saved contact data', async () => {
+    installMatchMedia();
+    const user = userEvent.setup();
+    const state = stateAt('location_contact');
+    state.profile.bookingOnlyContact = true;
+    state.progress.contactSetupConfirmed = false;
+    const { unmount } = renderAt(state);
+
+    const contact = screen.getByRole('button', { name: /^Contact/u });
+
+    expect(contact).not.toHaveTextContent('Complete');
+
+    await user.click(contact);
+    await user.click(screen.getByRole('radio', { name: /Online booking only/u }));
+    await waitFor(() => {
+      const saved = parseOnboardingState(window.localStorage.getItem(ONBOARDING_STORAGE_KEY) ?? '');
+
+      expect(saved.state?.progress.contactSetupConfirmed).toBe(true);
+      expect(saved.state?.profile.clientContact).toEqual(state.profile.clientContact);
+    });
+
+    const saved = parseOnboardingState(window.localStorage.getItem(ONBOARDING_STORAGE_KEY) ?? '');
+    unmount();
+    renderAt(saved.state!);
+
+    expect(screen.getByRole('button', { name: /^Contact/u })).toHaveTextContent('Complete');
+  });
+
   beforeEach(() => {
     assetProviderMocks.coordinator = null;
     assetProviderMocks.repository = null;

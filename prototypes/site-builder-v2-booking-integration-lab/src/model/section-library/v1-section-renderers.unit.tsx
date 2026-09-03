@@ -1,10 +1,12 @@
 import { render, screen, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
+import { createDefaultPolicies } from '../../onboarding/model/defaults';
 import {
   createDemoOnboardingState,
   DEMO_SITE_CONTENT,
 } from '../../onboarding/model/demo-content';
+import { deriveSiteLibraryContextFromProfile } from '../../onboarding/model/site-library-context';
 import type { OnboardingLabState } from '../../onboarding/model/types';
 import {
   OnboardingSitePreview,
@@ -99,6 +101,32 @@ const renderLibrarySection = (
 };
 
 describe('locked V1 customer section renderers', () => {
+  it('omits partial policy rules and their empty section from the public composition', () => {
+    const state = createDemoOnboardingState();
+    state.profile.policies = createDefaultPolicies();
+    state.profile.policies.cancellations.notice = '24_hours';
+    state.profile.policies.lateArrivals.gracePeriodMinutes = '15';
+    state.profile.policies.repairs.conditions = 'Bring a photo of the affected nail';
+    const savedPolicies = structuredClone(state.profile.policies);
+    const context = deriveSiteLibraryContextFromProfile({
+      document: null,
+      galleryImageIds: [],
+      profile: state.profile,
+    });
+
+    expect(getBeforeYouBookEntries(state.profile.policies)).toEqual([]);
+
+    expect(context.availablePolicyTopics).toEqual([]);
+
+    expect(context.depositsWordingPublishable).toBe(false);
+
+    renderLibrarySection('policies', { state });
+
+    expect(screen.queryByRole('region', { name: 'Before you book' })).not.toBeInTheDocument();
+
+    expect(state.profile.policies).toEqual(savedPolicies);
+  });
+
   it('publishes no more than three real Reviews', () => {
     const fourthReview = {
       authorName: 'Fourth Client',

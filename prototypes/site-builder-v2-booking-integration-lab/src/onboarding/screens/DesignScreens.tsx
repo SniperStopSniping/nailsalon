@@ -19,6 +19,7 @@ import { flushSync } from 'react-dom';
 import { useCustomDesignAssetMap } from '../../custom-design/integration/CustomDesignAssetProvider';
 import type { SiteBuilderDocument } from '../../model/types';
 import { Dialog } from '../../ui/Dialog';
+import { useMediaQuery } from '../../ui/StarterChooser';
 import {
   CollapsibleFormCard,
   NativeSwitch,
@@ -1163,6 +1164,17 @@ function PolicyCopyCards({ onUpdate, state }: Pick<SharedScreenProps, 'onUpdate'
   const combinedDisplayed = getDepositsAndCancellationsDisplayWording(policies);
   const combinedUsesSuggested = cancellationsCopy.useSuggestedWording
     && depositsCopy.useSuggestedWording;
+  const combinedReady = isDepositsAndCancellationsComplete(policies)
+    && Boolean(combinedDisplayed.trim());
+  const combinedStatus = !policiesShown
+    ? 'Saved, but not shown on your site'
+    : !combinedVisible
+        ? 'Not shown'
+        : !combinedReady
+            ? 'Not ready — not shown'
+            : cancellationsCopy.visible !== depositsCopy.visible
+              ? 'Partly shown on site'
+              : 'Shown on site';
   const updateCombinedVisibility = (visible: boolean) => onUpdate((current) =>
     updateProfile(current, (profile) => ({
       ...profile,
@@ -1251,11 +1263,7 @@ function PolicyCopyCards({ onUpdate, state }: Pick<SharedScreenProps, 'onUpdate'
       <details className="onboarding-policy-copy-card">
         <summary>
           Deposits & cancellations
-          <span>{!policiesShown
-            ? 'Saved, but not shown on your site'
-            : cancellationsCopy.visible !== depositsCopy.visible
-              ? 'Partly shown on site'
-              : combinedVisible ? 'Shown on site' : 'Not shown'}</span>
+          <span>{combinedStatus}</span>
         </summary>
         <NativeSwitch
           checked={bothCombinedPoliciesVisible}
@@ -1263,7 +1271,9 @@ function PolicyCopyCards({ onUpdate, state }: Pick<SharedScreenProps, 'onUpdate'
             ? 'Turn on Show policies on my website to publish this saved policy.'
             : cancellationsCopy.visible !== depositsCopy.visible
               ? 'One legacy policy is hidden. Changing this setting will keep both together.'
-              : undefined}
+              : !combinedReady
+                  ? 'Finish your deposit and cancellation rules before they can appear on your site.'
+                  : undefined}
           disabled={!policiesShown}
           label="Show Deposits & cancellations on my website"
           onChange={updateCombinedVisibility}
@@ -1301,6 +1311,13 @@ function PolicyCopyCards({ onUpdate, state }: Pick<SharedScreenProps, 'onUpdate'
         const suggestedWording = derivePolicySuggestedWording(policies, id);
         const displayed = getResolvedPolicyWording(policies, id);
         const wordingOverride = copy.wordingOverride;
+        const policyReady = isPolicySectionComplete(policies, id)
+          && Boolean(displayed.trim());
+        const policyStatus = !policiesShown
+          ? 'Saved, but not shown on your site'
+          : !copy.visible
+              ? 'Not shown'
+              : policyReady ? 'Shown on site' : 'Not ready — not shown';
         const updateCopy = (values: Partial<typeof copy>) => onUpdate((current) =>
           updateProfile(current, (profile) => {
             return {
@@ -1321,15 +1338,15 @@ function PolicyCopyCards({ onUpdate, state }: Pick<SharedScreenProps, 'onUpdate'
           <details className="onboarding-policy-copy-card" key={id}>
             <summary>
               {OTHER_POLICY_CARD_LABELS[id]}
-              <span>{!policiesShown
-                ? 'Saved, but not shown on your site'
-                : copy.visible ? 'Shown on site' : 'Not shown'}</span>
+              <span>{policyStatus}</span>
             </summary>
             <NativeSwitch
               checked={copy.visible}
               description={!policiesShown
                 ? 'Turn on Show policies on my website to publish this saved policy.'
-                : undefined}
+                : !policyReady
+                    ? 'Finish this rule before it can appear on your site.'
+                    : undefined}
               disabled={!policiesShown}
               label={`Show ${OTHER_POLICY_CARD_LABELS[id]} on my website`}
               onChange={(visible) => updateCopy({ visible })}
@@ -1983,6 +2000,9 @@ export function SiteStyleScreen({
   onKeepCurrent?: () => void;
 }) {
   const feedback = useFeedback();
+  const isShortPhone = useMediaQuery('(max-width: 479px) and (max-height: 700px)');
+  const [openShortPhoneChoice, setOpenShortPhoneChoice]
+    = useState<'palette' | 'style' | null>(null);
   const confirmedStyleAtEntry = useRef(state.recipe.stylePreset);
   const confirmedPaletteAtEntry = useRef(state.recipe.palettePreset);
   const selectedStyle = SITE_STYLE_PRESETS.find((preset) =>
@@ -2001,7 +2021,30 @@ export function SiteStyleScreen({
               <p>Pick the overall look and feel of your site.</p>
             </div>
           </div>
-        <div aria-label="Site style presets" className="onboarding-style-grid" role="group">
+          <div className="onboarding-look-choice-summary" hidden={!isShortPhone}>
+            <span>
+              <Check aria-hidden="true" size={15} />
+              {' '}
+              {selectedStyle?.label}
+            </span>
+            <button
+              aria-controls="onboarding-style-options"
+              aria-expanded={openShortPhoneChoice === 'style'}
+              type="button"
+              onClick={() => setOpenShortPhoneChoice(current =>
+                current === 'style' ? null : 'style')}
+            >
+              {openShortPhoneChoice === 'style' ? 'Done' : 'Change'}
+              <span className="visually-hidden"> website style</span>
+            </button>
+          </div>
+          <div
+            aria-label="Site style presets"
+            className="onboarding-style-grid"
+            hidden={isShortPhone && openShortPhoneChoice !== 'style'}
+            id="onboarding-style-options"
+            role="group"
+          >
           {SITE_STYLE_PRESETS.map((preset) => {
             const roles = ONBOARDING_STYLE_ROLES[preset.id];
             const isCurrentStyle = preset.id === confirmedStyleAtEntry.current;
@@ -2053,7 +2096,7 @@ export function SiteStyleScreen({
               </button>
             );
           })}
-        </div>
+          </div>
         </section>
         <section className="onboarding-palette-section" aria-labelledby="onboarding-palette-heading">
           <div className="onboarding-palette-section__heading">
@@ -2064,8 +2107,31 @@ export function SiteStyleScreen({
                 <p>Keep the same layout and style, then choose the colours that feel most like your brand.</p>
               </div>
             </div>
+            <div className="onboarding-look-choice-summary" hidden={!isShortPhone}>
+              <span>
+                <Check aria-hidden="true" size={15} />
+                {' '}
+                {selectedPalette?.label}
+              </span>
+              <button
+                aria-controls="onboarding-palette-options"
+                aria-expanded={openShortPhoneChoice === 'palette'}
+                type="button"
+                onClick={() => setOpenShortPhoneChoice(current =>
+                  current === 'palette' ? null : 'palette')}
+              >
+                {openShortPhoneChoice === 'palette' ? 'Done' : 'Change'}
+                <span className="visually-hidden"> website colours</span>
+              </button>
+            </div>
           </div>
-          <div aria-label="Website colour palettes" className="onboarding-palette-grid" role="group">
+          <div
+            aria-label="Website colour palettes"
+            className="onboarding-palette-grid"
+            hidden={isShortPhone && openShortPhoneChoice !== 'palette'}
+            id="onboarding-palette-options"
+            role="group"
+          >
             {SITE_PALETTE_PRESETS.map((preset) => {
               const isCurrentPalette = preset.id === confirmedPaletteAtEntry.current;
               const isSelectedPalette = preset.id === state.recipe.palettePreset;

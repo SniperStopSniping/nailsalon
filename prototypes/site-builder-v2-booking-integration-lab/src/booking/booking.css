@@ -1141,12 +1141,14 @@
 }
 
 .clean-service-count {
+  flex: 0 0 auto;
   color: var(--booking-muted);
   font-size: var(--body-caption);
   font-weight: 790;
-  letter-spacing: 0.1em;
+  letter-spacing: 0.06em;
   text-align: right;
   text-transform: uppercase;
+  white-space: nowrap;
 }
 
 .clean-nav {
@@ -2781,7 +2783,8 @@
   }
 
   .booking-service-detail-shell > .booking-dialog-panel {
-    max-height: none;
+    height: 100%;
+    max-height: 100%;
   }
 
   .booking-detail-layout {
@@ -2985,7 +2988,8 @@
 }
 
 .booking-contained-dialog.booking-service-detail-shell > .booking-dialog-panel {
-  max-height: none;
+  height: 100%;
+  max-height: 100%;
 }
 
 .booking-preview-summary[data-preview-viewport='desktop'] .selected-summary {
@@ -3008,6 +3012,11 @@
   width: 100%;
   max-height: 94%;
   margin: 0;
+}
+
+.booking-preview-overlays[data-preview-viewport='mobile']
+  .booking-contained-dialog.booking-service-detail-shell {
+  height: 94%;
 }
 
 .booking-preview-overlays[data-preview-viewport='mobile'] .booking-dialog-panel {

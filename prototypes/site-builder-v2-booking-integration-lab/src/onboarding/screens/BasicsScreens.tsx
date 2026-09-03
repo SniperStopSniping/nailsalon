@@ -13,6 +13,7 @@ import {
 import { useEffect, useId, useRef, useState, type FormEvent } from 'react';
 
 import { useCustomDesignAssetMap } from '../../custom-design/integration/CustomDesignAssetProvider';
+import { useMediaQuery } from '../../ui/StarterChooser';
 import { WeeklyHoursEditor } from '../components/WeeklyHoursEditor';
 import { SCREEN_METADATA } from '../copy';
 import { useFeedback } from '../feedback/useFeedback';
@@ -104,6 +105,8 @@ type BrandBasicsScreenProps = SharedBasicsScreenProps & {
   starter: StarterId | null;
 };
 
+type OptionalBusinessSection = 'instagram' | 'logo' | 'profile_photo';
+
 export function BrandBasicsScreen({
   onBack,
   onContinue,
@@ -120,6 +123,9 @@ export function BrandBasicsScreen({
   const feedback = useFeedback();
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [editingSlug, setEditingSlug] = useState(profile.siteSlugCustomized);
+  const [expandedOptionalSection, setExpandedOptionalSection]
+    = useState<OptionalBusinessSection | null>(null);
+  const isShortPhone = useMediaQuery('(max-width: 479px) and (max-height: 700px)');
 
   const imageAssetIds = [profile.profilePhoto, profile.logo]
     .flatMap((image) => image?.storageId ? [image.storageId] : []);
@@ -188,6 +194,9 @@ export function BrandBasicsScreen({
     setErrors(nextErrors);
     const failedFields = Object.keys(nextErrors);
     if (failedFields.length > 0) {
+      if (instagramError) {
+        setExpandedOptionalSection('instagram');
+      }
       onValidationFailure?.(failedFields);
       window.requestAnimationFrame(() => {
         if (formRef.current) focusFirstInvalidControl(formRef.current);
@@ -238,6 +247,23 @@ export function BrandBasicsScreen({
     });
   };
 
+  const optionalSectionIsOpen = (section: OptionalBusinessSection) =>
+    !isShortPhone || expandedOptionalSection === section;
+
+  const toggleOptionalSection = (section: OptionalBusinessSection) => {
+    setExpandedOptionalSection(current => current === section ? null : section);
+  };
+
+  const profilePhotoSummary = profile.profilePhoto
+    ? profileNeedsReselect ? 'Needs to be selected again' : 'Photo added'
+    : 'Not added';
+  const logoSummary = profile.logo
+    ? logoNeedsReselect ? 'Needs to be selected again' : 'Logo added'
+    : 'Not added';
+  const instagramSummary = instagramResolution.status === 'resolved'
+    ? `@${instagramResolution.username}`
+    : instagramError ? 'Needs attention' : 'Not added';
+
   return (
     <section
       aria-labelledby="business-screen-heading"
@@ -287,34 +313,89 @@ export function BrandBasicsScreen({
           ) : null}
 
           {personalBusiness ? (
-            <section className="onboarding-business-card onboarding-business-card--split">
-              <header><Camera aria-hidden="true" size={22} /><div><h2>Profile photo <span>Optional</span></h2><p>Add a photo of yourself for your nail-tech profile.</p></div></header>
-            <ImageUploadField
-              assetLoading={profileImage.status === 'loading'}
-              chooseLabel="Choose profile photo"
-              currentLabel={profile.profilePhoto?.fileName}
-              currentSummary={profile.profilePhoto?.width && profile.profilePhoto.height
-                ? `${profile.profilePhoto.width} × ${profile.profilePhoto.height}`
-                : undefined}
-              label="Profile photo"
-              loadingLabel="Loading saved profile photo…"
-              mediaRole="profile"
-              needsReselect={profileNeedsReselect}
-              onRemove={() => onProfileChange({ profilePhoto: undefined })}
-              onSelect={onProfilePhotoSelected}
-              previewAlt={`${profile.ownerName.trim() || 'Owner'} profile photo thumbnail`}
-              previewUrl={profileImage.status === 'ready' ? profileImage.url : undefined}
-              readyLabel="Profile photo ready"
-              recoveryMessage={profileImage.status === 'error'
-                ? 'This saved profile photo couldn’t be loaded on this device. Select it again to restore it.'
-                : 'This saved profile photo is no longer available on this device. Select it again to restore it.'}
-            />
+          <section className="onboarding-business-card onboarding-business-card--optional is-two-column">
+            <header>
+              <Camera aria-hidden="true" size={22} />
+              <div>
+                <h2>
+                  Profile photo
+                  <span>Optional</span>
+                </h2>
+                <p>Add a photo of yourself for your nail-tech profile.</p>
+                <small className="onboarding-business-card__compact-summary">{profilePhotoSummary}</small>
+              </div>
+              <button
+                aria-controls="onboarding-profile-photo-editor"
+                aria-expanded={optionalSectionIsOpen('profile_photo')}
+                aria-label={`${optionalSectionIsOpen('profile_photo') ? 'Done editing' : profile.profilePhoto ? 'Change' : 'Add'} profile photo`}
+                className="onboarding-business-card__compact-action"
+                hidden={!isShortPhone}
+                type="button"
+                onClick={() => toggleOptionalSection('profile_photo')}
+              >
+                {optionalSectionIsOpen('profile_photo')
+                  ? 'Done'
+                  : profile.profilePhoto ? 'Change' : 'Add'}
+              </button>
+            </header>
+            <div
+              className="onboarding-business-card__optional-body"
+              hidden={!optionalSectionIsOpen('profile_photo')}
+              id="onboarding-profile-photo-editor"
+            >
+              <ImageUploadField
+                assetLoading={profileImage.status === 'loading'}
+                chooseLabel="Choose profile photo"
+                currentLabel={profile.profilePhoto?.fileName}
+                currentSummary={profile.profilePhoto?.width && profile.profilePhoto.height
+                  ? `${profile.profilePhoto.width} × ${profile.profilePhoto.height}`
+                  : undefined}
+                label="Profile photo"
+                loadingLabel="Loading saved profile photo…"
+                mediaRole="profile"
+                needsReselect={profileNeedsReselect}
+                onRemove={() => onProfileChange({ profilePhoto: undefined })}
+                onSelect={onProfilePhotoSelected}
+                previewAlt={`${profile.ownerName.trim() || 'Owner'} profile photo thumbnail`}
+                previewUrl={profileImage.status === 'ready' ? profileImage.url : undefined}
+                readyLabel="Profile photo ready"
+                recoveryMessage={profileImage.status === 'error'
+                  ? 'This saved profile photo couldn’t be loaded on this device. Select it again to restore it.'
+                  : 'This saved profile photo is no longer available on this device. Select it again to restore it.'}
+              />
               <NativeSwitch checked={profile.about.visibility.profile_photo} description="Your photo can appear in your nail-tech profile." label="Show my photo to clients" onChange={(checked) => updateVisibility('profile_photo', 'showTechPhoto', checked)} />
-            </section>
+            </div>
+          </section>
           ) : null}
 
-          <section className="onboarding-business-card">
-            <header><Image aria-hidden="true" size={22} /><div><h2>Logo <span>Optional</span></h2><p>Your business logo appears in your site header.</p></div></header>
+        <section className="onboarding-business-card onboarding-business-card--optional">
+          <header>
+            <Image aria-hidden="true" size={22} />
+            <div>
+              <h2>
+                Logo
+                <span>Optional</span>
+              </h2>
+              <p>Your business logo appears in your site header.</p>
+              <small className="onboarding-business-card__compact-summary">{logoSummary}</small>
+            </div>
+            <button
+              aria-controls="onboarding-logo-editor"
+              aria-expanded={optionalSectionIsOpen('logo')}
+              aria-label={`${optionalSectionIsOpen('logo') ? 'Done editing' : profile.logo ? 'Change' : 'Add'} logo`}
+              className="onboarding-business-card__compact-action"
+              hidden={!isShortPhone}
+              type="button"
+              onClick={() => toggleOptionalSection('logo')}
+            >
+              {optionalSectionIsOpen('logo') ? 'Done' : profile.logo ? 'Change' : 'Add'}
+            </button>
+          </header>
+          <div
+            className="onboarding-business-card__optional-body"
+            hidden={!optionalSectionIsOpen('logo')}
+            id="onboarding-logo-editor"
+          >
             <ImageUploadField
               assetLoading={logoImage.status === 'loading'}
               chooseLabel="Choose logo"
@@ -335,10 +416,39 @@ export function BrandBasicsScreen({
                 ? 'This saved logo couldn’t be loaded on this device. Select it again to restore it.'
                 : 'This saved logo is no longer available on this device. Select it again to restore it.'}
             />
-          </section>
+          </div>
+        </section>
 
-          <section className="onboarding-business-card onboarding-business-card--split">
-            <header><Instagram aria-hidden="true" size={22} /><div><h2>Instagram <span>Optional</span></h2><p>Add your Instagram so clients can find your work.</p></div></header>
+        <section className="onboarding-business-card onboarding-business-card--optional is-two-column">
+          <header>
+            <Instagram aria-hidden="true" size={22} />
+            <div>
+              <h2>
+                Instagram
+                <span>Optional</span>
+              </h2>
+              <p>Add your Instagram so clients can find your work.</p>
+              <small className="onboarding-business-card__compact-summary">{instagramSummary}</small>
+            </div>
+            <button
+              aria-controls="onboarding-instagram-editor"
+              aria-expanded={optionalSectionIsOpen('instagram')}
+              aria-label={`${optionalSectionIsOpen('instagram') ? 'Done editing' : profile.instagram.trim() ? 'Edit' : 'Add'} Instagram`}
+              className="onboarding-business-card__compact-action"
+              hidden={!isShortPhone}
+              type="button"
+              onClick={() => toggleOptionalSection('instagram')}
+            >
+              {optionalSectionIsOpen('instagram')
+                ? 'Done'
+                : profile.instagram.trim() ? 'Edit' : 'Add'}
+            </button>
+          </header>
+          <div
+            className="onboarding-business-card__optional-body"
+            hidden={!optionalSectionIsOpen('instagram')}
+            id="onboarding-instagram-editor"
+          >
             <TextField
               autoComplete="off"
               data-instagram-input
@@ -353,7 +463,8 @@ export function BrandBasicsScreen({
               }}
             />
             <NativeSwitch checked={profile.about.visibility.instagram} description="Your Instagram link can appear on your booking site." label="Show Instagram to clients" onChange={(checked) => updateVisibility('instagram', 'showInstagram', checked)} />
-          </section>
+          </div>
+        </section>
       </form>
       <p className="onboarding-business-reassurance">You can change all of this later.</p>
       <StickyOnboardingActions

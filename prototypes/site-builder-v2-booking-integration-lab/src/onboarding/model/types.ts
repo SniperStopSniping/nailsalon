@@ -407,6 +407,7 @@ export type DashboardHandoffDraft = {
 };
 
 export type OnboardingProgress = {
+  contactSetupConfirmed?: boolean;
   currentScreen: OnboardingScreenId;
   screenHistory: OnboardingScreenId[];
   visitedScreens: OnboardingScreenId[];

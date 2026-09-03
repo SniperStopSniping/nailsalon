@@ -744,6 +744,7 @@
 }
 
 .onboarding-service-library__chips button {
+  min-width: 44px;
   min-height: 44px;
   flex: 0 0 auto;
   padding: 8px 12px;
@@ -773,6 +774,12 @@
   overflow: auto;
   overscroll-behavior: contain;
   list-style: none;
+  background:
+    linear-gradient(white 30%, transparent) center top / 100% 24px local,
+    linear-gradient(transparent, white 70%) center bottom / 100% 24px local,
+    linear-gradient(rgb(56 36 44 / 12%), transparent) center top / 100% 8px scroll,
+    linear-gradient(transparent, rgb(56 36 44 / 12%)) center bottom / 100% 8px scroll;
+  background-repeat: no-repeat;
 }
 
 .onboarding-service-library__list li {

@@ -6,7 +6,7 @@ import {
   Smartphone,
   Sparkles,
 } from 'lucide-react';
-import { useEffect, useRef } from 'react';
+import { useLayoutEffect, useRef } from 'react';
 
 import type { SiteBuilderDocument } from '../../model/types';
 import { SITE_PALETTE_BY_ID } from '../model/palettes';
@@ -37,7 +37,12 @@ export function SaveProgressScreen({
   const headingRef = useRef<HTMLHeadingElement>(null);
   const palette = SITE_PALETTE_BY_ID[state.recipe.palettePreset];
 
-  useEffect(() => {
+  useLayoutEffect(() => {
+    if (window.document.scrollingElement) {
+      window.document.scrollingElement.scrollTop = 0;
+    }
+    window.document.documentElement.scrollTop = 0;
+    window.document.body.scrollTop = 0;
     headingRef.current?.focus({ preventScroll: true });
   }, []);
 

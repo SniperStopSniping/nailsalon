@@ -137,7 +137,8 @@ type StarterCta = 'Multi-page' | 'One-page' | 'Quick Book';
  */
 async function chooseStartingPoint(page: Page, cta: StarterCta): Promise<void> {
   await page.getByRole('button', { name: `Start with ${cta}` }).click();
-  await expect(heading(page, 'Make it yours')).toBeVisible();
+
+  await expect(heading(page, 'Let’s start with your business')).toBeVisible();
 }
 
 async function applyFixture(
@@ -1171,19 +1172,50 @@ test.describe('Daniela-final onboarding acceptance', () => {
     expect(stageBox?.height ?? 9999).toBeLessThanOrEqual(844 * 0.7);
     expect((actionBox?.y ?? 9999) - ((stageBox?.y ?? 0) + (stageBox?.height ?? 0)))
       .toBeLessThanOrEqual(24);
+    expect(actionBox?.y ?? -1).toBeGreaterThanOrEqual(0);
+    expect((actionBox?.y ?? 9999) + (actionBox?.height ?? 9999))
+      .toBeLessThanOrEqual(844);
     expect(overlayBox?.height ?? 9999).toBeLessThanOrEqual(844 * 0.9);
     const initialPhoneBox = await stage.boundingBox();
     expect(initialPhoneBox).not.toBeNull();
     await captureViewport(page, 'tiny-01-preview-phone-initial');
 
-    const scrollGeometry = await frame.evaluate((element) => ({
-      clientHeight: element.clientHeight,
-      scrollHeight: element.scrollHeight,
-      scrollTop: element.scrollTop,
-    }));
+    const scrollGeometry = await frame.evaluate((element) => {
+      // This compact starter can legitimately fit without scrolling. Add a
+      // test-only continuation so this assertion exercises the overflow path
+      // rather than depending on fixture copy length.
+      if (element.scrollHeight <= element.clientHeight) {
+        const probe = document.createElement('div');
+        probe.setAttribute('aria-hidden', 'true');
+        probe.style.height = `${element.clientHeight}px`;
+        probe.style.minHeight = `${element.clientHeight}px`;
+        element.append(probe);
+      }
+      return {
+        clientHeight: element.clientHeight,
+        scrollHeight: element.scrollHeight,
+        scrollTop: element.scrollTop,
+      };
+    });
     expect(scrollGeometry.scrollHeight).toBeGreaterThan(scrollGeometry.clientHeight);
-    await frame.evaluate((element) => { element.scrollTop = Math.min(240, element.scrollHeight); });
+
+    await frame.evaluate((element) => {
+      element.scrollTop = element.scrollHeight;
+    });
     await expect.poll(() => frame.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
+
+    const [actionsAfterInnerScroll, dialogBodyScrollTop] = await Promise.all([
+      actions.boundingBox(),
+      dialog.locator('.dialog-body').evaluate(element => element.scrollTop),
+    ]);
+
+    expect(actionsAfterInnerScroll).not.toBeNull();
+    expect(Math.abs(
+      (actionsAfterInnerScroll?.y ?? 0) - (actionBox?.y ?? 0),
+    )).toBeLessThanOrEqual(1);
+    expect((actionsAfterInnerScroll?.y ?? 9999) + (actionsAfterInnerScroll?.height ?? 9999))
+      .toBeLessThanOrEqual(844);
+    expect(dialogBodyScrollTop).toBe(0);
     await captureViewport(page, '17-compact-starting-site-preview');
 
     for (let cycle = 0; cycle < 10; cycle += 1) {

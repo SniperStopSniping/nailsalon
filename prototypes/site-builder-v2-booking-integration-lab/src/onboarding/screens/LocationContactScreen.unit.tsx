@@ -1,15 +1,33 @@
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useState } from 'react';
-import { vi } from 'vitest';
+import { afterEach, vi } from 'vitest';
 
 import { createDefaultBusinessProfile } from '../model/defaults';
 import type { BusinessProfileDraft } from '../model/types';
 import { LocationContactScreen } from './LocationContactScreen';
 
+const useShortPhoneViewport = () => {
+  vi.stubGlobal('matchMedia', vi.fn((query: string): MediaQueryList => ({
+    addEventListener: vi.fn(),
+    addListener: vi.fn(),
+    dispatchEvent: vi.fn(() => true),
+    matches: query === '(max-width: 479px) and (max-height: 700px)',
+    media: query,
+    onchange: null,
+    removeEventListener: vi.fn(),
+    removeListener: vi.fn(),
+  })));
+};
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
+
 function renderScreen(
   profilePatch: Partial<BusinessProfileDraft> = {},
   onContinue = vi.fn(),
+  contactSetupConfirmed = false,
 ) {
   function Harness() {
     const [profile, setProfile] = useState<BusinessProfileDraft>({
@@ -22,6 +40,7 @@ function renderScreen(
     });
     return (
       <LocationContactScreen
+        contactSetupConfirmed={contactSetupConfirmed}
         profile={profile}
         onBack={vi.fn()}
         onContinue={onContinue}
@@ -79,14 +98,45 @@ describe('LocationContactScreen', () => {
     expect(screen.getByRole('button', { name: /^Location/u })).toHaveTextContent('Complete');
   });
 
-  it('keeps Booking-only compact and reveals direct contact controls only when chosen', async () => {
+  it('starts a completed Location as a compact editable summary on a short phone', async () => {
+    useShortPhoneViewport();
+    const user = userEvent.setup();
+    renderScreen({
+      location: {
+        ...createDefaultBusinessProfile().location,
+        addressVisibility: 'after_booking',
+        cityOrArea: 'Toronto',
+        exactAddress: '880 Ellesmere Rd',
+      },
+    });
+
+    const locationCard = screen.getByRole('button', { name: /^Location/u });
+
+    expect(locationCard).toHaveAttribute('aria-expanded', 'false');
+    expect(locationCard).toHaveTextContent('Toronto · Address after booking');
+    expect(locationCard).toHaveTextContent('Edit');
+    expect(screen.queryByRole('textbox', { name: 'City *' })).not.toBeInTheDocument();
+
+    await user.click(locationCard);
+
+    expect(screen.getByRole('textbox', { name: 'City *' })).toHaveValue('Toronto');
+
+    await user.click(screen.getByRole('button', { name: 'Done editing location' }));
+
+    expect(locationCard).toHaveAttribute('aria-expanded', 'false');
+  });
+
+  it('invites owners to choose contact options instead of marking the untouched default complete', async () => {
     const user = userEvent.setup();
     renderScreen({ instagram: 'isla_nail_studio' });
     const contactCard = screen.getByRole('button', { name: /^Contact/u });
-    expect(contactCard).toHaveTextContent('Online booking only');
-    expect(contactCard).toHaveTextContent('Complete');
+
+    expect(contactCard).toHaveTextContent('Add phone or email, or use online booking only');
+    expect(contactCard).toHaveTextContent('Choose');
+    expect(contactCard).not.toHaveTextContent('Complete');
     await user.click(contactCard);
-    expect(screen.getByRole('radio', { name: /Online booking only/u })).toBeChecked();
+
+    expect(screen.getByRole('radio', { name: /Online booking only/u })).not.toBeChecked();
     expect(screen.getByText('@isla_nail_studio')).toBeVisible();
     expect(screen.getByText('✓ Saved')).toBeVisible();
     expect(screen.queryByLabelText('Phone number')).not.toBeInTheDocument();
@@ -96,6 +146,25 @@ describe('LocationContactScreen', () => {
     expect(screen.getByRole('switch', { name: 'Clients can call this number' })).toBeVisible();
     expect(screen.getByRole('switch', { name: 'Clients can text this number' })).toBeVisible();
     expect(screen.getByLabelText('Email · Optional')).toBeVisible();
+  });
+
+  it('marks Contact complete only after the owner explicitly chooses online booking only', async () => {
+    const user = userEvent.setup();
+    renderScreen();
+    const contactCard = screen.getByRole('button', { name: /^Contact/u });
+    await user.click(contactCard);
+
+    expect(contactCard).not.toHaveTextContent('Complete');
+
+    await user.click(screen.getByRole('radio', { name: /Online booking only/u }));
+    expect(contactCard).toHaveTextContent('Online booking only');
+    expect(contactCard).toHaveTextContent('Complete');
+  });
+
+  it('restores an explicitly confirmed online-booking contact choice', () => {
+    renderScreen({}, vi.fn(), true);
+
+    expect(screen.getByRole('button', { name: /^Contact/u })).toHaveTextContent('Complete');
   });
 
   it('keeps Arrival details optional and saves it in the canonical location', async () => {
@@ -125,6 +194,11 @@ describe('LocationContactScreen', () => {
 
     await user.type(screen.getByLabelText('City *'), 'Toronto');
     await user.type(screen.getByLabelText('Full address *'), '880 Ellesmere Rd');
+    await user.click(screen.getByRole('button', { name: 'Save and continue' }));
+
+    expect(onContinue).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole('radio', { name: /Online booking only/u }));
     await user.click(screen.getByRole('button', { name: 'Save and continue' }));
     expect(onContinue).toHaveBeenCalledOnce();
   });

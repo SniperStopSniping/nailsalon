@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useState } from 'react';
-import { vi } from 'vitest';
+import { afterEach, vi } from 'vitest';
 
 import { initializeStarter } from '../../model';
 import { createDefaultCustomDesignSettings } from '../../custom-design/model/settings';
@@ -26,6 +26,23 @@ const reviewMocks = vi.hoisted(() => ({
 vi.mock('../../custom-design/integration/CustomDesignAssetProvider', () => ({
   useCustomDesignAssetMap: () => reviewMocks.assetMap,
 }));
+
+const useShortPhoneViewport = () => {
+  vi.stubGlobal('matchMedia', vi.fn((query: string): MediaQueryList => ({
+    addEventListener: vi.fn(),
+    addListener: vi.fn(),
+    dispatchEvent: vi.fn(() => true),
+    matches: query === '(max-width: 479px) and (max-height: 700px)',
+    media: query,
+    onchange: null,
+    removeEventListener: vi.fn(),
+    removeListener: vi.fn(),
+  })));
+};
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 const aboutState = (): OnboardingLabState => {
   const state = createDanielaFixtureState();
@@ -215,7 +232,7 @@ describe('SiteStyleScreen', () => {
       /\.onboarding-screen--style \.onboarding-style-grid \{[^}]*display: grid;[^}]*grid-template-columns: repeat\(2, minmax\(0, 1fr\)\);[^}]*overflow: visible;/su,
     );
     expect(css).toMatch(
-      /\.onboarding-screen--style \.onboarding-style-card > small \{[^}]*-webkit-line-clamp: 3;/su,
+      /\.onboarding-screen--style \.onboarding-style-card > small \{[^}]*-webkit-line-clamp: 2;/u,
     );
     expect(css).not.toContain('scroll-snap-type: inline mandatory');
   });
@@ -233,6 +250,52 @@ describe('SiteStyleScreen', () => {
     expect(css).toMatch(
       /@container onboarding-preview \(max-width: 559px\) \{[\s\S]*?\.onboarding-customer-about \{[^}]*gap: 20px;/u,
     );
+  });
+
+  it('progressively discloses style and colour choices on short phones', async () => {
+    useShortPhoneViewport();
+    const user = userEvent.setup();
+    const initial = createDanielaFixtureState();
+
+    function Harness() {
+      const [state, setState] = useState(initial);
+      return (
+        <SiteStyleScreen
+          document={null}
+          onBack={vi.fn()}
+          onContinue={vi.fn()}
+          onFullPreview={vi.fn()}
+          onUpdate={setState}
+          state={state}
+        />
+      );
+    }
+
+    render(<Harness />);
+
+    expect(screen.queryByRole('group', { name: 'Site style presets' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('group', { name: 'Website colour palettes' }))
+      .not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Change website style' }));
+    const styles = screen.getByRole('group', { name: 'Site style presets' });
+
+    expect(within(styles).getAllByRole('button')).toHaveLength(6);
+
+    await user.click(within(styles).getByRole('button', { name: /Luxury/u }));
+    await user.click(screen.getByRole('button', { name: 'Done website style' }));
+
+    expect(screen.queryByRole('group', { name: 'Site style presets' })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Change website colours' }));
+    const palettes = screen.getByRole('group', { name: 'Website colour palettes' });
+
+    expect(within(palettes).getAllByRole('button')).toHaveLength(8);
+
+    await user.click(within(palettes).getByRole('button', { name: /Black & Champagne/u }));
+
+    expect(screen.getByRole('button', { name: 'Done website colours' }))
+      .toHaveAttribute('aria-expanded', 'true');
   });
 
   it('keeps the two portrait-led About presets beside the introduction on phones', () => {

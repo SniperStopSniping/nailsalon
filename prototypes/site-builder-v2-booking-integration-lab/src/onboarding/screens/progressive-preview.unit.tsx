@@ -39,6 +39,23 @@ const quickBookProfileText = (root: ParentNode): string => root
   .trim() ?? '';
 
 describe('progressive customer-site previews through Screen 6', () => {
+  it('opens the standalone Screen 6 reward at the top', () => {
+    document.documentElement.scrollTop = 325;
+    document.body.scrollTop = 325;
+
+    render(
+      <SaveProgressScreen
+        document={initializeStarter('quick_book')}
+        onBack={vi.fn()}
+        onUnavailable={vi.fn()}
+        state={createScreenSixState()}
+      />,
+    );
+
+    expect(document.documentElement.scrollTop).toBe(0);
+    expect(document.body.scrollTop).toBe(0);
+  });
+
   it('keeps Preview 1 to public Screen 1 identity and the existing Booking section', () => {
     const state = createScreenSixState();
     const document = initializeStarter('quick_book');

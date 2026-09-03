@@ -12,6 +12,8 @@ import {
   getDepositPolicyMode,
   getLateCancellationChoice,
   getPolicyDisplayWording,
+  getPublicDepositsAndCancellationsDisplayWording,
+  getPublicPolicyDisplayWording,
   getResolvedPolicyWording,
   hasMeaningfulPublishablePolicies,
   isDepositsAndCancellationsComplete,
@@ -23,6 +25,39 @@ import {
 } from './policies';
 
 describe('policy suggested wording', () => {
+  it('withholds partially configured public policies without deleting draft wording', () => {
+    const policies = createDefaultPolicies();
+    policies.cancellations.notice = '24_hours';
+    policies.lateArrivals.gracePeriodMinutes = '15';
+    policies.repairs.conditions = 'Bring a photo of the affected nail';
+    const savedDraft = structuredClone(policies);
+
+    expect(getPublicDepositsAndCancellationsDisplayWording(policies)).toBe('');
+
+    expect(getPublicPolicyDisplayWording(policies, 'late_arrivals')).toBe('');
+
+    expect(getPublicPolicyDisplayWording(policies, 'repairs')).toBe('');
+
+    expect(getResolvedPolicyWording(policies, 'late_arrivals')).toContain('15-minute');
+
+    expect(getResolvedPolicyWording(policies, 'repairs')).toContain('Bring a photo');
+
+    expect(getPolicyDisplayWording(policies, 'deposits')).toBe('No deposit is required.');
+
+    expect(policies).toEqual(savedDraft);
+
+    policies.cancellations.consequence = 'cancellation_fee';
+    policies.lateArrivals.shortenService = false;
+    policies.lateArrivals.rescheduleAfterLimit = true;
+    policies.repairs.freeRepairWindowDays = '3';
+
+    expect(getPublicDepositsAndCancellationsDisplayWording(policies)).toContain('24 hours');
+
+    expect(getPublicPolicyDisplayWording(policies, 'late_arrivals')).toContain('15-minute');
+
+    expect(getPublicPolicyDisplayWording(policies, 'repairs')).toContain('within 3 days');
+  });
+
   it('defaults to no deposit without inventing a charge', () => {
     const policies = createDefaultPolicies();
 

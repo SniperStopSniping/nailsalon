@@ -419,9 +419,18 @@ describe('createSavedSitePreviewModel', () => {
         'hero',
         'booking',
         'custom_design',
+        'visit_us',
       ],
     }]);
     expect(topology(saved.pagePlan)).toEqual(topology(live));
+
+    const visitSection = document.pages[0]!.sections.find(
+      section => section.sectionType === 'visit_us',
+    )!;
+
+    expect(saved.pagePlan.flatMap(page => page.sections)
+      .filter(section => section.sectionType === 'visit_us'))
+      .toEqual([expect.objectContaining({ id: visitSection.id })]);
     expect(saved.state.profile.location.cityOrArea).toBe('Toronto');
     expect(saved.state.recipe.quickBookProfile).toMatchObject({
       showBookingPolicy: true,

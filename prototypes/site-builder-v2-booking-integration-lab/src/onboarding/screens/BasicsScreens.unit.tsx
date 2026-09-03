@@ -1,7 +1,7 @@
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useState } from 'react';
-import { vi } from 'vitest';
+import { afterEach, vi } from 'vitest';
 
 import { createDefaultBusinessProfile } from '../model/defaults';
 import type { BusinessProfileDraft, StarterId } from '../model/types';
@@ -13,6 +13,23 @@ import {
 vi.mock('../../custom-design/integration/CustomDesignAssetProvider', () => ({
   useCustomDesignAssetMap: () => new Map(),
 }));
+
+const useShortPhoneViewport = () => {
+  vi.stubGlobal('matchMedia', vi.fn((query: string): MediaQueryList => ({
+    addEventListener: vi.fn(),
+    addListener: vi.fn(),
+    dispatchEvent: vi.fn(() => true),
+    matches: query === '(max-width: 479px) and (max-height: 700px)',
+    media: query,
+    onchange: null,
+    removeEventListener: vi.fn(),
+    removeListener: vi.fn(),
+  })));
+};
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 function useProfileHarness() {
   const [profile, setProfile] = useState(createDefaultBusinessProfile);
@@ -192,6 +209,51 @@ describe('BrandBasicsScreen', () => {
       .toHaveAttribute('data-media-role', 'profile');
     expect(screen.getByLabelText('Logo').closest('[data-media-role]'))
       .toHaveAttribute('data-media-role', 'logo');
+  });
+
+  it('collapses optional identity editors into truthful short-phone summaries', async () => {
+    useShortPhoneViewport();
+    const user = userEvent.setup();
+    const profile = createDefaultBusinessProfile();
+    profile.businessName = 'Isla Nail Studio';
+    profile.businessType = 'independent_salon';
+    profile.ownerName = 'Daniela';
+    profile.instagram = 'isla_nails';
+    profile.profilePhoto = {
+      fileName: 'daniela-portrait.png',
+      id: 'fixture-profile',
+      mimeType: 'image/png',
+      previewUrl: 'https://example.test/daniela-portrait.png',
+      source: 'fixture',
+    };
+    profile.logo = {
+      fileName: 'isla-wordmark.png',
+      id: 'fixture-logo',
+      mimeType: 'image/png',
+      previewUrl: 'https://example.test/isla-wordmark.png',
+      source: 'fixture',
+    };
+
+    renderBrandBasics({}, profile);
+
+    expect(screen.getByText('Photo added')).toBeVisible();
+    expect(screen.getByText('Logo added')).toBeVisible();
+    expect(screen.getByText('@isla_nails')).toBeVisible();
+    expect(document.getElementById('onboarding-profile-photo-editor')).toHaveAttribute('hidden');
+    expect(document.getElementById('onboarding-logo-editor')).toHaveAttribute('hidden');
+    expect(document.getElementById('onboarding-instagram-editor')).toHaveAttribute('hidden');
+
+    await user.click(screen.getByRole('button', { name: 'Change profile photo' }));
+
+    expect(document.getElementById('onboarding-profile-photo-editor')).not.toHaveAttribute('hidden');
+    expect(screen.getByRole('button', { name: 'Done editing profile photo' }))
+      .toHaveAttribute('aria-expanded', 'true');
+
+    await user.click(screen.getByRole('button', { name: 'Edit Instagram' }));
+
+    expect(document.getElementById('onboarding-profile-photo-editor')).toHaveAttribute('hidden');
+    expect(document.getElementById('onboarding-instagram-editor')).not.toHaveAttribute('hidden');
+    expect(screen.getByLabelText('Instagram handle')).toHaveValue('isla_nails');
   });
 
   it('keeps Profile and Logo replace/remove actions scoped to their own fields', async () => {

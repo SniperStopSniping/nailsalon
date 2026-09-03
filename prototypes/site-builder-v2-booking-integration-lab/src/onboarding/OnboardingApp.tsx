@@ -1338,7 +1338,12 @@ export function OnboardingApp({
       case 'location_contact':
         return (
           <LocationContactScreen
+            contactSetupConfirmed={onboarding.state.progress.contactSetupConfirmed}
             onBack={goBack}
+            onContactConfirmed={() => onboarding.updateState(current => ({
+              ...current,
+              progress: { ...current.progress, contactSetupConfirmed: true },
+            }))}
             onContinue={onboarding.continueFlow}
             onProfileChange={updateProfile}
             onValidationFailure={(fieldIds) => onboarding.recordEvent({ fieldIds, screen, type: 'validation_failure' })}
