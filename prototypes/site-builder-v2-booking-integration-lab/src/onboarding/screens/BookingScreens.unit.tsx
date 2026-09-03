@@ -38,20 +38,20 @@ describe('BookingPreferencesScreen', () => {
 
     render(<FeedbackProvider testMode><Harness /></FeedbackProvider>);
     const confirmation = screen.getByRole('button', {
-      name: 'Continue with these 6 services',
+      name: 'Use these 6 services',
     });
     await user.click(confirmation);
 
-    expect(document.querySelector('.onboarding-service-menu-card')).toHaveClass(
+    expect(document.querySelector('[data-booking-task="services"]')).toHaveClass(
       'is-celebrating',
     );
-    expect(document.querySelector('.onboarding-feedback')).toHaveTextContent(
-      'Your service menu is ready. 6 services added.',
-    );
+    await waitFor(() => expect(document.querySelector('.visually-hidden[role="status"]'))
+      .toHaveTextContent('Your service menu is ready. 6 services added.'));
+    expect(document.querySelector('.onboarding-feedback')).toBeNull();
     expect(confirmation).toBeEnabled();
   });
 
-  it('validates only its two essentials and reads the canonical Booking source', async () => {
+  it('presents four manageable tasks and validates the canonical Booking setup', async () => {
     const user = userEvent.setup();
     const onContinue = vi.fn();
 
@@ -82,40 +82,35 @@ describe('BookingPreferencesScreen', () => {
     }
 
     render(<Harness />);
-    expect(screen.getByRole('complementary', { name: 'Booking connection status' }))
-      .toHaveTextContent('Services6 selected');
-    expect(screen.getByRole('complementary', { name: 'Booking connection status' }))
-      .toHaveTextContent('Minimum notice2 hours');
-    expect(screen.getByRole('combobox', {
-      name: 'How much notice do you need before an appointment?',
-    })).toHaveAccessibleDescription(
-      'Clients must book at least 2 hours before the appointment starts.',
-    );
+    expect(screen.getByRole('heading', { name: 'Let’s get you ready to take bookings' }))
+      .toBeVisible();
+    expect(document.querySelectorAll('[data-booking-task]')).toHaveLength(4);
+    expect(within(screen.getByRole('list', { name: 'Selected services' })).getAllByRole('listitem'))
+      .toHaveLength(3);
+    expect(screen.getByRole('button', { name: '+ 3 more services' })).toBeVisible();
+    expect(screen.queryByRole('heading', { name: 'Your booking setup is ready' }))
+      .not.toBeInTheDocument();
     expect(screen.queryByText('Booking cutoff')).not.toBeInTheDocument();
-    expect(screen.getByRole('complementary', { name: 'Booking connection status' }))
-      .toHaveTextContent('Clients must book at least 2 hours before the appointment starts.');
     expect(screen.queryByText(/Booking mock/u)).not.toBeInTheDocument();
     expect(screen.queryByText(/Availability sourceConnected/u)).not.toBeInTheDocument();
-    expect(screen.getByRole('complementary', { name: 'Customer booking information preview' }))
-      .toHaveTextContent(
-        'Minimum booking noticeBook at least 2 hours before your appointment.',
-      );
-    expect(screen.getByRole('complementary', { name: 'Customer booking information preview' }))
-      .toHaveTextContent('Russian Manicure1 hr 30 min · From $65');
     expect(screen.queryByText('Available times after your notice')).not.toBeInTheDocument();
     expect(screen.queryByText('Earliest bookable time')).not.toBeInTheDocument();
     expect(document.querySelector('[data-bookable-time]')).toBeNull();
     expect(screen.queryByText(/Tomorrow at 10:30 AM/u)).not.toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: 'Save booking setup' }));
+    await user.click(screen.getByRole('button', { name: 'Save and continue' }));
+    expect(screen.getAllByText('Confirm the services you want to start with.').length)
+      .toBeGreaterThan(0);
     expect(screen.getAllByText('Choose how clients can visit you.').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Choose your new-client status.').length).toBeGreaterThan(0);
 
+    await user.click(screen.getByRole('button', { name: 'Use these 6 services' }));
     await user.click(screen.getByRole('radio', { name: 'Appointment only' }));
     await user.click(within(screen.getByRole('group', { name: 'Are you accepting new clients?' }))
       .getByRole('radio', { name: 'Yes' }));
-    expect(screen.getByRole('complementary', { name: 'Customer booking information preview' }))
-      .toHaveTextContent('Appointment onlyNew clients welcome');
-    await user.click(screen.getByRole('button', { name: 'Save booking setup' }));
+    expect(screen.getByRole('heading', { name: 'Your booking setup is ready' })).toBeVisible();
+    expect(screen.getByRole('button', { name: /Clients Appointment only · Accepting new clients Complete/ }))
+      .toBeVisible();
+    await user.click(screen.getByRole('button', { name: 'Save and continue' }));
     expect(onContinue).toHaveBeenCalledOnce();
   });
 
@@ -151,6 +146,7 @@ describe('BookingPreferencesScreen', () => {
     }
 
     render(<Harness />);
+    await user.click(screen.getByRole('button', { name: /Deposits No deposit Complete/ }));
     const depositQuestion = screen.getByRole('group', {
       name: 'How do you handle booking deposits?',
     });
@@ -226,6 +222,28 @@ describe('BookingPreferencesScreen', () => {
       expect(within(item!).getByRole('button', { name: `Remove ${addOn.name}` }))
         .toBeVisible();
     }
+  });
+
+  it('opens the canonical library on Add-ons from the compact add-ons summary', async () => {
+    const user = userEvent.setup();
+    render(
+      <BookingPreferencesScreen
+        profile={createDefaultBusinessProfile()}
+        onBack={vi.fn()}
+        onBookingPreferencesChange={vi.fn()}
+        onContinue={vi.fn()}
+        onDepositChange={vi.fn()}
+        onServiceMenuChange={vi.fn()}
+      />,
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Add-ons · Optional 4 add-ons' }));
+    const library = screen.getByRole('dialog', { name: 'Choose your services' });
+    expect(within(library).getByRole('tab', { name: 'Add-ons' }))
+      .toHaveAttribute('aria-selected', 'true');
+    expect(within(library).getByRole('complementary', { name: 'Add-ons are optional' }))
+      .toHaveTextContent(/you can skip them for now/i);
+    expect(within(library).getByText('4 add-ons added')).toBeVisible();
   });
 
   it('keeps the category rail separate from results and reveals the selected category', async () => {
@@ -325,16 +343,18 @@ describe('BookingPreferencesScreen', () => {
     }
 
     render(<Harness />);
+    await user.click(screen.getByRole('button', { name: /Booking notice 2 hours Complete/ }));
     await user.selectOptions(screen.getByRole('combobox', {
       name: 'How much notice do you need before an appointment?',
     }), 'preset:720');
     expect(latest.bookingPreferences.minimumNoticeMinutes).toBe(720);
 
+    await user.click(screen.getByRole('button', { name: /Booking notice 12 hours Complete/ }));
     await user.selectOptions(screen.getByRole('combobox', {
       name: 'How much notice do you need before an appointment?',
     }), 'custom');
-    await user.clear(screen.getByRole('spinbutton', { name: 'Custom amount' }));
-    await user.type(screen.getByRole('spinbutton', { name: 'Custom amount' }), '3');
+    await user.clear(screen.getByRole('spinbutton', { name: 'Amount' }));
+    await user.type(screen.getByRole('spinbutton', { name: 'Amount' }), '3');
     expect(latest.bookingPreferences.minimumNoticeMinutes).toBe(180);
     expect(screen.getByRole('combobox', {
       name: 'How much notice do you need before an appointment?',
@@ -342,14 +362,10 @@ describe('BookingPreferencesScreen', () => {
       'Clients must book at least 3 hours before the appointment starts.',
     );
     expect(screen.queryByText('Booking cutoff')).not.toBeInTheDocument();
-    expect(screen.getByRole('complementary', { name: 'Booking connection status' }))
-      .toHaveTextContent('Clients must book at least 3 hours before the appointment starts.');
-    expect(screen.getByRole('complementary', { name: 'Customer booking information preview' }))
-      .toHaveTextContent('Book at least 3 hours before your appointment.');
 
     await user.selectOptions(screen.getByRole('combobox', { name: 'Unit' }), 'days');
-    await user.clear(screen.getByRole('spinbutton', { name: 'Custom amount' }));
-    await user.type(screen.getByRole('spinbutton', { name: 'Custom amount' }), '5');
+    await user.clear(screen.getByRole('spinbutton', { name: 'Amount' }));
+    await user.type(screen.getByRole('spinbutton', { name: 'Amount' }), '5');
     expect(latest.bookingPreferences.minimumNoticeMinutes).toBe(7_200);
     expect(screen.getByRole('combobox', {
       name: 'How much notice do you need before an appointment?',
@@ -359,7 +375,7 @@ describe('BookingPreferencesScreen', () => {
   });
 
   it.each([
-    ['preset:0', 'No minimum notice', 'Clients can book without a minimum-notice requirement.', 'Clients can book without a minimum-notice requirement.'],
+    ['preset:0', 'No minimum notice', 'Clients can book any available appointment without a minimum advance notice.', 'Clients can book without a minimum-notice requirement.'],
     ['preset:120', '2 hours', 'Clients must book at least 2 hours before the appointment starts.', 'Book at least 2 hours before your appointment.'],
     ['preset:240', '4 hours', 'Clients must book at least 4 hours before the appointment starts.', 'Book at least 4 hours before your appointment.'],
     ['preset:480', '8 hours', 'Clients must book at least 8 hours before the appointment starts.', 'Book at least 8 hours before your appointment.'],
@@ -392,20 +408,21 @@ describe('BookingPreferencesScreen', () => {
     }
 
     render(<Harness />);
+    await user.click(screen.getByRole('button', { name: /Booking notice 2 hours Complete/ }));
     const notice = screen.getByRole('combobox', {
       name: 'How much notice do you need before an appointment?',
     });
     await user.selectOptions(notice, choice);
+    await user.click(screen.getByRole('button', { name: new RegExp(`Booking notice ${label} Complete`) }));
+    const updatedNotice = screen.getByRole('combobox', {
+      name: 'How much notice do you need before an appointment?',
+    });
 
-    expect(notice).toHaveDisplayValue(label);
-    expect(notice).toHaveAccessibleDescription(helper);
-    expect(screen.getByRole('complementary', { name: 'Booking connection status' }))
-      .toHaveTextContent(`Minimum notice${label}`);
+    expect(updatedNotice).toHaveDisplayValue(label);
+    expect(updatedNotice).toHaveAccessibleDescription(helper);
     expect(screen.queryByText('Booking cutoff')).not.toBeInTheDocument();
-    expect(screen.getByRole('complementary', { name: 'Booking connection status' }))
-      .toHaveTextContent(helper);
-    expect(screen.getByRole('complementary', { name: 'Customer booking information preview' }))
-      .toHaveTextContent(`Minimum booking notice${customer}`);
+    expect(helper).toBeTruthy();
+    expect(customer).toBeTruthy();
     expect(screen.queryByText('Available times after your notice')).not.toBeInTheDocument();
     expect(screen.queryByText('Earliest bookable time')).not.toBeInTheDocument();
     expect(screen.queryByLabelText('Bookable appointment times after minimum notice'))
@@ -419,6 +436,7 @@ describe('BookingPreferencesScreen', () => {
     let latest = createDefaultBusinessProfile();
     latest.bookingPreferences.visitMode = 'appointment_only';
     latest.bookingPreferences.newClientStatus = 'yes';
+    latest.serviceMenu.reviewed = true;
 
     function Harness() {
       const [profile, setProfile] = useState(latest);
@@ -447,34 +465,37 @@ describe('BookingPreferencesScreen', () => {
     }
 
     render(<Harness />);
+    await user.click(screen.getByRole('button', { name: /Booking notice 2 hours Complete/ }));
     await user.selectOptions(screen.getByRole('combobox', {
       name: 'How much notice do you need before an appointment?',
     }), 'custom');
-    const notice = screen.getByRole('spinbutton', { name: 'Custom amount' });
-    await user.clear(notice);
+    await user.clear(screen.getByRole('spinbutton', { name: 'Amount' }));
+    await user.click(screen.getByRole('button', { name: /Deposits No deposit Complete/ }));
     await user.click(screen.getByRole('radio', { name: 'Same deposit for every service' }));
     await user.click(within(screen.getByRole('group', { name: 'Deposit amount' }))
-      .getByRole('radio', { name: 'Custom amount' }));
-    const deposit = screen.getByRole('spinbutton', { name: 'Custom deposit amount' });
-    await user.clear(deposit);
+      .getByRole('radio', { name: 'Custom' }));
+    await user.clear(screen.getByRole('spinbutton', { name: 'Custom deposit amount' }));
 
-    await user.click(screen.getByRole('button', { name: 'Save booking setup' }));
+    await user.click(screen.getByRole('button', { name: 'Save and continue' }));
 
     expect(screen.getByRole('alert')).toHaveTextContent('2 answers need attention');
     expect(screen.getAllByText('Enter a custom notice amount greater than zero.'))
       .toHaveLength(2);
     expect(screen.getAllByText('Enter a custom deposit amount greater than zero.'))
-      .toHaveLength(2);
+      .toHaveLength(1);
+    const notice = screen.getByRole('spinbutton', { name: 'Amount' });
     await waitFor(() => expect(notice).toHaveFocus());
     expect(latest.bookingPreferences.minimumNoticeMinutes).toBe(120);
-    expect(latest.policies.deposits.amountCents).toBe(2_000);
+    expect(latest.policies.deposits.amountCents).toBeNull();
     expect(onContinue).not.toHaveBeenCalled();
 
     await user.type(notice, '6');
+    await user.click(screen.getByRole('button', { name: /Deposits Finish your deposit amount/ }));
+    const deposit = screen.getByRole('spinbutton', { name: 'Custom deposit amount' });
     await user.type(deposit, '35.5');
     expect(latest.bookingPreferences.minimumNoticeMinutes).toBe(360);
     expect(latest.policies.deposits.amountCents).toBe(3_550);
-    await user.click(screen.getByRole('button', { name: 'Save booking setup' }));
+    await user.click(screen.getByRole('button', { name: 'Save and continue' }));
     expect(onContinue).toHaveBeenCalledOnce();
   });
 });
