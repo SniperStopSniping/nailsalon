@@ -22,7 +22,9 @@ describe('section overlap resolutions', () => {
     const ids = createDeterministicIdFactory('advanced-overlap');
     let document = initializeStarter('one_page', { idFactory: ids });
     const initialHome = document.pages[0];
-    if (!initialHome) throw new Error('Missing Home.');
+    if (!initialHome) {
+      throw new Error('Missing Home.');
+    }
     for (const sectionType of [
       'announcement_bar',
       'footer',
@@ -145,7 +147,9 @@ describe('section overlap resolutions', () => {
     const ids = createDeterministicIdFactory('cta-overlap');
     let document = initializeStarter('one_page', { idFactory: ids });
     const initialHome = document.pages[0];
-    if (!initialHome) throw new Error('Missing Home.');
+    if (!initialHome) {
+      throw new Error('Missing Home.');
+    }
     // Final CTA is advanced-only in the locked recipe. Add one explicitly so
     // the density warning still exercises an existing third booking action.
     document = addSection(document, {

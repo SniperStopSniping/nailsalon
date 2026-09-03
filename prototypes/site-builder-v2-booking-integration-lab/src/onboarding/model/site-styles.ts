@@ -16,4 +16,4 @@ export const SITE_STYLE_PRESETS: readonly SiteStylePreset[] = [
 ] as const;
 
 export const getSiteStyleLabel = (id: SiteStylePresetId): string =>
-  SITE_STYLE_PRESETS.find((preset) => preset.id === id)?.label ?? 'Website style';
+  SITE_STYLE_PRESETS.find(preset => preset.id === id)?.label ?? 'Website style';

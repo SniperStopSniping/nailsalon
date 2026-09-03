@@ -1,7 +1,3 @@
-import { StrictMode } from 'react';
-import { createRoot } from 'react-dom/client';
-
-import { App } from './ui/App';
 import './styles.css';
 import './ui/final-hybrid.css';
 import './onboarding/onboarding.css';
@@ -15,6 +11,11 @@ import './onboarding/screen-seven-booking.css';
 import './onboarding/screen-eight-about.css';
 import './onboarding/booking-layout-screen.css';
 import './onboarding/feedback/feedback.css';
+
+import { StrictMode } from 'react';
+import { createRoot } from 'react-dom/client';
+
+import { App } from './ui/App';
 
 const rootElement = document.getElementById('root');
 

@@ -4,9 +4,9 @@ import { fileURLToPath } from 'node:url';
 
 import {
   expect,
-  test,
   type Locator,
   type Page,
+  test,
 } from '@playwright/test';
 
 import { startRuntimeMonitor } from './helpers';
@@ -70,7 +70,9 @@ async function capture(
   fileName: string,
   locator?: Locator,
 ): Promise<void> {
-  if (!CAPTURE_EVIDENCE) return;
+  if (!CAPTURE_EVIDENCE) {
+    return;
+  }
   await mkdir(EVIDENCE_DIRECTORY, { recursive: true });
   if (locator) {
     await locator.screenshot({
@@ -92,11 +94,13 @@ async function waitForSaved(page: Page): Promise<void> {
 
 async function openNormalFresh(page: Page): Promise<void> {
   await page.goto('/');
+
   await expect(heading(page, 'Choose your starting point')).toBeVisible();
 }
 
 async function openAuditFresh(page: Page): Promise<void> {
   await page.goto('/?audit=1');
+
   await expect(heading(page, 'Choose your starting point')).toBeVisible();
 }
 
@@ -105,6 +109,7 @@ async function chooseStartingPoint(
   starter: StarterCta,
 ): Promise<void> {
   await page.getByRole('button', { name: starter }).click();
+
   await expect(heading(page, 'Make it yours')).toBeVisible();
 }
 
@@ -122,8 +127,10 @@ async function applyFixture(
   await page.getByRole('menuitem', { name: 'Lab review options' }).click();
   const dialog = page.getByRole('dialog', { name: 'Lab review options' });
   await dialog.getByRole('button', { exact: true, name: fixtureName }).click();
+
   await expect(dialog).toBeHidden();
   await expect(heading(page, destinationHeading)).toBeVisible();
+
   await waitForSaved(page);
 }
 
@@ -135,19 +142,27 @@ async function reachBooking(page: Page): Promise<void> {
     .getByRole('radio', { name: 'Solo nail tech' })
     .check();
   await page.getByRole('button', { exact: true, name: 'Continue' }).click();
+
   await expect(heading(page, 'Your starting site is ready')).toBeVisible();
+
   await page.getByRole('button', { name: 'Continue setting up my site' }).click();
+
   await expect(heading(page, 'Where can clients find you?')).toBeVisible();
+
   await page.getByLabel('City or general service area').fill('Toronto, Ontario');
   await page.getByRole('group', { name: 'Where do you see clients?' })
     .getByRole('radio', { name: 'Salon suite' })
     .check();
   await page.locator('button[aria-controls="onboarding-contact-card-panel"]').click();
+
   await expect(page.getByRole('switch', {
     name: 'Clients should use online booking only',
   })).toBeChecked();
+
   await page.getByRole('button', { name: 'Save and continue' }).click();
+
   await expect(heading(page, 'How do clients book with you?')).toBeVisible();
+
   await page.getByRole('group', { name: 'How do you accept clients?' })
     .getByRole('radio', { name: 'Appointment only' })
     .check();
@@ -164,18 +179,26 @@ async function reachBrandingCard(page: Page): Promise<Locator> {
     .getByRole('radio', { name: 'Solo nail tech' })
     .check();
   const branding = brandingCard(page);
+
   await expect(branding).toContainText('Photo, logo and Instagram · Optional');
   await expect(branding).toHaveAttribute('aria-expanded', 'false');
+
   await branding.click();
+
   await expect(branding).toHaveAttribute('aria-expanded', 'true');
+
   return branding;
 }
 
 async function continueToAboutDesign(page: Page): Promise<void> {
   await page.getByRole('button', { exact: true, name: 'Continue' }).click();
+
   await expect(heading(page, 'Your starting site is ready')).toBeVisible();
+
   await page.getByRole('button', { name: 'Continue setting up my site' }).click();
+
   await expect(heading(page, 'Where can clients find you?')).toBeVisible();
+
   await page.getByLabel('City or general service area').fill('Toronto, Ontario');
   await page.getByRole('group', { name: 'Where do you see clients?' })
     .getByRole('radio', { name: 'Salon suite' })
@@ -188,18 +211,23 @@ async function continueToAboutDesign(page: Page): Promise<void> {
     .getByRole('radio', { name: 'Yes' })
     .check();
   await page.getByRole('button', { name: 'Save booking setup' }).click();
+
   await expect(heading(page, 'Would you like an About section?')).toBeVisible();
+
   await page.getByLabel('Short bio').fill(
     'I create thoughtful, durable nail appointments in a calm studio.',
   );
   await page.getByRole('button', { name: 'Choose an About design' }).click();
+
   await expect(heading(page, 'Choose your About design')).toBeVisible();
 }
 
 async function readStoredState(page: Page): Promise<StoredOnboardingState> {
   return page.evaluate((key) => {
     const raw = window.localStorage.getItem(key);
-    if (!raw) throw new Error('Missing onboarding state.');
+    if (!raw) {
+      throw new Error('Missing onboarding state.');
+    }
     return JSON.parse(raw) as StoredOnboardingState;
   }, ONBOARDING_STORAGE_KEY);
 }
@@ -211,9 +239,13 @@ async function writeStoredMediaRoles(
   const patchKey = 'luster:test:media-role-patch';
   await page.addInitScript(({ key, requestedPatchKey }) => {
     const patch = window.sessionStorage.getItem(requestedPatchKey);
-    if (!patch) return;
+    if (!patch) {
+      return;
+    }
     const raw = window.localStorage.getItem(key);
-    if (!raw) throw new Error('Missing onboarding state.');
+    if (!raw) {
+      throw new Error('Missing onboarding state.');
+    }
     const state = JSON.parse(raw) as StoredOnboardingState;
     const nextMedia = JSON.parse(patch) as StoredOnboardingState['profile'];
     state.profile.profilePhoto = nextMedia.profilePhoto;
@@ -225,6 +257,7 @@ async function writeStoredMediaRoles(
     window.sessionStorage.setItem(requestedPatchKey, JSON.stringify(nextMedia));
   }, { nextMedia: media, requestedPatchKey: patchKey });
   await page.reload();
+
   await expect(heading(page, 'Choose your About design')).toBeVisible();
 }
 
@@ -235,9 +268,13 @@ async function preparePolicyState(
   const patchKey = 'luster:test:policy-mode-patch';
   await page.addInitScript(({ key, requestedModeKey }) => {
     const mode = window.sessionStorage.getItem(requestedModeKey);
-    if (mode !== 'fixed' && mode !== 'none') return;
+    if (mode !== 'fixed' && mode !== 'none') {
+      return;
+    }
     const raw = window.localStorage.getItem(key);
-    if (!raw) throw new Error('Missing onboarding state.');
+    if (!raw) {
+      throw new Error('Missing onboarding state.');
+    }
     const state = JSON.parse(raw) as {
       profile: {
         policies: {
@@ -308,15 +345,21 @@ async function preparePolicyState(
     window.sessionStorage.setItem(requestedModeKey, mode);
   }, { mode: depositMode, requestedModeKey: patchKey });
   await page.reload();
+
   await expect(heading(page, 'Set clear expectations')).toBeVisible();
 }
 
 async function continuePoliciesToReview(page: Page): Promise<void> {
   await page.getByRole('button', { name: 'Save policies' }).click();
+
   await expect(heading(page, 'Choose your website style')).toBeVisible();
+
   await page.getByRole('button', { name: /^(?:Continue with|Use) Soft$/u }).click();
+
   await expect(heading(page, 'Add something extra')).toBeVisible();
+
   await page.getByRole('button', { name: 'Continue to review' }).click();
+
   await expect(heading(page, 'Review your site')).toBeVisible();
 }
 
@@ -331,7 +374,9 @@ async function wheelDownOver(page: Page, locator: Locator): Promise<number> {
     window.scrollTo(0, Math.min(Math.max(0, top - 100), Math.max(0, maxScroll - 260)));
   });
   const box = await locator.boundingBox();
-  if (!box) throw new Error('The inline About preview has no rendered bounds.');
+  if (!box) {
+    throw new Error('The inline About preview has no rendered bounds.');
+  }
   const outerScrollBefore = await page.evaluate(() => window.scrollY);
   await page.mouse.move(
     box.x + (box.width / 2),
@@ -361,7 +406,9 @@ test.describe('final Owner iPhone corrections', () => {
       monitor?.stop();
       runtimeMonitors.delete(page);
     }
-    if (!CAPTURE_EVIDENCE) return;
+    if (!CAPTURE_EVIDENCE) {
+      return;
+    }
     await mkdir(VIDEO_DIRECTORY, { recursive: true });
     const video = page.video();
     await page.close();
@@ -385,6 +432,7 @@ test.describe('final Owner iPhone corrections', () => {
     const customerPreview = page.getByLabel('Customer booking information preview');
 
     await notice.selectOption('preset:120');
+
     await expect(page.getByText(
       'Clients must book at least 2 hours before the appointment starts.',
     ).first()).toBeVisible();
@@ -396,11 +444,13 @@ test.describe('final Owner iPhone corrections', () => {
     await expect(customerPreview).toContainText(
       'Book at least 2 hours before your appointment.',
     );
+
     await capture(page, '01-booking-minimum-notice-helper');
     await capture(page, '02-booking-summary-without-fake-times', bookingSummary);
     await capture(page, '03-customer-preview-minimum-notice-fact', customerPreview);
 
     await notice.selectOption('preset:1440');
+
     await expect(page.getByText(
       'Clients must book at least 1 day before the appointment starts.',
     ).first()).toBeVisible();
@@ -413,18 +463,27 @@ test.describe('final Owner iPhone corrections', () => {
     await expect(page.locator('[data-bookable-time]')).toHaveCount(0);
 
     await page.getByRole('button', { name: 'Save booking setup' }).click();
+
     await expect(heading(page, 'Would you like an About section?')).toBeVisible();
+
     // The starting site preview now sits ahead of booking, so walk back to it
     // to confirm the saved cutoff reaches the customer-facing full preview.
     const back = page.getByRole('button', { exact: true, name: 'Back' });
     await back.click();
+
     await expect(heading(page, 'How do clients book with you?')).toBeVisible();
+
     await back.click();
+
     await expect(heading(page, 'Where can clients find you?')).toBeVisible();
+
     await back.click();
+
     await expect(heading(page, 'Your starting site is ready')).toBeVisible();
+
     await page.getByRole('button', { name: 'Preview my site' }).click();
     const fullPreview = page.getByRole('dialog', { name: 'Preview your starting site' });
+
     await expect(fullPreview).toContainText('Minimum booking notice');
     await expect(fullPreview).toContainText('Book at least 1 day before your appointment.');
     await expect(fullPreview.getByText(/Available times after your notice/iu)).toHaveCount(0);
@@ -437,25 +496,33 @@ test.describe('final Owner iPhone corrections', () => {
     await openAuditFresh(page);
     await applyFixture(page, 'Multi-page starter', 'Your starting site is ready');
     await page.getByRole('button', { name: 'Continue setting up my site' }).click();
+
     // Location and booking now sit between the starting site preview and
     // About; the fixture already satisfies both, so they only need saving.
     await expect(heading(page, 'Where can clients find you?')).toBeVisible();
+
     await page.getByRole('button', { name: 'Save and continue' }).click();
+
     await expect(heading(page, 'How do clients book with you?')).toBeVisible();
+
     await page.getByRole('button', { name: 'Save booking setup' }).click();
+
     await expect(heading(page, 'Would you like an About section?')).toBeVisible();
+
     await page.getByRole('button', { name: 'Choose an About design' }).click();
+
     await expect(heading(page, 'Choose your About design')).toBeVisible();
 
     const group = page.getByRole('group', { name: 'About design presets' });
     const cards = group.getByRole('button');
     const preview = page.getByLabel(/Selected About design preview:/u);
     const frame = preview.locator('.onboarding-preview-frame');
+
     await expect(cards).toHaveCount(4);
     await expect(page.getByRole('heading', { name: 'See it on your site' })).toBeVisible();
     await expect(frame).toHaveAttribute('tabindex', '-1');
     await expect(frame).toHaveAttribute('inert', '');
-    expect(await frame.evaluate((element) => ({
+    expect(await frame.evaluate(element => ({
       overflowX: getComputedStyle(element).overflowX,
       overflowY: getComputedStyle(element).overflowY,
       pointerEvents: getComputedStyle(element).pointerEvents,
@@ -469,10 +536,12 @@ test.describe('final Owner iPhone corrections', () => {
       group.boundingBox(),
       preview.boundingBox(),
     ]);
+
     expect(groupBox).not.toBeNull();
     expect(previewBox).not.toBeNull();
     expect((groupBox?.y ?? 0) + (groupBox?.height ?? 0))
       .toBeLessThanOrEqual(previewBox?.y ?? 0);
+
     await capture(page, '04-about-chooser-four-cards-first');
     await capture(page, '05-about-inline-preview-below-cards', preview);
 
@@ -482,17 +551,20 @@ test.describe('final Owner iPhone corrections', () => {
       { height: 390, width: 844 },
     ]) {
       await page.setViewportSize(viewport);
-      const columns = await group.evaluate((element) =>
+      const columns = await group.evaluate(element =>
         getComputedStyle(element).gridTemplateColumns.split(' ').filter(Boolean).length);
+
       expect(columns).toBe(2);
-      const frameScrollBefore = await frame.evaluate((element) => ({
+
+      const frameScrollBefore = await frame.evaluate(element => ({
         left: element.scrollLeft,
         top: element.scrollTop,
       }));
       const outerScrollBefore = await wheelDownOver(page, preview);
+
       await expect.poll(() => page.evaluate(() => window.scrollY))
         .toBeGreaterThan(outerScrollBefore + 20);
-      expect(await frame.evaluate((element) => ({
+      expect(await frame.evaluate(element => ({
         left: element.scrollLeft,
         top: element.scrollTop,
       }))).toEqual(frameScrollBefore);
@@ -503,14 +575,20 @@ test.describe('final Owner iPhone corrections', () => {
     const openInteractive = page.getByRole('button', { name: 'Open interactive preview' });
     await cards.last().focus();
     await page.keyboard.press('Tab');
+
     await expect(openInteractive).toBeFocused();
+
     await openInteractive.click();
     const fullPreview = page.getByRole('dialog', { name: 'Preview your About section' });
+
     await expect(fullPreview).toBeVisible();
+
     const interactiveFrame = fullPreview.locator('.onboarding-preview-frame');
+
     await expect(interactiveFrame).toHaveAttribute('tabindex', '0');
     await expect(interactiveFrame).not.toHaveAttribute('inert', '');
     await expect(fullPreview.getByRole('link', { name: /Book/u }).first()).toBeVisible();
+
     await capture(page, '07-interactive-about-preview');
   });
 
@@ -527,16 +605,19 @@ test.describe('final Owner iPhone corrections', () => {
     });
     await page.getByLabel('Profile photo', { exact: true }).setInputFiles(PORTRAIT_PATH);
     await page.getByLabel('Logo', { exact: true }).setInputFiles(LOGO_PATH);
+
     await expect(profileField.getByRole('status')).toContainText('Profile photo ready');
     await expect(logoField.getByRole('status')).toContainText('Logo ready');
     await expect(profileField.locator('img')).toBeVisible();
     await expect(logoField.locator('img')).toBeVisible();
     await expect(branding).toContainText('Photo · Logo');
     await expect(branding).toContainText('Complete');
+
     await waitForSaved(page);
     await capture(page, '08-both-profile-and-logo-uploaded');
 
     const beforeReload = await readStoredState(page);
+
     expect(beforeReload.profile.profilePhoto?.id).toBeTruthy();
     expect(beforeReload.profile.logo?.id).toBeTruthy();
     expect(beforeReload.profile.profilePhoto?.id).not.toBe(beforeReload.profile.logo?.id);
@@ -545,11 +626,14 @@ test.describe('final Owner iPhone corrections', () => {
     );
 
     await page.reload();
+
     await expect(heading(page, 'Make it yours')).toBeVisible();
     await expect(branding).toHaveAttribute('aria-expanded', 'true');
     await expect(profileField.getByRole('status')).toContainText('Profile photo ready');
     await expect(logoField.getByRole('status')).toContainText('Logo ready');
+
     const afterReload = await readStoredState(page);
+
     expect(afterReload.profile.profilePhoto?.id).toBe(beforeReload.profile.profilePhoto?.id);
     expect(afterReload.profile.logo?.id).toBe(beforeReload.profile.logo?.id);
     expect(afterReload.profile.profilePhoto?.storageId)
@@ -560,12 +644,18 @@ test.describe('final Owner iPhone corrections', () => {
     const preview = page.getByLabel(/Selected About design preview:/u);
     const logo = preview.locator('[data-media-role="logo"]');
     const portrait = preview.locator('[data-media-role="profile"]').first();
+
     await expect(logo).toHaveCount(1);
     await expect(logo).toHaveAttribute('alt', 'Isla Role Studio logo');
     await expect(portrait).toHaveAttribute('alt', 'Daniela profile photo');
     await expect(logo).toHaveCSS('object-fit', 'contain');
     await expect(portrait).toHaveCSS('object-fit', 'cover');
-    expect(await logo.getAttribute('src')).not.toBe(await portrait.getAttribute('src'));
+
+    const portraitSource = await portrait.getAttribute('src');
+
+    expect(portraitSource).not.toBeNull();
+    await expect(logo).not.toHaveAttribute('src', portraitSource ?? '');
+
     await capture(page, '09-customer-header-showing-logo', preview);
     await capture(
       page,
@@ -578,31 +668,37 @@ test.describe('final Owner iPhone corrections', () => {
       profilePhoto: bothMedia.profilePhoto,
     });
     const profileOnlyPreview = page.getByLabel(/Selected About design preview:/u);
+
     await expect(profileOnlyPreview.locator('.onboarding-customer-brand img')).toHaveCount(0);
     await expect(profileOnlyPreview.locator('.onboarding-customer-brand i')).toBeVisible();
     await expect(profileOnlyPreview.locator('img[data-media-role="profile"]').first())
       .toBeVisible();
+
     await capture(page, '11-profile-only-fallback-state', profileOnlyPreview);
 
     await writeStoredMediaRoles(page, {
       logo: bothMedia.logo,
     });
     const logoOnlyPreview = page.getByLabel(/Selected About design preview:/u);
+
     await expect(logoOnlyPreview.locator('img[data-media-role="logo"]')).toBeVisible();
     await expect(logoOnlyPreview.locator('img[data-media-role="profile"]')).toHaveCount(0);
     await expect(logoOnlyPreview.getByRole('img', {
       name: 'Daniela portrait placeholder',
     }).first()).toBeVisible();
+
     await capture(page, '12-logo-only-fallback-state', logoOnlyPreview);
 
     await writeStoredMediaRoles(page, {});
     const neitherPreview = page.getByLabel(/Selected About design preview:/u);
+
     await expect(neitherPreview.locator('.onboarding-customer-brand img')).toHaveCount(0);
     await expect(neitherPreview.locator('.onboarding-customer-brand i')).toBeVisible();
     await expect(neitherPreview.locator('img[data-media-role="profile"]')).toHaveCount(0);
     await expect(neitherPreview.getByRole('img', {
       name: 'Daniela portrait placeholder',
     }).first()).toBeVisible();
+
     await capture(page, '13-neither-media-fallback-state', neitherPreview);
   });
 
@@ -615,12 +711,17 @@ test.describe('final Owner iPhone corrections', () => {
     const combinedTrigger = page.locator(
       'button[aria-controls="onboarding-policy-deposits-cancellations-panel"]',
     );
+
     await expect(combinedTrigger).toContainText('Deposits & cancellations');
     await expect(combinedTrigger).toContainText('Finish your deposit and cancellation rules');
+
     await combinedTrigger.click();
+
     await expect(combinedTrigger).toHaveAttribute('aria-expanded', 'false');
+
     await capture(page, '14-combined-policy-collapsed', combinedTrigger);
     await combinedTrigger.click();
+
     await expect(page.getByText('From your Booking settings')).toBeVisible();
     await expect(page.getByText('$15 deposit', { exact: true })).toBeVisible();
 
@@ -630,14 +731,17 @@ test.describe('final Owner iPhone corrections', () => {
       .selectOption('deposit_lost');
     await page.getByLabel('Can clients get their deposit back?').selectOption('no');
     await page.getByLabel('Can clients move it to another appointment?').selectOption('no');
+
     await expect(combinedTrigger).toContainText('Complete');
     await expect(combinedTrigger).toContainText(
       '$15 deposit · 24 hours’ notice · deposit kept after late cancellation',
     );
+
     const policyCopy = page.locator('.onboarding-policy-copy-card').filter({
       hasText: 'Deposits & cancellations',
     });
     await policyCopy.locator('summary').click();
+
     await expect(policyCopy).toContainText('A $15 deposit is required to book.');
     await expect(policyCopy).toContainText(
       'Please provide at least 24 hours’ notice when cancelling or rescheduling.',
@@ -649,6 +753,7 @@ test.describe('final Owner iPhone corrections', () => {
     await expect(policyCopy).toContainText(
       'Before the deadline, deposits cannot be moved to another appointment.',
     );
+
     await capture(page, '15-combined-policy-fixed-deposit-expanded');
     await capture(page, '17-combined-policy-complete', combinedTrigger);
     await capture(page, '18-combined-customer-wording', policyCopy);
@@ -656,6 +761,7 @@ test.describe('final Owner iPhone corrections', () => {
     await continuePoliciesToReview(page);
     const readiness = page.getByRole('complementary', { name: 'Site readiness' });
     await readiness.getByRole('button', { name: /View checklist/u }).click();
+
     await expect(readiness.getByText('Deposits & cancellation policy', { exact: true }))
       .toHaveCount(1);
     // Schema v2: the Deposits & cancellations section defaults to
@@ -666,23 +772,29 @@ test.describe('final Owner iPhone corrections', () => {
     await expect(page.getByLabel('Final phone customer preview')
       .locator('.customer-lib-deposits .customer-lib-policy-body'))
       .toHaveText('$15 deposit · 24 hours’ notice · deposit kept after late cancellation');
+
     await capture(page, '19-review-combined-readiness-item', readiness);
 
     await preparePolicyState(page, 'none');
+
     await expect(page.getByText('No deposit', { exact: true })).toBeVisible();
     await expect(page.getByLabel('Can clients get their deposit back?')).toHaveCount(0);
     await expect(page.getByLabel('Can clients move it to another appointment?')).toHaveCount(0);
     await expect(page.getByText(/keep the deposit/iu)).toHaveCount(0);
+
     await page.getByLabel('How much notice do clients need to cancel?')
       .selectOption('24_hours');
     await page.getByLabel('What happens if they cancel late?')
       .selectOption('cancellation_fee');
+
     await expect(combinedTrigger).toContainText('Complete');
     await expect(combinedTrigger).toContainText('No deposit · 24 hours’ notice');
+
     const noDepositCopy = page.locator('.onboarding-policy-copy-card').filter({
       hasText: 'Deposits & cancellations',
     });
     await noDepositCopy.locator('summary').click();
+
     await expect(noDepositCopy).toContainText('No deposit is required.');
     await expect(noDepositCopy).toContainText(
       'Please provide at least 24 hours’ notice when cancelling or rescheduling.',
@@ -691,16 +803,20 @@ test.describe('final Owner iPhone corrections', () => {
       'Late cancellations incur a cancellation fee.',
     );
     await expect(noDepositCopy).not.toContainText(/non-refundable|cannot be transferred/iu);
+
     await capture(page, '16-combined-policy-no-deposit-expanded');
 
     await continuePoliciesToReview(page);
     const noDepositReadiness = page.getByRole('complementary', { name: 'Site readiness' });
     await noDepositReadiness.getByRole('button', { name: /View checklist/u }).click();
+
     await expect(noDepositReadiness.getByText(
       'Deposits & cancellation policy',
       { exact: true },
     )).toHaveCount(1);
+
     const finalPreview = page.getByLabel('Final phone customer preview');
+
     await expect(finalPreview.locator('.customer-lib-deposits .customer-lib-policy-body'))
       .toHaveText('No deposit · 24 hours’ notice');
     await expect(finalPreview).not.toContainText(

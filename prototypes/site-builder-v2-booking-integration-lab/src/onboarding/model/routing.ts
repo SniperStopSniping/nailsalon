@@ -28,7 +28,7 @@ export const isScreenAvailable = (
 
 export const getReachableCoreScreens = (
   state: OnboardingLabState,
-): OnboardingScreenId[] => CORE_SCREEN_ORDER.filter((screen) =>
+): OnboardingScreenId[] => CORE_SCREEN_ORDER.filter(screen =>
   isScreenAvailable(screen, state));
 
 export const getNextScreen = (

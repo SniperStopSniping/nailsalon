@@ -141,7 +141,7 @@ async function waitForToastGone(page) {
 }
 
 async function assertFullyInViewport(locator, label) {
-  const visible = await locator.evaluate(element => {
+  const visible = await locator.evaluate((element) => {
     const rect = element.getBoundingClientRect();
     return rect.top >= 0
       && rect.left >= 0
@@ -185,7 +185,7 @@ function bookingArticle(page) {
 }
 
 async function scrollEditorBookingIntoView(page) {
-  await bookingArticle(page).evaluate(element => {
+  await bookingArticle(page).evaluate((element) => {
     const top = element.getBoundingClientRect().top + window.scrollY;
     window.scrollTo({ top: Math.max(0, top - 76), behavior: 'instant' });
   });
@@ -262,7 +262,7 @@ async function backToEditor(page) {
 async function scrollPreviewBookingIntoView(page) {
   const booking = page.locator('.preview-section--booking');
   await booking.scrollIntoViewIfNeeded();
-  await booking.evaluate(element => {
+  await booking.evaluate((element) => {
     const scroller = element.closest('.client-site');
     if (scroller) {
       scroller.scrollTop = Math.max(0, element.offsetTop - 72);
@@ -808,7 +808,7 @@ async function captureFinalBaseline(browser) {
   try {
     await chooseQuickBook(page);
     await resetToStarter(page);
-    const labels = await page.locator('.final-sections-list [data-section-instance-id]').evaluateAll((articles) => (
+    const labels = await page.locator('.final-sections-list [data-section-instance-id]').evaluateAll(articles => (
       articles.map(article => article.getAttribute('data-section-label'))
     ));
     if (JSON.stringify(labels) !== JSON.stringify(['Section 01', 'Section 02', 'Booking'])) {

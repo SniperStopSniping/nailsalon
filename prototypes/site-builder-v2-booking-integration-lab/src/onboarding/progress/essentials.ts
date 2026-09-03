@@ -1,13 +1,13 @@
+import { isPersonalBusinessType } from '../model/business-identity';
+import {
+  contactMethodHasValue,
+  resolveInstagramUsername,
+} from '../model/contact';
 import type {
   OnboardingLabState,
   OnboardingScreenId,
   OnboardingStage,
 } from '../model/types';
-import {
-  contactMethodHasValue,
-  resolveInstagramUsername,
-} from '../model/contact';
-import { isPersonalBusinessType } from '../model/business-identity';
 
 export const ESSENTIAL_IDS = [
   'starting_point',
@@ -31,7 +31,9 @@ const nonBlank = (value: string): boolean => value.trim().length > 0;
 
 export const hasPublicContactMethod = (state: OnboardingLabState): boolean => {
   const { profile } = state;
-  if (resolveInstagramUsername(profile.instagram).status === 'invalid') return false;
+  if (resolveInstagramUsername(profile.instagram).status === 'invalid') {
+    return false;
+  }
   return profile.bookingOnlyContact
     || contactMethodHasValue(profile, profile.preferredContact);
 };
@@ -62,7 +64,7 @@ export const getEssentialResults = (
       && nonBlank(state.profile.location.cityOrArea)
       && (state.profile.businessType === 'mobile'
         || nonBlank(state.profile.location.exactAddress))
-      && hasPublicContactMethod(state),
+        && hasPublicContactMethod(state),
     id: 'location_contact',
     label: 'Location and contact',
     screen: 'location_contact',
@@ -88,13 +90,13 @@ export const getEssentialResults = (
 export const getCompletedEssentialIds = (
   state: OnboardingLabState,
 ): EssentialId[] => getEssentialResults(state)
-  .filter((essential) => essential.complete)
-  .map((essential) => essential.id);
+  .filter(essential => essential.complete)
+  .map(essential => essential.id);
 
 export const getIncompleteEssentials = (
   state: OnboardingLabState,
 ): EssentialResult[] => getEssentialResults(state)
-  .filter((essential) => !essential.complete);
+  .filter(essential => !essential.complete);
 
 export const getEssentialsLeft = (state: OnboardingLabState): number =>
   getIncompleteEssentials(state).length;
@@ -116,9 +118,9 @@ export const getStageEssentialProgress = (
   stage: OnboardingStage,
 ): { complete: number; total: number; stageComplete: boolean } => {
   const essentials = getEssentialResults(state).filter(
-    (essential) => essential.stage === stage,
+    essential => essential.stage === stage,
   );
-  const complete = essentials.filter((essential) => essential.complete).length;
+  const complete = essentials.filter(essential => essential.complete).length;
   return {
     complete,
     stageComplete: essentials.length === 0
@@ -131,7 +133,7 @@ export const getStageEssentialProgress = (
 export const getCompletedEssentialStages = (
   state: OnboardingLabState,
 ): OnboardingStage[] => (['basics', 'booking', 'design', 'review'] as const)
-  .filter((stage) => getStageEssentialProgress(state, stage).stageComplete);
+  .filter(stage => getStageEssentialProgress(state, stage).stageComplete);
 
 export const canOpenBuilder = (state: OnboardingLabState): boolean =>
   getEssentialsLeft(state) === 0;

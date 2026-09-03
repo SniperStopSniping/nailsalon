@@ -6,32 +6,32 @@ import {
 import { AssetStorageError, toAssetStorageError } from './errors';
 import { readBlobArrayBuffer } from './image-processing';
 import {
-  CUSTOM_DESIGN_ASSET_SCHEMA_VERSION,
-  CUSTOM_DESIGN_MAX_THUMBNAIL_BYTES,
-  CUSTOM_DESIGN_THUMBNAIL_MAX_EDGE_PX,
-  SUPPORTED_IMAGE_MIME_TYPES,
   type AssetListOptions,
   type AssetReadOptions,
   type AssetRepository,
   type AssetResolution,
+  CUSTOM_DESIGN_ASSET_SCHEMA_VERSION,
+  CUSTOM_DESIGN_MAX_THUMBNAIL_BYTES,
+  CUSTOM_DESIGN_THUMBNAIL_MAX_EDGE_PX,
   type ImageAssetMetadata,
   type ImageAssetSummary,
   type PreparedImageAsset,
   type StoredImageAsset,
+  SUPPORTED_IMAGE_MIME_TYPES,
 } from './types';
 
 export const CUSTOM_DESIGN_ASSET_DB_VERSION = 1;
-export const DEFAULT_CUSTOM_DESIGN_ASSET_DB_NAME =
-  'luster-custom-design-assets';
-export const CUSTOM_DESIGN_ASSET_SUMMARY_STORE_NAME =
-  'image-asset-summaries-v1';
+export const DEFAULT_CUSTOM_DESIGN_ASSET_DB_NAME
+  = 'luster-custom-design-assets';
+export const CUSTOM_DESIGN_ASSET_SUMMARY_STORE_NAME
+  = 'image-asset-summaries-v1';
 /** Backwards-compatible alias for Phase 1 test and integration imports. */
-export const CUSTOM_DESIGN_ASSET_STORE_NAME =
-  CUSTOM_DESIGN_ASSET_SUMMARY_STORE_NAME;
-export const CUSTOM_DESIGN_ORIGINAL_BLOB_STORE_NAME =
-  'image-asset-originals-v1';
-export const CUSTOM_DESIGN_THUMBNAIL_BLOB_STORE_NAME =
-  'image-asset-thumbnails-v1';
+export const CUSTOM_DESIGN_ASSET_STORE_NAME
+  = CUSTOM_DESIGN_ASSET_SUMMARY_STORE_NAME;
+export const CUSTOM_DESIGN_ORIGINAL_BLOB_STORE_NAME
+  = 'image-asset-originals-v1';
+export const CUSTOM_DESIGN_THUMBNAIL_BLOB_STORE_NAME
+  = 'image-asset-thumbnails-v1';
 
 const ASSET_STORE_NAMES = [
   CUSTOM_DESIGN_ASSET_SUMMARY_STORE_NAME,
@@ -85,10 +85,10 @@ const isObjectRecord = (value: unknown): value is Record<string, unknown> =>
   Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 
 const isBlobLike = (value: unknown): value is Blob =>
-  isObjectRecord(value) &&
-  Number.isSafeInteger(value.size) &&
-  typeof value.type === 'string' &&
-  typeof value.slice === 'function';
+  isObjectRecord(value)
+  && Number.isSafeInteger(value.size)
+  && typeof value.type === 'string'
+  && typeof value.slice === 'function';
 
 const arrayBufferByteLength = Object.getOwnPropertyDescriptor(
   ArrayBuffer.prototype,
@@ -104,8 +104,8 @@ const isArrayBufferLike = (value: unknown): value is ArrayBuffer => {
 };
 
 const isSupportedMimeType = (value: unknown): boolean =>
-  typeof value === 'string' &&
-  SUPPORTED_IMAGE_MIME_TYPES.some((mimeType) => mimeType === value);
+  typeof value === 'string'
+  && (SUPPORTED_IMAGE_MIME_TYPES as readonly string[]).includes(value);
 
 const validateMetadata: (
   value: unknown,
@@ -115,33 +115,33 @@ const validateMetadata: (
   }
 
   if (
-    typeof value.id !== 'string' ||
-    !value.id.trim() ||
-    typeof value.fileName !== 'string' ||
-    !value.fileName.trim() ||
-    !Number.isSafeInteger(value.byteSize) ||
-    (value.byteSize as number) <= 0 ||
-    (value.byteSize as number) > CUSTOM_DESIGN_MAX_FILE_BYTES ||
-    !Number.isSafeInteger(value.width) ||
-    !Number.isSafeInteger(value.height) ||
-    (value.width as number) <= 0 ||
-    (value.height as number) <= 0 ||
-    (value.width as number) > CUSTOM_DESIGN_MAX_IMAGE_DIMENSION ||
-    (value.height as number) > CUSTOM_DESIGN_MAX_IMAGE_DIMENSION ||
-    (value.width as number) * (value.height as number) >
-      CUSTOM_DESIGN_MAX_IMAGE_PIXELS ||
-    typeof value.aspectRatio !== 'number' ||
-    !Number.isFinite(value.aspectRatio) ||
-    value.aspectRatio <= 0 ||
-    Math.abs(
+    typeof value.id !== 'string'
+    || !value.id.trim()
+    || typeof value.fileName !== 'string'
+    || !value.fileName.trim()
+    || !Number.isSafeInteger(value.byteSize)
+    || (value.byteSize as number) <= 0
+    || (value.byteSize as number) > CUSTOM_DESIGN_MAX_FILE_BYTES
+    || !Number.isSafeInteger(value.width)
+    || !Number.isSafeInteger(value.height)
+    || (value.width as number) <= 0
+    || (value.height as number) <= 0
+    || (value.width as number) > CUSTOM_DESIGN_MAX_IMAGE_DIMENSION
+    || (value.height as number) > CUSTOM_DESIGN_MAX_IMAGE_DIMENSION
+    || (value.width as number) * (value.height as number)
+    > CUSTOM_DESIGN_MAX_IMAGE_PIXELS
+    || typeof value.aspectRatio !== 'number'
+    || !Number.isFinite(value.aspectRatio)
+    || value.aspectRatio <= 0
+    || Math.abs(
       value.aspectRatio - (value.width as number) / (value.height as number),
-    ) > 0.000_001 ||
-    !isSupportedMimeType(value.mimeType) ||
-    typeof value.createdAt !== 'string' ||
-    !Number.isFinite(Date.parse(value.createdAt)) ||
-    !Number.isInteger(value.orientation) ||
-    (value.orientation as number) < 1 ||
-    (value.orientation as number) > 8
+    ) > 0.000_001
+    || !isSupportedMimeType(value.mimeType)
+    || typeof value.createdAt !== 'string'
+    || !Number.isFinite(Date.parse(value.createdAt))
+    || !Number.isInteger(value.orientation)
+    || (value.orientation as number) < 1
+    || (value.orientation as number) > 8
   ) {
     throw invalidAsset('The stored image metadata is invalid.');
   }
@@ -149,17 +149,17 @@ const validateMetadata: (
   if (value.thumbnail !== undefined) {
     const thumbnail = value.thumbnail;
     if (
-      !isObjectRecord(thumbnail) ||
-      !Number.isSafeInteger(thumbnail.byteSize) ||
-      !Number.isSafeInteger(thumbnail.width) ||
-      !Number.isSafeInteger(thumbnail.height) ||
-      (thumbnail.byteSize as number) <= 0 ||
-      (thumbnail.byteSize as number) > CUSTOM_DESIGN_MAX_THUMBNAIL_BYTES ||
-      (thumbnail.width as number) <= 0 ||
-      (thumbnail.height as number) <= 0 ||
-      (thumbnail.width as number) > CUSTOM_DESIGN_THUMBNAIL_MAX_EDGE_PX ||
-      (thumbnail.height as number) > CUSTOM_DESIGN_THUMBNAIL_MAX_EDGE_PX ||
-      !isSupportedMimeType(thumbnail.mimeType)
+      !isObjectRecord(thumbnail)
+      || !Number.isSafeInteger(thumbnail.byteSize)
+      || !Number.isSafeInteger(thumbnail.width)
+      || !Number.isSafeInteger(thumbnail.height)
+      || (thumbnail.byteSize as number) <= 0
+      || (thumbnail.byteSize as number) > CUSTOM_DESIGN_MAX_THUMBNAIL_BYTES
+      || (thumbnail.width as number) <= 0
+      || (thumbnail.height as number) <= 0
+      || (thumbnail.width as number) > CUSTOM_DESIGN_THUMBNAIL_MAX_EDGE_PX
+      || (thumbnail.height as number) > CUSTOM_DESIGN_THUMBNAIL_MAX_EDGE_PX
+      || !isSupportedMimeType(thumbnail.mimeType)
     ) {
       throw invalidAsset('The stored image thumbnail metadata is invalid.');
     }
@@ -176,9 +176,9 @@ const validatePreparedAsset: (
   const metadata = value.metadata;
 
   if (
-    !isBlobLike(value.blob) ||
-    value.blob.size !== metadata.byteSize ||
-    value.blob.type !== metadata.mimeType
+    !isBlobLike(value.blob)
+    || value.blob.size !== metadata.byteSize
+    || value.blob.type !== metadata.mimeType
   ) {
     throw invalidAsset(
       'The image asset metadata does not match the uploaded file.',
@@ -187,9 +187,9 @@ const validatePreparedAsset: (
 
   if (metadata.thumbnail !== undefined) {
     if (
-      !isBlobLike(value.thumbnailBlob) ||
-      value.thumbnailBlob.size !== metadata.thumbnail.byteSize ||
-      value.thumbnailBlob.type !== metadata.thumbnail.mimeType
+      !isBlobLike(value.thumbnailBlob)
+      || value.thumbnailBlob.size !== metadata.thumbnail.byteSize
+      || value.thumbnailBlob.type !== metadata.thumbnail.mimeType
     ) {
       throw invalidAsset(
         'The image thumbnail metadata does not match the stored thumbnail.',
@@ -206,11 +206,11 @@ const validateSummary: (
   value: unknown,
 ) => asserts value is PersistedImageAssetSummary = (value) => {
   if (
-    !isObjectRecord(value) ||
-    value.schemaVersion !== CUSTOM_DESIGN_ASSET_SCHEMA_VERSION ||
-    (value.state !== 'staged' && value.state !== 'committed') ||
-    typeof value.stagedAt !== 'string' ||
-    !Number.isFinite(Date.parse(value.stagedAt))
+    !isObjectRecord(value)
+    || value.schemaVersion !== CUSTOM_DESIGN_ASSET_SCHEMA_VERSION
+    || (value.state !== 'staged' && value.state !== 'committed')
+    || typeof value.stagedAt !== 'string'
+    || !Number.isFinite(Date.parse(value.stagedAt))
   ) {
     throw invalidAsset(
       'This stored image uses an unsupported or corrupt asset summary format.',
@@ -229,18 +229,18 @@ const validateBinaryRecord = (
   errorMessage: string,
 ): ResolvedPersistedBinary => {
   if (
-    !isObjectRecord(value) ||
-    value.schemaVersion !== CUSTOM_DESIGN_ASSET_SCHEMA_VERSION ||
-    value.assetId !== expected.assetId
+    !isObjectRecord(value)
+    || value.schemaVersion !== CUSTOM_DESIGN_ASSET_SCHEMA_VERSION
+    || value.assetId !== expected.assetId
   ) {
     throw invalidAsset(errorMessage);
   }
 
   if (
-    (value.storageKind === undefined || value.storageKind === 'blob') &&
-    isBlobLike(value.blob) &&
-    value.blob.size === expected.byteSize &&
-    value.blob.type === expected.mimeType
+    (value.storageKind === undefined || value.storageKind === 'blob')
+    && isBlobLike(value.blob)
+    && value.blob.size === expected.byteSize
+    && value.blob.type === expected.mimeType
   ) {
     return {
       blob: value.blob,
@@ -248,10 +248,10 @@ const validateBinaryRecord = (
   }
 
   if (
-    value.storageKind === 'array_buffer' &&
-    isArrayBufferLike(value.data) &&
-    value.data.byteLength === expected.byteSize &&
-    value.mimeType === expected.mimeType
+    value.storageKind === 'array_buffer'
+    && isArrayBufferLike(value.data)
+    && value.data.byteLength === expected.byteSize
+    && value.mimeType === expected.mimeType
   ) {
     return {
       blob: new Blob([value.data], { type: expected.mimeType }),
@@ -364,12 +364,16 @@ const stageRecords = (
     const transaction = database.transaction(ASSET_STORE_NAMES, 'readwrite');
 
     const rejectOnce = (error: unknown): void => {
-      if (settled) return;
+      if (settled) {
+        return;
+      }
       settled = true;
       reject(error);
     };
     transaction.oncomplete = () => {
-      if (settled) return;
+      if (settled) {
+        return;
+      }
       settled = true;
       resolve();
     };
@@ -381,11 +385,11 @@ const stageRecords = (
     };
     transaction.onabort = () =>
       rejectOnce(
-        operationError ??
-          normalizeError(
-            transaction.error,
-            'The image could not be staged in browser storage.',
-          ),
+        operationError
+        ?? normalizeError(
+          transaction.error,
+          'The image could not be staged in browser storage.',
+        ),
       );
 
     const addRecord = (
@@ -397,31 +401,31 @@ const stageRecords = (
         const request = transaction.objectStore(storeName).add(record);
         request.onerror = () => {
           const error = requestError(request);
-          operationError ??=
-            allowBlobCloneFallback && isBlobPayload
-              ? (asBlobCloneError(error) ??
-                normalizeError(
+          operationError
+            ??= allowBlobCloneFallback && isBlobPayload
+              ? (asBlobCloneError(error)
+                ?? normalizeError(
                   error,
                   'The image could not be staged in browser storage.',
                 ))
               : normalizeError(
-                  error,
-                  'The image could not be staged in browser storage.',
-                );
+                error,
+                'The image could not be staged in browser storage.',
+              );
         };
         return true;
       } catch (error) {
-        operationError =
-          allowBlobCloneFallback && isBlobPayload
-            ? (asBlobCloneError(error) ??
-              normalizeError(
+        operationError
+          = allowBlobCloneFallback && isBlobPayload
+            ? (asBlobCloneError(error)
+              ?? normalizeError(
                 error,
                 'The image could not be staged in browser storage.',
               ))
             : normalizeError(
-                error,
-                'The image could not be staged in browser storage.',
-              );
+              error,
+              'The image could not be staged in browser storage.',
+            );
         try {
           transaction.abort();
         } catch (abortError) {
@@ -441,8 +445,8 @@ const stageRecords = (
       return;
     }
     if (
-      thumbnail &&
-      !addRecord(
+      thumbnail
+      && !addRecord(
         CUSTOM_DESIGN_THUMBNAIL_BLOB_STORE_NAME,
         thumbnail,
         'blob' in thumbnail,
@@ -512,11 +516,11 @@ export class IndexedDbAssetRepository implements AssetRepository {
         transaction.oncomplete = () => resolve(countRequest.result);
         transaction.onerror = () =>
           reject(
-            operationError ??
-              normalizeError(
-                transaction.error,
-                'Stored design images could not be cleared.',
-              ),
+            operationError
+            ?? normalizeError(
+              transaction.error,
+              'Stored design images could not be cleared.',
+            ),
           );
         transaction.onabort = transaction.onerror;
       });
@@ -529,7 +533,7 @@ export class IndexedDbAssetRepository implements AssetRepository {
     this.closed = true;
     const databasePromise = this.databasePromise;
     this.databasePromise = null;
-    void databasePromise?.then((database) => database.close()).catch(() => undefined);
+    void databasePromise?.then(database => database.close()).catch(() => undefined);
   };
 
   deleteDatabase = async (): Promise<void> => {
@@ -619,8 +623,8 @@ export class IndexedDbAssetRepository implements AssetRepository {
           schemaVersion: CUSTOM_DESIGN_ASSET_SCHEMA_VERSION,
           storageKind: 'array_buffer',
         };
-        const arrayBufferThumbnail: PersistedArrayBufferBinary | undefined =
-          asset.metadata.thumbnail && thumbnailBytes
+        const arrayBufferThumbnail: PersistedArrayBufferBinary | undefined
+          = asset.metadata.thumbnail && thumbnailBytes
             ? {
                 assetId: asset.metadata.id,
                 data: thumbnailBytes,
@@ -665,7 +669,7 @@ export class IndexedDbAssetRepository implements AssetRepository {
       return [];
     }
     if (
-      assetIds.some((assetId) => typeof assetId !== 'string' || !assetId.trim())
+      assetIds.some(assetId => typeof assetId !== 'string' || !assetId.trim())
       || new Set(assetIds).size !== assetIds.length
     ) {
       throw invalidAsset('Staged image IDs must be non-empty and unique.');
@@ -686,13 +690,13 @@ export class IndexedDbAssetRepository implements AssetRepository {
       const thumbnailStore = transaction.objectStore(
         CUSTOM_DESIGN_THUMBNAIL_BLOB_STORE_NAME,
       );
-      const records = assetIds.map((assetId) => ({
+      const records = assetIds.map(assetId => ({
         assetId,
         originalKeyRequest: originalStore.getKey(assetId),
         summaryRequest: summaryStore.get(assetId) as IDBRequest<unknown>,
         thumbnailKeyRequest: thumbnailStore.getKey(assetId),
       }));
-      const requests = records.flatMap((record) => [
+      const requests = records.flatMap(record => [
         record.summaryRequest,
         record.originalKeyRequest,
         record.thumbnailKeyRequest,
@@ -735,8 +739,8 @@ export class IndexedDbAssetRepository implements AssetRepository {
               state: 'committed' as const,
             };
           });
-          result = committed.map((summary) => summary.metadata);
-          committed.forEach((summary) => summaryStore.put(summary));
+          result = committed.map(summary => summary.metadata);
+          committed.forEach(summary => summaryStore.put(summary));
         } catch (error) {
           operationError = normalizeError(
             error,
@@ -769,11 +773,11 @@ export class IndexedDbAssetRepository implements AssetRepository {
       };
       transaction.onerror = () =>
         reject(
-          operationError ??
-            normalizeError(
-              transaction.error,
-              'The images could not be committed.',
-            ),
+          operationError
+          ?? normalizeError(
+            transaction.error,
+            'The images could not be committed.',
+          ),
         );
       transaction.onabort = transaction.onerror;
     });
@@ -845,11 +849,11 @@ export class IndexedDbAssetRepository implements AssetRepository {
           });
         transaction.onerror = () =>
           reject(
-            operationError ??
-              normalizeError(
-                transaction.error,
-                'The stored original image could not be read.',
-              ),
+            operationError
+            ?? normalizeError(
+              transaction.error,
+              'The stored original image could not be read.',
+            ),
           );
         transaction.onabort = transaction.onerror;
       });
@@ -908,11 +912,11 @@ export class IndexedDbAssetRepository implements AssetRepository {
           });
         transaction.onerror = () =>
           reject(
-            operationError ??
-              normalizeError(
-                transaction.error,
-                'The stored image thumbnail could not be read.',
-              ),
+            operationError
+            ?? normalizeError(
+              transaction.error,
+              'The stored image thumbnail could not be read.',
+            ),
           );
         transaction.onabort = transaction.onerror;
       });
@@ -972,11 +976,11 @@ export class IndexedDbAssetRepository implements AssetRepository {
           });
         transaction.onerror = () =>
           reject(
-            operationError ??
-              normalizeError(
-                transaction.error,
-                'The stored image could not be checked.',
-              ),
+            operationError
+            ?? normalizeError(
+              transaction.error,
+              'The stored image could not be checked.',
+            ),
           );
         transaction.onabort = transaction.onerror;
       });
@@ -1014,7 +1018,7 @@ export class IndexedDbAssetRepository implements AssetRepository {
       });
       return summaries
         .filter(
-          (summary) => options?.includeStaged || summary.state === 'committed',
+          summary => options?.includeStaged || summary.state === 'committed',
         )
         .map(({ metadata, stagedAt, state }) => ({ metadata, stagedAt, state }))
         .sort((left, right) =>
@@ -1160,11 +1164,11 @@ export class IndexedDbAssetRepository implements AssetRepository {
           });
         transaction.onerror = () =>
           reject(
-            operationError ??
-              normalizeError(
-                transaction.error,
-                'The stored image could not be read.',
-              ),
+            operationError
+            ?? normalizeError(
+              transaction.error,
+              'The stored image could not be read.',
+            ),
           );
         transaction.onabort = transaction.onerror;
       });
@@ -1231,9 +1235,9 @@ export class IndexedDbAssetRepository implements AssetRepository {
           const summary = summaryRequest.result;
           if (summary === undefined) {
             if (
-              !stagedOnly &&
-              (originalKeyRequest.result !== undefined ||
-                thumbnailKeyRequest.result !== undefined)
+              !stagedOnly
+              && (originalKeyRequest.result !== undefined
+                || thumbnailKeyRequest.result !== undefined)
             ) {
               // An authorized permanent deletion may also purge orphaned
               // companions. Reads still report this corruption explicitly.
@@ -1277,11 +1281,11 @@ export class IndexedDbAssetRepository implements AssetRepository {
       transaction.oncomplete = () => resolve(removed);
       transaction.onerror = () =>
         reject(
-          operationError ??
-            normalizeError(
-              transaction.error,
-              'The stored image could not be removed.',
-            ),
+          operationError
+          ?? normalizeError(
+            transaction.error,
+            'The stored image could not be removed.',
+          ),
         );
       transaction.onabort = transaction.onerror;
     });

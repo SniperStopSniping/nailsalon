@@ -1,5 +1,6 @@
-import { IDBFactory } from 'fake-indexeddb';
 import { Blob as NodeBlob } from 'node:buffer';
+
+import { IDBFactory } from 'fake-indexeddb';
 
 import { IndexedDbAssetRepository } from './IndexedDbAssetRepository';
 import {
@@ -36,6 +37,7 @@ describe('custom design asset references', () => {
       { images: [{ assetId: 'current-a' }, { assetId: ' ' }] },
     ]);
     const history = new Set(['history-only']);
+
     expect([...current].sort()).toEqual(['current-a', 'current-b']);
     expect([...mergeAssetReferenceSets(current, history)].sort()).toEqual([
       'current-a',
@@ -94,6 +96,7 @@ describe('custom design asset references', () => {
         onDeleted,
       },
     );
+
     expect(result).toEqual({
       deleted: ['remove-a', 'remove-b'],
       failed: [],
@@ -105,6 +108,7 @@ describe('custom design asset references', () => {
     ).toBe(true);
     expect(await repository.has('remove-a')).toBe(false);
     expect(onDeleted.mock.calls.flat().sort()).toEqual(['remove-a', 'remove-b']);
+
     repository.close();
   });
 
@@ -126,6 +130,7 @@ describe('custom design asset references', () => {
       confirmUnreferenced: vi.fn().mockResolvedValue(true),
       onDeleted,
     });
+
     expect(repository.delete).not.toHaveBeenCalledWith('keep');
     expect(onDeleted).not.toHaveBeenCalled();
     expect(result.retained).toEqual(['keep']);
@@ -135,7 +140,7 @@ describe('custom design asset references', () => {
   });
 
   it('rechecks authoritative references immediately before delete', async () => {
-    const summaries = ['first', 'late-reference'].map((id) => ({
+    const summaries = ['first', 'late-reference'].map(id => ({
       metadata: makeAsset(id).metadata,
       stagedAt: '2026-08-27T12:00:00.000Z',
       state: 'committed' as const,
@@ -152,7 +157,7 @@ describe('custom design asset references', () => {
     });
 
     const result = await deleteUnreferencedAssets(repository, new Set(), {
-      confirmUnreferenced: async (assetId) => !liveReferences.has(assetId),
+      confirmUnreferenced: async assetId => !liveReferences.has(assetId),
       onDeleted,
     });
 
@@ -211,6 +216,7 @@ describe('custom design asset references', () => {
     expect(
       await repository.has('protected', { includeStaged: true }),
     ).toBe(true);
+
     repository.close();
   });
 });

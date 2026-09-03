@@ -1,11 +1,11 @@
 import type { SiteBuilderDocument } from '../../model/types';
-import { getIncompleteEssentials, hasPublicContactMethod } from './essentials';
 import {
   getDepositsAndCancellationsDisplayWording,
   isDepositsAndCancellationsComplete,
   isDepositsAndCancellationsVisible,
 } from '../model/policies';
 import type { OnboardingLabState, OnboardingScreenId } from '../model/types';
+import { getIncompleteEssentials, hasPublicContactMethod } from './essentials';
 
 export type ReadinessStatus = 'ready' | 'recommended' | 'optional' | 'needs_attention';
 
@@ -25,8 +25,8 @@ export type CustomDesignAssetReadiness = {
 };
 
 const hasBookingPath = (document: SiteBuilderDocument | null): boolean => Boolean(
-  document?.pages.some((page) => page.visible && page.sections.some(
-    (section) => section.visible && section.sectionType === 'booking',
+  document?.pages.some(page => page.visible && page.sections.some(
+    section => section.visible && section.sectionType === 'booking',
   )),
 );
 
@@ -36,7 +36,7 @@ export const getReadinessItems = (
   customDesignAssets: readonly CustomDesignAssetReadiness[] = [],
 ): ReadinessItem[] => {
   const incomplete = getIncompleteEssentials(state);
-  const items: ReadinessItem[] = incomplete.map((essential) => ({
+  const items: ReadinessItem[] = incomplete.map(essential => ({
     id: `essential-${essential.id}`,
     label: essential.label,
     screen: essential.screen,
@@ -137,7 +137,7 @@ export const getReadinessItems = (
     });
   }
 
-  return items.filter((item, index, all) => all.findIndex((candidate) => (
+  return items.filter((item, index, all) => all.findIndex(candidate => (
     candidate.label === item.label && candidate.status === item.status
   )) === index);
 };
@@ -147,7 +147,7 @@ export const getNeedsAttentionItems = (
   document: SiteBuilderDocument | null,
   customDesignAssets: readonly CustomDesignAssetReadiness[] = [],
 ): ReadinessItem[] => getReadinessItems(state, document, customDesignAssets).filter(
-  (item) => item.status === 'needs_attention',
+  item => item.status === 'needs_attention',
 );
 
 export const getBuilderPrimaryLabel = (
@@ -157,8 +157,8 @@ export const getBuilderPrimaryLabel = (
 ): string => {
   const needsAttention = getNeedsAttentionItems(state, document, customDesignAssets);
   const essentialCount = new Set(needsAttention
-    .filter((item) => item.id.startsWith('essential-') || item.id === 'booking-path-missing')
-    .map((item) => item.screen ?? item.id)).size;
+    .filter(item => item.id.startsWith('essential-') || item.id === 'booking-path-missing')
+    .map(item => item.screen ?? item.id)).size;
   if (essentialCount > 0) {
     return `Finish ${essentialCount} required ${essentialCount === 1 ? 'step' : 'steps'}`;
   }

@@ -43,7 +43,7 @@ describe('SetupPreviewOverlay shared preview targeting', () => {
       /\.onboarding-preview-overlay \{[^}]*height: 100%;[^}]*grid-template-rows: auto minmax\(0, 1fr\) auto;/u,
     );
     expect(css).toMatch(
-      /\.onboarding-preview-overlay \.onboarding-preview-stage \{[^}]*height: 100%/su,
+      /\.onboarding-preview-overlay \.onboarding-preview-stage \{[^}]*height: 100%/u,
     );
     expect(css).toMatch(
       /\.onboarding-preview-overlay \.onboarding-preview-measurement-host \{[^}]*height: 100%/u,
@@ -75,6 +75,7 @@ describe('SetupPreviewOverlay shared preview targeting', () => {
     );
 
     const stage = document.querySelector<HTMLElement>('.onboarding-preview-stage');
+
     expect(screen.getByRole('dialog')).toBeVisible();
     expect(stage).toHaveAttribute('data-preview-initial-target', target);
     expect(stage).toHaveAttribute('data-preview-device', 'phone');

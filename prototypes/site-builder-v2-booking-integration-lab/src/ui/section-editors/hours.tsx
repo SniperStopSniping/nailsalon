@@ -32,24 +32,26 @@ export function HoursEditor({
       />
       <div className="form-field">
         <span>What visitors see</span>
-        {shownRows.length === 0 ? (
-          <small className="form-hint">
-            {!context.hoursConfigured
-              ? 'Your weekly hours are not set up yet, so this section stays off your site. Set them in Hours.'
-              : !context.hoursShownOnSite
-                ? 'Your hours are set up but turned off for your site, so this section stays hidden. Turn them back on in Hours.'
-                : 'Every day is marked closed, so the compact layout has nothing to list.'}
-          </small>
-        ) : (
-          <dl className="editor-record-list">
-            {shownRows.map(row => (
-              <div key={row.weekday}>
-                <dt>{compact ? row.label.slice(0, 3) : row.label}</dt>
-                <dd>{row.hours}</dd>
-              </div>
-            ))}
-          </dl>
-        )}
+        {shownRows.length === 0
+          ? (
+              <small className="form-hint">
+                {!context.hoursConfigured
+                  ? 'Your weekly hours are not set up yet, so this section stays off your site. Set them in Hours.'
+                  : !context.hoursShownOnSite
+                      ? 'Your hours are set up but turned off for your site, so this section stays hidden. Turn them back on in Hours.'
+                      : 'Every day is marked closed, so the compact layout has nothing to list.'}
+              </small>
+            )
+          : (
+              <dl className="editor-record-list">
+                {shownRows.map(row => (
+                  <div key={row.weekday}>
+                    <dt>{compact ? row.label.slice(0, 3) : row.label}</dt>
+                    <dd>{row.hours}</dd>
+                  </div>
+                ))}
+              </dl>
+            )}
       </div>
     </>
   );

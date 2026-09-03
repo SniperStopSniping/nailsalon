@@ -4,18 +4,18 @@ import { useState } from 'react';
 import { afterEach, beforeEach, vi } from 'vitest';
 
 import {
-  AssetStorageError,
-  ImageUploadError,
   type AssetRepository,
+  AssetStorageError,
   type ImageAssetMetadata,
+  ImageUploadError,
   type PreparedImageAsset,
 } from '../../custom-design/assets';
 import { createDefaultCustomDesignSettings } from '../../custom-design/model/settings';
 import { initializeStarter } from '../../model';
 import type { CustomDesignSectionInstance } from '../../model/types';
+import type { CanvaIntegrationController } from '../extras/useCanvaIntegration';
 import { FeedbackProvider } from '../feedback/FeedbackProvider';
 import { createDanielaFixtureState } from '../fixtures';
-import type { CanvaIntegrationController } from '../extras/useCanvaIntegration';
 import type { LocalImageReference, OnboardingLabState } from '../model/types';
 import { ExtrasScreen, type OnboardingStateUpdater } from '../screens/DesignScreens';
 import { parseOnboardingState } from '../storage/storage';
@@ -33,12 +33,12 @@ vi.mock('../../custom-design/integration/CustomDesignAssetProvider', () => ({
   useCustomDesignAssetRepository: mocks.useCustomDesignAssetRepository,
 }));
 
-vi.mock('../../custom-design/assets/image-processing', async (importOriginal) => ({
+vi.mock('../../custom-design/assets/image-processing', async importOriginal => ({
   ...await importOriginal<typeof import('../../custom-design/assets/image-processing')>(),
   prepareImageAsset: mocks.prepareImageAsset,
 }));
 
-vi.mock('../model/local-images', async (importOriginal) => ({
+vi.mock('../model/local-images', async importOriginal => ({
   ...await importOriginal<typeof import('../model/local-images')>(),
   normalizeOnboardingLocalImage: mocks.normalizeOnboardingLocalImage,
 }));
@@ -92,7 +92,9 @@ const assetRepository: AssetRepository = {
   close: vi.fn(),
   commit: vi.fn(async (assetId: string) => {
     const metadata = repositoryMetadata.get(assetId);
-    if (!metadata) throw new Error(`Missing staged asset ${assetId}`);
+    if (!metadata) {
+      throw new Error(`Missing staged asset ${assetId}`);
+    }
     return metadata;
   }),
   commitBatch: vi.fn(async () => []),
@@ -150,7 +152,7 @@ describe('optional Gallery and Canva surfaces', () => {
     }));
     mocks.useCustomDesignAssetMap.mockReset();
     mocks.useCustomDesignAssetMap.mockImplementation((assetIds: readonly string[]) => new Map(
-      assetIds.map((assetId) => [assetId, {
+      assetIds.map(assetId => [assetId, {
         original: { status: 'ready', url: `blob:original-${assetId}` },
         thumbnail: { status: 'ready', url: `blob:thumbnail-${assetId}` },
       }]),
@@ -182,11 +184,14 @@ describe('optional Gallery and Canva surfaces', () => {
         state={state}
       />,
     );
+
     expect(screen.getByText('Add photos of your nail sets so clients can see your style.')).toBeVisible();
     expect(screen.getByText('Upload pages you exported from Canva and add them to your website.')).toBeVisible();
     expect(screen.queryByText(/Custom Design section/u)).not.toBeInTheDocument();
     expect(screen.queryByText(/^Added:/)).not.toBeInTheDocument();
+
     await user.click(screen.getByRole('button', { name: 'Continue to review' }));
+
     expect(onContinue).toHaveBeenCalledOnce();
     expect(state.recipe).toMatchObject({ canvaEnabled: false, galleryEnabled: false });
 
@@ -203,6 +208,7 @@ describe('optional Gallery and Canva surfaces', () => {
         state={both}
       />,
     );
+
     expect(screen.getByText('Added: Gallery and Canva')).toBeVisible();
     expect(screen.getByRole('button', { name: 'Edit Gallery' })).toBeVisible();
     expect(screen.getByText('✓ Gallery added')).toBeVisible();
@@ -221,7 +227,7 @@ describe('optional Gallery and Canva surfaces', () => {
     function Harness() {
       const [state, setState] = useState(initial);
       const [open, setOpen] = useState(true);
-      const update: OnboardingStateUpdater = (transform) => setState((current) => {
+      const update: OnboardingStateUpdater = transform => setState((current) => {
         const next = transform(current);
         latestState = next;
         return next;
@@ -230,13 +236,16 @@ describe('optional Gallery and Canva surfaces', () => {
     }
 
     render(<Harness />);
-    let dialog = screen.getByRole('dialog', { name: 'Add Gallery' });
+    const dialog = screen.getByRole('dialog', { name: 'Add Gallery' });
+
     expect(within(dialog).getByRole('button', { name: 'Add Gallery' })).toBeDisabled();
     expect(within(dialog).getByText('Choose photos first.')).toBeVisible();
+
     await user.click(within(dialog).getByRole('button', { name: /Use example nail photos/ }));
     await user.click(within(dialog).getByRole('radio', { name: 'editorial' }));
     await user.click(within(dialog).getByRole('button', { name: 'Add Gallery' }));
     await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Add Gallery' })).not.toBeInTheDocument());
+
     expect(latestState.gallery).toMatchObject({ layout: 'editorial', source: 'mock_luster' });
     expect(latestState.gallery.images).toHaveLength(4);
     expect(latestState.recipe.galleryEnabled).toBe(true);
@@ -246,7 +255,7 @@ describe('optional Gallery and Canva surfaces', () => {
     const state = createDanielaFixtureState();
     state.recipe.galleryEnabled = true;
     state.gallery = {
-      images: MOCK_GALLERY_IMAGES_FOR_TEST.map((image) => ({ ...image })),
+      images: MOCK_GALLERY_IMAGES_FOR_TEST.map(image => ({ ...image })),
       layout: 'grid',
       source: 'mock_luster',
     };
@@ -287,7 +296,7 @@ describe('optional Gallery and Canva surfaces', () => {
 
     function Harness() {
       const [state, setState] = useState(initial);
-      const update: OnboardingStateUpdater = (transform) => setState((current) => {
+      const update: OnboardingStateUpdater = transform => setState((current) => {
         const next = transform(current);
         latestState = next;
         return next;
@@ -297,20 +306,23 @@ describe('optional Gallery and Canva surfaces', () => {
 
     render(<Harness />);
     await user.click(screen.getByRole('button', { name: /Use example nail photos/u }));
+
     expect(latestState.gallery.source).toBe('uploads');
     expect(assetRepository.delete).not.toHaveBeenCalled();
+
     await user.click(screen.getByRole('button', { name: 'Save Gallery' }));
 
     await waitFor(() => expect(latestState.gallery.source).toBe('mock_luster'));
     await waitFor(() => expect(latestState.canva.ownedAssetIds).toEqual([
       'unrelated-cleanup-retry',
     ]));
+
     expect(assetRepository.delete).toHaveBeenCalledTimes(2);
     expect(assetRepository.delete).toHaveBeenCalledWith('gallery-asset-first');
     expect(assetRepository.delete).toHaveBeenCalledWith('gallery-asset-second');
     expect(assetRepository.delete).not.toHaveBeenCalledWith('unrelated-cleanup-retry');
     expect(latestState.gallery.images).toHaveLength(4);
-    expect(latestState.gallery.images.every((image) => image.source === 'fixture')).toBe(true);
+    expect(latestState.gallery.images.every(image => image.source === 'fixture')).toBe(true);
   });
 
   it('retains replaced Gallery asset IDs in the existing cleanup ledger when deletion fails', async () => {
@@ -331,7 +343,7 @@ describe('optional Gallery and Canva surfaces', () => {
 
     function Harness() {
       const [state, setState] = useState(initial);
-      const update: OnboardingStateUpdater = (transform) => setState((current) => {
+      const update: OnboardingStateUpdater = transform => setState((current) => {
         const next = transform(current);
         latestState = next;
         return next;
@@ -344,6 +356,7 @@ describe('optional Gallery and Canva surfaces', () => {
     await user.click(screen.getByRole('button', { name: 'Save Gallery' }));
 
     await waitFor(() => expect(latestState.gallery.source).toBe('mock_luster'));
+
     expect(latestState.gallery.source).toBe('mock_luster');
     expect(latestState.canva.ownedAssetIds).toEqual([
       'earlier-cleanup-retry',
@@ -354,7 +367,6 @@ describe('optional Gallery and Canva surfaces', () => {
   });
 
   it('names migrated missing Gallery metadata and requires the owner to reselect or use examples', async () => {
-    const user = userEvent.setup();
     const initial = createDanielaFixtureState();
     initial.gallery.source = 'uploads';
     initial.gallery.images = [{
@@ -399,7 +411,7 @@ describe('optional Gallery and Canva surfaces', () => {
 
     function Harness() {
       const [state, setState] = useState(initial);
-      const update: OnboardingStateUpdater = (transform) => setState((current) => {
+      const update: OnboardingStateUpdater = transform => setState((current) => {
         const next = transform(current);
         latestState = next;
         return next;
@@ -417,6 +429,7 @@ describe('optional Gallery and Canva surfaces', () => {
     );
 
     const alert = await within(dialog).findByRole('alert');
+
     expect(alert).toHaveTextContent('1 image was added and 1 was skipped.');
     expect(alert).toHaveTextContent('corrupt.png');
     expect(alert).toHaveTextContent('This photo couldn’t be read. Try selecting it again or choose another copy.');
@@ -425,7 +438,9 @@ describe('optional Gallery and Canva surfaces', () => {
     expect(latestState.gallery.source).toBe(null);
     expect(latestState.gallery.images).toEqual([]);
     expect(within(dialog).getByText('valid.png')).toBeVisible();
+
     await user.click(within(dialog).getByRole('button', { name: 'Add Gallery' }));
+
     expect(latestState.gallery.source).toBe('uploads');
     expect(latestState.gallery.images).toEqual([
       expect.objectContaining({
@@ -449,7 +464,7 @@ describe('optional Gallery and Canva surfaces', () => {
 
     function Harness() {
       const [state, setState] = useState(initial);
-      const update: OnboardingStateUpdater = (transform) => setState((current) => {
+      const update: OnboardingStateUpdater = transform => setState((current) => {
         const next = transform(current);
         latestState = next;
         return next;
@@ -460,7 +475,9 @@ describe('optional Gallery and Canva surfaces', () => {
     render(<Harness />);
     const dialog = screen.getByRole('dialog', { name: 'Add Gallery' });
     const input = within(dialog).getByLabelText(/Upload portfolio photos/u);
+
     expect(input).toHaveClass('visually-hidden');
+
     const files = Array.from({ length: 10 }, (_, index) => new File(
       [`gallery-${index + 1}`],
       `gallery-${index + 1}.png`,
@@ -469,6 +486,7 @@ describe('optional Gallery and Canva surfaces', () => {
     await user.upload(input, files);
 
     const alert = await within(dialog).findByRole('alert');
+
     expect(alert).toHaveTextContent('8 images were added and 2 were skipped.');
     expect(alert).toHaveTextContent(
       'gallery-9.pngSkipped because a Gallery can contain up to 8 images.',
@@ -478,7 +496,9 @@ describe('optional Gallery and Canva surfaces', () => {
     );
     expect(latestState.gallery.images).toHaveLength(0);
     expect(within(dialog).getAllByText('Your photo')).toHaveLength(8);
+
     await user.click(within(dialog).getByRole('button', { name: 'Add Gallery' }));
+
     expect(latestState.gallery.images).toHaveLength(8);
   });
 
@@ -500,6 +520,7 @@ describe('optional Gallery and Canva surfaces', () => {
     expect(within(dialog).getByRole('button', { name: 'Processing…' })).toBeDisabled();
 
     normalization.resolve(selected);
+
     expect(await within(dialog).findByText('1 photo ready')).toBeVisible();
     expect(within(dialog).getByText('IMG_5222.jpeg')).toBeVisible();
     expect(within(dialog).getByRole('img')).toHaveAttribute(
@@ -524,6 +545,7 @@ describe('optional Gallery and Canva surfaces', () => {
     await user.upload(within(dialog).getByLabelText(/Upload portfolio photos/u), selected);
 
     const alert = await within(dialog).findByRole('alert');
+
     expect(alert).toHaveTextContent('IMG_5222.jpeg');
     expect(alert).toHaveTextContent(
       'This browser tab isn’t allowing Luster to save images. If you’re using a private tab, open this page in a regular tab and try again.',
@@ -531,8 +553,11 @@ describe('optional Gallery and Canva surfaces', () => {
     expect(within(dialog).getByRole('button', { name: 'Add Gallery' })).toBeDisabled();
 
     const retry = within(alert).getByRole('button', { name: 'Retry' });
+
     expect(retry).toHaveClass('is-primary');
+
     await user.click(retry);
+
     expect(await within(dialog).findByText('1 photo ready')).toBeVisible();
     expect(within(dialog).queryByText(/private tab/u)).not.toBeInTheDocument();
     expect(within(dialog).getByRole('button', { name: 'Add Gallery' })).toBeEnabled();
@@ -551,7 +576,7 @@ describe('optional Gallery and Canva surfaces', () => {
     function Harness() {
       const [state, setState] = useState(initial);
       const [open, setOpen] = useState(true);
-      const update: OnboardingStateUpdater = (transform) => setState((current) => {
+      const update: OnboardingStateUpdater = transform => setState((current) => {
         const next = transform(current);
         latestState = next;
         return next;
@@ -562,12 +587,16 @@ describe('optional Gallery and Canva surfaces', () => {
     render(<Harness />);
     const selected = new File(['photo'], 'late.jpeg', { type: 'image/jpeg' });
     await user.upload(screen.getByLabelText(/Upload portfolio photos/u), selected);
+
     expect(screen.getByRole('status')).toHaveTextContent('Processing photo…');
+
     await user.click(screen.getByRole('button', { name: 'Cancel' }));
+
     expect(screen.queryByRole('dialog', { name: 'Add Gallery' })).not.toBeInTheDocument();
 
     normalization.resolve(selected);
     await waitFor(() => expect(assetRepository.delete).toHaveBeenCalledOnce());
+
     expect(latestState).toEqual(exactBaseline);
   });
 
@@ -592,7 +621,7 @@ describe('optional Gallery and Canva surfaces', () => {
 
     function Harness() {
       const [state, setState] = useState(initial);
-      const update: OnboardingStateUpdater = (transform) => setState((current) => {
+      const update: OnboardingStateUpdater = transform => setState((current) => {
         const next = transform(current);
         latestState = next;
         return next;
@@ -628,7 +657,7 @@ describe('optional Gallery and Canva surfaces', () => {
 
     function Harness() {
       const [state, setState] = useState(initial);
-      const update: OnboardingStateUpdater = (transform) => setState((current) => {
+      const update: OnboardingStateUpdater = transform => setState((current) => {
         const next = transform(current);
         latestState = next;
         return next;
@@ -696,7 +725,7 @@ describe('optional Gallery and Canva surfaces', () => {
     function Harness() {
       const [state, setState] = useState(initial);
       const [open, setOpen] = useState(true);
-      const update: OnboardingStateUpdater = (transform) => setState((current) => {
+      const update: OnboardingStateUpdater = transform => setState((current) => {
         const next = transform(current);
         latestState = next;
         return next;
@@ -712,6 +741,7 @@ describe('optional Gallery and Canva surfaces', () => {
 
     await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Edit Gallery' }))
       .not.toBeInTheDocument());
+
     expect(latestState).toEqual(exactBaseline);
     expect(assetRepository.delete).not.toHaveBeenCalled();
   });
@@ -727,7 +757,7 @@ describe('optional Gallery and Canva surfaces', () => {
     function Harness() {
       const [state, setState] = useState(initial);
       const [open, setOpen] = useState(true);
-      const update: OnboardingStateUpdater = (transform) => setState((current) => {
+      const update: OnboardingStateUpdater = transform => setState((current) => {
         const next = transform(current);
         latestState = next;
         return next;
@@ -740,11 +770,14 @@ describe('optional Gallery and Canva surfaces', () => {
       screen.getByLabelText(/Upload portfolio photos/u),
       new File(['draft'], 'draft.png', { type: 'image/png' }),
     );
+
     expect(await screen.findByText('draft.png')).toBeVisible();
     expect(latestState).toEqual(exactBaseline);
+
     await user.click(screen.getByRole('button', { name: 'Cancel' }));
 
     await waitFor(() => expect(assetRepository.delete).toHaveBeenCalledOnce());
+
     expect(latestState).toEqual(exactBaseline);
   });
 
@@ -753,7 +786,7 @@ describe('optional Gallery and Canva surfaces', () => {
     const initial = createDanielaFixtureState();
     initial.recipe.galleryEnabled = true;
     initial.gallery = {
-      images: MOCK_GALLERY_IMAGES_FOR_TEST.slice(0, 3).map((image) => ({ ...image })),
+      images: MOCK_GALLERY_IMAGES_FOR_TEST.slice(0, 3).map(image => ({ ...image })),
       layout: 'grid',
       source: 'mock_luster',
     };
@@ -762,7 +795,7 @@ describe('optional Gallery and Canva surfaces', () => {
 
     function Harness() {
       const [state, setState] = useState(initial);
-      const update: OnboardingStateUpdater = (transform) => setState((current) => {
+      const update: OnboardingStateUpdater = transform => setState((current) => {
         const next = transform(current);
         latestState = next;
         return next;
@@ -774,9 +807,11 @@ describe('optional Gallery and Canva surfaces', () => {
     await user.click(screen.getByRole('radio', { name: 'carousel' }));
     await user.click(screen.getByRole('button', { name: 'Move russian.webp later' }));
     await user.click(screen.getByRole('button', { name: 'Remove chrome.webp' }));
+
     expect(latestState.gallery).toEqual(baseline);
 
     await user.click(screen.getByRole('button', { name: 'Save Gallery' }));
+
     expect(latestState.gallery.layout).toBe('carousel');
     expect(latestState.gallery.images.map(({ fileName }) => fileName))
       .toEqual(['nude.webp', 'russian.webp']);
@@ -810,7 +845,7 @@ describe('optional Gallery and Canva surfaces', () => {
     function Harness() {
       const [state, setState] = useState(initial);
       const [open, setOpen] = useState(true);
-      const update: OnboardingStateUpdater = (transform) => setState((current) => {
+      const update: OnboardingStateUpdater = transform => setState((current) => {
         const next = transform(current);
         latestState = next;
         return next;
@@ -825,13 +860,16 @@ describe('optional Gallery and Canva surfaces', () => {
     expect(screen.getByRole('button', { name: 'Close Edit Gallery' })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Cancel' })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Saving…' })).toBeDisabled();
+
     await user.keyboard('{Escape}');
     fireEvent.mouseDown(screen.getByTestId('dialog-backdrop'));
+
     expect(screen.getByRole('dialog', { name: 'Edit Gallery' })).toBeVisible();
 
     deletion.resolve(true);
     await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Edit Gallery' }))
       .not.toBeInTheDocument());
+
     expect(assetRepository.delete).toHaveBeenCalledOnce();
     expect(latestState.gallery.images.map(({ fileName }) => fileName)).toEqual(['keep.png']);
   });
@@ -863,20 +901,27 @@ describe('optional Gallery and Canva surfaces', () => {
       />,
     );
     const dialog = screen.getByRole('dialog', { name: 'Upload a Canva design' });
+
     expect(within(dialog).getByText('Recommended for you')).toBeVisible();
     expect(within(dialog).getByText('You told us you already have a Canva design.')).toBeVisible();
+
     const file = new File(['page'], 'isla-canva.png', { type: 'image/png' });
+
     expect(within(dialog).getByLabelText(/Choose Canva pages/)).toHaveClass('visually-hidden');
+
     await user.upload(within(dialog).getByLabelText(/Choose Canva pages/), file);
     const fullWidth = within(dialog).getByRole('radio', { name: 'Full width' });
     const beforeBooking = within(dialog).getByRole('radio', { name: 'Before Booking' });
+
     expect(fullWidth).toHaveAttribute('value', 'full_width');
     expect(beforeBooking).toHaveAttribute('value', 'before_booking');
+
     await user.click(fullWidth);
     await user.click(beforeBooking);
     await user.click(within(dialog).getByRole('button', { name: 'Add Canva design' }));
 
     await waitFor(() => expect(onAdd).toHaveBeenCalledOnce());
+
     expect(onAdd).toHaveBeenCalledWith([file], 'full_width', 'before_booking');
     expect(onClose).toHaveBeenCalledOnce();
   });
@@ -989,11 +1034,15 @@ describe('optional Gallery and Canva surfaces', () => {
     await user.click(within(dialog).getByRole('button', { name: 'Add Canva design' }));
 
     expect(await within(dialog).findAllByText('duplicate.png:')).toHaveLength(2);
+
     const retryButtons = within(dialog).getAllByRole('button', { name: 'Try again' });
+
     expect(retryButtons).toHaveLength(2);
+
     await user.click(retryButtons[0]!);
 
     await waitFor(() => expect(onAdd).toHaveBeenCalledTimes(2));
+
     expect(within(dialog).getAllByText('duplicate.png:')).toHaveLength(1);
     expect(within(dialog).getAllByRole('button', { name: 'Try again' })).toHaveLength(1);
     expect(latest.canva.uploadResult).toMatchObject({
@@ -1066,11 +1115,13 @@ describe('optional Gallery and Canva surfaces', () => {
       'asset-thumbnail',
       'asset-original',
     ]);
+
     const list = screen.getByRole('list', { name: 'Saved Canva pages' });
+
     expect(list).toHaveClass('onboarding-file-list--visual');
     expect(within(list).getByText('thumbnail-page.png')).toBeVisible();
     expect(within(list).getByText('original-fallback.jpg')).toBeVisible();
-    expect([...list.querySelectorAll('img')].map((image) => image.getAttribute('src')))
+    expect([...list.querySelectorAll('img')].map(image => image.getAttribute('src')))
       .toEqual([
         'blob:luster/thumbnail-page',
         'blob:luster/original-page',
@@ -1130,7 +1181,7 @@ describe('optional Gallery and Canva surfaces', () => {
         ...section,
         settings: {
           ...section.settings,
-          images: section.settings.images.map((image) => ({
+          images: section.settings.images.map(image => ({
             ...image,
             fileName: file.name,
           })),
@@ -1165,6 +1216,7 @@ describe('optional Gallery and Canva surfaces', () => {
     expect(screen.getByText('saved-page.png')).toBeVisible();
     expect(screen.getByRole('button', { name: 'Remove' })).toBeVisible();
     expect(screen.getByLabelText('Replace')).toHaveClass('visually-hidden');
+
     await user.upload(
       screen.getByLabelText('Replace'),
       new File(['replacement'], 'replacement.png', { type: 'image/png' }),
@@ -1176,9 +1228,12 @@ describe('optional Gallery and Canva surfaces', () => {
     ));
     await waitFor(() => expect(screen.queryByText('Checking and saving images…'))
       .not.toBeInTheDocument());
+
     expect(screen.getByLabelText('Choose more images')).toBeEnabled();
+
     await user.click(screen.getByRole('radio', { name: 'Full width' }));
     await user.click(screen.getByRole('button', { name: 'Save Canva design' }));
+
     expect(saveSettings).toHaveBeenCalledWith({
       displayMode: 'full_width',
       placement: state.canva.placement,
@@ -1195,7 +1250,7 @@ describe('optional Gallery and Canva surfaces', () => {
     const document = initializeStarter('quick_book');
     const page = document.pages[0]!;
     const settings = createDefaultCustomDesignSettings();
-    const images = ['first', 'second'].map((name, index) => ({
+    const images = ['first', 'second'].map(name => ({
       altText: '',
       aspectRatio: 0.75,
       assetId: `asset-${name}`,
@@ -1218,7 +1273,7 @@ describe('optional Gallery and Canva surfaces', () => {
     };
     page.sections.push(section);
     state.canva.customDesignSectionId = section.id;
-    state.canva.images = images.map((image) => ({
+    state.canva.images = images.map(image => ({
       fileName: image.fileName,
       id: image.id,
       mimeType: image.mimeType,
@@ -1265,8 +1320,10 @@ describe('optional Gallery and Canva surfaces', () => {
     await user.click(screen.getByRole('button', { name: 'Cancel' }));
 
     const warning = screen.getByRole('dialog', { name: 'Save this page order?' });
+
     expect(within(warning).getByRole('button', { name: 'Keep editing' })).toBeVisible();
     expect(onClose).not.toHaveBeenCalled();
+
     await user.click(within(warning).getByRole('button', { name: 'Save order' }));
 
     expect(reorderImages).toHaveBeenCalledWith(section.id, [
@@ -1309,7 +1366,7 @@ describe('optional Gallery and Canva surfaces', () => {
     };
     page.sections.push(currentSection);
     initialState.canva.customDesignSectionId = currentSection.id;
-    initialState.canva.images = currentSection.settings.images.map((image) => ({
+    initialState.canva.images = currentSection.settings.images.map(image => ({
       fileName: image.fileName,
       id: image.id,
       mimeType: image.mimeType,
@@ -1317,7 +1374,7 @@ describe('optional Gallery and Canva surfaces', () => {
       storageId: image.assetId,
     }));
     const reorderImages = vi.fn((_: string, ids: readonly string[]) => {
-      const byId = new Map(currentSection.settings.images.map((image) => [image.id, image]));
+      const byId = new Map(currentSection.settings.images.map(image => [image.id, image]));
       currentSection = {
         ...currentSection,
         settings: {
@@ -1353,12 +1410,12 @@ describe('optional Gallery and Canva surfaces', () => {
             images: [...currentSection.settings.images, added],
           },
         };
-        setDocument((current) => ({
+        setDocument(current => ({
           ...current,
-          pages: current.pages.map((candidate) => candidate.id === page.id
+          pages: current.pages.map(candidate => candidate.id === page.id
             ? {
                 ...candidate,
-                sections: candidate.sections.map((section) => section.id === currentSection.id
+                sections: candidate.sections.map(section => section.id === currentSection.id
                   ? currentSection
                   : section),
               }
@@ -1384,7 +1441,7 @@ describe('optional Gallery and Canva surfaces', () => {
           document={document}
           onAdd={add}
           onClose={vi.fn()}
-          onUpdate={(transform) => setState((current) => transform(current))}
+          onUpdate={transform => setState(current => transform(current))}
           open
           state={state}
         />
@@ -1397,7 +1454,9 @@ describe('optional Gallery and Canva surfaces', () => {
       screen.getByLabelText('Choose more images'),
       new File(['third'], 'third.png', { type: 'image/png' }),
     );
+
     expect(await screen.findByText('third.png')).toBeVisible();
+
     await user.click(screen.getByRole('button', { name: 'Save order' }));
 
     expect(reorderImages).toHaveBeenCalledWith(currentSection.id, [
@@ -1440,7 +1499,7 @@ describe('optional Gallery and Canva surfaces', () => {
     };
     page.sections.push(section);
     state.canva.customDesignSectionId = section.id;
-    state.canva.images = [first, second].map((image) => ({
+    state.canva.images = [first, second].map(image => ({
       fileName: image.fileName,
       id: image.id,
       mimeType: image.mimeType,
@@ -1475,7 +1534,9 @@ describe('optional Gallery and Canva surfaces', () => {
         document={document}
         onAdd={vi.fn()}
         onClose={vi.fn()}
-        onUpdate={(transform) => { latest = transform(latest); }}
+        onUpdate={(transform) => {
+          latest = transform(latest);
+        }}
         open
         state={state}
       />,
@@ -1484,6 +1545,7 @@ describe('optional Gallery and Canva surfaces', () => {
     await user.click(screen.getAllByRole('button', { name: 'Remove' })[0]!);
 
     await waitFor(() => expect(removeImage).toHaveBeenCalledWith(section.id, first.id));
+
     expect(latest.canva.images).toEqual([
       expect.objectContaining({ storageId: second.assetId }),
     ]);
@@ -1523,6 +1585,7 @@ describe('optional Gallery and Canva surfaces', () => {
     const first = new File(['first'], 'first.png', { type: 'image/png' });
     await user.upload(input, first);
     await waitFor(() => expect(createObjectURL).toHaveBeenCalledWith(first));
+
     expect(screen.getByRole('list', { name: 'Selected Canva pages' }))
       .toHaveClass('onboarding-file-list--visual');
 

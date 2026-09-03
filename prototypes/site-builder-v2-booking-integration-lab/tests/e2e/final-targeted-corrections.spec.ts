@@ -1,4 +1,4 @@
-import { expect, test, type Locator, type Page } from '@playwright/test';
+import { expect, type Locator, type Page, test } from '@playwright/test';
 
 import {
   bookingCard,
@@ -54,6 +54,7 @@ async function closeBookingSettings(settings: Locator): Promise<void> {
     name: /Close Booking(?: settings)?/,
   });
   await close.click();
+
   await expect(settings).toHaveCount(0);
 }
 
@@ -67,10 +68,14 @@ async function chooseLayout(
     name: 'Booking',
     exact: true,
   });
+
   await expect(heading).toBeFocused();
+
   const option = settings.locator(`[data-layout-option="${layout.id}"]`);
   await option.click();
+
   await expect(option).toHaveAttribute('aria-pressed', 'true');
+
   await closeBookingSettings(settings);
 }
 
@@ -102,17 +107,21 @@ async function traverseBetween(
         text: active?.textContent?.trim().slice(0, 80) ?? null,
       };
     });
+
     expect(state.insideCustomerPreview, JSON.stringify(state)).toBe(false);
-    if (await target.evaluate((element) => element === document.activeElement)) {
+
+    if (await target.evaluate(element => element === document.activeElement)) {
       reached = true;
       break;
     }
   }
+
   expect(reached, `${key} reached the expected owner control`).toBe(true);
 }
 
 async function expectControlOwnsHitPoints(control: Locator): Promise<void> {
   await expect(control).toBeVisible();
+
   const results = await control.evaluate((element) => {
     const rectangle = element.getBoundingClientRect();
     const insetX = Math.min(6, rectangle.width / 4);
@@ -129,6 +138,7 @@ async function expectControlOwnsHitPoints(control: Locator): Promise<void> {
       return hit?.closest('button') === element;
     });
   });
+
   expect(results).toEqual([true, true, true, true, true]);
 }
 
@@ -142,6 +152,7 @@ async function openRussianWithFrench(page: Page): Promise<void> {
   const detail = page.getByTestId('service-detail-dialog');
   await detail.getByRole('checkbox', { name: 'French' }).check();
   await detail.getByRole('button', { name: 'Keep browsing' }).click();
+
   await expect(page.getByTestId('selected-service-summary'))
     .toContainText('1 hr 45 min · From $80');
 }
@@ -164,6 +175,7 @@ for (const scenario of KEYBOARD_SCENARIOS) {
     page,
   }) => {
     test.setTimeout(60_000);
+
     await page.setViewportSize({ width: scenario.width, height: scenario.height });
     await openFreshLab(page);
     await chooseStarter(page, scenario.starter);
@@ -180,7 +192,9 @@ for (const scenario of KEYBOARD_SCENARIOS) {
     const afterSection = scenario.starter === 'Multi-page website'
       ? 'Deposits & Cancellations'
       : 'Final Booking CTA';
-    if (pageName !== 'Home') await selectPageFromStructure(page, pageName);
+    if (pageName !== 'Home') {
+      await selectPageFromStructure(page, pageName);
+    }
     const inspectEveryLayoutInAccessibilityTree = scenario.width === 920
       && scenario.starter === 'Quick Book';
     const cdp = inspectEveryLayoutInAccessibilityTree
@@ -193,15 +207,16 @@ for (const scenario of KEYBOARD_SCENARIOS) {
       const preview = card.getByRole('group', {
         name: `Booking menu preview — 24 services, ${layout.label}. Not interactive while editing.`,
       });
+
       await expect(preview).toBeVisible();
       await expect(preview).not.toHaveAttribute('aria-hidden');
       await expect(preview).not.toHaveAttribute('inert');
       await expect(preview.getByText('Russian Manicure', { exact: true }).last())
         .toBeVisible();
-      await expect.poll(() => preview.evaluate((region) => (
+      await expect.poll(() => preview.evaluate(region => (
         [...region.querySelectorAll<HTMLElement>(
           'button, input, select, textarea, a[href], .booking-category-strip, .featured-scroller, .category-sidebar',
-        )].filter((element) => element.tabIndex >= 0).length
+        )].filter(element => element.tabIndex >= 0).length
       ))).toBe(0);
 
       const before = page
@@ -217,13 +232,16 @@ for (const scenario of KEYBOARD_SCENARIOS) {
         const probe = window as typeof window & { __escapeProbe?: boolean[] };
         probe.__escapeProbe = [];
         document.addEventListener('keydown', (event) => {
-          if (event.key === 'Escape') probe.__escapeProbe?.push(event.defaultPrevented);
+          if (event.key === 'Escape') {
+            probe.__escapeProbe?.push(event.defaultPrevented);
+          }
         }, { once: true });
         const region = document.querySelector<HTMLElement>('.booking-customer-region');
         region?.setAttribute('tabindex', '-1');
         region?.focus();
       });
       await page.keyboard.press('Escape');
+
       expect(await page.evaluate(() => (
         window as typeof window & { __escapeProbe?: boolean[] }
       ).__escapeProbe)).toEqual([false]);
@@ -233,6 +251,7 @@ for (const scenario of KEYBOARD_SCENARIOS) {
         const exposedNames = tree.nodes
           .filter(node => !node.ignored)
           .map(node => String(node.name?.value ?? ''));
+
         expect(exposedNames.some(name => name.includes(
           `Booking menu preview — 24 services, ${layout.label}. Not interactive while editing.`,
         ))).toBe(true);
@@ -250,6 +269,7 @@ test('Edit preview remains escapable with desktop settings open and Booking deep
   page,
 }) => {
   test.setTimeout(90_000);
+
   for (const viewport of [
     { width: 920, height: 800 },
     { width: 1180, height: 800 },
@@ -263,7 +283,9 @@ test('Edit preview remains escapable with desktop settings open and Booking deep
       await card.scrollIntoViewIfNeeded();
       await card.locator('.booking-customer-region').evaluate((region) => {
         region.querySelectorAll<HTMLElement>('.booking-category-strip, .featured-scroller')
-          .forEach((scroller) => { scroller.scrollLeft = scroller.scrollWidth; });
+          .forEach((scroller) => {
+            scroller.scrollLeft = scroller.scrollWidth;
+          });
       });
       const { settings } = await openBookingSettings(page, 'Home');
       const settingControls = settings.locator('button:not([disabled]), input:not([disabled]), select:not([disabled])');
@@ -279,19 +301,27 @@ test('Edit preview remains escapable with desktop settings open and Booking deep
             settings: Boolean(active?.closest('.final-booking-settings-drawer')),
           };
         });
+
         expect(state.customer).toBe(false);
+
         if (!state.settings) {
           exitedSettings = true;
           break;
         }
       }
+
       expect(exitedSettings).toBe(true);
+
       await page.keyboard.press('Shift+Tab');
+
       expect(await page.evaluate(() => Boolean(
         document.activeElement?.closest('.booking-customer-region'),
       ))).toBe(false);
+
       await page.keyboard.press('Escape');
+
       await expect(settings).toHaveCount(0);
+
       await expectMeaningfulFocus(page);
     }
   }
@@ -313,8 +343,11 @@ for (const viewport of [
     await openFreshLab(page);
     await chooseStarter(page, 'Quick Book');
     const { settings } = await openBookingSettings(page, 'Home');
+
     await expect(settings.getByRole('heading', { name: 'Booking' })).toBeFocused();
+
     await settings.getByRole('button', { name: 'Hide settings' }).click();
+
     await expect(settings).toBeHidden();
     await expect(page.getByRole('button', { name: 'Show Booking settings' }))
       .toHaveCount(0);
@@ -326,20 +359,27 @@ for (const viewport of [
     await expectControlOwnsHitPoints(more);
 
     const collapse = toolbar.getByRole('button', { name: 'Collapse', exact: true });
-    if (await collapse.isVisible()) await collapse.click();
+    if (await collapse.isVisible()) {
+      await collapse.click();
+    }
     const expand = toolbar.getByRole('button', { name: 'Expand', exact: true });
     await expectControlOwnsHitPoints(expand);
     await expand.click();
 
     await more.click();
     const actions = page.getByRole('dialog', { name: 'Booking actions' });
+
     await expect(actions).toBeVisible();
+
     await actions.getByRole('button', { name: 'Close Booking actions' }).click();
+
     await expect(actions).toHaveCount(0);
 
     await edit.click();
+
     await expect(settings).toBeVisible();
     await expect(settings.getByRole('heading', { name: 'Booking' })).toBeFocused();
+
     await settings.getByRole('button', { name: 'Hide settings' }).click();
 
     if (viewport.width === 1440 && viewport.height === 900) {
@@ -350,18 +390,23 @@ for (const viewport of [
     }
     await page.getByRole('listitem', { name: 'Announcement Bar on Home' }).scrollIntoViewIfNeeded();
     await page.evaluate(() => window.scrollTo({ top: 0 }));
+
     await expect(toolbar).toHaveClass(/is-away/);
+
     const back = toolbar.getByRole('button', { name: 'Back to Booking' });
     const show = toolbar.getByRole('button', { name: 'Show Booking settings' });
     await expectControlOwnsHitPoints(back);
     await expectControlOwnsHitPoints(show);
     const [backBox, showBox] = await Promise.all([back.boundingBox(), show.boundingBox()]);
+
     expect(backBox).not.toBeNull();
     expect(showBox).not.toBeNull();
+
     if (backBox && showBox) {
       expect(backBox.x + backBox.width).toBeLessThanOrEqual(showBox.x);
     }
     await show.click();
+
     await expect(settings).toBeVisible();
     await expect(settings.getByRole('heading', { name: 'Booking' })).toBeFocused();
 
@@ -370,13 +415,18 @@ for (const viewport of [
       await back.click();
       await edit.focus();
       await page.keyboard.press('Enter');
+
       await expect(settings).toBeVisible();
+
       await settings.getByRole('button', { name: 'Hide settings' }).click();
       await more.focus();
       await page.keyboard.press('Enter');
       const keyboardActions = page.getByRole('dialog', { name: 'Booking actions' });
+
       await expect(keyboardActions).toBeVisible();
+
       await page.keyboard.press('Escape');
+
       await expect(keyboardActions).toHaveCount(0);
     }
   });
@@ -393,20 +443,25 @@ test('hidden settings return control stays clear through the 1179 to 1180 transi
   await page.getByRole('listitem', { name: 'Announcement Bar on Home' }).scrollIntoViewIfNeeded();
   await page.evaluate(() => window.scrollTo({ top: 0 }));
   const away = page.getByTestId('selected-section-toolbar');
+
   await expect(away).toHaveClass(/is-away/);
+
   const back = away.getByRole('button', { name: 'Back to Booking' });
   const show = away.getByRole('button', { name: 'Show Booking settings' });
   await expectControlOwnsHitPoints(back);
   await expectControlOwnsHitPoints(show);
   const [backBox, showBox] = await Promise.all([back.boundingBox(), show.boundingBox()]);
+
   expect(backBox).not.toBeNull();
   expect(showBox).not.toBeNull();
+
   if (backBox && showBox) {
     expect(backBox.x + backBox.width).toBeLessThanOrEqual(showBox.x);
   }
   await page.setViewportSize({ width: 1180, height: 800 });
   await expectControlOwnsHitPoints(show);
   await show.click();
+
   await expect(settings).toBeVisible();
 });
 
@@ -421,8 +476,10 @@ test('reselecting the current simulated device stays silent for pointer and keyb
     .getByRole('button', { name: 'Phone' });
   await phone.click();
   const liveRegion = page.getByTestId('preview-viewport-announcement');
+
   await expect(liveRegion).toContainText('Phone preview selected');
-  const initialAnnouncement = await liveRegion.textContent();
+
+  const initialAnnouncement = await liveRegion.textContent() ?? '';
   await page.evaluate(() => {
     const probe = window as typeof window & { __sameDeviceMutations?: number };
     probe.__sameDeviceMutations = 0;
@@ -437,7 +494,8 @@ test('reselecting the current simulated device stays silent for pointer and keyb
   await phone.focus();
   await page.keyboard.press('Enter');
   await page.waitForTimeout(350);
-  expect(await liveRegion.textContent()).toBe(initialAnnouncement);
+
+  await expect(liveRegion).toHaveText(initialAnnouncement);
   expect(await page.evaluate(() => (
     window as typeof window & { __sameDeviceMutations?: number }
   ).__sameDeviceMutations)).toBe(0);
@@ -457,6 +515,7 @@ test('dirty option drafts warn, restore focus, and commit or discard honestly', 
   await summary.getByRole('button', { name: 'Change' }).click();
   let detail = page.getByTestId('service-detail-dialog');
   await detail.getByRole('button', { name: 'Close service details' }).click();
+
   await expect(detail).toHaveCount(0);
   await expect(page.getByRole('dialog', { name: 'Save your option changes?' }))
     .toHaveCount(0);
@@ -466,6 +525,7 @@ test('dirty option drafts warn, restore focus, and commit or discard honestly', 
   await page.getByTestId('service-detail-dialog-backdrop').click({
     position: { x: 3, y: 3 },
   });
+
   await expect(detail).toHaveCount(0);
   await expect(page.getByRole('dialog', { name: 'Save your option changes?' }))
     .toHaveCount(0);
@@ -473,6 +533,7 @@ test('dirty option drafts warn, restore focus, and commit or discard honestly', 
   await summary.getByRole('button', { name: 'Change' }).click();
   detail = page.getByTestId('service-detail-dialog');
   await detail.getByRole('checkbox', { name: 'French' }).uncheck();
+
   await expect(detail.getByTestId('service-detail-total'))
     .toContainText('1 hr 30 min');
   await expect(summary).toContainText('1 hr 45 min · From $80');
@@ -480,11 +541,14 @@ test('dirty option drafts warn, restore focus, and commit or discard honestly', 
   const close = detail.getByRole('button', { name: 'Close service details' });
   await close.click();
   let warning = page.getByRole('dialog', { name: 'Save your option changes?' });
+
   await expect(warning).toBeVisible();
   await expect(warning.getByRole('button', { name: 'Keep editing' })).toBeFocused();
   await expect(detail).toHaveAttribute('aria-hidden', 'true');
   await expect(detail).toHaveAttribute('inert', '');
+
   await page.keyboard.press('Escape');
+
   await expect(warning).toHaveCount(0);
   await expect(close).toBeFocused();
 
@@ -492,16 +556,20 @@ test('dirty option drafts warn, restore focus, and commit or discard honestly', 
     position: { x: 3, y: 3 },
   });
   warning = page.getByRole('dialog', { name: 'Save your option changes?' });
+
   await expect(warning).toBeVisible();
+
   await page.getByTestId('booking-option-warning-dialog-backdrop').click({
     position: { x: 3, y: 3 },
   });
+
   await expect(warning).toHaveCount(0);
   await expect(detail).toBeVisible();
 
   await page.keyboard.press('Escape');
   warning = page.getByRole('dialog', { name: 'Save your option changes?' });
   await warning.getByRole('button', { name: 'Save changes' }).click();
+
   await expect(summary).toContainText('1 hr 30 min · From $65');
   await expect(summary.getByRole('button', { name: 'Change' })).toBeFocused();
 
@@ -510,6 +578,7 @@ test('dirty option drafts warn, restore focus, and commit or discard honestly', 
   await detail.getByRole('checkbox', { name: 'French' }).check();
   await detail.getByRole('checkbox', { name: 'Chrome' }).check();
   await detail.getByRole('button', { name: 'Keep browsing' }).click();
+
   await expect(summary).toContainText('1 hr 55 min · From $90 · 2 add-ons');
 
   await summary.getByRole('button', { name: 'Change' }).click();
@@ -518,6 +587,7 @@ test('dirty option drafts warn, restore focus, and commit or discard honestly', 
   await detail.getByRole('button', { name: 'Close service details' }).click();
   warning = page.getByRole('dialog', { name: 'Save your option changes?' });
   await warning.getByRole('button', { name: 'Discard changes' }).click();
+
   await expect(summary).toContainText('1 hr 55 min · From $90 · 2 add-ons');
   await expect(summary.getByRole('button', { name: 'Change' })).toBeFocused();
 
@@ -526,17 +596,20 @@ test('dirty option drafts warn, restore focus, and commit or discard honestly', 
   await detail.getByRole('checkbox', { name: 'French' }).uncheck();
   await detail.getByRole('checkbox', { name: 'Chrome' }).uncheck();
   await detail.getByRole('button', { name: 'Keep browsing' }).click();
+
   await expect(summary).toContainText('1 hr 30 min · From $65');
 
   await summary.getByRole('button', { name: 'Change' }).click();
   detail = page.getByTestId('service-detail-dialog');
   await page.keyboard.press('Escape');
+
   await expect(detail).toHaveCount(0);
 
   for (const device of ['Phone', 'Tablet'] as const) {
     await page.getByRole('group', { name: 'Preview viewport' })
       .getByRole('button', { name: device })
       .click();
+
     await expect(summary).toContainText('1 hr 30 min · From $65');
   }
 
@@ -545,6 +618,7 @@ test('dirty option drafts warn, restore focus, and commit or discard honestly', 
   await settings.locator('[data-layout-option="clean_list"]').click();
   await closeBookingSettings(settings);
   await page.getByRole('button', { name: 'Preview', exact: true }).click();
+
   await expect(page.getByTestId('selected-service-summary'))
     .toContainText('1 hr 30 min · From $65');
 });
@@ -553,6 +627,7 @@ test('Page settings closes only its child and restores Pages & Structure context
   page,
 }) => {
   test.setTimeout(120_000);
+
   for (const viewport of [
     { width: 375, height: 500 },
     { width: 375, height: 600 },
@@ -568,7 +643,7 @@ test('Page settings closes only its child and restores Pages & Structure context
       element.scrollTop = Math.min(120, element.scrollHeight - element.clientHeight);
     });
     if (viewport.height === 500) {
-      expect(await structureBody.evaluate((element) => element.scrollTop))
+      expect(await structureBody.evaluate(element => element.scrollTop))
         .toBeGreaterThan(0);
     }
     const parentSurface = await documentSurfaceState(page);
@@ -583,17 +658,21 @@ test('Page settings closes only its child and restores Pages & Structure context
       });
       await trigger.click();
       const settings = page.getByRole('dialog', { name: `${pageName} settings` });
+
       await expect(settings).toBeVisible();
-      const scrollAtOpen = await structureBody.evaluate((element) => element.scrollTop);
+
+      const scrollAtOpen = await structureBody.evaluate(element => element.scrollTop);
       await close(settings);
+
       await expect(settings).toHaveCount(0);
       await expect(structure).toBeVisible();
       await expect(structure.getByRole('button', {
         name: `Page settings for ${returnedName}`,
       })).toBeFocused();
-      expect(await structureBody.evaluate((element) => element.scrollTop))
+      expect(await structureBody.evaluate(element => element.scrollTop))
         .toBe(scrollAtOpen);
       expect(await documentSurfaceState(page)).toEqual(parentSurface);
+
       await expectMeaningfulFocus(page);
     };
 
@@ -623,13 +702,18 @@ test('Page settings closes only its child and restores Pages & Structure context
     });
     await portfolioTrigger.click();
     const portfolioSettings = page.getByRole('dialog', { name: 'Portfolio settings' });
+
     await expect(portfolioSettings.getByRole('switch', { name: 'Show page in menu' }))
       .toHaveAttribute('aria-checked', 'false');
+
     await portfolioSettings.getByRole('button', { name: 'Cancel' }).click();
+
     await expect(portfolioTrigger).toBeFocused();
 
     await page.keyboard.press('Escape');
+
     await expect(structure).toHaveCount(0);
+
     await expectMeaningfulFocus(page);
   }
 });
@@ -638,6 +722,7 @@ test('Quick Book added-page settings preserve a genuinely deep parent list on mo
   page,
 }) => {
   test.setTimeout(180_000);
+
   for (const viewport of [
     { width: 375, height: 600 },
     { width: 1440, height: 900 },
@@ -659,32 +744,45 @@ test('Quick Book added-page settings preserve a genuinely deep parent list on mo
 
     const structure = await openPagesAndStructure(page);
     const body = structure.locator('.dialog-body');
-    await expect.poll(() => body.evaluate((element) => (
+
+    await expect.poll(() => body.evaluate(element => (
       element.scrollHeight > element.clientHeight
     ))).toBe(true);
-    await body.evaluate((element) => { element.scrollTop = element.scrollHeight; });
-    const scrollAtOpen = await body.evaluate((element) => element.scrollTop);
+
+    await body.evaluate((element) => {
+      element.scrollTop = element.scrollHeight;
+    });
+    const scrollAtOpen = await body.evaluate(element => element.scrollTop);
+
     expect(scrollAtOpen).toBeGreaterThan(0);
+
     const trigger = structure.getByRole('button', { name: 'Page settings for Extra 06' });
     await trigger.scrollIntoViewIfNeeded();
-    const settledScroll = await body.evaluate((element) => element.scrollTop);
+    const settledScroll = await body.evaluate(element => element.scrollTop);
+
     expect(settledScroll).toBeGreaterThan(0);
+
     await trigger.click();
     const settings = page.getByRole('dialog', { name: 'Extra 06 settings' });
     await settings.getByRole('switch', { name: 'Show page in menu' }).click();
     await settings.getByRole('button', { name: 'Cancel' }).click();
+
     await expect(structure).toBeVisible();
     await expect(trigger).toBeFocused();
-    expect(await body.evaluate((element) => element.scrollTop)).toBe(settledScroll);
+    expect(await body.evaluate(element => element.scrollTop)).toBe(settledScroll);
 
     await trigger.click();
     await settings.getByRole('switch', { name: 'Show page in menu' }).click();
     await settings.getByRole('button', { name: 'Save page' }).click();
+
     await expect(structure).toBeVisible();
     await expect(trigger).toBeFocused();
-    expect(await body.evaluate((element) => element.scrollTop)).toBe(settledScroll);
+    expect(await body.evaluate(element => element.scrollTop)).toBe(settledScroll);
+
     await page.keyboard.press('Escape');
+
     await expect(structure).toHaveCount(0);
+
     await expectMeaningfulFocus(page);
   }
 });
@@ -726,11 +824,13 @@ test('drag announcements use one live region per event', async ({ page }) => {
         __liveEvents?: Array<{ politeness: string | null; text: string }>;
       }
     ).__liveEvents?.length ?? 0)).toBeGreaterThan(0);
+
     const events = await page.evaluate(() => (
       window as typeof window & {
         __liveEvents?: Array<{ politeness: string | null; text: string }>;
       }
     ).__liveEvents ?? []);
+
     expect(events, JSON.stringify(events)).toHaveLength(1);
     expect(events[0]?.politeness).toBe(politeness);
     expect(events[0]?.text).toMatch(text);
@@ -743,8 +843,10 @@ test('drag announcements use one live region per event', async ({ page }) => {
   });
   await boundary.focus();
   await page.keyboard.press('Enter');
+
   await expect(page.getByTestId('reorder-live-region'))
     .toHaveText('Footer is already at the last position.');
+
   await takeSingleEvent('polite', /^Footer is already at the last position\.$/);
 
   const handle = move.getByRole('button', {
@@ -790,18 +892,26 @@ test('short booking-protection dialogs keep all copy and actions reachable', asy
       .getByRole('button', { name: 'Hide', exact: true })
       .click();
     let protection = page.getByRole('dialog', { name: 'Keep a way to book' });
+
     await expect(protection).toBeVisible();
     await expect(protection.getByText(/Your site needs at least one visible way/)).toBeVisible();
+
     const body = protection.locator('.dialog-body');
-    const dimensions = await body.evaluate((element) => ({
+    const dimensions = await body.evaluate(element => ({
       clientWidth: element.clientWidth,
       scrollWidth: element.scrollWidth,
     }));
+
     expect(dimensions.scrollWidth).toBeLessThanOrEqual(dimensions.clientWidth);
-    await body.evaluate((element) => { element.scrollTop = element.scrollHeight; });
+
+    await body.evaluate((element) => {
+      element.scrollTop = element.scrollHeight;
+    });
+
     await expect(protection.getByText(/Your site needs at least one visible way/))
       .toBeInViewport();
     await expect(protection.getByRole('button', { name: 'Keep Booking' })).toBeInViewport();
+
     await protection.getByRole('button', { name: 'Keep Booking' }).click();
 
     await page.getByRole('group', { name: 'Booking actions' })
@@ -810,11 +920,15 @@ test('short booking-protection dialogs keep all copy and actions reachable', asy
     const actions = page.getByRole('dialog', { name: 'Booking actions' });
     await actions.getByRole('button', { name: 'Remove from page' }).click();
     protection = page.getByRole('dialog', { name: 'Keep a way to book' });
+
     await expect(protection.getByRole('button', { name: 'Keep Booking' })).toBeVisible();
+
     await protection.locator('.dialog-body').evaluate((element) => {
       element.scrollTop = element.scrollHeight;
     });
+
     await expect(protection.getByRole('button', { name: 'Keep Booking' })).toBeInViewport();
+
     await protection.getByRole('button', { name: 'Keep Booking' }).click();
 
     const structure = await openPagesAndStructure(page);
@@ -823,23 +937,30 @@ test('short booking-protection dialogs keep all copy and actions reachable', asy
     await pageSettings.getByRole('switch', { name: 'Show page', exact: true }).click();
     await pageSettings.getByRole('button', { name: 'Save page' }).click();
     protection = page.getByRole('dialog', { name: 'Keep a way to book' });
+
     await expect(protection).toBeVisible();
+
     await protection.locator('.dialog-body').evaluate((element) => {
       element.scrollTop = element.scrollHeight;
     });
     const copy = protection.getByText(/Your site needs at least one visible way/);
     const action = protection.getByRole('button', { name: 'Keep Booking' });
+
     await expect(copy).toBeInViewport();
     await expect(action).toBeInViewport();
+
     const [copyBox, actionBox] = await Promise.all([copy.boundingBox(), action.boundingBox()]);
+
     expect(copyBox).not.toBeNull();
     expect(actionBox).not.toBeNull();
+
     if (copyBox && actionBox) {
       expect(copyBox.y + copyBox.height).toBeLessThanOrEqual(actionBox.y);
     }
     await action.click();
     await pageSettings.getByRole('button', { name: 'Cancel' }).click();
     await page.keyboard.press('Escape');
+
     await expect(structure).toHaveCount(0);
   }
 });
@@ -886,8 +1007,10 @@ test('starter toast clears before Add page and disclaimer contrast exceeds AA', 
       };
     });
     contrastRecords.push({ ...record, width });
+
     expect(record.ratio).toBeGreaterThanOrEqual(4.5);
   }
+
   expect(contrastRecords[0]).toMatchObject({
     background: 'rgb(247, 242, 236)',
     foreground: 'rgb(117, 104, 103)',
@@ -903,15 +1026,19 @@ test('starter toast clears before Add page and disclaimer contrast exceeds AA', 
       await page.setViewportSize(viewport);
       await openFreshLab(page);
       await chooseStarter(page, starter);
+
       await expect(page.locator('.toast')).toBeVisible();
+
       const structure = await openPagesAndStructure(page);
       await structure.getByRole('button', { name: 'Add page' }).click();
       const addPage = page.getByRole('dialog', { name: 'Add page' });
+
       await expect(addPage).toBeVisible();
       await expect(page.locator('.toast')).toHaveCount(0);
       await expect(addPage.getByLabel('Page name')).toBeVisible();
       await expect(addPage.getByRole('button', { name: 'Add page', exact: true })).toBeVisible();
       await expect(addPage.getByRole('button', { name: 'Close Add page' })).toBeVisible();
+
       await addPage.getByRole('button', { name: 'Close Add page' }).click();
     }
   }
@@ -930,17 +1057,24 @@ test('global search, featured selection, count spacing, and session-only history
     .click();
   const search = renderer.getByRole('searchbox', { name: 'Search services' });
   await search.fill('  RuSs  ');
+
   await expect(renderer.getByRole('button', { name: /Russian Manicure/ }).first())
     .toBeVisible();
   await expect(renderer.getByRole('group', { name: 'Service categories' })
     .getByRole('button', { name: 'All', exact: true }))
     .toHaveAttribute('aria-pressed', 'true');
+
   await search.fill('gel');
+
   expect(await renderer.getByRole('button', { name: /View details for/ }).count())
     .toBeGreaterThan(3);
+
   await search.fill('definitely-no-service');
+
   await expect(renderer.getByText('No services found')).toBeVisible();
+
   await search.fill('');
+
   await expect(renderer.getByRole('group', { name: 'Service categories' })
     .getByRole('button', { name: 'Pedicure', exact: true }))
     .toHaveAttribute('aria-pressed', 'true');
@@ -952,12 +1086,15 @@ test('global search, featured selection, count spacing, and session-only history
   let detail = page.getByTestId('service-detail-dialog');
   await detail.getByRole('button', { name: 'Keep browsing' }).click();
   const featured = renderer.locator('.featured-tile').filter({ hasText: 'Russian Manicure' });
+
   await expect(featured).toHaveAttribute('aria-pressed', 'true');
   await expect(featured).toHaveAttribute('data-selected', 'true');
   await expect(featured.getByText('Selected')).toBeVisible();
+
   await featured.click();
   detail = page.getByTestId('service-detail-dialog');
   await detail.getByRole('button', { name: 'Remove selected service' }).click();
+
   await expect(featured).toHaveAttribute('aria-pressed', 'false');
 
   await page.getByRole('group', { name: 'Preview viewport' })
@@ -967,22 +1104,26 @@ test('global search, featured selection, count spacing, and session-only history
   await page.keyboard.press('Enter');
   detail = page.getByTestId('service-detail-dialog');
   await detail.getByRole('button', { name: 'Keep browsing' }).click();
+
   await expect(featured).toHaveAttribute('aria-pressed', 'true');
   await expect(featured.getByText('Selected')).toBeVisible();
+
   await featured.focus();
   await page.keyboard.press('Enter');
   detail = page.getByTestId('service-detail-dialog');
   await detail.getByRole('button', { name: 'Remove selected service' }).click();
+
   await expect(featured).toHaveAttribute('aria-pressed', 'false');
 
   await page.getByRole('button', { name: 'Back to editor' }).click();
   await chooseLayout(page, 'Home', { id: 'clean_list', label: 'Clean List' });
   await page.getByRole('button', { name: 'Preview', exact: true }).click();
   renderer = page.getByTestId('booking-section-preview');
+
   await expect(renderer.locator('.clean-category-heading').first())
     .toContainText('Manicure · 3 services');
   expect(await renderer.locator('.clean-category-heading').allTextContents())
-    .not.toEqual(expect.arrayContaining([expect.stringMatching(/·\S/) ]));
+    .not.toEqual(expect.arrayContaining([expect.stringMatching(/·\S/)]));
 
   await page.getByRole('button', { name: 'Back to editor' }).click();
   const move = await openMoveForBooking(page, 'Home');
@@ -990,10 +1131,13 @@ test('global search, featured selection, count spacing, and session-only history
   await move.getByLabel('Position for Booking').press('Enter');
   await move.getByRole('button', { name: 'Done', exact: true }).click();
   await waitForSaved(page);
+
   await expect(sectionLabels(page, 'Home')).resolves.toEqual([...QUICK_BOOK_BOOKING_FIRST]);
   await expect(page.getByRole('button', { name: 'Undo', exact: true })).toBeEnabled();
+
   const committed = await readStoredDocumentJson(page);
   await page.reload();
+
   await expect(sectionLabels(page, 'Home')).resolves.toEqual([...QUICK_BOOK_BOOKING_FIRST]);
   expect(await page.evaluate(key => window.localStorage.getItem(key), LAB_STORAGE_KEY))
     .toBe(committed);

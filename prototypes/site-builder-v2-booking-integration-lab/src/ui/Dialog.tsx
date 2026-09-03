@@ -1,13 +1,13 @@
+import { X } from 'lucide-react';
 import {
+  type ReactNode,
   useEffect,
   useId,
   useLayoutEffect,
   useRef,
   useState,
-  type ReactNode,
 } from 'react';
 import { createPortal } from 'react-dom';
-import { X } from 'lucide-react';
 
 import {
   announceDialogActivity,
@@ -117,7 +117,9 @@ export function Dialog({
   restoreFocusOnCloseRef.current = restoreFocusOnClose;
 
   useEffect(() => {
-    if (typeof window.matchMedia !== 'function') return undefined;
+    if (typeof window.matchMedia !== 'function') {
+      return undefined;
+    }
     const media = window.matchMedia('(min-width: 900px)');
     const handleChange = () => setWideViewport(media.matches);
     media.addEventListener('change', handleChange);
@@ -141,7 +143,9 @@ export function Dialog({
     if (dialog) {
       dialog.scrollTop = 0;
       const dialogBody = dialog.querySelector<HTMLElement>('.dialog-body');
-      if (dialogBody) dialogBody.scrollTop = 0;
+      if (dialogBody) {
+        dialogBody.scrollTop = 0;
+      }
     }
     const preferredFocusable = initialFocusSelector
       ? dialog?.querySelector<HTMLElement>(initialFocusSelector)
@@ -165,7 +169,9 @@ export function Dialog({
         && !isEscapeHandledInsideActiveControl(event)
       ) {
         event.preventDefault();
-        if (!closeDisabledRef.current) onCloseRef.current();
+        if (!closeDisabledRef.current) {
+          onCloseRef.current();
+        }
         return;
       }
 
@@ -259,21 +265,26 @@ export function Dialog({
   );
 
   return createPortal(
-    visuallyAdjacent && nonModal ? (
-      <div className="dialog-nonmodal-layer" data-testid="dialog-nonmodal-layer">{panel}</div>
-    ) : (
-      <div
-        className={`dialog-backdrop${visuallyAdjacent ? ' dialog-backdrop--adjacent' : ''}`}
-        data-testid="dialog-backdrop"
-        onMouseDown={(event) => {
-          if (event.currentTarget === event.target) {
-            if (!closeDisabled) onClose();
-          }
-        }}
-      >
-        {panel}
-      </div>
-    ),
+    visuallyAdjacent && nonModal
+      ? (
+          <div className="dialog-nonmodal-layer" data-testid="dialog-nonmodal-layer">{panel}</div>
+        )
+      : (
+          <div
+            className={`dialog-backdrop${visuallyAdjacent ? ' dialog-backdrop--adjacent' : ''}`}
+            data-testid="dialog-backdrop"
+            role="presentation"
+            onMouseDown={(event) => {
+              if (event.currentTarget === event.target) {
+                if (!closeDisabled) {
+                  onClose();
+                }
+              }
+            }}
+          >
+            {panel}
+          </div>
+        ),
     document.body,
   );
 }

@@ -46,9 +46,9 @@ const documentWithDuplicatePolicySummary = (): SiteBuilderDocument => {
       ...home,
       sections: home.sections.map(section => (section.sectionType === 'about'
         ? createLibrarySectionInstance('about', () => section.id, {
-            order: section.order,
-            presetId: 'about_before_you_book',
-          })
+          order: section.order,
+          presetId: 'about_before_you_book',
+        })
         : section)),
     }],
   };
@@ -66,9 +66,11 @@ describe('standing overlap advisories', () => {
 
     expect(advisories.map(advisory => advisory.id))
       .toContain('about_policy_summary_duplicate');
+
     const advisory = advisories.find(
       item => item.id === 'about_policy_summary_duplicate',
     )!;
+
     // Named content, not a generic caution.
     expect(advisory.message).toContain('Before you book');
     expect(advisory.message).toContain('Home');
@@ -91,14 +93,19 @@ describe('standing overlap advisories', () => {
     );
 
     const group = screen.getByRole('group', { name: 'Things worth a look' });
+
     expect(within(group).getByText('Policy details appear twice')).toBeInTheDocument();
     expect(within(group).getByText(/Before you book/)).toBeInTheDocument();
+
     const switchAction = within(group).getByRole('button', {
       name: 'Switch About to a design without policies',
     });
+
     expect(within(group).getByRole('button', { name: 'Keep the compact summary' }))
       .toBeVisible();
+
     fireEvent.click(switchAction);
+
     expect(panelProps.onResolveAdvisory).toHaveBeenCalledWith(
       expect.objectContaining({ id: 'about_policy_summary_duplicate' }),
       expect.objectContaining({ id: 'switch_preset', kind: 'adjust' }),
@@ -112,6 +119,7 @@ describe('standing overlap advisories', () => {
     });
     const context = deriveSiteLibraryContext(createDemoOnboardingState(), document);
     const advisories = getDocumentOverlapAdvisories(document, context);
+
     expect(advisories).toEqual([]);
 
     render(
@@ -122,6 +130,7 @@ describe('standing overlap advisories', () => {
         document={document}
       />,
     );
+
     expect(screen.queryByRole('group', { name: 'Things worth a look' }))
       .not.toBeInTheDocument();
   });

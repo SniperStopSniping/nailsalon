@@ -6,8 +6,8 @@ import {
 } from '../booking/presentation';
 import {
   ADD_SECTION_CATALOGUE,
-  SECTION_CATALOGUE,
   getAddSectionLibrary,
+  SECTION_CATALOGUE,
 } from './catalogue';
 import { createDeterministicIdFactory } from './ids';
 import {
@@ -23,7 +23,7 @@ import {
 } from './section-library/registry';
 import { createEmptySiteContent } from './section-library/site-content';
 import { getStarterDocumentOutline, initializeStarter } from './starters';
-import { SITE_BUILDER_SCHEMA_VERSION, type OriginStarter } from './types';
+import { type OriginStarter, SITE_BUILDER_SCHEMA_VERSION } from './types';
 import { validateSiteBuilderDocument } from './validation';
 
 const starters: readonly OriginStarter[] = [
@@ -46,11 +46,15 @@ describe('starter initialization', () => {
       .filter(section => section.sectionType === 'booking');
 
     expect(bookingSections).toHaveLength(1);
+
     const booking = bookingSections[0];
-    if (booking?.sectionType !== 'booking') throw new Error('Booking section is missing.');
+    if (booking?.sectionType !== 'booking') {
+      throw new Error('Booking section is missing.');
+    }
     if (booking.settings.layout !== 'visual_grid') {
       throw new Error('V1 Booking must use the Visual Grid fixture.');
     }
+
     expect(booking.settings.layoutSettings.showFeatured).toBe(false);
   });
 
@@ -130,14 +134,19 @@ describe('starter initialization', () => {
     ]);
 
     const booking = document.pages[0]?.sections[1];
+
     expect(booking?.sectionType).toBe('booking');
+
     if (booking?.sectionType !== 'booking') {
       throw new Error('Quick Book is missing Booking.');
     }
+
     expect(booking.settings).toEqual(V1_BOOKING_PRESENTATION_SETTINGS);
+
     if (booking.settings.layout !== 'visual_grid') {
       throw new Error('Quick Book must use the Visual Grid fixture.');
     }
+
     expect(booking.settings.layoutSettings.showFeatured).toBe(false);
 
     // Library sections carry per-type settings only: no numbered-placeholder
@@ -158,7 +167,7 @@ describe('starter initialization', () => {
     expect(document.pages).toHaveLength(1);
     expect(document.siteContent).toEqual(createEmptySiteContent());
     expect(document.pages[0]?.sections).toHaveLength(7);
-    expect(document.pages[0]?.sections.map((section) => section.sectionType)).toEqual([
+    expect(document.pages[0]?.sections.map(section => section.sectionType)).toEqual([
       'hero',
       'gallery',
       'about',
@@ -167,7 +176,7 @@ describe('starter initialization', () => {
       'policies',
       'visit_us',
     ]);
-    expect(document.pages[0]?.sections.map((section) => section.label)).toEqual([
+    expect(document.pages[0]?.sections.map(section => section.label)).toEqual([
       'Welcome',
       'Gallery',
       'About',
@@ -176,11 +185,17 @@ describe('starter initialization', () => {
       'Before You Book',
       'Visit & Contact',
     ]);
-    expect(document.pages[0]?.sections.map((section) => section.order)).toEqual([
-      0, 1, 2, 3, 4, 5, 6,
+    expect(document.pages[0]?.sections.map(section => section.order)).toEqual([
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
     ]);
     expect(
-      document.pages[0]?.sections.every((section) => section.visible),
+      document.pages[0]?.sections.every(section => section.visible),
     ).toBe(true);
 
     // One-page overrides a label but never a preset: every library section is
@@ -189,10 +204,12 @@ describe('starter initialization', () => {
       if (!isLibrarySection(section)) {
         continue;
       }
+
       expect(section.settings).toEqual(
         getSectionRegistryEntry(section.sectionType).defaultSettings(),
       );
     }
+
     expect(document.pages[0]?.sections[0]).toMatchObject({
       sectionType: 'hero',
       label: 'Welcome',
@@ -206,24 +223,24 @@ describe('starter initialization', () => {
     });
 
     expect(document.navigation.enabled).toBe(true);
-    expect(document.pages.map((page) => page.name)).toEqual([
+    expect(document.pages.map(page => page.name)).toEqual([
       'Home',
       'Services & Booking',
       'Gallery',
       'About',
       'Contact',
     ]);
-    expect(document.pages.map((page) => page.slug)).toEqual([
+    expect(document.pages.map(page => page.slug)).toEqual([
       '',
       'services-book',
       'gallery',
       'about',
       'contact',
     ]);
-    expect(document.pages.flatMap((page) => page.sections)).toHaveLength(7);
+    expect(document.pages.flatMap(page => page.sections)).toHaveLength(7);
     expect(
-      document.pages.map((page) =>
-        page.sections.map((section) => section.sectionType),
+      document.pages.map(page =>
+        page.sections.map(section => section.sectionType),
       ),
     ).toEqual([
       [
@@ -239,7 +256,7 @@ describe('starter initialization', () => {
       ['visit_us'],
     ]);
     expect(
-      document.pages[1]?.sections.map((section) => section.label),
+      document.pages[1]?.sections.map(section => section.label),
     ).toEqual([
       'Booking',
       'Before You Book',
@@ -259,7 +276,7 @@ describe('starter initialization', () => {
     });
 
     expect(document.navigation.items).toHaveLength(5);
-    expect(document.navigation.items.map((item) => item.label)).toEqual([
+    expect(document.navigation.items.map(item => item.label)).toEqual([
       'Home',
       'Services & Booking',
       'Gallery',
@@ -275,11 +292,11 @@ describe('starter initialization', () => {
     });
     const ids = [
       document.siteId,
-      ...document.pages.map((page) => page.id),
-      ...document.pages.flatMap((page) =>
-        page.sections.map((section) => section.id),
+      ...document.pages.map(page => page.id),
+      ...document.pages.flatMap(page =>
+        page.sections.map(section => section.id),
       ),
-      ...document.navigation.items.map((item) => item.id),
+      ...document.navigation.items.map(item => item.id),
     ];
 
     expect(new Set(ids).size).toBe(ids.length);
@@ -292,7 +309,7 @@ describe('starter initialization', () => {
   it.each(starters)('%s keeps legacy placeholder instances valid', (starter) => {
     const ids = createDeterministicIdFactory(`legacy-${starter}`);
     const document = initializeStarter(starter, { idFactory: ids });
-    const home = document.pages.find((page) => page.isHome);
+    const home = document.pages.find(page => page.isHome);
     if (!home) {
       throw new Error('Starter is missing Home.');
     }
@@ -302,8 +319,8 @@ describe('starter initialization', () => {
       ids,
     );
     const placeholder = withPlaceholder.pages
-      .flatMap((page) => page.sections)
-      .find((section) => section.sectionType === 'section_11');
+      .flatMap(page => page.sections)
+      .find(section => section.sectionType === 'section_11');
 
     expect(placeholder).toMatchObject({
       sectionType: 'section_11',
@@ -321,8 +338,8 @@ describe('starter initialization', () => {
     // stays valid: v2 stopped writing the field, it did not ban it.
     const tagged = structuredClone(withPlaceholder);
     const taggedPlaceholder = tagged.pages
-      .flatMap((page) => page.sections)
-      .find((section) => section.sectionType === 'section_11');
+      .flatMap(page => page.sections)
+      .find(section => section.sectionType === 'section_11');
     if (taggedPlaceholder?.sectionType !== 'section_11') {
       throw new Error('Missing the owner-added placeholder.');
     }
@@ -337,7 +354,7 @@ describe('starter initialization', () => {
 
 describe('add section catalogue', () => {
   it('offers only Custom Design beside the named library', () => {
-    expect(ADD_SECTION_CATALOGUE.map((item) => item.sectionType)).toEqual([
+    expect(ADD_SECTION_CATALOGUE.map(item => item.sectionType)).toEqual([
       'custom_design',
     ]);
     // The numbered slots stay exported so legacy instances resolve labels and
@@ -349,7 +366,7 @@ describe('add section catalogue', () => {
   it('lists every registry section type in the Add Section library', () => {
     const library = getAddSectionLibrary();
 
-    expect(library.map((item) => item.sectionType)).toEqual([
+    expect(library.map(item => item.sectionType)).toEqual([
       'about',
       'announcement_bar',
       'contact',
@@ -369,18 +386,18 @@ describe('add section catalogue', () => {
       'team',
       'visit_us',
     ]);
-    expect(library.every((item) => item.kind === 'library')).toBe(true);
+    expect(library.every(item => item.kind === 'library')).toBe(true);
     expect(
       library
-        .filter((item) => item.limitKind === 'hard')
-        .map((item) => [item.sectionType, item.maxPerPage]),
+        .filter(item => item.limitKind === 'hard')
+        .map(item => [item.sectionType, item.maxPerPage]),
     ).toEqual([
       ['announcement_bar', 1],
       ['footer', 1],
       ['hero', 1],
       ['section_navigation', 1],
     ]);
-    expect(library.find((item) => item.sectionType === 'hero')).toMatchObject({
+    expect(library.find(item => item.sectionType === 'hero')).toMatchObject({
       label: 'Hero',
       category: 'conversion',
       defaultPresetId: 'image_right',
@@ -393,8 +410,10 @@ describe('starter freedom', () => {
   it.each(starters)('%s uses the same catalogue and page capabilities', (starter) => {
     const ids = createDeterministicIdFactory(`freedom-${starter}`);
     let document = initializeStarter(starter, { idFactory: ids });
-    const homeId = document.pages.find((page) => page.isHome)?.id;
+    const homeId = document.pages.find(page => page.isHome)?.id;
+
     expect(homeId).toBeDefined();
+
     if (!homeId) {
       throw new Error('Starter is missing Home.');
     }
@@ -410,12 +429,14 @@ describe('starter freedom', () => {
     expect(document.pages).toHaveLength(starter === 'multi_page' ? 6 : 2);
     expect(
       document.pages
-        .find((page) => page.id === homeId)
-        ?.sections.some((section) => section.sectionType === 'section_11'),
+        .find(page => page.id === homeId)
+        ?.sections.some(section => section.sectionType === 'section_11'),
     ).toBe(true);
+
     const ownerAdded = document.pages
       .find(page => page.id === homeId)
       ?.sections.find(section => section.sectionType === 'section_11');
+
     expect(ownerAdded).not.toHaveProperty('starterSemanticRole');
     expect(document.navigation.enabled).toBe(true);
   });
@@ -465,6 +486,7 @@ describe('starter freedom', () => {
     if (!home) {
       throw new Error('Quick Book is missing Home.');
     }
+
     expect(home.sections).toHaveLength(4);
 
     for (const item of SECTION_CATALOGUE.slice(2, 17)) {
@@ -486,15 +508,15 @@ describe('starter freedom', () => {
     let document = initializeStarter('multi_page', {
       idFactory: createDeterministicIdFactory('simple-multi'),
     });
-    const home = document.pages.find((page) => page.isHome);
+    const home = document.pages.find(page => page.isHome);
     const booking = document.pages
-      .flatMap((page) => page.sections)
-      .find((section) => section.sectionType === 'booking');
+      .flatMap(page => page.sections)
+      .find(section => section.sectionType === 'booking');
     if (!home || !booking) {
       throw new Error('Multi-page defaults are incomplete.');
     }
     document = moveSectionToPage(document, booking.id, home.id);
-    for (const page of [...document.pages].filter((candidate) => !candidate.isHome)) {
+    for (const page of [...document.pages].filter(candidate => !candidate.isHome)) {
       document = removePage(document, page.id);
     }
 

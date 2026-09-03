@@ -19,6 +19,7 @@ import {
 describe('Booking presentation contract', () => {
   it('creates and validates the recommended Visual Grid default', () => {
     const settings = createDefaultBookingPresentationSettings();
+
     expect(settings.layout).toBe('visual_grid');
     expect(settings.layoutSettings).toEqual({
       density: 'comfortable',
@@ -44,10 +45,12 @@ describe('Booking presentation contract', () => {
       showDescriptions: true,
     });
     const list = switchBookingLayout(compact, 'clean_list');
+
     expect(list.layout).toBe('clean_list');
     expect(list.layoutSettings).toHaveProperty('showThumbnails');
 
     const restored = switchBookingLayout(list, 'visual_grid');
+
     expect(restored.layout).toBe('visual_grid');
     expect(restored.layoutSettings).toMatchObject({
       density: 'compact',
@@ -68,7 +71,9 @@ describe('Booking presentation contract', () => {
       },
     };
     const result = validateBookingPresentationSettings(incompatible);
+
     expect(result.success).toBe(false);
+
     if (!result.success) {
       expect(result.issues.join(' ')).toContain('desktopNavigation');
     }
@@ -87,7 +92,9 @@ describe('Booking presentation contract', () => {
         clean_list: valid.layoutSettings,
       },
     });
+
     expect(result.success).toBe(false);
+
     if (!result.success) {
       expect(result.issues.join(' ')).toContain('showFeatured');
     }
@@ -113,6 +120,7 @@ describe('canonical mock booking adapter', () => {
       serviceId: 'svc-manicure-russian',
       addOnIds: ['addon-french'],
     });
+
     expect(summary?.durationLabel).toBe('1 hr 45 min');
     expect(summary?.price.label).toBe('From $80');
   });
@@ -130,6 +138,7 @@ describe('canonical mock booking adapter', () => {
       draftAddOnIds: ['addon-french'],
       handoffOpen: true,
     };
+
     expect(normalizeSessionForLayoutChange(session)).toEqual({
       ...session,
       query: '',

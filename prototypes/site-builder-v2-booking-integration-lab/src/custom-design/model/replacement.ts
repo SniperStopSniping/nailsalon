@@ -22,10 +22,10 @@ export const symmetricAspectRatioDelta = (
   second: number,
 ): number => {
   if (
-    !Number.isFinite(first) ||
-    !Number.isFinite(second) ||
-    first <= 0 ||
-    second <= 0
+    !Number.isFinite(first)
+    || !Number.isFinite(second)
+    || first <= 0
+    || second <= 0
   ) {
     return Number.POSITIVE_INFINITY;
   }
@@ -35,22 +35,22 @@ export const symmetricAspectRatioDelta = (
 export const replacementPreservesAreaApproval = (
   oldAspectRatio: number,
   newAspectRatio: number,
-): boolean => symmetricAspectRatioDelta(oldAspectRatio, newAspectRatio) <=
-  CUSTOM_DESIGN_ASPECT_RATIO_REVIEW_THRESHOLD + Number.EPSILON;
+): boolean => symmetricAspectRatioDelta(oldAspectRatio, newAspectRatio)
+  <= CUSTOM_DESIGN_ASPECT_RATIO_REVIEW_THRESHOLD + Number.EPSILON;
 
 export const replaceCustomDesignImage = (
   image: CustomDesignImageItem,
   replacement: CustomDesignReplacementMetadata,
 ): CustomDesignImageItem => {
   if (
-    !Number.isFinite(image.width) ||
-    !Number.isFinite(image.height) ||
-    !Number.isFinite(replacement.width) ||
-    !Number.isFinite(replacement.height) ||
-    image.width <= 0 ||
-    image.height <= 0 ||
-    replacement.width <= 0 ||
-    replacement.height <= 0
+    !Number.isFinite(image.width)
+    || !Number.isFinite(image.height)
+    || !Number.isFinite(replacement.width)
+    || !Number.isFinite(replacement.height)
+    || image.width <= 0
+    || image.height <= 0
+    || replacement.width <= 0
+    || replacement.height <= 0
   ) {
     throw new RangeError('Replacement dimensions must be positive finite numbers.');
   }
@@ -61,7 +61,9 @@ export const replaceCustomDesignImage = (
     newAspectRatio,
   );
   const interactiveAreas = image.interactiveAreas.map((area) => {
-    if (area.reviewStatus === 'needs_review' || preserveApproval) return area;
+    if (area.reviewStatus === 'needs_review' || preserveApproval) {
+      return area;
+    }
     return {
       ...area,
       reviewStatus: 'needs_review' as const,
@@ -86,8 +88,8 @@ export const approveInteractiveAreaReview = (
 
 export const hasUnresolvedAreaReviews = (
   settings: CustomDesignSettings,
-): boolean => settings.images.some((image) =>
-  image.interactiveAreas.some((area) => area.reviewStatus === 'needs_review'));
+): boolean => settings.images.some(image =>
+  image.interactiveAreas.some(area => area.reviewStatus === 'needs_review'));
 
 export type CustomDesignPublishBlocker = {
   imageItemId: string;
@@ -98,7 +100,7 @@ export type CustomDesignPublishBlocker = {
 /** Phase 2 must additionally resolve live targets and asset availability. */
 export const getCustomDesignPublishBlockers = (
   settings: CustomDesignSettings,
-): CustomDesignPublishBlocker[] => settings.images.flatMap((image) =>
+): CustomDesignPublishBlocker[] => settings.images.flatMap(image =>
   image.interactiveAreas.flatMap((area) => {
     const blockers: CustomDesignPublishBlocker[] = [];
     if (area.reviewStatus === 'needs_review') {

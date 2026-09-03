@@ -4,9 +4,9 @@ import {
   QUICK_BOOK_SHORT_BIO_MAX_LENGTH,
   resolveQuickBookProfile,
 } from './quick-book-profile';
-import {
-  type BusinessProfileDraft,
-  type QuickBookProfileVisibilityDraft,
+import type {
+  BusinessProfileDraft,
+  QuickBookProfileVisibilityDraft,
 } from './types';
 
 const MONDAY_AT_NOON_IN_TORONTO = '2026-08-31T16:00:00.000Z';

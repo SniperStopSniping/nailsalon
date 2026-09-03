@@ -1,10 +1,11 @@
+import './plan-offer.css';
+
 import { Check } from 'lucide-react';
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 
 import { Dialog } from '../../ui/Dialog';
 import { useFeedback } from '../feedback/useFeedback';
 import type { FoundingOfferMode, PlanIntent, PlanOfferDraft } from '../model/types';
-import './plan-offer.css';
 
 export type { FoundingOfferMode } from '../model/types';
 
@@ -114,12 +115,12 @@ export function PlanOfferSheet({ configuration, offer, onChoose, onClose, open }
   const choosingRef = useRef(false);
   const radioName = useId();
   const resolvedConfiguration = configuration ?? createLabPlanConfiguration(offer.foundingMode);
-  const visibleOptions = useMemo(() => resolvedConfiguration.options.filter((option) => (
+  const visibleOptions = useMemo(() => resolvedConfiguration.options.filter(option => (
     option.enabled
     && !(option.planIntent === 'founding'
       && (offer.fixtureState === 'none' || offer.fixtureState === 'expired'))
   )), [offer.fixtureState, resolvedConfiguration.options]);
-  const initialIntent = visibleOptions.some((option) => option.planIntent === 'free')
+  const initialIntent = visibleOptions.some(option => option.planIntent === 'free')
     ? 'free'
     : visibleOptions[0]?.planIntent ?? 'free';
   const [selectedIntent, setSelectedIntent] = useState<PlanIntent>(initialIntent);
@@ -133,7 +134,7 @@ export function PlanOfferSheet({ configuration, offer, onChoose, onClose, open }
     }
   }, [initialIntent, open]);
 
-  const selectedOption = visibleOptions.find((option) => option.planIntent === selectedIntent)
+  const selectedOption = visibleOptions.find(option => option.planIntent === selectedIntent)
     ?? visibleOptions[0];
 
   return (
@@ -177,8 +178,12 @@ export function PlanOfferSheet({ configuration, offer, onChoose, onClose, open }
                 </span>
                 <p>{option.description}</p>
                 <ul>
-                  {option.features.map((feature) => (
-                    <li key={feature}><Check aria-hidden="true" size={14} /> {feature}</li>
+                  {option.features.map(feature => (
+                    <li key={feature}>
+                      <Check aria-hidden="true" size={14} />
+                      {' '}
+                      {feature}
+                    </li>
                   ))}
                 </ul>
               </label>
@@ -186,31 +191,35 @@ export function PlanOfferSheet({ configuration, offer, onChoose, onClose, open }
           })}
         </fieldset>
 
-        {resolvedConfiguration.showPlanComparison ? (
-          <details className="onboarding-plan-comparison">
-            <summary>Compare options</summary>
-            <div className="onboarding-plan-comparison__groups">
-              {COMPARISON_GROUPS.map((group) => {
-                const rows = resolvedConfiguration.comparisonRows.filter(
-                  (row) => row.group === group.id,
-                );
-                return rows.length > 0 ? (
-                  <section key={group.id}>
-                    <h3>{group.label}</h3>
-                    <ul>
-                      {rows.map((row) => (
-                        <li key={row.feature}>
-                          <Check aria-hidden="true" size={14} />
-                          <span>{row.feature}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  </section>
-                ) : null;
-              })}
-            </div>
-          </details>
-        ) : null}
+        {resolvedConfiguration.showPlanComparison
+          ? (
+              <details className="onboarding-plan-comparison">
+                <summary>Compare options</summary>
+                <div className="onboarding-plan-comparison__groups">
+                  {COMPARISON_GROUPS.map((group) => {
+                    const rows = resolvedConfiguration.comparisonRows.filter(
+                      row => row.group === group.id,
+                    );
+                    return rows.length > 0
+                      ? (
+                          <section key={group.id}>
+                            <h3>{group.label}</h3>
+                            <ul>
+                              {rows.map(row => (
+                                <li key={row.feature}>
+                                  <Check aria-hidden="true" size={14} />
+                                  <span>{row.feature}</span>
+                                </li>
+                              ))}
+                            </ul>
+                          </section>
+                        )
+                      : null;
+                  })}
+                </div>
+              </details>
+            )
+          : null}
 
         <p className="onboarding-plan-disclaimer">
           This saves your interest only. There is no payment or plan access change today.
@@ -222,7 +231,9 @@ export function PlanOfferSheet({ configuration, offer, onChoose, onClose, open }
             disabled={!selectedOption || choosing}
             type="button"
             onClick={() => {
-              if (!selectedOption || choosingRef.current) return;
+              if (!selectedOption || choosingRef.current) {
+                return;
+              }
               choosingRef.current = true;
               setChoosing(true);
               onChoose(selectedOption.planIntent);

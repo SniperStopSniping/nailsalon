@@ -1,6 +1,8 @@
 import { ObjectUrlRegistry } from './ObjectUrlRegistry';
 
-const deferred = <T,>() => {
+const awaitedText = new WeakMap<Blob, string>();
+
+const deferred = <T>() => {
   let resolve!: (value: T | PromiseLike<T>) => void;
   let reject!: (reason?: unknown) => void;
   const promise = new Promise<T>((promiseResolve, promiseReject) => {
@@ -25,8 +27,10 @@ describe('ObjectUrlRegistry', () => {
     const first = registry.acquire('asset-one');
     const second = registry.acquire('asset-one');
     await Promise.resolve();
+
     expect(loadBlob).toHaveBeenCalledTimes(1);
     expect(registry.referenceCount('asset-one')).toBe(2);
+
     pending.resolve(new Blob(['image'], { type: 'image/png' }));
 
     await expect(first.state).resolves.toEqual({
@@ -42,9 +46,12 @@ describe('ObjectUrlRegistry', () => {
 
     first.release();
     first.release();
+
     expect(registry.referenceCount('asset-one')).toBe(1);
     expect(revokeObjectURL).not.toHaveBeenCalled();
+
     second.release();
+
     expect(revokeObjectURL).toHaveBeenCalledOnce();
     expect(revokeObjectURL).toHaveBeenCalledWith('blob:luster/one');
     expect(registry.referenceCount('asset-one')).toBe(0);
@@ -79,10 +86,12 @@ describe('ObjectUrlRegistry', () => {
       revokeObjectURL: vi.fn(),
     });
     const missing = missingRegistry.acquire('missing');
+
     await expect(missing.state).resolves.toEqual({
       assetId: 'missing',
       status: 'missing',
     });
+
     missing.release();
 
     const errorRegistry = new ObjectUrlRegistry({
@@ -91,11 +100,13 @@ describe('ObjectUrlRegistry', () => {
       revokeObjectURL: vi.fn(),
     });
     const failed = errorRegistry.acquire('failed');
+
     await expect(failed.state).resolves.toMatchObject({
       assetId: 'failed',
       error: expect.objectContaining({ message: 'storage denied' }),
       status: 'error',
     });
+
     failed.release();
 
     const synchronousErrorRegistry = new ObjectUrlRegistry({
@@ -106,10 +117,12 @@ describe('ObjectUrlRegistry', () => {
       revokeObjectURL: vi.fn(),
     });
     const synchronousFailure = synchronousErrorRegistry.acquire('sync-failed');
+
     await expect(synchronousFailure.state).resolves.toMatchObject({
       error: expect.objectContaining({ message: 'synchronous denial' }),
       status: 'error',
     });
+
     synchronousFailure.release();
   });
 
@@ -124,10 +137,12 @@ describe('ObjectUrlRegistry', () => {
       revokeObjectURL: vi.fn(),
     });
     const lease = registry.acquire('no-url');
+
     await expect(lease.state).resolves.toMatchObject({
       error: expect.objectContaining({ message: 'URL unavailable' }),
       status: 'error',
     });
+
     lease.release();
   });
 
@@ -148,21 +163,25 @@ describe('ObjectUrlRegistry', () => {
     const first = registry.acquire('asset');
     await first.state;
     registry.invalidate('asset');
+
     expect(revokeObjectURL).toHaveBeenCalledWith('blob:first');
     expect(registry.referenceCount('asset')).toBe(0);
 
     const second = registry.acquire('asset');
+
     await expect(second.state).resolves.toMatchObject({ url: 'blob:second' });
     expect(loadBlob).toHaveBeenCalledTimes(2);
+
     first.release();
     second.release();
+
     expect(revokeObjectURL).toHaveBeenCalledWith('blob:second');
   });
 
   it('revokes every live URL during teardown', async () => {
     const revokeObjectURL = vi.fn();
     const registry = new ObjectUrlRegistry({
-      createObjectURL: (blob) => `blob:${awaitedText.get(blob)}`,
+      createObjectURL: blob => `blob:${awaitedText.get(blob)}`,
       loadBlob: async (assetId) => {
         const blob = new Blob([assetId], { type: 'image/png' });
         awaitedText.set(blob, assetId);
@@ -179,10 +198,10 @@ describe('ObjectUrlRegistry', () => {
       new Set(['blob:first', 'blob:second']),
     );
     expect(registry.referenceCount('first')).toBe(0);
+
     first.release();
     second.release();
+
     expect(revokeObjectURL).toHaveBeenCalledTimes(2);
   });
 });
-
-const awaitedText = new WeakMap<Blob, string>();

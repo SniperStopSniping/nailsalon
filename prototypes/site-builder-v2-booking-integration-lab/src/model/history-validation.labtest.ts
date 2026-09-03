@@ -21,10 +21,10 @@ import {
 import { initializeStarter } from './starters';
 import type { SiteBuilderDocument } from './types';
 import {
-  MAX_SITE_BUILDER_IMPORT_JSON_LENGTH,
-  SITE_BUILDER_STORAGE_KEY,
   exportSiteBuilderDocument,
+  MAX_SITE_BUILDER_IMPORT_JSON_LENGTH,
   parseSiteBuilderDocument,
+  SITE_BUILDER_STORAGE_KEY,
   validateSiteBuilderDocument,
 } from './validation';
 
@@ -49,9 +49,9 @@ describe('structural history', () => {
       type: 'add_page',
       input: { name: 'Gallery' },
     }, { idFactory: ids });
-    const gallery = history.present.pages.find((page) => page.name === 'Gallery');
+    const gallery = history.present.pages.find(page => page.name === 'Gallery');
     const section11 = history.present.pages[0]?.sections.find(
-      (section) => section.sectionType === 'section_11',
+      section => section.sectionType === 'section_11',
     );
     if (!gallery || !section11) {
       throw new Error('History setup failed.');
@@ -64,12 +64,16 @@ describe('structural history', () => {
     const moved = history.present;
 
     expect(canUndoHistory(history)).toBe(true);
+
     history = undoHistory(history);
-    expect(history.present.pages[0]?.sections.some((section) => section.id === section11.id)).toBe(
+
+    expect(history.present.pages[0]?.sections.some(section => section.id === section11.id)).toBe(
       true,
     );
     expect(canRedoHistory(history)).toBe(true);
+
     history = redoHistory(history);
+
     expect(history.present).toEqual(moved);
   });
 
@@ -88,10 +92,15 @@ describe('structural history', () => {
       type: 'remove_section',
       sectionId: section.id,
     });
+
     expect(history.present.unusedSections[0]?.id).toBe(section.id);
+
     history = undoHistory(history);
+
     expect(history.present).toEqual(initial);
+
     history = redoHistory(history);
+
     expect(history.present.unusedSections[0]?.id).toBe(section.id);
   });
 
@@ -134,7 +143,9 @@ describe('structural history', () => {
       visible: false,
       visibleInNavigation: false,
     });
+
     history = undoHistory(history);
+
     expect(history.present).toEqual(initial);
   });
 
@@ -144,7 +155,7 @@ describe('structural history', () => {
     });
     const home = initial.pages[0];
     const booking = home?.sections.find(
-      (section) => section.sectionType === 'booking',
+      section => section.sectionType === 'booking',
     );
     if (!home || !booking) {
       throw new Error('Missing Booking.');
@@ -152,8 +163,8 @@ describe('structural history', () => {
     const requestedOrder = [
       booking.id,
       ...home.sections
-        .filter((section) => section.id !== booking.id)
-        .map((section) => section.id),
+        .filter(section => section.id !== booking.id)
+        .map(section => section.id),
     ];
     let history = createHistoryState(initial);
 
@@ -167,16 +178,19 @@ describe('structural history', () => {
     });
 
     expect(history.past).toHaveLength(1);
-    expect(history.present.pages[0]?.sections.map((section) => section.id)).toEqual(
+    expect(history.present.pages[0]?.sections.map(section => section.id)).toEqual(
       requestedOrder,
     );
+
     const committed = history.present;
 
     history = undoHistory(history);
+
     expect(history.present).toEqual(initial);
     expect(history.future).toEqual([committed]);
 
     history = redoHistory(history);
+
     expect(history.present).toEqual(committed);
     expect(history.past).toHaveLength(1);
   });
@@ -188,10 +202,12 @@ describe('structural history', () => {
     const source = initial.pages.find(page => page.sections.some(
       section => section.sectionType === 'booking',
     ));
-    const destination = initial.pages.find((page) => page.name === 'Home');
-    const booking = source?.sections.find((section) => section.sectionType === 'booking');
-    if (!source || !destination || !booking) throw new Error('Missing multi-page structure.');
-    const requestedOrder = [...source.sections].reverse().map((section) => section.id);
+    const destination = initial.pages.find(page => page.name === 'Home');
+    const booking = source?.sections.find(section => section.sectionType === 'booking');
+    if (!source || !destination || !booking) {
+      throw new Error('Missing multi-page structure.');
+    }
+    const requestedOrder = [...source.sections].reverse().map(section => section.id);
     let history = createHistoryState(initial);
 
     history = applyHistoryCommand(history, {
@@ -205,12 +221,16 @@ describe('structural history', () => {
     });
 
     expect(history.past).toEqual([initial]);
-    expect(history.present.pages.find((page) => page.id === destination.id)?.sections[0]?.id)
+    expect(history.present.pages.find(page => page.id === destination.id)?.sections[0]?.id)
       .toBe(booking.id);
+
     const committed = history.present;
     history = undoHistory(history);
+
     expect(history.present).toEqual(initial);
+
     history = redoHistory(history);
+
     expect(history.present).toEqual(committed);
     expect(history.past).toEqual([initial]);
   });
@@ -221,26 +241,32 @@ describe('structural history', () => {
     });
     const source = initial.pages[0];
     const section = source?.sections[0];
-    if (!source || !section) throw new Error('Missing Quick Book structure.');
+    if (!source || !section) {
+      throw new Error('Missing Quick Book structure.');
+    }
     let history = createHistoryState(initial);
 
     history = applyHistoryCommand(history, {
       type: 'commit_section_move',
       input: {
         sourcePageId: source.id,
-        orderedSectionIds: [...source.sections].reverse().map((candidate) => candidate.id),
+        orderedSectionIds: [...source.sections].reverse().map(candidate => candidate.id),
         sectionId: section.id,
         destination: { type: 'new_page', name: 'Portfolio', position: 1 },
       },
     });
 
     expect(history.past).toEqual([initial]);
-    expect(history.present.pages.find((page) => page.name === 'Portfolio')?.sections[0]?.id)
+    expect(history.present.pages.find(page => page.name === 'Portfolio')?.sections[0]?.id)
       .toBe(section.id);
+
     const committed = history.present;
     history = undoHistory(history);
+
     expect(history.present).toEqual(initial);
+
     history = redoHistory(history);
+
     expect(history.present).toEqual(committed);
   });
 
@@ -249,7 +275,7 @@ describe('structural history', () => {
       idFactory: createDeterministicIdFactory('booking-history'),
     });
     const booking = initial.pages[0]?.sections.find(
-      (section) => section.sectionType === 'booking',
+      section => section.sectionType === 'booking',
     );
     if (booking?.sectionType !== 'booking') {
       throw new Error('Missing Booking.');
@@ -269,7 +295,7 @@ describe('structural history', () => {
 
     expect(history.past).toHaveLength(1);
     expect(history.present.pages[0]?.sections.find(
-      (section) => section.id === booking.id,
+      section => section.id === booking.id,
     )).toMatchObject({ settings: cleanList });
     expect(customerState).toEqual({
       serviceId: 'svc-manicure-russian',
@@ -281,16 +307,18 @@ describe('structural history', () => {
       type: 'reset_booking_presentation',
       sectionId: booking.id,
     });
+
     expect(history.past).toHaveLength(2);
     expect(history.present.pages[0]?.sections.find(
-      (section) => section.id === booking.id,
+      section => section.id === booking.id,
     )).toMatchObject({
       settings: createDefaultBookingPresentationSettings(),
     });
 
     history = undoHistory(history);
+
     expect(history.present.pages[0]?.sections.find(
-      (section) => section.id === booking.id,
+      section => section.id === booking.id,
     )).toMatchObject({ settings: cleanList });
   });
 
@@ -299,7 +327,7 @@ describe('structural history', () => {
       idFactory: createDeterministicIdFactory('library-history'),
     });
     const hero = initial.pages[0]?.sections.find(
-      (section) => section.sectionType === 'hero',
+      section => section.sectionType === 'hero',
     );
     if (hero?.sectionType !== 'hero') {
       throw new Error('Missing Hero.');
@@ -318,9 +346,10 @@ describe('structural history', () => {
       sectionId: hero.id,
       settings: { ...hero.settings, preset: 'full_bleed', showStatusLine: false },
     });
+
     expect(history.past).toHaveLength(1);
     expect(history.present.pages[0]?.sections.find(
-      (section) => section.id === hero.id,
+      section => section.id === hero.id,
     )).toMatchObject({
       settings: {
         headline: { source: 'shared' },
@@ -338,16 +367,19 @@ describe('structural history', () => {
       type: 'update_site_content',
       input: { collection: 'staff', operation: 'upsert', record: member },
     });
+
     expect(history.past).toHaveLength(2);
     expect(history.present.siteContent.staff).toEqual([member]);
 
     history = undoHistory(history);
+
     expect(history.present.siteContent.staff).toEqual([]);
     expect(history.present.pages[0]?.sections.find(
-      (section) => section.id === hero.id,
+      section => section.id === hero.id,
     )).toMatchObject({ settings: { preset: 'full_bleed' } });
 
     history = undoHistory(history);
+
     expect(history.present).toEqual(initial);
     expect(canUndoHistory(history)).toBe(false);
   });
@@ -358,7 +390,9 @@ describe('validation, import, and export', () => {
     const ids = createDeterministicIdFactory('roundtrip');
     const starter = initializeStarter('multi_page', { idFactory: ids });
     const home = starter.pages.find(page => page.isHome);
-    if (!home) throw new Error('Missing Home.');
+    if (!home) {
+      throw new Error('Missing Home.');
+    }
     // Featured Services is advanced-only in V1. Add it explicitly so this
     // serialization test still covers canonical service-id bindings.
     const document = addSection(
@@ -382,9 +416,11 @@ describe('validation, import, and export', () => {
     expect(json).not.toContain('addOnIds');
     expect(json).not.toContain('detailServiceId');
     expect(json).not.toContain('query');
+
     const featuredServices = document.pages
-      .flatMap((page) => page.sections)
-      .find((section) => section.sectionType === 'featured_services');
+      .flatMap(page => page.sections)
+      .find(section => section.sectionType === 'featured_services');
+
     expect(featuredServices).toMatchObject({
       settings: { preset: 'grid', serviceIds: [], source: 'featured', version: 1 },
     });
@@ -400,7 +436,7 @@ describe('validation, import, and export', () => {
       idFactory: createDeterministicIdFactory('content-roundtrip'),
     });
     const reviewsSection = initial.pages[0]?.sections.find(
-      (section) => section.sectionType === 'reviews',
+      section => section.sectionType === 'reviews',
     );
     if (!reviewsSection) {
       throw new Error('Missing Reviews section.');
@@ -425,6 +461,7 @@ describe('validation, import, and export', () => {
     });
 
     const json = exportSiteBuilderDocument(document);
+
     expect(parseSiteBuilderDocument(json)).toEqual({ success: true, document });
     expect(JSON.parse(json)).toMatchObject({
       siteContent: {
@@ -453,6 +490,7 @@ describe('validation, import, and export', () => {
       success: false,
       issues: ['The selected site document is too large.'],
     });
+
     const document = initializeStarter('quick_book', {
       idFactory: createDeterministicIdFactory('bad-schema'),
     });
@@ -466,6 +504,7 @@ describe('validation, import, and export', () => {
         issues: expect.arrayContaining(['schemaVersion must be 2.']),
       });
     }
+
     expect(validateSiteBuilderDocument(document)).toMatchObject({ success: true });
 
     // Import is the one path that upgrades: a v1 document is re-versioned
@@ -500,6 +539,7 @@ describe('validation, import, and export', () => {
       throw new Error('Missing Hero.');
     }
     badHero.settings.preset = 'not_a_preset';
+
     expect(validateSiteBuilderDocument(badSettings)).toMatchObject({
       success: false,
       issues: expect.arrayContaining([
@@ -513,6 +553,7 @@ describe('validation, import, and export', () => {
       id: 'section_second_hero',
       order: twoHeroes.pages[0].sections.length,
     });
+
     expect(validateSiteBuilderDocument(twoHeroes)).toMatchObject({
       success: false,
       issues: expect.arrayContaining([
@@ -525,6 +566,7 @@ describe('validation, import, and export', () => {
       { id: 'faq_1', question: 'Do you take walk-ins?', answer: 'By appointment only.' },
       { id: 'faq_1', question: 'Do you repair a break?', answer: 'Within seven days.' },
     ];
+
     expect(validateSiteBuilderDocument(duplicateContent)).toMatchObject({
       success: false,
       issues: expect.arrayContaining([
@@ -546,13 +588,14 @@ describe('validation, import, and export', () => {
     });
     const withoutBooking = {
       ...document,
-      pages: document.pages.map((page) => ({
+      pages: document.pages.map(page => ({
         ...page,
         sections: page.sections.filter(
-          (section) => section.sectionType !== 'booking',
+          section => section.sectionType !== 'booking',
         ),
       })),
     } satisfies SiteBuilderDocument;
+
     expect(validateSiteBuilderDocument(withoutBooking)).toMatchObject({
       success: false,
       issues: expect.arrayContaining([
@@ -562,8 +605,9 @@ describe('validation, import, and export', () => {
 
     const badOrder: SiteBuilderDocument = {
       ...document,
-      pages: document.pages.map((page) => ({ ...page, order: 7 })),
+      pages: document.pages.map(page => ({ ...page, order: 7 })),
     };
+
     expect(validateSiteBuilderDocument(badOrder)).toMatchObject({
       success: false,
       issues: expect.arrayContaining(['Page ordering must be normalized.']),
@@ -580,7 +624,7 @@ describe('validation, import, and export', () => {
       }>;
     };
     const booking = incompatible.pages[0]?.sections.find(
-      (section) => section.sectionType === 'booking',
+      section => section.sectionType === 'booking',
     );
     if (!booking) {
       throw new Error('Missing Booking.');
@@ -598,10 +642,13 @@ describe('validation, import, and export', () => {
     booking.selection = { serviceId: 'svc-injected', addOnIds: [] };
 
     const result = validateSiteBuilderDocument(incompatible);
+
     expect(result).toMatchObject({ success: false });
+
     if (result.success) {
       throw new Error('Invalid Booking settings unexpectedly validated.');
     }
+
     expect(result.issues.join(' ')).toContain('imageMode');
     expect(result.issues.join(' ')).toContain('services');
     expect(result.issues.join(' ')).toContain('selection');
@@ -612,7 +659,7 @@ describe('validation, import, and export', () => {
       idFactory: createDeterministicIdFactory('invalid-document'),
     });
     const booking = document.pages[0]?.sections.find(
-      (section) => section.sectionType === 'booking',
+      section => section.sectionType === 'booking',
     );
     if (booking?.sectionType !== 'booking') {
       throw new Error('Missing Booking.');
@@ -624,6 +671,7 @@ describe('validation, import, and export', () => {
       id: 'section_duplicate_booking',
       order: duplicateBooking.pages[0].sections.length,
     });
+
     expect(validateSiteBuilderDocument(duplicateBooking)).toMatchObject({
       success: false,
       issues: expect.arrayContaining([
@@ -635,6 +683,7 @@ describe('validation, import, and export', () => {
     if (duplicateId.pages[0]?.sections[0]) {
       duplicateId.pages[0].sections[0].id = booking.id;
     }
+
     expect(validateSiteBuilderDocument(duplicateId)).toMatchObject({
       success: false,
       issues: expect.arrayContaining([
@@ -646,6 +695,7 @@ describe('validation, import, and export', () => {
     if (badReference.navigation.items[0]) {
       badReference.navigation.items[0].pageId = 'page_missing';
     }
+
     expect(validateSiteBuilderDocument(badReference)).toMatchObject({
       success: false,
       issues: expect.arrayContaining([
@@ -655,11 +705,12 @@ describe('validation, import, and export', () => {
 
     const hiddenBooking = structuredClone(document);
     const hidden = hiddenBooking.pages[0]?.sections.find(
-      (section) => section.sectionType === 'booking',
+      section => section.sectionType === 'booking',
     );
     if (hidden?.sectionType === 'booking') {
       hidden.visible = false;
     }
+
     expect(validateSiteBuilderDocument(hiddenBooking)).toMatchObject({
       success: false,
       issues: expect.arrayContaining([

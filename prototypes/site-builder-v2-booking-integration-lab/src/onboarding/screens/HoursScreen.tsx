@@ -1,3 +1,5 @@
+import '../hours-screen.css';
+
 import {
   Check,
   ChevronDown,
@@ -16,8 +18,6 @@ import {
   hasCompleteWeeklyHours,
 } from '../model/hours';
 import type { BusinessProfileDraft } from '../model/types';
-
-import '../hours-screen.css';
 
 type HoursScreenProps = {
   onBack: () => void;
@@ -69,7 +69,7 @@ export function HoursScreen({
           aria-expanded={open}
           className="onboarding-hours-card__trigger"
           type="button"
-          onClick={() => setOpen((current) => !current)}
+          onClick={() => setOpen(current => !current)}
         >
           <span className="onboarding-hours-card__icon" aria-hidden="true"><Clock3 /></span>
           <span className="onboarding-hours-card__title">
@@ -83,61 +83,66 @@ export function HoursScreen({
           {open ? <ChevronUp aria-hidden="true" /> : <ChevronDown aria-hidden="true" />}
         </button>
 
-        {open ? (
-          <div className="onboarding-hours-card__content">
-            <NativeSwitch
-              checked={complete && profile.hours.showOnSite}
-              description="Clients can see your regular business hours and whether you're currently open or closed."
-              disabled={!complete}
-              label="Show business hours to clients"
-              onChange={(showOnSite) => onProfileChange({
-                hours: { ...profile.hours, showOnSite },
-              })}
-            />
-            <WeeklyHoursEditor
-              hours={profile.hours}
-              hideSkipAction
-              onChange={(hours) => onProfileChange({ hours })}
-              onSkip={() => {
-                onProfileChange({
-                  hours: { ...profile.hours, setupState: 'skipped', showOnSite: false },
-                });
-                onSkipHours();
-                onContinue();
-              }}
-            />
-            <section className="onboarding-hours-timezone" aria-labelledby="hours-timezone-heading">
-              <Globe2 aria-hidden="true" />
-              <span>
-                <strong id="hours-timezone-heading">Timezone</strong>
-                <small>{profile.timeZone}</small>
-              </span>
-              <button
-                type="button"
-                onClick={() => {
-                  setTimeZoneDraft(profile.timeZone);
-                  setTimeZoneDialogOpen(true);
-                }}
-              >
-                Change
-              </button>
-            </section>
-            <button
-              className="onboarding-hours-skip"
-              type="button"
-              onClick={() => {
-                onProfileChange({
-                  hours: { ...profile.hours, setupState: 'skipped', showOnSite: false },
-                });
-                onSkipHours();
-                onContinue();
-              }}
-            >
-              <Clock3 aria-hidden="true" />
-              <span><strong>Skip hours for now</strong><small>You can add or update your hours later.</small></span>
-            </button>
-          </div>
-        ) : null}
+        {open
+          ? (
+              <div className="onboarding-hours-card__content">
+                <NativeSwitch
+                  checked={complete && profile.hours.showOnSite}
+                  description="Clients can see your regular business hours and whether you're currently open or closed."
+                  disabled={!complete}
+                  label="Show business hours to clients"
+                  onChange={showOnSite => onProfileChange({
+                    hours: { ...profile.hours, showOnSite },
+                  })}
+                />
+                <WeeklyHoursEditor
+                  hours={profile.hours}
+                  hideSkipAction
+                  onChange={hours => onProfileChange({ hours })}
+                  onSkip={() => {
+                    onProfileChange({
+                      hours: { ...profile.hours, setupState: 'skipped', showOnSite: false },
+                    });
+                    onSkipHours();
+                    onContinue();
+                  }}
+                />
+                <section className="onboarding-hours-timezone" aria-labelledby="hours-timezone-heading">
+                  <Globe2 aria-hidden="true" />
+                  <span>
+                    <strong id="hours-timezone-heading">Timezone</strong>
+                    <small>{profile.timeZone}</small>
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setTimeZoneDraft(profile.timeZone);
+                      setTimeZoneDialogOpen(true);
+                    }}
+                  >
+                    Change
+                  </button>
+                </section>
+                <button
+                  className="onboarding-hours-skip"
+                  type="button"
+                  onClick={() => {
+                    onProfileChange({
+                      hours: { ...profile.hours, setupState: 'skipped', showOnSite: false },
+                    });
+                    onSkipHours();
+                    onContinue();
+                  }}
+                >
+                  <Clock3 aria-hidden="true" />
+                  <span>
+                    <strong>Skip hours for now</strong>
+                    <small>You can add or update your hours later.</small>
+                  </span>
+                </button>
+              </div>
+            )
+          : null}
       </article>
       <StickyOnboardingActions
         onBack={onBack}
@@ -159,9 +164,9 @@ export function HoursScreen({
           <select
             id="onboarding-timezone-select"
             value={timeZoneDraft}
-            onChange={(event) => setTimeZoneDraft(event.target.value)}
+            onChange={event => setTimeZoneDraft(event.target.value)}
           >
-            {TIME_ZONES.map((timeZone) => (
+            {TIME_ZONES.map(timeZone => (
               <option key={timeZone} value={timeZone}>{timeZone}</option>
             ))}
           </select>

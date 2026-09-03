@@ -73,52 +73,60 @@ export function CustomDesignImageStack({
             '--custom-design-quality-width': `${Math.round(image.width * 1.5)}px`,
           } as CustomDesignStackEntryStyle}
         >
-          {asset.status === 'ready' ? (
-            <CustomerImageFrame
-              asset={asset}
-              getScrollPosition={getScrollPosition}
-              image={image}
-              isFirstReadyImage={firstReadyImageId === image.id}
-              key={`${image.id}:${image.assetId}:${asset.url}`}
-              missingAssetFallback={missingAssetFallback}
-              onAssetRenderError={onAssetRenderError}
-              resolveAction={resolveAction}
-            />
-          ) : asset.status === 'loading' ? (
-            <div
-              aria-hidden="true"
-              className="custom-design-loading-asset"
-              data-testid="custom-design-customer-loading-asset"
-              style={{
-                aspectRatio: `${image.width} / ${image.height}`,
-              } as CustomDesignLoadingAssetStyle}
-            />
-          ) : (
-            <>
-              <CustomerMissingAsset fallback={missingAssetFallback} />
-              <AccessibilitySummary
-                fileName={image.fileName}
-                imageItemId={image.id}
-                summary={image.accessibleSummary}
-              />
-            </>
-          )}
-          {hasCtaAfterImage(cta, image.id) ? (
+          {asset.status === 'ready'
+            ? (
+                <CustomerImageFrame
+                  asset={asset}
+                  getScrollPosition={getScrollPosition}
+                  image={image}
+                  isFirstReadyImage={firstReadyImageId === image.id}
+                  key={`${image.id}:${image.assetId}:${asset.url}`}
+                  missingAssetFallback={missingAssetFallback}
+                  onAssetRenderError={onAssetRenderError}
+                  resolveAction={resolveAction}
+                />
+              )
+            : asset.status === 'loading'
+              ? (
+                  <div
+                    aria-hidden="true"
+                    className="custom-design-loading-asset"
+                    data-testid="custom-design-customer-loading-asset"
+                    style={{
+                      aspectRatio: `${image.width} / ${image.height}`,
+                    } as CustomDesignLoadingAssetStyle}
+                  />
+                )
+              : (
+                  <>
+                    <CustomerMissingAsset fallback={missingAssetFallback} />
+                    <AccessibilitySummary
+                      fileName={image.fileName}
+                      imageItemId={image.id}
+                      summary={image.accessibleSummary}
+                    />
+                  </>
+                )}
+          {hasCtaAfterImage(cta, image.id)
+            ? (
+                <NativeCta
+                  cta={cta}
+                  getScrollPosition={getScrollPosition}
+                  resolveAction={resolveAction}
+                />
+              )
+            : null}
+        </div>
+      ))}
+      {placeCtaAfterAll
+        ? (
             <NativeCta
               cta={cta}
               getScrollPosition={getScrollPosition}
               resolveAction={resolveAction}
             />
-          ) : null}
-        </div>
-      ))}
-      {placeCtaAfterAll ? (
-        <NativeCta
-          cta={cta}
-          getScrollPosition={getScrollPosition}
-          resolveAction={resolveAction}
-        />
-      ) : null}
+          )
+        : null}
     </div>
   );
 }

@@ -5,14 +5,14 @@ import {
   Sparkles,
 } from 'lucide-react';
 import {
-  useId,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
   type CSSProperties,
   type KeyboardEvent,
   type ReactNode,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
 } from 'react';
 import { flushSync } from 'react-dom';
 
@@ -40,13 +40,13 @@ import {
   getInstagramInputError,
   resolveInstagramUsername,
 } from '../model/contact';
-import { resolveQuickBookProfile } from '../model/quick-book-profile';
+import { SITE_PALETTE_BY_ID, SITE_PALETTE_PRESETS } from '../model/palettes';
 import {
-  deriveDepositsAndCancellationsSummary,
   deriveDepositPolicySummary,
+  deriveDepositsAndCancellationsSummary,
   derivePolicySuggestedWording,
-  getDepositsAndCancellationsDisplayWording,
   getDepositPolicyMode,
+  getDepositsAndCancellationsDisplayWording,
   getLateCancellationChoice,
   getResolvedPolicyWording,
   hasMeaningfulPublishablePolicies,
@@ -54,11 +54,11 @@ import {
   isDepositsAndCancellationsVisible,
   isPolicySectionComplete,
   LATE_CANCELLATION_CUSTOM_WORDING,
-  refreshPolicySuggestedWording,
   type LateCancellationChoice,
+  refreshPolicySuggestedWording,
   updateDepositDraft,
 } from '../model/policies';
-import { SITE_PALETTE_BY_ID, SITE_PALETTE_PRESETS } from '../model/palettes';
+import { resolveQuickBookProfile } from '../model/quick-book-profile';
 import { SITE_STYLE_PRESETS } from '../model/site-styles';
 import type {
   AboutElementId,
@@ -69,11 +69,11 @@ import type {
   PolicySectionId,
   QuickBookLayoutId,
 } from '../model/types';
+import { labelForVisitMode } from '../preview/customer-facts';
 import {
   ONBOARDING_STYLE_ROLES,
   OnboardingSitePreview,
 } from '../preview/OnboardingSitePreview';
-import { labelForVisitMode } from '../preview/customer-facts';
 import { AboutSetupScreen } from './AboutSetupScreen';
 
 export type OnboardingStateUpdater = (
@@ -194,30 +194,44 @@ function QuickBookLayoutPoster({
         </span>
         {profilePhotoUrl ? <img alt="" src={profilePhotoUrl} /> : null}
       </span>
-      {instagram ? (
-        <span className="onboarding-quick-book-layout-poster__social">◎ {instagram}</span>
-      ) : null}
-      {facts.length > 0 ? (
-        <span className="onboarding-quick-book-layout-poster__facts">
-          {facts.map((fact) => <i key={fact}>{fact}</i>)}
-        </span>
-      ) : null}
-      {contacts.length > 0 ? (
-        <span className="onboarding-quick-book-layout-poster__contacts">
-          {contacts.slice(0, 2).map(contact => <i key={contact}>{contact}</i>)}
-        </span>
-      ) : null}
-      {aboutSummary ? (
-        <span className="onboarding-quick-book-layout-poster__about">
-          <b>{techName ? `About ${techName}` : 'About the studio'}</b>
-          <small>{aboutSummary}</small>
-        </span>
-      ) : null}
-      {policyAvailable ? (
-        <span className="onboarding-quick-book-layout-poster__policy">
-          <b>Before you book</b><i>+</i>
-        </span>
-      ) : null}
+      {instagram
+        ? (
+            <span className="onboarding-quick-book-layout-poster__social">
+              {'◎ '}
+              {instagram}
+            </span>
+          )
+        : null}
+      {facts.length > 0
+        ? (
+            <span className="onboarding-quick-book-layout-poster__facts">
+              {facts.map(fact => <i key={fact}>{fact}</i>)}
+            </span>
+          )
+        : null}
+      {contacts.length > 0
+        ? (
+            <span className="onboarding-quick-book-layout-poster__contacts">
+              {contacts.slice(0, 2).map(contact => <i key={contact}>{contact}</i>)}
+            </span>
+          )
+        : null}
+      {aboutSummary
+        ? (
+            <span className="onboarding-quick-book-layout-poster__about">
+              <b>{techName ? `About ${techName}` : 'About the studio'}</b>
+              <small>{aboutSummary}</small>
+            </span>
+          )
+        : null}
+      {policyAvailable
+        ? (
+            <span className="onboarding-quick-book-layout-poster__policy">
+              <b>Before you book</b>
+              <i>+</i>
+            </span>
+          )
+        : null}
       <span className="onboarding-quick-book-layout-poster__booking">
         <small>BOOK AN APPOINTMENT</small>
         <b>Find your next polished look.</b>
@@ -238,7 +252,7 @@ function AboutPresetPoster({
     .split(/\s+/u)
     .filter(Boolean)
     .slice(0, 2)
-    .map((part) => part[0]?.toUpperCase())
+    .map(part => part[0]?.toUpperCase())
     .join('');
   const name = state.profile.ownerName.trim() || 'Your name';
   const specialties = state.profile.about.specialties.slice(0, 2);
@@ -252,8 +266,18 @@ function AboutPresetPoster({
         <span />
         {specialties.length > 0 ? <em>{specialties.join(' · ')}</em> : null}
       </i>
-      <i className="onboarding-about-poster__facts"><span /><span /><span /><span /></i>
-      <i className="onboarding-about-poster__booking"><b>Before you book</b><span /><span /><span /></i>
+      <i className="onboarding-about-poster__facts">
+        <span />
+        <span />
+        <span />
+        <span />
+      </i>
+      <i className="onboarding-about-poster__booking">
+        <b>Before you book</b>
+        <span />
+        <span />
+        <span />
+      </i>
       <i className="onboarding-about-poster__action">Book now</i>
     </span>
   );
@@ -294,7 +318,7 @@ function AboutFieldVisibility({
       checked={state.profile.about.visibility[id]}
       description={description}
       label={label}
-      onChange={(checked) => onUpdate((current) => updateProfile(current, (profile) => ({
+      onChange={checked => onUpdate(current => updateProfile(current, profile => ({
         ...profile,
         about: {
           ...profile.about,
@@ -360,7 +384,7 @@ export function LegacyAboutScreen({
   const [languagesInput, setLanguagesInput] = useState(() =>
     formatAboutListInput(about.languages));
   const [customSpecialtiesInput, setCustomSpecialtiesInput] = useState(() =>
-    formatAboutListInput(about.specialties.filter((item) =>
+    formatAboutListInput(about.specialties.filter(item =>
       !SPECIALTY_OPTIONS.includes(item as typeof SPECIALTY_OPTIONS[number]))));
   const certificationsInputRef = useRef(certificationsInput);
   const languagesInputRef = useRef(languagesInput);
@@ -403,11 +427,16 @@ export function LegacyAboutScreen({
     rawValue: string,
   ) => {
     const parsed = parseAboutListInput(rawValue);
-    if (field === 'certifications') certificationsDirtyRef.current = false;
-    else languagesDirtyRef.current = false;
+    if (field === 'certifications') {
+      certificationsDirtyRef.current = false;
+    } else {
+      languagesDirtyRef.current = false;
+    }
     onUpdate((current) => {
-      if (sameStringList(current.profile.about[field], parsed)) return current;
-      return updateProfile(current, (profile) => ({
+      if (sameStringList(current.profile.about[field], parsed)) {
+        return current;
+      }
+      return updateProfile(current, profile => ({
         ...profile,
         about: { ...profile.about, [field]: parsed },
       }));
@@ -421,15 +450,17 @@ export function LegacyAboutScreen({
     languagesDirtyRef.current = false;
     customSpecialtiesDirtyRef.current = false;
     onUpdate((current) => {
-      const suggestedSpecialties = current.profile.about.specialties.filter((item) =>
+      const suggestedSpecialties = current.profile.about.specialties.filter(item =>
         SPECIALTY_OPTIONS.includes(item as typeof SPECIALTY_OPTIONS[number]));
       const specialties = [...suggestedSpecialties, ...customSpecialties];
       if (
         sameStringList(current.profile.about.certifications, certifications)
         && sameStringList(current.profile.about.languages, languages)
         && sameStringList(current.profile.about.specialties, specialties)
-      ) return current;
-      return updateProfile(current, (profile) => ({
+      ) {
+        return current;
+      }
+      return updateProfile(current, profile => ({
         ...profile,
         about: { ...profile.about, certifications, languages, specialties },
       }));
@@ -439,11 +470,13 @@ export function LegacyAboutScreen({
     const customSpecialties = parseAboutListInput(rawValue);
     customSpecialtiesDirtyRef.current = false;
     onUpdate((current) => {
-      const suggestedSpecialties = current.profile.about.specialties.filter((item) =>
+      const suggestedSpecialties = current.profile.about.specialties.filter(item =>
         SPECIALTY_OPTIONS.includes(item as typeof SPECIALTY_OPTIONS[number]));
       const specialties = [...suggestedSpecialties, ...customSpecialties];
-      if (sameStringList(current.profile.about.specialties, specialties)) return current;
-      return updateProfile(current, (profile) => ({
+      if (sameStringList(current.profile.about.specialties, specialties)) {
+        return current;
+      }
+      return updateProfile(current, profile => ({
         ...profile,
         about: { ...profile.about, specialties },
       }));
@@ -455,11 +488,15 @@ export function LegacyAboutScreen({
         !certificationsDirtyRef.current
         && !languagesDirtyRef.current
         && !customSpecialtiesDirtyRef.current
-      ) return;
+      ) {
+        return;
+      }
       flushSync(commitListInputs);
     };
     const handleVisibilityChange = () => {
-      if (document.visibilityState === 'hidden') commitPendingRawLists();
+      if (document.visibilityState === 'hidden') {
+        commitPendingRawLists();
+      }
     };
     window.addEventListener('pagehide', commitPendingRawLists);
     document.addEventListener('visibilitychange', handleVisibilityChange);
@@ -486,7 +523,7 @@ export function LegacyAboutScreen({
   };
   const recordHelperAction = (
     action: 'opened' | 'used' | 'kept' | 'undone',
-  ) => onUpdate((current) => recordOnboardingEvent(current, {
+  ) => onUpdate(current => recordOnboardingEvent(current, {
     action,
     type: 'about_wording_helper',
   }));
@@ -497,14 +534,16 @@ export function LegacyAboutScreen({
     recordHelperAction('opened');
   };
   const useWritingSuggestion = () => {
-    if (writingSuggestion === null) return;
+    if (writingSuggestion === null) {
+      return;
+    }
     const suggestion = writingSuggestion;
     setUndoBio({ applied: suggestion, before: about.shortBio });
     setWritingSuggestion(null);
     onWritingHelperOpenChange?.(false);
     setHelperNotice('Suggestion added to your short bio.');
-    onUpdate((current) => recordOnboardingEvent(
-      updateProfile(current, (profile) => ({
+    onUpdate(current => recordOnboardingEvent(
+      updateProfile(current, profile => ({
         ...profile,
         about: { ...profile.about, shortBio: suggestion },
       })),
@@ -524,12 +563,14 @@ export function LegacyAboutScreen({
     setHelperNotice('Suggestion closed. Your bio was not changed.');
   };
   const undoWritingSuggestion = () => {
-    if (undoBio === null || about.shortBio !== undoBio.applied) return;
+    if (undoBio === null || about.shortBio !== undoBio.applied) {
+      return;
+    }
     const previousBio = undoBio.before;
     setUndoBio(null);
     setHelperNotice('Your previous bio was restored.');
-    onUpdate((current) => recordOnboardingEvent(
-      updateProfile(current, (profile) => ({
+    onUpdate(current => recordOnboardingEvent(
+      updateProfile(current, profile => ({
         ...profile,
         about: { ...profile.about, shortBio: previousBio },
       })),
@@ -538,7 +579,7 @@ export function LegacyAboutScreen({
     focusShortBio();
   };
   const setAboutEnabled = (checked: boolean) => {
-    onUpdate((current) => ({
+    onUpdate(current => ({
       ...current,
       recipe: { ...current.recipe, aboutEnabled: checked },
     }));
@@ -554,20 +595,22 @@ export function LegacyAboutScreen({
     if (
       instagramResolution.status !== 'resolved'
       || instagramResolution.username === state.profile.instagram
-    ) return;
-    onUpdate((current) => updateProfile(current, (profile) => ({
+    ) {
+      return;
+    }
+    onUpdate(current => updateProfile(current, profile => ({
       ...profile,
       instagram: instagramResolution.username,
     })));
   };
-  const toggleSpecialty = (specialty: string) => onUpdate((current) => updateProfile(
+  const toggleSpecialty = (specialty: string) => onUpdate(current => updateProfile(
     current,
-    (profile) => ({
+    profile => ({
       ...profile,
       about: {
         ...profile.about,
         specialties: profile.about.specialties.includes(specialty)
-          ? profile.about.specialties.filter((item) => item !== specialty)
+          ? profile.about.specialties.filter(item => item !== specialty)
           : [...profile.about.specialties, specialty],
       },
     }),
@@ -583,16 +626,18 @@ export function LegacyAboutScreen({
           label="Include an About section"
           onChange={setAboutEnabled}
         />
-        {!state.recipe.aboutEnabled ? (
-          <p
-            aria-live="polite"
-            className="onboarding-disabled-message"
-            id={aboutDisabledMessageId}
-            role="status"
-          >
-            About section is not shown on your site. Your information is still saved.
-          </p>
-        ) : null}
+        {!state.recipe.aboutEnabled
+          ? (
+              <p
+                aria-live="polite"
+                className="onboarding-disabled-message"
+                id={aboutDisabledMessageId}
+                role="status"
+              >
+                About section is not shown on your site. Your information is still saved.
+              </p>
+            )
+          : null}
         <fieldset
           ref={aboutFieldsRef}
           aria-describedby={!state.recipe.aboutEnabled ? aboutDisabledMessageId : undefined}
@@ -613,7 +658,7 @@ export function LegacyAboutScreen({
                 setHelperNotice('Your bio changed, so the earlier suggestion can no longer be undone.');
               }
               const shortBio = event.target.value;
-              onUpdate((current) => updateProfile(current, (profile) => ({
+              onUpdate(current => updateProfile(current, profile => ({
                 ...profile,
                 about: { ...profile.about, shortBio },
               })));
@@ -627,21 +672,27 @@ export function LegacyAboutScreen({
             type="button"
             onClick={openWritingSuggestion}
           >
-            <Sparkles aria-hidden="true" size={16} /> Help me with wording <span>Preview wording</span>
+            <Sparkles aria-hidden="true" size={16} />
+            {' Help me with wording '}
+            <span>Preview wording</span>
           </button>
-          {helperNotice ? (
-            <div className="onboarding-writing-suggestion__notice">
-              <p aria-live="polite" role="status">{helperNotice}</p>
-              {undoBio !== null ? (
-                <button type="button" onClick={undoWritingSuggestion}>Undo suggestion</button>
-              ) : null}
-            </div>
-          ) : null}
+          {helperNotice
+            ? (
+                <div className="onboarding-writing-suggestion__notice">
+                  <p aria-live="polite" role="status">{helperNotice}</p>
+                  {undoBio !== null
+                    ? (
+                        <button type="button" onClick={undoWritingSuggestion}>Undo suggestion</button>
+                      )
+                    : null}
+                </div>
+              )
+            : null}
           <div className="onboarding-about-field-with-visibility">
             <fieldset className="onboarding-chip-fieldset">
               <legend>Specialties</legend>
               <div className="onboarding-chip-list">
-                {SPECIALTY_OPTIONS.map((specialty) => (
+                {SPECIALTY_OPTIONS.map(specialty => (
                   <label className="onboarding-chip" key={specialty}>
                     <input
                       checked={about.specialties.includes(specialty)}
@@ -671,32 +722,36 @@ export function LegacyAboutScreen({
                 }}
               />
             </fieldset>
-            {about.specialties.length > 0 || customSpecialtiesInput.trim() ? (
-              <AboutFieldVisibility
-                id="specialties"
-                label="Show specialties in About"
-                onUpdate={onUpdate}
-                state={state}
-              />
-            ) : null}
+            {about.specialties.length > 0 || customSpecialtiesInput.trim()
+              ? (
+                  <AboutFieldVisibility
+                    id="specialties"
+                    label="Show specialties in About"
+                    onUpdate={onUpdate}
+                    state={state}
+                  />
+                )
+              : null}
           </div>
           <div className="onboarding-about-field-with-visibility">
             <TextField
               label="Years of experience — optional"
               value={about.yearsOfExperience}
-              onChange={(event) => onUpdate((current) => updateProfile(current, (profile) => ({
+              onChange={event => onUpdate(current => updateProfile(current, profile => ({
                 ...profile,
                 about: { ...profile.about, yearsOfExperience: event.target.value },
               })))}
             />
-            {about.yearsOfExperience.trim() ? (
-              <AboutFieldVisibility
-                id="experience"
-                label="Show years of experience in About"
-                onUpdate={onUpdate}
-                state={state}
-              />
-            ) : null}
+            {about.yearsOfExperience.trim()
+              ? (
+                  <AboutFieldVisibility
+                    id="experience"
+                    label="Show years of experience in About"
+                    onUpdate={onUpdate}
+                    state={state}
+                  />
+                )
+              : null}
           </div>
           <details className="onboarding-about-more">
             <summary>
@@ -712,7 +767,7 @@ export function LegacyAboutScreen({
                 label="Full bio"
                 rows={6}
                 value={about.fullBio}
-                onChange={(event) => onUpdate((current) => updateProfile(current, (profile) => ({
+                onChange={event => onUpdate(current => updateProfile(current, profile => ({
                   ...profile,
                   about: { ...profile.about, fullBio: event.target.value },
                 })))}
@@ -731,16 +786,18 @@ export function LegacyAboutScreen({
                     certificationsDirtyRef.current = true;
                     setCertificationsInput(rawValue);
                   }}
-                  onKeyUp={(event) => commitOnEnter(event, 'certifications', certificationsInput)}
+                  onKeyUp={event => commitOnEnter(event, 'certifications', certificationsInput)}
                 />
-                {certificationsInput.trim() ? (
-                  <AboutFieldVisibility
-                    id="certifications"
-                    label="Show certifications in About"
-                    onUpdate={onUpdate}
-                    state={state}
-                  />
-                ) : null}
+                {certificationsInput.trim()
+                  ? (
+                      <AboutFieldVisibility
+                        id="certifications"
+                        label="Show certifications in About"
+                        onUpdate={onUpdate}
+                        state={state}
+                      />
+                    )
+                  : null}
               </div>
               <div className="onboarding-about-field-with-visibility">
                 <TextAreaField
@@ -756,22 +813,24 @@ export function LegacyAboutScreen({
                     languagesDirtyRef.current = true;
                     setLanguagesInput(rawValue);
                   }}
-                  onKeyUp={(event) => commitOnEnter(event, 'languages', languagesInput)}
+                  onKeyUp={event => commitOnEnter(event, 'languages', languagesInput)}
                 />
-                {languagesInput.trim() ? (
-                  <AboutFieldVisibility
-                    id="languages"
-                    label="Show languages in About"
-                    onUpdate={onUpdate}
-                    state={state}
-                  />
-                ) : null}
+                {languagesInput.trim()
+                  ? (
+                      <AboutFieldVisibility
+                        id="languages"
+                        label="Show languages in About"
+                        onUpdate={onUpdate}
+                        state={state}
+                      />
+                    )
+                  : null}
               </div>
               <TextAreaField
                 label="What do clients appreciate about appointments with you? — optional"
                 rows={3}
                 value={about.clientAppreciation}
-                onChange={(event) => onUpdate((current) => updateProfile(current, (profile) => ({
+                onChange={event => onUpdate(current => updateProfile(current, profile => ({
                   ...profile,
                   about: { ...profile.about, clientAppreciation: event.target.value },
                 })))}
@@ -787,15 +846,29 @@ export function LegacyAboutScreen({
               <i aria-hidden="true" />
             </summary>
             <div className="onboarding-about-shared-details__fields">
-              {state.profile.bookingPreferences.visitMode ? (
-                <p>{appointmentStatus} is shown in Quick Info or Services &amp; Booking, not repeated in About.</p>
-              ) : null}
-              {state.profile.bookingPreferences.newClientStatus ? (
-                <p>{newClientStatus} is shown in Quick Info or Services &amp; Booking, not repeated in About.</p>
-              ) : null}
-              {state.recipe.policiesEnabled ? (
-                <p>Policies are shown in their dedicated policy sections, not repeated in About.</p>
-              ) : null}
+              {state.profile.bookingPreferences.visitMode
+                ? (
+                    <p>
+                      {appointmentStatus}
+                      {' '}
+                      is shown in Quick Info or Services &amp; Booking, not repeated in About.
+                    </p>
+                  )
+                : null}
+              {state.profile.bookingPreferences.newClientStatus
+                ? (
+                    <p>
+                      {newClientStatus}
+                      {' '}
+                      is shown in Quick Info or Services &amp; Booking, not repeated in About.
+                    </p>
+                  )
+                : null}
+              {state.recipe.policiesEnabled
+                ? (
+                    <p>Policies are shown in their dedicated policy sections, not repeated in About.</p>
+                  )
+                : null}
               <div className="onboarding-about-field-with-visibility">
                 <TextField
                   data-instagram-input
@@ -806,15 +879,17 @@ export function LegacyAboutScreen({
                   onBlur={commitInstagram}
                   onChange={(event) => {
                     const instagram = event.target.value;
-                    onUpdate((current) => updateProfile(current, (profile) => ({
+                    onUpdate(current => updateProfile(current, profile => ({
                       ...profile,
                       instagram,
                     })));
                   }}
                 />
-                {instagramResolution.status === 'resolved' ? (
-                  <p>Instagram is shown once in Contact or Footer, not repeated in About.</p>
-                ) : null}
+                {instagramResolution.status === 'resolved'
+                  ? (
+                      <p>Instagram is shown once in Contact or Footer, not repeated in About.</p>
+                    )
+                  : null}
               </div>
             </div>
           </details>
@@ -837,7 +912,9 @@ export function LegacyAboutScreen({
         onBack={onBack}
         onPrimary={() => {
           if (state.recipe.aboutEnabled && instagramError) {
-            if (setupDetailsRef.current) setupDetailsRef.current.open = true;
+            if (setupDetailsRef.current) {
+              setupDetailsRef.current.open = true;
+            }
             window.requestAnimationFrame(() => {
               aboutFieldsRef.current
                 ?.querySelector<HTMLInputElement>('[data-instagram-input]')
@@ -859,12 +936,14 @@ export function LegacyAboutScreen({
       >
         <section className="onboarding-writing-suggestion" id={helperSuggestionId}>
           <p className="onboarding-screen-status">Writing suggestion</p>
-          {about.shortBio.trim() ? (
-            <div data-helper-current>
-              <strong>Current bio</strong>
-              <p>{about.shortBio}</p>
-            </div>
-          ) : null}
+          {about.shortBio.trim()
+            ? (
+                <div data-helper-current>
+                  <strong>Current bio</strong>
+                  <p>{about.shortBio}</p>
+                </div>
+              )
+            : null}
           <div>
             <strong>Suggested bio</strong>
             <p>{writingSuggestion}</p>
@@ -899,7 +978,7 @@ export function AboutDesignScreen({
     <div className="onboarding-screen onboarding-screen--designer" data-screen="about_design">
       <ScreenHeading id="about_design" status="Optional" />
       <div aria-label="About design presets" className="onboarding-preset-grid" role="group">
-        {ABOUT_PRESETS.map((preset) => (
+        {ABOUT_PRESETS.map(preset => (
           <button
             aria-pressed={state.recipe.aboutPreset === preset.id}
             className="onboarding-preset-card"
@@ -908,7 +987,7 @@ export function AboutDesignScreen({
             type="button"
             onClick={() => {
               feedback.send({ kind: 'selection' });
-              onUpdate((current) => ({
+              onUpdate(current => ({
                 ...current,
                 recipe: { ...current.recipe, aboutPreset: preset.id },
               }));
@@ -917,12 +996,22 @@ export function AboutDesignScreen({
             <AboutPresetPoster preset={preset.id} state={state} />
             <strong>{preset.label}</strong>
             <small>{preset.description}</small>
-            {state.recipe.aboutPreset === preset.id ? <span><Check aria-hidden="true" size={14} /> Selected</span> : null}
+            {state.recipe.aboutPreset === preset.id
+              ? (
+                  <span>
+                    <Check aria-hidden="true" size={14} />
+                    {' '}
+                    Selected
+                  </span>
+                )
+              : null}
           </button>
         ))}
       </div>
       <p aria-live="polite" className="onboarding-about-design-selection-status">
-        {selectedPreset.label} selected
+        {selectedPreset.label}
+        {' '}
+        selected
       </p>
       <section aria-labelledby="about-design-site-preview-heading" className="onboarding-designer-preview onboarding-about-design-preview">
         <h2 id="about-design-site-preview-heading">See it on your site</h2>
@@ -993,9 +1082,9 @@ export function QuickBookLayoutScreen({
   ]);
   const aboutSummary = state.recipe.aboutEnabled
     ? state.profile.about.specialties.slice(0, 3).join(' · ')
-      || state.profile.about.shortBio.trim()
-      || state.profile.about.fullBio.trim()
-      || null
+    || state.profile.about.shortBio.trim()
+    || state.profile.about.fullBio.trim()
+    || null
     : null;
   const policyAvailable = quickBookProfile.policies.length > 0
     || state.profile.bookingPreferences.minimumNoticeMinutes > 0
@@ -1062,9 +1151,11 @@ export function QuickBookLayoutScreen({
               key={layout.id}
               type="button"
               onClick={() => {
-                if (selected) return;
+                if (selected) {
+                  return;
+                }
                 feedback.send({ kind: 'selection' });
-                onUpdate((current) => ({
+                onUpdate(current => ({
                   ...current,
                   recipe: { ...current.recipe, quickBookLayout: layout.id },
                 }));
@@ -1074,16 +1165,24 @@ export function QuickBookLayoutScreen({
               <span className="onboarding-quick-book-layout-card__copy">
                 <strong>{layout.label}</strong>
                 <small>{layout.description}</small>
-                {selected ? (
-                  <em><Check aria-hidden="true" size={14} /> Previewing</em>
-                ) : null}
+                {selected
+                  ? (
+                      <em>
+                        <Check aria-hidden="true" size={14} />
+                        {' '}
+                        Previewing
+                      </em>
+                    )
+                  : null}
               </span>
             </button>
           );
         })}
       </div>
       <p aria-live="polite" className="onboarding-about-design-selection-status">
-        {selectedLayout.label} selected
+        {selectedLayout.label}
+        {' '}
+        selected
       </p>
       <section
         aria-labelledby="quick-book-layout-preview-heading"
@@ -1145,7 +1244,7 @@ function BooleanChoice({ hint, label, onChange, value }: {
     <label className="onboarding-select-field">
       <span>{label}</span>
       {hint ? <small>{hint}</small> : null}
-      <select value={value === null ? '' : value ? 'yes' : 'no'} onChange={(event) => onChange(event.target.value === '' ? null : event.target.value === 'yes')}>
+      <select value={value === null ? '' : value ? 'yes' : 'no'} onChange={event => onChange(event.target.value === '' ? null : event.target.value === 'yes')}>
         <option value="">Choose</option>
         <option value="yes">Yes</option>
         <option value="no">No</option>
@@ -1175,8 +1274,8 @@ function PolicyCopyCards({ onUpdate, state }: Pick<SharedScreenProps, 'onUpdate'
             : cancellationsCopy.visible !== depositsCopy.visible
               ? 'Partly shown on site'
               : 'Shown on site';
-  const updateCombinedVisibility = (visible: boolean) => onUpdate((current) =>
-    updateProfile(current, (profile) => ({
+  const updateCombinedVisibility = (visible: boolean) => onUpdate(current =>
+    updateProfile(current, profile => ({
       ...profile,
       policies: {
         ...profile.policies,
@@ -1190,7 +1289,7 @@ function PolicyCopyCards({ onUpdate, state }: Pick<SharedScreenProps, 'onUpdate'
   const updateCombinedOverride = (
     id: 'cancellations' | 'deposits',
     wordingOverride: string,
-  ) => onUpdate((current) => updateProfile(current, (profile) => ({
+  ) => onUpdate(current => updateProfile(current, profile => ({
     ...profile,
     policies: {
       ...profile.policies,
@@ -1207,7 +1306,7 @@ function PolicyCopyCards({ onUpdate, state }: Pick<SharedScreenProps, 'onUpdate'
       },
     },
   })));
-  const editCombinedWording = () => onUpdate((current) =>
+  const editCombinedWording = () => onUpdate(current =>
     updateProfile(current, (profile) => {
       const currentPolicies = profile.policies;
       return {
@@ -1235,7 +1334,7 @@ function PolicyCopyCards({ onUpdate, state }: Pick<SharedScreenProps, 'onUpdate'
         },
       };
     }));
-  const useCombinedSuggestedWording = () => onUpdate((current) =>
+  const useCombinedSuggestedWording = () => onUpdate(current =>
     updateProfile(current, (profile) => {
       const currentPolicies = profile.policies;
       return {
@@ -1278,29 +1377,35 @@ function PolicyCopyCards({ onUpdate, state }: Pick<SharedScreenProps, 'onUpdate'
           label="Show Deposits & cancellations on my website"
           onChange={updateCombinedVisibility}
         />
-        {combinedUsesSuggested ? (
-          <p>{combinedDisplayed
-            || 'Answer the questions to create client wording.'}</p>
-        ) : (
-          <>
-            <TextAreaField
-              label="Deposit wording"
-              rows={3}
-              value={policies.deposits.wordingOverride}
-              onChange={(event) => updateCombinedOverride('deposits', event.target.value)}
-            />
-            <TextAreaField
-              label="Cancellation wording"
-              rows={3}
-              value={cancellationsCopy.wordingOverride}
-              onChange={(event) => updateCombinedOverride('cancellations', event.target.value)}
-            />
-            <p className="onboarding-policy-copy-card__effective" role="status">
-              Shown on your site: {combinedDisplayed
-                || 'This policy stays hidden until its wording matches your current answers.'}
-            </p>
-          </>
-        )}
+        {combinedUsesSuggested
+          ? (
+              <p>
+                {combinedDisplayed
+                || 'Answer the questions to create client wording.'}
+              </p>
+            )
+          : (
+              <>
+                <TextAreaField
+                  label="Deposit wording"
+                  rows={3}
+                  value={policies.deposits.wordingOverride}
+                  onChange={event => updateCombinedOverride('deposits', event.target.value)}
+                />
+                <TextAreaField
+                  label="Cancellation wording"
+                  rows={3}
+                  value={cancellationsCopy.wordingOverride}
+                  onChange={event => updateCombinedOverride('cancellations', event.target.value)}
+                />
+                <p className="onboarding-policy-copy-card__effective" role="status">
+                  Shown on your site:
+                  {' '}
+                  {combinedDisplayed
+                  || 'This policy stays hidden until its wording matches your current answers.'}
+                </p>
+              </>
+            )}
         <div>
           <button type="button" onClick={editCombinedWording}>Edit wording</button>
           <button type="button" onClick={useCombinedSuggestedWording}>Use suggested wording</button>
@@ -1318,7 +1423,7 @@ function PolicyCopyCards({ onUpdate, state }: Pick<SharedScreenProps, 'onUpdate'
           : !copy.visible
               ? 'Not shown'
               : policyReady ? 'Shown on site' : 'Not ready — not shown';
-        const updateCopy = (values: Partial<typeof copy>) => onUpdate((current) =>
+        const updateCopy = (values: Partial<typeof copy>) => onUpdate(current =>
           updateProfile(current, (profile) => {
             return {
               ...profile,
@@ -1349,18 +1454,24 @@ function PolicyCopyCards({ onUpdate, state }: Pick<SharedScreenProps, 'onUpdate'
                     : undefined}
               disabled={!policiesShown}
               label={`Show ${OTHER_POLICY_CARD_LABELS[id]} on my website`}
-              onChange={(visible) => updateCopy({ visible })}
+              onChange={visible => updateCopy({ visible })}
             />
-            {copy.useSuggestedWording ? <p>{displayed || 'Answer the questions to create client wording.'}</p> : (
-              <>
-                <TextAreaField label={`${OTHER_POLICY_CARD_LABELS[id]} wording`} rows={3} value={wordingOverride} onChange={(event) => updateCopy({ wordingOverride: event.target.value })} />
-                {displayed !== wordingOverride.trim() ? (
-                  <p className="onboarding-policy-copy-card__effective" role="status">
-                    Shown on your site: {displayed || 'This policy stays hidden until its wording matches your current answers.'}
-                  </p>
-                ) : null}
-              </>
-            )}
+            {copy.useSuggestedWording
+              ? <p>{displayed || 'Answer the questions to create client wording.'}</p>
+              : (
+                  <>
+                    <TextAreaField label={`${OTHER_POLICY_CARD_LABELS[id]} wording`} rows={3} value={wordingOverride} onChange={event => updateCopy({ wordingOverride: event.target.value })} />
+                    {displayed !== wordingOverride.trim()
+                      ? (
+                          <p className="onboarding-policy-copy-card__effective" role="status">
+                            Shown on your site:
+                            {' '}
+                            {displayed || 'This policy stays hidden until its wording matches your current answers.'}
+                          </p>
+                        )
+                      : null}
+                  </>
+                )}
             <div>
               <button type="button" onClick={() => updateCopy({ useSuggestedWording: false, wordingOverride: wordingOverride || suggestedWording })}>Edit wording</button>
               <button type="button" onClick={() => updateCopy({ suggestedWording, useSuggestedWording: true })}>Use suggested wording</button>
@@ -1392,8 +1503,8 @@ export function PoliciesScreen({
   const combinedPolicySummary = deriveDepositsAndCancellationsSummary(policies);
   const lateCancellationChoice = getLateCancellationChoice(policies);
   const customLateCancellationOpen = policies.cancellations.consequence === 'custom'
-    && !Object.values(LATE_CANCELLATION_CUSTOM_WORDING).some(
-      (wording) => wording === policies.cancellations.customConsequence.trim(),
+    && !(Object.values(LATE_CANCELLATION_CUSTOM_WORDING) as readonly string[]).includes(
+      policies.cancellations.customConsequence.trim(),
     );
   const visibleLateCancellationChoice = customLateCancellationOpen
     ? 'custom'
@@ -1406,29 +1517,29 @@ export function PoliciesScreen({
   );
   const [customLateOpen, setCustomLateOpen] = useState(
     Boolean(policies.lateArrivals.gracePeriodMinutes.trim())
-      && !['5', '10', '15', '20'].includes(policies.lateArrivals.gracePeriodMinutes.trim()),
+    && !['5', '10', '15', '20'].includes(policies.lateArrivals.gracePeriodMinutes.trim()),
   );
   const [customRepairOpen, setCustomRepairOpen] = useState(
     Boolean(policies.repairs.freeRepairWindowDays.trim())
-      && !['3', '5', '7', '14'].includes(policies.repairs.freeRepairWindowDays.trim()),
+    && !['3', '5', '7', '14'].includes(policies.repairs.freeRepairWindowDays.trim()),
   );
   const [customNoShowOpen, setCustomNoShowOpen] = useState(
     Boolean(policies.noShows.custom.trim()),
   );
   const [customGuestsOpen, setCustomGuestsOpen] = useState(
     Boolean(policies.other.guests.trim())
-      && !['No guests', 'One guest allowed', 'Guests welcome'].includes(policies.other.guests.trim()),
+    && !['No guests', 'One guest allowed', 'Guests welcome'].includes(policies.other.guests.trim()),
   );
   const [customChildrenOpen, setCustomChildrenOpen] = useState(
     Boolean(policies.other.children.trim())
-      && ![
-        'No children unless receiving a service',
-        'Children welcome',
-        'Please arrange childcare',
-      ].includes(policies.other.children.trim()),
+    && ![
+      'No children unless receiving a service',
+      'Children welcome',
+      'Please arrange childcare',
+    ].includes(policies.other.children.trim()),
   );
   const updatePolicies = (update: (current: PoliciesDraft) => PoliciesDraft) => {
-    onUpdate((current) => updateProfile(current, (profile) => ({
+    onUpdate(current => updateProfile(current, profile => ({
       ...profile,
       policies: refreshPolicySuggestedWording(update(profile.policies)),
     })));
@@ -1436,7 +1547,7 @@ export function PoliciesScreen({
   const updateDepositPolicy = (
     patch: Partial<Pick<PoliciesDraft['deposits'], 'refundable' | 'transferable'>>,
   ) => {
-    onUpdate((current) => updateProfile(current, (profile) => ({
+    onUpdate(current => updateProfile(current, profile => ({
       ...profile,
       policies: updateDepositDraft(profile.policies, patch),
     })));
@@ -1482,20 +1593,20 @@ export function PoliciesScreen({
     policies.other.appointmentPreparation,
     policies.other.outsideRemoval,
     policies.other.custom,
-  ].some((value) => value.trim());
+  ].some(value => value.trim());
   const otherSummary = (customGuestsOpen && !policies.other.guests.trim())
     || (customChildrenOpen && !policies.other.children.trim())
     ? 'Add your wording'
     : otherHasAnswer
       ? 'Appointment details added'
       : 'Add any helpful appointment details';
-  const togglePolicy = (id: PolicyAccordionId) => setOpenPolicy((current) =>
+  const togglePolicy = (id: PolicyAccordionId) => setOpenPolicy(current =>
     current === id ? null : id);
   const savePolicies = () => {
     const hasPublishablePolicies = hasMeaningfulPublishablePolicies(policies);
     if (hasPublishablePolicies) {
       const wereAlreadyShown = state.recipe.policiesEnabled;
-      onUpdate((current) => ({
+      onUpdate(current => ({
         ...current,
         recipe: { ...current.recipe, policiesEnabled: true },
       }));
@@ -1515,7 +1626,7 @@ export function PoliciesScreen({
           checked={state.recipe.policiesEnabled}
           description="Your answers stay saved if you hide policies from your website."
           label="Show policies on my website"
-          onChange={(checked) => onUpdate((current) => ({ ...current, recipe: { ...current.recipe, policiesEnabled: checked } }))}
+          onChange={checked => onUpdate(current => ({ ...current, recipe: { ...current.recipe, policiesEnabled: checked } }))}
         />
         <div className="onboarding-policy-questions">
           <CollapsibleFormCard
@@ -1533,17 +1644,19 @@ export function PoliciesScreen({
               <span>From your Booking settings</span>
               <strong>{depositSummary}</strong>
               <small>The deposit type and amount are set once in Booking.</small>
-              {onEditBooking ? (
-                <button type="button" onClick={onEditBooking}>
-                  {depositMode === 'fixed' ? 'Edit deposit in Booking' : 'Change in Booking'}
-                </button>
-              ) : null}
+              {onEditBooking
+                ? (
+                    <button type="button" onClick={onEditBooking}>
+                      {depositMode === 'fixed' ? 'Edit deposit in Booking' : 'Change in Booking'}
+                    </button>
+                  )
+                : null}
             </div>
             <label className="onboarding-select-field">
               <span>How much notice do clients need to cancel?</span>
               <select
                 value={policies.cancellations.notice ?? ''}
-                onChange={(event) => updatePolicies((current) => ({
+                onChange={event => updatePolicies(current => ({
                   ...current,
                   cancellations: {
                     ...current.cancellations,
@@ -1560,21 +1673,25 @@ export function PoliciesScreen({
                 <option value="custom">Custom</option>
               </select>
             </label>
-            {policies.cancellations.notice === 'custom' ? (
-              <TextField
-                label="Custom notice"
-                placeholder="For example, 36 hours"
-                value={policies.cancellations.customNotice}
-                onChange={(event) => updatePolicies((current) => ({
-                  ...current,
-                  cancellations: { ...current.cancellations, customNotice: event.target.value },
-                }))}
-              />
-            ) : null}
+            {policies.cancellations.notice === 'custom'
+              ? (
+                  <TextField
+                    label="Custom notice"
+                    placeholder="For example, 36 hours"
+                    value={policies.cancellations.customNotice}
+                    onChange={event => updatePolicies(current => ({
+                      ...current,
+                      cancellations: { ...current.cancellations, customNotice: event.target.value },
+                    }))}
+                  />
+                )
+              : null}
             <label className="onboarding-select-field">
-              <span>{depositMode === 'fixed'
-                ? 'What happens to the deposit if they cancel late?'
-                : 'What happens if they cancel late?'}</span>
+              <span>
+                {depositMode === 'fixed'
+                  ? 'What happens to the deposit if they cancel late?'
+                  : 'What happens if they cancel late?'}
+              </span>
               <select
                 value={visibleLateCancellationChoice}
                 onChange={(event) => {
@@ -1587,13 +1704,13 @@ export function PoliciesScreen({
                       : null;
                     const customConsequence = presetWording
                       ?? (choice === 'custom'
-                        && Object.values(LATE_CANCELLATION_CUSTOM_WORDING).some(
-                          (wording) => wording === current.cancellations.customConsequence,
+                        && (Object.values(LATE_CANCELLATION_CUSTOM_WORDING) as readonly string[]).includes(
+                          current.cancellations.customConsequence,
                         )
-                          ? ''
-                          : current.cancellations.customConsequence);
-                    const consequence: PoliciesDraft['cancellations']['consequence'] =
-                      choice === 'deposit_lost'
+                        ? ''
+                        : current.cancellations.customConsequence);
+                    const consequence: PoliciesDraft['cancellations']['consequence']
+                      = choice === 'deposit_lost'
                       || choice === 'cancellation_fee'
                       || choice === 'full_service_charge'
                         ? choice
@@ -1610,47 +1727,53 @@ export function PoliciesScreen({
                 }}
               >
                 <option value="">Choose what happens</option>
-                {depositMode === 'fixed' ? (
-                  <>
-                    <option value="deposit_lost">Keep the deposit</option>
-                    <option value="move_deposit">Move it to a new appointment</option>
-                    <option value="refund_deposit">Refund it</option>
-                  </>
-                ) : null}
+                {depositMode === 'fixed'
+                  ? (
+                      <>
+                        <option value="deposit_lost">Keep the deposit</option>
+                        <option value="move_deposit">Move it to a new appointment</option>
+                        <option value="refund_deposit">Refund it</option>
+                      </>
+                    )
+                  : null}
                 <option value="case_by_case">Handle it case by case</option>
                 <option value="cancellation_fee">Charge a cancellation fee</option>
                 <option value="full_service_charge">Charge the full service price</option>
                 <option value="custom">Custom</option>
               </select>
             </label>
-            {customLateCancellationOpen ? (
-              <TextAreaField
-                label="Custom late-cancellation rule"
-                placeholder="Describe what happens after the deadline"
-                rows={2}
-                value={policies.cancellations.customConsequence}
-                onChange={(event) => updatePolicies((current) => ({
-                  ...current,
-                  cancellations: { ...current.cancellations, customConsequence: event.target.value },
-                }))}
-              />
-            ) : null}
-            {depositMode === 'fixed' ? (
-              <div className="onboarding-deposit-details">
-                <BooleanChoice
-                  hint="This applies before the late-cancellation deadline."
-                  label="Can clients get their deposit back?"
-                  value={policies.deposits.refundable}
-                  onChange={(refundable) => updateDepositPolicy({ refundable })}
-                />
-                <BooleanChoice
-                  hint="This applies when they reschedule before the deadline."
-                  label="Can clients move it to another appointment?"
-                  value={policies.deposits.transferable}
-                  onChange={(transferable) => updateDepositPolicy({ transferable })}
-                />
-              </div>
-            ) : null}
+            {customLateCancellationOpen
+              ? (
+                  <TextAreaField
+                    label="Custom late-cancellation rule"
+                    placeholder="Describe what happens after the deadline"
+                    rows={2}
+                    value={policies.cancellations.customConsequence}
+                    onChange={event => updatePolicies(current => ({
+                      ...current,
+                      cancellations: { ...current.cancellations, customConsequence: event.target.value },
+                    }))}
+                  />
+                )
+              : null}
+            {depositMode === 'fixed'
+              ? (
+                  <div className="onboarding-deposit-details">
+                    <BooleanChoice
+                      hint="This applies before the late-cancellation deadline."
+                      label="Can clients get their deposit back?"
+                      value={policies.deposits.refundable}
+                      onChange={refundable => updateDepositPolicy({ refundable })}
+                    />
+                    <BooleanChoice
+                      hint="This applies when they reschedule before the deadline."
+                      label="Can clients move it to another appointment?"
+                      value={policies.deposits.transferable}
+                      onChange={transferable => updateDepositPolicy({ transferable })}
+                    />
+                  </div>
+                )
+              : null}
           </CollapsibleFormCard>
           <CollapsibleFormCard
             completed={policyComplete('late_arrivals')}
@@ -1675,13 +1798,13 @@ export function PoliciesScreen({
                   const value = event.target.value;
                   setCustomLateOpen(value === 'custom');
                   if (value === 'custom') {
-                    updatePolicies((current) => ({
+                    updatePolicies(current => ({
                       ...current,
                       lateArrivals: { ...current.lateArrivals, gracePeriodMinutes: '' },
                     }));
                     return;
                   }
-                  updatePolicies((current) => ({
+                  updatePolicies(current => ({
                     ...current,
                     lateArrivals: { ...current.lateArrivals, gracePeriodMinutes: value },
                   }));
@@ -1695,21 +1818,23 @@ export function PoliciesScreen({
                 <option value="custom">Another amount</option>
               </select>
             </label>
-            {customLateOpen ? (
-              <TextField
-                inputMode="numeric"
-                label="Custom grace period in minutes"
-                value={policies.lateArrivals.gracePeriodMinutes}
-                onChange={(event) => updatePolicies((current) => ({
-                  ...current,
-                  lateArrivals: { ...current.lateArrivals, gracePeriodMinutes: event.target.value },
-                }))}
-              />
-            ) : null}
+            {customLateOpen
+              ? (
+                  <TextField
+                    inputMode="numeric"
+                    label="Custom grace period in minutes"
+                    value={policies.lateArrivals.gracePeriodMinutes}
+                    onChange={event => updatePolicies(current => ({
+                      ...current,
+                      lateArrivals: { ...current.lateArrivals, gracePeriodMinutes: event.target.value },
+                    }))}
+                  />
+                )
+              : null}
             <BooleanChoice
               label="Shorten the service when needed?"
               value={policies.lateArrivals.shortenService}
-              onChange={(shortenService) => updatePolicies((current) => ({
+              onChange={shortenService => updatePolicies(current => ({
                 ...current,
                 lateArrivals: { ...current.lateArrivals, shortenService },
               }))}
@@ -1717,7 +1842,7 @@ export function PoliciesScreen({
             <BooleanChoice
               label="Reschedule if they arrive after the limit?"
               value={policies.lateArrivals.rescheduleAfterLimit}
-              onChange={(rescheduleAfterLimit) => updatePolicies((current) => ({
+              onChange={rescheduleAfterLimit => updatePolicies(current => ({
                 ...current,
                 lateArrivals: { ...current.lateArrivals, rescheduleAfterLimit },
               }))}
@@ -1741,7 +1866,7 @@ export function PoliciesScreen({
                 onChange={(event) => {
                   const preset = event.target.value;
                   setCustomNoShowOpen(preset === 'custom');
-                  updatePolicies((current) => ({
+                  updatePolicies(current => ({
                     ...current,
                     noShows: {
                       ...current.noShows,
@@ -1754,25 +1879,29 @@ export function PoliciesScreen({
                 }}
               >
                 <option value="">Choose what happens</option>
-                {depositMode === 'fixed' ? (
-                  <option value="deposit_lost">Keep the deposit</option>
-                ) : null}
+                {depositMode === 'fixed'
+                  ? (
+                      <option value="deposit_lost">Keep the deposit</option>
+                    )
+                  : null}
                 <option value="full_charge">Charge the full service price</option>
                 <option value="payment_to_rebook">Require payment before rebooking</option>
                 <option value="custom">Something else</option>
               </select>
             </label>
-            {noShowPreset === 'custom' ? (
-              <TextAreaField
-                label="Custom no-show consequence"
-                rows={2}
-                value={policies.noShows.custom}
-                onChange={(event) => updatePolicies((current) => ({
-                  ...current,
-                  noShows: { ...current.noShows, custom: event.target.value },
-                }))}
-              />
-            ) : null}
+            {noShowPreset === 'custom'
+              ? (
+                  <TextAreaField
+                    label="Custom no-show consequence"
+                    rows={2}
+                    value={policies.noShows.custom}
+                    onChange={event => updatePolicies(current => ({
+                      ...current,
+                      noShows: { ...current.noShows, custom: event.target.value },
+                    }))}
+                  />
+                )
+              : null}
           </CollapsibleFormCard>
           <CollapsibleFormCard
             completed={policyComplete('repairs')}
@@ -1797,13 +1926,13 @@ export function PoliciesScreen({
                   const value = event.target.value;
                   setCustomRepairOpen(value === 'custom');
                   if (value === 'custom') {
-                    updatePolicies((current) => ({
+                    updatePolicies(current => ({
                       ...current,
                       repairs: { ...current.repairs, freeRepairWindowDays: '' },
                     }));
                     return;
                   }
-                  updatePolicies((current) => ({
+                  updatePolicies(current => ({
                     ...current,
                     repairs: { ...current.repairs, freeRepairWindowDays: value },
                   }));
@@ -1817,22 +1946,24 @@ export function PoliciesScreen({
                 <option value="custom">Another amount</option>
               </select>
             </label>
-            {customRepairOpen ? (
-              <TextField
-                inputMode="numeric"
-                label="Custom repair window in days"
-                value={policies.repairs.freeRepairWindowDays}
-                onChange={(event) => updatePolicies((current) => ({
-                  ...current,
-                  repairs: { ...current.repairs, freeRepairWindowDays: event.target.value },
-                }))}
-              />
-            ) : null}
+            {customRepairOpen
+              ? (
+                  <TextField
+                    inputMode="numeric"
+                    label="Custom repair window in days"
+                    value={policies.repairs.freeRepairWindowDays}
+                    onChange={event => updatePolicies(current => ({
+                      ...current,
+                      repairs: { ...current.repairs, freeRepairWindowDays: event.target.value },
+                    }))}
+                  />
+                )
+              : null}
             <TextAreaField
               label="Repair conditions — optional"
               rows={2}
               value={policies.repairs.conditions}
-              onChange={(event) => updatePolicies((current) => ({
+              onChange={event => updatePolicies(current => ({
                 ...current,
                 repairs: { ...current.repairs, conditions: event.target.value },
               }))}
@@ -1840,7 +1971,7 @@ export function PoliciesScreen({
             <NativeSwitch
               checked={policies.repairs.noRepairPolicy}
               label="I do not offer repairs"
-              onChange={(noRepairPolicy) => updatePolicies((current) => ({
+              onChange={noRepairPolicy => updatePolicies(current => ({
                 ...current,
                 repairs: { ...current.repairs, noRepairPolicy },
               }))}
@@ -1865,13 +1996,13 @@ export function PoliciesScreen({
                   const value = event.target.value;
                   setCustomGuestsOpen(value === 'custom');
                   if (value === 'custom') {
-                    updatePolicies((current) => ({
+                    updatePolicies(current => ({
                       ...current,
                       other: { ...current.other, guests: '' },
                     }));
                     return;
                   }
-                  updatePolicies((current) => ({
+                  updatePolicies(current => ({
                     ...current,
                     other: { ...current.other, guests: value },
                   }));
@@ -1884,16 +2015,18 @@ export function PoliciesScreen({
                 <option value="custom">Something else</option>
               </select>
             </label>
-            {customGuestsOpen ? (
-              <TextField
-                label="Custom guest policy"
-                value={policies.other.guests}
-                onChange={(event) => updatePolicies((current) => ({
-                  ...current,
-                  other: { ...current.other, guests: event.target.value },
-                }))}
-              />
-            ) : null}
+            {customGuestsOpen
+              ? (
+                  <TextField
+                    label="Custom guest policy"
+                    value={policies.other.guests}
+                    onChange={event => updatePolicies(current => ({
+                      ...current,
+                      other: { ...current.other, guests: event.target.value },
+                    }))}
+                  />
+                )
+              : null}
             <label className="onboarding-select-field">
               <span>Children</span>
               <select
@@ -1902,13 +2035,13 @@ export function PoliciesScreen({
                   const value = event.target.value;
                   setCustomChildrenOpen(value === 'custom');
                   if (value === 'custom') {
-                    updatePolicies((current) => ({
+                    updatePolicies(current => ({
                       ...current,
                       other: { ...current.other, children: '' },
                     }));
                     return;
                   }
-                  updatePolicies((current) => ({
+                  updatePolicies(current => ({
                     ...current,
                     other: { ...current.other, children: value },
                   }));
@@ -1921,21 +2054,23 @@ export function PoliciesScreen({
                 <option value="custom">Something else</option>
               </select>
             </label>
-            {customChildrenOpen ? (
-              <TextField
-                label="Custom children policy"
-                value={policies.other.children}
-                onChange={(event) => updatePolicies((current) => ({
-                  ...current,
-                  other: { ...current.other, children: event.target.value },
-                }))}
-              />
-            ) : null}
+            {customChildrenOpen
+              ? (
+                  <TextField
+                    label="Custom children policy"
+                    value={policies.other.children}
+                    onChange={event => updatePolicies(current => ({
+                      ...current,
+                      other: { ...current.other, children: event.target.value },
+                    }))}
+                  />
+                )
+              : null}
             <TextAreaField
               label="How should clients prepare? — optional"
               rows={2}
               value={policies.other.appointmentPreparation}
-              onChange={(event) => updatePolicies((current) => ({
+              onChange={event => updatePolicies(current => ({
                 ...current,
                 other: { ...current.other, appointmentPreparation: event.target.value },
               }))}
@@ -1943,7 +2078,7 @@ export function PoliciesScreen({
             <TextField
               label="Removal from another salon — optional"
               value={policies.other.outsideRemoval}
-              onChange={(event) => updatePolicies((current) => ({
+              onChange={event => updatePolicies(current => ({
                 ...current,
                 other: { ...current.other, outsideRemoval: event.target.value },
               }))}
@@ -1952,7 +2087,7 @@ export function PoliciesScreen({
               label="Anything else clients should know? — optional"
               rows={2}
               value={policies.other.custom}
-              onChange={(event) => updatePolicies((current) => ({
+              onChange={event => updatePolicies(current => ({
                 ...current,
                 other: { ...current.other, custom: event.target.value },
               }))}
@@ -1965,12 +2100,16 @@ export function PoliciesScreen({
       </div>
       <aside className="onboarding-screen__preview">
         <div className="onboarding-preview-card">
-          <h2>{state.recipe.policiesEnabled
-            ? 'What your clients will see'
-            : 'Your saved policy wording'}</h2>
-          {!state.recipe.policiesEnabled ? (
-            <p role="status">Policies are saved, but not shown on your site.</p>
-          ) : null}
+          <h2>
+            {state.recipe.policiesEnabled
+              ? 'What your clients will see'
+              : 'Your saved policy wording'}
+          </h2>
+          {!state.recipe.policiesEnabled
+            ? (
+                <p role="status">Policies are saved, but not shown on your site.</p>
+              )
+            : null}
           <PolicyCopyCards onUpdate={onUpdate} state={state} />
         </div>
       </aside>
@@ -2005,9 +2144,9 @@ export function SiteStyleScreen({
     = useState<'palette' | 'style' | null>(null);
   const confirmedStyleAtEntry = useRef(state.recipe.stylePreset);
   const confirmedPaletteAtEntry = useRef(state.recipe.palettePreset);
-  const selectedStyle = SITE_STYLE_PRESETS.find((preset) =>
+  const selectedStyle = SITE_STYLE_PRESETS.find(preset =>
     preset.id === state.recipe.stylePreset) ?? SITE_STYLE_PRESETS[0];
-  const selectedPalette = SITE_PALETTE_PRESETS.find((preset) =>
+  const selectedPalette = SITE_PALETTE_PRESETS.find(preset =>
     preset.id === state.recipe.palettePreset) ?? SITE_PALETTE_PRESETS[0];
   return (
     <div className="onboarding-screen onboarding-screen--style" data-screen="site_style">
@@ -2045,57 +2184,66 @@ export function SiteStyleScreen({
             id="onboarding-style-options"
             role="group"
           >
-          {SITE_STYLE_PRESETS.map((preset) => {
-            const roles = ONBOARDING_STYLE_ROLES[preset.id];
-            const isCurrentStyle = preset.id === confirmedStyleAtEntry.current;
-            const isSelectedStyle = preset.id === state.recipe.stylePreset;
-            const isPreviewingStyle = isSelectedStyle;
-            return (
-              <button
-                aria-pressed={state.recipe.stylePreset === preset.id}
-                className="onboarding-style-card"
-                data-current={isCurrentStyle ? 'true' : 'false'}
-                data-previewing={isPreviewingStyle ? 'true' : 'false'}
-                data-selected={state.recipe.stylePreset === preset.id ? 'true' : 'false'}
-                key={preset.id}
-                style={{
-                  '--swatch-accent': roles.accent,
-                  '--swatch-body-font': roles.bodyFont,
-                  '--swatch-button-radius': roles.buttonRadius,
-                  '--swatch-ground': roles.ground,
-                  '--swatch-heading-font': roles.headingFont,
-                  '--swatch-ink': roles.ink,
-                  '--swatch-line': roles.line,
-                  '--swatch-secondary': roles.secondaryAccent,
-                  '--swatch-surface': roles.surface,
-                } as CSSProperties}
-                type="button"
-                onClick={() => {
-                  feedback.send({ kind: 'selection' });
-                  onUpdate((current) => ({
-                    ...current,
-                    recipe: { ...current.recipe, styleConfirmed: false, stylePreset: preset.id },
-                  }));
-                }}
-              >
-                <span className="onboarding-style-swatch" aria-hidden="true">
-                  <i>Aa</i>
-                  <i>Beautiful nails, made for you.</i>
-                  <i>Book now</i>
-                  <b>
-                    <em /><em /><em /><em />
-                  </b>
-                </span>
-                <strong>{preset.label}</strong>
-                <small>{preset.description}</small>
-                {isSelectedStyle ? (
-                  <span className="onboarding-style-card__statuses">
-                    <em className="is-previewing"><Check aria-hidden="true" size={14} /> Previewing</em>
+            {SITE_STYLE_PRESETS.map((preset) => {
+              const roles = ONBOARDING_STYLE_ROLES[preset.id];
+              const isCurrentStyle = preset.id === confirmedStyleAtEntry.current;
+              const isSelectedStyle = preset.id === state.recipe.stylePreset;
+              const isPreviewingStyle = isSelectedStyle;
+              return (
+                <button
+                  aria-pressed={state.recipe.stylePreset === preset.id}
+                  className="onboarding-style-card"
+                  data-current={isCurrentStyle ? 'true' : 'false'}
+                  data-previewing={isPreviewingStyle ? 'true' : 'false'}
+                  data-selected={state.recipe.stylePreset === preset.id ? 'true' : 'false'}
+                  key={preset.id}
+                  style={{
+                    '--swatch-accent': roles.accent,
+                    '--swatch-body-font': roles.bodyFont,
+                    '--swatch-button-radius': roles.buttonRadius,
+                    '--swatch-ground': roles.ground,
+                    '--swatch-heading-font': roles.headingFont,
+                    '--swatch-ink': roles.ink,
+                    '--swatch-line': roles.line,
+                    '--swatch-secondary': roles.secondaryAccent,
+                    '--swatch-surface': roles.surface,
+                  } as CSSProperties}
+                  type="button"
+                  onClick={() => {
+                    feedback.send({ kind: 'selection' });
+                    onUpdate(current => ({
+                      ...current,
+                      recipe: { ...current.recipe, styleConfirmed: false, stylePreset: preset.id },
+                    }));
+                  }}
+                >
+                  <span className="onboarding-style-swatch" aria-hidden="true">
+                    <i>Aa</i>
+                    <i>Beautiful nails, made for you.</i>
+                    <i>Book now</i>
+                    <b>
+                      <em />
+                      <em />
+                      <em />
+                      <em />
+                    </b>
                   </span>
-                ) : null}
-              </button>
-            );
-          })}
+                  <strong>{preset.label}</strong>
+                  <small>{preset.description}</small>
+                  {isSelectedStyle
+                    ? (
+                        <span className="onboarding-style-card__statuses">
+                          <em className="is-previewing">
+                            <Check aria-hidden="true" size={14} />
+                            {' '}
+                            Previewing
+                          </em>
+                        </span>
+                      )
+                    : null}
+                </button>
+              );
+            })}
           </div>
         </section>
         <section className="onboarding-palette-section" aria-labelledby="onboarding-palette-heading">
@@ -2156,7 +2304,7 @@ export function SiteStyleScreen({
                   type="button"
                   onClick={() => {
                     feedback.send({ kind: 'selection' });
-                    onUpdate((current) => ({
+                    onUpdate(current => ({
                       ...current,
                       recipe: {
                         ...current.recipe,
@@ -2167,16 +2315,26 @@ export function SiteStyleScreen({
                   }}
                 >
                   <span aria-hidden="true" className="onboarding-palette-card__preview">
-                    <i /><i /><i /><i /><i />
+                    <i />
+                    <i />
+                    <i />
+                    <i />
+                    <i />
                     <b>Book now</b>
                   </span>
                   <strong>{preset.label}</strong>
                   <small>{preset.description}</small>
-                  {isSelectedPalette ? (
-                    <span className="onboarding-palette-card__status">
-                      <em className="is-previewing"><Check aria-hidden="true" size={14} /> Previewing</em>
-                    </span>
-                  ) : null}
+                  {isSelectedPalette
+                    ? (
+                        <span className="onboarding-palette-card__status">
+                          <em className="is-previewing">
+                            <Check aria-hidden="true" size={14} />
+                            {' '}
+                            Previewing
+                          </em>
+                        </span>
+                      )
+                    : null}
                 </button>
               );
             })}
@@ -2194,7 +2352,11 @@ export function SiteStyleScreen({
         <div
           aria-label={`Preview of ${state.profile.businessName || 'your site'} in ${selectedStyle?.label} with ${selectedPalette?.label}`}
           className="onboarding-look-preview__frame"
-          ref={(element) => { if (element) element.inert = true; }}
+          ref={(element) => {
+            if (element) {
+              element.inert = true;
+            }
+          }}
         >
           <OnboardingSitePreview
             document={document}
@@ -2208,8 +2370,16 @@ export function SiteStyleScreen({
         <button className="onboarding-full-preview-button" type="button" onClick={onFullPreview}>View full preview</button>
         <section className="onboarding-look-summary" aria-label="Your selected look" aria-live="polite">
           <p>YOUR LOOK</p>
-          <div><span aria-hidden="true">Aa</span><strong>{selectedStyle?.label}</strong><Check aria-hidden="true" size={17} /></div>
-          <div><span aria-hidden="true">◉</span><strong>{selectedPalette?.label}</strong><Check aria-hidden="true" size={17} /></div>
+          <div>
+            <span aria-hidden="true">Aa</span>
+            <strong>{selectedStyle?.label}</strong>
+            <Check aria-hidden="true" size={17} />
+          </div>
+          <div>
+            <span aria-hidden="true">◉</span>
+            <strong>{selectedPalette?.label}</strong>
+            <Check aria-hidden="true" size={17} />
+          </div>
         </section>
         <p className="onboarding-look-change-note">You can change your style and colours anytime.</p>
       </aside>
@@ -2253,40 +2423,56 @@ export function ExtrasScreen({
           <Images aria-hidden="true" size={28} />
           {state.recipe.galleryEnabled ? <span>Added</span> : null}
           <h2>Show off your work</h2>
-          <p>{state.recipe.galleryEnabled
-            ? `${galleryCount} ${state.gallery.source === 'mock_luster' ? 'example ' : ''}${galleryCount === 1 ? 'photo' : 'photos'} · ${galleryLayout}`
-            : 'Add photos of your nail sets so clients can see your style.'}</p>
+          <p>
+            {state.recipe.galleryEnabled
+              ? `${galleryCount} ${state.gallery.source === 'mock_luster' ? 'example ' : ''}${galleryCount === 1 ? 'photo' : 'photos'} · ${galleryLayout}`
+              : 'Add photos of your nail sets so clients can see your style.'}
+          </p>
           {state.recipe.galleryEnabled ? <strong>✓ Gallery added</strong> : null}
-          {state.recipe.galleryEnabled && state.gallery.source === 'mock_luster' ? (
-            <small>Swap in your own photos whenever you’re ready.</small>
-          ) : null}
+          {state.recipe.galleryEnabled && state.gallery.source === 'mock_luster'
+            ? (
+                <small>Swap in your own photos whenever you’re ready.</small>
+              )
+            : null}
           <button type="button" onClick={onOpenGallery}>{state.recipe.galleryEnabled ? 'Edit Gallery' : 'Add Gallery'}</button>
         </article>
         <article className={`onboarding-extra-card${state.recipe.canvaEnabled ? ' is-added' : ''}${state.recipe.wantsCanvaFromWelcome ? ' is-recommended' : ''}`}>
           <FileImage aria-hidden="true" size={28} />
-          {state.recipe.canvaEnabled || state.recipe.wantsCanvaFromWelcome ? (
-            <span>{state.recipe.canvaEnabled ? 'Added' : 'Recommended for you'}</span>
-          ) : null}
+          {state.recipe.canvaEnabled || state.recipe.wantsCanvaFromWelcome
+            ? (
+                <span>{state.recipe.canvaEnabled ? 'Added' : 'Recommended for you'}</span>
+              )
+            : null}
           <h2>Already have a Canva design?</h2>
-          <p>{state.recipe.canvaEnabled
-            ? `${canvaCount} Canva ${canvaCount === 1 ? 'page' : 'pages'} added · ${canvaPlacement}`
-            : state.recipe.wantsCanvaFromWelcome
-              ? 'You told us you already have a Canva design. Upload your pages and we’ll add them to your website.'
-              : 'Upload pages you exported from Canva and add them to your website.'}</p>
+          <p>
+            {state.recipe.canvaEnabled
+              ? `${canvaCount} Canva ${canvaCount === 1 ? 'page' : 'pages'} added · ${canvaPlacement}`
+              : state.recipe.wantsCanvaFromWelcome
+                ? 'You told us you already have a Canva design. Upload your pages and we’ll add them to your website.'
+                : 'Upload pages you exported from Canva and add them to your website.'}
+          </p>
           {state.recipe.canvaEnabled ? <strong>✓ Canva design added</strong> : null}
           <button type="button" onClick={onOpenCanva}>{state.recipe.canvaEnabled ? 'Edit design' : 'Upload Canva design'}</button>
         </article>
       </div>
-      {(state.recipe.galleryEnabled || state.recipe.canvaEnabled) ? (
-        <p aria-live="polite" className="onboarding-extras-summary">
-          Added: {[state.recipe.galleryEnabled ? 'Gallery' : null, state.recipe.canvaEnabled ? 'Canva' : null].filter(Boolean).join(' and ')}
-        </p>
-      ) : null}
-      {state.canva.status === 'invalid' ? (
-        <p className="onboarding-inline-error" role="alert">
-          Some Canva pages need attention. {state.canva.errorMessage}
-        </p>
-      ) : null}
+      {(state.recipe.galleryEnabled || state.recipe.canvaEnabled)
+        ? (
+            <p aria-live="polite" className="onboarding-extras-summary">
+              Added:
+              {' '}
+              {[state.recipe.galleryEnabled ? 'Gallery' : null, state.recipe.canvaEnabled ? 'Canva' : null].filter(Boolean).join(' and ')}
+            </p>
+          )
+        : null}
+      {state.canva.status === 'invalid'
+        ? (
+            <p className="onboarding-inline-error" role="alert">
+              Some Canva pages need attention.
+              {' '}
+              {state.canva.errorMessage}
+            </p>
+          )
+        : null}
       <StickyOnboardingActions
         backLabel="Back"
         primaryLabel="Continue to review"

@@ -128,7 +128,9 @@ function recordEvidence(file, metadata) {
 async function screenshot(page, file, metadata = {}) {
   const { preservePointer = false, ...evidenceMetadata } = metadata;
   await ensureEvidenceParent(file);
-  if (!preservePointer) await page.mouse.move(1, 1);
+  if (!preservePointer) {
+    await page.mouse.move(1, 1);
+  }
   await page.waitForTimeout(140);
   await page.screenshot({
     animations: 'disabled',
@@ -140,7 +142,9 @@ async function screenshot(page, file, metadata = {}) {
 function startRuntimeMonitor(page, phase) {
   const listeners = {
     console: (message) => {
-      if (!['error', 'warning'].includes(message.type())) return;
+      if (!['error', 'warning'].includes(message.type())) {
+        return;
+      }
       const location = message.location();
       if (
         location.url.endsWith('/favicon.ico')
@@ -172,7 +176,9 @@ function startRuntimeMonitor(page, phase) {
       });
     },
     response: (response) => {
-      if (response.status() < 400) return;
+      if (response.status() < 400) {
+        return;
+      }
       runtimeIssues.push({
         method: response.request().method(),
         phase,
@@ -256,7 +262,9 @@ async function openFresh(page, phase) {
 
 async function waitForVisualStability(page) {
   await page.evaluate(async () => {
-    if (document.fonts) await document.fonts.ready;
+    if (document.fonts) {
+      await document.fonts.ready;
+    }
     const visibleImages = [...document.images].filter((image) => {
       const rectangle = image.getBoundingClientRect();
       return rectangle.bottom >= 0
@@ -266,7 +274,9 @@ async function waitForVisualStability(page) {
     });
     await Promise.race([
       Promise.all(visibleImages.map(async (image) => {
-        if (image.complete) return;
+        if (image.complete) {
+          return;
+        }
         await new Promise((resolveImage) => {
           image.addEventListener('load', resolveImage, { once: true });
           image.addEventListener('error', resolveImage, { once: true });
@@ -426,9 +436,9 @@ async function trustedVerticalSwipe(
   const endY = Math.round(distance >= 0
     ? Math.max(Math.max(24, scrollBox.y + 12), startY - distance)
     : Math.min(
-        Math.min(viewportHeight - 24, scrollBox.y + scrollBox.height - 12),
-        startY + Math.abs(distance),
-      ));
+      Math.min(viewportHeight - 24, scrollBox.y + scrollBox.height - 12),
+      startY + Math.abs(distance),
+    ));
 
   const touchPoint = y => ({
     force: 1,
@@ -517,13 +527,12 @@ async function scrollDetailToBottom(page) {
 
 async function measureServiceDetail(page, metadata) {
   const dialog = detailDialog(page);
-  const body = detailBody(page);
   const action = primaryDetailAction(page);
   const measurement = await dialog.evaluate((element) => {
     const scrollBody = element.querySelector('.booking-service-detail-body')
       ?? element.querySelector('.booking-dialog-panel');
     const actionElement = [...element.querySelectorAll('button')]
-      .find((button) => button.textContent?.trim() === 'Continue');
+      .find(button => button.textContent?.trim() === 'Continue');
     const image = element.querySelector('.booking-detail-image-wrap img');
     const dialogRect = element.getBoundingClientRect();
     const bodyRect = scrollBody?.getBoundingClientRect();
@@ -533,27 +542,33 @@ async function measureServiceDetail(page, metadata) {
     const actionRegion = element.querySelector('.booking-detail-actions');
     const detailCopy = element.querySelector('.booking-detail-copy');
     return {
-      action: actionRect ? {
-        bottom: actionRect.bottom,
-        height: actionRect.height,
-        top: actionRect.top,
-      } : null,
+      action: actionRect
+        ? {
+            bottom: actionRect.bottom,
+            height: actionRect.height,
+            top: actionRect.top,
+          }
+        : null,
       actionInViewport: Boolean(
         actionRect
         && actionRect.top >= 0
-        && actionRect.bottom <= (window.visualViewport?.height ?? window.innerHeight)
+        && actionRect.bottom <= (window.visualViewport?.height ?? window.innerHeight),
       ),
-      body: scrollBody ? {
-        clientHeight: scrollBody.clientHeight,
-        overflowY: getComputedStyle(scrollBody).overflowY,
-        scrollHeight: scrollBody.scrollHeight,
-        scrollTop: scrollBody.scrollTop,
-      } : null,
-      actionRegion: actionRegion ? {
-        bottom: actionRegion.getBoundingClientRect().bottom,
-        paddingBottom: getComputedStyle(actionRegion).paddingBottom,
-        position: getComputedStyle(actionRegion).position,
-      } : null,
+      body: scrollBody
+        ? {
+            clientHeight: scrollBody.clientHeight,
+            overflowY: getComputedStyle(scrollBody).overflowY,
+            scrollHeight: scrollBody.scrollHeight,
+            scrollTop: scrollBody.scrollTop,
+          }
+        : null,
+      actionRegion: actionRegion
+        ? {
+            bottom: actionRegion.getBoundingClientRect().bottom,
+            paddingBottom: getComputedStyle(actionRegion).paddingBottom,
+            position: getComputedStyle(actionRegion).position,
+          }
+        : null,
       background: {
         bodyOverflow: getComputedStyle(document.body).overflowY,
         clientSiteScrollTop: clientSite?.scrollTop ?? null,
@@ -566,12 +581,14 @@ async function measureServiceDetail(page, metadata) {
         scrollHeight: element.scrollHeight,
         top: dialogRect.top,
       },
-      image: imageRect ? {
-        height: imageRect.height,
-        naturalHeight: image.naturalHeight,
-        naturalWidth: image.naturalWidth,
-        width: imageRect.width,
-      } : null,
+      image: imageRect
+        ? {
+            height: imageRect.height,
+            naturalHeight: image.naturalHeight,
+            naturalWidth: image.naturalWidth,
+            width: imageRect.width,
+          }
+        : null,
       resolvedDetailPaddingBottom: detailCopy
         ? getComputedStyle(detailCopy).paddingBottom
         : null,
@@ -579,11 +596,13 @@ async function measureServiceDetail(page, metadata) {
         .getPropertyValue('--booking-overlay-available-height')
         .trim(),
       visualViewportHeight: window.visualViewport?.height ?? window.innerHeight,
-      bodyRect: bodyRect ? {
-        bottom: bodyRect.bottom,
-        height: bodyRect.height,
-        top: bodyRect.top,
-      } : null,
+      bodyRect: bodyRect
+        ? {
+            bottom: bodyRect.bottom,
+            height: bodyRect.height,
+            top: bodyRect.top,
+          }
+        : null,
     };
   });
 
@@ -688,83 +707,83 @@ async function measureF1Matrix(browser, { gesturesOnly = false } = {}) {
   if (!gesturesOnly) {
     for (const viewport of f1Viewports) {
       await withPage(
-      browser,
-      `f1-matrix-${viewport.label}`,
-      {
-        mobile: true,
-        viewport: { height: viewport.height, width: viewport.width },
-      },
-      async (page) => {
-        await openFresh(page, `f1-matrix-${viewport.label}`);
-        await chooseStarter(page, 'Quick Book');
+        browser,
+        `f1-matrix-${viewport.label}`,
+        {
+          mobile: true,
+          viewport: { height: viewport.height, width: viewport.width },
+        },
+        async (page) => {
+          await openFresh(page, `f1-matrix-${viewport.label}`);
+          await chooseStarter(page, 'Quick Book');
 
-        for (const layout of layouts) {
-          const imageModes = layout === 'visual_grid'
-            ? ['hide', 'show', 'auto']
-            : ['not-present-by-design'];
-          for (const imageMode of imageModes) {
-            await setLayout(page, layout, {
-              imageMode: imageMode === 'not-present-by-design' ? undefined : imageMode,
-              mobile: viewport.width < 900,
-            });
-            await enterPreview(page);
-            await openRussianDetail(page);
-            const beforeBackground = await page.evaluate(() => ({
-              clientSiteScrollTop: document.querySelector('.client-site')?.scrollTop ?? null,
-              windowScrollY: window.scrollY,
-            }));
-            const top = await measureServiceDetail(page, {
-              imageMode,
-              layout,
-              phase: 'top',
-              viewport: viewport.label,
-            });
-            await scrollDetailToBottom(page);
-            const bottom = await measureServiceDetail(page, {
-              imageMode,
-              layout,
-              phase: 'bottom',
-              viewport: viewport.label,
-            });
-            assert.equal(bottom.actionInViewport, true, `${layout} ${viewport.label}: final action was not reachable.`);
-            await assertBackgroundDidNotMove(
-              page,
-              beforeBackground,
-              `${layout} ${viewport.label} ${imageMode}`,
-            );
-            await closeDetail(page);
-            const afterClose = await page.evaluate(() => ({
-              clientSiteScrollTop: document.querySelector('.client-site')?.scrollTop ?? null,
-              windowScrollY: window.scrollY,
-            }));
-            assert.deepEqual(
-              afterClose,
-              beforeBackground,
-              `${layout} ${viewport.label} ${imageMode}: close did not restore the menu position.`,
-            );
+          for (const layout of layouts) {
+            const imageModes = layout === 'visual_grid'
+              ? ['hide', 'show', 'auto']
+              : ['not-present-by-design'];
+            for (const imageMode of imageModes) {
+              await setLayout(page, layout, {
+                imageMode: imageMode === 'not-present-by-design' ? undefined : imageMode,
+                mobile: viewport.width < 900,
+              });
+              await enterPreview(page);
+              await openRussianDetail(page);
+              const beforeBackground = await page.evaluate(() => ({
+                clientSiteScrollTop: document.querySelector('.client-site')?.scrollTop ?? null,
+                windowScrollY: window.scrollY,
+              }));
+              const top = await measureServiceDetail(page, {
+                imageMode,
+                layout,
+                phase: 'top',
+                viewport: viewport.label,
+              });
+              await scrollDetailToBottom(page);
+              const bottom = await measureServiceDetail(page, {
+                imageMode,
+                layout,
+                phase: 'bottom',
+                viewport: viewport.label,
+              });
+              assert.equal(bottom.actionInViewport, true, `${layout} ${viewport.label}: final action was not reachable.`);
+              await assertBackgroundDidNotMove(
+                page,
+                beforeBackground,
+                `${layout} ${viewport.label} ${imageMode}`,
+              );
+              await closeDetail(page);
+              const afterClose = await page.evaluate(() => ({
+                clientSiteScrollTop: document.querySelector('.client-site')?.scrollTop ?? null,
+                windowScrollY: window.scrollY,
+              }));
+              assert.deepEqual(
+                afterClose,
+                beforeBackground,
+                `${layout} ${viewport.label} ${imageMode}: close did not restore the menu position.`,
+              );
 
-            await openRussianDetail(page);
-            await scrollDetailToBottom(page);
-            await primaryDetailAction(page).click();
-            const summary = page.getByTestId('selected-service-summary');
-            await summary.waitFor({ state: 'visible' });
-            await summary.getByRole('button', { name: 'Change' }).click();
-            await detailDialog(page).waitFor({ state: 'visible' });
-            await scrollDetailToBottom(page);
-            await detailDialog(page)
-              .getByRole('button', { name: 'Remove selected service' })
-              .click();
-            await detailDialog(page).waitFor({ state: 'detached' });
-            measurements.f1.push({
-              afterClose,
-              bottom,
-              primaryActionClicked: true,
-              top,
-            });
-            await backToEditor(page);
+              await openRussianDetail(page);
+              await scrollDetailToBottom(page);
+              await primaryDetailAction(page).click();
+              const summary = page.getByTestId('selected-service-summary');
+              await summary.waitFor({ state: 'visible' });
+              await summary.getByRole('button', { name: 'Change' }).click();
+              await detailDialog(page).waitFor({ state: 'visible' });
+              await scrollDetailToBottom(page);
+              await detailDialog(page)
+                .getByRole('button', { name: 'Remove selected service' })
+                .click();
+              await detailDialog(page).waitFor({ state: 'detached' });
+              measurements.f1.push({
+                afterClose,
+                bottom,
+                primaryActionClicked: true,
+                top,
+              });
+              await backToEditor(page);
+            }
           }
-        }
-      },
+        },
       );
     }
   }
@@ -848,7 +867,9 @@ async function measureF1Matrix(browser, { gesturesOnly = false } = {}) {
     },
   );
 
-  if (gesturesOnly) return;
+  if (gesturesOnly) {
+    return;
+  }
 
   await withPage(
     browser,
@@ -885,11 +906,13 @@ async function featuredGeometry(locator) {
         height: rectangle.height,
         width: rectangle.width,
       },
-      image: imageRectangle ? {
-        height: imageRectangle.height,
-        objectFit: getComputedStyle(image).objectFit,
-        width: imageRectangle.width,
-      } : null,
+      image: imageRectangle
+        ? {
+            height: imageRectangle.height,
+            objectFit: getComputedStyle(image).objectFit,
+            width: imageRectangle.width,
+          }
+        : null,
       minimumHeight: getComputedStyle(element).minHeight,
       role: element.getAttribute('role'),
       tagName: element.tagName,
@@ -927,7 +950,9 @@ async function measureFeaturedRail(page) {
 function classifyGeometry(edit, preview) {
   const heightDelta = Math.abs(edit.first.element.height - preview.first.element.height);
   const ratioDelta = Math.abs(edit.first.aspectRatio - preview.first.aspectRatio);
-  if (heightDelta <= 2 && ratioDelta <= 0.04) return 'MATCH';
+  if (heightDelta <= 2 && ratioDelta <= 0.04) {
+    return 'MATCH';
+  }
   if (Math.abs(edit.first.element.width - preview.first.element.width) > 8) {
     return 'INTENTIONAL RESPONSIVE DIFFERENCE';
   }
@@ -1017,12 +1042,14 @@ async function captureFeaturedScreenshots(browser) {
             const tileRect = tile.getBoundingClientRect();
             return {
               ariaPressed: tile.getAttribute('aria-pressed'),
-              badge: badgeRect ? {
-                bottom: badgeRect.bottom - tileRect.top,
-                left: badgeRect.left - tileRect.left,
-                right: badgeRect.right - tileRect.left,
-                top: badgeRect.top - tileRect.top,
-              } : null,
+              badge: badgeRect
+                ? {
+                    bottom: badgeRect.bottom - tileRect.top,
+                    left: badgeRect.left - tileRect.left,
+                    right: badgeRect.right - tileRect.left,
+                    top: badgeRect.top - tileRect.top,
+                  }
+                : null,
               tagName: tile.tagName,
             };
           });
@@ -1356,37 +1383,45 @@ async function measureHierarchy(page, phase) {
     const preview = document.querySelector('.final-hybrid-preview');
     const shadow = unselected ? getComputedStyle(unselected).boxShadow : null;
     return {
-      appTokens: app ? {
-        cardLine: getComputedStyle(app).getPropertyValue('--edit-card-line').trim(),
-        ground: getComputedStyle(app).getPropertyValue('--edit-ground').trim(),
-        gutter: getComputedStyle(app).getPropertyValue('--edit-gutter').trim(),
-        section: getComputedStyle(app).getPropertyValue('--edit-section').trim(),
-        sectionLine: getComputedStyle(app).getPropertyValue('--edit-section-line').trim(),
-        sectionLineStrong: getComputedStyle(app).getPropertyValue('--edit-section-line-strong').trim(),
-      } : null,
+      appTokens: app
+        ? {
+            cardLine: getComputedStyle(app).getPropertyValue('--edit-card-line').trim(),
+            ground: getComputedStyle(app).getPropertyValue('--edit-ground').trim(),
+            gutter: getComputedStyle(app).getPropertyValue('--edit-gutter').trim(),
+            section: getComputedStyle(app).getPropertyValue('--edit-section').trim(),
+            sectionLine: getComputedStyle(app).getPropertyValue('--edit-section-line').trim(),
+            sectionLineStrong: getComputedStyle(app).getPropertyValue('--edit-section-line-strong').trim(),
+          }
+        : null,
       canvasBackground: canvas ? getComputedStyle(canvas).backgroundColor : null,
       frameBackground: frame ? getComputedStyle(frame).backgroundColor : null,
       gap: list ? getComputedStyle(list).rowGap : null,
-      placeholder: placeholder ? {
-        backgroundImage: getComputedStyle(placeholder).backgroundImage,
-        border: getComputedStyle(placeholder).border,
-        opacity: getComputedStyle(placeholder.closest('.placeholder-grid')).opacity,
-      } : null,
+      placeholder: placeholder
+        ? {
+            backgroundImage: getComputedStyle(placeholder).backgroundImage,
+            border: getComputedStyle(placeholder).border,
+            opacity: getComputedStyle(placeholder.closest('.placeholder-grid')).opacity,
+          }
+        : null,
       previewEditorToken: preview
         ? getComputedStyle(preview).getPropertyValue('--edit-ground').trim()
         : null,
-      selected: selected ? {
-        boxShadow: getComputedStyle(selected).boxShadow,
-        outlineColor: getComputedStyle(selected).outlineColor,
-        outlineWidth: getComputedStyle(selected).outlineWidth,
-      } : null,
-      unselected: unselected ? {
-        backgroundColor: getComputedStyle(unselected).backgroundColor,
-        borderBlockEnd: getComputedStyle(unselected).borderBlockEnd,
-        borderBlockStart: getComputedStyle(unselected).borderBlockStart,
-        borderRadius: getComputedStyle(unselected).borderRadius,
-        boxShadow: shadow === 'none' ? 'none' : shadow,
-      } : null,
+      selected: selected
+        ? {
+            boxShadow: getComputedStyle(selected).boxShadow,
+            outlineColor: getComputedStyle(selected).outlineColor,
+            outlineWidth: getComputedStyle(selected).outlineWidth,
+          }
+        : null,
+      unselected: unselected
+        ? {
+            backgroundColor: getComputedStyle(unselected).backgroundColor,
+            borderBlockEnd: getComputedStyle(unselected).borderBlockEnd,
+            borderBlockStart: getComputedStyle(unselected).borderBlockStart,
+            borderRadius: getComputedStyle(unselected).borderRadius,
+            boxShadow: shadow === 'none' ? 'none' : shadow,
+          }
+        : null,
     };
   });
   measurements.hierarchy.push({ phase, ...result });
@@ -1583,7 +1618,9 @@ async function recordVideo(browser, {
     await rm(scratchDirectory, { force: true, recursive: true });
   }
 
-  if (actionError) throw actionError;
+  if (actionError) {
+    throw actionError;
+  }
 }
 
 async function captureVideos(browser) {
@@ -1873,7 +1910,9 @@ async function main() {
     ]);
   }
 
-  if (runError) throw runError;
+  if (runError) {
+    throw runError;
+  }
   process.stdout.write(
     `Consolidated evidence captured: ${evidenceEntries.length} files; runtime issues: ${runtimeIssues.length}.\n`,
   );

@@ -214,16 +214,16 @@ export const reclaimStaleStagedAssets = async (
     retained: [],
   };
   const stagedAssets = (await repository.list({ includeStaged: true })).filter(
-    (asset) => asset.state === 'staged',
+    asset => asset.state === 'staged',
   );
 
   for (const asset of stagedAssets) {
     const assetId = asset.metadata.id;
     const stagedAtEpoch = Date.parse(asset.stagedAt);
-    const expired =
-      Number.isFinite(stagedAtEpoch) &&
-      stagedAtEpoch <= now &&
-      now - stagedAtEpoch >= ttlMs;
+    const expired
+      = Number.isFinite(stagedAtEpoch)
+      && stagedAtEpoch <= now
+      && now - stagedAtEpoch >= ttlMs;
     if (!expired || options.protectedAssetIds.has(assetId)) {
       result.retained.push(assetId);
       continue;

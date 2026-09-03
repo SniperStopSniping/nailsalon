@@ -69,7 +69,9 @@ export const getAddSectionWarnings = (
   const warnings: OverlapWarning[] = [];
   const entry = getSectionRegistryEntry(type);
   const page = document.pages.find(candidate => candidate.id === pageId);
-  if (!page) return warnings;
+  if (!page) {
+    return warnings;
+  }
 
   // Recommended-count warnings (soft limits only).
   if (entry.limitKind === 'soft') {
@@ -84,12 +86,14 @@ export const getAddSectionWarnings = (
         message: `${entry.label} already appears on your ${existing?.page.name ?? 'site'} page. Most sites work best with ${entry.maxPerSite === 1 ? 'one' : String(entry.maxPerSite)}.`,
         resolutions: [
           proceed('Add it anyway'),
-          ...(existing ? [{
-            id: 'go_existing',
-            kind: 'navigate' as const,
-            label: `Go to existing ${entry.label}`,
-            target: { pageId: existing.page.id, sectionId: existing.section.id },
-          }] : []),
+          ...(existing
+            ? [{
+                id: 'go_existing',
+                kind: 'navigate' as const,
+                label: `Go to existing ${entry.label}`,
+                target: { pageId: existing.page.id, sectionId: existing.section.id },
+              }]
+            : []),
           cancel,
         ],
         title: `${entry.label} is already on your site`,
@@ -101,12 +105,14 @@ export const getAddSectionWarnings = (
         message: `${entry.label} already appears on this page.`,
         resolutions: [
           proceed('Add it anyway'),
-          ...(existing ? [{
-            id: 'go_existing',
-            kind: 'navigate' as const,
-            label: `Go to existing ${entry.label}`,
-            target: { pageId: page.id, sectionId: existing.id },
-          }] : []),
+          ...(existing
+            ? [{
+                id: 'go_existing',
+                kind: 'navigate' as const,
+                label: `Go to existing ${entry.label}`,
+                target: { pageId: page.id, sectionId: existing.id },
+              }]
+            : []),
           cancel,
         ],
         title: `${entry.label} is already on this page`,
@@ -292,11 +298,17 @@ export const getAddSectionBlocker = (
   type: SectionInstance['sectionType'],
 ): OverlapWarning | null => {
   const page = document.pages.find(candidate => candidate.id === pageId);
-  if (!page) return null;
+  if (!page) {
+    return null;
+  }
   if (type !== 'booking') {
-    if (!isLibrarySectionType(type)) return null;
+    if (!isLibrarySectionType(type)) {
+      return null;
+    }
     const entry = getSectionRegistryEntry(type);
-    if (entry.limitKind !== 'hard' || entry.maxPerPage === undefined) return null;
+    if (entry.limitKind !== 'hard' || entry.maxPerPage === undefined) {
+      return null;
+    }
   }
 
   const existing = type === 'booking'
@@ -306,7 +318,9 @@ export const getAddSectionBlocker = (
     : page.sections
       .filter(section => section.sectionType === type)
       .map(section => ({ page, section }))[0];
-  if (!existing) return null;
+  if (!existing) {
+    return null;
+  }
 
   const label = type === 'booking'
     ? 'Booking'
@@ -337,11 +351,19 @@ export const isAddBlocked = (
   pageId: string,
   type: SectionInstance['sectionType'],
 ): boolean => {
-  if (type === 'booking') return getAddSectionBlocker(document, pageId, type) !== null;
-  if (!isLibrarySectionType(type)) return false;
+  if (type === 'booking') {
+    return getAddSectionBlocker(document, pageId, type) !== null;
+  }
+  if (!isLibrarySectionType(type)) {
+    return false;
+  }
   const entry = getSectionRegistryEntry(type);
-  if (entry.limitKind !== 'hard' || entry.maxPerPage === undefined) return false;
+  if (entry.limitKind !== 'hard' || entry.maxPerPage === undefined) {
+    return false;
+  }
   const page = document.pages.find(candidate => candidate.id === pageId);
-  if (!page) return false;
+  if (!page) {
+    return false;
+  }
   return getAddSectionBlocker(document, pageId, type) !== null;
 };

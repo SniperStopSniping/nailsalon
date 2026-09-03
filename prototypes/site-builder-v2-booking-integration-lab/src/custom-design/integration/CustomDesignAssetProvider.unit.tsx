@@ -33,7 +33,11 @@ function AssetMapProbe({ assetIds }: { assetIds: readonly string[] }) {
     <ul>
       {[...states.entries()].map(([assetId, pair]) => (
         <li key={assetId}>
-          {assetId}:{pair.original.status}:{pair.thumbnail.status}
+          {assetId}
+          :
+          {pair.original.status}
+          :
+          {pair.thumbnail.status}
         </li>
       ))}
     </ul>
@@ -85,7 +89,9 @@ describe('CustomDesignAssetProvider', () => {
     expect(assets.getOriginal).toHaveBeenCalledOnce();
     expect(assets.getThumbnail).toHaveBeenCalledOnce();
     expect(createObjectURL).toHaveBeenCalledOnce();
+
     view.unmount();
+
     expect(revokeObjectURL).toHaveBeenCalledOnce();
     expect(revokeObjectURL).toHaveBeenCalledWith('blob:owner-original');
   });
@@ -136,6 +142,7 @@ describe('CustomDesignAssetProvider', () => {
 
     expect(await screen.findByText('strict:ready:missing')).toBeVisible();
     expect(createObjectURL).toHaveBeenCalledOnce();
+
     view.unmount();
     await waitFor(() => expect(revokeObjectURL).toHaveBeenCalledOnce());
   });

@@ -16,7 +16,6 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { WEBSITE_RECIPES } from '../../../../../../prototypes/site-builder-v2-booking-integration-lab/src/model/section-library/recipes';
 import { SECTION_LIBRARY_REGISTRY } from '../../../../../../prototypes/site-builder-v2-booking-integration-lab/src/model/section-library/registry';
 import { SITE_PALETTE_PRESETS } from '../../../../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/model/palettes';
-
 import { SectionGalleryClient } from './SectionGalleryClient';
 
 afterEach(() => {
@@ -48,6 +47,7 @@ describe('SectionGalleryClient', () => {
         `${entry.label} missing from the gallery`,
       ).toBe(true);
     }
+
     expect(labels.some(label => label.includes('Services & Booking'))).toBe(true);
     expect(labels.some(label => label.includes('Custom Design'))).toBe(true);
   });
@@ -80,6 +80,7 @@ describe('SectionGalleryClient', () => {
     const links = within(navigation).getAllByRole('link');
 
     expect(links.map(link => link.textContent)).toEqual(['Featured Services', 'Reviews']);
+
     for (const link of links) {
       expect(container.querySelector(link.getAttribute('href')!)).toBeInTheDocument();
     }
@@ -91,6 +92,7 @@ describe('SectionGalleryClient', () => {
     const styles = within(screen.getByRole('group', { name: 'Style' })).getAllByRole('button');
     const palettes = within(screen.getByRole('group', { name: 'Palette' })).getAllByRole('button');
     const devices = within(screen.getByRole('group', { name: 'Device' })).getAllByRole('button');
+
     expect(styles).toHaveLength(6);
     expect(palettes).toHaveLength(SITE_PALETTE_PRESETS.length);
     expect(devices).toHaveLength(3);
@@ -99,6 +101,7 @@ describe('SectionGalleryClient', () => {
     fireEvent.click(screen.getByRole('button', { name: new RegExp(champagne.label) }));
 
     const preview = container.querySelector('.onboarding-site-preview');
+
     expect(preview?.getAttribute('style')).toContain(
       `--customer-accent: ${champagne.roles.accent}`,
     );
@@ -120,12 +123,14 @@ describe('SectionGalleryClient', () => {
 
     const list = screen.getByRole('navigation', { name: 'Website recipes' });
     const recipes = within(list).getAllByRole('button');
+
     expect(recipes).toHaveLength(WEBSITE_RECIPES.length);
     expect(recipes[0]).toHaveTextContent('Quick Book');
     expect(container.querySelector('[data-section-id^="onboarding-preview-"]'))
       .not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: /Promo Led/ }));
+
     expect(screen.getByRole('heading', { level: 2, name: 'Promo Led' })).toBeInTheDocument();
     // The recipe renders real sections, not a description of them.
     expect(screen.getByText('Current offers')).toBeInTheDocument();

@@ -18,21 +18,25 @@ export function ContactEditor({ profile }: LibrarySectionEditorProps<'contact'>)
         straight from your Business Profile. Edit them there and this section
         follows.
       </p>
-      {actions.length > 0 ? (
-        <ul className="form-hint">
-          {actions.map(action => (
-            <li key={`${action.method}-${action.href}`}>
-              {action.actionLabel}: {action.detail}
-              {action.preferred && action.method !== 'booking' ? ' · Preferred' : ''}
-            </li>
-          ))}
-        </ul>
-      ) : (
-        <p className="form-hint">
-          No public way to reach you is set yet — add one in your Business
-          Profile, or leave Booking as the way clients reach you.
-        </p>
-      )}
+      {actions.length > 0
+        ? (
+            <ul className="form-hint">
+              {actions.map(action => (
+                <li key={`${action.method}-${action.href}`}>
+                  {action.actionLabel}
+                  {': '}
+                  {action.detail}
+                  {action.preferred && action.method !== 'booking' ? ' · Preferred' : ''}
+                </li>
+              ))}
+            </ul>
+          )
+        : (
+            <p className="form-hint">
+              No public way to reach you is set yet — add one in your Business
+              Profile, or leave Booking as the way clients reach you.
+            </p>
+          )}
     </div>
   );
 }

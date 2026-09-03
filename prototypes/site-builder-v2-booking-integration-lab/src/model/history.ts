@@ -22,11 +22,13 @@ export const collectCustomDesignAssetIds = (
 ): Set<string> => {
   const assetIds = new Set<string>();
   const sections = [
-    ...document.pages.flatMap((page) => page.sections),
+    ...document.pages.flatMap(page => page.sections),
     ...document.unusedSections,
   ];
   for (const section of sections) {
-    if (section.sectionType !== 'custom_design') continue;
+    if (section.sectionType !== 'custom_design') {
+      continue;
+    }
     for (const image of section.settings.images) {
       assetIds.add(image.assetId);
     }

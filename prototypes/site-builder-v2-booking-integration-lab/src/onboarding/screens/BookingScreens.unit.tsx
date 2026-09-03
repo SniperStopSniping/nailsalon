@@ -28,7 +28,7 @@ describe('BookingPreferencesScreen', () => {
           onBookingPreferencesChange={vi.fn()}
           onContinue={vi.fn()}
           onDepositChange={vi.fn()}
-          onServiceMenuChange={(serviceMenu) => setProfile(current => ({
+          onServiceMenuChange={serviceMenu => setProfile(current => ({
             ...current,
             serviceMenu,
           }))}
@@ -45,8 +45,10 @@ describe('BookingPreferencesScreen', () => {
     expect(document.querySelector('[data-booking-task="services"]')).toHaveClass(
       'is-celebrating',
     );
+
     await waitFor(() => expect(document.querySelector('.visually-hidden[role="status"]'))
       .toHaveTextContent('Your service menu is ready. 6 services added.'));
+
     expect(document.querySelector('.onboarding-feedback')).toBeNull();
     expect(confirmation).toBeEnabled();
   });
@@ -58,7 +60,7 @@ describe('BookingPreferencesScreen', () => {
     function Harness() {
       const [profile, setProfile] = useState(createDefaultBusinessProfile);
       const patchPreferences = (patch: Partial<BookingPreferencesDraft>) => {
-        setProfile((current) => ({
+        setProfile(current => ({
           ...current,
           bookingPreferences: { ...current.bookingPreferences, ...patch },
         }));
@@ -69,11 +71,11 @@ describe('BookingPreferencesScreen', () => {
           onBack={vi.fn()}
           onBookingPreferencesChange={patchPreferences}
           onContinue={onContinue}
-          onDepositChange={(deposit) => setProfile((current) => ({
+          onDepositChange={deposit => setProfile(current => ({
             ...current,
             policies: { ...current.policies, deposits: deposit },
           }))}
-          onServiceMenuChange={(serviceMenu) => setProfile((current) => ({
+          onServiceMenuChange={serviceMenu => setProfile(current => ({
             ...current,
             serviceMenu,
           }))}
@@ -82,6 +84,7 @@ describe('BookingPreferencesScreen', () => {
     }
 
     render(<Harness />);
+
     expect(screen.getByRole('heading', { name: 'Let’s get you ready to take bookings' }))
       .toBeVisible();
     expect(document.querySelectorAll('[data-booking-task]')).toHaveLength(4);
@@ -97,7 +100,9 @@ describe('BookingPreferencesScreen', () => {
     expect(screen.queryByText('Earliest bookable time')).not.toBeInTheDocument();
     expect(document.querySelector('[data-bookable-time]')).toBeNull();
     expect(screen.queryByText(/Tomorrow at 10:30 AM/u)).not.toBeInTheDocument();
+
     await user.click(screen.getByRole('button', { name: 'Save and continue' }));
+
     expect(screen.getAllByText('Confirm the services you want to start with.').length)
       .toBeGreaterThan(0);
     expect(screen.getAllByText('Choose how clients can visit you.').length).toBeGreaterThan(0);
@@ -107,10 +112,13 @@ describe('BookingPreferencesScreen', () => {
     await user.click(screen.getByRole('radio', { name: 'Appointment only' }));
     await user.click(within(screen.getByRole('group', { name: 'Are you accepting new clients?' }))
       .getByRole('radio', { name: 'Yes' }));
+
     expect(screen.getByRole('heading', { name: 'Your booking setup is ready' })).toBeVisible();
     expect(screen.getByRole('button', { name: /Clients Appointment only · Accepting new clients Complete/ }))
       .toBeVisible();
+
     await user.click(screen.getByRole('button', { name: 'Save and continue' }));
+
     expect(onContinue).toHaveBeenCalledOnce();
   });
 
@@ -125,7 +133,7 @@ describe('BookingPreferencesScreen', () => {
         <BookingPreferencesScreen
           profile={profile}
           onBack={vi.fn()}
-          onBookingPreferencesChange={(patch) => setProfile((current) => {
+          onBookingPreferencesChange={patch => setProfile((current) => {
             latest = {
               ...current,
               bookingPreferences: { ...current.bookingPreferences, ...patch },
@@ -133,7 +141,7 @@ describe('BookingPreferencesScreen', () => {
             return latest;
           })}
           onContinue={vi.fn()}
-          onDepositChange={(deposit) => setProfile((current) => {
+          onDepositChange={deposit => setProfile((current) => {
             latest = {
               ...current,
               policies: { ...current.policies, deposits: deposit },
@@ -175,7 +183,7 @@ describe('BookingPreferencesScreen', () => {
           onBookingPreferencesChange={vi.fn()}
           onContinue={vi.fn()}
           onDepositChange={vi.fn()}
-          onServiceMenuChange={(serviceMenu) => setProfile((current) => {
+          onServiceMenuChange={serviceMenu => setProfile((current) => {
             latest = { ...current, serviceMenu };
             return latest;
           })}
@@ -184,44 +192,63 @@ describe('BookingPreferencesScreen', () => {
     }
 
     render(<FeedbackProvider testMode><Harness /></FeedbackProvider>);
+
     expect(document.querySelector('.onboarding-service-menu-count'))
       .toHaveTextContent('4 add-ons ready');
+
     await user.click(screen.getByRole('button', { name: 'Review services & add-ons' }));
     let library = screen.getByRole('dialog', { name: 'Choose your services' });
+
     expect(within(library).queryByText('French')).not.toBeInTheDocument();
     expect(within(library).getByText('6 services selected')).toBeVisible();
     expect(within(library).getByRole('button', { name: 'Done' })).toBeVisible();
+
     const russianItem = within(library).getByText('Russian Manicure').closest('li');
+
     expect(russianItem).not.toBeNull();
+
     await user.click(within(russianItem!).getByRole('button', { name: 'Remove Russian Manicure' }));
+
     expect(latest.serviceMenu.selectedServiceIds).not.toContain('svc-manicure-russian');
     expect(document.querySelector('.onboarding-feedback')).toBeNull();
+
     await waitFor(() => expect(document.querySelector('.visually-hidden[role="status"]'))
       .toHaveTextContent('Russian Manicure removed.'));
     library = screen.getByRole('dialog', { name: 'Choose your services' });
     const updatedRussianItem = within(library).getByText('Russian Manicure').closest('li');
+
     expect(updatedRussianItem).not.toBeNull();
     expect(within(updatedRussianItem!).getByRole('button', { name: 'Add Russian Manicure' })).toBeVisible();
     expect(within(library).getByText('Classic Manicure')).toBeVisible();
+
     const classicItem = within(library).getByText('Classic Manicure').closest('li');
+
     expect(classicItem).not.toBeNull();
     expect(classicItem).toHaveTextContent('Manicure · 45 min$35');
+
     await user.click(within(classicItem!).getByRole('button', { name: 'Add Classic Manicure' }));
+
     expect(latest.serviceMenu.selectedServiceIds).toContain('svc-manicure-classic');
     expect(document.querySelector('.onboarding-feedback')).toBeNull();
+
     await waitFor(() => expect(document.querySelector('.visually-hidden[role="status"]'))
       .toHaveTextContent('Classic Manicure added.'));
 
     await user.click(within(library).getByRole('tab', { name: 'Add-ons' }));
+
     expect(within(library).getByText('French')).toBeVisible();
     expect(within(library).queryByText('Russian Manicure')).not.toBeInTheDocument();
     expect(within(library).getByText('4 add-ons added')).toBeVisible();
+
     for (const addOn of MOCK_ADD_ONS) {
       const item = within(library).getByText(addOn.name).closest('li');
+
       expect(item).not.toBeNull();
+
       const action = ['addon-french', 'addon-chrome', 'addon-simple-art', 'addon-detailed-art'].includes(addOn.id)
         ? 'Remove'
         : 'Add';
+
       expect(within(item!).getByRole('button', { name: `${action} ${addOn.name}` }))
         .toBeVisible();
     }
@@ -229,15 +256,22 @@ describe('BookingPreferencesScreen', () => {
     await user.click(within(library).getByRole('tab', { name: 'Services' }));
     await user.type(within(library).getByRole('searchbox', { name: 'Search services' }), 'Shellac');
     const shellacItem = within(library).getByText('Shellac / Gel Toes').closest('li');
+
     expect(shellacItem).not.toBeNull();
     expect(shellacItem).toHaveTextContent('Pedicure · 45 min$30');
+
     await user.click(within(shellacItem!).getByRole('button', { name: 'Add Shellac / Gel Toes' }));
+
     expect(within(library).getByText('7 services selected')).toBeVisible();
+
     await user.click(within(library).getByRole('button', { name: 'Done' }));
+
     expect(screen.queryByRole('dialog', { name: 'Choose your services' })).not.toBeInTheDocument();
     expect(latest.serviceMenu.selectedServiceIds).toContain('svc-template-shellac_gel_toes');
+
     await user.click(screen.getByRole('button', { name: 'Review services & add-ons' }));
     library = screen.getByRole('dialog', { name: 'Choose your services' });
+
     expect(within(library).getByRole('button', { name: 'Remove Shellac / Gel Toes' })).toBeVisible();
   });
 
@@ -256,6 +290,7 @@ describe('BookingPreferencesScreen', () => {
 
     await user.click(screen.getByRole('button', { name: 'Add-ons · Optional 4 add-ons' }));
     const library = screen.getByRole('dialog', { name: 'Choose your services' });
+
     expect(within(library).getByRole('tab', { name: 'Add-ons' }))
       .toHaveAttribute('aria-selected', 'true');
     expect(within(library).getByRole('complementary', { name: 'Add-ons are optional' }))
@@ -295,24 +330,29 @@ describe('BookingPreferencesScreen', () => {
       servicesTab.focus();
       await user.keyboard('{ArrowRight}');
       await waitFor(() => expect(addOnsTab).toHaveFocus());
+
       expect(addOnsTab).toHaveAttribute('aria-selected', 'true');
       expect(within(library).getByRole('tabpanel')).toHaveAttribute(
         'aria-labelledby',
         'onboarding-service-library-tab-add-ons',
       );
+
       await user.keyboard('{ArrowLeft}');
       await waitFor(() => expect(servicesTab).toHaveFocus());
+
       expect(servicesTab).toHaveAttribute('aria-selected', 'true');
 
       expect(categories.parentElement).toHaveClass(
         'onboarding-service-library__category-rail',
       );
+
       await waitFor(() => expect(scrollIntoView).toHaveBeenCalled());
       scrollIntoView.mockClear();
       await user.click(within(categories).getByRole('button', { name: 'Manicure' }));
 
       expect(within(categories).getByRole('button', { name: 'Manicure' }))
         .toHaveAttribute('aria-pressed', 'true');
+
       await waitFor(() => expect(scrollIntoView).toHaveBeenCalledWith({
         behavior: 'auto',
         block: 'nearest',
@@ -321,6 +361,7 @@ describe('BookingPreferencesScreen', () => {
 
       await user.click(within(library).getByRole('tab', { name: 'Add-ons' }));
       const addOnCategories = within(library).getByLabelText('Add-on categories');
+
       expect(within(addOnCategories).getByRole('button', { name: 'All add-ons' }))
         .toHaveAttribute('aria-pressed', 'true');
     } finally {
@@ -377,7 +418,7 @@ describe('BookingPreferencesScreen', () => {
         <BookingPreferencesScreen
           profile={profile}
           onBack={vi.fn()}
-          onBookingPreferencesChange={(patch) => setProfile((current) => {
+          onBookingPreferencesChange={patch => setProfile((current) => {
             latest = {
               ...current,
               bookingPreferences: { ...current.bookingPreferences, ...patch },
@@ -396,6 +437,7 @@ describe('BookingPreferencesScreen', () => {
     await user.selectOptions(screen.getByRole('combobox', {
       name: 'How much notice do you need before an appointment?',
     }), 'preset:720');
+
     expect(latest.bookingPreferences.minimumNoticeMinutes).toBe(720);
 
     await user.click(screen.getByRole('button', { name: /Booking notice 12 hours Complete/ }));
@@ -404,6 +446,7 @@ describe('BookingPreferencesScreen', () => {
     }), 'custom');
     await user.clear(screen.getByRole('spinbutton', { name: 'Amount' }));
     await user.type(screen.getByRole('spinbutton', { name: 'Amount' }), '3');
+
     expect(latest.bookingPreferences.minimumNoticeMinutes).toBe(180);
     expect(screen.getByRole('combobox', {
       name: 'How much notice do you need before an appointment?',
@@ -415,6 +458,7 @@ describe('BookingPreferencesScreen', () => {
     await user.selectOptions(screen.getByRole('combobox', { name: 'Unit' }), 'days');
     await user.clear(screen.getByRole('spinbutton', { name: 'Amount' }));
     await user.type(screen.getByRole('spinbutton', { name: 'Amount' }), '5');
+
     expect(latest.bookingPreferences.minimumNoticeMinutes).toBe(7_200);
     expect(screen.getByRole('combobox', {
       name: 'How much notice do you need before an appointment?',
@@ -444,7 +488,7 @@ describe('BookingPreferencesScreen', () => {
       return (
         <BookingPreferencesScreen
           onBack={vi.fn()}
-          onBookingPreferencesChange={(patch) => setProfile((current) => ({
+          onBookingPreferencesChange={patch => setProfile(current => ({
             ...current,
             bookingPreferences: { ...current.bookingPreferences, ...patch },
           }))}
@@ -493,7 +537,7 @@ describe('BookingPreferencesScreen', () => {
         <BookingPreferencesScreen
           profile={profile}
           onBack={vi.fn()}
-          onBookingPreferencesChange={(patch) => setProfile((current) => {
+          onBookingPreferencesChange={patch => setProfile((current) => {
             latest = {
               ...current,
               bookingPreferences: { ...current.bookingPreferences, ...patch },
@@ -501,7 +545,7 @@ describe('BookingPreferencesScreen', () => {
             return latest;
           })}
           onContinue={onContinue}
-          onDepositChange={(deposit) => setProfile((current) => {
+          onDepositChange={deposit => setProfile((current) => {
             latest = {
               ...current,
               policies: { ...current.policies, deposits: deposit },
@@ -532,8 +576,10 @@ describe('BookingPreferencesScreen', () => {
       .toHaveLength(2);
     expect(screen.getAllByText('Enter a custom deposit amount greater than zero.'))
       .toHaveLength(1);
+
     const notice = screen.getByRole('spinbutton', { name: 'Amount' });
     await waitFor(() => expect(notice).toHaveFocus());
+
     expect(latest.bookingPreferences.minimumNoticeMinutes).toBe(120);
     expect(latest.policies.deposits.amountCents).toBeNull();
     expect(onContinue).not.toHaveBeenCalled();
@@ -542,9 +588,12 @@ describe('BookingPreferencesScreen', () => {
     await user.click(screen.getByRole('button', { name: /Deposits Finish your deposit amount/ }));
     const deposit = screen.getByRole('spinbutton', { name: 'Custom deposit amount' });
     await user.type(deposit, '35.5');
+
     expect(latest.bookingPreferences.minimumNoticeMinutes).toBe(360);
     expect(latest.policies.deposits.amountCents).toBe(3_550);
+
     await user.click(screen.getByRole('button', { name: 'Save and continue' }));
+
     expect(onContinue).toHaveBeenCalledOnce();
   });
 });
@@ -569,7 +618,9 @@ describe('StartingPointScreen', () => {
     expect(screen.getByText('You’ll preview your site before choosing a plan.')).toBeVisible();
     expect(screen.getByText('Nothing is permanent.')).toBeVisible();
     expect(screen.queryByRole('button', { name: 'Back' })).not.toBeInTheDocument();
+
     const cards = screen.getAllByRole('button', { name: /Start with/ });
+
     expect(cards).toHaveLength(3);
     // Each card describes the exact locked customer recipe. Site-shell chrome
     // is automatic and therefore never appears in this content/page summary.
@@ -583,12 +634,16 @@ describe('StartingPointScreen', () => {
       'Home · Services & Booking · Gallery · About · Contact',
     )).toBeVisible();
     expect(screen.getAllByText('Isla Nail Studio').length).toBeGreaterThanOrEqual(3);
+
     const logos = document.querySelectorAll('.final-starter-preview__logo');
+
     expect(logos).toHaveLength(3);
+
     for (const logo of logos) {
       expect(logo).toHaveAttribute('data-media-role', 'logo');
       expect(logo).toHaveAttribute('src', 'data:image/png;base64,logo');
     }
+
     expect(screen.queryByText(/custom design/i)).not.toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: /Start with One-page/ }));
@@ -609,10 +664,13 @@ describe('StartingPointScreen', () => {
 
     const onePage = screen.getByRole('button', { name: /Start with One-page/ });
     await user.click(onePage);
+
     expect(onePage).toHaveAttribute('data-committing', 'true');
     expect(onChooseStarter).not.toHaveBeenCalled();
+
     await user.click(screen.getByRole('button', { name: /Start with Quick Book/ }));
     await waitFor(() => expect(onChooseStarter).toHaveBeenCalledWith('one_page'));
+
     expect(onChooseStarter).toHaveBeenCalledOnce();
   });
 
@@ -630,6 +688,7 @@ describe('StartingPointScreen', () => {
     );
 
     await user.click(screen.getByRole('button', { name: /Start with Multi-page/ }));
+
     expect(onChooseStarter).toHaveBeenCalledWith('multi_page');
 
     onChooseStarter.mockClear();
@@ -644,6 +703,7 @@ describe('StartingPointScreen', () => {
     await user.click(screen.getByRole('button', {
       name: /Continue with this starting point/,
     }));
+
     expect(onChooseStarter).toHaveBeenCalledWith('multi_page');
   });
 
@@ -661,8 +721,11 @@ describe('StartingPointScreen', () => {
     );
 
     const canvaButton = screen.getByRole('button', { name: 'I want to use a Canva design' });
+
     expect(canvaButton).toHaveAttribute('aria-pressed', 'false');
+
     await user.click(canvaButton);
+
     expect(onCanvaIntent).toHaveBeenCalledOnce();
 
     rerender(
@@ -675,6 +738,7 @@ describe('StartingPointScreen', () => {
         selectedStarter={null}
       />,
     );
+
     expect(screen.getByRole('button', { name: 'I want to use a Canva design' }))
       .toHaveAttribute('aria-pressed', 'true');
     expect(screen.getByRole('status'))
@@ -741,7 +805,9 @@ describe('StartingPointScreen', () => {
 
     await user.tab();
     const previews = screen.getAllByTestId(/starter-preview-/u);
+
     expect(previews).toHaveLength(3);
+
     for (const preview of previews) {
       expect(preview).toHaveAttribute('data-preview-active', 'false');
       expect(preview).toHaveAttribute('data-preview-state', 'poster');
@@ -761,12 +827,14 @@ describe('StartingPointScreen', () => {
     const current = screen.getByRole('button', {
       name: /Current starting point.*One-page website/u,
     });
+
     expect(current).toHaveAttribute('aria-pressed', 'true');
     expect(current).toHaveAttribute('data-selected', 'true');
     expect(within(current).getByText('Current starting point')).toBeVisible();
     expect(within(current).getByText('Continue with this starting point')).toBeVisible();
 
     const quickBook = screen.getByRole('button', { name: /Switch to Quick Book/u });
+
     expect(quickBook).toHaveAttribute('aria-pressed', 'false');
     expect(quickBook).toHaveAttribute('data-selected', 'false');
   });
@@ -789,6 +857,7 @@ describe('StartingPreviewScreen', () => {
 
     expect(document.querySelector('.onboarding-starting-preview-screen'))
       .toHaveClass('is-revealing');
+
     rerender(
       <StartingPreviewScreen
         preview={<div>Customer site</div>}
@@ -799,6 +868,7 @@ describe('StartingPreviewScreen', () => {
         onOpenPreview={vi.fn()}
       />,
     );
+
     expect(document.querySelector('.onboarding-starting-preview-screen'))
       .not.toHaveClass('is-revealing');
   });
@@ -830,6 +900,7 @@ describe('StartingPreviewScreen', () => {
 
     await user.click(screen.getByRole('button', { name: 'Preview my site' }));
     await user.click(screen.getByRole('button', { name: 'Continue setting up my site' }));
+
     expect(onOpenPreview).toHaveBeenCalledOnce();
     expect(onContinue).toHaveBeenCalledOnce();
   });

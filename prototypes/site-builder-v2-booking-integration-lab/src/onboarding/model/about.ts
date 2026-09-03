@@ -30,7 +30,7 @@ export type AboutPresetCapability = {
 
 const createAllElementsSupported = (): AboutPresetCapability => ({
   elements: Object.fromEntries(
-    ABOUT_ELEMENT_IDS.map((element) => [element, { availability: 'supported' }]),
+    ABOUT_ELEMENT_IDS.map(element => [element, { availability: 'supported' }]),
   ) as Record<AboutElementId, AboutPresetElementCapability>,
 });
 
@@ -53,8 +53,12 @@ export const aboutPresetSupportsElement = (
 const cleanInlineValue = (value: string): string => value.trim().replace(/\s+/gu, ' ');
 
 const humanList = (values: readonly string[]): string => {
-  if (values.length <= 1) return values[0] ?? '';
-  if (values.length === 2) return `${values[0]} and ${values[1]}`;
+  if (values.length <= 1) {
+    return values[0] ?? '';
+  }
+  if (values.length === 2) {
+    return `${values[0]} and ${values[1]}`;
+  }
   return `${values.slice(0, -1).join(', ')}, and ${values.at(-1)}`;
 };
 
@@ -68,11 +72,15 @@ const ABOUT_BIO_LEAD_MAX_LENGTH = 168;
 
 const createBioLead = (value: string): string => {
   const clean = cleanInlineValue(value);
-  if (clean.length <= ABOUT_BIO_LEAD_MAX_LENGTH) return clean;
+  if (clean.length <= ABOUT_BIO_LEAD_MAX_LENGTH) {
+    return clean;
+  }
 
   const candidate = clean.slice(0, ABOUT_BIO_LEAD_MAX_LENGTH + 1);
   const firstBoundary = candidate.search(/[.!?]\s/u);
-  if (firstBoundary >= 48) return candidate.slice(0, firstBoundary + 1).trim();
+  if (firstBoundary >= 48) {
+    return candidate.slice(0, firstBoundary + 1).trim();
+  }
 
   const lastSpace = candidate.lastIndexOf(' ');
   return `${candidate.slice(0, lastSpace >= 72 ? lastSpace : ABOUT_BIO_LEAD_MAX_LENGTH).trim()}…`;

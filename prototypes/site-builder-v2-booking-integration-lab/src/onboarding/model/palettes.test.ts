@@ -38,6 +38,7 @@ describe('customer website palette presets', () => {
       expect(contrastRatio(roles.accent, background)).toBeGreaterThanOrEqual(4.5);
       expect(contrastRatio(roles.focusRing, background)).toBeGreaterThanOrEqual(3);
     }
+
     expect(contrastRatio(roles.buttonText, roles.button)).toBeGreaterThanOrEqual(4.5);
   });
 });

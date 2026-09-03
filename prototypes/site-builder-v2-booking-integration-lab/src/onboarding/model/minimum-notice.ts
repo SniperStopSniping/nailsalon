@@ -6,7 +6,9 @@ export const formatMinimumNoticeDuration = (minimumNoticeMinutes: number): strin
   const normalizedMinutes = Number.isFinite(minimumNoticeMinutes)
     ? Math.max(0, minimumNoticeMinutes)
     : 0;
-  if (normalizedMinutes === 0) return 'No minimum notice';
+  if (normalizedMinutes === 0) {
+    return 'No minimum notice';
+  }
   if (normalizedMinutes >= 1_440) {
     const days = normalizedMinutes / 1_440;
     return `${formatNumber(days)} ${days === 1 ? 'day' : 'days'}`;

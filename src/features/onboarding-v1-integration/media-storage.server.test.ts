@@ -11,8 +11,15 @@ import {
   saveOnboardingMediaFile,
 } from './media-storage.server';
 
+vi.mock('server-only', () => ({}));
+vi.mock('@/libs/Cloudinary', () => ({
+  cloudinary: {},
+  isCloudinaryConfigured: () => false,
+}));
+
 describe('development onboarding media storage', () => {
   let mediaRoot: string;
+  const owner = { salonId: 'salon_test_1', siteId: 'site_test_1' };
 
   beforeEach(async () => {
     mediaRoot = await mkdtemp(path.join(tmpdir(), 'luster-onboarding-media-'));
@@ -47,10 +54,11 @@ describe('development onboarding media storage', () => {
     expect(stored).toMatchObject({
       height: 24,
       mimeType: 'image/webp',
+      storageProvider: 'development_local',
       width: 48,
     });
     expect(stored.storageKey).toContain('/logo/');
-    expect((await readOnboardingMediaFile(stored.storageKey)).byteLength).toBeGreaterThan(0);
+    expect((await readOnboardingMediaFile(stored.storageKey, owner)).byteLength).toBeGreaterThan(0);
   });
 
   it('rejects a mismatched signature rather than trusting the MIME label', async () => {
@@ -111,7 +119,7 @@ describe('development onboarding media storage', () => {
       file: new File([Uint8Array.from(firstInput)], 'first.png', { type: 'image/png' }),
       revisionId: 'revision_test_1',
     });
-    const firstBytesBefore = await readOnboardingMediaFile(first.storageKey);
+    const firstBytesBefore = await readOnboardingMediaFile(first.storageKey, owner);
     const second = await saveOnboardingMediaFile({
       ...common,
       file: new File([Uint8Array.from(secondInput)], 'second.png', { type: 'image/png' }),
@@ -120,8 +128,8 @@ describe('development onboarding media storage', () => {
     });
 
     expect(second.storageKey).not.toBe(first.storageKey);
-    expect(await readOnboardingMediaFile(first.storageKey)).toEqual(firstBytesBefore);
-    expect(await readOnboardingMediaFile(second.storageKey)).not.toEqual(firstBytesBefore);
+    expect(await readOnboardingMediaFile(first.storageKey, owner)).toEqual(firstBytesBefore);
+    expect(await readOnboardingMediaFile(second.storageKey, owner)).not.toEqual(firstBytesBefore);
   });
 
   it('gives concurrent attempts for one logical item independent storage objects', async () => {
@@ -148,10 +156,10 @@ describe('development onboarding media storage', () => {
 
     expect(first.storageKey).not.toBe(second.storageKey);
 
-    await deleteOnboardingMediaFiles([first.storageKey]);
+    await deleteOnboardingMediaFiles([first.storageKey], owner);
 
-    await expect(readOnboardingMediaFile(first.storageKey)).rejects.toMatchObject({ code: 'ENOENT' });
-    await expect(readOnboardingMediaFile(second.storageKey)).resolves.toHaveLength(first.byteSize);
+    await expect(readOnboardingMediaFile(first.storageKey, owner)).rejects.toMatchObject({ code: 'ENOENT' });
+    await expect(readOnboardingMediaFile(second.storageKey, owner)).resolves.toHaveLength(first.byteSize);
   });
 
   it('cleans unique tenant-owned files after a committed tenant purge', async () => {
@@ -171,8 +179,8 @@ describe('development onboarding media storage', () => {
     await expect(deleteOnboardingMediaFiles([
       stored.storageKey,
       stored.storageKey,
-    ])).resolves.toEqual({ failed: 0, removed: 1 });
-    await expect(readOnboardingMediaFile(stored.storageKey)).rejects.toMatchObject({
+    ], owner)).resolves.toEqual({ failed: 0, removed: 1 });
+    await expect(readOnboardingMediaFile(stored.storageKey, owner)).rejects.toMatchObject({
       code: 'ENOENT',
     });
   });

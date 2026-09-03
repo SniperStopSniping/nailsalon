@@ -8,8 +8,8 @@ import type {
 } from '../contracts/dashboard';
 
 const hasBookingSection = (input: SetupChecklistInput): boolean => Boolean(
-  input.document?.pages.some((page) => page.sections.some(
-    (section) => section.sectionType === 'booking',
+  input.document?.pages.some(page => page.sections.some(
+    section => section.sectionType === 'booking',
   )),
 );
 
@@ -50,7 +50,7 @@ export const LAB_DASHBOARD_HANDOFF_PORT: DashboardHandoffPort = {
   authenticatedProductionPath: '/[locale]/admin',
   getInitialDestination: () => 'today',
   kind: 'ux_lab_storyboard',
-  prepareOnboardingReview: (state) => goToScreen(state, 'final_preview'),
+  prepareOnboardingReview: state => goToScreen(state, 'final_preview'),
 };
 
 export const LAB_DASHBOARD_TOUR_PORT: DashboardTourPort = {

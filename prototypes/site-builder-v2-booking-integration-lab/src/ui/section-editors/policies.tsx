@@ -67,12 +67,14 @@ export function PoliciesEditor({
           );
         })}
       </div>
-      {lastRemaining ? (
-        <small className="form-hint">
-          One topic has to stay on. Hide or remove the whole section if you do
-          not want any of them.
-        </small>
-      ) : null}
+      {lastRemaining
+        ? (
+            <small className="form-hint">
+              One topic has to stay on. Hide or remove the whole section if you do
+              not want any of them.
+            </small>
+          )
+        : null}
     </div>
   );
 }

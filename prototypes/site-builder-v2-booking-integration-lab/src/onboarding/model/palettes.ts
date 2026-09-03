@@ -163,6 +163,6 @@ export const SITE_PALETTE_PRESETS: readonly SitePalettePreset[] = [
   },
 ] as const;
 
-export const SITE_PALETTE_BY_ID: Readonly<Record<SitePalettePresetId, SitePalettePreset>> =
-  Object.fromEntries(SITE_PALETTE_PRESETS.map((preset) => [preset.id, preset])) as
+export const SITE_PALETTE_BY_ID: Readonly<Record<SitePalettePresetId, SitePalettePreset>>
+  = Object.fromEntries(SITE_PALETTE_PRESETS.map(preset => [preset.id, preset])) as
     Record<SitePalettePresetId, SitePalettePreset>;

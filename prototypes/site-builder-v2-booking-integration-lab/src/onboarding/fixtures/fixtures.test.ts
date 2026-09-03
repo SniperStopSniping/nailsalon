@@ -10,7 +10,7 @@ import {
 
 describe('onboarding Lab review fixtures', () => {
   it('exposes every named review state', () => {
-    expect(LAB_REVIEW_FIXTURES.map((fixture) => fixture.label)).toEqual([
+    expect(LAB_REVIEW_FIXTURES.map(fixture => fixture.label)).toEqual([
       'Blank new owner',
       'Daniela / Isla Nail Studio',
       'About Off',
@@ -39,6 +39,7 @@ describe('onboarding Lab review fixtures', () => {
   it('provides fixed Lab-only open and closed preview timestamps', () => {
     const open = applyLabReviewFixture('preview_time_open');
     const closed = applyLabReviewFixture('preview_time_closed');
+
     expect(open.reviewOptions.previewTimestamp).toBe('2026-08-27T18:30:00.000Z');
     expect(closed.reviewOptions.previewTimestamp).toBe('2026-08-28T01:00:00.000Z');
     expect(getWeeklyHoursPreviewStatus(
@@ -53,6 +54,7 @@ describe('onboarding Lab review fixtures', () => {
 
   it('uses Daniela-style shared profile content', () => {
     const state = applyLabReviewFixture('daniela_isla');
+
     expect(state.profile).toMatchObject({
       businessName: 'Isla Nail Studio',
       businessStructure: 'solo',

@@ -41,10 +41,12 @@ export function OnboardingCustomDesignSections({
     [sectionIds],
   );
   const sections = useMemo<LocatedSection[]>(() => document?.pages.flatMap((page) => {
-    if (!page.visible || (pageId && page.id !== pageId)) return [];
+    if (!page.visible || (pageId && page.id !== pageId)) {
+      return [];
+    }
     return [...page.sections]
       .sort((left, right) => left.order - right.order)
-      .flatMap((section) => (
+      .flatMap(section => (
         section.sectionType === 'custom_design'
         && section.visible
         && hasCustomDesignArtwork(section.settings)
@@ -54,11 +56,13 @@ export function OnboardingCustomDesignSections({
       ));
   }) ?? [], [document, pageId, requestedIds]);
   const assetIds = useMemo(() => sections.flatMap(({ section }) =>
-    section.settings.images.map((image) => image.assetId)), [sections]);
+    section.settings.images.map(image => image.assetId)), [sections]);
   const assetPairs = useCustomDesignAssetMap(assetIds);
   const assets = useMemo<CustomDesignOwnerAssetMap>(() => {
     const resolved = toCustomDesignOwnerAssetMap(assetPairs);
-    if (renderErrorAssetIds.size === 0) return resolved;
+    if (renderErrorAssetIds.size === 0) {
+      return resolved;
+    }
     return Object.fromEntries(Object.entries(resolved).map(([assetId, asset]) => [
       assetId,
       renderErrorAssetIds.has(assetId)
@@ -67,7 +71,7 @@ export function OnboardingCustomDesignSections({
     ]));
   }, [assetPairs, renderErrorAssetIds]);
   const renderableSections = useMemo(() => sections.filter(({ section }) => (
-    hasRenderableCustomDesignContent(section.settings, assetId => {
+    hasRenderableCustomDesignContent(section.settings, (assetId) => {
       const status = assets[assetId]?.status;
       return status === 'loading' || status === 'ready';
     })
@@ -75,16 +79,18 @@ export function OnboardingCustomDesignSections({
   const actionResolvers = useMemo<Map<string, ResolveCustomDesignAction>>(() => (
     document
       ? new Map(renderableSections.map(({ pageId: activePageId }) => [
-          activePageId,
-          createHostedCustomDesignActionResolver(
-            { activePageId, document },
-            onDocumentTarget,
-          ),
-        ] as const))
+        activePageId,
+        createHostedCustomDesignActionResolver(
+          { activePageId, document },
+          onDocumentTarget,
+        ),
+      ] as const))
       : new Map()
   ), [document, onDocumentTarget, renderableSections]);
 
-  if (!document || renderableSections.length === 0) return null;
+  if (!document || renderableSections.length === 0) {
+    return null;
+  }
 
   return (
     <>
@@ -103,7 +109,7 @@ export function OnboardingCustomDesignSections({
             assets={assets}
             contentMaxWidth="calc(100% - clamp(32px, 10cqw, 112px))"
             onAssetRenderError={(assetId) => {
-              setRenderErrorAssetIds((current) => new Set(current).add(assetId));
+              setRenderErrorAssetIds(current => new Set(current).add(assetId));
             }}
             resolveAction={actionResolvers.get(sectionPageId)!}
             settings={section.settings}

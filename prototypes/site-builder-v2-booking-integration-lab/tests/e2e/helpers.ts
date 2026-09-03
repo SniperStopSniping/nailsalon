@@ -1,14 +1,14 @@
 import {
-  expect,
   type ConsoleMessage,
+  expect,
   type Locator,
   type Page,
   type Request,
   type Response,
 } from '@playwright/test';
 
-export const LAB_STORAGE_KEY =
-  'luster:site-builder-v2-booking-integration-lab:document:v1';
+export const LAB_STORAGE_KEY
+  = 'luster:site-builder-v2-booking-integration-lab:document:v1';
 
 export const CUSTOM_DESIGN_ASSET_DB_NAME = 'luster-custom-design-assets';
 
@@ -79,9 +79,11 @@ export async function openFreshLab(page: Page): Promise<void> {
     });
 
     try {
-      const existingStores = storeNames.filter((storeName) =>
+      const existingStores = storeNames.filter(storeName =>
         database.objectStoreNames.contains(storeName));
-      if (existingStores.length === 0) return;
+      if (existingStores.length === 0) {
+        return;
+      }
 
       await new Promise<void>((resolve, reject) => {
         const transaction = database.transaction(existingStores, 'readwrite');
@@ -112,6 +114,7 @@ export async function openFreshLab(page: Page): Promise<void> {
     // chooser. Drop that write and reload once more.
     await page.evaluate(() => window.localStorage.clear());
     await page.reload();
+
     await expect(chooserHeading).toBeVisible();
   }
 }
@@ -129,9 +132,11 @@ export async function clearCustomDesignAssets(page: Page): Promise<void> {
     });
 
     try {
-      const existingStores = storeNames.filter((storeName) =>
+      const existingStores = storeNames.filter(storeName =>
         database.objectStoreNames.contains(storeName));
-      if (existingStores.length === 0) return;
+      if (existingStores.length === 0) {
+        return;
+      }
 
       await new Promise<void>((resolve, reject) => {
         const transaction = database.transaction(existingStores, 'readwrite');
@@ -162,9 +167,11 @@ export async function readCustomDesignAssetRecordCounts(
     });
 
     try {
-      const existingStores = storeNames.filter((storeName) =>
+      const existingStores = storeNames.filter(storeName =>
         database.objectStoreNames.contains(storeName));
-      if (existingStores.length === 0) return {};
+      if (existingStores.length === 0) {
+        return {};
+      }
       return await new Promise<Record<string, number>>((resolve, reject) => {
         const transaction = database.transaction(existingStores, 'readonly');
         const counts: Record<string, number> = {};
@@ -193,11 +200,12 @@ export async function chooseStarter(
   starter: StarterName,
 ): Promise<void> {
   await page.getByRole('button', { name: new RegExp(`^${starter}`) }).click();
+
   await expect(page.getByTestId('final-hybrid-editor')).toBeVisible();
   await expect
     .poll(() =>
       page.evaluate(
-        (key) => window.localStorage.getItem(key) !== null,
+        key => window.localStorage.getItem(key) !== null,
         LAB_STORAGE_KEY,
       ),
     )
@@ -210,7 +218,7 @@ export async function waitForSaved(page: Page): Promise<void> {
 
 export async function readStoredDocumentJson(page: Page): Promise<string | null> {
   return page.evaluate(
-    (key) => window.localStorage.getItem(key),
+    key => window.localStorage.getItem(key),
     LAB_STORAGE_KEY,
   );
 }
@@ -252,7 +260,9 @@ export function startRuntimeMonitor(page: Page): RuntimeMonitor {
     );
   };
   const onResponse = (response: Response) => {
-    if (response.status() < 400) return;
+    if (response.status() < 400) {
+      return;
+    }
     const currentUrl = page.url();
     const sameOrigin = currentUrl.startsWith('http')
       && new URL(response.url()).origin === new URL(currentUrl).origin;
@@ -283,8 +293,8 @@ export async function documentSurfaceState(
       Object.fromEntries(
         element
           .getAttributeNames()
-          .filter((name) => /(?:lock|scroll|inert|aria-hidden|pointer)/i.test(name))
-          .map((name) => [name, element.getAttribute(name) ?? '']),
+          .filter(name => /lock|scroll|inert|aria-hidden|pointer/i.test(name))
+          .map(name => [name, element.getAttribute(name) ?? '']),
       );
     const stateFor = (element: HTMLElement) => ({
       attributes: lockAttributes(element),
@@ -314,8 +324,8 @@ export async function sectionLabels(
 ): Promise<string[]> {
   return sectionsList(page, pageName)
     .locator('[data-section-label]')
-    .evaluateAll((elements) =>
-      elements.map((element) => element.getAttribute('data-section-label') ?? ''),
+    .evaluateAll(elements =>
+      elements.map(element => element.getAttribute('data-section-label') ?? ''),
     );
 }
 
@@ -333,7 +343,9 @@ export async function openPagesAndStructure(page: Page): Promise<Locator> {
       .getByRole('button', { name: /^Open Pages & Structure for / })
       .click();
   }
+
   await expect(dialog).toBeVisible();
+
   return dialog;
 }
 
@@ -341,6 +353,7 @@ export async function closePagesAndStructure(dialog: Locator): Promise<void> {
   await dialog
     .getByRole('button', { name: 'Close Pages & Structure' })
     .click();
+
   await expect(dialog).toHaveCount(0);
 }
 
@@ -367,6 +380,7 @@ export async function selectPageFromStructure(
   if (await structure.isVisible()) {
     await closePagesAndStructure(structure);
   }
+
   await expect(
     page.getByRole('heading', { level: 1, name: pageName }),
   ).toBeVisible();
@@ -380,10 +394,12 @@ export function bookingCard(page: Page, pageName: string): Locator {
 
 export async function selectBooking(page: Page, pageName: string): Promise<Locator> {
   const card = bookingCard(page, pageName);
-  if (!(await card.evaluate((element) => element.classList.contains('is-selected')))) {
+  if (!(await card.evaluate(element => element.classList.contains('is-selected')))) {
     await card.locator('.section-card__select-surface').click();
   }
+
   await expect(card).toHaveClass(/is-selected/);
+
   return card;
 }
 
@@ -393,8 +409,10 @@ export async function openMoveFromStructure(page: Page): Promise<Locator> {
     .getByRole('button', { name: 'Arrange sections', exact: true })
     .click();
   const move = page.getByRole('dialog', { name: 'Arrange sections' });
+
   await expect(move).toBeVisible();
   await expect(move.getByTestId('reorder-list')).toBeVisible();
+
   return move;
 }
 
@@ -410,18 +428,24 @@ export async function openMoveForBooking(
   const desktopMove = page
     .getByTestId('selected-section-toolbar')
     .getByRole('button', { name: 'Move', exact: true });
+
   await expect(mobileMove.or(desktopMove).or(returnToBooking)).toBeVisible();
+
   if (await returnToBooking.isVisible()) {
     await returnToBooking.click();
   }
+
   await expect(mobileMove.or(desktopMove)).toBeVisible();
+
   if (await mobileMove.isVisible()) {
     await mobileMove.click();
   } else {
     await desktopMove.click();
   }
   const move = page.getByRole('dialog', { name: 'Move Booking' });
+
   await expect(move).toBeVisible();
+
   return move;
 }
 
@@ -437,15 +461,19 @@ export async function openMoveForBookingVia(
   }
   const trigger = entry === 'mobile'
     ? page
-        .getByRole('group', { name: 'Booking actions' })
-        .getByRole('button', { name: 'Move', exact: true })
+      .getByRole('group', { name: 'Booking actions' })
+      .getByRole('button', { name: 'Move', exact: true })
     : page
-        .getByTestId('selected-section-toolbar')
-        .getByRole('button', { name: 'Move', exact: true });
+      .getByTestId('selected-section-toolbar')
+      .getByRole('button', { name: 'Move', exact: true });
+
   await expect(trigger).toBeVisible();
+
   await trigger.click();
   const move = page.getByRole('dialog', { name: 'Move Booking' });
+
   await expect(move).toBeVisible();
+
   return { move, trigger };
 }
 
@@ -461,15 +489,19 @@ export async function openBookingSettings(
     .getByTestId('selected-section-toolbar')
     .getByRole('button', { name: 'Edit', exact: true });
   const trigger = await mobileTrigger.isVisible() ? mobileTrigger : desktopTrigger;
+
   await expect(trigger).toBeVisible();
+
   await trigger.click();
   const desktopSettings = page.getByRole('dialog', { name: 'Booking settings' });
   const mobileSettings = page.getByRole('dialog', { name: 'Booking', exact: true });
   const settings = await desktopSettings.isVisible()
     ? desktopSettings
     : mobileSettings;
+
   await expect(settings).toBeVisible();
   await expect(settings.getByTestId('booking-settings-panel')).toBeVisible();
+
   return { settings, trigger };
 }
 
@@ -493,16 +525,21 @@ export async function moveSectionToPosition(
   const input = move.getByLabel(`Position for ${sectionName}`);
   await input.fill(String(position));
   await input.press('Enter');
+
   await expect(input).toHaveValue(String(position));
 }
 
 export async function expectStickyOwnerToolbarReachable(page: Page): Promise<void> {
   await page.evaluate(() => window.scrollTo({ top: document.documentElement.scrollHeight }));
   const topbar = page.getByRole('banner', { name: 'Site builder toolbar' });
+
   await expect(topbar).toBeVisible();
   await expect(topbar).toHaveCSS('position', 'sticky');
+
   const box = await topbar.boundingBox();
+
   expect(box, 'sticky top bar has geometry after a substantial scroll').not.toBeNull();
+
   if (box) {
     expect(box.y).toBeGreaterThanOrEqual(-1);
     expect(box.y).toBeLessThanOrEqual(1);
@@ -520,6 +557,7 @@ export async function expectStickyOwnerToolbarReachable(page: Page): Promise<voi
       );
       return hit === element || (hit !== null && element.contains(hit));
     });
+
     expect(hitTestable, `${name} remains hit-testable`).toBe(true);
   }
 }
@@ -539,7 +577,7 @@ export async function expectNoDocumentOverflow(page: Page): Promise<void> {
           tagName: element.tagName,
         };
       })
-      .filter((element) => element.right > document.documentElement.clientWidth + 1)
+      .filter(element => element.right > document.documentElement.clientWidth + 1)
       .slice(0, 8),
   }));
 
@@ -556,5 +594,6 @@ export async function expectNoDocumentOverflow(page: Page): Promise<void> {
 export async function closeDialog(page: Page, title: string): Promise<void> {
   const dialog = page.getByRole('dialog', { name: title });
   await dialog.getByRole('button', { name: `Close ${title}` }).click();
+
   await expect(dialog).toHaveCount(0);
 }

@@ -32,9 +32,11 @@ export function OnboardingStageProgress({
             >
               <span aria-hidden="true" className="onboarding-stage-progress__marker" />
               <span>{STAGE_METADATA[stage].label}</span>
-              {state === 'complete' ? (
-                <span className="visually-hidden"> complete</span>
-              ) : null}
+              {state === 'complete'
+                ? (
+                    <span className="visually-hidden"> complete</span>
+                  )
+                : null}
             </li>
           );
         })}

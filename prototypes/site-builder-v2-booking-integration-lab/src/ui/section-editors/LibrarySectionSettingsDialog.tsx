@@ -10,6 +10,12 @@ import {
   getSectionRegistryEntry,
   type SiteLibraryContext,
 } from '../../model/section-library/registry';
+import {
+  getSectionContentPlacementSuppressions,
+  getSectionPlanExclusion,
+  type SectionPlanExclusion,
+  type SitePlanOptionalToggles,
+} from '../../model/site-plan';
 import type {
   LibrarySectionInstance,
   LibrarySectionSettings,
@@ -17,16 +23,9 @@ import type {
   UpdateSiteContentInput,
 } from '../../model/types';
 import type { BusinessProfileDraft } from '../../onboarding/model/types';
-
 import { Dialog } from '../Dialog';
 import { ChoiceField } from './fields';
 import { LIBRARY_SECTION_EDITORS } from './index';
-import {
-  getSectionContentPlacementSuppressions,
-  getSectionPlanExclusion,
-  type SectionPlanExclusion,
-  type SitePlanOptionalToggles,
-} from '../../model/site-plan';
 import type { LibrarySectionEditorProps } from './types';
 
 type LibrarySectionSettingsDialogProps = {
@@ -157,82 +156,104 @@ export function LibrarySectionSettingsDialog({
       variant="context-panel"
     >
       <form className="library-section-editor" onSubmit={submit}>
-        {hasPresetChoice ? (
-          <ChoiceField
-            label="Design"
-            onChange={preset => setDraft({ ...draft, preset } as LibrarySectionSettings)}
-            options={entry.presetIds.map(presetId => ({
-              label: PRESET_LABELS[presetId] ?? presetId.replaceAll('_', ' '),
-              value: presetId,
-            }))}
-            value={(draft as { preset: string }).preset}
-          />
-        ) : null}
-        {Editor ? (
-          <Editor
-            context={context}
-            document={document}
-            onChange={next => setDraft(next)}
-            onSiteContent={onSiteContent}
-            profile={profile}
-            sectionId={section.id}
-            settings={draft as never}
-          />
-        ) : (
-          <p className="form-hint">
-            {entry.label} shows your shared studio details automatically —
-            there is nothing extra to configure here yet. You can still move,
-            hide, or remove the section, and pick its design above.
-          </p>
-        )}
-        {suppressionNotices.length > 0 ? (
-          <div aria-label="Shared content placement" className="library-editor-readiness" role="status">
-            {suppressionNotices.map(notice => (
-              <div data-content-suppression={notice.contentKey} key={`${notice.contentKey}-${notice.reason}`}>
-                <p className="form-hint">{notice.reason}</p>
-                {notice.ownerSectionId && notice.actionLabel ? (
-                  <button
-                    className="secondary-button"
-                    onClick={() => onGoToSection(notice.ownerSectionId as string)}
-                    type="button"
-                  >
-                    {notice.actionLabel}
-                  </button>
-                ) : null}
-                {section.sectionType === 'featured_services'
-                  && notice.suppressEntireSection ? (
-                    <div className="library-editor-placement-actions">
-                      <button
-                        className="secondary-button"
-                        onClick={() => onMoveSection(section.id)}
-                        type="button"
-                      >
-                        Move Featured Services to another page
-                      </button>
-                      {typeof notice.ownerSectionId === 'string' ? (
-                        <button
-                          className="secondary-button"
-                          onClick={() => onHideSection(notice.ownerSectionId as string)}
-                          type="button"
-                        >
-                          Hide Services &amp; Booking and show Featured Services
-                        </button>
-                      ) : null}
-                    </div>
-                  ) : null}
+        {hasPresetChoice
+          ? (
+              <ChoiceField
+                label="Design"
+                onChange={preset => setDraft({ ...draft, preset } as LibrarySectionSettings)}
+                options={entry.presetIds.map(presetId => ({
+                  label: PRESET_LABELS[presetId] ?? presetId.replaceAll('_', ' '),
+                  value: presetId,
+                }))}
+                value={(draft as { preset: string }).preset}
+              />
+            )
+          : null}
+        {Editor
+          ? (
+              <Editor
+                context={context}
+                document={document}
+                onChange={next => setDraft(next)}
+                onSiteContent={onSiteContent}
+                profile={profile}
+                sectionId={section.id}
+                settings={draft as never}
+              />
+            )
+          : (
+              <p className="form-hint">
+                {entry.label}
+                {' '}
+                shows your shared studio details automatically —
+                there is nothing extra to configure here yet. You can still move,
+                hide, or remove the section, and pick its design above.
+              </p>
+            )}
+        {suppressionNotices.length > 0
+          ? (
+              <div aria-label="Shared content placement" className="library-editor-readiness" role="status">
+                {suppressionNotices.map(notice => (
+                  <div data-content-suppression={notice.contentKey} key={`${notice.contentKey}-${notice.reason}`}>
+                    <p className="form-hint">{notice.reason}</p>
+                    {notice.ownerSectionId && notice.actionLabel
+                      ? (
+                          <button
+                            className="secondary-button"
+                            onClick={() => onGoToSection(notice.ownerSectionId as string)}
+                            type="button"
+                          >
+                            {notice.actionLabel}
+                          </button>
+                        )
+                      : null}
+                    {section.sectionType === 'featured_services'
+                    && notice.suppressEntireSection
+                      ? (
+                          <div className="library-editor-placement-actions">
+                            <button
+                              className="secondary-button"
+                              onClick={() => onMoveSection(section.id)}
+                              type="button"
+                            >
+                              Move Featured Services to another page
+                            </button>
+                            {typeof notice.ownerSectionId === 'string'
+                              ? (
+                                  <button
+                                    className="secondary-button"
+                                    onClick={() => onHideSection(notice.ownerSectionId as string)}
+                                    type="button"
+                                  >
+                                    Hide Services &amp; Booking and show Featured Services
+                                  </button>
+                                )
+                              : null}
+                          </div>
+                        )
+                      : null}
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
-        ) : null}
-        {readiness.level === 'empty' && readiness.issues[0] ? (
-          <p className="form-hint library-editor-readiness" role="status">
-            Not on your site yet: {readiness.issues[0].message}
-          </p>
-        ) : planMessage && suppressionNotices.length === 0 ? (
-          <p className="form-hint library-editor-readiness" role="status">
-            Not on your site yet: {planMessage}
-          </p>
-        ) : null}
+            )
+          : null}
+        {readiness.level === 'empty' && readiness.issues[0]
+          ? (
+              <p className="form-hint library-editor-readiness" role="status">
+                Not on your site yet:
+                {' '}
+                {readiness.issues[0].message}
+              </p>
+            )
+          : planMessage && suppressionNotices.length === 0
+            ? (
+                <p className="form-hint library-editor-readiness" role="status">
+                  Not on your site yet:
+                  {' '}
+                  {planMessage}
+                </p>
+              )
+            : null}
         <div className="dialog-actions">
           <button className="secondary-button" onClick={onClose} type="button">Cancel</button>
           <button className="primary-button" type="submit">Save section</button>

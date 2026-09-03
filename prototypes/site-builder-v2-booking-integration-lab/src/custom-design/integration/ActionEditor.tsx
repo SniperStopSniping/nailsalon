@@ -6,6 +6,8 @@ import type { CustomDesignInternalPageOption } from './ui-types';
 
 export type CustomDesignActionType = CustomDesignAction['type'];
 
+const EMPTY_INTERNAL_TARGETS: readonly CustomDesignInternalPageOption[] = [];
+
 export const CUSTOM_DESIGN_ACTION_OPTIONS: readonly {
   label: string;
   type: CustomDesignActionType;
@@ -51,7 +53,9 @@ const actionToDraft = (
     username: '',
   };
 
-  if (!action || action.type === 'start_booking') return empty;
+  if (!action || action.type === 'start_booking') {
+    return empty;
+  }
   switch (action.type) {
     case 'directions':
       return { ...empty, address: action.destination.address };
@@ -135,7 +139,7 @@ export function ActionEditor({
   allowedTypes,
   disabled = false,
   idPrefix,
-  internalTargets = [],
+  internalTargets = EMPTY_INTERNAL_TARGETS,
   onChange,
   onValidityChange,
 }: ActionEditorProps) {
@@ -191,132 +195,154 @@ export function ActionEditor({
         ))}
       </select>
 
-      {draft.type === 'directions' ? (
-        <label htmlFor={`${controlId}-address`}>
-          Address
-          <textarea
-            id={`${controlId}-address`}
-            rows={3}
-            value={draft.address}
-            onChange={event => updateDraft({ ...draft, address: event.target.value })}
-          />
-        </label>
-      ) : null}
-      {draft.type === 'instagram' ? (
-        <label htmlFor={`${controlId}-username`}>
-          Instagram username
-          <input
-            autoCapitalize="none"
-            id={`${controlId}-username`}
-            placeholder="@yourstudio"
-            spellCheck={false}
-            value={draft.username}
-            onChange={event => updateDraft({ ...draft, username: event.target.value })}
-          />
-        </label>
-      ) : null}
-      {draft.type === 'website' || draft.type === 'custom_url' ? (
-        <label htmlFor={`${controlId}-url`}>
-          Secure URL
-          <input
-            autoCapitalize="none"
-            id={`${controlId}-url`}
-            inputMode="url"
-            placeholder="https://example.com"
-            spellCheck={false}
-            type="url"
-            value={draft.url}
-            onChange={event => updateDraft({ ...draft, url: event.target.value })}
-          />
-        </label>
-      ) : null}
-      {draft.type === 'call' || draft.type === 'text' ? (
-        <label htmlFor={`${controlId}-phone`}>
-          Phone number
-          <input
-            autoComplete="tel"
-            id={`${controlId}-phone`}
-            inputMode="tel"
-            placeholder="+1 416 555 0123"
-            type="tel"
-            value={draft.phoneNumber}
-            onChange={event => updateDraft({ ...draft, phoneNumber: event.target.value })}
-          />
-        </label>
-      ) : null}
-      {draft.type === 'email' ? (
-        <>
-          <label htmlFor={`${controlId}-email`}>
-            Email address
-            <input
-              autoCapitalize="none"
-              autoComplete="email"
-              id={`${controlId}-email`}
-              inputMode="email"
-              type="email"
-              value={draft.email}
-              onChange={event => updateDraft({ ...draft, email: event.target.value })}
-            />
-          </label>
-          <label htmlFor={`${controlId}-subject`}>
-            Subject <span aria-hidden="true">(optional)</span>
-            <input
-              id={`${controlId}-subject`}
-              value={draft.subject}
-              onChange={event => updateDraft({ ...draft, subject: event.target.value })}
-            />
-          </label>
-        </>
-      ) : null}
-      {draft.type === 'internal' ? (
-        <>
-          <label htmlFor={`${controlId}-page`}>
-            Luster page
-            <select
-              id={`${controlId}-page`}
-              value={draft.internalPageId}
-              onChange={(event) => updateDraft({
-                ...draft,
-                internalPageId: event.target.value,
-                internalSectionId: '',
-              })}
-            >
-              {internalTargets.length === 0 ? (
-                <option value="">No page available</option>
-              ) : null}
-              {internalTargets.map(page => (
-                <option key={page.id} value={page.id}>
-                  {page.label}{page.visible ? '' : ' · hidden'}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label htmlFor={`${controlId}-section`}>
-            Section <span aria-hidden="true">(optional)</span>
-            <select
-              id={`${controlId}-section`}
-              value={draft.internalSectionId}
-              onChange={event => updateDraft({
-                ...draft,
-                internalSectionId: event.target.value,
-              })}
-            >
-              <option value="">Top of page</option>
-              {selectedPage?.sections.map(section => (
-                <option key={section.id} value={section.id}>
-                  {section.label}{section.visible ? '' : ' · hidden'}
-                </option>
-              ))}
-            </select>
-          </label>
-        </>
-      ) : null}
+      {draft.type === 'directions'
+        ? (
+            <label htmlFor={`${controlId}-address`}>
+              Address
+              <textarea
+                id={`${controlId}-address`}
+                rows={3}
+                value={draft.address}
+                onChange={event => updateDraft({ ...draft, address: event.target.value })}
+              />
+            </label>
+          )
+        : null}
+      {draft.type === 'instagram'
+        ? (
+            <label htmlFor={`${controlId}-username`}>
+              Instagram username
+              <input
+                autoCapitalize="none"
+                id={`${controlId}-username`}
+                placeholder="@yourstudio"
+                spellCheck={false}
+                value={draft.username}
+                onChange={event => updateDraft({ ...draft, username: event.target.value })}
+              />
+            </label>
+          )
+        : null}
+      {draft.type === 'website' || draft.type === 'custom_url'
+        ? (
+            <label htmlFor={`${controlId}-url`}>
+              Secure URL
+              <input
+                autoCapitalize="none"
+                id={`${controlId}-url`}
+                inputMode="url"
+                placeholder="https://example.com"
+                spellCheck={false}
+                type="url"
+                value={draft.url}
+                onChange={event => updateDraft({ ...draft, url: event.target.value })}
+              />
+            </label>
+          )
+        : null}
+      {draft.type === 'call' || draft.type === 'text'
+        ? (
+            <label htmlFor={`${controlId}-phone`}>
+              Phone number
+              <input
+                autoComplete="tel"
+                id={`${controlId}-phone`}
+                inputMode="tel"
+                placeholder="+1 416 555 0123"
+                type="tel"
+                value={draft.phoneNumber}
+                onChange={event => updateDraft({ ...draft, phoneNumber: event.target.value })}
+              />
+            </label>
+          )
+        : null}
+      {draft.type === 'email'
+        ? (
+            <>
+              <label htmlFor={`${controlId}-email`}>
+                Email address
+                <input
+                  autoCapitalize="none"
+                  autoComplete="email"
+                  id={`${controlId}-email`}
+                  inputMode="email"
+                  type="email"
+                  value={draft.email}
+                  onChange={event => updateDraft({ ...draft, email: event.target.value })}
+                />
+              </label>
+              <label htmlFor={`${controlId}-subject`}>
+                Subject
+                {' '}
+                <span aria-hidden="true">(optional)</span>
+                <input
+                  id={`${controlId}-subject`}
+                  value={draft.subject}
+                  onChange={event => updateDraft({ ...draft, subject: event.target.value })}
+                />
+              </label>
+            </>
+          )
+        : null}
+      {draft.type === 'internal'
+        ? (
+            <>
+              <label htmlFor={`${controlId}-page`}>
+                Luster page
+                <select
+                  id={`${controlId}-page`}
+                  value={draft.internalPageId}
+                  onChange={event => updateDraft({
+                    ...draft,
+                    internalPageId: event.target.value,
+                    internalSectionId: '',
+                  })}
+                >
+                  {internalTargets.length === 0
+                    ? (
+                        <option value="">No page available</option>
+                      )
+                    : null}
+                  {internalTargets.map(page => (
+                    <option key={page.id} value={page.id}>
+                      {page.label}
+                      {page.visible ? '' : ' · hidden'}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label htmlFor={`${controlId}-section`}>
+                Section
+                {' '}
+                <span aria-hidden="true">(optional)</span>
+                <select
+                  id={`${controlId}-section`}
+                  value={draft.internalSectionId}
+                  onChange={event => updateDraft({
+                    ...draft,
+                    internalSectionId: event.target.value,
+                  })}
+                >
+                  <option value="">Top of page</option>
+                  {selectedPage?.sections.map(section => (
+                    <option key={section.id} value={section.id}>
+                      {section.label}
+                      {section.visible ? '' : ' · hidden'}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </>
+          )
+        : null}
 
-      {!valid ? (
-        <p className="custom-design-owner-field-error" role="status">
-          Enter a complete, safe destination.
-        </p>
-      ) : null}
+      {!valid
+        ? (
+            <p className="custom-design-owner-field-error" role="status">
+              Enter a complete, safe destination.
+            </p>
+          )
+        : null}
     </fieldset>
   );
 }

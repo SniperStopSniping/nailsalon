@@ -167,7 +167,9 @@ describe('site content placement plan', () => {
     const document = initializeStarter('one_page');
     document.siteContent = structuredClone(DEMO_SITE_CONTENT);
     const reviews = sectionOf(document, 'reviews');
-    if (reviews.sectionType !== 'reviews') throw new Error('Expected Reviews');
+    if (reviews.sectionType !== 'reviews') {
+      throw new Error('Expected Reviews');
+    }
     reviews.settings.reviewIds = DEMO_SITE_CONTENT.reviews.map(review => review.id);
     const { contentPlacement, pages } = compositionFor(document, state);
     const about = sectionOf(document, 'about');
@@ -270,7 +272,9 @@ describe('site content placement plan', () => {
     const document = initializeStarter('multi_page');
     document.siteContent = structuredClone(DEMO_SITE_CONTENT);
     const reviews = sectionOf(document, 'reviews');
-    if (reviews.sectionType !== 'reviews') throw new Error('Expected Reviews');
+    if (reviews.sectionType !== 'reviews') {
+      throw new Error('Expected Reviews');
+    }
     reviews.settings.reviewIds = DEMO_SITE_CONTENT.reviews.map(review => review.id);
     const booking = sectionOf(document, 'booking');
     const { contentPlacement, pages } = compositionFor(document, state);

@@ -90,21 +90,23 @@ export function CustomerImageFrame({
           }}
           {...fetchPriorityAttributes}
         />
-        {renderState === 'loaded' ? (
-          <div className="custom-design-area-layer">
-            {[...image.interactiveAreas]
-              .sort((left, right) => left.semanticOrder - right.semanticOrder)
-              .map(area => (
-                <SemanticClickableArea
-                  area={area}
-                  getScrollPosition={getScrollPosition}
-                  image={image}
-                  key={area.id}
-                  resolveAction={resolveAction}
-                />
-              ))}
-          </div>
-        ) : null}
+        {renderState === 'loaded'
+          ? (
+              <div className="custom-design-area-layer">
+                {[...image.interactiveAreas]
+                  .sort((left, right) => left.semanticOrder - right.semanticOrder)
+                  .map(area => (
+                    <SemanticClickableArea
+                      area={area}
+                      getScrollPosition={getScrollPosition}
+                      image={image}
+                      key={area.id}
+                      resolveAction={resolveAction}
+                    />
+                  ))}
+              </div>
+            )
+          : null}
       </div>
       <AccessibilitySummary
         fileName={image.fileName}

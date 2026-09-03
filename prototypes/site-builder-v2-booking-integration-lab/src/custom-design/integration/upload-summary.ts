@@ -11,8 +11,12 @@ const countPhrase = (
 ): string => `${count} ${count === 1 ? singular : plural}`;
 
 const joinClauses = (clauses: readonly string[]): string => {
-  if (clauses.length <= 1) return `${clauses[0] ?? ''}.`;
-  if (clauses.length === 2) return `${clauses[0]} and ${clauses[1]}.`;
+  if (clauses.length <= 1) {
+    return `${clauses[0] ?? ''}.`;
+  }
+  if (clauses.length === 2) {
+    return `${clauses[0]} and ${clauses[1]}.`;
+  }
   return `${clauses.slice(0, -1).join(', ')}, and ${clauses.at(-1)}.`;
 };
 

@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, type Page, test } from '@playwright/test';
 
 import {
   chooseStarter,
@@ -54,13 +54,14 @@ async function expectPristineQuickBook(page: Page): Promise<void> {
   await expect(page.getByTestId('selected-section-toolbar')).toHaveCount(0);
   await expect(sectionLabels(page, 'Home')).resolves.toEqual([...QUICK_BOOK_HOME_SECTIONS]);
 
-  const stored = await page.evaluate((key) => (
+  const stored = await page.evaluate(key => (
     JSON.parse(window.localStorage.getItem(key) ?? 'null') as RestoredDocument | null
   ), LAB_STORAGE_KEY);
+
   expect(stored).not.toBeNull();
   expect(stored?.pages).toHaveLength(1);
   expect(stored?.pages[0]?.name).toBe('Home');
-  expect(stored?.pages[0]?.sections.map((section) => ({
+  expect(stored?.pages[0]?.sections.map(section => ({
     label: section.label,
     order: section.order,
     visible: section.visible,
@@ -69,9 +70,11 @@ async function expectPristineQuickBook(page: Page): Promise<void> {
     order,
     visible: true,
   })));
+
   const booking = stored?.pages[0]?.sections.find(
-    (section) => section.sectionType === 'booking',
+    section => section.sectionType === 'booking',
   );
+
   expect(booking?.settings).toMatchObject({
     bodyScale: 'standard',
     headingScale: 'standard',
@@ -86,6 +89,7 @@ async function expectPristineQuickBook(page: Page): Promise<void> {
   const editRegion = page.getByRole('group', {
     name: 'Booking menu preview — 24 services, Visual Grid. Not interactive while editing.',
   });
+
   await expect(editRegion).toBeVisible();
   await expect(editRegion.locator('input[placeholder="Try “Russian manicure”"]')).toHaveValue('');
   await expect(
@@ -98,6 +102,7 @@ async function expectPristineQuickBook(page: Page): Promise<void> {
   await expect(page.getByTestId('booking-handoff-dialog')).toHaveCount(0);
 
   const surface = await documentSurfaceState(page);
+
   expect(surface.body.overflow).toBe('');
   expect(surface.body.paddingRight).toBe('');
   expect(surface.body.pointerEvents).toBe('');
@@ -112,6 +117,7 @@ async function expectPristineQuickBook(page: Page): Promise<void> {
   expect(surface.editorInert).toBe(false);
 
   const storageKeys = await page.evaluate(() => Object.keys(window.localStorage));
+
   expect(storageKeys).toEqual([LAB_STORAGE_KEY]);
   await expect(readCustomDesignAssetRecordCounts(page)).resolves.toEqual({
     'image-asset-originals-v1': 0,
@@ -139,6 +145,7 @@ test('restores the Lab through live controls and persists the pristine freeze ba
     await moveSectionToPosition(move, 'Booking', 1);
     await move.getByRole('button', { name: 'Done', exact: true }).click();
     await waitForSaved(page);
+
     await expect(sectionLabels(page, 'Home')).resolves.toEqual([
       'Booking',
       'Announcement Bar',
@@ -165,14 +172,17 @@ test('restores the Lab through live controls and persists the pristine freeze ba
 
     await page.getByRole('button', { name: 'More site options' }).click();
     more = page.getByRole('dialog', { name: 'More' });
+
     await expect(more.getByRole('switch', {
       name: 'Simulate real section heights',
     })).toHaveAttribute('aria-checked', 'false');
     await expect(more.getByLabel('Booking service menu fixture')).toHaveValue('canonical');
+
     await closeDialog(page, 'More');
 
     await page.getByRole('button', { name: 'Preview', exact: true }).click();
     const preview = page.getByTestId('booking-section-preview');
+
     await expect(preview.getByRole('searchbox', { name: 'Search services' })).toHaveValue('');
     await expect(
       preview
@@ -180,6 +190,7 @@ test('restores the Lab through live controls and persists the pristine freeze ba
         .getByRole('button', { name: 'All', exact: true }),
     ).toHaveAttribute('aria-pressed', 'true');
     await expect(page.getByTestId('selected-service-summary')).toHaveCount(0);
+
     await page.getByRole('button', { name: 'Back to editor' }).click();
 
     await page.reload();

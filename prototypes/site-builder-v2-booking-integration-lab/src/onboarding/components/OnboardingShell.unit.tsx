@@ -18,6 +18,7 @@ describe('OnboardingShell', () => {
     );
 
     const progress = screen.getByRole('navigation', { name: 'Onboarding progress' });
+
     expect(within(progress).getByText('Booking').closest('li')).toHaveAttribute('aria-current', 'step');
     expect(within(progress).getByText('Basics').closest('li')).toHaveAttribute('data-stage-state', 'complete');
     expect(screen.getByRole('status', { name: 'Autosave status' })).toHaveTextContent('Saving…');
@@ -52,8 +53,11 @@ describe('OnboardingShell', () => {
       'Lab review options',
     ]) {
       await user.click(more);
+
       expect(details).toHaveAttribute('open');
+
       await user.click(screen.getByRole('menuitem', { name: action }));
+
       expect(details).not.toHaveAttribute('open');
       expect(more).toHaveFocus();
     }
@@ -82,18 +86,27 @@ describe('OnboardingShell', () => {
     const details = more.closest('details');
     more.focus();
     await user.keyboard('{Enter}');
+
     expect(details).toHaveAttribute('open');
+
     const save = screen.getByRole('menuitem', { name: 'Save and finish later' });
     const restart = screen.getByRole('menuitem', { name: 'Start over' });
     await waitFor(() => expect(save).toHaveFocus());
 
     await user.keyboard('{ArrowDown}');
+
     expect(restart).toHaveFocus();
+
     await user.keyboard('{ArrowDown}');
+
     expect(save).toHaveFocus();
+
     await user.keyboard('{End}');
+
     expect(restart).toHaveFocus();
+
     await user.keyboard('{Home}');
+
     expect(save).toHaveFocus();
 
     await user.keyboard('{Escape}');
@@ -101,10 +114,13 @@ describe('OnboardingShell', () => {
     await waitFor(() => expect(more).toHaveFocus());
 
     await user.keyboard(' ');
+
     expect(details).toHaveAttribute('open');
+
     await waitFor(() => expect(save).toHaveFocus());
     await user.tab({ shift: true });
     await waitFor(() => expect(details).not.toHaveAttribute('open'));
+
     expect(more).toHaveFocus();
   });
 
@@ -132,6 +148,7 @@ describe('OnboardingShell', () => {
 
     await user.tab();
     await waitFor(() => expect(details).not.toHaveAttribute('open'));
+
     expect(screen.getByRole('button', { name: 'First setup action' })).toHaveFocus();
   });
 
@@ -152,8 +169,11 @@ describe('OnboardingShell', () => {
     const more = screen.getByRole('button', { name: 'More onboarding options' });
     const details = more.closest('details');
     await user.click(more);
+
     expect(details).toHaveAttribute('open');
+
     await user.click(screen.getByRole('button', { name: 'Outside action' }));
+
     expect(details).not.toHaveAttribute('open');
   });
 
@@ -175,7 +195,9 @@ describe('OnboardingShell', () => {
     const details = more.closest('details');
 
     await userEvent.setup().click(more);
+
     expect(details).toHaveAttribute('open');
+
     view.rerender(shell('photo_social'));
     await waitFor(() => expect(details).not.toHaveAttribute('open'));
   });
@@ -193,6 +215,7 @@ describe('OnboardingShell', () => {
     );
 
     const progress = screen.getByRole('navigation', { name: 'Onboarding progress' });
+
     expect(within(progress).getByText('Design').closest('li')).toHaveAttribute(
       'data-stage-state',
       'upcoming',

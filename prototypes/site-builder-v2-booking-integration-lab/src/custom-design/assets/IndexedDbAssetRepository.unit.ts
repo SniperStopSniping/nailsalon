@@ -1,7 +1,10 @@
-import { IDBFactory, IDBObjectStore } from 'fake-indexeddb';
 import { Blob as NodeBlob } from 'node:buffer';
 
-import { AssetStorageError, toAssetStorageError } from './errors';
+import { IDBFactory, IDBObjectStore } from 'fake-indexeddb';
+
+import type { AssetStorageError } from './errors';
+import { toAssetStorageError } from './errors';
+import { readBlobArrayBuffer } from './image-processing';
 import {
   CUSTOM_DESIGN_ASSET_STORE_NAME,
   CUSTOM_DESIGN_ORIGINAL_BLOB_STORE_NAME,
@@ -9,10 +12,9 @@ import {
   IndexedDbAssetRepository,
   resolveStoredAsset,
 } from './IndexedDbAssetRepository';
-import { readBlobArrayBuffer } from './image-processing';
 import {
-  CUSTOM_DESIGN_MAX_THUMBNAIL_BYTES,
   type AssetRepository,
+  CUSTOM_DESIGN_MAX_THUMBNAIL_BYTES,
   type PreparedImageAsset,
 } from './types';
 
@@ -175,16 +177,16 @@ const interceptBinaryWrites = (options: {
         blob?: unknown;
         storageKind?: unknown;
       };
-      const isBinaryStore =
-        this.name === CUSTOM_DESIGN_ORIGINAL_BLOB_STORE_NAME ||
-        this.name === CUSTOM_DESIGN_THUMBNAIL_BLOB_STORE_NAME;
+      const isBinaryStore
+        = this.name === CUSTOM_DESIGN_ORIGINAL_BLOB_STORE_NAME
+        || this.name === CUSTOM_DESIGN_THUMBNAIL_BLOB_STORE_NAME;
 
       if (isBinaryStore && record.blob instanceof NodeBlob) {
         blobWrites += 1;
         transactions.push(this.transaction);
         if (
-          options.blobError &&
-          (!options.blobErrorStore || options.blobErrorStore === this.name)
+          options.blobError
+          && (!options.blobErrorStore || options.blobErrorStore === this.name)
         ) {
           throw options.blobError;
         }
@@ -192,11 +194,13 @@ const interceptBinaryWrites = (options: {
       if (isBinaryStore && record.storageKind === 'array_buffer') {
         arrayBufferWrites += 1;
         transactions.push(this.transaction);
-        if (options.arrayBufferError) throw options.arrayBufferError;
+        if (options.arrayBufferError) {
+          throw options.arrayBufferError;
+        }
       }
       if (
-        this.name === CUSTOM_DESIGN_ASSET_STORE_NAME &&
-        options.failSummaryWithDataClone
+        this.name === CUSTOM_DESIGN_ASSET_STORE_NAME
+        && options.failSummaryWithDataClone
       ) {
         throw new DOMException('Summary clone failed.', 'DataCloneError');
       }
@@ -229,21 +233,28 @@ describe('IndexedDbAssetRepository', () => {
     const asset = makeAsset('asset-one');
 
     await repository.stage(asset);
+
     expect(await repository.has('asset-one')).toBe(false);
     expect(await repository.has('asset-one', { includeStaged: true })).toBe(true);
     expect(await repository.get('asset-one')).toBeNull();
+
     const stagedSummary = (await repository.list({ includeStaged: true }))[0];
+
     expect(stagedSummary?.state).toBe('staged');
     expect(stagedSummary).not.toHaveProperty('blob');
 
     await repository.commit('asset-one');
     const stored = await repository.get('asset-one');
+
     expect(stored?.state).toBe('committed');
     expect(stored && (await readBlobText(stored.blob))).toBe('original-asset-one');
+
     const thumbnail = await repository.getThumbnail('asset-one');
+
     expect(thumbnail && (await readBlobText(thumbnail))).toBe('thumb-asset-one');
     expect(await repository.getMetadata('asset-one')).toEqual(asset.metadata);
     expect(await repository.has('asset-one')).toBe(true);
+
     repository.close();
   });
 
@@ -294,8 +305,10 @@ describe('IndexedDbAssetRepository', () => {
 
     try {
       await repository.stage(makeAsset('fallback'));
+
       expect(await repository.has('fallback')).toBe(false);
       expect(await repository.has('fallback', { includeStaged: true })).toBe(true);
+
       await repository.commit('fallback');
 
       const rawOriginal = await readRawRecord(
@@ -310,6 +323,7 @@ describe('IndexedDbAssetRepository', () => {
         'fallback',
         CUSTOM_DESIGN_THUMBNAIL_BLOB_STORE_NAME,
       );
+
       expect(rawOriginal).toMatchObject({
         assetId: 'fallback',
         mimeType: 'image/png',
@@ -331,6 +345,7 @@ describe('IndexedDbAssetRepository', () => {
 
       const original = await repository.getOriginal('fallback');
       const thumbnail = await repository.getThumbnail('fallback');
+
       expect(original).toBeInstanceOf(Blob);
       expect(original?.type).toBe('image/png');
       expect(original && (await readBlobText(original))).toBe('original-fallback');
@@ -376,6 +391,7 @@ describe('IndexedDbAssetRepository', () => {
         'thumbnail-fallback',
         CUSTOM_DESIGN_THUMBNAIL_BLOB_STORE_NAME,
       );
+
       expect(rawOriginal.storageKind).toBe('array_buffer');
       expect(rawThumbnail.storageKind).toBe('array_buffer');
       expect(probe.blobWrites).toBe(2);
@@ -422,6 +438,7 @@ describe('IndexedDbAssetRepository', () => {
       'fallback-buffer',
       CUSTOM_DESIGN_ORIGINAL_BLOB_STORE_NAME,
     );
+
     expect(legacyRecord.blob).toBeInstanceOf(NodeBlob);
     expect(legacyRecord.storageKind).toBeUndefined();
     expect(fallbackRecord.storageKind).toBe('array_buffer');
@@ -434,6 +451,7 @@ describe('IndexedDbAssetRepository', () => {
     expect(
       await readBlobText((await repository.get('fallback-buffer'))!.blob),
     ).toBe('original-fallback-buffer');
+
     repository.close();
   });
 
@@ -449,10 +467,12 @@ describe('IndexedDbAssetRepository', () => {
     });
     try {
       await repository.stage(makeAsset('cancelled-fallback'));
+
       await expect(
         repository.has('cancelled-fallback', { includeStaged: true }),
       ).resolves.toBe(true);
       await expect(repository.discard('cancelled-fallback')).resolves.toBe(true);
+
       for (const storeName of [
         CUSTOM_DESIGN_ASSET_STORE_NAME,
         CUSTOM_DESIGN_ORIGINAL_BLOB_STORE_NAME,
@@ -513,6 +533,7 @@ describe('IndexedDbAssetRepository', () => {
           code: scenario.errorCode,
         });
         expect(probe.arrayBufferWrites).toBe(0);
+
         for (const storeName of [
           CUSTOM_DESIGN_ASSET_STORE_NAME,
           CUSTOM_DESIGN_ORIGINAL_BLOB_STORE_NAME,
@@ -548,6 +569,7 @@ describe('IndexedDbAssetRepository', () => {
       expect(probe.blobWrites).toBe(1);
       expect(probe.arrayBufferWrites).toBe(1);
       expect(new Set(probe.transactions).size).toBe(2);
+
       for (const storeName of [
         CUSTOM_DESIGN_ASSET_STORE_NAME,
         CUSTOM_DESIGN_ORIGINAL_BLOB_STORE_NAME,
@@ -572,9 +594,11 @@ describe('IndexedDbAssetRepository', () => {
       dbName: 'reload',
       indexedDB,
     });
+
     expect((await afterReload.get('persistent'))?.metadata.fileName).toBe(
       'persistent.png',
     );
+
     afterReload.close();
   });
 
@@ -592,6 +616,7 @@ describe('IndexedDbAssetRepository', () => {
     ]);
     await expect(repository.has('first')).resolves.toBe(true);
     await expect(repository.has('second')).resolves.toBe(true);
+
     repository.close();
   });
 
@@ -612,6 +637,7 @@ describe('IndexedDbAssetRepository', () => {
     await expect(
       repository.commitBatch(['kept-staged', 'kept-staged']),
     ).rejects.toMatchObject({ code: 'invalid_asset' });
+
     repository.close();
   });
 
@@ -639,8 +665,9 @@ describe('IndexedDbAssetRepository', () => {
 
       const storesFor = (spy: typeof getSpy): string[] =>
         spy.mock.instances.map(
-          (store) => (store as unknown as IDBObjectStore).name,
+          store => (store as unknown as IDBObjectStore).name,
         );
+
       expect(storesFor(getSpy)).not.toContain(
         CUSTOM_DESIGN_ORIGINAL_BLOB_STORE_NAME,
       );
@@ -671,19 +698,24 @@ describe('IndexedDbAssetRepository', () => {
 
     try {
       const committed = await repository.getOriginal('committed-original');
+
       expect(committed && (await readBlobText(committed))).toBe(
         'original-committed-original',
       );
       await expect(repository.getOriginal('staged-original')).resolves.toBeNull();
+
       const staged = await repository.getOriginal('staged-original', {
         includeStaged: true,
       });
+
       expect(staged && (await readBlobText(staged))).toBe(
         'original-staged-original',
       );
+
       const stores = getSpy.mock.instances.map(
-        (store) => (store as unknown as IDBObjectStore).name,
+        store => (store as unknown as IDBObjectStore).name,
       );
+
       expect(stores).toContain(CUSTOM_DESIGN_ORIGINAL_BLOB_STORE_NAME);
       expect(stores).not.toContain(CUSTOM_DESIGN_THUMBNAIL_BLOB_STORE_NAME);
     } finally {
@@ -707,22 +739,24 @@ describe('IndexedDbAssetRepository', () => {
     try {
       await expect(repository.delete('delete-by-key')).resolves.toBe(true);
       await expect(repository.discard('discard-by-key')).resolves.toBe(true);
+
       const getStores = getSpy.mock.instances.map(
-        (store) => (store as unknown as IDBObjectStore).name,
+        store => (store as unknown as IDBObjectStore).name,
       );
       const getKeyStores = getKeySpy.mock.instances.map(
-        (store) => (store as unknown as IDBObjectStore).name,
+        store => (store as unknown as IDBObjectStore).name,
       );
+
       expect(getStores).not.toContain(CUSTOM_DESIGN_ORIGINAL_BLOB_STORE_NAME);
       expect(getStores).not.toContain(CUSTOM_DESIGN_THUMBNAIL_BLOB_STORE_NAME);
       expect(
         getKeyStores.filter(
-          (storeName) => storeName === CUSTOM_DESIGN_ORIGINAL_BLOB_STORE_NAME,
+          storeName => storeName === CUSTOM_DESIGN_ORIGINAL_BLOB_STORE_NAME,
         ),
       ).toHaveLength(2);
       expect(
         getKeyStores.filter(
-          (storeName) => storeName === CUSTOM_DESIGN_THUMBNAIL_BLOB_STORE_NAME,
+          storeName => storeName === CUSTOM_DESIGN_THUMBNAIL_BLOB_STORE_NAME,
         ),
       ).toHaveLength(2);
     } finally {
@@ -746,6 +780,7 @@ describe('IndexedDbAssetRepository', () => {
     );
 
     await expect(repository.delete('missing-original')).resolves.toBe(true);
+
     for (const storeName of [
       CUSTOM_DESIGN_ASSET_STORE_NAME,
       CUSTOM_DESIGN_ORIGINAL_BLOB_STORE_NAME,
@@ -771,6 +806,7 @@ describe('IndexedDbAssetRepository', () => {
     );
 
     await expect(repository.discard('missing-thumbnail')).resolves.toBe(true);
+
     for (const storeName of [
       CUSTOM_DESIGN_ASSET_STORE_NAME,
       CUSTOM_DESIGN_ORIGINAL_BLOB_STORE_NAME,
@@ -826,6 +862,7 @@ describe('IndexedDbAssetRepository', () => {
         'atomic',
       ),
     ).toBe(true);
+
     repository.close();
   });
 
@@ -839,12 +876,17 @@ describe('IndexedDbAssetRepository', () => {
     await expect(repository.stage(makeAsset('same-id'))).rejects.toMatchObject({
       code: 'invalid_asset',
     });
+
     await repository.commit('same-id');
+
     await expect(repository.stage(makeAsset('same-id'))).rejects.toMatchObject({
       code: 'invalid_asset',
     });
+
     const stored = await repository.get('same-id');
+
     expect(stored && (await readBlobText(stored.blob))).toBe('original-same-id');
+
     repository.close();
   });
 
@@ -856,12 +898,14 @@ describe('IndexedDbAssetRepository', () => {
     const unsupported = makeAsset('unsupported');
     unsupported.metadata.mimeType = 'image/gif' as 'image/png';
     Object.defineProperty(unsupported.blob, 'type', { value: 'image/gif' });
+
     await expect(repository.stage(unsupported)).rejects.toMatchObject({
       code: 'invalid_asset',
     });
 
     const mismatched = makeAsset('mismatch');
     mismatched.metadata.byteSize += 1;
+
     await expect(repository.stage(mismatched)).rejects.toMatchObject({
       code: 'invalid_asset',
     });
@@ -869,12 +913,14 @@ describe('IndexedDbAssetRepository', () => {
     const fractional = makeAsset('fractional');
     fractional.metadata.width = 200.5;
     fractional.metadata.aspectRatio = fractional.metadata.width / 100;
+
     await expect(repository.stage(fractional)).rejects.toMatchObject({
       code: 'invalid_asset',
     });
 
     const invalidOrientation = makeAsset('orientation');
     invalidOrientation.metadata.orientation = 1.5 as 1;
+
     await expect(repository.stage(invalidOrientation)).rejects.toMatchObject({
       code: 'invalid_asset',
     });
@@ -883,6 +929,7 @@ describe('IndexedDbAssetRepository', () => {
     if (oversizedThumbnail.metadata.thumbnail) {
       oversizedThumbnail.metadata.thumbnail.width = 321;
     }
+
     await expect(repository.stage(oversizedThumbnail)).rejects.toMatchObject({
       code: 'invalid_asset',
     });
@@ -894,9 +941,10 @@ describe('IndexedDbAssetRepository', () => {
     ) as unknown as Blob;
     excessiveThumbnailBytes.thumbnailBlob = largeThumbnailBlob;
     if (excessiveThumbnailBytes.metadata.thumbnail) {
-      excessiveThumbnailBytes.metadata.thumbnail.byteSize =
-        largeThumbnailBlob.size;
+      excessiveThumbnailBytes.metadata.thumbnail.byteSize
+        = largeThumbnailBlob.size;
     }
+
     await expect(
       repository.stage(excessiveThumbnailBytes),
     ).rejects.toMatchObject({ code: 'invalid_asset' });
@@ -909,6 +957,7 @@ describe('IndexedDbAssetRepository', () => {
     if (zeroThumbnail.metadata.thumbnail) {
       zeroThumbnail.metadata.thumbnail.byteSize = 0;
     }
+
     await expect(repository.stage(zeroThumbnail)).rejects.toMatchObject({
       code: 'invalid_asset',
     });
@@ -919,14 +968,16 @@ describe('IndexedDbAssetRepository', () => {
     }) as unknown as Blob;
     unexpectedThumbnailMime.thumbnailBlob = gifThumbnailBlob;
     if (unexpectedThumbnailMime.metadata.thumbnail) {
-      unexpectedThumbnailMime.metadata.thumbnail.byteSize =
-        gifThumbnailBlob.size;
-      unexpectedThumbnailMime.metadata.thumbnail.mimeType =
-        'image/gif' as 'image/webp';
+      unexpectedThumbnailMime.metadata.thumbnail.byteSize
+        = gifThumbnailBlob.size;
+      unexpectedThumbnailMime.metadata.thumbnail.mimeType
+        = 'image/gif' as 'image/webp';
     }
+
     await expect(
       repository.stage(unexpectedThumbnailMime),
     ).rejects.toMatchObject({ code: 'invalid_asset' });
+
     repository.close();
   });
 
@@ -938,7 +989,9 @@ describe('IndexedDbAssetRepository', () => {
       indexedDB,
     });
     await repository.stage(makeAsset('staged'));
+
     expect(await repository.discard('staged')).toBe(true);
+
     for (const storeName of [
       CUSTOM_DESIGN_ASSET_STORE_NAME,
       CUSTOM_DESIGN_ORIGINAL_BLOB_STORE_NAME,
@@ -946,6 +999,7 @@ describe('IndexedDbAssetRepository', () => {
     ]) {
       expect(await hasRawKey(indexedDB, dbName, storeName, 'staged')).toBe(false);
     }
+
     expect(await repository.discard('staged')).toBe(false);
     await expect(repository.commit('staged')).rejects.toMatchObject({
       code: 'not_found',
@@ -953,12 +1007,14 @@ describe('IndexedDbAssetRepository', () => {
 
     await repository.stage(makeAsset('committed'));
     await repository.commit('committed');
+
     expect(await repository.discard('committed')).toBe(false);
     expect(await repository.has('committed')).toBe(true);
     await expect(repository.commit('committed')).rejects.toMatchObject({
       code: 'not_staged',
     });
     expect(await repository.delete('committed')).toBe(true);
+
     for (const storeName of [
       CUSTOM_DESIGN_ASSET_STORE_NAME,
       CUSTOM_DESIGN_ORIGINAL_BLOB_STORE_NAME,
@@ -985,6 +1041,7 @@ describe('IndexedDbAssetRepository', () => {
       code: 'invalid_asset',
     });
     expect((await readRawRecord(indexedDB, dbName, 'old')).schemaVersion).toBe(0);
+
     repository.close();
   });
 
@@ -1012,6 +1069,7 @@ describe('IndexedDbAssetRepository', () => {
     ).toBe(
       'not-a-width',
     );
+
     repository.close();
   });
 
@@ -1048,6 +1106,7 @@ describe('IndexedDbAssetRepository', () => {
         )
       ).blob,
     ).toBe('not-a-blob');
+
     repository.close();
   });
 
@@ -1096,6 +1155,7 @@ describe('IndexedDbAssetRepository', () => {
         )
       ).storageKind,
     ).toBe('array_buffer');
+
     repository.close();
   });
 
@@ -1114,6 +1174,7 @@ describe('IndexedDbAssetRepository', () => {
     expect((await readRawRecord(indexedDB, dbName, 'invalid-state')).state).toBe(
       'unknown',
     );
+
     repository.close();
   });
 
@@ -1152,6 +1213,7 @@ describe('IndexedDbAssetRepository', () => {
         )
       ).blob,
     ).toBeDefined();
+
     repository.close();
   });
 
@@ -1165,8 +1227,10 @@ describe('IndexedDbAssetRepository', () => {
     await repository.stage(makeAsset('first'));
     await repository.commit('first');
     await repository.stage(makeAsset('staged'));
+
     expect(await repository.clear()).toBe(2);
     expect(await repository.list({ includeStaged: true })).toEqual([]);
+
     for (const storeName of [
       CUSTOM_DESIGN_ASSET_STORE_NAME,
       CUSTOM_DESIGN_ORIGINAL_BLOB_STORE_NAME,
@@ -1179,7 +1243,9 @@ describe('IndexedDbAssetRepository', () => {
     await repository.stage(makeAsset('second'));
     await repository.commit('second');
     await repository.deleteDatabase();
+
     expect(await repository.get('second')).toBeNull();
+
     repository.close();
   });
 
@@ -1189,6 +1255,7 @@ describe('IndexedDbAssetRepository', () => {
       dbName: 'version-change',
       indexedDB,
     });
+
     expect(await repository.has('missing')).toBe(false);
 
     await new Promise<void>((resolve, reject) => {
@@ -1199,9 +1266,12 @@ describe('IndexedDbAssetRepository', () => {
     });
 
     expect(await repository.has('missing')).toBe(false);
+
     await repository.stage(makeAsset('after-reset'));
     await repository.commit('after-reset');
+
     expect(await repository.has('after-reset')).toBe(true);
+
     repository.close();
   });
 
@@ -1212,6 +1282,7 @@ describe('IndexedDbAssetRepository', () => {
     });
     await repository.stage(makeAsset('ready'));
     await repository.commit('ready');
+
     expect(await resolveStoredAsset(repository, 'ready')).toMatchObject({
       status: 'ready',
     });
@@ -1222,15 +1293,18 @@ describe('IndexedDbAssetRepository', () => {
     const failing = {
       get: vi.fn().mockRejectedValue(new Error('denied')),
     } as unknown as AssetRepository;
+
     expect(await resolveStoredAsset(failing, 'denied')).toMatchObject({
       error: expect.any(Error),
       status: 'error',
     });
+
     repository.close();
   });
 
   it('keeps document-facing metadata serializable without image bytes', () => {
     const metadataJson = JSON.stringify(makeAsset('manifest-only').metadata);
+
     expect(metadataJson).toContain('manifest-only.png');
     expect(metadataJson).not.toContain('original-manifest-only');
     expect(metadataJson).not.toContain('data:image');
@@ -1266,6 +1340,7 @@ describe('IndexedDbAssetRepository', () => {
       dbName: 'blocked',
       indexedDB: blockedFactory,
     });
+
     await expect(blockedRepository.has('asset')).rejects.toMatchObject({
       code: 'blocked',
     });
@@ -1275,6 +1350,7 @@ describe('IndexedDbAssetRepository', () => {
       indexedDB: new IDBFactory(),
     });
     closedRepository.close();
+
     await expect(closedRepository.has('asset')).rejects.toEqual(
       expect.objectContaining<Partial<AssetStorageError>>({ code: 'closed' }),
     );

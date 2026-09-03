@@ -1,3 +1,5 @@
+import './custom-design.css';
+
 import { CUSTOM_DESIGN_POSTER_MAX_WIDTH_PX } from '../model/constants';
 import { hasRenderableCustomDesignContent } from '../model/settings';
 import type { CustomDesignSettings } from '../model/types';
@@ -8,8 +10,6 @@ import type {
   ResolveCustomDesignAction,
   ResolveCustomDesignAsset,
 } from './view-types';
-
-import './custom-design.css';
 
 const CUSTOM_COLOR_PATTERN = /^#[0-9a-f]{6}$/i;
 
@@ -43,7 +43,7 @@ export function CustomDesignRenderer({
   const assetsById = new Map(images.map(entry => [entry.image.assetId, entry.asset]));
   const hasRenderableImage = hasRenderableCustomDesignContent(
     settings,
-    assetId => {
+    (assetId) => {
       const asset = assetsById.get(assetId);
       return asset?.status === 'ready' || asset?.status === 'loading';
     },

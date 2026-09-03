@@ -87,7 +87,7 @@ const exitCode = await new Promise((resolve, reject) => {
     stdio: 'inherit',
   });
   child.once('error', reject);
-  child.once('exit', (code) => resolve(code ?? 1));
+  child.once('exit', code => resolve(code ?? 1));
 });
 
 const commandResult = { args, command, exitCode, startedAt };
@@ -106,19 +106,25 @@ if (exitCode !== 0) {
   ));
   const videoAttachments = new Map();
   const collectVideos = (value, inheritedVideoId = null) => {
-    if (!value || typeof value !== 'object') return;
+    if (!value || typeof value !== 'object') {
+      return;
+    }
     const ownVideoId = typeof value.title === 'string'
       ? value.title.match(/^(V0[1-8])\b/u)?.[1] ?? null
       : null;
     const videoId = ownVideoId ?? inheritedVideoId;
     if (videoId && Array.isArray(value.attachments)) {
-      const video = value.attachments.find((attachment) => (
+      const video = value.attachments.find(attachment => (
         attachment?.contentType === 'video/webm' && typeof attachment.path === 'string'
       ));
-      if (video) videoAttachments.set(videoId, video.path);
+      if (video) {
+        videoAttachments.set(videoId, video.path);
+      }
     }
     for (const [key, nested] of Object.entries(value)) {
-      if (key !== 'attachments') collectVideos(nested, videoId);
+      if (key !== 'attachments') {
+        collectVideos(nested, videoId);
+      }
     }
   };
   collectVideos(report);
@@ -126,16 +132,18 @@ if (exitCode !== 0) {
   const copiedVideos = [];
   for (const [videoId, fileName] of Object.entries(videoNames)) {
     const source = videoAttachments.get(videoId);
-    if (!source) throw new Error(`The JSON report has no video attachment for ${videoId}.`);
+    if (!source) {
+      throw new Error(`The JSON report has no video attachment for ${videoId}.`);
+    }
     const target = `${videoDirectory}/${fileName}`;
     await copyFile(source, target);
     const bytes = await readFile(target);
     const details = await stat(target);
     const hasWebmHeader = bytes.length >= 4
-      && bytes[0] === 0x1a
+      && bytes[0] === 0x1A
       && bytes[1] === 0x45
-      && bytes[2] === 0xdf
-      && bytes[3] === 0xa3;
+      && bytes[2] === 0xDF
+      && bytes[3] === 0xA3;
     if (!hasWebmHeader || details.size < 10_000) {
       throw new Error(`${fileName} is not a non-empty WebM recording.`);
     }
@@ -163,7 +171,9 @@ if (exitCode !== 0) {
         canvas.width = sampleWidth;
         canvas.height = sampleHeight;
         const context = canvas.getContext('2d', { willReadFrequently: true });
-        if (!context) throw new Error('Canvas context unavailable.');
+        if (!context) {
+          throw new Error('Canvas context unavailable.');
+        }
         context.drawImage(image, 0, 0, sampleWidth, sampleHeight);
         const pixels = context.getImageData(0, 0, sampleWidth, sampleHeight).data;
         let count = 0;
@@ -212,11 +222,11 @@ if (exitCode !== 0) {
     '',
     '## Screenshots',
     '',
-    ...screenshotResults.map((item) => `- ${item.fileName} — ${item.width}×${item.height}, ${item.bytes} bytes, ${item.colourBuckets} sampled colour buckets`),
+    ...screenshotResults.map(item => `- ${item.fileName} — ${item.width}×${item.height}, ${item.bytes} bytes, ${item.colourBuckets} sampled colour buckets`),
     '',
     '## Videos',
     '',
-    ...copiedVideos.map((item) => `- evidence/videos/${item.fileName} — ${item.bytes} bytes, valid WebM header`),
+    ...copiedVideos.map(item => `- evidence/videos/${item.fileName} — ${item.bytes} bytes, valid WebM header`),
     '',
     '## Supporting measurements',
     '',
@@ -255,9 +265,19 @@ if (exitCode !== 0) {
       origin: 'http://127.0.0.1:4188',
       productFailures: [],
       responsiveViewports: [
-        '320x568', '320x600', '320x360', '375x500', '375x600',
-        '390x844', '430x932', '768x1024', '844x390', '932x430',
-        '920x800', '1180x800', '1440x900',
+        '320x568',
+        '320x600',
+        '320x360',
+        '375x500',
+        '375x600',
+        '390x844',
+        '430x932',
+        '768x1024',
+        '844x390',
+        '932x430',
+        '920x800',
+        '1180x800',
+        '1440x900',
       ],
       runtimeFindings: {
         consoleErrorsOrWarningsFromApp: 0,

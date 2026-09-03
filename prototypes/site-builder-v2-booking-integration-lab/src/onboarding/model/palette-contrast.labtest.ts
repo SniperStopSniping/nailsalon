@@ -86,6 +86,7 @@ describe('customer palette contrast', () => {
 
       for (const [pairLabel, foreground, background] of bodyPairs) {
         const ratio = contrastRatio(foreground, background);
+
         expect(ratio, `${label}: ${pairLabel} is ${ratio}:1`).toBeGreaterThanOrEqual(AA_BODY);
       }
 
@@ -97,6 +98,7 @@ describe('customer palette contrast', () => {
       ];
       for (const [pairLabel, foreground, background] of accentPairs) {
         const ratio = contrastRatio(foreground, background);
+
         expect(ratio, `${label}: ${pairLabel} is ${ratio}:1`).toBeGreaterThanOrEqual(AA_LARGE);
       }
     },

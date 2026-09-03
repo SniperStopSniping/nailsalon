@@ -187,11 +187,13 @@ describe('section renderer matrix (20 types × 6 styles × 8 palettes × 2 devic
             );
 
             const root = container.querySelector<HTMLElement>('.onboarding-site-preview');
+
             expect(root, `missing preview root for ${comboLabel}`).not.toBeNull();
 
             const palette = SITE_PALETTE_PRESETS.find(preset => preset.id === paletteId)!;
             const styleRoles = ONBOARDING_STYLE_ROLES[styleId];
             const styleAttr = root!.getAttribute('style') ?? '';
+
             expect(styleAttr, `palette accent missing for ${comboLabel}`)
               .toContain(`--customer-accent: ${palette.roles.accent}`);
             expect(styleAttr, `heading font missing for ${comboLabel}`)

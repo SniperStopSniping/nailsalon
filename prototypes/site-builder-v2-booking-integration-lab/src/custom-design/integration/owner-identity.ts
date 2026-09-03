@@ -45,7 +45,9 @@ export const getCustomDesignOwnerIdentity = (
 export const getCustomDesignImageAccessibilityStatus = (
   image: Pick<CustomDesignImageItem, 'altText' | 'decorative'>,
 ): 'Alt text added' | 'Decorative' | 'Needs alt text' => {
-  if (image.decorative) return 'Decorative';
+  if (image.decorative) {
+    return 'Decorative';
+  }
   return image.altText.trim() ? 'Alt text added' : 'Needs alt text';
 };
 

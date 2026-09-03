@@ -20,7 +20,7 @@ describe('centralized onboarding metadata', () => {
       'design',
       'review',
     ]);
-    expect(CORE_SCREEN_ORDER.map((screen) => SCREEN_METADATA[screen].stage)).toEqual([
+    expect(CORE_SCREEN_ORDER.map(screen => SCREEN_METADATA[screen].stage)).toEqual([
       'basics',
       'basics',
       'basics',

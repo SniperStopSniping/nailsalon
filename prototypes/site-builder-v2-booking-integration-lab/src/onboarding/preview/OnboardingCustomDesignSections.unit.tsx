@@ -10,7 +10,7 @@ import { OnboardingCustomDesignSections } from './OnboardingCustomDesignSections
 
 vi.mock('../../custom-design/integration/CustomDesignAssetProvider', () => ({
   useCustomDesignAssetMap: (assetIds: readonly string[]) => new Map(
-    assetIds.map((assetId) => [assetId, {
+    assetIds.map(assetId => [assetId, {
       original: { assetId, kind: 'original', status: 'ready', url: `blob:${assetId}` },
       thumbnail: { assetId, kind: 'thumbnail', status: 'ready', url: `blob:thumb-${assetId}` },
     }]),
@@ -67,14 +67,18 @@ describe('OnboardingCustomDesignSections', () => {
       const wrapper = view.container.querySelector(
         `[data-onboarding-custom-design-mode="${mode}"]`,
       );
+
       expect(wrapper).not.toBeNull();
+
       const renderer = wrapper!.querySelector<HTMLElement>(
         '[data-testid="custom-design-customer-renderer"]',
       );
+
       expect(renderer).toHaveAttribute('data-display-mode', mode);
       expect(renderer?.style.getPropertyValue('--custom-design-content-max-width'))
         .toBe('calc(100% - clamp(32px, 10cqw, 112px))');
     }
+
     expect(screen.getAllByTestId('custom-design-customer-renderer')).toHaveLength(3);
   });
 
@@ -82,7 +86,7 @@ describe('OnboardingCustomDesignSections', () => {
     const user = userEvent.setup();
     const siteDocument = initializeStarter('quick_book');
     const page = siteDocument.pages[0]!;
-    const booking = page.sections.find((section) => section.sectionType === 'booking')!;
+    const booking = page.sections.find(section => section.sectionType === 'booking')!;
     const section = makeSection('contained', booking.order - 0.5);
     section.settings.cta = {
       label: 'Book now',
@@ -103,7 +107,9 @@ describe('OnboardingCustomDesignSections', () => {
     const wrapper = view.container.querySelector<HTMLElement>(
       `[data-onboarding-custom-design-section="${section.id}"]`,
     );
+
     expect(wrapper).not.toBeNull();
+
     await user.click(within(wrapper!).getByRole('button', { name: 'Book now' }));
 
     expect(onDocumentTarget).toHaveBeenCalledWith({

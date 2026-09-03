@@ -3,23 +3,25 @@ import userEvent from '@testing-library/user-event';
 import { useState } from 'react';
 
 import { BookingSectionRenderer } from './BookingSectionRenderer';
-import { BookingSettingsPanel } from './SettingsPanel';
 import { createEmptyBookingSession, createMenuFixture } from './helpers';
 import {
   createDefaultBookingPresentationSettings,
   replaceActiveLayoutSettings,
   switchBookingLayout,
 } from './presentation';
+import { BookingSettingsPanel } from './SettingsPanel';
 import type {
   BookingMenuLayout,
-  BookingSessionState,
   BookingSectionPresentationSettings,
+  BookingSessionState,
   MockMenuFixture,
 } from './types';
 
+const defaultPresentationSettings = createDefaultBookingPresentationSettings();
+
 function RendererHarness({
   fixture,
-  initialSettings = createDefaultBookingPresentationSettings(),
+  initialSettings = defaultPresentationSettings,
   mode = 'preview',
 }: {
   fixture?: MockMenuFixture;
@@ -64,7 +66,9 @@ describe('shared Booking Section renderer', () => {
     for (const layout of Object.keys(labels) as BookingMenuLayout[]) {
       settings = switchBookingLayout(settings, layout);
       rerender(<RendererHarness initialSettings={settings} />);
+
       expect(screen.getByRole('region', { name: labels[layout] })).toBeVisible();
+
       if (layout === 'visual_grid') {
         expect(screen.getByRole('region', { name: 'Featured services in booking' }))
           .toBeVisible();
@@ -76,19 +80,24 @@ describe('shared Booking Section renderer', () => {
     render(<RendererHarness mode="edit" />);
     const region = screen.getByTestId('booking-section-edit')
       .querySelector('.booking-customer-region');
+
     expect(screen.getByRole('group', {
       name: `Booking menu preview — ${createMenuFixture().services.length} services, Visual Grid. Not interactive while editing.`,
     })).toBe(region);
     expect(region).not.toHaveAttribute('inert');
     expect(region).not.toHaveAttribute('aria-hidden');
+
     const controls = region?.querySelectorAll<HTMLElement>(
       'button, input, select, textarea, a[href]',
     ) ?? [];
+
     expect(controls.length).toBeGreaterThan(0);
+
     controls.forEach((control) => {
       expect(control).toHaveAttribute('tabindex', '-1');
       expect(control).toHaveAttribute('aria-hidden', 'true');
     });
+
     expect(region?.querySelectorAll('[data-editor-readonly-control]').length)
       .toBeGreaterThan(controls.length);
     expect(within(region as HTMLElement).queryByRole('button')).not.toBeInTheDocument();
@@ -119,26 +128,33 @@ describe('shared Booking Section renderer', () => {
     await user.click(russianAction);
 
     const detail = await screen.findByTestId('service-detail-dialog');
+
     expect(within(detail).getByRole('heading', { name: 'Russian Manicure' })).toBeVisible();
     expect(within(detail).getByRole('button', { name: 'Continue' })).toBeVisible();
     expect(within(detail).queryByRole('button', { name: 'Select service' }))
       .not.toBeInTheDocument();
+
     await user.click(within(detail).getByRole('checkbox', { name: /French/ }));
+
     expect(within(detail).getByTestId('service-detail-total')).toHaveTextContent(
       '1 hr 45 min·From $80',
     );
+
     await user.click(within(detail).getByRole('button', { name: 'Keep browsing' }));
 
     const summary = await screen.findByTestId('selected-service-summary');
+
     expect(summary).toHaveAttribute('role', 'group');
     expect(screen.queryByRole('complementary', { name: 'Selected service summary' }))
       .not.toBeInTheDocument();
     expect(summary).toHaveTextContent('Russian Manicure');
     expect(summary).toHaveTextContent('1 hr 45 min · From $80');
+
     await user.click(within(summary).getByRole('button', { name: 'Continue' }));
     const handoff = await screen.findByRole('dialog', {
       name: 'Booking flow continues here',
     });
+
     expect(handoff).toBe(screen.getByTestId('booking-handoff-dialog'));
     expect(handoff).toHaveAttribute('aria-modal', 'true');
     expect(handoff).not.toHaveAttribute('open');
@@ -160,8 +176,10 @@ describe('shared Booking Section renderer', () => {
     const { unmount } = render(
       <RendererHarness fixture={noImages} initialSettings={showFallbacks} />,
     );
+
     expect(screen.getAllByRole('img', { name: /No service photo available/ }).length)
       .toBeGreaterThan(0);
+
     unmount();
 
     const stress = createMenuFixture({ menuSize: 'stress_100' });
@@ -172,6 +190,7 @@ describe('shared Booking Section renderer', () => {
     const { container } = render(
       <RendererHarness fixture={stress} initialSettings={categorySettings} />,
     );
+
     expect(container.querySelectorAll('.category-service-row')).toHaveLength(100);
   });
 });
@@ -196,6 +215,7 @@ describe('Booking owner settings', () => {
 
   it('keeps the chooser open and reveals only compatible controls', () => {
     const { container } = render(<SettingsHarness />);
+
     expect(screen.getByRole('heading', { name: 'Booking' })).toBeVisible();
     expect(screen.getByText('Photos recommended')).toBeVisible();
     expect(screen.getByText('Featured services')).toBeVisible();
@@ -208,6 +228,7 @@ describe('Booking owner settings', () => {
       throw new Error('Clean List layout option was not rendered.');
     }
     fireEvent.click(listOption);
+
     expect(screen.getByTestId('booking-settings-panel')).toBeVisible();
     expect(screen.getByText('Tiny thumbnails')).toBeVisible();
     expect(screen.queryByText('Featured services')).not.toBeInTheDocument();

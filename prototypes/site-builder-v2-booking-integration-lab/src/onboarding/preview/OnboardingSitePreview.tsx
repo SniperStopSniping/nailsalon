@@ -34,16 +34,16 @@ import { useCustomDesignAssetMap } from '../../custom-design/integration/CustomD
 import type { CustomDesignDocumentNavigationTarget } from '../../custom-design/integration/document-actions';
 import { hasRenderableCustomDesignContent } from '../../custom-design/model/settings';
 import type { CustomDesignSettings } from '../../custom-design/model/types';
-import { isLibrarySection } from '../../model/section-library/registry';
-import type {
-  GalleryPresetId,
-  GallerySelection,
-} from '../../model/section-library/settings';
 import {
   sectionOwnsContent,
   type SiteContentKey,
   type SiteContentPlacementPlan,
 } from '../../model/content-placement';
+import { isLibrarySection } from '../../model/section-library/registry';
+import type {
+  GalleryPresetId,
+  GallerySelection,
+} from '../../model/section-library/settings';
 import {
   buildCustomerSiteComposition,
   filterCustomerPagePlanSections,
@@ -79,11 +79,15 @@ import {
 } from '../model/policies';
 import { getCustomerProfileFacts } from '../model/profile-facts';
 import {
-  resolveQuickBookProfile,
   type QuickBookProfileContact,
   type QuickBookProfileViewModel,
+  resolveQuickBookProfile,
 } from '../model/quick-book-profile';
 import { applyOnboardingSitePresentation } from '../model/site-document-presentation';
+import {
+  deriveSiteLibraryContext,
+  deriveSitePlanToggles,
+} from '../model/site-library-context';
 import type {
   AboutElementId,
   AboutPresetId,
@@ -92,10 +96,6 @@ import type {
   QuickBookLayoutId,
   SiteStylePresetId,
 } from '../model/types';
-import {
-  deriveSiteLibraryContext,
-  deriveSitePlanToggles,
-} from '../model/site-library-context';
 import { labelForNewClients, labelForVisitMode } from './customer-facts';
 import { OnboardingCustomDesignSections } from './OnboardingCustomDesignSections';
 import { sectionAnchorId } from './section-anchors';
@@ -155,10 +155,10 @@ export type StyleRoles = {
 export const ONBOARDING_STYLE_ROLES: Record<SiteStylePresetId, StyleRoles> = {
   modern: {
     accent: '#a44f3e',
-    bodyFont: "Inter, ui-sans-serif, system-ui, sans-serif",
+    bodyFont: 'Inter, ui-sans-serif, system-ui, sans-serif',
     buttonRadius: '16px',
     ground: '#f7f0e6',
-    headingFont: "Newsreader, Georgia, 'Times New Roman', serif",
+    headingFont: 'Newsreader, Georgia, \'Times New Roman\', serif',
     ink: '#332824',
     line: '#ddcfc5',
     muted: '#756761',
@@ -169,10 +169,10 @@ export const ONBOARDING_STYLE_ROLES: Record<SiteStylePresetId, StyleRoles> = {
   },
   editorial: {
     accent: '#771d36',
-    bodyFont: "Inter, ui-sans-serif, system-ui, sans-serif",
+    bodyFont: 'Inter, ui-sans-serif, system-ui, sans-serif',
     buttonRadius: '2px',
     ground: '#fbf7ef',
-    headingFont: "Newsreader, Georgia, 'Times New Roman', serif",
+    headingFont: 'Newsreader, Georgia, \'Times New Roman\', serif',
     ink: '#20191a',
     line: '#c9beb2',
     muted: '#6f625d',
@@ -183,10 +183,10 @@ export const ONBOARDING_STYLE_ROLES: Record<SiteStylePresetId, StyleRoles> = {
   },
   soft: {
     accent: '#9d5374',
-    bodyFont: "Inter, ui-sans-serif, system-ui, sans-serif",
+    bodyFont: 'Inter, ui-sans-serif, system-ui, sans-serif',
     buttonRadius: '999px',
     ground: '#fff2f5',
-    headingFont: "Newsreader, Georgia, 'Times New Roman', serif",
+    headingFont: 'Newsreader, Georgia, \'Times New Roman\', serif',
     ink: '#4b303a',
     line: '#ead4dc',
     muted: '#806a73',
@@ -197,10 +197,10 @@ export const ONBOARDING_STYLE_ROLES: Record<SiteStylePresetId, StyleRoles> = {
   },
   minimal: {
     accent: '#285346',
-    bodyFont: "Inter, ui-sans-serif, system-ui, sans-serif",
+    bodyFont: 'Inter, ui-sans-serif, system-ui, sans-serif',
     buttonRadius: '6px',
     ground: '#f5f6f1',
-    headingFont: "Inter, ui-sans-serif, system-ui, sans-serif",
+    headingFont: 'Inter, ui-sans-serif, system-ui, sans-serif',
     ink: '#202823',
     line: '#d2d9d1',
     muted: '#647069',
@@ -211,10 +211,10 @@ export const ONBOARDING_STYLE_ROLES: Record<SiteStylePresetId, StyleRoles> = {
   },
   bold: {
     accent: '#c9322c',
-    bodyFont: "Inter, ui-sans-serif, system-ui, sans-serif",
+    bodyFont: 'Inter, ui-sans-serif, system-ui, sans-serif',
     buttonRadius: '4px',
     ground: '#f4df53',
-    headingFont: "Arial Black, Inter, ui-sans-serif, sans-serif",
+    headingFont: 'Arial Black, Inter, ui-sans-serif, sans-serif',
     ink: '#171717',
     line: '#171717',
     muted: '#514a24',
@@ -225,10 +225,10 @@ export const ONBOARDING_STYLE_ROLES: Record<SiteStylePresetId, StyleRoles> = {
   },
   luxury: {
     accent: '#c9a45f',
-    bodyFont: "Inter, ui-sans-serif, system-ui, sans-serif",
+    bodyFont: 'Inter, ui-sans-serif, system-ui, sans-serif',
     buttonRadius: '2px',
     ground: '#171315',
-    headingFont: "Newsreader, Georgia, 'Times New Roman', serif",
+    headingFont: 'Newsreader, Georgia, \'Times New Roman\', serif',
     ink: '#f9eedc',
     line: '#514349',
     muted: '#c8b8ae',
@@ -246,20 +246,36 @@ export const ONBOARDING_STYLE_ROLES: Record<SiteStylePresetId, StyleRoles> = {
 const ContactMethodIcon = ({ method }: {
   method: PublicContactAction['method'];
 }) => {
-  if (method === 'booking') return <CalendarDays aria-hidden="true" size={16} />;
-  if (method === 'instagram') return <Instagram aria-hidden="true" size={16} />;
-  if (method === 'call') return <Phone aria-hidden="true" size={16} />;
-  if (method === 'email') return <Mail aria-hidden="true" size={16} />;
+  if (method === 'booking') {
+    return <CalendarDays aria-hidden="true" size={16} />;
+  }
+  if (method === 'instagram') {
+    return <Instagram aria-hidden="true" size={16} />;
+  }
+  if (method === 'call') {
+    return <Phone aria-hidden="true" size={16} />;
+  }
+  if (method === 'email') {
+    return <Mail aria-hidden="true" size={16} />;
+  }
   return <MessageCircle aria-hidden="true" size={16} />;
 };
 
 const contentKeyForContactMethod = (
   method: PublicContactAction['method'],
 ): SiteContentKey | null => {
-  if (method === 'instagram') return 'instagram';
-  if (method === 'call') return 'phone';
-  if (method === 'text') return 'text';
-  if (method === 'email') return 'email';
+  if (method === 'instagram') {
+    return 'instagram';
+  }
+  if (method === 'call') {
+    return 'phone';
+  }
+  if (method === 'text') {
+    return 'text';
+  }
+  if (method === 'email') {
+    return 'email';
+  }
   return null;
 };
 
@@ -274,7 +290,7 @@ const identityInitials = (value: string, fallback = 'L'): string => {
     .split(/\s+/u)
     .filter(Boolean)
     .slice(0, 2)
-    .map((part) => part[0]?.toLocaleUpperCase())
+    .map(part => part[0]?.toLocaleUpperCase())
     .join('');
   return initials || fallback;
 };
@@ -354,7 +370,7 @@ function Portrait({
   const source = resolveOnboardingImageUrl(profile.profilePhoto, assets);
   const visibleIdentity = respectAboutVisibility
     ? (profile.about.visibility.owner_name ? profile.ownerName : '')
-      || (profile.about.visibility.salon_name ? profile.businessName : '')
+    || (profile.about.visibility.salon_name ? profile.businessName : '')
     : profile.ownerName || profile.businessName;
   const initials = identityInitials(visibleIdentity);
   const altText = profile.profilePhoto?.source === 'fixture'
@@ -365,28 +381,30 @@ function Portrait({
   if (!source && !showFallback) {
     return null;
   }
-  return source ? (
-    <img
-      alt={altText}
-      className={`onboarding-customer-portrait${large ? ' is-large' : ''}`}
-      data-content-key="owner_profile_photo"
-      data-content-owner={ownerId}
-      data-media-id={profile.profilePhoto?.storageId ?? profile.profilePhoto?.id}
-      data-media-role="profile"
-      src={source}
-    />
-  ) : (
-    <span
-      aria-label={`${visibleIdentity || 'Business owner'} portrait placeholder`}
-      className={`onboarding-customer-portrait onboarding-customer-portrait--initials${large ? ' is-large' : ''}`}
-      data-content-key="owner_profile_photo"
-      data-content-owner={ownerId}
-      data-media-role="profile"
-      role="img"
-    >
-      {initials || 'L'}
-    </span>
-  );
+  return source
+    ? (
+        <img
+          alt={altText}
+          className={`onboarding-customer-portrait${large ? ' is-large' : ''}`}
+          data-content-key="owner_profile_photo"
+          data-content-owner={ownerId}
+          data-media-id={profile.profilePhoto?.storageId ?? profile.profilePhoto?.id}
+          data-media-role="profile"
+          src={source}
+        />
+      )
+    : (
+        <span
+          aria-label={`${visibleIdentity || 'Business owner'} portrait placeholder`}
+          className={`onboarding-customer-portrait onboarding-customer-portrait--initials${large ? ' is-large' : ''}`}
+          data-content-key="owner_profile_photo"
+          data-content-owner={ownerId}
+          data-media-role="profile"
+          role="img"
+        >
+          {initials || 'L'}
+        </span>
+      );
 }
 
 function QuickBookIdentity({
@@ -424,9 +442,11 @@ function QuickBookIdentity({
         </h1>
         {view.techName ? <p>{view.techName}</p> : null}
       </div>
-      {view.techPhotoVisible ? (
-        <Portrait ownerId={sectionId} profile={profile} showFallback={false} />
-      ) : null}
+      {view.techPhotoVisible
+        ? (
+            <Portrait ownerId={sectionId} profile={profile} showFallback={false} />
+          )
+        : null}
     </div>
   );
 }
@@ -438,7 +458,9 @@ function QuickBookInstagramLink({
   instagram: QuickBookProfileContact | null;
   sectionId: string;
 }) {
-  if (!instagram) return null;
+  if (!instagram) {
+    return null;
+  }
   return (
     <a
       className="onboarding-quick-book-profile__instagram"
@@ -466,7 +488,9 @@ type QuickBookFact = {
 };
 
 function QuickBookFacts({ facts }: { facts: readonly QuickBookFact[] }) {
-  if (facts.length === 0) return null;
+  if (facts.length === 0) {
+    return null;
+  }
   return (
     <div className="onboarding-quick-book-profile__facts" data-fact-count={facts.length}>
       {facts.map((fact) => {
@@ -481,26 +505,28 @@ function QuickBookFacts({ facts }: { facts: readonly QuickBookFact[] }) {
             {fact.href ? <ChevronRight aria-hidden="true" size={16} /> : null}
           </>
         );
-        return fact.href ? (
-          <a
-            className="onboarding-quick-book-profile__fact"
-            data-quick-book-fact={fact.id}
-            href={fact.href}
-            key={fact.id}
-            rel={fact.rel}
-            target={fact.target}
-          >
-            {body}
-          </a>
-        ) : (
-          <div
-            className="onboarding-quick-book-profile__fact"
-            data-quick-book-fact={fact.id}
-            key={fact.id}
-          >
-            {body}
-          </div>
-        );
+        return fact.href
+          ? (
+              <a
+                className="onboarding-quick-book-profile__fact"
+                data-quick-book-fact={fact.id}
+                href={fact.href}
+                key={fact.id}
+                rel={fact.rel}
+                target={fact.target}
+              >
+                {body}
+              </a>
+            )
+          : (
+              <div
+                className="onboarding-quick-book-profile__fact"
+                data-quick-book-fact={fact.id}
+                key={fact.id}
+              >
+                {body}
+              </div>
+            );
       })}
     </div>
   );
@@ -513,15 +539,22 @@ function QuickBookContactSummary({
   bookingOnly: boolean;
   contacts: readonly QuickBookProfileContact[];
 }) {
-  if (contacts.length === 0 && !bookingOnly) return null;
+  if (contacts.length === 0 && !bookingOnly) {
+    return null;
+  }
   return (
     <div className="onboarding-quick-book-profile__contacts" data-contact-count={contacts.length}>
-      {bookingOnly ? (
-        <span className="is-booking-only">
-          <CalendarDays aria-hidden="true" size={18} />
-          <span><strong>Online booking only</strong><small>Book here anytime</small></span>
-        </span>
-      ) : null}
+      {bookingOnly
+        ? (
+            <span className="is-booking-only">
+              <CalendarDays aria-hidden="true" size={18} />
+              <span>
+                <strong>Online booking only</strong>
+                <small>Book here anytime</small>
+              </span>
+            </span>
+          )
+        : null}
       {contacts.map(contact => (
         <a
           href={contact.href}
@@ -557,7 +590,9 @@ function QuickBookAboutDisclosure({
   const fullBio = profile.about.fullBio.trim();
   const specialties = profile.about.specialties.filter(Boolean);
   const experience = profile.about.yearsOfExperience.trim();
-  if (!shortBio && !fullBio && specialties.length === 0 && !experience) return null;
+  if (!shortBio && !fullBio && specialties.length === 0 && !experience) {
+    return null;
+  }
   const label = techName ? `About ${techName}` : 'About the studio';
   const summary = specialties.length > 0
     ? specialties.slice(0, 3).join(' · ')
@@ -568,17 +603,38 @@ function QuickBookAboutDisclosure({
       <article className="onboarding-quick-book-profile__story">
         <p className="onboarding-customer-eyebrow">{label}</p>
         {shortBio ? <p>{shortBio}</p> : fullBio ? <p>{fullBio}</p> : null}
-        {specialties.length > 0 ? (
-          <ul aria-label="Specialties">
-            {specialties.slice(0, 4).map(item => <li key={item}>{item}</li>)}
-          </ul>
-        ) : null}
-        {fullBio && fullBio !== shortBio ? (
-          <details className="onboarding-quick-book-profile__disclosure is-about">
-            <summary><span>More about {techName || 'us'}</span><ChevronRight aria-hidden="true" size={17} /></summary>
-            <div><p>{fullBio}</p>{experience ? <p>{experience} years of experience</p> : null}</div>
-          </details>
-        ) : null}
+        {specialties.length > 0
+          ? (
+              <ul aria-label="Specialties">
+                {specialties.slice(0, 4).map(item => <li key={item}>{item}</li>)}
+              </ul>
+            )
+          : null}
+        {fullBio && fullBio !== shortBio
+          ? (
+              <details className="onboarding-quick-book-profile__disclosure is-about">
+                <summary>
+                  <span>
+                    {'More about '}
+                    {techName || 'us'}
+                  </span>
+                  <ChevronRight aria-hidden="true" size={17} />
+                </summary>
+                <div>
+                  <p>{fullBio}</p>
+                  {experience
+                    ? (
+                        <p>
+                          {experience}
+                          {' '}
+                          years of experience
+                        </p>
+                      )
+                    : null}
+                </div>
+              </details>
+            )
+          : null}
       </article>
     );
   }
@@ -586,18 +642,31 @@ function QuickBookAboutDisclosure({
   return (
     <details className="onboarding-quick-book-profile__disclosure is-about">
       <summary>
-        <span><strong>{label}</strong><small>{summary}</small></span>
+        <span>
+          <strong>{label}</strong>
+          <small>{summary}</small>
+        </span>
         <ChevronRight aria-hidden="true" size={17} />
       </summary>
       <div>
         {shortBio ? <p>{shortBio}</p> : null}
         {fullBio && fullBio !== shortBio ? <p>{fullBio}</p> : null}
-        {specialties.length > 0 ? (
-          <ul aria-label="Specialties">
-            {specialties.map(item => <li key={item}>{item}</li>)}
-          </ul>
-        ) : null}
-        {experience ? <p>{experience} years of experience</p> : null}
+        {specialties.length > 0
+          ? (
+              <ul aria-label="Specialties">
+                {specialties.map(item => <li key={item}>{item}</li>)}
+              </ul>
+            )
+          : null}
+        {experience
+          ? (
+              <p>
+                {experience}
+                {' '}
+                years of experience
+              </p>
+            )
+          : null}
       </div>
     </details>
   );
@@ -614,7 +683,9 @@ function QuickBookPolicyDisclosure({
   notice: string | null;
   sectionId: string;
 }) {
-  if (entries.length === 0 && !notice && !deposit) return null;
+  if (entries.length === 0 && !notice && !deposit) {
+    return null;
+  }
   return (
     <details
       className="onboarding-quick-book-profile__disclosure is-policies"
@@ -629,10 +700,27 @@ function QuickBookPolicyDisclosure({
         <ChevronRight aria-hidden="true" size={17} />
       </summary>
       <div>
-        {notice ? <p><strong>Booking notice</strong>{notice}</p> : null}
-        {deposit ? <p><strong>Deposit</strong>{deposit}</p> : null}
+        {notice
+          ? (
+              <p>
+                <strong>Booking notice</strong>
+                {notice}
+              </p>
+            )
+          : null}
+        {deposit
+          ? (
+              <p>
+                <strong>Deposit</strong>
+                {deposit}
+              </p>
+            )
+          : null}
         {entries.map(entry => (
-          <p key={entry.id}><strong>{entry.heading}</strong>{entry.wording}</p>
+          <p key={entry.id}>
+            <strong>{entry.heading}</strong>
+            {entry.wording}
+          </p>
         ))}
         <span className="onboarding-quick-book-profile__policy-action">
           View all policies &amp; important info
@@ -672,43 +760,57 @@ function QuickBookProfileHeader({
   const layout = phase === 'identity' ? 'compact_dropdown' : state.recipe.quickBookLayout;
   const visitMode = final ? labelForVisitMode(profile) : null;
   const newClients = final ? labelForNewClients(profile) : null;
-  const facts: QuickBookFact[] = business ? [
-    ...(view.location ? [{
-      detail: view.location.detail,
-      href: view.location.directions?.href,
-      icon: <MapPin aria-hidden="true" size={18} />,
-      id: 'location',
-      label: 'Location',
-      rel: view.location.directions?.rel,
-      target: view.location.directions?.target,
-      value: view.location.primary,
-    }] : []),
-    ...(view.hours ? [{
-      detail: view.hours.detail,
-      icon: <Clock3 aria-hidden="true" size={18} />,
-      id: 'hours',
-      label: 'Hours',
-      value: view.hours.label,
-    }] : []),
-    ...(visitMode ? [{
-      icon: <CalendarDays aria-hidden="true" size={18} />,
-      id: 'appointments',
-      label: 'Booking',
-      value: visitMode,
-    }] : []),
-    ...(newClients ? [{
-      icon: <MessageCircle aria-hidden="true" size={18} />,
-      id: 'new-clients',
-      label: 'Clients',
-      value: newClients,
-    }] : []),
-  ] : [];
-  const about = final && state.recipe.aboutEnabled ? (
-    <QuickBookAboutDisclosure profile={profile} techName={view.techName} />
-  ) : null;
-  const story = final && state.recipe.aboutEnabled ? (
-    <QuickBookAboutDisclosure profile={profile} story techName={view.techName} />
-  ) : null;
+  const facts: QuickBookFact[] = business
+    ? [
+        ...(view.location
+          ? [{
+              detail: view.location.detail,
+              href: view.location.directions?.href,
+              icon: <MapPin aria-hidden="true" size={18} />,
+              id: 'location',
+              label: 'Location',
+              rel: view.location.directions?.rel,
+              target: view.location.directions?.target,
+              value: view.location.primary,
+            }]
+          : []),
+        ...(view.hours
+          ? [{
+              detail: view.hours.detail,
+              icon: <Clock3 aria-hidden="true" size={18} />,
+              id: 'hours',
+              label: 'Hours',
+              value: view.hours.label,
+            }]
+          : []),
+        ...(visitMode
+          ? [{
+              icon: <CalendarDays aria-hidden="true" size={18} />,
+              id: 'appointments',
+              label: 'Booking',
+              value: visitMode,
+            }]
+          : []),
+        ...(newClients
+          ? [{
+              icon: <MessageCircle aria-hidden="true" size={18} />,
+              id: 'new-clients',
+              label: 'Clients',
+              value: newClients,
+            }]
+          : []),
+      ]
+    : [];
+  const about = final && state.recipe.aboutEnabled
+    ? (
+        <QuickBookAboutDisclosure profile={profile} techName={view.techName} />
+      )
+    : null;
+  const story = final && state.recipe.aboutEnabled
+    ? (
+        <QuickBookAboutDisclosure profile={profile} story techName={view.techName} />
+      )
+    : null;
   const policiesReached = state.progress.visitedScreens.includes('policies');
   const policyEntries = final && policiesReached && state.recipe.policiesEnabled
     ? getBeforeYouBookEntries(profile.policies)
@@ -721,14 +823,16 @@ function QuickBookProfileHeader({
     && getDepositPolicyMode(profile.policies) === 'fixed'
     ? deriveDepositPolicySummary(profile.policies)
     : null;
-  const policies = final ? (
-    <QuickBookPolicyDisclosure
-      deposit={deposit}
-      entries={policyEntries}
-      notice={notice}
-      sectionId={sectionId}
-    />
-  ) : null;
+  const policies = final
+    ? (
+        <QuickBookPolicyDisclosure
+          deposit={deposit}
+          entries={policyEntries}
+          notice={notice}
+          sectionId={sectionId}
+        />
+      )
+    : null;
   const identity = (
     <QuickBookIdentity
       layout={layout}
@@ -742,12 +846,19 @@ function QuickBookProfileHeader({
   const instagram = <QuickBookInstagramLink instagram={view.instagram} sectionId={sectionId} />;
   const factGrid = <QuickBookFacts facts={facts} />;
   const showBookingOnlyContact = business && profile.bookingOnlyContact && !visitMode;
-  const contacts = business && (showBookingOnlyContact || view.contacts.length > 0) ? (
-    <QuickBookContactSummary bookingOnly={showBookingOnlyContact} contacts={view.contacts} />
-  ) : null;
-  const details = about || policies ? (
-    <div className="onboarding-quick-book-profile__details">{about}{policies}</div>
-  ) : null;
+  const contacts = business && (showBookingOnlyContact || view.contacts.length > 0)
+    ? (
+        <QuickBookContactSummary bookingOnly={showBookingOnlyContact} contacts={view.contacts} />
+      )
+    : null;
+  const details = about || policies
+    ? (
+        <div className="onboarding-quick-book-profile__details">
+          {about}
+          {policies}
+        </div>
+      )
+    : null;
 
   return (
     <section
@@ -758,43 +869,98 @@ function QuickBookProfileHeader({
       data-section-id={sectionId}
       id={sectionAnchorId(sectionId, 'hero')}
     >
-      {layout === 'clean_card' ? (
-        <>{identity}{instagram}<div className="onboarding-quick-book-profile__business-card">{factGrid}{contacts}</div>{details}</>
-      ) : layout === 'editorial' ? (
-        <>{identity}{instagram}<div className="onboarding-quick-book-profile__editorial-facts">{factGrid}{contacts}</div>{details}</>
-      ) : layout === 'hub_menu' ? (
-        <>{identity}{instagram}<div className="onboarding-quick-book-profile__hub">{factGrid}{contacts}{details}</div></>
-      ) : layout === 'profile_story' ? (
-        <>{identity}{instagram}{story}<div className="onboarding-quick-book-profile__story-facts">{factGrid}{contacts}</div>{policies}</>
-      ) : layout === 'ultra_minimal' ? (
-        <>
-          {identity}
-          {instagram}
-          {facts.length > 0 ? <div className="onboarding-quick-book-profile__status-line">{factGrid}</div> : null}
-          {details}
-          {contacts ? (
-            <details className="onboarding-quick-book-profile__more">
-              <summary>More details <ChevronRight aria-hidden="true" size={17} /></summary>
-              <div>{contacts}</div>
-            </details>
-          ) : null}
-        </>
-      ) : (
-        <>
-          {identity}
-          {instagram}
-          {facts.length > 0 ? (
-            <div className="onboarding-quick-book-profile__status-line">{factGrid}</div>
-          ) : null}
-          {contacts ? (
-            <details className="onboarding-quick-book-profile__more is-salon-details">
-              <summary>Salon details <ChevronRight aria-hidden="true" size={17} /></summary>
-              <div>{contacts}</div>
-            </details>
-          ) : null}
-          {details}
-        </>
-      )}
+      {layout === 'clean_card'
+        ? (
+            <>
+              {identity}
+              {instagram}
+              <div className="onboarding-quick-book-profile__business-card">
+                {factGrid}
+                {contacts}
+              </div>
+              {details}
+            </>
+          )
+        : layout === 'editorial'
+          ? (
+              <>
+                {identity}
+                {instagram}
+                <div className="onboarding-quick-book-profile__editorial-facts">
+                  {factGrid}
+                  {contacts}
+                </div>
+                {details}
+              </>
+            )
+          : layout === 'hub_menu'
+            ? (
+                <>
+                  {identity}
+                  {instagram}
+                  <div className="onboarding-quick-book-profile__hub">
+                    {factGrid}
+                    {contacts}
+                    {details}
+                  </div>
+                </>
+              )
+            : layout === 'profile_story'
+              ? (
+                  <>
+                    {identity}
+                    {instagram}
+                    {story}
+                    <div className="onboarding-quick-book-profile__story-facts">
+                      {factGrid}
+                      {contacts}
+                    </div>
+                    {policies}
+                  </>
+                )
+              : layout === 'ultra_minimal'
+                ? (
+                    <>
+                      {identity}
+                      {instagram}
+                      {facts.length > 0 ? <div className="onboarding-quick-book-profile__status-line">{factGrid}</div> : null}
+                      {details}
+                      {contacts
+                        ? (
+                            <details className="onboarding-quick-book-profile__more">
+                              <summary>
+                                {'More details '}
+                                <ChevronRight aria-hidden="true" size={17} />
+                              </summary>
+                              <div>{contacts}</div>
+                            </details>
+                          )
+                        : null}
+                    </>
+                  )
+                : (
+                    <>
+                      {identity}
+                      {instagram}
+                      {facts.length > 0
+                        ? (
+                            <div className="onboarding-quick-book-profile__status-line">{factGrid}</div>
+                          )
+                        : null}
+                      {contacts
+                        ? (
+                            <details className="onboarding-quick-book-profile__more is-salon-details">
+                              <summary>
+                                {'Salon details '}
+                                <ChevronRight aria-hidden="true" size={17} />
+                              </summary>
+                              <div>{contacts}</div>
+                            </details>
+                          )
+                        : null}
+                      {details}
+                    </>
+                  )}
     </section>
   );
 }
@@ -823,7 +989,7 @@ const getAboutFacts = (
     });
   }
   for (const fact of getCustomerProfileFacts(profile).filter(
-    (item) => item.id === 'service_location',
+    item => item.id === 'service_location',
   )) {
     facts.push({ contentKey: 'location', label: fact.label, value: fact.value });
   }
@@ -850,9 +1016,13 @@ const getAboutFacts = (
   }
 
   const appointment = facts.find(fact => fact.label === 'Appointments');
-  if (appointment) appointment.contentKey = 'appointment_mode';
+  if (appointment) {
+    appointment.contentKey = 'appointment_mode';
+  }
   const newClientsFact = facts.find(fact => fact.label === 'New clients');
-  if (newClientsFact) newClientsFact.contentKey = 'new_client_status';
+  if (newClientsFact) {
+    newClientsFact.contentKey = 'new_client_status';
+  }
 
   return facts;
 };
@@ -877,58 +1047,66 @@ function AboutFacts({
   sectionId: string;
 }) {
   const facts = getAboutFacts(profile, hoursStatus)
-    .filter((fact) => !excludeLabels.includes(fact.label))
+    .filter(fact => !excludeLabels.includes(fact.label))
     .filter(fact => !fact.contentKey || sectionOwnsContent(
       contentPlacement,
       fact.contentKey,
       sectionId,
       pageId,
     ));
-  if (facts.length === 0) return null;
+  if (facts.length === 0) {
+    return null;
+  }
   const visibleFacts = facts.slice(0, maxVisible);
   const additionalFacts = facts.slice(maxVisible);
 
   return (
     <div className="onboarding-about-facts-wrap">
       <dl className={`onboarding-about-facts is-${presentation}`}>
-        {visibleFacts.map((fact) => (
+        {visibleFacts.map(fact => (
           <div
             data-content-key={fact.contentKey}
             data-content-owner={fact.contentKey ? sectionId : undefined}
             key={fact.label}
           >
-            <dt>{fact.label}</dt><dd>{fact.value}</dd>
+            <dt>{fact.label}</dt>
+            <dd>{fact.value}</dd>
           </div>
         ))}
       </dl>
-      {additionalFacts.length > 0 ? (
-        <details className="onboarding-about-facts-more">
-          <summary>More details</summary>
-          <dl>
-            {additionalFacts.map((fact) => (
-              <div
-                data-content-key={fact.contentKey}
-                data-content-owner={fact.contentKey ? sectionId : undefined}
-                key={fact.label}
-              >
-                <dt>{fact.label}</dt><dd>{fact.value}</dd>
-              </div>
-            ))}
-          </dl>
-        </details>
-      ) : null}
+      {additionalFacts.length > 0
+        ? (
+            <details className="onboarding-about-facts-more">
+              <summary>More details</summary>
+              <dl>
+                {additionalFacts.map(fact => (
+                  <div
+                    data-content-key={fact.contentKey}
+                    data-content-owner={fact.contentKey ? sectionId : undefined}
+                    key={fact.label}
+                  >
+                    <dt>{fact.label}</dt>
+                    <dd>{fact.value}</dd>
+                  </div>
+                ))}
+              </dl>
+            </details>
+          )
+        : null}
     </div>
   );
 }
 
 function AboutSpecialties({ profile }: { profile: BusinessProfileDraft }) {
   const specialties = isAboutVisible(profile.about.visibility, 'specialties')
-    ? profile.about.specialties.filter((specialty) => specialty.trim())
+    ? profile.about.specialties.filter(specialty => specialty.trim())
     : [];
-  if (specialties.length === 0) return null;
+  if (specialties.length === 0) {
+    return null;
+  }
   return (
     <ul aria-label="Specialties" className="onboarding-about-specialties">
-      {specialties.map((specialty) => <li key={specialty}>{specialty}</li>)}
+      {specialties.map(specialty => <li key={specialty}>{specialty}</li>)}
     </ul>
   );
 }
@@ -951,20 +1129,30 @@ function AboutCopy({ introOverride, profile }: {
     <div className="onboarding-about-copy">
       <p className="onboarding-customer-eyebrow">Meet your nail artist</p>
       <h2>{heading}</h2>
-      {(introOverride?.trim() || isAboutVisible(visibility, 'bio')) && bio.lead ? (
-        <div className="onboarding-about-biography">
-          <p>{bio.lead}</p>
-          {bio.expanded ? (
-            <details>
-              <summary>Read more</summary>
-              <p>{bio.expanded}</p>
-            </details>
-          ) : null}
-        </div>
-      ) : null}
-      {profile.about.clientAppreciation.trim() ? (
-        <blockquote>“{profile.about.clientAppreciation.trim()}”</blockquote>
-      ) : null}
+      {(introOverride?.trim() || isAboutVisible(visibility, 'bio')) && bio.lead
+        ? (
+            <div className="onboarding-about-biography">
+              <p>{bio.lead}</p>
+              {bio.expanded
+                ? (
+                    <details>
+                      <summary>Read more</summary>
+                      <p>{bio.expanded}</p>
+                    </details>
+                  )
+                : null}
+            </div>
+          )
+        : null}
+      {profile.about.clientAppreciation.trim()
+        ? (
+            <blockquote>
+              “
+              {profile.about.clientAppreciation.trim()}
+              ”
+            </blockquote>
+          )
+        : null}
     </div>
   );
 }
@@ -996,17 +1184,16 @@ function AboutSection({
       sectionId,
       pageId,
     );
-  const facts = (props: Pick<Parameters<typeof AboutFacts>[0],
-    'excludeLabels' | 'maxVisible' | 'presentation'> = {}) => (
-      <AboutFacts
-        {...props}
-        contentPlacement={contentPlacement}
-        hoursStatus={hoursStatus}
-        pageId={pageId}
-        profile={profile}
-        sectionId={sectionId}
-      />
-    );
+  const facts = (props: Pick<Parameters<typeof AboutFacts>[0], 'excludeLabels' | 'maxVisible' | 'presentation'> = {}) => (
+    <AboutFacts
+      {...props}
+      contentPlacement={contentPlacement}
+      hoursStatus={hoursStatus}
+      pageId={pageId}
+      profile={profile}
+      sectionId={sectionId}
+    />
+  );
 
   if (preset === 'editorial_portrait') {
     return (
@@ -1017,9 +1204,11 @@ function AboutSection({
         data-preview-target="about"
         id={sectionId ? sectionAnchorId(sectionId, 'about') : undefined}
       >
-        {showPortrait ? (
-          <Portrait large ownerId={sectionId} profile={profile} respectAboutVisibility />
-        ) : null}
+        {showPortrait
+          ? (
+              <Portrait large ownerId={sectionId} profile={profile} respectAboutVisibility />
+            )
+          : null}
         <div className="onboarding-about-editorial-story">
           <AboutCopy introOverride={introOverride} profile={profile} />
           <AboutSpecialties profile={profile} />
@@ -1039,9 +1228,11 @@ function AboutSection({
         id={sectionId ? sectionAnchorId(sectionId, 'about') : undefined}
       >
         <div className="onboarding-about-quick-identity">
-          {showPortrait ? (
-            <Portrait ownerId={sectionId} profile={profile} respectAboutVisibility />
-          ) : null}
+          {showPortrait
+            ? (
+                <Portrait ownerId={sectionId} profile={profile} respectAboutVisibility />
+              )
+            : null}
           <AboutCopy introOverride={introOverride} profile={profile} />
         </div>
         {facts()}
@@ -1061,9 +1252,11 @@ function AboutSection({
       >
         <div className="onboarding-about-profile">
           <div className="onboarding-about-before-identity">
-            {showPortrait ? (
-              <Portrait ownerId={sectionId} profile={profile} respectAboutVisibility />
-            ) : null}
+            {showPortrait
+              ? (
+                  <Portrait ownerId={sectionId} profile={profile} respectAboutVisibility />
+                )
+              : null}
             <AboutCopy introOverride={introOverride} profile={profile} />
           </div>
           <AboutSpecialties profile={profile} />
@@ -1090,9 +1283,11 @@ function AboutSection({
         <AboutSpecialties profile={profile} />
         {facts({ maxVisible: 2, presentation: 'pills' })}
       </div>
-      {showPortrait ? (
-        <Portrait large ownerId={sectionId} profile={profile} respectAboutVisibility />
-      ) : null}
+      {showPortrait
+        ? (
+            <Portrait large ownerId={sectionId} profile={profile} respectAboutVisibility />
+          )
+        : null}
     </section>
   );
 }
@@ -1124,28 +1319,32 @@ function ContactSection({ contentPlacement, pageId, profile, sectionId }: {
     (contact): ContactPlacementAction[] => {
     // Booking already has canonical actions in the Hero, shell shortcut, and
     // Services & Booking. Visit & Contact owns only public contact methods.
-    if (contact.method === 'booking') return [];
-    const contentKey = contentKeyForContactMethod(contact.method);
-    return contentKey && sectionOwnsContent(
-      contentPlacement,
-      contentKey,
-      sectionId,
-      pageId,
-    )
-      ? [{ contact, contentKey }]
-      : [];
+      if (contact.method === 'booking') {
+        return [];
+      }
+      const contentKey = contentKeyForContactMethod(contact.method);
+      return contentKey && sectionOwnsContent(
+        contentPlacement,
+        contentKey,
+        sectionId,
+        pageId,
+      )
+        ? [{ contact, contentKey }]
+        : [];
     },
   );
   const directions = getPublicDirectionsAction(profile.location);
   const weeklyHours = ownsHours ? getPublicWeeklyHours(profile.hours) : [];
   const serviceLocation = getCustomerProfileFacts(profile).find(
-    (fact) => fact.id === 'service_location',
+    fact => fact.id === 'service_location',
   );
   const publicContacts = contacts.filter(({ contentKey }) => contentKey !== null);
   if ((!ownsLocation || !location.primary)
     && publicContacts.length === 0
     && weeklyHours.length === 0
-    && !profile.bookingOnlyContact) return null;
+    && !profile.bookingOnlyContact) {
+    return null;
+  }
   return (
     <section
       aria-label="Visit and contact"
@@ -1156,69 +1355,85 @@ function ContactSection({ contentPlacement, pageId, profile, sectionId }: {
       <div>
         <p className="onboarding-customer-eyebrow">Visit &amp; Contact</p>
         <h2>Find or contact the salon</h2>
-        {ownsLocation && location.primary ? (
-          <p data-content-key="location" data-content-owner={sectionId}>
-            <MapPin aria-hidden="true" size={17} />
-            {' '}
-            {profile.location.addressVisibility === 'public'
-              && profile.location.exactAddress.trim() === location.primary ? (
-                <span data-content-key="exact_address" data-content-owner={sectionId}>
-                  {location.primary}
-                </span>
-              ) : location.primary}
-          </p>
-        ) : null}
+        {ownsLocation && location.primary
+          ? (
+              <p data-content-key="location" data-content-owner={sectionId}>
+                <MapPin aria-hidden="true" size={17} />
+                {' '}
+                {profile.location.addressVisibility === 'public'
+                && profile.location.exactAddress.trim() === location.primary
+                  ? (
+                      <span data-content-key="exact_address" data-content-owner={sectionId}>
+                        {location.primary}
+                      </span>
+                    )
+                  : location.primary}
+              </p>
+            )
+          : null}
         {ownsLocation && location.detail ? <small>{location.detail}</small> : null}
         {ownsLocation && serviceLocation ? <small>{serviceLocation.value}</small> : null}
-        {profile.bookingOnlyContact ? (
-          <small data-content-key="booking_only_contact" data-content-owner={sectionId}>
-            Contact is kept private. Please use online booking to arrange your appointment.
-          </small>
-        ) : null}
+        {profile.bookingOnlyContact
+          ? (
+              <small data-content-key="booking_only_contact" data-content-owner={sectionId}>
+                Contact is kept private. Please use online booking to arrange your appointment.
+              </small>
+            )
+          : null}
       </div>
-      {weeklyHours.length > 0 ? (
-        <div
-          aria-label="Weekly hours"
-          className="onboarding-customer-weekly-hours"
-          data-content-key="business_hours"
-          data-content-owner={sectionId}
-          role="group"
-        >
-          <h3>Hours</h3>
-          <dl>
-            {weeklyHours.map((day) => (
-              <div key={day.weekday}><dt>{day.label}</dt><dd>{day.hours}</dd></div>
-            ))}
-          </dl>
-        </div>
-      ) : null}
+      {weeklyHours.length > 0
+        ? (
+            <div
+              aria-label="Weekly hours"
+              className="onboarding-customer-weekly-hours"
+              data-content-key="business_hours"
+              data-content-owner={sectionId}
+              role="group"
+            >
+              <h3>Hours</h3>
+              <dl>
+                {weeklyHours.map(day => (
+                  <div key={day.weekday}>
+                    <dt>{day.label}</dt>
+                    <dd>{day.hours}</dd>
+                  </div>
+                ))}
+              </dl>
+            </div>
+          )
+        : null}
       <div className="onboarding-customer-actions">
         {/* The preferred way to reach the salon leads; Directions follows it. */}
         {contacts.map(({ contact, contentKey }, index) => (
           <Fragment key={`${contact.method}-${contact.href}`}>
-          <a
-            className={contact.preferred ? 'is-preferred' : 'is-secondary'}
-            data-content-key={contentKey ?? undefined}
-            data-content-owner={contentKey ? sectionId : undefined}
-            data-contact-method={contact.method}
-            href={contact.href}
-            rel={contact.rel}
-            target={contact.target}
-          >
-            <ContactMethodIcon method={contact.method} />
-            {contact.actionLabel}{contact.preferred && contact.method !== 'booking' ? ' · Preferred' : ''}
-          </a>
-          {index === 0 && ownsLocation && directions ? (
             <a
-              aria-label={directions.accessibleLabel}
-              className="is-secondary"
-              href={directions.href}
-              rel={directions.rel}
-              target={directions.target}
+              className={contact.preferred ? 'is-preferred' : 'is-secondary'}
+              data-content-key={contentKey ?? undefined}
+              data-content-owner={contentKey ? sectionId : undefined}
+              data-contact-method={contact.method}
+              href={contact.href}
+              rel={contact.rel}
+              target={contact.target}
             >
-              <MapPin aria-hidden="true" size={16} /> Directions
+              <ContactMethodIcon method={contact.method} />
+              {contact.actionLabel}
+              {contact.preferred && contact.method !== 'booking' ? ' · Preferred' : ''}
             </a>
-          ) : null}
+            {index === 0 && ownsLocation && directions
+              ? (
+                  <a
+                    aria-label={directions.accessibleLabel}
+                    className="is-secondary"
+                    href={directions.href}
+                    rel={directions.rel}
+                    target={directions.target}
+                  >
+                    <MapPin aria-hidden="true" size={16} />
+                    {' '}
+                    Directions
+                  </a>
+                )
+              : null}
           </Fragment>
         ))}
       </div>
@@ -1237,28 +1452,36 @@ function GallerySection({ compact = false, preset, sectionId, selection, state }
   // ids that no longer exist simply don't render.
   const selectedImages = selection?.mode === 'picked'
     ? selection.imageIds.flatMap((imageId) => {
-        const image = state.gallery.images.find(candidate => candidate.id === imageId);
-        return image ? [image] : [];
-      })
+      const image = state.gallery.images.find(candidate => candidate.id === imageId);
+      return image ? [image] : [];
+    })
     : state.gallery.images;
   const images = selectedImages.slice(0, compact ? 4 : 6);
-  const assetIds = images.flatMap((image) => image.storageId ? [image.storageId] : []);
+  const assetIds = images.flatMap(image => image.storageId ? [image.storageId] : []);
   const assets = useCustomDesignAssetMap(assetIds);
-  if (!state.recipe.galleryEnabled) return null;
-  if (images.length === 0) return null;
+  if (!state.recipe.galleryEnabled) {
+    return null;
+  }
+  if (images.length === 0) {
+    return null;
+  }
   const tiles: ReactNode[] = images.flatMap((image, index) => {
     const source = resolveOnboardingImageUrl(image, assets);
-    return source ? [(
-      <img
-        alt={image.altText || `Portfolio work ${index + 1}`}
-        data-media-id={image.storageId ?? image.id}
-        data-media-role="gallery"
-        key={image.id}
-        src={source}
-      />
-    )] : [];
+    return source
+      ? [(
+          <img
+            alt={image.altText || `Portfolio work ${index + 1}`}
+            data-media-id={image.storageId ?? image.id}
+            data-media-role="gallery"
+            key={image.id}
+            src={source}
+          />
+        )]
+      : [];
   });
-  if (tiles.length === 0) return null;
+  if (tiles.length === 0) {
+    return null;
+  }
   return (
     <section
       aria-label="Gallery"
@@ -1301,8 +1524,8 @@ function BookingSection({
   session?: BookingSessionState;
 }) {
   const documentBookingSection = document?.pages
-    .flatMap((page) => page.sections)
-    .find((section) => (
+    .flatMap(page => page.sections)
+    .find(section => (
       section.sectionType === 'booking'
       && (!sectionId || section.id === sectionId)
     ));
@@ -1319,13 +1542,12 @@ function BookingSection({
         },
       }
     : bookingSettings;
-  const ownsBookingFact = (contentKey: Extract<SiteContentKey,
-    'appointment_mode' | 'new_client_status' | 'minimum_notice'>) => sectionOwnsContent(
-      contentPlacement,
-      contentKey,
-      sectionId ?? null,
-      pageId,
-    );
+  const ownsBookingFact = (contentKey: Extract<SiteContentKey, 'appointment_mode' | 'new_client_status' | 'minimum_notice'>) => sectionOwnsContent(
+    contentPlacement,
+    contentKey,
+    sectionId ?? null,
+    pageId,
+  );
   const fixture = useMemo(
     () => {
       const created = createOnboardingBookingFixture(profile);
@@ -1372,11 +1594,11 @@ function BookingSection({
       ].filter(fact => fact.value && ownsBookingFact(fact.contentKey));
   const policyEntries = compactPolicies
     ? getBeforeYouBookEntries(profile.policies).filter(entry => sectionOwnsContent(
-        contentPlacement,
-        entry.contentKey,
-        sectionId ?? null,
-        pageId,
-      ))
+      contentPlacement,
+      entry.contentKey,
+      sectionId ?? null,
+      pageId,
+    ))
     : [];
   const transactionalDepositSummary = quickBook
     && getDepositPolicyMode(profile.policies) === 'fixed'
@@ -1442,23 +1664,25 @@ function BookingSection({
         data-testid="onboarding-booking-selection-host"
         ref={setSummaryHost}
       />
-      {policyEntries.length > 0 ? (
-        <details className="onboarding-quick-book-policies">
-          <summary>Before you book</summary>
-          <dl>
-            {policyEntries.map(entry => (
-              <div
-                data-content-key={entry.contentKey}
-                data-content-owner={sectionId}
-                key={entry.id}
-              >
-                <dt>{entry.heading}</dt>
-                <dd>{entry.wording}</dd>
-              </div>
-            ))}
-          </dl>
-        </details>
-      ) : null}
+      {policyEntries.length > 0
+        ? (
+            <details className="onboarding-quick-book-policies">
+              <summary>Before you book</summary>
+              <dl>
+                {policyEntries.map(entry => (
+                  <div
+                    data-content-key={entry.contentKey}
+                    data-content-owner={sectionId}
+                    key={entry.id}
+                  >
+                    <dt>{entry.heading}</dt>
+                    <dd>{entry.wording}</dd>
+                  </div>
+                ))}
+              </dl>
+            </details>
+          )
+        : null}
     </section>
   );
 }
@@ -1472,30 +1696,38 @@ export type OnboardingDocumentBookingSequence = {
 export const getOnboardingDocumentBookingSequence = (
   document: SiteBuilderDocument | null,
 ): OnboardingDocumentBookingSequence | null => {
-  if (!document) return null;
+  if (!document) {
+    return null;
+  }
 
   const pages = [...document.pages].sort((left, right) => left.order - right.order);
-  const bookingLocations = pages.flatMap((page) => page.sections.flatMap((section) => (
+  const bookingLocations = pages.flatMap(page => page.sections.flatMap(section => (
     section.sectionType === 'booking' ? [{ page, sectionId: section.id }] : []
   )));
-  if (bookingLocations.length !== 1) return null;
+  if (bookingLocations.length !== 1) {
+    return null;
+  }
 
   const location = bookingLocations[0];
-  if (!location) return null;
+  if (!location) {
+    return null;
+  }
   const orderedSections = [...location.page.sections]
     .sort((left, right) => left.order - right.order);
   const bookingIndex = orderedSections.findIndex(
-    (section) => section.id === location.sectionId,
+    section => section.id === location.sectionId,
   );
-  if (bookingIndex < 0) return null;
+  if (bookingIndex < 0) {
+    return null;
+  }
 
   return {
     afterBookingCustomDesignIds: orderedSections.slice(bookingIndex + 1)
-      .filter((section) => section.sectionType === 'custom_design')
-      .map((section) => section.id),
+      .filter(section => section.sectionType === 'custom_design')
+      .map(section => section.id),
     beforeBookingCustomDesignIds: orderedSections.slice(0, bookingIndex)
-      .filter((section) => section.sectionType === 'custom_design')
-      .map((section) => section.id),
+      .filter(section => section.sectionType === 'custom_design')
+      .map(section => section.id),
     pageId: location.page.id,
   };
 };
@@ -1618,7 +1850,7 @@ export function OnboardingSitePreview({
   ], [customerPagePlan, effectiveDocument]);
   const customDesignAssets = useCustomDesignAssetMap(customDesignAssetIds);
   const customDesignIsRenderable = useCallback((settings: CustomDesignSettings) => (
-    hasRenderableCustomDesignContent(settings, assetId => {
+    hasRenderableCustomDesignContent(settings, (assetId) => {
       const status = customDesignAssets.get(assetId)?.original.status;
       return status === 'loading' || status === 'ready';
     })
@@ -1646,9 +1878,9 @@ export function OnboardingSitePreview({
   // Final Review derives the same shape from the in-progress Builder document.
   const pagePlan = useMemo(() => customerPagePlan
     ? filterCustomerPagePlanSections(customerPagePlan, planSection => (
-        planSection.section.sectionType !== 'custom_design'
-        || customDesignIsRenderable(planSection.section.settings)
-      ))
+      planSection.section.sectionType !== 'custom_design'
+      || customDesignIsRenderable(planSection.section.settings)
+    ))
     : derivedComposition.pages, [customerPagePlan, customDesignIsRenderable, derivedComposition.pages]);
   // External saved/account previews can provide their already-filtered page
   // plan, but ownership still comes from the same full document composition so
@@ -1666,19 +1898,21 @@ export function OnboardingSitePreview({
     : activeHero ? title : null;
   const activeHeroOwnsBusinessIdentity = activeHeroHeadline === title;
   const navigationItems = useMemo(() => {
-    if (!effectiveDocument.navigation.enabled) return [];
-    const pagesById = new Map(effectiveDocument.pages.map((page) => [page.id, page]));
-    const visiblePageIds = new Set(pagePlan.map((page) => page.id));
+    if (!effectiveDocument.navigation.enabled) {
+      return [];
+    }
+    const pagesById = new Map(effectiveDocument.pages.map(page => [page.id, page]));
+    const visiblePageIds = new Set(pagePlan.map(page => page.id));
     return [...effectiveDocument.navigation.items]
       .sort((left, right) => left.order - right.order)
-      .filter((item) => (
+      .filter(item => (
         pagesById.get(item.pageId)?.visibleInNavigation
         && visiblePageIds.has(item.pageId)
       ))
-      .map((item) => ({ label: item.label, pageId: item.pageId }));
+      .map(item => ({ label: item.label, pageId: item.pageId }));
   }, [effectiveDocument, pagePlan]);
   const onePageNavigationItems = useMemo(() => starter === 'one_page'
-    ? (pagePlan[0]?.sections.flatMap(section => {
+    ? (pagePlan[0]?.sections.flatMap((section) => {
         const label = V1_SECTION_NAVIGATION_LABELS[section.sectionType];
         return label ? [{ label, section }] : [];
       }) ?? [])
@@ -1689,13 +1923,17 @@ export function OnboardingSitePreview({
   const revealCurrentDocumentTarget = useCallback((target: CustomDesignDocumentNavigationTarget) => {
     const frame = frameRef.current;
     const preview = previewRef.current;
-    if (!frame || !preview) return;
+    if (!frame || !preview) {
+      return;
+    }
     const targetElement = target.sectionId
       ? [...preview.querySelectorAll<HTMLElement>('[data-section-id]')]
-        .find((element) => element.dataset.sectionId === target.sectionId)
+          .find(element => element.dataset.sectionId === target.sectionId)
       : [...preview.querySelectorAll<HTMLElement>('[data-preview-page-id]')]
-        .find((element) => element.dataset.previewPageId === target.pageId);
-    if (!targetElement) return;
+          .find(element => element.dataset.previewPageId === target.pageId);
+    if (!targetElement) {
+      return;
+    }
     const headerHeight = preview.querySelector<HTMLElement>('.onboarding-customer-header')
       ?.getBoundingClientRect().height ?? 0;
     const frameTop = frame.getBoundingClientRect().top;
@@ -1710,7 +1948,9 @@ export function OnboardingSitePreview({
       frame.scrollTop = top;
     }
     const focusTarget = targetElement.querySelector<HTMLElement>('h1, h2') ?? targetElement;
-    if (!focusTarget.hasAttribute('tabindex')) focusTarget.tabIndex = -1;
+    if (!focusTarget.hasAttribute('tabindex')) {
+      focusTarget.tabIndex = -1;
+    }
     focusTarget.focus({ preventScroll: true });
   }, []);
   const revealDocumentTarget = useCallback((target: CustomDesignDocumentNavigationTarget) => {
@@ -1718,13 +1958,17 @@ export function OnboardingSitePreview({
       revealCurrentDocumentTarget(target);
       return;
     }
-    if (!pagePlan.some(page => page.id === target.pageId)) return;
+    if (!pagePlan.some(page => page.id === target.pageId)) {
+      return;
+    }
     pendingDocumentTargetRef.current = target;
     setActivePageId(target.pageId);
   }, [activePage?.id, pagePlan, revealCurrentDocumentTarget]);
   const navigateToBooking = useCallback<PreviewBookHandler>((event) => {
     event.preventDefault();
-    if (!bookingPage) return;
+    if (!bookingPage) {
+      return;
+    }
     revealDocumentTarget({
       kind: 'booking',
       pageId: bookingPage.id,
@@ -1737,7 +1981,7 @@ export function OnboardingSitePreview({
     const targetPage = initialTarget === 'about'
       ? pagePlan.find(page => page.sections.some(section => section.sectionType === 'about'))
       : pagePlan.find(page => page.id === initialPageId) ?? pagePlan[0];
-    setActivePageId((current) => (
+    setActivePageId(current => (
       initialTarget === 'about'
       || (initialPageId !== undefined && targetPage?.id !== current)
       || !pagePlan.some(page => page.id === current)
@@ -1747,21 +1991,27 @@ export function OnboardingSitePreview({
   }, [initialPageId, initialTarget, pagePlan]);
 
   useEffect(() => {
-    if (activePage) onActivePageChange?.(activePage.id);
+    if (activePage) {
+      onActivePageChange?.(activePage.id);
+    }
   }, [activePage, onActivePageChange]);
 
   useLayoutEffect(() => {
     const pendingTarget = pendingDocumentTargetRef.current;
-    if (!pendingTarget || pendingTarget.pageId !== activePage?.id) return;
+    if (!pendingTarget || pendingTarget.pageId !== activePage?.id) {
+      return;
+    }
     pendingDocumentTargetRef.current = null;
     revealCurrentDocumentTarget(pendingTarget);
   }, [activePage?.id, revealCurrentDocumentTarget]);
 
   useLayoutEffect(() => {
-    if (!pendingPageNavigationFocusRef.current || !activePage) return;
+    if (!pendingPageNavigationFocusRef.current || !activePage) {
+      return;
+    }
     pendingPageNavigationFocusRef.current = false;
     [...(frameRef.current?.querySelectorAll<HTMLElement>('[data-preview-page-id]') ?? [])]
-      .find((page) => page.dataset.previewPageId === activePage.id)
+      .find(page => page.dataset.previewPageId === activePage.id)
       ?.querySelector<HTMLElement>('[data-preview-page-heading="true"]')
       ?.focus({ preventScroll: true });
   }, [activePage]);
@@ -1791,7 +2041,9 @@ export function OnboardingSitePreview({
 
   useLayoutEffect(() => {
     const measurementHost = measurementHostRef.current;
-    if (!measurementHost) return undefined;
+    if (!measurementHost) {
+      return undefined;
+    }
     let measurementFrame: number | null = null;
     const updateScale = () => {
       measurementFrame = null;
@@ -1800,12 +2052,14 @@ export function OnboardingSitePreview({
         height: bounds.height || measurementHost.clientHeight || viewport.height,
         width: bounds.width || measurementHost.clientWidth || viewport.width,
       }, viewport);
-      setPreviewScale((current) => (
+      setPreviewScale(current => (
         Math.abs(current - nextScale) < 0.0001 ? current : nextScale
       ));
     };
     const scheduleScaleUpdate = () => {
-      if (measurementFrame !== null) return;
+      if (measurementFrame !== null) {
+        return;
+      }
       measurementFrame = window.requestAnimationFrame(updateScale);
     };
     const visualViewport = window.visualViewport;
@@ -1818,7 +2072,9 @@ export function OnboardingSitePreview({
     window.addEventListener('orientationchange', scheduleScaleUpdate);
     visualViewport?.addEventListener('resize', scheduleScaleUpdate);
     return () => {
-      if (measurementFrame !== null) window.cancelAnimationFrame(measurementFrame);
+      if (measurementFrame !== null) {
+        window.cancelAnimationFrame(measurementFrame);
+      }
       observer?.disconnect();
       window.removeEventListener('resize', scheduleScaleUpdate);
       window.removeEventListener('orientationchange', scheduleScaleUpdate);
@@ -1837,7 +2093,9 @@ export function OnboardingSitePreview({
 
   useLayoutEffect(() => {
     const frame = frameRef.current;
-    if (!frame) return;
+    if (!frame) {
+      return;
+    }
     const target = initialTarget === 'top'
       ? null
       : frame.querySelector<HTMLElement>(`[data-preview-target="${initialTarget}"]`);
@@ -1902,9 +2160,11 @@ export function OnboardingSitePreview({
           key={planSection.id}
         >
           <div>
-            {heroSettings?.showLocationEyebrow !== false ? (
-              <p className="onboarding-customer-eyebrow">Independent nail care</p>
-            ) : null}
+            {heroSettings?.showLocationEyebrow !== false
+              ? (
+                  <p className="onboarding-customer-eyebrow">Independent nail care</p>
+                )
+              : null}
             <h1
               data-business-identity={headline === title ? 'hero' : undefined}
               data-preview-page-heading="true"
@@ -1923,9 +2183,11 @@ export function OnboardingSitePreview({
               {heroSettings?.primaryCtaLabel.trim() || 'Book an appointment'}
             </a>
           </div>
-          {heroSettings && heroSettings.preset !== 'booking_first' ? (
-            <HeroDecoration title={title} />
-          ) : null}
+          {heroSettings && heroSettings.preset !== 'booking_first'
+            ? (
+                <HeroDecoration title={title} />
+              )
+            : null}
         </section>
       );
     }
@@ -2005,12 +2267,18 @@ export function OnboardingSitePreview({
         />
       );
     }
-    if (!isLibrarySection(instance)) return null;
+    if (!isLibrarySection(instance)) {
+      return null;
+    }
     if (starter === 'quick_book'
       && instance.sectionType === 'visit_us'
-      && quickBookPhase !== 'final') return null;
+      && quickBookPhase !== 'final') {
+      return null;
+    }
     const Renderer = LIBRARY_SECTION_PREVIEW_RENDERERS[instance.sectionType];
-    if (!Renderer) return null;
+    if (!Renderer) {
+      return null;
+    }
     const shared: LibraryPreviewShared = {
       area,
       contentPlacement,
@@ -2050,7 +2318,18 @@ export function OnboardingSitePreview({
         ref={measurementHostRef}
       />
       <span className="visually-hidden" id={summaryId}>
-        Visual preview of {title} at a {viewport.width}-pixel {device} viewport.
+        Visual preview of
+        {' '}
+        {title}
+        {' '}
+        at a
+        {' '}
+        {viewport.width}
+        -pixel
+        {' '}
+        {device}
+        {' '}
+        viewport.
         {interactionMode === 'inline' ? ' Open the full preview to use customer controls.' : ''}
         {interactionMode === 'scrollable' ? ' Swipe or scroll inside this viewport to explore the site.' : ''}
       </span>
@@ -2065,7 +2344,7 @@ export function OnboardingSitePreview({
         role={interactionMode !== 'inline' ? 'region' : undefined}
         tabIndex={interactionMode === 'inline' ? -1 : 0}
       >
-      <div className="onboarding-site-preview" ref={previewRef} style={style}>
+        <div className="onboarding-site-preview" ref={previewRef} style={style}>
           {starter !== 'quick_book' && (
             <header className={`onboarding-customer-header${starter === 'multi_page' ? ' has-page-navigation' : ''}${starter === 'one_page' ? ' has-anchor-navigation' : ''}`}>
               <Brand profile={profile} showName={!activeHeroOwnsBusinessIdentity} />
@@ -2077,86 +2356,98 @@ export function OnboardingSitePreview({
                     ? 'is-anchor-navigation'
                     : undefined}
               >
-                {starter === 'multi_page' ? navigationItems.map((item) => (
-                  <a
-                    aria-current={activePage?.id === item.pageId ? 'page' : undefined}
-                    href={`#preview-page-${item.pageId}`}
-                    key={item.pageId}
-                    onClick={(event) => {
-                      event.preventDefault();
-                      pendingDocumentTargetRef.current = null;
-                      pendingPageNavigationFocusRef.current = true;
-                      setActivePageId(item.pageId);
-                      if (frameRef.current) frameRef.current.scrollTop = 0;
-                    }}
-                  >
-                    {item.label}
-                  </a>
-                )) : null}
-                {starter === 'one_page' ? onePageNavigationItems.map(({ label: itemLabel, section }) => (
-                  <a
-                    href={`#${sectionAnchorId(section.id, section.sectionType)}`}
-                    key={section.id}
-                    onClick={(event) => {
-                      event.preventDefault();
-                      revealCurrentDocumentTarget({
-                        kind: section.sectionType === 'booking' ? 'booking' : 'internal',
-                        pageId: activePage?.id ?? pagePlan[0]?.id ?? '',
-                        relationship: 'same_page',
-                        sectionId: section.id,
-                      });
-                    }}
-                  >
-                    {itemLabel}
-                  </a>
-                )) : null}
-                {bookingPage ? (
-                  <a
-                    aria-hidden={device === 'phone' && heroActionVisible ? 'true' : undefined}
-                    className={`customer-book-shortcut${device === 'phone' && heroActionVisible ? ' is-hidden' : ''}`}
-                    href="#booking"
-                    onClick={navigateToBooking}
-                    tabIndex={device === 'phone' && heroActionVisible ? -1 : undefined}
-                  >
-                    Book
-                  </a>
-                ) : null}
+                {starter === 'multi_page'
+                  ? navigationItems.map(item => (
+                    <a
+                      aria-current={activePage?.id === item.pageId ? 'page' : undefined}
+                      href={`#preview-page-${item.pageId}`}
+                      key={item.pageId}
+                      onClick={(event) => {
+                        event.preventDefault();
+                        pendingDocumentTargetRef.current = null;
+                        pendingPageNavigationFocusRef.current = true;
+                        setActivePageId(item.pageId);
+                        if (frameRef.current) {
+                          frameRef.current.scrollTop = 0;
+                        }
+                      }}
+                    >
+                      {item.label}
+                    </a>
+                  ))
+                  : null}
+                {starter === 'one_page'
+                  ? onePageNavigationItems.map(({ label: itemLabel, section }) => (
+                    <a
+                      href={`#${sectionAnchorId(section.id, section.sectionType)}`}
+                      key={section.id}
+                      onClick={(event) => {
+                        event.preventDefault();
+                        revealCurrentDocumentTarget({
+                          kind: section.sectionType === 'booking' ? 'booking' : 'internal',
+                          pageId: activePage?.id ?? pagePlan[0]?.id ?? '',
+                          relationship: 'same_page',
+                          sectionId: section.id,
+                        });
+                      }}
+                    >
+                      {itemLabel}
+                    </a>
+                  ))
+                  : null}
+                {bookingPage
+                  ? (
+                      <a
+                        aria-hidden={device === 'phone' && heroActionVisible ? 'true' : undefined}
+                        className={`customer-book-shortcut${device === 'phone' && heroActionVisible ? ' is-hidden' : ''}`}
+                        href="#booking"
+                        onClick={navigateToBooking}
+                        tabIndex={device === 'phone' && heroActionVisible ? -1 : undefined}
+                      >
+                        Book
+                      </a>
+                    )
+                  : null}
               </nav>
             </header>
           )}
 
-        <div className="onboarding-customer-content">
-          {renderedPages.map((page) => (
-            <div
-              aria-label={starter === 'multi_page' ? `${page.label} page` : undefined}
-              className="onboarding-customer-page"
-              data-preview-page-id={page.id}
-              id={`preview-page-${page.id}`}
-              key={page.id}
-              role={starter === 'multi_page' ? 'region' : undefined}
-            >
-              {starter === 'multi_page'
-                && !page.sections.some(section => section.sectionType === 'hero') ? (
-                  <h1
-                    className="onboarding-customer-page-title"
-                    data-preview-page-heading="true"
-                    role={suppressPageHeadingSemantics ? 'presentation' : undefined}
-                    tabIndex={-1}
-                  >
-                    {page.label}
-                  </h1>
-                ) : null}
-              {page.sections.map(section => renderPreviewSection(page, section))}
-            </div>
-          ))}
-        </div>
+          <div className="onboarding-customer-content">
+            {renderedPages.map(page => (
+              <div
+                aria-label={starter === 'multi_page' ? `${page.label} page` : undefined}
+                className="onboarding-customer-page"
+                data-preview-page-id={page.id}
+                id={`preview-page-${page.id}`}
+                key={page.id}
+                role={starter === 'multi_page' ? 'region' : undefined}
+              >
+                {starter === 'multi_page'
+                && !page.sections.some(section => section.sectionType === 'hero')
+                  ? (
+                      <h1
+                        className="onboarding-customer-page-title"
+                        data-preview-page-heading="true"
+                        role={suppressPageHeadingSemantics ? 'presentation' : undefined}
+                        tabIndex={-1}
+                      >
+                        {page.label}
+                      </h1>
+                    )
+                  : null}
+                {page.sections.map(section => renderPreviewSection(page, section))}
+              </div>
+            ))}
+          </div>
 
-        {presentTypes.has('footer') ? null : (
-          <footer className="onboarding-customer-footer">
-            <small>Powered by Luster</small>
-          </footer>
-        )}
-      </div>
+          {presentTypes.has('footer')
+            ? null
+            : (
+                <footer className="onboarding-customer-footer">
+                  <small>Powered by Luster</small>
+                </footer>
+              )}
+        </div>
       </div>
       {renderedOverlayHost}
     </section>

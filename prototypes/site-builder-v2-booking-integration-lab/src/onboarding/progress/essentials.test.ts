@@ -5,8 +5,8 @@ import { createDanielaFixtureState } from '../fixtures';
 import { createDefaultOnboardingState } from '../model/defaults';
 import {
   canOpenBuilder,
-  getCompletedEssentialStages,
   getCompletedEssentialIds,
+  getCompletedEssentialStages,
   getEssentialResults,
   getEssentialsLeft,
   getEssentialsMessage,
@@ -17,6 +17,7 @@ import {
 describe('onboarding essentials', () => {
   it('defines exactly five essentials and keeps optional content out', () => {
     const state = createDefaultOnboardingState();
+
     expect(getEssentialResults(state)).toHaveLength(5);
     expect(getEssentialsMessage(state)).toBe('5 required steps left');
 
@@ -30,11 +31,13 @@ describe('onboarding essentials', () => {
     state.recipe.aboutEnabled = true;
     state.recipe.galleryEnabled = true;
     state.recipe.canvaEnabled = true;
+
     expect(getEssentialsLeft(state)).toBe(5);
   });
 
   it('computes every completion rule from the shared state', () => {
     const state = createDanielaFixtureState();
+
     expect(getCompletedEssentialIds(state)).toEqual([
       'starting_point',
       'business',
@@ -73,15 +76,20 @@ describe('onboarding essentials', () => {
     state.profile.bookingOnlyContact = false;
     state.profile.clientContact.primaryNumber = '416-555-0100';
     state.profile.preferredContact = 'call';
+
     expect(getCompletedEssentialIds(state)).not.toContain('location_contact');
 
     state.profile.clientContact.callEnabled = true;
+
     expect(getCompletedEssentialIds(state)).toContain('location_contact');
 
     state.profile.clientContact.callEnabled = false;
     state.profile.clientContact.textEnabled = true;
+
     expect(getCompletedEssentialIds(state)).not.toContain('location_contact');
+
     state.profile.preferredContact = 'text';
+
     expect(getCompletedEssentialIds(state)).toContain('location_contact');
   });
 
@@ -98,6 +106,7 @@ describe('onboarding essentials', () => {
 
   it('reports stage completion without counting screens', () => {
     const state = createDanielaFixtureState();
+
     expect(getStageEssentialProgress(state, 'basics')).toEqual({
       complete: 3,
       stageComplete: true,

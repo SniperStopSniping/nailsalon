@@ -1,6 +1,6 @@
 import { fileURLToPath } from 'node:url';
 
-import { expect, test, type Page } from '@playwright/test';
+import { expect, type Page, test } from '@playwright/test';
 
 const ONBOARDING_STORAGE_KEY = 'luster:onboarding-v1-lab';
 const DANIELA_PORTRAIT_PATH = fileURLToPath(new URL(
@@ -52,6 +52,7 @@ const heading = (page: Page, name: string) => page.getByRole('heading', { name, 
 
 async function openFreshOnboarding(page: Page): Promise<void> {
   await page.goto('/');
+
   await expect(heading(page, 'Choose your starting point')).toBeVisible();
   await expect(page.getByText('Your progress saves automatically on this device.')).toBeVisible();
   // The starting point is the entry screen and renders outside the setup shell.
@@ -62,6 +63,7 @@ async function openFreshOnboarding(page: Page): Promise<void> {
 
 async function chooseStarter(page: Page, action: string): Promise<void> {
   await page.getByRole('button', { name: action }).click();
+
   await expect(heading(page, 'Make it yours')).toBeVisible();
 }
 
@@ -82,7 +84,9 @@ async function enterSetupFromStarter(page: Page): Promise<void> {
 async function readOnboardingState(page: Page): Promise<StoredOnboardingState> {
   return page.evaluate((key) => {
     const saved = window.localStorage.getItem(key);
-    if (!saved) throw new Error('The browser-local onboarding draft was not saved.');
+    if (!saved) {
+      throw new Error('The browser-local onboarding draft was not saved.');
+    }
     return JSON.parse(saved) as StoredOnboardingState;
   }, ONBOARDING_STORAGE_KEY);
 }
@@ -93,6 +97,7 @@ async function openLabReviewOptions(page: Page): Promise<void> {
   }
   await page.getByLabel('More onboarding options').click();
   await page.getByRole('menuitem', { name: 'Lab review options' }).click();
+
   await expect(page.getByRole('dialog', { name: 'Lab review options' })).toBeVisible();
 }
 
@@ -100,7 +105,9 @@ async function applyFixture(page: Page, fixtureLabel: string): Promise<void> {
   await openLabReviewOptions(page);
   const dialog = page.getByRole('dialog', { name: 'Lab review options' });
   await dialog.getByRole('button', { name: fixtureLabel, exact: true }).click();
+
   await expect(dialog).toBeHidden();
+
   await waitForOnboardingSave(page);
 }
 
@@ -114,6 +121,7 @@ async function fillBusinessBasics(page: Page): Promise<void> {
 
 async function continueFromBusinessScreen(page: Page): Promise<void> {
   await page.getByRole('button', { name: 'Continue', exact: true }).click();
+
   await expect(heading(page, 'Your starting site is ready')).toBeVisible();
 }
 
@@ -128,13 +136,16 @@ async function openBrandingCard(page: Page): Promise<void> {
   if (expanded !== 'true') {
     await branding.click();
   }
+
   await expect(branding).toHaveAttribute('aria-expanded', 'true');
 }
 
 async function addDanielaPortraitAndSocial(page: Page): Promise<void> {
   await openBrandingCard(page);
   await page.getByLabel('Profile photo', { exact: true }).setInputFiles(DANIELA_PORTRAIT_PATH);
+
   await expect(page.getByRole('group', { name: 'Your site so far' }).getByRole('img')).toBeVisible();
+
   await page.getByLabel('Instagram handle').fill('@islanail.studio');
 }
 
@@ -155,6 +166,7 @@ async function completeBookingPreferences(page: Page): Promise<void> {
     .getByRole('radio', { name: '$50', exact: true })
     .check();
   await page.getByRole('button', { name: 'Save booking setup' }).click();
+
   await expect(heading(page, 'Would you like an About section?')).toBeVisible();
 }
 
@@ -167,12 +179,17 @@ async function addCanvaThroughCustomDesign(
 ): Promise<void> {
   await page.getByRole('button', { name: 'Upload Canva design' }).click();
   const canvaDialog = page.getByRole('dialog', { name: 'Upload a Canva design' });
+
   await expect(canvaDialog).toBeVisible();
+
   await canvaDialog.locator('input[type="file"]').setInputFiles(DANIELA_PORTRAIT_PATH);
+
   await expect(canvaDialog.getByText('daniela-placeholder.jpg')).toBeVisible();
+
   await canvaDialog.getByRole('radio', { name: options.display }).check();
   await canvaDialog.getByRole('radio', { name: options.placement }).check();
   await canvaDialog.getByRole('button', { name: 'Add Canva design' }).click();
+
   await expect(canvaDialog).toBeHidden();
   await expect(page.getByText(/Added: .*Canva/)).toBeVisible();
 }
@@ -180,6 +197,7 @@ async function addCanvaThroughCustomDesign(
 test.describe('Onboarding V1 UX Lab', () => {
   test('real form fast path reaches the personalized starting preview without exposing final setup or plans', async ({ page }) => {
     await openFreshOnboarding(page);
+
     await expect(page.getByRole('dialog', { name: 'Your site is saved' })).toHaveCount(0);
     await expect(page.getByLabel('Luster', { exact: true })).toBeVisible();
     await expect(page.getByText('Your website starts here')).toBeVisible();
@@ -193,26 +211,32 @@ test.describe('Onboarding V1 UX Lab', () => {
     await expect(page.getByRole('button', { name: 'Back', exact: true })).toHaveCount(0);
 
     await chooseStarter(page, 'Start with One-page');
+
     await expect(page.getByText('One-page website · Change it anytime')).toBeVisible();
     // Branding stays optional: the fast path continues without opening it.
     await expect(page.getByRole('button', { name: /Branding/ }))
       .toHaveAttribute('aria-expanded', 'false');
     await expect(page.getByText('Photo, logo and Instagram · Optional')).toBeVisible();
+
     await completeBusinessScreen(page);
 
     await expect(page.getByLabel('Isla Nail Studio starting website preview')).toBeVisible();
+
     await waitForOnboardingSave(page);
 
     const saved = await readOnboardingState(page);
+
     expect(saved.profile.businessName).toBe('Isla Nail Studio');
     expect(saved.recipe.starter).toBe('one_page');
     expect(saved.recipe.starterDocumentSiteId).toBeTruthy();
 
     await expect(page.getByRole('button', { name: 'Finish setup' })).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Continue free' })).toHaveCount(0);
+
     await page.getByRole('button', { name: 'Preview my site' }).click();
 
     const preview = page.getByRole('dialog', { name: 'Preview your starting site' });
+
     await expect(preview).toBeVisible();
     await expect(preview.getByText('This is the customer experience. Builder controls and plan choices are not available here.')).toBeVisible();
     await expect(preview.getByRole('button', { name: 'Finish setup' })).toHaveCount(0);
@@ -220,6 +244,7 @@ test.describe('Onboarding V1 UX Lab', () => {
     await expect(preview.getByRole('button', { name: 'Continue setup' })).toBeVisible();
 
     await preview.getByRole('button', { name: 'Continue setup' }).click();
+
     await expect(heading(page, 'Where can clients find you?')).toBeVisible();
     await expect(page.getByRole('dialog', { name: 'Your site is saved' })).toHaveCount(0);
 
@@ -232,6 +257,7 @@ test.describe('Onboarding V1 UX Lab', () => {
     await page.getByRole('button', { name: 'Save and continue' }).click();
 
     await expect(heading(page, 'How do clients book with you?')).toBeVisible();
+
     await page.getByRole('group', { name: 'How do you accept clients?' })
       .getByRole('radio', { name: 'Appointment only' })
       .check();
@@ -247,26 +273,35 @@ test.describe('Onboarding V1 UX Lab', () => {
   test('Journey B follows the Canva-intent Quick Book path and saves founding interest before the dashboard handoff', async ({ page }) => {
     await openFreshOnboarding(page);
     const canvaIntent = page.getByRole('button', { name: 'I want to use a Canva design' });
+
     await expect(canvaIntent).toHaveAttribute('aria-pressed', 'false');
+
     await canvaIntent.click();
+
     await expect(canvaIntent).toHaveAttribute('aria-pressed', 'true');
     await expect(page.getByText('Noted — we’ll bring your Canva design in at the Extras step.'))
       .toBeVisible();
 
     await chooseStarter(page, 'Start with Quick Book');
+
     await expect(page.getByText('Quick Book · Change it anytime')).toBeVisible();
+
     await fillBusinessBasics(page);
     await addDanielaPortraitAndSocial(page);
     await continueFromBusinessScreen(page);
 
     await expect(page.getByLabel('Isla Nail Studio starting website preview')).toBeVisible();
+
     await page.getByRole('button', { name: 'Preview my site' }).click();
     const startingPreview = page.getByRole('dialog', { name: 'Preview your starting site' });
+
     await expect(startingPreview).toBeVisible();
     await expect(startingPreview.getByRole('button', { name: 'Finish setup' })).toHaveCount(0);
+
     await startingPreview.getByRole('button', { name: 'Continue setup' }).click();
 
     await expect(heading(page, 'Where can clients find you?')).toBeVisible();
+
     await page.getByLabel('City or general service area').fill('Scarborough, Ontario');
     await page.getByRole('group', { name: 'Where do you see clients?' })
       .getByRole('radio', { name: 'Home studio' })
@@ -274,34 +309,47 @@ test.describe('Onboarding V1 UX Lab', () => {
     await page.getByRole('button', { name: /^Contact/ }).click();
     await page.getByRole('switch', { name: 'Clients should use online booking only' }).check();
     await page.getByRole('button', { name: 'Save and continue' }).click();
+
     await expect(heading(page, 'How do clients book with you?')).toBeVisible();
+
     await completeBookingPreferences(page);
 
     await page.getByRole('switch', { name: 'Include an About section' }).uncheck();
+
     await expect(page.getByLabel('Short bio')).toBeDisabled();
+
     await page.getByRole('button', { name: 'Continue without About' }).click();
+
     await expect(heading(page, 'Set clear expectations')).toBeVisible();
+
     await page.getByRole('button', { name: 'Skip for now' }).click();
 
     await expect(heading(page, 'Choose your website style')).toBeVisible();
     await expect(page.getByRole('button', { name: /^Modern/ })).toHaveAttribute('aria-pressed', 'true');
+
     await page.getByRole('button', { name: 'Use Modern' }).click();
+
     await expect(heading(page, 'Add something extra')).toBeVisible();
     await expect(page.getByText('Recommended for you')).toBeVisible();
+
     await addCanvaThroughCustomDesign(page, {
       display: 'Poster',
       placement: 'After Booking',
     });
 
     await page.getByRole('button', { name: 'Continue to review' }).click();
+
     await expect(heading(page, 'Review your site')).toBeVisible();
+
     const finalPhonePreview = page.getByLabel('Final phone customer preview');
+
     await expect(finalPhonePreview).toBeVisible();
     await expect(finalPhonePreview.locator('[data-section-type="custom_design"]')).toHaveCount(1);
     await expect(page.getByRole('dialog', { name: 'Your site is saved' })).toHaveCount(0);
 
     await waitForOnboardingSave(page);
     let saved = await readOnboardingState(page);
+
     expect(saved.profile.bookingOnlyContact).toBe(true);
     expect(saved.profile.instagram).toBe('islanail.studio');
     expect(saved.recipe.aboutEnabled).toBe(false);
@@ -319,17 +367,23 @@ test.describe('Onboarding V1 UX Lab', () => {
 
     await page.getByRole('button', { name: 'Finish setup' }).click();
     const planSheet = page.getByRole('dialog', { name: 'Your site is saved' });
+
     await expect(planSheet).toBeVisible();
+
     const founding = planSheet.getByRole('radio', { name: /^Founding offer/ });
     await founding.press('Space');
+
     await expect(founding).toBeChecked();
+
     await planSheet.getByRole('button', { name: 'Reserve founding offer' }).click();
+
     await expect(heading(page, 'Your Luster site is ready')).toBeVisible();
     await expect(page.getByText('Founding offer reserved — we’ll let you know when details are ready'))
       .toBeVisible();
     await expect(page.getByRole('navigation', { name: 'Dashboard destinations' })).toBeVisible();
 
     saved = await readOnboardingState(page);
+
     expect(saved.planOffer.planIntent).toBe('founding');
     expect(saved.progress.sessionStatus).toBe('dashboard');
   });
@@ -342,7 +396,9 @@ test.describe('Onboarding V1 UX Lab', () => {
     await continueFromBusinessScreen(page);
 
     await page.getByRole('button', { name: 'Continue setting up my site' }).click();
+
     await expect(heading(page, 'Where can clients find you?')).toBeVisible();
+
     await page.getByLabel('City or general service area').fill('Scarborough, Ontario');
     await page.getByLabel('Exact address (optional)').fill('123 Studio Lane');
     await page.getByRole('group', { name: 'Where do you see clients?' })
@@ -371,10 +427,13 @@ test.describe('Onboarding V1 UX Lab', () => {
     await page.getByRole('combobox', { name: 'Closes' }).selectOption('18:00');
     await page.getByRole('button', { name: 'Apply to selected days' }).click();
     await page.getByRole('button', { name: 'Save and continue' }).click();
+
     await expect(heading(page, 'How do clients book with you?')).toBeVisible();
+
     await completeBookingPreferences(page);
 
     await expect(page.getByRole('switch', { name: 'Include an About section' })).toBeChecked();
+
     await page.getByLabel('Short bio').fill('I create detailed, long-lasting nail appointments in a calm private studio.');
     await page.getByText('More about you', { exact: true }).click();
     await page.getByLabel('Full bio').fill('Daniela specializes in structured manicures and thoughtful appointments designed around natural nail health.');
@@ -389,12 +448,17 @@ test.describe('Onboarding V1 UX Lab', () => {
     await page.getByRole('button', { name: 'Choose an About design' }).click();
 
     await expect(heading(page, 'Choose your About design')).toBeVisible();
+
     await page.getByRole('button', { name: /^About \+ Before You Book/ }).click();
+
     await expect(page.getByRole('button', { name: /^About \+ Before You Book/ })).toHaveAttribute('aria-pressed', 'true');
+
     await page.getByRole('button', { name: 'Use this design' }).click();
+
     await expect(heading(page, 'Set clear expectations')).toBeVisible();
 
     await expect(page.getByRole('switch', { name: 'Show policies on my website' })).toBeChecked();
+
     await page.getByLabel('How much notice do clients need to cancel?').selectOption('24_hours');
     await page.getByLabel('What happens to the deposit if they cancel late?')
       .selectOption('deposit_lost');
@@ -413,23 +477,32 @@ test.describe('Onboarding V1 UX Lab', () => {
       .fill('Repairs cover product issues, not accidental damage.');
     const policyCopyCards = page.locator('.onboarding-policy-copy-card');
     await policyCopyCards.filter({ hasText: 'Deposits & cancellations' }).locator('summary').click();
+
     await expect(page.getByText(/Please provide at least 24 hours’ notice when cancelling or rescheduling/).first()).toBeVisible();
     await expect(page.getByText(/A \$50 deposit is required to book/).first()).toBeVisible();
+
     await page.getByRole('button', { name: 'Save policies' }).click();
 
     await expect(heading(page, 'Choose your website style')).toBeVisible();
+
     await page.getByRole('button', { name: /^Luxury/ }).click();
+
     await expect(page.getByLabel('Live personalized style preview').locator('[data-style-preset]'))
       .toHaveAttribute('data-style-preset', 'luxury');
+
     await page.getByRole('button', { name: 'Use Luxury' }).click();
+
     await expect(heading(page, 'Add something extra')).toBeVisible();
 
     await page.getByRole('button', { name: 'Add Gallery' }).click();
     const galleryDialog = page.getByRole('dialog', { name: 'Add Gallery' });
+
     await expect(galleryDialog).toBeVisible();
+
     await galleryDialog.getByRole('button', { name: /Use example nail photos/ }).click();
     await galleryDialog.getByRole('radio', { name: 'editorial' }).check();
     await galleryDialog.getByRole('button', { exact: true, name: 'Add Gallery' }).click();
+
     await expect(galleryDialog).toBeHidden();
     await expect(page.getByText('Added: Gallery')).toBeVisible();
 
@@ -437,27 +510,38 @@ test.describe('Onboarding V1 UX Lab', () => {
       display: 'Full width',
       placement: 'Before Booking',
     });
+
     await expect(page.getByText('Added: Gallery and Canva')).toBeVisible();
+
     await page.getByRole('button', { name: 'Continue to review' }).click();
+
     await expect(heading(page, 'Review your site')).toBeVisible();
 
     const deviceGroup = page.getByRole('group', { name: 'Customer preview device size' });
     const phoneButton = deviceGroup.getByRole('button', { exact: true, name: 'Phone' });
     const tabletButton = deviceGroup.getByRole('button', { exact: true, name: 'Tablet' });
     const desktopButton = deviceGroup.getByRole('button', { exact: true, name: 'Desktop' });
+
     await expect(phoneButton).toHaveAttribute('aria-pressed', 'true');
     await expect(page.getByLabel('Final phone customer preview').getByLabel('Gallery')).toBeVisible();
+
     await tabletButton.click();
+
     await expect(tabletButton).toHaveAttribute('aria-pressed', 'true');
     await expect(page.getByLabel('Final tablet customer preview')).toBeVisible();
+
     await desktopButton.click();
+
     await expect(desktopButton).toHaveAttribute('aria-pressed', 'true');
+
     const finalDesktopPreview = page.getByLabel('Final desktop customer preview');
+
     await expect(finalDesktopPreview).toBeVisible();
     await expect(finalDesktopPreview.locator('[data-section-type="custom_design"]')).toHaveCount(1);
 
     await waitForOnboardingSave(page);
     let saved = await readOnboardingState(page);
+
     expect(saved.recipe.starter).toBe('one_page');
     expect(saved.profile.clientContact.primaryNumber).toBe('416-555-0134');
     expect(saved.profile.instagram).toBe('islanail.studio');
@@ -479,17 +563,23 @@ test.describe('Onboarding V1 UX Lab', () => {
 
     await page.getByRole('button', { name: 'Finish setup' }).click();
     const planSheet = page.getByRole('dialog', { name: 'Your site is saved' });
+
     await expect(planSheet).toBeVisible();
+
     const monthly = planSheet.getByRole('radio', { name: /^Monthly/ });
     await monthly.press('Space');
+
     await expect(monthly).toBeChecked();
+
     await planSheet.getByRole('button', { name: 'I’m interested in monthly' }).click();
+
     await expect(heading(page, 'Your Luster site is ready')).toBeVisible();
     await expect(page.getByText('Monthly interest saved — we’ll let you know when details are ready'))
       .toBeVisible();
     await expect(page.getByRole('navigation', { name: 'Dashboard destinations' })).toBeVisible();
 
     saved = await readOnboardingState(page);
+
     expect(saved.planOffer.planIntent).toBe('monthly');
     expect(saved.progress.sessionStatus).toBe('dashboard');
   });
@@ -497,34 +587,47 @@ test.describe('Onboarding V1 UX Lab', () => {
   test('About Off skips its design screen and conditional Back preserves entered content through reload', async ({ page }) => {
     await enterSetupFromStarter(page);
     await applyFixture(page, 'About Off');
+
     await expect(heading(page, 'Set clear expectations')).toBeVisible();
 
     await page.getByRole('button', { name: 'Back', exact: true }).click();
+
     await expect(heading(page, 'Would you like an About section?')).toBeVisible();
+
     const aboutSwitch = page.getByRole('switch', { name: 'Include an About section' });
     const shortBio = page.getByLabel('Short bio');
+
     await expect(aboutSwitch).not.toBeChecked();
     await expect(shortBio).toBeDisabled();
     await expect(shortBio).toHaveValue('I create thoughtful, detailed nail appointments in a calm private studio.');
 
     await waitForOnboardingSave(page);
     await page.reload();
+
     await expect(heading(page, 'Would you like an About section?')).toBeVisible();
     await expect(page.getByRole('switch', { name: 'Include an About section' })).not.toBeChecked();
     await expect(page.getByLabel('Short bio')).toHaveValue('I create thoughtful, detailed nail appointments in a calm private studio.');
 
     await page.getByRole('switch', { name: 'Include an About section' }).check();
+
     await expect(page.getByLabel('Short bio')).toBeEnabled();
+
     await page.getByRole('button', { name: 'Choose an About design' }).click();
+
     await expect(heading(page, 'Choose your About design')).toBeVisible();
+
     await page.getByRole('button', { name: 'Back to edit About' }).click();
+
     await expect(heading(page, 'Would you like an About section?')).toBeVisible();
     await expect(page.getByLabel('Short bio')).toHaveValue('I create thoughtful, detailed nail appointments in a calm private studio.');
 
     await page.getByRole('switch', { name: 'Include an About section' }).uncheck();
     await page.getByRole('button', { name: 'Continue without About' }).click();
+
     await expect(heading(page, 'Set clear expectations')).toBeVisible();
+
     await page.goBack();
+
     await expect(heading(page, 'Would you like an About section?')).toBeVisible();
     await expect(heading(page, 'Choose your About design')).toHaveCount(0);
     await expect(page.getByLabel('Short bio')).toBeDisabled();
@@ -541,6 +644,7 @@ test.describe('Onboarding V1 UX Lab', () => {
     await expect(heading(page, 'Your Luster site is ready')).toHaveCount(0);
 
     await page.getByRole('button', { name: 'Finish 1 required step' }).click();
+
     await expect(heading(page, 'Choose your website style')).toBeVisible();
     await expect(page.getByRole('dialog', { name: 'Your site is saved' })).toHaveCount(0);
     await expect(heading(page, 'Your Luster site is ready')).toHaveCount(0);
@@ -549,7 +653,9 @@ test.describe('Onboarding V1 UX Lab', () => {
   test('autosave survives pause and reload, resume returns to the active screen, and confirmed reset is scoped', async ({ page }) => {
     await openFreshOnboarding(page);
     await chooseStarter(page, 'Start with One-page');
+
     await expect(page.getByText('4 required steps left')).toBeVisible();
+
     await fillBusinessBasics(page);
     await openBrandingCard(page);
     await page.getByLabel('Instagram handle').fill('@islanail.studio');
@@ -557,36 +663,51 @@ test.describe('Onboarding V1 UX Lab', () => {
 
     await page.getByLabel('More onboarding options').click();
     await page.getByRole('menuitem', { name: 'Save and finish later' }).click();
+
     await expect(heading(page, 'Setup saved')).toBeVisible();
 
     await page.reload();
+
     await expect(heading(page, 'Setup saved')).toBeVisible();
+
     await page.getByRole('button', { name: 'Resume setup' }).click();
+
     await expect(heading(page, 'Make it yours')).toBeVisible();
     await expect(page.getByLabel('Salon or studio name')).toHaveValue('Isla Nail Studio');
     await expect(page.getByLabel('Your name')).toHaveValue('Daniela');
+
     await openBrandingCard(page);
+
     await expect(page.getByLabel('Instagram handle')).toHaveValue('islanail.studio');
 
     await page.getByRole('button', { name: 'Back', exact: true }).click();
+
     await expect(heading(page, 'Choose your starting point')).toBeVisible();
+
     const currentStarter = page.getByRole('button', { name: 'Continue with this starting point' });
+
     await expect(currentStarter).toHaveAttribute('aria-pressed', 'true');
     await expect(currentStarter.getByText('Current starting point')).toBeVisible();
     await expect(page.getByRole('button', { name: 'Switch to Quick Book' })).toBeVisible();
+
     await currentStarter.click();
+
     await expect(heading(page, 'Make it yours')).toBeVisible();
 
     await page.getByLabel('More onboarding options').click();
     await page.getByRole('menuitem', { name: 'Start over' }).click();
     const confirmation = page.getByRole('dialog', { name: 'Start over?' });
+
     await expect(confirmation).toBeVisible();
+
     await confirmation.getByRole('button', { name: 'Start over', exact: true }).click();
 
     await expect(heading(page, 'Choose your starting point')).toBeVisible();
     await expect(page.getByRole('button', { name: 'Start with One-page' })).toBeVisible();
-    await expect.poll(() => page.evaluate((key) => window.localStorage.getItem(key), ONBOARDING_STORAGE_KEY)).toBeNull();
+    await expect.poll(() => page.evaluate(key => window.localStorage.getItem(key), ONBOARDING_STORAGE_KEY)).toBeNull();
+
     await page.reload();
+
     await expect(heading(page, 'Choose your starting point')).toBeVisible();
   });
 
@@ -601,15 +722,20 @@ test.describe('Onboarding V1 UX Lab', () => {
 
     await page.getByRole('button', { name: 'Finish setup' }).click();
     const planSheet = page.getByRole('dialog', { name: 'Your site is saved' });
+
     await expect(planSheet).toBeVisible();
+
     const free = planSheet.getByRole('radio', { name: /^Free/ });
     const founding = planSheet.getByRole('radio', { name: /^Founding offer/ });
     const monthly = planSheet.getByRole('radio', { name: /^Monthly/ });
+
     await expect(free).toBeChecked();
     await expect(founding).toBeVisible();
     await expect(monthly).toBeVisible();
     await expect(planSheet.getByRole('radio')).toHaveCount(3);
+
     const continueFree = planSheet.getByRole('button', { name: 'Continue free' });
+
     await expect(continueFree).toBeVisible();
     await expect(planSheet.getByRole('button', {
       name: /Continue free|Reserve founding offer|I’m interested in monthly/,
@@ -620,11 +746,13 @@ test.describe('Onboarding V1 UX Lab', () => {
     await expect(planSheet).toContainText('There is no payment or plan access change today.');
 
     await continueFree.click();
+
     await expect(heading(page, 'Your Luster site is ready')).toBeVisible();
     await expect(page.getByText('Free selected')).toBeVisible();
     await expect(page.getByRole('navigation', { name: 'Dashboard destinations' })).toBeVisible();
 
     const saved = await readOnboardingState(page);
+
     expect(saved.planOffer.planIntent).toBe('free');
     expect(saved.progress.sessionStatus).toBe('dashboard');
   });
@@ -632,6 +760,7 @@ test.describe('Onboarding V1 UX Lab', () => {
   test('required mobile, tablet, desktop, and landscape viewports contain the final preview and sticky action', async ({ page }) => {
     await enterSetupFromStarter(page);
     await applyFixture(page, 'All essentials complete');
+
     await expect(heading(page, 'Review your site')).toBeVisible();
 
     const viewports = [
@@ -653,16 +782,21 @@ test.describe('Onboarding V1 UX Lab', () => {
       await page.setViewportSize(viewport);
       const finishSetup = page.getByRole('button', { name: 'Finish setup' });
       const finalPreview = page.getByLabel('Final phone customer preview');
+
       await expect(finishSetup).toBeVisible();
       await expect(finalPreview).toBeVisible();
       await expect(page.getByLabel('Onboarding progress')).toBeVisible();
+
       const [documentOverflow, previewBox, primaryBox] = await Promise.all([
         page.evaluate(() => document.documentElement.scrollWidth
           - document.documentElement.clientWidth),
         finalPreview.boundingBox(),
         finishSetup.boundingBox(),
       ]);
-      if (!previewBox || !primaryBox) throw new Error('The final preview and action must be measurable.');
+      if (!previewBox || !primaryBox) {
+        throw new Error('The final preview and action must be measurable.');
+      }
+
       expect(documentOverflow, `${viewport.width}×${viewport.height} document overflow`)
         .toBeLessThanOrEqual(1);
       expect(previewBox.x + previewBox.width - viewport.width, `${viewport.width}×${viewport.height} preview overflow`)
@@ -674,14 +808,19 @@ test.describe('Onboarding V1 UX Lab', () => {
     }
 
     await page.getByRole('button', { name: 'Change setup' }).click();
+
     await expect(heading(page, 'Make it yours')).toBeVisible();
+
     await page.setViewportSize({ height: 360, width: 320 });
     await page.getByLabel('Salon or studio name').focus();
+
     await expect(page.getByRole('button', { name: 'Continue', exact: true })).toBeVisible();
+
     const keyboardState = await page.getByRole('button', { name: 'Continue', exact: true }).evaluate((button) => {
       const box = button.getBoundingClientRect();
       return { bottom: box.bottom, height: box.height, viewportHeight: window.innerHeight };
     });
+
     expect(keyboardState.height).toBeGreaterThanOrEqual(44);
     expect(keyboardState.bottom).toBeLessThanOrEqual(keyboardState.viewportHeight + 1);
   });

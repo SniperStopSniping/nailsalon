@@ -14,7 +14,6 @@ import {
   SITE_CONTENT_COLLECTION_KEYS,
 } from './section-library/site-content';
 import { createLibrarySectionInstance, createSectionInstance } from './starters';
-import { validateSiteBuilderDocument } from './validation';
 import type {
   AddLibrarySectionInput,
   AddPageInput,
@@ -33,6 +32,7 @@ import type {
   SiteBuilderDocument,
   UpdateSiteContentInput,
 } from './types';
+import { validateSiteBuilderDocument } from './validation';
 
 export type BuilderOperationErrorCode =
   | 'booking_required'
@@ -54,8 +54,8 @@ export class BuilderOperationError extends Error {
   }
 }
 
-const BOOKING_REQUIRED_MESSAGE =
-  'Your site needs at least one visible way for clients to start booking.';
+const BOOKING_REQUIRED_MESSAGE
+  = 'Your site needs at least one visible way for clients to start booking.';
 
 type LocatedSection = {
   page: PageDocument;
@@ -75,7 +75,7 @@ const getPageIndex = (
   document: SiteBuilderDocument,
   pageId: string,
 ): number => {
-  const index = document.pages.findIndex((page) => page.id === pageId);
+  const index = document.pages.findIndex(page => page.id === pageId);
   if (index < 0) {
     return fail('not_found', `Page not found: ${pageId}`);
   }
@@ -88,7 +88,7 @@ const locateSection = (
 ): LocatedSection => {
   for (const [pageIndex, page] of document.pages.entries()) {
     const sectionIndex = page.sections.findIndex(
-      (section) => section.id === sectionId,
+      section => section.id === sectionId,
     );
     if (sectionIndex >= 0) {
       const section = page.sections[sectionIndex];
@@ -154,10 +154,10 @@ export const hasUsableBooking = (
   document: SiteBuilderDocument,
 ): boolean =>
   document.pages.some(
-    (page) =>
-      page.visible &&
-      page.sections.some(
-        (section) =>
+    page =>
+      page.visible
+      && page.sections.some(
+        section =>
           section.visible && section.sectionType === 'booking',
       ),
   );
@@ -169,7 +169,7 @@ const assertUsableBooking = (document: SiteBuilderDocument): void => {
 };
 
 const assertHasVisiblePage = (document: SiteBuilderDocument): void => {
-  if (!document.pages.some((page) => page.visible)) {
+  if (!document.pages.some(page => page.visible)) {
     fail('last_visible_page', 'Your site needs at least one visible page.');
   }
 };
@@ -189,8 +189,8 @@ const uniqueSlug = (
   const base = normalizeSlug(requestedSlug) || 'page';
   const used = new Set(
     document.pages
-      .filter((page) => page.id !== excludedPageId)
-      .map((page) => page.slug),
+      .filter(page => page.id !== excludedPageId)
+      .map(page => page.slug),
   );
   if (!used.has(base)) {
     return base;
@@ -207,10 +207,10 @@ const assertNewId = (document: SiteBuilderDocument, id: string): void => {
   const ids = new Set<string>([document.siteId]);
   for (const page of document.pages) {
     ids.add(page.id);
-    page.sections.forEach((section) => ids.add(section.id));
+    page.sections.forEach(section => ids.add(section.id));
   }
-  document.unusedSections.forEach((section) => ids.add(section.id));
-  document.navigation.items.forEach((item) => ids.add(item.id));
+  document.unusedSections.forEach(section => ids.add(section.id));
+  document.navigation.items.forEach(item => ids.add(item.id));
   document.removedPages.forEach((record) => {
     ids.add(record.page.id);
     ids.add(record.navigationItem.id);
@@ -232,9 +232,9 @@ export const addSection = (
     return fail('not_found', `Page not found: ${input.pageId}`);
   }
   if (
-    input.sectionType === 'booking' &&
-    document.pages.some((candidate) =>
-      candidate.sections.some((section) => section.sectionType === 'booking'),
+    input.sectionType === 'booking'
+    && document.pages.some(candidate =>
+      candidate.sections.some(section => section.sectionType === 'booking'),
     )
   ) {
     return fail(
@@ -249,7 +249,7 @@ export const addSection = (
     const entry = getSectionRegistryEntry(input.sectionType);
     if (entry.limitKind === 'hard' && entry.maxPerPage !== undefined) {
       const existing = page.sections.filter(
-        (candidate) => candidate.sectionType === input.sectionType,
+        candidate => candidate.sectionType === input.sectionType,
       ).length;
       if (existing >= entry.maxPerPage) {
         return fail(
@@ -294,7 +294,7 @@ export const removeSection = (
     ...replacePage(document, located.pageIndex, {
       ...located.page,
       sections: located.page.sections.filter(
-        (section) => section.id !== sectionId,
+        section => section.id !== sectionId,
       ),
     }),
     unusedSections: [
@@ -315,9 +315,13 @@ const failOnHardSectionLimit = (
   page: PageDocument,
   section: SectionInstance,
 ): void => {
-  if (!isLibrarySectionType(section.sectionType)) return;
+  if (!isLibrarySectionType(section.sectionType)) {
+    return;
+  }
   const entry = getSectionRegistryEntry(section.sectionType);
-  if (entry.limitKind !== 'hard' || entry.maxPerPage === undefined) return;
+  if (entry.limitKind !== 'hard' || entry.maxPerPage === undefined) {
+    return;
+  }
   const existing = page.sections.filter(
     candidate => candidate.sectionType === section.sectionType
       && candidate.id !== section.id,
@@ -337,7 +341,7 @@ export const restoreSection = (
   position?: number,
 ): SiteBuilderDocument => {
   const unusedIndex = document.unusedSections.findIndex(
-    (section) => section.id === sectionId,
+    section => section.id === sectionId,
   );
   if (unusedIndex < 0) {
     return fail('not_found', `Unused section not found: ${sectionId}`);
@@ -359,7 +363,7 @@ export const restoreSection = (
       sections: insertAtPosition(page.sections, section, position),
     }),
     unusedSections: document.unusedSections.filter(
-      (candidate) => candidate.id !== sectionId,
+      candidate => candidate.id !== sectionId,
     ),
   });
   assertUsableBooking(next);
@@ -378,7 +382,7 @@ export const setSectionVisible = (
   if (located.section.sectionType === 'booking' && !visible) {
     return fail('booking_required', BOOKING_REQUIRED_MESSAGE);
   }
-  const sections = located.page.sections.map((section) =>
+  const sections = located.page.sections.map(section =>
     section.id === sectionId ? { ...section, visible } : section,
   );
   const next = normalizeDocument(
@@ -419,7 +423,7 @@ export const updateSectionSettings = (
   if (changes.label !== undefined && changes.label.trim().length === 0) {
     return fail('invalid_input', 'Section label cannot be empty.');
   }
-  const sections = located.page.sections.map((section) =>
+  const sections = located.page.sections.map(section =>
     section.id === sectionId
       ? {
           ...placeholder,
@@ -459,13 +463,13 @@ export const updateBookingSectionPresentation = (
     );
   }
   if (
-    JSON.stringify(booking.settings) ===
-    JSON.stringify(validated.settings)
+    JSON.stringify(booking.settings)
+    === JSON.stringify(validated.settings)
   ) {
     return document;
   }
 
-  const sections = located.page.sections.map((section) =>
+  const sections = located.page.sections.map(section =>
     section.id === sectionId
       ? { ...booking, settings: validated.settings }
       : section,
@@ -507,13 +511,13 @@ export const updateCustomDesignSectionSettings = (
     );
   }
   if (
-    JSON.stringify(customDesign.settings) ===
-    JSON.stringify(validated.value)
+    JSON.stringify(customDesign.settings)
+    === JSON.stringify(validated.value)
   ) {
     return document;
   }
 
-  const sections = located.page.sections.map((section) =>
+  const sections = located.page.sections.map(section =>
     section.id === sectionId
       ? { ...customDesign, settings: validated.value }
       : section,
@@ -561,12 +565,12 @@ export const reorderSections = (
     return fail('not_found', `Page not found: ${pageId}`);
   }
 
-  const currentIds = page.sections.map((section) => section.id);
+  const currentIds = page.sections.map(section => section.id);
   const requestedIds = [...orderedSectionIds];
   if (
     requestedIds.length !== currentIds.length
     || new Set(requestedIds).size !== requestedIds.length
-    || currentIds.some((id) => !requestedIds.includes(id))
+    || currentIds.some(id => !requestedIds.includes(id))
   ) {
     return fail(
       'invalid_input',
@@ -577,7 +581,7 @@ export const reorderSections = (
     return document;
   }
 
-  const byId = new Map(page.sections.map((section) => [section.id, section]));
+  const byId = new Map(page.sections.map(section => [section.id, section]));
   const sections = requestedIds.map((id, order) => {
     const section = byId.get(id);
     if (!section) {
@@ -597,7 +601,7 @@ export const commitSectionMove = (
 ): SiteBuilderDocument => {
   const sourcePageIndex = getPageIndex(document, input.sourcePageId);
   const sourcePage = document.pages[sourcePageIndex];
-  if (!sourcePage?.sections.some((section) => section.id === input.sectionId)) {
+  if (!sourcePage?.sections.some(section => section.id === input.sectionId)) {
     return fail(
       'not_found',
       `Section not found on source page: ${input.sectionId}`,
@@ -652,12 +656,7 @@ export const moveSectionDown = (
     : moveSection(document, sectionId, located.sectionIndex + 2);
 };
 
-export const moveSectionToPage = (
-  document: SiteBuilderDocument,
-  sectionId: string,
-  destinationPageId: string,
-  position?: number,
-): SiteBuilderDocument => {
+export function moveSectionToPage(document: SiteBuilderDocument, sectionId: string, destinationPageId: string, position?: number): SiteBuilderDocument {
   const located = locateSection(document, sectionId);
   const destinationIndex = getPageIndex(document, destinationPageId);
   if (located.page.id === destinationPageId) {
@@ -677,7 +676,7 @@ export const moveSectionToPage = (
     if (page.id === located.page.id) {
       return {
         ...page,
-        sections: page.sections.filter((section) => section.id !== sectionId),
+        sections: page.sections.filter(section => section.id !== sectionId),
       };
     }
     if (page.id === destinationPageId) {
@@ -691,15 +690,15 @@ export const moveSectionToPage = (
   const next = normalizeDocument({ ...document, pages });
   assertUsableBooking(next);
   return next;
-};
+}
 
 export type SectionMoveDestinationAvailability =
   | { available: true }
   | {
-      available: false;
-      code: BuilderOperationErrorCode;
-      reason: string;
-    };
+    available: false;
+    code: BuilderOperationErrorCode;
+    reason: string;
+  };
 
 /**
  * Uses the same document invariant checks as the eventual commit so the Move
@@ -785,11 +784,7 @@ export const addPage = (
   return next;
 };
 
-export const moveSectionToNewPage = (
-  document: SiteBuilderDocument,
-  input: MoveSectionToNewPageInput,
-  idFactory: IdFactory = createIdFactory(),
-): SiteBuilderDocument => {
+export function moveSectionToNewPage(document: SiteBuilderDocument, input: MoveSectionToNewPageInput, idFactory: IdFactory = createIdFactory()): SiteBuilderDocument {
   const created = createPageAndNavigationItem(document, input, idFactory);
   const withPage = normalizeDocument({
     ...document,
@@ -805,7 +800,7 @@ export const moveSectionToNewPage = (
     created.page.id,
     input.sectionPosition,
   );
-};
+}
 
 export const removePage = (
   document: SiteBuilderDocument,
@@ -822,11 +817,11 @@ export const removePage = (
       'Home cannot be removed. Rename it or move its sections instead.',
     );
   }
-  if (page.sections.some((section) => section.sectionType === 'booking')) {
+  if (page.sections.some(section => section.sectionType === 'booking')) {
     return fail('booking_required', BOOKING_REQUIRED_MESSAGE);
   }
   const navigationItem = document.navigation.items.find(
-    (item) => item.pageId === pageId,
+    item => item.pageId === pageId,
   );
   if (!navigationItem) {
     return fail('not_found', `Navigation item not found for page: ${pageId}`);
@@ -838,10 +833,10 @@ export const removePage = (
   );
   const next = normalizeDocument({
     ...document,
-    pages: document.pages.filter((candidate) => candidate.id !== pageId),
+    pages: document.pages.filter(candidate => candidate.id !== pageId),
     navigation: {
       ...document.navigation,
-      items: document.navigation.items.filter((item) => item.pageId !== pageId),
+      items: document.navigation.items.filter(item => item.pageId !== pageId),
     },
     unusedSections: [
       ...document.unusedSections,
@@ -854,7 +849,7 @@ export const removePage = (
       ...document.removedPages,
       {
         page: pageRecord,
-        sectionIds: restorableSections.map((section) => section.id),
+        sectionIds: restorableSections.map(section => section.id),
         navigationItem,
         removedAtOrder: page.order,
       },
@@ -870,7 +865,7 @@ export const restorePage = (
   pageId: string,
 ): SiteBuilderDocument => {
   const recordIndex = document.removedPages.findIndex(
-    (record) => record.page.id === pageId,
+    record => record.page.id === pageId,
   );
   if (recordIndex < 0) {
     return fail('not_found', `Removed page not found: ${pageId}`);
@@ -879,12 +874,12 @@ export const restorePage = (
   if (!record) {
     return fail('not_found', `Removed page not found: ${pageId}`);
   }
-  if (document.pages.some((page) => page.id === record.page.id)) {
+  if (document.pages.some(page => page.id === record.page.id)) {
     return fail('duplicate_id', `Page is already active: ${pageId}`);
   }
 
   const availableById = new Map(
-    document.unusedSections.map((section) => [section.id, section]),
+    document.unusedSections.map(section => [section.id, section]),
   );
   const sections = record.sectionIds.flatMap((sectionId) => {
     const section = availableById.get(sectionId);
@@ -900,7 +895,7 @@ export const restorePage = (
     record.navigationItem.order + 1,
     document.navigation.items.length + 1,
   );
-  const restoredSectionIds = new Set(sections.map((section) => section.id));
+  const restoredSectionIds = new Set(sections.map(section => section.id));
   const next = normalizeDocument({
     ...document,
     pages: insertAtPosition(document.pages, restoredPage, pagePosition),
@@ -913,7 +908,7 @@ export const restorePage = (
       ),
     },
     unusedSections: document.unusedSections.filter(
-      (section) => !restoredSectionIds.has(section.id),
+      section => !restoredSectionIds.has(section.id),
     ),
     removedPages: document.removedPages.filter(
       (_candidate, index) => index !== recordIndex,
@@ -941,7 +936,7 @@ export const renamePage = (
   if (page.name === name) {
     return document;
   }
-  const navigationItems = document.navigation.items.map((item) =>
+  const navigationItems = document.navigation.items.map(item =>
     item.pageId === pageId && item.label === page.name
       ? { ...item, label: name }
       : item,
@@ -962,8 +957,8 @@ export const setPageSlug = (
   if (!page) {
     return fail('not_found', `Page not found: ${pageId}`);
   }
-  const normalizedSlug =
-    page.isHome && normalizeSlug(slug) === ''
+  const normalizedSlug
+    = page.isHome && normalizeSlug(slug) === ''
       ? ''
       : uniqueSlug(document, slug, pageId);
   if (page.slug === normalizedSlug) {
@@ -1067,7 +1062,7 @@ export const moveNavigationItem = (
   position: number,
 ): SiteBuilderDocument => {
   const itemIndex = document.navigation.items.findIndex(
-    (item) => item.pageId === pageId,
+    item => item.pageId === pageId,
   );
   if (itemIndex < 0) {
     return fail('not_found', `Navigation item not found for page: ${pageId}`);
@@ -1094,7 +1089,7 @@ export const renameNavigationItem = (
     return fail('invalid_input', 'Navigation label cannot be empty.');
   }
   const itemIndex = document.navigation.items.findIndex(
-    (item) => item.pageId === pageId,
+    item => item.pageId === pageId,
   );
   if (itemIndex < 0) {
     return fail('not_found', `Navigation item not found for page: ${pageId}`);
@@ -1133,7 +1128,7 @@ export const updateLibrarySectionSettings = (
   }
   const entry = getSectionRegistryEntry(located.section.sectionType);
   const settings = entry.normalize(rawSettings);
-  const sections = located.page.sections.map((section) =>
+  const sections = located.page.sections.map(section =>
     section.id === sectionId
       ? ({ ...section, settings } as SectionInstance)
       : section,
@@ -1161,23 +1156,23 @@ export const updateSiteContent = (
     if (!input.record.id) {
       return fail('invalid_input', 'Content records need an id.');
     }
-    nextCollection = collection.some((record) => record.id === input.record.id)
-      ? collection.map((record) =>
-          record.id === input.record.id ? input.record : record)
+    nextCollection = collection.some(record => record.id === input.record.id)
+      ? collection.map(record =>
+        record.id === input.record.id ? input.record : record)
       : [...collection, input.record];
   } else if (input.operation === 'remove') {
-    if (!collection.some((record) => record.id === input.recordId)) {
+    if (!collection.some(record => record.id === input.recordId)) {
       return fail('not_found', `Content record not found: ${input.recordId}`);
     }
     // Section settings that referenced the record keep the dangling id;
     // readiness surfaces it and renderers skip it. Sections are never edited
     // silently on the owner's behalf.
-    nextCollection = collection.filter((record) => record.id !== input.recordId);
+    nextCollection = collection.filter(record => record.id !== input.recordId);
   } else {
-    const ids = new Set(collection.map((record) => record.id));
+    const ids = new Set(collection.map(record => record.id));
     if (
       input.orderedIds.length !== collection.length
-      || input.orderedIds.some((id) => !ids.has(id))
+      || input.orderedIds.some(id => !ids.has(id))
       || new Set(input.orderedIds).size !== input.orderedIds.length
     ) {
       return fail(
@@ -1185,7 +1180,7 @@ export const updateSiteContent = (
         'Reordering must include every existing record exactly once.',
       );
     }
-    const byId = new Map(collection.map((record) => [record.id, record]));
+    const byId = new Map(collection.map(record => [record.id, record]));
     nextCollection = input.orderedIds.flatMap((id) => {
       const record = byId.get(id);
       return record ? [record] : [];

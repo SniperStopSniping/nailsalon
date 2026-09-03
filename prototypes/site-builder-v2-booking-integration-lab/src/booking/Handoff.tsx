@@ -1,7 +1,7 @@
 import { ArrowRight, CheckCircle2, X } from 'lucide-react';
 
-import type { SelectionSummary } from './types';
 import { BookingOverlayDialog } from './BookingOverlayDialog';
+import type { SelectionSummary } from './types';
 
 const BOOKING_FLOW_STEPS = [
   'Service',
@@ -20,7 +20,9 @@ export type HandoffProps = {
 };
 
 export function Handoff({ open, summary, onClose }: HandoffProps) {
-  if (!open) return null;
+  if (!open) {
+    return null;
+  }
 
   return (
     <BookingOverlayDialog

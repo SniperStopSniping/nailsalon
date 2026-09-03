@@ -27,7 +27,9 @@ export function SelectedSummary({
         </p>
         <p className="selected-summary-name">{summary.service.name}</p>
         <p className="selected-summary-meta">
-          {summary.durationLabel} · {summary.price.label}
+          {summary.durationLabel}
+          {' · '}
+          {summary.price.label}
           {summary.addOns.length > 0 ? ` · ${summary.addOns.length} add-on${summary.addOns.length === 1 ? '' : 's'}` : ''}
         </p>
       </div>

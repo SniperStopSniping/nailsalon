@@ -21,8 +21,8 @@ const createEventId = (): string => {
 
 const safeFieldIds = (fieldIds: readonly string[]): string[] => [...new Set(
   fieldIds
-    .map((fieldId) => fieldId.trim())
-    .filter((fieldId) => /^[a-z0-9_.-]{1,80}$/i.test(fieldId)),
+    .map(fieldId => fieldId.trim())
+    .filter(fieldId => /^[\w.-]{1,80}$/.test(fieldId)),
 )].slice(0, 30);
 
 /**
@@ -90,7 +90,6 @@ export const sanitizeOnboardingEvent = (
     case 'paused':
       return { screen: event.screen, type: event.type };
   }
-
 };
 
 export const appendOnboardingEvent = (

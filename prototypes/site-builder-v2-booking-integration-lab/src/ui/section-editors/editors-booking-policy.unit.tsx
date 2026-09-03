@@ -66,6 +66,7 @@ describe('FeaturedServicesEditor', () => {
       .map(id => CANONICAL_SERVICES.find(service => service.id === id))
       .filter((service): service is (typeof CANONICAL_SERVICES)[number] => Boolean(service))
       .map(service => `${service.name} · ${formatPrice(service.price)}`);
+
     expect(expected.length).toBeGreaterThan(0);
     expect([...container.querySelectorAll('li')].map(item => item.textContent))
       .toEqual(expected);
@@ -92,6 +93,7 @@ describe('FeaturedServicesEditor', () => {
       source: 'manual',
       version: 1,
     };
+
     expect(onChange).toHaveBeenCalledTimes(1);
     expect(onChange).toHaveBeenCalledWith(next);
     expect(SECTION_LIBRARY_REGISTRY.featured_services.normalize(next)).toEqual(next);
@@ -120,6 +122,7 @@ describe('FeaturedServicesEditor', () => {
       source: 'manual',
       version: 1,
     };
+
     expect(onChange).toHaveBeenCalledWith(next);
     expect(SECTION_LIBRARY_REGISTRY.featured_services.normalize(next)).toEqual(next);
   });
@@ -140,6 +143,7 @@ describe('FeaturedServicesEditor', () => {
     );
 
     const checkboxes = screen.getAllByRole('checkbox');
+
     expect(checkboxes[0]).toBeEnabled();
     expect(checkboxes[5]).toBeEnabled();
     expect(checkboxes[6]).toBeDisabled();
@@ -174,6 +178,7 @@ describe('FeaturedServicesEditor', () => {
       source: 'manual',
       version: 1,
     };
+
     expect(onChange).toHaveBeenCalledWith(next);
     expect(SECTION_LIBRARY_REGISTRY.featured_services.normalize(next)).toEqual(next);
   });
@@ -195,6 +200,7 @@ describe('DepositsCancellationsEditor', () => {
     );
 
     const shared = createSharedProps();
+
     expect(screen.getByText('Short summary — on your site now')).toBeInTheDocument();
     expect(screen.getByText(
       `“${deriveDepositsAndCancellationsSummary(shared.profile.policies)}”`,
@@ -219,6 +225,7 @@ describe('DepositsCancellationsEditor', () => {
     await user.click(screen.getByRole('button', { name: 'Full wording' }));
 
     const next: DepositsCancellationsSettings = { version: 1, wordingMode: 'full' };
+
     expect(onChange).toHaveBeenCalledTimes(1);
     expect(onChange).toHaveBeenCalledWith(next);
     expect(SECTION_LIBRARY_REGISTRY.deposits_cancellations.normalize(next)).toEqual(next);
@@ -267,6 +274,7 @@ describe('PoliciesEditor', () => {
     for (const label of ['Late arrivals', 'No-shows', 'Repairs', 'Good to know']) {
       expect(screen.getByRole('checkbox', { name: label })).toBeChecked();
     }
+
     expect(screen.getByText(/We hold your appointment for 15 minutes/u)).toBeInTheDocument();
     expect(
       screen.getByText(/Chips or lifting within 5 days\? Come back and we’ll repair it free\./u),
@@ -321,6 +329,7 @@ describe('PoliciesEditor', () => {
       includedSections: ['late_arrivals', 'no_shows', 'other'],
       version: 1,
     };
+
     expect(onChange).toHaveBeenCalledTimes(1);
     expect(onChange).toHaveBeenCalledWith(next);
     expect(SECTION_LIBRARY_REGISTRY.policies.normalize(next)).toEqual(next);
@@ -390,6 +399,7 @@ describe('HoursEditor', () => {
     await user.click(screen.getByRole('button', { name: 'Full week' }));
 
     const next: HoursSectionSettings = { layout: 'full', version: 1 };
+
     expect(onChange).toHaveBeenCalledTimes(1);
     expect(onChange).toHaveBeenCalledWith(next);
     expect(SECTION_LIBRARY_REGISTRY.hours.normalize(next)).toEqual(next);

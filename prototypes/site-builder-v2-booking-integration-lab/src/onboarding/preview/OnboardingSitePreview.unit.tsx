@@ -43,7 +43,7 @@ import {
 
 vi.mock('../../custom-design/integration/CustomDesignAssetProvider', () => ({
   useCustomDesignAssetMap: (assetIds: readonly string[]) => new Map(
-    assetIds.map((assetId) => [assetId, {
+    assetIds.map(assetId => [assetId, {
       original: {
         assetId,
         kind: 'original',
@@ -91,7 +91,9 @@ const planIds = (plan: SitePlanPage[]): string[] =>
 
 const sectionOn = (page: PageDocument, sectionType: SectionType): SectionInstance => {
   const section = page.sections.find(candidate => candidate.sectionType === sectionType);
-  if (!section) throw new Error(`No ${sectionType} section on page ${page.name}`);
+  if (!section) {
+    throw new Error(`No ${sectionType} section on page ${page.name}`);
+  }
   return section;
 };
 
@@ -157,20 +159,24 @@ describe('OnboardingSitePreview shared profile composition', () => {
     state.recipe.starter = 'quick_book';
     state.recipe.quickBookProfile.showTechName = true;
     state.recipe.quickBookProfile.showTechPhoto = true;
-    state.profile.logo = logo ? {
-      fileName: 'isla-wordmark.png',
-      id: 'logo-reference',
-      mimeType: 'image/png',
-      source: 'indexed_db',
-      storageId: 'logo-asset',
-    } : undefined;
-    state.profile.profilePhoto = profilePhoto ? {
-      fileName: 'daniela-portrait.png',
-      id: 'profile-reference',
-      mimeType: 'image/png',
-      source: 'indexed_db',
-      storageId: 'profile-asset',
-    } : undefined;
+    state.profile.logo = logo
+      ? {
+          fileName: 'isla-wordmark.png',
+          id: 'logo-reference',
+          mimeType: 'image/png',
+          source: 'indexed_db',
+          storageId: 'logo-asset',
+        }
+      : undefined;
+    state.profile.profilePhoto = profilePhoto
+      ? {
+          fileName: 'daniela-portrait.png',
+          id: 'profile-reference',
+          mimeType: 'image/png',
+          source: 'indexed_db',
+          storageId: 'profile-asset',
+        }
+      : undefined;
 
     render(
       <OnboardingSitePreview document={null} label={`${scenario} preview`} state={state} />,
@@ -274,7 +280,9 @@ describe('OnboardingSitePreview shared profile composition', () => {
       .toHaveAttribute('href', expect.stringContaining('880%20Ellesmere'));
     expect(within(visit).getByText('Inside TB Nails · Back entrance')).toBeVisible();
     expect(within(profile).getByText('Open now')).toBeVisible();
+
     const phoneLinks = within(profile).getAllByRole('link', { name: /\(647\) 123-4567/u });
+
     expect(phoneLinks.some(link => link.getAttribute('href') === 'tel:6471234567')).toBe(true);
     expect(phoneLinks.some(link => link.getAttribute('href') === 'sms:6471234567')).toBe(true);
     expect(within(profile).getByRole('link', { name: /hello@islanails\.com/u }))
@@ -387,6 +395,7 @@ describe('OnboardingSitePreview shared profile composition', () => {
 
     const preview = screen.getByRole('region', { name: 'Booking-only final preview' });
     const profile = within(preview).getByRole('region', { name: 'Isla Nail Studio' });
+
     expect(profile).toHaveTextContent('Appointment only');
     expect(profile).not.toHaveTextContent('Online booking only');
   });
@@ -436,6 +445,7 @@ describe('OnboardingSitePreview shared profile composition', () => {
     );
 
     const about = container.querySelector(`.onboarding-customer-about.${className}`);
+
     expect(about).toHaveClass('has-portrait');
     expect(about?.querySelector('.onboarding-customer-portrait.is-large'))
       .toHaveAttribute('data-media-role', 'profile');
@@ -480,6 +490,7 @@ describe('OnboardingSitePreview shared profile composition', () => {
       />,
     );
     preview = screen.getByRole('region', { name: 'Notice preview' });
+
     expect(within(preview).queryByRole('region', { name: 'Minimum booking notice' }))
       .not.toBeInTheDocument();
     expect(preview.querySelector('[data-bookable-time]')).toBeNull();
@@ -527,6 +538,7 @@ describe('OnboardingSitePreview shared profile composition', () => {
     const preview = screen.getByRole('region', { name: 'Derived hours preview' });
 
     const hoursOwner = preview.querySelector('[data-content-key="business_hours"]');
+
     expect(hoursOwner).toHaveTextContent('Thu10:30 AM–6:00 PM');
     expect(preview.querySelectorAll('[data-content-key="business_hours"]')).toHaveLength(1);
     expect(within(preview).queryByText(/Tomorrow at 10:30 AM|Next opening/u))
@@ -565,10 +577,14 @@ describe('OnboardingSitePreview shared profile composition', () => {
     state.recipe.canvaEnabled = true;
     const document = initializeStarter('quick_book');
     const page = document.pages[0];
-    const booking = page?.sections.find((section) => section.sectionType === 'booking');
+    const booking = page?.sections.find(section => section.sectionType === 'booking');
+
     expect(page).toBeDefined();
     expect(booking).toBeDefined();
-    if (!page || !booking) return;
+
+    if (!page || !booking) {
+      return;
+    }
 
     const before = customSection('canva-before', booking.order - 0.25);
     const after = customSection('canva-after', booking.order + 0.25);
@@ -605,7 +621,7 @@ describe('OnboardingSitePreview shared profile composition', () => {
     state.recipe.canvaEnabled = true;
     const document = initializeStarter('quick_book');
     const page = document.pages[0]!;
-    const booking = page.sections.find((section) => section.sectionType === 'booking')!;
+    const booking = page.sections.find(section => section.sectionType === 'booking')!;
     const canva = customSection('booking-cta', booking.order - 0.5);
     canva.settings.cta = {
       label: 'Book now',
@@ -638,9 +654,11 @@ describe('OnboardingSitePreview shared profile composition', () => {
         `[data-section-id="${booking.id}"]`,
       );
       const frame = preview.querySelector<HTMLElement>('[data-preview-scroll-container="true"]');
+
       expect(canvaSection).not.toBeNull();
       expect(bookingSection).toHaveAttribute('aria-label', 'Booking');
       expect(frame).not.toBeNull();
+
       await user.click(within(canvaSection!).getByRole('button', { name: 'Book now' }));
 
       expect(scrollTo).toHaveBeenCalledOnce();
@@ -668,10 +686,13 @@ describe('OnboardingSitePreview shared profile composition', () => {
     );
     const preview = screen.getByRole('region', { name: 'Shared profile preview' });
     const about = within(preview).getByRole('region', { name: 'About' });
+
     expect(within(about).getByText(state.profile.about.shortBio)).toBeVisible();
     expect(within(about).queryByRole('link', { name: /@islanail\.studio/ }))
       .not.toBeInTheDocument();
+
     const contact = within(preview).getByRole('region', { name: 'Visit and contact' });
+
     expect(within(contact).getByRole('link', { name: /Instagram/ })).toBeVisible();
     expect(within(preview).queryByTestId('canonical-booking-example')).not.toBeInTheDocument();
     expect(within(preview).queryByTestId('selected-service-summary')).not.toBeInTheDocument();
@@ -685,6 +706,7 @@ describe('OnboardingSitePreview shared profile composition', () => {
       <OnboardingSitePreview document={null} label="Shared profile preview" state={next} />,
     );
     const updatedAbout = within(preview).getByRole('region', { name: 'About' });
+
     expect(within(updatedAbout).getByText(state.profile.about.shortBio)).toBeVisible();
     expect(within(updatedAbout).queryByRole('link', { name: /@isla\.updated/ }))
       .not.toBeInTheDocument();
@@ -703,6 +725,7 @@ describe('OnboardingSitePreview shared profile composition', () => {
     view.rerender(
       <OnboardingSitePreview document={null} label="Shared profile preview" state={pastedUrl} />,
     );
+
     expect(within(contact).getByRole('link', { name: /Instagram/ }))
       .toHaveAttribute('href', 'https://www.instagram.com/islanailstudio/');
 
@@ -716,6 +739,7 @@ describe('OnboardingSitePreview shared profile composition', () => {
         }}
       />,
     );
+
     expect(within(contact).queryByRole('link', { name: /instagram/iu }))
       .not.toBeInTheDocument();
   });
@@ -748,10 +772,12 @@ describe('OnboardingSitePreview shared profile composition', () => {
     expect(within(about).getByText(state.profile.about.shortBio)).toBeVisible();
     expect(within(about).getByText(state.profile.about.fullBio)).toBeInTheDocument();
     expect(within(about).getByText('Read more')).toBeInTheDocument();
+
     const specialties = within(about).getByRole('list', { name: 'Specialties' });
     for (const specialty of state.profile.about.specialties) {
       expect(within(specialties).getByText(specialty)).toBeVisible();
     }
+
     expect(within(about).getByText('6 years')).toBeInTheDocument();
     expect(within(about).getByText('Russian manicure certification · BIAB certification'))
       .toBeInTheDocument();
@@ -816,6 +842,7 @@ describe('OnboardingSitePreview shared profile composition', () => {
     view.rerender(
       <OnboardingSitePreview document={initializeStarter('one_page')} label="Hidden policy summary preview" state={depositsVisible} />,
     );
+
     expect(preview.querySelectorAll('.onboarding-policy-summary')).toHaveLength(0);
     expect(within(preview).getByRole('region', { name: 'Before you book' })
       .querySelector('[data-policy="deposits_cancellations"]'))
@@ -861,6 +888,7 @@ describe('OnboardingSitePreview shared profile composition', () => {
         state={state}
       />,
     );
+
     expect(preview.querySelector('[data-policy="deposits_cancellations"]')).toBeNull();
   });
 
@@ -889,6 +917,7 @@ describe('OnboardingSitePreview shared profile composition', () => {
     const combinedPolicy = summarySection.querySelector<HTMLElement>(
       '[data-policy="deposits_cancellations"]',
     );
+
     expect(combinedPolicy).not.toBeNull();
     expect(within(combinedPolicy!).getByText('Deposits & cancellations')).toBeVisible();
     expect(within(summarySection).queryByRole('heading', { name: 'Cancellations' }))
@@ -905,6 +934,7 @@ describe('OnboardingSitePreview shared profile composition', () => {
     );
     const policies = within(screen.getByRole('region', { name: 'Combined policy preview' }))
       .getByRole('region', { name: 'Before you book' });
+
     expect(policies.querySelector('[data-policy="deposits_cancellations"]'))
       .toHaveTextContent('$15 deposit · 24 hours’ notice');
 
@@ -917,6 +947,7 @@ describe('OnboardingSitePreview shared profile composition', () => {
     );
     const noDepositPolicies = within(screen.getByRole('region', { name: 'Combined policy preview' }))
       .getByRole('region', { name: 'Before you book' });
+
     expect(noDepositPolicies.querySelector('[data-policy="deposits_cancellations"]'))
       .toHaveTextContent('No deposit · 24 hours’ notice');
     expect(noDepositPolicies).not.toHaveTextContent(/refundable|transferred|deposit being lost/iu);
@@ -938,6 +969,7 @@ describe('OnboardingSitePreview shared profile composition', () => {
     );
 
     const preview = screen.getByRole('region', { name: 'Partial policy preview' });
+
     // Quick Book keeps policies compact above the one Booking engine and owns
     // complete business information in the deterministic Visit section below.
     expect(planTypes(customerPagePlanFor(document, state)))
@@ -948,6 +980,7 @@ describe('OnboardingSitePreview shared profile composition', () => {
     const disclosure = preview.querySelector<HTMLElement>(
       '[data-content-key="before_you_book_policies"]',
     );
+
     expect(disclosure).not.toBeNull();
     expect(disclosure).toHaveTextContent('Deposits & cancellations');
     expect(disclosure).toHaveTextContent('Late arrivals');
@@ -964,6 +997,7 @@ describe('OnboardingSitePreview shared profile composition', () => {
     const document = initializeStarter('quick_book');
     const plan = customerPagePlanFor(document, state);
     const sections = plan[0]!.sections;
+
     expect(sections.filter(section => section.sectionType === 'booking')).toHaveLength(1);
     expect(sections.some(section => section.sectionType === 'deposits_cancellations'))
       .toBe(false);
@@ -978,6 +1012,7 @@ describe('OnboardingSitePreview shared profile composition', () => {
     const disclosure = profile.querySelector<HTMLElement>(
       '[data-content-key="before_you_book_policies"]',
     );
+
     expect(disclosure).not.toBeNull();
     expect(disclosure!.querySelector('summary')).toHaveTextContent('Policies');
     expect(disclosure).toHaveTextContent('Deposits & cancellations');
@@ -1001,6 +1036,7 @@ describe('OnboardingSitePreview shared profile composition', () => {
     const quietDisclosure = within(preview)
       .getByRole('region', { name: state.profile.businessName })
       .querySelector<HTMLElement>('[data-content-key="before_you_book_policies"]');
+
     expect(quietDisclosure).not.toBeNull();
     expect(quietDisclosure).toHaveTextContent('Deposits & cancellations');
     expect(within(preview).getByRole('region', { name: 'Booking' })
@@ -1113,6 +1149,7 @@ describe('OnboardingSitePreview shared profile composition', () => {
     const about = within(screen.getByRole('region', { name: 'Long specialties preview' }))
       .getByRole('region', { name: /About/u });
     const list = within(about).getByRole('list', { name: 'Specialties' });
+
     expect(within(list).getAllByRole('listitem')).toHaveLength(6);
     expect(within(list).getByText('Arte de uñas editorial extremadamente detallado'))
       .toBeVisible();
@@ -1316,6 +1353,7 @@ describe('OnboardingSitePreview shared profile composition', () => {
     expect(frame).not.toBeNull();
 
     expect(overlayHost).not.toBeNull();
+
     if (frame) {
       frame.scrollTop = 640;
     }
@@ -1332,6 +1370,7 @@ describe('OnboardingSitePreview shared profile composition', () => {
     expect(booking).not.toContainElement(detail);
 
     expect(frame?.scrollTop).toBe(640);
+
     await waitFor(() => expect(close).toHaveFocus());
 
     await user.click(close);
@@ -1371,11 +1410,14 @@ describe('OnboardingSitePreview shared profile composition', () => {
     })[0]!);
     const detail = await screen.findByTestId('service-detail-dialog');
     const summary = screen.getByTestId('selected-service-summary');
+
     expect(summary).not.toBeVisible();
     expect(within(detail).getByRole('button', { name: 'Continue' })).toBeVisible();
     expect(within(detail).queryByRole('button', { name: 'Select service' }))
       .not.toBeInTheDocument();
+
     await user.click(within(detail).getByRole('button', { name: 'Keep browsing' }));
+
     expect(screen.queryByTestId('service-detail-dialog')).not.toBeInTheDocument();
     expect(summary).toBeVisible();
     expect(summaryHost).toContainElement(summary);
@@ -1485,9 +1527,11 @@ describe('OnboardingSitePreview shared profile composition', () => {
     // The Visit Us section already covers Contact, so nothing is injected.
     expect(preview.querySelectorAll('.onboarding-customer-contact')).toHaveLength(0);
     expect(sectionIds).not.toContain('onboarding-preview-contact');
+
     const navigation = within(preview).getByRole('navigation', {
       name: 'Customer preview navigation',
     });
+
     expect(within(navigation).getAllByRole('link', { hidden: true }).map(link => link.textContent))
       .toEqual([
         'Home',
@@ -1631,9 +1675,12 @@ describe('OnboardingSitePreview shared profile composition', () => {
     expect(preview.querySelector('.onboarding-customer-booking')).toBeNull();
 
     await user.click(within(navigation).getByRole('link', { name: 'Gallery' }));
+
     expect(within(navigation).getByRole('link', { name: 'Gallery' }))
       .toHaveAttribute('aria-current', 'page');
+
     const galleryPage = within(preview).getByRole('region', { name: 'Gallery page' });
+
     expect(galleryPage).toHaveAttribute('data-preview-page-id', gallery.id);
     expect(window.document.activeElement).toBe(
       within(galleryPage).getByRole('heading', { level: 1, name: 'Gallery' }),
@@ -1642,6 +1689,7 @@ describe('OnboardingSitePreview shared profile composition', () => {
     expect(preview.querySelector('.onboarding-customer-hero')).toBeNull();
 
     await user.click(within(navigation).getByRole('link', { name: 'About' }));
+
     expect(within(preview).getByRole('region', { name: 'About page' }))
       .toHaveAttribute('data-preview-page-id', about.id);
     expect(preview.querySelectorAll('.onboarding-customer-about')).toHaveLength(1);
@@ -1651,6 +1699,7 @@ describe('OnboardingSitePreview shared profile composition', () => {
     expect(preview.querySelector('.onboarding-customer-about a[href="#booking"]')).toBeNull();
 
     await user.click(within(navigation).getByRole('link', { name: 'Services & Booking' }));
+
     expect(within(preview).getByRole('region', { name: 'Services & Booking page' }))
       .toHaveAttribute('data-preview-page-id', booking.id);
     expect(preview.querySelectorAll('.onboarding-customer-booking')).toHaveLength(1);
@@ -1661,6 +1710,7 @@ describe('OnboardingSitePreview shared profile composition', () => {
     expect(preview.querySelectorAll('.customer-lib-policies')).toHaveLength(1);
 
     await user.click(within(navigation).getByRole('link', { name: 'Contact' }));
+
     expect(within(preview).getByRole('region', { name: 'Contact page' }))
       .toHaveAttribute('data-preview-page-id', contact.id);
     expect(preview.querySelectorAll('.onboarding-customer-contact')).toHaveLength(0);
@@ -1794,6 +1844,7 @@ describe('OnboardingSitePreview shared profile composition', () => {
       ...state,
       recipe: { ...state.recipe, aboutEnabled: true, galleryEnabled: true },
     });
+
     expect(enabled.flatMap(planPage => planPage.sections
       .filter(section => section.sectionType === 'about' || section.sectionType === 'gallery')
       .map(section => [section.sectionType, section.label, section.id])))
@@ -1895,6 +1946,7 @@ describe('OnboardingSitePreview shared profile composition', () => {
         state={state}
       />,
     );
+
     expect(frame.inert).toBe(false);
     expect(frame).toHaveAttribute('tabindex', '0');
     expect(customerSurface.inert).toBe(false);
@@ -1908,6 +1960,7 @@ describe('OnboardingSitePreview shared profile composition', () => {
         state={state}
       />,
     );
+
     expect(frame.inert).toBe(false);
     expect(frame).toHaveAttribute('tabindex', '0');
     expect(customerSurface.inert).toBe(true);
@@ -1931,8 +1984,12 @@ describe('OnboardingSitePreview shared profile composition', () => {
     const measurementHost = stage.querySelector<HTMLElement>(
       '[data-preview-measurement-host="true"]',
     );
+
     expect(measurementHost).not.toBeNull();
-    if (!measurementHost) return;
+
+    if (!measurementHost) {
+      return;
+    }
     measurementHost.getBoundingClientRect = () => ({
       bottom: available.height,
       height: available.height,
@@ -1959,6 +2016,7 @@ describe('OnboardingSitePreview shared profile composition', () => {
         available,
         ONBOARDING_PREVIEW_VIEWPORTS[device],
       );
+
       expect(stage).toHaveAttribute('data-preview-scale', expected.toFixed(4));
     };
 
@@ -1978,6 +2036,7 @@ describe('OnboardingSitePreview shared profile composition', () => {
     for (let cycle = 0; cycle < 10; cycle += 1) {
       rerenderFor('desktop');
       rerenderFor('phone');
+
       expect(stage).toHaveAttribute('data-preview-scale', originalPhoneScale.toFixed(4));
     }
     rerenderFor('tablet');
@@ -2039,7 +2098,9 @@ describe('OnboardingSitePreview shared profile composition', () => {
       expect(document.documentElement.scrollTop).toBe(137);
       expect(document.body.scrollTop).toBe(89);
 
-      if (frame) frame.scrollTop = 712;
+      if (frame) {
+        frame.scrollTop = 712;
+      }
       view.rerender(
         <OnboardingSitePreview
           document={initializeStarter('one_page')}
@@ -2172,6 +2233,7 @@ describe('OnboardingSitePreview shared profile composition', () => {
     const preview = screen.getByRole('region', { name: 'Shared hours preview' });
     const about = within(preview).getByRole('region', { name: 'About' });
     const weeklyHours = preview.querySelector<HTMLElement>('[data-content-key="business_hours"]')!;
+
     expect(within(weeklyHours).getByText('Thu')).toBeVisible();
     expect(within(weeklyHours).getAllByText('10:00 AM–6:00 PM')).toHaveLength(5);
     expect(weeklyHours).toHaveTextContent('Closed Sunday.');
@@ -2188,6 +2250,7 @@ describe('OnboardingSitePreview shared profile composition', () => {
     view.rerender(
       <OnboardingSitePreview document={initializeStarter('one_page')} label="Shared hours preview" state={hidden} />,
     );
+
     expect(preview.querySelector('[data-hours-status]')).toBeNull();
     expect(within(preview).queryByRole('group', { name: 'Weekly hours' }))
       .not.toBeInTheDocument();
@@ -2203,6 +2266,7 @@ describe('OnboardingSitePreview shared profile composition', () => {
     view.rerender(
       <OnboardingSitePreview document={initializeStarter('one_page')} label="Shared hours preview" state={skipped} />,
     );
+
     expect(preview.querySelector('[data-hours-status]')).toBeNull();
     expect(preview.querySelectorAll('[data-content-key="business_hours"]')).toHaveLength(0);
     expect(within(preview).queryByRole('group', { name: 'Weekly hours' }))

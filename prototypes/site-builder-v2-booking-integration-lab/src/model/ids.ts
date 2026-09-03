@@ -8,7 +8,7 @@ const randomId = (): string => {
   return `${Date.now().toString(36)}_${Math.random().toString(36).slice(2)}`;
 };
 
-export const createIdFactory = (): IdFactory => (kind) => `${kind}_${randomId()}`;
+export const createIdFactory = (): IdFactory => kind => `${kind}_${randomId()}`;
 
 export const createDeterministicIdFactory = (seed = 'test'): IdFactory => {
   const counts: Record<EntityKind, number> = {

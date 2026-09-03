@@ -1,10 +1,10 @@
 import {
+  type CDPSession,
   devices,
   expect,
-  test,
-  type CDPSession,
   type Locator,
   type Page,
+  test,
 } from '@playwright/test';
 
 import {
@@ -36,7 +36,9 @@ type Point = { x: number; y: number };
 
 async function center(locator: Locator): Promise<Point> {
   const box = await locator.boundingBox();
+
   expect(box, 'touch target has geometry').not.toBeNull();
+
   if (!box) {
     throw new Error('The touch target has no geometry.');
   }
@@ -139,6 +141,7 @@ test('trusted touch scrolling does not reorder, while a deliberate handle hold c
   page,
 }) => {
   test.setTimeout(90_000);
+
   const runtime = startRuntimeMonitor(page);
   try {
     await openFreshLab(page);
@@ -148,9 +151,11 @@ test('trusted touch scrolling does not reorder, while a deliberate handle hold c
       .getByRole('button', { name: 'Move Booking to another page' })
       .click();
     const scroll = move.locator('.section-move-panel__scroll');
-    await expect.poll(() => scroll.evaluate((element) => (
+
+    await expect.poll(() => scroll.evaluate(element => (
       element.scrollHeight > element.clientHeight
     ))).toBe(true);
+
     const session = await page.context().newCDPSession(page);
     const initialOrder = await reorderLabels(page);
 
@@ -165,7 +170,8 @@ test('trusted touch scrolling does not reorder, while a deliberate handle hold c
       { x: rowStart.x, y: Math.max(90, rowStart.y - 180) },
       { moveDuration: 90 },
     );
-    await expect.poll(() => scroll.evaluate((element) => element.scrollTop))
+
+    await expect.poll(() => scroll.evaluate(element => element.scrollTop))
       .toBeGreaterThan(20);
     await expect(reorderLabels(page)).resolves.toEqual(initialOrder);
     await expect(move.locator('.reorder-row.is-dragging')).toHaveCount(0);
@@ -181,7 +187,9 @@ test('trusted touch scrolling does not reorder, while a deliberate handle hold c
         element.scrollTop = 0;
       });
       const handlePoint = await center(handle);
+
       await expect(handle).toBeInViewport();
+
       await trustedTouchGesture(
         page,
         session,
@@ -189,7 +197,8 @@ test('trusted touch scrolling does not reorder, while a deliberate handle hold c
         { x: handlePoint.x, y: Math.max(90, handlePoint.y - 150) },
         { holdBeforeMove, moveDuration: 80 },
       );
-      await expect.poll(() => scroll.evaluate((element) => element.scrollTop))
+
+      await expect.poll(() => scroll.evaluate(element => element.scrollTop))
         .toBeGreaterThan(20);
       await expect(reorderLabels(page)).resolves.toEqual(initialOrder);
       await expect(move.locator('.reorder-row.is-dragging')).toHaveCount(0);
@@ -202,9 +211,13 @@ test('trusted touch scrolling does not reorder, while a deliberate handle hold c
       element.scrollTop = 0;
     });
     const firstRow = move.locator('.reorder-row').first();
+
     await expect(firstRow).toBeInViewport();
+
     const firstRowBox = await firstRow.boundingBox();
+
     expect(firstRowBox).not.toBeNull();
+
     if (!firstRowBox) {
       throw new Error('The first reorder row has no geometry.');
     }
@@ -213,7 +226,9 @@ test('trusted touch scrolling does not reorder, while a deliberate handle hold c
       y: firstRowBox.y + 8,
     };
     const refreshedHandlePoint = await center(handle);
+
     await expect(handle).toBeInViewport();
+
     await trustedTouchGesture(
       page,
       session,
@@ -221,8 +236,11 @@ test('trusted touch scrolling does not reorder, while a deliberate handle hold c
       { x: refreshedHandlePoint.x, y: targetPoint.y },
       { holdBeforeMove: 230, moveDuration: 240, steps: 12 },
     );
+
     await expect.poll(() => reorderLabels(page)).not.toEqual(initialOrder);
+
     const draggedOrder = await reorderLabels(page);
+
     expect(draggedOrder[0]).toBe('Booking');
     await expect(move.locator('.reorder-row.is-dragging')).toHaveCount(0);
 
@@ -243,6 +261,7 @@ test('trusted touch scrolling does not reorder, while a deliberate handle hold c
         steps: 8,
       },
     );
+
     await expect(reorderLabels(page)).resolves.toEqual(draggedOrder);
     await expect(move.locator('.reorder-row.is-dragging')).toHaveCount(0);
 
@@ -260,9 +279,11 @@ test('trusted touch scrolling does not reorder, while a deliberate handle hold c
       { x: recoveryStart.x, y: Math.max(90, recoveryStart.y - 160) },
       { moveDuration: 90 },
     );
-    await expect.poll(() => scroll.evaluate((element) => element.scrollTop))
+
+    await expect.poll(() => scroll.evaluate(element => element.scrollTop))
       .toBeGreaterThan(20);
     await expect(reorderLabels(page)).resolves.toEqual(draggedOrder);
+
     await move.getByRole('button', { name: 'Cancel', exact: true }).click();
   } finally {
     runtime.assertClean();
@@ -274,6 +295,7 @@ test('trusted rapid double-tap on Done commits once without touching the control
   page,
 }) => {
   test.setTimeout(60_000);
+
   const runtime = startRuntimeMonitor(page);
   try {
     await openFreshLab(page);
@@ -296,14 +318,20 @@ test('trusted rapid double-tap on Done commits once without touching the control
     await sendTouch(session, 'touchEnd');
 
     await expect(move).toHaveCount(0);
+
     const moreButton = page.getByRole('button', { name: 'More site options' });
     await trustedTap(session, await center(moreButton));
     const more = page.getByRole('dialog', { name: 'More' });
+
     await expect(more).toBeVisible();
+
     await waitForSaved(page);
     await page.waitForTimeout(1_000);
+
     expect(await storageWriteCount(page)).toBe(1);
+
     const committedJson = await readStoredDocumentJson(page);
+
     expect(committedJson).not.toBe(baselineJson);
     await expect(sectionLabels(page, 'Home')).resolves.toEqual([
       'Booking',
@@ -322,6 +350,7 @@ test('trusted rapid double-tap on Done commits once without touching the control
 
     await more.getByRole('button', { name: 'Undo', exact: true }).click();
     await waitForSaved(page);
+
     expect(await readStoredDocumentJson(page)).toBe(baselineJson);
     await expect(more.getByRole('button', { name: 'Undo', exact: true })).toBeDisabled();
   } finally {
@@ -334,6 +363,7 @@ test('trusted touch keeps hidden-settings controls distinct and same-device acti
   page,
 }) => {
   test.setTimeout(60_000);
+
   const runtime = startRuntimeMonitor(page);
   try {
     await page.setViewportSize({ width: 920, height: 800 });
@@ -363,6 +393,7 @@ test('trusted touch keeps hidden-settings controls distinct and same-device acti
       return (Math.max(foreground, background) + 0.05)
         / (Math.min(foreground, background) + 0.05);
     });
+
     expect(contrast).toBeGreaterThanOrEqual(4.5);
     expect(await page.evaluate(() => window.devicePixelRatio)).toBeGreaterThan(1);
 
@@ -370,11 +401,15 @@ test('trusted touch keeps hidden-settings controls distinct and same-device acti
     const session = await page.context().newCDPSession(page);
     const { settings } = await openBookingSettings(page, 'Home');
     await trustedTap(session, await center(settings.getByRole('button', { name: 'Hide settings' })));
+
     await expect(settings).toBeHidden();
+
     const toolbar = page.getByTestId('selected-section-toolbar');
     const edit = toolbar.getByRole('button', { name: 'Edit', exact: true });
     await trustedTap(session, await center(edit));
+
     await expect(settings).toBeVisible();
+
     await trustedTap(session, await center(settings.getByRole('button', { name: 'Hide settings' })));
     const collapse = toolbar.getByRole('button', { name: 'Collapse', exact: true });
     if (await collapse.isVisible()) {
@@ -385,7 +420,9 @@ test('trusted touch keeps hidden-settings controls distinct and same-device acti
     const moreButton = toolbar.getByRole('button', { name: 'More', exact: true });
     await trustedTap(session, await center(moreButton));
     const actions = page.getByRole('dialog', { name: 'Booking actions' });
+
     await expect(actions).toBeVisible();
+
     await actions.getByRole('button', { name: 'Close Booking actions' }).click();
 
     await page.getByRole('button', { name: 'Preview', exact: true }).click();
@@ -393,18 +430,23 @@ test('trusted touch keeps hidden-settings controls distinct and same-device acti
       .getByRole('button', { name: 'Phone' });
     await trustedTap(session, await center(phone));
     const liveRegion = page.getByTestId('preview-viewport-announcement');
+
     await expect(liveRegion).toContainText('Phone preview selected');
+
     await page.evaluate(() => {
       const probe = window as typeof window & { __sameDeviceMutations?: number };
       probe.__sameDeviceMutations = 0;
       const region = document.querySelector('[data-testid="preview-viewport-announcement"]');
       if (region) {
-        new MutationObserver(() => { probe.__sameDeviceMutations = (probe.__sameDeviceMutations ?? 0) + 1; })
+        new MutationObserver(() => {
+          probe.__sameDeviceMutations = (probe.__sameDeviceMutations ?? 0) + 1;
+        })
           .observe(region, { characterData: true, childList: true, subtree: true });
       }
     });
     await trustedTap(session, await center(phone));
     await page.waitForTimeout(350);
+
     expect(await page.evaluate(() => (
       window as typeof window & { __sameDeviceMutations?: number }
     ).__sameDeviceMutations)).toBe(0);
@@ -419,6 +461,7 @@ test('trusted rapid double-tap commits cross-page and create-page movement only 
   page,
 }) => {
   test.setTimeout(90_000);
+
   const runtime = startRuntimeMonitor(page);
   try {
     for (const path of ['cross-page', 'create-page'] as const) {
@@ -447,11 +490,14 @@ test('trusted rapid double-tap commits cross-page and create-page movement only 
       await trustedTap(session, point);
 
       await expect(move).toHaveCount(0);
+
       const prompt = page.getByRole('dialog', { name: 'Add a menu?' });
       let more: Locator | null = null;
       if (path === 'create-page') {
         await expect(prompt).toBeVisible();
+
         await trustedTap(session, await center(prompt.getByRole('button', { name: 'Not now' })));
+
         await expect(prompt).toHaveCount(0);
       } else {
         await trustedTap(
@@ -459,14 +505,20 @@ test('trusted rapid double-tap commits cross-page and create-page movement only 
           await center(page.getByRole('button', { name: 'More site options' })),
         );
         more = page.getByRole('dialog', { name: 'More' });
+
         await expect(more).toBeVisible();
       }
       await waitForSaved(page);
       await page.waitForTimeout(1_000);
+
       expect(await storageWriteCount(page)).toBe(1);
+
       const committedJson = await readStoredDocumentJson(page);
+
       expect(committedJson).not.toBe(baselineJson);
+
       const destination = path === 'cross-page' ? 'Home' : 'Touch portfolio';
+
       await expect(sectionLabels(page, destination)).resolves.toContain('Booking');
       await expect(page.getByRole('dialog')).toHaveCount(path === 'cross-page' ? 1 : 0);
       await expect(page.locator('.toast')).toHaveCount(1);
@@ -479,11 +531,15 @@ test('trusted rapid double-tap commits cross-page and create-page movement only 
         );
         more = page.getByRole('dialog', { name: 'More' });
       }
+
       await expect(more).toBeVisible();
+
       await more.getByRole('button', { name: 'Undo', exact: true }).click();
       await waitForSaved(page);
+
       expect(await readStoredDocumentJson(page)).toBe(baselineJson);
       await expect(more.getByRole('button', { name: 'Undo', exact: true })).toBeDisabled();
+
       await more.getByRole('button', { name: 'Close More' }).click();
       await session.detach();
     }

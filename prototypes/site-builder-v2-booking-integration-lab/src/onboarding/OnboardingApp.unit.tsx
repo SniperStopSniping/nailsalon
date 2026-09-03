@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { IDBFactory } from 'fake-indexeddb';
 import userEvent from '@testing-library/user-event';
+import { IDBFactory } from 'fake-indexeddb';
 import { beforeEach, vi } from 'vitest';
 
 import {
@@ -9,28 +9,28 @@ import {
 } from '../custom-design/assets';
 import { CustomDesignAssetTransactionCoordinator } from '../custom-design/integration/AssetTransactionCoordinator';
 import {
-  SITE_BUILDER_STORAGE_KEY,
   exportSiteBuilderDocument,
   initializeStarter,
   parseSiteBuilderDocument,
+  SITE_BUILDER_STORAGE_KEY,
   type SiteBuilderDocument,
 } from '../model';
-import { useLabDocument, type LabDocumentController } from '../ui/useLabDocument';
-import { createDanielaFixtureState } from './fixtures';
+import { type LabDocumentController, useLabDocument } from '../ui/useLabDocument';
 import { FeedbackProvider } from './feedback/FeedbackProvider';
+import { createDanielaFixtureState } from './fixtures';
 import type { OnboardingLabState } from './model/types';
+import {
+  applyCanvaIntegrationResult,
+  getOnboardingAssetIds,
+  isOnboardingResetBlocked,
+  OnboardingApp,
+  type OnboardingSavePayload,
+} from './OnboardingApp';
 import {
   ONBOARDING_STORAGE_KEY,
   parseOnboardingState,
   serializeOnboardingState,
 } from './storage/storage';
-import {
-  OnboardingApp,
-  type OnboardingSavePayload,
-  applyCanvaIntegrationResult,
-  getOnboardingAssetIds,
-  isOnboardingResetBlocked,
-} from './OnboardingApp';
 
 const assetProviderMocks = vi.hoisted(() => ({
   coordinator: null as unknown,
@@ -45,7 +45,7 @@ vi.mock('../custom-design/integration/CustomDesignAssetProvider', () => ({
 }));
 
 const storedAsset = (id: string): PreparedImageAsset => {
-  const blob = new Blob([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], {
+  const blob = new Blob([new Uint8Array([0x89, 0x50, 0x4E, 0x47])], {
     type: 'image/png',
   });
   return {
@@ -111,7 +111,9 @@ const createLab = (document: SiteBuilderDocument): LabDocumentController => ({
     const accepted = structuredClone(document);
     accepted.siteName = siteName;
     for (const section of accepted.pages.flatMap(page => page.sections)) {
-      if (section.sectionType === 'about') section.settings.preset = presentation.aboutPreset;
+      if (section.sectionType === 'about') {
+        section.settings.preset = presentation.aboutPreset;
+      }
       if (section.sectionType === 'gallery' && section.settings.preset === 'grid') {
         section.settings.preset = presentation.galleryLayout;
       }
@@ -205,9 +207,9 @@ type BrowserHistoryEntry = {
   overlay?:
     | { kind: 'plan' }
     | {
-        kind: 'preview';
-        source: 'starting_preview' | 'about' | 'about_design' | 'site_style' | 'final_preview';
-      };
+      kind: 'preview';
+      source: 'starting_preview' | 'about' | 'about_design' | 'site_style' | 'final_preview';
+    };
   screen: OnboardingLabState['progress']['currentScreen'];
 };
 
@@ -230,11 +232,15 @@ const expectFocusedHeadingAtTop = async (name: string): Promise<HTMLElement> => 
     expect(document.documentElement.scrollTop).toBe(0);
     expect(document.body.scrollTop).toBe(0);
   });
+
   expect(heading).toHaveAttribute('tabindex', '-1');
+
   return heading;
 };
 
-function RealLabHarness({ onEnterBuilder = vi.fn() }: { onEnterBuilder?: () => void }) {
+const ignoreEnterBuilder = () => undefined;
+
+function RealLabHarness({ onEnterBuilder = ignoreEnterBuilder }: { onEnterBuilder?: () => void }) {
   const lab = useLabDocument();
   return <OnboardingApp lab={lab} onEnterBuilder={onEnterBuilder} />;
 }
@@ -300,7 +306,9 @@ describe('OnboardingApp handoff boundaries', () => {
     const logos = document.querySelectorAll<HTMLImageElement>(
       '.final-starter-preview__logo[data-media-role="logo"]',
     );
+
     expect(logos).toHaveLength(3);
+
     for (const logo of logos) {
       expect(logo).toHaveAttribute('src', 'https://example.test/isla-wordmark.png');
       expect(logo.getAttribute('src')).not.toBe(profileUrl);
@@ -311,6 +319,7 @@ describe('OnboardingApp handoff boundaries', () => {
     const user = userEvent.setup();
     renderAt(stateAt('policies'), vi.fn(), false);
     await user.click(screen.getByRole('button', { name: 'More onboarding options' }));
+
     expect(screen.queryByRole('menuitem', { name: 'Lab review options' })).not.toBeInTheDocument();
     expect(screen.getByRole('menuitem', { name: 'Start over' })).toBeVisible();
     expect(screen.getByRole('menuitem', { name: 'Save and finish later' })).toBeVisible();
@@ -327,12 +336,14 @@ describe('OnboardingApp handoff boundaries', () => {
 
     await user.click(screen.getByRole('button', { name: 'Preview my site' }));
     const dialog = screen.getByRole('dialog', { name: 'Preview your starting site' });
+
     expect(within(dialog).getByRole('button', { name: 'Continue setup' })).toBeVisible();
     expect(within(dialog).queryByRole('button', { name: /finish setup/i })).not.toBeInTheDocument();
     expect(within(dialog).queryByText(/lifetime access/i)).not.toBeInTheDocument();
     expect(onEnterBuilder).not.toHaveBeenCalled();
 
     await user.click(within(dialog).getByRole('button', { name: 'Continue setup' }));
+
     expect(await screen.findByRole('heading', { name: 'Where can clients find you?' })).toBeVisible();
     expect(onEnterBuilder).not.toHaveBeenCalled();
   });
@@ -344,16 +355,21 @@ describe('OnboardingApp handoff boundaries', () => {
     renderAt(state);
 
     const bio = screen.getByRole('textbox', { name: 'Short introduction' });
+
     expect(bio).toHaveValue(preservedBio);
+
     await user.click(screen.getByRole('switch', { name: 'Show an About section' }));
+
     expect(screen.queryByRole('textbox', { name: 'Short introduction' })).not.toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'Skip for now' }));
+
     expect(await screen.findByRole('heading', { name: 'Set clear expectations' })).toBeVisible();
     expect(screen.queryByRole('heading', { name: 'Choose your About design' })).not.toBeInTheDocument();
 
     await waitFor(() => {
       const saved = window.localStorage.getItem(ONBOARDING_STORAGE_KEY);
+
       expect(saved).toContain(preservedBio);
     });
   });
@@ -386,6 +402,7 @@ describe('OnboardingApp handoff boundaries', () => {
       setPageScroll(420 + cycle);
       dispatchBrowserHistoryEntry(aboutEntry);
       await expectFocusedHeadingAtTop('Tell clients a little about you');
+
       expect(screen.queryByRole('heading', {
         name: 'Choose your About design',
       })).not.toBeInTheDocument();
@@ -415,6 +432,7 @@ describe('OnboardingApp handoff boundaries', () => {
       .toBeVisible();
     expect(screen.queryByRole('heading', { name: 'Choose your About design' }))
       .not.toBeInTheDocument();
+
     forward.mockRestore();
   });
 
@@ -469,7 +487,9 @@ describe('OnboardingApp handoff boundaries', () => {
     const baseEntry = currentBrowserHistoryEntry();
 
     await user.click(screen.getByRole('button', { name: 'Preview my site' }));
+
     expect(screen.getByRole('dialog', { name: 'Preview your starting site' })).toBeVisible();
+
     const previewEntry: BrowserHistoryEntry = {
       ...baseEntry,
       onboardingCursor: baseEntry.onboardingCursor + 1,
@@ -481,11 +501,13 @@ describe('OnboardingApp handoff boundaries', () => {
       await waitFor(() => expect(screen.queryByRole('dialog', {
         name: 'Preview your starting site',
       })).not.toBeInTheDocument());
+
       expect(screen.getByRole('heading', {
         name: 'Your starting site is ready',
       })).toBeVisible();
 
       dispatchBrowserHistoryEntry(previewEntry);
+
       expect(await screen.findByRole('dialog', {
         name: 'Preview your starting site',
       })).toBeVisible();
@@ -511,11 +533,13 @@ describe('OnboardingApp handoff boundaries', () => {
     await waitFor(() => expect(screen.queryByRole('dialog', {
       name: 'Preview your starting site',
     })).not.toBeInTheDocument());
+
     expect(screen.getByRole('heading', { name: 'Your starting site is ready' }))
       .toBeVisible();
     expect(screen.queryByRole('heading', {
       name: 'Would you like an About section?',
     })).not.toBeInTheDocument();
+
     await waitFor(() => expect(previewTrigger).toHaveFocus());
   });
 
@@ -535,7 +559,9 @@ describe('OnboardingApp handoff boundaries', () => {
 
     expect(await screen.findByRole('heading', { name: 'Choose your starting point' })).toBeVisible();
     expect(lab.resetLab).toHaveBeenCalledOnce();
+
     const resetEntry = currentBrowserHistoryEntry();
+
     expect(resetEntry.screen).toBe('starter');
     expect(resetEntry.onboardingCursor).toBe(0);
     expect(resetEntry.onboardingSession).not.toBe(staleEntry.onboardingSession);
@@ -545,9 +571,11 @@ describe('OnboardingApp handoff boundaries', () => {
       onboardingCursor: staleEntry.onboardingCursor + 1,
       screen: 'policies',
     });
+
     expect(forward).toHaveBeenCalledOnce();
     expect(screen.getByRole('heading', { name: 'Choose your starting point' })).toBeVisible();
     expect(currentBrowserHistoryEntry()).toEqual(resetEntry);
+
     forward.mockRestore();
   });
 
@@ -564,6 +592,7 @@ describe('OnboardingApp handoff boundaries', () => {
     await user.click(screen.getByRole('button', { name: 'More onboarding options' }));
     await user.click(screen.getByRole('menuitem', { name: 'Start over' }));
     const dialog = screen.getByRole('dialog', { name: 'Start over?' });
+
     expect(dialog).toHaveAccessibleDescription(
       'This clears your onboarding answers, uploaded setup images and starting website from this device. Other saved Builder work stays untouched.',
     );
@@ -571,6 +600,7 @@ describe('OnboardingApp handoff boundaries', () => {
 
     await user.click(within(dialog).getByRole('button', { name: 'Start over' }));
     const pending = within(dialog).getByRole('button', { name: 'Starting over…' });
+
     expect(pending).toBeDisabled();
     expect(within(dialog).getByRole('button', { name: 'Close Start over?' }))
       .toBeDisabled();
@@ -580,6 +610,7 @@ describe('OnboardingApp handoff boundaries', () => {
     finishCleanup?.([]);
     const welcomeHeading = await screen.findByRole('heading', { name: 'Choose your starting point' });
     await waitFor(() => expect(welcomeHeading).toHaveFocus());
+
     expect(lab.resetLab).toHaveBeenCalledOnce();
   });
 
@@ -595,6 +626,7 @@ describe('OnboardingApp handoff boundaries', () => {
     window.localStorage.setItem('unrelated-storage-sentinel', 'preserve');
 
     renderAt(state);
+
     expect(parseOnboardingState(
       window.localStorage.getItem(ONBOARDING_STORAGE_KEY) ?? '',
     ).state.canva.ownedAssetIds).toEqual(['onboarding-removed']);
@@ -605,12 +637,15 @@ describe('OnboardingApp handoff boundaries', () => {
       .getByRole('button', { name: 'Start over' }));
 
     expect(await screen.findByRole('heading', { name: 'Choose your starting point' })).toBeVisible();
+
     await waitFor(async () => {
       expect(await repository.has('onboarding-removed')).toBe(false);
       expect(await repository.has('unrelated-sentinel')).toBe(true);
     });
+
     expect(window.localStorage.getItem('unrelated-storage-sentinel')).toBe('preserve');
     expect(window.localStorage.getItem(ONBOARDING_STORAGE_KEY)).toBeNull();
+
     window.localStorage.removeItem('unrelated-storage-sentinel');
     coordinator.close();
     repository.close();
@@ -633,6 +668,7 @@ describe('OnboardingApp handoff boundaries', () => {
       .getByRole('button', { name: 'Blank new owner' }));
 
     expect(await screen.findByRole('heading', { name: 'Choose your starting point' })).toBeVisible();
+
     await waitFor(async () => {
       expect(await repository.has('onboarding-removed')).toBe(false);
       expect(await repository.has('unrelated-sentinel')).toBe(true);
@@ -641,6 +677,7 @@ describe('OnboardingApp handoff boundaries', () => {
       const saved = parseOnboardingState(
         window.localStorage.getItem(ONBOARDING_STORAGE_KEY) ?? '',
       );
+
       expect(saved.state.canva.ownedAssetIds).toEqual([]);
     });
     coordinator.close();
@@ -669,6 +706,7 @@ describe('OnboardingApp handoff boundaries', () => {
     expect(deleteAssetsIfUnreferenced).toHaveBeenCalledWith([
       'onboarding-orphan-retry',
     ]);
+
     await waitFor(() => expect(parseOnboardingState(
       window.localStorage.getItem(ONBOARDING_STORAGE_KEY) ?? '',
     ).state.canva.ownedAssetIds).toEqual(['onboarding-orphan-retry']));
@@ -681,7 +719,9 @@ describe('OnboardingApp handoff boundaries', () => {
     const originalRemoveItem = Storage.prototype.removeItem;
     const removeItem = vi.spyOn(Storage.prototype, 'removeItem').mockImplementation(
       function removeStorageItem(this: Storage, key: string) {
-        if (key === ONBOARDING_STORAGE_KEY) throw new DOMException('Blocked', 'SecurityError');
+        if (key === ONBOARDING_STORAGE_KEY) {
+          throw new DOMException('Blocked', 'SecurityError');
+        }
         originalRemoveItem.call(this, key);
       },
     );
@@ -698,6 +738,7 @@ describe('OnboardingApp handoff boundaries', () => {
     expect(parseOnboardingState(
       window.localStorage.getItem(ONBOARDING_STORAGE_KEY) ?? '',
     ).state.profile.businessName).toBe(state.profile.businessName);
+
     removeItem.mockRestore();
   });
 
@@ -716,6 +757,7 @@ describe('OnboardingApp handoff boundaries', () => {
       .toBeVisible();
     expect(screen.getByRole('heading', { name: 'Set clear expectations' })).toBeVisible();
     expect(lab.resetLab).toHaveBeenCalledOnce();
+
     await waitFor(() => expect(parseOnboardingState(
       window.localStorage.getItem(ONBOARDING_STORAGE_KEY) ?? '',
     ).state.profile.businessName).toBe(state.profile.businessName));
@@ -739,6 +781,7 @@ describe('OnboardingApp handoff boundaries', () => {
 
     expect(await screen.findByRole('heading', { name: 'Choose your starting point' })).toBeVisible();
     expect(await screen.findByRole('alert')).toHaveTextContent('cleanup list');
+
     await waitFor(() => expect(parseOnboardingState(
       window.localStorage.getItem(ONBOARDING_STORAGE_KEY) ?? '',
     ).state.canva.ownedAssetIds).toEqual(['fixture-orphan-retry']));
@@ -755,6 +798,7 @@ describe('OnboardingApp handoff boundaries', () => {
     expect(onEnterBuilder).not.toHaveBeenCalled();
 
     await user.click(screen.getByRole('button', { name: 'Finish setup' }));
+
     expect(lab.acceptOnboardingPresentation).toHaveBeenCalledWith(
       'Isla Nail Studio',
       { aboutPreset: state.recipe.aboutPreset, galleryLayout: state.gallery.layout },
@@ -772,13 +816,18 @@ describe('OnboardingApp handoff boundaries', () => {
         },
       }),
     );
+
     const offer = screen.getByRole('dialog', { name: 'Your site is saved' });
+
     expect(within(offer).getByRole('button', { name: 'Continue free' })).toBeVisible();
     expect(onEnterBuilder).not.toHaveBeenCalled();
 
     await user.click(within(offer).getByRole('button', { name: 'Continue free' }));
+
     expect(onEnterBuilder).toHaveBeenCalledOnce();
+
     const saved = window.localStorage.getItem(ONBOARDING_STORAGE_KEY);
+
     expect(saved).toContain('"planIntent":"free"');
     expect(saved).toContain('"sessionStatus":"dashboard"');
   });
@@ -809,9 +858,15 @@ describe('OnboardingApp handoff boundaries', () => {
     await user.click(screen.getByRole('button', { name: 'Save my site' }));
 
     expect(onSaveSite).toHaveBeenCalledOnce();
+
     const payload = onSaveSite.mock.calls[0]?.[0];
+
     expect(payload).toBeDefined();
-    if (!payload) throw new Error('Expected an account-save payload.');
+
+    if (!payload) {
+      throw new Error('Expected an account-save payload.');
+    }
+
     expect(payload.document.pages.flatMap(page => page.sections)
       .filter(section => section.sectionType === 'about')
       .map(section => section.settings.preset))
@@ -844,7 +899,9 @@ describe('OnboardingApp handoff boundaries', () => {
 
     expect(screen.getByText(/Finish setup to save these final choices/i)).toBeVisible();
     expect(screen.queryByRole('button', { name: 'Save my site' })).not.toBeInTheDocument();
+
     await user.click(screen.getByRole('button', { name: 'Finish setup' }));
+
     expect(onSaveSite).toHaveBeenCalledOnce();
   });
 
@@ -857,6 +914,7 @@ describe('OnboardingApp handoff boundaries', () => {
 
     await user.click(builderTrigger);
     const planEntry = currentBrowserHistoryEntry();
+
     expect(planEntry).toMatchObject({ overlay: { kind: 'plan' }, screen: 'final_preview' });
     expect(screen.getByRole('dialog', { name: 'Your site is saved' })).toBeVisible();
 
@@ -864,7 +922,9 @@ describe('OnboardingApp handoff boundaries', () => {
     await waitFor(() => expect(screen.queryByRole('dialog', {
       name: 'Your site is saved',
     })).not.toBeInTheDocument());
+
     expect(screen.getByRole('heading', { name: 'Review your site' })).toBeVisible();
+
     await waitFor(() => expect(builderTrigger).toHaveFocus());
 
     dispatchBrowserHistoryEntry(planEntry);
@@ -872,6 +932,7 @@ describe('OnboardingApp handoff boundaries', () => {
     await waitFor(() => expect(within(reopened).getByRole('heading', {
       name: 'Your site is saved',
     })).toHaveFocus());
+
     expect(screen.getByRole('heading', { name: 'Review your site' })).toBeVisible();
   });
 
@@ -896,6 +957,7 @@ describe('OnboardingApp handoff boundaries', () => {
     const current = screen.getByRole('button', {
       name: /Current starting point.*Quick Book/u,
     });
+
     expect(current).toHaveAttribute('aria-pressed', 'true');
 
     await user.click(screen.getByRole('button', {
@@ -904,11 +966,13 @@ describe('OnboardingApp handoff boundaries', () => {
     const confirmation = screen.getByRole('dialog', {
       name: 'Switch to One-page website?',
     });
+
     expect(confirmation).toHaveTextContent(
       'Switching to One-page website keeps your business information, About details, policies, style choices, photos, Gallery draft, Canva design, and onboarding progress saved. We’ll replace only the starting page structure.',
     );
     expect(within(confirmation).getByRole('button', { name: 'Keep current' }))
       .toBeVisible();
+
     await user.click(within(confirmation).getByRole('button', {
       name: 'Switch to One-page website',
     }));
@@ -922,6 +986,7 @@ describe('OnboardingApp handoff boundaries', () => {
       const savedOnboarding = parseOnboardingState(
         window.localStorage.getItem(ONBOARDING_STORAGE_KEY) ?? '',
       );
+
       expect(savedOnboarding.status).toBe('loaded');
       expect(savedOnboarding.state.profile.about.shortBio)
         .toBe(state.profile.about.shortBio);
@@ -932,7 +997,9 @@ describe('OnboardingApp handoff boundaries', () => {
       const savedDocument = parseSiteBuilderDocument(
         window.localStorage.getItem(SITE_BUILDER_STORAGE_KEY) ?? '',
       );
+
       expect(savedDocument.success).toBe(true);
+
       if (savedDocument.success) {
         expect(savedDocument.document.originStarter).toBe('one_page');
         // This fixture has no Gallery or real Reviews, so the locked One-page
@@ -952,6 +1019,7 @@ describe('OnboardingApp handoff boundaries', () => {
 
     firstRender.unmount();
     render(<RealLabHarness />);
+
     expect(await screen.findByRole('heading', {
       name: 'Let’s start with your business',
     })).toBeVisible();
@@ -979,12 +1047,14 @@ describe('OnboardingApp handoff boundaries', () => {
     expect(document.querySelector('.onboarding-feedback')).toHaveTextContent(
       'Your starting site is ready',
     );
+
     await waitFor(() => {
       expect(document.querySelector('.visually-hidden[role="status"]')).toHaveTextContent(
         'Your starting site is ready',
       );
     });
     await user.click(screen.getByRole('button', { name: 'Show me my site →' }));
+
     expect(await screen.findByRole('heading', {
       name: 'Your starting site is ready',
     })).toBeVisible();
@@ -995,13 +1065,17 @@ describe('OnboardingApp handoff boundaries', () => {
     expect(document.querySelector('.onboarding-feedback')).toHaveTextContent(
       'Basics complete',
     );
+
     await user.click(screen.getByRole('button', { name: 'Preview my site' }));
+
     expect(screen.getByRole('dialog', { name: 'Preview your starting site' })).toBeVisible();
+
     await waitFor(() => expect(document.querySelector('.onboarding-feedback')).toBeNull());
     await waitFor(() => {
       const saved = parseOnboardingState(
         window.localStorage.getItem(ONBOARDING_STORAGE_KEY) ?? '',
       );
+
       expect(saved.state.reviewOptions.feedbackMilestones).toEqual(
         expect.arrayContaining(['starting_site_ready', 'stage_basics']),
       );
@@ -1023,15 +1097,21 @@ describe('OnboardingApp handoff boundaries', () => {
       expect(document.querySelector('.onboarding-feedback')).toHaveTextContent(
         'Your website design is set',
       );
+
       act(() => vi.advanceTimersByTime(2_300));
+
       expect(document.querySelector('.onboarding-feedback')).toHaveTextContent(
         'Everything you need is ready',
       );
+
       act(() => vi.advanceTimersByTime(2_800));
+
       expect(document.querySelector('.onboarding-feedback')).toBeNull();
+
       const saved = parseOnboardingState(
         window.localStorage.getItem(ONBOARDING_STORAGE_KEY) ?? '',
       );
+
       expect(saved.state.reviewOptions.feedbackMilestones).toEqual(
         expect.arrayContaining(['stage_design', 'all_required_complete']),
       );
@@ -1053,6 +1133,7 @@ describe('OnboardingApp handoff boundaries', () => {
       const persisted = parseOnboardingState(
         window.localStorage.getItem(ONBOARDING_STORAGE_KEY) ?? '',
       );
+
       expect(persisted.status).toBe('loaded');
       expect(persisted.state.profile.businessName).toBe('Luster Auth Probe');
       expect(persisted.state.progress.currentScreen).toBe('save_progress');
@@ -1072,6 +1153,7 @@ describe('OnboardingApp handoff boundaries', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Use this look' }));
     await waitFor(() => expect(onSaveSite).toHaveBeenCalledOnce());
+
     expect(onSaveSite.mock.calls[0]?.[0].state).toMatchObject({
       profile: { businessName: 'Luster Auth Probe' },
       progress: { currentScreen: 'save_progress' },

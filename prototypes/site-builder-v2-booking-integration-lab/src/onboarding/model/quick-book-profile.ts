@@ -145,7 +145,7 @@ export const resolveQuickBookProfile = (input: {
   // require a second set of template toggles before the same saved facts can
   // appear in progressive previews.
   const contacts = getPublicContactActions(profile)
-    .filter((action) => action.method === 'call'
+    .filter(action => action.method === 'call'
       || action.method === 'email'
       || action.method === 'text')
     .map((action): QuickBookProfileContact => ({

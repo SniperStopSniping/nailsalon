@@ -172,8 +172,12 @@ describe('PremiumAccountGate', () => {
     const preview = document.querySelector<HTMLElement>(
       '[aria-label="Preview of Isla Nail Studio"]',
     );
+
     expect(preview).not.toBeNull();
-    if (!preview) throw new Error('Account Gate preview was not rendered.');
+
+    if (!preview) {
+      throw new Error('Account Gate preview was not rendered.');
+    }
     for (const sectionId of excludedIds) {
       expect(preview.querySelector(`[data-section-id="${sectionId}"]`))
         .not.toBeInTheDocument();
@@ -279,6 +283,7 @@ describe('PremiumAccountGate', () => {
     await waitFor(() => {
       expect(mocks.setActiveSignUp).toHaveBeenCalledWith({ session: 'sess_immediate' });
     });
+
     expect(mocks.signUp.prepareEmailAddressVerification).not.toHaveBeenCalled();
   });
 

@@ -167,7 +167,7 @@ async function preparePromotion(input: {
     const existingProjection = media ? canonicalMetadata(media) : null;
     const projection = media && !existingProjection
       ? await saveCanonicalOnboardingProfileMedia({
-        bytes: await readOnboardingMediaFile(media.storageKey!),
+        bytes: await readOnboardingMediaFile(media.storageKey!, { salonId: input.salonId, siteId: site.id }),
         mediaId: media.id,
         role,
         salonId: input.salonId,

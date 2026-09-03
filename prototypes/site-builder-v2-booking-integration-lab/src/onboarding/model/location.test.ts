@@ -45,14 +45,17 @@ describe('public location privacy', () => {
     const location = createDefaultBusinessProfile().location;
     location.cityOrArea = 'Scarborough, Ontario';
     location.addressVisibility = 'public';
+
     expect(getPublicLocationPreview(location).directionsTarget).toBeNull();
 
     location.allowGeneralAreaDirections = true;
+
     expect(getPublicLocationPreview(location).directionsTarget).toBe('Scarborough, Ontario');
     expect(getPublicDirectionsAction(location)?.href)
       .toBe('https://www.google.com/maps/search/?api=1&query=Scarborough%2C%20Ontario');
 
     location.addressVisibility = 'hidden';
+
     expect(getPublicLocationPreview(location)).toMatchObject({
       detail: null,
       directionsTarget: null,

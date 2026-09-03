@@ -19,12 +19,12 @@ import {
   DEMO_SITE_CONTENT,
 } from '../onboarding/model/demo-content';
 import { deriveSiteLibraryContext } from '../onboarding/model/site-library-context';
-import { buildCustomerPagePlan, getSectionPlanExclusion } from './site-plan';
 import {
   getSectionRegistryEntry,
   isLibrarySectionType,
   SECTION_LIBRARY_REGISTRY,
 } from './section-library/registry';
+import { buildCustomerPagePlan, getSectionPlanExclusion } from './site-plan';
 import { createLibrarySectionInstance, initializeStarter } from './starters';
 import type {
   LibrarySectionType,
@@ -158,6 +158,7 @@ describe('ordered adjacency matrix (400 pairs)', () => {
               const contrastMerge = previous !== undefined
                 && previous.surface === 'contrast'
                 && section.surface === 'contrast';
+
               expect(
                 previousAttaches || contrastMerge,
                 `unexplained attachment at ${label}`,
@@ -176,6 +177,7 @@ describe('ordered adjacency matrix (400 pairs)', () => {
             .map(section => section.id);
           const documentOrder = ['matrix-first', 'matrix-second']
             .filter(id => renderedIds.includes(id));
+
           expect(renderedIds.filter(id => id.startsWith('matrix-'))).toEqual(documentOrder);
         }
       }
@@ -208,6 +210,7 @@ describe('ordered adjacency matrix (400 pairs)', () => {
       depositsWordingPublishable: false,
       policiesMeaningful: true,
     };
+
     expect(entry.readiness(entry.defaultSettings(), withAmountOnly).level)
       .toBe('empty');
 
@@ -304,6 +307,7 @@ describe('ordered adjacency matrix (400 pairs)', () => {
     }).flatMap(page => page.sections).map(section => section.sectionType);
 
     const lonely = pairDocument('section_navigation', 'reviews');
+
     expect(planTypesFor(lonely)).toEqual(['reviews']);
 
     // Give it a second target and the menu earns its place.
@@ -315,6 +319,7 @@ describe('ordered adjacency matrix (400 pairs)', () => {
         sections: [...home.sections, instanceOf('team', 'matrix-third', 2)],
       }],
     };
+
     expect(planTypesFor(withTeam))
       .toEqual(['section_navigation', 'reviews', 'team']);
   });
@@ -404,6 +409,7 @@ describe('ordered adjacency matrix (400 pairs)', () => {
       },
       customDesignIsRenderable: () => false,
     };
+
     expect(buildCustomerPagePlan(missingAssetDocument, missingAssetOptions)).toEqual([]);
     expect(getSectionPlanExclusion(
       missingAssetDocument,
@@ -424,6 +430,7 @@ describe('ordered adjacency matrix (400 pairs)', () => {
         settings: createDefaultCustomDesignSettings(),
       },
     });
+
     expect(legacyPlan.flatMap(candidate => candidate.sections)
       .map(section => section.sectionType)).not.toContain('custom_design');
   });
@@ -510,6 +517,7 @@ describe('ordered adjacency matrix (400 pairs)', () => {
 
     // A note whose own toggle is off is not content this section will show.
     const noParking = entry.normalize({ ...settings, showParking: false });
+
     expect(entry.readiness(noParking, {
       ...base,
       arrivalNotes: { ...base.arrivalNotes, parking: true },
@@ -527,6 +535,7 @@ describe('ordered adjacency matrix (400 pairs)', () => {
       context: deriveSiteLibraryContext(state, document),
       toggles: TOGGLES,
     });
+
     expect(JSON.stringify(document), 'the plan mutated its input').toBe(before);
   });
 
@@ -547,6 +556,7 @@ describe('ordered adjacency matrix (400 pairs)', () => {
     const surfaces = plan.flatMap(page => page.sections)
       .filter(section => section.id.startsWith('matrix-'))
       .map(section => section.surface);
+
     expect(surfaces).toEqual(['tint', 'base', 'tint']);
   });
 
@@ -567,6 +577,7 @@ describe('ordered adjacency matrix (400 pairs)', () => {
       const rendered = plan.flatMap(page => page.sections).some(
         section => section.id === 'matrix-first',
       );
+
       // The demo context populates every shared authority, so every type must
       // survive readiness gating.
       expect(rendered, `demo-populated ${type} was dropped from the plan`).toBe(true);

@@ -5,9 +5,9 @@ import { mkdir, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import { nanoid } from 'nanoid';
-import sharp from 'sharp';
 
 import { cloudinary, isCloudinaryConfigured } from '@/libs/Cloudinary';
+import sharp from '@/libs/safeSharp.server';
 import { serviceImageDeploymentScope } from '@/libs/serviceImageDeploymentScope.server';
 
 export const SERVICE_IMAGE_MAX_BYTES = 5 * 1024 * 1024;

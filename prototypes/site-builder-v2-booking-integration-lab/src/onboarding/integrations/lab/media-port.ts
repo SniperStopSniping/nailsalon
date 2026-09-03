@@ -1,16 +1,16 @@
 import {
+  type AssetRepository,
   AssetStorageError,
   ImageUploadError,
-  prepareImageAsset,
-  type AssetRepository,
   type ImageUploadErrorCode,
+  prepareImageAsset,
 } from '../../../custom-design/assets';
 import { normalizeOnboardingLocalImage } from '../../model/local-images';
 import type { LocalImageReference } from '../../model/types';
 import {
-  OnboardingMediaError,
   ONBOARDING_MEDIA_STORAGE_UNAVAILABLE_MESSAGE,
   type OnboardingMediaBatchResult,
+  OnboardingMediaError,
   type OnboardingMediaFailure,
   type OnboardingMediaFailureStage,
   type OnboardingMediaOwner,
@@ -136,7 +136,9 @@ const mediaFailure = (
   index: number,
   stage?: 'storage_commit' | 'storage_stage',
 ): OnboardingMediaFailure => {
-  if (error instanceof OnboardingMediaError) return error.failure;
+  if (error instanceof OnboardingMediaError) {
+    return error.failure;
+  }
   if (error instanceof AssetStorageError) {
     return {
       code: `storage_${error.code}`,
@@ -235,7 +237,7 @@ const store = async (
 export const LAB_ONBOARDING_MEDIA_PORT: OnboardingMediaPort = {
   deleteOwned: async (repository, images) => {
     const errors: Error[] = [];
-    for (const storageId of new Set(images.flatMap((image) =>
+    for (const storageId of new Set(images.flatMap(image =>
       image.source === 'indexed_db' && image.storageId ? [image.storageId] : []))) {
       try {
         await repository.delete(storageId);

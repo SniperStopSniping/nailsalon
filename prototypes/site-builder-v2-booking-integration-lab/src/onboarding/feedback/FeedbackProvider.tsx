@@ -1,12 +1,12 @@
 import { Check, CircleAlert, Sparkles } from 'lucide-react';
 import {
   createContext,
+  type ReactNode,
   useCallback,
   useEffect,
   useMemo,
   useRef,
   useState,
-  type ReactNode,
 } from 'react';
 
 import { DIALOG_ACTIVITY_EVENT } from '../../ui/dialog-events';
@@ -31,13 +31,19 @@ const isMajorFeedback = (kind: FeedbackKind): boolean =>
 export const FeedbackContext = createContext<FeedbackController | null>(null);
 
 const visualDuration = (kind: FeedbackKind): number => {
-  if (kind === 'milestone') return 2_800;
-  if (kind === 'stage_complete') return 2_300;
+  if (kind === 'milestone') {
+    return 2_800;
+  }
+  if (kind === 'stage_complete') {
+    return 2_300;
+  }
   return 1_750;
 };
 
 const FeedbackIcon = ({ kind }: { kind: FeedbackKind }) => {
-  if (kind === 'warning') return <CircleAlert aria-hidden="true" size={20} />;
+  if (kind === 'warning') {
+    return <CircleAlert aria-hidden="true" size={20} />;
+  }
   if (kind === 'milestone' || kind === 'stage_complete') {
     return <Sparkles aria-hidden="true" size={20} />;
   }
@@ -87,7 +93,9 @@ export function FeedbackProvider({
 
   const setVisualSuppressed = useCallback((suppressed: boolean) => {
     manualVisualSuppressedRef.current = suppressed;
-    if (!suppressed) return;
+    if (!suppressed) {
+      return;
+    }
     queuedMajorFeedbackRef.current = [];
     visibleRef.current = null;
     setVisible(null);
@@ -116,7 +124,9 @@ export function FeedbackProvider({
       reducedMotion: requestReducedMotion,
       testMode,
     });
-    if (!request.message) return;
+    if (!request.message) {
+      return;
+    }
 
     if (request.announce !== false) {
       const now = Date.now();
@@ -136,7 +146,9 @@ export function FeedbackProvider({
     }
     if (request.visual === false
       || manualVisualSuppressedRef.current
-      || dialogVisualSuppressedRef.current) return;
+      || dialogVisualSuppressedRef.current) {
+      return;
+    }
     idRef.current += 1;
     const nextVisible = {
       id: idRef.current,
@@ -160,12 +172,16 @@ export function FeedbackProvider({
     const handleDialogActivity = (event: Event) => {
       const active = Boolean((event as CustomEvent<{ active?: boolean }>).detail?.active);
       dialogVisualSuppressedRef.current = active;
-      if (active) suppressDialogVisuals();
+      if (active) {
+        suppressDialogVisuals();
+      }
     };
     dialogVisualSuppressedRef.current = document.documentElement.classList.contains(
       'luster-dialog-open',
     );
-    if (dialogVisualSuppressedRef.current) suppressDialogVisuals();
+    if (dialogVisualSuppressedRef.current) {
+      suppressDialogVisuals();
+    }
     window.addEventListener(DIALOG_ACTIVITY_EVENT, handleDialogActivity);
     return () => {
       window.removeEventListener(DIALOG_ACTIVITY_EVENT, handleDialogActivity);
@@ -192,12 +208,18 @@ export function FeedbackProvider({
     visibleRef.current = null;
     setVisible(null);
     const next = queuedMajorFeedbackRef.current.shift();
-    if (next) present(next);
+    if (next) {
+      present(next);
+    }
   }, [present]);
 
   const send = useCallback((request: FeedbackRequest): boolean => {
-    if (request.onceKey && oneTimeKeysRef.current.has(request.onceKey)) return false;
-    if (request.onceKey) oneTimeKeysRef.current.add(request.onceKey);
+    if (request.onceKey && oneTimeKeysRef.current.has(request.onceKey)) {
+      return false;
+    }
+    if (request.onceKey) {
+      oneTimeKeysRef.current.add(request.onceKey);
+    }
     if (request.replaceVisual) {
       queuedMajorFeedbackRef.current = [];
       present(request);
@@ -220,14 +242,20 @@ export function FeedbackProvider({
   }, [present]);
 
   useEffect(() => {
-    if (!visible) return undefined;
+    if (!visible) {
+      return undefined;
+    }
     const timeout = window.setTimeout(
       () => {
-        if (visibleRef.current?.id !== visible.id) return;
+        if (visibleRef.current?.id !== visible.id) {
+          return;
+        }
         const next = queuedMajorFeedbackRef.current.shift();
         visibleRef.current = null;
         setVisible(null);
-        if (next) present(next);
+        if (next) {
+          present(next);
+        }
       },
       visualDuration(visible.kind),
     );
@@ -249,19 +277,23 @@ export function FeedbackProvider({
       <div aria-atomic="true" aria-live="polite" className="visually-hidden" role="status">
         {announcement}
       </div>
-      {visible ? (
-        <div
-          className={`onboarding-feedback is-${visible.kind}${motionReduced ? ' is-reduced-motion' : ''}`}
-          data-feedback-target={visible.targetId}
-          role="presentation"
-        >
-          <FeedbackIcon kind={visible.kind} />
-          <span>{visible.message}</span>
-          {visible.kind === 'milestone' || visible.kind === 'stage_complete' ? (
-            <i aria-hidden="true" className="onboarding-feedback__sparkles" />
-          ) : null}
-        </div>
-      ) : null}
+      {visible
+        ? (
+            <div
+              className={`onboarding-feedback is-${visible.kind}${motionReduced ? ' is-reduced-motion' : ''}`}
+              data-feedback-target={visible.targetId}
+              role="presentation"
+            >
+              <FeedbackIcon kind={visible.kind} />
+              <span>{visible.message}</span>
+              {visible.kind === 'milestone' || visible.kind === 'stage_complete'
+                ? (
+                    <i aria-hidden="true" className="onboarding-feedback__sparkles" />
+                  )
+                : null}
+            </div>
+          )
+        : null}
     </FeedbackContext.Provider>
   );
 }

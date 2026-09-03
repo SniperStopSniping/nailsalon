@@ -16,6 +16,7 @@ describe('Lab booking availability preview', () => {
     expect(noNotice.bookableTimes.every((time, index, all) => (
       index === 0 || time.startsAt > all[index - 1]!.startsAt
     ))).toBe(true);
+
     const localHours = noNotice.bookableTimes.map(({ startsAt }) => Number(
       new Intl.DateTimeFormat('en-CA', {
         hour: 'numeric',
@@ -23,7 +24,8 @@ describe('Lab booking availability preview', () => {
         timeZone: 'America/Toronto',
       }).format(new Date(startsAt)),
     ));
-    expect(localHours.every((hour) => hour >= 8 && hour < 22)).toBe(true);
+
+    expect(localHours.every(hour => hour >= 8 && hour < 22)).toBe(true);
   });
 
   it('returns no fabricated time when the notice exceeds the bounded fixture window', () => {

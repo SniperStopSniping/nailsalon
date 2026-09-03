@@ -48,29 +48,31 @@ export function SectionNavigationEditor({
         The menu builds itself from this page’s sections, in page order, and
         appears once at least two of them have something to show.
       </p>
-      {targets.length > 0 ? (
-        <div className="form-field">
-          <span>Menu names</span>
-          {targets.map(section => (
-            <TextField
-              key={section.id}
-              label={section.label}
-              maxLength={40}
-              onChange={label => renameTarget(section.id, label)}
-              placeholder={section.label}
-              value={settings.labelOverrides[section.id] ?? ''}
-            />
-          ))}
-          <small className="form-hint">
-            Leave a name blank to use the section’s own name. Renaming here
-            only changes this menu.
-          </small>
-        </div>
-      ) : (
-        <p className="form-hint">
-          This page has no sections the menu can link to yet.
-        </p>
-      )}
+      {targets.length > 0
+        ? (
+            <div className="form-field">
+              <span>Menu names</span>
+              {targets.map(section => (
+                <TextField
+                  key={section.id}
+                  label={section.label}
+                  maxLength={40}
+                  onChange={label => renameTarget(section.id, label)}
+                  placeholder={section.label}
+                  value={settings.labelOverrides[section.id] ?? ''}
+                />
+              ))}
+              <small className="form-hint">
+                Leave a name blank to use the section’s own name. Renaming here
+                only changes this menu.
+              </small>
+            </div>
+          )
+        : (
+            <p className="form-hint">
+              This page has no sections the menu can link to yet.
+            </p>
+          )}
     </>
   );
 }

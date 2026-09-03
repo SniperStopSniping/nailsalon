@@ -24,7 +24,7 @@ export type InstagramUsernameResolution =
   | { error: string; status: 'invalid'; username: null }
   | { status: 'resolved'; username: string };
 
-const INSTAGRAM_USERNAME_PATTERN = /^[A-Za-z0-9._]{1,30}$/u;
+const INSTAGRAM_USERNAME_PATTERN = /^[\w.]{1,30}$/u;
 const INSTAGRAM_PROFILE_PREFIX = /^(?:https:\/\/)?(?:www\.)?instagram\.com\//iu;
 const INSTAGRAM_LIKE_PREFIX = /^(?:https?:\/\/)?(?:www\.)?instagram\.com(?:\/|$)/iu;
 
@@ -37,14 +37,20 @@ const INSTAGRAM_LIKE_PREFIX = /^(?:https?:\/\/)?(?:www\.)?instagram\.com(?:\/|$)
 export const resolveInstagramUsername = (
   value: unknown,
 ): InstagramUsernameResolution => {
-  if (typeof value !== 'string') return { status: 'empty', username: null };
+  if (typeof value !== 'string') {
+    return { status: 'empty', username: null };
+  }
   const input = value.trim();
-  if (!input) return { status: 'empty', username: null };
+  if (!input) {
+    return { status: 'empty', username: null };
+  }
 
   let username = input;
   if (INSTAGRAM_PROFILE_PREFIX.test(username)) {
     username = username.replace(INSTAGRAM_PROFILE_PREFIX, '');
-    if (username.endsWith('/')) username = username.slice(0, -1);
+    if (username.endsWith('/')) {
+      username = username.slice(0, -1);
+    }
     if (!username || /[/?#]/u.test(username)) {
       return {
         error: 'Enter only your Instagram username, such as islanailstudio.',
@@ -94,7 +100,9 @@ export const contactMethodHasValue = (
   profile: BusinessProfileDraft,
   method: PreferredContactMethod | null,
 ): boolean => {
-  if (!method) return false;
+  if (!method) {
+    return false;
+  }
   if (method === 'call') {
     return profile.clientContact.callEnabled
       && Boolean(profile.clientContact.primaryNumber.trim());
@@ -118,7 +126,7 @@ const CONTACT_METHOD_ORDER: readonly PreferredContactMethod[] = [
 export const getAvailableContactMethods = (
   profile: BusinessProfileDraft,
 ): PreferredContactMethod[] => CONTACT_METHOD_ORDER.filter(
-  (method) => contactMethodHasValue(profile, method),
+  method => contactMethodHasValue(profile, method),
 );
 
 export const getCoherentPreferredContact = (
@@ -146,7 +154,9 @@ const getResolvedContactAction = (
     action = { destination: { phoneNumber: detail }, type: 'text' };
   } else if (method === 'instagram') {
     const instagram = resolveInstagramUsername(profile.instagram);
-    if (instagram.status !== 'resolved') return null;
+    if (instagram.status !== 'resolved') {
+      return null;
+    }
     detail = instagram.username;
     actionLabel = 'Instagram';
     action = { destination: { username: detail }, type: 'instagram' };
@@ -156,7 +166,9 @@ const getResolvedContactAction = (
     action = { destination: { email: detail }, type: 'email' };
   }
   const resolution = resolveCustomDesignAction(action);
-  if (resolution.status !== 'resolved') return null;
+  if (resolution.status !== 'resolved') {
+    return null;
+  }
   return {
     actionLabel,
     detail,
@@ -180,13 +192,13 @@ export const getPublicContactActions = (
     );
     const bookingAction = resolution.status === 'resolved'
       ? {
-          actionLabel: 'Book now',
-          detail: 'Booking is the best way to reach us',
-          external: resolution.external,
-          href: resolution.href,
-          method: 'booking',
-          preferred: true,
-        } satisfies PublicContactAction
+        actionLabel: 'Book now',
+        detail: 'Booking is the best way to reach us',
+        external: resolution.external,
+        href: resolution.href,
+        method: 'booking',
+        preferred: true,
+      } satisfies PublicContactAction
       : null;
     const instagramAction = contactMethodHasValue(profile, 'instagram')
       ? getResolvedContactAction(profile, 'instagram', false)

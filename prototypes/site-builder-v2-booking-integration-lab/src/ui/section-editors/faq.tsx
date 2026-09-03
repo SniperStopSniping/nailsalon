@@ -1,8 +1,8 @@
 import { Trash2 } from 'lucide-react';
 import { useState } from 'react';
 
-import type { FaqItemRecord } from '../../model/section-library/site-content';
 import type { FaqSettings } from '../../model/section-library/settings';
+import type { FaqItemRecord } from '../../model/section-library/site-content';
 import { TextField } from './fields';
 import type { LibrarySectionEditorProps } from './types';
 
@@ -40,7 +40,9 @@ export function FaqEditor({
     const answer = draftAnswer.trim();
     // A question without its answer is not a saveable record, so both are
     // required before this does anything.
-    if (!question || !answer) return;
+    if (!question || !answer) {
+      return;
+    }
     const record: FaqItemRecord = { answer, id: createFaqItemId(), question };
     if (onSiteContent({ collection: 'faq', operation: 'upsert', record })) {
       if (!atLimit) {
@@ -67,16 +69,18 @@ export function FaqEditor({
   return (
     <div className="form-field">
       <span>Questions</span>
-      {items.length === 0 ? (
-        <small className="form-hint">
-          No questions yet — add your first below. The section stays off your
-          site until a question is shown.
-        </small>
-      ) : (
-        <small className="form-hint">
-          This section shows up to twelve questions, in the order you tick them.
-        </small>
-      )}
+      {items.length === 0
+        ? (
+            <small className="form-hint">
+              No questions yet — add your first below. The section stays off your
+              site until a question is shown.
+            </small>
+          )
+        : (
+            <small className="form-hint">
+              This section shows up to twelve questions, in the order you tick them.
+            </small>
+          )}
       <div className="editor-record-list">
         {items.map((item) => {
           const included = settings.itemIds.includes(item.id);
@@ -90,7 +94,11 @@ export function FaqEditor({
                     onChange={event => toggleItem(item.id, event.target.checked)}
                     type="checkbox"
                   />
-                  <span className="visually-hidden">Show “{item.question}” in this section</span>
+                  <span className="visually-hidden">
+                    Show “
+                    {item.question}
+                    ” in this section
+                  </span>
                 </label>
                 <strong>{item.question}</strong>
               </summary>
@@ -113,7 +121,9 @@ export function FaqEditor({
                 onClick={() => removeItem(item.id)}
                 type="button"
               >
-                <Trash2 aria-hidden="true" size={14} /> Remove this question
+                <Trash2 aria-hidden="true" size={14} />
+                {' '}
+                Remove this question
               </button>
             </details>
           );

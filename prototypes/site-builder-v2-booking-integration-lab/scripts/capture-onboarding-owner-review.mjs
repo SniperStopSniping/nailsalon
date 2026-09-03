@@ -36,7 +36,7 @@ const child = spawn(
 
 const exitCode = await new Promise((resolve, reject) => {
   child.once('error', reject);
-  child.once('exit', (code) => resolve(code ?? 1));
+  child.once('exit', code => resolve(code ?? 1));
 });
 
 if (exitCode !== 0) {
@@ -73,7 +73,9 @@ if (exitCode !== 0) {
 
   const navigateBackTo = async (page, destinationHeading) => {
     for (let attempt = 0; attempt < 14; attempt += 1) {
-      if (await heading(page, destinationHeading).isVisible()) return;
+      if (await heading(page, destinationHeading).isVisible()) {
+        return;
+      }
       const backButtons = page.getByRole('button', { name: /^Back(?: to edit About)?$/u });
       let back = null;
       for (let index = (await backButtons.count()) - 1; index >= 0; index -= 1) {
@@ -157,7 +159,9 @@ if (exitCode !== 0) {
     await openFresh(design);
     await applyFixture(design, 'Daniela / Isla Nail Studio', 'Review your site');
     const readinessTrigger = design.getByRole('button', { name: /Site readiness/u });
-    if (await readinessTrigger.isVisible()) await readinessTrigger.click();
+    if (await readinessTrigger.isVisible()) {
+      await readinessTrigger.click();
+    }
     await design.getByRole('button', { name: 'Edit About section' }).click();
     await heading(design, 'Would you like an About section?').waitFor();
     await capture(design, '17-simplified-about');
@@ -236,7 +240,9 @@ if (exitCode !== 0) {
     await runner(page);
     await settle(page, 500);
     await page.close();
-    if (video) await video.saveAs(join(videosDirectory, fileName));
+    if (video) {
+      await video.saveAs(join(videosDirectory, fileName));
+    }
     await context.close();
   };
 
@@ -328,7 +334,9 @@ if (exitCode !== 0) {
       await page.getByRole('button', { name: 'Finish setup' }).click();
       const plan = page.getByRole('dialog', { name: 'Your site is saved' });
       const compare = plan.getByText('Compare plans', { exact: true });
-      if (await compare.isVisible()) await compare.click();
+      if (await compare.isVisible()) {
+        await compare.click();
+      }
       await settle(page, 700);
       await plan.getByRole('button', { name: 'Continue free' }).click();
       await page.getByRole('dialog', { name: 'Welcome to your Luster workspace' })

@@ -4,8 +4,8 @@ import { createDefaultWeeklyHours } from './defaults';
 import {
   applyRegularHours,
   copyWeeklyHoursDay,
-  getPublicWeeklyHours,
   getHoursIntervalError,
+  getPublicWeeklyHours,
   getWeeklyHoursCardSummary,
   getWeeklyHoursPreviewStatus,
   getWeeklyHoursSetupSummary,
@@ -25,6 +25,7 @@ const configuredHours = () => {
 describe('honest weekly-hours state', () => {
   it('starts unset with no seeded public schedule', () => {
     const hours = createDefaultWeeklyHours();
+
     expect(hours.setupState).toBe('unset');
     expect(hours.days.monday).toMatchObject({ close: '', open: '' });
     expect(hours.days.sunday).toMatchObject({ close: '', closed: false, open: '' });
@@ -62,6 +63,7 @@ describe('honest weekly-hours state', () => {
 
     expect(hours).not.toBeNull();
     expect(hours?.setupState).toBe('configured');
+
     for (const weekday of selectedDays) {
       expect(hours?.days[weekday]).toEqual({
         close: '19:00',
@@ -69,6 +71,7 @@ describe('honest weekly-hours state', () => {
         open: '10:00',
       });
     }
+
     expect(Object.entries(hours?.days ?? {}).filter(([, day]) => day.closed))
       .toHaveLength(7 - selectedDays.length);
     expect(hasCompleteWeeklyHours(hours!)).toBe(true);
@@ -148,11 +151,13 @@ describe('honest weekly-hours state', () => {
       '09:00',
       '18:00',
     )!;
+
     expect(getWeeklyHoursCardSummary(weekdays)).toBe('Mon–Fri · 9:00 AM–6:00 PM');
   });
 
   it('derives open-until and closed from the deterministic fixture timestamp', () => {
     const hours = configuredHours();
+
     expect(getWeeklyHoursSetupSummary(hours)).toBe('1 day · Shown on your site');
     expect(getPublicWeeklyHours(hours)).toEqual([
       { hours: '10:00 AM–6:00 PM', label: 'Thursday', weekday: 'thursday' },
@@ -222,6 +227,7 @@ describe('honest weekly-hours state', () => {
     const hours = configuredHours();
     hours.setupState = setupState;
     hours.showOnSite = showOnSite;
+
     expect(getWeeklyHoursSetupSummary(hours)).toBe(summary);
     expect(getPublicWeeklyHours(hours)).toEqual([]);
     expect(getWeeklyHoursPreviewStatus(

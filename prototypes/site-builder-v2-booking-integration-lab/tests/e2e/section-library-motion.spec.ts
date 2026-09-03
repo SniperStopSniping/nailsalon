@@ -39,26 +39,36 @@ test.describe('customer section motion', () => {
 
     const offenders = await page.evaluate(({ hiding, previewSelector }) => {
       const preview = document.querySelector(previewSelector);
-      if (!preview) return [{ reason: 'no preview' }];
+      if (!preview) {
+        return [{ reason: 'no preview' }];
+      }
       const structural = new Set(['offset', 'computedOffset', 'easing', 'composite']);
 
       return document.getAnimations()
-        .flatMap(animation => {
+        .flatMap((animation) => {
           const effect = animation.effect;
-          if (!(effect instanceof KeyframeEffect)) return [];
+          if (!(effect instanceof KeyframeEffect)) {
+            return [];
+          }
           const target = effect.target;
-          if (!target || !preview.contains(target)) return [];
+          if (!target || !preview.contains(target)) {
+            return [];
+          }
 
           const properties = new Set<string>();
           for (const frame of effect.getKeyframes()) {
             for (const key of Object.keys(frame)) {
-              if (!structural.has(key)) properties.add(key);
+              if (!structural.has(key)) {
+                properties.add(key);
+              }
             }
           }
           const hidingProperties = [...properties].filter(name => hiding.includes(name));
           // A pseudo-element carries decoration, never the customer's words,
           // so it is allowed to fade. Anything else must only move.
-          if (hidingProperties.length === 0 || effect.pseudoElement) return [];
+          if (hidingProperties.length === 0 || effect.pseudoElement) {
+            return [];
+          }
           return [{
             animation: animation instanceof CSSAnimation
               ? animation.animationName
@@ -79,9 +89,11 @@ test.describe('customer section motion', () => {
     // Deliberately no settling wait: this is the state a screenshot, a
     // crawler, or a visitor on a throttled device sees before any entrance
     // has had time to complete.
-    const faded = await page.evaluate(previewSelector => {
+    const faded = await page.evaluate((previewSelector) => {
       const preview = document.querySelector(previewSelector);
-      if (!preview) return [{ text: 'no preview', opacity: '0' }];
+      if (!preview) {
+        return [{ text: 'no preview', opacity: '0' }];
+      }
 
       return [...preview.querySelectorAll('h1, h2, h3, p, li, dd, dt, summary, a, button')]
         .filter(element => (element.textContent ?? '').trim().length > 0)
@@ -111,13 +123,17 @@ test.describe('customer section motion', () => {
     await page.mouse.wheel(0, 1200);
     await page.waitForTimeout(250);
 
-    const running = await page.evaluate(previewSelector => {
+    const running = await page.evaluate((previewSelector) => {
       const preview = document.querySelector(previewSelector);
-      if (!preview) return ['no preview'];
+      if (!preview) {
+        return ['no preview'];
+      }
       return document.getAnimations()
-        .filter(animation => {
+        .filter((animation) => {
           const effect = animation.effect;
-          if (!(effect instanceof KeyframeEffect)) return false;
+          if (!(effect instanceof KeyframeEffect)) {
+            return false;
+          }
           return Boolean(effect.target && preview.contains(effect.target));
         })
         .map(animation => (animation instanceof CSSAnimation
@@ -139,12 +155,14 @@ test.describe('customer section motion', () => {
       client: document.documentElement.clientWidth,
       scroll: document.documentElement.scrollWidth,
     }));
+
     expect(overflow.scroll).toBeLessThanOrEqual(overflow.client + 1);
   });
 
   test('the FAQ marker turns when its answer opens', async ({ page }) => {
     await page.goto('/?audit=1&surface=sections&type=faq&full=1');
     const summary = page.locator('.customer-lib-faq summary').first();
+
     await expect(summary).toBeVisible();
 
     const markerRotate = async () => summary.evaluate(
@@ -154,7 +172,9 @@ test.describe('customer section motion', () => {
     const closed = await markerRotate();
     await summary.click();
     const open = page.locator('.customer-lib-faq details[open]').first();
+
     await expect(open).toBeAttached();
+
     await page.waitForTimeout(400);
 
     expect(closed).toBe('none');
@@ -169,6 +189,7 @@ test.describe('customer section motion', () => {
       answer.boundingBox(),
       open.boundingBox(),
     ]);
+
     expect(answerBox?.height ?? 0).toBeGreaterThan(0);
     expect((detailsBox?.y ?? 0) + (detailsBox?.height ?? 0))
       .toBeGreaterThanOrEqual((answerBox?.y ?? 0) + (answerBox?.height ?? 0) - 1);
@@ -182,18 +203,22 @@ test.describe('customer section motion', () => {
     // `transform` by the CSS transform model. This is the test that says so.
     await page.goto('/?audit=1&surface=sections&type=featured_services&full=1');
     const card = page.locator('.customer-lib-featured-card').first();
+
     await expect(card).toBeVisible();
 
     const revealProperties = await card.evaluate(element => [...new Set(
-      element.getAnimations().flatMap(animation => {
+      element.getAnimations().flatMap((animation) => {
         const effect = animation.effect;
-        if (!(effect instanceof KeyframeEffect)) return [];
+        if (!(effect instanceof KeyframeEffect)) {
+          return [];
+        }
         return effect.getKeyframes().flatMap(frame => Object.keys(frame));
       }),
     )].filter(name => !['offset', 'computedOffset', 'easing', 'composite'].includes(name)));
+
     expect(revealProperties).not.toContain('transform');
 
-    const translateY = async () => card.evaluate(element => {
+    const translateY = async () => card.evaluate((element) => {
       const matrix = new DOMMatrixReadOnly(window.getComputedStyle(element).transform);
       return matrix.m42;
     });
@@ -209,12 +234,13 @@ test.describe('customer section motion', () => {
   test('an open salon gets a status dot', async ({ page }) => {
     await page.goto('/?audit=1&surface=sections&type=hours&full=1');
     const status = page.locator('.customer-lib-hours-status');
+
     await expect(status).toBeVisible();
 
     // The demo salon's real open/closed state depends on the wall clock, so
     // the stylesheet's rule is put under test directly rather than the
     // salon's Tuesday.
-    const dot = await status.evaluate(element => {
+    const dot = await status.evaluate((element) => {
       element.setAttribute('data-hours-status', 'open');
       const before = window.getComputedStyle(element, '::before');
       return { content: before.content, width: before.width };

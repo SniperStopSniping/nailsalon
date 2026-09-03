@@ -1,4 +1,4 @@
-import { expect, test, type Locator, type Page } from '@playwright/test';
+import { expect, type Locator, type Page, test } from '@playwright/test';
 
 import { MOVE_COMPLETION_SHIELD_DURATION_MS } from '../../src/ui/move-completion-shield';
 import {
@@ -10,8 +10,8 @@ import {
   openPagesAndStructure,
   selectBooking,
   selectPageFromStructure,
-  startRuntimeMonitor,
   type StarterName,
+  startRuntimeMonitor,
 } from './helpers';
 
 test.describe.configure({ mode: 'serial' });
@@ -81,6 +81,7 @@ async function selectPlaceholder(
   if (!(await card.evaluate(element => element.classList.contains('is-selected')))) {
     await card.locator('.section-card__select-surface').click();
   }
+
   await expect(card).toHaveClass(/is-selected/);
 }
 
@@ -94,7 +95,9 @@ async function openMoveForPlaceholder(
     .getByRole('button', { name: 'Move', exact: true })
     .click();
   const move = page.getByRole('dialog', { name: `Move ${sectionName}` });
+
   await expect(move).toBeVisible();
+
   return move;
 }
 
@@ -104,7 +107,6 @@ async function expectMoveGeometry(
   title: string,
 ): Promise<void> {
   const header = move.locator('.dialog-header');
-  const headerCopy = header.locator(':scope > div');
   const close = header.getByRole('button', { name: `Close ${title}` });
   const footer = move.getByRole('group', { name: 'Move actions' });
   const scrollRegion = move.locator('.section-move-panel__scroll');
@@ -177,6 +179,7 @@ async function expectMoveGeometry(
   expect(geometry.copyMinWidth).toBe('0px');
   expect(geometry.close).not.toBeNull();
   expect(geometry.headerBounds).not.toBeNull();
+
   if (geometry.close && geometry.headerBounds) {
     expect(geometry.close.left).toBeGreaterThanOrEqual(geometry.headerBounds.left);
     expect(geometry.close.right).toBeLessThanOrEqual(geometry.headerBounds.right);
@@ -185,6 +188,7 @@ async function expectMoveGeometry(
     expect(geometry.close.height).toBeGreaterThanOrEqual(44);
     expect(geometry.close.width).toBeGreaterThanOrEqual(44);
   }
+
   expect(geometry.hitPoints).toEqual([true, true, true, true, true]);
   expect(geometry.subtitle?.scrollWidth)
     .toBeLessThanOrEqual(geometry.subtitle?.clientWidth ?? -1);
@@ -194,7 +198,9 @@ async function expectMoveGeometry(
   await scrollRegion.evaluate((element) => {
     element.scrollTop = element.scrollHeight;
   });
+
   await expect(footer).toBeVisible();
+
   const footerGeometry = await footer.evaluate((element) => {
     const bounds = element.getBoundingClientRect();
     const panel = element.closest<HTMLElement>('.dialog-panel')?.getBoundingClientRect();
@@ -207,9 +213,11 @@ async function expectMoveGeometry(
       top: bounds.top,
     };
   });
+
   expect(footerGeometry.scrollWidth).toBeLessThanOrEqual(footerGeometry.clientWidth);
   expect(footerGeometry.top).toBeGreaterThanOrEqual(footerGeometry.panelTop);
   expect(footerGeometry.bottom).toBeLessThanOrEqual(footerGeometry.panelBottom + 1);
+
   await expectNoDocumentOverflow(page);
 }
 
@@ -225,27 +233,34 @@ async function exerciseMoveDismissals(
   let move = await openMove();
   await expectMoveGeometry(page, move, title);
   await move.getByRole('button', { name: `Close ${title}` }).click();
+
   await expect(move).toHaveCount(0);
 
   move = await openMove();
   await move.locator('[data-move-target-row="true"]').focus();
   await page.keyboard.press('Escape');
+
   await expect(move).toHaveCount(0);
 
   move = await openMove();
   await page.getByTestId('dialog-backdrop').filter({ has: move }).click({
     position: { x: 3, y: 3 },
   });
+
   await expect(move).toHaveCount(0);
 
   move = await openMove();
   await move.getByRole('button', { name: 'Cancel', exact: true }).click();
+
   await expect(move).toHaveCount(0);
+
   await waitForMoveShield(page);
 
   move = await openMove();
   await move.getByRole('button', { name: 'Done', exact: true }).click();
+
   await expect(move).toHaveCount(0);
+
   await waitForMoveShield(page);
 }
 
@@ -254,6 +269,7 @@ for (const viewport of MOVE_VIEWPORTS) {
     page,
   }) => {
     test.setTimeout(180_000);
+
     await page.setViewportSize(viewport);
     await openFreshLab(page);
     await chooseStarter(page, 'Quick Book');
@@ -303,7 +319,7 @@ async function scaffoldRecord(page: Page): Promise<ScaffoldRecord> {
       return channels as [number, number, number];
     };
     const luminance = (value: string) => {
-      const channels = parseRgb(value).map(channel => {
+      const channels = parseRgb(value).map((channel) => {
         const normalized = channel / 255;
         return normalized <= 0.04045
           ? normalized / 12.92
@@ -369,7 +385,9 @@ function expectWarmScaffold(record: ScaffoldRecord): void {
   expect(record.chipColor).toBe('rgb(255, 255, 255)');
   expect(record.placeholderBackground).toContain('rgb(255, 253, 250)');
   expect(record.placeholderBackground).toContain('rgb(246, 242, 237)');
+
   const oldCoolTokens = /rgb\((?:92, 62, 232|65, 38, 196|79, 70, 229|99, 102, 241|15, 23, 42|30, 41, 59|51, 65, 85|71, 85, 105)\)/;
+
   expect(JSON.stringify(record)).not.toMatch(oldCoolTokens);
   expect(record.avatarContrast).toBeGreaterThanOrEqual(4.5);
   expect(record.chipContrast).toBeGreaterThanOrEqual(4.5);
@@ -387,6 +405,7 @@ test('F2 Preview scaffold uses the warm Luster token family in every simulated d
   const devices = page.getByRole('group', { name: 'Preview viewport' });
   for (const device of ['Phone', 'Tablet', 'Desktop'] as const) {
     await devices.getByRole('button', { name: device }).click();
+
     await expect(page.getByTestId('preview-stage')).toHaveClass(
       new RegExp(`preview-stage--${device === 'Phone' ? 'mobile' : device.toLowerCase()}`),
     );
@@ -396,6 +415,7 @@ test('F2 Preview scaffold uses the warm Luster token family in every simulated d
     // renderer, so 5 scaffold sections remain.
     await expect(page.locator('.preview-section:not(.preview-section--booking)'))
       .toHaveCount(5);
+
     expectWarmScaffold(await scaffoldRecord(page));
   }
 
@@ -410,9 +430,12 @@ test('F2 Preview scaffold uses the warm Luster token family in every simulated d
         }
       }
     };
-    for (const sheet of [...document.styleSheets]) visit(sheet.cssRules);
+    for (const sheet of [...document.styleSheets]) {
+      visit(sheet.cssRules);
+    }
     return collected;
   });
+
   expect(declarations.find(rule => rule.selector.includes('.client-brand > span'))?.value)
     .toContain('var(--final-accent)');
   expect(declarations.find(rule => rule.selector === '.preview-section__number')?.value)
@@ -423,8 +446,10 @@ test('F2 Preview scaffold uses the warm Luster token family in every simulated d
   await page.getByRole('button', { name: 'Back to editor' }).click();
   await page.setViewportSize({ height: 844, width: 390 });
   await page.getByRole('button', { name: 'Preview', exact: true }).click();
+
   await expect(page.getByTestId('preview-stage')).toHaveClass(/preview-stage--mobile/);
   await expect(devices).toBeHidden();
+
   expectWarmScaffold(await scaffoldRecord(page));
 });
 
@@ -436,7 +461,9 @@ async function openDesktopSettingsVia(
   const trigger = page
     .getByTestId('selected-section-toolbar')
     .getByRole('button', { name: 'Edit', exact: true });
+
   await expect(trigger).toBeVisible();
+
   if (input === 'keyboard') {
     await trigger.focus();
     await page.keyboard.press('Enter');
@@ -444,7 +471,9 @@ async function openDesktopSettingsVia(
     await trigger.click();
   }
   const settings = page.getByRole('dialog', { name: 'Booking settings' });
+
   await expect(settings).toBeVisible();
+
   return { settings, trigger };
 }
 
@@ -453,9 +482,11 @@ async function expectSettingsHeadingTreatment(
   keyboardVisible: boolean,
 ): Promise<number> {
   const heading = settings.getByRole('heading', { name: 'Booking', exact: true });
+
   await expect(heading).toBeFocused();
   expect(await heading.evaluate(element => element.matches(':focus-visible')))
     .toBe(keyboardVisible);
+
   const treatment = await heading.evaluate((element) => {
     const bounds = element.getBoundingClientRect();
     const panel = element.closest<HTMLElement>('.final-booking-settings-drawer')
@@ -471,15 +502,19 @@ async function expectSettingsHeadingTreatment(
       width: bounds.width,
     };
   });
+
   expect(treatment.className).toContain('final-booking-settings-drawer__title');
   expect(treatment.className).not.toMatch(/(?:form-field|input|textarea)/i);
   expect(treatment.display).toBe('inline-block');
   expect(treatment.borderStyle).toBe('none');
+
   if (keyboardVisible) {
     expect(treatment.outlineStyle).toBe('solid');
     expect(Number.parseFloat(treatment.outlineWidth)).toBeGreaterThanOrEqual(2);
   }
+
   expect(treatment.width).toBeLessThan(treatment.panelWidth / 2);
+
   return treatment.width;
 }
 
@@ -488,8 +523,10 @@ async function expectHideSettingsVariant(
   docked: boolean,
 ): Promise<void> {
   const hide = settings.getByRole('button', { name: 'Hide settings', exact: true });
+
   await expect(hide).toHaveCount(1);
   await expect(hide).toBeVisible();
+
   const record = await hide.evaluate((element) => {
     const bounds = element.getBoundingClientRect();
     const header = element.closest<HTMLElement>('header')?.getBoundingClientRect();
@@ -503,7 +540,9 @@ async function expectHideSettingsVariant(
       width: bounds.width,
     };
   });
+
   expect(record.height).toBeGreaterThanOrEqual(44);
+
   if (docked) {
     expect(record.gridColumnStart).toBe('2');
     expect(record.gridRowStart).toBe('1');
@@ -531,11 +570,13 @@ for (const [index, viewport] of SETTINGS_VIEWPORTS.entries()) {
 
     await expectSettingsHeadingTreatment(settings, input === 'keyboard');
     await expectHideSettingsVariant(settings, viewport.width >= 1180);
+
     await expect(page.getByRole('button', { name: 'Hide settings', exact: true }))
       .toHaveCount(1);
 
     const hide = settings.getByRole('button', { name: 'Hide settings', exact: true });
     await hide.click();
+
     await expect(settings).toBeHidden();
     await expect(trigger).toBeFocused();
 
@@ -545,7 +586,9 @@ for (const [index, viewport] of SETTINGS_VIEWPORTS.entries()) {
       await trigger.focus();
       await page.keyboard.press('Enter');
     }
+
     await expect(settings).toBeVisible();
+
     await expectSettingsHeadingTreatment(settings, input === 'keyboard');
 
     if (viewport.width === 1440 && viewport.height === 900) {
@@ -553,6 +596,7 @@ for (const [index, viewport] of SETTINGS_VIEWPORTS.entries()) {
       // the true top and bottom of the document, so there is no honest away
       // state to summon. The five shorter matrix cases exercise Show settings.
       await page.keyboard.press('Escape');
+
       await expect(settings).toHaveCount(0);
       await expect.poll(() => page.evaluate(() => {
         const active = document.activeElement;
@@ -560,22 +604,30 @@ for (const [index, viewport] of SETTINGS_VIEWPORTS.entries()) {
           && active !== document.body
           && active !== document.documentElement;
       })).toBe(true);
+
       return;
     }
 
     await hide.click();
     await page.evaluate(() => window.scrollTo({ behavior: 'auto', top: 0 }));
     const awayToolbar = page.getByTestId('selected-section-toolbar');
+
     await expect(awayToolbar).toHaveClass(/is-away/);
+
     const show = awayToolbar.getByRole('button', {
       name: 'Show Booking settings',
     });
+
     await expect(show).toBeVisible();
+
     await show.click();
+
     await expect(settings).toBeVisible();
+
     await expectSettingsHeadingTreatment(settings, false);
 
     await page.keyboard.press('Escape');
+
     await expect(settings).toHaveCount(0);
     await expect.poll(() => page.evaluate(() => {
       const active = document.activeElement;
@@ -595,6 +647,7 @@ test('F3 Page name remains visually distinct from the intrinsic focused settings
   const { settings } = await openDesktopSettingsVia(page, 'keyboard');
   const headingWidth = await expectSettingsHeadingTreatment(settings, true);
   await page.keyboard.press('Escape');
+
   await expect(settings).toHaveCount(0);
 
   const structure = await openPagesAndStructure(page);
@@ -602,7 +655,9 @@ test('F3 Page name remains visually distinct from the intrinsic focused settings
   const pageSettings = page.getByRole('dialog', { name: 'Home settings' });
   const input = pageSettings.getByLabel('Page name');
   await input.focus();
+
   await expect(input).toBeFocused();
+
   const inputTreatment = await input.evaluate((element) => {
     const bounds = element.getBoundingClientRect();
     const style = window.getComputedStyle(element);
@@ -613,13 +668,18 @@ test('F3 Page name remains visually distinct from the intrinsic focused settings
       width: bounds.width,
     };
   });
+
   expect(inputTreatment.tagName).toBe('INPUT');
   expect(inputTreatment.borderStyle).toBe('solid');
   expect(inputTreatment.outlineStyle).toBe('solid');
   expect(inputTreatment.width).toBeGreaterThan(headingWidth * 2);
+
   await page.keyboard.press('Escape');
+
   await expect(pageSettings).toHaveCount(0);
+
   await page.keyboard.press('Escape');
+
   await expect(structure).toHaveCount(0);
 });
 
@@ -633,15 +693,18 @@ test('F5 both three-step owner scales say Compact, Comfortable, Spacious', async
   const expected = ['Compact', 'Comfortable', 'Spacious'];
   for (const label of ['Booking spacing', 'Visual Grid density']) {
     const group = settings.getByRole('group', { name: label });
+
     await expect(group).toBeVisible();
     expect(await group.getByRole('button').allTextContents()).toEqual(expected);
     await expect(group.getByRole('button', { name: 'Comfortable', exact: true }))
       .toHaveCount(1);
     await expect(group.getByRole('button', { name: 'Comfort', exact: true }))
       .toHaveCount(0);
+
     const widths = await group.getByRole('button').evaluateAll(elements => (
       elements.map(element => element.getBoundingClientRect().width)
     ));
+
     expect(widths.every(width => width > 0)).toBe(true);
   }
 });
@@ -650,13 +713,16 @@ async function chooseCategoryMenu(page: Page): Promise<void> {
   const { settings } = await openBookingSettings(page, 'Home');
   const option = settings.locator('[data-layout-option="category_menu"]');
   await option.click();
+
   await expect(option).toHaveAttribute('aria-pressed', 'true');
+
   const desktopClose = settings.getByRole('button', { name: 'Close Booking settings' });
   if (await desktopClose.isVisible()) {
     await desktopClose.click();
   } else {
     await settings.getByRole('button', { name: 'Close Booking' }).click();
   }
+
   await expect(settings).toHaveCount(0);
 }
 
@@ -671,15 +737,21 @@ async function selectCategoryService(
   const row = renderer.getByRole('button', {
     name: new RegExp(`^View details for ${exactName},`),
   });
+
   await expect(row).toHaveCount(1);
+
   await row.click();
   const detail = page.getByTestId('service-detail-dialog');
+
   await expect(detail).toBeVisible();
+
   await detail.getByRole('button', { name: 'Keep browsing' }).click();
   const selected = renderer.getByRole('button', {
     name: new RegExp(`^Change options for ${exactName},.*selected$`),
   });
+
   await expect(selected).toHaveAttribute('data-selected', 'true');
+
   return selected;
 }
 
@@ -690,6 +762,7 @@ async function expectSelectedCategoryRow(
   const name = row.locator('.category-row-service-name');
   const badgeContainer = row.locator('.category-row-selected');
   const badge = badgeContainer.getByText('Selected', { exact: true });
+
   await expect(name).toHaveText(serviceName);
   await expect(badge).toBeVisible();
   await expect(row).toHaveAttribute('aria-label', /selected$/);
@@ -699,7 +772,7 @@ async function expectSelectedCategoryRow(
     const badgeElement = element.querySelector<HTMLElement>('.category-row-selected');
     const metaElements = [...element.querySelectorAll<HTMLElement>(
       '.category-row-meta, .category-desktop-meta',
-    )].filter(candidate => {
+    )].filter((candidate) => {
       const style = window.getComputedStyle(candidate);
       const bounds = candidate.getBoundingClientRect();
       return style.display !== 'none' && bounds.width > 0 && bounds.height > 0;
@@ -708,8 +781,10 @@ async function expectSelectedCategoryRow(
       throw new Error(`Selected row for ${expectedName} is incomplete.`);
     }
     const textNode = nameElement.firstChild;
-    if (!textNode) throw new Error('Service name text node is missing.');
-    const wordRectCounts = [...expectedName.matchAll(/\S+/g)].map(match => {
+    if (!textNode) {
+      throw new Error('Service name text node is missing.');
+    }
+    const wordRectCounts = [...expectedName.matchAll(/\S+/g)].map((match) => {
       const range = document.createRange();
       const start = match.index ?? 0;
       range.setStart(textNode, start);
@@ -731,7 +806,7 @@ async function expectSelectedCategoryRow(
       badgeTop: badgeBounds.top,
       boxShadow: window.getComputedStyle(element).boxShadow,
       hyphens: style.hyphens,
-      meta: metaElements.map(meta => {
+      meta: metaElements.map((meta) => {
         const bounds = meta.getBoundingClientRect();
         return {
           bottom: bounds.bottom,
@@ -747,6 +822,7 @@ async function expectSelectedCategoryRow(
       wordRectCounts,
     };
   }, serviceName);
+
   expect(record.hyphens).toBe('none');
   expect(record.overflowWrap).toBe('normal');
   expect(record.wordBreak).toBe('normal');
@@ -756,11 +832,13 @@ async function expectSelectedCategoryRow(
   expect(record.boxShadow).not.toBe('none');
   expect(record.meta.length).toBeGreaterThan(0);
   expect(record.meta.every(meta => meta.text.length > 0)).toBe(true);
+
   for (const meta of record.meta) {
     const separated = record.badgeBounds.bottom <= meta.top + 1
       || meta.bottom <= record.badgeBounds.top + 1
       || record.badgeBounds.right <= meta.left + 1
       || meta.right <= record.badgeBounds.left + 1;
+
     expect(separated, `Selected badge must not overlap ${meta.text}`).toBe(true);
   }
 }
@@ -769,6 +847,7 @@ test('F4 selected Category Menu rows preserve whole words at phone widths and si
   page,
 }) => {
   test.setTimeout(180_000);
+
   await page.setViewportSize({ height: 900, width: 1440 });
   await openFreshLab(page);
   await chooseStarter(page, 'Quick Book');
@@ -796,9 +875,11 @@ test('F4 selected Category Menu rows preserve whole words at phone widths and si
     if (viewport.device === 'Tablet') {
       await devices.getByRole('button', { name: 'Tablet' }).click();
     }
+
     await expect(page.getByTestId('preview-stage')).toHaveClass(
       new RegExp(`preview-stage--${viewport.device.toLowerCase() === 'phone' ? 'mobile' : 'tablet'}`),
     );
+
     for (const serviceName of services) {
       await test.step(`${viewport.width}x${viewport.height} ${serviceName}`, async () => {
         const selected = await selectCategoryService(page, serviceName);
@@ -818,7 +899,9 @@ async function expectInitialEditorTop(page: Page): Promise<void> {
     }
     return values;
   });
+
   expect(samples).toEqual(Array.from({ length: 8 }, () => 0));
+
   const geometry = await page.evaluate(() => {
     const toolbar = document.querySelector<HTMLElement>('.final-topbar');
     const clientHeader = document.querySelector<HTMLElement>('.canvas-client-header');
@@ -833,6 +916,7 @@ async function expectInitialEditorTop(page: Page): Promise<void> {
       toolbarBottom: toolbarBounds?.bottom ?? -1,
     };
   });
+
   expect(geometry.scrollY).toBe(0);
   expect(geometry.headerTop).toBeGreaterThanOrEqual(geometry.toolbarBottom);
   expect(geometry.titleTop).toBeGreaterThan(geometry.toolbarBottom);
@@ -843,6 +927,7 @@ for (const viewport of INITIAL_SCROLL_VIEWPORTS) {
     page,
   }) => {
     test.setTimeout(120_000);
+
     await page.setViewportSize(viewport);
     for (const starter of STARTERS) {
       await openFreshLab(page);
@@ -850,7 +935,9 @@ for (const viewport of INITIAL_SCROLL_VIEWPORTS) {
         behavior: 'auto',
         top: document.documentElement.scrollHeight,
       }));
+
       await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(0);
+
       await chooseStarter(page, starter);
       await expectInitialEditorTop(page);
     }
@@ -865,9 +952,12 @@ test('F6 page switching preserves later scroll while an explicit starter reset r
   await chooseStarter(page, 'Multi-page website');
   await page.evaluate(() => window.scrollTo({ behavior: 'auto', top: 260 }));
   const beforeSwitch = await page.evaluate(() => window.scrollY);
+
   expect(beforeSwitch).toBeGreaterThan(0);
+
   await selectPageFromStructure(page, 'Services / Book');
   const afterSwitch = await page.evaluate(() => window.scrollY);
+
   expect(afterSwitch).toBeGreaterThan(0);
 
   await page.evaluate(() => window.scrollTo({ behavior: 'auto', top: 520 }));
@@ -890,9 +980,11 @@ test('F7 the live 1179-to-1180 transition moves one Hide control into the header
   const { settings } = await openDesktopSettingsVia(page, 'pointer');
   await expectHideSettingsVariant(settings, false);
   await page.setViewportSize({ height: 800, width: 1180 });
+
   await expect(settings).toBeVisible();
   await expect(page.getByRole('button', { name: 'Hide settings', exact: true }))
     .toHaveCount(1);
+
   await expectHideSettingsVariant(settings, true);
   await page.setViewportSize({ height: 800, width: 1179 });
   await expectHideSettingsVariant(settings, false);
@@ -910,7 +1002,9 @@ test('Warm Ground / White Band hierarchy stays editor-only and preserves starter
   const starterTreatment = await page.evaluate(() => {
     const screen = document.querySelector<HTMLElement>('.final-starter-screen');
     const card = document.querySelector<HTMLElement>('.final-starter-card');
-    if (!screen || !card) throw new Error('Starter chooser surfaces are missing.');
+    if (!screen || !card) {
+      throw new Error('Starter chooser surfaces are missing.');
+    }
     const screenStyle = window.getComputedStyle(screen);
     const cardStyle = window.getComputedStyle(card);
     return {
@@ -921,6 +1015,7 @@ test('Warm Ground / White Band hierarchy stays editor-only and preserves starter
       screenBackground: screenStyle.backgroundColor,
     };
   });
+
   expect(starterTreatment).toMatchObject({
     cardBackground: 'rgb(255, 255, 255)',
     cardBorderWidth: '1px',
@@ -928,7 +1023,9 @@ test('Warm Ground / White Band hierarchy stays editor-only and preserves starter
     screenBackground: 'rgb(247, 242, 236)',
   });
   expect(starterTreatment.cardShadow).not.toBe('none');
+
   await quickBook.hover();
+
   await expect(quickBookPreview).toHaveAttribute('data-preview-active', 'true');
   await expect.poll(() => quickBookPreview.locator('.final-starter-preview__track')
     .evaluate(element => window.getComputedStyle(element).animationName))
@@ -938,7 +1035,9 @@ test('Warm Ground / White Band hierarchy stays editor-only and preserves starter
   // The first two sections of the One-page starter's Home page.
   const sectionOne = page.getByRole('listitem', { name: 'Announcement Bar on Home' });
   const sectionTwo = page.getByRole('listitem', { name: 'Welcome on Home' });
+
   await expect(page.locator('.booking-editor-preview__fade')).toHaveCount(1);
+
   const editorTreatment = await page.evaluate(() => {
     const app = document.querySelector<HTMLElement>('.final-hybrid-app');
     const booking = document.querySelector<HTMLElement>('.section-card--booking');
@@ -999,6 +1098,7 @@ test('Warm Ground / White Band hierarchy stays editor-only and preserves starter
       ].map(token => [token, appStyle.getPropertyValue(token).trim()])),
     };
   });
+
   expect(editorTreatment.tokens).toEqual({
     '--edit-card-line': 'rgba(64, 43, 44, 0.08)',
     '--edit-ground': '#f7f1eb',
@@ -1035,6 +1135,7 @@ test('Warm Ground / White Band hierarchy stays editor-only and preserves starter
   expect(editorTreatment.fadeBackground).toContain('rgb(255, 255, 255)');
 
   await sectionTwo.hover();
+
   await expect.poll(() => sectionTwo.evaluate((element) => {
     const style = window.getComputedStyle(element);
     const chip = element.querySelector<HTMLElement>('.section-card__number');
@@ -1048,10 +1149,12 @@ test('Warm Ground / White Band hierarchy stays editor-only and preserves starter
   });
 
   await sectionOne.locator('.section-card__select-surface').click();
+
   await expect(sectionOne).toHaveClass(/is-selected/);
   await expect.poll(() => sectionOne.evaluate(element => (
     window.getComputedStyle(element).boxShadow
   ))).toContain('rgb(155, 36, 84)');
+
   const selectedTreatment = await sectionOne.evaluate((element) => {
     const style = window.getComputedStyle(element);
     return {
@@ -1060,17 +1163,22 @@ test('Warm Ground / White Band hierarchy stays editor-only and preserves starter
       outlineWidth: style.outlineWidth,
     };
   });
+
   expect(selectedTreatment.background).toBe('rgb(255, 255, 255)');
   expect(selectedTreatment.boxShadow).toContain('rgb(155, 36, 84)');
   expect(selectedTreatment.boxShadow).toContain('rgb(255, 255, 255)');
   expect(selectedTreatment.outlineWidth).toBe('2px');
 
   await page.getByRole('button', { name: 'Preview', exact: true }).click();
+
   await expect(page.getByTestId('preview-stage')).toBeVisible();
+
   const previewBoundary = await page.evaluate(() => {
     const preview = document.querySelector<HTMLElement>('.final-hybrid-preview');
     const clientSite = document.querySelector<HTMLElement>('.client-site');
-    if (!preview || !clientSite) throw new Error('Customer Preview is missing.');
+    if (!preview || !clientSite) {
+      throw new Error('Customer Preview is missing.');
+    }
     const previewStyle = window.getComputedStyle(preview);
     const clientStyle = window.getComputedStyle(clientSite);
     return {
@@ -1081,6 +1189,7 @@ test('Warm Ground / White Band hierarchy stays editor-only and preserves starter
       editorSections: document.querySelectorAll('.section-card').length,
     };
   });
+
   expect(previewBoundary).toEqual({
     clientBackground: 'rgb(255, 253, 250)',
     editGround: '',

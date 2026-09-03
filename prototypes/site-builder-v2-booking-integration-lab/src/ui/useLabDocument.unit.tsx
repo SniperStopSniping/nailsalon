@@ -16,6 +16,7 @@ describe('useLabDocument onboarding profile synchronization', () => {
         siteName: 'First Studio Name',
       }).success).toBe(true);
     });
+
     expect(hook.result.current.document?.siteName).toBe('First Studio Name');
 
     act(() => {
@@ -27,7 +28,7 @@ describe('useLabDocument onboarding profile synchronization', () => {
     // Renaming touches only siteName: the exact four-section Quick Book recipe
     // remains intact, without old hidden composition sections.
     expect(hook.result.current.document?.pages[0]?.sections.map(
-      (section) => section.sectionType,
+      section => section.sectionType,
     )).toEqual([
       'hero',
       'booking',
@@ -47,7 +48,7 @@ describe('useLabDocument onboarding profile synchronization', () => {
       .not.toBeNull());
     const savedDocument = window.localStorage.getItem(SITE_BUILDER_STORAGE_KEY);
     const removeItem = vi.spyOn(Storage.prototype, 'removeItem').mockImplementation(
-      function rejectBuilderReset(this: Storage, key: string) {
+      (key: string) => {
         if (key === SITE_BUILDER_STORAGE_KEY) {
           throw new DOMException('Blocked', 'SecurityError');
         }
@@ -66,6 +67,7 @@ describe('useLabDocument onboarding profile synchronization', () => {
       'The saved site could not be cleared from this browser.',
     );
     expect(window.localStorage.getItem(SITE_BUILDER_STORAGE_KEY)).toBe(savedDocument);
+
     removeItem.mockRestore();
   });
 
@@ -87,8 +89,13 @@ describe('useLabDocument onboarding profile synchronization', () => {
     });
 
     const accepted = hook.result.current.document;
+
     expect(accepted).not.toBeNull();
-    if (!accepted) throw new Error('Expected the accepted Builder document.');
+
+    if (!accepted) {
+      throw new Error('Expected the accepted Builder document.');
+    }
+
     expect(accepted.siteName).toBe('Accepted Studio');
     expect(accepted.pages.flatMap(page => page.sections)
       .find(section => section.sectionType === 'about'))

@@ -180,7 +180,9 @@ describe('strict Booking presentation and import boundary', () => {
     for (const layout of APPROVED_LAYOUTS) {
       settings = switchBookingLayout(settings, layout);
       const result = validateBookingPresentationSettings(settings);
+
       expect(result.success).toBe(true);
+
       if (result.success) {
         expect(result.settings.layout).toBe(layout);
       }
@@ -233,7 +235,9 @@ describe('strict Booking presentation and import boundary', () => {
       },
     };
     const incompatible = parseSiteBuilderDocument(JSON.stringify(first.payload));
+
     expect(incompatible.success).toBe(false);
+
     if (!incompatible.success) {
       expect(incompatible.issues.join(' ')).toMatch(/layoutSettings|desktopNavigation/);
     }
@@ -245,7 +249,9 @@ describe('strict Booking presentation and import boundary', () => {
       addOnIds: ['addon-french'],
     };
     const injected = parseSiteBuilderDocument(JSON.stringify(second.payload));
+
     expect(injected.success).toBe(false);
+
     if (!injected.success) {
       expect(injected.issues.join(' ')).toMatch(/services|customerSession/);
     }

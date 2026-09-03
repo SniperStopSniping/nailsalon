@@ -19,7 +19,7 @@ export function AccessibilitySummary({
       className="custom-design-accessible-summary"
       data-testid={`custom-design-summary-${imageItemId}`}
     >
-      <summary>Text version of {fileName}</summary>
+      <summary>{`Text version of ${fileName}`}</summary>
       <div className="custom-design-accessible-summary__text">
         {trimmedSummary}
       </div>

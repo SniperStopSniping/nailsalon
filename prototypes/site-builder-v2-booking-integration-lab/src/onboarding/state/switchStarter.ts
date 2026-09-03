@@ -4,9 +4,9 @@ import type {
   SiteBuilderDocument,
 } from '../../model';
 import {
-  DEFAULT_HISTORY_LIMIT,
   applyHistoryCommand,
   createHistoryState,
+  DEFAULT_HISTORY_LIMIT,
   initializeStarter,
 } from '../../model';
 import type { LabDocumentController } from '../../ui/useLabDocument';
@@ -20,15 +20,15 @@ type StarterSwitchLabController = Pick<
 
 export type StarterSwitchResult =
   | {
-      changed: boolean;
-      customDesignSectionId: string | null;
-      document: SiteBuilderDocument;
-      success: true;
-    }
+    changed: boolean;
+    customDesignSectionId: string | null;
+    document: SiteBuilderDocument;
+    success: true;
+  }
   | {
-      message: string;
-      success: false;
-    };
+    message: string;
+    success: false;
+  };
 
 type PreservedCustomDesign = Pick<
   CustomDesignSectionInstance,
@@ -44,7 +44,9 @@ const locateCustomDesign = (
       (candidate): candidate is CustomDesignSectionInstance =>
         candidate.id === sectionId && candidate.sectionType === 'custom_design',
     );
-    if (section) return section;
+    if (section) {
+      return section;
+    }
   }
   return null;
 };
@@ -56,19 +58,25 @@ const getPreservedCustomDesign = (
   const sectionId = state.canva.customDesignSectionId;
   const hasConfirmedCanva = state.recipe.canvaEnabled
     && state.canva.images.length > 0;
-  if (!hasConfirmedCanva) return null;
-  if (!sectionId) return undefined;
+  if (!hasConfirmedCanva) {
+    return null;
+  }
+  if (!sectionId) {
+    return undefined;
+  }
 
   const section = locateCustomDesign(document, sectionId);
-  if (!section) return undefined;
-  const trackedAssetIds = state.canva.images.flatMap((image) =>
+  if (!section) {
+    return undefined;
+  }
+  const trackedAssetIds = state.canva.images.flatMap(image =>
     image.storageId ? [image.storageId] : []);
   const sectionAssetIds = new Set(
-    section.settings.images.map((image) => image.assetId),
+    section.settings.images.map(image => image.assetId),
   );
   if (
     trackedAssetIds.length !== state.canva.images.length
-    || trackedAssetIds.some((assetId) => !sectionAssetIds.has(assetId))
+    || trackedAssetIds.some(assetId => !sectionAssetIds.has(assetId))
   ) {
     return undefined;
   }
@@ -100,7 +108,7 @@ const addPreservedCustomDesign = (
   }
 
   const existingIds = new Set(
-    document.pages.flatMap((page) => page.sections.map((section) => section.id)),
+    document.pages.flatMap(page => page.sections.map(section => section.id)),
   );
   const added = applyHistoryCommand(history, {
     input: {
@@ -112,7 +120,7 @@ const addPreservedCustomDesign = (
   });
 
   const created = added.present.pages
-    .flatMap((page) => page.sections)
+    .flatMap(page => page.sections)
     .find(
       (section): section is CustomDesignSectionInstance =>
         section.sectionType === 'custom_design' && !existingIds.has(section.id),
@@ -198,7 +206,9 @@ export const switchOnboardingStarter = (
         preservedCustomDesign,
         state,
       );
-      if (!restoredCustomDesign.success) return restoredCustomDesign;
+      if (!restoredCustomDesign.success) {
+        return restoredCustomDesign;
+      }
       stagedHistory = restoredCustomDesign.history;
       customDesignSectionId = restoredCustomDesign.customDesignSectionId;
     }

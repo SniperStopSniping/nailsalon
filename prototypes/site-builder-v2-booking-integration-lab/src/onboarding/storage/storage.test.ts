@@ -50,7 +50,7 @@ const createLegacySavedState = (
   const state = createDefaultOnboardingState();
   const days = Object.fromEntries(
     (['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'] as const)
-      .map((day) => [day, {
+      .map(day => [day, {
         close: day === 'saturday' ? '16:00' : '17:00',
         closed: day === 'sunday',
         open: day === 'saturday' ? '10:00' : '09:00',
@@ -121,6 +121,7 @@ describe('onboarding browser-local storage', () => {
       storage,
       timestamp: '2026-08-27T14:00:00.000Z',
     });
+
     expect(saved.success).toBe(true);
     expect(storage.setItem).toHaveBeenCalledWith(
       'luster:onboarding-v1-lab',
@@ -129,6 +130,7 @@ describe('onboarding browser-local storage', () => {
     expect(ONBOARDING_STORAGE_KEY).toBe('luster:onboarding-v1-lab');
 
     const loaded = loadOnboardingState(storage);
+
     expect(loaded.status).toBe('loaded');
     expect(loaded.state.profile.about.shortBio).toBe(state.profile.about.shortBio);
     expect(loaded.state.recipe.aboutEnabled).toBe(false);
@@ -144,6 +146,7 @@ describe('onboarding browser-local storage', () => {
     state.recipe.quickBookLayout = 'profile_story';
 
     expect(saveOnboardingState(state, { storage }).success).toBe(true);
+
     const loaded = loadOnboardingState(storage);
 
     expect(loaded.status).toBe('loaded');
@@ -213,6 +216,7 @@ describe('onboarding browser-local storage', () => {
     };
 
     expect(saveOnboardingState(state, { storage }).success).toBe(true);
+
     const loaded = loadOnboardingState(storage);
 
     expect(loaded.status).toBe('loaded');
@@ -241,6 +245,7 @@ describe('onboarding browser-local storage', () => {
   it('normalizes absent or malformed current milestone state to known deduplicated ids', () => {
     const absent = createDefaultOnboardingState();
     delete absent.reviewOptions.feedbackMilestones;
+
     expect(parseOnboardingState(JSON.stringify(absent))).toMatchObject({
       state: { reviewOptions: { feedbackMilestones: [] } },
       status: 'loaded',
@@ -256,6 +261,7 @@ describe('onboarding browser-local storage', () => {
       42,
       null,
     ];
+
     expect(parseOnboardingState(JSON.stringify(malformed))).toMatchObject({
       state: { reviewOptions: { feedbackMilestones: ['stage_basics'] } },
       status: 'loaded',
@@ -268,6 +274,7 @@ describe('onboarding browser-local storage', () => {
     valid.profile.bookingOnlyContact = false;
     valid.profile.preferredContact = 'instagram';
     const normalized = parseOnboardingState(JSON.stringify(valid));
+
     expect(normalized.state.profile.instagram).toBe('islanailstudio');
     expect(normalized.state.profile.preferredContact).toBe('instagram');
 
@@ -276,6 +283,7 @@ describe('onboarding browser-local storage', () => {
     invalid.profile.bookingOnlyContact = false;
     invalid.profile.preferredContact = 'instagram';
     const preserved = parseOnboardingState(JSON.stringify(invalid));
+
     expect(preserved.state.profile.instagram).toBe('instagram.com/isla/reels');
     expect(preserved.state.profile.preferredContact).toBeNull();
   });
@@ -286,6 +294,7 @@ describe('onboarding browser-local storage', () => {
       preferredContact: 'call',
       textPhone: '416-555-0100',
     })));
+
     expect(untouched.status).toBe('loaded');
     expect(untouched.state.profile.hours).toMatchObject({
       setupState: 'unset',
@@ -306,6 +315,7 @@ describe('onboarding browser-local storage', () => {
       .toBe(DEFAULT_PREVIEW_TIMESTAMP);
 
     const edited = parseOnboardingState(JSON.stringify(createLegacySavedState({ edited: true })));
+
     expect(edited.state.profile.hours).toMatchObject({
       setupState: 'configured',
       showOnSite: true,
@@ -316,6 +326,7 @@ describe('onboarding browser-local storage', () => {
     });
 
     const skipped = parseOnboardingState(JSON.stringify(createLegacySavedState({ skipped: true })));
+
     expect(skipped.state.profile.hours).toMatchObject({
       setupState: 'skipped',
       showOnSite: false,
@@ -349,7 +360,7 @@ describe('onboarding browser-local storage', () => {
     expect(result.state.reviewOptions.previewTimestamp).toBe('2026-09-01T15:00:00.000Z');
     expect(result.state.profile.policies.deposits.mode).toBe('fixed');
     expect(result.state.profile.bookingPreferences).not.toHaveProperty('depositPreference');
-    expect(result.state.profile.policies.deposits).not.toHaveProperty('required');
+    expect('required' in result.state.profile.policies.deposits).toBe(false);
   });
 
   it('migrates v3 Canva drafts and persists a typed partial-upload result', () => {
@@ -359,6 +370,7 @@ describe('onboarding browser-local storage', () => {
     delete legacyCanva.uploadResult;
 
     const migrated = parseOnboardingState(JSON.stringify(legacy));
+
     expect(migrated.status).toBe('loaded');
     expect(migrated.state.schemaVersion).toBe(ONBOARDING_SCHEMA_VERSION);
     expect(migrated.state.canva.uploadResult).toBeNull();
@@ -373,6 +385,7 @@ describe('onboarding browser-local storage', () => {
       summary: '2 images were added. 1 file could not be processed.',
     };
     const roundTrip = parseOnboardingState(JSON.stringify(migrated.state));
+
     expect(roundTrip.status).toBe('loaded');
     expect(roundTrip.state.canva.uploadResult).toEqual(migrated.state.canva.uploadResult);
   });
@@ -424,6 +437,7 @@ describe('onboarding browser-local storage', () => {
       policyRequired: false,
       schemaVersion: 2,
     })));
+
     expect(explicitPolicy.state.profile.policies.deposits.mode).toBe('none');
 
     const serviceDefined = parseOnboardingState(JSON.stringify(createLegacySavedState({
@@ -431,6 +445,7 @@ describe('onboarding browser-local storage', () => {
       policyRequired: null,
       schemaVersion: 3,
     })));
+
     expect(serviceDefined.status).toBe('loaded');
     expect(serviceDefined.state.profile.policies.deposits).toMatchObject({
       legacyV5Archive: {
@@ -440,7 +455,7 @@ describe('onboarding browser-local storage', () => {
       mode: 'none',
     });
     expect(serviceDefined.state.profile.bookingPreferences).not.toHaveProperty('depositPreference');
-    expect(serviceDefined.state.profile.policies.deposits).not.toHaveProperty('required');
+    expect('required' in serviceDefined.state.profile.policies.deposits).toBe(false);
   });
 
   it('losslessly migrates v5 notice, fixed deposit, plan, services, and dashboard defaults', () => {
@@ -574,7 +589,9 @@ describe('onboarding browser-local storage', () => {
         storageId: 'gallery-asset-stored',
       }),
     ]);
+
     const serialized = serializeOnboardingState(migrated.state);
+
     expect(serialized).not.toContain('data:image');
     expect(serialized).not.toContain('blob:');
     expect(serialized).not.toContain('PROFILE_BYTES');
@@ -604,9 +621,11 @@ describe('onboarding browser-local storage', () => {
       storage,
       timestamp: '2026-08-29T20:00:00.000Z',
     });
+
     expect(saved.success).toBe(true);
 
     const loaded = loadOnboardingState(storage);
+
     expect(loaded.status).toBe('loaded');
     expect(loaded.state.profile.profilePhoto).toMatchObject({
       fileName: 'daniela-portrait.png',
@@ -644,6 +663,7 @@ describe('onboarding browser-local storage', () => {
     const storage = createMemoryStorage();
 
     expect(saveOnboardingState(state, { storage }).success).toBe(true);
+
     const loaded = loadOnboardingState(storage);
 
     expect(loaded.status).toBe('loaded');
@@ -684,6 +704,7 @@ describe('onboarding browser-local storage', () => {
       source: 'uploads',
     };
     const migrated = parseOnboardingState(JSON.stringify(legacyV6));
+
     expect(migrated).toMatchObject({
       state: {
         gallery: { images: [expect.objectContaining({ source: 'missing' })] },
@@ -708,11 +729,17 @@ describe('onboarding browser-local storage', () => {
     });
 
     expect(saved.success).toBe(true);
-    if (!saved.success) throw new Error('Expected the normalized state to save.');
+
+    if (!saved.success) {
+      throw new Error('Expected the normalized state to save.');
+    }
+
     expect(saved.state.profile.profilePhoto?.source).toBe('missing');
     expect(saved.state.profile.logo?.source).toBe('missing');
     expect(saved.state.gallery.images[0]?.source).toBe('missing');
+
     const json = storage.values.get(ONBOARDING_STORAGE_KEY) ?? '';
+
     expect(json).not.toContain('DO_NOT_SAVE');
     expect(json).not.toContain('CURRENT_BYTES');
     expect(json).not.toContain('data:image');
@@ -777,7 +804,7 @@ describe('onboarding browser-local storage', () => {
     const migrated = parseOnboardingState(JSON.stringify(legacy));
 
     expect(migrated.status).toBe('loaded');
-    expect(migrated.state.anonymousDraftId).toMatch(/^draft_[a-z0-9_-]{12,100}$/iu);
+    expect(migrated.state.anonymousDraftId).toMatch(/^draft_[\w-]{12,100}$/iu);
     expect(migrated.state.recipe).toMatchObject({
       paletteConfirmed: false,
       palettePreset: 'luster_berry',
@@ -937,6 +964,7 @@ describe('onboarding browser-local storage', () => {
       businessType,
       schemaVersion: 2,
     })));
+
     expect(result.state.profile.businessStructure).toBe(businessStructure);
     expect(result.state.profile.location.locationType).toBe(locationType);
   });
@@ -974,6 +1002,7 @@ describe('onboarding browser-local storage', () => {
       [ONBOARDING_STORAGE_KEY]: JSON.stringify(createDefaultOnboardingState()),
       unrelated: 'preserved',
     });
+
     expect(clearOnboardingState(storage)).toEqual({ success: true });
     expect(storage.values.has(ONBOARDING_STORAGE_KEY)).toBe(false);
     expect(storage.values.get('unrelated')).toBe('preserved');

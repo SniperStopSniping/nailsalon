@@ -43,7 +43,7 @@ const auditContrast = async (page: import('@playwright/test').Page) =>
      * or the audit invents failures.
      */
     const parse = (value: string): [number, number, number, number] => {
-      const srgb = value.match(/color\(\s*srgb\s+([^)]+)\)/i);
+      const srgb = value.match(/color\(\s*srgb\s+([^\s)][^)]*)\)/i);
       if (srgb) {
         const [channels, alpha] = srgb[1]!.split('/');
         const parts = channels!.trim().split(/\s+/).map(Number.parseFloat);
@@ -55,7 +55,9 @@ const auditContrast = async (page: import('@playwright/test').Page) =>
         ];
       }
       const match = value.match(/rgba?\(([^)]+)\)/);
-      if (!match) return [0, 0, 0, 0];
+      if (!match) {
+        return [0, 0, 0, 0];
+      }
       const parts = match[1]!.split(/[,\s/]+/).filter(Boolean).map(Number.parseFloat);
       return [parts[0] ?? 0, parts[1] ?? 0, parts[2] ?? 0, parts[3] ?? 1];
     };
@@ -87,9 +89,13 @@ const auditContrast = async (page: import('@playwright/test').Page) =>
       let node: Element | null = element;
       while (node) {
         const style = getComputedStyle(node);
-        if (style.backgroundImage !== 'none') return null;
+        if (style.backgroundImage !== 'none') {
+          return null;
+        }
         const parsed = parse(style.backgroundColor);
-        if (parsed[3] > 0.85) return parsed;
+        if (parsed[3] > 0.85) {
+          return parsed;
+        }
         node = node.parentElement;
       }
       return [255, 255, 255, 1];
@@ -97,7 +103,9 @@ const auditContrast = async (page: import('@playwright/test').Page) =>
 
     const offenders: Offender[] = [];
     const root = document.querySelector('.onboarding-site-preview');
-    if (!root) return offenders;
+    if (!root) {
+      return offenders;
+    }
 
     for (const element of root.querySelectorAll<HTMLElement>('*')) {
       // Only elements whose own text is visible to a reader.
@@ -106,19 +114,29 @@ const auditContrast = async (page: import('@playwright/test').Page) =>
         .map(node => node.textContent ?? '')
         .join('')
         .trim();
-      if (!ownText) continue;
+      if (!ownText) {
+        continue;
+      }
       const style = getComputedStyle(element);
-      if (style.visibility === 'hidden' || style.display === 'none') continue;
-      if (element.closest('.visually-hidden')) continue;
+      if (style.visibility === 'hidden' || style.display === 'none') {
+        continue;
+      }
+      if (element.closest('.visually-hidden')) {
+        continue;
+      }
       const rect = element.getBoundingClientRect();
-      if (rect.width < 2 || rect.height < 2) continue;
+      if (rect.width < 2 || rect.height < 2) {
+        continue;
+      }
 
       const size = Number.parseFloat(style.fontSize);
       const weight = style.fontWeight;
       const large = size >= 24 || (size >= 18.66 && Number.parseInt(weight, 10) >= 700);
       const required = large ? 3 : 4.5;
       const background = effectiveBackground(element);
-      if (!background) continue;
+      if (!background) {
+        continue;
+      }
       // Partial opacity composites the text over its ground rather than
       // excusing it — faded text still has to be readable.
       const opacity = Number.parseFloat(style.opacity);
@@ -154,13 +172,16 @@ const auditContrast = async (page: import('@playwright/test').Page) =>
 test.describe('rendered contrast', () => {
   test('every visible text run meets WCAG AA on the surface it lands on', async ({ page }) => {
     test.setTimeout(240_000);
+
     await page.setViewportSize({ width: 390, height: 940 });
     const allOffenders: Offender[] = [];
 
     for (const recipe of RECIPES) {
       for (const rendition of RENDITIONS) {
         await page.goto(showcaseUrl({ recipe, ...rendition }));
+
         await expect(page.locator('[data-showcase-ready]')).toBeVisible();
+
         // Let any entrance finish so the audit measures the resting state.
         await page.evaluate(async () => {
           await Promise.all(document.getAnimations().map(animation =>
@@ -179,6 +200,7 @@ test.describe('rendered contrast', () => {
     if (allOffenders.length > 0) {
       console.warn(`[contrast] ${JSON.stringify(allOffenders, null, 2)}`);
     }
+
     expect(
       allOffenders.map(item => `${item.section}: "${item.text}" ${item.ratio}:1`),
       'text below WCAG AA',

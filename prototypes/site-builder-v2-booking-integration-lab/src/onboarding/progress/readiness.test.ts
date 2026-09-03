@@ -15,9 +15,11 @@ describe('onboarding readiness contact metadata', () => {
     state.profile.bookingOnlyContact = false;
     state.profile.clientContact.primaryNumber = '416-555-0100';
     state.profile.preferredContact = 'call';
-    expect(getReadinessItems(state, null).some((item) => item.id === 'contact')).toBe(false);
+
+    expect(getReadinessItems(state, null).some(item => item.id === 'contact')).toBe(false);
 
     state.profile.clientContact.callEnabled = true;
+
     expect(getReadinessItems(state, null)).toContainEqual({
       id: 'contact',
       label: 'Contact and privacy',
@@ -26,6 +28,7 @@ describe('onboarding readiness contact metadata', () => {
 
     state.profile.clientContact.callEnabled = false;
     state.profile.bookingOnlyContact = true;
+
     expect(getReadinessItems(state, null)).toContainEqual({
       id: 'contact',
       label: 'Contact and privacy',
@@ -36,15 +39,18 @@ describe('onboarding readiness contact metadata', () => {
   it('does not mark malformed Instagram configured and accepts a normalized profile URL', () => {
     const state = createDefaultOnboardingState();
     state.profile.instagram = 'instagram.com/isla/reels';
-    expect(getReadinessItems(state, null).some((item) => item.id === 'contact'))
+
+    expect(getReadinessItems(state, null).some(item => item.id === 'contact'))
       .toBe(false);
 
     state.profile.bookingOnlyContact = false;
     state.profile.preferredContact = 'instagram';
-    expect(getReadinessItems(state, null).some((item) => item.id === 'contact'))
+
+    expect(getReadinessItems(state, null).some(item => item.id === 'contact'))
       .toBe(false);
 
     state.profile.instagram = 'https://www.instagram.com/islanailstudio/';
+
     expect(getReadinessItems(state, null)).toContainEqual({
       id: 'contact',
       label: 'Contact and privacy',
@@ -55,6 +61,7 @@ describe('onboarding readiness contact metadata', () => {
   it('uses one combined policy readiness item across missing, ready, and hidden states', () => {
     const state = createDefaultOnboardingState();
     state.recipe.policiesEnabled = false;
+
     expect(getReadinessItems(state, null)).toContainEqual({
       id: 'policies',
       label: 'Deposits & cancellation policy',
@@ -65,16 +72,18 @@ describe('onboarding readiness contact metadata', () => {
     state.profile.policies.cancellations.notice = '24_hours';
     state.profile.policies.cancellations.consequence = 'cancellation_fee';
     state.recipe.policiesEnabled = true;
+
     expect(getReadinessItems(state, null)).toContainEqual({
       id: 'policies',
       label: 'Deposits & cancellation policy',
       screen: 'policies',
       status: 'ready',
     });
-    expect(getReadinessItems(state, null).filter((item) => item.id === 'policies'))
+    expect(getReadinessItems(state, null).filter(item => item.id === 'policies'))
       .toHaveLength(1);
 
     state.recipe.policiesEnabled = false;
+
     expect(getReadinessItems(state, null)).toContainEqual({
       detail: 'Your policy answers are saved, but not shown on your site.',
       id: 'policies',
@@ -123,7 +132,7 @@ describe('onboarding readiness contact metadata', () => {
     };
 
     const issue = getNeedsAttentionItems(state, document, [asset]).find(
-      (item) => item.id === 'canva-asset-asset-canva-page-2',
+      item => item.id === 'canva-asset-asset-canva-page-2',
     );
 
     expect(issue).toEqual({

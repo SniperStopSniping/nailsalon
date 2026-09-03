@@ -113,7 +113,9 @@ const ENGINE_META: Record<'booking' | 'custom_design', GalleryEntryMeta> = {
 };
 
 const galleryMeta = (id: GalleryTypeId): GalleryEntryMeta => {
-  if (id === 'booking' || id === 'custom_design') return ENGINE_META[id];
+  if (id === 'booking' || id === 'custom_design') {
+    return ENGINE_META[id];
+  }
   const entry = SECTION_LIBRARY_REGISTRY[id];
   return {
     category: entry.category,
@@ -206,7 +208,9 @@ export function SectionGalleryClient() {
   }, []);
 
   const previewPlan = useMemo<SitePlanPage[] | null>(() => {
-    if (selectedId === 'custom_design') return null;
+    if (selectedId === 'custom_design') {
+      return null;
+    }
     const sectionId = `gallery-preview-${selectedId}`;
     let section: SectionInstance;
     if (selectedId === 'booking') {
@@ -311,233 +315,241 @@ export function SectionGalleryClient() {
         </div>
       </header>
 
-      {mode === 'websites' ? (
-        <div className="section-gallery__body">
-          <nav aria-label="Website recipes" className="section-gallery__list">
-            {WEBSITE_RECIPES.map((candidate) => (
-              <button
-                aria-pressed={candidate.id === recipeId}
-                className="section-gallery__item"
-                key={candidate.id}
-                onClick={() => setRecipeId(candidate.id)}
-                type="button"
-              >
-                <span className="section-gallery__item-copy">
-                  <strong>{candidate.name}</strong>
-                  <small>{candidate.audience}</small>
-                </span>
-              </button>
-            ))}
-          </nav>
-          <section aria-label={`${recipe.name} website preview`} className="section-gallery__stage">
-            <div className="section-gallery__stage-head">
-              <div>
-                <h2>{recipe.name}</h2>
-                <p>{recipe.description}</p>
-                <p className="section-gallery__sample-note">
-                  Shown with sample content — your own appears once you add it.
-                </p>
-              </div>
+      {mode === 'websites'
+        ? (
+            <div className="section-gallery__body">
+              <nav aria-label="Website recipes" className="section-gallery__list">
+                {WEBSITE_RECIPES.map(candidate => (
+                  <button
+                    aria-pressed={candidate.id === recipeId}
+                    className="section-gallery__item"
+                    key={candidate.id}
+                    onClick={() => setRecipeId(candidate.id)}
+                    type="button"
+                  >
+                    <span className="section-gallery__item-copy">
+                      <strong>{candidate.name}</strong>
+                      <small>{candidate.audience}</small>
+                    </span>
+                  </button>
+                ))}
+              </nav>
+              <section aria-label={`${recipe.name} website preview`} className="section-gallery__stage">
+                <div className="section-gallery__stage-head">
+                  <div>
+                    <h2>{recipe.name}</h2>
+                    <p>{recipe.description}</p>
+                    <p className="section-gallery__sample-note">
+                      Shown with sample content — your own appears once you add it.
+                    </p>
+                  </div>
+                </div>
+                <div className="section-gallery__controls">
+                  <div aria-label="Style" className="section-gallery__control" role="group">
+                    <span>Style</span>
+                    <div>
+                      {STYLE_IDS.map(id => (
+                        <button
+                          aria-pressed={id === styleId}
+                          key={id}
+                          onClick={() => setStyleId(id)}
+                          type="button"
+                        >
+                          {id}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div aria-label="Palette" className="section-gallery__control" role="group">
+                    <span>Palette</span>
+                    <div>
+                      {SITE_PALETTE_PRESETS.map(palette => (
+                        <button
+                          aria-pressed={palette.id === paletteId}
+                          key={palette.id}
+                          onClick={() => setPaletteId(palette.id)}
+                          style={{ ['--swatch' as string]: palette.roles.accent }}
+                          title={palette.description}
+                          type="button"
+                        >
+                          <i aria-hidden="true" />
+                          {palette.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div aria-label="Device" className="section-gallery__control" role="group">
+                    <span>Device</span>
+                    <div>
+                      {DEVICES.map(id => (
+                        <button
+                          aria-pressed={id === device}
+                          key={id}
+                          onClick={() => setDevice(id)}
+                          type="button"
+                        >
+                          {id}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+                <div className="section-gallery__preview" data-device={device}>
+                  <OnboardingSitePreview
+                    device={device}
+                    document={recipeDocument}
+                    includeOptionalSections={false}
+                    interactionMode="interactive"
+                    key={`${recipe.id}-${styleId}-${paletteId}-${device}`}
+                    label={`${recipe.name} website preview`}
+                    state={recipeState}
+                  />
+                </div>
+              </section>
             </div>
-            <div className="section-gallery__controls">
-              <div aria-label="Style" className="section-gallery__control" role="group">
-                <span>Style</span>
-                <div>
-                  {STYLE_IDS.map(id => (
+          )
+        : (
+            <div className="section-gallery__body">
+              <nav aria-label="Sections" className="section-gallery__list">
+                {GALLERY_ORDER.map((id, index) => {
+                  const item = galleryMeta(id);
+                  return (
                     <button
-                      aria-pressed={id === styleId}
+                      aria-pressed={id === selectedId}
+                      className="section-gallery__item"
                       key={id}
-                      onClick={() => setStyleId(id)}
+                      onClick={() => setSelectedId(id)}
                       type="button"
                     >
-                      {id}
+                      <span className="section-gallery__item-number">
+                        {String(index + 1).padStart(2, '0')}
+                      </span>
+                      <span className="section-gallery__item-copy">
+                        <strong>{item.label}</strong>
+                        <small>{item.category}</small>
+                      </span>
                     </button>
-                  ))}
-                </div>
-              </div>
-              <div aria-label="Palette" className="section-gallery__control" role="group">
-                <span>Palette</span>
-                <div>
-                  {SITE_PALETTE_PRESETS.map(palette => (
-                    <button
-                      aria-pressed={palette.id === paletteId}
-                      key={palette.id}
-                      onClick={() => setPaletteId(palette.id)}
-                      style={{ ['--swatch' as string]: palette.roles.accent }}
-                      title={palette.description}
-                      type="button"
-                    >
-                      <i aria-hidden="true" />
-                      {palette.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <div aria-label="Device" className="section-gallery__control" role="group">
-                <span>Device</span>
-                <div>
-                  {DEVICES.map(id => (
-                    <button
-                      aria-pressed={id === device}
-                      key={id}
-                      onClick={() => setDevice(id)}
-                      type="button"
-                    >
-                      {id}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </div>
-            <div className="section-gallery__preview" data-device={device}>
-              <OnboardingSitePreview
-                device={device}
-                document={recipeDocument}
-                includeOptionalSections={false}
-                interactionMode="interactive"
-                key={`${recipe.id}-${styleId}-${paletteId}-${device}`}
-                label={`${recipe.name} website preview`}
-                state={recipeState}
-              />
-            </div>
-          </section>
-        </div>
-      ) : (
-      <div className="section-gallery__body">
-        <nav aria-label="Sections" className="section-gallery__list">
-          {GALLERY_ORDER.map((id, index) => {
-            const item = galleryMeta(id);
-            return (
-              <button
-                aria-pressed={id === selectedId}
-                className="section-gallery__item"
-                key={id}
-                onClick={() => setSelectedId(id)}
-                type="button"
-              >
-                <span className="section-gallery__item-number">
-                  {String(index + 1).padStart(2, '0')}
-                </span>
-                <span className="section-gallery__item-copy">
-                  <strong>{item.label}</strong>
-                  <small>{item.category}</small>
-                </span>
-              </button>
-            );
-          })}
-        </nav>
+                  );
+                })}
+              </nav>
 
-        <section aria-label={`${meta.label} preview`} className="section-gallery__stage">
-          <div className="section-gallery__stage-head">
-            <div>
-              <h2>{meta.label}</h2>
-              <p>{meta.description}</p>
-              {meta.sampleContent ? (
-                <p className="section-gallery__sample-note">
-                  Shown with sample content — your own appears once you add it.
-                </p>
-              ) : null}
-            </div>
-          </div>
-
-          <div className="section-gallery__controls">
-            {meta.presetIds.length > 1 ? (
-              <div aria-label="Section design" className="section-gallery__control" role="group">
-                <span>Design</span>
-                <div>
-                  {meta.presetIds.map(presetId => (
-                    <button
-                      aria-pressed={presetId === selectedPreset}
-                      key={presetId}
-                      onClick={() => setPresetById(current => ({
-                        ...current,
-                        [selectedId]: presetId,
-                      }))}
-                      type="button"
-                    >
-                      {presetId.replaceAll('_', ' ')}
-                    </button>
-                  ))}
+              <section aria-label={`${meta.label} preview`} className="section-gallery__stage">
+                <div className="section-gallery__stage-head">
+                  <div>
+                    <h2>{meta.label}</h2>
+                    <p>{meta.description}</p>
+                    {meta.sampleContent
+                      ? (
+                          <p className="section-gallery__sample-note">
+                            Shown with sample content — your own appears once you add it.
+                          </p>
+                        )
+                      : null}
+                  </div>
                 </div>
-              </div>
-            ) : null}
-            <div aria-label="Style" className="section-gallery__control" role="group">
-              <span>Style</span>
-              <div>
-                {STYLE_IDS.map(id => (
-                  <button
-                    aria-pressed={id === styleId}
-                    key={id}
-                    onClick={() => setStyleId(id)}
-                    type="button"
-                  >
-                    {id}
-                  </button>
-                ))}
-              </div>
-            </div>
-            <div aria-label="Palette" className="section-gallery__control" role="group">
-              <span>Palette</span>
-              <div>
-                {SITE_PALETTE_PRESETS.map(palette => (
-                  <button
-                    aria-pressed={palette.id === paletteId}
-                    key={palette.id}
-                    onClick={() => setPaletteId(palette.id)}
-                    style={{ ['--swatch' as string]: palette.roles.accent }}
-                    title={palette.description}
-                    type="button"
-                  >
-                    <i aria-hidden="true" />
-                    {palette.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-            <div aria-label="Device" className="section-gallery__control" role="group">
-              <span>Device</span>
-              <div>
-                {DEVICES.map(id => (
-                  <button
-                    aria-pressed={id === device}
-                    key={id}
-                    onClick={() => setDevice(id)}
-                    type="button"
-                  >
-                    {id}
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
 
-          <div className="section-gallery__preview" data-device={device}>
-            {previewPlan ? (
-              <OnboardingSitePreview
-                customerPagePlan={previewPlan}
-                device={device}
-                document={demoDocument}
-                includeOptionalSections={false}
-                interactionMode="interactive"
-                key={`${selectedId}-${selectedPreset}-${styleId}-${paletteId}-${device}`}
-                label={`${meta.label} section preview`}
-                state={demoState}
-              />
-            ) : (
-              <div className="section-gallery__honest-empty">
-                <h3>Custom Design previews with your artwork only</h3>
-                <p>
-                  This section renders images you upload from Canva, with
-                  validated customer actions. There is no sample artwork to
-                  show, because nothing here is allowed to fake your design.
-                  Add a Custom Design in the Builder to see it live.
-                </p>
-              </div>
-            )}
-          </div>
-        </section>
-      </div>
-      )}
+                <div className="section-gallery__controls">
+                  {meta.presetIds.length > 1
+                    ? (
+                        <div aria-label="Section design" className="section-gallery__control" role="group">
+                          <span>Design</span>
+                          <div>
+                            {meta.presetIds.map(presetId => (
+                              <button
+                                aria-pressed={presetId === selectedPreset}
+                                key={presetId}
+                                onClick={() => setPresetById(current => ({
+                                  ...current,
+                                  [selectedId]: presetId,
+                                }))}
+                                type="button"
+                              >
+                                {presetId.replaceAll('_', ' ')}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )
+                    : null}
+                  <div aria-label="Style" className="section-gallery__control" role="group">
+                    <span>Style</span>
+                    <div>
+                      {STYLE_IDS.map(id => (
+                        <button
+                          aria-pressed={id === styleId}
+                          key={id}
+                          onClick={() => setStyleId(id)}
+                          type="button"
+                        >
+                          {id}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div aria-label="Palette" className="section-gallery__control" role="group">
+                    <span>Palette</span>
+                    <div>
+                      {SITE_PALETTE_PRESETS.map(palette => (
+                        <button
+                          aria-pressed={palette.id === paletteId}
+                          key={palette.id}
+                          onClick={() => setPaletteId(palette.id)}
+                          style={{ ['--swatch' as string]: palette.roles.accent }}
+                          title={palette.description}
+                          type="button"
+                        >
+                          <i aria-hidden="true" />
+                          {palette.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div aria-label="Device" className="section-gallery__control" role="group">
+                    <span>Device</span>
+                    <div>
+                      {DEVICES.map(id => (
+                        <button
+                          aria-pressed={id === device}
+                          key={id}
+                          onClick={() => setDevice(id)}
+                          type="button"
+                        >
+                          {id}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="section-gallery__preview" data-device={device}>
+                  {previewPlan
+                    ? (
+                        <OnboardingSitePreview
+                          customerPagePlan={previewPlan}
+                          device={device}
+                          document={demoDocument}
+                          includeOptionalSections={false}
+                          interactionMode="interactive"
+                          key={`${selectedId}-${selectedPreset}-${styleId}-${paletteId}-${device}`}
+                          label={`${meta.label} section preview`}
+                          state={demoState}
+                        />
+                      )
+                    : (
+                        <div className="section-gallery__honest-empty">
+                          <h3>Custom Design previews with your artwork only</h3>
+                          <p>
+                            This section renders images you upload from Canva, with
+                            validated customer actions. There is no sample artwork to
+                            show, because nothing here is allowed to fake your design.
+                            Add a Custom Design in the Builder to see it live.
+                          </p>
+                        </div>
+                      )}
+                </div>
+              </section>
+            </div>
+          )}
     </main>
   );
 

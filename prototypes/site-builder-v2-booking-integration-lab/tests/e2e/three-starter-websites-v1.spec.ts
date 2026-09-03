@@ -228,10 +228,15 @@ test.describe('three locked V1 customer recipes', () => {
     const footerBeforeScroll = await detailFooter.boundingBox();
     const panelBeforeScroll = await detail.locator('.booking-dialog-panel').boundingBox();
     const bodyBeforeScroll = await detailBody.boundingBox();
+
     expect(footerBeforeScroll).not.toBeNull();
     expect(panelBeforeScroll).not.toBeNull();
     expect(bodyBeforeScroll).not.toBeNull();
-    if (!footerBeforeScroll || !panelBeforeScroll || !bodyBeforeScroll) return;
+
+    if (!footerBeforeScroll || !panelBeforeScroll || !bodyBeforeScroll) {
+      return;
+    }
+
     expect(Math.abs(bodyBeforeScroll.y + bodyBeforeScroll.height - footerBeforeScroll.y))
       .toBeLessThanOrEqual(1);
     expect(Math.abs(
@@ -244,12 +249,17 @@ test.describe('three locked V1 customer recipes', () => {
       !body.contains(document.querySelector(footerSelector))
     ), '[data-testid="service-detail-action-footer"]')).toBe(true);
 
-    await detailBody.evaluate(element => {
+    await detailBody.evaluate((element) => {
       element.scrollTop = element.scrollHeight;
     });
     const footerAfterScroll = await detailFooter.boundingBox();
+
     expect(footerAfterScroll).not.toBeNull();
-    if (!footerAfterScroll) return;
+
+    if (!footerAfterScroll) {
+      return;
+    }
+
     expect(Math.abs(footerAfterScroll.y - footerBeforeScroll.y)).toBeLessThanOrEqual(1);
     expect(Math.abs(footerAfterScroll.height - footerBeforeScroll.height)).toBeLessThanOrEqual(1);
     expect(footerAfterScroll.y + footerAfterScroll.height).toBeLessThanOrEqual(844);
@@ -261,6 +271,7 @@ test.describe('three locked V1 customer recipes', () => {
     const summary = page.getByTestId('selected-service-summary');
     const summaryHost = page.getByTestId('onboarding-booking-selection-host');
     const bookingRenderer = page.getByTestId('booking-section-preview');
+
     await expect(summary).toBeVisible();
     await expect(summaryHost).toContainText('Russian Manicure');
     await expect(summaryHost.getByTestId('selected-service-summary')).toHaveCount(1);
@@ -272,11 +283,14 @@ test.describe('three locked V1 customer recipes', () => {
     expect(await summaryHost.evaluate(host => (
       host.previousElementSibling?.getAttribute('data-testid') === 'booking-section-preview'
     ))).toBe(true);
+
     await summary.scrollIntoViewIfNeeded();
     const summaryBounds = await summary.boundingBox();
     const rendererBounds = await bookingRenderer.boundingBox();
+
     expect(summaryBounds).not.toBeNull();
     expect(rendererBounds).not.toBeNull();
+
     if (summaryBounds && rendererBounds) {
       expect(summaryBounds.y).toBeGreaterThanOrEqual(
         rendererBounds.y + rendererBounds.height - 1,

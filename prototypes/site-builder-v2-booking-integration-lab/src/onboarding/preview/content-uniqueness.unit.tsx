@@ -185,6 +185,7 @@ describe('customer content uniqueness markers', () => {
     expect(visibleView.container.querySelector(
       '[data-library-type="hero"] [data-media-role="profile"]',
     )).toBeNull();
+
     visibleView.unmount();
 
     about.visible = false;

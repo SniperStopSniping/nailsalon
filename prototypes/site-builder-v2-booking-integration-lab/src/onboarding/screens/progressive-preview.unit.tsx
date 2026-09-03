@@ -157,16 +157,16 @@ describe('progressive customer-site previews through Screen 6', () => {
     const screenCss = readFileSync(join(process.cwd(), 'src/onboarding/style-colours-save.css'), 'utf8');
 
     expect(onboardingCss).toMatch(
-      /data-preview-interaction="scrollable"[^}]*\.onboarding-preview-frame \{[^}]*overscroll-behavior-y: auto;[^}]*touch-action: pan-y;/su,
+      /data-preview-interaction="scrollable"[^}]*\.onboarding-preview-frame \{[^}]*overscroll-behavior-y: auto;[^}]*touch-action: pan-y;/u,
     );
     expect(onboardingCss).toMatch(
-      /\.onboarding-preview-stage\.is-fit-available \.onboarding-preview-measurement-host \{[^}]*height: 100%;/su,
+      /\.onboarding-preview-stage\.is-fit-available \.onboarding-preview-measurement-host \{[^}]*height: 100%;/u,
     );
     expect(screenCss).toMatch(
-      /\.onboarding-look-preview__frame \{[^}]*pointer-events: none;/su,
+      /\.onboarding-look-preview__frame \{[^}]*pointer-events: none;/u,
     );
     expect(screenCss).not.toMatch(
-      /\.onboarding-save-progress__preview \{[^}]*pointer-events: none;/su,
+      /\.onboarding-save-progress__preview \{[^}]*pointer-events: none;/u,
     );
   });
 });

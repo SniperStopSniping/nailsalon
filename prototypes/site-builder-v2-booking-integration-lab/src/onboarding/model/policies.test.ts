@@ -3,13 +3,13 @@ import { describe, expect, it } from 'vitest';
 import { createDanielaFixtureState } from '../fixtures';
 import { createDefaultPolicies } from './defaults';
 import {
-  deriveDepositsAndCancellationsSuggestedWording,
-  deriveDepositsAndCancellationsSummary,
   deriveDepositForfeitWording,
   deriveDepositPolicySummary,
+  deriveDepositsAndCancellationsSuggestedWording,
+  deriveDepositsAndCancellationsSummary,
   derivePolicySuggestedWording,
-  getDepositsAndCancellationsDisplayWording,
   getDepositPolicyMode,
+  getDepositsAndCancellationsDisplayWording,
   getLateCancellationChoice,
   getPolicyDisplayWording,
   getPublicDepositsAndCancellationsDisplayWording,
@@ -111,12 +111,14 @@ describe('policy suggested wording', () => {
     original.noShows.loseDeposit = true;
 
     const noDeposit = updateDepositPolicyMode(original, 'none');
+
     expect(deriveDepositForfeitWording(noDeposit, 'cancellation')).toBe('');
     expect(derivePolicySuggestedWording(noDeposit, 'cancellations'))
       .toBe('Please cancel or reschedule at least 24 hours before your appointment.');
     expect(derivePolicySuggestedWording(noDeposit, 'no_shows')).toBe('');
 
     const fixed = updateDepositPolicyMode(noDeposit, 'fixed');
+
     expect(derivePolicySuggestedWording(fixed, 'cancellations'))
       .toContain('the deposit being lost');
     expect(derivePolicySuggestedWording(fixed, 'no_shows'))
@@ -129,11 +131,13 @@ describe('policy suggested wording', () => {
     policies.deposits.wordingOverride = 'A $50 deposit is required.';
 
     const noDeposit = updateDepositPolicyMode(policies, 'none');
+
     expect(noDeposit.deposits.wordingOverride).toBe('A $50 deposit is required.');
     expect(getPolicyDisplayWording(noDeposit, 'deposits'))
       .toBe('No deposit is required.');
 
     const fixed = updateDepositPolicyMode(noDeposit, 'fixed');
+
     expect(getPolicyDisplayWording(fixed, 'deposits'))
       .toBe('A $50 deposit is required.');
   });
@@ -152,18 +156,24 @@ describe('policy suggested wording', () => {
   it('requires every answer needed for meaningful client wording', () => {
     const policies = createDefaultPolicies();
     policies.cancellations.notice = '24_hours';
+
     expect(isPolicySectionComplete(policies, 'cancellations')).toBe(false);
 
     policies.cancellations.consequence = 'custom';
+
     expect(isPolicySectionComplete(policies, 'cancellations')).toBe(false);
 
     policies.cancellations.customConsequence = 'Please contact me directly.';
+
     expect(isPolicySectionComplete(policies, 'cancellations')).toBe(true);
 
     policies.lateArrivals.gracePeriodMinutes = '15';
+
     expect(isPolicySectionComplete(policies, 'late_arrivals')).toBe(false);
+
     policies.lateArrivals.shortenService = true;
     policies.lateArrivals.rescheduleAfterLimit = false;
+
     expect(isPolicySectionComplete(policies, 'late_arrivals')).toBe(true);
   });
 
@@ -204,6 +214,7 @@ describe('policy suggested wording', () => {
     expect(policies.deposits.refundable).toBe(false);
 
     policies.cancellations.consequence = 'cancellation_fee';
+
     expect(isDepositsAndCancellationsComplete(policies)).toBe(true);
     expect(deriveDepositsAndCancellationsSummary(policies))
       .toBe('No deposit · 24 hours’ notice');
@@ -215,14 +226,15 @@ describe('policy suggested wording', () => {
       mode: 'fixed',
     });
     policies.cancellations.consequence = 'custom';
-    policies.cancellations.customConsequence =
-      LATE_CANCELLATION_CUSTOM_WORDING.move_deposit;
+    policies.cancellations.customConsequence
+      = LATE_CANCELLATION_CUSTOM_WORDING.move_deposit;
 
     expect(getLateCancellationChoice(policies)).toBe('move_deposit');
     expect(deriveDepositsAndCancellationsSuggestedWording(policies))
       .toContain('the deposit can be moved to a new appointment');
 
     policies.deposits.mode = 'none';
+
     expect(getLateCancellationChoice(policies)).toBe('');
     expect(policies.cancellations.customConsequence)
       .toBe(LATE_CANCELLATION_CUSTOM_WORDING.move_deposit);
@@ -283,14 +295,17 @@ describe('policy suggested wording', () => {
 
   it('only treats visible, meaningful client wording as publishable', () => {
     const policies = createDefaultPolicies();
+
     expect(hasMeaningfulPublishablePolicies(policies)).toBe(false);
 
     policies.cancellations.notice = '24_hours';
     policies.cancellations.consequence = 'cancellation_fee';
+
     expect(hasMeaningfulPublishablePolicies(policies)).toBe(true);
 
     policies.copy.cancellations.visible = false;
     policies.copy.deposits.visible = false;
+
     expect(hasMeaningfulPublishablePolicies(policies)).toBe(false);
   });
 

@@ -69,7 +69,9 @@ const browser = await chromium.launch({ headless: false });
 const results = [];
 
 const assert = (condition, message) => {
-  if (!condition) throw new Error(message);
+  if (!condition) {
+    throw new Error(message);
+  }
 };
 
 const heading = (page, name) => page.getByRole('heading', { level: 1, name });
@@ -102,8 +104,6 @@ const startAndOpenFixture = async (page, label) => {
   await openFixture(page, label);
 };
 
-const clickSticky = (page, className) => page.locator(`.sticky-onboarding-actions__${className}`).click();
-
 const recordScenario = async (name, viewport, scenario) => {
   const consoleErrors = [];
   const consoleWarnings = [];
@@ -115,11 +115,15 @@ const recordScenario = async (name, viewport, scenario) => {
   });
   const page = await context.newPage();
   page.on('console', (message) => {
-    if (message.type() === 'error') consoleErrors.push(message.text());
-    if (message.type() === 'warning') consoleWarnings.push(message.text());
+    if (message.type() === 'error') {
+      consoleErrors.push(message.text());
+    }
+    if (message.type() === 'warning') {
+      consoleWarnings.push(message.text());
+    }
   });
-  page.on('pageerror', (error) => pageErrors.push(error.message));
-  page.on('requestfailed', (request) => failedRequests.push({
+  page.on('pageerror', error => pageErrors.push(error.message));
+  page.on('requestfailed', request => failedRequests.push({
     error: request.failure()?.errorText ?? 'unknown',
     url: request.url(),
   }));
@@ -160,7 +164,9 @@ const recordScenario = async (name, viewport, scenario) => {
     viewport,
   };
   results.push(result);
-  if (status === 'failed') throw new Error(`${name}: ${scenarioError}`);
+  if (status === 'failed') {
+    throw new Error(`${name}: ${scenarioError}`);
+  }
 };
 
 await recordScenario('01-complete-fast-path', { height: 844, width: 390 }, async (page) => {
@@ -371,7 +377,9 @@ const beforeReload = await finalStatePage.evaluate(async () => {
       let total = 0;
       for (const store of stores) {
         const countRequest = transaction.objectStore(store).count();
-        countRequest.onsuccess = () => { total += countRequest.result; };
+        countRequest.onsuccess = () => {
+          total += countRequest.result;
+        };
       }
       transaction.onerror = () => reject(transaction.error);
       transaction.oncomplete = () => {
@@ -423,10 +431,10 @@ await writeFile(
   'utf8',
 );
 
-const failures = results.flatMap((result) => [
-  ...result.consoleErrors.map((message) => `${result.name} console: ${message}`),
-  ...result.pageErrors.map((message) => `${result.name} page: ${message}`),
-  ...result.failedRequests.map((request) => `${result.name} request: ${request.url} (${request.error})`),
+const failures = results.flatMap(result => [
+  ...result.consoleErrors.map(message => `${result.name} console: ${message}`),
+  ...result.pageErrors.map(message => `${result.name} page: ${message}`),
+  ...result.failedRequests.map(request => `${result.name} request: ${request.url} (${request.error})`),
 ]);
 
 if (failures.length > 0) {
@@ -454,9 +462,9 @@ await writeFile(
   'utf8',
 );
 
-console.log(JSON.stringify({
+process.stdout.write(`${JSON.stringify({
   evidenceRoot,
   scenarios: results.length,
   screenshots: requiredScreenshotNames.length,
   videos: requiredVideoNames.length,
-}, null, 2));
+}, null, 2)}\n`);

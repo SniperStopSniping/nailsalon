@@ -1,7 +1,7 @@
 import { and, desc, eq, gte, isNull, sql } from 'drizzle-orm';
 import { z } from 'zod';
 
-import { deleteOnboardingMediaFiles } from '@/features/onboarding-v1-integration/media-storage.server';
+import { deleteOnboardingMediaFiles, isOnboardingMediaStorageProvider } from '@/features/onboarding-v1-integration/media-storage.server';
 import { logAuditEvent } from '@/libs/auditLog';
 import { areSuperAdminTestToolsEnabled } from '@/libs/authConfig.server';
 import { db } from '@/libs/DB';
@@ -704,14 +704,14 @@ export async function DELETE(
         const purgeResult = await purgeSalonData(tx as unknown as PurgeTx, id);
         return {
           mediaStorageKeys: mediaRows.flatMap(row => (
-            row.storageProvider === 'development_local' && row.storageKey
+            isOnboardingMediaStorageProvider(row.storageProvider) && row.storageKey
               ? [row.storageKey]
               : []
           )),
           purge: purgeResult,
         };
       });
-      const mediaCleanup = await deleteOnboardingMediaFiles(mediaStorageKeys);
+      const mediaCleanup = await deleteOnboardingMediaFiles(mediaStorageKeys, { salonId: id });
 
       // Written after the commit, with salonId null, so the record of the
       // deletion survives the salon it describes.

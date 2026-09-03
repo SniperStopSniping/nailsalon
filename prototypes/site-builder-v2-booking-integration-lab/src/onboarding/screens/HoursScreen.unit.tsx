@@ -3,9 +3,8 @@ import userEvent from '@testing-library/user-event';
 import { useState } from 'react';
 import { vi } from 'vitest';
 
-import { applyRegularHours } from '../model/hours';
 import { createDefaultBusinessProfile } from '../model/defaults';
-import type { BusinessProfileDraft } from '../model/types';
+import { applyRegularHours } from '../model/hours';
 import { HoursScreen } from './HoursScreen';
 
 describe('HoursScreen', () => {
@@ -49,12 +48,14 @@ describe('HoursScreen', () => {
     const { getLatest } = renderScreen();
 
     await user.click(screen.getByRole('button', { name: 'Apply to selected days' }));
+
     expect(screen.getByRole('status')).toHaveTextContent('Regular hours applied to 6 days.');
     expect(screen.getByRole('switch', { name: 'Show business hours to clients' })).toBeChecked();
     expect(screen.getByRole('button', { name: 'Save and continue' })).toBeEnabled();
     expect(getLatest().hours.days.sunday.closed).toBe(true);
 
     await user.click(screen.getByRole('button', { name: /Hours Complete/u }));
+
     expect(screen.getByRole('button', { name: /Hours Mon–Sat · 10:00 AM–7:00 PM Complete/u }))
       .toHaveAttribute('aria-expanded', 'false');
   });
@@ -71,6 +72,7 @@ describe('HoursScreen', () => {
     renderScreen(initial);
 
     await user.click(screen.getByRole('switch', { name: 'Show business hours to clients' }));
+
     expect(screen.getByRole('button', { name: /Hours Saved, not shown/u })).toBeVisible();
   });
 

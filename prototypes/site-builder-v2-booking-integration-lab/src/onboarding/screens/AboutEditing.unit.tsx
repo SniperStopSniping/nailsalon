@@ -30,9 +30,11 @@ const createAboutState = (): OnboardingLabState => {
   return state;
 };
 
+const ignoreContinue = () => undefined;
+
 function AboutHarness({
   initial,
-  onContinue = vi.fn(),
+  onContinue = ignoreContinue,
   onState,
 }: {
   initial: OnboardingLabState;
@@ -40,7 +42,7 @@ function AboutHarness({
   onState: (state: OnboardingLabState) => void;
 }) {
   const [state, setState] = useState(initial);
-  const update: OnboardingStateUpdater = (transform) => setState((current) => {
+  const update: OnboardingStateUpdater = transform => setState((current) => {
     const next = transform(current);
     onState(next);
     return next;
@@ -69,7 +71,9 @@ describe('About list editing', () => {
       <AboutHarness
         initial={initial}
         onContinue={onContinue}
-        onState={(state) => { latest = state; }}
+        onState={(state) => {
+          latest = state;
+        }}
       />,
     );
 
@@ -80,43 +84,58 @@ describe('About list editing', () => {
       name: 'Custom specialties separated by commas',
     });
     await user.type(customSpecialties, 'Structured gel, Bridal nails');
+
     expect(customSpecialties).toHaveValue('Structured gel, Bridal nails');
     expect(latest.profile.about.specialties).not.toContain('Structured gel');
+
     await user.click(certifications);
+
     expect(latest.profile.about.specialties).toEqual(expect.arrayContaining([
       'Structured gel',
       'Bridal nails',
     ]));
+
     const certificationRaw = 'Advanced Russian, BIAB; Gel-X';
     await user.type(certifications, certificationRaw);
+
     expect(certifications).toHaveValue(certificationRaw);
     expect(latest.profile.about.certifications).toEqual([]);
 
     (certifications as HTMLTextAreaElement).setSelectionRange(0, 0);
     await user.type(certifications, 'Lead ', { skipClick: true });
+
     expect(certifications).toHaveValue(`Lead ${certificationRaw}`);
+
     (certifications as HTMLTextAreaElement).setSelectionRange(0, 5);
     await user.keyboard('{Backspace}');
+
     expect(certifications).toHaveValue(certificationRaw);
 
     await user.click(languages);
+
     expect(latest.profile.about.certifications).toEqual([
       'Advanced Russian',
       'BIAB',
       'Gel-X',
     ]);
+
     await user.paste('English;\nSpanish, French');
+
     expect(languages).toHaveValue('English;\nSpanish, French');
     expect(latest.profile.about.languages).toEqual([]);
 
     await user.keyboard('{Enter}');
+
     expect(languages).toHaveValue('English;\nSpanish, French\n');
     expect(latest.profile.about.languages).toEqual(['English', 'Spanish', 'French']);
+
     await user.type(languages, 'German');
+
     expect(languages).toHaveValue('English;\nSpanish, French\nGerman');
     expect(latest.profile.about.languages).toEqual(['English', 'Spanish', 'French']);
 
     await user.click(screen.getByRole('button', { name: 'Choose an About design' }));
+
     expect(onContinue).toHaveBeenCalledOnce();
     expect(latest.profile.about.certifications).toEqual([
       'Advanced Russian',
@@ -142,27 +161,35 @@ describe('About list editing', () => {
     const view = render(
       <AboutHarness
         initial={initial}
-        onState={(state) => { latest = state; }}
+        onState={(state) => {
+          latest = state;
+        }}
       />,
     );
 
     await user.click(screen.getByText('More about you'));
     const certifications = screen.getByRole('textbox', { name: 'Certifications — optional' });
     await user.type(certifications, 'CND Certified; Gel-X Advanced');
+
     expect(certifications).toHaveFocus();
+
     view.unmount();
 
     expect(latest.profile.about.certifications).toEqual([
       'CND Certified',
       'Gel-X Advanced',
     ]);
+
     render(
       <AboutHarness
         initial={structuredClone(latest)}
-        onState={(state) => { latest = state; }}
+        onState={(state) => {
+          latest = state;
+        }}
       />,
     );
     await user.click(screen.getByText('More about you'));
+
     expect(screen.getByRole('textbox', { name: 'Certifications — optional' }))
       .toHaveValue('CND Certified, Gel-X Advanced');
   });
@@ -175,7 +202,9 @@ describe('About list editing', () => {
     render(
       <AboutHarness
         initial={initial}
-        onState={(state) => { latest = state; }}
+        onState={(state) => {
+          latest = state;
+        }}
       />,
     );
 
@@ -184,10 +213,12 @@ describe('About list editing', () => {
       name: 'Certifications — optional',
     });
     await user.type(certifications, 'Russian manicure certification; BIAB certification');
+
     expect(certifications).toHaveFocus();
     expect(latest.profile.about.certifications).toEqual([]);
 
     fireEvent(window, new Event('pagehide'));
+
     expect(latest.profile.about.certifications).toEqual([
       'Russian manicure certification',
       'BIAB certification',
@@ -202,7 +233,9 @@ describe('About list editing', () => {
     const view = render(
       <AboutHarness
         initial={initial}
-        onState={(state) => { latest = state; }}
+        onState={(state) => {
+          latest = state;
+        }}
       />,
     );
     await user.click(screen.getByText('More about you'));
@@ -211,23 +244,31 @@ describe('About list editing', () => {
     fireEvent.compositionStart(languages);
     fireEvent.change(languages, { target: { value: 'English;\n日本語' } });
     fireEvent.keyUp(languages, { isComposing: true, key: 'Enter' });
+
     expect(languages).toHaveValue('English;\n日本語');
     expect(latest.profile.about.languages).toEqual(['English']);
+
     fireEvent.compositionEnd(languages);
     fireEvent.keyUp(languages, { isComposing: false, key: 'Enter' });
+
     expect(latest.profile.about.languages).toEqual(['English', '日本語']);
 
     await user.click(screen.getByRole('switch', { name: 'Include an About section' }));
+
     expect(screen.getByRole('status')).toHaveTextContent(
       'About section is not shown on your site. Your information is still saved.',
     );
     expect(screen.getByRole('group', { name: 'About section details' })).toBeDisabled();
     expect(languages).toBeDisabled();
     expect(languages).toHaveValue('English;\n日本語');
+
     await user.click(screen.getByRole('switch', { name: 'Include an About section' }));
+
     expect(languages).toBeEnabled();
     expect(languages).toHaveValue('English;\n日本語');
+
     await waitFor(() => expect(screen.getByRole('textbox', { name: 'Short bio' })).toHaveFocus());
+
     expect(latest.profile.about.languages).toEqual(['English', '日本語']);
 
     view.unmount();
@@ -235,12 +276,16 @@ describe('About list editing', () => {
     const remount = render(
       <AboutHarness
         initial={reloadedState}
-        onState={(state) => { latest = state; }}
+        onState={(state) => {
+          latest = state;
+        }}
       />,
     );
     await user.click(screen.getByText('More about you'));
+
     expect(screen.getByRole('textbox', { name: 'Languages — optional' }))
       .toHaveValue('English, 日本語');
+
     remount.unmount();
 
     reloadedState.progress.currentScreen = 'about_design';
@@ -258,6 +303,7 @@ describe('About list editing', () => {
     );
     await user.click(screen.getByRole('button', { name: /Editorial Portrait/ }));
     await user.click(screen.getByRole('button', { name: /Profile \+ Quick Facts/ }));
+
     expect(latest.profile.about.languages).toEqual(['English', '日本語']);
   });
 });
@@ -272,19 +318,26 @@ describe('About prototype writing helper', () => {
     render(
       <AboutHarness
         initial={initial}
-        onState={(state) => { latest = state; }}
+        onState={(state) => {
+          latest = state;
+        }}
       />,
     );
 
     const helper = screen.getByRole('button', { name: /Help me with wording/ });
+
     expect(within(helper).getByText('Preview wording')).toBeVisible();
     expect(screen.queryByText(/prototype helper|prototype suggestion/iu)).not.toBeInTheDocument();
+
     await user.click(helper);
     const firstReview = screen.getByRole('dialog', { name: 'Use this suggested bio?' });
+
     expect(within(firstReview).getByText('Writing suggestion')).toBeVisible();
     expect(within(firstReview).getByText('Current bio')).toBeVisible();
     expect(within(firstReview).getByText('Suggested bio')).toBeVisible();
+
     const firstSuggestion = within(firstReview).getByText(/^I’m Daniela,/).textContent ?? '';
+
     expect(firstSuggestion).toContain('Isla Nail Studio');
     expect(latest.profile.about.shortBio).toBe(exactOriginalBio);
     expect(screen.getByRole('textbox', { name: 'Short bio' })).toHaveValue(exactOriginalBio);
@@ -294,6 +347,7 @@ describe('About prototype writing helper', () => {
     });
 
     await user.click(within(firstReview).getByRole('button', { name: 'Keep my bio' }));
+
     expect(latest.profile.about.shortBio).toBe(exactOriginalBio);
     expect(screen.getByRole('status')).toHaveTextContent('existing bio was kept unchanged');
     expect(latest.eventJournal.at(-1)).toMatchObject({
@@ -304,8 +358,11 @@ describe('About prototype writing helper', () => {
     await user.click(helper);
     const secondReview = screen.getByRole('dialog', { name: 'Use this suggested bio?' });
     const secondSuggestion = within(secondReview).getByText(/^I’m Daniela,/).textContent ?? '';
+
     expect(secondSuggestion).toBe(firstSuggestion);
+
     await user.click(within(secondReview).getByRole('button', { name: 'Use suggestion' }));
+
     expect(latest.profile.about.shortBio).toBe(firstSuggestion);
     expect(screen.getByRole('textbox', { name: 'Short bio' })).toHaveValue(firstSuggestion);
     expect(screen.getByRole('status')).toHaveTextContent('Suggestion added');
@@ -317,6 +374,7 @@ describe('About prototype writing helper', () => {
     expect(JSON.stringify(latest.eventJournal)).not.toContain(firstSuggestion);
 
     await user.click(screen.getByRole('button', { name: 'Undo suggestion' }));
+
     expect(latest.profile.about.shortBio).toBe(exactOriginalBio);
     expect(screen.getByRole('textbox', { name: 'Short bio' })).toHaveValue(exactOriginalBio);
     expect(screen.getByRole('status')).toHaveTextContent('previous bio was restored');
@@ -339,6 +397,7 @@ describe('About prototype writing helper', () => {
 
     await user.click(screen.getByRole('button', { name: /Help me with wording/ }));
     const review = screen.getByRole('dialog', { name: 'Use this suggested bio?' });
+
     expect(within(review).queryByText('Current bio')).not.toBeInTheDocument();
     expect(within(review).getByText('Suggested bio')).toBeVisible();
     expect(screen.getByRole('textbox', { name: 'Short bio' })).toHaveValue('');
@@ -352,7 +411,9 @@ describe('About prototype writing helper', () => {
     render(
       <AboutHarness
         initial={initial}
-        onState={(state) => { latest = state; }}
+        onState={(state) => {
+          latest = state;
+        }}
       />,
     );
 
@@ -360,6 +421,7 @@ describe('About prototype writing helper', () => {
     const review = screen.getByRole('dialog', { name: 'Use this suggested bio?' });
     const suggestion = within(review).getByText(/^I’m Daniela,/).textContent ?? '';
     await user.click(within(review).getByRole('button', { name: 'Use suggestion' }));
+
     expect(screen.getByRole('button', { name: 'Undo suggestion' })).toBeVisible();
 
     const bio = screen.getByRole('textbox', { name: 'Short bio' });

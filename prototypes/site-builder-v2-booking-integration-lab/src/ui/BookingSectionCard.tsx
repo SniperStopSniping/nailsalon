@@ -63,7 +63,9 @@ export function BookingSectionCard({
 
   useLayoutEffect(() => {
     const content = contentRef.current;
-    if (!content) return undefined;
+    if (!content) {
+      return undefined;
+    }
     const measure = () => {
       const topbar = document.querySelector<HTMLElement>('.final-topbar');
       const available = Math.max(320, window.innerHeight - (topbar?.getBoundingClientRect().bottom ?? 82));
@@ -96,9 +98,11 @@ export function BookingSectionCard({
       data-section-label="Booking"
       data-section-type="booking"
       role="listitem"
-      onClick={(event) => {
+      onPointerUp={(event) => {
         const target = event.target as HTMLElement;
-        if (!target.closest('button, input, select, textarea, a')) onSelect(section);
+        if (!target.closest('button, input, select, textarea, a, .booking-editor-preview')) {
+          onSelect(section);
+        }
       }}
     >
       <button
@@ -113,15 +117,25 @@ export function BookingSectionCard({
             <span>
               <strong className="section-card__title">Booking</strong>
               <span className="section-card__description">
-                {layoutMeta.label} · {fixture.services.length} services
+                {layoutMeta.label}
+                {' · '}
+                {fixture.services.length}
+                {' '}
+                services
               </span>
             </span>
           </span>
           <span className="section-card__badges">
             <span className="size-badge">{layoutMeta.shortLabel}</span>
-            {!section.visible ? (
-              <span className="hidden-badge"><EyeOff aria-hidden="true" size={14} /> Hidden</span>
-            ) : null}
+            {!section.visible
+              ? (
+                  <span className="hidden-badge">
+                    <EyeOff aria-hidden="true" size={14} />
+                    {' '}
+                    Hidden
+                  </span>
+                )
+              : null}
             <span className="protected-badge">Always bookable</span>
           </span>
         </span>
@@ -140,7 +154,9 @@ export function BookingSectionCard({
             headingLevel={headingLevel}
             mode="edit"
             onOwnerSelect={() => {
-              if (!selected) onSelect(section);
+              if (!selected) {
+                onSelect(section);
+              }
             }}
             presentationSettings={section.settings}
             session={session}
@@ -149,23 +165,27 @@ export function BookingSectionCard({
           />
         </div>
         {collapsed ? <div aria-hidden="true" className="booking-editor-preview__fade" /> : null}
-        {collapsed ? (
-          <button className="booking-editor-preview__edge-toggle" type="button" onClick={toggleCollapse}>
-            Show full preview
-          </button>
-        ) : null}
+        {collapsed
+          ? (
+              <button className="booking-editor-preview__edge-toggle" type="button" onClick={toggleCollapse}>
+                Show full preview
+              </button>
+            )
+          : null}
       </div>
-      {isLong ? (
-        <button
-          aria-controls={`booking-preview-${section.id}`}
-          aria-expanded={!collapsed}
-          className="booking-editor-preview__toggle"
-          type="button"
-          onClick={toggleCollapse}
-        >
-          {collapsed ? 'Show full preview' : 'Collapse preview'}
-        </button>
-      ) : null}
+      {isLong
+        ? (
+            <button
+              aria-controls={`booking-preview-${section.id}`}
+              aria-expanded={!collapsed}
+              className="booking-editor-preview__toggle"
+              type="button"
+              onClick={toggleCollapse}
+            >
+              {collapsed ? 'Show full preview' : 'Collapse preview'}
+            </button>
+          )
+        : null}
     </article>
   );
 }

@@ -7,10 +7,10 @@ import {
 } from '../../custom-design/integration/CustomDesignAssetProvider';
 import {
   createCustomDesignIdFactory,
-  reconcileCtaPlacementForImages,
   type CustomDesignDisplayMode,
   type CustomDesignImageItem,
   type CustomDesignSettings,
+  reconcileCtaPlacementForImages,
 } from '../../custom-design/model';
 import type {
   BuilderCommand,
@@ -19,12 +19,12 @@ import type {
   PageDocument,
   SiteBuilderDocument,
 } from '../../model';
-import { useLabDocument } from '../../ui/useLabDocument';
+import type { useLabDocument } from '../../ui/useLabDocument';
 
 export type CanvaPlacement = 'after_booking' | 'before_booking';
 
-export const CANVA_UPLOADS_UNAVAILABLE_MESSAGE =
-  'Uploads aren’t available in this browser right now. Try again or use another browser.';
+export const CANVA_UPLOADS_UNAVAILABLE_MESSAGE
+  = 'Uploads aren’t available in this browser right now. Try again or use another browser.';
 
 export type CanvaLabDocumentController = Pick<
   ReturnType<typeof useLabDocument>,
@@ -133,8 +133,8 @@ const orderedSections = (page: PageDocument) =>
 export const locateCanonicalBookingPage = (
   document: SiteBuilderDocument,
 ): { bookingSectionId: string; page: PageDocument } | null => {
-  const locations = document.pages.flatMap((page) =>
-    page.sections.flatMap((section) =>
+  const locations = document.pages.flatMap(page =>
+    page.sections.flatMap(section =>
       section.sectionType === 'booking'
         ? [{ bookingSectionId: section.id, page }]
         : []),
@@ -154,15 +154,19 @@ export const getCanvaPlacementTarget = (
   movingSectionId?: string | null,
 ): CanvaPlacementTarget | null => {
   const location = locateCanonicalBookingPage(document);
-  if (!location) return null;
+  if (!location) {
+    return null;
+  }
 
   const sections = orderedSections(location.page).filter(
-    (section) => section.id !== movingSectionId,
+    section => section.id !== movingSectionId,
   );
   const bookingIndex = sections.findIndex(
-    (section) => section.id === location.bookingSectionId,
+    section => section.id === location.bookingSectionId,
   );
-  if (bookingIndex < 0) return null;
+  if (bookingIndex < 0) {
+    return null;
+  }
 
   return {
     bookingSectionId: location.bookingSectionId,
@@ -180,7 +184,9 @@ export const locateOnboardingCustomDesign = (
       (candidate): candidate is CustomDesignSectionInstance =>
         candidate.id === sectionId && candidate.sectionType === 'custom_design',
     );
-    if (section) return { pageId: page.id, section };
+    if (section) {
+      return { pageId: page.id, section };
+    }
   }
 
   const section = document.unusedSections.find(
@@ -197,7 +203,9 @@ const runDocumentCommand = (
   command: BuilderCommand,
 ): SiteBuilderDocument => {
   const result = lab.runCommand(command);
-  if (!result.success) throw new Error(result.message);
+  if (!result.success) {
+    throw new Error(result.message);
+  }
   return result.document;
 };
 
@@ -235,7 +243,9 @@ const prepareImageTransition = (
     },
     type: 'update_custom_design_settings',
   });
-  if (!prepared.success) throw new Error(prepared.message);
+  if (!prepared.success) {
+    throw new Error(prepared.message);
+  }
 
   return {
     cancel: prepared.cancel,
@@ -249,7 +259,9 @@ const rollbackFailedIntegration = (
   checkpoint: HistoryState,
   createdSectionId: string | null,
 ): void => {
-  if (lab.restoreHistoryCheckpoint(checkpoint) || !createdSectionId) return;
+  if (lab.restoreHistoryCheckpoint(checkpoint) || !createdSectionId) {
+    return;
+  }
 
   const history = lab.getHistorySnapshot();
   const created = history
@@ -320,7 +332,7 @@ const ensureCustomDesignSection = (
   }
 
   const beforeIds = new Set(
-    document.pages.flatMap((page) => page.sections.map((section) => section.id)),
+    document.pages.flatMap(page => page.sections.map(section => section.id)),
   );
   const next = runDocumentCommand(lab, {
     input: {
@@ -331,12 +343,14 @@ const ensureCustomDesignSection = (
     type: 'add_section',
   });
   const created = next.pages
-    .find((page) => page.id === target.pageId)
+    .find(page => page.id === target.pageId)
     ?.sections.find(
       (section): section is CustomDesignSectionInstance =>
         section.sectionType === 'custom_design' && !beforeIds.has(section.id),
     );
-  if (!created) throw new Error('The Canva design was not created.');
+  if (!created) {
+    throw new Error('The Canva design was not created.');
+  }
 
   return { created: true, document: next, sectionId: created.id };
 };
@@ -393,7 +407,7 @@ export const integrateCanvaDesign = async ({
       createImageItemId,
       currentImages: current.section.settings.images,
       files: input.files,
-      prepareDocumentTransition: (images) => prepareImageTransition(
+      prepareDocumentTransition: images => prepareImageTransition(
         lab,
         ensured.sectionId,
         expectedImagesJson,
@@ -405,7 +419,9 @@ export const integrateCanvaDesign = async ({
     const committed = upload.documentChanged && upload.added.length > 0;
     if (!committed) {
       rollbackFailedIntegration(lab, checkpoint, createdSectionId);
-      if (createdSectionId) onSectionIdChange?.(null);
+      if (createdSectionId) {
+        onSectionIdChange?.(null);
+      }
       return {
         addedCount: 0,
         addedImages: [],
@@ -423,7 +439,7 @@ export const integrateCanvaDesign = async ({
     onSectionIdChange?.(ensured.sectionId);
     return {
       addedCount: upload.added.length,
-      addedImages: upload.added.map((image) => ({
+      addedImages: upload.added.map(image => ({
         assetId: image.assetId,
         fileName: image.fileName,
         id: image.id,
@@ -440,7 +456,9 @@ export const integrateCanvaDesign = async ({
     };
   } catch (error) {
     rollbackFailedIntegration(lab, checkpoint, createdSectionId);
-    if (createdSectionId) onSectionIdChange?.(null);
+    if (createdSectionId) {
+      onSectionIdChange?.(null);
+    }
     return failed(
       'failed',
       error instanceof Error
@@ -476,7 +494,9 @@ const updateCanvaSettings = (
     settings: nextSettings,
     type: 'update_custom_design_settings',
   });
-  if (!result.success) return managerFailure(result.message);
+  if (!result.success) {
+    return managerFailure(result.message);
+  }
   const next = locateCustomDesign(result.document, sectionId);
   return {
     section: next?.section ?? null,
@@ -489,7 +509,9 @@ export const saveCanvaSettings = (
   input: SaveCanvaSettingsInput,
 ): CanvaManagerResult => {
   const checkpoint = lab.createHistoryCheckpoint();
-  if (!checkpoint) return managerFailure('Choose a starting point before editing Canva.');
+  if (!checkpoint) {
+    return managerFailure('Choose a starting point before editing Canva.');
+  }
   try {
     const ensured = ensureCustomDesignSection(
       lab,
@@ -525,7 +547,9 @@ export const reorderCanvaImages = (
     const image = imagesById.get(id);
     return image ? [image] : [];
   });
-  if (images.length !== settings.images.length) return settings;
+  if (images.length !== settings.images.length) {
+    return settings;
+  }
   return { ...settings, images };
 });
 
@@ -535,7 +559,9 @@ export const removeCanvaImage = async (
   sectionId: string,
   imageItemId: string,
 ): Promise<CanvaManagerResult> => {
-  if (!coordinator) return managerFailure(CANVA_UPLOADS_UNAVAILABLE_MESSAGE);
+  if (!coordinator) {
+    return managerFailure(CANVA_UPLOADS_UNAVAILABLE_MESSAGE);
+  }
   const history = lab.getHistorySnapshot();
   const current = history ? locateCustomDesign(history.present, sectionId) : null;
   const removed = current?.section.settings.images.find(image => image.id === imageItemId);
@@ -554,16 +580,20 @@ export const removeCanvaImage = async (
         };
       });
     });
-    if (!mutation.success) return mutation;
+    if (!mutation.success) {
+      return mutation;
+    }
     const cleanupErrors = await coordinator.deleteAssetsIfUnreferenced([removed.assetId]);
     return {
       ...mutation,
-      ...(cleanupErrors.length > 0 ? {
-        cleanupWarnings: cleanupErrors.map(() => ({
-          fileName: removed.fileName,
-          message: 'The page was removed, but its earlier browser copy still needs cleanup.',
-        })),
-      } : {}),
+      ...(cleanupErrors.length > 0
+        ? {
+            cleanupWarnings: cleanupErrors.map(() => ({
+              fileName: removed.fileName,
+              message: 'The page was removed, but its earlier browser copy still needs cleanup.',
+            })),
+          }
+        : {}),
     };
   } catch (error) {
     return managerFailure(error instanceof Error
@@ -580,7 +610,9 @@ export const replaceCanvaImage = async (
   imageItemId: string,
   file: File,
 ): Promise<CanvaManagerResult> => {
-  if (!coordinator) return managerFailure(CANVA_UPLOADS_UNAVAILABLE_MESSAGE, file.name);
+  if (!coordinator) {
+    return managerFailure(CANVA_UPLOADS_UNAVAILABLE_MESSAGE, file.name);
+  }
   const history = lab.getHistorySnapshot();
   const current = history ? locateCustomDesign(history.present, sectionId) : null;
   if (!current || current.pageId === null) {
@@ -589,7 +621,9 @@ export const replaceCanvaImage = async (
   const replacedImage = current.section.settings.images.find(
     image => image.id === imageItemId,
   );
-  if (!replacedImage) return managerFailure('This Canva page is no longer available.', file.name);
+  if (!replacedImage) {
+    return managerFailure('This Canva page is no longer available.', file.name);
+  }
   const expectedImagesJson = JSON.stringify(current.section.settings.images);
   try {
     const result = await coordinator.replaceImage({
@@ -623,12 +657,14 @@ export const replaceCanvaImage = async (
     const nextHistory = lab.getHistorySnapshot();
     const next = nextHistory ? locateCustomDesign(nextHistory.present, sectionId) : null;
     return {
-      ...(cleanupErrors.length > 0 ? {
-        cleanupWarnings: cleanupErrors.map(() => ({
-          fileName: replacedImage.fileName,
-          message: 'The replacement is saved, but the earlier browser copy still needs cleanup.',
-        })),
-      } : {}),
+      ...(cleanupErrors.length > 0
+        ? {
+            cleanupWarnings: cleanupErrors.map(() => ({
+              fileName: replacedImage.fileName,
+              message: 'The replacement is saved, but the earlier browser copy still needs cleanup.',
+            })),
+          }
+        : {}),
       section: next?.section ?? null,
       success: Boolean(next?.section),
     };
@@ -644,7 +680,9 @@ export const removeCanvaDesign = async (
   lab: CanvaLabDocumentController,
   sectionId: string,
 ): Promise<CanvaManagerResult> => {
-  if (!coordinator) return managerFailure(CANVA_UPLOADS_UNAVAILABLE_MESSAGE);
+  if (!coordinator) {
+    return managerFailure(CANVA_UPLOADS_UNAVAILABLE_MESSAGE);
+  }
   const checkpoint = lab.createHistoryCheckpoint();
   const current = checkpoint ? locateCustomDesign(checkpoint.present, sectionId) : null;
   if (!current || current.pageId === null) {
@@ -654,21 +692,27 @@ export const removeCanvaDesign = async (
   try {
     await coordinator.coordinateDocumentMutation(() => {
       const removed = lab.runCommand({ sectionId, type: 'remove_section' });
-      if (!removed.success) throw new Error(removed.message);
+      if (!removed.success) {
+        throw new Error(removed.message);
+      }
     });
     const cleanupErrors = await coordinator.deleteAssetsIfUnreferenced(assetIds);
     return {
-      ...(cleanupErrors.length > 0 ? {
-        cleanupWarnings: cleanupErrors.map((_, index) => ({
-          fileName: current.section.settings.images[index]?.fileName ?? 'Canva page',
-          message: 'The design was removed, but an earlier browser copy still needs cleanup.',
-        })),
-      } : {}),
+      ...(cleanupErrors.length > 0
+        ? {
+            cleanupWarnings: cleanupErrors.map((_, index) => ({
+              fileName: current.section.settings.images[index]?.fileName ?? 'Canva page',
+              message: 'The design was removed, but an earlier browser copy still needs cleanup.',
+            })),
+          }
+        : {}),
       section: null,
       success: true,
     };
   } catch (error) {
-    if (checkpoint) lab.restoreHistoryCheckpoint(checkpoint);
+    if (checkpoint) {
+      lab.restoreHistoryCheckpoint(checkpoint);
+    }
     return managerFailure(error instanceof Error
       ? error.message
       : 'The Canva design could not be removed safely.');
@@ -702,7 +746,9 @@ export const useCanvaIntegration = ({
   );
   const removeDesign = useCallback(async (sectionId: string) => {
     const result = await removeCanvaDesign(coordinator, lab, sectionId);
-    if (result.success) onSectionIdChange?.(null);
+    if (result.success) {
+      onSectionIdChange?.(null);
+    }
     return result;
   }, [coordinator, lab, onSectionIdChange]);
   const removeImage = useCallback(

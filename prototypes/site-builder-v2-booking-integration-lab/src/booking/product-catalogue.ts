@@ -17,9 +17,13 @@ export function connectProductServiceCatalogue(
   return [
     ...acceptedServices,
     ...SERVICE_MENU_PRODUCTION_MAPPINGS.flatMap((mapping): MockService[] => {
-      if (acceptedIds.has(mapping.labServiceId)) return [];
+      if (acceptedIds.has(mapping.labServiceId)) {
+        return [];
+      }
       const template = getTemplateByKey(mapping.productionCanonicalId);
-      if (!template || template.serviceType === 'addon') return [];
+      if (!template || template.serviceType === 'addon') {
+        return [];
+      }
       return [{
         category: template.bookingCategory === 'combo'
           ? 'combos'
@@ -59,9 +63,13 @@ export function connectProductAddOnCatalogue(
   return [
     ...acceptedAddOns,
     ...ADD_ON_PRODUCTION_MAPPINGS.flatMap((mapping): MockAddOn[] => {
-      if (acceptedIds.has(mapping.labServiceId)) return [];
+      if (acceptedIds.has(mapping.labServiceId)) {
+        return [];
+      }
       const template = getTemplateByKey(mapping.productionCanonicalId);
-      if (!template || template.serviceType !== 'addon') return [];
+      if (!template || template.serviceType !== 'addon') {
+        return [];
+      }
       return [{
         durationMinutes: template.defaultDurationMinutes,
         id: mapping.labServiceId,

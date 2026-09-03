@@ -2,8 +2,8 @@ import { IDBFactory, IDBObjectStore } from 'fake-indexeddb';
 
 import {
   CUSTOM_DESIGN_ORIGINAL_BLOB_STORE_NAME,
-  IndexedDbAssetRepository,
   type ImageAssetMetadata,
+  IndexedDbAssetRepository,
   type PreparedImageAsset,
 } from '../assets';
 import type {
@@ -13,8 +13,18 @@ import type {
 import { CustomDesignAssetTransactionCoordinator } from './AssetTransactionCoordinator';
 
 const pngBytes = new Uint8Array([
-  0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
-  0x00, 0x00, 0x00, 0x00,
+  0x89,
+  0x50,
+  0x4E,
+  0x47,
+  0x0D,
+  0x0A,
+  0x1A,
+  0x0A,
+  0x00,
+  0x00,
+  0x00,
+  0x00,
 ]);
 
 const imageFile = (name: string): File =>
@@ -115,8 +125,8 @@ const interceptCoordinatorBinaryWrites = (): {
       };
       if (this.name === CUSTOM_DESIGN_ORIGINAL_BLOB_STORE_NAME) {
         if (
-          record.assetId === 'custom_design_asset_fallback' &&
-          record.blob instanceof Blob
+          record.assetId === 'custom_design_asset_fallback'
+          && record.blob instanceof Blob
         ) {
           throw new DOMException(
             'BlobURLs are not yet supported',
@@ -124,12 +134,14 @@ const interceptCoordinatorBinaryWrites = (): {
           );
         }
         if (
-          record.assetId === 'custom_design_asset_quota' &&
-          record.blob instanceof Blob
+          record.assetId === 'custom_design_asset_quota'
+          && record.blob instanceof Blob
         ) {
           throw new DOMException('Browser storage is full.', 'QuotaExceededError');
         }
-        if (record.storageKind === 'array_buffer') fallbackWrites += 1;
+        if (record.storageKind === 'array_buffer') {
+          fallbackWrites += 1;
+        }
       }
       return Reflect.apply(
         originalAdd,
@@ -151,7 +163,7 @@ describe('CustomDesignAssetTransactionCoordinator', () => {
       cancel,
       changed: true,
       publish: () => {
-        harness.setReachable(images.map((image) => image.assetId));
+        harness.setReachable(images.map(image => image.assetId));
         return true;
       },
     }));
@@ -183,6 +195,7 @@ describe('CustomDesignAssetTransactionCoordinator', () => {
       'committed',
     );
     expect(cancel).not.toHaveBeenCalled();
+
     harness.repository.close();
   });
 
@@ -199,10 +212,10 @@ describe('CustomDesignAssetTransactionCoordinator', () => {
         decodeImage: decode,
         files: [imageFile('normal.png'), imageFile('fallback.png')],
         generateThumbnail: noThumbnail,
-        prepareDocumentTransition: (images) => ({
+        prepareDocumentTransition: images => ({
           changed: true,
           publish: () => {
-            harness.setReachable(images.map((image) => image.assetId));
+            harness.setReachable(images.map(image => image.assetId));
             return true;
           },
         }),
@@ -213,7 +226,7 @@ describe('CustomDesignAssetTransactionCoordinator', () => {
         failures: [],
         status: 'committed',
       });
-      expect(result.added.map((image) => image.assetId)).toEqual([
+      expect(result.added.map(image => image.assetId)).toEqual([
         'custom_design_asset_normal',
         'custom_design_asset_fallback',
       ]);
@@ -243,17 +256,17 @@ describe('CustomDesignAssetTransactionCoordinator', () => {
         decodeImage: decode,
         files: [imageFile('fallback.png'), imageFile('quota.png')],
         generateThumbnail: noThumbnail,
-        prepareDocumentTransition: (images) => ({
+        prepareDocumentTransition: images => ({
           changed: true,
           publish: () => {
-            harness.setReachable(images.map((image) => image.assetId));
+            harness.setReachable(images.map(image => image.assetId));
             return true;
           },
         }),
       });
 
       expect(result.status).toBe('partial');
-      expect(result.added.map((image) => image.assetId)).toEqual([
+      expect(result.added.map(image => image.assetId)).toEqual([
         'custom_design_asset_fallback',
       ]);
       expect(result.failures).toMatchObject([
@@ -301,6 +314,7 @@ describe('CustomDesignAssetTransactionCoordinator', () => {
     await expect(
       harness.repository.list({ includeStaged: true }),
     ).resolves.toEqual([]);
+
     harness.repository.close();
   });
 
@@ -331,6 +345,7 @@ describe('CustomDesignAssetTransactionCoordinator', () => {
       'deleted',
     );
     expect(cancel).toHaveBeenCalledOnce();
+
     harness.repository.close();
   });
 
@@ -362,6 +377,7 @@ describe('CustomDesignAssetTransactionCoordinator', () => {
     await expect(
       harness.repository.list({ includeStaged: true }),
     ).resolves.toEqual([]);
+
     harness.repository.close();
   });
 
@@ -393,6 +409,7 @@ describe('CustomDesignAssetTransactionCoordinator', () => {
     await expect(
       harness.repository.list({ includeStaged: true }),
     ).resolves.toEqual([]);
+
     harness.repository.close();
   });
 
@@ -422,6 +439,7 @@ describe('CustomDesignAssetTransactionCoordinator', () => {
     await expect(
       harness.repository.list({ includeStaged: true }),
     ).resolves.toEqual([]);
+
     harness.repository.close();
   });
 
@@ -438,7 +456,7 @@ describe('CustomDesignAssetTransactionCoordinator', () => {
       file: imageFile('replacement.png'),
       generateThumbnail: noThumbnail,
       imageItemId: current.id,
-      prepareDocumentTransition: (images) => ({
+      prepareDocumentTransition: images => ({
         changed: true,
         publish: () => {
           // A real history scan sees both new present and old past snapshots.
@@ -466,6 +484,7 @@ describe('CustomDesignAssetTransactionCoordinator', () => {
       ['custom_design_asset_old', 'custom_design_asset_new'],
       'replaced',
     );
+
     harness.repository.close();
   });
 
@@ -484,6 +503,7 @@ describe('CustomDesignAssetTransactionCoordinator', () => {
     });
     await expect(harness.repository.has('keep')).resolves.toBe(true);
     await expect(harness.repository.has('delete')).resolves.toBe(false);
+
     harness.repository.close();
   });
 
@@ -504,6 +524,7 @@ describe('CustomDesignAssetTransactionCoordinator', () => {
     await expect(harness.repository.has('still-referenced')).resolves.toBe(true);
     await expect(harness.repository.has('unrelated')).resolves.toBe(true);
     expect(harness.changed).toHaveBeenCalledWith(['onboarding-owned'], 'deleted');
+
     harness.repository.close();
   });
 
@@ -532,6 +553,7 @@ describe('CustomDesignAssetTransactionCoordinator', () => {
     await vi.waitFor(() => expect(order).toEqual(['mutation-start']));
     releaseMutation();
     await mutation;
+
     await expect(cleanup).resolves.toEqual({
       deleted: [],
       failed: [],
@@ -539,6 +561,7 @@ describe('CustomDesignAssetTransactionCoordinator', () => {
     });
     expect(order).toEqual(['mutation-start', 'mutation-finish', 'cleanup']);
     await expect(harness.repository.has('imported-reference')).resolves.toBe(true);
+
     harness.repository.close();
   });
 
@@ -556,6 +579,7 @@ describe('CustomDesignAssetTransactionCoordinator', () => {
       ['committed', 'staged'],
       'deleted',
     );
+
     harness.repository.close();
   });
 
@@ -595,7 +619,9 @@ describe('CustomDesignAssetTransactionCoordinator', () => {
     await vi.waitFor(() => expect(transitions).toEqual(['prepare-first']));
     releaseFirst();
     await Promise.all([first, second]);
+
     expect(transitions).toEqual(['prepare-first', 'prepare-second']);
+
     harness.repository.close();
   });
 });

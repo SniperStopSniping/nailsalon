@@ -127,7 +127,7 @@ const planFor = (type: AccessibleTypeId): SitePlanPage[] => {
     isHome: true,
     label: 'Accessibility',
     order: 0,
-    sections: sections.map((section, index) => ({
+    sections: sections.map(section => ({
       attachedToPrevious: false,
       id: section.id,
       injected: false,
@@ -145,14 +145,20 @@ const planFor = (type: AccessibleTypeId): SitePlanPage[] => {
 
 const accessibleName = (element: Element): string => {
   const label = element.getAttribute('aria-label');
-  if (label && label.trim()) return label.trim();
+  if (label && label.trim()) {
+    return label.trim();
+  }
   const labelledBy = element.getAttribute('aria-labelledby');
   if (labelledBy) {
     const target = element.ownerDocument.getElementById(labelledBy);
-    if (target?.textContent?.trim()) return target.textContent.trim();
+    if (target?.textContent?.trim()) {
+      return target.textContent.trim();
+    }
   }
   const title = element.getAttribute('title');
-  if (title && title.trim()) return title.trim();
+  if (title && title.trim()) {
+    return title.trim();
+  }
   return (element.textContent ?? '').trim();
 };
 
@@ -228,8 +234,10 @@ describe('customer section accessibility', () => {
       );
 
       const node = container.querySelector(`[data-section-id="a11y-${type}"]`);
+
       // Section Navigation with real targets renders; every other type must too.
       expect(node, `${type} did not render`).not.toBeNull();
+
       const section = node!;
 
       // 1. The section is a labelled region or a heading-led block.
@@ -239,6 +247,7 @@ describe('customer section accessibility', () => {
       const label = section.getAttribute('aria-label')
         ?? nestedLandmark?.getAttribute('aria-label');
       const heading = section.querySelector('h1, h2, h3');
+
       expect(
         Boolean(label?.trim()) || Boolean(heading?.textContent?.trim()),
         `${type} has neither an accessible label nor a heading`,
@@ -265,7 +274,10 @@ describe('customer section accessibility', () => {
       const levels = [...section.querySelectorAll('h1, h2, h3, h4, h5, h6')]
         .map(element => Number(element.tagName.slice(1)));
       for (const [index, level] of levels.entries()) {
-        if (index === 0) continue;
+        if (index === 0) {
+          continue;
+        }
+
         expect(
           level - (levels[index - 1] ?? level),
           `${type}: heading levels skip (${levels.join(' → ')})`,
@@ -279,6 +291,7 @@ describe('customer section accessibility', () => {
         const targetId = href.slice(1);
         const resolvable = targetId === 'booking'
           || container.querySelector(`#${CSS.escape(targetId)}`) !== null;
+
         expect(resolvable, `${type}: dangling in-page link ${href}`).toBe(true);
       }
     },
@@ -354,6 +367,7 @@ describe('customer section accessibility', () => {
       />,
     );
     const region = getByRole('region', { name: 'Customer website preview' });
+
     expect(region.getAttribute('aria-describedby')).toBeTruthy();
     expect(within(region).getByRole('region', { name: 'Customer website viewport' }))
       .toBeTruthy();

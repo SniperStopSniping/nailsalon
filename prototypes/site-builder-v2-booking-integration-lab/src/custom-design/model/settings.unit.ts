@@ -1,9 +1,9 @@
+import { createCustomDesignAssetManifest } from './backup';
 import {
   CUSTOM_DESIGN_MAX_FILE_BYTES,
   CUSTOM_DESIGN_MAX_IMAGES,
   CUSTOM_DESIGN_MAX_SECTION_BYTES,
 } from './constants';
-import { createCustomDesignAssetManifest } from './backup';
 import { createDeterministicCustomDesignIdFactory } from './ids';
 import {
   createDefaultCustomDesignSettings,
@@ -49,6 +49,7 @@ const image = (
 describe('Custom Design model and settings validation', () => {
   it('creates migration-safe recommended defaults', () => {
     const settings = createDefaultCustomDesignSettings();
+
     expect(settings).toEqual({
       schemaVersion: 1,
       images: [],
@@ -65,6 +66,7 @@ describe('Custom Design model and settings validation', () => {
 
   it('creates stable image, asset, and area IDs for the universal section', () => {
     const ids = createDeterministicCustomDesignIdFactory('contract');
+
     expect(ids('section')).toBe('custom_design_section_contract_1');
     expect(ids('image')).toBe('custom_design_image_contract_1');
     expect(ids('asset')).toBe('custom_design_asset_contract_1');
@@ -93,8 +95,13 @@ describe('Custom Design model and settings validation', () => {
     const validated = validateCustomDesignImageMetadata(image('summary', {
       accessibleSummary: '  Deposit policy\r\nBring photo ID.\rContact us\twith questions.  ',
     }));
+
     expect(validated.success).toBe(true);
-    if (!validated.success) return;
+
+    if (!validated.success) {
+      return;
+    }
+
     expect(validated.value.accessibleSummary).toBe(
       'Deposit policy\nBring photo ID.\nContact us\twith questions.',
     );
@@ -102,6 +109,7 @@ describe('Custom Design model and settings validation', () => {
     const roundTrip = validateCustomDesignImageMetadata(
       JSON.parse(JSON.stringify(validated.value)),
     );
+
     expect(roundTrip).toEqual(validated);
     expect(validateCustomDesignImageMetadata(image('unsafe-summary', {
       accessibleSummary: 'Policy\u0000hidden payload',
@@ -133,6 +141,7 @@ describe('Custom Design model and settings validation', () => {
     })).success).toBe(false);
 
     const defaults = createDefaultCustomDesignSettings();
+
     expect(validateCustomDesignSettings({
       ...defaults,
       images: Array.from({ length: CUSTOM_DESIGN_MAX_IMAGES + 1 }, (_, index) =>
@@ -149,6 +158,7 @@ describe('Custom Design model and settings validation', () => {
 
   it('validates bounded areas, semantic order, labels, overlap, and full-image safety', () => {
     const defaults = createDefaultCustomDesignSettings();
+
     expect(validateCustomDesignSettings({
       ...defaults,
       images: [image('areas', {
@@ -189,7 +199,9 @@ describe('Custom Design model and settings validation', () => {
         image('second', { interactiveAreas: [area()] }),
       ],
     });
+
     expect(result.success).toBe(false);
+
     if (!result.success) {
       expect(result.issues.join(' ')).toContain('duplicated across images');
     }
@@ -209,6 +221,7 @@ describe('Custom Design model and settings validation', () => {
       customBackground: '#aabbcc',
       cta: { type: 'none' },
     });
+
     expect(fallback.images).toHaveLength(1);
     expect(fallback.images[0]?.interactiveAreas).toEqual([area()]);
     expect(fallback).toMatchObject({
@@ -228,6 +241,7 @@ describe('Custom Design model and settings validation', () => {
         placement: { type: 'after_all' },
       },
     };
+
     expect(parseCustomDesignSettings(legacy).cta).toEqual({ type: 'none' });
     expect(validateCustomDesignSettings(legacy).success).toBe(false);
   });
@@ -240,6 +254,7 @@ describe('Custom Design model and settings validation', () => {
         image('second', { interactiveAreas: [area()] }),
       ],
     });
+
     expect(parsed.images[0]?.interactiveAreas).toHaveLength(1);
     expect(parsed.images[1]?.interactiveAreas).toHaveLength(0);
     expect(validateCustomDesignSettings(parsed).success).toBe(true);
@@ -259,7 +274,8 @@ describe('Custom Design model and settings validation', () => {
         }),
       ],
     });
-    expect(parsed.images.map((candidate) => candidate.id)).toEqual(['first', 'same']);
+
+    expect(parsed.images.map(candidate => candidate.id)).toEqual(['first', 'same']);
     expect(validateCustomDesignSettings(parsed).success).toBe(true);
     expect(() => createCustomDesignAssetManifest([parsed])).not.toThrow();
 
@@ -275,8 +291,12 @@ describe('Custom Design model and settings validation', () => {
         }),
       ],
     });
+
     expect(strict.success).toBe(false);
-    if (!strict.success) expect(strict.issues.join(' ')).toContain('conflicting image metadata');
+
+    if (!strict.success) {
+      expect(strict.issues.join(' ')).toContain('conflicting image metadata');
+    }
   });
 
   it('canonicalizes accepted aspect-ratio metadata from natural dimensions', () => {
@@ -285,8 +305,13 @@ describe('Custom Design model and settings validation', () => {
       height: 2_000,
       aspectRatio: 1.500_000_5,
     }));
+
     expect(result).toMatchObject({ success: true });
-    if (result.success) expect(result.value.aspectRatio).toBe(1.5);
+
+    if (result.success) {
+      expect(result.value.aspectRatio).toBe(1.5);
+    }
+
     expect(validateCustomDesignImageMetadata(image('bad-ratio', {
       width: 100,
       height: 10_000,
@@ -300,6 +325,7 @@ describe('Custom Design model and settings validation', () => {
       images: [image('serializable', { interactiveAreas: [area()] })],
     };
     const serialized = JSON.stringify(settings);
+
     expect(serialized).not.toContain('data:image');
     expect(serialized).not.toContain('blob:');
     expect(JSON.parse(serialized)).toEqual(settings);

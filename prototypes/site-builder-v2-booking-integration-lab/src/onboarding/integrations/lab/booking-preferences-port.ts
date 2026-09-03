@@ -1,8 +1,8 @@
 import {
-  DEPOSIT_PRESET_CENTS,
-  MINIMUM_NOTICE_PRESET_MINUTES,
   type BookingPreferencesPort,
+  DEPOSIT_PRESET_CENTS,
   type DepositDraft,
+  MINIMUM_NOTICE_PRESET_MINUTES,
 } from '../contracts/booking-preferences';
 import { createLabBookingAvailabilityPreview } from './booking-availability-preview';
 
@@ -19,7 +19,9 @@ const normalizeMinimumNoticeMinutes = (value: number): number => Math.min(
 );
 
 const normalizeAmountCents = (value: number | null): number | null => {
-  if (value === null || !Number.isFinite(value)) return null;
+  if (value === null || !Number.isFinite(value)) {
+    return null;
+  }
   return Math.min(finiteWholeNumber(value), MAXIMUM_DEPOSIT_CENTS);
 };
 
@@ -44,7 +46,7 @@ export const createLabBookingPreferencesPort = (): BookingPreferencesPort => ({
     }
     return { amount: normalized > 0 ? String(normalized / 60) : '', unit: 'hours' };
   },
-  getDepositAmountChoice: (amountCents) => amountCents !== null
+  getDepositAmountChoice: amountCents => amountCents !== null
     && DEPOSIT_PRESET_CENTS.includes(amountCents as typeof DEPOSIT_PRESET_CENTS[number])
     ? `preset:${amountCents as typeof DEPOSIT_PRESET_CENTS[number]}`
     : 'custom',
@@ -58,7 +60,9 @@ export const createLabBookingPreferencesPort = (): BookingPreferencesPort => ({
   },
   normalizeCustomDepositAmount: (amount) => {
     const trimmed = amount.trim().replace(/^\$/u, '');
-    if (!trimmed) return null;
+    if (!trimmed) {
+      return null;
+    }
     const parsed = Number(trimmed);
     return Number.isFinite(parsed) && parsed > 0
       ? normalizeAmountCents(parsed * 100)
@@ -66,9 +70,13 @@ export const createLabBookingPreferencesPort = (): BookingPreferencesPort => ({
   },
   normalizeCustomMinimumNotice: (amount, unit) => {
     const trimmed = amount.trim();
-    if (!trimmed) return null;
+    if (!trimmed) {
+      return null;
+    }
     const parsed = Number(trimmed);
-    if (!Number.isFinite(parsed) || parsed <= 0) return null;
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+      return null;
+    }
     const multiplier = unit === 'days' ? 1_440 : 60;
     return normalizeMinimumNoticeMinutes(parsed * multiplier);
   },

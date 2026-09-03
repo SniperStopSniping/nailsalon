@@ -13,8 +13,8 @@ import { hasCustomDesignArtwork } from '../custom-design/model/settings';
 import type { CustomDesignSettings } from '../custom-design/model/types';
 import {
   buildSiteContentPlacementPlan,
-  getSiteContentAvailability,
   getSectionContentSuppressions,
+  getSiteContentAvailability,
   type SectionContentSuppression,
   type SiteContentPlacementPlan,
 } from './content-placement';
@@ -156,12 +156,16 @@ const sectionRendersForCustomer = (
   customDesignIsRenderable: (settings: CustomDesignSettings) => boolean,
   quickBookUsesCompactProfile: boolean,
 ): boolean => {
-  if (section.sectionType === 'booking') return true;
+  if (section.sectionType === 'booking') {
+    return true;
+  }
   if (section.sectionType === 'custom_design') {
     return customDesignIsRenderable(section.settings)
       && (!includeOptionalSections || toggles.canvaEnabled);
   }
-  if (!isLibrarySection(section)) return false; // legacy placeholders render nothing
+  if (!isLibrarySection(section)) {
+    return false;
+  } // legacy placeholders render nothing
   if (
     quickBookUsesCompactProfile
     && QUICK_BOOK_PROFILE_OWNED_SECTION_TYPES.has(section.sectionType)
@@ -185,8 +189,8 @@ const sectionRendersForCustomer = (
   if (
     (section.sectionType === 'policies'
       || section.sectionType === 'deposits_cancellations')
-    && includeOptionalSections
-    && !toggles.policiesEnabled
+      && includeOptionalSections
+      && !toggles.policiesEnabled
   ) {
     return false;
   }
@@ -242,7 +246,7 @@ const INJECTION_RULES: readonly InjectionRule[] = [
     placement: 'end',
     satisfiedBy: ['contact', 'visit_us'],
     type: 'contact',
-    wanted: (context) => context.hasContactSectionContent,
+    wanted: context => context.hasContactSectionContent,
   },
 ];
 
@@ -295,7 +299,9 @@ export const filterCustomerPagePlanSections = (
   include: (section: SitePlanSection) => boolean,
 ): SitePlanPage[] => pages.flatMap((page) => {
   const filtered = page.sections.filter(include);
-  if (filtered.length === page.sections.length) return [page];
+  if (filtered.length === page.sections.length) {
+    return [page];
+  }
   const sections = resolveAdjacency(dropUnanchorableNavigation(filtered));
   return sections.some(section => !CHROME_SECTION_TYPES.has(section.sectionType))
     ? [{ ...page, sections }]
@@ -326,12 +332,18 @@ export const getSectionPlanExclusion = (
     candidate => candidate.sections.some(section => section.id === sectionId),
   );
   const section = page?.sections.find(candidate => candidate.id === sectionId);
-  if (!page || !section) return null;
-  if (section.visible === false) return 'hidden';
+  if (!page || !section) {
+    return null;
+  }
+  if (section.visible === false) {
+    return 'hidden';
+  }
 
   const plan = buildCustomerPagePlan(document, options);
   const planned = plan.flatMap(planPage => planPage.sections);
-  if (planned.some(candidate => candidate.id === sectionId)) return null;
+  if (planned.some(candidate => candidate.id === sectionId)) {
+    return null;
+  }
 
   if (getSectionContentPlacementSuppressions(document, sectionId, options)
     .some(notice => notice.suppressEntireSection)) {
@@ -350,7 +362,9 @@ export const getSectionPlanExclusion = (
   ) {
     return 'not_ready';
   }
-  if (!plan.some(planPage => planPage.id === page.id)) return 'page_dropped';
+  if (!plan.some(planPage => planPage.id === page.id)) {
+    return 'page_dropped';
+  }
   if (section.sectionType === 'section_navigation') {
     return 'not_enough_navigation_targets';
   }
@@ -406,12 +420,12 @@ const buildStructuralCustomerPagePlan = (
 
   const injections = includeOptionalSections
     ? INJECTION_RULES.filter(rule =>
-        // Quick Book's compact profile owns shared identity, About, and policy
-        // presentation. Visit & Contact is a real recipe section after Booking
-        // (and optional Gallery); legacy injections may not recreate retired
-        // About/Contact/Policies duplicates.
-        !(document.originStarter === 'quick_book'
-          && (rule.type === 'about' || rule.type === 'contact' || rule.type === 'policies'))
+    // Quick Book's compact profile owns shared identity, About, and policy
+    // presentation. Visit & Contact is a real recipe section after Booking
+    // (and optional Gallery); legacy injections may not recreate retired
+    // About/Contact/Policies duplicates.
+      !(document.originStarter === 'quick_book'
+        && (rule.type === 'about' || rule.type === 'contact' || rule.type === 'policies'))
         && rule.wanted(context, toggles)
         && !hasType(rule.satisfiedBy))
     : [];
@@ -544,8 +558,8 @@ export const buildCustomerSiteComposition = (
   const structuralPages = buildStructuralCustomerPagePlan(document, options);
   const quickBookProfileSectionId = document.originStarter === 'quick_book'
     ? structuralPages.flatMap(page => page.sections).find(
-        section => section.sectionType === 'hero',
-      )?.id ?? null
+      section => section.sectionType === 'hero',
+    )?.id ?? null
     : null;
   const contentPlacement = buildSiteContentPlacementPlan(
     structuralPages,
@@ -562,22 +576,17 @@ export const buildCustomerSiteComposition = (
   return { contentPlacement, pages };
 };
 
-export const buildCustomerPagePlan = (
-  document: SiteBuilderDocument,
-  options: BuildCustomerPagePlanOptions,
-): SitePlanPage[] => buildCustomerSiteComposition(document, options).pages;
+export function buildCustomerPagePlan(document: SiteBuilderDocument, options: BuildCustomerPagePlanOptions): SitePlanPage[] {
+  return buildCustomerSiteComposition(document, options).pages;
+}
 
 /** Owner-facing detail for content the plan suppresses without deleting. */
-export const getSectionContentPlacementSuppressions = (
-  document: SiteBuilderDocument,
-  sectionId: string,
-  options: BuildCustomerPagePlanOptions,
-): readonly SectionContentSuppression[] => {
+export function getSectionContentPlacementSuppressions(document: SiteBuilderDocument, sectionId: string, options: BuildCustomerPagePlanOptions): readonly SectionContentSuppression[] {
   const structuralPages = buildStructuralCustomerPagePlan(document, options);
   const quickBookProfileSectionId = document.originStarter === 'quick_book'
     ? structuralPages.flatMap(page => page.sections).find(
-        section => section.sectionType === 'hero',
-      )?.id ?? null
+      section => section.sectionType === 'hero',
+    )?.id ?? null
     : null;
   return getSectionContentSuppressions(
     buildSiteContentPlacementPlan(
@@ -590,4 +599,4 @@ export const getSectionContentPlacementSuppressions = (
     ),
     sectionId,
   );
-};
+}

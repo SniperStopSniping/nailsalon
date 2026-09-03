@@ -8,16 +8,18 @@ import type {
 import type { CustomDesignImageItem } from '../../custom-design/model';
 import {
   applyHistoryCommand,
+  type BuilderCommand,
   collectReachableCustomDesignAssetIds,
   createDeterministicIdFactory,
   createHistoryState,
   exportSiteBuilderDocument,
+  type HistoryState,
   initializeStarter,
   parseSiteBuilderDocument,
-  type BuilderCommand,
-  type HistoryState,
 } from '../../model';
 import {
+  type CanvaAssetCoordinator,
+  type CanvaLabDocumentController,
   getCanvaPlacementTarget,
   integrateCanvaDesign,
   locateCanonicalBookingPage,
@@ -27,8 +29,6 @@ import {
   reorderCanvaImages,
   replaceCanvaImage,
   saveCanvaSettings,
-  type CanvaAssetCoordinator,
-  type CanvaLabDocumentController,
 } from './useCanvaIntegration';
 
 const png = () => new File(['canva'], 'canva-page.png', { type: 'image/png' });
@@ -53,7 +53,9 @@ const createLab = (starter: 'multi_page' | 'quick_book' = 'quick_book') => {
   let prepared: { baseline: HistoryState; next: HistoryState } | null = null;
   const commands: BuilderCommand[] = [];
   const restoreHistoryCheckpoint = vi.fn((checkpoint: HistoryState) => {
-    if (prepared) return false;
+    if (prepared) {
+      return false;
+    }
     history = checkpoint;
     return true;
   });
@@ -89,7 +91,9 @@ const createLab = (starter: 'multi_page' | 'quick_book' = 'quick_book') => {
         changed: next !== baseline,
         document: next.present,
         publish: () => {
-          if (!prepared || history !== prepared.baseline) return false;
+          if (!prepared || history !== prepared.baseline) {
+            return false;
+          }
           history = prepared.next;
           prepared = null;
           return true;
@@ -150,6 +154,7 @@ describe('Canva placement', () => {
       idFactory: createDeterministicIdFactory('placement-quick'),
     });
     const location = locateCanonicalBookingPage(quick);
+
     expect(location?.page.name).toBe('Home');
     // The locked Quick Book recipe is Profile Hero, Booking, then compact
     // Gallery. Booking therefore sits at zero-based index 1.
@@ -166,6 +171,7 @@ describe('Canva placement', () => {
       idFactory: createDeterministicIdFactory('placement-multi'),
     });
     const multiLocation = locateCanonicalBookingPage(multi);
+
     expect(multiLocation?.page.name).toBe('Services & Booking');
     expect(getCanvaPlacementTarget(multi, 'before_booking')?.position).toBe(1);
     expect(getCanvaPlacementTarget(multi, 'after_booking')?.position).toBe(2);
@@ -242,7 +248,7 @@ describe('integrateCanvaDesign', () => {
     expect(result).toMatchObject({ sectionId: null, status: 'failed' });
     expect(state.restoreHistoryCheckpoint).toHaveBeenCalledOnce();
     expect(state.document).toEqual(initial);
-    expect(state.document.pages.flatMap((page) => page.sections)).not.toContainEqual(
+    expect(state.document.pages.flatMap(page => page.sections)).not.toContainEqual(
       expect.objectContaining({ sectionType: 'custom_design' }),
     );
   });
@@ -277,7 +283,7 @@ describe('integrateCanvaDesign', () => {
       status: 'committed',
     });
     expect(result.sectionId).toMatch(/^section_/u);
-    expect(state.commands.map((command) => command.type)).toEqual([
+    expect(state.commands.map(command => command.type)).toEqual([
       'add_section',
       'update_custom_design_settings',
     ]);
@@ -289,16 +295,23 @@ describe('integrateCanvaDesign', () => {
     expect(onSectionIdChange).toHaveBeenCalledWith(result.sectionId);
 
     const bookingPage = locateCanonicalBookingPage(state.document)?.page;
-    expect(bookingPage?.sections.map((section) => section.sectionType)).toEqual([
+
+    expect(bookingPage?.sections.map(section => section.sectionType)).toEqual([
       'custom_design',
       'booking',
       'policies',
     ]);
+
     const customDesign = bookingPage?.sections.find(
-      (section) => section.sectionType === 'custom_design',
+      section => section.sectionType === 'custom_design',
     );
+
     expect(customDesign?.sectionType).toBe('custom_design');
-    if (customDesign?.sectionType !== 'custom_design') return;
+
+    if (customDesign?.sectionType !== 'custom_design') {
+      return;
+    }
+
     expect(customDesign.settings.displayMode).toBe('full_width');
     expect(customDesign.settings.images).toHaveLength(1);
     expect(JSON.stringify(state.document)).not.toMatch(/blob:|data:image|base64/u);
@@ -377,18 +390,22 @@ describe('integrateCanvaDesign', () => {
       },
       lab: state.lab,
     });
+
     expect(second.sectionId).toBe(first.sectionId);
+
     const sectionId = second.sectionId!;
     const settings = saveCanvaSettings(state.lab, {
       displayMode: 'poster',
       placement: 'before_booking',
       sectionId,
     });
+
     expect(settings.success).toBe(true);
     expect(settings.section?.settings.displayMode).toBe('poster');
 
     const ids = settings.section!.settings.images.map(image => image.id).reverse();
     const reordered = reorderCanvaImages(state.lab, sectionId, ids);
+
     expect(reordered.section?.settings.images.map(image => image.id)).toEqual(ids);
 
     const deleteAssetsIfUnreferenced = vi.fn<() => Promise<Error[]>>(async () => []);
@@ -396,7 +413,7 @@ describe('integrateCanvaDesign', () => {
       new Error('Browser cleanup failed.'),
     ]);
     const coordinator = {
-      coordinateDocumentMutation: vi.fn(async <T,>(mutation: () => T | Promise<T>) => mutation()),
+      coordinateDocumentMutation: vi.fn(async <T>(mutation: () => T | Promise<T>) => mutation()),
       deleteAssetsIfUnreferenced,
       replaceImage: vi.fn(),
       uploadImages: vi.fn(),
@@ -408,6 +425,7 @@ describe('integrateCanvaDesign', () => {
       sectionId,
       removedImage.id,
     );
+
     expect(removed.success).toBe(true);
     expect(removed.section?.settings.images).toHaveLength(1);
     expect(removed.cleanupWarnings).toEqual([expect.objectContaining({
@@ -445,6 +463,7 @@ describe('integrateCanvaDesign', () => {
       remaining.id,
       replacementFile,
     );
+
     expect(replaced.success).toBe(true);
     expect(replaced.section?.settings.images[0]?.fileName).toBe('replacement.webp');
     expect(replaced.cleanupWarnings).toEqual([expect.objectContaining({
@@ -493,7 +512,7 @@ describe('integrateCanvaDesign', () => {
     const exactAssetIds = exactSettings.images.map(image => image.assetId);
     const deleteAssetsIfUnreferenced = vi.fn(async () => []);
     const coordinator = {
-      coordinateDocumentMutation: vi.fn(async <T,>(mutation: () => T | Promise<T>) => mutation()),
+      coordinateDocumentMutation: vi.fn(async <T>(mutation: () => T | Promise<T>) => mutation()),
       deleteAssetsIfUnreferenced,
       replaceImage: vi.fn(),
       uploadImages: vi.fn(),
@@ -510,11 +529,17 @@ describe('integrateCanvaDesign', () => {
       sectionId,
       type: 'remove_section',
     }]);
+
     const tombstone = state.document.unusedSections.find(
       section => section.id === sectionId,
     );
+
     expect(tombstone?.sectionType).toBe('custom_design');
-    if (tombstone?.sectionType !== 'custom_design') return;
+
+    if (tombstone?.sectionType !== 'custom_design') {
+      return;
+    }
+
     expect(tombstone.settings).toEqual(exactSettings);
     expect(deleteAssetsIfUnreferenced).toHaveBeenCalledWith(exactAssetIds);
     expect(collectReachableCustomDesignAssetIds(
@@ -522,8 +547,12 @@ describe('integrateCanvaDesign', () => {
     )).toEqual(new Set(exactAssetIds));
 
     const reloaded = parseSiteBuilderDocument(exportSiteBuilderDocument(state.document));
+
     expect(reloaded.success).toBe(true);
-    if (!reloaded.success) return;
+
+    if (!reloaded.success) {
+      return;
+    }
     const restoredHistory = applyHistoryCommand(
       createHistoryState(reloaded.document),
       {
@@ -534,6 +563,7 @@ describe('integrateCanvaDesign', () => {
       },
     );
     const restored = locateOnboardingCustomDesign(restoredHistory.present, sectionId);
+
     expect(restored?.pageId).toBe(locatedBeforeRemoval.pageId);
     expect(restored?.section.settings).toEqual(exactSettings);
     expect(collectReachableCustomDesignAssetIds(restoredHistory))

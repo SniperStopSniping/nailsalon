@@ -44,7 +44,7 @@ function renderScreen(
         profile={profile}
         onBack={vi.fn()}
         onContinue={onContinue}
-        onProfileChange={(patch) => setProfile((current) => ({ ...current, ...patch }))}
+        onProfileChange={patch => setProfile(current => ({ ...current, ...patch }))}
       />
     );
   }
@@ -54,6 +54,7 @@ function renderScreen(
 describe('LocationContactScreen', () => {
   it('opens only Location and renders no customer/map preview', () => {
     renderScreen();
+
     expect(screen.getByRole('heading', { name: 'Where can clients find you?' })).toBeVisible();
     expect(screen.getByRole('button', { name: /^Location/u })).toHaveAttribute('aria-expanded', 'true');
     expect(screen.getByRole('button', { name: /^Contact/u })).toHaveAttribute('aria-expanded', 'false');
@@ -71,13 +72,17 @@ describe('LocationContactScreen', () => {
     const balanced = screen.getByRole('radio', {
       name: /Show my full address after they book/u,
     });
+
     expect(balanced).toBeChecked();
     expect(screen.queryByText('Before booking')).not.toBeInTheDocument();
     expect(screen.queryByText('After booking')).not.toBeInTheDocument();
 
     await user.click(screen.getByRole('radio', { name: /Show only my city/u }));
+
     expect(screen.getByRole('radio', { name: /Show only my city/u })).toBeChecked();
+
     await user.click(screen.getByRole('radio', { name: /Always show my full address/u }));
+
     expect(screen.getByRole('radio', { name: /Always show my full address/u })).toBeChecked();
   });
 
@@ -90,11 +95,14 @@ describe('LocationContactScreen', () => {
         locationType: 'mobile_service',
       },
     });
+
     expect(screen.getByLabelText('Primary service area *')).toBeVisible();
     expect(screen.getByLabelText('Areas you serve · Optional')).toBeVisible();
     expect(screen.queryByLabelText(/address/iu)).not.toBeInTheDocument();
     expect(screen.queryByText('What should clients see? *')).not.toBeInTheDocument();
+
     await user.type(screen.getByLabelText('Primary service area *'), 'Toronto');
+
     expect(screen.getByRole('button', { name: /^Location/u })).toHaveTextContent('Complete');
   });
 
@@ -134,6 +142,7 @@ describe('LocationContactScreen', () => {
     expect(contactCard).toHaveTextContent('Add phone or email, or use online booking only');
     expect(contactCard).toHaveTextContent('Choose');
     expect(contactCard).not.toHaveTextContent('Complete');
+
     await user.click(contactCard);
 
     expect(screen.getByRole('radio', { name: /Online booking only/u })).not.toBeChecked();
@@ -142,6 +151,7 @@ describe('LocationContactScreen', () => {
     expect(screen.queryByLabelText('Phone number')).not.toBeInTheDocument();
 
     await user.click(screen.getByRole('radio', { name: /Let clients contact me directly/u }));
+
     expect(screen.getByLabelText('Phone number')).toBeVisible();
     expect(screen.getByRole('switch', { name: 'Clients can call this number' })).toBeVisible();
     expect(screen.getByRole('switch', { name: 'Clients can text this number' })).toBeVisible();
@@ -157,6 +167,7 @@ describe('LocationContactScreen', () => {
     expect(contactCard).not.toHaveTextContent('Complete');
 
     await user.click(screen.getByRole('radio', { name: /Online booking only/u }));
+
     expect(contactCard).toHaveTextContent('Online booking only');
     expect(contactCard).toHaveTextContent('Complete');
   });
@@ -171,13 +182,16 @@ describe('LocationContactScreen', () => {
     const user = userEvent.setup();
     renderScreen();
     const arrivalCard = screen.getByRole('button', { name: /^Arrival details/u });
+
     expect(arrivalCard).toHaveTextContent('Optional');
+
     await user.click(arrivalCard);
     await user.type(screen.getByLabelText('Parking'), 'Use the rear lot');
     await user.type(
       screen.getByLabelText('Entrance instructions'),
       'Inside TB Nails · Use the rear entrance',
     );
+
     expect(arrivalCard).toHaveTextContent('Arrival instructions added');
     expect(screen.getByText(/follow your address privacy choice/u)).toBeVisible();
   });
@@ -187,6 +201,7 @@ describe('LocationContactScreen', () => {
     const onContinue = vi.fn();
     renderScreen({}, onContinue);
     await user.click(screen.getByRole('button', { name: 'Save and continue' }));
+
     expect(onContinue).not.toHaveBeenCalled();
     expect(screen.getAllByText('Add your city.').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Add the address clients will use for appointments.').length)
@@ -200,6 +215,7 @@ describe('LocationContactScreen', () => {
 
     await user.click(screen.getByRole('radio', { name: /Online booking only/u }));
     await user.click(screen.getByRole('button', { name: 'Save and continue' }));
+
     expect(onContinue).toHaveBeenCalledOnce();
   });
 });

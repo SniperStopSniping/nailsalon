@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, type Page, test } from '@playwright/test';
 
 import {
   chooseStarter,
@@ -18,8 +18,11 @@ async function discardDirtyMove(page: Page): Promise<void> {
   await move.locator('[data-move-target-row="true"]').focus();
   await page.keyboard.press('Escape');
   const warning = page.getByRole('dialog', { name: 'Keep this new order?' });
+
   await expect(warning).toBeVisible();
+
   await warning.getByRole('button', { name: 'Discard changes' }).click();
+
   await expect(page.getByRole('dialog')).toHaveCount(0);
   await expect.poll(() => page.evaluate(() => {
     const active = document.activeElement;
@@ -34,6 +37,7 @@ test('nested Move cleanup stays exact across every required viewport and repeate
   page,
 }) => {
   test.setTimeout(150_000);
+
   const runtime = startRuntimeMonitor(page);
   try {
     for (const viewport of [
@@ -51,11 +55,16 @@ test('nested Move cleanup stays exact across every required viewport and repeate
       const baseline = await documentSurfaceState(page);
 
       await discardDirtyMove(page);
+
       await expect.poll(() => documentSurfaceState(page)).toEqual(baseline);
+
       await expectStickyOwnerToolbarReachable(page);
       await page.getByRole('button', { name: 'More site options' }).click();
+
       await expect(page.getByRole('dialog', { name: 'More' })).toBeVisible();
+
       await closeDialog(page, 'More');
+
       await expect.poll(() => documentSurfaceState(page)).toEqual(baseline);
     }
 
@@ -66,9 +75,12 @@ test('nested Move cleanup stays exact across every required viewport and repeate
     const repeatBaseline = await documentSurfaceState(page);
     for (let cycle = 0; cycle < 3; cycle += 1) {
       await discardDirtyMove(page);
+
       await expect.poll(() => documentSurfaceState(page)).toEqual(repeatBaseline);
+
       await page.getByRole('button', { name: 'More site options' }).click();
       await closeDialog(page, 'More');
+
       await expect.poll(() => documentSurfaceState(page)).toEqual(repeatBaseline);
     }
   } finally {

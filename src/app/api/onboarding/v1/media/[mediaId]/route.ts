@@ -58,7 +58,7 @@ export async function GET(
   }
 
   try {
-    const body = await readOnboardingMediaFile(media.storageKey);
+    const body = await readOnboardingMediaFile(media.storageKey, authorized);
     const responseBody = new Uint8Array(body.byteLength);
     responseBody.set(body);
     return new Response(responseBody, {

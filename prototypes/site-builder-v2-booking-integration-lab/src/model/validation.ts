@@ -24,16 +24,16 @@ import {
 } from './section-library/site-content';
 import { upgradeSiteBuilderDocument } from './section-library/upgrade';
 import {
-  SITE_BUILDER_SCHEMA_VERSION,
-  STARTER_SECTION_SEMANTIC_ROLES,
   type CustomDesignSectionInstance,
   type DocumentImportResult,
   type DocumentValidationResult,
+  SITE_BUILDER_SCHEMA_VERSION,
   type SiteBuilderDocument,
+  STARTER_SECTION_SEMANTIC_ROLES,
 } from './types';
 
-export const SITE_BUILDER_STORAGE_KEY =
-  'luster:site-builder-v2-booking-integration-lab:document:v1';
+export const SITE_BUILDER_STORAGE_KEY
+  = 'luster:site-builder-v2-booking-integration-lab:document:v1';
 export const MAX_SITE_BUILDER_IMPORT_JSON_LENGTH = 500_000;
 
 const ROOT_KEYS = new Set([
@@ -121,9 +121,9 @@ const stableStringify = (value: unknown): string =>
   JSON.stringify(value, (_key, entry: unknown) =>
     entry && typeof entry === 'object' && !Array.isArray(entry)
       ? Object.fromEntries(
-          Object.entries(entry as Record<string, unknown>).sort(([a], [b]) =>
-            a.localeCompare(b)),
-        )
+        Object.entries(entry as Record<string, unknown>).sort(([a], [b]) =>
+          a.localeCompare(b)),
+      )
       : entry);
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -136,7 +136,7 @@ const isOrder = (value: unknown): value is number =>
   typeof value === 'number' && Number.isInteger(value) && value >= 0;
 
 const isCatalogueSectionType = (value: unknown): boolean =>
-  typeof value === 'string' && /^section_(0[1-9]|1[0-9]|20)$/.test(value);
+  typeof value === 'string' && /^section_(?:0[1-9]|1\d|20)$/.test(value);
 
 const isSectionSize = (value: unknown): boolean =>
   value === 'compact' || value === 'medium' || value === 'large';
@@ -212,9 +212,7 @@ const validatePlaceholderSectionShape = (
   }
   if (
     value.starterSemanticRole !== undefined
-    && !STARTER_SECTION_SEMANTIC_ROLES.some(
-      role => role === value.starterSemanticRole,
-    )
+    && !(STARTER_SECTION_SEMANTIC_ROLES as readonly unknown[]).includes(value.starterSemanticRole)
   ) {
     issues.push(`${path}.starterSemanticRole is invalid.`);
   }
@@ -229,8 +227,8 @@ const validatePlaceholderSectionShape = (
     issues,
   );
   if (
-    value.placeholderSettings.note !== undefined &&
-    !isString(value.placeholderSettings.note)
+    value.placeholderSettings.note !== undefined
+    && !isString(value.placeholderSettings.note)
   ) {
     issues.push(`${path}.placeholderSettings.note must be a string.`);
   }
@@ -251,7 +249,7 @@ const validateBookingSectionShape = (
   }
   const result = validateBookingPresentationSettings(value.settings);
   if (!result.success) {
-    result.issues.forEach((issue) =>
+    result.issues.forEach(issue =>
       issues.push(`${path}.settings: ${issue}`),
     );
   }
@@ -272,7 +270,7 @@ const validateCustomDesignSectionShape = (
   }
   const result = validateCustomDesignSettings(value.settings);
   if (!result.success) {
-    result.issues.forEach((issue) =>
+    result.issues.forEach(issue =>
       issues.push(`${path}.settings: ${issue}`),
     );
   }
@@ -374,7 +372,9 @@ const validateSiteContentShape = (
         if (!isString(record.name) || record.name.trim().length === 0) {
           issues.push(`${path}.name must be a non-empty string.`);
         }
-        if (!isString(record.title)) issues.push(`${path}.title must be a string.`);
+        if (!isString(record.title)) {
+          issues.push(`${path}.title must be a string.`);
+        }
         if (!Array.isArray(record.specialties) || !record.specialties.every(isString)) {
           issues.push(`${path}.specialties must be a string array.`);
         }
@@ -403,8 +403,12 @@ const validateSiteContentShape = (
         if (!isString(record.title) || record.title.trim().length === 0) {
           issues.push(`${path}.title must be a non-empty string.`);
         }
-        if (!isString(record.detail)) issues.push(`${path}.detail must be a string.`);
-        if (!isString(record.terms)) issues.push(`${path}.terms must be a string.`);
+        if (!isString(record.detail)) {
+          issues.push(`${path}.detail must be a string.`);
+        }
+        if (!isString(record.terms)) {
+          issues.push(`${path}.terms must be a string.`);
+        }
         if (record.expiresAt !== null && !isString(record.expiresAt)) {
           issues.push(`${path}.expiresAt must be null or a string.`);
         }
@@ -515,9 +519,9 @@ const validateRootShape = (
     issues.push('siteName must be a non-empty string.');
   }
   if (
-    value.originStarter !== 'quick_book' &&
-    value.originStarter !== 'one_page' &&
-    value.originStarter !== 'multi_page'
+    value.originStarter !== 'quick_book'
+    && value.originStarter !== 'one_page'
+    && value.originStarter !== 'multi_page'
   ) {
     issues.push('originStarter is invalid.');
   }
@@ -588,7 +592,7 @@ const findDuplicates = (values: readonly string[]): string[] => {
 const getCustomDesignSections = (
   document: SiteBuilderDocument,
 ): CustomDesignSectionInstance[] => [
-  ...document.pages.flatMap((page) => page.sections),
+  ...document.pages.flatMap(page => page.sections),
   ...document.unusedSections,
 ].filter(
   (section): section is CustomDesignSectionInstance =>
@@ -599,12 +603,12 @@ const imageAssetMetadataMatches = (
   first: CustomDesignImageItem,
   second: CustomDesignImageItem,
 ): boolean =>
-  first.assetId === second.assetId &&
-  first.fileName === second.fileName &&
-  first.mimeType === second.mimeType &&
-  first.fileSize === second.fileSize &&
-  first.width === second.width &&
-  first.height === second.height;
+  first.assetId === second.assetId
+  && first.fileName === second.fileName
+  && first.mimeType === second.mimeType
+  && first.fileSize === second.fileSize
+  && first.width === second.width
+  && first.height === second.height;
 
 const validateCustomDesignDocumentInvariants = (
   document: SiteBuilderDocument,
@@ -646,15 +650,15 @@ const validateDocumentInvariants = (
   if (document.pages.length === 0) {
     issues.push('Document must have at least one page.');
   }
-  if (document.pages.filter((page) => page.isHome).length !== 1) {
+  if (document.pages.filter(page => page.isHome).length !== 1) {
     issues.push('Document must have exactly one Home page.');
   }
-  if (!document.pages.some((page) => page.visible)) {
+  if (!document.pages.some(page => page.visible)) {
     issues.push('Document must have at least one visible page.');
   }
 
-  const bookingLocations = document.pages.flatMap((page) =>
-    page.sections.flatMap((section) =>
+  const bookingLocations = document.pages.flatMap(page =>
+    page.sections.flatMap(section =>
       section.sectionType === 'booking' ? [{ page, section }] : [],
     ),
   );
@@ -682,18 +686,18 @@ const validateDocumentInvariants = (
     }
   });
 
-  const pageIds = document.pages.map((page) => page.id);
-  const removedPageIds = document.removedPages.map((record) => record.page.id);
+  const pageIds = document.pages.map(page => page.id);
+  const removedPageIds = document.removedPages.map(record => record.page.id);
   const navigationIds = [
-    ...document.navigation.items.map((item) => item.id),
-    ...document.removedPages.map((record) => record.navigationItem.id),
+    ...document.navigation.items.map(item => item.id),
+    ...document.removedPages.map(record => record.navigationItem.id),
   ];
-  const activeSectionIds = document.pages.flatMap((page) =>
-    page.sections.map((section) => section.id),
+  const activeSectionIds = document.pages.flatMap(page =>
+    page.sections.map(section => section.id),
   );
   const sectionIds = [
     ...activeSectionIds,
-    ...document.unusedSections.map((section) => section.id),
+    ...document.unusedSections.map(section => section.id),
   ];
   const entityIds = [
     document.siteId,
@@ -707,25 +711,25 @@ const validateDocumentInvariants = (
     issues.push(`Entity IDs must be unique: ${duplicateIds.join(', ')}.`);
   }
 
-  const duplicateSlugs = findDuplicates(document.pages.map((page) => page.slug));
+  const duplicateSlugs = findDuplicates(document.pages.map(page => page.slug));
   if (duplicateSlugs.length > 0) {
     issues.push(`Active page slugs must be unique: ${duplicateSlugs.join(', ')}.`);
   }
 
   const navigationPageIds = document.navigation.items.map(
-    (item) => item.pageId,
+    item => item.pageId,
   );
   if (
-    navigationPageIds.length !== pageIds.length ||
-    pageIds.some((pageId) => !navigationPageIds.includes(pageId)) ||
-    navigationPageIds.some((pageId) => !pageIds.includes(pageId))
+    navigationPageIds.length !== pageIds.length
+    || pageIds.some(pageId => !navigationPageIds.includes(pageId))
+    || navigationPageIds.some(pageId => !pageIds.includes(pageId))
   ) {
     issues.push('Navigation must have exactly one item for each active page.');
   }
 
   const knownSectionIds = new Set(sectionIds);
   const removedSectionReferences = document.removedPages.flatMap(
-    (record) => record.sectionIds,
+    record => record.sectionIds,
   );
   const duplicateRemovedReferences = findDuplicates(removedSectionReferences);
   if (duplicateRemovedReferences.length > 0) {
@@ -739,9 +743,13 @@ const validateDocumentInvariants = (
   for (const page of document.pages) {
     const counts = new Map<string, number>();
     for (const section of page.sections) {
-      if (!isLibrarySectionType(section.sectionType)) continue;
+      if (!isLibrarySectionType(section.sectionType)) {
+        continue;
+      }
       const entry = getSectionRegistryEntry(section.sectionType);
-      if (entry.limitKind !== 'hard' || entry.maxPerPage === undefined) continue;
+      if (entry.limitKind !== 'hard' || entry.maxPerPage === undefined) {
+        continue;
+      }
       const next = (counts.get(section.sectionType) ?? 0) + 1;
       counts.set(section.sectionType, next);
       if (next > entry.maxPerPage) {
@@ -814,11 +822,11 @@ const normalizeImportedCustomDesignSection = (
     issues.push(`${path}.visible must be a boolean.`);
   }
   if (
-    hasHidden &&
-    hasVisible &&
-    typeof hidden === 'boolean' &&
-    typeof visible === 'boolean' &&
-    visible !== !hidden
+    hasHidden
+    && hasVisible
+    && typeof hidden === 'boolean'
+    && typeof visible === 'boolean'
+    && visible !== !hidden
   ) {
     issues.push(`${path} has contradictory visible and legacy hidden values.`);
   }
@@ -837,13 +845,17 @@ const normalizeImportedCustomDesignSection = (
 const normalizeImportedSiteBuilderDocument = (
   value: unknown,
 ): ImportedDocumentNormalizationResult => {
-  if (!isRecord(value)) return { success: true, value };
+  if (!isRecord(value)) {
+    return { success: true, value };
+  }
   const issues: string[] = [];
   const normalized: Record<string, unknown> = { ...value };
 
   if (Array.isArray(value.pages)) {
     normalized.pages = value.pages.map((page, pageIndex) => {
-      if (!isRecord(page) || !Array.isArray(page.sections)) return page;
+      if (!isRecord(page) || !Array.isArray(page.sections)) {
+        return page;
+      }
       return {
         ...page,
         sections: page.sections.map((section, sectionIndex) =>
@@ -872,7 +884,7 @@ const normalizeImportedSiteBuilderDocument = (
 const getCustomDesignSettings = (
   document: SiteBuilderDocument,
 ): CustomDesignSettings[] =>
-  getCustomDesignSections(document).map((section) => section.settings);
+  getCustomDesignSections(document).map(section => section.settings);
 
 export const validateImportedDocumentValue = (
   value: unknown,
@@ -931,15 +943,19 @@ export const parseSiteBuilderDocument = (
   }
   if (isRecord(parsed) && Object.hasOwn(parsed, 'kind')) {
     const envelope = parseCustomDesignBackupEnvelope(parsed);
-    if (!envelope.success) return envelope;
+    if (!envelope.success) {
+      return envelope;
+    }
     const imported = validateImportedDocumentValue(envelope.value.document);
-    if (!imported.success) return imported;
+    if (!imported.success) {
+      return imported;
+    }
     const expectedManifest = createCustomDesignAssetManifest(
       getCustomDesignSettings(imported.document),
     );
     if (
-      JSON.stringify(expectedManifest) !==
-      JSON.stringify(envelope.value.customDesignAssets)
+      JSON.stringify(expectedManifest)
+      !== JSON.stringify(envelope.value.customDesignAssets)
     ) {
       return {
         success: false,

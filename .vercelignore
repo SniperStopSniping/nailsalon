@@ -1,1 +1,9 @@
-prototypes/site-builder-v2-booking-integration-lab/
+# Account-backed onboarding imports this shared runtime directly. Upload its
+# source and module metadata, but not the standalone lab tooling or tests.
+prototypes/site-builder-v2-booking-integration-lab/*
+!prototypes/site-builder-v2-booking-integration-lab/src/
+!prototypes/site-builder-v2-booking-integration-lab/package.json
+prototypes/site-builder-v2-booking-integration-lab/src/**/*.labtest.*
+prototypes/site-builder-v2-booking-integration-lab/src/**/*.test.*
+prototypes/site-builder-v2-booking-integration-lab/src/**/*.unit.*
+prototypes/site-builder-v2-booking-integration-lab/src/**/*.spec.*

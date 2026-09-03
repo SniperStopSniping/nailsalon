@@ -1,10 +1,10 @@
 import { ArrowRight, CalendarDays, FileUp, Sparkles } from 'lucide-react';
 import {
+  type CSSProperties,
   useCallback,
   useEffect,
   useRef,
   useState,
-  type CSSProperties,
 } from 'react';
 
 import { summarizeSelection } from '../booking/helpers';
@@ -38,7 +38,7 @@ type PreviewScene = {
   structureLabels: readonly string[];
 };
 
-type PreviewPoster = {
+type PreviewPosterContent = {
   action?: string;
   heading: string;
   items: readonly PreviewItem[];
@@ -52,7 +52,7 @@ type StarterPreviewDefinition = {
   middleDistance?: string;
   motionDistance: string;
   navigationItems: readonly string[];
-  poster: PreviewPoster;
+  poster: PreviewPosterContent;
   posterState: string;
   previewType: 'continuous-scroll' | 'page-switch' | 'short-scroll';
   scenes: readonly PreviewScene[];
@@ -92,7 +92,7 @@ const CANONICAL_SECONDARY_SELECTION = summarizeSelection({
 const CANONICAL_SERVICE_ITEMS: readonly PreviewItem[] = [
   CANONICAL_FEATURED_SELECTION,
   CANONICAL_SECONDARY_SELECTION,
-].flatMap((selection) => selection
+].flatMap(selection => selection
   ? [{
       label: [
         selection.service.name,
@@ -130,12 +130,24 @@ const STARTER_CHOICE_COPY: Record<OriginStarter, StarterChoiceCopy> = {
 
 const getSceneKind = (labels: readonly string[]): PreviewScene['kind'] => {
   const normalized = labels.join(' ').toLocaleLowerCase();
-  if (normalized.includes('service') || normalized.includes('booking')) return 'services';
-  if (normalized.includes('gallery') || normalized.includes('featured work')) return 'gallery';
-  if (normalized.includes('about')) return 'about';
-  if (normalized.includes('review')) return 'reviews';
-  if (normalized.includes('visit') || normalized.includes('contact')) return 'contact';
-  if (normalized.includes('book')) return 'booking';
+  if (normalized.includes('service') || normalized.includes('booking')) {
+    return 'services';
+  }
+  if (normalized.includes('gallery') || normalized.includes('featured work')) {
+    return 'gallery';
+  }
+  if (normalized.includes('about')) {
+    return 'about';
+  }
+  if (normalized.includes('review')) {
+    return 'reviews';
+  }
+  if (normalized.includes('visit') || normalized.includes('contact')) {
+    return 'contact';
+  }
+  if (normalized.includes('book')) {
+    return 'booking';
+  }
   return 'hero';
 };
 
@@ -210,9 +222,9 @@ const createStarterPreview = (starter: OriginStarter): StarterPreviewDefinition 
     : pages.flatMap(page => summarySections(page)).map(createSectionScene);
   const posterItems = starter === 'multi_page'
     ? pages.map(page => ({
-        label: page.previewLabel ?? page.name,
-        meta: summarySections(page).map(({ previewLabel }) => previewLabel).join(' · '),
-      }))
+      label: page.previewLabel ?? page.name,
+      meta: summarySections(page).map(({ previewLabel }) => previewLabel).join(' · '),
+    }))
     : pages.flatMap(page => summarySections(page).map(({ previewLabel }) => ({ label: previewLabel })));
   const posterKind = starter === 'quick_book'
     ? 'quick-summary'
@@ -260,7 +272,7 @@ const createStarterPreview = (starter: OriginStarter): StarterPreviewDefinition 
 
 export const STARTER_CHOICES: readonly StarterChoiceDefinition[] = (
   ['quick_book', 'one_page', 'multi_page'] as const
-).map((starter) => ({
+).map(starter => ({
   ...STARTER_CHOICE_COPY[starter],
   includedItems: getIncludedItems(starter),
   preview: createStarterPreview(starter),
@@ -285,7 +297,9 @@ export function useMediaQuery(query: string): boolean {
   ));
 
   useEffect(() => {
-    if (typeof window.matchMedia !== 'function') return undefined;
+    if (typeof window.matchMedia !== 'function') {
+      return undefined;
+    }
     const mediaQuery = window.matchMedia(query);
     const updateMatch = () => setMatches(mediaQuery.matches);
 
@@ -344,13 +358,17 @@ function useStarterPreviewPlayback(forceReducedMotion = false) {
   }, []);
 
   const onCardMouseEnter = useCallback((starterId: OriginStarter) => {
-    if (!hasFinePointer) return;
+    if (!hasFinePointer) {
+      return;
+    }
     hoveredIdRef.current = starterId;
     startInteractionPreview(starterId);
   }, [hasFinePointer, startInteractionPreview]);
 
   const onCardMouseLeave = useCallback((starterId: OriginStarter) => {
-    if (!hasFinePointer || hoveredIdRef.current !== starterId) return;
+    if (!hasFinePointer || hoveredIdRef.current !== starterId) {
+      return;
+    }
     hoveredIdRef.current = null;
     settleInteractionPreview(focusedIdRef.current);
   }, [hasFinePointer, settleInteractionPreview]);
@@ -361,7 +379,9 @@ function useStarterPreviewPlayback(forceReducedMotion = false) {
   }, [startInteractionPreview]);
 
   const onCardBlur = useCallback((starterId: OriginStarter) => {
-    if (focusedIdRef.current !== starterId) return;
+    if (focusedIdRef.current !== starterId) {
+      return;
+    }
     focusedIdRef.current = null;
     settleInteractionPreview(hasFinePointer ? hoveredIdRef.current : null);
   }, [hasFinePointer, settleInteractionPreview]);
@@ -373,14 +393,18 @@ function useStarterPreviewPlayback(forceReducedMotion = false) {
   }, []);
 
   useEffect(() => {
-    if (!prefersReducedMotion) return;
+    if (!prefersReducedMotion) {
+      return;
+    }
     clearResetTimer();
     hoveredIdRef.current = null;
     setInteractionActiveId(null);
   }, [clearResetTimer, prefersReducedMotion]);
 
   useEffect(() => {
-    if (prefersReducedMotion || typeof IntersectionObserver === 'undefined') return undefined;
+    if (prefersReducedMotion || typeof IntersectionObserver === 'undefined') {
+      return undefined;
+    }
 
     const thresholds = Array.from({ length: 21 }, (_, index) => index / 20);
     const observer = new IntersectionObserver((entries) => {
@@ -389,7 +413,9 @@ function useStarterPreviewPlayback(forceReducedMotion = false) {
         const nextRatios = { ...currentRatios };
         for (const entry of entries) {
           const starterId = (entry.target as HTMLElement).dataset.starterId as OriginStarter | undefined;
-          if (!starterId) continue;
+          if (!starterId) {
+            continue;
+          }
           const nextRatio = entry.isIntersecting ? entry.intersectionRatio : 0;
           if (nextRatios[starterId] !== nextRatio) {
             nextRatios[starterId] = nextRatio;
@@ -400,7 +426,9 @@ function useStarterPreviewPlayback(forceReducedMotion = false) {
       });
     }, { threshold: thresholds });
 
-    for (const card of cardElementsRef.current.values()) observer.observe(card);
+    for (const card of cardElementsRef.current.values()) {
+      observer.observe(card);
+    }
     return () => observer.disconnect();
   }, [prefersReducedMotion]);
 
@@ -409,11 +437,15 @@ function useStarterPreviewPlayback(forceReducedMotion = false) {
   const mobileActiveId = hasFinePointer
     ? null
     : STARTER_IDS.reduce<OriginStarter | null>((winner, starterId) => {
-        const ratio = cardRatios[starterId] ?? 0;
-        if (ratio < MOBILE_ACTIVE_RATIO) return winner;
-        if (!winner || ratio > (cardRatios[winner] ?? 0)) return starterId;
+      const ratio = cardRatios[starterId] ?? 0;
+      if (ratio < MOBILE_ACTIVE_RATIO) {
         return winner;
-      }, null);
+      }
+      if (!winner || ratio > (cardRatios[winner] ?? 0)) {
+        return starterId;
+      }
+      return winner;
+    }, null);
   const interactionRatio = interactionActiveId ? cardRatios[interactionActiveId] : undefined;
   const visibleInteractionId = interactionActiveId
     && (interactionRatio === undefined || interactionRatio >= OFFSCREEN_RATIO)
@@ -467,7 +499,7 @@ function PreviewPoster({
 }: {
   businessName: string;
   ownerName?: string;
-  poster: PreviewPoster;
+  poster: PreviewPosterContent;
   publicLocation?: string;
 }) {
   const profileLine = [ownerName?.trim(), publicLocation?.trim()].filter(Boolean).join(' · ');
@@ -480,8 +512,11 @@ function PreviewPoster({
         {profileLine ? <span className="final-starter-preview__profile-line">{profileLine}</span> : null}
       </span>
       <span className="final-starter-preview__poster-items">
-        {poster.items.map((item) => (
-          <span key={item.label}><b>{item.label}</b>{item.meta ? <small>{item.meta}</small> : null}</span>
+        {poster.items.map(item => (
+          <span key={item.label}>
+            <b>{item.label}</b>
+            {item.meta ? <small>{item.meta}</small> : null}
+          </span>
         ))}
       </span>
       {poster.action ? <span className="final-starter-preview__mini-cta">{poster.action}</span> : null}
@@ -514,8 +549,11 @@ function PreviewSceneContent({
         <small className="final-starter-preview__scene-label">Services</small>
         <strong>{scene.heading}</strong>
         <span className="final-starter-preview__service-list">
-          {scene.items?.map((item) => (
-            <span key={item.label}><b>{item.label}</b><small>{item.meta}</small></span>
+          {scene.items?.map(item => (
+            <span key={item.label}>
+              <b>{item.label}</b>
+              <small>{item.meta}</small>
+            </span>
           ))}
         </span>
         {scene.action ? <span className="final-starter-preview__mini-cta">{scene.action}</span> : null}
@@ -528,7 +566,12 @@ function PreviewSceneContent({
       <>
         <small className="final-starter-preview__scene-label">Gallery</small>
         <strong>{scene.heading}</strong>
-        <span className="final-starter-preview__gallery-grid"><i /><i /><i /><i /></span>
+        <span className="final-starter-preview__gallery-grid">
+          <i />
+          <i />
+          <i />
+          <i />
+        </span>
       </>
     );
   }
@@ -557,18 +600,23 @@ function PreviewSceneContent({
 
   return (
     <>
-      {scene.eyebrow ? (
-        <small className="final-starter-preview__scene-label">
-          {scene.kind === 'hero' ? businessName : scene.eyebrow}
-        </small>
-      ) : null}
+      {scene.eyebrow
+        ? (
+            <small className="final-starter-preview__scene-label">
+              {scene.kind === 'hero' ? businessName : scene.eyebrow}
+            </small>
+          )
+        : null}
       <strong>{scene.kind === 'hero' ? businessName : scene.heading}</strong>
       {scene.body ? <span className="final-starter-preview__scene-body">{scene.body}</span> : null}
-      {scene.action ? (
-        <span className={`final-starter-preview__mini-cta${scene.kind === 'booking' ? ' is-booking-action' : ''}`}>
-          {scene.kind === 'booking' ? <CalendarDays size={11} /> : null}{scene.action}
-        </span>
-      ) : null}
+      {scene.action
+        ? (
+            <span className={`final-starter-preview__mini-cta${scene.kind === 'booking' ? ' is-booking-action' : ''}`}>
+              {scene.kind === 'booking' ? <CalendarDays size={11} /> : null}
+              {scene.action}
+            </span>
+          )
+        : null}
     </>
   );
 }
@@ -631,7 +679,7 @@ export function StarterPreview({
         />
         <span className="final-starter-preview__motion">
           <span className="final-starter-preview__track">
-            {definition.scenes.map((scene) => (
+            {definition.scenes.map(scene => (
               <span
                 className={`final-starter-preview__scene is-${scene.kind}`}
                 data-navigation-state={scene.navigation}
@@ -700,7 +748,7 @@ export function StarterChoiceGrid({
               data-selected={selected ? 'true' : 'false'}
               data-starter-id={starter.id}
               key={starter.id}
-              ref={(element) => playback.registerCard(starter.id, element)}
+              ref={element => playback.registerCard(starter.id, element)}
               type="button"
               onBlur={() => playback.onCardBlur(starter.id)}
               onClick={() => onChoose(starter.id)}
@@ -709,9 +757,11 @@ export function StarterChoiceGrid({
               onMouseLeave={() => playback.onCardMouseLeave(starter.id)}
             >
               <span className="final-starter-card__copy">
-                {selected ? (
-                  <span className="final-starter-card__current">Current starting point</span>
-                ) : null}
+                {selected
+                  ? (
+                      <span className="final-starter-card__current">Current starting point</span>
+                    )
+                  : null}
                 <span className="final-starter-card__identity">
                   <strong>{starter.title}</strong>
                   <small>{starter.description}</small>
@@ -720,7 +770,11 @@ export function StarterChoiceGrid({
                   <small>{starter.includesLabel}</small>
                   <span>{starter.includedItems.join(' · ')}</span>
                 </span>
-                <span className="final-starter-card__action">{actionLabel} <ArrowRight aria-hidden="true" size={18} /></span>
+                <span className="final-starter-card__action">
+                  {actionLabel}
+                  {' '}
+                  <ArrowRight aria-hidden="true" size={18} />
+                </span>
               </span>
               <StarterPreview
                 active={previewActive}
@@ -753,9 +807,14 @@ export function StarterChooser({ onChoose, onImport }: StarterChooserProps) {
     <main className="final-starter-screen">
       <header className="final-starter-header">
         <a aria-label="Luster" className="final-starter-header__brand" href="#starter-title">
-          <span aria-hidden="true">L</span><strong>Luster</strong>
+          <span aria-hidden="true">L</span>
+          <strong>Luster</strong>
         </a>
-        <span className="final-starter-header__lab"><Sparkles aria-hidden="true" size={15} /> Site Builder Lab</span>
+        <span className="final-starter-header__lab">
+          <Sparkles aria-hidden="true" size={15} />
+          {' '}
+          Site Builder Lab
+        </span>
       </header>
 
       <section className="final-starter-content" aria-labelledby="starter-title">
@@ -766,27 +825,33 @@ export function StarterChooser({ onChoose, onImport }: StarterChooserProps) {
 
         <StarterChoiceGrid onChoose={onChoose} />
 
-        {onImport ? (
-          <div className="final-starter-import">
-            <span>Have a Lab backup?</span>
-            <button type="button" onClick={() => importInputRef.current?.click()}><FileUp aria-hidden="true" size={17} /> Import JSON</button>
-            <input
-              ref={importInputRef}
-              accept="application/json,.json"
-              aria-label="Import site JSON file"
-              className="visually-hidden"
-              tabIndex={-1}
-              type="file"
-              onChange={(event) => {
-                const file = event.target.files?.[0];
-                if (file) {
-                  onImport(file);
-                }
-                event.target.value = '';
-              }}
-            />
-          </div>
-        ) : null}
+        {onImport
+          ? (
+              <div className="final-starter-import">
+                <span>Have a Lab backup?</span>
+                <button type="button" onClick={() => importInputRef.current?.click()}>
+                  <FileUp aria-hidden="true" size={17} />
+                  {' '}
+                  Import JSON
+                </button>
+                <input
+                  ref={importInputRef}
+                  accept="application/json,.json"
+                  aria-label="Import site JSON file"
+                  className="visually-hidden"
+                  tabIndex={-1}
+                  type="file"
+                  onChange={(event) => {
+                    const file = event.target.files?.[0];
+                    if (file) {
+                      onImport(file);
+                    }
+                    event.target.value = '';
+                  }}
+                />
+              </div>
+            )
+          : null}
       </section>
 
       <p className="final-starter-disclaimer">Mock data only · Saved in this browser · Not connected to Production</p>

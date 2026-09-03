@@ -6,8 +6,8 @@ import type {
 
 import { CUSTOM_DESIGN_MIN_TOUCH_TARGET_PX } from '../model/constants';
 import {
-  renderedAreaNeedsTargetWarning,
   type CustomDesignResizeHandle,
+  renderedAreaNeedsTargetWarning,
 } from '../model/geometry';
 import type { CustomDesignInteractiveArea } from '../model/types';
 
@@ -41,10 +41,10 @@ const rectangleStyle = (
   '--custom-design-owner-area-height': `${renderedArea.height}px`,
   '--custom-design-owner-area-width': `${renderedArea.width}px`,
   '--custom-design-owner-popover-max-width': `${popoverMaximumWidth}px`,
-  height: `${area.geometry.height}%`,
-  left: `${area.geometry.x}%`,
-  top: `${area.geometry.y}%`,
-  width: `${area.geometry.width}%`,
+  'height': `${area.geometry.height}%`,
+  'left': `${area.geometry.x}%`,
+  'top': `${area.geometry.y}%`,
+  'width': `${area.geometry.width}%`,
 });
 
 const keyboardDelta = (
@@ -189,119 +189,131 @@ export function HotspotOverlay({
               >
                 <span>{area.accessibleLabel}</span>
               </button>
-              {selected ? RESIZE_HANDLES.map(handle => (
-                <button
-                  aria-label={`Resize ${area.accessibleLabel} from ${handleLabel(handle)}`}
-                  className="custom-design-hotspot-editor__resize"
-                  data-handle-inset="true"
-                  data-hit-target-max-size="44"
-                  data-resize-handle={handle}
-                  data-visual-size="14"
-                  key={handle}
-                  type="button"
-                  onFocus={() => onSelect?.(area.id)}
-                  onKeyDown={(event) => {
-                    const delta = keyboardDelta(event);
-                    if (!delta) {
-                      return;
-                    }
-                    event.preventDefault();
-                    onKeyboardResize?.(area.id, handle, delta);
-                  }}
-                  onPointerDown={event => onResizeStart?.(area.id, handle, event)}
-                />
-              )) : null}
-              {selected && onKeyboardResize ? (
-                <div
-                  aria-label={`Resize clickable area: ${area.accessibleLabel}`}
-                  className="custom-design-hotspot-editor__resize-pad"
-                  data-testid={`custom-design-resize-pad-${area.id}`}
-                  role="group"
-                >
+              {selected
+                ? RESIZE_HANDLES.map(handle => (
                   <button
-                    aria-label={`Make ${area.accessibleLabel} wider`}
-                    data-min-target-size="44"
-                    data-resize-step-pixels={EXPLICIT_RESIZE_STEP_PX}
+                    aria-label={`Resize ${area.accessibleLabel} from ${handleLabel(handle)}`}
+                    className="custom-design-hotspot-editor__resize"
+                    data-handle-inset="true"
+                    data-hit-target-max-size="44"
+                    data-resize-handle={handle}
+                    data-visual-size="14"
+                    key={handle}
                     type="button"
-                    onClick={() => onKeyboardResize(
-                      area.id,
-                      horizontalResizeHandle,
-                      {
-                        x: nearRightEdge
-                          ? -EXPLICIT_RESIZE_STEP_PX
-                          : EXPLICIT_RESIZE_STEP_PX,
-                        y: 0,
-                      },
-                    )}
-                  >
-                    Wider
-                  </button>
-                  <button
-                    aria-label={`Make ${area.accessibleLabel} narrower`}
-                    data-min-target-size="44"
-                    data-resize-step-pixels={EXPLICIT_RESIZE_STEP_PX}
-                    type="button"
-                    onClick={() => onKeyboardResize(
-                      area.id,
-                      horizontalResizeHandle,
-                      {
-                        x: nearRightEdge
-                          ? EXPLICIT_RESIZE_STEP_PX
-                          : -EXPLICIT_RESIZE_STEP_PX,
-                        y: 0,
-                      },
-                    )}
-                  >
-                    Narrower
-                  </button>
-                  <button
-                    aria-label={`Make ${area.accessibleLabel} taller`}
-                    data-min-target-size="44"
-                    data-resize-step-pixels={EXPLICIT_RESIZE_STEP_PX}
-                    type="button"
-                    onClick={() => onKeyboardResize(
-                      area.id,
-                      verticalResizeHandle,
-                      {
-                        x: 0,
-                        y: nearBottomEdge
-                          ? -EXPLICIT_RESIZE_STEP_PX
-                          : EXPLICIT_RESIZE_STEP_PX,
-                      },
-                    )}
-                  >
-                    Taller
-                  </button>
-                  <button
-                    aria-label={`Make ${area.accessibleLabel} shorter`}
-                    data-min-target-size="44"
-                    data-resize-step-pixels={EXPLICIT_RESIZE_STEP_PX}
-                    type="button"
-                    onClick={() => onKeyboardResize(
-                      area.id,
-                      verticalResizeHandle,
-                      {
-                        x: 0,
-                        y: nearBottomEdge
-                          ? EXPLICIT_RESIZE_STEP_PX
-                          : -EXPLICIT_RESIZE_STEP_PX,
-                      },
-                    )}
-                  >
-                    Shorter
-                  </button>
-                </div>
-              ) : null}
-              {targetTooSmall ? (
-                <span
-                  className="custom-design-hotspot-editor__warning"
-                  id={warningId}
-                  role="status"
-                >
-                  Smaller than {CUSTOM_DESIGN_MIN_TOUCH_TARGET_PX} ×{' '}
-                  {CUSTOM_DESIGN_MIN_TOUCH_TARGET_PX}px. Enlarge this area or add a native Luster button.
-                </span>
-              ) : null}
+                    onFocus={() => onSelect?.(area.id)}
+                    onKeyDown={(event) => {
+                      const delta = keyboardDelta(event);
+                      if (!delta) {
+                        return;
+                      }
+                      event.preventDefault();
+                      onKeyboardResize?.(area.id, handle, delta);
+                    }}
+                    onPointerDown={event => onResizeStart?.(area.id, handle, event)}
+                  />
+                ))
+                : null}
+              {selected && onKeyboardResize
+                ? (
+                    <div
+                      aria-label={`Resize clickable area: ${area.accessibleLabel}`}
+                      className="custom-design-hotspot-editor__resize-pad"
+                      data-testid={`custom-design-resize-pad-${area.id}`}
+                      role="group"
+                    >
+                      <button
+                        aria-label={`Make ${area.accessibleLabel} wider`}
+                        data-min-target-size="44"
+                        data-resize-step-pixels={EXPLICIT_RESIZE_STEP_PX}
+                        type="button"
+                        onClick={() => onKeyboardResize(
+                          area.id,
+                          horizontalResizeHandle,
+                          {
+                            x: nearRightEdge
+                              ? -EXPLICIT_RESIZE_STEP_PX
+                              : EXPLICIT_RESIZE_STEP_PX,
+                            y: 0,
+                          },
+                        )}
+                      >
+                        Wider
+                      </button>
+                      <button
+                        aria-label={`Make ${area.accessibleLabel} narrower`}
+                        data-min-target-size="44"
+                        data-resize-step-pixels={EXPLICIT_RESIZE_STEP_PX}
+                        type="button"
+                        onClick={() => onKeyboardResize(
+                          area.id,
+                          horizontalResizeHandle,
+                          {
+                            x: nearRightEdge
+                              ? EXPLICIT_RESIZE_STEP_PX
+                              : -EXPLICIT_RESIZE_STEP_PX,
+                            y: 0,
+                          },
+                        )}
+                      >
+                        Narrower
+                      </button>
+                      <button
+                        aria-label={`Make ${area.accessibleLabel} taller`}
+                        data-min-target-size="44"
+                        data-resize-step-pixels={EXPLICIT_RESIZE_STEP_PX}
+                        type="button"
+                        onClick={() => onKeyboardResize(
+                          area.id,
+                          verticalResizeHandle,
+                          {
+                            x: 0,
+                            y: nearBottomEdge
+                              ? -EXPLICIT_RESIZE_STEP_PX
+                              : EXPLICIT_RESIZE_STEP_PX,
+                          },
+                        )}
+                      >
+                        Taller
+                      </button>
+                      <button
+                        aria-label={`Make ${area.accessibleLabel} shorter`}
+                        data-min-target-size="44"
+                        data-resize-step-pixels={EXPLICIT_RESIZE_STEP_PX}
+                        type="button"
+                        onClick={() => onKeyboardResize(
+                          area.id,
+                          verticalResizeHandle,
+                          {
+                            x: 0,
+                            y: nearBottomEdge
+                              ? EXPLICIT_RESIZE_STEP_PX
+                              : -EXPLICIT_RESIZE_STEP_PX,
+                          },
+                        )}
+                      >
+                        Shorter
+                      </button>
+                    </div>
+                  )
+                : null}
+              {targetTooSmall
+                ? (
+                    <span
+                      className="custom-design-hotspot-editor__warning"
+                      id={warningId}
+                      role="status"
+                    >
+                      Smaller than
+                      {' '}
+                      {CUSTOM_DESIGN_MIN_TOUCH_TARGET_PX}
+                      {' '}
+                      ×
+                      {' '}
+                      {CUSTOM_DESIGN_MIN_TOUCH_TARGET_PX}
+                      px. Enlarge this area or add a native Luster button.
+                    </span>
+                  )
+                : null}
             </div>
           );
         })}

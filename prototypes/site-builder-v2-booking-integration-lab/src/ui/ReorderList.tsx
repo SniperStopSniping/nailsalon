@@ -1,14 +1,14 @@
 import {
+  closestCenter,
   DndContext,
+  type DragEndEvent,
   DragOverlay,
+  type DragStartEvent,
   KeyboardSensor,
   MouseSensor,
   TouchSensor,
-  closestCenter,
   useSensor,
   useSensors,
-  type DragEndEvent,
-  type DragStartEvent,
 } from '@dnd-kit/core';
 import {
   SortableContext,
@@ -19,10 +19,10 @@ import {
 import { CSS } from '@dnd-kit/utilities';
 import { ArrowDown, ArrowUp, GripVertical } from 'lucide-react';
 import {
+  type KeyboardEvent,
   useEffect,
   useRef,
   useState,
-  type KeyboardEvent,
 } from 'react';
 
 import type { SectionInstance } from '../model/types';
@@ -128,7 +128,10 @@ function PositionInput({
 
   return (
     <label className="position-input">
-      <span className="visually-hidden">Position for {sectionLabel}</span>
+      <span className="visually-hidden">
+        {'Position for '}
+        {sectionLabel}
+      </span>
       <input
         ref={inputRef}
         aria-describedby={error ? errorId : 'move-position-help'}
@@ -145,7 +148,7 @@ function PositionInput({
           setValue(event.target.value);
           setError('');
         }}
-        onFocus={(event) => event.currentTarget.select()}
+        onFocus={event => event.currentTarget.select()}
         onKeyDown={handleKeyDown}
       />
       {error ? <span className="position-input__error" id={errorId} role="status">{error}</span> : null}
@@ -180,7 +183,11 @@ function SectionRowContent({
         <span aria-hidden="true" className="position-button">1</span>
         <div className="reorder-row__label">
           <strong>{sectionLabel}</strong>
-          <span>{getSectionDescription(section)} · Only section</span>
+          <span>
+            {getSectionDescription(section)}
+            {' '}
+            · Only section
+          </span>
         </div>
         {section.sectionType === 'booking' ? <span className="protected-badge">Always bookable</span> : null}
       </>
@@ -192,7 +199,7 @@ function SectionRowContent({
       <PositionInput
         index={index}
         onAnnounce={onAnnounce}
-        onMove={(position) => onMoveToPosition(section, position)}
+        onMove={position => onMoveToPosition(section, position)}
         sectionId={section.id}
         sectionLabel={sectionLabel}
         total={total}
@@ -205,7 +212,10 @@ function SectionRowContent({
       >
         <span className="reorder-row__label">
           <strong>{sectionLabel}</strong>
-          <span>{getSectionDescription(section)}{selected ? ' · Moving' : ''}</span>
+          <span>
+            {getSectionDescription(section)}
+            {selected ? ' · Moving' : ''}
+          </span>
         </span>
         <span className="visually-hidden">
           {selected ? ' Selected' : ` Select ${sectionLabel} for cross-page movement`}
@@ -276,7 +286,7 @@ function SortableSectionRow(props: SortableSectionRowProps) {
       data-move-target-row={props.selected ? 'true' : undefined}
       data-section-id={props.section.id}
       style={{ transform: CSS.Transform.toString(transform), transition }}
-      tabIndex={props.selected ? 0 : -1}
+      tabIndex={-1}
     >
       <SectionRowContent
         {...props}
@@ -302,21 +312,27 @@ export function ReorderList({
   const touchSensor = useSensor(TouchSensor, { activationConstraint: { delay: 180, tolerance: 8 } });
   const keyboardSensor = useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates });
   const sensors = useSensors(mouseSensor, touchSensor, keyboardSensor);
-  const activeSection = sections.find((section) => section.id === activeId) ?? null;
+  const activeSection = sections.find(section => section.id === activeId) ?? null;
 
   const handleDragStart = ({ active }: DragStartEvent) => {
     onAnnounce('');
     setActiveId(String(active.id));
-    if (typeof navigator.vibrate === 'function') navigator.vibrate(12);
+    if (typeof navigator.vibrate === 'function') {
+      navigator.vibrate(12);
+    }
   };
 
   const handleDragEnd = ({ active, over }: DragEndEvent) => {
     setActiveId(null);
-    if (!over || active.id === over.id) return;
-    const fromIndex = sections.findIndex((section) => section.id === active.id);
-    const toIndex = sections.findIndex((section) => section.id === over.id);
+    if (!over || active.id === over.id) {
+      return;
+    }
+    const fromIndex = sections.findIndex(section => section.id === active.id);
+    const toIndex = sections.findIndex(section => section.id === over.id);
     const section = sections[fromIndex];
-    if (!section || toIndex < 0) return;
+    if (!section || toIndex < 0) {
+      return;
+    }
     onDragReorder(section.id, toIndex + 1);
   };
 
@@ -325,24 +341,28 @@ export function ReorderList({
       accessibility={{
         announcements: {
           onDragCancel({ active }) {
-            const section = sections.find((candidate) => candidate.id === active.id);
+            const section = sections.find(candidate => candidate.id === active.id);
             return section ? `Moving ${getSectionLabel(section)} was cancelled.` : 'Movement cancelled.';
           },
           onDragEnd({ active, over }) {
-            const section = sections.find((candidate) => candidate.id === active.id);
-            if (!over || active.id === over.id) return section ? `${getSectionLabel(section)} was not moved.` : 'Section was not moved.';
-            const position = sections.findIndex((candidate) => candidate.id === over.id) + 1;
+            const section = sections.find(candidate => candidate.id === active.id);
+            if (!over || active.id === over.id) {
+              return section ? `${getSectionLabel(section)} was not moved.` : 'Section was not moved.';
+            }
+            const position = sections.findIndex(candidate => candidate.id === over.id) + 1;
             return section && position > 0 ? `${getSectionLabel(section)} moved to position ${position} of ${sections.length}.` : 'Section was not moved.';
           },
           onDragOver({ active, over }) {
-            if (!over || active.id === over.id) return undefined;
-            const section = sections.find((candidate) => candidate.id === active.id);
-            const position = sections.findIndex((candidate) => candidate.id === over.id) + 1;
+            if (!over || active.id === over.id) {
+              return undefined;
+            }
+            const section = sections.find(candidate => candidate.id === active.id);
+            const position = sections.findIndex(candidate => candidate.id === over.id) + 1;
             return section && position > 0 ? `${getSectionLabel(section)} is over position ${position} of ${sections.length}.` : undefined;
           },
           onDragStart({ active }) {
-            const section = sections.find((candidate) => candidate.id === active.id);
-            const position = sections.findIndex((candidate) => candidate.id === active.id) + 1;
+            const section = sections.find(candidate => candidate.id === active.id);
+            const position = sections.findIndex(candidate => candidate.id === active.id) + 1;
             return section ? `Picked up ${getSectionLabel(section)}, position ${position} of ${sections.length}.` : undefined;
           },
         },
@@ -357,10 +377,11 @@ export function ReorderList({
       onDragEnd={handleDragEnd}
       onDragStart={handleDragStart}
     >
-      <SortableContext items={sections.map((section) => section.id)} strategy={verticalListSortingStrategy}>
+      <SortableContext items={sections.map(section => section.id)} strategy={verticalListSortingStrategy}>
         <div
           className="reorder-list reorder-list--editable-positions"
           data-testid="reorder-list"
+          role="presentation"
           onKeyDown={(event) => {
             if (event.key === 'Escape' && activeId) {
               keepEscapeInsideActiveControl(event.nativeEvent);
@@ -384,13 +405,18 @@ export function ReorderList({
         </div>
       </SortableContext>
       <DragOverlay>
-        {activeSection ? (
-          <div className="reorder-row reorder-row--overlay">
-            <span aria-hidden="true" className="position-button">{sections.findIndex((section) => section.id === activeSection.id) + 1}</span>
-            <div className="reorder-row__label"><strong>{getSectionLabel(activeSection)}</strong><span>{getSectionDescription(activeSection)}</span></div>
-            <GripVertical aria-hidden="true" size={22} />
-          </div>
-        ) : null}
+        {activeSection
+          ? (
+              <div className="reorder-row reorder-row--overlay">
+                <span aria-hidden="true" className="position-button">{sections.findIndex(section => section.id === activeSection.id) + 1}</span>
+                <div className="reorder-row__label">
+                  <strong>{getSectionLabel(activeSection)}</strong>
+                  <span>{getSectionDescription(activeSection)}</span>
+                </div>
+                <GripVertical aria-hidden="true" size={22} />
+              </div>
+            )
+          : null}
       </DragOverlay>
     </DndContext>
   );

@@ -4,8 +4,8 @@ import type { MouseEvent as ReactMouseEvent } from 'react';
 import { vi } from 'vitest';
 
 import {
-  CUSTOM_DESIGN_POSTER_MAX_WIDTH_PX,
   calculateDisplayGeometry,
+  CUSTOM_DESIGN_POSTER_MAX_WIDTH_PX,
   resolveCustomDesignAction,
   resolveNativeCtaAction,
 } from '../model';
@@ -18,7 +18,7 @@ import { AccessibilitySummary } from './AccessibilitySummary';
 import { CustomDesignRenderer } from './CustomDesignRenderer';
 import { OwnerMissingAsset } from './MissingAsset';
 import { OwnerThumbnail } from './OwnerThumbnail';
-import { SemanticAction, isSafeRenderedHref } from './SemanticAction';
+import { isSafeRenderedHref, SemanticAction } from './SemanticAction';
 import type {
   ResolveCustomDesignAction,
   ResolveCustomDesignAsset,
@@ -122,6 +122,7 @@ describe('Custom Design customer renderer', () => {
       />,
     );
     const section = screen.getByTestId('custom-design-customer-renderer');
+
     expect(section).toHaveAttribute('data-display-mode', displayMode);
     expect(section).toHaveAttribute('data-gap', gap);
   });
@@ -134,6 +135,7 @@ describe('Custom Design customer renderer', () => {
         settings={makeSettings({ displayMode: 'poster' })}
       />,
     );
+
     expect(screen.getByTestId('custom-design-customer-renderer')).toHaveStyle({
       '--custom-design-poster-max-width': `${CUSTOM_DESIGN_POSTER_MAX_WIDTH_PX}px`,
     });
@@ -154,6 +156,7 @@ describe('Custom Design customer renderer', () => {
         settings={settings}
       />,
     );
+
     expect(screen.getByTestId('custom-design-customer-renderer'))
       .not.toHaveAttribute('aria-label');
     expect(screen.queryByRole('region')).not.toBeInTheDocument();
@@ -166,6 +169,7 @@ describe('Custom Design customer renderer', () => {
         settings={settings}
       />,
     );
+
     expect(screen.getByRole('region', { name: 'Home policies design' }))
       .toBeVisible();
   });
@@ -196,6 +200,7 @@ describe('Custom Design customer renderer', () => {
     );
 
     const section = screen.getByTestId('custom-design-customer-renderer');
+
     expect(section).toHaveAttribute('data-display-mode', 'contained');
     expect(section).toHaveAttribute('data-gap', 'small');
     expect(section).toHaveAttribute('data-background-mode', 'custom');
@@ -206,6 +211,7 @@ describe('Custom Design customer renderer', () => {
     });
 
     const images = screen.getAllByRole('img');
+
     expect(images[0]).toHaveAttribute('width', '1000');
     expect(images[0]).toHaveAttribute('height', '2000');
     expect(images[0]).toHaveAttribute('loading', 'eager');
@@ -213,7 +219,9 @@ describe('Custom Design customer renderer', () => {
     expect(images[1]).toHaveAttribute('loading', 'lazy');
     expect(images[1]).toHaveAttribute('fetchpriority', 'auto');
     expect(images[0]?.parentElement).toHaveStyle({ aspectRatio: '1000 / 2000' });
+
     const entries = section.querySelectorAll<HTMLElement>('.custom-design-stack-entry');
+
     expect(entries[0]).toHaveStyle('--custom-design-quality-width: 1500px');
     expect(entries[1]).toHaveStyle('--custom-design-quality-width: 600px');
   });
@@ -247,6 +255,7 @@ describe('Custom Design customer renderer', () => {
           settings={makeSettings()}
         />,
       );
+
       expect(screen.getByRole('img')).toHaveAttribute('fetchpriority', 'high');
       expect(consoleError).not.toHaveBeenCalled();
     } finally {
@@ -268,6 +277,7 @@ describe('Custom Design customer renderer', () => {
     const link = screen.getByRole('link', {
       name: 'Visit the nail studio website',
     });
+
     expect(link).toHaveAttribute('href', 'https://example.com/');
     expect(link).toHaveAttribute('target', '_blank');
     expect(link).toHaveAttribute('rel', 'noopener noreferrer');
@@ -305,6 +315,7 @@ describe('Custom Design customer renderer', () => {
       />,
     );
     finishImageLoad('Branded policy page page-1');
+
     expect(screen.getAllByRole('link').map(link => link.getAttribute('aria-label')))
       .toEqual(['First action', 'Second action']);
   });
@@ -323,6 +334,7 @@ describe('Custom Design customer renderer', () => {
         })}
       />,
     );
+
     expect(container.querySelector('img')).toHaveAttribute('alt', '');
     expect(screen.queryByRole('img')).not.toBeInTheDocument();
   });
@@ -368,6 +380,7 @@ describe('Custom Design customer renderer', () => {
       />,
     );
     finishImageLoad('Branded policy page page-1');
+
     expect(screen.queryByRole('link')).not.toBeInTheDocument();
     expect(isSafeRenderedHref('/\\evil.example')).toBe(false);
     expect(isSafeRenderedHref('/%5cevil.example')).toBe(false);
@@ -405,6 +418,7 @@ describe('Custom Design customer renderer', () => {
       />,
     );
     let link = screen.getByRole('link', { name: 'External policies' });
+
     expect(link).toHaveAttribute('target', '_blank');
     expect(link).toHaveAttribute('rel', 'noopener noreferrer');
 
@@ -420,6 +434,7 @@ describe('Custom Design customer renderer', () => {
       />,
     );
     link = screen.getByRole('link', { name: 'Internal policies' });
+
     expect(link).not.toHaveAttribute('target');
     expect(link).not.toHaveAttribute('rel');
   });
@@ -440,6 +455,7 @@ describe('Custom Design customer renderer', () => {
 
     const image = screen.getByRole('img', { name: 'Branded policy page page-1' });
     const loadingFrame = image.closest('.custom-design-image-frame');
+
     expect(loadingFrame).toHaveAttribute('data-image-render-state', 'loading');
     expect(loadingFrame).toHaveStyle({ aspectRatio: '1000 / 2000' });
     expect(screen.queryByRole('link', {
@@ -447,9 +463,11 @@ describe('Custom Design customer renderer', () => {
     })).not.toBeInTheDocument();
 
     fireEvent.load(image);
+
     expect(screen.getByRole('link', {
       name: 'Visit the nail studio website',
     })).toBeVisible();
+
     fireEvent.error(image);
 
     expect(screen.queryByRole('link', {
@@ -478,6 +496,7 @@ describe('Custom Design customer renderer', () => {
       />,
     );
     fireEvent.load(screen.getByRole('img', { name: 'Branded policy page page-1' }));
+
     expect(screen.getByRole('link', {
       name: 'Visit the nail studio website',
     })).toBeVisible();
@@ -494,12 +513,14 @@ describe('Custom Design customer renderer', () => {
     const replacement = screen.getByRole('img', {
       name: 'Branded policy page page-1',
     });
+
     expect(replacement).toHaveAttribute('src', assetUrl);
     expect(screen.queryByRole('link', {
       name: 'Visit the nail studio website',
     })).not.toBeInTheDocument();
 
     fireEvent.error(replacement);
+
     expect(screen.queryByRole('link', {
       name: 'Visit the nail studio website',
     })).not.toBeInTheDocument();
@@ -520,6 +541,7 @@ describe('Custom Design customer renderer', () => {
       />,
     );
     finishImageLoad('Branded policy page page-1');
+
     expect(screen.getByRole('link', {
       name: 'Visit the nail studio website',
     })).toBeVisible();
@@ -536,6 +558,7 @@ describe('Custom Design customer renderer', () => {
     const replacementImage = screen.getByRole('img', {
       name: 'Branded policy page page-1',
     });
+
     expect(replacementImage).toHaveAttribute(
       'src',
       'https://assets.luster.test/stable-design',
@@ -545,6 +568,7 @@ describe('Custom Design customer renderer', () => {
     })).not.toBeInTheDocument();
 
     fireEvent.load(replacementImage);
+
     expect(screen.getByRole('link', {
       name: 'Visit the nail studio website',
     })).toBeVisible();
@@ -561,9 +585,12 @@ describe('Custom Design customer renderer', () => {
     );
 
     const disclosure = screen.getByText('Text version of policies.png');
+
     expect(disclosure).toBeVisible();
+
     await user.click(disclosure);
     const summary = screen.getByText(/Deposits are required/);
+
     expect(summary).toBeVisible();
     expect(summary).toHaveTextContent(
       'Deposits are required. Please arrive on time.',
@@ -590,6 +617,7 @@ describe('Custom Design customer renderer', () => {
     );
 
     let ctaLink = screen.getByRole('link', { name: 'Book now' });
+
     expect(ctaLink).toHaveAttribute('href', '#booking');
     expect(ctaLink.closest('.custom-design-stack-entry'))
       .toHaveAttribute('style', expect.stringContaining('--custom-design-quality-width'));
@@ -604,6 +632,7 @@ describe('Custom Design customer renderer', () => {
       />,
     );
     ctaLink = screen.getByRole('link', { name: 'Book now' });
+
     expect(ctaLink.closest('.custom-design-stack-entry'))
       .toHaveTextContent('Text version of page-1.png');
   });
@@ -629,6 +658,7 @@ describe('Custom Design customer renderer', () => {
     );
     const cta = screen.getByRole('link', { name: 'Email me' });
     const stack = cta.closest('.custom-design-image-stack');
+
     expect(cta).toHaveAttribute('href', 'mailto:owner@example.com');
     expect(cta.closest('.custom-design-stack-entry')).toBeNull();
     expect(stack?.lastElementChild).toContainElement(cta);
@@ -649,6 +679,7 @@ describe('Custom Design customer renderer', () => {
       />,
     );
     const visibleImage = screen.getByRole('img', { name: 'Branded policy page page-2' });
+
     expect(visibleImage).toHaveAttribute('loading', 'eager');
     expect(visibleImage).toHaveAttribute('fetchpriority', 'high');
   });
@@ -670,6 +701,7 @@ describe('Custom Design customer renderer', () => {
         settings={settings}
       />,
     );
+
     expect(screen.queryByRole('img')).not.toBeInTheDocument();
     expect(screen.queryByRole('link', { name: 'Visit the nail studio website' }))
       .not.toBeInTheDocument();
@@ -684,6 +716,7 @@ describe('Custom Design customer renderer', () => {
         settings={settings}
       />,
     );
+
     expect(screen.getByRole('img', { name: 'Design image unavailable' })).toBeVisible();
     expect(screen.queryByRole('link', { name: 'Visit the nail studio website' }))
       .not.toBeInTheDocument();
@@ -734,6 +767,7 @@ describe('Custom Design customer renderer', () => {
     );
     finishImageLoad('Branded policy page page-1');
     finishImageLoad('Branded policy page page-2');
+
     expect(screen.queryByRole('link', { name: 'Unsafe full image link' }))
       .not.toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Safe website link' })).toBeVisible();
@@ -782,6 +816,7 @@ describe('Custom Design customer renderer', () => {
     );
     finishImageLoad('Branded policy page page-1');
     finishImageLoad('Branded policy page page-2');
+
     expect(screen.queryByRole('link', { name: 'First overlapping link' }))
       .not.toBeInTheDocument();
     expect(screen.queryByRole('link', { name: 'Second overlapping link' }))
@@ -830,11 +865,13 @@ describe('clear tap versus scroll activation', () => {
       isPrimary: true,
       pointerId: 4,
     });
+
     expect(fireEvent.click(link, { detail: 1 })).toBe(false);
     expect(onActivate).not.toHaveBeenCalled();
 
     link.focus();
     await user.keyboard('{Enter}');
+
     expect(onActivate).toHaveBeenCalledTimes(1);
   });
 
@@ -865,6 +902,7 @@ describe('clear tap versus scroll activation', () => {
       pointerId: 9,
     });
     fireEvent.click(button, { detail: 1 });
+
     expect(onActivate).not.toHaveBeenCalled();
 
     scrollPosition.y = 0;
@@ -891,6 +929,7 @@ describe('clear tap versus scroll activation', () => {
       pointerId: 10,
     });
     fireEvent.click(button, { detail: 1 });
+
     expect(onActivate).toHaveBeenCalledTimes(1);
   });
 });
@@ -912,11 +951,16 @@ describe('owner asset rendering', () => {
       </>,
     );
     const recoveryStates = screen.getAllByTestId('custom-design-owner-missing-asset');
+
     expect(recoveryStates[0]).toHaveTextContent('link positions are still saved');
+
     const headingIds = recoveryStates.map(state =>
       within(state).getByRole('heading').getAttribute('id'));
+
     expect(new Set(headingIds).size).toBe(2);
+
     await user.click(within(recoveryStates[0] as HTMLElement).getByRole('button'));
+
     expect(onReplace).toHaveBeenCalledTimes(1);
   });
 
@@ -931,11 +975,14 @@ describe('owner asset rendering', () => {
         onReplace={onReplace}
       />,
     );
+
     expect(screen.getByText('Page 4')).toBeVisible();
     expect(screen.getByText('1000 × 2000px')).toBeVisible();
     expect(screen.getByTestId('custom-design-thumbnail-page-4').querySelector('img'))
       .toHaveAttribute('alt', '');
+
     await user.click(screen.getByRole('button', { name: 'Replace' }));
+
     expect(onReplace).toHaveBeenCalledTimes(1);
   });
 });

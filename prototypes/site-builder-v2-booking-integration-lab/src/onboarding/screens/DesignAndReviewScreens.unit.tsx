@@ -6,16 +6,16 @@ import userEvent from '@testing-library/user-event';
 import { useState } from 'react';
 import { afterEach, vi } from 'vitest';
 
-import { initializeStarter } from '../../model';
 import { createDefaultCustomDesignSettings } from '../../custom-design/model/settings';
+import { initializeStarter } from '../../model';
 import { createDanielaFixtureState } from '../fixtures';
 import { goForward } from '../model/routing';
 import type { OnboardingLabState } from '../model/types';
 import {
   AboutDesignScreen,
   AboutScreen,
-  SiteStyleScreen,
   type OnboardingStateUpdater,
+  SiteStyleScreen,
 } from './DesignScreens';
 import { FinalReviewScreen } from './ReviewScreen';
 
@@ -81,7 +81,7 @@ describe('About onboarding screens', () => {
       return (
         <AboutScreen
           onBack={vi.fn()}
-          onContinue={() => setState((current) => goForward(current))}
+          onContinue={() => setState(current => goForward(current))}
           onFullPreview={vi.fn()}
           onUpdate={setState}
           state={state}
@@ -91,12 +91,15 @@ describe('About onboarding screens', () => {
 
     render(<Harness />);
     const bio = screen.getByRole('textbox', { name: 'Short introduction' });
+
     expect(bio).toHaveValue(preservedBio);
 
     await user.click(screen.getByRole('switch', { name: 'Show an About section' }));
+
     expect(screen.queryByRole('textbox', { name: 'Short introduction' })).not.toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'Skip for now' }));
+
     expect(screen.getByRole('status', { name: 'Current onboarding screen' })).toHaveTextContent('policies');
     expect(screen.queryByText('about_design')).not.toBeInTheDocument();
   });
@@ -111,7 +114,7 @@ describe('About onboarding screens', () => {
 
     function Harness() {
       const [state, setState] = useState(initial);
-      const update: OnboardingStateUpdater = (transform) => setState((current) => {
+      const update: OnboardingStateUpdater = transform => setState((current) => {
         const next = transform(current);
         latestState = next;
         return next;
@@ -134,17 +137,20 @@ describe('About onboarding screens', () => {
     const preview = screen.getByRole('region', {
       name: 'Selected About design preview: Photo Right',
     });
+
     expect(presetGroup).toHaveLength(4);
     expect(Boolean(
       (presetGroup[3]?.compareDocumentPosition(preview) ?? 0)
-        & Node.DOCUMENT_POSITION_FOLLOWING,
+      & Node.DOCUMENT_POSITION_FOLLOWING,
     )).toBe(true);
     expect(Boolean(
       screen.getByRole('heading', { name: 'See it on your site' })
         .compareDocumentPosition(preview)
         & Node.DOCUMENT_POSITION_FOLLOWING,
     )).toBe(true);
+
     const inlineFrame = preview.querySelector<HTMLElement>('.onboarding-preview-frame');
+
     expect(inlineFrame?.inert).toBe(true);
     expect(inlineFrame).toHaveAttribute('tabindex', '-1');
     expect(within(preview).getByText(originalProfile.about.shortBio)).toBeVisible();
@@ -152,10 +158,12 @@ describe('About onboarding screens', () => {
     expect(container.querySelector('.onboarding-customer-about.is-photo-right')).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: /Editorial Portrait/ }));
+
     expect(container.querySelector('.onboarding-customer-about.is-editorial')).toBeInTheDocument();
     expect(within(preview).getByText(originalProfile.about.fullBio)).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: /Profile \+ Quick Facts/ }));
+
     expect(container.querySelector('.onboarding-customer-about.is-quick-facts')).toBeInTheDocument();
     expect(within(preview).getByText(originalProfile.about.shortBio)).toBeVisible();
     expect(latestState.profile).toEqual(originalProfile);
@@ -165,12 +173,16 @@ describe('About onboarding screens', () => {
     expect(screen.queryByRole('button', { name: /Next About design/u }))
       .not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Content' })).not.toBeInTheDocument();
+
     const selectedPreset = presets.getAllByRole('button', { pressed: true });
+
     expect(selectedPreset).toHaveLength(1);
     expect(within(selectedPreset[0]!).getByText('Selected')).toBeVisible();
+
     const tabOrder = Array.from(container.querySelectorAll<HTMLElement>(
       'button:not([disabled]), [tabindex]:not([tabindex="-1"])',
-    )).map((element) => element.textContent?.trim());
+    )).map(element => element.textContent?.trim());
+
     expect(tabOrder.indexOf('Open interactive preview'))
       .toBeLessThan(tabOrder.indexOf('Use this design'));
     expect(tabOrder.indexOf('Use this design'))
@@ -216,6 +228,7 @@ describe('About onboarding screens', () => {
       />,
     );
     await user.click(screen.getByRole('button', { name: 'Edit profile' }));
+
     expect(onEditProfile).toHaveBeenCalledOnce();
     expect(screen.queryByRole('textbox', { name: /Instagram/i })).not.toBeInTheDocument();
   });
@@ -229,7 +242,7 @@ describe('SiteStyleScreen', () => {
     );
 
     expect(css).toMatch(
-      /\.onboarding-screen--style \.onboarding-style-grid \{[^}]*display: grid;[^}]*grid-template-columns: repeat\(2, minmax\(0, 1fr\)\);[^}]*overflow: visible;/su,
+      /\.onboarding-screen--style \.onboarding-style-grid \{[^}]*display: grid;[^}]*grid-template-columns: repeat\(2, minmax\(0, 1fr\)\);[^}]*overflow: visible;/u,
     );
     expect(css).toMatch(
       /\.onboarding-screen--style \.onboarding-style-card > small \{[^}]*-webkit-line-clamp: 2;/u,
@@ -243,9 +256,9 @@ describe('SiteStyleScreen', () => {
       'utf8',
     );
 
-    expect(css).toMatch(/\.onboarding-about-facts \{[^}]*gap: 10px;/su);
+    expect(css).toMatch(/\.onboarding-about-facts \{[^}]*gap: 10px;/u);
     expect(css).toMatch(
-      /\.onboarding-customer-about \.onboarding-customer-actions \{[^}]*gap: 12px;[^}]*margin-top: 16px;/su,
+      /\.onboarding-customer-about \.onboarding-customer-actions \{[^}]*gap: 12px;[^}]*margin-top: 16px;/u,
     );
     expect(css).toMatch(
       /@container onboarding-preview \(max-width: 559px\) \{[\s\S]*?\.onboarding-customer-about \{[^}]*gap: 20px;/u,
@@ -308,13 +321,13 @@ describe('SiteStyleScreen', () => {
       /@container onboarding-preview \(max-width: 559px\) \{[\s\S]*?\.onboarding-customer-about\.is-photo-right\.has-portrait \{[^}]*grid-template-columns: minmax\(0, 1fr\) clamp\(96px, 30cqw, 124px\);/u,
     );
     expect(css).toMatch(
-      /\.onboarding-customer-about\.is-photo-right > \.onboarding-customer-portrait\.is-large \{[^}]*grid-column: 2;[^}]*aspect-ratio: 4 \/ 5;/su,
+      /\.onboarding-customer-about\.is-photo-right > \.onboarding-customer-portrait\.is-large \{[^}]*grid-column: 2;[^}]*aspect-ratio: 4 \/ 5;/u,
     );
     expect(css).toMatch(
-      /\.onboarding-customer-about\.is-editorial\.has-portrait \{[^}]*grid-template-columns: clamp\(104px, 33cqw, 136px\) minmax\(0, 1fr\);/su,
+      /\.onboarding-customer-about\.is-editorial\.has-portrait \{[^}]*grid-template-columns: clamp\(104px, 33cqw, 136px\) minmax\(0, 1fr\);/u,
     );
     expect(css).toMatch(
-      /\.onboarding-customer-about\.is-editorial\.has-portrait > \.onboarding-customer-portrait\.is-large \{[^}]*grid-column: 1;[^}]*aspect-ratio: 4 \/ 5;/su,
+      /\.onboarding-customer-about\.is-editorial\.has-portrait > \.onboarding-customer-portrait\.is-large \{[^}]*grid-column: 1;[^}]*aspect-ratio: 4 \/ 5;/u,
     );
     expect(css).not.toMatch(
       /@container onboarding-preview \(max-width: 559px\) \{[\s\S]*?\.onboarding-customer-about\.is-photo-right > \.onboarding-customer-portrait\.is-large \{[^}]*order: -1;/u,
@@ -330,12 +343,12 @@ describe('SiteStyleScreen', () => {
 
     function Harness() {
       const [state, setState] = useState(initial);
-      const update: OnboardingStateUpdater = (transform) => setState((current) => {
+      const update: OnboardingStateUpdater = transform => setState((current) => {
         const next = transform(current);
         latestState = next;
         return next;
       });
-      const confirm = () => update((current) => ({
+      const confirm = () => update(current => ({
         ...current,
         recipe: {
           ...current.recipe,
@@ -358,6 +371,7 @@ describe('SiteStyleScreen', () => {
 
     const { container } = render(<Harness />);
     const preview = screen.getByRole('region', { name: 'Live personalized style preview' });
+
     expect(within(preview).getAllByText('Isla Nail Studio').length).toBeGreaterThan(0);
     expect(preview.querySelector('[data-style-preset]')).toHaveAttribute(
       'data-style-preset',
@@ -367,7 +381,9 @@ describe('SiteStyleScreen', () => {
       'data-palette-preset',
       'blush_cocoa',
     );
+
     const ownerSurface = container.querySelector('.onboarding-screen--style');
+
     expect(ownerSurface).toBeInTheDocument();
     expect(ownerSurface).not.toHaveAttribute('data-style-preset');
     expect(screen.getAllByText('Previewing')).toHaveLength(2);
@@ -376,6 +392,7 @@ describe('SiteStyleScreen', () => {
     expect(screen.getByRole('region', { name: 'Live personalized style preview' })).toBeVisible();
 
     await user.click(screen.getByRole('button', { name: /Luxury/ }));
+
     expect(preview.querySelector('[data-style-preset]')).toHaveAttribute(
       'data-style-preset',
       'luxury',
@@ -386,7 +403,9 @@ describe('SiteStyleScreen', () => {
       'data-previewing',
       'true',
     );
+
     await user.click(screen.getByRole('button', { name: /Black & Champagne/ }));
+
     expect(preview.querySelector('[data-palette-preset]')).toHaveAttribute(
       'data-palette-preset',
       'black_champagne',
@@ -397,7 +416,9 @@ describe('SiteStyleScreen', () => {
       'data-previewing',
       'true',
     );
+
     await user.click(screen.getByRole('button', { name: 'Use this look' }));
+
     expect(latestState.recipe).toMatchObject({
       paletteConfirmed: true,
       palettePreset: 'black_champagne',
@@ -428,7 +449,9 @@ describe('SiteStyleScreen', () => {
     expect(screen.getByText('Choose a style and colours for your site. You can change them anytime.')).toBeVisible();
     expect(screen.queryByRole('button', { name: 'Keep current style' }))
       .not.toBeInTheDocument();
+
     await user.click(screen.getByRole('button', { name: 'Use this look' }));
+
     expect(onContinue).toHaveBeenCalledOnce();
   });
 });
@@ -494,7 +517,9 @@ describe('FinalReviewScreen', () => {
 
     expect(screen.getByRole('button', { name: 'Finish 1 required step' })).toBeVisible();
     expect(screen.getByRole('complementary', { name: 'Site readiness' })).toHaveTextContent('Needs attentionSite style');
+
     await user.click(screen.getByRole('button', { name: 'Finish 1 required step' }));
+
     expect(onEdit).toHaveBeenCalledWith('site_style');
     expect(onOpenBuilder).not.toHaveBeenCalled();
   });
@@ -527,9 +552,13 @@ describe('FinalReviewScreen', () => {
     expect(screen.getByRole('button', { name: 'Edit Business information' })).toBeVisible();
     expect(screen.getByRole('button', { name: 'Edit Contact and privacy' })).toBeVisible();
     expect(screen.getByRole('button', { name: 'Edit Looks right on a phone' })).toBeVisible();
+
     await user.click(screen.getByRole('button', { name: 'Tablet' }));
+
     expect(screen.getByRole('region', { name: 'Final tablet customer preview' })).toHaveAttribute('data-preview-device', 'tablet');
+
     await user.click(screen.getByRole('button', { name: 'Finish setup' }));
+
     expect(onOpenBuilder).toHaveBeenCalledOnce();
   });
 
@@ -555,7 +584,7 @@ describe('FinalReviewScreen', () => {
   });
 
   it('keeps mobile readiness collapsed below the preview until the owner opens it', async () => {
-    const matchMedia = vi.spyOn(window, 'matchMedia').mockImplementation((query) => ({
+    const matchMedia = vi.spyOn(window, 'matchMedia').mockImplementation(query => ({
       addEventListener: vi.fn(),
       addListener: vi.fn(),
       dispatchEvent: vi.fn(() => true),
@@ -581,17 +610,24 @@ describe('FinalReviewScreen', () => {
     const readiness = screen.getByRole('complementary', { name: 'Site readiness' });
     const detail = within(readiness).getByText(/Your website is saved/u)
       .closest<HTMLElement>('.onboarding-readiness__content');
-    if (!detail) throw new Error('Missing readiness detail panel.');
+    if (!detail) {
+      throw new Error('Missing readiness detail panel.');
+    }
+
     expect(screen.getByRole('button', { name: /Ready to go.*View checklist/iu }))
       .toHaveAttribute('aria-expanded', 'false');
+
     await waitFor(() => expect(detail.inert).toBe(true));
+
     expect(detail).toHaveAttribute('aria-hidden', 'true');
 
     await userEvent.setup().click(screen.getByRole('button', { name: /View checklist/u }));
     await waitFor(() => expect(detail.inert).toBe(false));
+
     expect(detail).not.toHaveAttribute('aria-hidden');
     expect(screen.getByRole('button', { name: /Hide checklist/u }))
       .toHaveAttribute('aria-expanded', 'true');
+
     matchMedia.mockRestore();
   });
 
@@ -653,8 +689,10 @@ describe('FinalReviewScreen', () => {
     await user.click(screen.getByRole('button', {
       name: 'Replace missing-page.png needs attention',
     }));
+
     expect(onEditCanva).toHaveBeenCalledOnce();
     expect(onEdit).not.toHaveBeenCalled();
+
     reviewMocks.assetMap = new Map();
   });
 });

@@ -47,13 +47,17 @@ describe('CustomDesignImageManager', () => {
 
     await user.click(screen.getByRole('button', { name: 'Move page 1 down' }));
     await user.click(screen.getByRole('button', { name: 'Save order' }));
+
     expect(onCommitImageOrder).toHaveBeenCalledWith(['missing', 'first']);
+
     const missingRow = screen.getByText('missing.png').closest('li')!;
     await user.click(within(missingRow).getByRole('button', { name: 'Remove' }));
+
     expect(onRemoveImage).toHaveBeenCalledWith('missing');
 
     const replacement = new File(['replacement'], 'replacement.webp', { type: 'image/webp' });
     await user.upload(within(missingRow).getByLabelText('Replace'), replacement);
+
     expect(onReplaceImage).toHaveBeenCalledWith('missing', replacement);
   });
 });

@@ -33,7 +33,9 @@ const createSharedProps = (state: OnboardingLabState = createDemoOnboardingState
 /** The `.form-field` wrapper a labelled control group renders into. */
 const fieldFor = (label: string): HTMLElement => {
   const field = screen.getByText(label).closest('.form-field');
-  if (!(field instanceof HTMLElement)) throw new Error(`No field found for “${label}”.`);
+  if (!(field instanceof HTMLElement)) {
+    throw new TypeError(`No field found for “${label}”.`);
+  }
   return field;
 };
 
@@ -71,7 +73,9 @@ describe('Hero editor', () => {
     expect(screen.queryByRole('button', { name: 'Logo emblem' })).toBeNull();
     expect(screen.queryByRole('checkbox', { name: /Show the location line/u })).toBeNull();
     expect(screen.queryByRole('checkbox', { name: /Show the status line/u })).toBeNull();
+
     const cta = screen.getByDisplayValue('Book an appointment');
+
     expect(cta).toHaveAttribute('maxlength', '40');
   });
 
@@ -121,6 +125,7 @@ describe('Hero editor', () => {
       ...settings,
       primaryCtaLabel: 'Book an appointment!',
     } satisfies HeroSettings;
+
     expect(onChange).toHaveBeenLastCalledWith(next);
     expect(SECTION_LIBRARY_REGISTRY.hero.normalize(next)).toEqual(next);
   });
@@ -130,7 +135,9 @@ describe('About editor', () => {
   it('shows the shared bio line and names the Business Profile authority', () => {
     const shared = createSharedProps();
     const bio = resolveAboutBio(shared.profile.about.shortBio, shared.profile.about.fullBio);
-    if (!bio.lead) throw new Error('The demo profile is expected to have a bio.');
+    if (!bio.lead) {
+      throw new Error('The demo profile is expected to have a bio.');
+    }
 
     render(
       <AboutEditor
@@ -181,6 +188,7 @@ describe('About editor', () => {
       ...settings,
       intro: { source: 'override' as const, value: bio.lead ?? '' },
     } satisfies AboutSectionSettings;
+
     expect(onChange).toHaveBeenCalledWith(next);
     expect(SECTION_LIBRARY_REGISTRY.about.normalize(next)).toEqual(next);
   });
@@ -230,6 +238,7 @@ describe('Visit Us editor', () => {
     );
 
     const next = { ...settings, hoursSummary: 'show' } satisfies VisitUsSettings;
+
     expect(onChange).toHaveBeenCalledTimes(1);
     expect(onChange).toHaveBeenCalledWith(next);
     expect(SECTION_LIBRARY_REGISTRY.visit_us.normalize(next)).toEqual(next);

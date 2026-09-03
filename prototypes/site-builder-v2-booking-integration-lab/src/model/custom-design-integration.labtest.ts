@@ -68,20 +68,24 @@ const addCustomDesign = (
   document: SiteBuilderDocument,
   seed: string,
 ): { document: SiteBuilderDocument; section: CustomDesignSectionInstance } => {
-  const home = document.pages.find((page) => page.isHome);
-  if (!home) throw new Error('Missing Home.');
+  const home = document.pages.find(page => page.isHome);
+  if (!home) {
+    throw new Error('Missing Home.');
+  }
   const next = addSection(
     document,
     { pageId: home.id, sectionType: 'custom_design' },
     createDeterministicIdFactory(seed),
   );
   const section = next.pages
-    .flatMap((page) => page.sections)
+    .flatMap(page => page.sections)
     .find(
       (candidate): candidate is CustomDesignSectionInstance =>
         candidate.sectionType === 'custom_design',
     );
-  if (!section) throw new Error('Missing Custom Design.');
+  if (!section) {
+    throw new Error('Missing Custom Design.');
+  }
   return { document: next, section };
 };
 
@@ -91,7 +95,8 @@ describe('universal Custom Design section model', () => {
       const initial = initializeStarter(starter, {
         idFactory: createDeterministicIdFactory(`starter-${starter}`),
       });
-      expect(initial.pages.flatMap((page) => page.sections)).not.toContainEqual(
+
+      expect(initial.pages.flatMap(page => page.sections)).not.toContainEqual(
         expect.objectContaining({ sectionType: 'custom_design' }),
       );
     }
@@ -100,6 +105,7 @@ describe('universal Custom Design section model', () => {
       idFactory: createDeterministicIdFactory('base'),
     });
     const added = addCustomDesign(initial, 'custom');
+
     // Quick Book's four core library/booking sections come first; Custom Design is
     // appended, keeping its own settings contract rather than a library one.
     expect(initial.pages[0]?.sections).toHaveLength(4);
@@ -112,7 +118,7 @@ describe('universal Custom Design section model', () => {
       settings: createDefaultCustomDesignSettings(),
     });
     expect(added.section).not.toHaveProperty('hidden');
-    expect(added.document.pages[0]?.sections.map((section) => section.sectionType))
+    expect(added.document.pages[0]?.sections.map(section => section.sectionType))
       .toEqual([
         'hero',
         'booking',
@@ -129,22 +135,26 @@ describe('universal Custom Design section model', () => {
     });
     const added = addCustomDesign(initial, 'visibility');
     const hidden = setSectionVisible(added.document, added.section.id, false);
+
     expect(hidden.pages[0]?.sections.find(
-      (section) => section.id === added.section.id,
+      section => section.id === added.section.id,
     )).toMatchObject({ visible: false });
 
     const removed = removeSection(hidden, added.section.id);
+
     expect(removed.unusedSections[0]).toMatchObject({
       id: added.section.id,
       sectionType: 'custom_design',
       visible: false,
     });
+
     const restored = restoreSection(
       removed,
       added.section.id,
       removed.pages[0]!.id,
       1,
     );
+
     expect(restored.unusedSections).toHaveLength(0);
     expect(restored.pages[0]?.sections[0]).toMatchObject({
       id: added.section.id,
@@ -211,23 +221,29 @@ describe('universal Custom Design section model', () => {
       pageId: removed.pages[0]!.id,
       position: original.order + 1,
     });
+
     expect(history.past).toHaveLength(1);
+
     const restored = history.present.pages[0]?.sections.find(
       section => section.id === original.id,
     );
+
     expect(restored).toEqual(original);
     expect(collectCustomDesignAssetIds(history.present)).toEqual(
       new Set([poster.assetId]),
     );
 
     history = undoHistory(history);
+
     expect(history.present.unusedSections).toContainEqual({
       ...original,
       order: 0,
     });
     expect(history.present.pages[0]?.sections.some(section => section.id === original.id))
       .toBe(false);
+
     history = redoHistory(history);
+
     expect(history.present.pages[0]?.sections).toContainEqual(original);
     expect(history.present.unusedSections.some(section => section.id === original.id))
       .toBe(false);
@@ -238,15 +254,20 @@ describe('universal Custom Design section model', () => {
     const initial = initializeStarter('quick_book', { idFactory: ids });
     const added = addCustomDesign(initial, 'page-custom');
     const withPage = addPage(added.document, { name: 'Policies' }, ids);
-    const policies = withPage.pages.find((page) => page.name === 'Policies');
-    if (!policies) throw new Error('Missing Policies.');
+    const policies = withPage.pages.find(page => page.name === 'Policies');
+    if (!policies) {
+      throw new Error('Missing Policies.');
+    }
     const moved = moveSectionToPage(withPage, added.section.id, policies.id);
     const removed = removePage(moved, policies.id);
+
     expect(removed.unusedSections).toContainEqual(
       expect.objectContaining({ id: added.section.id, sectionType: 'custom_design' }),
     );
+
     const restored = restorePage(removed, policies.id);
-    expect(restored.pages.find((page) => page.id === policies.id)?.sections)
+
+    expect(restored.pages.find(page => page.id === policies.id)?.sections)
       .toContainEqual(expect.objectContaining({ id: added.section.id }));
   });
 
@@ -262,15 +283,18 @@ describe('universal Custom Design section model', () => {
       sectionId: added.section.id,
       settings: nextSettings,
     });
+
     expect(history.past).toHaveLength(1);
     expect(collectCustomDesignAssetIds(history.present)).toEqual(
       new Set(['asset_poster']),
     );
+
     const noOp = applyHistoryCommand(history, {
       type: 'update_custom_design_settings',
       sectionId: added.section.id,
       settings: nextSettings,
     });
+
     expect(noOp).toBe(history);
     expect(() => updateSectionSettings(
       history.present,
@@ -295,27 +319,34 @@ describe('universal Custom Design section model', () => {
       sectionId: added.section.id,
       settings: createDefaultCustomDesignSettings(),
     });
+
     expect(collectCustomDesignAssetIds(history.present)).toEqual(new Set());
     expect(collectReachableCustomDesignAssetIds(history)).toEqual(
       new Set(['asset_reachable']),
     );
+
     history = undoHistory(history);
+
     expect(collectCustomDesignAssetIds(history.present)).toEqual(
       new Set(['asset_reachable']),
     );
+
     history = applyHistoryCommand(history, {
       type: 'set_section_visible',
       sectionId: added.section.id,
       visible: false,
     }, { limit: 0 });
+
     expect(collectReachableCustomDesignAssetIds(history)).toEqual(
       new Set(['asset_reachable']),
     );
+
     history = applyHistoryCommand(history, {
       type: 'update_custom_design_settings',
       sectionId: added.section.id,
       settings: createDefaultCustomDesignSettings(),
     }, { limit: 0 });
+
     expect(collectReachableCustomDesignAssetIds(history)).toEqual(new Set());
   });
 });
@@ -330,18 +361,25 @@ describe('Custom Design import, export, and document invariants', () => {
       pages: Array<{ sections: Array<Record<string, unknown>> }>;
     };
     const section = legacy.pages[0]?.sections.find(
-      (candidate) => candidate.sectionType === 'custom_design',
+      candidate => candidate.sectionType === 'custom_design',
     );
-    if (!section) throw new Error('Missing legacy section.');
+    if (!section) {
+      throw new Error('Missing legacy section.');
+    }
     delete section.visible;
     section.hidden = true;
 
     const imported = parseSiteBuilderDocument(JSON.stringify(legacy));
+
     expect(imported.success).toBe(true);
-    if (!imported.success) return;
+
+    if (!imported.success) {
+      return;
+    }
     const normalized = imported.document.pages[0]?.sections.find(
-      (candidate) => candidate.sectionType === 'custom_design',
+      candidate => candidate.sectionType === 'custom_design',
     );
+
     expect(normalized).toMatchObject({ visible: false });
     expect(normalized).not.toHaveProperty('hidden');
     expect(exportSiteBuilderDocument(imported.document)).not.toContain('"hidden"');
@@ -356,11 +394,14 @@ describe('Custom Design import, export, and document invariants', () => {
       pages: Array<{ sections: Array<Record<string, unknown>> }>;
     };
     const section = conflicting.pages[0]?.sections.find(
-      (candidate) => candidate.sectionType === 'custom_design',
+      candidate => candidate.sectionType === 'custom_design',
     );
-    if (!section) throw new Error('Missing conflicting section.');
+    if (!section) {
+      throw new Error('Missing conflicting section.');
+    }
     section.hidden = true;
     const result = parseSiteBuilderDocument(JSON.stringify(conflicting));
+
     expect(result).toMatchObject({
       success: false,
       issues: expect.arrayContaining([
@@ -380,6 +421,7 @@ describe('Custom Design import, export, and document invariants', () => {
       added.section.id,
       settingsWith([image('backup')]),
     );
+
     expect(parseSiteBuilderDocument(exportSiteBuilderDocument(document))).toEqual({
       success: true,
       document,
@@ -396,6 +438,7 @@ describe('Custom Design import, export, and document invariants', () => {
         warning: string;
       };
     };
+
     expect(envelope.customDesignAssets).toMatchObject({
       assetsIncluded: false,
       warning: CUSTOM_DESIGN_BACKUP_WARNING,
@@ -406,6 +449,7 @@ describe('Custom Design import, export, and document invariants', () => {
     });
 
     envelope.customDesignAssets.assets[0]!.fileName = 'mismatch.png';
+
     expect(parseSiteBuilderDocument(JSON.stringify(envelope))).toMatchObject({
       success: false,
       issues: [
@@ -429,14 +473,17 @@ describe('Custom Design import, export, and document invariants', () => {
       (section): section is CustomDesignSectionInstance =>
         section.sectionType === 'custom_design',
     ) ?? [];
-    const second = customSections.find((section) => section.id !== first.section.id);
-    if (!second) throw new Error('Missing second Custom Design.');
+    const second = customSections.find(section => section.id !== first.section.id);
+    if (!second) {
+      throw new Error('Missing second Custom Design.');
+    }
 
     const withFirst = updateCustomDesignSectionSettings(
       secondDocument,
       first.section.id,
       settingsWith([image('duplicate')]),
     );
+
     expect(() => updateCustomDesignSectionSettings(
       withFirst,
       second.id,

@@ -50,11 +50,13 @@ describe('local onboarding event journal', () => {
       timestamp: '2026-08-27T12:01:00.000Z',
     });
 
-    expect(state.eventJournal.map((event) => event.id)).toEqual(['event-paused']);
+    expect(state.eventJournal.map(event => event.id)).toEqual(['event-paused']);
+
     const exported = JSON.parse(exportOnboardingEventJournal(
       state.eventJournal,
       '2026-08-27T13:00:00.000Z',
     )) as { events: unknown[]; kind: string };
+
     expect(exported.kind).toBe('luster-onboarding-v1-lab-event-journal');
     expect(exported.events).toHaveLength(1);
   });

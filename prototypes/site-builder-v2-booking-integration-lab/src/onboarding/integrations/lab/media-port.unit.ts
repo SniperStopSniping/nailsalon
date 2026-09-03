@@ -1,8 +1,8 @@
 import {
-  AssetStorageError,
-  ImageUploadError,
   type AssetRepository,
+  AssetStorageError,
   type ImageAssetMetadata,
+  ImageUploadError,
   type PreparedImageAsset,
 } from '../../../custom-design/assets';
 import type { LocalImageReference } from '../../model/types';
@@ -25,7 +25,7 @@ vi.mock('../../model/local-images', async (importOriginal) => {
   };
 });
 
-vi.mock('../../../custom-design/assets/image-processing', async (importOriginal) => ({
+vi.mock('../../../custom-design/assets/image-processing', async importOriginal => ({
   ...await importOriginal<typeof import('../../../custom-design/assets/image-processing')>(),
   prepareImageAsset: mediaMocks.prepare,
 }));
@@ -83,7 +83,7 @@ const createRepository = (): RepositoryHarness => {
 };
 
 const file = (name = 'portrait.png'): File =>
-  new File([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], name, {
+  new File([new Uint8Array([0x89, 0x50, 0x4E, 0x47])], name, {
     type: 'image/png',
   });
 
@@ -194,6 +194,7 @@ describe('LAB_ONBOARDING_MEDIA_PORT', () => {
 
       const prepared = mediaMocks.prepare.mock.results[0]?.value;
       const preparedAsset = await prepared as PreparedImageAsset;
+
       expect(harness.discard).toHaveBeenCalledOnce();
       expect(harness.discard).toHaveBeenCalledWith(preparedAsset.metadata.id);
     },
@@ -227,11 +228,11 @@ describe('LAB_ONBOARDING_MEDIA_PORT', () => {
       'gallery',
     );
 
-    expect(result.accepted.map((image) => image.fileName)).toEqual([
+    expect(result.accepted.map(image => image.fileName)).toEqual([
       'first.png',
       'second.png',
     ]);
-    expect(result.accepted.every((image) =>
+    expect(result.accepted.every(image =>
       image.source === 'indexed_db'
       && image.storageId !== undefined
       && image.previewUrl === undefined)).toBe(true);
@@ -383,6 +384,7 @@ describe('LAB_ONBOARDING_MEDIA_PORT', () => {
         url: 'blob:profile-thumbnail',
       },
     }]]);
+
     expect(resolveOnboardingImage(profile, profileAssets)).toEqual({
       status: 'ready',
       url: 'blob:profile-thumbnail',
@@ -400,6 +402,7 @@ describe('LAB_ONBOARDING_MEDIA_PORT', () => {
         status: 'missing' as const,
       },
     }]]);
+
     expect(resolveOnboardingImage(profile, missingAssets)).toEqual({
       status: 'missing',
       url: null,

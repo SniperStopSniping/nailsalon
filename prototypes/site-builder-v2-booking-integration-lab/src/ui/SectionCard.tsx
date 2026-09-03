@@ -55,16 +55,17 @@ export function SectionCard({
   const numberMark = placeholder
     ? placeholder.label.replace('Section ', '')
     : (entry?.label ?? section.label).slice(0, 2).toUpperCase();
-  const connectedSummary = library ? ({
-    about: 'Uses the owner profile, portrait, biography, and specialties saved during setup.',
-    gallery: 'Uses the nail-work photos and display choice saved for this site.',
-    hero: 'Uses the salon identity and a dedicated opening image when one is available.',
-    policies: 'Uses the shared appointment rules from Before You Book.',
-    reviews: 'Shows only real client reviews that are ready to publish.',
-    team: 'Uses the salon introduction and real staff profiles saved for this business.',
-    visit_us: 'Uses the shared location, privacy, hours, and public contact settings.',
-  } as Partial<Record<LibrarySectionType, string>>)[library.sectionType]
-    ?? entry?.description
+  const connectedSummary = library
+    ? ({
+        about: 'Uses the owner profile, portrait, biography, and specialties saved during setup.',
+        gallery: 'Uses the nail-work photos and display choice saved for this site.',
+        hero: 'Uses the salon identity and a dedicated opening image when one is available.',
+        policies: 'Uses the shared appointment rules from Before You Book.',
+        reviews: 'Shows only real client reviews that are ready to publish.',
+        team: 'Uses the salon introduction and real staff profiles saved for this business.',
+        visit_us: 'Uses the shared location, privacy, hours, and public contact settings.',
+      } as Partial<Record<LibrarySectionType, string>>)[library.sectionType]
+      ?? entry?.description
     : null;
   useEffect(() => {
     if (!selected) {
@@ -81,7 +82,7 @@ export function SectionCard({
       data-section-label={section.label}
       data-section-type={section.sectionType}
       role="listitem"
-      onClick={(event) => {
+      onPointerUp={(event) => {
         if (!(event.target as HTMLElement).closest('button, input, select, textarea, a')) {
           onSelect(section);
         }
@@ -98,50 +99,111 @@ export function SectionCard({
           </span>
           <span className="section-card__badges">
             <span className="size-badge">{badge}</span>
-            {!section.visible ? <span className="hidden-badge"><EyeOff aria-hidden="true" size={14} /> Hidden</span> : null}
+            {!section.visible
+              ? (
+                  <span className="hidden-badge">
+                    <EyeOff aria-hidden="true" size={14} />
+                    {' '}
+                    Hidden
+                  </span>
+                )
+              : null}
           </span>
         </span>
       </button>
 
-      {placeholder?.placeholderSettings.note ? <p className="section-card__note">“{placeholder.placeholderSettings.note}”</p> : null}
-      {library ? (
-        <div className="section-card__connected-preview" data-builder-section-state="connected">
-          <span aria-hidden="true">{numberMark}</span>
-          <div>
-            <strong>{entry?.label ?? section.label}</strong>
-            <p>{connectedSummary}</p>
-            <small>Open Preview to see the exact customer experience.</small>
-          </div>
-        </div>
-      ) : (
-        <div className="placeholder-grid" aria-hidden="true"><span /><span /><span /></div>
-      )}
+      {placeholder?.placeholderSettings.note
+        ? (
+            <p className="section-card__note">
+              “
+              {placeholder.placeholderSettings.note}
+              ”
+            </p>
+          )
+        : null}
+      {library
+        ? (
+            <div className="section-card__connected-preview" data-builder-section-state="connected">
+              <span aria-hidden="true">{numberMark}</span>
+              <div>
+                <strong>{entry?.label ?? section.label}</strong>
+                <p>{connectedSummary}</p>
+                <small>Open Preview to see the exact customer experience.</small>
+              </div>
+            </div>
+          )
+        : (
+            <div className="placeholder:text-grid" aria-hidden="true">
+              <span />
+              <span />
+              <span />
+            </div>
+          )}
 
       <div aria-label={`Quick actions for ${section.label}`} className="section-context-toolbar">
         <span aria-hidden="true" className="section-context-toolbar__label">{section.label}</span>
         <button aria-label={`Reorder ${section.label}`} type="button" onClick={onEnterReorder}>
-          <GripVertical aria-hidden="true" size={16} /><span>Reorder</span>
+          <GripVertical aria-hidden="true" size={16} />
+          <span>Reorder</span>
         </button>
-        <button type="button" onClick={() => onEdit(section)}><Pencil aria-hidden="true" size={16} /> Edit</button>
-        <button className="section-context-toolbar__move" type="button" onClick={() => onMove(section)}><Move aria-hidden="true" size={16} /> Move</button>
+        <button type="button" onClick={() => onEdit(section)}>
+          <Pencil aria-hidden="true" size={16} />
+          {' '}
+          Edit
+        </button>
+        <button className="section-context-toolbar__move" type="button" onClick={() => onMove(section)}>
+          <Move aria-hidden="true" size={16} />
+          {' '}
+          Move
+        </button>
         <button
           aria-expanded={menuOpen}
           aria-label={`More actions for ${section.label}`}
           type="button"
-          onClick={() => setMenuOpen((value) => !value)}
+          onClick={() => setMenuOpen(value => !value)}
         >
-          <MoreHorizontal aria-hidden="true" size={18} /><span className="section-context-toolbar__more-label">More</span>
+          <MoreHorizontal aria-hidden="true" size={18} />
+          <span className="section-context-toolbar__more-label">More</span>
         </button>
-        {menuOpen ? (
-          <div className="section-more-menu">
-            <button type="button" onClick={() => { onToggleVisible(section); setMenuOpen(false); }}>
-              {section.visible ? <EyeOff aria-hidden="true" size={16} /> : <Eye aria-hidden="true" size={16} />}
-              {section.visible ? 'Hide section' : 'Show section'}
-            </button>
-            <button type="button" onClick={() => { onMove(section); setMenuOpen(false); }}><Move aria-hidden="true" size={16} /> Move section</button>
-            <button className="danger-quiet" type="button" onClick={() => { onRemove(section); setMenuOpen(false); }}><Trash2 aria-hidden="true" size={16} /> Remove from this page</button>
-          </div>
-        ) : null}
+        {menuOpen
+          ? (
+              <div className="section-more-menu">
+                <button
+                  type="button"
+                  onClick={() => {
+                    onToggleVisible(section);
+                    setMenuOpen(false);
+                  }}
+                >
+                  {section.visible ? <EyeOff aria-hidden="true" size={16} /> : <Eye aria-hidden="true" size={16} />}
+                  {section.visible ? 'Hide section' : 'Show section'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    onMove(section);
+                    setMenuOpen(false);
+                  }}
+                >
+                  <Move aria-hidden="true" size={16} />
+                  {' '}
+                  Move section
+                </button>
+                <button
+                  className="danger-quiet"
+                  type="button"
+                  onClick={() => {
+                    onRemove(section);
+                    setMenuOpen(false);
+                  }}
+                >
+                  <Trash2 aria-hidden="true" size={16} />
+                  {' '}
+                  Remove from this page
+                </button>
+              </div>
+            )
+          : null}
       </div>
     </article>
   );

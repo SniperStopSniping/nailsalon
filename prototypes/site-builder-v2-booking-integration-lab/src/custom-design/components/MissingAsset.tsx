@@ -46,7 +46,7 @@ export function OwnerMissingAsset({
         <h3 id={headingId}>Design file needs replacing</h3>
         <p>
           {reason?.trim()
-            || `${fileName} is not available in this browser. The section and link positions are still saved.`}
+          || `${fileName} is not available in this browser. The section and link positions are still saved.`}
         </p>
       </div>
       <button type="button" onClick={onReplace}>Replace image</button>

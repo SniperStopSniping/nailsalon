@@ -382,7 +382,9 @@ describe('legacy starter recipe migration', () => {
   it('migrates the untouched five-slot Quick Book recipe without losing retained section IDs', () => {
     const source = initializeStarter('quick_book', { siteId: 'site-quick-book-v1' });
     const home = source.pages[0];
-    if (!home) throw new Error('Quick Book fixture has no Home page.');
+    if (!home) {
+      throw new Error('Quick Book fixture has no Home page.');
+    }
     const hero = home.sections.find(section => section.sectionType === 'hero');
     const gallery = home.sections.find(section => section.sectionType === 'gallery');
     const booking = home.sections.find(section => section.sectionType === 'booking');

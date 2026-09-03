@@ -79,7 +79,7 @@ export async function POST(request: Request): Promise<Response> {
     await Promise.all([...new Map(
       [...readyItems, ...allReadyItems].map(item => [item.id, item]),
     ).values()].map(item =>
-      readOnboardingMediaFile(item.storageKey)));
+      readOnboardingMediaFile(item.storageKey, authorized)));
   } catch {
     return Response.json({
       error: { code: 'MEDIA_NOT_VERIFIED', message: 'One or more saved images could not be verified.' },

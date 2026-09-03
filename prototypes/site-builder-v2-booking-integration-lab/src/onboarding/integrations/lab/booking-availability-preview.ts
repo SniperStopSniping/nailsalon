@@ -69,9 +69,15 @@ export const createLabBookingAvailabilityPreview = (
   const bookableTimes: BookingAvailabilityPreview['bookableTimes'][number][] = [];
   for (let step = 0; step < 7 * 48 && bookableTimes.length < 7; step += 1) {
     const startsAt = new Date(firstHalfHour.getTime() + (step * 1_800_000));
-    if (startsAt >= fixtureEndAt) break;
-    if (startsAt < cutoffAt || startsAt <= safePreviewAt) continue;
-    if (!LAB_SALON_TIME_KEYS.has(getTorontoTimeKey(startsAt))) continue;
+    if (startsAt >= fixtureEndAt) {
+      break;
+    }
+    if (startsAt < cutoffAt || startsAt <= safePreviewAt) {
+      continue;
+    }
+    if (!LAB_SALON_TIME_KEYS.has(getTorontoTimeKey(startsAt))) {
+      continue;
+    }
     bookableTimes.push({
       id: `lab-time-${Math.round((startsAt.getTime() - safePreviewAt.getTime()) / 60_000)}`,
       label: formatCandidateTime(startsAt, safePreviewAt),

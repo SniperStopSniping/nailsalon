@@ -9,6 +9,11 @@
  */
 
 import type { SitePlanOptionalToggles } from '../site-plan';
+import {
+  createBookingSectionInstance,
+  createLibrarySectionInstance,
+  initializeStarter,
+} from '../starters';
 import type {
   IdFactory,
   LibrarySectionType,
@@ -18,11 +23,6 @@ import type {
   SiteBuilderDocument,
 } from '../types';
 import { validateSiteBuilderDocument } from '../validation';
-import {
-  createBookingSectionInstance,
-  createLibrarySectionInstance,
-  initializeStarter,
-} from '../starters';
 import { getSectionRegistryEntry } from './registry';
 import type { SiteContentCollections } from './site-content';
 import { createEmptySiteContent } from './site-content';
@@ -104,7 +104,9 @@ const bindSectionContent = (
   }
   const entry = getSectionRegistryEntry(section.sectionType);
   const bound = boundSettingsFor(section.sectionType, siteContent);
-  if (!bound) return section;
+  if (!bound) {
+    return section;
+  }
   return {
     ...section,
     settings: entry.normalize({ ...section.settings, ...bound }),
@@ -127,13 +129,13 @@ const buildRecipePages = (
       spec.type === 'booking'
         ? createBookingSectionInstance(idFactory, { order })
         : createLibrarySectionInstance(spec.type, idFactory, {
-            ...(spec.type === 'gallery'
-              ? { galleryPresentationOwner: 'recipe' as const }
-              : {}),
-            ...(spec.label !== undefined ? { label: spec.label } : {}),
-            order,
-            ...(spec.preset !== undefined ? { presetId: spec.preset } : {}),
-          })),
+          ...(spec.type === 'gallery'
+            ? { galleryPresentationOwner: 'recipe' as const }
+            : {}),
+          ...(spec.label !== undefined ? { label: spec.label } : {}),
+          order,
+          ...(spec.preset !== undefined ? { presetId: spec.preset } : {}),
+        })),
     slug: pageSpec.slug,
     visible: true,
     visibleInNavigation: true,

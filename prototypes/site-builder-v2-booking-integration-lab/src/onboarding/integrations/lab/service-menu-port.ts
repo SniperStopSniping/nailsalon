@@ -1,13 +1,13 @@
 import { getTemplateByKey } from '../../../../../../src/libs/serviceTemplateCatalog';
 import { CANONICAL_SERVICES, CATEGORY_DEFINITIONS, MOCK_ADD_ONS } from '../../../booking/data';
 import { formatDuration, formatPrice } from '../../../booking/helpers';
-import { ADD_ON_PRODUCTION_MAPPINGS } from '../contracts/service-menu-production-mapping';
 import type {
   ServiceMenuItem,
   ServiceMenuOwnerOverride,
   ServiceMenuPort,
   ServiceMenuSelectionDraft,
 } from '../contracts/service-menu';
+import { ADD_ON_PRODUCTION_MAPPINGS } from '../contracts/service-menu-production-mapping';
 
 const KNOWN_SERVICE_IDS = new Set(CANONICAL_SERVICES.map(({ id }) => id));
 const KNOWN_ADD_ON_IDS = new Set(MOCK_ADD_ONS.map(({ id }) => id));
@@ -15,7 +15,7 @@ const CATEGORY_LABELS = new Map(
   CATEGORY_DEFINITIONS.map(({ id, label }) => [id, label]),
 );
 
-const LIBRARY_SERVICES = Object.freeze(CANONICAL_SERVICES.map((service) => Object.freeze({
+const LIBRARY_SERVICES = Object.freeze(CANONICAL_SERVICES.map(service => Object.freeze({
   categoryId: service.category,
   categoryLabel: CATEGORY_LABELS.get(service.category) ?? service.category,
   durationLabel: formatDuration(service.durationMinutes),
@@ -66,7 +66,9 @@ const normalizeOverrides = (
   selectedIds: ReadonlySet<string>,
 ): Record<string, ServiceMenuOwnerOverride> => Object.fromEntries(
   Object.entries(overrides).flatMap(([serviceId, override]) => {
-    if (!selectedIds.has(serviceId) || !KNOWN_SERVICE_IDS.has(serviceId)) return [];
+    if (!selectedIds.has(serviceId) || !KNOWN_SERVICE_IDS.has(serviceId)) {
+      return [];
+    }
     const durationMinutes = Number.isInteger(override.durationMinutes)
       && (override.durationMinutes ?? 0) > 0
       ? override.durationMinutes
@@ -75,7 +77,9 @@ const normalizeOverrides = (
       && (override.priceCents ?? -1) >= 0
       ? override.priceCents
       : undefined;
-    if (durationMinutes === undefined && priceCents === undefined) return [];
+    if (durationMinutes === undefined && priceCents === undefined) {
+      return [];
+    }
     return [[serviceId, {
       ...(durationMinutes === undefined ? {} : { durationMinutes }),
       ...(priceCents === undefined ? {} : { priceCents }),
@@ -129,10 +133,15 @@ export const createServiceTemplateMenuPort = (): ServiceMenuPort => ({
   normalizeSelection,
   setServiceSelected: (draft, serviceId, selected) => {
     const normalized = normalizeSelection(draft);
-    if (!KNOWN_SERVICE_IDS.has(serviceId)) return normalized;
+    if (!KNOWN_SERVICE_IDS.has(serviceId)) {
+      return normalized;
+    }
     const selectedIds = new Set(normalized.selectedServiceIds);
-    if (selected) selectedIds.add(serviceId);
-    else selectedIds.delete(serviceId);
+    if (selected) {
+      selectedIds.add(serviceId);
+    } else {
+      selectedIds.delete(serviceId);
+    }
     return normalizeSelection({
       ownerOverridesByServiceId: normalized.ownerOverridesByServiceId,
       reviewed: false,
@@ -142,10 +151,15 @@ export const createServiceTemplateMenuPort = (): ServiceMenuPort => ({
   },
   setAddOnSelected: (draft, addOnId, selected) => {
     const normalized = normalizeSelection(draft);
-    if (!KNOWN_ADD_ON_IDS.has(addOnId)) return normalized;
+    if (!KNOWN_ADD_ON_IDS.has(addOnId)) {
+      return normalized;
+    }
     const selectedIds = new Set(normalized.selectedAddOnIds ?? []);
-    if (selected) selectedIds.add(addOnId);
-    else selectedIds.delete(addOnId);
+    if (selected) {
+      selectedIds.add(addOnId);
+    } else {
+      selectedIds.delete(addOnId);
+    }
     return normalizeSelection({
       ownerOverridesByServiceId: normalized.ownerOverridesByServiceId,
       reviewed: false,

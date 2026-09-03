@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
 
-import { createDefaultBusinessProfile } from './defaults';
 import {
   contactMethodHasValue,
   getAvailableContactMethods,
@@ -10,6 +9,7 @@ import {
   getPublicContactPreview,
   resolveInstagramUsername,
 } from './contact';
+import { createDefaultBusinessProfile } from './defaults';
 
 describe('client contact model', () => {
   it('uses one number for enabled Call and Text methods', () => {
@@ -56,6 +56,7 @@ describe('client contact model', () => {
       useDifferentTextNumber: true,
     };
     profile.preferredContact = 'text';
+
     expect(getPublicContactPreview(profile)?.detail).toBe('647-555-0199');
     expect(getPublicContactActions(profile)[0]).toMatchObject({
       detail: '647-555-0199',
@@ -63,6 +64,7 @@ describe('client contact model', () => {
     });
 
     profile.clientContact.textEnabled = false;
+
     expect(getCoherentPreferredContact(profile)).toBe('call');
   });
 
@@ -94,7 +96,7 @@ describe('client contact model', () => {
     profile.email = 'hello@example.com';
     profile.preferredContact = 'call';
 
-    expect(getPublicContactActions(profile).map((action) => ({
+    expect(getPublicContactActions(profile).map(action => ({
       label: action.actionLabel,
       preferred: action.preferred,
     }))).toEqual([
@@ -144,6 +146,7 @@ describe('client contact model', () => {
     expect(getPublicContactActions(profile)).toEqual([]);
 
     profile.instagram = 'https://www.instagram.com/islanailstudio/';
+
     expect(contactMethodHasValue(profile, 'instagram')).toBe(true);
     expect(getCoherentPreferredContact(profile)).toBe('instagram');
     expect(getPublicContactActions(profile)[0]).toMatchObject({

@@ -52,8 +52,11 @@ describe('StartingPreviewScreen', () => {
     renderStartingPreview({ onContinue, onOpenPreview });
 
     await user.click(screen.getByRole('button', { name: 'Continue setting up my site' }));
+
     expect(onContinue).toHaveBeenCalledOnce();
+
     await user.click(screen.getByRole('button', { name: 'Preview my site' }));
+
     expect(onOpenPreview).toHaveBeenCalledOnce();
   });
 

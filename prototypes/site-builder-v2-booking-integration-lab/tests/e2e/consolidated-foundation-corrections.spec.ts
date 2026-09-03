@@ -1,9 +1,9 @@
 import {
-  expect,
-  test,
   type CDPSession,
+  expect,
   type Locator,
   type Page,
+  test,
 } from '@playwright/test';
 
 import {
@@ -69,8 +69,12 @@ async function trustedSwipeUp(
   scrollBody: Locator,
 ): Promise<void> {
   const box = await scrollBody.boundingBox();
+
   expect(box, 'service detail scroll body has geometry').not.toBeNull();
-  if (!box) return;
+
+  if (!box) {
+    return;
+  }
   const edgeInset = Math.min(54, Math.max(16, box.height * 0.14));
   const start = {
     x: box.x + box.width * 0.72,
@@ -123,9 +127,11 @@ async function trustedSwipeFrom(
   const bodyBox = await scrollBody.boundingBox();
   const targetBox = await target.boundingBox();
   const viewport = page.viewportSize();
+
   expect(bodyBox).not.toBeNull();
   expect(targetBox).not.toBeNull();
   expect(viewport).not.toBeNull();
+
   if (!bodyBox || !targetBox || !viewport) {
     return { after: position.scrollTop, before: position.scrollTop, startsInsideTarget: false };
   }
@@ -136,7 +142,9 @@ async function trustedSwipeFrom(
     bodyBox.y + bodyBox.height - 12,
     targetBox.y + targetBox.height,
   );
+
   expect(visibleBottom - visibleTop).toBeGreaterThanOrEqual(4);
+
   const canIncrease = position.scrollTop < position.maximum - 4;
   const originInset = Math.min(8, (visibleBottom - visibleTop) * 0.2);
   const start = {
@@ -148,9 +156,9 @@ async function trustedSwipeFrom(
     y: canIncrease
       ? Math.max(Math.max(24, bodyBox.y + 12), start.y - 220)
       : Math.min(
-          Math.min(viewport.height - 24, bodyBox.y + bodyBox.height - 12),
-          start.y + 180,
-        ),
+        Math.min(viewport.height - 24, bodyBox.y + bodyBox.height - 12),
+        start.y + 180,
+      ),
   };
   const startsInsideTarget = await target.evaluate((element, point) => (
     element.contains(document.elementFromPoint(point.x, point.y))
@@ -187,7 +195,9 @@ async function configureLayout(
   const { settings } = await openBookingSettings(page, 'Home');
   const option = settings.locator(`[data-layout-option="${layout}"]`);
   await option.click();
+
   await expect(option).toHaveAttribute('aria-pressed', 'true');
+
   if (await page.getByRole('dialog', { name: 'Booking settings' }).isVisible()) {
     await closeDialog(page, 'Booking settings');
   } else {
@@ -212,7 +222,9 @@ async function openRussianService(
   );
   const windowScrollY = await page.evaluate(() => window.scrollY);
   await action.click();
+
   await expect(page.getByTestId('service-detail-dialog')).toBeVisible();
+
   return { menuScrollTop, renderer, windowScrollY };
 }
 
@@ -229,11 +241,15 @@ async function expectActionInBottomFooter(
     footer.boundingBox(),
     action.boundingBox(),
   ]);
+
   expect(panelBox).not.toBeNull();
   expect(bodyBox).not.toBeNull();
   expect(footerBox).not.toBeNull();
   expect(actionBox).not.toBeNull();
-  if (!panelBox || !bodyBox || !footerBox || !actionBox) return;
+
+  if (!panelBox || !bodyBox || !footerBox || !actionBox) {
+    return;
+  }
 
   expect(await detail.evaluate((shell) => {
     const body = shell.querySelector('[data-testid="service-detail-scroll-body"]');
@@ -260,7 +276,7 @@ async function expectCloseExcludedFromScrollBody(
 ): Promise<CloseExclusionPosition> {
   const geometry = await detail.evaluate((shell) => {
     if (!(shell instanceof HTMLElement)) {
-      throw new Error('Service Detail shell must be an HTML element.');
+      throw new TypeError('Service Detail shell must be an HTML element.');
     }
     const panel = shell.querySelector<HTMLElement>('.booking-dialog-panel');
     const body = shell.querySelector<HTMLElement>(
@@ -358,14 +374,20 @@ async function expectFeaturedRailTargetsReachable(
   tiles: Locator,
 ): Promise<void> {
   await expect(tiles).toHaveCount(6);
+
   for (const index of [0, 2, 5]) {
     const tile = tiles.nth(index);
     await tile.scrollIntoViewIfNeeded();
     const railBox = await rail.boundingBox();
     const tileBox = await tile.boundingBox();
+
     expect(railBox, `Featured rail has geometry for tile ${index + 1}`).not.toBeNull();
     expect(tileBox, `Featured tile ${index + 1} has geometry`).not.toBeNull();
-    if (!railBox || !tileBox) continue;
+
+    if (!railBox || !tileBox) {
+      continue;
+    }
+
     expect(tileBox.x).toBeGreaterThanOrEqual(railBox.x - 1);
     expect(tileBox.x + tileBox.width).toBeLessThanOrEqual(
       railBox.x + railBox.width + 1,
@@ -378,6 +400,7 @@ for (const layout of LAYOUTS) {
     page,
   }) => {
     test.setTimeout(240_000);
+
     const runtime = startRuntimeMonitor(page);
     try {
       await openFreshLab(page);
@@ -400,7 +423,9 @@ for (const layout of LAYOUTS) {
         const initial = await detail.evaluate((shell) => {
           const panel = shell.querySelector('.booking-dialog-panel');
           const body = shell.querySelector('[data-testid="service-detail-scroll-body"]');
-          if (!panel || !body) throw new Error('Service Detail scroll structure is missing.');
+          if (!panel || !body) {
+            throw new Error('Service Detail scroll structure is missing.');
+          }
           const verticalScrollers = [body, ...body.querySelectorAll('*')]
             .filter((element) => {
               const style = getComputedStyle(element);
@@ -417,6 +442,7 @@ for (const layout of LAYOUTS) {
             verticalScrollerCount: verticalScrollers.length,
           };
         });
+
         expect(initial.bodyOverflowY).toBe('auto');
         expect(initial.panelOverflowY).toBe('hidden');
         expect(initial.shellOverflowY).toBe('hidden');
@@ -425,6 +451,7 @@ for (const layout of LAYOUTS) {
         expect(initial.verticalScrollerCount).toBe(1);
 
         await trustedSwipeUp(page, cdp, scrollBody);
+
         await expect.poll(() => scrollBody.evaluate(element => element.scrollTop))
           .toBeGreaterThan(0);
         expect(Math.abs(
@@ -437,18 +464,25 @@ for (const layout of LAYOUTS) {
           const atBottom = await scrollBody.evaluate(
             element => element.scrollTop + element.clientHeight >= element.scrollHeight - 2,
           );
-          if (atBottom) break;
+          if (atBottom) {
+            break;
+          }
           await trustedSwipeUp(page, cdp, scrollBody);
         }
+
         await expect.poll(() => scrollBody.evaluate(
           element => element.scrollTop + element.clientHeight >= element.scrollHeight - 2,
         )).toBe(true);
+
         const closeEnd = await expectCloseExcludedFromScrollBody(detail);
         expectClosePositionStable(closeStart, closeEnd);
         await expectActionInBottomFooter(detail, scrollBody, primary);
+
         await expect(primary).toBeEnabled();
+
         await primary.click({ trial: true });
         await trustedSwipeUp(page, cdp, scrollBody);
+
         expect(Math.abs(
           await page.locator('[data-preview-scroll-container="true"]').evaluate(element => element.scrollTop)
           - menuScrollTop,
@@ -457,17 +491,22 @@ for (const layout of LAYOUTS) {
         if (viewport === MOBILE_SCROLL_VIEWPORTS[0]) {
           await primary.click();
           const summary = page.getByTestId('selected-service-summary');
+
           await expect(summary).toContainText('Russian Manicure');
+
           await summary.getByRole('button', { name: 'Change' }).click();
           const selectedDetail = page.getByTestId('service-detail-dialog');
           await selectedDetail
             .getByRole('button', { name: 'Remove selected service' })
             .click();
+
           await expect(summary).toHaveCount(0);
         } else {
           await detail.getByRole('button', { name: 'Keep browsing' }).click();
+
           await expect(detail).toHaveCount(0);
         }
+
         expect(Math.abs(
           await page.locator('[data-preview-scroll-container="true"]').evaluate(element => element.scrollTop)
           - menuScrollTop,
@@ -476,9 +515,13 @@ for (const layout of LAYOUTS) {
 
         const { renderer } = await openRussianService(page, layout.search);
         const reopenedBody = page.getByTestId('service-detail-scroll-body');
+
         expect(await reopenedBody.evaluate(element => element.scrollTop)).toBe(0);
+
         await page.getByRole('button', { name: 'Close service details' }).click();
+
         await expect(page.getByTestId('service-detail-dialog')).toHaveCount(0);
+
         if (layout.search) {
           await renderer.getByRole('button', { name: 'Clear service search' }).click();
         }
@@ -527,6 +570,7 @@ test('simulated Phone contains the same internal Service Detail scroller', async
         shellHeight: shellRect.height,
       };
     }, await host.elementHandle());
+
     expect(containment.contained).toBe(true);
     expect(containment.bodyScrollHeight).toBeGreaterThan(containment.bodyClientHeight);
     expect(containment.shellHeight).toBeLessThanOrEqual(containment.hostHeight);
@@ -537,18 +581,24 @@ test('simulated Phone contains the same internal Service Detail scroller', async
       const atBottom = await body.evaluate(
         element => element.scrollTop + element.clientHeight >= element.scrollHeight - 2,
       );
-      if (atBottom) break;
+      if (atBottom) {
+        break;
+      }
       await trustedSwipeUp(page, cdp, body);
     }
+
     await expect.poll(() => body.evaluate(
       element => element.scrollTop + element.clientHeight >= element.scrollHeight - 2,
     )).toBe(true);
+
     const closeEnd = await expectCloseExcludedFromScrollBody(detail);
     expectClosePositionStable(closeStart, closeEnd);
+
     expect(Math.abs(
       await page.locator('[data-preview-scroll-container="true"]').evaluate(element => element.scrollTop)
       - menuScrollTop,
     )).toBeLessThanOrEqual(1);
+
     await detail.getByRole('button', { name: 'Continue' }).click({ trial: true });
     await detail.getByRole('button', { name: 'Close service details' }).click();
 
@@ -573,8 +623,10 @@ test('simulated Phone contains the same internal Service Detail scroller', async
           && shellRect.bottom <= hostRect.bottom + 1,
       };
     }, await tabletHost.elementHandle());
+
     expect(tabletContainment.contained).toBe(true);
     expect(tabletContainment.bodyOverflowY).toBe('auto');
+
     await tabletDetail.getByRole('button', { name: 'Close service details' }).click();
   } finally {
     runtime.assertClean();
@@ -606,12 +658,16 @@ test.describe('real-mobile-style Chromium context', () => {
         const atBottom = await body.evaluate(
           element => element.scrollTop + element.clientHeight >= element.scrollHeight - 2,
         );
-        if (atBottom) break;
+        if (atBottom) {
+          break;
+        }
         await trustedSwipeUp(page, cdp, body);
       }
+
       await expect.poll(() => body.evaluate(
         element => element.scrollTop + element.clientHeight >= element.scrollHeight - 2,
       )).toBe(true);
+
       const closeEnd = await expectCloseExcludedFromScrollBody(detail);
       expectClosePositionStable(closeStart, closeEnd);
       const primary = detail.getByRole('button', { name: 'Continue' });
@@ -628,10 +684,12 @@ test.describe('real-mobile-style Chromium context', () => {
           viewportTop,
         };
       });
+
       expect(visualReachability.actionTop)
         .toBeGreaterThanOrEqual(visualReachability.viewportTop - 1);
       expect(visualReachability.actionBottom)
         .toBeLessThanOrEqual(visualReachability.viewportBottom + 1);
+
       await primary.click({ trial: true });
     } finally {
       runtime.assertClean();
@@ -679,12 +737,14 @@ test.describe('real-mobile-style Chromium context', () => {
             ? targetDefinition.xFraction
             : undefined,
         });
+
         expect(result.startsInsideTarget, `${targetDefinition.label} gesture begins in target`)
           .toBe(true);
         expect(
           Math.abs(result.after - result.before),
           `${targetDefinition.label} gesture moves the internal body`,
         ).toBeGreaterThan(1);
+
         await detail.getByRole('button', { name: 'Keep browsing' }).click();
       }
 
@@ -702,16 +762,22 @@ test.describe('real-mobile-style Chromium context', () => {
       });
       const actionsBox = await actions.boundingBox();
       const optionsBox = await options.boundingBox();
+
       expect(actionsBox).not.toBeNull();
       expect(optionsBox).not.toBeNull();
-      if (!actionsBox || !optionsBox) return;
+
+      if (!actionsBox || !optionsBox) {
+        return;
+      }
       const origin = {
         x: actionsBox.x + 8,
         y: (optionsBox.y + optionsBox.height + actionsBox.y) / 2,
       };
+
       expect(await page.evaluate(({ x, y }) => (
         document.elementFromPoint(x, y)?.className
       ), origin)).toBe('booking-detail-copy');
+
       const before = await body.evaluate(element => element.scrollTop);
       await sendTouch(cdp, 'touchStart', origin);
       for (let step = 1; step <= 10; step += 1) {
@@ -722,6 +788,7 @@ test.describe('real-mobile-style Chromium context', () => {
         await page.waitForTimeout(16);
       }
       await sendTouch(cdp, 'touchEnd');
+
       await expect.poll(() => body.evaluate(element => element.scrollTop))
         .toBeLessThan(before - 1);
     } finally {
@@ -735,6 +802,7 @@ test('Visual Grid keeps Featured geometry and image-mode detail behavior across 
   page,
 }) => {
   test.setTimeout(240_000);
+
   const runtime = startRuntimeMonitor(page);
   try {
     await page.setViewportSize({ width: 390, height: 844 });
@@ -752,6 +820,7 @@ test('Visual Grid keeps Featured geometry and image-mode detail behavior across 
         width: rect.width,
       };
     });
+
     expect(editGeometry.height).toBeCloseTo(176, 1);
     expect(editGeometry.width).toBeGreaterThanOrEqual(245);
 
@@ -760,7 +829,9 @@ test('Visual Grid keeps Featured geometry and image-mode detail behavior across 
     const previewTiles = previewRail.locator('.featured-tile');
     await expectFeaturedRailTargetsReachable(previewRail, previewTiles);
     const previewTile = page.locator('.final-hybrid-preview .featured-tile').first();
+
     await expect(previewTile).toHaveJSProperty('tagName', 'BUTTON');
+
     const previewGeometry = await previewTile.evaluate((element) => {
       const rect = element.getBoundingClientRect();
       return {
@@ -769,12 +840,14 @@ test('Visual Grid keeps Featured geometry and image-mode detail behavior across 
         width: rect.width,
       };
     });
+
     expect(Math.abs(previewGeometry.width - editGeometry.width)).toBeLessThanOrEqual(1);
     expect(Math.abs(previewGeometry.height - editGeometry.height)).toBeLessThanOrEqual(1);
     expect(Math.abs(previewGeometry.aspectRatio - editGeometry.aspectRatio))
       .toBeLessThanOrEqual(0.01);
     await expect(previewTile).toHaveCSS('min-height', '176px');
     await expect(previewTile.locator('img')).toHaveCSS('object-fit', 'cover');
+
     await previewTile.scrollIntoViewIfNeeded();
     await previewTile.click();
     const selectedDetail = page.getByTestId('service-detail-dialog');
@@ -782,9 +855,11 @@ test('Visual Grid keeps Featured geometry and image-mode detail behavior across 
       element.scrollTop = element.scrollHeight;
     });
     await selectedDetail.getByRole('button', { name: 'Keep browsing' }).click();
+
     await expect(previewTile).toHaveAttribute('aria-pressed', 'true');
     await expect(previewTile).toHaveAttribute('data-selected', 'true');
     await expect(previewTile.locator('.booking-selected-indicator')).toBeVisible();
+
     await page.getByTestId('selected-service-summary')
       .getByRole('button', { name: 'Change' })
       .click();
@@ -815,23 +890,30 @@ test('Visual Grid keeps Featured geometry and image-mode detail behavior across 
         const detail = page.getByTestId('service-detail-dialog');
         const body = detail.getByTestId('service-detail-scroll-body');
         const closeStart = await expectCloseExcludedFromScrollBody(detail);
+
         await expect(body).toHaveAttribute('data-image-mode', imageMode.toLowerCase());
         await expect(body.locator('.booking-detail-image-wrap'))
           .toHaveCount(imageMode === 'Hide' ? 0 : 1);
+
         const dimensions = await body.evaluate(element => ({
           clientHeight: element.clientHeight,
           overflowY: getComputedStyle(element).overflowY,
           scrollHeight: element.scrollHeight,
         }));
+
         expect(dimensions.overflowY).toBe('auto');
+
         if (dimensions.scrollHeight > dimensions.clientHeight) {
           for (let swipe = 0; swipe < MAX_TRUSTED_SCROLL_SWIPES; swipe += 1) {
             const atBottom = await body.evaluate(
               element => element.scrollTop + element.clientHeight >= element.scrollHeight - 2,
             );
-            if (atBottom) break;
+            if (atBottom) {
+              break;
+            }
             await trustedSwipeUp(page, cdp, body);
           }
+
           await expect.poll(() => body.evaluate(
             element => element.scrollTop + element.clientHeight >= element.scrollHeight - 2,
           )).toBe(true);
@@ -845,11 +927,13 @@ test('Visual Grid keeps Featured geometry and image-mode detail behavior across 
         });
         await expectActionInBottomFooter(detail, body, primary);
         await primary.click({ trial: true });
+
         expect(Math.abs(
           await page.locator('[data-preview-scroll-container="true"]').evaluate(element => element.scrollTop)
           - menuScrollTop,
         )).toBeLessThanOrEqual(1);
         expect(await page.evaluate(() => window.scrollY)).toBe(windowScrollY);
+
         await page.getByRole('button', { name: 'Close service details' }).click();
         await page.getByTestId('booking-section-preview')
           .getByRole('button', { name: 'Clear service search' })
@@ -864,27 +948,35 @@ test('Visual Grid keeps Featured geometry and image-mode detail behavior across 
       const phoneDetail = page.getByTestId('service-detail-dialog');
       const phoneBody = phoneDetail.getByTestId('service-detail-scroll-body');
       const phoneCloseStart = await expectCloseExcludedFromScrollBody(phoneDetail);
+
       await expect(phoneBody).toHaveAttribute('data-image-mode', imageMode.toLowerCase());
       await expect(phoneBody.locator('.booking-detail-image-wrap'))
         .toHaveCount(imageMode === 'Hide' ? 0 : 1);
+
       for (let swipe = 0; swipe < MAX_TRUSTED_SCROLL_SWIPES; swipe += 1) {
         const atBottom = await phoneBody.evaluate(
           element => element.scrollTop + element.clientHeight >= element.scrollHeight - 2,
         );
-        if (atBottom) break;
+        if (atBottom) {
+          break;
+        }
         await trustedSwipeUp(page, cdp, phoneBody);
       }
+
       await expect.poll(() => phoneBody.evaluate(
         element => element.scrollTop + element.clientHeight >= element.scrollHeight - 2,
       )).toBe(true);
+
       const phoneCloseEnd = await expectCloseExcludedFromScrollBody(phoneDetail);
       expectClosePositionStable(phoneCloseStart, phoneCloseEnd);
       await phoneDetail.getByRole('button', { name: 'Continue' }).click({ trial: true });
+
       expect(Math.abs(
         await page.locator('[data-preview-scroll-container="true"]').evaluate(element => element.scrollTop)
         - menuScrollTop,
       )).toBeLessThanOrEqual(1);
       expect(await page.evaluate(() => window.scrollY)).toBe(windowScrollY);
+
       await phoneDetail.getByRole('button', { name: 'Close service details' }).click();
       await page.getByTestId('booking-section-preview')
         .getByRole('button', { name: 'Clear service search' })
@@ -910,7 +1002,9 @@ test('Search exposes one scoped clear control and restores focus without duplica
     await page.getByRole('button', { name: 'Preview', exact: true }).click();
     const renderer = page.getByTestId('booking-section-preview');
     const search = renderer.getByRole('searchbox', { name: 'Search services' });
+
     await expect(search).toHaveAttribute('placeholder', 'Try “Russian manicure”');
+
     const hiddenLabelTreatment = await renderer
       .locator('.booking-search-field .sr-only')
       .evaluate((element) => {
@@ -923,6 +1017,7 @@ test('Search exposes one scoped clear control and restores focus without duplica
           width: style.width,
         };
       });
+
     expect(hiddenLabelTreatment).toEqual({
       clip: 'rect(0px, 0px, 0px, 0px)',
       height: '1px',
@@ -930,20 +1025,25 @@ test('Search exposes one scoped clear control and restores focus without duplica
       position: 'absolute',
       width: '1px',
     });
+
     await search.fill('  RuSs  ');
+
     await expect(renderer.getByRole('button', { name: 'Clear service search' }))
       .toHaveCount(1);
     await expect(renderer.getByRole('button', { name: /Russian Manicure/ }).first())
       .toBeVisible();
-    const decoration = await search.evaluate((element) => ({
+
+    const decoration = await search.evaluate(element => ({
       appearance: getComputedStyle(element).appearance,
       cancelAppearance: getComputedStyle(
         element,
         '::-webkit-search-cancel-button',
       ).webkitAppearance,
     }));
+
     expect(decoration.appearance).toBe('none');
     expect(decoration.cancelAppearance).toBe('none');
+
     const nativeDecorationRules = await page.evaluate(() => {
       const css = [...document.styleSheets].flatMap((sheet) => {
         try {
@@ -959,6 +1059,7 @@ test('Search exposes one scoped clear control and restores focus without duplica
         resultsDecoration: css.includes('::-webkit-search-results-decoration'),
       };
     });
+
     expect(nativeDecorationRules).toEqual({
       cancel: true,
       decoration: true,
@@ -967,8 +1068,11 @@ test('Search exposes one scoped clear control and restores focus without duplica
     });
 
     await search.fill('definitely-no-service');
+
     await expect(renderer.getByText('No services found')).toBeVisible();
+
     await renderer.getByRole('button', { name: 'Clear service search' }).click();
+
     await expect(search).toBeFocused();
     await expect(search).toHaveValue('');
     await expect(search).toHaveAttribute('placeholder', 'Try “Russian manicure”');
@@ -977,9 +1081,12 @@ test('Search exposes one scoped clear control and restores focus without duplica
 
     await page.setViewportSize({ width: 1440, height: 900 });
     await search.fill('Russian');
+
     await expect(renderer.getByRole('button', { name: 'Clear service search' }))
       .toHaveCount(1);
+
     await renderer.getByRole('button', { name: 'Clear service search' }).click();
+
     await expect(search).toBeFocused();
     await expect(search).toHaveValue('');
   } finally {
@@ -993,6 +1100,7 @@ for (const layout of LAYOUTS) {
     page,
   }) => {
     test.setTimeout(120_000);
+
     const runtime = startRuntimeMonitor(page);
     try {
       await openFreshLab(page);
@@ -1008,17 +1116,22 @@ for (const layout of LAYOUTS) {
 
       const expectWarningAndKeepEditing = async () => {
         const warning = page.getByTestId('booking-option-warning-dialog');
+
         await expect(warning).toBeVisible();
+
         for (const action of ['Keep editing', 'Discard changes', 'Save changes']) {
           await expect(warning.getByRole('button', { name: action })).toBeVisible();
         }
         const warningBox = await warning.boundingBox();
+
         expect(warningBox, 'warning has geometry').not.toBeNull();
+
         if (warningBox) {
           expect(warningBox.x).toBeGreaterThanOrEqual(0);
           expect(warningBox.x + warningBox.width).toBeLessThanOrEqual(320);
         }
         await warning.getByRole('button', { name: 'Keep editing' }).click();
+
         await expect(warning).toHaveCount(0);
         await expect(detail).toBeVisible();
         await expect(french).toBeChecked();
@@ -1037,6 +1150,7 @@ for (const layout of LAYOUTS) {
       await close.click();
       let warning = page.getByTestId('booking-option-warning-dialog');
       await warning.getByRole('button', { name: 'Discard changes' }).click();
+
       await expect(detail).toHaveCount(0);
       await expect(page.getByTestId('selected-service-summary'))
         .toContainText('Russian Manicure');
@@ -1047,6 +1161,7 @@ for (const layout of LAYOUTS) {
       await saveDetail.getByRole('button', { name: 'Close service details' }).click();
       warning = page.getByTestId('booking-option-warning-dialog');
       await warning.getByRole('button', { name: 'Save changes' }).click();
+
       await expect(page.getByTestId('selected-service-summary'))
         .toContainText('1 hr 45 min · From $80 · 1 add-on');
       expect(await page.evaluate(() => ({
@@ -1064,6 +1179,7 @@ test('Keep editing stays reachable on direct desktop/mobile and simulated Phone/
   page,
 }) => {
   test.setTimeout(120_000);
+
   const runtime = startRuntimeMonitor(page);
   try {
     await page.setViewportSize({ width: 1440, height: 900 });
@@ -1082,9 +1198,12 @@ test('Keep editing stays reachable on direct desktop/mobile and simulated Phone/
       const close = detail.getByRole('button', { name: 'Close service details' });
       await close.click();
       const warning = page.getByTestId('booking-option-warning-dialog');
+
       await expect(warning, `${label}: warning`).toBeVisible();
       await expect(warning.getByRole('button', { name: 'Keep editing' })).toBeVisible();
+
       await warning.getByRole('button', { name: 'Keep editing' }).click();
+
       await expect(warning).toHaveCount(0);
       await expect(detail).toBeVisible();
       await expect(detail.getByRole('checkbox', { name: 'French' })).toBeChecked();
@@ -1093,11 +1212,14 @@ test('Keep editing stays reachable on direct desktop/mobile and simulated Phone/
         body: document.body.style.overflow,
         html: document.documentElement.style.overflow,
       }))).toEqual(lockBefore);
+
       await close.click();
       await page.getByTestId('booking-option-warning-dialog')
         .getByRole('button', { name: 'Discard changes' })
         .click();
+
       await expect(detail).toHaveCount(0);
+
       await page.getByTestId('booking-section-preview')
         .getByRole('button', { name: 'Clear service search' })
         .click();
@@ -1129,6 +1251,7 @@ for (const layout of LAYOUTS) {
     page,
   }) => {
     test.setTimeout(360_000);
+
     const runtime = startRuntimeMonitor(page);
     try {
       await openFreshLab(page);
@@ -1142,9 +1265,12 @@ for (const layout of LAYOUTS) {
           const atBottom = await body.evaluate(
             element => element.scrollTop + element.clientHeight >= element.scrollHeight - 2,
           );
-          if (atBottom) return;
+          if (atBottom) {
+            return;
+          }
           await trustedSwipeUp(page, cdp, body);
         }
+
         await expect.poll(() => body.evaluate(
           element => element.scrollTop + element.clientHeight >= element.scrollHeight - 2,
         )).toBe(true);
@@ -1164,7 +1290,9 @@ for (const layout of LAYOUTS) {
           });
         }
         const warning = page.getByTestId('booking-option-warning-dialog');
+
         await expect(warning).toBeVisible();
+
         return warning;
       };
 
@@ -1189,6 +1317,7 @@ for (const layout of LAYOUTS) {
           }
           const search = renderer.getByRole('searchbox', { name: 'Search services' });
           await search.fill('Russian manicure');
+
           await expect(renderer.getByRole('button', { name: 'Clear service search' }))
             .toHaveCount(1);
           await expect(renderer.getByRole('button', { name: /Russian Manicure/ }).first())
@@ -1200,7 +1329,7 @@ for (const layout of LAYOUTS) {
 
         await openRussianService(page, layout.search);
         let detail = page.getByTestId('service-detail-dialog');
-        let body = detail.getByTestId('service-detail-scroll-body');
+        const body = detail.getByTestId('service-detail-scroll-body');
         await scrollToBottom(body);
         await expectActionInBottomFooter(
           detail,
@@ -1208,21 +1337,30 @@ for (const layout of LAYOUTS) {
           detail.getByRole('button', { name: 'Continue' }),
         );
         await detail.getByRole('checkbox', { name: 'French' }).check();
+
         await expect(detail.getByTestId('service-detail-total'))
           .toContainText('1 hr 45 min');
         await expect(detail.getByTestId('service-detail-total'))
           .toContainText('From $80');
+
         await detail.getByRole('checkbox', { name: 'Chrome' }).check();
+
         await expect(detail.getByTestId('service-detail-total'))
           .toContainText('1 hr 55 min');
         await expect(detail.getByTestId('service-detail-total'))
           .toContainText('From $90');
+
         await detail.getByRole('checkbox', { name: 'Chrome' }).uncheck();
+
         await expect(detail.getByTestId('service-detail-total'))
           .toContainText('1 hr 45 min');
+
         await detail.getByRole('button', { name: 'Keep browsing' }).click();
+
         await expect(detail).toHaveCount(0);
+
         const summary = page.getByTestId('selected-service-summary');
+
         await expect(summary).toContainText('1 hr 45 min · From $80 · 1 add-on');
 
         await summary.getByRole('button', { name: 'Change' }).click();
@@ -1230,6 +1368,7 @@ for (const layout of LAYOUTS) {
         await detail.getByRole('checkbox', { name: 'Chrome' }).check();
         let warning = await openWarning('x');
         await warning.getByRole('button', { name: 'Keep editing' }).click();
+
         await expect(detail.getByRole('checkbox', { name: 'Chrome' })).toBeChecked();
         await expect(detail.getByRole('button', { name: 'Close service details' }))
           .toBeFocused();
@@ -1238,6 +1377,7 @@ for (const layout of LAYOUTS) {
         await warning.getByRole('button', { name: 'Keep editing' }).click();
         warning = await openWarning('escape');
         await warning.getByRole('button', { name: 'Discard changes' }).click();
+
         await expect(summary).toContainText('1 hr 45 min · From $80 · 1 add-on');
 
         await summary.getByRole('button', { name: 'Change' }).click();
@@ -1247,6 +1387,7 @@ for (const layout of LAYOUTS) {
         await warning.getByRole('button', { name: 'Keep editing' }).click();
         warning = await openWarning('backdrop');
         await warning.getByRole('button', { name: 'Save changes' }).click();
+
         await expect(summary).toContainText('1 hr 55 min · From $90 · 2 add-ons');
 
         await summary.getByRole('button', { name: 'Change' }).click();
@@ -1255,21 +1396,28 @@ for (const layout of LAYOUTS) {
         await scrollToBottom(detail.getByTestId('service-detail-scroll-body'));
         await detail.getByRole('button', { name: 'Continue' }).click();
         const handoff = page.getByTestId('booking-handoff-dialog');
+
         await expect(handoff).toContainText('Russian Manicure · 1 hr 45 min · From $80');
+
         await handoff.getByRole('button', { name: 'Back to the menu' }).click();
+
         await expect(handoff).toHaveCount(0);
 
         await summary.getByRole('button', { name: 'Continue' }).click();
         const summaryHandoff = page.getByTestId('booking-handoff-dialog');
+
         await expect(summaryHandoff)
           .toContainText('Russian Manicure · 1 hr 45 min · From $80');
+
         await summaryHandoff.getByRole('button', { name: 'Back to the menu' }).click();
+
         await expect(summaryHandoff).toHaveCount(0);
 
         await summary.getByRole('button', { name: 'Change' }).click();
         detail = page.getByTestId('service-detail-dialog');
         await scrollToBottom(detail.getByTestId('service-detail-scroll-body'));
         await detail.getByRole('button', { name: 'Remove selected service' }).click();
+
         await expect(summary).toHaveCount(0);
 
         if (layout.search) {
@@ -1278,16 +1426,20 @@ for (const layout of LAYOUTS) {
           const shortService = renderer.getByRole('button', {
             name: /Complimentary Nail Consultation/,
           }).first();
+
           await expect(shortService).toBeVisible();
+
           await shortService.click();
           detail = page.getByTestId('service-detail-dialog');
           await scrollToBottom(detail.getByTestId('service-detail-scroll-body'));
           await detail.getByRole('button', { name: 'Continue' }).click({ trial: true });
           await detail.getByRole('button', { name: 'Close service details' }).click();
           await renderer.getByRole('button', { name: 'Clear service search' }).click();
+
           await expect(search).toBeFocused();
           await expect(renderer.getByRole('button', { name: 'Clear service search' }))
             .toHaveCount(0);
+
           if (layout.id === 'category_menu') {
             const mobileAll = renderer
               .getByRole('navigation', { name: 'Browse service categories' })
@@ -1348,7 +1500,9 @@ for (const layout of LAYOUTS) {
         await warning.getByRole('button', { name: 'Save changes' }).click();
 
         const summary = page.getByTestId('selected-service-summary');
+
         await expect(summary).toContainText('1 hr 45 min · From $80 · 1 add-on');
+
         await summary.getByRole('button', { name: 'Change' }).click();
         detail = page.getByTestId('service-detail-dialog');
         await scrollToBottom(detail.getByTestId('service-detail-scroll-body'));
@@ -1358,6 +1512,7 @@ for (const layout of LAYOUTS) {
             .getByRole('button', { name: 'Clear service search' })
             .click();
         }
+
         await expect(page.getByTestId('service-detail-dialog')).toHaveCount(0);
         await expect(page.getByTestId('booking-option-warning-dialog')).toHaveCount(0);
         expect(await page.evaluate(() => ({

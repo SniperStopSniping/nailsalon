@@ -44,28 +44,32 @@ export function AnnouncementBarEditor({
         ]}
         value={action ? action.kind : 'none'}
       />
-      {action ? (
-        <TextField
-          label="Action label"
-          maxLength={40}
-          onChange={label => onChange({
-            ...settings,
-            action: action.kind === 'url'
-              ? { ...action, label }
-              : { kind: 'booking', label },
-          })}
-          value={action.label}
-        />
-      ) : null}
-      {action?.kind === 'url' ? (
-        <TextField
-          hint="Full web address, starting with https://"
-          label="Link address"
-          maxLength={300}
-          onChange={url => onChange({ ...settings, action: { ...action, url } })}
-          value={action.url}
-        />
-      ) : null}
+      {action
+        ? (
+            <TextField
+              label="Action label"
+              maxLength={40}
+              onChange={label => onChange({
+                ...settings,
+                action: action.kind === 'url'
+                  ? { ...action, label }
+                  : { kind: 'booking', label },
+              })}
+              value={action.label}
+            />
+          )
+        : null}
+      {action?.kind === 'url'
+        ? (
+            <TextField
+              hint="Full web address, starting with https://"
+              label="Link address"
+              maxLength={300}
+              onChange={url => onChange({ ...settings, action: { ...action, url } })}
+              value={action.url}
+            />
+          )
+        : null}
       <TextField
         hint="Optional smaller line under the action, e.g. deposit reassurance."
         label="Reassurance line"

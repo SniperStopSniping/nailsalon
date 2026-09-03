@@ -39,8 +39,12 @@ describe('Lab dashboard ports', () => {
     const values = new Map<string, string>();
     const storage = {
       getItem: (key: string) => values.get(key) ?? null,
-      removeItem: (key: string) => { values.delete(key); },
-      setItem: (key: string, value: string) => { values.set(key, value); },
+      removeItem: (key: string) => {
+        values.delete(key);
+      },
+      setItem: (key: string, value: string) => {
+        values.set(key, value);
+      },
     };
     const state = createDanielaFixtureState();
     state.progress.sessionStatus = 'dashboard';
@@ -60,8 +64,12 @@ describe('Lab dashboard ports', () => {
   });
 
   it('keeps the five-part tour optional and bounded', () => {
-    expect(LAB_DASHBOARD_TOUR_PORT.getSteps().map((step) => step.id)).toEqual([
-      'today', 'calendar', 'clients', 'services', 'website',
+    expect(LAB_DASHBOARD_TOUR_PORT.getSteps().map(step => step.id)).toEqual([
+      'today',
+      'calendar',
+      'clients',
+      'services',
+      'website',
     ]);
   });
 
@@ -76,10 +84,11 @@ describe('Lab dashboard ports', () => {
       },
       selectedServiceIds: ['svc-manicure-russian'],
     });
-    expect(items.find((item) => item.id === 'website_created')?.status).toBe('complete');
-    expect(items.find((item) => item.id === 'booking_ready')?.status).toBe('complete');
-    expect(items.find((item) => item.id === 'services_added')?.status).toBe('complete');
-    expect(items.find((item) => item.id === 'google_calendar')).toMatchObject({
+
+    expect(items.find(item => item.id === 'website_created')?.status).toBe('complete');
+    expect(items.find(item => item.id === 'booking_ready')?.status).toBe('complete');
+    expect(items.find(item => item.id === 'services_added')?.status).toBe('complete');
+    expect(items.find(item => item.id === 'google_calendar')).toMatchObject({
       source: 'lab_integration_fixture',
       status: 'not_connected',
     });
@@ -96,10 +105,10 @@ describe('Lab dashboard ports', () => {
       selectedServiceIds: [],
     });
 
-    expect(items.find((item) => item.id === 'website_created')?.status).toBe('needs_attention');
-    expect(items.find((item) => item.id === 'booking_ready')?.status).toBe('needs_attention');
-    expect(items.find((item) => item.id === 'services_added')?.status).toBe('needs_attention');
-    expect(items.find((item) => item.id === 'google_calendar')?.status).toBe('connected');
-    expect(items.every((item) => item.destination.length > 0)).toBe(true);
+    expect(items.find(item => item.id === 'website_created')?.status).toBe('needs_attention');
+    expect(items.find(item => item.id === 'booking_ready')?.status).toBe('needs_attention');
+    expect(items.find(item => item.id === 'services_added')?.status).toBe('needs_attention');
+    expect(items.find(item => item.id === 'google_calendar')?.status).toBe('connected');
+    expect(items.every(item => item.destination.length > 0)).toBe(true);
   });
 });

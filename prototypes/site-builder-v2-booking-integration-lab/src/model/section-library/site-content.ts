@@ -77,13 +77,13 @@ export type SiteContentRecordByKey = {
 
 export type UpdateSiteContentInput =
   | {
-      collection: SiteContentCollectionKey;
-      operation: 'upsert';
-      record: SiteContentRecordByKey[SiteContentCollectionKey];
-    }
+    collection: SiteContentCollectionKey;
+    operation: 'upsert';
+    record: SiteContentRecordByKey[SiteContentCollectionKey];
+  }
   | { collection: SiteContentCollectionKey; operation: 'remove'; recordId: string }
   | {
-      collection: SiteContentCollectionKey;
-      operation: 'reorder';
-      orderedIds: string[];
-    };
+    collection: SiteContentCollectionKey;
+    operation: 'reorder';
+    orderedIds: string[];
+  };

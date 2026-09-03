@@ -1,19 +1,19 @@
 import {
   createContext,
+  type ReactNode,
   useCallback,
   useContext,
   useEffect,
   useMemo,
   useRef,
   useState,
-  type ReactNode,
 } from 'react';
 
 import {
-  IndexedDbAssetRepository,
-  ObjectUrlRegistry,
   type AssetObjectUrlState,
   type AssetRepository,
+  IndexedDbAssetRepository,
+  ObjectUrlRegistry,
 } from '../assets';
 import {
   CustomDesignAssetTransactionCoordinator,
@@ -100,10 +100,10 @@ export function CustomDesignAssetProvider({
     }
 
     const originalRegistry = new ObjectUrlRegistry({
-      loadBlob: (assetId) => repository.getOriginal(assetId),
+      loadBlob: assetId => repository.getOriginal(assetId),
     });
     const thumbnailRegistry = new ObjectUrlRegistry({
-      loadBlob: (assetId) => repository.getThumbnail(assetId),
+      loadBlob: assetId => repository.getThumbnail(assetId),
     });
     const coordinator = new CustomDesignAssetTransactionCoordinator({
       getReachableAssetIds: () => reachableRef.current(),
@@ -114,23 +114,29 @@ export function CustomDesignAssetProvider({
         }
         bumpEpochs(assetIds);
       },
-      onError: (error) => errorRef.current?.(error),
+      onError: error => errorRef.current?.(error),
       repository,
     });
     let disposalTimer: number | null = null;
     let disposed = false;
     const dispose = () => {
-      if (disposed) return;
+      if (disposed) {
+        return;
+      }
       disposed = true;
       coordinator.close();
       originalRegistry.teardown();
       thumbnailRegistry.teardown();
-      if (ownsRepository) repository.close();
+      if (ownsRepository) {
+        repository.close();
+      }
     };
 
     return {
       cancelScheduledDisposal: () => {
-        if (disposalTimer === null) return;
+        if (disposalTimer === null) {
+          return;
+        }
         window.clearTimeout(disposalTimer);
         disposalTimer = null;
       },
@@ -138,7 +144,9 @@ export function CustomDesignAssetProvider({
       originalRegistry,
       repository,
       scheduleDisposal: () => {
-        if (disposalTimer !== null || disposed) return;
+        if (disposalTimer !== null || disposed) {
+          return;
+        }
         // React StrictMode immediately re-runs effects after its cleanup probe.
         // Deferring disposal one task lets that setup cancel the teardown while
         // still releasing resources after a real provider unmount.
@@ -234,9 +242,13 @@ export const useCustomDesignAssetUrl = (
     setState({ assetId, kind, status: 'loading' });
     const lease = registry.acquire(assetId);
     void lease.state.then((next) => {
-      if (!active) return;
+      if (!active) {
+        return;
+      }
       const normalized = normalizeLeaseState(next, kind);
-      if (normalized) setState(normalized);
+      if (normalized) {
+        setState(normalized);
+      }
     });
     return () => {
       active = false;
@@ -272,14 +284,14 @@ export const useCustomDesignAssetMap = (
 ): ReadonlyMap<string, CustomDesignAssetUrlPair> => {
   const environment = useAssetEnvironment();
   const uniqueIds = useMemo(
-    () => [...new Set(assetIds.filter((assetId) => assetId.trim()))],
+    () => [...new Set(assetIds.filter(assetId => assetId.trim()))],
     [assetIds.join('\u0000')],
   );
   const epochSignature = uniqueIds
-    .map((assetId) => `${assetId}:${environment.epochs.get(assetId) ?? 0}`)
+    .map(assetId => `${assetId}:${environment.epochs.get(assetId) ?? 0}`)
     .join('|');
   const loadingMap = useCallback((): ReadonlyMap<string, CustomDesignAssetUrlPair> =>
-    new Map(uniqueIds.map((assetId) => [assetId, {
+    new Map(uniqueIds.map(assetId => [assetId, {
       original: { assetId, kind: 'original', status: 'loading' },
       thumbnail: { assetId, kind: 'thumbnail', status: 'loading' },
     }])), [uniqueIds]);
@@ -295,7 +307,7 @@ export const useCustomDesignAssetMap = (
     ) {
       const unavailable = environment.storageError
         ?? new Error('Image storage is unavailable.');
-      setStates(new Map(uniqueIds.map((assetId) => [assetId, {
+      setStates(new Map(uniqueIds.map(assetId => [assetId, {
         original: { assetId, error: unavailable, kind: 'original', status: 'unavailable' },
         thumbnail: { assetId, error: unavailable, kind: 'thumbnail', status: 'unavailable' },
       }])));
@@ -304,7 +316,7 @@ export const useCustomDesignAssetMap = (
 
     let active = true;
     setStates(loadingMap());
-    const leases = uniqueIds.flatMap((assetId) => ([
+    const leases = uniqueIds.flatMap(assetId => ([
       {
         kind: 'original' as const,
         lease: environment.originalRegistry?.acquire(assetId),
@@ -320,9 +332,13 @@ export const useCustomDesignAssetMap = (
 
     for (const { kind, lease } of leases) {
       void lease.state.then((next) => {
-        if (!active) return;
+        if (!active) {
+          return;
+        }
         const normalized = normalizeLeaseState(next, kind);
-        if (!normalized) return;
+        if (!normalized) {
+          return;
+        }
         setStates((current) => {
           const nextStates = new Map(current);
           const prior = nextStates.get(lease.assetId) ?? {

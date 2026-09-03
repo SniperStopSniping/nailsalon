@@ -52,7 +52,9 @@ export const getPublicDirectionsAction = (
   location: LocationDraft,
 ): PublicDirectionsAction | null => {
   const target = getPublicLocationPreview(location).directionsTarget;
-  if (!target) return null;
+  if (!target) {
+    return null;
+  }
   const resolution = resolveCustomDesignAction({
     destination: { address: target },
     type: 'directions',
@@ -61,7 +63,9 @@ export const getPublicDirectionsAction = (
     resolution.status !== 'resolved'
     || resolution.target !== '_blank'
     || resolution.rel !== 'noopener noreferrer'
-  ) return null;
+  ) {
+    return null;
+  }
   return {
     accessibleLabel: `Directions to ${target}`,
     href: resolution.href,

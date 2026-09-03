@@ -91,8 +91,10 @@ describe('onboarding site presentation ownership', () => {
     if (!gallery) {
       throw new Error('Missing authoritative starter Gallery.');
     }
+
     expect(galleries).toHaveLength(1);
     expect(gallery.galleryPresentationOwner).toBe('onboarding');
+
     gallery.label = 'Portfolio';
 
     const result = applyOnboardingSitePresentation(source, {
@@ -122,7 +124,9 @@ describe('onboarding site presentation ownership', () => {
     if (!gallery) {
       throw new Error('Missing authoritative starter Gallery.');
     }
+
     expect(galleries).toHaveLength(1);
+
     gallery.label = 'Featured work';
 
     const imported = parseSiteBuilderDocument(JSON.stringify(source));
@@ -164,6 +168,7 @@ describe('onboarding site presentation ownership', () => {
     if (!gallery || !about) {
       throw new Error('Missing starter sections.');
     }
+
     expect(galleries).toHaveLength(1);
 
     const restorableSection = {

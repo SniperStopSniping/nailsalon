@@ -1,11 +1,11 @@
 import {
+  type KeyboardEvent as ReactKeyboardEvent,
+  type ReactNode,
   useCallback,
   useEffect,
   useId,
   useRef,
   useState,
-  type KeyboardEvent as ReactKeyboardEvent,
-  type ReactNode,
 } from 'react';
 
 import { STAGE_METADATA } from '../copy';
@@ -64,7 +64,9 @@ export function OnboardingShell({
   }, [routeKey]);
 
   useEffect(() => {
-    if (!moreOpen) return undefined;
+    if (!moreOpen) {
+      return undefined;
+    }
     const focusFrame = window.requestAnimationFrame(() => {
       const menuItems = moreMenuRef.current?.querySelectorAll<HTMLButtonElement>(
         '[role="menuitem"]:not(:disabled)',
@@ -78,13 +80,19 @@ export function OnboardingShell({
       target?.focus();
     });
     const handlePointerDown = (event: PointerEvent) => {
-      if (!moreRef.current?.contains(event.target as Node)) closeMore();
+      if (!moreRef.current?.contains(event.target as Node)) {
+        closeMore();
+      }
     };
     const handleFocusIn = (event: FocusEvent) => {
-      if (!moreRef.current?.contains(event.target as Node)) closeMore();
+      if (!moreRef.current?.contains(event.target as Node)) {
+        closeMore();
+      }
     };
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape') return;
+      if (event.key !== 'Escape') {
+        return;
+      }
       event.preventDefault();
       event.stopPropagation();
       closeMore(true);
@@ -107,24 +115,32 @@ export function OnboardingShell({
   }, [closeMore]);
 
   const handleMoreKeyDown = useCallback((event: ReactKeyboardEvent<HTMLElement>) => {
-    if (!['Enter', ' ', 'ArrowDown', 'ArrowUp'].includes(event.key)) return;
+    if (!['Enter', ' ', 'ArrowDown', 'ArrowUp'].includes(event.key)) {
+      return;
+    }
     event.preventDefault();
     menuEntryFocusRef.current = event.key === 'ArrowUp' ? 'last' : 'first';
-    setMoreOpen((open) => event.key === 'Enter' || event.key === ' ' ? !open : true);
+    setMoreOpen(open => event.key === 'Enter' || event.key === ' ' ? !open : true);
   }, []);
 
   const handleMenuKeyDown = useCallback((event: ReactKeyboardEvent<HTMLDivElement>) => {
     if (event.key === 'Tab') {
       window.requestAnimationFrame(() => {
-        if (!moreMenuRef.current?.contains(document.activeElement)) closeMore();
+        if (!moreMenuRef.current?.contains(document.activeElement)) {
+          closeMore();
+        }
       });
       return;
     }
-    if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return;
+    if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) {
+      return;
+    }
     const menuItems = [...event.currentTarget.querySelectorAll<HTMLButtonElement>(
       '[role="menuitem"]:not(:disabled)',
     )];
-    if (menuItems.length === 0) return;
+    if (menuItems.length === 0) {
+      return;
+    }
     event.preventDefault();
     const currentIndex = menuItems.indexOf(document.activeElement as HTMLButtonElement);
     const nextIndex = event.key === 'Home'
@@ -152,51 +168,61 @@ export function OnboardingShell({
           {STAGE_METADATA[currentStage].label}
         </p>
         <AutosaveStatus state={autosaveState} />
-        {hasMoreActions ? (
-          <details
-            ref={moreRef}
-            className="onboarding-shell__more"
-            open={moreOpen}
-            onToggle={(event) => setMoreOpen(event.currentTarget.open)}
-          >
-            <summary
-              ref={moreTriggerRef}
-              aria-controls={moreMenuId}
-              aria-expanded={moreOpen}
-              aria-haspopup="menu"
-              aria-label="More onboarding options"
-              id={moreTriggerId}
-              onKeyDown={handleMoreKeyDown}
-              role="button"
-            >
-              More
-            </summary>
-            <div
-              ref={moreMenuRef}
-              aria-labelledby={moreTriggerId}
-              className="onboarding-shell__more-menu"
-              id={moreMenuId}
-              onKeyDown={handleMenuKeyDown}
-              role="menu"
-            >
-              {onSaveForLater ? (
-                <button role="menuitem" tabIndex={0} type="button" onClick={() => runMoreAction(onSaveForLater)}>
-                  Save and finish later
-                </button>
-              ) : null}
-              {onRestart ? (
-                <button role="menuitem" tabIndex={onSaveForLater ? -1 : 0} type="button" onClick={() => runMoreAction(onRestart)}>
-                  Start over
-                </button>
-              ) : null}
-              {onLabOptions ? (
-                <button role="menuitem" tabIndex={onSaveForLater || onRestart ? -1 : 0} type="button" onClick={() => runMoreAction(onLabOptions)}>
-                  Lab review options
-                </button>
-              ) : null}
-            </div>
-          </details>
-        ) : null}
+        {hasMoreActions
+          ? (
+              <details
+                ref={moreRef}
+                className="onboarding-shell__more"
+                open={moreOpen}
+                onToggle={event => setMoreOpen(event.currentTarget.open)}
+              >
+                <summary
+                  ref={moreTriggerRef}
+                  aria-controls={moreMenuId}
+                  aria-expanded={moreOpen}
+                  aria-haspopup="menu"
+                  aria-label="More onboarding options"
+                  id={moreTriggerId}
+                  onKeyDown={handleMoreKeyDown}
+                  role="button"
+                  tabIndex={0}
+                >
+                  More
+                </summary>
+                <div
+                  ref={moreMenuRef}
+                  aria-labelledby={moreTriggerId}
+                  className="onboarding-shell__more-menu"
+                  id={moreMenuId}
+                  onKeyDown={handleMenuKeyDown}
+                  role="menu"
+                  tabIndex={-1}
+                >
+                  {onSaveForLater
+                    ? (
+                        <button role="menuitem" tabIndex={0} type="button" onClick={() => runMoreAction(onSaveForLater)}>
+                          Save and finish later
+                        </button>
+                      )
+                    : null}
+                  {onRestart
+                    ? (
+                        <button role="menuitem" tabIndex={onSaveForLater ? -1 : 0} type="button" onClick={() => runMoreAction(onRestart)}>
+                          Start over
+                        </button>
+                      )
+                    : null}
+                  {onLabOptions
+                    ? (
+                        <button role="menuitem" tabIndex={onSaveForLater || onRestart ? -1 : 0} type="button" onClick={() => runMoreAction(onLabOptions)}>
+                          Lab review options
+                        </button>
+                      )
+                    : null}
+                </div>
+              </details>
+            )
+          : null}
       </header>
       <div className="onboarding-shell__progress">
         <OnboardingStageProgress completedStages={completedStages} currentStage={currentStage} />

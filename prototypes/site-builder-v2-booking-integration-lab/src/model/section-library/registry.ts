@@ -227,8 +227,8 @@ const announcementBar: SectionRegistryEntry<'announcement_bar'> = {
     const record = isRecord(input) ? input : {};
     const action = isRecord(record.action)
       ? record.action.kind === 'url'
-        && typeof record.action.label === 'string'
-        && typeof record.action.url === 'string'
+      && typeof record.action.label === 'string'
+      && typeof record.action.url === 'string'
         ? { kind: 'url' as const, label: record.action.label, url: record.action.url }
         : record.action.kind === 'booking' && typeof record.action.label === 'string'
           ? { kind: 'booking' as const, label: record.action.label }
@@ -245,7 +245,7 @@ const announcementBar: SectionRegistryEntry<'announcement_bar'> = {
   },
   overlapWarnings: [],
   presetIds: ['standard'],
-  readiness: (settings) =>
+  readiness: settings =>
     settings.message.trim()
       ? ready()
       : empty('announcement_empty', 'Add a short announcement message.'),
@@ -379,7 +379,9 @@ const sectionNavigation: SectionRegistryEntry<'section_navigation'> = {
     const overrides: Record<string, string> = {};
     if (isRecord(record.labelOverrides)) {
       for (const [key, value] of Object.entries(record.labelOverrides)) {
-        if (typeof value === 'string' && value.trim()) overrides[key] = value.slice(0, 40);
+        if (typeof value === 'string' && value.trim()) {
+          overrides[key] = value.slice(0, 40);
+        }
       }
     }
     return {
@@ -719,7 +721,7 @@ const depositsCancellations: SectionRegistryEntry<'deposits_cancellations'> = {
     // falls back to the authored wording. `policiesMeaningful` is true for
     // policy topics this section cannot draw, so it cannot answer this.
     (settings.wordingMode === 'summary' && context.depositsSummaryPublishable)
-      || context.depositsWordingPublishable
+    || context.depositsWordingPublishable
       ? ready()
       : empty('deposits_empty', 'Set a deposit or cancellation policy to show this section.')
   ),
@@ -758,8 +760,8 @@ const policies: SectionRegistryEntry<'policies'> = {
   presetIds: ['expandable_list'],
   readiness: (settings, context) =>
     context.depositsSummaryPublishable
-      || context.depositsWordingPublishable
-      || settings.includedSections.some(topic => context.availablePolicyTopics.includes(topic))
+    || context.depositsWordingPublishable
+    || settings.includedSections.some(topic => context.availablePolicyTopics.includes(topic))
       ? ready()
       : empty('policies_empty', 'Answer the policy questions to show this section.'),
   recommendedPageKinds: ['content'],
@@ -875,12 +877,12 @@ const visitUs: SectionRegistryEntry<'visit_us'> = {
     // an area is not the only way this section has something to say. Each
     // note counts only while its own toggle is on, exactly as it renders.
     context.hasPublicLocation
-      || (settings.showParking && context.arrivalNotes.parking)
-      || (settings.showEntrance && context.arrivalNotes.entrance)
-      || (settings.showTransit && context.arrivalNotes.transit)
-      || (settings.hoursSummary !== 'hide'
-        && context.hoursConfigured
-        && context.hoursShownOnSite)
+    || (settings.showParking && context.arrivalNotes.parking)
+    || (settings.showEntrance && context.arrivalNotes.entrance)
+    || (settings.showTransit && context.arrivalNotes.transit)
+    || (settings.hoursSummary !== 'hide'
+      && context.hoursConfigured
+      && context.hoursShownOnSite)
       || (settings.contactSummary !== 'hide' && context.hasPublicContact)
       || context.bookingOnlyContact === true
       ? ready()
@@ -1062,8 +1064,8 @@ export const getSectionRegistryEntry = (type: LibrarySectionType): AnyEntry =>
   SECTION_LIBRARY_REGISTRY[type];
 
 /** Roles absorbed from v1 starter documents, resolved once. */
-export const LIBRARY_TYPE_BY_LEGACY_ROLE: Readonly<Record<string, LibrarySectionType>> =
-  Object.freeze(Object.fromEntries(
+export const LIBRARY_TYPE_BY_LEGACY_ROLE: Readonly<Record<string, LibrarySectionType>>
+  = Object.freeze(Object.fromEntries(
     LIBRARY_SECTION_TYPES.flatMap(type =>
       SECTION_LIBRARY_REGISTRY[type].legacySemanticRoles.map(role => [role, type])),
   ));

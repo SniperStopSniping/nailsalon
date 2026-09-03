@@ -56,6 +56,7 @@ describe('SectionGalleryPage gating', () => {
     expect(mocks.redirect).toHaveBeenCalledWith('/fr/owner-sign-in');
 
     mocks.getAdmin.mockResolvedValue(null);
+
     await expect(SectionGalleryPage({ params: { locale: '../evil' } }))
       .rejects.toThrow('REDIRECT');
 

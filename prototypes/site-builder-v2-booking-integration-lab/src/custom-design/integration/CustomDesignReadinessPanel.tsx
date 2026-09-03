@@ -12,18 +12,20 @@ export function CustomDesignReadinessPanel({
   showReady = false,
 }: CustomDesignReadinessPanelProps) {
   if (issues.length === 0) {
-    return showReady ? (
-      <section
-        aria-label="Custom Design readiness"
-        className="custom-design-owner-readiness custom-design-owner-readiness--ready"
-      >
-        <CheckCircle2 aria-hidden="true" size={18} />
-        <div>
-          <strong>Ready for customer Preview</strong>
-          <p>Every saved link area has a usable label and destination.</p>
-        </div>
-      </section>
-    ) : null;
+    return showReady
+      ? (
+          <section
+            aria-label="Custom Design readiness"
+            className="custom-design-owner-readiness custom-design-owner-readiness--ready"
+          >
+            <CheckCircle2 aria-hidden="true" size={18} />
+            <div>
+              <strong>Ready for customer Preview</strong>
+              <p>Every saved link area has a usable label and destination.</p>
+            </div>
+          </section>
+        )
+      : null;
   }
 
   return (

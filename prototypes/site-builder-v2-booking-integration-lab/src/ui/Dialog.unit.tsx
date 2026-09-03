@@ -114,8 +114,10 @@ describe('Dialog document lifecycle', () => {
     );
 
     expect(screen.getByRole('button', { name: 'Close Saving Gallery' })).toBeDisabled();
+
     await userEvent.setup().keyboard('{Escape}');
     fireEvent.mouseDown(screen.getByTestId('dialog-backdrop'));
+
     expect(onClose).not.toHaveBeenCalled();
   });
 
@@ -128,11 +130,15 @@ describe('Dialog document lifecycle', () => {
 
     for (let cycle = 0; cycle < 3; cycle += 1) {
       await user.click(trigger);
+
       expect(document.body.style.overflow).toBe('hidden');
+
       await user.click(screen.getByRole('button', { name: 'Open warning' }));
+
       expect(document.body.style.overflow).toBe('hidden');
 
       await user.click(screen.getByRole('button', { name: 'Return to Move' }));
+
       expect(document.body.style.overflow).toBe('hidden');
       expect(screen.getByRole('dialog', { name: 'Move Booking' })).toBeVisible();
 
@@ -140,8 +146,10 @@ describe('Dialog document lifecycle', () => {
       await user.click(screen.getByRole('button', { name: 'Close both' }));
 
       await waitFor(() => expect(document.body.style.overflow).toBe('auto'));
+
       expect(document.body.style.getPropertyPriority('overflow')).toBe('important');
       expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+
       await waitFor(() => expect(trigger).toHaveFocus());
     }
   });
@@ -154,6 +162,7 @@ describe('Dialog document lifecycle', () => {
     await user.click(trigger);
 
     const backdrop = screen.getByTestId('dialog-backdrop');
+
     expect(backdrop).toHaveClass('dialog-backdrop--adjacent');
     expect(screen.queryByTestId('dialog-nonmodal-layer')).not.toBeInTheDocument();
     expect(document.body.style.overflow).toBe('hidden');
@@ -161,7 +170,9 @@ describe('Dialog document lifecycle', () => {
     fireEvent.mouseDown(backdrop);
 
     await waitFor(() => expect(document.body.style.overflow).toBe(''));
+
     expect(screen.queryByRole('dialog', { name: 'Move Booking' })).not.toBeInTheDocument();
+
     await waitFor(() => expect(trigger).toHaveFocus());
   });
 
@@ -175,13 +186,17 @@ describe('Dialog document lifecycle', () => {
     const heading = screen.getByRole('heading', { name: 'Focus boundary' });
     await waitFor(() => expect(heading).toHaveFocus());
     await user.tab({ shift: true });
+
     expect(screen.getByRole('button', { name: 'Last content control' })).toHaveFocus();
+
     await user.tab();
+
     expect(within(dialog).getByRole('button', { name: 'Close Focus boundary' }))
       .toHaveFocus();
 
     screen.getByRole('button', { name: 'After dialog' }).focus();
     await user.tab();
+
     expect(within(dialog).getByRole('button', { name: 'Close Focus boundary' }))
       .toHaveFocus();
   });
@@ -196,7 +211,10 @@ describe('Dialog document lifecycle', () => {
         open
         title="Plan choices"
       >
-        <details><summary>Compare plans</summary><p>Plan details</p></details>
+        <details>
+          <summary>Compare plans</summary>
+          <p>Plan details</p>
+        </details>
         <button type="button">Continue free</button>
       </Dialog>,
     );
@@ -204,10 +222,15 @@ describe('Dialog document lifecycle', () => {
     await waitFor(() => expect(screen.getByRole('heading', { name: 'Plan choices' }))
       .toHaveFocus());
     await user.tab();
+
     expect(screen.getByRole('button', { name: 'Close Plan choices' })).toHaveFocus();
+
     await user.tab();
+
     expect(screen.getByText('Compare plans')).toHaveFocus();
+
     await user.tab();
+
     expect(screen.getByRole('button', { name: 'Continue free' })).toHaveFocus();
   });
 
@@ -218,10 +241,13 @@ describe('Dialog document lifecycle', () => {
     await user.click(screen.getByRole('button', { name: 'Open focus dialog' }));
 
     const dialog = screen.getByRole('dialog', { name: 'Focus boundary' });
+
     expect(dialog).not.toHaveAttribute('aria-modal');
+
     await waitFor(() => expect(screen.getByRole('heading', { name: 'Focus boundary' }))
       .toHaveFocus());
     await user.tab({ shift: true });
+
     expect(dialog).not.toContainElement(document.activeElement as HTMLElement);
   });
 });

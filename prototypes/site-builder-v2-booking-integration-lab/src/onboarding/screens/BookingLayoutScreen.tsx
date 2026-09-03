@@ -1,8 +1,8 @@
 import { CheckCircle2 } from 'lucide-react';
 
 import { BOOKING_LAYOUT_META } from '../../booking/layout-meta';
-import { BookingSettingsPanel } from '../../booking/SettingsPanel';
 import { withoutFeaturedServicesRail } from '../../booking/presentation';
+import { BookingSettingsPanel } from '../../booking/SettingsPanel';
 import type { BookingSectionPresentationSettings } from '../../booking/types';
 import type { SiteBuilderDocument } from '../../model/types';
 import { StickyOnboardingActions } from '../components/StickyOnboardingActions';
@@ -52,61 +52,69 @@ export function BookingLayoutScreen({
         </p>
       </header>
 
-      {booking?.sectionType === 'booking' ? (
-        <section
-          aria-labelledby="booking-layout-options-heading"
-          className="onboarding-booking-layout-options"
-        >
-          <div className="onboarding-booking-layout-options__heading">
-            <span>
-              <small>BOOKING MENU</small>
-              <h2 id="booking-layout-options-heading">Choose one layout</h2>
-            </span>
-            <strong><CheckCircle2 aria-hidden="true" size={17} /> {selectedLayout?.label}</strong>
-          </div>
-          <BookingSettingsPanel
-            allowFeaturedServices={false}
-            layoutOnly
-            onChange={(settings) => {
-              feedback.send({ kind: 'selection' });
-              onChange(booking.id, withoutFeaturedServicesRail(settings));
-            }}
-            settings={booking.settings}
-            showIntro={false}
-          />
-        </section>
-      ) : (
-        <p className="onboarding-booking-layout-error" role="alert">
-          Your booking menu is still being prepared. Go back and confirm at least one service.
-        </p>
-      )}
+      {booking?.sectionType === 'booking'
+        ? (
+            <section
+              aria-labelledby="booking-layout-options-heading"
+              className="onboarding-booking-layout-options"
+            >
+              <div className="onboarding-booking-layout-options__heading">
+                <span>
+                  <small>BOOKING MENU</small>
+                  <h2 id="booking-layout-options-heading">Choose one layout</h2>
+                </span>
+                <strong>
+                  <CheckCircle2 aria-hidden="true" size={17} />
+                  {' '}
+                  {selectedLayout?.label}
+                </strong>
+              </div>
+              <BookingSettingsPanel
+                allowFeaturedServices={false}
+                layoutOnly
+                onChange={(settings) => {
+                  feedback.send({ kind: 'selection' });
+                  onChange(booking.id, withoutFeaturedServicesRail(settings));
+                }}
+                settings={booking.settings}
+                showIntro={false}
+              />
+            </section>
+          )
+        : (
+            <p className="onboarding-booking-layout-error" role="alert">
+              Your booking menu is still being prepared. Go back and confirm at least one service.
+            </p>
+          )}
 
-      {booking?.sectionType === 'booking' ? (
-        <section
-          aria-labelledby="booking-layout-live-preview-heading"
-          className="onboarding-designer-preview onboarding-booking-layout-preview"
-        >
-          <div className="onboarding-booking-layout-preview__heading">
-            <span>
-              <small>LIVE CUSTOMER PREVIEW</small>
-              <h2 id="booking-layout-live-preview-heading">Your real services in this layout</h2>
-            </span>
-            <strong>{selectedLayout?.shortLabel}</strong>
-          </div>
-          <OnboardingSitePreview
-            document={document}
-            includeOptionalSections
-            initialTarget="booking"
-            interactionMode="interactive"
-            label={`Booking layout preview: ${selectedLayout?.label ?? 'Booking menu'}`}
-            quickBookPhase="final"
-            state={state}
-          />
-          <button className="onboarding-full-preview-button" type="button" onClick={onFullPreview}>
-            View full preview
-          </button>
-        </section>
-      ) : null}
+      {booking?.sectionType === 'booking'
+        ? (
+            <section
+              aria-labelledby="booking-layout-live-preview-heading"
+              className="onboarding-designer-preview onboarding-booking-layout-preview"
+            >
+              <div className="onboarding-booking-layout-preview__heading">
+                <span>
+                  <small>LIVE CUSTOMER PREVIEW</small>
+                  <h2 id="booking-layout-live-preview-heading">Your real services in this layout</h2>
+                </span>
+                <strong>{selectedLayout?.shortLabel}</strong>
+              </div>
+              <OnboardingSitePreview
+                document={document}
+                includeOptionalSections
+                initialTarget="booking"
+                interactionMode="interactive"
+                label={`Booking layout preview: ${selectedLayout?.label ?? 'Booking menu'}`}
+                quickBookPhase="final"
+                state={state}
+              />
+              <button className="onboarding-full-preview-button" type="button" onClick={onFullPreview}>
+                View full preview
+              </button>
+            </section>
+          )
+        : null}
 
       <p className="onboarding-booking-layout-reassurance">
         You can change this layout anytime without rebuilding your service menu.

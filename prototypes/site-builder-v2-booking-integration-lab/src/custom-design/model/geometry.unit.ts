@@ -23,6 +23,7 @@ describe('Custom Design geometry', () => {
 
   it('round trips normalized and rendered-pixel rectangles', () => {
     const pixels = normalizedRectToPixels(rect, imageRect);
+
     expect(pixels).toEqual({ x: 90, y: 260, width: 120, height: 200 });
     expect(pixelRectToNormalized(pixels, imageRect)).toEqual(rect);
   });
@@ -33,6 +34,7 @@ describe('Custom Design geometry', () => {
       imageRect,
     );
     const normalized = pixelRectToNormalized(pixels, imageRect);
+
     expect(normalized).not.toBeNull();
     expect(canonicalizeNormalizedRect(normalized!)).toEqual({
       rect: { x: 10.12, y: 20.57, width: 31, height: 25 },
@@ -132,6 +134,7 @@ describe('Custom Design geometry', () => {
 
   it('warns without silently enlarging sub-44px targets', () => {
     const small = { x: 0, y: 0, width: 10, height: 10 };
+
     expect(renderedAreaNeedsTargetWarning(small, { width: 430, height: 430 })).toBe(true);
     expect(renderedAreaNeedsTargetWarning(small, { width: 440, height: 440 })).toBe(false);
     expect(small).toEqual({ x: 0, y: 0, width: 10, height: 10 });
@@ -139,6 +142,7 @@ describe('Custom Design geometry', () => {
 
   it('cancels activation after meaningful pointer movement or page scroll', () => {
     const started = createTapGestureState({ x: 20, y: 20 }, { x: 0, y: 100 });
+
     expect(tapGestureShouldActivate(
       updateTapGestureState(started, { x: 20, y: 28 }),
     )).toBe(true);

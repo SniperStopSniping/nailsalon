@@ -32,7 +32,7 @@ import type {
 } from './types';
 
 const HEX_COLOR_PATTERN = /^#[0-9A-F]{6}$/u;
-const IMAGE_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$/u;
+const IMAGE_ID_PATTERN = /^[A-Za-z0-9][\w.:-]{0,159}$/u;
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -40,33 +40,37 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 const hasOnlyKeys = (
   value: Record<string, unknown>,
   expected: readonly string[],
-): boolean => Object.keys(value).every((key) => expected.includes(key));
+): boolean => Object.keys(value).every(key => expected.includes(key));
 
 const asIdentifier = (value: unknown): string | null =>
   typeof value === 'string' && IMAGE_ID_PATTERN.test(value) ? value : null;
 
 const asPositiveInteger = (value: unknown): number | null =>
-  typeof value === 'number' &&
-  Number.isSafeInteger(value) &&
-  value > 0
+  typeof value === 'number'
+  && Number.isSafeInteger(value)
+  && value > 0
     ? value
     : null;
 
 const asNonNegativeInteger = (value: unknown): number | null =>
-  typeof value === 'number' &&
-  Number.isSafeInteger(value) &&
-  value >= 0
+  typeof value === 'number'
+  && Number.isSafeInteger(value)
+  && value >= 0
     ? value
     : null;
 
 export const normalizeCustomDesignHexColor = (value: unknown): string | null => {
-  if (typeof value !== 'string') return null;
+  if (typeof value !== 'string') {
+    return null;
+  }
   const normalized = value.trim().toUpperCase();
   return HEX_COLOR_PATTERN.test(normalized) ? normalized : null;
 };
 
 const parseBackground = (value: unknown): CustomDesignBackground | null => {
-  if (!isRecord(value) || typeof value.mode !== 'string') return null;
+  if (!isRecord(value) || typeof value.mode !== 'string') {
+    return null;
+  }
   if (value.mode === 'site' || value.mode === 'transparent') {
     return hasOnlyKeys(value, ['mode']) ? { mode: value.mode } : null;
   }
@@ -95,10 +99,10 @@ const parseRect = (value: unknown): CustomDesignNormalizedRect | null => {
     return null;
   }
   if (
-    typeof value.x !== 'number' ||
-    typeof value.y !== 'number' ||
-    typeof value.width !== 'number' ||
-    typeof value.height !== 'number'
+    typeof value.x !== 'number'
+    || typeof value.y !== 'number'
+    || typeof value.width !== 'number'
+    || typeof value.height !== 'number'
   ) {
     return null;
   }
@@ -123,9 +127,9 @@ const parseReview = (
       : null;
   }
   if (value.reviewStatus === 'needs_review') {
-    const reason: CustomDesignAreaReviewReason | null =
-      value.reviewReason === 'aspect_ratio_changed' ||
-      value.reviewReason === 'owner_review_required'
+    const reason: CustomDesignAreaReviewReason | null
+      = value.reviewReason === 'aspect_ratio_changed'
+      || value.reviewReason === 'owner_review_required'
         ? value.reviewReason
         : null;
     return reason ? { reviewStatus: 'needs_review', reviewReason: reason } : null;
@@ -137,8 +141,8 @@ const parseInteractiveArea = (
   value: unknown,
 ): CustomDesignInteractiveArea | null => {
   if (
-    !isRecord(value) ||
-    !hasOnlyKeys(value, [
+    !isRecord(value)
+    || !hasOnlyKeys(value, [
       'id',
       'geometry',
       'semanticOrder',
@@ -163,21 +167,21 @@ const parseInteractiveArea = (
   const action = parseCustomDesignAction(value.action);
   const review = parseReview(value);
   if (
-    !id ||
-    !geometry ||
-    semanticOrder === null ||
-    accessibleLabel === null ||
-    typeof value.labelConfirmed !== 'boolean' ||
-    !action ||
-    !review ||
-    (value.validationStatus !== 'valid' && value.validationStatus !== 'invalid')
+    !id
+    || !geometry
+    || semanticOrder === null
+    || accessibleLabel === null
+    || typeof value.labelConfirmed !== 'boolean'
+    || !action
+    || !review
+    || (value.validationStatus !== 'valid' && value.validationStatus !== 'invalid')
   ) {
     return null;
   }
   const staticallyValid = value.labelConfirmed && accessibleLabel.length > 0;
   if (
-    (staticallyValid && value.validationStatus !== 'valid') ||
-    (!staticallyValid && value.validationStatus !== 'invalid')
+    (staticallyValid && value.validationStatus !== 'valid')
+    || (!staticallyValid && value.validationStatus !== 'invalid')
   ) {
     return null;
   }
@@ -220,7 +224,7 @@ export const validateCustomDesignImageMetadata = (
   const assetId = asIdentifier(value.assetId);
   const fileName = parseBoundedSingleLineText(value.fileName, 255);
   const mimeType = CUSTOM_DESIGN_SUPPORTED_MIME_TYPES.find(
-    (candidate) => candidate === value.mimeType,
+    candidate => candidate === value.mimeType,
   );
   const fileSize = asPositiveInteger(value.fileSize);
   const width = asPositiveInteger(value.width);
@@ -230,10 +234,18 @@ export const validateCustomDesignImageMetadata = (
     ? undefined
     : parseBoundedMultilinePlainText(value.accessibleSummary, 5_000);
 
-  if (!id) issues.push('Image item ID is invalid.');
-  if (!assetId) issues.push('Asset ID is invalid.');
-  if (!fileName) issues.push('File name is invalid.');
-  if (!mimeType) issues.push('Only PNG, JPEG, and WebP image metadata is supported.');
+  if (!id) {
+    issues.push('Image item ID is invalid.');
+  }
+  if (!assetId) {
+    issues.push('Asset ID is invalid.');
+  }
+  if (!fileName) {
+    issues.push('File name is invalid.');
+  }
+  if (!mimeType) {
+    issues.push('Only PNG, JPEG, and WebP image metadata is supported.');
+  }
   if (!fileSize || fileSize > CUSTOM_DESIGN_MAX_FILE_BYTES) {
     issues.push(`Image file size must be at most ${CUSTOM_DESIGN_MAX_FILE_BYTES} bytes.`);
   }
@@ -248,15 +260,17 @@ export const validateCustomDesignImageMetadata = (
   }
   const canonicalAspectRatio = width && height ? width / height : null;
   if (
-    typeof value.aspectRatio !== 'number' ||
-    !Number.isFinite(value.aspectRatio) ||
-    value.aspectRatio <= 0 ||
-    (canonicalAspectRatio !== null &&
-      Math.abs(value.aspectRatio - canonicalAspectRatio) / canonicalAspectRatio > 0.000_001)
+    typeof value.aspectRatio !== 'number'
+    || !Number.isFinite(value.aspectRatio)
+    || value.aspectRatio <= 0
+    || (canonicalAspectRatio !== null
+      && Math.abs(value.aspectRatio - canonicalAspectRatio) / canonicalAspectRatio > 0.000_001)
   ) {
     issues.push('Image aspect ratio must match its dimensions.');
   }
-  if (altText === null) issues.push('Alt text is invalid.');
+  if (altText === null) {
+    issues.push('Alt text is invalid.');
+  }
   if (typeof value.decorative !== 'boolean') {
     issues.push('Decorative must be a boolean.');
   } else if (value.decorative && altText !== '') {
@@ -281,11 +295,13 @@ export const validateCustomDesignImageMetadata = (
         issues.push(`Clickable area ${index + 1} is invalid.`);
         return;
       }
-      if (ids.has(area.id)) issues.push(`Clickable area ID ${area.id} is duplicated.`);
+      if (ids.has(area.id)) {
+        issues.push(`Clickable area ID ${area.id} is duplicated.`);
+      }
       if (orders.has(area.semanticOrder)) {
         issues.push(`Clickable area order ${area.semanticOrder} is duplicated.`);
       }
-      const overlap = interactiveAreas.find((other) =>
+      const overlap = interactiveAreas.find(other =>
         rectanglesHaveInteriorOverlap(other.geometry, area.geometry));
       if (overlap) {
         issues.push(`Clickable areas ${overlap.id} and ${area.id} overlap.`);
@@ -297,17 +313,17 @@ export const validateCustomDesignImageMetadata = (
   }
 
   if (
-    issues.length > 0 ||
-    !id ||
-    !assetId ||
-    !fileName ||
-    !mimeType ||
-    !fileSize ||
-    !width ||
-    !height ||
-    altText === null ||
-    typeof value.aspectRatio !== 'number' ||
-    typeof value.decorative !== 'boolean'
+    issues.length > 0
+    || !id
+    || !assetId
+    || !fileName
+    || !mimeType
+    || !fileSize
+    || !width
+    || !height
+    || altText === null
+    || typeof value.aspectRatio !== 'number'
+    || typeof value.decorative !== 'boolean'
   ) {
     return { success: false, issues };
   }
@@ -362,21 +378,33 @@ export const hasRenderableCustomDesignContent = (
   || settings.images.some(image => assetCanPaint(image.assetId));
 
 const parseImagesDefensively = (value: unknown): CustomDesignImageItem[] => {
-  if (!Array.isArray(value)) return [];
+  if (!Array.isArray(value)) {
+    return [];
+  }
   const images: CustomDesignImageItem[] = [];
   const imageIds = new Set<string>();
   const areaIds = new Set<string>();
   const assets = new Map<string, CustomDesignImageItem>();
   let totalBytes = 0;
   for (const candidate of value) {
-    if (images.length >= CUSTOM_DESIGN_MAX_IMAGES) break;
+    if (images.length >= CUSTOM_DESIGN_MAX_IMAGES) {
+      break;
+    }
     const result = validateCustomDesignImageMetadata(salvageNestedAreas(candidate));
-    if (!result.success || imageIds.has(result.value.id)) continue;
+    if (!result.success || imageIds.has(result.value.id)) {
+      continue;
+    }
     const priorAsset = assets.get(result.value.assetId);
-    if (priorAsset && !assetMetadataMatches(priorAsset, result.value)) continue;
-    if (totalBytes + result.value.fileSize > CUSTOM_DESIGN_MAX_SECTION_BYTES) continue;
+    if (priorAsset && !assetMetadataMatches(priorAsset, result.value)) {
+      continue;
+    }
+    if (totalBytes + result.value.fileSize > CUSTOM_DESIGN_MAX_SECTION_BYTES) {
+      continue;
+    }
     const interactiveAreas = result.value.interactiveAreas.filter((area) => {
-      if (areaIds.has(area.id)) return false;
+      if (areaIds.has(area.id)) {
+        return false;
+      }
       areaIds.add(area.id);
       return true;
     });
@@ -391,35 +419,38 @@ const parseImagesDefensively = (value: unknown): CustomDesignImageItem[] => {
   return images;
 };
 
-const assetMetadataMatches = (
-  first: Pick<
-    CustomDesignImageItem,
+function assetMetadataMatches(first: Pick<
+  CustomDesignImageItem,
     'assetId' | 'fileName' | 'mimeType' | 'fileSize' | 'width' | 'height'
-  >,
-  second: Pick<
-    CustomDesignImageItem,
+>, second: Pick<
+  CustomDesignImageItem,
     'assetId' | 'fileName' | 'mimeType' | 'fileSize' | 'width' | 'height'
-  >,
-): boolean => first.assetId === second.assetId &&
-  first.fileName === second.fileName &&
-  first.mimeType === second.mimeType &&
-  first.fileSize === second.fileSize &&
-  first.width === second.width &&
-  first.height === second.height;
+>): boolean {
+  return first.assetId === second.assetId
+    && first.fileName === second.fileName
+    && first.mimeType === second.mimeType
+    && first.fileSize === second.fileSize
+    && first.width === second.width
+    && first.height === second.height;
+}
 
-const salvageNestedAreas = (value: unknown): unknown => {
-  if (!isRecord(value) || !Array.isArray(value.interactiveAreas)) return value;
+function salvageNestedAreas(value: unknown): unknown {
+  if (!isRecord(value) || !Array.isArray(value.interactiveAreas)) {
+    return value;
+  }
   const areas: CustomDesignInteractiveArea[] = [];
   const ids = new Set<string>();
   const orders = new Set<number>();
   for (const candidate of value.interactiveAreas) {
-    if (areas.length >= CUSTOM_DESIGN_MAX_AREAS_PER_IMAGE) break;
+    if (areas.length >= CUSTOM_DESIGN_MAX_AREAS_PER_IMAGE) {
+      break;
+    }
     const area = parseInteractiveArea(candidate);
     if (
-      !area ||
-      ids.has(area.id) ||
-      orders.has(area.semanticOrder) ||
-      areas.some((other) => rectanglesHaveInteriorOverlap(other.geometry, area.geometry))
+      !area
+      || ids.has(area.id)
+      || orders.has(area.semanticOrder)
+      || areas.some(other => rectanglesHaveInteriorOverlap(other.geometry, area.geometry))
     ) {
       continue;
     }
@@ -428,20 +459,22 @@ const salvageNestedAreas = (value: unknown): unknown => {
     orders.add(area.semanticOrder);
   }
   return { ...value, interactiveAreas: areas };
-};
+}
 
 export const parseCustomDesignSettings = (value: unknown): CustomDesignSettings => {
   const defaults = createDefaultCustomDesignSettings();
-  if (!isRecord(value)) return defaults;
+  if (!isRecord(value)) {
+    return defaults;
+  }
   const images = parseImagesDefensively(value.images);
   const displayMode = CUSTOM_DESIGN_DISPLAY_MODES.find(
-    (candidate) => candidate === value.displayMode,
+    candidate => candidate === value.displayMode,
   ) ?? defaults.displayMode;
-  const gap = CUSTOM_DESIGN_GAPS.find((candidate) => candidate === value.gap) ??
-    defaults.gap;
-  const background = parseBackground(value.background) ??
-    parseLegacyBackground(value) ??
-    defaults.background;
+  const gap = CUSTOM_DESIGN_GAPS.find(candidate => candidate === value.gap)
+    ?? defaults.gap;
+  const background = parseBackground(value.background)
+    ?? parseLegacyBackground(value)
+    ?? defaults.background;
   const cta = repairCtaPlacementForImages(parseNativeCta(value.cta) ?? defaults.cta, images);
   return {
     schemaVersion: CUSTOM_DESIGN_SETTINGS_VERSION,
@@ -487,7 +520,7 @@ export const validateCustomDesignSettings = (
     value.images.forEach((candidate, index) => {
       const result = validateCustomDesignImageMetadata(candidate);
       if (!result.success) {
-        issues.push(...result.issues.map((issue) => `Image ${index + 1}: ${issue}`));
+        issues.push(...result.issues.map(issue => `Image ${index + 1}: ${issue}`));
         return;
       }
       if (imageIds.has(result.value.id)) {
@@ -515,27 +548,31 @@ export const validateCustomDesignSettings = (
   if (!CUSTOM_DESIGN_DISPLAY_MODES.includes(value.displayMode as never)) {
     issues.push('Display mode is invalid.');
   }
-  if (!CUSTOM_DESIGN_GAPS.includes(value.gap as never)) issues.push('Image gap is invalid.');
+  if (!CUSTOM_DESIGN_GAPS.includes(value.gap as never)) {
+    issues.push('Image gap is invalid.');
+  }
   const background = parseBackground(value.background);
-  if (!background) issues.push('Background is invalid.');
+  if (!background) {
+    issues.push('Background is invalid.');
+  }
   const cta = parseNativeCta(value.cta);
   if (!cta) {
     issues.push('Native CTA is invalid.');
   } else if (
-    cta.type !== 'none' &&
-    cta.placement.type === 'after_image' &&
-    !imageIds.has(cta.placement.imageItemId)
+    cta.type !== 'none'
+    && cta.placement.type === 'after_image'
+    && !imageIds.has(cta.placement.imageItemId)
   ) {
     issues.push('Native CTA placement references a missing image item.');
   }
 
   if (
-    issues.length > 0 ||
-    value.schemaVersion !== CUSTOM_DESIGN_SETTINGS_VERSION ||
-    !CUSTOM_DESIGN_DISPLAY_MODES.includes(value.displayMode as never) ||
-    !CUSTOM_DESIGN_GAPS.includes(value.gap as never) ||
-    !background ||
-    !cta
+    issues.length > 0
+    || value.schemaVersion !== CUSTOM_DESIGN_SETTINGS_VERSION
+    || !CUSTOM_DESIGN_DISPLAY_MODES.includes(value.displayMode as never)
+    || !CUSTOM_DESIGN_GAPS.includes(value.gap as never)
+    || !background
+    || !cta
   ) {
     return { success: false, issues };
   }

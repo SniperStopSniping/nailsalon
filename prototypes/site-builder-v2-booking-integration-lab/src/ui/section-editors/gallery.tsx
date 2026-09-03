@@ -59,27 +59,32 @@ export function GallerySectionEditor({
         ]}
         value={selection.mode}
       />
-      {selection.mode === 'picked' ? (
-        <div className="form-field">
-          <span>Photos in this section</span>
-          <div className="editor-record-list">
-            {imageIds.map((imageId, index) => (
-              <label className="form-field form-field--toggle" key={imageId}>
-                <input
-                  checked={pickedIds.includes(imageId)}
-                  onChange={event => togglePhoto(imageId, event.target.checked)}
-                  type="checkbox"
-                />
-                <span>Photo {index + 1}</span>
-              </label>
-            ))}
-          </div>
-          <small className="form-hint">
-            Numbered in the order they sit in your Gallery step. Photos you add
-            later stay out of this section until you pick them here.
-          </small>
-        </div>
-      ) : null}
+      {selection.mode === 'picked'
+        ? (
+            <div className="form-field">
+              <span>Photos in this section</span>
+              <div className="editor-record-list">
+                {imageIds.map((imageId, index) => (
+                  <label className="form-field form-field--toggle" key={imageId}>
+                    <input
+                      checked={pickedIds.includes(imageId)}
+                      onChange={event => togglePhoto(imageId, event.target.checked)}
+                      type="checkbox"
+                    />
+                    <span>
+                      {'Photo '}
+                      {index + 1}
+                    </span>
+                  </label>
+                ))}
+              </div>
+              <small className="form-hint">
+                Numbered in the order they sit in your Gallery step. Photos you add
+                later stay out of this section until you pick them here.
+              </small>
+            </div>
+          )
+        : null}
     </>
   );
 }

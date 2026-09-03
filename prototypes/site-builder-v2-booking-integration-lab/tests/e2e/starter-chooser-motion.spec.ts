@@ -1,10 +1,10 @@
 import {
+  type CDPSession,
   devices,
   expect,
-  test,
-  type CDPSession,
   type Locator,
   type Page,
+  test,
 } from '@playwright/test';
 
 import {
@@ -64,7 +64,7 @@ function preview(page: Page, starterId: string): Locator {
 
 async function expectOnlyActive(page: Page, starterId: string | null): Promise<void> {
   await expect.poll(async () => page.locator('.final-starter-preview[data-preview-active="true"]')
-    .evaluateAll((elements) => elements.map((element) => (
+    .evaluateAll(elements => elements.map(element => (
       element.closest<HTMLElement>('[data-starter-id]')?.dataset.starterId
     )))).toEqual(starterId ? [starterId] : []);
 }
@@ -102,8 +102,12 @@ async function trustedVerticalGesture(
 
 async function previewCenter(page: Page, starterId: string): Promise<Point> {
   const box = await preview(page, starterId).boundingBox();
+
   expect(box, `${starterId} preview has geometry`).not.toBeNull();
-  if (!box) throw new Error(`${starterId} preview has no geometry.`);
+
+  if (!box) {
+    throw new Error(`${starterId} preview has no geometry.`);
+  }
   return {
     x: box.x + box.width / 2,
     y: Math.min(page.viewportSize()?.height ? page.viewportSize()!.height - 60 : box.y, box.y + box.height / 2),
@@ -113,7 +117,9 @@ async function previewCenter(page: Page, starterId: string): Promise<Point> {
 async function setPreviewTimeline(page: Page, starterId: string, timeMs: number): Promise<void> {
   await preview(page, starterId).evaluate((element, timelineTime) => {
     for (const animation of element.getAnimations({ subtree: true })) {
-      if (!(animation instanceof CSSAnimation)) continue;
+      if (!(animation instanceof CSSAnimation)) {
+        continue;
+      }
       animation.pause();
       animation.currentTime = timelineTime;
     }
@@ -136,15 +142,15 @@ test('desktop copy, semantics, exclusive playback, cleanup, and activation stay 
   await expect(page.getByRole('button', { name: 'Import JSON' })).toBeVisible();
   await expect(page.getByText('Mock data only · Saved in this browser · Not connected to Production'))
     .toBeVisible();
-  expect(await page.locator('.final-starter-reassurance').evaluate((element) => Boolean(
+  expect(await page.locator('.final-starter-reassurance').evaluate(element => Boolean(
     element.compareDocumentPosition(document.querySelector('.final-starter-import')!)
-      & Node.DOCUMENT_POSITION_FOLLOWING,
+    & Node.DOCUMENT_POSITION_FOLLOWING,
   ))).toBe(true);
   // The starter documents hold 6 / 14 sections and 5 pages; none of those
   // counts may leak into the chooser as "Starts with N …" copy.
   await expect(page.getByText(/Starts with (?:5|6|14) (?:sections|pages)/)).toHaveCount(0);
-  expect(await page.locator('[data-starter-id]').evaluateAll((elements) => (
-    elements.map((element) => (element as HTMLElement).dataset.starterId)
+  expect(await page.locator('[data-starter-id]').evaluateAll(elements => (
+    elements.map(element => (element as HTMLElement).dataset.starterId)
   ))).toEqual([
     'quick_book',
     'one_page',
@@ -153,6 +159,7 @@ test('desktop copy, semantics, exclusive playback, cleanup, and activation stay 
 
   for (const starter of STARTERS) {
     const starterCard = card(page, starter.name);
+
     await expect(starterCard).toHaveAccessibleName(
       `${starter.name} ${starter.description} ${starter.label} ${starter.included} ${starter.cta}`,
     );
@@ -161,7 +168,7 @@ test('desktop copy, semantics, exclusive playback, cleanup, and activation stay 
     await expect(starterCard.getByText(starter.cta)).toBeVisible();
     await expect(preview(page, starter.id)).toHaveAttribute('aria-hidden', 'true');
     await expect(starterCard.locator('button, a, input, select, textarea, [tabindex]')).toHaveCount(0);
-    expect(await preview(page, starter.id).evaluate((element) => getComputedStyle(element).pointerEvents))
+    expect(await preview(page, starter.id).evaluate(element => getComputedStyle(element).pointerEvents))
       .toBe('none');
   }
 
@@ -169,7 +176,7 @@ test('desktop copy, semantics, exclusive playback, cleanup, and activation stay 
   await expectOnlyActive(page, null);
   for (const starter of STARTERS) {
     expect(await preview(page, starter.id).locator('.final-starter-preview__track')
-      .evaluate((element) => getComputedStyle(element).animationName)).toBe('none');
+      .evaluate(element => getComputedStyle(element).animationName)).toBe('none');
   }
 
   await card(page, 'Quick Book').hover();
@@ -185,20 +192,24 @@ test('desktop copy, semantics, exclusive playback, cleanup, and activation stay 
         name: style.animationName,
       };
     });
+
   expect(quickAnimation).toEqual({
     duration: '4.8s',
     fillMode: 'both',
     iterationCount: '1',
     name: 'final-starter-quick-scroll',
   });
+
   const quickTransforms: string[] = [];
   for (const timeMs of [500, 2_300, 4_400]) {
     await setPreviewTimeline(page, 'quick_book', timeMs);
     quickTransforms.push(await preview(page, 'quick_book')
       .locator('.final-starter-preview__track')
-      .evaluate((element) => getComputedStyle(element).transform));
+      .evaluate(element => getComputedStyle(element).transform));
   }
+
   expect(new Set(quickTransforms).size).toBe(3);
+
   const quickFinal = await preview(page, 'quick_book')
     .locator('.final-starter-preview__track')
     .evaluate((element) => {
@@ -209,6 +220,7 @@ test('desktop copy, semantics, exclusive playback, cleanup, and activation stay 
         transform: getComputedStyle(element).transform,
       };
     });
+
   expect(quickFinal.playState).toBe('finished');
   expect(quickFinal.transform).not.toBe('none');
   expect(await preview(page, 'quick_book').evaluate((element) => {
@@ -220,17 +232,22 @@ test('desktop copy, semantics, exclusive playback, cleanup, and activation stay 
   await card(page, 'One-page website').hover();
   await expectOnlyActive(page, 'one_page');
   const onePageTrack = preview(page, 'one_page').locator('.final-starter-preview__track');
+
   expect(await onePageTrack.evaluate((element) => {
     const style = getComputedStyle(element);
     return [style.animationName, style.animationDuration, style.animationIterationCount, style.animationFillMode];
   })).toEqual(['final-starter-one-page-scroll', '5.8s', '1', 'both']);
+
   const onePageTransforms: string[] = [];
   for (const timeMs of [500, 2_900, 5_300]) {
     await setPreviewTimeline(page, 'one_page', timeMs);
-    onePageTransforms.push(await onePageTrack.evaluate((element) => getComputedStyle(element).transform));
+    onePageTransforms.push(await onePageTrack.evaluate(element => getComputedStyle(element).transform));
   }
+
   expect(new Set(onePageTransforms).size).toBe(3);
-  await onePageTrack.evaluate((element) => element.getAnimations()[0]?.finish());
+
+  await onePageTrack.evaluate(element => element.getAnimations()[0]?.finish());
+
   expect(await preview(page, 'one_page').evaluate((element) => {
     const viewportRect = element.querySelector('.final-starter-preview__viewport')!.getBoundingClientRect();
     const bookingRect = element.querySelector('[data-preview-scene$="-booking"]')!.getBoundingClientRect();
@@ -240,31 +257,38 @@ test('desktop copy, semantics, exclusive playback, cleanup, and activation stay 
   await card(page, 'Multi-page website').hover();
   await expectOnlyActive(page, 'multi_page');
   const multiPageScene = preview(page, 'multi_page').locator('[data-preview-scene]').first();
+
   expect(await multiPageScene.evaluate((element) => {
     const style = getComputedStyle(element);
     return [style.animationDuration, style.animationIterationCount, style.animationFillMode];
   })).toEqual(['7s', '1', 'both']);
+
   const multiStates = [];
   for (const timeMs of [700, 2_400, 3_500]) {
     await setPreviewTimeline(page, 'multi_page', timeMs);
-    multiStates.push(await preview(page, 'multi_page').evaluate((element) => ({
+    multiStates.push(await preview(page, 'multi_page').evaluate(element => ({
       gallery: getComputedStyle(element.querySelector('[data-preview-scene$="-gallery"]')!).opacity,
       home: getComputedStyle(element.querySelector('[data-preview-scene$="-home"]')!).opacity,
       nav: [...element.querySelectorAll('.final-starter-preview__nav > span')]
-        .map((item) => getComputedStyle(item).backgroundColor),
+        .map(item => getComputedStyle(item).backgroundColor),
       services: getComputedStyle(element.querySelector('[data-preview-scene$="-services-book"]')!).opacity,
     })));
   }
+
   expect(multiStates.map(({ gallery, home, services }) => [home, services, gallery]))
     .toEqual([['1', '0', '0'], ['0', '1', '0'], ['0', '0', '1']]);
   expect(multiStates[0]?.nav[0]).not.toBe('rgba(0, 0, 0, 0)');
   expect(multiStates[1]?.nav[1]).not.toBe('rgba(0, 0, 0, 0)');
   expect(multiStates[2]?.nav[2]).not.toBe('rgba(0, 0, 0, 0)');
+
   const contactPage = preview(page, 'multi_page').locator('[data-preview-scene$="-contact"]');
   await preview(page, 'multi_page').evaluate((element) => {
-    for (const animation of element.getAnimations({ subtree: true })) animation.finish();
+    for (const animation of element.getAnimations({ subtree: true })) {
+      animation.finish();
+    }
   });
-  await expect.poll(() => contactPage.evaluate((element) => getComputedStyle(element).opacity)).toBe('1');
+
+  await expect.poll(() => contactPage.evaluate(element => getComputedStyle(element).opacity)).toBe('1');
 
   await page.getByRole('heading', { name: 'Choose your starting point' }).hover();
   await page.waitForTimeout(220);
@@ -272,16 +296,23 @@ test('desktop copy, semantics, exclusive playback, cleanup, and activation stay 
 
   await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
   await page.keyboard.press('Tab');
+
   // The builder surface mounts its fixed "Back to dashboard" control ahead of
   // the chooser, so it is first in the tab order.
   await expect(page.getByRole('button', { name: 'Back to dashboard' })).toBeFocused();
+
   await page.keyboard.press('Tab');
+
   await expect(page.getByRole('link', { name: 'Luster' })).toBeFocused();
+
   await page.keyboard.press('Tab');
   const quickBook = card(page, 'Quick Book');
+
   await expect(quickBook).toBeFocused();
+
   await expectOnlyActive(page, 'quick_book');
-  expect(await quickBook.evaluate((element) => ({
+
+  expect(await quickBook.evaluate(element => ({
     focusVisible: element.matches(':focus-visible'),
     outlineStyle: getComputedStyle(element).outlineStyle,
     outlineWidth: getComputedStyle(element).outlineWidth,
@@ -294,9 +325,11 @@ test('desktop copy, semantics, exclusive playback, cleanup, and activation stay 
     });
     document.dispatchEvent(new Event('visibilitychange'));
   });
+
   await expect(preview(page, 'quick_book')).toHaveAttribute('data-preview-state', 'paused');
   expect(await preview(page, 'quick_book').locator('.final-starter-preview__track')
-    .evaluate((element) => getComputedStyle(element).animationPlayState)).toBe('paused');
+    .evaluate(element => getComputedStyle(element).animationPlayState)).toBe('paused');
+
   await page.evaluate(() => {
     Object.defineProperty(document, 'visibilityState', {
       configurable: true,
@@ -304,18 +337,22 @@ test('desktop copy, semantics, exclusive playback, cleanup, and activation stay 
     });
     document.dispatchEvent(new Event('visibilitychange'));
   });
+
   await expect(preview(page, 'quick_book')).toHaveAttribute('data-preview-state', 'playing');
 
-  expect(await page.evaluate((key) => window.localStorage.getItem(key), LAB_STORAGE_KEY)).toBeNull();
+  expect(await page.evaluate(key => window.localStorage.getItem(key), LAB_STORAGE_KEY)).toBeNull();
+
   await page.keyboard.press('Enter');
+
   await expect(page.getByTestId('final-hybrid-editor')).toBeVisible();
   await expect.poll(() => page.evaluate(
-    (key) => window.localStorage.getItem(key) !== null,
+    key => window.localStorage.getItem(key) !== null,
     LAB_STORAGE_KEY,
   )).toBe(true);
   // Quick Book: Announcement Bar, Salon intro, Featured Services, Booking,
   // Final Booking CTA, Footer.
   expect((await readStoredDocument(page)).pages[0]?.sections).toHaveLength(6);
+
   runtime.assertClean();
   runtime.stop();
 });
@@ -329,6 +366,7 @@ test('every required chooser viewport avoids horizontal overflow and clipped dec
       body: document.body.scrollWidth - document.body.clientWidth,
       document: document.documentElement.scrollWidth - document.documentElement.clientWidth,
     }));
+
     expect(overflow, `${viewport.width}×${viewport.height} has no horizontal overflow`)
       .toEqual({ body: 0, document: 0 });
 
@@ -339,19 +377,26 @@ test('every required chooser viewport avoids horizontal overflow and clipped dec
         starterCard.boundingBox(),
         included.boundingBox(),
       ]);
+
       expect(cardBox).not.toBeNull();
       expect(includedBox).not.toBeNull();
+
       if (cardBox && includedBox) {
         expect(includedBox.x).toBeGreaterThanOrEqual(cardBox.x);
         expect(includedBox.x + includedBox.width).toBeLessThanOrEqual(cardBox.x + cardBox.width);
       }
       const finalToken = starter.id === 'multi_page' ? 'Contact' : 'Booking';
+
       expect(await included.evaluate((element, token) => {
         const range = document.createRange();
         const textNode = element.firstChild;
-        if (!textNode) return { finalTokenInside: false };
+        if (!textNode) {
+          return { finalTokenInside: false };
+        }
         const start = textNode.textContent?.lastIndexOf(token) ?? -1;
-        if (start < 0) return { finalTokenInside: false };
+        if (start < 0) {
+          return { finalTokenInside: false };
+        }
         range.setStart(textNode, start);
         range.setEnd(textNode, start + token.length);
         const tokenRect = range.getBoundingClientRect();
@@ -392,22 +437,25 @@ test('desktop reduced motion keeps strong posters static and cards selectable', 
   await expectOnlyActive(page, null);
   for (const starter of STARTERS) {
     const starterPreview = preview(page, starter.id);
+
     await expect(starterPreview).toHaveAttribute('data-preview-state', 'poster');
     expect(await starterPreview.locator('.final-starter-preview__poster')
-      .evaluate((element) => getComputedStyle(element).opacity)).toBe('1');
+      .evaluate(element => getComputedStyle(element).opacity)).toBe('1');
     expect(await starterPreview.locator('.final-starter-preview__motion')
-      .evaluate((element) => getComputedStyle(element).opacity)).toBe('0');
+      .evaluate(element => getComputedStyle(element).opacity)).toBe('0');
     expect(await starterPreview.locator('.final-starter-preview__track')
-      .evaluate((element) => getComputedStyle(element).animationName)).toBe('none');
+      .evaluate(element => getComputedStyle(element).animationName)).toBe('none');
   }
 
   await card(page, 'Multi-page website').click();
+
   await expect(page.getByTestId('final-hybrid-editor')).toBeVisible();
   await expect.poll(() => page.evaluate(
-    (key) => window.localStorage.getItem(key) !== null,
+    key => window.localStorage.getItem(key) !== null,
     LAB_STORAGE_KEY,
   )).toBe(true);
   expect((await readStoredDocument(page)).pages).toHaveLength(5);
+
   runtime.assertClean();
   runtime.stop();
 });
@@ -428,22 +476,27 @@ test.describe('mobile visibility playback', () => {
     await card(page, 'Quick Book').focus();
     const startScrollY = await page.evaluate(() => window.scrollY);
     await page.waitForTimeout(650);
+
     expect(await page.evaluate(() => window.scrollY)).toBe(startScrollY);
-    expect(await preview(page, 'quick_book').evaluate((element) => getComputedStyle(element).pointerEvents))
+    expect(await preview(page, 'quick_book').evaluate(element => getComputedStyle(element).pointerEvents))
       .toBe('none');
-    await card(page, 'Quick Book').evaluate((element) => element.blur());
+
+    await card(page, 'Quick Book').evaluate(element => element.blur());
     await page.waitForTimeout(200);
     await expectOnlyActive(page, 'quick_book');
 
     const session = await page.context().newCDPSession(page);
     await trustedVerticalGesture(page, session, await previewCenter(page, 'quick_book'), 430);
     await expectOnlyActive(page, 'one_page');
-    expect(await page.evaluate((key) => window.localStorage.getItem(key), LAB_STORAGE_KEY)).toBeNull();
+
+    expect(await page.evaluate(key => window.localStorage.getItem(key), LAB_STORAGE_KEY)).toBeNull();
 
     await trustedVerticalGesture(page, session, await previewCenter(page, 'one_page'), 430);
     await expectOnlyActive(page, 'multi_page');
-    expect(await page.evaluate((key) => window.localStorage.getItem(key), LAB_STORAGE_KEY)).toBeNull();
+
+    expect(await page.evaluate(key => window.localStorage.getItem(key), LAB_STORAGE_KEY)).toBeNull();
     await expect(page.getByRole('heading', { name: 'Choose your starting point' })).toHaveCount(1);
+
     runtime.assertClean();
     runtime.stop();
   });
@@ -452,9 +505,11 @@ test.describe('mobile visibility playback', () => {
     const runtime = startRuntimeMonitor(page);
     await page.setViewportSize({ height: 1024, width: 768 });
     await openFreshLab(page);
-    expect(await page.locator('.final-starter-grid').evaluate((element) => (
+
+    expect(await page.locator('.final-starter-grid').evaluate(element => (
       getComputedStyle(element).gridTemplateColumns.split(' ').length
     ))).toBe(1);
+
     await expectOnlyActive(page, 'quick_book');
 
     const session = await page.context().newCDPSession(page);
@@ -462,7 +517,9 @@ test.describe('mobile visibility playback', () => {
     await expectOnlyActive(page, 'one_page');
     await trustedVerticalGesture(page, session, await previewCenter(page, 'one_page'), 610);
     await expectOnlyActive(page, 'multi_page');
-    expect(await page.evaluate((key) => window.localStorage.getItem(key), LAB_STORAGE_KEY)).toBeNull();
+
+    expect(await page.evaluate(key => window.localStorage.getItem(key), LAB_STORAGE_KEY)).toBeNull();
+
     runtime.assertClean();
     runtime.stop();
   });
@@ -482,15 +539,18 @@ test.describe('mobile visibility playback', () => {
       await expect(card(page, starter.name).getByText(starter.cta)).toHaveCount(1);
     }
 
-    expect(await page.evaluate((key) => window.localStorage.getItem(key), LAB_STORAGE_KEY)).toBeNull();
+    expect(await page.evaluate(key => window.localStorage.getItem(key), LAB_STORAGE_KEY)).toBeNull();
+
     await card(page, 'One-page website').click();
+
     await expect(page.getByTestId('final-hybrid-editor')).toBeVisible();
     await expect.poll(() => page.evaluate(
-      (key) => window.localStorage.getItem(key) !== null,
+      key => window.localStorage.getItem(key) !== null,
       LAB_STORAGE_KEY,
     )).toBe(true);
     // One-page: the 14-section single Home page from STARTER_PAGES.one_page.
     expect((await readStoredDocument(page)).pages[0]?.sections).toHaveLength(14);
+
     runtime.assertClean();
     runtime.stop();
   });

@@ -362,13 +362,13 @@ export const createSectionInstance = (
       ? createCustomDesignSectionInstance(idFactory, { order: options.order })
       : isLibrarySectionType(sectionType)
         ? createLibrarySectionInstance(sectionType, idFactory, {
-            ...(options.galleryPresentationOwner !== undefined
-              ? { galleryPresentationOwner: options.galleryPresentationOwner }
-              : {}),
-            ...(options.label !== undefined ? { label: options.label } : {}),
-            ...(options.order !== undefined ? { order: options.order } : {}),
-            ...(options.presetId !== undefined ? { presetId: options.presetId } : {}),
-          })
+          ...(options.galleryPresentationOwner !== undefined
+            ? { galleryPresentationOwner: options.galleryPresentationOwner }
+            : {}),
+          ...(options.label !== undefined ? { label: options.label } : {}),
+          ...(options.order !== undefined ? { order: options.order } : {}),
+          ...(options.presetId !== undefined ? { presetId: options.presetId } : {}),
+        })
         : createPlaceholderSectionInstance(sectionType, idFactory, options);
 
 const createStarterPage = (
@@ -387,13 +387,13 @@ const createStarterPage = (
     section.sectionType === 'booking'
       ? createBookingSectionInstance(idFactory, { order: sectionOrder, showFeatured: false })
       : createLibrarySectionInstance(section.sectionType, idFactory, {
-          ...(section.galleryPresentationOwner !== undefined
-            ? { galleryPresentationOwner: section.galleryPresentationOwner }
-            : {}),
-          ...(section.label !== undefined ? { label: section.label } : {}),
-          order: sectionOrder,
-          ...(section.preset !== undefined ? { presetId: section.preset } : {}),
-        }),
+        ...(section.galleryPresentationOwner !== undefined
+          ? { galleryPresentationOwner: section.galleryPresentationOwner }
+          : {}),
+        ...(section.label !== undefined ? { label: section.label } : {}),
+        order: sectionOrder,
+        ...(section.preset !== undefined ? { presetId: section.preset } : {}),
+      }),
   ),
 });
 

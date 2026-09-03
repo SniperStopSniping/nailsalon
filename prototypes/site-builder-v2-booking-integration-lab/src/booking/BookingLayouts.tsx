@@ -1,8 +1,8 @@
 import {
-  useRef,
   type ButtonHTMLAttributes,
   type HTMLAttributes,
   type ReactNode,
+  useRef,
 } from 'react';
 
 import { filterServices, formatDuration, formatPrice } from './helpers';
@@ -156,7 +156,7 @@ function CustomerAction({
     'aria-label',
     'aria-pressed',
     'aria-selected',
-  ].forEach((attribute) => delete staticProps[attribute]);
+  ].forEach(attribute => delete staticProps[attribute]);
 
   return (
     <div
@@ -350,24 +350,28 @@ export function VisualGridLayout(props: LayoutProps) {
     >
       <header className="vg-hero">
         <div>
-          {props.showSalonIdentity ? (
-            <div className="vg-identity">
-              <div className="salon-monogram" aria-hidden="true">
-                {monogramFor(fixture.salon.name)}
-              </div>
-              <div>
-                <BookingPageHeading level={props.headingLevel}>{fixture.salon.name}</BookingPageHeading>
-                <p>{fixture.salon.location}</p>
-              </div>
-            </div>
-          ) : (
-            <BookingPageHeading level={props.headingLevel}>Services &amp; Booking</BookingPageHeading>
-          )}
+          {props.showSalonIdentity
+            ? (
+                <div className="vg-identity">
+                  <div className="salon-monogram" aria-hidden="true">
+                    {monogramFor(fixture.salon.name)}
+                  </div>
+                  <div>
+                    <BookingPageHeading level={props.headingLevel}>{fixture.salon.name}</BookingPageHeading>
+                    <p>{fixture.salon.location}</p>
+                  </div>
+                </div>
+              )
+            : (
+                <BookingPageHeading level={props.headingLevel}>Services &amp; Booking</BookingPageHeading>
+              )}
           <div className="vg-hero-copy">
             <h2>Find your next polished look.</h2>
-            <p>{props.showSalonIdentity
-              ? fixture.salon.tagline
-              : 'Choose a service to see its details, options, price and duration.'}</p>
+            <p>
+              {props.showSalonIdentity
+                ? fixture.salon.tagline
+                : 'Choose a service to see its details, options, price and duration.'}
+            </p>
           </div>
         </div>
         <SearchField query={query} readOnly={props.readOnly} onQueryChange={props.onQueryChange} />
@@ -493,9 +497,11 @@ export function CleanListLayout(props: LayoutProps) {
             <BookingPageHeading level={props.headingLevel}>
               {props.showSalonIdentity ? fixture.salon.name : 'Services & Booking'}
             </BookingPageHeading>
-            <p>{props.showSalonIdentity
-              ? fixture.salon.tagline
-              : 'Choose a service to see its details, options, price and duration.'}</p>
+            <p>
+              {props.showSalonIdentity
+                ? fixture.salon.tagline
+                : 'Choose a service to see its details, options, price and duration.'}
+            </p>
           </div>
           <span className="clean-service-count">{serviceCountLabel(filtered.length)}</span>
         </div>
@@ -600,9 +606,11 @@ export function EditorialCardsLayout(props: LayoutProps) {
           <BookingPageHeading level={props.headingLevel}>
             {props.showSalonIdentity ? fixture.salon.name : 'Services & Booking'}
           </BookingPageHeading>
-          <p>{props.showSalonIdentity
-            ? fixture.salon.tagline
-            : 'Choose a service to see its details, options, price and duration.'}</p>
+          <p>
+            {props.showSalonIdentity
+              ? fixture.salon.tagline
+              : 'Choose a service to see its details, options, price and duration.'}
+          </p>
         </div>
       </header>
 
@@ -715,11 +723,13 @@ function CategoryAccordionNavigation(props: Pick<LayoutProps, 'fixture' | 'activ
                   {category.label}
                   <span>{props.showCounts ? serviceCountLabel(count) : isActive ? 'Showing' : 'View'}</span>
                 </div>
-                {isActive ? (
-                  <div style={{ padding: '0 15px 13px', color: 'var(--booking-muted)', fontSize: 'var(--body-caption)' }}>
-                    Showing this category below.
-                  </div>
-                ) : null}
+                {isActive
+                  ? (
+                      <div style={{ padding: '0 15px 13px', color: 'var(--booking-muted)', fontSize: 'var(--body-caption)' }}>
+                        Showing this category below.
+                      </div>
+                    )
+                  : null}
               </div>
             );
           }
@@ -772,12 +782,14 @@ export function CategoryMenuLayout(props: LayoutProps) {
       aria-label="Category service menu"
     >
       <header className="category-menu-header">
-        {props.showSalonIdentity ? (
-          <div className="category-menu-brand">
-            <span>{fixture.salon.name}</span>
-            <span>{fixture.salon.location}</span>
-          </div>
-        ) : null}
+        {props.showSalonIdentity
+          ? (
+              <div className="category-menu-brand">
+                <span>{fixture.salon.name}</span>
+                <span>{fixture.salon.location}</span>
+              </div>
+            )
+          : null}
         <div>
           <BookingPageHeading level={props.headingLevel}>Services</BookingPageHeading>
           <p>Navigate the studio menu by category, then choose the service that fits.</p>
@@ -930,18 +942,22 @@ export function EditorialPriceListLayout(props: LayoutProps) {
       aria-label="Editorial service price list"
     >
       <header className="price-list-masthead">
-        {props.showSalonIdentity ? (
-          <div className="price-list-seal" aria-hidden="true">
-            {monogramFor(fixture.salon.name)}
-          </div>
-        ) : null}
+        {props.showSalonIdentity
+          ? (
+              <div className="price-list-seal" aria-hidden="true">
+                {monogramFor(fixture.salon.name)}
+              </div>
+            )
+          : null}
         <small>{props.showSalonIdentity ? `${fixture.salon.location} · Service menu` : 'Service menu'}</small>
         <BookingPageHeading level={props.headingLevel}>
           {props.showSalonIdentity ? fixture.salon.name : 'Services & Booking'}
         </BookingPageHeading>
-        <p>{props.showSalonIdentity
-          ? fixture.salon.tagline
-          : 'Choose a service to see its details, options, price and duration.'}</p>
+        <p>
+          {props.showSalonIdentity
+            ? fixture.salon.tagline
+            : 'Choose a service to see its details, options, price and duration.'}
+        </p>
       </header>
 
       {fixture.menuSize === 'stress_100' && (

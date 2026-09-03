@@ -62,6 +62,7 @@ describe('website recipes are complete sites', () => {
         const substantive = page.sections.filter(
           section => !CHROME.has(section.sectionType),
         );
+
         expect(
           substantive.length,
           `${recipeId} page "${page.label}" publishes only chrome`,
@@ -101,6 +102,7 @@ describe('website recipes are complete sites', () => {
       const document = buildWebsiteRecipeDocument(recipe.id, {
         siteContent: DEMO_SITE_CONTENT,
       });
+
       expect(
         validateSiteBuilderDocument(document).success,
         `${recipe.id} failed document validation`,

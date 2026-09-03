@@ -118,16 +118,16 @@ export type CustomDesignCtaPlacement =
 export type CustomDesignNativeCta =
   | { type: 'none' }
   | {
-      type: 'book_now';
-      label: string;
-      placement: CustomDesignCtaPlacement;
-    }
+    type: 'book_now';
+    label: string;
+    placement: CustomDesignCtaPlacement;
+  }
   | {
-      type: 'custom';
-      label: string;
-      action: CustomDesignAction;
-      placement: CustomDesignCtaPlacement;
-    };
+    type: 'custom';
+    label: string;
+    action: CustomDesignAction;
+    placement: CustomDesignCtaPlacement;
+  };
 
 export type CustomDesignSettings = {
   schemaVersion: typeof CUSTOM_DESIGN_SETTINGS_VERSION;

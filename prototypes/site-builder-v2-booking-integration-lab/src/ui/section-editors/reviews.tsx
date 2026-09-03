@@ -1,8 +1,8 @@
 import { Trash2 } from 'lucide-react';
 import { useState } from 'react';
 
-import type { ReviewRecord, ReviewSource } from '../../model/section-library/site-content';
 import type { ReviewsSettings } from '../../model/section-library/settings';
+import type { ReviewRecord, ReviewSource } from '../../model/section-library/site-content';
 import { ChoiceField, TextField, ToggleField } from './fields';
 import type { LibrarySectionEditorProps } from './types';
 
@@ -50,7 +50,9 @@ export function ReviewsEditor({
 
   const addReview = () => {
     const quote = draftQuote.trim();
-    if (!quote) return;
+    if (!quote) {
+      return;
+    }
     const record: ReviewRecord = {
       authorName: '',
       id: createReviewId(),
@@ -88,16 +90,18 @@ export function ReviewsEditor({
       />
       <div className="form-field">
         <span>Client reviews</span>
-        {reviews.length === 0 ? (
-          <small className="form-hint">
-            No reviews yet — add your first below. The section stays off your
-            site until a visible review is shown.
-          </small>
-        ) : (
-          <small className="form-hint">
-            Only real client words belong here. Ticked reviews show in this order.
-          </small>
-        )}
+        {reviews.length === 0
+          ? (
+              <small className="form-hint">
+                No reviews yet — add your first below. The section stays off your
+                site until a visible review is shown.
+              </small>
+            )
+          : (
+              <small className="form-hint">
+                Only real client words belong here. Ticked reviews show in this order.
+              </small>
+            )}
         <div className="editor-record-list">
           {reviews.map((review) => {
             const included = settings.reviewIds.includes(review.id);
@@ -112,7 +116,11 @@ export function ReviewsEditor({
                       type="checkbox"
                     />
                     <span className="visually-hidden">
-                      Show {author || 'this review'} in this section
+                      Show
+                      {' '}
+                      {author || 'this review'}
+                      {' '}
+                      in this section
                     </span>
                   </label>
                   <strong>{author || 'Review without a name'}</strong>
@@ -160,7 +168,9 @@ export function ReviewsEditor({
                   onClick={() => removeReview(review.id)}
                   type="button"
                 >
-                  <Trash2 aria-hidden="true" size={14} /> Remove {author || 'this review'}
+                  <Trash2 aria-hidden="true" size={14} />
+                  {' Remove '}
+                  {author || 'this review'}
                 </button>
               </details>
             );

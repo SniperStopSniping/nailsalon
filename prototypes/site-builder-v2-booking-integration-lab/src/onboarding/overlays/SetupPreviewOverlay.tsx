@@ -5,9 +5,9 @@ import type { SiteBuilderDocument } from '../../model/types';
 import { Dialog } from '../../ui/Dialog';
 import type { OnboardingLabState } from '../model/types';
 import {
-  OnboardingSitePreview,
   type OnboardingPreviewDevice,
   type OnboardingPreviewInitialTarget,
+  OnboardingSitePreview,
   type QuickBookPreviewPhase,
 } from '../preview/OnboardingSitePreview';
 
@@ -37,13 +37,13 @@ export function SetupPreviewOverlay({
     ? 'Preview your starting site'
     : source === 'booking_layout'
       ? 'Preview your booking layout'
-    : source === 'about_design' && state.recipe.starter === 'quick_book'
-      ? 'Preview your Quick Book layout'
-    : source === 'about' || source === 'about_design'
-      ? 'Preview your About section'
-    : source === 'site_style'
-      ? 'Preview your look'
-      : 'Preview your site';
+      : source === 'about_design' && state.recipe.starter === 'quick_book'
+        ? 'Preview your Quick Book layout'
+        : source === 'about' || source === 'about_design'
+          ? 'Preview your About section'
+          : source === 'site_style'
+            ? 'Preview your look'
+            : 'Preview your site';
   const resolvedInitialTarget = initialTarget
     ?? (source === 'about'
       || (source === 'about_design' && state.recipe.starter !== 'quick_book')
@@ -76,9 +76,21 @@ export function SetupPreviewOverlay({
           Skip preview content
         </a>
         <div aria-label="Preview device" className="onboarding-device-switcher" role="group">
-          <button aria-pressed={device === 'phone'} type="button" onClick={() => setDevice('phone')}><Smartphone aria-hidden="true" size={17} /> Phone</button>
-          <button aria-pressed={device === 'tablet'} type="button" onClick={() => setDevice('tablet')}><Tablet aria-hidden="true" size={17} /> Tablet</button>
-          <button aria-pressed={device === 'desktop'} type="button" onClick={() => setDevice('desktop')}><Monitor aria-hidden="true" size={17} /> Desktop</button>
+          <button aria-pressed={device === 'phone'} type="button" onClick={() => setDevice('phone')}>
+            <Smartphone aria-hidden="true" size={17} />
+            {' '}
+            Phone
+          </button>
+          <button aria-pressed={device === 'tablet'} type="button" onClick={() => setDevice('tablet')}>
+            <Tablet aria-hidden="true" size={17} />
+            {' '}
+            Tablet
+          </button>
+          <button aria-pressed={device === 'desktop'} type="button" onClick={() => setDevice('desktop')}>
+            <Monitor aria-hidden="true" size={17} />
+            {' '}
+            Desktop
+          </button>
         </div>
         <OnboardingSitePreview
           device={device}

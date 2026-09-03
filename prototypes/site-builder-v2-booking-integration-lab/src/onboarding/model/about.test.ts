@@ -84,9 +84,11 @@ describe('About preset capability contract', () => {
       'profile_quick_facts',
     ]);
     expect(ABOUT_ELEMENT_IDS).toHaveLength(13);
+
     for (const preset of presets) {
       expect(Object.keys(ABOUT_PRESET_CAPABILITIES[preset].elements))
         .toEqual([...ABOUT_ELEMENT_IDS]);
+
       for (const element of ABOUT_ELEMENT_IDS) {
         expect(aboutPresetSupportsElement(preset, element)).toBe(true);
       }

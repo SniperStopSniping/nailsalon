@@ -52,7 +52,10 @@ export function SaveProgressScreen({
         <p className="onboarding-screen-kicker">Step 6 — Save your progress</p>
         <div>
           <Sparkles aria-hidden="true" size={24} />
-          <h1 ref={headingRef} tabIndex={-1}>Your site is coming together <span aria-hidden="true">✨</span></h1>
+          <h1 ref={headingRef} tabIndex={-1}>
+            {'Your site is coming together '}
+            <span aria-hidden="true">✨</span>
+          </h1>
         </div>
         <p>Create your free Luster account to save your progress and keep building your online booking site.</p>
       </header>
@@ -76,23 +79,42 @@ export function SaveProgressScreen({
 
       <ul className="onboarding-save-progress__benefits" aria-label="Account benefits">
         {benefits.map(({ icon: Icon, label }) => (
-          <li key={label}><Icon aria-hidden="true" size={20} /><span>{label}</span></li>
+          <li key={label}>
+            <Icon aria-hidden="true" size={20} />
+            <span>{label}</span>
+          </li>
         ))}
       </ul>
 
       <section className="onboarding-save-progress__account" aria-labelledby="save-account-heading">
         <h2 id="save-account-heading">Create your free account</h2>
         <p>No payment required. You can change everything later.</p>
-        <button type="button" onClick={onUnavailable}><span className="onboarding-provider-letter" aria-hidden="true">G</span>Continue with Google</button>
-        <button type="button" onClick={onUnavailable}><span className="onboarding-provider-apple" aria-hidden="true">●</span>Continue with Apple</button>
-        <button type="button" onClick={onUnavailable}><Mail aria-hidden="true" size={20} />Continue with email</button>
-        <p className="onboarding-save-progress__login">Already have an account? <button type="button" onClick={onUnavailable}>Log in</button></p>
+        <button type="button" onClick={onUnavailable}>
+          <span className="onboarding-provider-letter" aria-hidden="true">G</span>
+          Continue with Google
+        </button>
+        <button type="button" onClick={onUnavailable}>
+          <span className="onboarding-provider-apple" aria-hidden="true">●</span>
+          Continue with Apple
+        </button>
+        <button type="button" onClick={onUnavailable}>
+          <Mail aria-hidden="true" size={20} />
+          Continue with email
+        </button>
+        <p className="onboarding-save-progress__login">
+          {'Already have an account? '}
+          <button type="button" onClick={onUnavailable}>Log in</button>
+        </p>
         <p className="onboarding-save-progress__local-note">Account saving opens on Luster’s connected app. Your local preview is still safe on this device.</p>
       </section>
 
       <footer className="onboarding-save-progress__footer">
         <button type="button" onClick={onBack}>← Back</button>
-        <p className="onboarding-save-progress__reassure"><LockKeyhole aria-hidden="true" size={15} /> Free to create · No payment required</p>
+        <p className="onboarding-save-progress__reassure">
+          <LockKeyhole aria-hidden="true" size={15} />
+          {' '}
+          Free to create · No payment required
+        </p>
       </footer>
     </div>
   );

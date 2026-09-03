@@ -12,7 +12,7 @@ import type {
 } from '../../model/section-library/settings';
 import { createLibrarySectionInstance, initializeStarter } from '../../model/starters';
 import type { SiteBuilderDocument } from '../../model/types';
-import { DEMO_SITE_CONTENT, createDemoOnboardingState } from '../../onboarding/model/demo-content';
+import { createDemoOnboardingState, DEMO_SITE_CONTENT } from '../../onboarding/model/demo-content';
 import { deriveSiteLibraryContext } from '../../onboarding/model/site-library-context';
 import type { OnboardingLabState } from '../../onboarding/model/types';
 import { FinalCtaEditor } from './final-cta';
@@ -50,7 +50,9 @@ const withoutGalleryPhotos = (): OnboardingLabState => {
 const menuIdOn = (document: SiteBuilderDocument, pageIndex: number): string => {
   const menu = document.pages[pageIndex]?.sections
     .find(section => section.sectionType === 'section_navigation');
-  if (!menu) throw new Error(`No on-page menu on page ${pageIndex}.`);
+  if (!menu) {
+    throw new Error(`No on-page menu on page ${pageIndex}.`);
+  }
   return menu.id;
 };
 
@@ -58,7 +60,9 @@ const findSectionId = (document: SiteBuilderDocument, label: string): string => 
   const section = document.pages
     .flatMap(page => page.sections)
     .find(candidate => candidate.label === label);
-  if (!section) throw new Error(`No section labelled ${label} in the test document.`);
+  if (!section) {
+    throw new Error(`No section labelled ${label} in the test document.`);
+  }
   return section.id;
 };
 
@@ -98,7 +102,9 @@ const buildTwoMenuDocument = (): {
   const document = buildDocument('multi_page');
   const menuIds: string[] = [];
   const pages = document.pages.map((page, index) => {
-    if (index >= 2) return page;
+    if (index >= 2) {
+      return page;
+    }
     const menu = createLibrarySectionInstance('section_navigation', idFactory, { order: 0 });
     const explicitAdvancedSections = index === 0
       ? [createLibrarySectionInstance('gallery', idFactory, {
@@ -159,6 +165,7 @@ describe('GallerySectionEditor', () => {
       selection: { imageIds: [...props.context.galleryImageIds], mode: 'picked' },
       version: 1,
     };
+
     expect(onChange).toHaveBeenCalledTimes(1);
     expect(onChange).toHaveBeenCalledWith(expected);
     expect(SECTION_LIBRARY_REGISTRY.gallery.normalize(expected)).toEqual(expected);
@@ -169,7 +176,9 @@ describe('GallerySectionEditor', () => {
     const document = buildDocument();
     const props = sharedProps(document);
     const [firstId, secondId] = props.context.galleryImageIds;
-    if (!firstId || !secondId) throw new Error('Demo gallery is missing photos.');
+    if (!firstId || !secondId) {
+      throw new Error('Demo gallery is missing photos.');
+    }
     const onChange = vi.fn();
     render(
       <GallerySectionEditor
@@ -193,6 +202,7 @@ describe('GallerySectionEditor', () => {
       selection: { imageIds: [secondId, firstId], mode: 'picked' },
       version: 1,
     };
+
     expect(onChange).toHaveBeenCalledWith(expected);
     expect(SECTION_LIBRARY_REGISTRY.gallery.normalize(expected)).toEqual(expected);
   });
@@ -233,6 +243,7 @@ describe('SectionNavigationEditor', () => {
     const toggle = screen.getByRole('checkbox', {
       name: /^Keep the menu visible while scrolling/u,
     });
+
     expect(toggle).toBeChecked();
 
     await user.click(toggle);
@@ -242,6 +253,7 @@ describe('SectionNavigationEditor', () => {
       sticky: false,
       version: 1,
     };
+
     expect(onChange).toHaveBeenCalledWith(expected);
     expect(SECTION_LIBRARY_REGISTRY.section_navigation.normalize(expected)).toEqual(expected);
   });
@@ -284,6 +296,7 @@ describe('SectionNavigationEditor', () => {
       sticky: true,
       version: 1,
     };
+
     expect(onChange).toHaveBeenCalledWith(renamed);
     expect(SECTION_LIBRARY_REGISTRY.section_navigation.normalize(renamed)).toEqual(renamed);
 
@@ -294,9 +307,11 @@ describe('SectionNavigationEditor', () => {
         settings={renamed}
       />,
     );
+
     expect(screen.getByLabelText('About')).toHaveValue('Our studio');
 
     fireEvent.change(screen.getByLabelText('About'), { target: { value: '' } });
+
     expect(onChange).toHaveBeenLastCalledWith({
       labelOverrides: {},
       sticky: true,
@@ -316,9 +331,11 @@ describe('SectionNavigationEditor', () => {
         settings={navigationDefaults()}
       />,
     );
+
     expect(screen.getByLabelText('Featured work')).toBeInTheDocument();
     expect(screen.getByLabelText('Reviews')).toBeInTheDocument();
     expect(screen.queryByLabelText('Booking')).not.toBeInTheDocument();
+
     unmount();
 
     // The Services / Book menu lists that page's sections instead.
@@ -329,6 +346,7 @@ describe('SectionNavigationEditor', () => {
         settings={navigationDefaults()}
       />,
     );
+
     expect(screen.getByLabelText('Booking')).toBeInTheDocument();
     expect(screen.getByLabelText('FAQ')).toBeInTheDocument();
     expect(screen.queryByLabelText('Featured work')).not.toBeInTheDocument();
@@ -374,6 +392,7 @@ describe('FinalCtaEditor', () => {
       preset: 'simple_banner',
       version: 1,
     };
+
     expect(onChange).toHaveBeenCalledWith(expected);
     expect(SECTION_LIBRARY_REGISTRY.final_cta.normalize(expected)).toEqual(expected);
   });
@@ -417,6 +436,7 @@ describe('FooterEditor', () => {
       showAttribution: false,
       version: 1,
     };
+
     expect(onChange).toHaveBeenCalledWith(expected);
     expect(SECTION_LIBRARY_REGISTRY.footer.normalize(expected)).toEqual(expected);
   });

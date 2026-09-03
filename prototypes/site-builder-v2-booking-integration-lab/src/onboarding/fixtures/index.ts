@@ -1,9 +1,9 @@
 import { CORE_SCREEN_ORDER } from '../copy';
 import {
+  createDefaultOnboardingState,
   DEFAULT_OFFER_EXPIRES_AT,
   DEFAULT_OFFER_SEEDED_AT,
   DEFAULT_PREVIEW_TIMESTAMP,
-  createDefaultOnboardingState,
 } from '../model/defaults';
 import { refreshPolicySuggestedWording } from '../model/policies';
 import type {
@@ -56,7 +56,7 @@ const setCurrentScreen = (
   const history = CORE_SCREEN_ORDER.slice(
     0,
     CORE_SCREEN_ORDER.indexOf(currentScreen) + 1,
-  ).filter((screen) => (
+  ).filter(screen => (
     state.recipe.aboutEnabled
     || state.recipe.starter === 'quick_book'
     || screen !== 'about_design'
@@ -287,7 +287,7 @@ export const LAB_REVIEW_FIXTURES: readonly LabReviewFixture[] = [
 ];
 
 const FIXTURE_BY_ID = new Map(
-  LAB_REVIEW_FIXTURES.map((entry) => [entry.id, entry]),
+  LAB_REVIEW_FIXTURES.map(entry => [entry.id, entry]),
 );
 
 export const applyLabReviewFixture = (

@@ -11,7 +11,7 @@ import type {
 export type { DepositPolicyMode } from './types';
 
 const DEPOSIT_REFERENCE_PATTERN = /\bdeposits?\b/iu;
-const NO_DEPOSIT_CLAIM_PATTERN = /(?:\bno\s+deposits?\b|\bwithout\s+(?:a\s+)?deposit\b|\bdo(?:es)?n['’]?t\s+require\s+(?:a\s+)?deposit\b|\bdeposits?\s+(?:is|are)\s+not\s+required\b)/iu;
+const NO_DEPOSIT_CLAIM_PATTERN = /\bno\s+deposits?\b|\bwithout\s+(?:a\s+)?deposit\b|\bdo(?:es)?n['’]?t\s+require\s+(?:a\s+)?deposit\b|\bdeposits?\s+(?:is|are)\s+not\s+required\b/iu;
 const FIXED_DEPOSIT_AMOUNT_PATTERN = /\$(\d+(?:\.\d{1,2})?)\s+deposit\b/iu;
 export const LATE_CANCELLATION_CUSTOM_WORDING = {
   case_by_case: 'Handle the late cancellation case by case',
@@ -26,12 +26,14 @@ export type LateCancellationChoice =
 
 const sentence = (value: string): string => {
   const trimmed = value.trim();
-  if (!trimmed) return '';
+  if (!trimmed) {
+    return '';
+  }
   return /[.!?]$/u.test(trimmed) ? trimmed : `${trimmed}.`;
 };
 
 const joinSentences = (values: Array<string | null | undefined>): string => values
-  .map((value) => value?.trim() ?? '')
+  .map(value => value?.trim() ?? '')
   .filter(Boolean)
   .map(sentence)
   .join(' ');
@@ -63,16 +65,24 @@ const resolveDepositAwareWording = (
   fallback = '',
 ): string => {
   const trimmed = value.trim();
-  if (!DEPOSIT_REFERENCE_PATTERN.test(trimmed)) return trimmed;
+  if (!DEPOSIT_REFERENCE_PATTERN.test(trimmed)) {
+    return trimmed;
+  }
 
   const mode = getDepositPolicyMode(policies);
-  if (mode === 'none') return fallback;
-  if (NO_DEPOSIT_CLAIM_PATTERN.test(trimmed)) return fallback;
+  if (mode === 'none') {
+    return fallback;
+  }
+  if (NO_DEPOSIT_CLAIM_PATTERN.test(trimmed)) {
+    return fallback;
+  }
 
   const statedAmount = trimmed.match(FIXED_DEPOSIT_AMOUNT_PATTERN)?.[1];
   if (statedAmount && policies.deposits.amountCents !== null) {
     const statedAmountCents = Math.round(Number(statedAmount) * 100);
-    if (statedAmountCents !== policies.deposits.amountCents) return fallback;
+    if (statedAmountCents !== policies.deposits.amountCents) {
+      return fallback;
+    }
   }
   return trimmed;
 };
@@ -90,8 +100,12 @@ const cancellationNotice = (policies: PoliciesDraft): string => {
 };
 
 const noticeModifier = (value: string): string => {
-  if (/^1\s+(?:hour|day)$/iu.test(value)) return `${value}’s`;
-  if (/^\d+\s+(?:hours|days)$/iu.test(value)) return `${value}’`;
+  if (/^1\s+(?:hour|day)$/iu.test(value)) {
+    return `${value}’s`;
+  }
+  if (/^\d+\s+(?:hours|days)$/iu.test(value)) {
+    return `${value}’`;
+  }
   return value;
 };
 
@@ -113,11 +127,15 @@ export const getLateCancellationChoice = (
   policies: PoliciesDraft,
 ): LateCancellationChoice => {
   const consequence = policies.cancellations.consequence;
-  if (!consequence) return '';
+  if (!consequence) {
+    return '';
+  }
   if (consequence === 'deposit_lost') {
     return getDepositPolicyMode(policies) === 'fixed' ? consequence : '';
   }
-  if (consequence !== 'custom') return consequence;
+  if (consequence !== 'custom') {
+    return consequence;
+  }
 
   const custom = policies.cancellations.customConsequence.trim();
   const preset = Object.entries(LATE_CANCELLATION_CUSTOM_WORDING).find(
@@ -148,7 +166,9 @@ const formatDepositAmount = (deposits: PoliciesDraft['deposits']): string =>
 
 export const deriveDepositPolicySummary = (policies: PoliciesDraft): string => {
   const mode = getDepositPolicyMode(policies);
-  if (mode === 'none') return 'No deposit';
+  if (mode === 'none') {
+    return 'No deposit';
+  }
   const amount = formatDepositAmount(policies.deposits);
   return amount ? `${amount} deposit` : 'Fixed deposit';
 };
@@ -180,7 +200,9 @@ const lateCancellationSummary = (policies: PoliciesDraft): string => {
 
 const deriveDeposits = (policies: PoliciesDraft): string => {
   const mode = getDepositPolicyMode(policies);
-  if (mode === 'none') return 'No deposit is required.';
+  if (mode === 'none') {
+    return 'No deposit is required.';
+  }
 
   const { deposits } = policies;
   const formattedAmount = formatDepositAmount(deposits);
@@ -282,7 +304,9 @@ const deriveNoShows = (policies: PoliciesDraft): string => {
 };
 
 const deriveRepairs = (policies: PoliciesDraft): string => {
-  if (policies.repairs.noRepairPolicy) return 'Repairs are not offered.';
+  if (policies.repairs.noRepairPolicy) {
+    return 'Repairs are not offered.';
+  }
   const days = policies.repairs.freeRepairWindowDays.trim();
   return joinSentences([
     days ? `Please get in touch within ${days} days if your service needs a repair` : '',
@@ -313,7 +337,9 @@ const deriveOther = (policies: PoliciesDraft): string => joinSentences([
 ]);
 
 const hasCancellationNotice = (policies: PoliciesDraft): boolean => {
-  if (!policies.cancellations.notice) return false;
+  if (!policies.cancellations.notice) {
+    return false;
+  }
   return policies.cancellations.notice !== 'custom'
     || Boolean(policies.cancellations.customNotice.trim());
 };
@@ -359,7 +385,7 @@ export const isPolicySectionComplete = (
         policies.other.appointmentPreparation,
         policies.other.outsideRemoval,
         policies.other.custom,
-      ].some((value) => Boolean(value.trim()));
+      ].some(value => Boolean(value.trim()));
   }
 };
 
@@ -410,7 +436,9 @@ export const getResolvedPolicyWording = (
 ): string => {
   const copy = policies.copy[sectionId];
   const suggested = derivePolicySuggestedWording(policies, sectionId).trim();
-  if (copy.useSuggestedWording) return suggested;
+  if (copy.useSuggestedWording) {
+    return suggested;
+  }
 
   const override = sectionId === 'deposits'
     ? policies.deposits.wordingOverride.trim()
@@ -442,7 +470,9 @@ export const getDepositsAndCancellationsDisplayWording = (
 ): string => {
   const depositsVisible = policies.copy.deposits.visible;
   const cancellationsVisible = policies.copy.cancellations.visible;
-  if (!depositsVisible && !cancellationsVisible) return '';
+  if (!depositsVisible && !cancellationsVisible) {
+    return '';
+  }
 
   if (
     depositsVisible
@@ -457,7 +487,7 @@ export const getDepositsAndCancellationsDisplayWording = (
     depositsVisible ? getResolvedPolicyWording(policies, 'deposits') : '',
     cancellationsVisible ? getResolvedPolicyWording(policies, 'cancellations') : '',
   ]
-    .map((value) => value.trim())
+    .map(value => value.trim())
     .filter(Boolean)
     .join(' ');
 };
@@ -492,7 +522,7 @@ export const hasMeaningfulPublishablePolicies = (
   && Boolean(getDepositsAndCancellationsDisplayWording(policies).trim())
 ) || (
   ['late_arrivals', 'no_shows', 'repairs', 'other'] as const
-).some((sectionId) => (
+).some(sectionId => (
   policies.copy[sectionId].visible
   && isPolicySectionComplete(policies, sectionId)
   && Boolean(getResolvedPolicyWording(policies, sectionId).trim())
@@ -511,13 +541,6 @@ export const refreshPolicySuggestedWording = (
   return { ...policies, copy };
 };
 
-export const updateDepositPolicyMode = (
-  policies: PoliciesDraft,
-  mode: DepositPolicyMode,
-): PoliciesDraft => {
-  return updateDepositDraft(policies, { mode });
-};
-
 export const updateDepositDraft = (
   policies: PoliciesDraft,
   patch: Partial<Omit<DepositDraft, 'legacyV5Archive'>>,
@@ -525,3 +548,10 @@ export const updateDepositDraft = (
   ...policies,
   deposits: bookingPreferencesPort.updateDepositDraft(policies.deposits, patch),
 });
+
+export const updateDepositPolicyMode = (
+  policies: PoliciesDraft,
+  mode: DepositPolicyMode,
+): PoliciesDraft => {
+  return updateDepositDraft(policies, { mode });
+};

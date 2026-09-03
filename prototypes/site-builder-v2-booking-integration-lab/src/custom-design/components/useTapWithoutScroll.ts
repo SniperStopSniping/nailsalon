@@ -1,17 +1,17 @@
 import {
-  useCallback,
-  useRef,
   type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
+  useCallback,
+  useRef,
 } from 'react';
 
 import {
   cancelTapGesture,
   createTapGestureState,
+  type CustomDesignTapGestureState,
   tapGestureShouldActivate,
   updateTapGestureForScroll,
   updateTapGestureState,
-  type CustomDesignTapGestureState,
 } from '../model/geometry';
 
 type ActivePointer = {

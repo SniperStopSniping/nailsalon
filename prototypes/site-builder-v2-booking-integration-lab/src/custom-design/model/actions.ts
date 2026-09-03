@@ -1,3 +1,4 @@
+import { hasUnsafeTextControls } from './text';
 import type {
   CustomDesignAction,
   CustomDesignActionResolution,
@@ -5,13 +6,12 @@ import type {
   CustomDesignValidationResult,
 } from './types';
 
-const CONTROL_CHARACTER_PATTERN = /[\u0000-\u001f\u007f]/u;
-const INSTAGRAM_USERNAME_PATTERN = /^[A-Za-z0-9._]{1,30}$/u;
-const EMAIL_LOCAL_PATTERN = /^[A-Za-z0-9.!$'*+/=_`{|}~-]+$/u;
-const EMAIL_DOMAIN_LABEL_PATTERN =
-  /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$/u;
-const ENTITY_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/u;
-const ENCODED_UNSAFE_ROUTE_CHARACTER_PATTERN = /%(?:00|0[0-9a-f]|1[0-9a-f]|5c|7f)/iu;
+const INSTAGRAM_USERNAME_PATTERN = /^[\w.]{1,30}$/u;
+const EMAIL_LOCAL_PATTERN = /^[\w.!$'*+/=`{|}~-]+$/u;
+const EMAIL_DOMAIN_LABEL_PATTERN
+  = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$/u;
+const ENTITY_ID_PATTERN = /^[A-Za-z0-9][\w.:-]{0,127}$/u;
+const ENCODED_UNSAFE_ROUTE_CHARACTER_PATTERN = /%(?:0[0-9a-f]|1[0-9a-f]|5c|7f)/iu;
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -19,18 +19,20 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 const hasOnlyKeys = (
   value: Record<string, unknown>,
   expected: readonly string[],
-): boolean => Object.keys(value).every((key) => expected.includes(key));
+): boolean => Object.keys(value).every(key => expected.includes(key));
 
 const nonEmptyTrimmedString = (
   value: unknown,
   maximumLength: number,
 ): string | null => {
-  if (typeof value !== 'string') return null;
+  if (typeof value !== 'string') {
+    return null;
+  }
   const trimmed = value.trim();
   if (
-    trimmed.length === 0 ||
-    trimmed.length > maximumLength ||
-    CONTROL_CHARACTER_PATTERN.test(trimmed)
+    trimmed.length === 0
+    || trimmed.length > maximumLength
+    || hasUnsafeTextControls(trimmed)
   ) {
     return null;
   }
@@ -39,15 +41,17 @@ const nonEmptyTrimmedString = (
 
 export const parseSafeHttpsUrl = (value: unknown): string | null => {
   const candidate = nonEmptyTrimmedString(value, 2_048);
-  if (!candidate) return null;
+  if (!candidate) {
+    return null;
+  }
 
   try {
     const parsed = new URL(candidate);
     if (
-      parsed.protocol !== 'https:' ||
-      parsed.username !== '' ||
-      parsed.password !== '' ||
-      parsed.hostname === ''
+      parsed.protocol !== 'https:'
+      || parsed.username !== ''
+      || parsed.password !== ''
+      || parsed.hostname === ''
     ) {
       return null;
     }
@@ -59,32 +63,40 @@ export const parseSafeHttpsUrl = (value: unknown): string | null => {
 
 export const normalizePhoneNumber = (value: unknown): string | null => {
   const candidate = nonEmptyTrimmedString(value, 40);
-  if (!candidate || !/^[+()\- .0-9]+$/u.test(candidate)) return null;
+  if (!candidate || !/^[+()\- .0-9]+$/u.test(candidate)) {
+    return null;
+  }
   const digits = candidate.replace(/\D/gu, '');
-  if (digits.length < 7 || digits.length > 15) return null;
+  if (digits.length < 7 || digits.length > 15) {
+    return null;
+  }
   return `${candidate.startsWith('+') ? '+' : ''}${digits}`;
 };
 
 export const normalizeEmailAddress = (value: unknown): string | null => {
   const candidate = nonEmptyTrimmedString(value, 254);
-  if (!candidate || /[?&#%]/u.test(candidate)) return null;
+  if (!candidate || /[?&#%]/u.test(candidate)) {
+    return null;
+  }
   const separator = candidate.lastIndexOf('@');
-  if (separator <= 0 || separator === candidate.length - 1) return null;
+  if (separator <= 0 || separator === candidate.length - 1) {
+    return null;
+  }
   const local = candidate.slice(0, separator);
   const domain = candidate.slice(separator + 1);
   if (
-    local.length > 64 ||
-    !EMAIL_LOCAL_PATTERN.test(local) ||
-    local.startsWith('.') ||
-    local.endsWith('.') ||
-    local.includes('..')
+    local.length > 64
+    || !EMAIL_LOCAL_PATTERN.test(local)
+    || local.startsWith('.')
+    || local.endsWith('.')
+    || local.includes('..')
   ) {
     return null;
   }
   const labels = domain.split('.');
   if (
-    labels.length < 2 ||
-    labels.some((label) => !EMAIL_DOMAIN_LABEL_PATTERN.test(label))
+    labels.length < 2
+    || labels.some(label => !EMAIL_DOMAIN_LABEL_PATTERN.test(label))
   ) {
     return null;
   }
@@ -94,9 +106,9 @@ export const normalizeEmailAddress = (value: unknown): string | null => {
 export const normalizeInternalHref = (value: unknown): string | null => {
   const candidate = nonEmptyTrimmedString(value, 2_048);
   if (
-    !candidate ||
-    candidate.includes('\\') ||
-    ENCODED_UNSAFE_ROUTE_CHARACTER_PATTERN.test(candidate)
+    !candidate
+    || candidate.includes('\\')
+    || ENCODED_UNSAFE_ROUTE_CHARACTER_PATTERN.test(candidate)
   ) {
     return null;
   }
@@ -108,9 +120,9 @@ export const normalizeInternalHref = (value: unknown): string | null => {
     return null;
   }
   if (
-    CONTROL_CHARACTER_PATTERN.test(decoded) ||
-    decoded.includes('\\') ||
-    decoded.startsWith('//')
+    hasUnsafeTextControls(decoded)
+    || decoded.includes('\\')
+    || decoded.startsWith('//')
   ) {
     return null;
   }
@@ -118,13 +130,19 @@ export const normalizeInternalHref = (value: unknown): string | null => {
   try {
     const base = new URL('https://luster.invalid/');
     if (candidate.startsWith('#')) {
-      if (candidate.length === 1) return null;
+      if (candidate.length === 1) {
+        return null;
+      }
       const hash = new URL(candidate, base).hash;
       return hash.length > 1 ? hash : null;
     }
-    if (!candidate.startsWith('/') || candidate.startsWith('//')) return null;
+    if (!candidate.startsWith('/') || candidate.startsWith('//')) {
+      return null;
+    }
     const parsed = new URL(candidate, base);
-    if (parsed.origin !== base.origin || parsed.pathname.startsWith('//')) return null;
+    if (parsed.origin !== base.origin || parsed.pathname.startsWith('//')) {
+      return null;
+    }
     return `${parsed.pathname}${parsed.search}${parsed.hash}`;
   } catch {
     return null;
@@ -133,33 +151,47 @@ export const normalizeInternalHref = (value: unknown): string | null => {
 
 const normalizeContactHref = (value: unknown): string | null => {
   const candidate = nonEmptyTrimmedString(value, 2_048);
-  if (!candidate) return null;
+  if (!candidate) {
+    return null;
+  }
   const internal = normalizeInternalHref(candidate);
-  if (internal) return internal;
+  if (internal) {
+    return internal;
+  }
   const https = parseSafeHttpsUrl(candidate);
-  if (https) return https;
+  if (https) {
+    return https;
+  }
 
   const schemeSeparator = candidate.indexOf(':');
-  if (schemeSeparator <= 0) return null;
+  if (schemeSeparator <= 0) {
+    return null;
+  }
   const scheme = candidate.slice(0, schemeSeparator).toLowerCase();
   const destination = candidate.slice(schemeSeparator + 1);
   if (scheme === 'tel' || scheme === 'sms') {
     const phoneNumber = normalizePhoneNumber(destination);
     return phoneNumber ? `${scheme}:${phoneNumber}` : null;
   }
-  if (scheme !== 'mailto') return null;
+  if (scheme !== 'mailto') {
+    return null;
+  }
 
   const queryIndex = destination.indexOf('?');
   const rawAddress = queryIndex === -1
     ? destination
     : destination.slice(0, queryIndex);
   const email = normalizeEmailAddress(rawAddress);
-  if (!email) return null;
-  if (queryIndex === -1) return `mailto:${email}`;
+  if (!email) {
+    return null;
+  }
+  if (queryIndex === -1) {
+    return `mailto:${email}`;
+  }
   const query = new URLSearchParams(destination.slice(queryIndex + 1));
   if (
-    [...query.keys()].some((key) => key !== 'subject') ||
-    query.getAll('subject').length !== 1
+    [...query.keys()].some(key => key !== 'subject')
+    || query.getAll('subject').length !== 1
   ) {
     return null;
   }
@@ -173,20 +205,26 @@ const parseDestination = (
   value: unknown,
   expectedKeys: readonly string[],
 ): Record<string, unknown> | null => {
-  if (!isRecord(value) || !hasOnlyKeys(value, expectedKeys)) return null;
+  if (!isRecord(value) || !hasOnlyKeys(value, expectedKeys)) {
+    return null;
+  }
   return value;
 };
 
 export const parseCustomDesignAction = (
   value: unknown,
 ): CustomDesignAction | null => {
-  if (!isRecord(value) || typeof value.type !== 'string') return null;
+  if (!isRecord(value) || typeof value.type !== 'string') {
+    return null;
+  }
 
   if (value.type === 'start_booking') {
     return hasOnlyKeys(value, ['type']) ? { type: 'start_booking' } : null;
   }
 
-  if (!hasOnlyKeys(value, ['type', 'destination'])) return null;
+  if (!hasOnlyKeys(value, ['type', 'destination'])) {
+    return null;
+  }
 
   switch (value.type) {
     case 'directions': {
@@ -224,8 +262,12 @@ export const parseCustomDesignAction = (
       const subject = destination?.subject === undefined
         ? undefined
         : nonEmptyTrimmedString(destination.subject, 200);
-      if (!email) return null;
-      if (destination?.subject !== undefined && subject === null) return null;
+      if (!email) {
+        return null;
+      }
+      if (destination?.subject !== undefined && subject === null) {
+        return null;
+      }
       return {
         type: 'email',
         destination: subject ? { email, subject } : { email },
@@ -237,10 +279,12 @@ export const parseCustomDesignAction = (
       const sectionId = destination?.sectionId === undefined
         ? undefined
         : nonEmptyTrimmedString(destination.sectionId, 128);
-      if (!pageId || !ENTITY_ID_PATTERN.test(pageId)) return null;
+      if (!pageId || !ENTITY_ID_PATTERN.test(pageId)) {
+        return null;
+      }
       if (
-        destination?.sectionId !== undefined &&
-        (!sectionId || !ENTITY_ID_PATTERN.test(sectionId))
+        destination?.sectionId !== undefined
+        && (!sectionId || !ENTITY_ID_PATTERN.test(sectionId))
       ) {
         return null;
       }
@@ -276,7 +320,9 @@ export const resolveCustomDesignAction = (
   context: CustomDesignActionResolutionContext = {},
 ): CustomDesignActionResolution => {
   const action = parseCustomDesignAction(value);
-  if (!action) return { status: 'unresolved', reason: 'invalid_destination' };
+  if (!action) {
+    return { status: 'unresolved', reason: 'invalid_destination' };
+  }
 
   switch (action.type) {
     case 'start_booking': {

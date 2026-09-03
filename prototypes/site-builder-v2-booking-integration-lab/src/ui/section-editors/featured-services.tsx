@@ -59,77 +59,101 @@ export function FeaturedServicesEditor({
         ]}
         value={settings.source}
       />
-      {settings.source === 'manual' ? (
-        <div className="form-field">
-          <span>Services to feature</span>
-          {menuServices.length === 0 ? (
-            <small className="form-hint">
-              Your service menu is empty, so there is nothing to feature yet.
-            </small>
-          ) : (
-            <>
-              <small className="form-hint">
-                Up to {MAX_FEATURED_SERVICES}, shown in the order you tick them.
-                {' '}
-                {settings.serviceIds.length} of {MAX_FEATURED_SERVICES} chosen.
-              </small>
-              {staleCount > 0 ? (
-                <button
-                  className="secondary-button"
-                  onClick={dropMissingServices}
-                  type="button"
-                >
-                  Remove {staleCount} service{staleCount === 1 ? '' : 's'} that left your menu
-                </button>
-              ) : null}
-              <div className="editor-record-list">
-                {menuServices.map((service) => {
-                  const included = settings.serviceIds.includes(service.id);
-                  return (
-                    <label className="form-field form-field--toggle" key={service.id}>
-                      <input
-                        checked={included}
-                        disabled={!included && atCap}
-                        onChange={event => toggleService(service.id, event.target.checked)}
-                        type="checkbox"
-                      />
-                      <span>{service.name}</span>
-                      <small className="form-hint">{formatPrice(service.price)}</small>
-                    </label>
-                  );
-                })}
-              </div>
-            </>
+      {settings.source === 'manual'
+        ? (
+            <div className="form-field">
+              <span>Services to feature</span>
+              {menuServices.length === 0
+                ? (
+                    <small className="form-hint">
+                      Your service menu is empty, so there is nothing to feature yet.
+                    </small>
+                  )
+                : (
+                    <>
+                      <small className="form-hint">
+                        Up to
+                        {' '}
+                        {MAX_FEATURED_SERVICES}
+                        , shown in the order you tick them.
+                        {' '}
+                        {settings.serviceIds.length}
+                        {' of '}
+                        {MAX_FEATURED_SERVICES}
+                        {' '}
+                        chosen.
+                      </small>
+                      {staleCount > 0
+                        ? (
+                            <button
+                              className="secondary-button"
+                              onClick={dropMissingServices}
+                              type="button"
+                            >
+                              Remove
+                              {' '}
+                              {staleCount}
+                              {' '}
+                              service
+                              {staleCount === 1 ? '' : 's'}
+                              {' '}
+                              that left your menu
+                            </button>
+                          )
+                        : null}
+                      <div className="editor-record-list">
+                        {menuServices.map((service) => {
+                          const included = settings.serviceIds.includes(service.id);
+                          return (
+                            <label className="form-field form-field--toggle" key={service.id}>
+                              <input
+                                checked={included}
+                                disabled={!included && atCap}
+                                onChange={event => toggleService(service.id, event.target.checked)}
+                                type="checkbox"
+                              />
+                              <span>{service.name}</span>
+                              <small className="form-hint">{formatPrice(service.price)}</small>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </>
+                  )}
+            </div>
+          )
+        : (
+            <div className="form-field">
+              <span>Luster picks right now</span>
+              {featuredServices.length === 0
+                ? (
+                    <small className="form-hint">
+                      None of the services on your menu are marked as featured, so this
+                      section stays off your site until you choose services yourself.
+                    </small>
+                  )
+                : (
+                    <>
+                      <ul className="editor-record-list">
+                        {featuredServices.slice(0, MAX_FEATURED_SERVICES).map(service => (
+                          <li key={service.id}>
+                            {service.name}
+                            {' · '}
+                            {formatPrice(service.price)}
+                          </li>
+                        ))}
+                      </ul>
+                      <small className="form-hint">
+                        This list follows your menu — it changes on its own when your
+                        featured services change.
+                        {featuredServices.length > MAX_FEATURED_SERVICES
+                          ? ` Only the first ${MAX_FEATURED_SERVICES} appear on your site.`
+                          : ''}
+                      </small>
+                    </>
+                  )}
+            </div>
           )}
-        </div>
-      ) : (
-        <div className="form-field">
-          <span>Luster picks right now</span>
-          {featuredServices.length === 0 ? (
-            <small className="form-hint">
-              None of the services on your menu are marked as featured, so this
-              section stays off your site until you choose services yourself.
-            </small>
-          ) : (
-            <>
-              <ul className="editor-record-list">
-                {featuredServices.slice(0, MAX_FEATURED_SERVICES).map(service => (
-                  <li key={service.id}>
-                    {service.name} · {formatPrice(service.price)}
-                  </li>
-                ))}
-              </ul>
-              <small className="form-hint">
-                This list follows your menu — it changes on its own when your
-                featured services change.
-                {featuredServices.length > MAX_FEATURED_SERVICES
-                  ? ` Only the first ${MAX_FEATURED_SERVICES} appear on your site.`
-                  : ''}
-              </small>
-            </>
-          )}
-        </div>
-      )}
     </>
   );
 }

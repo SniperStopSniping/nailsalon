@@ -39,17 +39,21 @@ describe('useOnboardingState', () => {
     act(() => {
       first.result.current.updateProfile({ businessName: 'Isla Nail Studio' });
     });
+
     expect(first.result.current.saveStatus).toBe('saving');
     expect(storage.values.has(ONBOARDING_STORAGE_KEY)).toBe(false);
 
     act(() => {
       vi.advanceTimersByTime(200);
     });
+
     expect(first.result.current.saveStatus).toBe('saved');
     expect(storage.values.has(ONBOARDING_STORAGE_KEY)).toBe(true);
+
     first.unmount();
 
     const restored = renderHook(() => useOnboardingState({ storage }));
+
     expect(restored.result.current.state.profile.businessName).toBe('Isla Nail Studio');
     expect(restored.result.current.saveStatus).toBe('saved');
   });
@@ -67,6 +71,7 @@ describe('useOnboardingState', () => {
     });
 
     const persisted = storage.values.get(ONBOARDING_STORAGE_KEY);
+
     expect(persisted).toBeDefined();
     expect(JSON.parse(persisted ?? '{}').profile.businessName)
       .toBe('Immediate navigation studio');
@@ -90,6 +95,7 @@ describe('useOnboardingState', () => {
     expect(storage.setItem).toHaveBeenCalledTimes(1);
     expect(JSON.parse(storage.values.get(ONBOARDING_STORAGE_KEY) ?? '{}').profile.ownerName)
       .toBe('Mia');
+
     visibility.mockRestore();
   });
 
@@ -102,7 +108,8 @@ describe('useOnboardingState', () => {
     });
 
     act(() => hook.result.current.continueFlow());
-    expect(hook.result.current.state.eventJournal.slice(-2).map((event) => event.type)).toEqual([
+
+    expect(hook.result.current.state.eventJournal.slice(-2).map(event => event.type)).toEqual([
       'continue',
       'screen_viewed',
     ]);
@@ -113,6 +120,7 @@ describe('useOnboardingState', () => {
 
     act(() => hook.result.current.continueFlow());
     act(() => hook.result.current.back());
+
     expect(hook.result.current.state.eventJournal.slice(-2)).toEqual(expect.arrayContaining([
       expect.objectContaining({ nextScreen: 'business', screen: 'starting_preview', type: 'back' }),
       expect.objectContaining({ screen: 'business', type: 'screen_viewed' }),
@@ -120,6 +128,7 @@ describe('useOnboardingState', () => {
 
     act(() => hook.result.current.continueFlow());
     act(() => hook.result.current.skip('hours'));
+
     expect(hook.result.current.state.eventJournal.slice(-2)).toEqual(expect.arrayContaining([
       expect.objectContaining({ item: 'hours', screen: 'starting_preview', type: 'skip' }),
       expect.objectContaining({ screen: 'location_contact', type: 'screen_viewed' }),
@@ -131,7 +140,7 @@ describe('useOnboardingState', () => {
     const hook = renderHook(() => useOnboardingState({ storage }));
 
     act(() => {
-      hook.result.current.updateProfile((profile) => ({
+      hook.result.current.updateProfile(profile => ({
         ...profile,
         about: { ...profile.about, shortBio: 'Preserve this bio' },
       }));
@@ -143,7 +152,9 @@ describe('useOnboardingState', () => {
     expect(hook.result.current.state.progress.currentScreen).toBe('policies');
     expect(hook.result.current.state.progress.screenHistory).not.toContain('about_design');
     expect(hook.result.current.state.profile.about.shortBio).toBe('Preserve this bio');
+
     act(() => hook.result.current.back());
+
     expect(hook.result.current.state.progress.currentScreen).toBe('about');
   });
 
@@ -151,7 +162,7 @@ describe('useOnboardingState', () => {
     const storage = createMemoryStorage();
     const hook = renderHook(() => useOnboardingState({ storage }));
     act(() => {
-      hook.result.current.updateRecipe((recipe) => recipe);
+      hook.result.current.updateRecipe(recipe => recipe);
     });
     act(() => {
       hook.result.current.viewScreen('location_contact');
@@ -159,17 +170,21 @@ describe('useOnboardingState', () => {
 
     act(() => {
       const result = hook.result.current.pause();
+
       expect(result.success).toBe(true);
     });
+
     expect(hook.result.current.state.progress.sessionStatus).toBe('paused');
     expect(storage.values.has(ONBOARDING_STORAGE_KEY)).toBe(true);
 
     act(() => hook.result.current.resume(false));
+
     expect(hook.result.current.state.progress.currentScreen).toBe('location_contact');
     expect(hook.result.current.state.eventJournal.at(-1)?.type).toBe('resume_after_reload');
 
     storage.values.set('unrelated', 'preserved');
     act(() => expect(hook.result.current.reset()).toBe(true));
+
     expect(hook.result.current.state.progress.currentScreen).toBe('starter');
     expect(hook.result.current.state.eventJournal).toEqual([]);
     expect(storage.values.has(ONBOARDING_STORAGE_KEY)).toBe(false);
@@ -191,6 +206,7 @@ describe('useOnboardingState', () => {
     act(() => {
       vi.advanceTimersByTime(100);
     });
+
     expect(hook.result.current.saveStatus).toBe('error');
     expect(hook.result.current.storageIssue).toBe('quota full');
     expect(hook.result.current.state.profile.ownerName).toBe('Daniela');
@@ -206,6 +222,7 @@ describe('useOnboardingState', () => {
     act(() => {
       allowed = hook.result.current.requestBuilderHandoff();
     });
+
     expect(allowed).toBe(false);
     expect(hook.result.current.state.progress.currentScreen).toBe('starter');
 
@@ -215,6 +232,7 @@ describe('useOnboardingState', () => {
     act(() => {
       allowed = hook.result.current.requestBuilderHandoff();
     });
+
     expect(allowed).toBe(true);
     expect(hook.result.current.state.eventJournal.at(-1)?.type).toBe('open_builder');
   });
@@ -230,6 +248,7 @@ describe('useOnboardingState', () => {
       });
 
       const persisted = storage.values.get(ONBOARDING_STORAGE_KEY);
+
       expect(persisted).toBeDefined();
       expect(JSON.parse(persisted ?? '{}')).toMatchObject({
         planOffer: { planIntent: intent },
@@ -239,6 +258,7 @@ describe('useOnboardingState', () => {
         intent,
         type: 'offer_choice',
       });
+
       hook.unmount();
     },
   );

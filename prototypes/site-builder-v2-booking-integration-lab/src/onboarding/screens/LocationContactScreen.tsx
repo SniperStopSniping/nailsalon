@@ -1,7 +1,19 @@
-import { useId, useRef, useState, type FormEvent } from 'react';
+import '../location-contact-screen.css';
+
+import { type FormEvent, useId, useRef, useState } from 'react';
 
 import { useMediaQuery } from '../../ui/StarterChooser';
-
+import {
+  ChoiceGroup,
+  type ChoiceOption,
+  CollapsibleFormCard,
+  focusAndRevealControl,
+  NativeSwitch,
+  TextAreaField,
+  TextField,
+  ValidationSummary,
+} from '../components/FormFields';
+import { StickyOnboardingActions } from '../components/StickyOnboardingActions';
 import {
   getAvailableContactMethods,
   getCoherentPreferredContact,
@@ -13,18 +25,6 @@ import type {
   BusinessProfileDraft,
   PreferredContactMethod,
 } from '../model/types';
-import {
-  ChoiceGroup,
-  CollapsibleFormCard,
-  focusAndRevealControl,
-  NativeSwitch,
-  TextAreaField,
-  TextField,
-  ValidationSummary,
-  type ChoiceOption,
-} from '../components/FormFields';
-import { StickyOnboardingActions } from '../components/StickyOnboardingActions';
-import '../location-contact-screen.css';
 
 type ProfilePatch = Partial<BusinessProfileDraft>;
 
@@ -74,11 +74,15 @@ const ADDRESS_VISIBILITY_OPTIONS: readonly {
 ];
 
 const emailLooksValid = (value: string): boolean => !value.trim()
-  || /^[^\s@]+@[^\s@]+\.[^\s@]+$/u.test(value.trim());
+  || /^[^\s@]+@[^\s@][^\s.@]*\.[^\s@]+$/u.test(value.trim());
 
 const locationAddressLabel = (profile: BusinessProfileDraft): string => {
-  if (profile.businessType === 'home_based') return 'Home studio address *';
-  if (profile.businessType === 'salon_team') return 'Salon address *';
+  if (profile.businessType === 'home_based') {
+    return 'Home studio address *';
+  }
+  if (profile.businessType === 'salon_team') {
+    return 'Salon address *';
+  }
   return 'Full address *';
 };
 
@@ -94,10 +98,10 @@ const hasCompleteLocation = (profile: BusinessProfileDraft): boolean =>
   profile.businessType === 'mobile'
     ? Boolean(profile.location.cityOrArea.trim())
     : Boolean(
-        profile.location.cityOrArea.trim()
-        && profile.location.exactAddress.trim()
-        && profile.location.addressVisibility,
-      );
+      profile.location.cityOrArea.trim()
+      && profile.location.exactAddress.trim()
+      && profile.location.addressVisibility,
+    );
 
 export function LocationContactScreen({
   contactSetupConfirmed = false,
@@ -130,7 +134,7 @@ export function LocationContactScreen({
   };
 
   const rawAvailableMethods = getAvailableContactMethods(profile);
-  const availableMethods = rawAvailableMethods.filter((method) =>
+  const availableMethods = rawAvailableMethods.filter(method =>
     method !== 'email' || !emailError);
   const hasPreferredContact = profile.preferredContact
     ? availableMethods.includes(profile.preferredContact)
@@ -187,7 +191,9 @@ export function LocationContactScreen({
       ? 'contact'
       : 'location';
     setOpenCard(card);
-    if (fieldId === 'instagram') setEditingInstagram(true);
+    if (fieldId === 'instagram') {
+      setEditingInstagram(true);
+    }
     window.requestAnimationFrame(() => {
       const panel = formRef.current?.querySelector<HTMLElement>(
         `#onboarding-${card}-card-panel`,
@@ -201,7 +207,9 @@ export function LocationContactScreen({
             : fieldId === 'instagram'
               ? panel?.querySelector<HTMLElement>('[data-instagram-input]')
               : panel?.querySelector<HTMLElement>('[aria-invalid="true"], input, button');
-      if (target) focusAndRevealControl(target, target);
+      if (target) {
+        focusAndRevealControl(target, target);
+      }
     });
   };
 
@@ -216,8 +224,12 @@ export function LocationContactScreen({
     if (!mobileBusiness && !profile.location.exactAddress.trim()) {
       nextErrors.exactAddress = 'Add the address clients will use for appointments.';
     }
-    if (instagramError) nextErrors.instagram = instagramError;
-    if (emailError) nextErrors.email = emailError;
+    if (instagramError) {
+      nextErrors.instagram = instagramError;
+    }
+    if (emailError) {
+      nextErrors.email = emailError;
+    }
     if (!contactConfirmed) {
       nextErrors.contact = 'Choose online booking only or add a direct contact method.';
     } else if (!profile.bookingOnlyContact && availableMethods.length === 0) {
@@ -243,7 +255,7 @@ export function LocationContactScreen({
   const selectContactMode = (bookingOnlyContact: boolean) => {
     setContactConfirmed(true);
     onContactConfirmed?.();
-    setErrors((current) => ({
+    setErrors(current => ({
       ...current,
       contact: '',
       preferredContact: '',
@@ -277,7 +289,7 @@ export function LocationContactScreen({
           open={openCard === 'location'}
           summary={locationSummary}
           title="Location"
-          onToggle={() => setOpenCard((current) => current === 'location' ? null : 'location')}
+          onToggle={() => setOpenCard(current => current === 'location' ? null : 'location')}
         >
           <p className="onboarding-location-contact-v2__intro">
             Choose your business location and what clients can see.
@@ -290,7 +302,7 @@ export function LocationContactScreen({
               required
               value={profile.location.cityOrArea}
               onChange={(event) => {
-                setErrors((current) => ({ ...current, cityOrArea: '' }));
+                setErrors(current => ({ ...current, cityOrArea: '' }));
                 updateLocation({
                   allowGeneralAreaDirections: mobileBusiness,
                   cityOrArea: event.target.value,
@@ -298,63 +310,67 @@ export function LocationContactScreen({
                 });
               }}
             />
-            {mobileBusiness ? (
-              <TextAreaField
-                label="Areas you serve · Optional"
-                value={profile.location.serviceAreas ?? ''}
-                onChange={(event) => updateLocation({ serviceAreas: event.target.value })}
-              />
-            ) : (
-              <TextField
-                autoComplete="street-address"
-                error={errors.exactAddress}
-                label={locationAddressLabel(profile)}
-                required
-                value={profile.location.exactAddress}
-                onChange={(event) => {
-                  setErrors((current) => ({ ...current, exactAddress: '' }));
-                  updateLocation({ exactAddress: event.target.value });
-                }}
-              />
-            )}
+            {mobileBusiness
+              ? (
+                  <TextAreaField
+                    label="Areas you serve · Optional"
+                    value={profile.location.serviceAreas ?? ''}
+                    onChange={event => updateLocation({ serviceAreas: event.target.value })}
+                  />
+                )
+              : (
+                  <TextField
+                    autoComplete="street-address"
+                    error={errors.exactAddress}
+                    label={locationAddressLabel(profile)}
+                    required
+                    value={profile.location.exactAddress}
+                    onChange={(event) => {
+                      setErrors(current => ({ ...current, exactAddress: '' }));
+                      updateLocation({ exactAddress: event.target.value });
+                    }}
+                  />
+                )}
           </div>
 
-          {!mobileBusiness ? (
-            <fieldset className="onboarding-address-visibility">
-              <legend>What should clients see? *</legend>
-              <p>This controls how your location appears across your site and map.</p>
-              <div>
-                {ADDRESS_VISIBILITY_OPTIONS.map((option) => (
-                  <label key={option.value}>
-                    <input
-                      checked={profile.location.addressVisibility === option.value}
-                      name="address-visibility"
-                      type="radio"
-                      value={option.value}
-                      onChange={() => updateLocation({
-                        addressVisibility: option.value,
-                        allowGeneralAreaDirections: option.value === 'hidden',
-                      })}
-                    />
-                    <span>
-                      <span className="onboarding-address-visibility__check" aria-hidden="true">
-                        {profile.location.addressVisibility === option.value ? '✓' : ''}
-                      </span>
-                      <span>
-                        <strong>{option.label}</strong>
-                        <small>{option.description}</small>
-                      </span>
-                      <em>{option.note}</em>
-                    </span>
-                  </label>
-                ))}
-              </div>
-            </fieldset>
-          ) : (
-            <p className="onboarding-mobile-location-note">
-              Your customer site and map will show your service area, not a salon address.
-            </p>
-          )}
+          {!mobileBusiness
+            ? (
+                <fieldset className="onboarding-address-visibility">
+                  <legend>What should clients see? *</legend>
+                  <p>This controls how your location appears across your site and map.</p>
+                  <div>
+                    {ADDRESS_VISIBILITY_OPTIONS.map(option => (
+                      <label key={option.value}>
+                        <input
+                          checked={profile.location.addressVisibility === option.value}
+                          name="address-visibility"
+                          type="radio"
+                          value={option.value}
+                          onChange={() => updateLocation({
+                            addressVisibility: option.value,
+                            allowGeneralAreaDirections: option.value === 'hidden',
+                          })}
+                        />
+                        <span>
+                          <span className="onboarding-address-visibility__check" aria-hidden="true">
+                            {profile.location.addressVisibility === option.value ? '✓' : ''}
+                          </span>
+                          <span>
+                            <strong>{option.label}</strong>
+                            <small>{option.description}</small>
+                          </span>
+                          <em>{option.note}</em>
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                </fieldset>
+              )
+            : (
+                <p className="onboarding-mobile-location-note">
+                  Your customer site and map will show your service area, not a salon address.
+                </p>
+              )}
           {isShortPhone
             ? (
                 <button
@@ -378,7 +394,7 @@ export function LocationContactScreen({
           open={openCard === 'contact'}
           summary={contactSummary}
           title="Contact"
-          onToggle={() => setOpenCard((current) => current === 'contact' ? null : 'contact')}
+          onToggle={() => setOpenCard(current => current === 'contact' ? null : 'contact')}
         >
           <fieldset className="onboarding-contact-mode">
             <legend>How should clients reach you?</legend>
@@ -389,7 +405,10 @@ export function LocationContactScreen({
                 type="radio"
                 onChange={() => selectContactMode(true)}
               />
-              <span><strong>Online booking only</strong><small>Clients use your Luster booking page to book with you.</small></span>
+              <span>
+                <strong>Online booking only</strong>
+                <small>Clients use your Luster booking page to book with you.</small>
+              </span>
             </label>
             <label>
               <input
@@ -398,141 +417,156 @@ export function LocationContactScreen({
                 type="radio"
                 onChange={() => selectContactMode(false)}
               />
-              <span><strong>Let clients contact me directly</strong><small>Choose which phone, text, email or Instagram details clients can use.</small></span>
+              <span>
+                <strong>Let clients contact me directly</strong>
+                <small>Choose which phone, text, email or Instagram details clients can use.</small>
+              </span>
             </label>
           </fieldset>
 
-          {!profile.bookingOnlyContact ? (
-            <div className="onboarding-direct-contact-fields">
-              <TextField
-                autoComplete="tel"
-                error={errors.contact}
-                label="Phone number"
-                type="tel"
-                value={profile.clientContact.primaryNumber}
-                onChange={(event) => {
-                  setErrors((current) => ({ ...current, contact: '', preferredContact: '' }));
-                  const clientContact = {
-                    ...profile.clientContact,
-                    primaryNumber: event.target.value,
-                  };
-                  onProfileChange({
-                    clientContact,
-                    preferredContact: getCoherentPreferredContact({ ...profile, clientContact }),
-                  });
-                }}
-              />
-              <NativeSwitch
-                checked={profile.clientContact.callEnabled}
-                description="Show a Call action on your customer site."
-                label="Clients can call this number"
-                onChange={(callEnabled) => {
-                  const clientContact = { ...profile.clientContact, callEnabled };
-                  onProfileChange({
-                    clientContact,
-                    preferredContact: getCoherentPreferredContact({ ...profile, clientContact }),
-                  });
-                }}
-              />
-              <NativeSwitch
-                checked={profile.clientContact.textEnabled}
-                description="Show a Text action on your customer site."
-                label="Clients can text this number"
-                onChange={(textEnabled) => {
-                  const clientContact = { ...profile.clientContact, textEnabled };
-                  onProfileChange({
-                    clientContact,
-                    preferredContact: getCoherentPreferredContact({ ...profile, clientContact }),
-                  });
-                }}
-              />
-              {profile.clientContact.textEnabled ? (
-                <NativeSwitch
-                  checked={profile.clientContact.useDifferentTextNumber}
-                  description="Keep calls on the primary number and route texts somewhere else."
-                  label="Use a different number for texts"
-                  onChange={(useDifferentTextNumber) => onProfileChange({
-                    clientContact: { ...profile.clientContact, useDifferentTextNumber },
-                  })}
-                />
-              ) : null}
-              {profile.clientContact.textEnabled
-                && profile.clientContact.useDifferentTextNumber ? (
+          {!profile.bookingOnlyContact
+            ? (
+                <div className="onboarding-direct-contact-fields">
                   <TextField
                     autoComplete="tel"
-                    label="Text message number"
+                    error={errors.contact}
+                    label="Phone number"
                     type="tel"
-                    value={profile.clientContact.differentTextNumber}
-                    onChange={(event) => onProfileChange({
-                      clientContact: {
+                    value={profile.clientContact.primaryNumber}
+                    onChange={(event) => {
+                      setErrors(current => ({ ...current, contact: '', preferredContact: '' }));
+                      const clientContact = {
                         ...profile.clientContact,
-                        differentTextNumber: event.target.value,
-                      },
-                    })}
+                        primaryNumber: event.target.value,
+                      };
+                      onProfileChange({
+                        clientContact,
+                        preferredContact: getCoherentPreferredContact({ ...profile, clientContact }),
+                      });
+                    }}
                   />
-                ) : null}
-              <TextField
-                autoComplete="email"
-                error={errors.email || emailError}
-                label="Email · Optional"
-                type="email"
-                value={profile.email}
-                onChange={(event) => {
-                  setErrors((current) => ({ ...current, email: '', preferredContact: '' }));
-                  const email = event.target.value;
-                  onProfileChange({
-                    email,
-                    preferredContact: getCoherentPreferredContact({ ...profile, email }),
-                  });
-                }}
-              />
-            </div>
-          ) : null}
+                  <NativeSwitch
+                    checked={profile.clientContact.callEnabled}
+                    description="Show a Call action on your customer site."
+                    label="Clients can call this number"
+                    onChange={(callEnabled) => {
+                      const clientContact = { ...profile.clientContact, callEnabled };
+                      onProfileChange({
+                        clientContact,
+                        preferredContact: getCoherentPreferredContact({ ...profile, clientContact }),
+                      });
+                    }}
+                  />
+                  <NativeSwitch
+                    checked={profile.clientContact.textEnabled}
+                    description="Show a Text action on your customer site."
+                    label="Clients can text this number"
+                    onChange={(textEnabled) => {
+                      const clientContact = { ...profile.clientContact, textEnabled };
+                      onProfileChange({
+                        clientContact,
+                        preferredContact: getCoherentPreferredContact({ ...profile, clientContact }),
+                      });
+                    }}
+                  />
+                  {profile.clientContact.textEnabled
+                    ? (
+                        <NativeSwitch
+                          checked={profile.clientContact.useDifferentTextNumber}
+                          description="Keep calls on the primary number and route texts somewhere else."
+                          label="Use a different number for texts"
+                          onChange={useDifferentTextNumber => onProfileChange({
+                            clientContact: { ...profile.clientContact, useDifferentTextNumber },
+                          })}
+                        />
+                      )
+                    : null}
+                  {profile.clientContact.textEnabled
+                  && profile.clientContact.useDifferentTextNumber
+                    ? (
+                        <TextField
+                          autoComplete="tel"
+                          label="Text message number"
+                          type="tel"
+                          value={profile.clientContact.differentTextNumber}
+                          onChange={event => onProfileChange({
+                            clientContact: {
+                              ...profile.clientContact,
+                              differentTextNumber: event.target.value,
+                            },
+                          })}
+                        />
+                      )
+                    : null}
+                  <TextField
+                    autoComplete="email"
+                    error={errors.email || emailError}
+                    label="Email · Optional"
+                    type="email"
+                    value={profile.email}
+                    onChange={(event) => {
+                      setErrors(current => ({ ...current, email: '', preferredContact: '' }));
+                      const email = event.target.value;
+                      onProfileChange({
+                        email,
+                        preferredContact: getCoherentPreferredContact({ ...profile, email }),
+                      });
+                    }}
+                  />
+                </div>
+              )
+            : null}
 
           <div className="onboarding-shared-instagram">
             <div>
               <span>Instagram</span>
-              <strong>{instagram.status === 'resolved'
-                ? `@${instagram.username}`
-                : profile.instagram.trim() || 'Not added'}</strong>
+              <strong>
+                {instagram.status === 'resolved'
+                  ? `@${instagram.username}`
+                  : profile.instagram.trim() || 'Not added'}
+              </strong>
               <small>{instagram.status === 'resolved' ? '✓ Saved' : 'Add this on Your Business or edit it here.'}</small>
             </div>
-            <button type="button" onClick={() => setEditingInstagram((current) => !current)}>
+            <button type="button" onClick={() => setEditingInstagram(current => !current)}>
               {editingInstagram ? 'Done' : 'Edit'}
             </button>
           </div>
-          {editingInstagram ? (
-            <TextField
-              data-instagram-input
-              error={errors.instagram || instagramError}
-              hint="Enter a username or paste an Instagram profile link."
-              label="Instagram handle"
-              value={profile.instagram}
-              onBlur={() => {
-                if (instagram.status === 'resolved' && instagram.username !== profile.instagram) {
-                  onProfileChange({ instagram: instagram.username });
-                }
-              }}
-              onChange={(event) => {
-                setErrors((current) => ({ ...current, instagram: '', preferredContact: '' }));
-                onProfileChange({ instagram: event.target.value });
-              }}
-            />
-          ) : null}
+          {editingInstagram
+            ? (
+                <TextField
+                  data-instagram-input
+                  error={errors.instagram || instagramError}
+                  hint="Enter a username or paste an Instagram profile link."
+                  label="Instagram handle"
+                  value={profile.instagram}
+                  onBlur={() => {
+                    if (instagram.status === 'resolved' && instagram.username !== profile.instagram) {
+                      onProfileChange({ instagram: instagram.username });
+                    }
+                  }}
+                  onChange={(event) => {
+                    setErrors(current => ({ ...current, instagram: '', preferredContact: '' }));
+                    onProfileChange({ instagram: event.target.value });
+                  }}
+                />
+              )
+            : null}
 
-          {!profile.bookingOnlyContact && availableContactOptions.length > 1 ? (
-            <ChoiceGroup
-              error={errors.preferredContact}
-              legend="Which contact method should appear first?"
-              name="public-contact-method"
-              options={availableContactOptions}
-              value={profile.preferredContact}
-              onChange={(preferredContact) => {
-                setErrors((current) => ({ ...current, preferredContact: '' }));
-                onProfileChange({ preferredContact });
-              }}
-            />
-          ) : null}
+          {!profile.bookingOnlyContact && availableContactOptions.length > 1
+            ? (
+                <ChoiceGroup
+                  error={errors.preferredContact}
+                  legend="Which contact method should appear first?"
+                  name="public-contact-method"
+                  options={availableContactOptions}
+                  value={profile.preferredContact}
+                  onChange={(preferredContact) => {
+                    setErrors(current => ({ ...current, preferredContact: '' }));
+                    onProfileChange({ preferredContact });
+                  }}
+                />
+              )
+            : null}
           {errors.contact ? <p className="onboarding-field__error">{errors.contact}</p> : null}
         </CollapsibleFormCard>
 
@@ -545,7 +579,7 @@ export function LocationContactScreen({
             ? 'Arrival instructions added'
             : 'Parking, entrance or transit instructions'}
           title="Arrival details"
-          onToggle={() => setOpenCard((current) => current === 'arrival' ? null : 'arrival')}
+          onToggle={() => setOpenCard(current => current === 'arrival' ? null : 'arrival')}
         >
           <p className="onboarding-location-contact-v2__intro">
             Parking, entrance or transit instructions for clients.
@@ -553,23 +587,25 @@ export function LocationContactScreen({
           <TextField
             label="Parking"
             value={profile.location.parking}
-            onChange={(event) => updateLocation({ parking: event.target.value })}
+            onChange={event => updateLocation({ parking: event.target.value })}
           />
           <TextAreaField
             label="Entrance instructions"
             value={profile.location.entranceInstructions}
-            onChange={(event) => updateLocation({ entranceInstructions: event.target.value })}
+            onChange={event => updateLocation({ entranceInstructions: event.target.value })}
           />
           <TextField
             label="Transit information"
             value={profile.location.transitInformation}
-            onChange={(event) => updateLocation({ transitInformation: event.target.value })}
+            onChange={event => updateLocation({ transitInformation: event.target.value })}
           />
-          {profile.location.addressVisibility !== 'public' && !mobileBusiness ? (
-            <p className="onboarding-private-arrival-note">
-              These details follow your address privacy choice and stay hidden while clients browse.
-            </p>
-          ) : null}
+          {profile.location.addressVisibility !== 'public' && !mobileBusiness
+            ? (
+                <p className="onboarding-private-arrival-note">
+                  These details follow your address privacy choice and stay hidden while clients browse.
+                </p>
+              )
+            : null}
         </CollapsibleFormCard>
       </form>
 

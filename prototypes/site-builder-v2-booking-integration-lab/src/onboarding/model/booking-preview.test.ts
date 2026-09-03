@@ -1,10 +1,10 @@
 import { CANONICAL_SERVICES, MOCK_ADD_ONS } from '../../booking/data';
-import { createDefaultBusinessProfile } from './defaults';
 import {
   CANONICAL_ONBOARDING_BOOKING_FIXTURE,
   createOnboardingBookingFixture,
   getOnboardingPreviewLocation,
 } from './booking-preview';
+import { createDefaultBusinessProfile } from './defaults';
 
 describe('onboarding Booking preview adapter', () => {
   it('personalizes salon metadata and filters the canonical Booking data by selected IDs', () => {
@@ -20,7 +20,7 @@ describe('onboarding Booking preview adapter', () => {
     });
     expect(fixture.services.map(({ id }) => id))
       .toEqual(profile.serviceMenu.selectedServiceIds);
-    expect(fixture.services.every((service) => CANONICAL_SERVICES.includes(service))).toBe(true);
+    expect(fixture.services.every(service => CANONICAL_SERVICES.includes(service))).toBe(true);
     expect(fixture.addOns.map(({ id }) => id)).toEqual([
       'addon-french',
       'addon-chrome',
@@ -37,7 +37,9 @@ describe('onboarding Booking preview adapter', () => {
     profile.location.exactAddress = '123 Example Avenue';
 
     expect(getOnboardingPreviewLocation(profile)).toBe('Scarborough, Ontario');
+
     profile.location.addressVisibility = 'public';
+
     expect(getOnboardingPreviewLocation(profile)).toBe('123 Example Avenue');
   });
 
@@ -52,9 +54,11 @@ describe('onboarding Booking preview adapter', () => {
     const source = createOnboardingBookingFixture(profile);
 
     expect(source.salon.name).toBe(expected);
+
     if (businessName !== 'Isla Nail Studio') {
       expect(source.salon.name).not.toBe('Isla Nail Studio');
     }
+
     expect(source.services.map(({ id }) => id))
       .toEqual(profile.serviceMenu.selectedServiceIds);
   });

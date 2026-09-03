@@ -83,7 +83,9 @@ const navigationOf = (document: SiteBuilderDocument): LibrarySectionInstance => 
   const section = document.pages
     .flatMap(page => page.sections)
     .find(candidate => candidate.id === 'nav-under-test');
-  if (!section || !isLibrarySection(section)) throw new Error('menu missing');
+  if (!section || !isLibrarySection(section)) {
+    throw new Error('menu missing');
+  }
   return section;
 };
 

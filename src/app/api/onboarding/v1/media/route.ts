@@ -10,6 +10,8 @@ import {
 import { promoteCurrentDraftCanonicalIdentityMedia } from '@/features/onboarding-v1-integration/canonical-profile-media-lifecycle.server';
 import { isOnboardingV1IntegrationEnabled } from '@/features/onboarding-v1-integration/config.server';
 import { authorizeOnboardingSite } from '@/features/onboarding-v1-integration/media-authorization.server';
+import { ONBOARDING_MEDIA_MAX_FILE_BYTES, ONBOARDING_MEDIA_MAX_REQUEST_BYTES } from '@/features/onboarding-v1-integration/media-limits';
+import { OnboardingMediaRequestTooLarge, readOnboardingMediaForm } from '@/features/onboarding-v1-integration/media-request.server';
 import {
   deleteOnboardingMediaFile,
   OnboardingMediaStorageError,
@@ -23,8 +25,6 @@ import {
 } from '@/models/Schema';
 
 export const dynamic = 'force-dynamic';
-
-const MAX_MEDIA_REQUEST_BYTES = (12 * 1024 * 1024) + (512 * 1024);
 
 const uploadFieldsSchema = z.object({
   altText: z.string().trim().max(300).nullable(),
@@ -50,7 +50,9 @@ const mediaResponse = (media: typeof onboardingSiteMediaSchema.$inferSelect) => 
       height: media.height,
       id: media.id,
       role: media.role,
-      url: media.publicUrl,
+      // Carried-forward rows may retain the prior revision's stored URL. The
+      // current row owns access; never return a provider URL or a stale row ID.
+      url: `/api/onboarding/v1/media/${encodeURIComponent(media.id)}`,
       width: media.width,
     },
   },
@@ -81,12 +83,22 @@ export async function POST(request: Request): Promise<Response> {
     }, { status: 401 });
   }
   const declaredLength = Number(request.headers.get('content-length'));
-  if (Number.isFinite(declaredLength) && declaredLength > MAX_MEDIA_REQUEST_BYTES) {
+  if (Number.isFinite(declaredLength) && declaredLength > ONBOARDING_MEDIA_MAX_REQUEST_BYTES) {
     return Response.json({
-      error: { code: 'MEDIA_TOO_LARGE', message: 'Choose an image smaller than 12 MB.' },
+      error: { code: 'MEDIA_TOO_LARGE', message: 'This photo needs to be prepared again before uploading.' },
     }, { status: 413 });
   }
-  const form = await request.formData().catch(() => null);
+  let form: FormData | null;
+  try {
+    form = await readOnboardingMediaForm(request);
+  } catch (error) {
+    if (error instanceof OnboardingMediaRequestTooLarge) {
+      return Response.json({
+        error: { code: 'MEDIA_TOO_LARGE', message: 'This photo needs to be prepared again before uploading.' },
+      }, { status: 413 });
+    }
+    form = null;
+  }
   if (!form) {
     return Response.json({
       error: { code: 'INVALID_MEDIA', message: 'Choose the image again.' },
@@ -97,6 +109,11 @@ export async function POST(request: Request): Promise<Response> {
     return Response.json({
       error: { code: 'INVALID_MEDIA', message: 'Choose the image again.' },
     }, { status: 400 });
+  }
+  if (file.size > ONBOARDING_MEDIA_MAX_FILE_BYTES) {
+    return Response.json({
+      error: { code: 'MEDIA_TOO_LARGE', message: 'This photo needs to be prepared again before uploading.' },
+    }, { status: 413 });
   }
   const parsed = uploadFieldsSchema.safeParse({
     altText: textField(form, 'altText').trim() || null,
@@ -153,8 +170,17 @@ export async function POST(request: Request): Promise<Response> {
   ) {
     let storedFileReadable = true;
     try {
-      await readOnboardingMediaFile(manifestItem.storageKey);
-    } catch {
+      await readOnboardingMediaFile(manifestItem.storageKey, authorized);
+    } catch (error) {
+      const missing = (error instanceof OnboardingMediaStorageError && error.code === 'IMAGE_NOT_FOUND')
+        || (typeof error === 'object' && error !== null && 'code' in error && error.code === 'ENOENT');
+      if (!missing) {
+        // An outage is not evidence of deletion. Keep the durable ready row,
+        // its immutable key and canonical projection intact for a later retry.
+        return Response.json({
+          error: { code: 'IMAGE_STORAGE_UNAVAILABLE', message: 'Your saved image is temporarily unavailable. Try again shortly.' },
+        }, { status: 503 });
+      }
       storedFileReadable = false;
       await db
         .update(onboardingSiteMediaSchema)
@@ -282,7 +308,7 @@ export async function POST(request: Request): Promise<Response> {
         mimeType: stored.mimeType,
         publicUrl,
         storageKey: stored.storageKey,
-        storageProvider: 'development_local',
+        storageProvider: stored.storageProvider,
         uploadLeaseId: null,
         width: stored.width,
       })
@@ -293,7 +319,7 @@ export async function POST(request: Request): Promise<Response> {
       ))
       .returning();
     if (!ready) {
-      await deleteOnboardingMediaFile(stored.storageKey);
+      await deleteOnboardingMediaFile(stored.storageKey, authorized);
       return Response.json({
         error: { code: 'MEDIA_SAVE_CONFLICT', message: 'This image changed while it was saving. Try again.' },
       }, { status: 409 });
@@ -339,7 +365,7 @@ export async function POST(request: Request): Promise<Response> {
     }
   } catch (error) {
     if (storageKey) {
-      await deleteOnboardingMediaFile(storageKey).catch(() => undefined);
+      await deleteOnboardingMediaFile(storageKey, authorized).catch(() => undefined);
     }
     const code = error instanceof OnboardingMediaStorageError
       ? error.code

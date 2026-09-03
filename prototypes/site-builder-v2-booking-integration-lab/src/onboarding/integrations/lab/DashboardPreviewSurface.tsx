@@ -1,3 +1,5 @@
+import './dashboard-preview.css';
+
 import {
   CalendarDays,
   Check,
@@ -37,7 +39,6 @@ import {
   LAB_DASHBOARD_TOUR_PORT,
   LAB_SETUP_CHECKLIST_PORT,
 } from './createLabDashboardPorts';
-import './dashboard-preview.css';
 
 type DashboardPreviewSurfaceProps = {
   auditMode?: boolean;
@@ -118,17 +119,31 @@ const STORYBOARD_COPY: Record<DashboardDestination, {
 };
 
 const planLabel = (intent: PlanIntent | null): string => {
-  if (intent === 'free') return 'Free selected';
-  if (intent === 'monthly') return 'Monthly interest saved — we’ll let you know when details are ready';
-  if (intent === 'founding') return 'Founding offer reserved — we’ll let you know when details are ready';
+  if (intent === 'free') {
+    return 'Free selected';
+  }
+  if (intent === 'monthly') {
+    return 'Monthly interest saved — we’ll let you know when details are ready';
+  }
+  if (intent === 'founding') {
+    return 'Founding offer reserved — we’ll let you know when details are ready';
+  }
   return 'Setup complete';
 };
 
 const checklistStatusLabel = (item: DashboardChecklistItem): string => {
-  if (item.status === 'complete') return 'Ready';
-  if (item.status === 'connected') return 'Connected';
-  if (item.status === 'needs_attention') return 'Needs attention';
-  if (item.id === 'share_booking_link') return 'Not shared yet';
+  if (item.status === 'complete') {
+    return 'Ready';
+  }
+  if (item.status === 'connected') {
+    return 'Connected';
+  }
+  if (item.status === 'needs_attention') {
+    return 'Needs attention';
+  }
+  if (item.id === 'share_booking_link') {
+    return 'Not shared yet';
+  }
   return 'Not connected';
 };
 
@@ -148,7 +163,9 @@ function DashboardTour({
   const step = steps[index] as DashboardTourStep;
 
   useEffect(() => {
-    if (!open) return;
+    if (!open) {
+      return;
+    }
     setIndex(0);
     onDestinationChange(steps[0]?.destination ?? 'today');
   }, [onDestinationChange, open, steps]);
@@ -157,7 +174,9 @@ function DashboardTour({
     const bounded = Math.max(0, Math.min(steps.length - 1, nextIndex));
     setIndex(bounded);
     const nextStep = steps[bounded];
-    if (nextStep) onDestinationChange(nextStep.destination);
+    if (nextStep) {
+      onDestinationChange(nextStep.destination);
+    }
   };
 
   return (
@@ -170,7 +189,13 @@ function DashboardTour({
     >
       <div className="lab-dashboard-tour">
         <div className="lab-dashboard-tour__progress">
-          <span aria-label={`Tour step ${index + 1} of ${steps.length}`}>{index + 1} of {steps.length}</span>
+          <span aria-label={`Tour step ${index + 1} of ${steps.length}`}>
+            {index + 1}
+            {' '}
+            of
+            {' '}
+            {steps.length}
+          </span>
           <span>{DESTINATION_LABELS[step.destination]}</span>
         </div>
         <section aria-live="polite" className="lab-dashboard-tour__moment">
@@ -183,18 +208,26 @@ function DashboardTour({
         <footer className="lab-dashboard-tour__actions">
           <button type="button" onClick={onClose}>Skip tour</button>
           <span />
-          {index > 0 ? (
-            <button type="button" onClick={() => selectIndex(index - 1)}>
-              <ChevronLeft aria-hidden="true" size={16} /> Back
-            </button>
-          ) : null}
-          {index < steps.length - 1 ? (
-            <button className="is-primary" type="button" onClick={() => selectIndex(index + 1)}>
-              Next <ChevronRight aria-hidden="true" size={16} />
-            </button>
-          ) : (
-            <button className="is-primary" type="button" onClick={onComplete}>Done</button>
-          )}
+          {index > 0
+            ? (
+                <button type="button" onClick={() => selectIndex(index - 1)}>
+                  <ChevronLeft aria-hidden="true" size={16} />
+                  {' '}
+                  Back
+                </button>
+              )
+            : null}
+          {index < steps.length - 1
+            ? (
+                <button className="is-primary" type="button" onClick={() => selectIndex(index + 1)}>
+                  Next
+                  {' '}
+                  <ChevronRight aria-hidden="true" size={16} />
+                </button>
+              )
+            : (
+                <button className="is-primary" type="button" onClick={onComplete}>Done</button>
+              )}
         </footer>
       </div>
     </Dialog>
@@ -237,8 +270,8 @@ export function DashboardPreviewSurface({
     selectedServiceIds: [...selectedServiceIds],
   }), [selectedServiceIds]);
   const storyboard = STORYBOARD_COPY[destination];
-  const doneItems = checklist.filter((item) => item.status === 'complete' || item.status === 'connected');
-  const nextItems = checklist.filter((item) => item.status !== 'complete' && item.status !== 'connected');
+  const doneItems = checklist.filter(item => item.status === 'complete' || item.status === 'connected');
+  const nextItems = checklist.filter(item => item.status !== 'complete' && item.status !== 'connected');
 
   useEffect(() => {
     feedback.configure({ reducedMotion });
@@ -253,7 +286,9 @@ export function DashboardPreviewSurface({
   }, [feedback]);
 
   useEffect(() => {
-    if (tourOpen || hasFocusedDashboardRef.current) return undefined;
+    if (tourOpen || hasFocusedDashboardRef.current) {
+      return undefined;
+    }
     const focusFrame = window.requestAnimationFrame(() => {
       headingRef.current?.focus({ preventScroll: true });
       hasFocusedDashboardRef.current = true;
@@ -262,7 +297,9 @@ export function DashboardPreviewSurface({
   }, [tourOpen]);
 
   useEffect(() => {
-    if (tourOpen || !focusTodayAfterTourRef.current) return undefined;
+    if (tourOpen || !focusTodayAfterTourRef.current) {
+      return undefined;
+    }
     const focusFrame = window.requestAnimationFrame(() => {
       storyboardHeadingRef.current?.focus({ preventScroll: true });
       focusTodayAfterTourRef.current = false;
@@ -285,7 +322,9 @@ export function DashboardPreviewSurface({
         behavior: reducedMotion ? 'auto' : 'smooth',
         block: 'start',
       });
-      if (moveFocus) storyboardHeadingRef.current?.focus({ preventScroll: true });
+      if (moveFocus) {
+        storyboardHeadingRef.current?.focus({ preventScroll: true });
+      }
     });
   }, [reducedMotion]);
 
@@ -317,48 +356,69 @@ export function DashboardPreviewSurface({
   return (
     <main className={`lab-dashboard-preview${reducedMotion ? ' is-reduced-motion' : ''}${tourOpen ? ' is-tour-open' : ''}`}>
       <header className="lab-dashboard-preview__topbar">
-        <div><span>L</span><strong>Luster</strong></div>
+        <div>
+          <span>L</span>
+          <strong>Luster</strong>
+        </div>
         <p>Changes stay on this device</p>
         <button type="button" onClick={openTour}>
-          <HelpCircle aria-hidden="true" size={17} /> {tourCompleted ? 'Replay tour' : 'Take a quick tour'}
+          <HelpCircle aria-hidden="true" size={17} />
+          {' '}
+          {tourCompleted ? 'Replay tour' : 'Take a quick tour'}
         </button>
       </header>
 
-      {welcomeVisible ? (
-        <section className="lab-dashboard-preview__welcome">
-          <Sparkles aria-hidden="true" className="lab-dashboard-preview__welcome-icon" size={30} />
-          <span aria-hidden="true" className="lab-dashboard-preview__welcome-glow" />
-          <p>{planLabel(planIntent)}</p>
-          <h1 ref={headingRef} tabIndex={-1}>Your Luster site is ready</h1>
-          <p>{ownerName}, your website, booking page and service menu are set up. This is where you’ll manage appointments, clients, services and your site.</p>
-          <div className="lab-dashboard-preview__handoff-actions">
-            <button className="is-primary" type="button" onClick={onEditWebsite}>Edit my website</button>
-            <button type="button" onClick={openTour}>Take a quick tour</button>
-            <button type="button" onClick={() => {
-              setWelcomeVisible(false);
-              selectDestination('today', true);
-            }}>Explore dashboard</button>
-            {auditMode ? (
-              <button type="button" onClick={onReturnToReview}>Return to onboarding review · Lab only</button>
-            ) : null}
-          </div>
-        </section>
-      ) : (
-        <h1 className="visually-hidden" ref={headingRef} tabIndex={-1}>Luster dashboard</h1>
-      )}
+      {welcomeVisible
+        ? (
+            <section className="lab-dashboard-preview__welcome">
+              <Sparkles aria-hidden="true" className="lab-dashboard-preview__welcome-icon" size={30} />
+              <span aria-hidden="true" className="lab-dashboard-preview__welcome-glow" />
+              <p>{planLabel(planIntent)}</p>
+              <h1 ref={headingRef} tabIndex={-1}>Your Luster site is ready</h1>
+              <p>
+                {ownerName}
+                , your website, booking page and service menu are set up. This is where you’ll manage appointments, clients, services and your site.
+              </p>
+              <div className="lab-dashboard-preview__handoff-actions">
+                <button className="is-primary" type="button" onClick={onEditWebsite}>Edit my website</button>
+                <button type="button" onClick={openTour}>Take a quick tour</button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setWelcomeVisible(false);
+                    selectDestination('today', true);
+                  }}
+                >
+                  Explore dashboard
+                </button>
+                {auditMode
+                  ? (
+                      <button type="button" onClick={onReturnToReview}>Return to onboarding review · Lab only</button>
+                    )
+                  : null}
+              </div>
+            </section>
+          )
+        : (
+            <h1 className="visually-hidden" ref={headingRef} tabIndex={-1}>Luster dashboard</h1>
+          )}
 
       <nav aria-label="Dashboard destinations" className="lab-dashboard-preview__nav">
         {DESTINATION_ORDER.map((id) => {
           const Icon = DESTINATION_ICONS[id];
           return (
             <button
-              ref={(element) => { navButtonRefs.current[id] = element; }}
+              ref={(element) => {
+                navButtonRefs.current[id] = element;
+              }}
               aria-current={destination === id ? 'page' : undefined}
               key={id}
               type="button"
               onClick={() => selectDestination(id)}
             >
-              <Icon aria-hidden="true" size={18} /> {DESTINATION_LABELS[id]}
+              <Icon aria-hidden="true" size={18} />
+              {' '}
+              {DESTINATION_LABELS[id]}
             </button>
           );
         })}
@@ -377,66 +437,92 @@ export function DashboardPreviewSurface({
           </h2>
           <p>{storyboard.description}</p>
           <div className={`lab-dashboard-storyboard__visual is-${destination}`} aria-label={`${DESTINATION_LABELS[destination]} preview`}>
-            {destination === 'services' ? (
-              <article className="lab-dashboard-storyboard__service-summary">
-                <span aria-hidden="true">{selectedServices.length}</span>
-                <strong>{selectedServices.length} selected {selectedServices.length === 1 ? 'service' : 'services'}</strong>
-                <small>Ready to edit from Services</small>
-              </article>
-            ) : null}
-            {destination === 'services' ? selectedServices.slice(0, 4).map((service) => (
-              <article key={service.id}>
-                <span aria-hidden="true"><Check size={16} strokeWidth={2.5} /></span>
-                <strong>{service.name}</strong>
-                <small>{service.durationLabel} · {service.priceLabel}</small>
-              </article>
-            )) : storyboard.items.map((item, index) => (
-              <article key={item}>
-                <span aria-hidden="true">{index + 1}</span>
-                <strong>{item}</strong>
-              </article>
-            ))}
+            {destination === 'services'
+              ? (
+                  <article className="lab-dashboard-storyboard__service-summary">
+                    <span aria-hidden="true">{selectedServices.length}</span>
+                    <strong>
+                      {selectedServices.length}
+                      {' '}
+                      selected
+                      {' '}
+                      {selectedServices.length === 1 ? 'service' : 'services'}
+                    </strong>
+                    <small>Ready to edit from Services</small>
+                  </article>
+                )
+              : null}
+            {destination === 'services'
+              ? selectedServices.slice(0, 4).map(service => (
+                <article key={service.id}>
+                  <span aria-hidden="true"><Check size={16} strokeWidth={2.5} /></span>
+                  <strong>{service.name}</strong>
+                  <small>
+                    {service.durationLabel}
+                    {' '}
+                    ·
+                    {' '}
+                    {service.priceLabel}
+                  </small>
+                </article>
+              ))
+              : storyboard.items.map((item, index) => (
+                <article key={item}>
+                  <span aria-hidden="true">{index + 1}</span>
+                  <strong>{item}</strong>
+                </article>
+              ))}
           </div>
-          {destination === 'website' ? (
-            <button className="lab-dashboard-storyboard__edit" type="button" onClick={onEditWebsite}>
-              Edit my website <ExternalLink aria-hidden="true" size={16} />
-            </button>
-          ) : null}
+          {destination === 'website'
+            ? (
+                <button className="lab-dashboard-storyboard__edit" type="button" onClick={onEditWebsite}>
+                  Edit my website
+                  {' '}
+                  <ExternalLink aria-hidden="true" size={16} />
+                </button>
+              )
+            : null}
         </section>
 
         <aside aria-labelledby="setup-checklist-heading" className="lab-dashboard-checklist">
           <p>Keep going at your own pace</p>
           <h2 id="setup-checklist-heading">What’s next</h2>
-          {doneItems.length > 0 ? (
-            <section aria-labelledby="checklist-done-heading">
-              <h3 id="checklist-done-heading">Done</h3>
-              <ul>
-                {doneItems.map((item) => (
-                  <li className="is-complete" key={item.id}>
-                    <Check aria-hidden="true" size={17} />
-                    <button aria-label={`${item.label}, ${checklistStatusLabel(item)}`} type="button" onClick={() => selectDestination(item.destination, true)}>
-                      <strong>{item.label}</strong><span>{checklistStatusLabel(item)}</span>
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            </section>
-          ) : null}
-          {nextItems.length > 0 ? (
-            <section aria-labelledby="checklist-next-heading">
-              <h3 id="checklist-next-heading">Whenever you’re ready</h3>
-              <ul>
-                {nextItems.map((item) => (
-                  <li key={item.id}>
-                    <Circle aria-hidden="true" size={17} />
-                    <button aria-label={`${item.label}, ${checklistStatusLabel(item)}`} type="button" onClick={() => selectDestination(item.destination, true)}>
-                      <strong>{item.label}</strong><span>{checklistStatusLabel(item)}</span>
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            </section>
-          ) : null}
+          {doneItems.length > 0
+            ? (
+                <section aria-labelledby="checklist-done-heading">
+                  <h3 id="checklist-done-heading">Done</h3>
+                  <ul>
+                    {doneItems.map(item => (
+                      <li className="is-complete" key={item.id}>
+                        <Check aria-hidden="true" size={17} />
+                        <button aria-label={`${item.label}, ${checklistStatusLabel(item)}`} type="button" onClick={() => selectDestination(item.destination, true)}>
+                          <strong>{item.label}</strong>
+                          <span>{checklistStatusLabel(item)}</span>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              )
+            : null}
+          {nextItems.length > 0
+            ? (
+                <section aria-labelledby="checklist-next-heading">
+                  <h3 id="checklist-next-heading">Whenever you’re ready</h3>
+                  <ul>
+                    {nextItems.map(item => (
+                      <li key={item.id}>
+                        <Circle aria-hidden="true" size={17} />
+                        <button aria-label={`${item.label}, ${checklistStatusLabel(item)}`} type="button" onClick={() => selectDestination(item.destination, true)}>
+                          <strong>{item.label}</strong>
+                          <span>{checklistStatusLabel(item)}</span>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              )
+            : null}
           {auditMode ? <small>Integration rows use explicit UX Lab fixture states; no provider account was changed.</small> : null}
         </aside>
       </div>

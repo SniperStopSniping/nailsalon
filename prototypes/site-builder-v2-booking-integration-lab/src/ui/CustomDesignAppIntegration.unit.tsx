@@ -1,7 +1,8 @@
+import { Blob as NodeBlob } from 'node:buffer';
+
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { IDBFactory } from 'fake-indexeddb';
-import { Blob as NodeBlob } from 'node:buffer';
 import { afterAll, afterEach, beforeEach, vi } from 'vitest';
 
 import {
@@ -19,11 +20,11 @@ import {
   type CustomDesignImageItem,
 } from '../custom-design/model';
 import {
-  SITE_BUILDER_STORAGE_KEY,
+  type CustomDesignSectionInstance,
   exportSiteBuilderBackup,
   initializeStarter,
   removeSection,
-  type CustomDesignSectionInstance,
+  SITE_BUILDER_STORAGE_KEY,
   type SiteBuilderDocument,
 } from '../model';
 import { App } from './App';
@@ -52,9 +53,9 @@ function installViewport(viewport: 'desktop' | 'mobile' = 'desktop'): void {
     matches: query.includes('min-width: 900px')
       ? desktop
       : !desktop && (
-        query.includes('max-width: 899px')
-        || query.includes('max-width: 700px')
-      ),
+          query.includes('max-width: 899px')
+          || query.includes('max-width: 700px')
+        ),
     media: query,
     onchange: null,
     addEventListener: vi.fn(),
@@ -119,10 +120,12 @@ async function addCustomDesign(
   const library = await screen.findByRole('dialog', { name: 'Add section' });
   const search = within(library).getByRole('searchbox', { name: 'Search sections' });
   await user.type(search, 'Canva');
+
   expect(within(library).getByText(
     'Upload a Canva design, flyer, policy page, or branded image.',
   )).toBeVisible();
   expect(within(library).getByText('Best for designs you already made.')).toBeVisible();
+
   await user.click(within(library).getByRole('button', { name: 'Add Custom Design' }));
   // Quick Book's locked Home recipe holds four customer-content sections, so
   // a bottom insert lands at position 5.
@@ -131,7 +134,9 @@ async function addCustomDesign(
 
 function readStoredDocument(): SiteBuilderDocument {
   const stored = window.localStorage.getItem(SITE_BUILDER_STORAGE_KEY);
-  if (!stored) throw new Error('The Lab document was not stored.');
+  if (!stored) {
+    throw new Error('The Lab document was not stored.');
+  }
   return JSON.parse(stored) as SiteBuilderDocument;
 }
 
@@ -140,7 +145,9 @@ function getStoredCustomDesign(document: SiteBuilderDocument): CustomDesignSecti
     (candidate): candidate is CustomDesignSectionInstance =>
       candidate.sectionType === 'custom_design',
   );
-  if (!section) throw new Error('The stored Custom Design section is missing.');
+  if (!section) {
+    throw new Error('The stored Custom Design section is missing.');
+  }
   return section;
 }
 
@@ -193,7 +200,9 @@ function documentWithCustomDesign(
 ): SiteBuilderDocument {
   const document = initializeStarter('quick_book', { siteName: 'Isla Nail Studio' });
   const home = document.pages[0];
-  if (!home) throw new Error('Quick Book did not create Home.');
+  if (!home) {
+    throw new Error('Quick Book did not create Home.');
+  }
   const customDesign: CustomDesignSectionInstance = {
     id: 'section_custom_design_preview',
     label: 'Custom Design',
@@ -269,7 +278,9 @@ async function openStoredCustomDesignSettings(
   await act(async () => {
     await new Promise(resolve => window.setTimeout(resolve, 0));
   });
-  if (card.getAttribute('data-selected') !== 'true') await user.click(select);
+  if (card.getAttribute('data-selected') !== 'true') {
+    await user.click(select);
+  }
   await waitFor(() => expect(card).toHaveAttribute('data-selected', 'true'));
   const toolbar = await screen.findByTestId('selected-section-toolbar');
   await user.click(within(toolbar).getByRole('button', { name: 'Edit' }));
@@ -287,7 +298,9 @@ function renderPreview(
   repository: AssetRepository,
 ) {
   const activePage = document.pages[0];
-  if (!activePage) throw new Error('Preview requires an active page.');
+  if (!activePage) {
+    throw new Error('Preview requires an active page.');
+  }
   return render(
     <CustomDesignAssetProvider
       getReachableAssetIds={() => new Set(
@@ -381,11 +394,16 @@ describe('Custom Design universal App integration', () => {
     await chooseQuickBook(user);
 
     const customDesign = await addCustomDesign(user);
+
     expect(customDesign).toHaveAttribute('data-section-type', 'custom_design');
+
     const settings = await screen.findByRole('dialog', { name: 'Custom Design settings' });
+
     expect(within(settings).getByRole('heading', { name: 'Upload your design' })).toBeVisible();
+
     const drawerHeading = within(settings).getByRole('heading', { name: 'Custom Design' });
     await waitFor(() => expect(drawerHeading).toHaveFocus());
+
     expect(screen.getByRole('button', { name: 'Undo' })).toBeEnabled();
 
     await user.click(within(settings).getByRole('button', {
@@ -397,14 +415,17 @@ describe('Custom Design universal App integration', () => {
         behavior: 'auto',
         block: 'start',
       });
+
       const activeElement = document.activeElement;
+
       expect(
         activeElement === customDesign.querySelector('.section-card__select-surface')
         || activeElement?.getAttribute('data-custom-design-settings-trigger-for')
-          === customDesign.getAttribute('data-section-instance-id'),
+        === customDesign.getAttribute('data-section-instance-id'),
       ).toBe(true);
     });
     await user.click(screen.getByRole('button', { name: 'Preview' }));
+
     expect(await screen.findByRole('region', {
       name: 'Builder customer preview',
     })).toBeVisible();
@@ -413,6 +434,7 @@ describe('Custom Design universal App integration', () => {
 
     await user.click(screen.getByRole('button', { name: 'Back to editor' }));
     await user.click(screen.getByRole('button', { name: 'Undo' }));
+
     expect(screen.queryByRole('listitem', { name: /Custom Design/ })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Undo' })).toBeDisabled();
   });
@@ -429,13 +451,17 @@ describe('Custom Design universal App integration', () => {
     await user.click(within(settings).getByRole('button', { name: 'Close Custom Design' }));
     const actions = await screen.findByRole('group', { name: 'Custom Design actions' });
     await user.click(within(actions).getByRole('button', { name: 'Hide' }));
+
     expect(customDesign).toHaveClass('is-hidden');
     expect(within(customDesign).getByText('Hidden')).toBeVisible();
+
     await user.click(within(actions).getByRole('button', { name: 'Show' }));
+
     expect(customDesign).not.toHaveClass('is-hidden');
 
     await waitFor(() => {
       const section = getStoredCustomDesign(readStoredDocument());
+
       expect(section.settings.displayMode).toBe('contained');
       expect(section.visible).toBe(true);
       expect(section).not.toHaveProperty('hidden');
@@ -447,17 +473,22 @@ describe('Custom Design universal App integration', () => {
     const user = userEvent.setup();
     const view = render(<App />);
     await chooseQuickBook(user);
-    const customDesign = await addCustomDesign(user);
+    await addCustomDesign(user);
     const settings = await screen.findByRole('dialog', { name: 'Custom Design settings' });
     const picker = settings.querySelector<HTMLInputElement>('input[type="file"]');
-    if (!picker) throw new Error('Custom Design image picker was not rendered.');
+    if (!picker) {
+      throw new Error('Custom Design image picker was not rendered.');
+    }
     const bytes = 'NOT_PORTABLE_IMAGE_BYTES';
     const file = new File([bytes], 'original-poster.png', { type: 'image/png' });
 
     await user.upload(picker, file);
+
     expect(await within(settings).findByText('1 image was added.')).toBeVisible();
+
     await waitFor(() => {
       const updated = screen.getByRole('listitem', { name: 'Section 5: Custom Design' });
+
       expect(updated.querySelector<HTMLImageElement>('img')?.src)
         .toMatch(/^blob:https:\/\/luster\.test\/custom-/u);
     });
@@ -465,10 +496,12 @@ describe('Custom Design universal App integration', () => {
     let storedJson = '';
     await waitFor(() => {
       storedJson = window.localStorage.getItem(SITE_BUILDER_STORAGE_KEY) ?? '';
+
       expect(getStoredCustomDesign(readStoredDocument()).settings.images).toHaveLength(1);
     });
     const storedDocument = readStoredDocument();
     const storedSection = getStoredCustomDesign(storedDocument);
+
     expect(storedSection.settings.images[0]).toMatchObject({
       fileName: 'original-poster.png',
       height: 2_000,
@@ -486,6 +519,7 @@ describe('Custom Design universal App integration', () => {
         warning: string;
       };
     };
+
     expect(backup.customDesignAssets).toMatchObject({
       assetsIncluded: false,
       warning: expect.stringContaining('aren’t included'),
@@ -502,12 +536,15 @@ describe('Custom Design universal App integration', () => {
       await new Promise(resolve => window.setTimeout(resolve, 0));
     });
     render(<App />);
+
     expect(await screen.findByTestId('final-hybrid-editor')).toBeVisible();
+
     const reloaded = await screen.findByRole('listitem', { name: 'Section 5: Custom Design' });
     await waitFor(() => {
       expect(reloaded.querySelector<HTMLImageElement>('img')?.src)
         .toMatch(/^blob:https:\/\/luster\.test\/custom-/u);
     });
+
     expect(within(reloaded).queryByText(/isn’t available in this browser/)).not.toBeInTheDocument();
   });
 
@@ -533,24 +570,32 @@ describe('Custom Design universal App integration', () => {
       name: 'Close Custom Design settings',
     }));
     warning = await screen.findByRole('dialog', { name: 'Save this page order?' });
+
     expect(within(warning).getByText('UNSAVED IMAGE ORDER')).toBeVisible();
+
     await user.click(within(warning).getByRole('button', { name: 'Keep editing' }));
     settings = screen.getByRole('dialog', { name: 'Custom Design settings' });
+
     expect(settings.querySelectorAll('[data-image-item-id]')[0])
       .toHaveAttribute('data-image-item-id', imageIds[1]);
 
     await user.click(screen.getByRole('button', { name: 'Preview' }));
     warning = await screen.findByRole('dialog', { name: 'Save this page order?' });
+
     expect(screen.queryByRole('button', { name: 'Back to editor' })).not.toBeInTheDocument();
+
     await user.click(within(warning).getByRole('button', { name: 'Keep editing' }));
     settings = screen.getByRole('dialog', { name: 'Custom Design settings' });
+
     expect(settings.querySelectorAll('[data-image-item-id]')[0])
       .toHaveAttribute('data-image-item-id', imageIds[1]);
 
     await user.click(screen.getByRole('button', { name: 'Undo' }));
     warning = await screen.findByRole('dialog', { name: 'Save this page order?' });
+
     expect(getStoredCustomDesign(readStoredDocument()).settings.images.map(image => image.id))
       .toEqual(imageIds);
+
     await user.click(within(warning).getByRole('button', { name: 'Keep editing' }));
     settings = screen.getByRole('dialog', { name: 'Custom Design settings' });
 
@@ -559,6 +604,7 @@ describe('Custom Design universal App integration', () => {
     }));
     warning = await screen.findByRole('dialog', { name: 'Save this page order?' });
     await user.click(within(warning).getByRole('button', { name: 'Discard changes' }));
+
     expect(screen.queryByRole('dialog', { name: 'Custom Design settings' }))
       .not.toBeInTheDocument();
     expect(getStoredCustomDesign(readStoredDocument()).settings.images.map(image => image.id))
@@ -602,7 +648,9 @@ describe('Custom Design universal App integration', () => {
     await user.click(within(warning).getByRole('button', { name: 'Keep editing' }));
     settings = screen.getByRole('dialog', { name: /^Custom Design$/ });
     const settingsBackdrop = settings.parentElement;
-    if (!settingsBackdrop) throw new Error('The mobile settings backdrop is unavailable.');
+    if (!settingsBackdrop) {
+      throw new Error('The mobile settings backdrop is unavailable.');
+    }
     fireEvent.mouseDown(settingsBackdrop);
     warning = await screen.findByRole('dialog', { name: 'Save this page order?' });
     await user.click(within(warning).getByRole('button', { name: 'Keep editing' }));
@@ -626,10 +674,12 @@ describe('Custom Design universal App integration', () => {
     await user.click(within(settings).getByRole('button', { name: 'Move page 1 down' }));
     await user.click(within(settings).getByRole('button', { name: 'Move page 2 up' }));
     await user.click(within(settings).getByRole('button', { name: 'Close Custom Design' }));
+
     expect(screen.queryByRole('dialog', { name: 'Save this page order?' }))
       .not.toBeInTheDocument();
     expect(screen.queryByRole('dialog', { name: /^Custom Design$/ }))
       .not.toBeInTheDocument();
+
     await waitFor(() => {
       expect(screen.getByLabelText('Save status')).toHaveTextContent('Saved');
     });
@@ -642,8 +692,10 @@ describe('Custom Design universal App integration', () => {
     let settings = await openStoredCustomDesignSettings(user);
     await settleBuilderAssetEffects();
     await user.click(within(settings).getByRole('button', { name: 'Move page 1 down' }));
+
     expect(getStoredCustomDesign(readStoredDocument()).settings.images.map(image => image.id))
       .toEqual(imageIds);
+
     await waitFor(() => {
       expect(screen.getByLabelText('Save status')).toHaveTextContent('Saved');
     });
@@ -652,8 +704,10 @@ describe('Custom Design universal App integration', () => {
     const reloadedBeforeSave = render(<App />);
     settings = await openStoredCustomDesignSettings(user);
     await settleBuilderAssetEffects();
+
     expect(settings.querySelectorAll('[data-image-item-id]')[0])
       .toHaveAttribute('data-image-item-id', imageIds[0]);
+
     await user.click(within(settings).getByRole('button', { name: 'Move page 1 down' }));
     await user.click(within(settings).getByRole('button', {
       name: 'Close Custom Design settings',
@@ -670,6 +724,7 @@ describe('Custom Design universal App integration', () => {
     render(<App />);
     settings = await openStoredCustomDesignSettings(user);
     await settleBuilderAssetEffects();
+
     expect(settings.querySelectorAll('[data-image-item-id]')[0])
       .toHaveAttribute('data-image-item-id', imageIds[1]);
   });
@@ -687,28 +742,35 @@ describe('Custom Design universal App integration', () => {
     await screen.findByTestId('final-hybrid-editor');
     await user.click(screen.getByRole('button', { name: 'Add section at bottom of Home' }));
     const library = await screen.findByRole('dialog', { name: 'Add section' });
+
     expect(within(library).getByRole('button', { name: 'Restore removed Custom Design' }))
       .toBeVisible();
     expect(within(library).getByRole('button', { name: 'Add another Custom Design' }))
       .toBeVisible();
+
     await user.click(within(library).getByRole('button', {
       name: 'Restore removed Custom Design',
     }));
 
     const restored = await screen.findByRole('listitem', { name: /Custom Design/ });
+
     expect(restored).toHaveAttribute('data-section-instance-id', sectionId);
+
     await waitFor(() => {
       const stored = getStoredCustomDesign(readStoredDocument());
+
       expect({ ...stored, order: original.order }).toEqual(original);
       expect(readStoredDocument().unusedSections).toHaveLength(0);
     });
   });
 
   it('lists multiple removed Custom Designs and restores the chosen stable ID with Undo/Redo', async () => {
-    const { document: firstDocument, sectionId: firstSectionId } =
-      storedDocumentWithTwoCustomDesignPages();
+    const { document: firstDocument, sectionId: firstSectionId }
+      = storedDocumentWithTwoCustomDesignPages();
     const home = firstDocument.pages[0];
-    if (!home) throw new Error('The Home fixture is unavailable.');
+    if (!home) {
+      throw new Error('The Home fixture is unavailable.');
+    }
     const secondImage = {
       ...makeImage('custom_design_asset_removed_second'),
       id: 'custom_design_image_removed_second',
@@ -762,17 +824,21 @@ describe('Custom Design universal App integration', () => {
     await screen.findByTestId('final-hybrid-editor');
     await user.click(screen.getByRole('button', { name: 'Add section at bottom of Home' }));
     const library = await screen.findByRole('dialog', { name: 'Add section' });
+
     expect(within(library).getAllByRole('button', {
       name: /Restore removed Custom Design \d of 2/,
     })).toHaveLength(2);
+
     await user.click(within(library).getByRole('button', {
       name: 'Restore removed Custom Design 2 of 2, 1 image',
     }));
     await waitFor(() => {
       const stored = readStoredDocument();
+
       expect(getStoredCustomDesign(stored).id).toBe(secondSection.id);
       expect(stored.unusedSections.map(section => section.id)).toEqual([firstSectionId]);
     });
+
     // Both Custom Designs were removed first, so Home is back to the four
     // locked Quick Book sections and the restore lands at zero-based order 4.
     expect(getStoredCustomDesign(readStoredDocument())).toEqual({
@@ -783,6 +849,7 @@ describe('Custom Design universal App integration', () => {
     await user.click(screen.getByRole('button', { name: 'Undo' }));
     await waitFor(() => {
       const stored = readStoredDocument();
+
       expect(stored.pages.flatMap(page => page.sections).some(
         section => section.id === secondSection.id,
       )).toBe(false);
@@ -810,6 +877,7 @@ describe('Custom Design customer Preview integration', () => {
     const renderedImage = await screen.findByRole('img', { name: 'A booking flyer' });
     fireEvent.load(renderedImage);
     const action = await screen.findByRole('button', { name: 'Book from design' });
+
     expect(action).toHaveAttribute('data-testid', 'custom-design-area-custom_design_area_booking');
     expect(screen.getByRole('searchbox', { name: 'Search services' })).toBeVisible();
 
@@ -820,6 +888,7 @@ describe('Custom Design customer Preview integration', () => {
     const bookingElement = booking
       ? document.querySelector<HTMLElement>(`[data-section-id="${booking.id}"]`)
       : null;
+
     expect(bookingElement).not.toBeNull();
     expect(bookingElement?.scrollIntoView).toHaveBeenCalledWith({
       behavior: 'smooth',
@@ -830,7 +899,9 @@ describe('Custom Design customer Preview integration', () => {
   it('omits an empty section and suppresses images and semantic actions when bytes are missing', async () => {
     const emptyDocument = documentWithCustomDesign(null);
     const emptyView = renderPreview(emptyDocument, createRepository({}));
+
     expect(screen.queryByTestId('custom-design-customer-renderer')).not.toBeInTheDocument();
+
     emptyView.unmount();
 
     const missingImage = makeImage('custom_design_asset_missing');
@@ -839,10 +910,12 @@ describe('Custom Design customer Preview integration', () => {
     await waitFor(() => {
       expect(missingRepository.getOriginal).toHaveBeenCalledWith(missingImage.assetId);
     });
+
     expect(screen.queryByRole('img', { name: 'A booking flyer' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Book from design' })).not.toBeInTheDocument();
     expect(screen.queryByTestId('custom-design-area-custom_design_area_booking'))
       .not.toBeInTheDocument();
+
     await waitFor(() => {
       expect(document.querySelector('[data-section-type="custom_design"]'))
         .not.toBeInTheDocument();

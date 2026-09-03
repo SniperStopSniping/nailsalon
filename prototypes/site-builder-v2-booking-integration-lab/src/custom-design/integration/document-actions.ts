@@ -40,8 +40,8 @@ type LocatedSection = {
 const locateCanonicalBooking = (
   document: SiteBuilderDocument,
 ): LocatedSection | null => {
-  const locations = document.pages.flatMap((page) =>
-    page.sections.flatMap((section) =>
+  const locations = document.pages.flatMap(page =>
+    page.sections.flatMap(section =>
       section.sectionType === 'booking' ? [{ page, section }] : [],
     ),
   );
@@ -54,11 +54,15 @@ const locateInternalTarget = (
   pageId: string,
   sectionId?: string,
 ): { page: PageDocument; section?: SectionInstance } | null => {
-  const page = document.pages.find((candidate) => candidate.id === pageId);
-  if (!page?.visible) return null;
-  if (!sectionId) return { page };
+  const page = document.pages.find(candidate => candidate.id === pageId);
+  if (!page?.visible) {
+    return null;
+  }
+  if (!sectionId) {
+    return { page };
+  }
 
-  const section = page.sections.find((candidate) => candidate.id === sectionId);
+  const section = page.sections.find(candidate => candidate.id === sectionId);
   if (
     section?.sectionType === 'custom_design'
     && !hasCustomDesignArtwork(section.settings)
@@ -73,7 +77,9 @@ const createDocumentTargetHref = (
   sectionId?: string,
 ): string => {
   const parameters = new URLSearchParams({ page: pageId });
-  if (sectionId) parameters.set('section', sectionId);
+  if (sectionId) {
+    parameters.set('section', sectionId);
+  }
   return `/#${parameters.toString()}`;
 };
 
@@ -125,12 +131,18 @@ export const resolveCustomDesignDocumentAction = (
     );
     const resolution = resolveCustomDesignAction(action, {
       resolveInternalHref: (pageId, sectionId) => {
-        if (!target || pageId !== target.page.id) return null;
-        if (sectionId !== target.section?.id) return null;
+        if (!target || pageId !== target.page.id) {
+          return null;
+        }
+        if (sectionId !== target.section?.id) {
+          return null;
+        }
         return createDocumentTargetHref(pageId, sectionId);
       },
     });
-    if (!target) return resolution;
+    if (!target) {
+      return resolution;
+    }
 
     return withDocumentTarget(resolution, {
       kind: 'internal',
@@ -146,7 +158,7 @@ export const resolveCustomDesignDocumentAction = (
 export const createCustomDesignDocumentActionResolver = (
   context: CustomDesignDocumentActionContext,
 ): ((action: CustomDesignAction) => CustomDesignDocumentActionResolution) =>
-  (action) => resolveCustomDesignDocumentAction(action, context);
+  action => resolveCustomDesignDocumentAction(action, context);
 
 /**
  * Keeps document navigation inside the customer-preview host. The underlying

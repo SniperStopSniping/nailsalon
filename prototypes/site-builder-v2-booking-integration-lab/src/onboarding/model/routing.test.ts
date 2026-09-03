@@ -62,10 +62,13 @@ describe('onboarding conditional routing', () => {
     state = goToScreen(state, 'about');
 
     expect(getNextScreen('about', state)).toBe('about_design');
+
     state = goForward(state);
+
     expect(state.progress.currentScreen).toBe('about_design');
 
     state = reconcileConditionalHistory(state);
+
     expect(state.progress.currentScreen).toBe('about_design');
     expect(state.progress.screenHistory).toEqual([
       'starter',
@@ -144,7 +147,9 @@ describe('onboarding conditional routing', () => {
     let state = createDefaultOnboardingState();
     state.profile.about.shortBio = 'This content remains stored.';
     state = goToScreen(state, 'about');
+
     expect(getNextScreen('about', state)).toBe('about_design');
+
     state = goForward(state);
     state = reconcileConditionalHistory({
       ...state,
@@ -166,13 +171,16 @@ describe('onboarding conditional routing', () => {
 
     for (let cycle = 0; cycle < 3; cycle += 1) {
       state = goToBrowserHistoryScreen(state, 'about', 'back');
+
       expect(state.progress.currentScreen).toBe('about');
       expect(state.progress.screenHistory).toEqual(['starter', 'about']);
 
       const hiddenAboutDesign = goToBrowserHistoryScreen(state, 'about_design', 'forward');
+
       expect(hiddenAboutDesign).toBe(state);
 
       state = goToBrowserHistoryScreen(state, 'policies', 'forward');
+
       expect(state.progress.currentScreen).toBe('policies');
       expect(state.progress.screenHistory).toEqual(['starter', 'about', 'policies']);
     }
@@ -183,6 +191,7 @@ describe('onboarding conditional routing', () => {
     state = goToScreen(state, 'about');
     state = goForward(state);
     state = goForward(state);
+
     expect(state.progress.screenHistory).toEqual([
       'starter',
       'about',
@@ -192,20 +201,27 @@ describe('onboarding conditional routing', () => {
 
     for (let cycle = 0; cycle < 3; cycle += 1) {
       state = goToBrowserHistoryScreen(state, 'about_design', 'back');
+
       expect(state.progress.screenHistory).toEqual([
         'starter',
         'about',
         'about_design',
       ]);
+
       state = goToBrowserHistoryScreen(state, 'about', 'back');
+
       expect(state.progress.screenHistory).toEqual(['starter', 'about']);
+
       state = goToBrowserHistoryScreen(state, 'about_design', 'forward');
+
       expect(state.progress.screenHistory).toEqual([
         'starter',
         'about',
         'about_design',
       ]);
+
       state = goToBrowserHistoryScreen(state, 'policies', 'forward');
+
       expect(state.progress.screenHistory).toEqual([
         'starter',
         'about',
@@ -218,11 +234,13 @@ describe('onboarding conditional routing', () => {
   it('records optional skips without changing conditional screen ordering', () => {
     let state = goToScreen(createDefaultOnboardingState(), 'policies');
     state = skipOptionalScreen(state, 'policies');
+
     expect(state.progress.currentScreen).toBe('extras');
     expect(state.progress.skippedOptionalItems).toEqual(['policies']);
 
     state = goToScreen(state, 'extras');
     state = skipOptionalScreen(state, 'extras');
+
     expect(state.progress.currentScreen).toBe('final_preview');
     expect(state.progress.skippedOptionalItems).toEqual(['policies', 'extras']);
   });
@@ -240,6 +258,7 @@ describe('onboarding conditional routing', () => {
   it('redirects a final review with an incomplete essential to that screen', () => {
     const state = createDanielaFixtureState();
     state.recipe.styleConfirmed = false;
+
     expect(getResumeScreen(state)).toBe('site_style');
   });
 });

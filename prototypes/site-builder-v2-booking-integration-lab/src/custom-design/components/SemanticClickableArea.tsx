@@ -1,14 +1,14 @@
 import type { CSSProperties } from 'react';
 
-import type {
-  CustomDesignImageItem,
-  CustomDesignInteractiveArea,
-} from '../model/types';
 import {
   isNearFullImageArea,
   rectanglesHaveInteriorOverlap,
   validateNormalizedRect,
 } from '../model/geometry';
+import type {
+  CustomDesignImageItem,
+  CustomDesignInteractiveArea,
+} from '../model/types';
 import { SemanticAction } from './SemanticAction';
 import type {
   CustomDesignScrollPositionReader,

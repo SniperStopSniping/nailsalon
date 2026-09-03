@@ -52,13 +52,16 @@ const showcaseUrl = (params: Record<string, string>): string =>
 test.describe('section library performance', () => {
   test('every recipe stays within its DOM and render budget', async ({ page }) => {
     test.setTimeout(180_000);
+
     await page.setViewportSize({ width: 390, height: 940 });
     const report: Array<{ nodes: number; recipe: string; renderMs: number }> = [];
 
     for (const recipe of RECIPES) {
       const started = Date.now();
       await page.goto(showcaseUrl({ device: 'phone', recipe }));
+
       await expect(page.locator('[data-showcase-ready]')).toBeVisible();
+
       const renderMs = Date.now() - started;
       const nodes = await page.evaluate(() =>
         document.querySelectorAll('.onboarding-site-preview *').length);
@@ -75,6 +78,7 @@ test.describe('section library performance', () => {
 
   test('animations never touch layout properties', async ({ page }) => {
     await page.goto(showcaseUrl({ device: 'phone', recipe: 'signature_one_page' }));
+
     await expect(page.locator('[data-showcase-ready]')).toBeVisible();
 
     const offenders = await page.evaluate((banned) => {
@@ -97,7 +101,9 @@ test.describe('section library performance', () => {
 
       const checkKeyframes = (rule: CSSKeyframesRule) => {
         for (const frame of [...rule.cssRules]) {
-          if (!(frame instanceof CSSKeyframeRule)) continue;
+          if (!(frame instanceof CSSKeyframeRule)) {
+            continue;
+          }
           for (const property of banned) {
             if (frame.style.getPropertyValue(property)) {
               found.push(`@keyframes ${rule.name} → ${property}`);
@@ -113,9 +119,13 @@ test.describe('section library performance', () => {
        */
       const walk = (rules: CSSRuleList) => {
         for (const rule of [...rules]) {
-          if (rule instanceof CSSStyleRule) checkStyleRule(rule);
-          else if (rule instanceof CSSKeyframesRule) checkKeyframes(rule);
-          else if ('cssRules' in rule) walk((rule as CSSGroupingRule).cssRules);
+          if (rule instanceof CSSStyleRule) {
+            checkStyleRule(rule);
+          } else if (rule instanceof CSSKeyframesRule) {
+            checkKeyframes(rule);
+          } else if ('cssRules' in rule) {
+            walk((rule as CSSGroupingRule).cssRules);
+          }
         }
       };
 
@@ -139,7 +149,9 @@ test.describe('section library performance', () => {
       palette: 'luster_berry',
       recipe: 'signature_one_page',
     }));
+
     await expect(page.locator('[data-showcase-ready]')).toBeVisible();
+
     const before = await page.evaluate(() => ({
       accent: getComputedStyle(document.querySelector('.onboarding-site-preview')!)
         .getPropertyValue('--customer-accent').trim(),
@@ -151,7 +163,9 @@ test.describe('section library performance', () => {
       palette: 'black_champagne',
       recipe: 'signature_one_page',
     }));
+
     await expect(page.locator('[data-showcase-ready]')).toBeVisible();
+
     const after = await page.evaluate(() => ({
       accent: getComputedStyle(document.querySelector('.onboarding-site-preview')!)
         .getPropertyValue('--customer-accent').trim(),

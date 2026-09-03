@@ -1,7 +1,8 @@
-import { render, screen, waitFor, within } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+
+import { render, screen, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { useState } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -31,7 +32,9 @@ describe('focusFirstInvalidControl', () => {
       </form>,
     );
     const form = container.querySelector('form');
-    if (!form) throw new Error('Expected the focus-helper test form.');
+    if (!form) {
+      throw new Error('Expected the focus-helper test form.');
+    }
     const target = screen.getByRole('radio', { name: 'First enabled choice' });
     const invalidGroup = screen.getByRole('group', { name: 'First invalid group' });
     const scrollIntoView = vi.fn();
@@ -40,6 +43,7 @@ describe('focusFirstInvalidControl', () => {
     focusFirstInvalidControl(form);
 
     await waitFor(() => expect(target).toHaveFocus());
+
     expect(scrollIntoView).toHaveBeenCalledWith({
       block: 'center',
       inline: 'nearest',
@@ -67,7 +71,9 @@ describe('focusFirstInvalidControl', () => {
     const header = container.querySelector<HTMLElement>('.onboarding-shell__header');
     const progress = container.querySelector<HTMLElement>('.onboarding-shell__progress');
     const footer = container.querySelector<HTMLElement>('.sticky-onboarding-actions');
-    if (!form || !header || !progress || !footer) throw new Error('Missing focus geometry fixture.');
+    if (!form || !header || !progress || !footer) {
+      throw new Error('Missing focus geometry fixture.');
+    }
     header.getBoundingClientRect = () => ({ bottom: 70 } as DOMRect);
     progress.getBoundingClientRect = () => ({ bottom: 120 } as DOMRect);
     footer.getBoundingClientRect = () => ({ top: 305 } as DOMRect);
@@ -85,6 +91,7 @@ describe('focusFirstInvalidControl', () => {
     await waitFor(() => expect(target).toHaveFocus());
 
     expect(scrollBy).toHaveBeenCalledWith({ behavior: 'auto', top: 47 });
+
     scrollBy.mockRestore();
   });
 
@@ -101,7 +108,7 @@ describe('focusFirstInvalidControl', () => {
           onContinue={onContinue}
           onLogoSelected={vi.fn()}
           onProfileChange={(patch: Partial<ReturnType<typeof createDefaultBusinessProfile>>) =>
-            setProfile((current) => ({
+            setProfile(current => ({
               ...current,
               ...patch,
             }))}
@@ -127,6 +134,7 @@ describe('focusFirstInvalidControl', () => {
 
     await waitFor(() => expect(businessName).toHaveFocus());
     const summary = screen.getByRole('alert');
+
     expect(summary).toHaveTextContent(
       'Check the highlighted information.2 answers need attention.',
     );
@@ -158,7 +166,9 @@ describe('focusFirstInvalidControl', () => {
 
     await user.type(ownerName, 'Daniela');
     await user.click(screen.getByRole('button', { name: 'Show me my site →' }));
+
     expect(onContinue).toHaveBeenCalledOnce();
+
     delete (HTMLElement.prototype as Partial<HTMLElement>).scrollIntoView;
   });
 });
@@ -230,11 +240,13 @@ describe('NativeSwitch', () => {
 
     const view = render(<Harness />);
     const control = screen.getByRole('switch', { name: 'Show section on my website' });
+
     expect(control).toHaveAttribute('type', 'checkbox');
     expect(control).not.toBeChecked();
     expect(control).toHaveAccessibleDescription('Controls whether clients can see this section.');
 
     const hitTarget = control.closest('label');
+
     expect(hitTarget).toHaveClass('onboarding-switch-control');
 
     const onboardingCss = readFileSync(
@@ -244,22 +256,29 @@ describe('NativeSwitch', () => {
     const hitTargetRule = onboardingCss.match(
       /\.onboarding-switch-control\s*\{([^}]*)\}/u,
     )?.[1];
+
     expect(hitTargetRule).toContain('width: 52px;');
     expect(hitTargetRule).toContain('min-height: 44px;');
 
     control.focus();
     await user.keyboard(' ');
+
     expect(control).toBeChecked();
     expect(onChange).toHaveBeenLastCalledWith(true);
+
     await user.click(hitTarget as HTMLElement);
+
     expect(control).not.toBeChecked();
     expect(onChange).toHaveBeenLastCalledWith(false);
 
     view.rerender(<Harness disabled />);
     const disabledControl = screen.getByRole('switch', { name: 'Show section on my website' });
+
     expect(disabledControl).toBeDisabled();
+
     const callCount = onChange.mock.calls.length;
     await user.click(disabledControl.closest('label') as HTMLElement);
+
     expect(onChange).toHaveBeenCalledTimes(callCount);
   });
 });
@@ -298,7 +317,9 @@ describe('ImageUploadField', () => {
           label="Profile photo"
           onRemove={() => setCurrentLabel(undefined)}
           onSelect={async (file) => {
-            await new Promise<void>((resolve) => { finishUpload = resolve; });
+            await new Promise<void>((resolve) => {
+              finishUpload = resolve;
+            });
             setCurrentLabel(file.name);
           }}
           previewUrl={currentLabel ? 'blob:profile-photo' : undefined}
@@ -312,8 +333,10 @@ describe('ImageUploadField', () => {
     await user.upload(screen.getByLabelText('Profile photo'), file);
 
     expect(screen.getByRole('status')).toHaveTextContent('Processing photo…IMG_5222.jpeg');
+
     finishUpload?.();
     await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Photo readyIMG_5222.jpeg'));
+
     expect(screen.getByRole('button', { name: 'Replace' })).toBeEnabled();
     expect(screen.getByRole('button', { name: 'Remove' })).toBeEnabled();
   });
@@ -381,19 +404,24 @@ describe('ImageUploadField', () => {
     );
 
     const error = await screen.findByRole('alert');
+
     expect(error).toHaveTextContent('IMG_5222.jpeg');
     expect(error).toHaveTextContent('private tab');
+
     const retry = within(error).getByRole('button', { name: 'Retry' });
     const chooseAnother = within(error).getByRole('button', { name: 'Choose another image' });
+
     expect(retry).toHaveClass('is-primary');
     expect(chooseAnother).toHaveClass('is-secondary');
-    expect(within(error).getAllByRole('button').map((button) => button.textContent)).toEqual([
+    expect(within(error).getAllByRole('button').map(button => button.textContent)).toEqual([
       'Retry',
       'Choose another image',
     ]);
     expect(screen.queryByRole('button', { name: chooseLabel })).not.toBeInTheDocument();
+
     await user.click(retry);
     await waitFor(() => expect(onSelect).toHaveBeenCalledTimes(2));
+
     expect(chooseAnother).toBeEnabled();
   });
 });

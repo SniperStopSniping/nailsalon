@@ -8,12 +8,12 @@ import { SCREEN_METADATA } from '../copy';
 import { SITE_PALETTE_BY_ID } from '../model/palettes';
 import { getSiteStyleLabel } from '../model/site-styles';
 import type { OnboardingLabState, OnboardingScreenId } from '../model/types';
-import { OnboardingSitePreview, type OnboardingPreviewDevice } from '../preview/OnboardingSitePreview';
+import { type OnboardingPreviewDevice, OnboardingSitePreview } from '../preview/OnboardingSitePreview';
 import {
+  type CustomDesignAssetReadiness,
   getBuilderPrimaryLabel,
   getNeedsAttentionItems,
   getReadinessItems,
-  type CustomDesignAssetReadiness,
   type ReadinessStatus,
 } from '../progress/readiness';
 
@@ -66,7 +66,9 @@ export function FinalReviewScreen({
   ));
   const readinessContentRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    if (typeof window.matchMedia !== 'function') return undefined;
+    if (typeof window.matchMedia !== 'function') {
+      return undefined;
+    }
     const media = window.matchMedia('(max-width: 919px)');
     const update = () => setCompactReadiness(media.matches);
     update();
@@ -74,15 +76,17 @@ export function FinalReviewScreen({
     return () => media.removeEventListener('change', update);
   }, []);
   useEffect(() => {
-    if (!readinessContentRef.current) return;
+    if (!readinessContentRef.current) {
+      return;
+    }
     readinessContentRef.current.inert = compactReadiness && !drawerOpen;
   }, [compactReadiness, drawerOpen]);
-  const customDesignImages = useMemo(() => document?.pages.flatMap((page) =>
-    page.sections.flatMap((section) => section.sectionType === 'custom_design'
+  const customDesignImages = useMemo(() => document?.pages.flatMap(page =>
+    page.sections.flatMap(section => section.sectionType === 'custom_design'
       ? section.settings.images
       : [])) ?? [], [document]);
   const customDesignAssetIds = useMemo(
-    () => customDesignImages.map((image) => image.assetId),
+    () => customDesignImages.map(image => image.assetId),
     [customDesignImages],
   );
   const customDesignAssetMap = useCustomDesignAssetMap(customDesignAssetIds);
@@ -139,7 +143,7 @@ export function FinalReviewScreen({
     ? primaryLabelFromReadiness
     : primaryActionLabel ?? primaryLabelFromReadiness;
   const handlePrimary = () => {
-    const first = needsAttention.find((item) => item.screen);
+    const first = needsAttention.find(item => item.screen);
     if (first?.screen) {
       onEdit(first.screen);
       return;
@@ -154,9 +158,21 @@ export function FinalReviewScreen({
         <p>{primarySupportingCopy ?? SCREEN_METADATA.final_preview.supportingCopy}</p>
       </header>
       <div aria-label="Customer preview device size" className="onboarding-device-switcher" role="group">
-        <button aria-pressed={device === 'phone'} type="button" onClick={() => setDevice('phone')}><Smartphone aria-hidden="true" size={17} /> Phone</button>
-        <button aria-pressed={device === 'tablet'} type="button" onClick={() => setDevice('tablet')}><Tablet aria-hidden="true" size={17} /> Tablet</button>
-        <button aria-pressed={device === 'desktop'} type="button" onClick={() => setDevice('desktop')}><Monitor aria-hidden="true" size={17} /> Desktop</button>
+        <button aria-pressed={device === 'phone'} type="button" onClick={() => setDevice('phone')}>
+          <Smartphone aria-hidden="true" size={17} />
+          {' '}
+          Phone
+        </button>
+        <button aria-pressed={device === 'tablet'} type="button" onClick={() => setDevice('tablet')}>
+          <Tablet aria-hidden="true" size={17} />
+          {' '}
+          Tablet
+        </button>
+        <button aria-pressed={device === 'desktop'} type="button" onClick={() => setDevice('desktop')}>
+          <Monitor aria-hidden="true" size={17} />
+          {' '}
+          Desktop
+        </button>
       </div>
       <div className="onboarding-review-layout">
         <div className="onboarding-review-preview">
@@ -170,8 +186,14 @@ export function FinalReviewScreen({
             Open interactive preview
           </button>
           <dl aria-label="Selected website design" className="onboarding-review-theme-summary">
-            <div><dt>Website style</dt><dd>{getSiteStyleLabel(state.recipe.stylePreset)}</dd></div>
-            <div><dt>Colours</dt><dd>{SITE_PALETTE_BY_ID[state.recipe.palettePreset].label}</dd></div>
+            <div>
+              <dt>Website style</dt>
+              <dd>{getSiteStyleLabel(state.recipe.stylePreset)}</dd>
+            </div>
+            <div>
+              <dt>Colours</dt>
+              <dd>{SITE_PALETTE_BY_ID[state.recipe.palettePreset].label}</dd>
+            </div>
           </dl>
         </div>
         <aside className={`onboarding-readiness${drawerOpen ? ' is-open' : ''}`} aria-label="Site readiness">
@@ -181,7 +203,7 @@ export function FinalReviewScreen({
             aria-label={`Site readiness. ${mobileReadinessHeading}. ${mobileReadinessSummary}. ${drawerOpen ? 'Hide checklist' : 'View checklist'}`}
             className="onboarding-readiness__mobile-trigger"
             type="button"
-            onClick={() => setDrawerOpen((current) => !current)}
+            onClick={() => setDrawerOpen(current => !current)}
           >
             <span className="onboarding-readiness__mobile-copy">
               <strong>{mobileReadinessHeading}</strong>
@@ -204,40 +226,50 @@ export function FinalReviewScreen({
                 ? 'Your website is ready to save to your Luster account.'
                 : 'Your website is saved. You can edit it anytime from your dashboard.'}
             </p>
-            {readinessGroups.map((group) => (
+            {readinessGroups.map(group => (
               <section className="onboarding-readiness__group" key={group.label}>
                 <h3>{group.label}</h3>
                 <ul>
-              {group.items.map((item) => {
-                const Icon = STATUS_ICONS[item.status];
-                const editScreen = item.screen
-                  ?? (item.id === 'booking-path' ? 'booking_preferences'
-                    : item.id === 'business-name' ? 'business'
-                      : item.id === 'contact' ? 'location_contact'
-                        : item.id === 'mobile' ? 'site_style'
-                          : null);
-                return (
-                  <li data-status={item.status} key={item.id}>
-                    <Icon aria-hidden="true" size={16} />
-                    <div><small>{STATUS_LABELS[item.status]}</small><strong>{item.label}</strong>{item.detail ? <p>{item.detail}</p> : null}</div>
-                    {editScreen ? (
-                      <button
-                        aria-label={`${item.actionLabel ?? 'Edit'} ${item.label}`}
-                        type="button"
-                        onClick={() => {
-                          if (item.id.startsWith('canva-asset-')) {
-                            onEditCanva();
-                            return;
-                          }
-                          onEdit(editScreen);
-                        }}
-                      >
-                        {item.actionLabel ?? 'Edit'}
-                      </button>
-                    ) : null}
-                  </li>
-                );
-              })}
+                  {group.items.map((item) => {
+                    const Icon = STATUS_ICONS[item.status];
+                    const editScreen = item.screen
+                      ?? (item.id === 'booking-path'
+                        ? 'booking_preferences'
+                        : item.id === 'business-name'
+                          ? 'business'
+                          : item.id === 'contact'
+                            ? 'location_contact'
+                            : item.id === 'mobile'
+                              ? 'site_style'
+                              : null);
+                    return (
+                      <li data-status={item.status} key={item.id}>
+                        <Icon aria-hidden="true" size={16} />
+                        <div>
+                          <small>{STATUS_LABELS[item.status]}</small>
+                          <strong>{item.label}</strong>
+                          {item.detail ? <p>{item.detail}</p> : null}
+                        </div>
+                        {editScreen
+                          ? (
+                              <button
+                                aria-label={`${item.actionLabel ?? 'Edit'} ${item.label}`}
+                                type="button"
+                                onClick={() => {
+                                  if (item.id.startsWith('canva-asset-')) {
+                                    onEditCanva();
+                                    return;
+                                  }
+                                  onEdit(editScreen);
+                                }}
+                              >
+                                {item.actionLabel ?? 'Edit'}
+                              </button>
+                            )
+                          : null}
+                      </li>
+                    );
+                  })}
                 </ul>
               </section>
             ))}
@@ -251,7 +283,7 @@ export function FinalReviewScreen({
         skipLabel={SCREEN_METADATA.final_preview.secondaryAction}
         onBack={onBack}
         onPrimary={handlePrimary}
-        onSkip={() => onEdit(needsAttention.find((item) => item.screen)?.screen ?? 'business')}
+        onSkip={() => onEdit(needsAttention.find(item => item.screen)?.screen ?? 'business')}
       />
     </div>
   );

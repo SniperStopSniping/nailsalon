@@ -12,15 +12,15 @@ import { useMemo } from 'react';
 
 import { createDefaultBookingPresentationSettings } from '../../booking/presentation';
 import {
-  getSectionRegistryEntry,
-  SECTION_LIBRARY_REGISTRY,
-} from '../../model/section-library/registry';
-import {
   buildWebsiteRecipeDocument,
   getRecipeRequiredToggles,
   WEBSITE_RECIPE_BY_ID,
   type WebsiteRecipeId,
 } from '../../model/section-library/recipes';
+import {
+  getSectionRegistryEntry,
+  SECTION_LIBRARY_REGISTRY,
+} from '../../model/section-library/registry';
 import { buildCustomerPagePlan, type SitePlanPage } from '../../model/site-plan';
 import { initializeStarter } from '../../model/starters';
 import type {
@@ -165,7 +165,9 @@ export function SectionShowcaseSurface() {
       .filter((value): value is string => Boolean(value))
       .filter(isShowcaseType)
       .filter(type => type !== 'custom_design');
-    if (types.length === 0) return null;
+    if (types.length === 0) {
+      return null;
+    }
 
     let counter = 0;
     const document: SiteBuilderDocument = {

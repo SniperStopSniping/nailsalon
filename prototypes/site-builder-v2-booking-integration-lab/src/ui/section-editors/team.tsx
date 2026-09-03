@@ -1,8 +1,8 @@
 import { Trash2 } from 'lucide-react';
 import { useState } from 'react';
 
-import type { StaffMemberRecord } from '../../model/section-library/site-content';
 import type { TeamSettings } from '../../model/section-library/settings';
+import type { StaffMemberRecord } from '../../model/section-library/site-content';
 import { TextField, ToggleField } from './fields';
 import type { LibrarySectionEditorProps } from './types';
 
@@ -32,7 +32,9 @@ export function TeamEditor({
 
   const addMember = () => {
     const name = draftName.trim();
-    if (!name) return;
+    if (!name) {
+      return;
+    }
     const record: StaffMemberRecord = {
       acceptsBookings: true,
       id: createMemberId(),
@@ -63,12 +65,14 @@ export function TeamEditor({
     <>
       <div className="form-field">
         <span>Team members</span>
-        {members.length === 0 ? (
-          <small className="form-hint">
-            No team members yet — add your first below. The section stays off
-            your site until someone is shown.
-          </small>
-        ) : null}
+        {members.length === 0
+          ? (
+              <small className="form-hint">
+                No team members yet — add your first below. The section stays off
+                your site until someone is shown.
+              </small>
+            )
+          : null}
         <div className="editor-record-list">
           {members.map((member) => {
             const included = settings.memberIds.includes(member.id);
@@ -81,7 +85,12 @@ export function TeamEditor({
                       onChange={event => toggleMember(member.id, event.target.checked)}
                       type="checkbox"
                     />
-                    <span className="visually-hidden">Show {member.name} in this section</span>
+                    <span className="visually-hidden">
+                      {'Show '}
+                      {member.name}
+                      {' '}
+                      in this section
+                    </span>
                   </label>
                   <strong>{member.name}</strong>
                   {member.title ? <small>{member.title}</small> : null}
@@ -120,7 +129,9 @@ export function TeamEditor({
                   onClick={() => removeMember(member.id)}
                   type="button"
                 >
-                  <Trash2 aria-hidden="true" size={14} /> Remove {member.name}
+                  <Trash2 aria-hidden="true" size={14} />
+                  {' Remove '}
+                  {member.name}
                 </button>
               </details>
             );

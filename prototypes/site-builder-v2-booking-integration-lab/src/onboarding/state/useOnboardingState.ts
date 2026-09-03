@@ -5,7 +5,7 @@ import {
   useState,
 } from 'react';
 
-import { recordOnboardingEvent, exportOnboardingEventJournal } from '../events/journal';
+import { exportOnboardingEventJournal, recordOnboardingEvent } from '../events/journal';
 import { applyLabReviewFixture, type LabReviewFixtureId } from '../fixtures';
 import { createDefaultOnboardingState } from '../model/defaults';
 import {
@@ -42,8 +42,8 @@ import {
 import {
   clearOnboardingState,
   loadOnboardingState,
-  saveOnboardingState,
   type OnboardingStorage,
+  saveOnboardingState,
   type SaveOnboardingStateResult,
 } from '../storage/storage';
 
@@ -132,11 +132,15 @@ export function useOnboardingState(
 
   useEffect(() => {
     const flushPendingState = () => {
-      if (!pendingSaveRef.current) return;
+      if (!pendingSaveRef.current) {
+        return;
+      }
       persistSnapshot(stateRef.current);
     };
     const handleVisibilityChange = () => {
-      if (document.visibilityState === 'hidden') flushPendingState();
+      if (document.visibilityState === 'hidden') {
+        flushPendingState();
+      }
     };
 
     window.addEventListener('pagehide', flushPendingState);
@@ -170,15 +174,17 @@ export function useOnboardingState(
   }, [debounceMs, persistSnapshot, state]);
 
   useEffect(() => {
-    if (initialWelcomeViewRecordedRef.current) return;
+    if (initialWelcomeViewRecordedRef.current) {
+      return;
+    }
     initialWelcomeViewRecordedRef.current = true;
     const current = stateRef.current;
     if (
       current.progress.currentScreen === 'starter'
-      && !current.eventJournal.some((event) =>
+      && !current.eventJournal.some(event =>
         event.type === 'screen_viewed' && event.screen === 'starter')
     ) {
-      updateState((value) => recordOnboardingEvent(value, {
+      updateState(value => recordOnboardingEvent(value, {
         screen: 'starter',
         type: 'screen_viewed',
       }));
@@ -186,11 +192,11 @@ export function useOnboardingState(
   }, [updateState]);
 
   const recordEvent = useCallback((event: OnboardingEventInput) => {
-    updateState((current) => recordOnboardingEvent(current, event));
+    updateState(current => recordOnboardingEvent(current, event));
   }, [updateState]);
 
   const viewScreen = useCallback((screen: OnboardingScreenId) => {
-    updateState((current) => recordOnboardingEvent(
+    updateState(current => recordOnboardingEvent(
       goToScreen(current, screen),
       { screen, type: 'screen_viewed' },
     ));
@@ -216,7 +222,9 @@ export function useOnboardingState(
     updateState((current) => {
       const screen = current.progress.currentScreen;
       const next = goBack(current);
-      if (next === current) return current;
+      if (next === current) {
+        return current;
+      }
       const withBackEvent = recordOnboardingEvent(next, {
         nextScreen: next.progress.currentScreen,
         screen,
@@ -235,13 +243,15 @@ export function useOnboardingState(
   ) => {
     updateState((current) => {
       const next = goToBrowserHistoryScreen(current, screen, direction);
-      if (next === current) return current;
+      if (next === current) {
+        return current;
+      }
       const withNavigationEvent = direction === 'back'
         ? recordOnboardingEvent(next, {
-            nextScreen: screen,
-            screen: current.progress.currentScreen,
-            type: 'back',
-          })
+          nextScreen: screen,
+          screen: current.progress.currentScreen,
+          type: 'back',
+        })
         : next;
       return recordOnboardingEvent(withNavigationEvent, {
         screen,
@@ -269,7 +279,7 @@ export function useOnboardingState(
   const updateProfile = useCallback((
     update: OnboardingStateUpdate<BusinessProfileDraft>,
   ) => {
-    updateState((current) => ({
+    updateState(current => ({
       ...current,
       profile: applyUpdate(current.profile, update),
     }));
@@ -278,21 +288,21 @@ export function useOnboardingState(
   const updateRecipe = useCallback((
     update: OnboardingStateUpdate<OnboardingSiteRecipe>,
   ) => {
-    updateState((current) => reconcileConditionalHistory({
+    updateState(current => reconcileConditionalHistory({
       ...current,
       recipe: applyUpdate(current.recipe, update),
     }));
   }, [updateState]);
 
   const updateGallery = useCallback((update: OnboardingStateUpdate<GalleryDraft>) => {
-    updateState((current) => ({
+    updateState(current => ({
       ...current,
       gallery: applyUpdate(current.gallery, update),
     }));
   }, [updateState]);
 
   const updateCanva = useCallback((update: OnboardingStateUpdate<CanvaDraft>) => {
-    updateState((current) => ({
+    updateState(current => ({
       ...current,
       canva: applyUpdate(current.canva, update),
     }));
@@ -301,14 +311,14 @@ export function useOnboardingState(
   const updatePlanOffer = useCallback((
     update: OnboardingStateUpdate<PlanOfferDraft>,
   ) => {
-    updateState((current) => ({
+    updateState(current => ({
       ...current,
       planOffer: applyUpdate(current.planOffer, update),
     }));
   }, [updateState]);
 
   const setAboutEnabled = useCallback((enabled: boolean) => {
-    updateState((current) => recordOnboardingEvent(
+    updateState(current => recordOnboardingEvent(
       reconcileConditionalHistory({
         ...current,
         recipe: { ...current.recipe, aboutEnabled: enabled },
@@ -318,14 +328,14 @@ export function useOnboardingState(
   }, [updateState]);
 
   const setPoliciesEnabled = useCallback((enabled: boolean) => {
-    updateState((current) => recordOnboardingEvent({
+    updateState(current => recordOnboardingEvent({
       ...current,
       recipe: { ...current.recipe, policiesEnabled: enabled },
     }, { enabled, type: 'policies_toggled' }));
   }, [updateState]);
 
   const setAboutPreset = useCallback((aboutPreset: AboutPresetId) => {
-    updateState((current) => recordOnboardingEvent({
+    updateState(current => recordOnboardingEvent({
       ...current,
       recipe: { ...current.recipe, aboutPreset },
     }, {
@@ -339,7 +349,7 @@ export function useOnboardingState(
     stylePreset: SiteStylePresetId,
     confirmed = false,
   ) => {
-    updateState((current) => recordOnboardingEvent({
+    updateState(current => recordOnboardingEvent({
       ...current,
       recipe: {
         ...current.recipe,
@@ -358,14 +368,14 @@ export function useOnboardingState(
     starter: StarterId,
     starterDocumentSiteId: string,
   ) => {
-    updateState((current) => recordOnboardingEvent({
+    updateState(current => recordOnboardingEvent({
       ...current,
       recipe: { ...current.recipe, starter, starterDocumentSiteId },
     }, { starter, type: 'starter_selected' }));
   }, [updateState]);
 
   const recordExtrasSelected = useCallback((extras: Array<'gallery' | 'canva'>) => {
-    updateState((current) => recordOnboardingEvent({
+    updateState(current => recordOnboardingEvent({
       ...current,
       recipe: {
         ...current.recipe,
@@ -389,10 +399,12 @@ export function useOnboardingState(
     const current = stateRef.current;
     if (!canOpenBuilder(current)) {
       const target = getFirstIncompleteEssentialScreen(current);
-      if (target) updateState((value) => goToScreen(value, target));
+      if (target) {
+        updateState(value => goToScreen(value, target));
+      }
       return false;
     }
-    updateState((value) => recordOnboardingEvent(value, { type: 'open_builder' }));
+    updateState(value => recordOnboardingEvent(value, { type: 'open_builder' }));
     return true;
   }, [updateState]);
 
@@ -410,9 +422,9 @@ export function useOnboardingState(
       const next = resumeOnboarding(current);
       return afterReload || current.progress.sessionStatus === 'paused'
         ? recordOnboardingEvent(next, {
-            screen: next.progress.currentScreen,
-            type: 'resume_after_reload',
-          })
+          screen: next.progress.currentScreen,
+          type: 'resume_after_reload',
+        })
         : next;
     });
   }, [updateState]);

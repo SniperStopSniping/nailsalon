@@ -1,5 +1,5 @@
 import { Check, RotateCcw } from 'lucide-react';
-import { useId, type ReactNode } from 'react';
+import { type ReactNode, useId } from 'react';
 
 import { BOOKING_LAYOUT_META } from './layout-meta';
 import {
@@ -153,9 +153,11 @@ function LayoutControls({
             onChange={imageMode => update({ imageMode })}
           />
         </Control>
-        {allowFeaturedServices ? (
-          <Toggle label="Featured services" checked={options.showFeatured} onChange={showFeatured => update({ showFeatured })} />
-        ) : null}
+        {allowFeaturedServices
+          ? (
+              <Toggle label="Featured services" checked={options.showFeatured} onChange={showFeatured => update({ showFeatured })} />
+            )
+          : null}
         <Toggle label="Category pills" checked={options.categoryNavigation === 'pills'} onChange={enabled => update({ categoryNavigation: enabled ? 'pills' : 'none' })} />
         <Toggle label="Short descriptions" checked={options.showDescriptions} onChange={showDescriptions => update({ showDescriptions })} />
       </>
@@ -371,20 +373,22 @@ export function BookingSettingsPanel({
 
   return (
     <div className="booking-settings-panel" data-testid="booking-settings-panel">
-      {showIntro ? (
-        <header className="booking-settings-intro">
-          <h2>Booking</h2>
-          <p>
-            Choose how clients browse your services. You can change this anytime.
-            Your services, prices and booking settings stay the same.
-          </p>
-        </header>
-      ) : null}
+      {showIntro
+        ? (
+            <header className="booking-settings-intro">
+              <h2>Booking</h2>
+              <p>
+                Choose how clients browse your services. You can change this anytime.
+                Your services, prices and booking settings stay the same.
+              </p>
+            </header>
+          )
+        : null}
 
       <section aria-labelledby={`${id}-layout-heading`}>
         <h3 id={`${id}-layout-heading`}>Layout</h3>
         <div className="booking-layout-picker">
-          {LAYOUTS.map(layout => {
+          {LAYOUTS.map((layout) => {
             const meta = BOOKING_LAYOUT_META[layout];
             return (
               <button
@@ -413,77 +417,87 @@ export function BookingSettingsPanel({
         </p>
       </section>
 
-      {layoutOnly ? null : <section aria-labelledby={`${id}-type-heading`}>
-        <h3 id={`${id}-type-heading`}>Typography</h3>
-        <Control label="Preset">
-          <select
-            className="booking-settings-select"
-            aria-label="Booking typography preset"
-            value={settings.typographyPreset}
-            onChange={event => updateGlobal({
-              typographyPreset: event.currentTarget.value as BookingSectionPresentationSettings['typographyPreset'],
-            })}
-          >
-            {TYPOGRAPHY_OPTIONS.map(option => (
-              <option key={option.value} value={option.value}>{option.label}</option>
-            ))}
-          </select>
-        </Control>
-        <Control label="Heading scale">
-          <SegmentedControl
-            ariaLabel="Booking heading scale"
-            value={settings.headingScale}
-            options={[
-              { value: 'small', label: 'Small' },
-              { value: 'standard', label: 'Standard' },
-              { value: 'large', label: 'Large' },
-            ]}
-            onChange={headingScale => updateGlobal({ headingScale })}
-          />
-        </Control>
-        <Control label="Body scale">
-          <SegmentedControl
-            ariaLabel="Booking body scale"
-            value={settings.bodyScale}
-            options={[
-              { value: 'standard', label: 'Standard' },
-              { value: 'large', label: 'Large' },
-            ]}
-            onChange={bodyScale => updateGlobal({ bodyScale })}
-          />
-        </Control>
-        <Control label="Spacing">
-          <SegmentedControl
-            ariaLabel="Booking spacing"
-            value={settings.spacing}
-            options={[
-              { value: 'compact', label: 'Compact' },
-              { value: 'comfortable', label: 'Comfortable' },
-              { value: 'spacious', label: 'Spacious' },
-            ]}
-            onChange={spacing => updateGlobal({ spacing })}
-          />
-        </Control>
-      </section>}
+      {layoutOnly
+        ? null
+        : (
+            <section aria-labelledby={`${id}-type-heading`}>
+              <h3 id={`${id}-type-heading`}>Typography</h3>
+              <Control label="Preset">
+                <select
+                  className="booking-settings-select"
+                  aria-label="Booking typography preset"
+                  value={settings.typographyPreset}
+                  onChange={event => updateGlobal({
+                    typographyPreset: event.currentTarget.value as BookingSectionPresentationSettings['typographyPreset'],
+                  })}
+                >
+                  {TYPOGRAPHY_OPTIONS.map(option => (
+                    <option key={option.value} value={option.value}>{option.label}</option>
+                  ))}
+                </select>
+              </Control>
+              <Control label="Heading scale">
+                <SegmentedControl
+                  ariaLabel="Booking heading scale"
+                  value={settings.headingScale}
+                  options={[
+                    { value: 'small', label: 'Small' },
+                    { value: 'standard', label: 'Standard' },
+                    { value: 'large', label: 'Large' },
+                  ]}
+                  onChange={headingScale => updateGlobal({ headingScale })}
+                />
+              </Control>
+              <Control label="Body scale">
+                <SegmentedControl
+                  ariaLabel="Booking body scale"
+                  value={settings.bodyScale}
+                  options={[
+                    { value: 'standard', label: 'Standard' },
+                    { value: 'large', label: 'Large' },
+                  ]}
+                  onChange={bodyScale => updateGlobal({ bodyScale })}
+                />
+              </Control>
+              <Control label="Spacing">
+                <SegmentedControl
+                  ariaLabel="Booking spacing"
+                  value={settings.spacing}
+                  options={[
+                    { value: 'compact', label: 'Compact' },
+                    { value: 'comfortable', label: 'Comfortable' },
+                    { value: 'spacious', label: 'Spacious' },
+                  ]}
+                  onChange={spacing => updateGlobal({ spacing })}
+                />
+              </Control>
+            </section>
+          )}
 
-      {layoutOnly ? null : <section aria-labelledby={`${id}-options-heading`}>
-        <h3 id={`${id}-options-heading`}>Layout options</h3>
-        <p className="booking-settings-caption">Compatible controls only</p>
-        <div className="booking-layout-controls">
-          <LayoutControls
-            allowFeaturedServices={allowFeaturedServices}
-            settings={settings}
-            onChange={onChange}
-          />
-        </div>
-      </section>}
+      {layoutOnly
+        ? null
+        : (
+            <section aria-labelledby={`${id}-options-heading`}>
+              <h3 id={`${id}-options-heading`}>Layout options</h3>
+              <p className="booking-settings-caption">Compatible controls only</p>
+              <div className="booking-layout-controls">
+                <LayoutControls
+                  allowFeaturedServices={allowFeaturedServices}
+                  settings={settings}
+                  onChange={onChange}
+                />
+              </div>
+            </section>
+          )}
 
-      {layoutOnly ? null : (
-        <button className="booking-reset-presentation" type="button" onClick={reset}>
-          <RotateCcw aria-hidden="true" size={16} />
-          Reset presentation
-        </button>
-      )}
+      {layoutOnly
+        ? null
+        : (
+            <button className="booking-reset-presentation" type="button" onClick={reset}>
+              <RotateCcw aria-hidden="true" size={16} />
+              Reset presentation
+            </button>
+          )}
     </div>
   );
 }

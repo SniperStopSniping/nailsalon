@@ -28,7 +28,9 @@ const HAPTIC_PATTERNS: Partial<Record<FeedbackKind, number | number[]>> = {
  */
 export const LAB_FEEDBACK_CAPABILITY_PORT: FeedbackCapabilityPort = {
   haptic: (kind, options) => {
-    if (options.reducedMotion || options.testMode) return false;
+    if (options.reducedMotion || options.testMode) {
+      return false;
+    }
     if (typeof document === 'undefined' || document.visibilityState !== 'visible') {
       return false;
     }
@@ -40,7 +42,9 @@ export const LAB_FEEDBACK_CAPABILITY_PORT: FeedbackCapabilityPort = {
     // currently active user gesture. Milestone feedback can be emitted after
     // navigation, so keep haptics strictly tied to a real press/selection.
     // Safari currently has no vibration API and continues to no-op above.
-    if (navigator.userActivation?.isActive !== true) return false;
+    if (navigator.userActivation?.isActive !== true) {
+      return false;
+    }
     try {
       return navigator.vibrate(pattern);
     } catch {

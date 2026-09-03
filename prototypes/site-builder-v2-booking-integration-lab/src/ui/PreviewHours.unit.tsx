@@ -1,6 +1,7 @@
-import { render, screen, within } from '@testing-library/react';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+
+import { render, screen, within } from '@testing-library/react';
 import { vi } from 'vitest';
 
 import { createEmptyBookingSession, createMenuFixture } from '../booking/helpers';
@@ -15,7 +16,9 @@ describe('Builder handoff business metadata', () => {
   it('shows public location, contact, status, and the shared weekly schedule', () => {
     const document = initializeStarter('quick_book');
     const activePage = document.pages[0];
-    if (!activePage) throw new Error('Quick Book is missing Home.');
+    if (!activePage) {
+      throw new Error('Quick Book is missing Home.');
+    }
 
     const view = render(
       <Preview
@@ -49,8 +52,11 @@ describe('Builder handoff business metadata', () => {
         viewport="mobile"
       />,
     );
+
     expect(screen.getByText('Open until 6:00 PM')).toBeVisible();
+
     const metadata = screen.getByRole('region', { name: 'Business details' });
+
     expect(within(metadata).getByText('Scarborough, Ontario')).toBeVisible();
     expect(within(metadata).getByText('Exact address shared after booking.')).toBeVisible();
     expect(within(metadata).getByText('Sunday')).toBeVisible();
@@ -97,6 +103,7 @@ describe('Builder handoff business metadata', () => {
         viewport="mobile"
       />,
     );
+
     expect(screen.queryByText(/Open until|Closed/u)).not.toBeInTheDocument();
     expect(within(screen.getByRole('region', { name: 'Business details' }))
       .queryByText('Hours')).not.toBeInTheDocument();
@@ -105,7 +112,9 @@ describe('Builder handoff business metadata', () => {
   it('renders every canonical contact action and an activatable safe Directions link', () => {
     const document = initializeStarter('quick_book');
     const activePage = document.pages[0];
-    if (!activePage) throw new Error('Quick Book is missing Home.');
+    if (!activePage) {
+      throw new Error('Quick Book is missing Home.');
+    }
 
     const view = render(
       <Preview
@@ -152,6 +161,7 @@ describe('Builder handoff business metadata', () => {
     );
 
     const metadata = screen.getByRole('region', { name: 'Business details' });
+
     expect(within(metadata).getByText('647-555-0199')).toBeVisible();
     expect(within(metadata).getByRole('link', { name: 'Text · Preferred' }))
       .toHaveAttribute('href', 'sms:6475550199');
@@ -192,6 +202,7 @@ describe('Builder handoff business metadata', () => {
     );
 
     const bookingOnlyMetadata = screen.getByRole('region', { name: 'Business details' });
+
     expect(within(bookingOnlyMetadata).queryByRole('link', { name: /Call|Text/u }))
       .not.toBeInTheDocument();
     expect(within(bookingOnlyMetadata).getByRole('link', { name: 'Book now' }))
@@ -202,7 +213,9 @@ describe('Builder handoff business metadata', () => {
     const document = initializeStarter('multi_page');
     document.siteName = 'Polished Beauty Lounge and Academy with an Exceptionally Long Studio Name';
     const activePage = document.pages[0];
-    if (!activePage) throw new Error('Multi-page starter is missing Home.');
+    if (!activePage) {
+      throw new Error('Multi-page starter is missing Home.');
+    }
 
     render(
       <Preview
@@ -218,10 +231,13 @@ describe('Builder handoff business metadata', () => {
     );
 
     const brand = screen.getByTitle(document.siteName);
+
     expect(within(brand).getByText(document.siteName)).toBeVisible();
     expect(screen.getByRole('navigation', { name: 'Preview site navigation' })).toBeVisible();
+
     const css = readFileSync(join(process.cwd(), 'src/styles.css'), 'utf8');
-    expect(css).toMatch(/\.client-brand\s*\{[^}]*min-width:\s*0;/su);
-    expect(css).toMatch(/\.client-brand\s*>\s*strong\s*\{[^}]*text-overflow:\s*ellipsis;/su);
+
+    expect(css).toMatch(/\.client-brand\s*\{[^}]*min-width:\s*0;/u);
+    expect(css).toMatch(/\.client-brand\s*>\s*strong\s*\{[^}]*text-overflow:\s*ellipsis;/u);
   });
 });

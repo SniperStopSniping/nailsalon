@@ -1,25 +1,25 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import {
-  BuilderOperationError,
-  SITE_BUILDER_STORAGE_KEY,
   applyHistoryCommand,
+  type BuilderCommand,
+  BuilderOperationError,
   canRedoHistory,
   canUndoHistory,
   collectReachableCustomDesignAssetIds,
   createHistoryState,
   exportSiteBuilderBackup,
   exportSiteBuilderDocument,
-  initializeStarter,
-  parseSiteBuilderDocument,
-  redoHistory,
-  undoHistory,
-  type BuilderCommand,
   type HistoryState,
+  initializeStarter,
   type OriginStarter,
-  type SiteBuilderDocument,
-  type V1StarterRecipeContext,
+  parseSiteBuilderDocument,
   reconcileV1StarterDocument,
+  redoHistory,
+  SITE_BUILDER_STORAGE_KEY,
+  type SiteBuilderDocument,
+  undoHistory,
+  type V1StarterRecipeContext,
 } from '../model';
 import {
   applyOnboardingSitePresentation,
@@ -42,12 +42,12 @@ type SaveStatus = 'idle' | 'saving' | 'saved' | 'error';
 
 type PreparedCommandResult =
   | {
-      success: true;
-      changed: boolean;
-      document: SiteBuilderDocument;
-      cancel: () => void;
-      publish: () => boolean;
-    }
+    success: true;
+    changed: boolean;
+    document: SiteBuilderDocument;
+    cancel: () => void;
+    publish: () => boolean;
+  }
   | { success: false; message: string; code?: string };
 
 type PreparedHistoryTransition = {
@@ -92,11 +92,13 @@ export function useLabDocument() {
   const replaceHistory = useCallback((next: HistoryState | null) => {
     historyRef.current = next;
     setHistory(next);
-    setHistoryRevision((current) => current + 1);
+    setHistoryRevision(current => current + 1);
   }, []);
 
   const chooseStarter = useCallback((starter: OriginStarter): boolean => {
-    if (preparedTransitionRef.current) return false;
+    if (preparedTransitionRef.current) {
+      return false;
+    }
     const next = createHistoryState(initializeStarter(starter, {
       siteName: 'Your nail studio',
     }));
@@ -135,9 +137,13 @@ export function useLabDocument() {
   }, [replaceHistory]);
 
   const syncSiteName = useCallback((siteName: string): boolean => {
-    if (preparedTransitionRef.current) return false;
+    if (preparedTransitionRef.current) {
+      return false;
+    }
     const current = historyRef.current;
-    if (!current) return false;
+    if (!current) {
+      return false;
+    }
     const normalizedSiteName = siteName.trim() || 'My nail studio';
     const rename = (document: SiteBuilderDocument): SiteBuilderDocument =>
       document.siteName === normalizedSiteName
@@ -149,7 +155,9 @@ export function useLabDocument() {
     const changed = present !== current.present
       || past.some((document, index) => document !== current.past[index])
       || future.some((document, index) => document !== current.future[index]);
-    if (!changed) return true;
+    if (!changed) {
+      return true;
+    }
     setSaveStatus('saving');
     replaceHistory({ future, past, present });
     return true;
@@ -160,9 +168,13 @@ export function useLabDocument() {
     presentation: OnboardingSitePresentation,
     recipeContext?: V1StarterRecipeContext,
   ): SiteBuilderDocument | null => {
-    if (preparedTransitionRef.current) return null;
+    if (preparedTransitionRef.current) {
+      return null;
+    }
     const current = historyRef.current;
-    if (!current) return null;
+    if (!current) {
+      return null;
+    }
     const normalizedSiteName = siteName.trim() || 'My nail studio';
     const accept = (document: SiteBuilderDocument): SiteBuilderDocument => {
       const presented = applyOnboardingSitePresentation(document, presentation);
@@ -201,7 +213,9 @@ export function useLabDocument() {
 
     try {
       const next = applyHistoryCommand(current, command);
-      if (next !== current) setSaveStatus('saving');
+      if (next !== current) {
+        setSaveStatus('saving');
+      }
       replaceHistory(next);
       return {
         success: true,
@@ -239,7 +253,9 @@ export function useLabDocument() {
 
       const release = (): PreparedHistoryTransition | null => {
         const prepared = preparedTransitionRef.current;
-        if (!prepared || prepared.token !== token) return null;
+        if (!prepared || prepared.token !== token) {
+          return null;
+        }
         preparedTransitionRef.current = null;
         setTransactionPending(false);
         return prepared;
@@ -263,7 +279,9 @@ export function useLabDocument() {
             return false;
           }
           release();
-          if (prepared.next !== prepared.baseline) setSaveStatus('saving');
+          if (prepared.next !== prepared.baseline) {
+            setSaveStatus('saving');
+          }
           replaceHistory(prepared.next);
           return true;
         },
@@ -280,31 +298,41 @@ export function useLabDocument() {
   }, [replaceHistory]);
 
   const undo = useCallback(() => {
-    if (preparedTransitionRef.current) return false;
+    if (preparedTransitionRef.current) {
+      return false;
+    }
     const current = historyRef.current;
     if (!current) {
       return false;
     }
     const next = undoHistory(current);
-    if (next !== current) setSaveStatus('saving');
+    if (next !== current) {
+      setSaveStatus('saving');
+    }
     replaceHistory(next);
     return next !== current;
   }, [replaceHistory]);
 
   const redo = useCallback(() => {
-    if (preparedTransitionRef.current) return false;
+    if (preparedTransitionRef.current) {
+      return false;
+    }
     const current = historyRef.current;
     if (!current) {
       return false;
     }
     const next = redoHistory(current);
-    if (next !== current) setSaveStatus('saving');
+    if (next !== current) {
+      setSaveStatus('saving');
+    }
     replaceHistory(next);
     return next !== current;
   }, [replaceHistory]);
 
   const resetLab = useCallback(() => {
-    if (preparedTransitionRef.current) return false;
+    if (preparedTransitionRef.current) {
+      return false;
+    }
     try {
       window.localStorage.removeItem(SITE_BUILDER_STORAGE_KEY);
     } catch {
@@ -319,7 +347,9 @@ export function useLabDocument() {
   }, [replaceHistory]);
 
   const resetToStarter = useCallback(() => {
-    if (preparedTransitionRef.current) return false;
+    if (preparedTransitionRef.current) {
+      return false;
+    }
     const current = historyRef.current;
     if (!current) {
       return false;
@@ -366,7 +396,9 @@ export function useLabDocument() {
   const createHistoryCheckpoint = useCallback(() => historyRef.current, []);
 
   const restoreHistoryCheckpoint = useCallback((checkpoint: HistoryState) => {
-    if (preparedTransitionRef.current) return false;
+    if (preparedTransitionRef.current) {
+      return false;
+    }
     setSaveStatus('saving');
     replaceHistory(checkpoint);
     return true;

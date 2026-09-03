@@ -69,16 +69,24 @@ export const inferOnboardingBusinessType = (input: {
   businessStructure: BusinessStructure | null;
   locationType: LocationType | null;
 }): OnboardingBusinessType | null => {
-  if (input.businessStructure === 'multi_tech') return 'salon_team';
-  if (input.locationType === 'home_studio') return 'home_based';
-  if (input.locationType === 'mobile_service') return 'mobile';
-  if (input.businessStructure === 'solo') return 'independent_salon';
+  if (input.businessStructure === 'multi_tech') {
+    return 'salon_team';
+  }
+  if (input.locationType === 'home_studio') {
+    return 'home_based';
+  }
+  if (input.locationType === 'mobile_service') {
+    return 'mobile';
+  }
+  if (input.businessStructure === 'solo') {
+    return 'independent_salon';
+  }
   return null;
 };
 
 export const normalizeSiteSlug = (value: string): string => value
   .normalize('NFKD')
-  .replace(/[\u0300-\u036f]/gu, '')
+  .replace(/[\u0300-\u036F]/gu, '')
   .toLocaleLowerCase()
   .replace(/[^a-z0-9]+/gu, '-')
   .replace(/^-+|-+$/gu, '')
@@ -87,7 +95,7 @@ export const normalizeSiteSlug = (value: string): string => value
 
 export const normalizeSiteSlugInput = (value: string): string => value
   .normalize('NFKD')
-  .replace(/[\u0300-\u036f]/gu, '')
+  .replace(/[\u0300-\u036F]/gu, '')
   .toLocaleLowerCase()
   .replace(/[^a-z0-9-]+/gu, '-')
   .replace(/-{2,}/gu, '-')
@@ -108,12 +116,18 @@ const RESERVED_SITE_SLUGS = new Set([
 ]);
 
 export const validateSiteSlug = (value: string): string => {
-  if (!value) return 'Add a web address.';
-  if (value.length < 3) return 'Use at least 3 letters or numbers.';
+  if (!value) {
+    return 'Add a web address.';
+  }
+  if (value.length < 3) {
+    return 'Use at least 3 letters or numbers.';
+  }
   if (!/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/u.test(value)) {
     return 'Use lowercase letters, numbers and hyphens only.';
   }
-  if (RESERVED_SITE_SLUGS.has(value)) return 'Choose a different web address.';
+  if (RESERVED_SITE_SLUGS.has(value)) {
+    return 'Choose a different web address.';
+  }
   return '';
 };
 

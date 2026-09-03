@@ -23,10 +23,21 @@ import {
 } from './types';
 
 const signatures: Record<SupportedImageMimeType, number[]> = {
-  'image/jpeg': [0xff, 0xd8, 0xff, 0xdb, 0x00, 0x04, 0x00, 0x00],
-  'image/png': [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a],
+  'image/jpeg': [0xFF, 0xD8, 0xFF, 0xDB, 0x00, 0x04, 0x00, 0x00],
+  'image/png': [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A],
   'image/webp': [
-    0x52, 0x49, 0x46, 0x46, 0x04, 0x00, 0x00, 0x00, 0x57, 0x45, 0x42, 0x50,
+    0x52,
+    0x49,
+    0x46,
+    0x46,
+    0x04,
+    0x00,
+    0x00,
+    0x00,
+    0x57,
+    0x45,
+    0x42,
+    0x50,
   ],
 };
 
@@ -51,16 +62,16 @@ const noThumbnail = vi.fn(async () => null);
 
 const createExifJpeg = (orientation: number): ArrayBuffer => {
   const bytes = new Uint8Array(40);
-  bytes.set([0xff, 0xd8, 0xff, 0xe1, 0x00, 0x22], 0);
+  bytes.set([0xFF, 0xD8, 0xFF, 0xE1, 0x00, 0x22], 0);
   bytes.set([0x45, 0x78, 0x69, 0x66, 0, 0], 6);
   // Little-endian TIFF, first IFD at offset 8.
-  bytes.set([0x49, 0x49, 0x2a, 0, 0x08, 0, 0, 0], 12);
+  bytes.set([0x49, 0x49, 0x2A, 0, 0x08, 0, 0, 0], 12);
   bytes.set([0x01, 0], 20);
   bytes.set(
     [0x12, 0x01, 0x03, 0, 0x01, 0, 0, 0, orientation, 0, 0, 0],
     22,
   );
-  bytes.set([0, 0, 0, 0, 0xff, 0xd9], 34);
+  bytes.set([0, 0, 0, 0, 0xFF, 0xD9], 34);
   return bytes.buffer;
 };
 
@@ -81,7 +92,7 @@ describe('custom design image processing', () => {
       detectImageMimeType(makeFile('image/webp', 'design.webp')),
     ).resolves.toBe('image/webp');
     await expect(detectImageMimeType(new File([
-      new Uint8Array([0xff, 0xd8, 0xff, 0xc2, 0x00, 0x11]),
+      new Uint8Array([0xFF, 0xD8, 0xFF, 0xC2, 0x00, 0x11]),
     ], 'progressive.jpg', { type: 'image/jpeg' }))).resolves.toBe('image/jpeg');
     await expect(
       detectImageMimeType(
@@ -123,6 +134,7 @@ describe('custom design image processing', () => {
     const gif = new File([new Uint8Array([0x47, 0x49, 0x46])], 'art.gif', {
       type: 'image/gif',
     });
+
     await expect(
       prepareImageAsset(gif, {
         assetId: 'gif',
@@ -136,6 +148,7 @@ describe('custom design image processing', () => {
       'fake.png',
       { type: 'image/png' },
     );
+
     await expect(
       prepareImageAsset(disguised, {
         assetId: 'disguised',
@@ -155,6 +168,7 @@ describe('custom design image processing', () => {
 
   it('parses EXIF orientation and swaps natural dimensions when decode is raw', async () => {
     const exif = createExifJpeg(6);
+
     expect(parseExifOrientation(exif)).toBe(6);
     expect(getOrientedDimensions(1_200, 800, 6)).toEqual({
       height: 1_200,
@@ -175,6 +189,7 @@ describe('custom design image processing', () => {
       }),
       generateThumbnail: noThumbnail,
     });
+
     expect(prepared.metadata).toMatchObject({
       aspectRatio: 800 / 1_200,
       height: 1_200,
@@ -185,6 +200,7 @@ describe('custom design image processing', () => {
 
   it('closes decoded resources and rejects invalid or excessive dimensions', async () => {
     const close = vi.fn();
+
     await expect(
       prepareImageAsset(makeFile('image/png'), {
         assetId: 'zero',
@@ -231,6 +247,7 @@ describe('custom design image processing', () => {
       decodeImage: decodePortrait,
       generateThumbnail: vi.fn().mockRejectedValue(new Error('canvas denied')),
     });
+
     expect(prepared.blob).toBe(file);
     expect(prepared.thumbnailBlob).toBeUndefined();
     expect(prepared.metadata.thumbnail).toBeUndefined();
@@ -261,7 +278,14 @@ describe('custom design image processing', () => {
       onload: ((this: GlobalEventHandlers, ev: Event) => unknown) | null = null;
       decode = decode;
 
-      set src(_value: string) {
+      private source = '';
+
+      get src() {
+        return this.source;
+      }
+
+      set src(value: string) {
+        this.source = value;
         queueMicrotask(() => this.onload?.call(
           this as unknown as GlobalEventHandlers,
           new Event('load'),
@@ -301,8 +325,11 @@ describe('custom design image processing', () => {
         key: PropertyKey,
         descriptor: PropertyDescriptor | undefined,
       ) => {
-        if (descriptor) Object.defineProperty(target, key, descriptor);
-        else Reflect.deleteProperty(target, key);
+        if (descriptor) {
+          Object.defineProperty(target, key, descriptor);
+        } else {
+          Reflect.deleteProperty(target, key);
+        }
       };
       restore(globalThis, 'createImageBitmap', originalBitmap);
       restore(globalThis, 'Image', originalImage);
@@ -318,6 +345,7 @@ describe('custom design image processing', () => {
       decodeImage: decodePortrait,
       generateThumbnail: vi.fn().mockResolvedValue(thumbnailBlob),
     });
+
     expect(prepared.thumbnailBlob).toBe(thumbnailBlob);
     expect(prepared.metadata.thumbnail).toEqual({
       byteSize: thumbnailBlob.size,
@@ -325,7 +353,9 @@ describe('custom design image processing', () => {
       mimeType: 'image/webp',
       width: 160,
     });
+
     const metadataJson = JSON.stringify(prepared.metadata);
+
     expect(metadataJson).toContain('thumbnail');
     expect(metadataJson).not.toContain('data:image');
     expect(metadataJson).not.toContain('binary-secret');
@@ -350,6 +380,7 @@ describe('custom design image processing', () => {
         decodeImage: decodePortrait,
         generateThumbnail: vi.fn().mockResolvedValue(thumbnailBlob),
       });
+
       expect(prepared.blob).toBe(file);
       expect(prepared.thumbnailBlob).toBeUndefined();
       expect(prepared.metadata.thumbnail).toBeUndefined();
@@ -418,7 +449,7 @@ describe('custom design image processing', () => {
         );
         expect(scaleContext).not.toHaveBeenCalled();
         expect(drawImage).toHaveBeenCalledWith(source, 0, 0, 1_200, 800);
-        expect(toBlob.mock.calls.map((call) => call[1])).toEqual([
+        expect(toBlob.mock.calls.map(call => call[1])).toEqual([
           'image/webp',
           'image/png',
         ]);
@@ -432,6 +463,7 @@ describe('custom design image processing', () => {
 
   it('enforces count, per-file, total-section, and valid capacity inputs', () => {
     const file = makeFile('image/png');
+
     expect(() =>
       validateUploadCapacity(file, {
         currentImageCount: CUSTOM_DESIGN_MAX_IMAGES,
@@ -479,7 +511,7 @@ describe('custom design image processing', () => {
       generateThumbnail: noThumbnail,
     });
 
-    expect(result.accepted.map((asset) => asset.metadata.id)).toEqual([
+    expect(result.accepted.map(asset => asset.metadata.id)).toEqual([
       'asset-0',
       'asset-2',
     ]);
@@ -503,6 +535,7 @@ describe('custom design image processing', () => {
         generateThumbnail: noThumbnail,
       },
     );
+
     expect(result.accepted).toHaveLength(1);
     expect(result.rejected).toMatchObject([
       { code: 'too_many_images', index: 1 },
@@ -528,6 +561,7 @@ describe('custom design image processing', () => {
         generateThumbnail: noThumbnail,
       },
     );
+
     expect(result.accepted).toHaveLength(1);
     expect(result.rejected).toMatchObject([
       { code: 'corrupt_image', index: 0 },
@@ -546,6 +580,7 @@ describe('custom design image processing', () => {
         generateThumbnail: noThumbnail,
       },
     );
+
     expect(result.accepted).toHaveLength(0);
     expect(result.rejected).toMatchObject([
       { code: 'too_many_images', index: 0 },

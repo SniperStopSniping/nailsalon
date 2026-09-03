@@ -6,6 +6,7 @@ import {
   parseSafeHttpsUrl,
   resolveCustomDesignAction,
 } from '../model/actions';
+import { hasUnsafeTextControls } from '../model/text';
 import { useTapWithoutScroll } from './useTapWithoutScroll';
 import type {
   CustomDesignRenderResolution,
@@ -13,7 +14,6 @@ import type {
 } from './view-types';
 
 const MAXIMUM_RENDERED_HREF_LENGTH = 2_048;
-const CONTROL_CHARACTER_PATTERN = /[\u0000-\u001f\u007f]/u;
 const MALFORMED_PERCENT_ENCODING_PATTERN = /%(?![0-9a-f]{2})/iu;
 const INTERNAL_ROUTE_CONFUSION_PATTERN = /%(?:0[0-9a-f]|1[0-9a-f]|23|25|2e|2f|3f|5c|7f)/iu;
 const EXTERNAL_UNSAFE_ENCODING_PATTERN = /%(?:0[0-9a-f]|1[0-9a-f]|25|5c|7f)/iu;
@@ -28,7 +28,7 @@ const hasUnsafeCommonShape = (href: string): boolean =>
   href.length === 0
   || href.length > MAXIMUM_RENDERED_HREF_LENGTH
   || href.trim() !== href
-  || CONTROL_CHARACTER_PATTERN.test(href)
+  || hasUnsafeTextControls(href)
   || MALFORMED_PERCENT_ENCODING_PATTERN.test(href);
 
 const normalizeInternalHref = (href: string): NormalizedRenderedHref | null => {

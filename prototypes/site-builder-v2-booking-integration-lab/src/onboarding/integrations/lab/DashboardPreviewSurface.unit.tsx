@@ -70,10 +70,12 @@ describe('DashboardPreviewSurface', () => {
 
   it('arrives directly at the dashboard payoff and never auto-opens the optional tour', async () => {
     renderSurface();
+
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     expect(screen.getByRole('heading', { level: 1, name: 'Your Luster site is ready' })).toBeVisible();
     expect(screen.getByText(/website, booking page and service menu are set up/iu)).toBeVisible();
     expect(screen.getByRole('heading', { name: 'Today at Isla Nail Studio' })).toBeVisible();
+
     await waitFor(() => expect(screen.getByRole('heading', { level: 1, name: 'Your Luster site is ready' })).toHaveFocus());
   });
 
@@ -81,7 +83,8 @@ describe('DashboardPreviewSurface', () => {
     const user = userEvent.setup();
     const { onEditWebsite } = renderSurface();
     const navigation = screen.getByRole('navigation', { name: 'Dashboard destinations' });
-    expect(within(navigation).getAllByRole('button').map((button) => button.textContent?.trim())).toEqual([
+
+    expect(within(navigation).getAllByRole('button').map(button => button.textContent?.trim())).toEqual([
       'Today',
       'Website & Booking Page',
       'Calendar',
@@ -90,7 +93,9 @@ describe('DashboardPreviewSurface', () => {
       'More',
     ]);
     expect(within(navigation).getByRole('button', { name: 'Today' })).toHaveAttribute('aria-current', 'page');
+
     await user.click(screen.getByRole('button', { name: 'Edit my website' }));
+
     expect(onEditWebsite).toHaveBeenCalledOnce();
   });
 
@@ -101,21 +106,26 @@ describe('DashboardPreviewSurface', () => {
     await user.click(within(welcome).getByRole('button', { name: 'Take a quick tour' }));
 
     const dialog = screen.getByRole('dialog', { name: 'A quick look around Luster' });
+
     expect(within(dialog).getByText('1 of 5')).toBeVisible();
     expect(document.querySelector('.lab-dashboard-storyboard')).toHaveAttribute('data-tour-highlighted', 'true');
     expect(document.querySelector('.lab-dashboard-tour__miniature')).not.toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Today at Isla Nail Studio' })).toBeVisible();
 
     await user.click(within(dialog).getByRole('button', { name: /Next/iu }));
+
     expect(within(dialog).getByText('2 of 5')).toBeVisible();
     expect(within(dialog).getByRole('heading', { name: 'Your calendar' })).toBeVisible();
     expect(screen.getByRole('heading', { name: 'Calendar' })).toBeVisible();
     expect(within(dialog).getByText(/after you connect Google Calendar/iu)).toBeVisible();
+
     await user.click(within(dialog).getByRole('button', { name: /Back/iu }));
+
     expect(within(dialog).getByText('1 of 5')).toBeVisible();
 
     await user.click(within(dialog).getByRole('button', { name: 'Skip tour' }));
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+
     expect(onTourCompletedChange).toHaveBeenCalledWith(true);
     expect(document.querySelector('.lab-dashboard-storyboard')).not.toHaveAttribute('data-tour-highlighted');
     expect(screen.getByRole('button', { name: 'Replay tour' })).toBeVisible();
@@ -129,7 +139,9 @@ describe('DashboardPreviewSurface', () => {
     for (let index = 0; index < 4; index += 1) {
       await user.click(screen.getByRole('button', { name: /Next/iu }));
     }
+
     expect(screen.getByText('5 of 5')).toBeVisible();
+
     await user.click(screen.getByRole('button', { name: 'Done' }));
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
     await waitFor(() => expect(screen.getByRole('heading', { name: 'Today at Isla Nail Studio' })).toHaveFocus());
@@ -164,11 +176,13 @@ describe('DashboardPreviewSurface', () => {
     );
 
     await user.click(screen.getByRole('button', { name: 'Services' }));
+
     expect(screen.getByText('2 selected services')).toBeVisible();
     expect(screen.getByText('Russian Manicure')).toBeVisible();
     expect(screen.getByText('Classic Manicure')).toBeVisible();
 
     view.rerender(<DashboardPreviewSurface {...commonProps} selectedServiceIds={['svc-manicure-gel']} />);
+
     expect(screen.getByText('1 selected service')).toBeVisible();
     expect(screen.getByText('Gel Manicure')).toBeVisible();
     expect(screen.queryByText('Russian Manicure')).not.toBeInTheDocument();
@@ -179,6 +193,7 @@ describe('DashboardPreviewSurface', () => {
     const checklist = screen.getByRole('heading', { name: 'What’s next' }).closest('aside')!;
     const done = within(checklist).getByRole('heading', { name: 'Done' }).closest('section')!;
     const next = within(checklist).getByRole('heading', { name: 'Whenever you’re ready' }).closest('section')!;
+
     expect(within(done).getByText('Website created')).toBeVisible();
     expect(within(done).getByText('Booking page ready')).toBeVisible();
     expect(within(done).getByText('Services added')).toBeVisible();
@@ -192,13 +207,16 @@ describe('DashboardPreviewSurface', () => {
 
   it('hides technical Review controls in normal mode and exposes them only in audit mode', async () => {
     const normal = renderSurface();
+
     expect(screen.queryByRole('button', { name: 'Return to onboarding review · Lab only' })).not.toBeInTheDocument();
     expect(screen.queryByText(/fixture states/iu)).not.toBeInTheDocument();
+
     normal.unmount();
 
     const user = userEvent.setup();
     const audit = renderSurface({ auditMode: true });
     await user.click(screen.getByRole('button', { name: 'Return to onboarding review · Lab only' }));
+
     expect(audit.onReturnToReview).toHaveBeenCalledOnce();
     expect(screen.getByText(/explicit UX Lab fixture states/iu)).toBeVisible();
   });
@@ -207,7 +225,9 @@ describe('DashboardPreviewSurface', () => {
     const user = userEvent.setup();
     renderSurface();
     await user.click(screen.getByRole('button', { name: 'Explore dashboard' }));
+
     expect(screen.queryByText(/website, booking page and service menu are set up/iu)).not.toBeInTheDocument();
+
     const todayHeading = screen.getByRole('heading', { name: 'Today at Isla Nail Studio' });
     await waitFor(() => expect(todayHeading).toHaveFocus());
   });
@@ -231,6 +251,7 @@ describe('DashboardPreviewSurface', () => {
         tourCompleted
       />,
     );
+
     expect(screen.getByText(message)).toBeVisible();
     expect(screen.queryByText(/purchased|charged|entitled/iu)).not.toBeInTheDocument();
   });

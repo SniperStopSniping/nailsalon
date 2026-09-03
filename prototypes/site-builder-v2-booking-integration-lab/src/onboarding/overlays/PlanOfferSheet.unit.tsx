@@ -32,10 +32,10 @@ describe('PlanOfferSheet', () => {
     );
 
     expect(css).toMatch(
-      /\.dialog-panel--bottom-sheet:has\(\.onboarding-plan-sheet\) \{[^}]*height: min\(96dvh, 900px\);/su,
+      /\.dialog-panel--bottom-sheet:has\(\.onboarding-plan-sheet\) \{[^}]*height: min\(96dvh, 900px\);/u,
     );
     expect(css).toMatch(
-      /\.onboarding-plan-sheet__action \{[^}]*position: sticky;[^}]*env\(safe-area-inset-bottom\)/su,
+      /\.onboarding-plan-sheet__action \{[^}]*position: sticky;[^}]*env\(safe-area-inset-bottom\)/u,
     );
   });
 
@@ -48,6 +48,7 @@ describe('PlanOfferSheet', () => {
     );
 
     expect(screen.queryByRole('dialog', { name: 'Your site is saved' })).not.toBeInTheDocument();
+
     view.rerender(<PlanOfferSheet offer={offer} onChoose={onChoose} onClose={vi.fn()} open />);
 
     const dialog = screen.getByRole('dialog', { name: 'Your site is saved' });
@@ -55,18 +56,23 @@ describe('PlanOfferSheet', () => {
     const free = within(dialog).getByRole('radio', { name: /Free \$0 to start/iu });
     const founding = within(dialog).getByRole('radio', { name: /Founding offer/iu });
     const monthly = within(dialog).getByRole('radio', { name: /^Monthly /iu });
+
     expect(free).toBeChecked();
     expect(founding).not.toBeChecked();
     expect(monthly).not.toBeChecked();
     expect(within(dialog).getAllByRole('radio')).toHaveLength(3);
     expect(within(dialog).getAllByRole('button', { name: /Continue free|Reserve founding offer|interested in monthly/iu })).toHaveLength(1);
     expect(within(dialog).getByText(/Nothing is charged now/u)).toBeVisible();
+
     await waitFor(() => expect(heading).toHaveFocus());
 
     await user.click(founding);
+
     expect(founding).toBeChecked();
     expect(onChoose).not.toHaveBeenCalled();
+
     await user.click(within(dialog).getByRole('button', { name: 'Reserve founding offer' }));
+
     expect(onChoose).toHaveBeenCalledOnce();
     expect(onChoose).toHaveBeenCalledWith('founding');
   });
@@ -83,6 +89,7 @@ describe('PlanOfferSheet', () => {
     );
 
     const dialog = screen.getByRole('dialog', { name: 'Your site is saved' });
+
     expect(within(dialog).getByText('$0 to start')).toBeVisible();
     expect(within(dialog).getAllByText('Price coming soon')).toHaveLength(2);
     expect(within(dialog).getByText(/Final paid-plan pricing and features are still being confirmed/u)).toBeVisible();
@@ -90,6 +97,7 @@ describe('PlanOfferSheet', () => {
     expect(within(dialog).queryByRole('table')).not.toBeInTheDocument();
 
     await user.click(within(dialog).getByText('Compare options'));
+
     expect(within(dialog).getAllByText('Online booking')).toHaveLength(2);
     expect(within(dialog).getByRole('heading', { name: 'Included now' })).toBeVisible();
     expect(within(dialog).getByRole('heading', { name: 'Planned for paid options' })).toBeVisible();
@@ -146,6 +154,7 @@ describe('PlanOfferSheet', () => {
         open
       />,
     );
+
     expect(screen.queryByRole('radio', { name: /Founding offer/iu })).not.toBeInTheDocument();
     expect(screen.getByRole('radio', { name: /Free \$0 to start/iu })).toBeChecked();
     expect(screen.getByRole('radio', { name: /^Monthly /iu })).toBeEnabled();
@@ -154,6 +163,7 @@ describe('PlanOfferSheet', () => {
     view.rerender(
       <PlanOfferSheet offer={offer} onChoose={vi.fn()} onClose={vi.fn()} open />,
     );
+
     expect(screen.queryByRole('radio', { name: /Founding offer/iu })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Continue free' })).toBeEnabled();
   });
@@ -170,6 +180,7 @@ describe('PlanOfferSheet', () => {
           open
         />,
       );
+
       expect(screen.getByRole('radio', { name: /Founding offer/iu })).toBeEnabled();
       expect(screen.queryByText(/Lifetime Access|annual access|locked founding rate|beta access/iu))
         .not.toBeInTheDocument();

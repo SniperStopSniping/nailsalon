@@ -31,25 +31,27 @@ export function TextField({
     <div className="form-field">
       <label className="form-field__label-wrap">
         <span>{label}</span>
-        {multiline ? (
-          <textarea
-            aria-describedby={described}
-            maxLength={maxLength}
-            onChange={event => onChange(event.target.value)}
-            placeholder={placeholder}
-            value={value}
-          />
-        ) : (
-          <input
-            aria-describedby={described}
-            autoComplete="off"
-            maxLength={maxLength}
-            onChange={event => onChange(event.target.value)}
-            placeholder={placeholder}
-            type="text"
-            value={value}
-          />
-        )}
+        {multiline
+          ? (
+              <textarea
+                aria-describedby={described}
+                maxLength={maxLength}
+                onChange={event => onChange(event.target.value)}
+                placeholder={placeholder}
+                value={value}
+              />
+            )
+          : (
+              <input
+                aria-describedby={described}
+                autoComplete="off"
+                maxLength={maxLength}
+                onChange={event => onChange(event.target.value)}
+                placeholder={placeholder}
+                type="text"
+                value={value}
+              />
+            )}
       </label>
       {hint ? <small className="form-hint" id={hintId}>{hint}</small> : null}
     </div>
@@ -163,17 +165,23 @@ export function BoundTextField({
           Write my own
         </button>
       </div>
-      {overriding ? (
-        <input
-          autoComplete="off"
-          maxLength={maxLength}
-          onChange={event => onChange({ source: 'override', value: event.target.value })}
-          type="text"
-          value={value.value}
-        />
-      ) : (
-        <small className="form-hint">Currently: “{sharedValue}”</small>
-      )}
+      {overriding
+        ? (
+            <input
+              autoComplete="off"
+              maxLength={maxLength}
+              onChange={event => onChange({ source: 'override', value: event.target.value })}
+              type="text"
+              value={value.value}
+            />
+          )
+        : (
+            <small className="form-hint">
+              Currently: “
+              {sharedValue}
+              ”
+            </small>
+          )}
     </div>
   );
 }

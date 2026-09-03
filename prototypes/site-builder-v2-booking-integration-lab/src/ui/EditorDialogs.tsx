@@ -1,5 +1,5 @@
 import { ArrowDown, ArrowUp, Download, FileUp, ImageUp, Maximize2, Plus, Redo2, RotateCcw, Search, Trash2, Undo2 } from 'lucide-react';
-import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { type FormEvent, useEffect, useRef, useState } from 'react';
 
 import type { BookingTokenPresetId, ImageFixture, MenuSize } from '../booking/types';
 import {
@@ -76,16 +76,20 @@ export function SectionLibraryDialog({
   page,
 }: SectionLibraryDialogProps) {
   const [search, setSearch] = useState('');
-  const activeTypes = new Set(document.pages.flatMap((candidate) => candidate.sections.map((section) => section.sectionType)));
-  const unusedTypes = new Set(document.unusedSections.map((section) => section.sectionType));
+  const activeTypes = new Set(document.pages.flatMap(candidate => candidate.sections.map(section => section.sectionType)));
+  const unusedTypes = new Set(document.unusedSections.map(section => section.sectionType));
   const normalizedSearch = auditMode ? search.trim().toLocaleLowerCase() : '';
-  const visibleItems = auditMode ? ADD_SECTION_CATALOGUE.filter((item) => {
-    if (!normalizedSearch) return true;
-    const searchable = item.sectionType === 'custom_design'
-      ? [item.label, item.description, item.helper, ...item.searchKeywords, ...item.tags]
-      : [item.label, item.defaultSize, 'placeholder', 'future section'];
-    return searchable.some((value) => value.toLocaleLowerCase().includes(normalizedSearch));
-  }) : [];
+  const visibleItems = auditMode
+    ? ADD_SECTION_CATALOGUE.filter((item) => {
+      if (!normalizedSearch) {
+        return true;
+      }
+      const searchable = item.sectionType === 'custom_design'
+        ? [item.label, item.description, item.helper, ...item.searchKeywords, ...item.tags]
+        : [item.label, item.defaultSize, 'placeholder', 'future section'];
+      return searchable.some(value => value.toLocaleLowerCase().includes(normalizedSearch));
+    })
+    : [];
   const bookingMatches = auditMode
     && (!normalizedSearch || 'booking client service menu'.includes(normalizedSearch));
   const normalSectionTypes = new Set<LibrarySectionType | 'booking'>(getNormalV1AddSectionTypes({
@@ -94,8 +98,12 @@ export function SectionLibraryDialog({
     page,
   }));
   const libraryItems = getAddSectionLibrary().filter((item) => {
-    if (!auditMode && !normalSectionTypes.has(item.sectionType)) return false;
-    if (!normalizedSearch) return true;
+    if (!auditMode && !normalSectionTypes.has(item.sectionType)) {
+      return false;
+    }
+    if (!normalizedSearch) {
+      return true;
+    }
     return [item.label, item.description, item.category, item.sectionType]
       .some(value => value.toLocaleLowerCase().includes(normalizedSearch));
   });
@@ -108,7 +116,9 @@ export function SectionLibraryDialog({
     .filter(group => group.items.length > 0);
 
   useEffect(() => {
-    if (insertionPosition === null) setSearch('');
+    if (insertionPosition === null) {
+      setSearch('');
+    }
   }, [insertionPosition]);
 
   return (
@@ -123,21 +133,27 @@ export function SectionLibraryDialog({
     >
       <div className="section-library-intro">
         <strong>{auditMode ? 'Section library' : 'Core website sections'}</strong>
-        <span>{auditMode
-          ? 'All starting points use the same library.'
-          : 'Only sections that belong on this page are shown.'}</span>
+        <span>
+          {auditMode
+            ? 'All starting points use the same library.'
+            : 'Only sections that belong on this page are shown.'}
+        </span>
       </div>
-      {auditMode ? <label className="section-library-search">
-        <span className="visually-hidden">Search sections</span>
-        <Search aria-hidden="true" size={18} />
-        <input
-          autoComplete="off"
-          placeholder="Search Canva, policies, booking…"
-          type="search"
-          value={search}
-          onChange={(event) => setSearch(event.target.value)}
-        />
-      </label> : null}
+      {auditMode
+        ? (
+            <label className="section-library-search">
+              <span className="visually-hidden">Search sections</span>
+              <Search aria-hidden="true" size={18} />
+              <input
+                autoComplete="off"
+                placeholder="Search Canva, policies, booking…"
+                type="search"
+                value={search}
+                onChange={event => setSearch(event.target.value)}
+              />
+            </label>
+          )
+        : null}
       {libraryByCategory.map(group => (
         <section aria-label={LIBRARY_CATEGORY_LABELS[group.category]} className="section-library-category" key={group.category}>
           <h3 className="section-library-category__title">{LIBRARY_CATEGORY_LABELS[group.category]}</h3>
@@ -181,19 +197,26 @@ export function SectionLibraryDialog({
                         onClick={() => onRestore(section, insertionPosition ?? undefined)}
                       >
                         <RotateCcw aria-hidden="true" size={15} />
-                        <span>Restore removed {section.label}</span>
+                        <span>
+                          {'Restore removed '}
+                          {section.label}
+                        </span>
                       </button>
                     ))}
-                    {auditMode || removedInstances.length === 0 ? (
-                      <button
-                        aria-haspopup={addState.blocked ? 'dialog' : undefined}
-                        className="library-add-button"
-                        type="button"
-                        onClick={() => onAddLibrary(item.sectionType)}
-                      >
-                        <Plus aria-hidden="true" size={15} /> {addState.blocked ? addState.reason : `Add ${itemLabel}`}
-                      </button>
-                    ) : null}
+                    {auditMode || removedInstances.length === 0
+                      ? (
+                          <button
+                            aria-haspopup={addState.blocked ? 'dialog' : undefined}
+                            className="library-add-button"
+                            type="button"
+                            onClick={() => onAddLibrary(item.sectionType)}
+                          >
+                            <Plus aria-hidden="true" size={15} />
+                            {' '}
+                            {addState.blocked ? addState.reason : `Add ${itemLabel}`}
+                          </button>
+                        )
+                      : null}
                   </div>
                 </article>
               );
@@ -206,12 +229,12 @@ export function SectionLibraryDialog({
           if (item.sectionType === 'custom_design') {
             const activeCount = document.pages.reduce(
               (count, candidate) => count + candidate.sections.filter(
-                (section) => section.sectionType === 'custom_design',
+                section => section.sectionType === 'custom_design',
               ).length,
               0,
             );
             const removedCustomDesigns = document.unusedSections.filter(
-              (section) => section.sectionType === 'custom_design',
+              section => section.sectionType === 'custom_design',
             );
             const stateParts = [
               activeCount > 0 ? `${activeCount} in use` : '',
@@ -229,43 +252,55 @@ export function SectionLibraryDialog({
                   <span className="library-item__helper">{item.helper}</span>
                   <span className="library-state">{state}</span>
                   <span className="library-item__tags" aria-label="Custom Design tags">
-                    {item.tags.map((tag) => <small key={tag}>{tag}</small>)}
+                    {item.tags.map(tag => <small key={tag}>{tag}</small>)}
                   </span>
-                  {removedCustomDesigns.length > 0 ? (
-                    <div className="library-restore-list" aria-label="Removed Custom Design sections">
-                      {removedCustomDesigns.map((section, index) => {
-                        const imageCount = section.settings.images.length;
-                        const restoreLabel = removedCustomDesigns.length === 1
-                          ? 'Restore removed Custom Design'
-                          : `Restore removed Custom Design ${index + 1} of ${removedCustomDesigns.length}, ${imageCount} ${imageCount === 1 ? 'image' : 'images'}`;
-                        return (
-                          <button
-                            aria-label={restoreLabel}
-                            className="library-add-button library-restore-button"
-                            key={section.id}
-                            type="button"
-                            onClick={() => onRestore(
-                              section,
-                              insertionPosition ?? undefined,
-                            )}
-                          >
-                            <RotateCcw aria-hidden="true" size={15} />
-                            <span>
-                              Restore removed {section.label}
-                              <small>
-                                {removedCustomDesigns.length > 1
-                                  ? `Removed ${index + 1} of ${removedCustomDesigns.length} · `
-                                  : ''}
-                                {imageCount} {imageCount === 1 ? 'image' : 'images'} · {section.visible ? 'shown' : 'hidden'}
-                              </small>
-                            </span>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  ) : null}
+                  {removedCustomDesigns.length > 0
+                    ? (
+                        <div className="library-restore-list" aria-label="Removed Custom Design sections">
+                          {removedCustomDesigns.map((section, index) => {
+                            const imageCount = section.settings.images.length;
+                            const restoreLabel = removedCustomDesigns.length === 1
+                              ? 'Restore removed Custom Design'
+                              : `Restore removed Custom Design ${index + 1} of ${removedCustomDesigns.length}, ${imageCount} ${imageCount === 1 ? 'image' : 'images'}`;
+                            return (
+                              <button
+                                aria-label={restoreLabel}
+                                className="library-add-button library-restore-button"
+                                key={section.id}
+                                type="button"
+                                onClick={() => onRestore(
+                                  section,
+                                  insertionPosition ?? undefined,
+                                )}
+                              >
+                                <RotateCcw aria-hidden="true" size={15} />
+                                <span>
+                                  Restore removed
+                                  {' '}
+                                  {section.label}
+                                  <small>
+                                    {removedCustomDesigns.length > 1
+                                      ? `Removed ${index + 1} of ${removedCustomDesigns.length} · `
+                                      : ''}
+                                    {imageCount}
+                                    {' '}
+                                    {imageCount === 1 ? 'image' : 'images'}
+                                    {' '}
+                                    ·
+                                    {' '}
+                                    {section.visible ? 'shown' : 'hidden'}
+                                  </small>
+                                </span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )
+                    : null}
                   <button className="library-add-button" type="button" onClick={() => onAdd('custom_design')}>
-                    <Plus aria-hidden="true" size={15} /> {removedCustomDesigns.length > 0 || activeCount > 0
+                    <Plus aria-hidden="true" size={15} />
+                    {' '}
+                    {removedCustomDesigns.length > 0 || activeCount > 0
                       ? 'Add another Custom Design'
                       : 'Add Custom Design'}
                   </button>
@@ -279,52 +314,70 @@ export function SectionLibraryDialog({
               <div className="library-item__preview">{item.label.replace('Section ', '')}</div>
               <div className="library-item__copy">
                 <strong>{item.label}</strong>
-                <span>{item.defaultSize} placeholder</span>
+                <span>
+                  {item.defaultSize}
+                  {' '}
+                  placeholder
+                </span>
                 <span className="library-state">{state}</span>
                 <button className="library-add-button" type="button" onClick={() => onAdd(item.sectionType, item.defaultSize)}>
-                  <Plus aria-hidden="true" size={15} /> Add {item.label}
+                  <Plus aria-hidden="true" size={15} />
+                  {' Add '}
+                  {item.label}
                 </button>
               </div>
             </article>
           );
         })}
-        {bookingMatches ? <article className="library-item" data-section-type="booking">
-          <div className="library-item__preview">B</div>
-          <div className="library-item__copy">
-            <strong>Booking</strong>
-            <span>Client service menu</span>
-            <span className="library-state">Currently used</span>
-            <button
-              aria-label="Go to Booking"
-              className="library-add-button"
-              type="button"
-              onClick={onGoToBooking}
-            >
-              Go to Booking
-            </button>
-          </div>
-        </article> : normalBookingAvailable ? (
-          <article className="library-item" data-section-type="booking">
-            <div className="library-item__preview">B</div>
-            <div className="library-item__copy">
-              <strong>Services &amp; Booking</strong>
-              <span>Your single service catalogue and booking experience.</span>
-              <span className="library-state">Available</span>
-              <button
-                className="library-add-button"
-                type="button"
-                onClick={() => onAdd('booking')}
-              >
-                <Plus aria-hidden="true" size={15} /> Add Services &amp; Booking
-              </button>
-            </div>
-          </article>
-        ) : null}
-        {visibleItems.length === 0 && libraryItems.length === 0 && !bookingMatches && !normalBookingAvailable ? (
-          <p className="section-library-empty">{auditMode
-            ? `No sections match “${search.trim()}”. Try hero, reviews, hours, or Canva.`
-            : `Every core section available for ${page.name} is already in your website.`}</p>
-        ) : null}
+        {bookingMatches
+          ? (
+              <article className="library-item" data-section-type="booking">
+                <div className="library-item__preview">B</div>
+                <div className="library-item__copy">
+                  <strong>Booking</strong>
+                  <span>Client service menu</span>
+                  <span className="library-state">Currently used</span>
+                  <button
+                    aria-label="Go to Booking"
+                    className="library-add-button"
+                    type="button"
+                    onClick={onGoToBooking}
+                  >
+                    Go to Booking
+                  </button>
+                </div>
+              </article>
+            )
+          : normalBookingAvailable
+            ? (
+                <article className="library-item" data-section-type="booking">
+                  <div className="library-item__preview">B</div>
+                  <div className="library-item__copy">
+                    <strong>Services &amp; Booking</strong>
+                    <span>Your single service catalogue and booking experience.</span>
+                    <span className="library-state">Available</span>
+                    <button
+                      className="library-add-button"
+                      type="button"
+                      onClick={() => onAdd('booking')}
+                    >
+                      <Plus aria-hidden="true" size={15} />
+                      {' '}
+                      Add Services &amp; Booking
+                    </button>
+                  </div>
+                </article>
+              )
+            : null}
+        {visibleItems.length === 0 && libraryItems.length === 0 && !bookingMatches && !normalBookingAvailable
+          ? (
+              <p className="section-library-empty">
+                {auditMode
+                  ? `No sections match “${search.trim()}”. Try hero, reviews, hours, or Canva.`
+                  : `Every core section available for ${page.name} is already in your website.`}
+              </p>
+            )
+          : null}
       </div>
     </Dialog>
   );
@@ -361,7 +414,7 @@ export function SectionSettingsDialog({ onClose, onSave, section }: SectionSetti
       <form onSubmit={submit}>
         <label className="form-field">
           <span>Placeholder size</span>
-          <select value={size} onChange={(event) => setSize(event.target.value as SectionSize)}>
+          <select value={size} onChange={event => setSize(event.target.value as SectionSize)}>
             <option value="compact">Compact</option>
             <option value="medium">Medium</option>
             <option value="large">Large</option>
@@ -369,7 +422,7 @@ export function SectionSettingsDialog({ onClose, onSave, section }: SectionSetti
         </label>
         <label className="form-field">
           <span>Owner note</span>
-          <textarea maxLength={240} value={note} onChange={(event) => setNote(event.target.value)} placeholder="Add a note for this future section" />
+          <textarea maxLength={240} value={note} onChange={event => setNote(event.target.value)} placeholder="Add a note for this future section" />
         </label>
         <p className="form-hint">These settings stay with the section when it moves or is restored.</p>
         <div className="dialog-actions">
@@ -390,14 +443,38 @@ type AddPageDialogProps = {
 export function AddPageDialog({ onAdd, onClose, open }: AddPageDialogProps) {
   const [name, setName] = useState('');
   const [slug, setSlug] = useState('');
-  useEffect(() => { if (open) { setName(''); setSlug(''); } }, [open]);
+  useEffect(() => {
+    if (open) {
+      setName('');
+      setSlug('');
+    }
+  }, [open]);
 
   return (
     <Dialog description="Add pages anytime, no matter where you started." onClose={onClose} open={open} title="Add page" variant="context-panel">
-      <form onSubmit={(event) => { event.preventDefault(); if (name.trim()) onAdd(name.trim(), slug); }}>
-        <label className="form-field"><span>Page name</span><input autoComplete="off" value={name} onChange={(event) => setName(event.target.value)} placeholder="Gallery" /></label>
-        <details className="advanced-settings"><summary>Advanced</summary><label className="form-field"><span>Web address</span><input autoComplete="off" value={slug} onChange={(event) => setSlug(event.target.value)} placeholder="gallery" /></label><p className="form-hint">Leave this blank and Luster will create it from the page name.</p></details>
-        <div className="dialog-actions"><button className="secondary-button" type="button" onClick={onClose}>Cancel</button><button className="primary-button" disabled={!name.trim()} type="submit">Add page</button></div>
+      <form onSubmit={(event) => {
+        event.preventDefault();
+        if (name.trim()) {
+          onAdd(name.trim(), slug);
+        }
+      }}
+      >
+        <label className="form-field">
+          <span>Page name</span>
+          <input autoComplete="off" value={name} onChange={event => setName(event.target.value)} placeholder="Gallery" />
+        </label>
+        <details className="advanced-settings">
+          <summary>Advanced</summary>
+          <label className="form-field">
+            <span>Web address</span>
+            <input autoComplete="off" value={slug} onChange={event => setSlug(event.target.value)} placeholder="gallery" />
+          </label>
+          <p className="form-hint">Leave this blank and Luster will create it from the page name.</p>
+        </details>
+        <div className="dialog-actions">
+          <button className="secondary-button" type="button" onClick={onClose}>Cancel</button>
+          <button className="primary-button" disabled={!name.trim()} type="submit">Add page</button>
+        </div>
       </form>
     </Dialog>
   );
@@ -429,12 +506,42 @@ export function PageSettingsDialog({ onClose, onSave, page }: PageSettingsDialog
 
   return (
     <Dialog description={page?.isHome ? 'Home always remains your main page, but its name and visibility can change.' : 'Choose how this page appears to clients.'} onClose={onClose} open={page !== null} title={page ? `${page.name} settings` : 'Page settings'} variant="context-panel">
-      <form onSubmit={(event) => { event.preventDefault(); if (name.trim()) onSave({ name: name.trim(), slug, visible, visibleInNavigation }); }}>
-        <label className="form-field"><span>Page name</span><input value={name} onChange={(event) => setName(event.target.value)} /></label>
-        <div className="switch-row"><span className="switch-row__copy"><strong>Show page</strong><span>Hidden pages stay editable.</span></span><button aria-checked={visible} aria-label="Show page" className="switch" role="switch" type="button" onClick={() => setVisible((value) => !value)} /></div>
-        <div className="switch-row"><span className="switch-row__copy"><strong>Show in menu</strong><span>Choose whether clients see this page in your menu.</span></span><button aria-checked={visibleInNavigation} aria-label="Show page in menu" className="switch" role="switch" type="button" onClick={() => setVisibleInNavigation((value) => !value)} /></div>
-        <details className="advanced-settings"><summary>Advanced</summary><label className="form-field"><span>Web address</span><input value={slug} onChange={(event) => setSlug(event.target.value)} placeholder={page?.isHome ? 'Home uses the main address' : 'page-address'} /></label></details>
-        <div className="dialog-actions"><button className="secondary-button" type="button" onClick={onClose}>Cancel</button><button className="primary-button" disabled={!name.trim()} type="submit">Save page</button></div>
+      <form onSubmit={(event) => {
+        event.preventDefault();
+        if (name.trim()) {
+          onSave({ name: name.trim(), slug, visible, visibleInNavigation });
+        }
+      }}
+      >
+        <label className="form-field">
+          <span>Page name</span>
+          <input value={name} onChange={event => setName(event.target.value)} />
+        </label>
+        <div className="switch-row">
+          <span className="switch-row__copy">
+            <strong>Show page</strong>
+            <span>Hidden pages stay editable.</span>
+          </span>
+          <button aria-checked={visible} aria-label="Show page" className="switch" role="switch" type="button" onClick={() => setVisible(value => !value)} />
+        </div>
+        <div className="switch-row">
+          <span className="switch-row__copy">
+            <strong>Show in menu</strong>
+            <span>Choose whether clients see this page in your menu.</span>
+          </span>
+          <button aria-checked={visibleInNavigation} aria-label="Show page in menu" className="switch" role="switch" type="button" onClick={() => setVisibleInNavigation(value => !value)} />
+        </div>
+        <details className="advanced-settings">
+          <summary>Advanced</summary>
+          <label className="form-field">
+            <span>Web address</span>
+            <input value={slug} onChange={event => setSlug(event.target.value)} placeholder={page?.isHome ? 'Home uses the main address' : 'page-address'} />
+          </label>
+        </details>
+        <div className="dialog-actions">
+          <button className="secondary-button" type="button" onClick={onClose}>Cancel</button>
+          <button className="primary-button" disabled={!name.trim()} type="submit">Save page</button>
+        </div>
       </form>
     </Dialog>
   );
@@ -454,12 +561,27 @@ export function NavigationSettingsDialog({ document, onClose, onMove, onRename, 
     <Dialog description="Reorder pages and choose the labels clients see." onClose={onClose} open={open} title="Menu settings" variant="structure-panel">
       <ol className="nav-item-list" aria-label="Navigation items">
         {items.map((item, index) => {
-          const page = document.pages.find((candidate) => candidate.id === item.pageId);
+          const page = document.pages.find(candidate => candidate.id === item.pageId);
           return (
             <li className="nav-item-row" key={item.id}>
               <label className="form-field" style={{ margin: 0 }}>
-                <span>{index + 1}. {page?.name ?? 'Page'}{page?.visibleInNavigation ? '' : ' · hidden from menu'}</span>
-                <input aria-label={`Navigation label for ${page?.name ?? 'page'}`} defaultValue={item.label} key={`${item.id}-${item.label}`} onBlur={(event) => { if (event.target.value.trim() && event.target.value.trim() !== item.label) onRename(item.pageId, event.target.value); }} />
+                <span>
+                  {index + 1}
+                  .
+                  {' '}
+                  {page?.name ?? 'Page'}
+                  {page?.visibleInNavigation ? '' : ' · hidden from menu'}
+                </span>
+                <input
+                  aria-label={`Navigation label for ${page?.name ?? 'page'}`}
+                  defaultValue={item.label}
+                  key={`${item.id}-${item.label}`}
+                  onBlur={(event) => {
+                    if (event.target.value.trim() && event.target.value.trim() !== item.label) {
+                      onRename(item.pageId, event.target.value);
+                    }
+                  }}
+                />
               </label>
               <div className="row-button-group">
                 <button aria-label={`Move ${item.label} up in navigation`} disabled={index === 0} type="button" onClick={() => onMove(item.pageId, index)}><ArrowUp aria-hidden="true" size={17} /></button>
@@ -488,8 +610,21 @@ type ConfirmationDialogProps = {
 
 export function ConfirmationDialog({ cancelLabel = 'Cancel', confirmLabel, danger = false, description, onClose, onConfirm, open, pending = false, title }: ConfirmationDialogProps) {
   return (
-    <Dialog closeDisabled={pending} description={description} onClose={() => { if (!pending) onClose(); }} open={open} title={title}>
-      <div aria-busy={pending || undefined} className="dialog-actions"><button className="secondary-button" disabled={pending} type="button" onClick={onClose}>{cancelLabel}</button><button className={danger ? 'danger-button' : 'primary-button'} disabled={pending} type="button" onClick={onConfirm}>{pending ? 'Starting over…' : confirmLabel}</button></div>
+    <Dialog
+      closeDisabled={pending}
+      description={description}
+      onClose={() => {
+        if (!pending) {
+          onClose();
+        }
+      }}
+      open={open}
+      title={title}
+    >
+      <div aria-busy={pending || undefined} className="dialog-actions">
+        <button className="secondary-button" disabled={pending} type="button" onClick={onClose}>{cancelLabel}</button>
+        <button className={danger ? 'danger-button' : 'primary-button'} disabled={pending} type="button" onClick={onConfirm}>{pending ? 'Starting over…' : confirmLabel}</button>
+      </div>
     </Dialog>
   );
 }
@@ -504,7 +639,10 @@ export function NavigationPromptDialog({ onAddNavigation, onClose, open }: Navig
   return (
     <Dialog description="You now have more than one page." onClose={onClose} open={open} title="Add a menu?">
       <p>Add a navigation menu so clients can move between your visible pages. You can change it anytime.</p>
-      <div className="dialog-actions"><button className="secondary-button" type="button" onClick={onClose}>Not now</button><button className="primary-button" type="button" onClick={onAddNavigation}>Add menu</button></div>
+      <div className="dialog-actions">
+        <button className="secondary-button" type="button" onClick={onClose}>Not now</button>
+        <button className="primary-button" type="button" onClick={onAddNavigation}>Add menu</button>
+      </div>
     </Dialog>
   );
 }
@@ -519,9 +657,18 @@ export function StartAgainDialog({ onChoose, onClose, open }: StartAgainDialogPr
   return (
     <Dialog description="This replaces the current local document. Export first if you want a backup." onClose={onClose} open={open} title="Start again from a kit">
       <div className="move-page-list" role="group" aria-label="Starting kits">
-        <button className="sheet-list-button" type="button" onClick={() => onChoose('quick_book')}><strong>Quick Book</strong><span>4 sections</span></button>
-        <button className="sheet-list-button" type="button" onClick={() => onChoose('one_page')}><strong>One-page website</strong><span>6 sections</span></button>
-        <button className="sheet-list-button" type="button" onClick={() => onChoose('multi_page')}><strong>Multi-page website</strong><span>5 pages</span></button>
+        <button className="sheet-list-button" type="button" onClick={() => onChoose('quick_book')}>
+          <strong>Quick Book</strong>
+          <span>4 sections</span>
+        </button>
+        <button className="sheet-list-button" type="button" onClick={() => onChoose('one_page')}>
+          <strong>One-page website</strong>
+          <span>6 sections</span>
+        </button>
+        <button className="sheet-list-button" type="button" onClick={() => onChoose('multi_page')}>
+          <strong>Multi-page website</strong>
+          <span>5 pages</span>
+        </button>
       </div>
     </Dialog>
   );
@@ -576,13 +723,27 @@ export function LabOptionsDialog({
       <div className="more-options-section">
         <span>History</span>
         <div className="more-options-history">
-          <button className="sheet-list-button" disabled={!canUndo} type="button" onClick={onUndo}><Undo2 aria-hidden="true" size={18} /> Undo</button>
-          <button className="sheet-list-button" disabled={!canRedo} type="button" onClick={onRedo}><Redo2 aria-hidden="true" size={18} /> Redo</button>
+          <button className="sheet-list-button" disabled={!canUndo} type="button" onClick={onUndo}>
+            <Undo2 aria-hidden="true" size={18} />
+            {' '}
+            Undo
+          </button>
+          <button className="sheet-list-button" disabled={!canRedo} type="button" onClick={onRedo}>
+            <Redo2 aria-hidden="true" size={18} />
+            {' '}
+            Redo
+          </button>
         </div>
       </div>
       <div className="more-options-section">
         <span>Lab display</span>
-        <div className="switch-row"><span className="switch-row__copy"><strong>Real-height simulation</strong><span>Preview how the editor behaves around short and very long future sections.</span></span><button aria-checked={realHeightSimulation} aria-label="Simulate real section heights" className="switch" role="switch" type="button" onClick={onToggleRealHeightSimulation}><Maximize2 aria-hidden="true" size={15} /></button></div>
+        <div className="switch-row">
+          <span className="switch-row__copy">
+            <strong>Real-height simulation</strong>
+            <span>Preview how the editor behaves around short and very long future sections.</span>
+          </span>
+          <button aria-checked={realHeightSimulation} aria-label="Simulate real section heights" className="switch" role="switch" type="button" onClick={onToggleRealHeightSimulation}><Maximize2 aria-hidden="true" size={15} /></button>
+        </div>
       </div>
       <div className="more-options-section">
         <span>Booking preview fixtures</span>
@@ -592,7 +753,7 @@ export function LabOptionsDialog({
           <select
             aria-label="Booking service photo fixture"
             value={imageFixture}
-            onChange={(event) => onImageFixtureChange(event.target.value as ImageFixture)}
+            onChange={event => onImageFixtureChange(event.target.value as ImageFixture)}
           >
             <option value="image_rich">Rich imagery</option>
             <option value="partial_images">Partial imagery</option>
@@ -604,7 +765,7 @@ export function LabOptionsDialog({
           <select
             aria-label="Booking service menu fixture"
             value={menuSize}
-            onChange={(event) => onMenuSizeChange(event.target.value as MenuSize)}
+            onChange={event => onMenuSizeChange(event.target.value as MenuSize)}
           >
             <option value="canonical">24 canonical services</option>
             <option value="stress_100">100-service stress menu</option>
@@ -615,7 +776,7 @@ export function LabOptionsDialog({
           <select
             aria-label="Booking presentation token fixture"
             value={tokenPreset}
-            onChange={(event) => onTokenPresetChange(event.target.value as BookingTokenPresetId)}
+            onChange={event => onTokenPresetChange(event.target.value as BookingTokenPresetId)}
           >
             <option value="warm">Warm Luster</option>
             <option value="neutral">Neutral</option>
@@ -627,12 +788,46 @@ export function LabOptionsDialog({
         <p className="form-hint" data-testid="custom-design-json-warning">
           Uploaded design files are stored in this browser and aren’t included in the JSON backup.
         </p>
-        <button className="sheet-list-button" type="button" onClick={onExport}><Download aria-hidden="true" size={18} /> Export JSON</button>
-        <button className="sheet-list-button" type="button" onClick={() => inputRef.current?.click()}><FileUp aria-hidden="true" size={18} /> Import JSON</button>
-        <input ref={inputRef} className="visually-hidden" accept="application/json,.json" aria-label="Import site JSON file" tabIndex={-1} type="file" onChange={(event) => { const file = event.target.files?.[0]; if (file) onImport(file); event.target.value = ''; }} />
-        <button className="sheet-list-button" type="button" onClick={onResetStarter}><RotateCcw aria-hidden="true" size={18} /> Reset to starter kit</button>
-        <button className="sheet-list-button" type="button" onClick={onStartAgain}><Plus aria-hidden="true" size={18} /> Start again from another kit</button>
-        <button className="sheet-list-button" type="button" onClick={onResetLab}><Trash2 aria-hidden="true" size={18} /> Reset Lab</button>
+        <button className="sheet-list-button" type="button" onClick={onExport}>
+          <Download aria-hidden="true" size={18} />
+          {' '}
+          Export JSON
+        </button>
+        <button className="sheet-list-button" type="button" onClick={() => inputRef.current?.click()}>
+          <FileUp aria-hidden="true" size={18} />
+          {' '}
+          Import JSON
+        </button>
+        <input
+          ref={inputRef}
+          className="visually-hidden"
+          accept="application/json,.json"
+          aria-label="Import site JSON file"
+          tabIndex={-1}
+          type="file"
+          onChange={(event) => {
+            const file = event.target.files?.[0];
+            if (file) {
+              onImport(file);
+            }
+            event.target.value = '';
+          }}
+        />
+        <button className="sheet-list-button" type="button" onClick={onResetStarter}>
+          <RotateCcw aria-hidden="true" size={18} />
+          {' '}
+          Reset to starter kit
+        </button>
+        <button className="sheet-list-button" type="button" onClick={onStartAgain}>
+          <Plus aria-hidden="true" size={18} />
+          {' '}
+          Start again from another kit
+        </button>
+        <button className="sheet-list-button" type="button" onClick={onResetLab}>
+          <Trash2 aria-hidden="true" size={18} />
+          {' '}
+          Reset Lab
+        </button>
       </div>
     </Dialog>
   );
@@ -651,7 +846,14 @@ export function AlertDialog({ message, onClose, title = 'That change isn’t ava
       <div className={title === 'Keep a way to book' ? 'booking-protection-dialog-content' : undefined}>
         <div role="alert">
           <p><strong>{first}</strong></p>
-          {second ? <p>Add another{second}</p> : null}
+          {second
+            ? (
+                <p>
+                  Add another
+                  {second}
+                </p>
+              )
+            : null}
         </div>
         <div className="dialog-actions"><button className="primary-button" type="button" onClick={onClose}>{title === 'Keep a way to book' ? 'Keep Booking' : 'Got it'}</button></div>
       </div>

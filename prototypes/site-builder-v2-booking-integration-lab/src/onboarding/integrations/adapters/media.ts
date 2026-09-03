@@ -15,7 +15,7 @@ export type OnboardingImageResolution =
 const resolutionError = (
   pair: CustomDesignAssetUrlPair,
 ): Error | null => {
-  const failed = [pair.thumbnail, pair.original].find((state) => (
+  const failed = [pair.thumbnail, pair.original].find(state => (
     state.status === 'error' || state.status === 'unavailable'
   ));
   return failed && (failed.status === 'error' || failed.status === 'unavailable')
@@ -32,15 +32,23 @@ export const resolveOnboardingImage = (
   image: LocalImageReference | undefined,
   assets: ReadonlyMap<string, CustomDesignAssetUrlPair>,
 ): OnboardingImageResolution => {
-  if (!image) return { status: 'empty', url: null };
+  if (!image) {
+    return { status: 'empty', url: null };
+  }
   if (image.source === 'data_url' || image.source === 'missing') {
     return { status: 'missing', url: null };
   }
-  if (image.previewUrl) return { status: 'ready', url: image.previewUrl };
-  if (!image.storageId) return { status: 'missing', url: null };
+  if (image.previewUrl) {
+    return { status: 'ready', url: image.previewUrl };
+  }
+  if (!image.storageId) {
+    return { status: 'missing', url: null };
+  }
 
   const pair = assets.get(image.storageId);
-  if (!pair) return { status: 'loading', url: null };
+  if (!pair) {
+    return { status: 'loading', url: null };
+  }
   if (pair.thumbnail.status === 'ready') {
     return { status: 'ready', url: pair.thumbnail.url };
   }

@@ -35,10 +35,10 @@ export class ObjectUrlRegistry {
 
   constructor(options: ObjectUrlRegistryOptions) {
     this.loadBlob = options.loadBlob;
-    this.createUrl =
-      options.createObjectURL ?? ((blob) => globalThis.URL.createObjectURL(blob));
-    this.revokeUrl =
-      options.revokeObjectURL ?? ((url) => globalThis.URL.revokeObjectURL(url));
+    this.createUrl
+      = options.createObjectURL ?? (blob => globalThis.URL.createObjectURL(blob));
+    this.revokeUrl
+      = options.revokeObjectURL ?? (url => globalThis.URL.revokeObjectURL(url));
   }
 
   acquire = (assetId: string): AssetObjectUrlLease => {
@@ -57,9 +57,9 @@ export class ObjectUrlRegistry {
     const acquiredEntry = entry;
     const state = this.load(acquiredEntry).then((result) => {
       if (
-        !active ||
-        acquiredEntry.invalidated ||
-        this.entries.get(assetId) !== acquiredEntry
+        !active
+        || acquiredEntry.invalidated
+        || this.entries.get(assetId) !== acquiredEntry
       ) {
         return { assetId, status: 'cancelled' } as const;
       }
@@ -114,9 +114,9 @@ export class ObjectUrlRegistry {
       .then(() => this.loadBlob(entry.assetId))
       .then((blob): AssetObjectUrlState => {
         if (
-          entry.invalidated ||
-          entry.references === 0 ||
-          this.entries.get(entry.assetId) !== entry
+          entry.invalidated
+          || entry.references === 0
+          || this.entries.get(entry.assetId) !== entry
         ) {
           return { assetId: entry.assetId, status: 'cancelled' };
         }

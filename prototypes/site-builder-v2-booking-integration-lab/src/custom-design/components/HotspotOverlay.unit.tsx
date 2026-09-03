@@ -37,6 +37,7 @@ describe('owner hotspot overlay', () => {
     const rectangle = screen.getByRole('group', {
       name: 'Clickable area: Instagram profile',
     });
+
     expect(rectangle).toHaveStyle({
       height: '5%',
       left: '10%',
@@ -48,6 +49,7 @@ describe('owner hotspot overlay', () => {
     expect(
       screen.getAllByRole('button', { name: /Resize Instagram profile from/ }),
     ).toHaveLength(8);
+
     screen.getAllByRole('button', { name: /Resize Instagram profile from/ })
       .forEach((handle) => {
         expect(handle).toHaveAttribute('data-handle-inset', 'true');
@@ -67,6 +69,7 @@ describe('owner hotspot overlay', () => {
     const rectangle = screen.getByRole('group', {
       name: 'Clickable area: Instagram profile',
     });
+
     expect(rectangle).toHaveAttribute('data-target-warning', 'true');
     expect(screen.getByRole('status')).toHaveTextContent('Smaller than 44 × 44px');
     expect(rectangle).toHaveStyle({ height: '5%', width: '5%' });
@@ -87,6 +90,7 @@ describe('owner hotspot overlay', () => {
     const rectangle = screen.getByRole('group', {
       name: 'Clickable area: Instagram profile',
     });
+
     expect(rectangle).toHaveAttribute('data-target-warning', 'false');
     expect(rectangle).toHaveAttribute('data-review-status', 'needs_review');
     expect(screen.queryByRole('status')).not.toBeInTheDocument();
@@ -114,20 +118,26 @@ describe('owner hotspot overlay', () => {
       name: 'Move clickable area: Instagram profile',
     });
     fireEvent.keyDown(move, { key: 'ArrowRight', shiftKey: true });
+
     expect(onKeyboardMove).toHaveBeenCalledWith('area-small', { x: 5, y: 0 });
+
     fireEvent.pointerDown(move, { pointerId: 1 });
+
     expect(onMoveStart).toHaveBeenCalledWith('area-small', expect.anything());
 
     const southeast = screen.getByRole('button', {
       name: 'Resize Instagram profile from south east',
     });
     fireEvent.keyDown(southeast, { key: 'ArrowDown' });
+
     expect(onKeyboardResize).toHaveBeenCalledWith(
       'area-small',
       'south_east',
       { x: 0, y: 1 },
     );
+
     fireEvent.pointerDown(southeast, { pointerId: 2 });
+
     expect(onResizeStart).toHaveBeenCalledWith(
       'area-small',
       'south_east',
@@ -151,6 +161,7 @@ describe('owner hotspot overlay', () => {
     const rectangle = screen.getByRole('group', {
       name: 'Clickable area: Instagram profile',
     });
+
     expect(rectangle).toHaveAttribute('data-edge-right', 'true');
     expect(rectangle).toHaveAttribute('data-edge-top', 'true');
     expect(rectangle).toHaveAttribute('data-edge-bottom', 'false');
@@ -160,10 +171,10 @@ describe('owner hotspot overlay', () => {
       '--custom-design-owner-area-height': '30px',
       '--custom-design-owner-area-width': '16px',
       '--custom-design-owner-popover-max-width': '260px',
-      height: '5%',
-      left: '95%',
-      top: '0%',
-      width: '5%',
+      'height': '5%',
+      'left': '95%',
+      'top': '0%',
+      'width': '5%',
     });
     expect(edgeArea.geometry).toEqual(originalGeometry);
   });
@@ -184,6 +195,7 @@ describe('owner hotspot overlay', () => {
     const rectangle = screen.getByRole('group', {
       name: 'Clickable area: Instagram profile',
     });
+
     expect(rectangle).toHaveAttribute('data-edge-right', 'true');
     expect(rectangle).toHaveAttribute('data-edge-top', 'false');
     expect(rectangle).toHaveAttribute('data-edge-bottom', 'true');
@@ -224,6 +236,7 @@ describe('owner hotspot overlay', () => {
     const taller = screen.getByRole('button', {
       name: 'Make Instagram profile taller',
     });
+
     expect(resizePad).toHaveAttribute(
       'data-testid',
       'custom-design-resize-pad-area-small',
@@ -232,28 +245,32 @@ describe('owner hotspot overlay', () => {
     expect(wider).toHaveAttribute('data-resize-step-pixels', '12');
 
     await user.click(wider);
+
     expect(onResize).toHaveBeenCalledWith(
       'area-small',
       'west',
       { x: -12, y: 0 },
     );
+
     await user.click(taller);
+
     expect(onResize).toHaveBeenCalledWith(
       'area-small',
       'north',
       { x: 0, y: -12 },
     );
+
     taller.focus();
+
     expect(taller).toHaveFocus();
     expect(tinyArea.geometry).toEqual(originalGeometry);
   });
 });
 
-const withinOverlay = (
-  overlay: HTMLElement,
-  label: string,
-): HTMLElement => {
+function withinOverlay(overlay: HTMLElement, label: string): HTMLElement {
   const control = overlay.querySelector<HTMLElement>(`[aria-label="${label}"]`);
-  if (!control) throw new Error(`Missing control: ${label}`);
+  if (!control) {
+    throw new Error(`Missing control: ${label}`);
+  }
   return control;
-};
+}

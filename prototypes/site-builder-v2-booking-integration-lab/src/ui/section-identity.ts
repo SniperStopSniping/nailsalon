@@ -1,9 +1,9 @@
 import { BOOKING_LAYOUT_META } from '../booking/layout-meta';
-import type { SectionInstance } from '../model/types';
 import {
   getSectionRegistryEntry,
   isLibrarySection,
 } from '../model/section-library/registry';
+import type { SectionInstance } from '../model/types';
 
 export type SectionOwnerIdentity = {
   detail: string;
@@ -23,6 +23,14 @@ const displayModeLabel = (
   full_width: 'Full width',
   poster: 'Poster',
 })[displayMode];
+
+/** Two-letter mark from the registry label, e.g. "Final Booking CTA" -> "FB". */
+const sectionLibraryMark = (label: string): string => {
+  const words = label.split(/\s+/u).filter(Boolean);
+  const first = words[0]?.[0] ?? '?';
+  const second = words[1]?.[0] ?? words[0]?.[1] ?? '';
+  return `${first}${second}`.toUpperCase();
+};
 
 export const getSectionOwnerIdentity = (
   section: SectionInstance,
@@ -73,12 +81,4 @@ export const getSectionOwnerIdentity = (
     recoveryDetail: `${placeholder.size} · settings retained`,
     short: placeholder.size,
   };
-};
-
-/** Two-letter mark from the registry label, e.g. "Final Booking CTA" -> "FB". */
-const sectionLibraryMark = (label: string): string => {
-  const words = label.split(/\s+/u).filter(Boolean);
-  const first = words[0]?.[0] ?? '?';
-  const second = words[1]?.[0] ?? words[0]?.[1] ?? '';
-  return `${first}${second}`.toUpperCase();
 };

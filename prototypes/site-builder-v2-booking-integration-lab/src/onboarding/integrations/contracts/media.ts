@@ -5,8 +5,8 @@ import type {
 } from '../../../custom-design/assets';
 import type { LocalImageReference } from '../../model/types';
 
-export const ONBOARDING_MEDIA_STORAGE_UNAVAILABLE_MESSAGE =
-  'This browser tab isn’t allowing Luster to save images. If you’re using a private tab, open this page in a regular tab and try again.';
+export const ONBOARDING_MEDIA_STORAGE_UNAVAILABLE_MESSAGE
+  = 'This browser tab isn’t allowing Luster to save images. If you’re using a private tab, open this page in a regular tab and try again.';
 
 export type OnboardingMediaOwner = 'gallery' | 'logo' | 'profile';
 

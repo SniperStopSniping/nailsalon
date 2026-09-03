@@ -16,44 +16,79 @@ function Harness() {
   const [results, setResults] = useState<boolean[]>([]);
   return (
     <>
-      <button type="button" onClick={() => feedback.send({
-        kind: 'added',
-        message: 'Russian Manicure added.',
-      })}>Add service</button>
-      <button type="button" onClick={() => setResults((current) => [
-        ...current,
-        feedback.send({
-          kind: 'milestone',
-          message: 'Everything you need is ready',
-          onceKey: 'all-ready',
-        }),
-      ])}>Complete</button>
+      <button
+        type="button"
+        onClick={() => feedback.send({
+          kind: 'added',
+          message: 'Russian Manicure added.',
+        })}
+      >
+        Add service
+      </button>
+      <button
+        type="button"
+        onClick={() => setResults(current => [
+          ...current,
+          feedback.send({
+            kind: 'milestone',
+            message: 'Everything you need is ready',
+            onceKey: 'all-ready',
+          }),
+        ])}
+      >
+        Complete
+      </button>
       <button type="button" onClick={() => feedback.resetSession()}>Reset feedback</button>
       <button type="button" onClick={() => feedback.configure({ reducedMotion: true })}>Reduce motion</button>
-      <button type="button" onClick={() => feedback.send({
-        kind: 'milestone',
-        message: 'Your starting site is ready',
-        replaceVisual: true,
-      })}>Starting site milestone</button>
-      <button type="button" onClick={() => feedback.send({
-        kind: 'stage_complete',
-        message: 'Booking is ready',
-      })}>Booking stage milestone</button>
-      <button type="button" onClick={() => feedback.send({
-        kind: 'milestone',
-        message: 'Everything you need is ready after navigation',
-        preserveOnNavigation: true,
-      })}>Persistent milestone</button>
-      <button type="button" onClick={() => feedback.send({
-        announce: false,
-        kind: 'added',
-        message: 'Photo ready',
-      })}>Visual only</button>
-      <button type="button" onClick={() => feedback.send({
-        kind: 'completed',
-        message: 'Starter menu confirmed.',
-        visual: false,
-      })}>Announce only</button>
+      <button
+        type="button"
+        onClick={() => feedback.send({
+          kind: 'milestone',
+          message: 'Your starting site is ready',
+          replaceVisual: true,
+        })}
+      >
+        Starting site milestone
+      </button>
+      <button
+        type="button"
+        onClick={() => feedback.send({
+          kind: 'stage_complete',
+          message: 'Booking is ready',
+        })}
+      >
+        Booking stage milestone
+      </button>
+      <button
+        type="button"
+        onClick={() => feedback.send({
+          kind: 'milestone',
+          message: 'Everything you need is ready after navigation',
+          preserveOnNavigation: true,
+        })}
+      >
+        Persistent milestone
+      </button>
+      <button
+        type="button"
+        onClick={() => feedback.send({
+          announce: false,
+          kind: 'added',
+          message: 'Photo ready',
+        })}
+      >
+        Visual only
+      </button>
+      <button
+        type="button"
+        onClick={() => feedback.send({
+          kind: 'completed',
+          message: 'Starter menu confirmed.',
+          visual: false,
+        })}
+      >
+        Announce only
+      </button>
       <button type="button" onClick={() => feedback.setVisualSuppressed(true)}>
         Suppress visual
       </button>
@@ -63,10 +98,15 @@ function Harness() {
       <button type="button" onClick={() => feedback.clearQueuedVisuals()}>
         Clear queued visuals
       </button>
-      <button type="button" onClick={() => feedback.send({
-        kind: 'completed',
-        message: 'Gallery photo ready',
-      })}>Dialog feedback</button>
+      <button
+        type="button"
+        onClick={() => feedback.send({
+          kind: 'completed',
+          message: 'Gallery photo ready',
+        })}
+      >
+        Dialog feedback
+      </button>
       <output aria-label="feedback results">{results.join(',')}</output>
     </>
   );
@@ -101,6 +141,7 @@ describe('FeedbackProvider', () => {
     await user.click(screen.getByRole('button', { name: 'Add service' }));
 
     expect(document.querySelectorAll('.onboarding-feedback')).toHaveLength(1);
+
     await waitFor(() => expect(screen.getAllByText('Russian Manicure added.')).toHaveLength(2));
   });
 
@@ -111,6 +152,7 @@ describe('FeedbackProvider', () => {
     await user.click(screen.getByRole('button', { name: 'Announce only' }));
 
     expect(document.querySelector('.onboarding-feedback')).toBeNull();
+
     await waitFor(() => expect(document.querySelector('.visually-hidden[role="status"]'))
       .toHaveTextContent('Starter menu confirmed.'));
   });
@@ -128,6 +170,7 @@ describe('FeedbackProvider', () => {
 
     await user.click(screen.getByRole('button', { name: 'Reset feedback' }));
     await user.click(complete);
+
     expect(screen.getByLabelText('feedback results')).toHaveTextContent('true,false,true');
   });
 
@@ -156,6 +199,7 @@ describe('FeedbackProvider', () => {
       );
 
       act(() => vi.advanceTimersByTime(2_800));
+
       expect(document.querySelector('.onboarding-feedback')).toHaveTextContent(
         'Booking is ready',
       );
@@ -195,11 +239,13 @@ describe('FeedbackProvider', () => {
     await user.click(screen.getByRole('button', { name: 'Dialog feedback' }));
 
     expect(document.querySelector('.onboarding-feedback')).toBeNull();
+
     await waitFor(() => expect(document.querySelector('.visually-hidden[role="status"]'))
       .toHaveTextContent('Gallery photo ready'));
 
     await user.click(screen.getByRole('button', { name: 'Resume visual' }));
     await user.click(screen.getByRole('button', { name: 'Add service' }));
+
     expect(document.querySelector('.onboarding-feedback')).toHaveTextContent(
       'Russian Manicure added.',
     );
@@ -210,10 +256,13 @@ describe('FeedbackProvider', () => {
     render(<FeedbackProvider testMode><SharedDialogHarness /></FeedbackProvider>);
 
     await user.click(screen.getByRole('button', { name: 'Open shared dialog' }));
+
     expect(document.documentElement).toHaveClass('luster-dialog-open');
+
     await user.click(screen.getByRole('button', { name: 'Add in dialog' }));
 
     expect(document.querySelector('.onboarding-feedback')).toBeNull();
+
     await waitFor(() => expect(document.querySelector('.visually-hidden[role="status"]'))
       .toHaveTextContent('Service added inside dialog.'));
 

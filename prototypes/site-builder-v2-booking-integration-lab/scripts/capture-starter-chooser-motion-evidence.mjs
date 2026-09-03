@@ -7,8 +7,8 @@ import { chromium, devices } from '@playwright/test';
 
 const baseUrl = process.env.LUSTER_LAB_URL ?? 'http://127.0.0.1:4182';
 const outputDirectory = '/tmp/luster-starter-chooser-motion';
-const labStorageKey =
-  'luster:site-builder-v2-booking-integration-lab:document:v1';
+const labStorageKey
+  = 'luster:site-builder-v2-booking-integration-lab:document:v1';
 
 const mobileViewport = { height: 844, width: 390 };
 const desktopViewport = { height: 900, width: 1440 };
@@ -85,7 +85,9 @@ function recordEvidence(relativePath, metadata) {
 function startRuntimeMonitor(page, phase) {
   const listeners = {
     console: (message) => {
-      if (message.type() !== 'error' && message.type() !== 'warning') return;
+      if (message.type() !== 'error' && message.type() !== 'warning') {
+        return;
+      }
       runtimeIssues.push({
         message: message.text(),
         phase,
@@ -109,7 +111,9 @@ function startRuntimeMonitor(page, phase) {
       });
     },
     response: (response) => {
-      if (response.status() < 400) return;
+      if (response.status() < 400) {
+        return;
+      }
       runtimeIssues.push({
         method: response.request().method(),
         phase,
@@ -202,7 +206,9 @@ async function openFreshChooser(page, phase) {
   await page.getByRole('heading', { name: 'Choose your starting point' })
     .waitFor({ state: 'visible' });
   await page.evaluate(async () => {
-    if (document.fonts) await document.fonts.ready;
+    if (document.fonts) {
+      await document.fonts.ready;
+    }
   });
   await page.waitForTimeout(120);
 
@@ -213,7 +219,7 @@ async function openFreshChooser(page, phase) {
 async function activeStarterIds(page) {
   return page
     .locator('.final-starter-preview[data-preview-active="true"]')
-    .evaluateAll((elements) => elements.map((element) => (
+    .evaluateAll(elements => elements.map(element => (
       element.closest('[data-starter-id]')?.getAttribute('data-starter-id')
     )));
 }
@@ -222,7 +228,7 @@ async function assertActiveStarter(page, expectedStarterId) {
   await page.waitForFunction((expected) => {
     const active = [...document.querySelectorAll(
       '.final-starter-preview[data-preview-active="true"]',
-    )].map((element) => (
+    )].map(element => (
       element.closest('[data-starter-id]')?.getAttribute('data-starter-id')
     ));
     return expected === null
@@ -239,7 +245,7 @@ async function assertActiveStarter(page, expectedStarterId) {
 
 async function assertNoStarterSelected(page) {
   assert.equal(
-    await page.evaluate((key) => window.localStorage.getItem(key), labStorageKey),
+    await page.evaluate(key => window.localStorage.getItem(key), labStorageKey),
     null,
     'Preview playback unexpectedly created a starter document.',
   );
@@ -279,12 +285,12 @@ async function pausePreviewAt(page, starterId, timeMs) {
     (element, requestedTime) => {
       const animations = element
         .getAnimations({ subtree: true })
-        .filter((animation) => animation instanceof CSSAnimation);
+        .filter(animation => animation instanceof CSSAnimation);
       for (const animation of animations) {
         animation.pause();
         animation.currentTime = requestedTime;
       }
-      return animations.map((animation) => animation.animationName);
+      return animations.map(animation => animation.animationName);
     },
     timeMs,
   );
@@ -307,11 +313,13 @@ async function assertSceneInPreview(page, starterId, sceneId) {
       const sceneRectangle = element
         .querySelector(`[data-preview-scene="${requestedScene}"]`)
         ?.getBoundingClientRect();
-      if (!viewportRectangle || !sceneRectangle) return 0;
+      if (!viewportRectangle || !sceneRectangle) {
+        return 0;
+      }
       const overlap = Math.max(
         0,
         Math.min(viewportRectangle.bottom, sceneRectangle.bottom)
-          - Math.max(viewportRectangle.top, sceneRectangle.top),
+        - Math.max(viewportRectangle.top, sceneRectangle.top),
       );
       return overlap / sceneRectangle.height;
     },
@@ -331,9 +339,9 @@ async function assertMultiPageScene(page, sceneId, activeNavigationIndex) {
       ).opacity),
       navigationBackgrounds: [...element.querySelectorAll(
         '.final-starter-preview__nav > span',
-      )].map((item) => getComputedStyle(item).backgroundColor),
+      )].map(item => getComputedStyle(item).backgroundColor),
       sceneOpacities: [...element.querySelectorAll('[data-preview-scene]')]
-        .map((item) => ({
+        .map(item => ({
           id: item.getAttribute('data-preview-scene'),
           opacity: Number.parseFloat(getComputedStyle(item).opacity),
         })),
@@ -577,7 +585,7 @@ async function captureDesktopScreenshotsAndSequences(browser) {
       await assertActiveStarter(page, null);
       await page.keyboard.press('Tab');
       assert.equal(
-        await page.getByRole('link', { name: 'Luster' }).evaluate((element) => (
+        await page.getByRole('link', { name: 'Luster' }).evaluate(element => (
           element === document.activeElement
         )),
         true,
@@ -585,7 +593,7 @@ async function captureDesktopScreenshotsAndSequences(browser) {
       );
       await page.keyboard.press('Tab');
       assert.equal(
-        await card(page, 'quick_book').evaluate((element) => ({
+        await card(page, 'quick_book').evaluate(element => ({
           focusVisible: element.matches(':focus-visible'),
           focused: element === document.activeElement,
         })).then(({ focusVisible, focused }) => focusVisible && focused),
@@ -609,7 +617,7 @@ async function captureDesktopScreenshotsAndSequences(browser) {
 async function assertReducedMotionPosters(page) {
   await assertActiveStarter(page, null);
   for (const starterId of Object.keys(starters)) {
-    const state = await preview(page, starterId).evaluate((element) => ({
+    const state = await preview(page, starterId).evaluate(element => ({
       animationName: getComputedStyle(
         element.querySelector('.final-starter-preview__track'),
       ).animationName,
@@ -622,7 +630,7 @@ async function assertReducedMotionPosters(page) {
       previewState: element.getAttribute('data-preview-state'),
       runningAnimations: element
         .getAnimations({ subtree: true })
-        .filter((animation) => animation.playState === 'running').length,
+        .filter(animation => animation.playState === 'running').length,
     }));
     assert.deepEqual(state, {
       animationName: 'none',
@@ -726,7 +734,9 @@ async function waitForScrollSettled(page) {
     await page.waitForTimeout(100);
     const current = await page.evaluate(() => window.scrollY);
     stableSamples = current === previous ? stableSamples + 1 : 0;
-    if (stableSamples >= 5) return current;
+    if (stableSamples >= 5) {
+      return current;
+    }
     previous = current;
   }
   throw new Error('Trusted touch scrolling did not settle before preview playback.');
@@ -778,7 +788,9 @@ async function recordJourneyVideo(browser, {
     await rm(scratchDirectory, { force: true, recursive: true });
   }
 
-  if (actionError) throw actionError;
+  if (actionError) {
+    throw actionError;
+  }
 }
 
 async function captureJourneyVideos(browser) {
@@ -909,8 +921,8 @@ async function captureFreshQuickBookStructure(browser) {
       await openFreshChooser(page, 'fresh-quick-book-structure');
       await card(page, 'quick_book').click();
       await page.getByTestId('final-hybrid-editor').waitFor({ state: 'visible' });
-      await page.waitForFunction((key) => window.localStorage.getItem(key) !== null, labStorageKey);
-      const storedDocument = await page.evaluate((key) => JSON.parse(
+      await page.waitForFunction(key => window.localStorage.getItem(key) !== null, labStorageKey);
+      const storedDocument = await page.evaluate(key => JSON.parse(
         window.localStorage.getItem(key),
       ), labStorageKey);
 
@@ -932,7 +944,7 @@ async function captureFreshQuickBookStructure(browser) {
         visible: true,
         visibleInNavigation: true,
       });
-      assert.deepEqual(home.sections.map((section) => ({
+      assert.deepEqual(home.sections.map(section => ({
         label: section.label,
         order: section.order,
         sectionType: section.sectionType,
@@ -987,7 +999,7 @@ async function captureFinalCleanChooser(browser) {
       await page.waitForTimeout(resetDelayMs);
       await assertActiveStarter(page, null);
       const state = await page.evaluate((key) => {
-        const styles = (element) => ({
+        const styles = element => ({
           overflow: element.style.overflow,
           paddingRight: element.style.paddingRight,
           pointerEvents: element.style.pointerEvents,
@@ -1000,7 +1012,7 @@ async function captureFinalCleanChooser(browser) {
         return {
           activeStarterIds: [...document.querySelectorAll(
             '.final-starter-preview[data-preview-active="true"]',
-          )].map((element) => (
+          )].map(element => (
             element.closest('[data-starter-id]')?.getAttribute('data-starter-id')
           )),
           bodyStyles: styles(document.body),
@@ -1022,7 +1034,7 @@ async function captureFinalCleanChooser(browser) {
             previewState: quickPreview?.getAttribute('data-preview-state'),
             runningAnimations: quickPreview
               ?.getAnimations({ subtree: true })
-              .filter((animation) => animation.playState === 'running').length,
+              .filter(animation => animation.playState === 'running').length,
           },
           sessionStorageKeys: Object.keys(window.sessionStorage),
           toastCount: [...document.querySelectorAll('.toast')]
@@ -1087,7 +1099,7 @@ function runtimeReport(scriptError) {
   const httpErrors = runtimeIssues.filter(({ type }) => type === 'http-error');
   const reactWarnings = runtimeIssues.filter(({ message = '', type }) => (
     (type === 'console.error' || type === 'console.warning')
-      && /(?:react|warning:|validateDOMNesting|hydration)/i.test(message)
+    && /react|warning:|validateDOMNesting|hydration/i.test(message)
   ));
   return {
     consoleErrors,
@@ -1106,7 +1118,7 @@ function runtimeReport(scriptError) {
 async function writeManifest(status, scriptError) {
   const generatedFiles = evidenceEntries.map(({ file }) => file);
   const missingRequiredScreenshots = requiredScreenshots.filter(
-    (file) => !generatedFiles.includes(file),
+    file => !generatedFiles.includes(file),
   );
   await writeJson('manifest.json', {
     baseUrl,
@@ -1134,7 +1146,7 @@ async function main() {
     assert.deepEqual(runtimeIssues, [], 'Browser runtime issues were captured.');
     const generatedFiles = evidenceEntries.map(({ file }) => file);
     assert.deepEqual(
-      requiredScreenshots.filter((file) => !generatedFiles.includes(file)),
+      requiredScreenshots.filter(file => !generatedFiles.includes(file)),
       [],
       'One or more required screenshots were not captured.',
     );

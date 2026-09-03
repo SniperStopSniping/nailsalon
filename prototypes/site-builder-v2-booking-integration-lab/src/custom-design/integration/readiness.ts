@@ -219,6 +219,6 @@ export const isCustomDesignAreaReadyForCustomer = (
   readiness: CustomDesignReadiness,
   imageItemId: string,
   areaId: string,
-): boolean => !readiness.issues.some((candidate) =>
+): boolean => !readiness.issues.some(candidate =>
   candidate.imageItemId === imageItemId
   && (candidate.source === 'asset' || candidate.areaId === areaId));

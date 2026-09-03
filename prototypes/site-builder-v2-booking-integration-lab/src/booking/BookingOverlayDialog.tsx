@@ -1,4 +1,4 @@
-import { useEffect, useRef, type ReactNode } from 'react';
+import { type ReactNode, useEffect, useRef } from 'react';
 
 const FOCUSABLE = [
   'button:not([disabled])',
@@ -104,14 +104,18 @@ export function BookingOverlayDialog({
     });
 
     const keydown = (event: KeyboardEvent) => {
-      if (openBookingDialogStack.at(-1) !== stackToken) return;
+      if (openBookingDialogStack.at(-1) !== stackToken) {
+        return;
+      }
       if (event.key === 'Escape') {
         event.preventDefault();
         event.stopPropagation();
         onCloseRef.current();
         return;
       }
-      if (event.key !== 'Tab' || !panel) return;
+      if (event.key !== 'Tab' || !panel) {
+        return;
+      }
       const focusable = [...panel.querySelectorAll<HTMLElement>(FOCUSABLE)];
       if (focusable.length === 0) {
         event.preventDefault();
@@ -136,9 +140,13 @@ export function BookingOverlayDialog({
       }
       document.removeEventListener('keydown', keydown);
       const stackIndex = openBookingDialogStack.lastIndexOf(stackToken);
-      if (stackIndex >= 0) openBookingDialogStack.splice(stackIndex, 1);
+      if (stackIndex >= 0) {
+        openBookingDialogStack.splice(stackIndex, 1);
+      }
       window.requestAnimationFrame(() => {
-        if (previousFocus?.isConnected) previousFocus.focus({ preventScroll: true });
+        if (previousFocus?.isConnected) {
+          previousFocus.focus({ preventScroll: true });
+        }
         restoreDialogScroll(openingScroll);
         window.requestAnimationFrame(() => restoreDialogScroll(openingScroll));
       });
@@ -147,9 +155,14 @@ export function BookingOverlayDialog({
 
   useEffect(() => {
     const panel = panelRef.current;
-    if (!panel) return;
-    if (suspended) panel.setAttribute('inert', '');
-    else panel.removeAttribute('inert');
+    if (!panel) {
+      return;
+    }
+    if (suspended) {
+      panel.setAttribute('inert', '');
+    } else {
+      panel.removeAttribute('inert');
+    }
     return () => panel.removeAttribute('inert');
   }, [suspended]);
 
@@ -157,8 +170,11 @@ export function BookingOverlayDialog({
     <div
       className="booking-contained-dialog-backdrop"
       data-testid={`${testId}-backdrop`}
+      role="presentation"
       onMouseDown={(event) => {
-        if (event.currentTarget === event.target) onClose();
+        if (event.currentTarget === event.target) {
+          onClose();
+        }
       }}
     >
       <div

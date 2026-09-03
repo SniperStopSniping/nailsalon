@@ -30,6 +30,9 @@ import type {
   CustomDesignUploadStatus,
 } from './ui-types';
 
+const EMPTY_INTERNAL_TARGETS: readonly CustomDesignInternalPageOption[] = [];
+const EMPTY_READINESS_ISSUES: readonly CustomDesignReadinessIssue[] = [];
+
 const CONTACT_ACTION_TYPES: readonly CustomDesignActionType[] = [
   'directions',
   'instagram',
@@ -63,12 +66,14 @@ function AccessibilityDialog({ image, onCancel, onSave }: AccessibilityDialogPro
       variant="sheet"
     >
       <div className="custom-design-owner-accessibility">
-        {likelyTextHeavy ? (
-          <div className="custom-design-owner-inline-warning">
-            <AlertTriangle aria-hidden="true" size={18} />
-            <p>Text inside an image cannot be selected, translated, or read reliably by assistive technology. Add an accessible text version for important information.</p>
-          </div>
-        ) : null}
+        {likelyTextHeavy
+          ? (
+              <div className="custom-design-owner-inline-warning">
+                <AlertTriangle aria-hidden="true" size={18} />
+                <p>Text inside an image cannot be selected, translated, or read reliably by assistive technology. Add an accessible text version for important information.</p>
+              </div>
+            )
+          : null}
         <label className="custom-design-owner-check">
           <input
             checked={decorative}
@@ -125,13 +130,19 @@ function AccessibilityDialog({ image, onCancel, onSave }: AccessibilityDialogPro
 type CtaKind = 'none' | 'book' | 'contact' | 'custom';
 
 const ctaKind = (cta: CustomDesignNativeCta): CtaKind => {
-  if (cta.type === 'none') return 'none';
-  if (cta.type === 'book_now') return 'book';
+  if (cta.type === 'none') {
+    return 'none';
+  }
+  if (cta.type === 'book_now') {
+    return 'book';
+  }
   return CONTACT_ACTION_TYPES.includes(cta.action.type) ? 'contact' : 'custom';
 };
 
 const ctaPlacementValue = (cta: CustomDesignNativeCta): string => {
-  if (cta.type === 'none' || cta.placement.type === 'after_all') return 'after_all';
+  if (cta.type === 'none' || cta.placement.type === 'after_all') {
+    return 'after_all';
+  }
   return cta.placement.imageItemId;
 };
 
@@ -162,13 +173,17 @@ function NativeCtaEditor({ cta, images, internalTargets, onSave }: NativeCtaEdit
       return;
     }
     const safeLabel = label.trim();
-    if (!safeLabel) return;
+    if (!safeLabel) {
+      return;
+    }
     const parsedPlacement = ctaPlacementFromValue(placement);
     if (kind === 'book') {
       onSave({ type: 'book_now', label: safeLabel, placement: parsedPlacement });
       return;
     }
-    if (!action || !actionValid) return;
+    if (!action || !actionValid) {
+      return;
+    }
     onSave({
       type: 'custom',
       action,
@@ -210,37 +225,44 @@ function NativeCtaEditor({ cta, images, internalTargets, onSave }: NativeCtaEdit
           <option value="custom">Custom action</option>
         </select>
       </label>
-      {kind !== 'none' ? (
-        <>
-          <label>
-            Button label
-            <input
-              maxLength={80}
-              value={label}
-              onChange={event => setLabel(event.target.value)}
+      {kind !== 'none'
+        ? (
+            <>
+              <label>
+                Button label
+                <input
+                  maxLength={80}
+                  value={label}
+                  onChange={event => setLabel(event.target.value)}
+                />
+              </label>
+              <label>
+                Placement
+                <select value={placement} onChange={event => setPlacement(event.target.value)}>
+                  {images.map((image, index) => (
+                    <option key={image.id} value={image.id}>
+                      After page
+                      {index + 1}
+                    </option>
+                  ))}
+                  <option value="after_all">After all pages</option>
+                </select>
+              </label>
+            </>
+          )
+        : null}
+      {kind === 'contact' || kind === 'custom'
+        ? (
+            <ActionEditor
+              key={`${baseline}:${kind}`}
+              action={action}
+              allowedTypes={allowedTypes}
+              internalTargets={internalTargets}
+              onChange={setAction}
+              onValidityChange={setActionValid}
             />
-          </label>
-          <label>
-            Placement
-            <select value={placement} onChange={event => setPlacement(event.target.value)}>
-              {images.map((image, index) => (
-                <option key={image.id} value={image.id}>After page {index + 1}</option>
-              ))}
-              <option value="after_all">After all pages</option>
-            </select>
-          </label>
-        </>
-      ) : null}
-      {kind === 'contact' || kind === 'custom' ? (
-        <ActionEditor
-          key={`${baseline}:${kind}`}
-          action={action}
-          allowedTypes={allowedTypes}
-          internalTargets={internalTargets}
-          onChange={setAction}
-          onValidityChange={setActionValid}
-        />
-      ) : null}
+          )
+        : null}
       <button
         className="primary-button"
         disabled={kind !== 'none' && (!label.trim() || ((kind === 'contact' || kind === 'custom') && (!action || !actionValid)))}
@@ -279,7 +301,7 @@ type CustomDesignOwnerEditorProps = {
 export function CustomDesignOwnerEditor({
   assets,
   imageOrderDraft,
-  internalTargets = [],
+  internalTargets = EMPTY_INTERNAL_TARGETS,
   onAddImages,
   onCommitImageOrder,
   onImageOrderDraftChange,
@@ -291,7 +313,7 @@ export function CustomDesignOwnerEditor({
   onUpdateCta,
   onUpdateDisplay,
   onUpdateGap,
-  readinessIssues = [],
+  readinessIssues = EMPTY_READINESS_ISSUES,
   settings,
   uploadStatus,
 }: CustomDesignOwnerEditorProps) {
@@ -314,7 +336,9 @@ export function CustomDesignOwnerEditor({
 
   const applyCustomColor = () => {
     const normalized = normalizeCustomDesignHexColor(customColor);
-    if (normalized) onUpdateBackground({ mode: 'custom', color: normalized });
+    if (normalized) {
+      onUpdateBackground({ mode: 'custom', color: normalized });
+    }
   };
 
   return (
@@ -350,7 +374,10 @@ export function CustomDesignOwnerEditor({
                 value={value}
                 onChange={() => onUpdateDisplay(value)}
               />
-              <span><strong>{label}</strong><small>{description}</small></span>
+              <span>
+                <strong>{label}</strong>
+                <small>{description}</small>
+              </span>
             </label>
           ))}
         </div>
@@ -440,17 +467,19 @@ export function CustomDesignOwnerEditor({
         onSave={onUpdateCta}
       />
 
-      {accessibilityImage ? (
-        <AccessibilityDialog
-          key={accessibilityImage.id}
-          image={accessibilityImage}
-          onCancel={() => setAccessibilityImageId(null)}
-          onSave={(update) => {
-            onUpdateAccessibility(accessibilityImage.id, update);
-            setAccessibilityImageId(null);
-          }}
-        />
-      ) : null}
+      {accessibilityImage
+        ? (
+            <AccessibilityDialog
+              key={accessibilityImage.id}
+              image={accessibilityImage}
+              onCancel={() => setAccessibilityImageId(null)}
+              onSave={(update) => {
+                onUpdateAccessibility(accessibilityImage.id, update);
+                setAccessibilityImageId(null);
+              }}
+            />
+          )
+        : null}
     </div>
   );
 }

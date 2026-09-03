@@ -18,7 +18,9 @@ describe('LibrarySectionSettingsDialog content placement feedback', () => {
     const ids = createDeterministicIdFactory('featured-dialog');
     let document = initializeStarter('one_page', { idFactory: ids });
     const home = document.pages[0];
-    if (!home) throw new Error('One-page starter is missing Home.');
+    if (!home) {
+      throw new Error('One-page starter is missing Home.');
+    }
     document = addSection(document, {
       pageId: home.id,
       sectionType: 'featured_services',

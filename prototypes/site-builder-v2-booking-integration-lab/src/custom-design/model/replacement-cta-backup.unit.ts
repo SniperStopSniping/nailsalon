@@ -15,8 +15,8 @@ import {
 import {
   approveInteractiveAreaReview,
   getCustomDesignPublishBlockers,
-  replacementPreservesAreaApproval,
   replaceCustomDesignImage,
+  replacementPreservesAreaApproval,
   symmetricAspectRatioDelta,
 } from './replacement';
 import { createDefaultCustomDesignSettings } from './settings';
@@ -85,6 +85,7 @@ describe('replacement review safety', () => {
       height: 1_000,
       aspectRatio: 2,
     });
+
     expect(replaced.id).toBe(original.id);
     expect(replaced.interactiveAreas[0]).toMatchObject({
       id: 'area_policy',
@@ -114,6 +115,7 @@ describe('replacement review safety', () => {
       height: 2_000,
       aspectRatio: 0.525,
     });
+
     expect(replaced.interactiveAreas[0]).toMatchObject({
       reviewStatus: 'needs_review',
       reviewReason: 'owner_review_required',
@@ -134,6 +136,7 @@ describe('replacement review safety', () => {
       height: 2_000,
       aspectRatio: 9,
     });
+
     expect(similar.aspectRatio).toBe(0.525);
     expect(similar.interactiveAreas[0]?.reviewStatus).toBe('approved');
 
@@ -146,6 +149,7 @@ describe('replacement review safety', () => {
       height: 1_000,
       aspectRatio: 0.5,
     });
+
     expect(different.aspectRatio).toBe(2);
     expect(different.interactiveAreas[0]?.reviewStatus).toBe('needs_review');
   });
@@ -208,12 +212,15 @@ describe('truthful Custom Design backup contract', () => {
       settings: [settings],
       exportedAt: '2026-08-27T12:00:00.000Z',
     });
+
     expect(envelope.customDesignAssets).toMatchObject({
       version: 1,
       assetsIncluded: false,
       warning: CUSTOM_DESIGN_BACKUP_WARNING,
     });
+
     const json = serializeCustomDesignBackupEnvelope(envelope);
+
     expect(json).not.toContain('data:image');
     expect(json).not.toContain('blob:');
     expect(parseCustomDesignBackupEnvelope(JSON.parse(json))).toMatchObject({
@@ -267,15 +274,17 @@ describe('truthful Custom Design backup contract', () => {
 
     const sparsePages: unknown[] = [];
     sparsePages.length = 1;
+
     expect(() => createCustomDesignBackupEnvelope({
       document: { pages: sparsePages },
       settings: [],
     })).toThrow('truthfully in JSON');
 
-    const disguisedSparsePages = new Array<unknown>(1) as unknown[] & {
+    const disguisedSparsePages = Array.from({ length: 1 }) as unknown[] & {
       note?: string;
     };
     disguisedSparsePages.note = 'JSON would silently drop this property.';
+
     expect(() => createCustomDesignBackupEnvelope({
       document: { pages: disguisedSparsePages },
       settings: [],
@@ -285,6 +294,7 @@ describe('truthful Custom Design backup contract', () => {
     Object.defineProperty(documentWithToJson, 'toJSON', {
       value: () => ({ title: 'Silently replaced' }),
     });
+
     expect(() => createCustomDesignBackupEnvelope({
       document: documentWithToJson,
       settings: [],
@@ -295,6 +305,7 @@ describe('truthful Custom Design backup contract', () => {
       enumerable: true,
       get: () => 'Computed during serialization',
     });
+
     expect(() => createCustomDesignBackupEnvelope({
       document: documentWithAccessor,
       settings: [],
@@ -330,6 +341,7 @@ describe('truthful Custom Design backup contract', () => {
         assets: [],
       },
     };
+
     expect(parseCustomDesignBackupEnvelope(untrustedEnvelope).success).toBe(false);
     expect(getterCalls).toBe(0);
     expect(() => serializeCustomDesignBackupEnvelope(
@@ -345,6 +357,7 @@ describe('truthful Custom Design backup contract', () => {
       exportedAt: '2026-08-27T12:00:00.000Z',
     });
     (envelope.document as { title: string }).title = '  DaTa:application/octet-stream;base64,AA==';
+
     expect(() => serializeCustomDesignBackupEnvelope(envelope)).toThrow('image bytes');
 
     const mutated = createCustomDesignBackupEnvelope({
@@ -353,6 +366,7 @@ describe('truthful Custom Design backup contract', () => {
       exportedAt: '2026-08-27T12:00:00.000Z',
     });
     (mutated.customDesignAssets as { assetsIncluded: boolean }).assetsIncluded = true;
+
     expect(() => serializeCustomDesignBackupEnvelope(mutated)).toThrow('Backup envelope is invalid');
   });
 
@@ -360,6 +374,7 @@ describe('truthful Custom Design backup contract', () => {
     const manifest = createCustomDesignAssetManifest([
       withImages([validImage('one'), validImage('two')]),
     ]);
+
     expect(resolveCustomDesignAssetManifest(manifest, new Set(['asset_one']))).toEqual([
       { assetId: 'asset_one', status: 'available', imageItemIds: ['one'] },
       { assetId: 'asset_two', status: 'missing', imageItemIds: ['two'] },

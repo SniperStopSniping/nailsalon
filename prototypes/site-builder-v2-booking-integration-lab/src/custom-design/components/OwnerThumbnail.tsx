@@ -34,7 +34,7 @@ export function OwnerThumbnail({
       >
         <span aria-hidden="true" className="custom-design-owner-thumbnail__loading" />
         <figcaption>
-          <strong>Page {pageNumber}</strong>
+          <strong>{`Page ${pageNumber}`}</strong>
           <span>{image.fileName}</span>
           <span>Loading preview…</span>
         </figcaption>
@@ -56,9 +56,16 @@ export function OwnerThumbnail({
         width={image.width}
       />
       <figcaption>
-        <strong>Page {pageNumber}</strong>
+        <strong>{`Page ${pageNumber}`}</strong>
         <span>{image.fileName}</span>
-        <span>{image.width} × {image.height}px</span>
+        <span>
+          {image.width}
+          {' '}
+          ×
+          {' '}
+          {image.height}
+          px
+        </span>
       </figcaption>
       <button type="button" onClick={onReplace}>Replace</button>
     </figure>

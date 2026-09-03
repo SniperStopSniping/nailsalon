@@ -8,6 +8,7 @@ import {
   collectOnboardingMediaReferences,
   collectPendingOnboardingMediaReferences,
 } from './media-claim-client';
+import { ONBOARDING_MEDIA_MAX_FILE_BYTES, ONBOARDING_MEDIA_MAX_REQUEST_BYTES } from './media-limits';
 
 const pngBlob = new Blob([
   Uint8Array.from([137, 80, 78, 71, 13, 10, 26, 10]),
@@ -133,6 +134,68 @@ describe('onboarding media claim client', () => {
 
     expect(uploadRequest?.[1]?.body).toBeInstanceOf(FormData);
     expect((uploadRequest?.[1]?.body as FormData).get('role')).toBe('logo');
+  });
+
+  it('prepares a large photo before sending multipart while retaining role and ownership fields', async () => {
+    const state = createDefaultOnboardingState();
+    state.profile.logo = {
+      fileName: 'large.png',
+      id: 'logo-reference',
+      mimeType: 'image/png',
+      source: 'indexed_db',
+      storageId: 'logo-asset',
+    };
+    const bytes = new Uint8Array(8_000_000);
+    bytes.set(new Uint8Array(await pngBlob.arrayBuffer()));
+    const original = new Blob([bytes], { type: 'image/png' });
+    const close = vi.fn();
+    vi.stubGlobal('createImageBitmap', vi.fn(async () => ({ close, height: 3_024, width: 4_032 })));
+    vi.stubGlobal('document', {
+      createElement: () => ({
+        getContext: () => ({ drawImage: vi.fn(), scale: vi.fn() }),
+        height: 0,
+        toBlob: (callback: BlobCallback) => callback(new Blob([new Uint8Array(1_000_000)], { type: 'image/webp' })),
+        width: 0,
+      }),
+    });
+    const assetRepository = repository();
+    assetRepository.getOriginal = vi.fn(async () => original);
+    const fetcher = vi.fn<typeof fetch>(async (input, init) => {
+      if (String(input).endsWith('/verify')) {
+        return Response.json({ data: { revision: 3 } });
+      }
+      const form = init?.body as FormData;
+      const file = form.get('file') as File;
+
+      expect(file.size).toBeLessThanOrEqual(ONBOARDING_MEDIA_MAX_FILE_BYTES);
+      expect(file.type).toBe('image/webp');
+      expect(form.get('mimeType')).toBe('image/webp');
+      expect(form.get('siteId')).toBe('site-safe');
+      expect(form.get('siteRevision')).toBe('3');
+      expect(form.get('role')).toBe('logo');
+      expect(form.get('localItemId')).toBe('logo-reference');
+      expect((await new Response(form).blob()).size).toBeLessThan(ONBOARDING_MEDIA_MAX_REQUEST_BYTES);
+
+      return Response.json({ data: { media: { height: 1_920, id: 'media-logo', url: '/api/onboarding/v1/media/media-logo', width: 2_560 } } });
+    });
+    try {
+      const result = await claimOnboardingMedia({
+        draftId: 'draft-safe',
+        fetcher,
+        idempotencyKey: 'claim-safe',
+        repository: assetRepository,
+        siteId: 'site-safe',
+        siteRevision: 3,
+        state,
+      });
+
+      expect(result.failures).toEqual([]);
+      expect(result.uploaded).toHaveLength(1);
+      expect(original.size).toBe(8_000_000);
+      expect(close).toHaveBeenCalledOnce();
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it('uploads every active and restorable Custom Design asset in manifest order', async () => {

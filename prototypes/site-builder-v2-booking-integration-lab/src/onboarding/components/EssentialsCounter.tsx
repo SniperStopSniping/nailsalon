@@ -3,7 +3,9 @@ type EssentialsCounterProps = {
 };
 
 export function getEssentialsCounterMessage(remaining: number): string {
-  if (remaining <= 0) return 'All required steps complete';
+  if (remaining <= 0) {
+    return 'All required steps complete';
+  }
   return `${remaining} required ${remaining === 1 ? 'step' : 'steps'} left`;
 }
 

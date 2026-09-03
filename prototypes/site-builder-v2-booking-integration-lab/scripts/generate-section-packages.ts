@@ -13,9 +13,9 @@ import {
   SECTION_LIBRARY_REGISTRY,
   type SiteLibraryContext,
 } from '../src/model/section-library/registry';
+import type { LibrarySectionType } from '../src/model/types';
 import { createDefaultOnboardingState } from '../src/onboarding/model/defaults';
 import { deriveSiteLibraryContext } from '../src/onboarding/model/site-library-context';
-import type { LibrarySectionType } from '../src/model/types';
 
 /** Types still drawn by the accepted pre-library renderers. */
 const PRE_LIBRARY_RENDERED = new Set<LibrarySectionType>([

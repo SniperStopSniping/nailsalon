@@ -10,6 +10,7 @@ import {
   collectInheritedCustomDesignMedia,
   type ExistingCustomDesignMediaByLogicalId,
 } from './custom-design-media';
+import { prepareOnboardingMediaUpload } from './media-upload-preparation';
 
 export type OnboardingMediaRole = OnboardingSiteMediaRole;
 
@@ -260,14 +261,15 @@ const uploadOne = async ({
   if (!blob || !metadata) {
     throw new Error('LOCAL_ASSET_MISSING');
   }
+  const uploadFile = await prepareOnboardingMediaUpload(blob, reference.fileName);
 
   const form = new FormData();
   form.set('draftId', draftId);
-  form.set('file', blob, reference.fileName);
-  form.set('fileName', reference.fileName);
+  form.set('file', uploadFile, uploadFile.name);
+  form.set('fileName', uploadFile.name);
   form.set('idempotencyKey', `${idempotencyKey}:${reference.localItemId}:${reference.role}:${reference.order}`);
   form.set('localItemId', reference.localItemId);
-  form.set('mimeType', metadata.mimeType);
+  form.set('mimeType', uploadFile.type);
   form.set('order', String(reference.order));
   form.set('role', reference.role);
   form.set('siteId', siteId);

@@ -21,26 +21,26 @@ import {
   Undo2,
 } from 'lucide-react';
 import {
+  type CSSProperties,
+  type MouseEvent as ReactMouseEvent,
   useCallback,
   useEffect,
   useLayoutEffect,
   useMemo,
   useRef,
   useState,
-  type CSSProperties,
-  type MouseEvent as ReactMouseEvent,
 } from 'react';
 
-import {
-  createDefaultBookingPresentationSettings,
-  withoutFeaturedServicesRail,
-} from '../booking/presentation';
 import {
   createEmptyBookingSession,
   createMenuFixture,
   normalizeBookingSelection,
   normalizeSessionForLayoutChange,
 } from '../booking/helpers';
+import {
+  createDefaultBookingPresentationSettings,
+  withoutFeaturedServicesRail,
+} from '../booking/presentation';
 import { BookingSettingsPanel } from '../booking/SettingsPanel';
 import type {
   BookingSectionPresentationSettings,
@@ -61,35 +61,35 @@ import {
 import {
   CustomDesignSectionCard,
 } from '../custom-design/integration/CustomDesignSectionCard';
+import {
+  resolveCustomDesignDocumentAction,
+} from '../custom-design/integration/document-actions';
 import { HotspotEditor } from '../custom-design/integration/HotspotEditor';
 import {
   getCustomDesignReadiness,
 } from '../custom-design/integration/readiness';
-import {
-  resolveCustomDesignDocumentAction,
-} from '../custom-design/integration/document-actions';
-import { formatCustomDesignUploadSummary } from '../custom-design/integration/upload-summary';
 import type {
   CustomDesignOwnerAssetMap,
   CustomDesignReadinessIssue,
   CustomDesignUploadStatus,
 } from '../custom-design/integration/ui-types';
+import { formatCustomDesignUploadSummary } from '../custom-design/integration/upload-summary';
 import {
   createCustomDesignIdFactory,
-  reconcileCtaPlacementForImages,
   type CustomDesignInteractiveArea,
   type CustomDesignSettings,
+  reconcileCtaPlacementForImages,
 } from '../custom-design/model';
 import {
+  type BuilderCommand,
+  type CatalogueSectionType,
+  type CommitSectionMoveDestination,
   getAddSectionBlocker,
   getAddSectionWarnings,
   getDocumentOverlapAdvisories,
   isAddBlocked,
   isLibrarySection,
   isLibrarySectionType,
-  type BuilderCommand,
-  type CatalogueSectionType,
-  type CommitSectionMoveDestination,
   type LibrarySectionSettings,
   type LibrarySectionType,
   type OriginStarter,
@@ -102,6 +102,10 @@ import {
   type SiteBuilderDocument,
   type UpdateSiteContentInput,
 } from '../model';
+import { FeedbackProvider } from '../onboarding/feedback/FeedbackProvider';
+import { LAB_DASHBOARD_HANDOFF_PORT } from '../onboarding/integrations/lab/createLabDashboardPorts';
+import { DashboardPreviewSurface } from '../onboarding/integrations/lab/DashboardPreviewSurface';
+import { createOnboardingBookingFixture } from '../onboarding/model/booking-preview';
 import { createDefaultOnboardingState } from '../onboarding/model/defaults';
 import { goToScreen } from '../onboarding/model/routing';
 import {
@@ -112,10 +116,6 @@ import {
   getOnboardingReferencedAssetIds,
   OnboardingApp,
 } from '../onboarding/OnboardingApp';
-import { FeedbackProvider } from '../onboarding/feedback/FeedbackProvider';
-import { DashboardPreviewSurface } from '../onboarding/integrations/lab/DashboardPreviewSurface';
-import { LAB_DASHBOARD_HANDOFF_PORT } from '../onboarding/integrations/lab/createLabDashboardPorts';
-import { createOnboardingBookingFixture } from '../onboarding/model/booking-preview';
 import { OnboardingSitePreview } from '../onboarding/preview/OnboardingSitePreview';
 import { SectionShowcaseSurface } from '../onboarding/preview/SectionShowcaseSurface';
 import {
@@ -123,7 +123,7 @@ import {
   ONBOARDING_STORAGE_KEY,
   saveOnboardingState,
 } from '../onboarding/storage/storage';
-import { BookingSectionCard, type BookingCollapseReport } from './BookingSectionCard';
+import { type BookingCollapseReport, BookingSectionCard } from './BookingSectionCard';
 import {
   getCustomDesignInternalTargets,
   toCustomDesignOwnerAssetMap,
@@ -151,16 +151,16 @@ import {
   decideMoveCompletionPointerInteraction,
   MOVE_COMPLETION_SEQUENCE_HARD_CAP_MS,
   MOVE_COMPLETION_SHIELD_DURATION_MS,
-  moveCompletionShieldIsActive,
   type MoveCompletionPointerType,
   type MoveCompletionShield,
+  moveCompletionShieldIsActive,
   type MoveCompletionSource,
 } from './move-completion-shield';
+import { LibrarySectionSettingsDialog } from './section-editors/LibrarySectionSettingsDialog';
+import { getSectionOwnerIdentity } from './section-identity';
 import { SectionCard } from './SectionCard';
 import { SectionMovePanel } from './SectionMovePanel';
 import { StarterChooser } from './StarterChooser';
-import { getSectionOwnerIdentity } from './section-identity';
-import { LibrarySectionSettingsDialog } from './section-editors/LibrarySectionSettingsDialog';
 import { useLabDocument } from './useLabDocument';
 
 type EditorMode = 'edit' | 'preview';
@@ -212,27 +212,29 @@ const getOwnerCustomDesignReadiness = (
 ): CustomDesignReadinessIssue[] => getCustomDesignReadiness(settings, {
   getAssetAvailability: (assetId) => {
     const asset = assets[assetId];
-    if (!asset || asset.status === 'loading' || asset.status === 'ready') return 'available';
+    if (!asset || asset.status === 'loading' || asset.status === 'ready') {
+      return 'available';
+    }
     return asset.status === 'missing' ? 'missing' : 'error';
   },
-  resolveAction: (action) => resolveCustomDesignDocumentAction(action, {
+  resolveAction: action => resolveCustomDesignDocumentAction(action, {
     activePageId,
     document,
   }),
 }).issues;
 
 const getHomeOrFirstPage = (document: SiteBuilderDocument): PageDocument =>
-  document.pages.find((page) => page.isHome) ?? document.pages[0] as PageDocument;
+  document.pages.find(page => page.isHome) ?? document.pages[0] as PageDocument;
 
 const findSectionPage = (document: SiteBuilderDocument, sectionId: string): PageDocument | null =>
-  document.pages.find((page) => page.sections.some((section) => section.id === sectionId)) ?? null;
+  document.pages.find(page => page.sections.some(section => section.id === sectionId)) ?? null;
 
 const findSection = (document: SiteBuilderDocument, sectionId: string | null): SectionInstance | null => {
   if (!sectionId) {
     return null;
   }
   for (const page of document.pages) {
-    const section = page.sections.find((candidate) => candidate.id === sectionId);
+    const section = page.sections.find(candidate => candidate.id === sectionId);
     if (section) {
       return section;
     }
@@ -275,14 +277,16 @@ const canReceiveProgrammaticFocus = (element: HTMLElement | null): element is HT
 
 const findFocusableByAttribute = (attribute: string, value: string): HTMLElement | null => (
   [...window.document.querySelectorAll<HTMLElement>(`[${attribute}]`)]
-    .find((candidate) => (
+    .find(candidate => (
       candidate.getAttribute(attribute) === value
       && canReceiveProgrammaticFocus(candidate)
     )) ?? null
 );
 
 const restoreVisibleFocus = (element: HTMLElement | null): boolean => {
-  if (!canReceiveProgrammaticFocus(element)) return false;
+  if (!canReceiveProgrammaticFocus(element)) {
+    return false;
+  }
   element.focus({ preventScroll: true });
   element.setAttribute('data-restored-focus', 'true');
   element.addEventListener('blur', () => {
@@ -315,8 +319,12 @@ const getInitialSurface = (): 'builder' | 'dashboard' | 'onboarding' | 'sections
   if (
     loaded.status === 'loaded'
     && loaded.state.progress.sessionStatus === 'dashboard'
-  ) return 'dashboard';
-  if (import.meta.env.MODE !== 'test') return 'onboarding';
+  ) {
+    return 'dashboard';
+  }
+  if (import.meta.env.MODE !== 'test') {
+    return 'onboarding';
+  }
   try {
     return window.localStorage.getItem(ONBOARDING_STORAGE_KEY) ? 'onboarding' : 'builder';
   } catch {
@@ -340,54 +348,64 @@ export function App() {
     const loaded = loadOnboardingState();
     if (loaded.status === 'loaded') {
       getOnboardingReferencedAssetIds(loaded.state)
-        .forEach((assetId) => reachable.add(assetId));
+        .forEach(assetId => reachable.add(assetId));
     }
     return reachable;
   }, [lab.getReachableAssetIds]);
   const openBusinessSetup = useCallback((): boolean => {
     const loaded = loadOnboardingState();
-    if (loaded.status === 'error') return false;
+    if (loaded.status === 'error') {
+      return false;
+    }
     const saved = saveOnboardingState(goToScreen(loaded.state, 'business'));
-    if (!saved.success) return false;
+    if (!saved.success) {
+      return false;
+    }
     setSurface('onboarding');
     return true;
   }, []);
   return (
     <CustomDesignAssetProvider getReachableAssetIds={getReachableAssetIds}>
       <FeedbackProvider>
-        {surface === 'sections' ? (
-          <SectionShowcaseSurface />
-        ) : surface === 'dashboard' ? (
-          <DashboardHandoffSurface
-            auditMode={auditMode}
-            lab={lab}
-            onEditWebsite={() => setSurface('builder')}
-            onReturnToReview={() => setSurface('review')}
-          />
-        ) : surface === 'builder' ? (
-          <div className="onboarding-builder-surface">
-            <button
-              className="onboarding-builder-return"
-              type="button"
-              onClick={() => setSurface('dashboard')}
-            >
-              Back to dashboard
-            </button>
-            <BuilderApp
-              auditMode={auditMode}
-              lab={lab}
-              onBackToDashboard={() => setSurface('dashboard')}
-              onChangeBusinessSetup={openBusinessSetup}
-            />
-          </div>
-        ) : (
-          <OnboardingApp
-            auditMode={auditMode}
-            forceReview={surface === 'review'}
-            lab={lab}
-            onEnterDashboard={() => setSurface('dashboard')}
-          />
-        )}
+        {surface === 'sections'
+          ? (
+              <SectionShowcaseSurface />
+            )
+          : surface === 'dashboard'
+            ? (
+                <DashboardHandoffSurface
+                  auditMode={auditMode}
+                  lab={lab}
+                  onEditWebsite={() => setSurface('builder')}
+                  onReturnToReview={() => setSurface('review')}
+                />
+              )
+            : surface === 'builder'
+              ? (
+                  <div className="onboarding-builder-surface">
+                    <button
+                      className="onboarding-builder-return"
+                      type="button"
+                      onClick={() => setSurface('dashboard')}
+                    >
+                      Back to dashboard
+                    </button>
+                    <BuilderApp
+                      auditMode={auditMode}
+                      lab={lab}
+                      onBackToDashboard={() => setSurface('dashboard')}
+                      onChangeBusinessSetup={openBusinessSetup}
+                    />
+                  </div>
+                )
+              : (
+                  <OnboardingApp
+                    auditMode={auditMode}
+                    forceReview={surface === 'review'}
+                    lab={lab}
+                    onEnterDashboard={() => setSurface('dashboard')}
+                  />
+                )}
       </FeedbackProvider>
     </CustomDesignAssetProvider>
   );
@@ -540,12 +558,16 @@ function BuilderApp({
   const [contextTop, setContextTop] = useState(86);
 
   useEffect(() => {
-    if (!document || builderInitialFocusCompleteRef.current) return undefined;
+    if (!document || builderInitialFocusCompleteRef.current) {
+      return undefined;
+    }
     const frame = window.requestAnimationFrame(() => {
       const startHeading = editorAppRef.current?.querySelector<HTMLElement>(
         '[data-builder-start]',
       );
-      if (!startHeading) return;
+      if (!startHeading) {
+        return;
+      }
       startHeading.focus({ preventScroll: true });
       builderInitialFocusCompleteRef.current = true;
     });
@@ -596,7 +618,9 @@ function BuilderApp({
     releaseMoveCompletionShield();
     moveCompletionShieldRef.current = shield;
     const releaseWhenIdle = () => {
-      if (moveCompletionShieldRef.current !== shield) return;
+      if (moveCompletionShieldRef.current !== shield) {
+        return;
+      }
       const now = window.performance.now();
       const sequence = moveCompletionSequenceRef.current;
       if (sequence?.shield === shield && now < sequence.until) {
@@ -633,7 +657,9 @@ function BuilderApp({
   }, [document?.siteName]);
   const onboardingProfile = onboardingHandoffState?.profile ?? null;
   const customerPreviewState = useMemo(() => {
-    if (onboardingHandoffState) return onboardingHandoffState;
+    if (onboardingHandoffState) {
+      return onboardingHandoffState;
+    }
     const fallback = createDefaultOnboardingState();
     fallback.profile.businessName = document?.siteName ?? fallback.profile.businessName;
     fallback.recipe.starter = document?.originStarter ?? fallback.recipe.starter;
@@ -641,7 +667,9 @@ function BuilderApp({
   }, [document?.originStarter, document?.siteName, onboardingHandoffState]);
   const bookingFixture = useMemo(() => {
     const fixture = createMenuFixture({ imageFixture, menuSize });
-    if (!onboardingProfile) return fixture;
+    if (!onboardingProfile) {
+      return fixture;
+    }
     return createOnboardingBookingFixture({
       ...onboardingProfile,
       businessName: document?.siteName ?? onboardingProfile.businessName,
@@ -649,7 +677,7 @@ function BuilderApp({
   }, [document?.siteName, imageFixture, menuSize, onboardingProfile]);
 
   const committedActivePage = document
-    ? document.pages.find((page) => page.id === activePageId) ?? getHomeOrFirstPage(document)
+    ? document.pages.find(page => page.id === activePageId) ?? getHomeOrFirstPage(document)
     : null;
   const selectedSection = document ? findSection(document, selectedSectionId) : null;
   const editingSection = document ? findSection(document, editingSectionId) : null;
@@ -670,7 +698,7 @@ function BuilderApp({
     activeCustomDesignImageOrderDraft
     && (
       activeCustomDesignImageOrderDraft.orderedImageItemIds.length
-        !== activeCustomDesignImageOrderDraft.baselineImageItemIds.length
+      !== activeCustomDesignImageOrderDraft.baselineImageItemIds.length
       || activeCustomDesignImageOrderDraft.orderedImageItemIds.some(
         (id, index) => id !== activeCustomDesignImageOrderDraft.baselineImageItemIds[index],
       )
@@ -686,14 +714,16 @@ function BuilderApp({
   const editingLibrarySection = editingSection && isLibrarySection(editingSection)
     ? editingSection
     : null;
-  const editingPage = document?.pages.find((page) => page.id === editingPageId) ?? null;
-  const pendingPageRemoval = document?.pages.find((page) => page.id === pendingPageRemovalId) ?? null;
+  const editingPage = document?.pages.find(page => page.id === editingPageId) ?? null;
+  const pendingPageRemoval = document?.pages.find(page => page.id === pendingPageRemovalId) ?? null;
   const moveSourcePage = document && moveSession
-    ? document.pages.find((page) => page.id === moveSession.sourcePageId) ?? null
+    ? document.pages.find(page => page.id === moveSession.sourcePageId) ?? null
     : null;
   const moveSections = useMemo(() => {
-    if (!moveSourcePage || !moveSession) return [];
-    const byId = new Map(moveSourcePage.sections.map((section) => [section.id, section]));
+    if (!moveSourcePage || !moveSession) {
+      return [];
+    }
+    const byId = new Map(moveSourcePage.sections.map(section => [section.id, section]));
     return moveSession.workingOrder.flatMap((id, order) => {
       const section = byId.get(id);
       return section ? [{ ...section, order }] : [];
@@ -710,15 +740,17 @@ function BuilderApp({
     ? { ...committedActivePage, sections: moveSections }
     : committedActivePage;
   const customDesignAssetIds = useMemo(() => mode === 'edit'
-    ? activePage?.sections.flatMap((section) =>
-        section.sectionType === 'custom_design'
-          ? section.settings.images.map((image) => image.assetId)
-          : []) ?? []
+    ? activePage?.sections.flatMap(section =>
+      section.sectionType === 'custom_design'
+        ? section.settings.images.map(image => image.assetId)
+        : []) ?? []
     : [], [activePage, mode]);
   const customDesignAssetPairs = useCustomDesignAssetMap(customDesignAssetIds);
   const customDesignAssets = useMemo(() => {
     const resolved = toCustomDesignOwnerAssetMap(customDesignAssetPairs);
-    if (customDesignRenderErrorAssetIds.size === 0) return resolved;
+    if (customDesignRenderErrorAssetIds.size === 0) {
+      return resolved;
+    }
     return Object.fromEntries(Object.entries(resolved).map(([assetId, asset]) => [
       assetId,
       customDesignRenderErrorAssetIds.has(assetId)
@@ -732,7 +764,9 @@ function BuilderApp({
   );
 
   useEffect(() => {
-    if (!editingCustomDesign) return;
+    if (!editingCustomDesign) {
+      return;
+    }
     const canonical = editingCustomDesign.settings.images.map(image => image.id);
     setCustomDesignImageOrderDraft((current) => {
       if (!current || current.sectionId !== editingCustomDesign.id) {
@@ -763,7 +797,9 @@ function BuilderApp({
       const canonicalIds = new Set(canonical);
       const reconciledOrder = current.orderedImageItemIds.filter(id => canonicalIds.has(id));
       canonical.forEach((id) => {
-        if (!reconciledOrder.includes(id)) reconciledOrder.push(id);
+        if (!reconciledOrder.includes(id)) {
+          reconciledOrder.push(id);
+        }
       });
       return {
         baselineImageItemIds: canonical,
@@ -781,7 +817,9 @@ function BuilderApp({
         && previous.collapsed === report.collapsed
         && previous.collapseHeight === report.collapseHeight
         && previous.isLong === report.isLong
-      ) return current;
+      ) {
+        return current;
+      }
       return { ...current, [sectionId]: report };
     });
   }, []);
@@ -793,7 +831,7 @@ function BuilderApp({
       setMode('edit');
       return;
     }
-    if (!document.pages.some((page) => page.id === activePageId)) {
+    if (!document.pages.some(page => page.id === activePageId)) {
       setActivePageId(getHomeOrFirstPage(document).id);
     }
   }, [activePageId, document]);
@@ -834,7 +872,9 @@ function BuilderApp({
       && bounds.left < window.innerWidth
     ));
     setSelectedSectionIntersectionReady(true);
-    if (typeof IntersectionObserver === 'undefined') return undefined;
+    if (typeof IntersectionObserver === 'undefined') {
+      return undefined;
+    }
     const observer = new IntersectionObserver(([entry]) => {
       setSelectedSectionIntersects(Boolean(entry?.isIntersecting));
     }, { threshold: 0 });
@@ -858,7 +898,7 @@ function BuilderApp({
         bookingFixture.addOns,
       );
       const detailStillExists = current.detailServiceId === null
-        || bookingFixture.services.some((service) => service.id === current.detailServiceId);
+        || bookingFixture.services.some(service => service.id === current.detailServiceId);
       return {
         ...current,
         selection,
@@ -877,7 +917,9 @@ function BuilderApp({
   }, []);
 
   useEffect(() => {
-    if (!customDesignAssetCoordinator || lab.transactionPending) return undefined;
+    if (!customDesignAssetCoordinator || lab.transactionPending) {
+      return undefined;
+    }
     const timeout = window.setTimeout(() => {
       void customDesignAssetCoordinator.cleanupUnreferencedAssets().catch(() => {
         // The owner-facing storage state remains recoverable; cleanup is conservative.
@@ -887,7 +929,9 @@ function BuilderApp({
   }, [customDesignAssetCoordinator, lab.historyRevision, lab.transactionPending]);
 
   useEffect(() => {
-    if (!customDesignAssetCoordinator) return;
+    if (!customDesignAssetCoordinator) {
+      return;
+    }
     void customDesignAssetCoordinator.reclaimStaleStages().catch(() => {
       // Stale stage reclamation is best effort and never mutates the document.
     });
@@ -902,7 +946,9 @@ function BuilderApp({
 
   useEffect(() => {
     const topbar = topbarRef.current;
-    if (!topbar) return undefined;
+    if (!topbar) {
+      return undefined;
+    }
     const measure = () => {
       const next = Math.ceil(topbar.getBoundingClientRect().height + 24);
       setContextTop(next);
@@ -920,7 +966,9 @@ function BuilderApp({
   }, [document, mode]);
 
   useEffect(() => {
-    if (!editingBooking) setSettingsTemporarilyHidden(false);
+    if (!editingBooking) {
+      setSettingsTemporarilyHidden(false);
+    }
   }, [editingBooking]);
 
   useEffect(() => {
@@ -951,11 +999,11 @@ function BuilderApp({
         sectionId,
       );
       const sectionSurface = [...window.document.querySelectorAll<HTMLElement>('[data-section-instance-id]')]
-          .find((candidate) => (
-            candidate.dataset.sectionInstanceId === sectionId
-            && canReceiveProgrammaticFocus(candidate.querySelector<HTMLElement>('.section-card__select-surface'))
-          ))
-          ?.querySelector<HTMLElement>('.section-card__select-surface')
+        .find(candidate => (
+          candidate.dataset.sectionInstanceId === sectionId
+          && canReceiveProgrammaticFocus(candidate.querySelector<HTMLElement>('.section-card__select-surface'))
+        ))
+        ?.querySelector<HTMLElement>('.section-card__select-surface')
         ?? null;
       const fallback = window.document.querySelector<HTMLElement>('.final-topbar__page');
       const candidates = pendingFocus.kind === 'commit'
@@ -977,7 +1025,7 @@ function BuilderApp({
     focusFrames.add(focusFrame);
 
     return () => {
-      focusFrames.forEach((frame) => window.cancelAnimationFrame(frame));
+      focusFrames.forEach(frame => window.cancelAnimationFrame(frame));
     };
   }, [
     activePageId,
@@ -992,7 +1040,9 @@ function BuilderApp({
   ]);
 
   useEffect(() => {
-    if (!pendingMoveFeedback) return;
+    if (!pendingMoveFeedback) {
+      return;
+    }
     if (lab.saveStatus === 'saved') {
       setAnnouncement(pendingMoveFeedback.announcement);
       setToast({ message: pendingMoveFeedback.message });
@@ -1021,7 +1071,9 @@ function BuilderApp({
     const normalizePointerType = (
       pointerType: string,
     ): Exclude<MoveCompletionPointerType, 'keyboard'> => {
-      if (pointerType === 'pen' || pointerType === 'touch') return pointerType;
+      if (pointerType === 'pen' || pointerType === 'touch') {
+        return pointerType;
+      }
       return 'mouse';
     };
     const recordActivation = (event: Event) => {
@@ -1041,23 +1093,33 @@ function BuilderApp({
       let button = recentMatchingPointer?.button ?? 0;
       let pointerType: MoveCompletionPointerType | null = null;
       if (event instanceof KeyboardEvent) {
-        if (event.type !== 'keydown' || !keyboardActivation(event)) return;
+        if (event.type !== 'keydown' || !keyboardActivation(event)) {
+          return;
+        }
         pointerType = 'keyboard';
       } else if (typeof PointerEvent !== 'undefined' && event instanceof PointerEvent) {
-        if (event.type !== 'pointerdown') return;
+        if (event.type !== 'pointerdown') {
+          return;
+        }
         button = event.button;
         pointerType = normalizePointerType(event.pointerType);
       } else if (typeof TouchEvent !== 'undefined' && event instanceof TouchEvent) {
-        if (event.type !== 'touchstart') return;
+        if (event.type !== 'touchstart') {
+          return;
+        }
         pointerType = 'touch';
       } else if (event instanceof MouseEvent) {
-        if (event.type !== 'mousedown' && event.type !== 'click') return;
+        if (event.type !== 'mousedown' && event.type !== 'click') {
+          return;
+        }
         button = recentMatchingPointer?.button ?? event.button;
         pointerType = event.detail === 0
           ? 'keyboard'
           : recentMatchingPointer?.pointerType ?? 'mouse';
       }
-      if (!pointerType) return;
+      if (!pointerType) {
+        return;
+      }
 
       moveLastActivationRef.current = {
         button,
@@ -1074,7 +1136,9 @@ function BuilderApp({
         ? moveCompletionSequenceRef.current
         : null;
       if (!moveCompletionShieldIsActive(shield, now, sequence?.until)) {
-        if (shield) releaseMoveCompletionShield();
+        if (shield) {
+          releaseMoveCompletionShield();
+        }
         recordActivation(event);
         return;
       }
@@ -1084,7 +1148,9 @@ function BuilderApp({
           releaseMoveCompletionShield();
           return;
         }
-        if (!keyboardActivation(event)) return;
+        if (!keyboardActivation(event)) {
+          return;
+        }
         event.preventDefault();
         event.stopImmediatePropagation();
         return;
@@ -1104,12 +1170,16 @@ function BuilderApp({
             && clientX <= shield.bounds.right
             && clientY >= shield.bounds.top
             && clientY <= shield.bounds.bottom;
-          if (!insideBounds) releaseMoveCompletionShield();
+          if (!insideBounds) {
+            releaseMoveCompletionShield();
+          }
           return;
         }
       } else if (typeof TouchEvent !== 'undefined' && event instanceof TouchEvent) {
         const touch = event.touches[0] ?? event.changedTouches[0];
-        if (!touch) return;
+        if (!touch) {
+          return;
+        }
         clientX = touch.clientX;
         clientY = touch.clientY;
         pointerType = 'touch';
@@ -1118,7 +1188,9 @@ function BuilderApp({
         clientX = event.clientX;
         clientY = event.clientY;
       }
-      if (clientX === null || clientY === null) return;
+      if (clientX === null || clientY === null) {
+        return;
+      }
 
       const decision = decideMoveCompletionPointerInteraction(shield, {
         button,
@@ -1175,7 +1247,9 @@ function BuilderApp({
     window.document.addEventListener('keyup', absorbRapidCompletion, true);
     const releaseForGeometryChange = () => releaseMoveCompletionShield();
     const releaseWhenHidden = () => {
-      if (window.document.visibilityState === 'hidden') releaseMoveCompletionShield();
+      if (window.document.visibilityState === 'hidden') {
+        releaseMoveCompletionShield();
+      }
     };
     window.addEventListener('hashchange', releaseForGeometryChange);
     window.addEventListener('pagehide', releaseForGeometryChange);
@@ -1260,10 +1334,10 @@ function BuilderApp({
     return [...document.navigation.items]
       .sort((left, right) => left.order - right.order)
       .filter((item) => {
-        const page = document.pages.find((candidate) => candidate.id === item.pageId);
+        const page = document.pages.find(candidate => candidate.id === item.pageId);
         return page?.visible && page.visibleInNavigation;
       })
-      .map((item) => item.label);
+      .map(item => item.label);
   }, [document]);
 
   const showError = (message: string, title = 'That change isn’t available') => {
@@ -1298,8 +1372,8 @@ function BuilderApp({
         : null;
       const sectionSurface = sectionId
         ? [...window.document.querySelectorAll<HTMLElement>('[data-section-instance-id]')]
-          .find((candidate) => candidate.dataset.sectionInstanceId === sectionId)
-          ?.querySelector<HTMLElement>('.section-card__select-surface') ?? null
+            .find(candidate => candidate.dataset.sectionInstanceId === sectionId)
+            ?.querySelector<HTMLElement>('.section-card__select-surface') ?? null
         : null;
       const fallback = window.document.querySelector<HTMLElement>('.final-topbar__page');
       const focusTarget = [invocation, editControl, sectionSurface, fallback]
@@ -1320,7 +1394,7 @@ function BuilderApp({
       const invocation = customDesignSettingsTriggerRef.current;
       const sectionElement = sectionId
         ? [...window.document.querySelectorAll<HTMLElement>('[data-section-instance-id]')]
-          .find((candidate) => candidate.dataset.sectionInstanceId === sectionId)
+            .find(candidate => candidate.dataset.sectionInstanceId === sectionId)
         : null;
       sectionElement?.scrollIntoView({ behavior: 'auto', block: 'start' });
       window.requestAnimationFrame(() => {
@@ -1406,7 +1480,7 @@ function BuilderApp({
         return;
       }
       const higherPriorityDialog = [...window.document.querySelectorAll<HTMLElement>('[role="dialog"][aria-modal="true"]')]
-        .find((candidate) => candidate !== drawer);
+        .find(candidate => candidate !== drawer);
       if (higherPriorityDialog) {
         return;
       }
@@ -1420,12 +1494,16 @@ function BuilderApp({
   }, [closeBookingSettings, desktopSettings, editingBooking, settingsTemporarilyHidden]);
 
   useLayoutEffect(() => {
-    if (!editingCustomDesign || !desktopSettings || hotspotImageItemId) return;
+    if (!editingCustomDesign || !desktopSettings || hotspotImageItemId) {
+      return;
+    }
     restoreVisibleFocus(customDesignSettingsHeadingRef.current);
   }, [desktopSettings, editingCustomDesign?.id, hotspotImageItemId]);
 
   useEffect(() => {
-    if (!editingCustomDesign || !desktopSettings) return undefined;
+    if (!editingCustomDesign || !desktopSettings) {
+      return undefined;
+    }
     const handleSettingsEscape = (event: KeyboardEvent) => {
       const drawer = customDesignSettingsDrawerRef.current;
       if (
@@ -1433,10 +1511,14 @@ function BuilderApp({
         || event.defaultPrevented
         || !drawer?.contains(window.document.activeElement)
         || isEscapeHandledInsideActiveControl(event)
-      ) return;
+      ) {
+        return;
+      }
       const higherPriorityDialog = [...window.document.querySelectorAll<HTMLElement>('[role="dialog"][aria-modal="true"]')]
-        .find((candidate) => candidate !== drawer);
-      if (higherPriorityDialog) return;
+        .find(candidate => candidate !== drawer);
+      if (higherPriorityDialog) {
+        return;
+      }
       event.preventDefault();
       event.stopPropagation();
       requestCustomDesignSettingsClose();
@@ -1470,7 +1552,7 @@ function BuilderApp({
       kind,
       targetSectionId: session.targetSectionId,
     };
-    setMoveFocusRequest((current) => current + 1);
+    setMoveFocusRequest(current => current + 1);
   };
 
   const chooseStarter = (starter: OriginStarter) => {
@@ -1507,12 +1589,16 @@ function BuilderApp({
       requestCustomDesignSettingsClose();
       return;
     }
-    if (!sourceDocument || moveSession) return;
+    if (!sourceDocument || moveSession) {
+      return;
+    }
     const page = findSectionPage(sourceDocument, sectionId);
-    if (!page) return;
+    if (!page) {
+      return;
+    }
     const baselineOrder = [...page.sections]
       .sort((left, right) => left.order - right.order)
-      .map((section) => section.id);
+      .map(section => section.id);
     moveInvocationRef.current = window.document.activeElement instanceof HTMLElement
       ? window.document.activeElement
       : null;
@@ -1533,10 +1619,14 @@ function BuilderApp({
   };
 
   const enterReorder = () => {
-    if (!activePage || activePage.sections.length < 2) return;
-    const focusSection = activePage.sections.find((section) => section.id === selectedSectionId)
+    if (!activePage || activePage.sections.length < 2) {
+      return;
+    }
+    const focusSection = activePage.sections.find(section => section.id === selectedSectionId)
       ?? [...activePage.sections].sort((left, right) => left.order - right.order)[0];
-    if (focusSection) openMoveSection(focusSection.id, 'arrange');
+    if (focusSection) {
+      openMoveSection(focusSection.id, 'arrange');
+    }
   };
 
   const updateWorkingPosition = (
@@ -1544,10 +1634,16 @@ function BuilderApp({
     position: number,
     announce = true,
   ) => {
-    if (!moveSession || position < 1 || position > moveSession.workingOrder.length) return;
+    if (!moveSession || position < 1 || position > moveSession.workingOrder.length) {
+      return;
+    }
     const fromIndex = moveSession.workingOrder.indexOf(sectionId);
-    if (fromIndex < 0) return;
-    if (fromIndex === position - 1) return;
+    if (fromIndex < 0) {
+      return;
+    }
+    if (fromIndex === position - 1) {
+      return;
+    }
     const workingOrder = [...moveSession.workingOrder];
     workingOrder.splice(fromIndex, 1);
     workingOrder.splice(position - 1, 0, sectionId);
@@ -1560,7 +1656,9 @@ function BuilderApp({
 
   const activateMoveTarget = (section: SectionInstance) => {
     setMoveSession((current) => {
-      if (!current || current.targetSectionId === section.id) return current;
+      if (!current || current.targetSectionId === section.id) {
+        return current;
+      }
       return {
         ...current,
         destination: null,
@@ -1571,14 +1669,18 @@ function BuilderApp({
   };
 
   const stageMoveToPage = (pageId: string) => {
-    if (!moveSession || !document) return;
+    if (!moveSession || !document) {
+      return;
+    }
     if (pageId === moveSession.sourcePageId) {
       setMoveSession({ ...moveSession, destination: null });
       setAnnouncement('Cross-page movement cleared. The section will stay on this page.');
       return;
     }
-    const destinationPage = document.pages.find((page) => page.id === pageId);
-    if (!destinationPage) return;
+    const destinationPage = document.pages.find(page => page.id === pageId);
+    if (!destinationPage) {
+      return;
+    }
     const destination: CommitSectionMoveDestination = {
       type: 'existing_page',
       pageId,
@@ -1590,7 +1692,9 @@ function BuilderApp({
   };
 
   const stageMoveToNewPage = (name: string) => {
-    if (!moveSession || !document) return;
+    if (!moveSession || !document) {
+      return;
+    }
     const destination: CommitSectionMoveDestination = {
       type: 'new_page',
       name,
@@ -1603,9 +1707,13 @@ function BuilderApp({
 
   const updateMoveDestinationPosition = (position: number) => {
     const destination = moveSession?.destination;
-    if (!moveSession || !destination || destination.type !== 'existing_page') return;
-    const destinationPage = document?.pages.find((page) => page.id === destination.pageId);
-    if (!destinationPage || position < 1 || position > destinationPage.sections.length + 1) return;
+    if (!moveSession || !destination || destination.type !== 'existing_page') {
+      return;
+    }
+    const destinationPage = document?.pages.find(page => page.id === destination.pageId);
+    if (!destinationPage || position < 1 || position > destinationPage.sections.length + 1) {
+      return;
+    }
     setMoveSession({
       ...moveSession,
       destination: { ...destination, position },
@@ -1614,7 +1722,9 @@ function BuilderApp({
   };
 
   const clearMoveDestination = () => {
-    if (!moveSession?.destination) return;
+    if (!moveSession?.destination) {
+      return;
+    }
     setMoveSession({ ...moveSession, destination: null });
     setAnnouncement('Cross-page movement cleared. The section will stay on this page.');
   };
@@ -1623,7 +1733,9 @@ function BuilderApp({
     completionSource: Extract<MoveCompletionSource, 'cancel' | 'discard-changes'>,
     completionEvent: MoveCompletionEvent,
   ) => {
-    if (!moveSession || !document || moveCommitInFlightRef.current) return;
+    if (!moveSession || !document || moveCommitInFlightRef.current) {
+      return;
+    }
     moveCommitInFlightRef.current = true;
     armMoveCompletionShield(
       completionSource,
@@ -1642,7 +1754,9 @@ function BuilderApp({
     completionSource: Extract<MoveCompletionSource, 'done' | 'keep-order'>,
     completionEvent: MoveCompletionEvent,
   ) => {
-    if (!moveSession || !document || moveCommitInFlightRef.current) return;
+    if (!moveSession || !document || moveCommitInFlightRef.current) {
+      return;
+    }
     moveCommitInFlightRef.current = true;
     armMoveCompletionShield(
       completionSource,
@@ -1651,8 +1765,8 @@ function BuilderApp({
     );
     const targetSection = findSection(document, moveSession.targetSectionId);
     const destination = moveSession.destination ?? undefined;
-    const beforePageIds = new Set(document.pages.map((page) => page.id));
-    const beforeVisibleCount = document.pages.filter((page) => page.visible).length;
+    const beforePageIds = new Set(document.pages.map(page => page.id));
+    const beforeVisibleCount = document.pages.filter(page => page.visible).length;
     const result = execute({
       type: 'commit_section_move',
       input: {
@@ -1671,9 +1785,11 @@ function BuilderApp({
     queueMoveFocus(moveSession, 'commit');
     setMoveSession(null);
     setMoveDismissPending(false);
-    if (!result.changed) return;
+    if (!result.changed) {
+      return;
+    }
     if (destination?.type === 'existing_page') {
-      const targetPage = result.document.pages.find((page) => page.id === destination.pageId);
+      const targetPage = result.document.pages.find(page => page.id === destination.pageId);
       setActivePageId(destination.pageId);
       setSelectedSectionId(moveSession.targetSectionId);
       const message = `${targetSection?.label ?? 'Section'} moved to ${targetPage?.name ?? 'page'}.`;
@@ -1681,10 +1797,14 @@ function BuilderApp({
       return;
     }
     if (destination?.type === 'new_page') {
-      const created = result.document.pages.find((page) => !beforePageIds.has(page.id));
-      if (created) setActivePageId(created.id);
+      const created = result.document.pages.find(page => !beforePageIds.has(page.id));
+      if (created) {
+        setActivePageId(created.id);
+      }
       setSelectedSectionId(moveSession.targetSectionId);
-      if (!document.navigation.enabled && beforeVisibleCount === 1) setNavigationPromptOpen(true);
+      if (!document.navigation.enabled && beforeVisibleCount === 1) {
+        setNavigationPromptOpen(true);
+      }
       setPendingMoveFeedback({
         announcement: `${targetSection?.label ?? 'Section'} moved to ${destination.name}.`,
         message: `${destination.name} created with ${targetSection?.label ?? 'section'} intact.`,
@@ -1699,9 +1819,12 @@ function BuilderApp({
   };
 
   const requestMoveClose = () => {
-    if (!moveSession) return;
-    if (moveDirty) setMoveDismissPending(true);
-    else {
+    if (!moveSession) {
+      return;
+    }
+    if (moveDirty) {
+      setMoveDismissPending(true);
+    } else {
       queueMoveFocus(moveSession, 'restore');
       setMoveSession(null);
     }
@@ -1715,7 +1838,7 @@ function BuilderApp({
     if (!document) {
       return;
     }
-    const current = activePage?.visible ? activePage : document.pages.find((page) => page.visible) ?? getHomeOrFirstPage(document);
+    const current = activePage?.visible ? activePage : document.pages.find(page => page.visible) ?? getHomeOrFirstPage(document);
     setActivePageId(current.id);
     setStructureOpen(false);
     if (window.matchMedia('(max-width: 700px)').matches || window.document.body.clientWidth <= 700) {
@@ -1726,31 +1849,41 @@ function BuilderApp({
   };
 
   const leavePreview = () => {
-    setBookingSession((current) => normalizeSessionForLayoutChange(current));
+    setBookingSession(current => normalizeSessionForLayoutChange(current));
     setMode('edit');
   };
 
   const selectPreviewViewport = (nextViewport: PreviewViewport) => {
-    if (nextViewport === viewport) return;
+    if (nextViewport === viewport) {
+      return;
+    }
     setViewport(nextViewport);
     setPreviewAnnouncement('');
     const announcementToken = previewAnnouncementTokenRef.current + 1;
     previewAnnouncementTokenRef.current = announcementToken;
     window.requestAnimationFrame(() => {
       window.requestAnimationFrame(() => {
-        if (previewAnnouncementTokenRef.current !== announcementToken) return;
+        if (previewAnnouncementTokenRef.current !== announcementToken) {
+          return;
+        }
         const stage = window.document.querySelector<HTMLElement>('#site-preview-stage');
         const announceSettledWidth = () => {
           window.requestAnimationFrame(() => {
-            if (previewAnnouncementTokenRef.current !== announcementToken) return;
+            if (previewAnnouncementTokenRef.current !== announcementToken) {
+              return;
+            }
             const canonicalDevice = nextViewport === 'mobile' ? 'phone' : nextViewport;
             const frame = window.document.querySelector<HTMLElement>([
               `#site-preview-stage .onboarding-preview-frame[data-preview-device="${canonicalDevice}"]`,
               `#site-preview-stage .preview-frame[data-preview-viewport="${nextViewport}"]`,
             ].join(', '));
-            if (!frame) return;
+            if (!frame) {
+              return;
+            }
             const measuredWidth = Math.round(frame.getBoundingClientRect().width);
-            if (measuredWidth <= 0) return;
+            if (measuredWidth <= 0) {
+              return;
+            }
             const label = nextViewport === 'mobile'
               ? 'Phone'
               : `${nextViewport[0]?.toUpperCase()}${nextViewport.slice(1)}`;
@@ -1762,7 +1895,7 @@ function BuilderApp({
           announceSettledWidth();
           return;
         }
-        void Promise.allSettled(activeTransitions.map((animation) => animation.finished))
+        void Promise.allSettled(activeTransitions.map(animation => animation.finished))
           .then(announceSettledWidth);
       });
     });
@@ -1786,13 +1919,17 @@ function BuilderApp({
   );
 
   const libraryAddState = useCallback((sectionType: LibrarySectionType) => {
-    if (!document || !activePage) return { blocked: false } as const;
+    if (!document || !activePage) {
+      return { blocked: false } as const;
+    }
     const blocker = getAddSectionBlocker(document, activePage.id, sectionType);
-    if (blocker && isAddBlocked(document, activePage.id, sectionType)) return {
-      blocked: true,
-      reason: blocker.resolutions.find(resolution => resolution.kind === 'navigate')
-        ?.label ?? blocker.title,
-    } as const;
+    if (blocker && isAddBlocked(document, activePage.id, sectionType)) {
+      return {
+        blocked: true,
+        reason: blocker.resolutions.find(resolution => resolution.kind === 'navigate')
+          ?.label ?? blocker.title,
+      } as const;
+    }
     return { blocked: false } as const;
   }, [activePage, document]);
 
@@ -1802,16 +1939,22 @@ function BuilderApp({
     position: number | null = libraryPosition,
     adjustment?: { sectionId: string; settings: LibrarySectionSettings },
   ): { created: SectionInstance; document: SiteBuilderDocument } | null => {
-    if (!document || !pageId || position === null) return null;
+    if (!document || !pageId || position === null) {
+      return null;
+    }
     const beforePage = document.pages.find(page => page.id === pageId);
-    if (!beforePage) return null;
+    if (!beforePage) {
+      return null;
+    }
     const beforeIds = new Set(beforePage.sections.map(section => section.id));
     const input = { pageId, position, sectionType } as const;
     const command: BuilderCommand = adjustment
       ? { type: 'add_library_section_with_adjustment', adjustment, input }
       : { type: 'add_section', input };
     const result = execute(command);
-    if (!result.success) return null;
+    if (!result.success) {
+      return null;
+    }
     const nextPage = result.document.pages.find(page => page.id === pageId);
     const created = nextPage?.sections.find(section => !beforeIds.has(section.id));
     setSelectedSectionId(created?.id ?? null);
@@ -1834,7 +1977,9 @@ function BuilderApp({
   };
 
   const addLibrarySection = (sectionType: LibrarySectionType) => {
-    if (!document || !activePage || libraryPosition === null) return;
+    if (!document || !activePage || libraryPosition === null) {
+      return;
+    }
     const blocker = getAddSectionBlocker(document, activePage.id, sectionType);
     const warnings = getAddSectionWarnings(
       document,
@@ -1857,7 +2002,9 @@ function BuilderApp({
   };
 
   const resolvePendingLibraryAdd = (resolution: OverlapResolution) => {
-    if (!pendingLibraryAdd || !document) return;
+    if (!pendingLibraryAdd || !document) {
+      return;
+    }
     if (resolution.kind === 'cancel') {
       setPendingLibraryAdd(null);
       return;
@@ -1873,7 +2020,9 @@ function BuilderApp({
         setPendingLibraryAdd(null);
         return;
       }
-      if (resolution.target) focusOverlapTarget(resolution.target);
+      if (resolution.target) {
+        focusOverlapTarget(resolution.target);
+      }
       return;
     }
 
@@ -1912,7 +2061,9 @@ function BuilderApp({
   };
 
   const saveLibrarySection = (settings: LibrarySectionSettings) => {
-    if (!editingLibrarySection) return;
+    if (!editingLibrarySection) {
+      return;
+    }
     const result = execute({
       type: 'update_library_section_settings',
       sectionId: editingLibrarySection.id,
@@ -1934,7 +2085,7 @@ function BuilderApp({
     if (!activePage || libraryPosition === null) {
       return;
     }
-    const beforeIds = new Set(activePage.sections.map((section) => section.id));
+    const beforeIds = new Set(activePage.sections.map(section => section.id));
     const input = sectionType === 'custom_design'
       ? {
           pageId: activePage.id,
@@ -1957,8 +2108,8 @@ function BuilderApp({
     if (!result.success) {
       return;
     }
-    const nextPage = result.document.pages.find((page) => page.id === activePage.id);
-    const created = nextPage?.sections.find((section) => !beforeIds.has(section.id));
+    const nextPage = result.document.pages.find(page => page.id === activePage.id);
+    const created = nextPage?.sections.find(section => !beforeIds.has(section.id));
     setSelectedSectionId(created?.id ?? null);
     if (created?.sectionType === 'custom_design') {
       customDesignSettingsTriggerRef.current = null;
@@ -2040,14 +2191,14 @@ function BuilderApp({
     }
     const result = auditMode
       ? execute({
-          type: 'reset_booking_presentation',
-          sectionId: editingBooking.id,
-        })
+        type: 'reset_booking_presentation',
+        sectionId: editingBooking.id,
+      })
       : execute({
-          type: 'update_booking_presentation',
-          sectionId: editingBooking.id,
-          settings: withoutFeaturedServicesRail(createDefaultBookingPresentationSettings()),
-        });
+        type: 'update_booking_presentation',
+        sectionId: editingBooking.id,
+        settings: withoutFeaturedServicesRail(createDefaultBookingPresentationSettings()),
+      });
     if (result.success) {
       setToast({ message: 'Booking presentation reset.' });
     }
@@ -2057,7 +2208,7 @@ function BuilderApp({
     sectionId: string,
     status: CustomDesignUploadStatus | undefined,
   ) => {
-    setCustomDesignUploadStatuses((current) => ({ ...current, [sectionId]: status }));
+    setCustomDesignUploadStatuses(current => ({ ...current, [sectionId]: status }));
   };
 
   const prepareCustomDesignImageTransition = (
@@ -2079,7 +2230,9 @@ function BuilderApp({
       sectionId,
       settings: { ...section.settings, cta, images: [...images] },
     });
-    if (!prepared.success) throw new Error(prepared.message);
+    if (!prepared.success) {
+      throw new Error(prepared.message);
+    }
     return {
       cancel: prepared.cancel,
       changed: prepared.changed,
@@ -2092,11 +2245,13 @@ function BuilderApp({
     files: readonly File[],
   ) => {
     const section = document ? findSection(document, sectionId) : null;
-    if (section?.sectionType !== 'custom_design') return;
+    if (section?.sectionType !== 'custom_design') {
+      return;
+    }
     if (!customDesignAssetCoordinator) {
       showError(
         customDesignStorageError?.message
-          ?? 'Uploaded-design storage is not available in this browser.',
+        ?? 'Uploaded-design storage is not available in this browser.',
         'Images could not be stored',
       );
       return;
@@ -2110,14 +2265,14 @@ function BuilderApp({
         createImageItemId: () => customDesignIdFactoryRef.current('image'),
         currentImages: section.settings.images,
         files,
-        prepareDocumentTransition: (images) => prepareCustomDesignImageTransition(
+        prepareDocumentTransition: images => prepareCustomDesignImageTransition(
           sectionId,
           expectedImagesJson,
           [...images],
         ),
       });
       const addedCount = result.added.length;
-      const failures = result.failures.map((failure) => ({
+      const failures = result.failures.map(failure => ({
         code: failure.code,
         fileName: failure.fileName,
         message: failure.message,
@@ -2153,11 +2308,13 @@ function BuilderApp({
     file: File,
   ) => {
     const section = document ? findSection(document, sectionId) : null;
-    if (section?.sectionType !== 'custom_design') return;
+    if (section?.sectionType !== 'custom_design') {
+      return;
+    }
     if (!customDesignAssetCoordinator) {
       showError(
         customDesignStorageError?.message
-          ?? 'Uploaded-design storage is not available in this browser.',
+        ?? 'Uploaded-design storage is not available in this browser.',
         'Image could not be replaced',
       );
       return;
@@ -2170,7 +2327,7 @@ function BuilderApp({
         currentImages: section.settings.images,
         file,
         imageItemId,
-        prepareDocumentTransition: (images) => prepareCustomDesignImageTransition(
+        prepareDocumentTransition: images => prepareCustomDesignImageTransition(
           sectionId,
           expectedImagesJson,
           [...images],
@@ -2210,13 +2367,17 @@ function BuilderApp({
   ) => {
     const history = lab.getHistorySnapshot();
     const section = history ? findSection(history.present, sectionId) : null;
-    if (section?.sectionType !== 'custom_design') return false;
+    if (section?.sectionType !== 'custom_design') {
+      return false;
+    }
     const result = execute({
       type: 'update_custom_design_settings',
       sectionId,
       settings: update(section.settings),
     });
-    if (!result.success) return false;
+    if (!result.success) {
+      return false;
+    }
     setToast({ message, ...(undoable ? { undoable: true } : {}) });
     setAnnouncement(message);
     return true;
@@ -2226,7 +2387,7 @@ function BuilderApp({
     sectionId: string,
     orderedImageItemIds: readonly string[],
   ) => updateCustomDesignSettings(sectionId, (settings) => {
-    const byId = new Map(settings.images.map((image) => [image.id, image]));
+    const byId = new Map(settings.images.map(image => [image.id, image]));
     const images = orderedImageItemIds.flatMap((id) => {
       const image = byId.get(id);
       return image ? [image] : [];
@@ -2253,7 +2414,9 @@ function BuilderApp({
   };
 
   const discardCustomDesignImageOrderAndClose = () => {
-    if (customDesignOrderResolutionInFlightRef.current) return;
+    if (customDesignOrderResolutionInFlightRef.current) {
+      return;
+    }
     customDesignOrderResolutionInFlightRef.current = true;
     if (editingCustomDesign) {
       const canonical = editingCustomDesign.settings.images.map(image => image.id);
@@ -2271,7 +2434,9 @@ function BuilderApp({
       customDesignOrderResolutionInFlightRef.current
       || !editingCustomDesign
       || !activeCustomDesignImageOrderDraft
-    ) return;
+    ) {
+      return;
+    }
     customDesignOrderResolutionInFlightRef.current = true;
     const orderedImageItemIds = activeCustomDesignImageOrderDraft.orderedImageItemIds;
     if (!commitCustomDesignImageOrder(editingCustomDesign.id, orderedImageItemIds)) {
@@ -2290,7 +2455,7 @@ function BuilderApp({
     sectionId: string,
     imageItemId: string,
   ) => updateCustomDesignSettings(sectionId, (settings) => {
-    const images = settings.images.filter((image) => image.id !== imageItemId);
+    const images = settings.images.filter(image => image.id !== imageItemId);
     return {
       ...settings,
       cta: reconcileCtaPlacementForImages(settings.cta, images).cta,
@@ -2303,13 +2468,15 @@ function BuilderApp({
     imageItemId: string,
     areas: readonly CustomDesignInteractiveArea[],
   ) => {
-    const changed = updateCustomDesignSettings(sectionId, (settings) => ({
+    const changed = updateCustomDesignSettings(sectionId, settings => ({
       ...settings,
-      images: settings.images.map((image) => image.id === imageItemId
+      images: settings.images.map(image => image.id === imageItemId
         ? { ...image, interactiveAreas: [...areas] }
         : image),
     }), 'Link areas saved.');
-    if (changed) setHotspotImageItemId(null);
+    if (changed) {
+      setHotspotImageItemId(null);
+    }
   };
 
   const toggleSection = (section: SectionInstance) => {
@@ -2358,7 +2525,9 @@ function BuilderApp({
   };
 
   const restoreSectionFromLibrary = (section: SectionInstance, position?: number) => {
-    if (!restoreSection(section, position)) return;
+    if (!restoreSection(section, position)) {
+      return;
+    }
     setLibraryPosition(null);
     window.requestAnimationFrame(() => {
       const restored = window.document.querySelector<HTMLElement>(
@@ -2376,19 +2545,19 @@ function BuilderApp({
     if (!document) {
       return;
     }
-    const beforeIds = new Set(document.pages.map((page) => page.id));
-    const beforeVisibleCount = document.pages.filter((page) => page.visible).length;
+    const beforeIds = new Set(document.pages.map(page => page.id));
+    const beforeVisibleCount = document.pages.filter(page => page.visible).length;
     const result = execute({ type: 'add_page', input: { name, slug: slug || undefined } });
     if (!result.success) {
       return;
     }
-    const created = result.document.pages.find((page) => !beforeIds.has(page.id));
+    const created = result.document.pages.find(page => !beforeIds.has(page.id));
     setAddPageOpen(false);
     setStructureOpen(false);
     if (created) {
       setActivePageId(created.id);
     }
-    if (!document.navigation.enabled && beforeVisibleCount === 1 && result.document.pages.filter((page) => page.visible).length > 1) {
+    if (!document.navigation.enabled && beforeVisibleCount === 1 && result.document.pages.filter(page => page.visible).length > 1) {
       setNavigationPromptOpen(true);
     }
     setToast({ message: `${name} page added.` });
@@ -2433,7 +2602,7 @@ function BuilderApp({
   const restorePage = (pageId: string) => {
     const result = execute({ type: 'restore_page', pageId });
     if (result.success) {
-      const page = result.document.pages.find((candidate) => candidate.id === pageId);
+      const page = result.document.pages.find(candidate => candidate.id === pageId);
       setActivePageId(pageId);
       setToast({ message: `${page?.name ?? 'Page'} restored with its sections intact.` });
     }
@@ -2452,7 +2621,9 @@ function BuilderApp({
   const exportJson = () => {
     try {
       const json = lab.exportJson();
-      if (!json) return;
+      if (!json) {
+        return;
+      }
       const blob = new Blob([json], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
       const anchor = window.document.createElement('a');
@@ -2551,17 +2722,30 @@ function BuilderApp({
   if (!document || !activePage) {
     return (
       <>
-        {lab.loadIssues.length > 0 ? (
-          <div className="toast" role="alert"><span>Saved Lab data is corrupted and was not loaded. {lab.loadIssues.join(' ')}</span><button type="button" onClick={() => {
-            void (async () => {
-              try {
-                await customDesignAssetCoordinator?.clearAllAssets();
-              } finally {
-                lab.resetLab();
-              }
-            })();
-          }}>Reset saved Lab</button></div>
-        ) : null}
+        {lab.loadIssues.length > 0
+          ? (
+              <div className="toast" role="alert">
+                <span>
+                  {'Saved Lab data is corrupted and was not loaded. '}
+                  {lab.loadIssues.join(' ')}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    void (async () => {
+                      try {
+                        await customDesignAssetCoordinator?.clearAllAssets();
+                      } finally {
+                        lab.resetLab();
+                      }
+                    })();
+                  }}
+                >
+                  Reset saved Lab
+                </button>
+              </div>
+            )
+          : null}
         <StarterChooser
           onChoose={chooseStarter}
           onImport={importFile}
@@ -2571,7 +2755,7 @@ function BuilderApp({
     );
   }
 
-  const previewPage = activePage.visible ? activePage : document.pages.find((page) => page.visible) ?? getHomeOrFirstPage(document);
+  const previewPage = activePage.visible ? activePage : document.pages.find(page => page.visible) ?? getHomeOrFirstPage(document);
   const selectedBookingReport = selectedSection?.sectionType === 'booking'
     ? bookingCollapseReports[selectedSection.id]
     : undefined;
@@ -2581,31 +2765,37 @@ function BuilderApp({
   const selectedSectionSubtitle = selectedSectionIdentity?.detail ?? '';
   const editingCustomDesignReadiness = editingCustomDesign
     ? getOwnerCustomDesignReadiness(
-        editingCustomDesign.settings,
-        customDesignAssets,
-        document,
-        activePage.id,
-      )
+      editingCustomDesign.settings,
+      customDesignAssets,
+      document,
+      activePage.id,
+    )
     : [];
   const hotspotImage = editingCustomDesign?.settings.images.find(
-    (image) => image.id === hotspotImageItemId,
+    image => image.id === hotspotImageItemId,
   ) ?? null;
   const hotspotAsset = hotspotImage
     ? customDesignAssets[hotspotImage.assetId] ?? { status: 'loading' as const }
     : { status: 'loading' as const };
 
   const toggleSelectedBookingCollapse = () => {
-    if (selectedSection?.sectionType !== 'booking' || !selectedBookingReport) return;
-    setBookingCollapseOverrides((current) => ({
+    if (selectedSection?.sectionType !== 'booking' || !selectedBookingReport) {
+      return;
+    }
+    setBookingCollapseOverrides(current => ({
       ...current,
       [selectedSection.id]: !selectedBookingReport.collapsed,
     }));
   };
 
   const returnToSelectedSection = () => {
-    if (!selectedSection) return;
+    if (!selectedSection) {
+      return;
+    }
     const section = window.document.querySelector<HTMLElement>(`[data-section-instance-id="${selectedSection.id}"]`);
-    if (!section) return;
+    if (!section) {
+      return;
+    }
     setSelectedSectionIntersects(true);
     section.scrollIntoView({ block: 'start', behavior: 'smooth' });
     window.requestAnimationFrame(() => {
@@ -2705,12 +2895,21 @@ function BuilderApp({
       activePageId={activePage.id}
       advisories={documentAdvisories}
       document={document}
-      onAddPage={() => { setToast(null); setStructureOpen(false); setAddPageOpen(true); }}
-      onEditPage={(page) => { setEditingPageId(page.id); }}
+      onAddPage={() => {
+        setToast(null);
+        setStructureOpen(false);
+        setAddPageOpen(true);
+      }}
+      onEditPage={(page) => {
+        setEditingPageId(page.id);
+      }}
       onEnterReorder={enterReorder}
       onMoveNavigationItem={(pageId, position) => execute({ type: 'move_navigation_item', pageId, position })}
       onMovePage={movePage}
-      onRemovePage={(page) => { setStructureOpen(false); setPendingPageRemovalId(page.id); }}
+      onRemovePage={(page) => {
+        setStructureOpen(false);
+        setPendingPageRemovalId(page.id);
+      }}
       onResolveAdvisory={resolveDocumentAdvisory}
       onRenameNavigationItem={(pageId, label) => execute({ type: 'rename_navigation_item', pageId, label })}
       onRestorePage={restorePage}
@@ -2731,77 +2930,79 @@ function BuilderApp({
     />
   );
 
-  const customDesignOwnerEditor = editingCustomDesign ? (
-    <CustomDesignOwnerEditor
-      assets={customDesignAssets}
-      imageOrderDraft={activeCustomDesignImageOrderDraft?.orderedImageItemIds
-        ?? committedCustomDesignImageItemIds}
-      internalTargets={customDesignInternalTargets}
-      readinessIssues={editingCustomDesignReadiness}
-      settings={editingCustomDesign.settings}
-      uploadStatus={customDesignUploadStatuses[editingCustomDesign.id]}
-      onAddImages={(files) => {
-        void uploadCustomDesignImages(editingCustomDesign.id, files);
-      }}
-      onCommitImageOrder={(imageItemIds) => {
-        if (commitCustomDesignImageOrder(editingCustomDesign.id, imageItemIds)) {
-          setCustomDesignImageOrderDraft({
-            baselineImageItemIds: [...imageItemIds],
-            orderedImageItemIds: [...imageItemIds],
-            sectionId: editingCustomDesign.id,
-          });
-        }
-      }}
-      onImageOrderDraftChange={(imageItemIds) => {
-        setCustomDesignImageOrderDraft((current) => ({
-          baselineImageItemIds: current?.sectionId === editingCustomDesign.id
-            ? current.baselineImageItemIds
-            : editingCustomDesign.settings.images.map(image => image.id),
-          orderedImageItemIds: [...imageItemIds],
-          sectionId: editingCustomDesign.id,
-        }));
-      }}
-      onEditAreas={setHotspotImageItemId}
-      onRemoveImage={(imageItemId) => {
-        removeCustomDesignImage(editingCustomDesign.id, imageItemId);
-      }}
-      onReplaceImage={(imageItemId, file) => {
-        void replaceCustomDesignImageAsset(editingCustomDesign.id, imageItemId, file);
-      }}
-      onUpdateAccessibility={(imageItemId, update) => {
-        updateCustomDesignSettings(editingCustomDesign.id, (settings) => ({
-          ...settings,
-          images: settings.images.map((image) => image.id === imageItemId
-            ? { ...image, ...update }
-            : image),
-        }), 'Accessibility information saved.');
-      }}
-      onUpdateBackground={(background) => {
-        updateCustomDesignSettings(editingCustomDesign.id, (settings) => ({
-          ...settings,
-          background,
-        }), 'Custom Design background updated.');
-      }}
-      onUpdateCta={(cta) => {
-        updateCustomDesignSettings(editingCustomDesign.id, (settings) => ({
-          ...settings,
-          cta,
-        }), cta.type === 'none' ? 'Native button removed.' : 'Native button saved.');
-      }}
-      onUpdateDisplay={(displayMode) => {
-        updateCustomDesignSettings(editingCustomDesign.id, (settings) => ({
-          ...settings,
-          displayMode,
-        }), `${displayMode === 'full_width' ? 'Full width' : `${displayMode[0]?.toUpperCase()}${displayMode.slice(1)}`} display selected.`);
-      }}
-      onUpdateGap={(gap) => {
-        updateCustomDesignSettings(editingCustomDesign.id, (settings) => ({
-          ...settings,
-          gap,
-        }), `${gap[0]?.toUpperCase()}${gap.slice(1)} image spacing selected.`);
-      }}
-    />
-  ) : null;
+  const customDesignOwnerEditor = editingCustomDesign
+    ? (
+        <CustomDesignOwnerEditor
+          assets={customDesignAssets}
+          imageOrderDraft={activeCustomDesignImageOrderDraft?.orderedImageItemIds
+          ?? committedCustomDesignImageItemIds}
+          internalTargets={customDesignInternalTargets}
+          readinessIssues={editingCustomDesignReadiness}
+          settings={editingCustomDesign.settings}
+          uploadStatus={customDesignUploadStatuses[editingCustomDesign.id]}
+          onAddImages={(files) => {
+            void uploadCustomDesignImages(editingCustomDesign.id, files);
+          }}
+          onCommitImageOrder={(imageItemIds) => {
+            if (commitCustomDesignImageOrder(editingCustomDesign.id, imageItemIds)) {
+              setCustomDesignImageOrderDraft({
+                baselineImageItemIds: [...imageItemIds],
+                orderedImageItemIds: [...imageItemIds],
+                sectionId: editingCustomDesign.id,
+              });
+            }
+          }}
+          onImageOrderDraftChange={(imageItemIds) => {
+            setCustomDesignImageOrderDraft(current => ({
+              baselineImageItemIds: current?.sectionId === editingCustomDesign.id
+                ? current.baselineImageItemIds
+                : editingCustomDesign.settings.images.map(image => image.id),
+              orderedImageItemIds: [...imageItemIds],
+              sectionId: editingCustomDesign.id,
+            }));
+          }}
+          onEditAreas={setHotspotImageItemId}
+          onRemoveImage={(imageItemId) => {
+            removeCustomDesignImage(editingCustomDesign.id, imageItemId);
+          }}
+          onReplaceImage={(imageItemId, file) => {
+            void replaceCustomDesignImageAsset(editingCustomDesign.id, imageItemId, file);
+          }}
+          onUpdateAccessibility={(imageItemId, update) => {
+            updateCustomDesignSettings(editingCustomDesign.id, settings => ({
+              ...settings,
+              images: settings.images.map(image => image.id === imageItemId
+                ? { ...image, ...update }
+                : image),
+            }), 'Accessibility information saved.');
+          }}
+          onUpdateBackground={(background) => {
+            updateCustomDesignSettings(editingCustomDesign.id, settings => ({
+              ...settings,
+              background,
+            }), 'Custom Design background updated.');
+          }}
+          onUpdateCta={(cta) => {
+            updateCustomDesignSettings(editingCustomDesign.id, settings => ({
+              ...settings,
+              cta,
+            }), cta.type === 'none' ? 'Native button removed.' : 'Native button saved.');
+          }}
+          onUpdateDisplay={(displayMode) => {
+            updateCustomDesignSettings(editingCustomDesign.id, settings => ({
+              ...settings,
+              displayMode,
+            }), `${displayMode === 'full_width' ? 'Full width' : `${displayMode[0]?.toUpperCase()}${displayMode.slice(1)}`} display selected.`);
+          }}
+          onUpdateGap={(gap) => {
+            updateCustomDesignSettings(editingCustomDesign.id, settings => ({
+              ...settings,
+              gap,
+            }), `${gap[0]?.toUpperCase()}${gap.slice(1)} image spacing selected.`);
+          }}
+        />
+      )
+    : null;
 
   const zoomCompactedPreview = window.innerWidth > 700 && window.document.body.clientWidth <= 700;
 
@@ -2809,13 +3010,31 @@ function BuilderApp({
     return (
       <div className={`preview-app final-hybrid-preview${realHeightSimulation ? ' is-real-height-simulation' : ''}`} data-editor-shell="final-hybrid">
         <header className={`preview-toolbar final-preview-toolbar${zoomCompactedPreview ? ' is-zoom-compact' : ''}`} aria-label="Preview controls">
-          <button aria-label="Back to editor" className="final-preview-toolbar__back" type="button" onClick={leavePreview}><ArrowLeft aria-hidden="true" size={18} /><span>Back to editor</span></button>
-          <div className="final-preview-toolbar__page"><Eye aria-hidden="true" size={17} /><span>Previewing <strong>{previewPage.name}</strong></span></div>
+          <button aria-label="Back to editor" className="final-preview-toolbar__back" type="button" onClick={leavePreview}>
+            <ArrowLeft aria-hidden="true" size={18} />
+            <span>Back to editor</span>
+          </button>
+          <div className="final-preview-toolbar__page">
+            <Eye aria-hidden="true" size={17} />
+            <span>
+              {'Previewing '}
+              <strong>{previewPage.name}</strong>
+            </span>
+          </div>
           <div className="final-preview-toolbar__actions">
             <div className="segmented-control final-preview-devices" role="group" aria-label="Preview viewport" aria-controls="site-preview-stage">
-              <button aria-label="Desktop" aria-pressed={viewport === 'desktop'} type="button" onClick={() => selectPreviewViewport('desktop')}><Laptop aria-hidden="true" size={17} /><span>Desktop</span></button>
-              <button aria-label="Tablet" aria-pressed={viewport === 'tablet'} type="button" onClick={() => selectPreviewViewport('tablet')}><Tablet aria-hidden="true" size={17} /><span>Tablet</span></button>
-              <button aria-label="Phone" aria-pressed={viewport === 'mobile'} type="button" onClick={() => selectPreviewViewport('mobile')}><Smartphone aria-hidden="true" size={17} /><span>Phone</span></button>
+              <button aria-label="Desktop" aria-pressed={viewport === 'desktop'} type="button" onClick={() => selectPreviewViewport('desktop')}>
+                <Laptop aria-hidden="true" size={17} />
+                <span>Desktop</span>
+              </button>
+              <button aria-label="Tablet" aria-pressed={viewport === 'tablet'} type="button" onClick={() => selectPreviewViewport('tablet')}>
+                <Tablet aria-hidden="true" size={17} />
+                <span>Tablet</span>
+              </button>
+              <button aria-label="Phone" aria-pressed={viewport === 'mobile'} type="button" onClick={() => selectPreviewViewport('mobile')}>
+                <Smartphone aria-hidden="true" size={17} />
+                <span>Phone</span>
+              </button>
             </div>
             <button
               aria-label="Back to dashboard"
@@ -2870,15 +3089,24 @@ function BuilderApp({
     >
       <header ref={topbarRef} className="final-topbar" aria-label="Site builder toolbar">
         <div className="final-topbar__brand">
-          <span aria-hidden="true">L</span><strong>Luster</strong>
-          {lab.saveStatus === 'error' ? (
-            <><button aria-label="Local save failed. Open backup and reset options" className="save-status is-error" type="button" onClick={requestLabOptionsOpen}><AlertTriangle aria-hidden="true" size={15} /><span>Save failed</span></button><span className="visually-hidden" role="alert">Local saving failed. Open backup and reset options for recovery actions.</span></>
-          ) : (
-            <span className={`save-status${moveDirty ? ' is-order-dirty' : lab.saveStatus === 'saved' ? ' is-saved' : ''}`} role="status" aria-label="Save status">
-              {!moveDirty && lab.saveStatus === 'saved' ? <Check aria-hidden="true" size={14} /> : <Save aria-hidden="true" size={14} />}
-              <span>{moveDirty ? 'Order not saved yet' : lab.saveStatus === 'saving' ? 'Saving…' : 'Saved'}</span>
-            </span>
-          )}
+          <span aria-hidden="true">L</span>
+          <strong>Luster</strong>
+          {lab.saveStatus === 'error'
+            ? (
+                <>
+                  <button aria-label="Local save failed. Open backup and reset options" className="save-status is-error" type="button" onClick={requestLabOptionsOpen}>
+                    <AlertTriangle aria-hidden="true" size={15} />
+                    <span>Save failed</span>
+                  </button>
+                  <span className="visually-hidden" role="alert">Local saving failed. Open backup and reset options for recovery actions.</span>
+                </>
+              )
+            : (
+                <span className={`save-status${moveDirty ? ' is-order-dirty' : lab.saveStatus === 'saved' ? ' is-saved' : ''}`} role="status" aria-label="Save status">
+                  {!moveDirty && lab.saveStatus === 'saved' ? <Check aria-hidden="true" size={14} /> : <Save aria-hidden="true" size={14} />}
+                  <span>{moveDirty ? 'Order not saved yet' : lab.saveStatus === 'saving' ? 'Saving…' : 'Saved'}</span>
+                </span>
+              )}
         </div>
         <button
           aria-expanded={structureOpen}
@@ -2888,21 +3116,25 @@ function BuilderApp({
           type="button"
           onClick={openStructure}
         >
-          <span>{activePage.name}</span><ChevronDown aria-hidden="true" size={16} />
+          <span>{activePage.name}</span>
+          <ChevronDown aria-hidden="true" size={16} />
         </button>
         <div className="final-topbar__actions">
           <div className="final-topbar__history">
             <button aria-label="Undo" disabled={!lab.canUndo || Boolean(moveSession)} type="button" onClick={undoLastChange}><Undo2 aria-hidden="true" size={18} /></button>
             <button aria-label="Redo" disabled={!lab.canRedo || Boolean(moveSession)} type="button" onClick={redoLastChange}><Redo2 aria-hidden="true" size={18} /></button>
           </div>
-          <button aria-label="Preview" className="final-topbar__preview" disabled={Boolean(moveSession)} type="button" onClick={enterPreview}><Eye aria-hidden="true" size={18} /><span>Preview</span></button>
+          <button aria-label="Preview" className="final-topbar__preview" disabled={Boolean(moveSession)} type="button" onClick={enterPreview}>
+            <Eye aria-hidden="true" size={18} />
+            <span>Preview</span>
+          </button>
           <button aria-label="More site options" className="final-topbar__more" disabled={Boolean(moveSession)} type="button" onClick={requestLabOptionsOpen}><MoreHorizontal aria-hidden="true" size={20} /></button>
         </div>
       </header>
 
       <main
         className="final-canvas-shell"
-        onClick={(event) => {
+        onPointerUp={(event) => {
           const target = event.target as HTMLElement;
           if (!target.closest('.section-card, button, input, select, textarea, a')) {
             setSelectedSectionId(null);
@@ -2912,337 +3144,439 @@ function BuilderApp({
       >
         <div className="final-canvas-frame">
           <div className="final-site-canvas" data-page-id={activePage.id}>
-              <div className="canvas-client-header" aria-hidden="true">
-                <span title={document.siteName}><i>L</i><strong>{document.siteName}</strong></span>
-                {canvasNavigationLabels.length > 0 ? <span className="canvas-client-header__nav">{canvasNavigationLabels.join('   ')}</span> : null}
-              </div>
-              <div className="final-page-heading">
-                <h1 data-builder-start tabIndex={-1}>{activePage.name}</h1>
-                <p>{activePage.sections.length} section{activePage.sections.length === 1 ? '' : 's'}{activePage.visible ? '' : ' · Page hidden'}</p>
-              </div>
+            <div className="canvas-client-header" aria-hidden="true">
+              <span title={document.siteName}>
+                <i>L</i>
+                <strong>{document.siteName}</strong>
+              </span>
+              {canvasNavigationLabels.length > 0 ? <span className="canvas-client-header__nav">{canvasNavigationLabels.join('   ')}</span> : null}
+            </div>
+            <div className="final-page-heading">
+              <h1 data-builder-start tabIndex={-1}>{activePage.name}</h1>
+              <p>
+                {activePage.sections.length}
+                {' '}
+                section
+                {activePage.sections.length === 1 ? '' : 's'}
+                {activePage.visible ? '' : ' · Page hidden'}
+              </p>
+            </div>
 
-              <div aria-label={`Sections on ${activePage.name}`} className="final-sections-list" role="list">
-                {sortedActiveSections.length === 0 ? (
-                  <div className="final-empty-page">
-                    <h2>Your page is empty</h2>
-                    <p>Add a section to start building it.</p>
-                    <button type="button" onClick={() => requestSectionLibraryOpen(1)}><Plus aria-hidden="true" size={18} /> Add section</button>
-                  </div>
-                ) : (
-                  <>
-                    <button className="final-insertion final-insertion--top" type="button" aria-label={`Add section at top of ${activePage.name}`} onClick={() => requestSectionLibraryOpen(1)}><Plus aria-hidden="true" size={15} /> Add section here</button>
-                    {sortedActiveSections.map((section, index) => (
-                      <div className="final-section-block" key={section.id}>
-                        {section.sectionType === 'booking' ? (
-                          <BookingSectionCard
-                            collapseOverride={bookingCollapseOverrides[section.id]}
-                            fixture={bookingFixture}
-                            headingLevel="h2"
-                            page={activePage}
-                            section={section}
-                            selected={selectedSectionId === section.id}
-                            session={bookingSession}
-                            tokenPreset={tokenPreset}
-                            onCollapseChange={(collapsed) => setBookingCollapseOverrides((current) => ({ ...current, [section.id]: collapsed }))}
-                            onCollapseReport={(report) => reportBookingCollapse(section.id, report)}
-                            onEdit={editSection}
-                            onEnterReorder={enterReorder}
-                            onMove={(candidate) => openMoveSection(candidate.id)}
-                            onRemove={removeSection}
-                            onSelect={(candidate) => {
-                              setSelectedSectionId((current) => current === candidate.id ? null : candidate.id);
-                              setMobileActionsOpen(false);
-                            }}
-                            onSessionChange={setBookingSession}
-                            onToggleVisible={toggleSection}
-                          />
-                        ) : section.sectionType === 'custom_design' ? (
-                          <CustomDesignSectionCard
-                            assets={customDesignAssets}
-                            order={index + 1}
-                            readinessIssues={getOwnerCustomDesignReadiness(
-                              section.settings,
-                              customDesignAssets,
-                              document,
-                              activePage.id,
-                            )}
-                            resolveAction={(action, source) => {
-                              const effectiveAction = action
-                                ?? (source.type === 'cta' && source.cta.type === 'book_now'
-                                  ? { type: 'start_booking' as const }
-                                  : null);
-                              return effectiveAction
-                              ? resolveCustomDesignDocumentAction(effectiveAction, {
-                                  activePageId: activePage.id,
-                                  document,
-                                })
-                              : { status: 'unresolved', reason: 'invalid_destination' };
-                            }}
-                            sectionId={section.id}
-                            selected={selectedSectionId === section.id}
-                            settings={section.settings}
-                            uploadStatus={customDesignUploadStatuses[section.id]}
-                            visible={section.visible}
-                            onChooseImages={(files) => {
-                              void uploadCustomDesignImages(section.id, files);
-                            }}
-                            onAssetRenderError={(assetId) => {
-                              setCustomDesignRenderErrorAssetIds((current) => new Set(current).add(assetId));
-                            }}
-                            onEdit={() => editSection(section)}
-                            onMove={() => openMoveSection(section.id)}
-                            onRemove={() => removeSection(section)}
-                            onReplaceImage={(imageItemId, file) => {
-                              void replaceCustomDesignImageAsset(section.id, imageItemId, file);
-                            }}
-                            onSelect={() => {
-                              setSelectedSectionId((current) => current === section.id ? null : section.id);
-                              setMobileActionsOpen(false);
-                            }}
-                            onToggleVisible={() => toggleSection(section)}
-                          />
-                        ) : (
-                          <SectionCard
-                            page={activePage}
-                            section={section}
-                            selected={selectedSectionId === section.id}
-                            onEdit={editSection}
-                            onEnterReorder={enterReorder}
-                            onMove={(candidate) => openMoveSection(candidate.id)}
-                            onRemove={removeSection}
-                            onSelect={(candidate) => {
-                              setSelectedSectionId((current) => current === candidate.id ? null : candidate.id);
-                              setMobileActionsOpen(false);
-                            }}
-                            onToggleVisible={toggleSection}
-                          />
-                        )}
-                        <button
-                          className="final-insertion"
-                          type="button"
-                          aria-label={index === sortedActiveSections.length - 1 ? `Add section at bottom of ${activePage.name}` : `Add section after ${section.label}`}
-                          onClick={() => requestSectionLibraryOpen(index + 2)}
-                        >
-                          <Plus aria-hidden="true" size={15} /> Add section here
-                        </button>
-                      </div>
-                    ))}
-                  </>
-                )}
-              </div>
+            <div aria-label={`Sections on ${activePage.name}`} className="final-sections-list" role="list">
+              {sortedActiveSections.length === 0
+                ? (
+                    <div className="final-empty-page">
+                      <h2>Your page is empty</h2>
+                      <p>Add a section to start building it.</p>
+                      <button type="button" onClick={() => requestSectionLibraryOpen(1)}>
+                        <Plus aria-hidden="true" size={18} />
+                        {' '}
+                        Add section
+                      </button>
+                    </div>
+                  )
+                : (
+                    <>
+                      <button className="final-insertion final-insertion--top" type="button" aria-label={`Add section at top of ${activePage.name}`} onClick={() => requestSectionLibraryOpen(1)}>
+                        <Plus aria-hidden="true" size={15} />
+                        {' '}
+                        Add section here
+                      </button>
+                      {sortedActiveSections.map((section, index) => (
+                        <div className="final-section-block" key={section.id}>
+                          {section.sectionType === 'booking'
+                            ? (
+                                <BookingSectionCard
+                                  collapseOverride={bookingCollapseOverrides[section.id]}
+                                  fixture={bookingFixture}
+                                  headingLevel="h2"
+                                  page={activePage}
+                                  section={section}
+                                  selected={selectedSectionId === section.id}
+                                  session={bookingSession}
+                                  tokenPreset={tokenPreset}
+                                  onCollapseChange={collapsed => setBookingCollapseOverrides(current => ({ ...current, [section.id]: collapsed }))}
+                                  onCollapseReport={report => reportBookingCollapse(section.id, report)}
+                                  onEdit={editSection}
+                                  onEnterReorder={enterReorder}
+                                  onMove={candidate => openMoveSection(candidate.id)}
+                                  onRemove={removeSection}
+                                  onSelect={(candidate) => {
+                                    setSelectedSectionId(current => current === candidate.id ? null : candidate.id);
+                                    setMobileActionsOpen(false);
+                                  }}
+                                  onSessionChange={setBookingSession}
+                                  onToggleVisible={toggleSection}
+                                />
+                              )
+                            : section.sectionType === 'custom_design'
+                              ? (
+                                  <CustomDesignSectionCard
+                                    assets={customDesignAssets}
+                                    order={index + 1}
+                                    readinessIssues={getOwnerCustomDesignReadiness(
+                                      section.settings,
+                                      customDesignAssets,
+                                      document,
+                                      activePage.id,
+                                    )}
+                                    resolveAction={(action, source) => {
+                                      const effectiveAction = action
+                                        ?? (source.type === 'cta' && source.cta.type === 'book_now'
+                                          ? { type: 'start_booking' as const }
+                                          : null);
+                                      return effectiveAction
+                                        ? resolveCustomDesignDocumentAction(effectiveAction, {
+                                          activePageId: activePage.id,
+                                          document,
+                                        })
+                                        : { status: 'unresolved', reason: 'invalid_destination' };
+                                    }}
+                                    sectionId={section.id}
+                                    selected={selectedSectionId === section.id}
+                                    settings={section.settings}
+                                    uploadStatus={customDesignUploadStatuses[section.id]}
+                                    visible={section.visible}
+                                    onChooseImages={(files) => {
+                                      void uploadCustomDesignImages(section.id, files);
+                                    }}
+                                    onAssetRenderError={(assetId) => {
+                                      setCustomDesignRenderErrorAssetIds(current => new Set(current).add(assetId));
+                                    }}
+                                    onEdit={() => editSection(section)}
+                                    onMove={() => openMoveSection(section.id)}
+                                    onRemove={() => removeSection(section)}
+                                    onReplaceImage={(imageItemId, file) => {
+                                      void replaceCustomDesignImageAsset(section.id, imageItemId, file);
+                                    }}
+                                    onSelect={() => {
+                                      setSelectedSectionId(current => current === section.id ? null : section.id);
+                                      setMobileActionsOpen(false);
+                                    }}
+                                    onToggleVisible={() => toggleSection(section)}
+                                  />
+                                )
+                              : (
+                                  <SectionCard
+                                    page={activePage}
+                                    section={section}
+                                    selected={selectedSectionId === section.id}
+                                    onEdit={editSection}
+                                    onEnterReorder={enterReorder}
+                                    onMove={candidate => openMoveSection(candidate.id)}
+                                    onRemove={removeSection}
+                                    onSelect={(candidate) => {
+                                      setSelectedSectionId(current => current === candidate.id ? null : candidate.id);
+                                      setMobileActionsOpen(false);
+                                    }}
+                                    onToggleVisible={toggleSection}
+                                  />
+                                )}
+                          <button
+                            className="final-insertion"
+                            type="button"
+                            aria-label={index === sortedActiveSections.length - 1 ? `Add section at bottom of ${activePage.name}` : `Add section after ${section.label}`}
+                            onClick={() => requestSectionLibraryOpen(index + 2)}
+                          >
+                            <Plus aria-hidden="true" size={15} />
+                            {' '}
+                            Add section here
+                          </button>
+                        </div>
+                      ))}
+                    </>
+                  )}
+            </div>
           </div>
         </div>
       </main>
 
-      {editingBooking && desktopSettings ? (
-        <aside
-          ref={bookingSettingsDrawerRef}
-          aria-label="Booking settings"
-          aria-modal="false"
-          className="final-booking-settings-drawer"
-          hidden={settingsTemporarilyHidden}
-          role="dialog"
-          onBlurCapture={(event) => {
-            if (event.target === bookingSettingsNativeSelectRef.current) {
-              bookingSettingsNativeSelectRef.current = null;
-            }
-          }}
-          onChangeCapture={(event) => {
-            if (event.target === bookingSettingsNativeSelectRef.current) {
-              bookingSettingsNativeSelectRef.current = null;
-            }
-          }}
-          onClickCapture={(event) => {
-            bookingSettingsNativeSelectRef.current = event.target instanceof HTMLSelectElement
-              ? event.target
-              : null;
-          }}
-          onKeyDownCapture={(event) => {
-            if (
-              event.key === 'Escape'
-              && event.target === bookingSettingsNativeSelectRef.current
-            ) {
-              keepEscapeInsideActiveControl(event.nativeEvent);
-              bookingSettingsNativeSelectRef.current = null;
-              event.stopPropagation();
-              return;
-            }
-            if (
-              event.target instanceof HTMLSelectElement
-              && (
-                event.key === 'Enter'
-                || event.key === ' '
-                || event.key === 'F4'
-                || (event.altKey && event.key === 'ArrowDown')
-              )
-            ) {
-              bookingSettingsNativeSelectRef.current = event.target;
-            }
-          }}
-          onPointerDownCapture={(event) => {
-            bookingSettingsNativeSelectRef.current = event.target instanceof HTMLSelectElement
-              ? event.target
-              : null;
-          }}
-        >
-          <header>
-            <div className="final-booking-settings-drawer__intro">
-              <h2 ref={bookingSettingsHeadingRef} className="final-booking-settings-drawer__title" tabIndex={-1}>Booking</h2>
-              <p>Choose how clients browse your services. You can change this anytime. Your services, prices and booking settings stay the same.</p>
-            </div>
-            <button ref={bookingSettingsHideRef} className="final-booking-settings-drawer__preview" type="button" onClick={hideBookingSettings}>
-              Hide settings
-            </button>
-            <button aria-label="Close Booking settings" className="icon-button" type="button" onClick={closeBookingSettings}>×</button>
-          </header>
-          <div className="final-booking-settings-drawer__body">
-            <BookingSettingsPanel
-              allowFeaturedServices={auditMode}
-              settings={editingBooking.settings}
-              showIntro={false}
-              onChange={updateBookingPresentation}
-              onReset={resetBookingPresentation}
-            />
-          </div>
-        </aside>
-      ) : null}
-      {editingCustomDesign && desktopSettings ? (
-        <aside
-          ref={customDesignSettingsDrawerRef}
-          aria-label="Custom Design settings"
-          aria-modal="false"
-          className="final-booking-settings-drawer final-custom-design-settings-drawer"
-          role="dialog"
-        >
-          <header>
-            <div className="final-booking-settings-drawer__intro">
-              <h2
-                ref={customDesignSettingsHeadingRef}
-                className="final-booking-settings-drawer__title"
-                tabIndex={-1}
-              >
-                Custom Design
-              </h2>
-              <p>Manage uploaded pages, presentation, accessibility, and real client actions.</p>
-            </div>
-            <button
-              aria-label="Close Custom Design settings"
-              className="icon-button"
-              type="button"
-              onClick={requestCustomDesignSettingsClose}
+      {editingBooking && desktopSettings
+        ? (
+            <aside
+              ref={bookingSettingsDrawerRef}
+              aria-label="Booking settings"
+              aria-modal="false"
+              className="final-booking-settings-drawer"
+              hidden={settingsTemporarilyHidden}
+              role="dialog"
+              onBlurCapture={(event) => {
+                if (event.target === bookingSettingsNativeSelectRef.current) {
+                  bookingSettingsNativeSelectRef.current = null;
+                }
+              }}
+              onChangeCapture={(event) => {
+                if (event.target === bookingSettingsNativeSelectRef.current) {
+                  bookingSettingsNativeSelectRef.current = null;
+                }
+              }}
+              onClickCapture={(event) => {
+                bookingSettingsNativeSelectRef.current = event.target instanceof HTMLSelectElement
+                  ? event.target
+                  : null;
+              }}
+              onKeyDownCapture={(event) => {
+                if (
+                  event.key === 'Escape'
+                  && event.target === bookingSettingsNativeSelectRef.current
+                ) {
+                  keepEscapeInsideActiveControl(event.nativeEvent);
+                  bookingSettingsNativeSelectRef.current = null;
+                  event.stopPropagation();
+                  return;
+                }
+                if (
+                  event.target instanceof HTMLSelectElement
+                  && (
+                    event.key === 'Enter'
+                    || event.key === ' '
+                    || event.key === 'F4'
+                    || (event.altKey && event.key === 'ArrowDown')
+                  )
+                ) {
+                  bookingSettingsNativeSelectRef.current = event.target;
+                }
+              }}
+              onPointerDownCapture={(event) => {
+                bookingSettingsNativeSelectRef.current = event.target instanceof HTMLSelectElement
+                  ? event.target
+                  : null;
+              }}
             >
-              ×
-            </button>
-          </header>
-          <div className="final-booking-settings-drawer__body">
-            {customDesignOwnerEditor}
-          </div>
-        </aside>
-      ) : null}
-      {selectedSection && !moveSession ? (
-        <aside
-          aria-label={`${selectedSection.label} owner controls`}
-          className={`final-selected-toolbar${selectedSectionIntersects ? '' : ' is-away'}`}
-          data-testid="selected-section-toolbar"
-        >
-          {selectedSectionIntersects ? (
-            <>
-              <div className="final-selected-toolbar__identity">
-                <span aria-hidden="true">{selectedSectionIdentity?.mark}</span>
-                <div><strong>{selectedSectionIdentity?.label}</strong><small>{selectedSectionSubtitle}</small></div>
-              </div>
-              <div className="final-selected-toolbar__actions">
-                <button
-                  data-booking-settings-trigger-for={selectedSection.sectionType === 'booking' ? selectedSection.id : undefined}
-                  data-custom-design-settings-trigger-for={selectedSection.sectionType === 'custom_design' ? selectedSection.id : undefined}
-                  type="button"
-                  onClick={() => editSection(selectedSection)}
-                >
-                  <Pencil aria-hidden="true" size={17} /> Edit
+              <header>
+                <div className="final-booking-settings-drawer__intro">
+                  <h2 ref={bookingSettingsHeadingRef} className="final-booking-settings-drawer__title" tabIndex={-1}>Booking</h2>
+                  <p>Choose how clients browse your services. You can change this anytime. Your services, prices and booking settings stay the same.</p>
+                </div>
+                <button ref={bookingSettingsHideRef} className="final-booking-settings-drawer__preview" type="button" onClick={hideBookingSettings}>
+                  Hide settings
                 </button>
-                <button data-move-trigger-for={selectedSection.id} type="button" onClick={() => openMoveSection(selectedSection.id)}><Move aria-hidden="true" size={17} /> Move</button>
-                {selectedSection.sectionType === 'booking' && selectedBookingReport?.isLong ? (
-                  <button type="button" onClick={toggleSelectedBookingCollapse}>
-                    {selectedBookingReport.collapsed ? <Maximize2 aria-hidden="true" size={17} /> : <Minimize2 aria-hidden="true" size={17} />}
-                    {selectedBookingReport.collapsed ? 'Expand' : 'Collapse'}
-                  </button>
-                ) : null}
-                <button type="button" onClick={() => setMobileActionsOpen(true)}><MoreHorizontal aria-hidden="true" size={18} /> More</button>
+                <button aria-label="Close Booking settings" className="icon-button" type="button" onClick={closeBookingSettings}>×</button>
+              </header>
+              <div className="final-booking-settings-drawer__body">
+                <BookingSettingsPanel
+                  allowFeaturedServices={auditMode}
+                  settings={editingBooking.settings}
+                  showIntro={false}
+                  onChange={updateBookingPresentation}
+                  onReset={resetBookingPresentation}
+                />
               </div>
-            </>
-          ) : (
-            <>
-              <button
-                className="final-selected-toolbar__return"
-                data-section-return-for={selectedSection.id}
-                type="button"
-                onClick={returnToSelectedSection}
-              >
-                Back to {selectedSection.label}
-              </button>
-              {editingBooking && desktopSettings && settingsTemporarilyHidden ? (
+            </aside>
+          )
+        : null}
+      {editingCustomDesign && desktopSettings
+        ? (
+            <aside
+              ref={customDesignSettingsDrawerRef}
+              aria-label="Custom Design settings"
+              aria-modal="false"
+              className="final-booking-settings-drawer final-custom-design-settings-drawer"
+              role="dialog"
+            >
+              <header>
+                <div className="final-booking-settings-drawer__intro">
+                  <h2
+                    ref={customDesignSettingsHeadingRef}
+                    className="final-booking-settings-drawer__title"
+                    tabIndex={-1}
+                  >
+                    Custom Design
+                  </h2>
+                  <p>Manage uploaded pages, presentation, accessibility, and real client actions.</p>
+                </div>
                 <button
-                  ref={bookingSettingsShowRef}
-                  className="final-selected-toolbar__return final-selected-toolbar__show-settings"
+                  aria-label="Close Custom Design settings"
+                  className="icon-button"
                   type="button"
-                  onClick={showBookingSettings}
+                  onClick={requestCustomDesignSettingsClose}
                 >
-                  Show Booking settings
+                  ×
                 </button>
-              ) : null}
-            </>
-          )}
-        </aside>
-      ) : null}
+              </header>
+              <div className="final-booking-settings-drawer__body">
+                {customDesignOwnerEditor}
+              </div>
+            </aside>
+          )
+        : null}
+      {selectedSection && !moveSession
+        ? (
+            <aside
+              aria-label={`${selectedSection.label} owner controls`}
+              className={`final-selected-toolbar${selectedSectionIntersects ? '' : ' is-away'}`}
+              data-testid="selected-section-toolbar"
+            >
+              {selectedSectionIntersects
+                ? (
+                    <>
+                      <div className="final-selected-toolbar__identity">
+                        <span aria-hidden="true">{selectedSectionIdentity?.mark}</span>
+                        <div>
+                          <strong>{selectedSectionIdentity?.label}</strong>
+                          <small>{selectedSectionSubtitle}</small>
+                        </div>
+                      </div>
+                      <div className="final-selected-toolbar__actions">
+                        <button
+                          data-booking-settings-trigger-for={selectedSection.sectionType === 'booking' ? selectedSection.id : undefined}
+                          data-custom-design-settings-trigger-for={selectedSection.sectionType === 'custom_design' ? selectedSection.id : undefined}
+                          type="button"
+                          onClick={() => editSection(selectedSection)}
+                        >
+                          <Pencil aria-hidden="true" size={17} />
+                          {' '}
+                          Edit
+                        </button>
+                        <button data-move-trigger-for={selectedSection.id} type="button" onClick={() => openMoveSection(selectedSection.id)}>
+                          <Move aria-hidden="true" size={17} />
+                          {' '}
+                          Move
+                        </button>
+                        {selectedSection.sectionType === 'booking' && selectedBookingReport?.isLong
+                          ? (
+                              <button type="button" onClick={toggleSelectedBookingCollapse}>
+                                {selectedBookingReport.collapsed ? <Maximize2 aria-hidden="true" size={17} /> : <Minimize2 aria-hidden="true" size={17} />}
+                                {selectedBookingReport.collapsed ? 'Expand' : 'Collapse'}
+                              </button>
+                            )
+                          : null}
+                        <button type="button" onClick={() => setMobileActionsOpen(true)}>
+                          <MoreHorizontal aria-hidden="true" size={18} />
+                          {' '}
+                          More
+                        </button>
+                      </div>
+                    </>
+                  )
+                : (
+                    <>
+                      <button
+                        className="final-selected-toolbar__return"
+                        data-section-return-for={selectedSection.id}
+                        type="button"
+                        onClick={returnToSelectedSection}
+                      >
+                        Back to
+                        {' '}
+                        {selectedSection.label}
+                      </button>
+                      {editingBooking && desktopSettings && settingsTemporarilyHidden
+                        ? (
+                            <button
+                              ref={bookingSettingsShowRef}
+                              className="final-selected-toolbar__return final-selected-toolbar__show-settings"
+                              type="button"
+                              onClick={showBookingSettings}
+                            >
+                              Show Booking settings
+                            </button>
+                          )
+                        : null}
+                    </>
+                  )}
+            </aside>
+          )
+        : null}
 
       <div className="final-mobile-dock">
-        {moveSession ? null : selectedSection ? (
-          selectedSectionIntersects ? (
-            <div aria-label={`${selectedSection.label} actions`} className="final-mobile-dock__selected" role="group">
-              <div className="final-mobile-dock__identity">
-                <span aria-hidden="true">{selectedSectionIdentity?.mark}</span>
-                <div><strong>{selectedSectionIdentity?.label}</strong><small>{selectedSectionIdentity?.short}</small></div>
-              </div>
-              <div className={`final-mobile-dock__actions${selectedSection.sectionType === 'booking' && selectedBookingReport?.isLong ? ' has-collapse' : ''}`}>
-                <button
-                  data-booking-settings-trigger-for={selectedSection.sectionType === 'booking' ? selectedSection.id : undefined}
-                  data-custom-design-settings-trigger-for={selectedSection.sectionType === 'custom_design' ? selectedSection.id : undefined}
-                  type="button"
-                  onClick={() => editSection(selectedSection)}
-                >
-                  <Pencil aria-hidden="true" size={18} /> Edit
+        {moveSession
+          ? null
+          : selectedSection
+            ? (
+                selectedSectionIntersects
+                  ? (
+                      <div aria-label={`${selectedSection.label} actions`} className="final-mobile-dock__selected" role="group">
+                        <div className="final-mobile-dock__identity">
+                          <span aria-hidden="true">{selectedSectionIdentity?.mark}</span>
+                          <div>
+                            <strong>{selectedSectionIdentity?.label}</strong>
+                            <small>{selectedSectionIdentity?.short}</small>
+                          </div>
+                        </div>
+                        <div className={`final-mobile-dock__actions${selectedSection.sectionType === 'booking' && selectedBookingReport?.isLong ? ' has-collapse' : ''}`}>
+                          <button
+                            data-booking-settings-trigger-for={selectedSection.sectionType === 'booking' ? selectedSection.id : undefined}
+                            data-custom-design-settings-trigger-for={selectedSection.sectionType === 'custom_design' ? selectedSection.id : undefined}
+                            type="button"
+                            onClick={() => editSection(selectedSection)}
+                          >
+                            <Pencil aria-hidden="true" size={18} />
+                            {' '}
+                            Edit
+                          </button>
+                          <button data-move-trigger-for={selectedSection.id} type="button" onClick={() => openMoveSection(selectedSection.id)}>
+                            <Menu aria-hidden="true" size={18} />
+                            {' '}
+                            Move
+                          </button>
+                          <button type="button" onClick={() => toggleSection(selectedSection)}>
+                            <Eye aria-hidden="true" size={18} />
+                            {' '}
+                            {selectedSection.visible ? 'Hide' : 'Show'}
+                          </button>
+                          <button type="button" onClick={() => setMobileActionsOpen(true)}>
+                            <MoreHorizontal aria-hidden="true" size={19} />
+                            {' '}
+                            More
+                          </button>
+                          {selectedSection.sectionType === 'booking' && selectedBookingReport?.isLong
+                            ? (
+                                <button type="button" onClick={toggleSelectedBookingCollapse}>
+                                  {selectedBookingReport.collapsed ? <Maximize2 aria-hidden="true" size={18} /> : <Minimize2 aria-hidden="true" size={18} />}
+                                  {selectedBookingReport.collapsed ? 'Expand' : 'Collapse'}
+                                </button>
+                              )
+                            : null}
+                        </div>
+                      </div>
+                    )
+                  : (
+                      <button
+                        className="final-mobile-dock__back"
+                        data-section-return-for={selectedSection.id}
+                        type="button"
+                        onClick={returnToSelectedSection}
+                      >
+                        Back to
+                        {' '}
+                        {selectedSection.label}
+                      </button>
+                    )
+              )
+            : (
+                <button className="final-mobile-dock__add" type="button" onClick={() => requestSectionLibraryOpen(sortedActiveSections.length + 1)}>
+                  <Plus aria-hidden="true" size={20} />
+                  {' '}
+                  Add section
                 </button>
-                <button data-move-trigger-for={selectedSection.id} type="button" onClick={() => openMoveSection(selectedSection.id)}><Menu aria-hidden="true" size={18} /> Move</button>
-                <button type="button" onClick={() => toggleSection(selectedSection)}><Eye aria-hidden="true" size={18} /> {selectedSection.visible ? 'Hide' : 'Show'}</button>
-                <button type="button" onClick={() => setMobileActionsOpen(true)}><MoreHorizontal aria-hidden="true" size={19} /> More</button>
-                {selectedSection.sectionType === 'booking' && selectedBookingReport?.isLong ? (
-                  <button type="button" onClick={toggleSelectedBookingCollapse}>
-                    {selectedBookingReport.collapsed ? <Maximize2 aria-hidden="true" size={18} /> : <Minimize2 aria-hidden="true" size={18} />}
-                    {selectedBookingReport.collapsed ? 'Expand' : 'Collapse'}
-                  </button>
-                ) : null}
-              </div>
-            </div>
-          ) : (
-            <button
-              className="final-mobile-dock__back"
-              data-section-return-for={selectedSection.id}
-              type="button"
-              onClick={returnToSelectedSection}
-            >
-              Back to {selectedSection.label}
-            </button>
-          )
-        ) : (
-          <button className="final-mobile-dock__add" type="button" onClick={() => requestSectionLibraryOpen(sortedActiveSections.length + 1)}><Plus aria-hidden="true" size={20} /> Add section</button>
-        )}
+              )}
       </div>
 
       <div className="visually-hidden" aria-live="polite" data-testid="reorder-live-region" role="status">{announcement}</div>
 
-      {toast ? (
-        <div className="toast" role="status"><span>{toast.message}</span>{toast.undoable ? <button type="button" onClick={() => { if (undoLastChange()) { setToast(null); setAnnouncement('Removal undone.'); } }}>Undo</button> : null}</div>
-      ) : null}
+      {toast
+        ? (
+            <div className="toast" role="status">
+              <span>{toast.message}</span>
+              {toast.undoable
+                ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (undoLastChange()) {
+                          setToast(null);
+                          setAnnouncement('Removal undone.');
+                        }
+                      }}
+                    >
+                      Undo
+                    </button>
+                  )
+                : null}
+            </div>
+          )
+        : null}
 
       <Dialog onClose={() => setStructureOpen(false)} open={structureOpen} title="Pages & Structure" variant="structure-panel">
         {structurePanel}
@@ -3261,7 +3595,9 @@ function BuilderApp({
           const target = blocker?.resolutions.find(
             resolution => resolution.kind === 'navigate',
           )?.target;
-          if (target) focusOverlapTarget(target);
+          if (target) {
+            focusOverlapTarget(target);
+          }
         }}
         onRestore={restoreSectionFromLibrary}
         page={activePage}
@@ -3273,13 +3609,17 @@ function BuilderApp({
         onClose={() => setEditingSectionId(null)}
         onGoToSection={(sectionId) => {
           const page = findSectionPage(document, sectionId);
-          if (!page) return;
+          if (!page) {
+            return;
+          }
           setEditingSectionId(null);
           focusOverlapTarget({ pageId: page.id, sectionId });
         }}
         onHideSection={(sectionId) => {
           const target = findSection(document, sectionId);
-          if (!target || !target.visible) return;
+          if (!target || !target.visible) {
+            return;
+          }
           setEditingSectionId(null);
           toggleSection(target);
         }}
@@ -3299,37 +3639,45 @@ function BuilderApp({
         open={pendingLibraryAdd !== null}
         title={pendingLibraryAdd?.warnings[0]?.title ?? 'Already covered'}
       >
-        {pendingLibraryAdd ? (
-          <div className="library-overlap-warnings">
-            <div
-              className="library-overlap-warning"
-              key={pendingLibraryAdd.warnings[0]?.id}
-            >
-              <strong>{pendingLibraryAdd.warnings[0]?.title}</strong>
-              <p>{pendingLibraryAdd.warnings[0]?.message}</p>
-              {pendingLibraryAdd.warnings.length > 1 ? (
-                <small>
-                  {pendingLibraryAdd.warnings.length - 1} more overlap choice
-                  {pendingLibraryAdd.warnings.length === 2 ? '' : 's'} follows.
-                </small>
-              ) : null}
-            </div>
-            <div className="dialog-actions">
-              {pendingLibraryAdd.warnings[0]?.resolutions.map(resolution => (
-                <button
-                  className={resolution.kind === 'cancel'
-                    ? 'secondary-button'
-                    : 'primary-button'}
-                  key={resolution.id}
-                  onClick={() => resolvePendingLibraryAdd(resolution)}
-                  type="button"
+        {pendingLibraryAdd
+          ? (
+              <div className="library-overlap-warnings">
+                <div
+                  className="library-overlap-warning"
+                  key={pendingLibraryAdd.warnings[0]?.id}
                 >
-                  {resolution.label}
-                </button>
-              ))}
-            </div>
-          </div>
-        ) : null}
+                  <strong>{pendingLibraryAdd.warnings[0]?.title}</strong>
+                  <p>{pendingLibraryAdd.warnings[0]?.message}</p>
+                  {pendingLibraryAdd.warnings.length > 1
+                    ? (
+                        <small>
+                          {pendingLibraryAdd.warnings.length - 1}
+                          {' '}
+                          more overlap choice
+                          {pendingLibraryAdd.warnings.length === 2 ? '' : 's'}
+                          {' '}
+                          follows.
+                        </small>
+                      )
+                    : null}
+                </div>
+                <div className="dialog-actions">
+                  {pendingLibraryAdd.warnings[0]?.resolutions.map(resolution => (
+                    <button
+                      className={resolution.kind === 'cancel'
+                        ? 'secondary-button'
+                        : 'primary-button'}
+                      key={resolution.id}
+                      onClick={() => resolvePendingLibraryAdd(resolution)}
+                      type="button"
+                    >
+                      {resolution.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )
+          : null}
       </Dialog>
       <Dialog
         initialFocusSelector="[data-dialog-title]"
@@ -3338,14 +3686,16 @@ function BuilderApp({
         title="Booking"
         variant="context-panel"
       >
-        {editingBooking ? (
-          <BookingSettingsPanel
-            allowFeaturedServices={auditMode}
-            settings={editingBooking.settings}
-            onChange={updateBookingPresentation}
-            onReset={resetBookingPresentation}
-          />
-        ) : null}
+        {editingBooking
+          ? (
+              <BookingSettingsPanel
+                allowFeaturedServices={auditMode}
+                settings={editingBooking.settings}
+                onChange={updateBookingPresentation}
+                onReset={resetBookingPresentation}
+              />
+            )
+          : null}
       </Dialog>
       <Dialog
         initialFocusSelector="[data-dialog-title]"
@@ -3369,47 +3719,57 @@ function BuilderApp({
           }
         }}
       />
-      {moveSession && moveSourcePage ? (
-        <SectionMovePanel
-          commitStatus={lab.saveStatus === 'idle' ? 'saved' : lab.saveStatus}
-          destination={moveSession.destination}
-          dirty={moveDirty}
-          document={document}
-          entry={moveSession.entry}
-          onActivateSection={activateMoveTarget}
-          onAnnounce={setAnnouncement}
-          onCancel={(event) => cancelMoveSection(
-            'cancel',
-            readMoveCompletionEvent(event),
-          )}
-          onClearDestination={clearMoveDestination}
-          onCreatePage={stageMoveToNewPage}
-          onDestinationPositionChange={updateMoveDestinationPosition}
-          onDone={(event) => commitMoveSection(
-            'done',
-            readMoveCompletionEvent(event),
-          )}
-          onDragReorder={(sectionId, position) => updateWorkingPosition(sectionId, position, false)}
-          onMoveDown={(section) => {
-            const index = moveSession.workingOrder.indexOf(section.id);
-            updateWorkingPosition(section.id, index + 2);
-          }}
-          onMoveToPage={stageMoveToPage}
-          onMoveToPosition={(section, position) => updateWorkingPosition(section.id, position)}
-          onMoveUp={(section) => {
-            const index = moveSession.workingOrder.indexOf(section.id);
-            updateWorkingPosition(section.id, index);
-          }}
-          onRequestClose={requestMoveClose}
-          open
-          page={moveSourcePage}
-          sections={moveSections}
-          targetSectionId={moveSession.targetSectionId}
-        />
-      ) : null}
+      {moveSession && moveSourcePage
+        ? (
+            <SectionMovePanel
+              commitStatus={lab.saveStatus === 'idle' ? 'saved' : lab.saveStatus}
+              destination={moveSession.destination}
+              dirty={moveDirty}
+              document={document}
+              entry={moveSession.entry}
+              onActivateSection={activateMoveTarget}
+              onAnnounce={setAnnouncement}
+              onCancel={event => cancelMoveSection(
+                'cancel',
+                readMoveCompletionEvent(event),
+              )}
+              onClearDestination={clearMoveDestination}
+              onCreatePage={stageMoveToNewPage}
+              onDestinationPositionChange={updateMoveDestinationPosition}
+              onDone={event => commitMoveSection(
+                'done',
+                readMoveCompletionEvent(event),
+              )}
+              onDragReorder={(sectionId, position) => updateWorkingPosition(sectionId, position, false)}
+              onMoveDown={(section) => {
+                const index = moveSession.workingOrder.indexOf(section.id);
+                updateWorkingPosition(section.id, index + 2);
+              }}
+              onMoveToPage={stageMoveToPage}
+              onMoveToPosition={(section, position) => updateWorkingPosition(section.id, position)}
+              onMoveUp={(section) => {
+                const index = moveSession.workingOrder.indexOf(section.id);
+                updateWorkingPosition(section.id, index);
+              }}
+              onRequestClose={requestMoveClose}
+              open
+              page={moveSourcePage}
+              sections={moveSections}
+              targetSectionId={moveSession.targetSectionId}
+            />
+          )
+        : null}
       <AddPageDialog onAdd={addPage} onClose={() => setAddPageOpen(false)} open={addPageOpen} />
       <PageSettingsDialog onClose={() => setEditingPageId(null)} onSave={savePage} page={editingPage} />
-      <NavigationPromptDialog onAddNavigation={() => { execute({ type: 'toggle_navigation', enabled: true }); setNavigationPromptOpen(false); setToast({ message: 'Menu added.' }); }} onClose={() => setNavigationPromptOpen(false)} open={navigationPromptOpen} />
+      <NavigationPromptDialog
+        onAddNavigation={() => {
+          execute({ type: 'toggle_navigation', enabled: true });
+          setNavigationPromptOpen(false);
+          setToast({ message: 'Menu added.' });
+        }}
+        onClose={() => setNavigationPromptOpen(false)}
+        open={navigationPromptOpen}
+      />
       <ConfirmationDialog confirmLabel="Remove page" danger description={pendingPageRemoval ? `${pendingPageRemoval.name} and its sections will move to Removed pages, where they can be restored.` : ''} onClose={() => setPendingPageRemovalId(null)} onConfirm={confirmRemovePage} open={pendingPageRemoval !== null} title="Remove this page?" />
       <Dialog
         description="You changed the order of your uploaded design pages."
@@ -3446,35 +3806,37 @@ function BuilderApp({
         </div>
       </Dialog>
       <Dialog
-        description={moveSession ? (() => {
-          const targetSection = findSection(document, moveSession.targetSectionId);
-          const destination = moveSession.destination;
-          if (destination?.type === 'existing_page') {
-            const destinationPage = document.pages.find((page) => page.id === destination.pageId);
-            const orderAlsoChanged = moveSession.workingOrder.some((id, index) => (
-              id !== moveSession.baselineOrder[index]
-            ));
-            return `${targetSection?.label ?? 'Section'} will move to ${destinationPage?.name ?? 'the selected page'} at position ${destination.position ?? destinationPage?.sections.length ?? 1}.${orderAlsoChanged ? ' Other section order changes will be saved too.' : ''}`;
-          }
-          if (destination?.type === 'new_page') {
-            const orderAlsoChanged = moveSession.workingOrder.some((id, index) => (
-              id !== moveSession.baselineOrder[index]
-            ));
-            return `${destination.name} will be created and ${targetSection?.label ?? 'the section'} will move there.${orderAlsoChanged ? ' Other section order changes will be saved too.' : ''}`;
-          }
-          const changedSectionId = moveSession.workingOrder.find((id, index) => (
-            moveSession.baselineOrder.indexOf(id) !== index
-          )) ?? moveSession.targetSectionId;
-          return `${findSection(document, changedSectionId)?.label ?? 'Section'} is at position ${moveSession.workingOrder.indexOf(changedSectionId) + 1} instead of ${moveSession.baselineOrder.indexOf(changedSectionId) + 1}.`;
-        })() : ''}
+        description={moveSession
+          ? (() => {
+              const targetSection = findSection(document, moveSession.targetSectionId);
+              const destination = moveSession.destination;
+              if (destination?.type === 'existing_page') {
+                const destinationPage = document.pages.find(page => page.id === destination.pageId);
+                const orderAlsoChanged = moveSession.workingOrder.some((id, index) => (
+                  id !== moveSession.baselineOrder[index]
+                ));
+                return `${targetSection?.label ?? 'Section'} will move to ${destinationPage?.name ?? 'the selected page'} at position ${destination.position ?? destinationPage?.sections.length ?? 1}.${orderAlsoChanged ? ' Other section order changes will be saved too.' : ''}`;
+              }
+              if (destination?.type === 'new_page') {
+                const orderAlsoChanged = moveSession.workingOrder.some((id, index) => (
+                  id !== moveSession.baselineOrder[index]
+                ));
+                return `${destination.name} will be created and ${targetSection?.label ?? 'the section'} will move there.${orderAlsoChanged ? ' Other section order changes will be saved too.' : ''}`;
+              }
+              const changedSectionId = moveSession.workingOrder.find((id, index) => (
+                moveSession.baselineOrder.indexOf(id) !== index
+              )) ?? moveSession.targetSectionId;
+              return `${findSection(document, changedSectionId)?.label ?? 'Section'} is at position ${moveSession.workingOrder.indexOf(changedSectionId) + 1} instead of ${moveSession.baselineOrder.indexOf(changedSectionId) + 1}.`;
+            })()
+          : ''}
         onClose={() => setMoveDismissPending(false)}
         open={moveDismissPending}
         restoreFocusOnClose={moveSession !== null}
         title="Keep this new order?"
       >
         <div className="dialog-actions">
-          <button className="secondary-button" type="button" onClick={(event) => cancelMoveSection('discard-changes', readMoveCompletionEvent(event))}>Discard changes</button>
-          <button className="primary-button" type="button" onClick={(event) => commitMoveSection('keep-order', readMoveCompletionEvent(event))}>Keep order</button>
+          <button className="secondary-button" type="button" onClick={event => cancelMoveSection('discard-changes', readMoveCompletionEvent(event))}>Discard changes</button>
+          <button className="primary-button" type="button" onClick={event => commitMoveSection('keep-order', readMoveCompletionEvent(event))}>Keep order</button>
         </div>
       </Dialog>
       <LabOptionsDialog
@@ -3488,11 +3850,20 @@ function BuilderApp({
         onImport={importFile}
         onMenuSizeChange={setMenuSize}
         onRedo={redoLastChange}
-        onResetLab={() => { setOptionsOpen(false); setResetChoice('lab'); }}
-        onResetStarter={() => { setOptionsOpen(false); setResetChoice('starter'); }}
-        onStartAgain={() => { setOptionsOpen(false); setStartAgainOpen(true); }}
+        onResetLab={() => {
+          setOptionsOpen(false);
+          setResetChoice('lab');
+        }}
+        onResetStarter={() => {
+          setOptionsOpen(false);
+          setResetChoice('starter');
+        }}
+        onStartAgain={() => {
+          setOptionsOpen(false);
+          setStartAgainOpen(true);
+        }}
         onTokenPresetChange={setTokenPreset}
-        onToggleRealHeightSimulation={() => setRealHeightSimulation((value) => !value)}
+        onToggleRealHeightSimulation={() => setRealHeightSimulation(value => !value)}
         onUndo={undoLastChange}
         open={optionsOpen}
         realHeightSimulation={realHeightSimulation}
@@ -3503,18 +3874,41 @@ function BuilderApp({
       <AlertDialog message={alertMessage} onClose={() => setAlertMessage(null)} title={alertTitle} />
 
       <Dialog onClose={() => setMobileActionsOpen(false)} open={mobileActionsOpen && selectedSection !== null} title={selectedSection ? `${selectedSection.label} actions` : 'Section actions'} variant="bottom-sheet">
-        {selectedSection ? (
-          <div className="final-more-actions">
-            <p>
-              {selectedSection.visible ? 'Shown on your website' : 'Hidden from clients'} · {' '}
-              {selectedSection.sectionType === 'booking'
-                ? 'Your client booking menu · keeps booking available'
-                : getSectionOwnerIdentity(selectedSection).detail}
-            </p>
-            <button type="button" onClick={() => { setMobileActionsOpen(false); openMoveSection(selectedSection.id); }}><Menu aria-hidden="true" size={18} /> Move section</button>
-            <button type="button" onClick={() => { setMobileActionsOpen(false); removeSection(selectedSection); }}><Trash2 aria-hidden="true" size={18} /> Remove from page</button>
-          </div>
-        ) : null}
+        {selectedSection
+          ? (
+              <div className="final-more-actions">
+                <p>
+                  {selectedSection.visible ? 'Shown on your website' : 'Hidden from clients'}
+                  {' ·  '}
+                  {selectedSection.sectionType === 'booking'
+                    ? 'Your client booking menu · keeps booking available'
+                    : getSectionOwnerIdentity(selectedSection).detail}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMobileActionsOpen(false);
+                    openMoveSection(selectedSection.id);
+                  }}
+                >
+                  <Menu aria-hidden="true" size={18} />
+                  {' '}
+                  Move section
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMobileActionsOpen(false);
+                    removeSection(selectedSection);
+                  }}
+                >
+                  <Trash2 aria-hidden="true" size={18} />
+                  {' '}
+                  Remove from page
+                </button>
+              </div>
+            )
+          : null}
       </Dialog>
     </div>
   );

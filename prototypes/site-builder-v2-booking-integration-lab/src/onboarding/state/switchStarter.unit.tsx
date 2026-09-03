@@ -3,9 +3,9 @@ import { act, renderHook, waitFor } from '@testing-library/react';
 import { createDefaultCustomDesignSettings } from '../../custom-design/model/settings';
 import type { CustomDesignImageItem } from '../../custom-design/model/types';
 import {
-  SITE_BUILDER_STORAGE_KEY,
-  parseSiteBuilderDocument,
   type CustomDesignSectionInstance,
+  parseSiteBuilderDocument,
+  SITE_BUILDER_STORAGE_KEY,
   type SiteBuilderDocument,
 } from '../../model';
 import { useLabDocument } from '../../ui/useLabDocument';
@@ -30,7 +30,7 @@ const canvaImage: CustomDesignImageItem = {
 
 const getCustomDesigns = (
   document: SiteBuilderDocument,
-): CustomDesignSectionInstance[] => document.pages.flatMap((page) =>
+): CustomDesignSectionInstance[] => document.pages.flatMap(page =>
   page.sections.filter(
     (section): section is CustomDesignSectionInstance =>
       section.sectionType === 'custom_design',
@@ -76,11 +76,12 @@ const expectStarterShape = (
       ]],
     },
   }[starter];
+
   expect(document.originStarter).toBe(starter);
-  expect(document.pages.map((page) => page.name)).toEqual(expected.names);
-  expect(document.pages.map((page) => page.sections
-    .filter((section) => section.sectionType !== 'custom_design')
-    .map((section) => section.sectionType)))
+  expect(document.pages.map(page => page.name)).toEqual(expected.names);
+  expect(document.pages.map(page => page.sections
+    .filter(section => section.sectionType !== 'custom_design')
+    .map(section => section.sectionType)))
     .toEqual(expected.sections);
 };
 
@@ -98,15 +99,21 @@ const addConfirmedCanva = (
   state: OnboardingLabState,
 ) => {
   const document = lab.getHistorySnapshot()?.present;
+
   expect(document).toBeDefined();
+
   const target = document
     ? getCanvaPlacementTarget(document, 'before_booking')
     : null;
+
   expect(target).not.toBeNull();
-  if (!target || !document) throw new Error('Missing Booking target.');
+
+  if (!target || !document) {
+    throw new Error('Missing Booking target.');
+  }
 
   const existingIds = new Set(
-    document.pages.flatMap((page) => page.sections.map((section) => section.id)),
+    document.pages.flatMap(page => page.sections.map(section => section.id)),
   );
   const added = lab.runCommand({
     input: {
@@ -116,13 +123,21 @@ const addConfirmedCanva = (
     },
     type: 'add_section',
   });
+
   expect(added.success).toBe(true);
-  if (!added.success) throw new Error(added.message);
+
+  if (!added.success) {
+    throw new Error(added.message);
+  }
   const section = getCustomDesigns(added.document).find(
-    (candidate) => !existingIds.has(candidate.id),
+    candidate => !existingIds.has(candidate.id),
   );
+
   expect(section).toBeDefined();
-  if (!section) throw new Error('Custom Design was not created.');
+
+  if (!section) {
+    throw new Error('Custom Design was not created.');
+  }
 
   const updated = lab.runCommand({
     sectionId: section.id,
@@ -133,6 +148,7 @@ const addConfirmedCanva = (
     },
     type: 'update_custom_design_settings',
   });
+
   expect(updated.success).toBe(true);
 
   state.canva.customDesignSectionId = section.id;
@@ -158,7 +174,9 @@ const runStarterSwitch = (
   act(() => {
     result = switchOnboardingStarter(lab, state, starter);
   });
-  if (!result) throw new Error('The starter switch did not return a result.');
+  if (!result) {
+    throw new Error('The starter switch did not return a result.');
+  }
   return result;
 };
 
@@ -176,8 +194,12 @@ describe('switchOnboardingStarter', () => {
       const created = hook.result.current.createStarterOnce('quick_book', {
         siteName: state.profile.businessName,
       });
+
       expect(created.success).toBe(true);
-      if (created.success) state.recipe.starterDocumentSiteId = created.document.siteId;
+
+      if (created.success) {
+        state.recipe.starterDocumentSiteId = created.document.siteId;
+      }
       addConfirmedCanva(hook.result.current, state);
     });
 
@@ -192,13 +214,18 @@ describe('switchOnboardingStarter', () => {
     ];
     for (const target of targets) {
       const switched = runStarterSwitch(hook.result.current, state, target);
+
       expect(switched).toMatchObject({ changed: true, success: true });
-      if (!switched.success) throw new Error(switched.message);
+
+      if (!switched.success) {
+        throw new Error(switched.message);
+      }
 
       state.recipe.starter = target;
       state.recipe.starterDocumentSiteId = switched.document.siteId;
       state.canva.customDesignSectionId = switched.customDesignSectionId;
       expectStarterShape(switched.document, target);
+
       expect(switched.document.siteName).toBe('Isla Nail Studio');
       expect(getCustomDesigns(switched.document)).toEqual([
         expect.objectContaining({
@@ -215,6 +242,7 @@ describe('switchOnboardingStarter', () => {
       expect(state.profile).toEqual(profileSnapshot);
       expect(state.canva.images).toEqual(canvaImagesSnapshot);
       expect(seenSectionIds.has(switched.customDesignSectionId)).toBe(false);
+
       seenSectionIds.add(switched.customDesignSectionId);
     }
 
@@ -224,12 +252,17 @@ describe('switchOnboardingStarter', () => {
       state,
       'quick_book',
     );
+
     expect(repeated).toMatchObject({
       changed: false,
       customDesignSectionId: sectionIdBeforeRepeat,
       success: true,
     });
-    if (!repeated.success) throw new Error(repeated.message);
+
+    if (!repeated.success) {
+      throw new Error(repeated.message);
+    }
+
     expect(getCustomDesigns(repeated.document)).toHaveLength(1);
   });
 
@@ -241,7 +274,9 @@ describe('switchOnboardingStarter', () => {
       const created = hook.result.current.createStarterOnce('quick_book', {
         siteName: state.profile.businessName,
       });
+
       expect(created.success).toBe(true);
+
       addConfirmedCanva(hook.result.current, state);
     });
 
@@ -250,26 +285,39 @@ describe('switchOnboardingStarter', () => {
       state,
       'multi_page',
     );
+
     expect(switched.success).toBe(true);
 
     await waitFor(() => {
       const saved = window.localStorage.getItem(SITE_BUILDER_STORAGE_KEY);
+
       expect(saved).not.toBeNull();
+
       const parsed = parseSiteBuilderDocument(saved ?? '');
+
       expect(parsed.success).toBe(true);
-      if (!parsed.success) return;
+
+      if (!parsed.success) {
+        return;
+      }
       expectStarterShape(parsed.document, 'multi_page');
+
       expect(getCustomDesigns(parsed.document)).toHaveLength(1);
       expect(getCustomDesigns(parsed.document)[0]?.settings.images.map(
-        (image) => image.assetId,
+        image => image.assetId,
       )).toEqual([canvaImage.assetId]);
     });
 
     hook.unmount();
     const reloaded = renderHook(() => useLabDocument());
+
     expect(reloaded.result.current.document).not.toBeNull();
-    if (!reloaded.result.current.document) return;
+
+    if (!reloaded.result.current.document) {
+      return;
+    }
     expectStarterShape(reloaded.result.current.document, 'multi_page');
+
     expect(getCustomDesigns(reloaded.result.current.document)).toHaveLength(1);
     expect(reloaded.result.current.getReachableAssetIds())
       .toEqual(new Set([canvaImage.assetId]));
@@ -283,20 +331,26 @@ describe('switchOnboardingStarter', () => {
       expect(hook.result.current.createStarterOnce('quick_book', {
         siteName: state.profile.businessName,
       }).success).toBe(true);
+
       addConfirmedCanva(hook.result.current, state);
     });
     const before = hook.result.current.getHistorySnapshot();
+
     expect(before).not.toBeNull();
 
     const switched = runStarterSwitch(hook.result.current, state, 'one_page');
+
     expect(switched.success).toBe(true);
+
     const after = hook.result.current.getHistorySnapshot();
+
     expect(after?.past).toHaveLength((before?.past.length ?? 0) + 1);
     expect(after?.past.at(-1)).toEqual(before?.present);
 
     act(() => {
       expect(hook.result.current.undo()).toBe(true);
     });
+
     expect(hook.result.current.document?.originStarter).toBe('quick_book');
     expect(getCustomDesigns(hook.result.current.document as SiteBuilderDocument))
       .toEqual([expect.objectContaining({ id: state.canva.customDesignSectionId })]);
@@ -304,6 +358,7 @@ describe('switchOnboardingStarter', () => {
     act(() => {
       expect(hook.result.current.redo()).toBe(true);
     });
+
     expect(hook.result.current.document?.originStarter).toBe('one_page');
   });
 
@@ -332,6 +387,7 @@ describe('switchOnboardingStarter', () => {
       state,
       'one_page',
     );
+
     expect(result).toMatchObject({
       message: expect.stringContaining('could not be found'),
       success: false,
@@ -355,6 +411,7 @@ describe('switchOnboardingStarter', () => {
       state,
       'one_page',
     );
+
     expect(result).toEqual({
       message: 'Starting points can only be changed before opening the Builder.',
       success: false,
@@ -383,8 +440,12 @@ describe('switchOnboardingStarter', () => {
     });
 
     expect(result).toMatchObject({ changed: true, success: true });
-    if (!result?.success) throw new Error(result?.message);
+
+    if (!result?.success) {
+      throw new Error(result?.message);
+    }
     expectStarterShape(result.document, 'one_page');
+
     expect(result.document.siteName).toBe(state.profile.businessName);
   });
 });

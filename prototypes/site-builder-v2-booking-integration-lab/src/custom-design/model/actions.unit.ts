@@ -73,7 +73,9 @@ describe('Custom Design structured actions', () => {
       bookingHref: '#booking-section',
       resolveInternalHref: () => '/services#section_booking',
     });
+
     expect(resolution).toMatchObject({ status: 'resolved', href, external });
+
     if (resolution.status === 'resolved' && external) {
       expect(resolution).toMatchObject({
         target: '_blank',

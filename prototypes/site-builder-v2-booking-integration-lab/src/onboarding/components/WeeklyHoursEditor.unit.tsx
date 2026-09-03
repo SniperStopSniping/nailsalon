@@ -3,8 +3,8 @@ import userEvent from '@testing-library/user-event';
 import { useState } from 'react';
 import { vi } from 'vitest';
 
-import { applyRegularHours } from '../model/hours';
 import { createDefaultWeeklyHours } from '../model/defaults';
+import { applyRegularHours } from '../model/hours';
 import type { WeeklyHoursDraft } from '../model/types';
 import { WeeklyHoursEditor } from './WeeklyHoursEditor';
 
@@ -60,7 +60,9 @@ describe('WeeklyHoursEditor', () => {
     for (const day of ['Tue', 'Thu', 'Sat']) {
       await user.click(screen.getByRole('checkbox', { name: day }));
     }
+
     expect(getLatest()).toEqual(createDefaultWeeklyHours());
+
     await user.click(screen.getByRole('button', { name: 'Apply to selected days' }));
 
     expect(getLatest().days.tuesday.closed).toBe(false);
@@ -108,8 +110,11 @@ describe('WeeklyHoursEditor', () => {
     await user.click(screen.getByRole('button', { name: 'Apply to selected days' }));
 
     const firstDialog = screen.getByRole('dialog', { name: 'Replace your current hours?' });
+
     expect(firstDialog).toHaveTextContent('marks the other days Closed');
+
     await user.click(within(firstDialog).getByRole('button', { name: 'Keep current hours' }));
+
     expect(getLatest().days.friday).toEqual({ close: '17:00', closed: false, open: '09:00' });
     expect(getLatest().days.saturday).toEqual({ close: '19:00', closed: false, open: '10:00' });
 
@@ -182,15 +187,20 @@ describe('WeeklyHoursEditor', () => {
     await user.click(screen.getByRole('button', { name: 'Copy these hours to other days' }));
     const copyGroup = screen.getByRole('group', { name: 'Apply these hours to:' });
     await user.click(within(copyGroup).getByRole('checkbox', { name: 'Sat' }));
+
     expect(getLatest().days.friday.open).toBe('10:00');
+
     await user.click(screen.getByRole('button', { name: 'Apply hours' }));
 
     expect(getLatest().days.friday).toEqual({ close: '17:00', closed: false, open: '09:00' });
     expect(getLatest().days.saturday).toEqual(getLatest().days.friday);
 
     await user.click(screen.getByRole('button', { name: 'Edit Sunday hours' }));
+
     expect(screen.getByRole('radio', { name: 'Closed' })).toBeChecked();
+
     await user.click(screen.getByRole('button', { name: 'Save Sunday' }));
+
     expect(getLatest().days.sunday.closed).toBe(true);
   });
 
@@ -214,6 +224,7 @@ describe('WeeklyHoursEditor', () => {
     const { onSkip } = renderEditor();
 
     await user.click(screen.getByRole('button', { name: 'Skip hours for now' }));
+
     expect(onSkip).toHaveBeenCalledOnce();
   });
 });

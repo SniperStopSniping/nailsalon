@@ -35,15 +35,17 @@ export function StickyOnboardingActions({
       {primaryLabel}
     </button>
   );
-  const backAction = onBack ? (
-    <button
-      className="sticky-onboarding-actions__back"
-      type="button"
-      onClick={onBack}
-    >
-      {backLabel}
-    </button>
-  ) : <span aria-hidden="true" />;
+  const backAction = onBack
+    ? (
+        <button
+          className="sticky-onboarding-actions__back"
+          type="button"
+          onClick={onBack}
+        >
+          {backLabel}
+        </button>
+      )
+    : <span aria-hidden="true" />;
 
   return (
     <footer
@@ -51,15 +53,17 @@ export function StickyOnboardingActions({
       className={`sticky-onboarding-actions${primaryFirst ? ' is-primary-first' : ''}`}
     >
       {primaryFirst ? primaryAction : backAction}
-      {onSkip ? (
-        <button
-          className="sticky-onboarding-actions__skip"
-          type="button"
-          onClick={onSkip}
-        >
-          {skipLabel}
-        </button>
-      ) : null}
+      {onSkip
+        ? (
+            <button
+              className="sticky-onboarding-actions__skip"
+              type="button"
+              onClick={onSkip}
+            >
+              {skipLabel}
+            </button>
+          )
+        : null}
       {primaryFirst ? backAction : primaryAction}
     </footer>
   );

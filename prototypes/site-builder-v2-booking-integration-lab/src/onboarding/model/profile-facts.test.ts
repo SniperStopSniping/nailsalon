@@ -19,11 +19,13 @@ describe('customer-facing Business Profile facts', () => {
 
   it('omits empty facts and never exposes technical enum labels', () => {
     const profile = createDefaultBusinessProfile();
+
     expect(getCustomerProfileFacts(profile)).toEqual([]);
 
     profile.businessStructure = 'multi_tech';
     profile.location.locationType = 'home_studio';
     const facts = getCustomerProfileFacts(profile);
+
     expect(facts).toEqual([
       { id: 'business_structure', label: 'Business', value: 'Team salon' },
       { id: 'service_location', label: 'Studio', value: 'Private home studio' },

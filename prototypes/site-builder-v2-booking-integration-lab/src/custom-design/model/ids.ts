@@ -10,7 +10,7 @@ const randomId = (): string => {
 };
 
 export const createCustomDesignIdFactory = (): CustomDesignIdFactory =>
-  (kind) => `custom_design_${kind}_${randomId()}`;
+  kind => `custom_design_${kind}_${randomId()}`;
 
 export const createDeterministicCustomDesignIdFactory = (
   seed = 'test',

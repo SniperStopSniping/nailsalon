@@ -145,17 +145,23 @@ describe('Custom Design owner identity and empty card', () => {
     expect(screen.getByText('Add one image or several pages from Canva, Adobe Express, Picsart, or your designer.')).toBeVisible();
     expect(screen.getByText('PNG, JPG, or WebP')).toBeVisible();
     expect(screen.getByText('Your design will be full width on phones and centred on larger screens by default.')).toBeVisible();
+
     const input = document.querySelector<HTMLInputElement>('input[type="file"]');
+
     expect(input).toHaveAttribute('multiple');
     expect(input).toHaveAttribute('accept', 'image/png,image/jpeg,image/webp');
     expect(input?.parentElement).toBe(screen.getByText('Choose images'));
+
     input?.focus();
+
     expect(input).toHaveFocus();
+
     const files = [
       new File(['one'], 'one.png', { type: 'image/png' }),
       new File(['two'], 'two.webp', { type: 'image/webp' }),
     ];
     await user.upload(input as HTMLInputElement, files);
+
     expect(onChooseImages).toHaveBeenCalledWith(files);
   });
 
@@ -181,6 +187,7 @@ describe('Custom Design owner identity and empty card', () => {
         visible
       />,
     );
+
     expect(screen.getByText('This design file isn’t available in this browser.')).toBeVisible();
     expect(screen.getByText(/Your labels, links, and settings are still saved/)).toBeVisible();
     expect(screen.getByText(/page-1.png · 1000 × 2000px · 1 link area/)).toBeVisible();
@@ -215,6 +222,7 @@ describe('ActionEditor structured actions', () => {
         onChange={onChange}
       />,
     );
+
     expect(screen.getByRole('combobox', { name: 'What should happen?' }))
       .toHaveValue(action.type);
     expect(screen.getByRole('option', { name: label })).toBeInTheDocument();
@@ -233,6 +241,7 @@ describe('ActionEditor structured actions', () => {
     const input = screen.getByRole('textbox', { name: 'Secure URL' });
     await user.clear(input);
     await user.type(input, 'javascript:alert(1)');
+
     expect(input).toHaveValue('javascript:alert(1)');
     expect(onChange).toHaveBeenLastCalledWith(null);
     expect(screen.getByText('Enter a complete, safe destination.')).toBeVisible();
@@ -265,6 +274,7 @@ describe('CustomDesignOwnerEditor', () => {
         radio.value,
       ]),
     );
+
     expect([...valuesByName.values()]).toEqual([
       'poster',
       'contained',
@@ -307,9 +317,13 @@ describe('CustomDesignOwnerEditor', () => {
 
     expect(screen.queryByText('About the artist', { exact: false })).not.toBeInTheDocument();
     expect(screen.getByText('Alt text added · 1 link area')).toBeVisible();
+
     await user.click(screen.getByRole('button', { name: 'Move page 1 down' }));
+
     expect(onCommitImageOrder).not.toHaveBeenCalled();
+
     await user.click(screen.getByRole('button', { name: 'Save order' }));
+
     expect(onCommitImageOrder).toHaveBeenCalledWith(['page-2', 'page-1']);
   });
 
@@ -339,6 +353,7 @@ describe('CustomDesignOwnerEditor', () => {
     await user.click(within(dialog).getByRole('checkbox', { name: 'Decorative image' }));
     await user.type(within(dialog).getByRole('textbox', { name: 'Accessible text version' }), 'Policy text.');
     await user.click(within(dialog).getByRole('button', { name: 'Save accessibility' }));
+
     expect(onUpdateAccessibility).toHaveBeenCalledTimes(1);
     expect(onUpdateAccessibility).toHaveBeenCalledWith('page-1', {
       accessibleSummary: 'Policy text.',
@@ -366,6 +381,7 @@ describe('HotspotEditor bounded session', () => {
     );
 
     await user.click(screen.getByRole('button', { name: 'Cancel' }));
+
     expect(onCancel).toHaveBeenCalledTimes(1);
     expect(onCommit).not.toHaveBeenCalled();
 
@@ -379,6 +395,7 @@ describe('HotspotEditor bounded session', () => {
       />,
     );
     await user.click(screen.getByRole('button', { name: 'Done' }));
+
     expect(onCommit).toHaveBeenCalledTimes(1);
     expect(onCommit).toHaveBeenCalledWith('page-1', [expect.objectContaining({
       id: 'area-1',
@@ -413,12 +430,15 @@ describe('HotspotEditor bounded session', () => {
         open
       />,
     );
+
     expect(screen.getByText(
       'Book this service overlaps Directions. Move or resize one area.',
     )).toBeVisible();
     expect(screen.getByText(/still needs its position reviewed/)).toBeVisible();
     expect(screen.getByRole('button', { name: 'Done' })).toBeDisabled();
+
     await user.click(screen.getByRole('button', { name: 'Approve this position' }));
+
     expect(screen.queryByText(/still needs its position reviewed/)).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Done' })).toBeDisabled();
   });
@@ -439,6 +459,7 @@ describe('HotspotEditor bounded session', () => {
         open
       />,
     );
+
     expect(screen.getByText(
       'Book this service cannot cover nearly the whole image.',
     )).toBeVisible();
@@ -457,6 +478,7 @@ describe('HotspotEditor bounded session', () => {
         open
       />,
     );
+
     expect(screen.queryByText(/cannot cover nearly the whole image/)).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Done' })).toBeEnabled();
   });
@@ -492,10 +514,12 @@ describe('HotspotEditor bounded session', () => {
       />,
     );
     fireEvent.load(screen.getByRole('img', { name: 'Design being edited' }));
+
     expect(screen.getByRole('button', { name: 'Done' })).toBeEnabled();
 
     await user.click(screen.getByRole('button', { name: 'Make Book this service wider' }));
     await user.click(screen.getByRole('button', { name: 'Make Book this service taller' }));
+
     expect(screen.getByText(
       'Book this service cannot cover nearly the whole image.',
     )).toBeVisible();
@@ -503,9 +527,12 @@ describe('HotspotEditor bounded session', () => {
     expect(onCommit).not.toHaveBeenCalled();
 
     await user.click(screen.getByRole('button', { name: 'Make Book this service shorter' }));
+
     expect(screen.queryByText(/cannot cover nearly the whole image/)).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Done' })).toBeEnabled();
+
     await user.click(screen.getByRole('button', { name: 'Done' }));
+
     expect(onCommit).toHaveBeenCalledTimes(1);
   });
 
@@ -553,6 +580,7 @@ describe('HotspotEditor bounded session', () => {
     for (let index = 0; index < 11; index += 1) {
       fireEvent.keyDown(moveFirst, { key: 'ArrowRight' });
     }
+
     expect(screen.getByText(
       'First action overlaps Second action. Move or resize one area.',
     )).toBeVisible();
@@ -560,6 +588,7 @@ describe('HotspotEditor bounded session', () => {
     expect(onCommit).not.toHaveBeenCalled();
 
     fireEvent.keyDown(moveFirst, { key: 'ArrowLeft' });
+
     expect(screen.queryByText(/First action overlaps Second action/)).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Done' })).toBeEnabled();
   });
@@ -594,6 +623,7 @@ describe('HotspotEditor bounded session', () => {
     );
     fireEvent.load(screen.getByRole('img', { name: 'Design being edited' }));
     await waitFor(() => expect(screen.getByText(/This link may be difficult to tap on phones/)).toBeVisible());
+
     expect(screen.getByRole('button', { name: 'Done' })).toBeEnabled();
   });
 
@@ -608,6 +638,7 @@ describe('HotspotEditor bounded session', () => {
         open
       />,
     );
+
     expect(screen.getByText(/Replace it before editing link positions/)).toBeVisible();
     expect(screen.getByRole('button', { name: 'Done' })).toBeDisabled();
   });

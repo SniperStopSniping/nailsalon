@@ -5,6 +5,8 @@ import { eq } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/pglite';
 import { migrate } from 'drizzle-orm/pglite/migrator';
 
+import { ONBOARDING_MEDIA_MAX_FILE_BYTES, ONBOARDING_MEDIA_MAX_REQUEST_BYTES } from '@/features/onboarding-v1-integration/media-limits';
+import { OnboardingMediaStorageError } from '@/features/onboarding-v1-integration/media-storage.server';
 import * as schema from '@/models/Schema';
 
 vi.mock('server-only', () => ({}));
@@ -28,6 +30,7 @@ const storage = vi.hoisted(() => ({
     height: 40,
     mimeType: 'image/webp' as const,
     storageKey: `salon/site/logo/${uploadAttemptId}.webp`,
+    storageProvider: 'development_local' as 'development_local' | 'cloudinary_authenticated',
     width: 80,
   })),
 }));
@@ -71,7 +74,14 @@ vi.mock('@/features/onboarding-v1-integration/canonical-profile-media.server', (
 }));
 vi.mock('@/features/onboarding-v1-integration/media-storage.server', () => ({
   deleteOnboardingMediaFile: storage.deleteFile,
-  OnboardingMediaStorageError: class OnboardingMediaStorageError extends Error {},
+  OnboardingMediaStorageError: class OnboardingMediaStorageError extends Error {
+    code: string;
+
+    constructor(code: string, message: string) {
+      super(message);
+      this.code = code;
+    }
+  },
   readOnboardingMediaFile: storage.readFile,
   saveOnboardingMediaFile: storage.saveFile,
 }));
@@ -96,7 +106,7 @@ const uploadRequest = ({
   role = 'logo',
 }: {
   localItemId?: string;
-  role?: 'logo' | 'profile';
+  role?: 'logo' | 'profile' | 'gallery';
 } = {}) => {
   const form = new FormData();
   form.set('altText', role === 'logo' ? 'Isla Nail Studio logo' : 'Daniela portrait');
@@ -345,6 +355,101 @@ describe('POST /api/onboarding/v1/media', () => {
     expect(canonical.saveMedia).toHaveBeenCalledOnce();
   });
 
+  it('preserves the ready row and its canonical reference during a transient storage outage', async () => {
+    expect((await POST(uploadRequest())).status).toBe(200);
+
+    const [before] = await db.select().from(schema.onboardingSiteMediaSchema)
+      .where(eq(schema.onboardingSiteMediaSchema.id, MEDIA_ID));
+    storage.readFile.mockRejectedValueOnce(new OnboardingMediaStorageError('IMAGE_STORAGE_UNAVAILABLE', 'Provider unavailable.'));
+
+    const unavailable = await POST(uploadRequest());
+
+    expect(unavailable.status).toBe(503);
+    expect(await unavailable.json()).toMatchObject({ error: { code: 'IMAGE_STORAGE_UNAVAILABLE' } });
+
+    const [after] = await db.select().from(schema.onboardingSiteMediaSchema)
+      .where(eq(schema.onboardingSiteMediaSchema.id, MEDIA_ID));
+
+    expect(after).toEqual(before);
+    expect(storage.saveFile).toHaveBeenCalledOnce();
+    expect(storage.deleteFile).not.toHaveBeenCalled();
+    expect(canonical.saveMedia).toHaveBeenCalledOnce();
+    expect((await POST(uploadRequest())).status).toBe(200);
+    expect(storage.saveFile).toHaveBeenCalledOnce();
+  });
+
+  it.each(['cloud', 'local'] as const)('recovers a confirmed missing %s object with a new immutable upload', async (provider) => {
+    expect((await POST(uploadRequest())).status).toBe(200);
+
+    const missing = provider === 'cloud'
+      ? new OnboardingMediaStorageError('IMAGE_NOT_FOUND', 'Missing image.')
+      : Object.assign(new Error('Missing local image.'), { code: 'ENOENT' });
+    storage.readFile.mockRejectedValueOnce(missing);
+
+    expect((await POST(uploadRequest())).status).toBe(200);
+    expect(storage.saveFile).toHaveBeenCalledTimes(2);
+
+    const [saved] = await db.select().from(schema.onboardingSiteMediaSchema)
+      .where(eq(schema.onboardingSiteMediaSchema.id, MEDIA_ID));
+
+    expect(saved?.claimStatus).toBe('ready');
+    expect(saved?.uploadLeaseId).toBeNull();
+  });
+
+  it('returns the current private row URL when inherited media retains a prior revision URL', async () => {
+    expect((await POST(uploadRequest())).status).toBe(200);
+
+    await db.update(schema.onboardingSiteMediaSchema).set({
+      publicUrl: '/api/onboarding/v1/media/55555555-5555-4555-8555-555555555555',
+    }).where(eq(schema.onboardingSiteMediaSchema.id, MEDIA_ID));
+
+    const replay = await POST(uploadRequest());
+
+    expect(replay.status).toBe(200);
+    expect(await replay.json()).toMatchObject({ data: { media: { url: `/api/onboarding/v1/media/${MEDIA_ID}` } } });
+    expect(storage.saveFile).toHaveBeenCalledOnce();
+
+    const read = await GET(new Request(`http://localhost/api/onboarding/v1/media/${MEDIA_ID}`), {
+      params: Promise.resolve({ mediaId: MEDIA_ID }),
+    });
+
+    expect(read.status).toBe(200);
+  });
+
+  it('persists authenticated cloud originals behind the private URL and replays without exposing provider data', async () => {
+    await db.update(schema.onboardingSiteMediaSchema).set({ role: 'gallery' })
+      .where(eq(schema.onboardingSiteMediaSchema.id, MEDIA_ID));
+    storage.saveFile.mockResolvedValueOnce({
+      byteSize: 321,
+      height: 40,
+      mimeType: 'image/webp',
+      storageKey: 'cloudinary_authenticated:salons/salon_media_route/onboarding-sites/site/revisions/revision/gallery/private',
+      storageProvider: 'cloudinary_authenticated',
+      width: 80,
+    });
+
+    const first = await POST(uploadRequest({ role: 'gallery' }));
+    const replay = await POST(uploadRequest({ role: 'gallery' }));
+
+    expect(first.status).toBe(200);
+    expect(replay.status).toBe(200);
+
+    const body = await first.json();
+
+    expect(body.data.media.url).toBe(`/api/onboarding/v1/media/${MEDIA_ID}`);
+    expect(JSON.stringify(body)).not.toContain('cloudinary');
+    expect(await replay.json()).toEqual(body);
+    expect(storage.saveFile).toHaveBeenCalledOnce();
+    expect(storage.readFile).toHaveBeenCalledWith(expect.stringContaining('cloudinary_authenticated:'), holder.authorized);
+    expect(canonical.saveMedia).not.toHaveBeenCalled();
+
+    const [row] = await db.select().from(schema.onboardingSiteMediaSchema)
+      .where(eq(schema.onboardingSiteMediaSchema.id, MEDIA_ID));
+
+    expect(row?.storageProvider).toBe('cloudinary_authenticated');
+    expect(row?.metadata).toEqual({ byteSize: 321 });
+  });
+
   it('recovers an abandoned upload lease without racing a current upload', async () => {
     await db.delete(schema.onboardingSiteMediaSchema);
     await db.insert(schema.onboardingSiteMediaSchema).values({
@@ -389,6 +494,7 @@ describe('POST /api/onboarding/v1/media', () => {
           height: 40,
           mimeType: 'image/webp' as const,
           storageKey: `salon/site/logo/${uploadAttemptId}.webp`,
+          storageProvider: 'development_local' as const,
           width: 80,
         };
       })
@@ -399,6 +505,7 @@ describe('POST /api/onboarding/v1/media', () => {
           height: 50,
           mimeType: 'image/webp' as const,
           storageKey: `salon/site/logo/${uploadAttemptId}.webp`,
+          storageProvider: 'development_local' as const,
           width: 100,
         };
       });
@@ -424,8 +531,8 @@ describe('POST /api/onboarding/v1/media', () => {
     const winningKey = `salon/site/logo/${attemptedLeaseIds[1]}.webp`;
 
     expect(storage.deleteFile).toHaveBeenCalledOnce();
-    expect(storage.deleteFile).toHaveBeenCalledWith(losingKey);
-    expect(storage.deleteFile).not.toHaveBeenCalledWith(winningKey);
+    expect(storage.deleteFile).toHaveBeenCalledWith(losingKey, holder.authorized);
+    expect(storage.deleteFile).not.toHaveBeenCalledWith(winningKey, holder.authorized);
     expect(canonical.saveMedia).toHaveBeenCalledOnce();
 
     const [row] = await db
@@ -460,6 +567,13 @@ describe('POST /api/onboarding/v1/media', () => {
     expect(storage.saveFile).not.toHaveBeenCalled();
   });
 
+  it('cannot upload into a manifest owned by a different tenant', async () => {
+    holder.authorized = { ...holder.authorized!, salonId: 'other_salon' };
+
+    expect((await POST(uploadRequest())).status).toBe(409);
+    expect(storage.saveFile).not.toHaveBeenCalled();
+  });
+
   it('authenticates and rejects an oversized body before parsing multipart data', async () => {
     holder.authenticated = false;
     const anonymous = new Request('http://localhost/api/onboarding/v1/media', {
@@ -480,6 +594,27 @@ describe('POST /api/onboarding/v1/media', () => {
     expect((await POST(oversized)).status).toBe(413);
   });
 
+  it('rejects a too-large transport file even when multipart framing is still below the request cap', async () => {
+    const form = await uploadRequest().formData();
+    form.set('file', new File([new Uint8Array(ONBOARDING_MEDIA_MAX_FILE_BYTES + 1)], 'large.png', { type: 'image/png' }));
+
+    const response = await POST(new Request('http://localhost/api/onboarding/v1/media', { body: form, method: 'POST' }));
+
+    expect(response.status).toBe(413);
+    expect(storage.saveFile).not.toHaveBeenCalled();
+  });
+
+  it('bounds an authenticated chunked body with no Content-Length before multipart parsing', async () => {
+    const request = new Request('http://localhost/api/onboarding/v1/media', {
+      body: new Blob([new Uint8Array(ONBOARDING_MEDIA_MAX_REQUEST_BYTES + 1)]),
+      method: 'POST',
+    });
+
+    expect(request.headers.get('content-length')).toBeNull();
+    expect((await POST(request)).status).toBe(413);
+    expect(storage.saveFile).not.toHaveBeenCalled();
+  });
+
   it('serves private draft media without reusable browser caching', async () => {
     expect((await POST(uploadRequest())).status).toBe(200);
 
@@ -494,6 +629,29 @@ describe('POST /api/onboarding/v1/media', () => {
     expect(response.headers.get('cache-control')).toBe('private, no-store, max-age=0');
     expect(response.headers.get('vary')).toBe('Cookie');
     expect(authorization.authorize).toHaveBeenCalledWith(SITE_ID);
+    expect(storage.readFile).toHaveBeenLastCalledWith(expect.any(String), holder.authorized);
+  });
+
+  it.each(['owner', 'tenant', 'site', 'revision'] as const)('does not read private bytes for the wrong %s', async (scope) => {
+    expect((await POST(uploadRequest())).status).toBe(200);
+
+    storage.readFile.mockClear();
+    holder.authorized = scope === 'owner'
+      ? null
+      : {
+          ...holder.authorized!,
+          ...(scope === 'tenant' ? { salonId: 'other_salon' } : {}),
+          ...(scope === 'site' ? { siteId: 'other_site' } : {}),
+          ...(scope === 'revision' ? { revisionId: 'other_revision' } : {}),
+        };
+
+    const response = await GET(
+      new Request(`http://localhost/api/onboarding/v1/media/${MEDIA_ID}`),
+      { params: Promise.resolve({ mediaId: MEDIA_ID }) },
+    );
+
+    expect(response.status).toBe(404);
+    expect(storage.readFile).not.toHaveBeenCalled();
   });
 
   it('requires owner authorization when finalizing media verification', async () => {

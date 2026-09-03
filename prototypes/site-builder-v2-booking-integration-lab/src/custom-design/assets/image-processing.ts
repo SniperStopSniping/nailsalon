@@ -16,10 +16,10 @@ import {
   type SupportedImageMimeType,
 } from './types';
 
-export const CUSTOM_DESIGN_MAX_IMAGE_DIMENSION_PX =
-  CUSTOM_DESIGN_MAX_IMAGE_DIMENSION;
-export const CUSTOM_DESIGN_MAX_DECODED_PIXELS =
-  CUSTOM_DESIGN_MAX_IMAGE_PIXELS;
+export const CUSTOM_DESIGN_MAX_IMAGE_DIMENSION_PX
+  = CUSTOM_DESIGN_MAX_IMAGE_DIMENSION;
+export const CUSTOM_DESIGN_MAX_DECODED_PIXELS
+  = CUSTOM_DESIGN_MAX_IMAGE_PIXELS;
 export { CUSTOM_DESIGN_THUMBNAIL_MAX_EDGE_PX } from './types';
 export const CUSTOM_DESIGN_EXIF_SCAN_BYTES = 256 * 1024;
 
@@ -104,16 +104,16 @@ export type ProcessImageBatchResult = {
 };
 
 const isSupportedMimeType = (value: string): value is CustomDesignMimeType =>
-  CUSTOM_DESIGN_SUPPORTED_MIME_TYPES.some((mimeType) => mimeType === value);
+  (CUSTOM_DESIGN_SUPPORTED_MIME_TYPES as readonly string[]).includes(value);
 
 const normalizeUploadError = (error: unknown): ImageUploadError =>
   error instanceof ImageUploadError
     ? error
     : new ImageUploadError(
-        'decode_failed',
-        'This image couldn’t be opened. Try exporting it again from Canva.',
-        error,
-      );
+      'decode_failed',
+      'This image couldn’t be opened. Try exporting it again from Canva.',
+      error,
+    );
 
 export const readBlobArrayBuffer = async (blob: Blob): Promise<ArrayBuffer> => {
   if (typeof blob.arrayBuffer === 'function') {
@@ -145,12 +145,12 @@ export const validateUploadCapacity = (
   capacity: UploadCapacity,
 ): void => {
   if (
-    !Number.isFinite(capacity.currentImageCount) ||
-    !Number.isInteger(capacity.currentImageCount) ||
-    capacity.currentImageCount < 0 ||
-    !Number.isFinite(capacity.currentSectionBytes) ||
-    !Number.isInteger(capacity.currentSectionBytes) ||
-    capacity.currentSectionBytes < 0
+    !Number.isFinite(capacity.currentImageCount)
+    || !Number.isInteger(capacity.currentImageCount)
+    || capacity.currentImageCount < 0
+    || !Number.isFinite(capacity.currentSectionBytes)
+    || !Number.isInteger(capacity.currentSectionBytes)
+    || capacity.currentSectionBytes < 0
   ) {
     throw new ImageUploadError(
       'invalid_capacity',
@@ -197,36 +197,36 @@ export const detectImageMimeType = async (
 ): Promise<SupportedImageMimeType | null> => {
   const bytes = new Uint8Array(await readBlobArrayBuffer(blob.slice(0, 16)));
   if (
-    bytes.length >= 8 &&
-    bytes[0] === 0x89 &&
-    bytes[1] === 0x50 &&
-    bytes[2] === 0x4e &&
-    bytes[3] === 0x47 &&
-    bytes[4] === 0x0d &&
-    bytes[5] === 0x0a &&
-    bytes[6] === 0x1a &&
-    bytes[7] === 0x0a
+    bytes.length >= 8
+    && bytes[0] === 0x89
+    && bytes[1] === 0x50
+    && bytes[2] === 0x4E
+    && bytes[3] === 0x47
+    && bytes[4] === 0x0D
+    && bytes[5] === 0x0A
+    && bytes[6] === 0x1A
+    && bytes[7] === 0x0A
   ) {
     return 'image/png';
   }
   if (
-    bytes.length >= 3 &&
-    bytes[0] === 0xff &&
-    bytes[1] === 0xd8 &&
-    bytes[2] === 0xff
+    bytes.length >= 3
+    && bytes[0] === 0xFF
+    && bytes[1] === 0xD8
+    && bytes[2] === 0xFF
   ) {
     return 'image/jpeg';
   }
   if (
-    bytes.length >= 12 &&
-    bytes[0] === 0x52 &&
-    bytes[1] === 0x49 &&
-    bytes[2] === 0x46 &&
-    bytes[3] === 0x46 &&
-    bytes[8] === 0x57 &&
-    bytes[9] === 0x45 &&
-    bytes[10] === 0x42 &&
-    bytes[11] === 0x50
+    bytes.length >= 12
+    && bytes[0] === 0x52
+    && bytes[1] === 0x49
+    && bytes[2] === 0x46
+    && bytes[3] === 0x46
+    && bytes[8] === 0x57
+    && bytes[9] === 0x45
+    && bytes[10] === 0x42
+    && bytes[11] === 0x50
   ) {
     return 'image/webp';
   }
@@ -254,22 +254,22 @@ const readUint32 = (
 export const parseExifOrientation = (buffer: ArrayBuffer): ExifOrientation => {
   const view = new DataView(buffer);
   if (
-    view.byteLength < 4 ||
-    view.getUint8(0) !== 0xff ||
-    view.getUint8(1) !== 0xd8
+    view.byteLength < 4
+    || view.getUint8(0) !== 0xFF
+    || view.getUint8(1) !== 0xD8
   ) {
     return 1;
   }
 
   let markerOffset = 2;
   while (markerOffset + 4 <= view.byteLength) {
-    if (view.getUint8(markerOffset) !== 0xff) {
+    if (view.getUint8(markerOffset) !== 0xFF) {
       markerOffset += 1;
       continue;
     }
 
     const marker = view.getUint8(markerOffset + 1);
-    if (marker === 0xda || marker === 0xd9) {
+    if (marker === 0xDA || marker === 0xD9) {
       break;
     }
     const segmentLength = view.getUint16(markerOffset + 2, false);
@@ -279,14 +279,14 @@ export const parseExifOrientation = (buffer: ArrayBuffer): ExifOrientation => {
 
     const payloadOffset = markerOffset + 4;
     if (
-      marker === 0xe1 &&
-      segmentLength >= 8 &&
-      view.getUint8(payloadOffset) === 0x45 &&
-      view.getUint8(payloadOffset + 1) === 0x78 &&
-      view.getUint8(payloadOffset + 2) === 0x69 &&
-      view.getUint8(payloadOffset + 3) === 0x66 &&
-      view.getUint8(payloadOffset + 4) === 0 &&
-      view.getUint8(payloadOffset + 5) === 0
+      marker === 0xE1
+      && segmentLength >= 8
+      && view.getUint8(payloadOffset) === 0x45
+      && view.getUint8(payloadOffset + 1) === 0x78
+      && view.getUint8(payloadOffset + 2) === 0x69
+      && view.getUint8(payloadOffset + 3) === 0x66
+      && view.getUint8(payloadOffset + 4) === 0
+      && view.getUint8(payloadOffset + 5) === 0
     ) {
       const tiffOffset = payloadOffset + 6;
       if (tiffOffset + 8 > view.byteLength) {
@@ -294,10 +294,10 @@ export const parseExifOrientation = (buffer: ArrayBuffer): ExifOrientation => {
       }
       const byteOrder = view.getUint16(tiffOffset, false);
       const littleEndian = byteOrder === 0x4949;
-      if (!littleEndian && byteOrder !== 0x4d4d) {
+      if (!littleEndian && byteOrder !== 0x4D4D) {
         return 1;
       }
-      if (readUint16(view, tiffOffset + 2, littleEndian) !== 0x2a) {
+      if (readUint16(view, tiffOffset + 2, littleEndian) !== 0x2A) {
         return 1;
       }
       const relativeIfdOffset = readUint32(view, tiffOffset + 4, littleEndian);
@@ -336,10 +336,10 @@ export const readExifOrientation = async (
 ): Promise<ExifOrientation> =>
   blob.type === 'image/jpeg'
     ? parseExifOrientation(
-        await readBlobArrayBuffer(
-          blob.slice(0, CUSTOM_DESIGN_EXIF_SCAN_BYTES),
-        ),
-      )
+      await readBlobArrayBuffer(
+        blob.slice(0, CUSTOM_DESIGN_EXIF_SCAN_BYTES),
+      ),
+    )
     : 1;
 
 export const getOrientedDimensions = (
@@ -371,8 +371,8 @@ export const decodeImageInBrowser: ImageDecoder = async (blob) => {
   }
 
   if (
-    typeof globalThis.Image !== 'function' ||
-    typeof globalThis.URL?.createObjectURL !== 'function'
+    typeof globalThis.Image !== 'function'
+    || typeof globalThis.URL?.createObjectURL !== 'function'
   ) {
     throw new ImageUploadError(
       'decode_failed',
@@ -416,21 +416,21 @@ const canvasToBlob = (
   mimeType: SupportedImageMimeType,
   quality?: number,
 ): Promise<Blob | null> =>
-  new Promise((resolve) => canvas.toBlob(resolve, mimeType, quality));
+  new Promise(resolve => canvas.toBlob(resolve, mimeType, quality));
 
-export const generateImageThumbnail: ThumbnailGenerator = async ({
+export const generateImageThumbnail = async ({
   decoded,
   height,
   orientation,
   width,
-}) => {
+}: ThumbnailInput, options: { maxEdgePx?: number; mimeType?: SupportedImageMimeType; quality?: number } = {}): Promise<Blob | null> => {
   if (!decoded.source || typeof document === 'undefined') {
     return null;
   }
 
   const scale = Math.min(
     1,
-    CUSTOM_DESIGN_THUMBNAIL_MAX_EDGE_PX / Math.max(width, height),
+    (options.maxEdgePx ?? CUSTOM_DESIGN_THUMBNAIL_MAX_EDGE_PX) / Math.max(width, height),
   );
   const targetWidth = Math.max(1, Math.round(width * scale));
   const targetHeight = Math.max(1, Math.round(height * scale));
@@ -472,8 +472,8 @@ export const generateImageThumbnail: ThumbnailGenerator = async ({
   }
   context.drawImage(decoded.source, 0, 0, sourceWidth, sourceHeight);
 
-  const webp = await canvasToBlob(canvas, 'image/webp', 0.82);
-  return webp ?? canvasToBlob(canvas, 'image/png');
+  const encoded = await canvasToBlob(canvas, options.mimeType ?? 'image/webp', options.quality ?? 0.82);
+  return encoded ?? canvasToBlob(canvas, 'image/png');
 };
 
 export const prepareImageAsset = async (
@@ -518,10 +518,10 @@ export const prepareImageAsset = async (
 
   try {
     if (
-      !Number.isFinite(decoded.width) ||
-      !Number.isFinite(decoded.height) ||
-      decoded.width <= 0 ||
-      decoded.height <= 0
+      !Number.isFinite(decoded.width)
+      || !Number.isFinite(decoded.height)
+      || decoded.width <= 0
+      || decoded.height <= 0
     ) {
       throw new ImageUploadError(
         'corrupt_image',
@@ -533,9 +533,9 @@ export const prepareImageAsset = async (
       ? { height: decoded.height, width: decoded.width }
       : getOrientedDimensions(decoded.width, decoded.height, orientation);
     if (
-      dimensions.width > CUSTOM_DESIGN_MAX_IMAGE_DIMENSION_PX ||
-      dimensions.height > CUSTOM_DESIGN_MAX_IMAGE_DIMENSION_PX ||
-      dimensions.width * dimensions.height > CUSTOM_DESIGN_MAX_DECODED_PIXELS
+      dimensions.width > CUSTOM_DESIGN_MAX_IMAGE_DIMENSION_PX
+      || dimensions.height > CUSTOM_DESIGN_MAX_IMAGE_DIMENSION_PX
+      || dimensions.width * dimensions.height > CUSTOM_DESIGN_MAX_DECODED_PIXELS
     ) {
       throw new ImageUploadError(
         'dimensions_too_large',
@@ -563,19 +563,19 @@ export const prepareImageAsset = async (
       // unsupported or fails (for example, a restricted canvas implementation).
       thumbnailBlob = null;
     }
-    const validThumbnailBlob =
-      thumbnailBlob &&
-      thumbnailBlob.size > 0 &&
-      thumbnailBlob.size <= CUSTOM_DESIGN_MAX_THUMBNAIL_BYTES &&
-      isSupportedMimeType(thumbnailBlob.type)
+    const validThumbnailBlob
+      = thumbnailBlob
+      && thumbnailBlob.size > 0
+      && thumbnailBlob.size <= CUSTOM_DESIGN_MAX_THUMBNAIL_BYTES
+      && isSupportedMimeType(thumbnailBlob.type)
         ? thumbnailBlob
         : null;
     const thumbnailDimensions = validThumbnailBlob
       ? (() => {
           const scale = Math.min(
             1,
-            CUSTOM_DESIGN_THUMBNAIL_MAX_EDGE_PX /
-              Math.max(dimensions.width, dimensions.height),
+            CUSTOM_DESIGN_THUMBNAIL_MAX_EDGE_PX
+            / Math.max(dimensions.width, dimensions.height),
           );
           return {
             height: Math.max(1, Math.round(dimensions.height * scale)),
@@ -584,11 +584,11 @@ export const prepareImageAsset = async (
         })()
       : null;
     const thumbnailMimeType = validThumbnailBlob?.type;
-    const thumbnail =
-      validThumbnailBlob &&
-      thumbnailDimensions &&
-      thumbnailMimeType &&
-      isSupportedMimeType(thumbnailMimeType)
+    const thumbnail
+      = validThumbnailBlob
+      && thumbnailDimensions
+      && thumbnailMimeType
+      && isSupportedMimeType(thumbnailMimeType)
         ? {
             byteSize: validThumbnailBlob.size,
             ...thumbnailDimensions,

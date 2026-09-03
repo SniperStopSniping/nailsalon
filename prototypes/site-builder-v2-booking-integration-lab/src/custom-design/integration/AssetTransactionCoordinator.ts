@@ -1,20 +1,20 @@
 import {
-  deleteUnreferencedAssets,
-  reclaimStaleStagedAssets,
   type AssetCleanupResult,
   type AssetRepository,
   type DecodedImage,
+  deleteUnreferencedAssets,
   type ImageAssetMetadata,
   type ImageDecoder,
   type PreparedImageAsset,
+  reclaimStaleStagedAssets,
   type StagedAssetReclamationResult,
   type ThumbnailGenerator,
 } from '../assets';
 import {
+  type ImageUploadErrorCode,
   prepareImageAsset,
   processImageBatch,
   validateUploadCapacity,
-  type ImageUploadErrorCode,
 } from '../assets/image-processing';
 import { replaceCustomDesignImage } from '../model/replacement';
 import type { CustomDesignImageItem } from '../model/types';
@@ -91,16 +91,16 @@ export type ReplaceCustomDesignImageInput = ImagePreparationOverrides & {
 
 export type ReplaceCustomDesignImageResult =
   | {
-      cleanupErrors: Error[];
-      image: CustomDesignImageItem;
-      reviewRequired: boolean;
-      success: true;
-    }
+    cleanupErrors: Error[];
+    image: CustomDesignImageItem;
+    reviewRequired: boolean;
+    success: true;
+  }
   | {
-      cleanupErrors: Error[];
-      failure: CustomDesignUploadFailure;
-      success: false;
-    };
+    cleanupErrors: Error[];
+    failure: CustomDesignUploadFailure;
+    success: false;
+  };
 
 const asError = (error: unknown, fallback: string): Error =>
   error instanceof Error ? error : new Error(fallback);
@@ -217,7 +217,7 @@ export class CustomDesignAssetTransactionCoordinator {
         : {}),
     });
     const failures: CustomDesignUploadFailure[] = processed.rejected.map(
-      (rejection) => ({
+      rejection => ({
         code: rejection.code,
         fileName: rejection.file.name,
         index: rejection.index,
@@ -243,7 +243,7 @@ export class CustomDesignAssetTransactionCoordinator {
         cleanupErrors: [],
         documentChanged: false,
         failures: sortedFailures(failures),
-        status: failures.some((failure) => failure.code.startsWith('storage_'))
+        status: failures.some(failure => failure.code.startsWith('storage_'))
           ? 'failed'
           : 'rejected',
       };
@@ -254,7 +254,9 @@ export class CustomDesignAssetTransactionCoordinator {
       added = staged.map((asset) => {
         const index = assetIndexes.get(asset.metadata.id) ?? 0;
         const file = input.files[index];
-        if (!file) throw new Error('The uploaded image index is unavailable.');
+        if (!file) {
+          throw new Error('The uploaded image index is unavailable.');
+        }
         return imageItemFromMetadata(
           asset.metadata,
           input.createImageItemId(file, index),
@@ -268,7 +270,7 @@ export class CustomDesignAssetTransactionCoordinator {
         documentChanged: false,
         failures: sortedFailures([
           ...failures,
-          ...staged.map((asset) => transitionFailure(
+          ...staged.map(asset => transitionFailure(
             'document_rejected',
             error,
             asset.metadata.fileName,
@@ -281,7 +283,7 @@ export class CustomDesignAssetTransactionCoordinator {
     const nextImages = [...input.currentImages, ...added];
     const transaction = await this.commitPreparedMutation({
       assets: staged,
-      fallbackFiles: staged.map((asset) => ({
+      fallbackFiles: staged.map(asset => ({
         fileName: asset.metadata.fileName,
         index: assetIndexes.get(asset.metadata.id) ?? 0,
       })),
@@ -299,7 +301,7 @@ export class CustomDesignAssetTransactionCoordinator {
     }
 
     await this.notifyAssetsChanged(
-      staged.map((asset) => asset.metadata.id),
+      staged.map(asset => asset.metadata.id),
       'committed',
     );
     return {
@@ -315,7 +317,7 @@ export class CustomDesignAssetTransactionCoordinator {
     input: ReplaceCustomDesignImageInput,
   ): Promise<ReplaceCustomDesignImageResult> => this.enqueue(async () => {
     const currentIndex = input.currentImages.findIndex(
-      (image) => image.id === input.imageItemId,
+      image => image.id === input.imageItemId,
     );
     const current = input.currentImages[currentIndex];
     if (!current) {
@@ -418,7 +420,7 @@ export class CustomDesignAssetTransactionCoordinator {
       cleanupErrors: transaction.cleanupErrors,
       image: replacement,
       reviewRequired: replacement.interactiveAreas.some(
-        (area) => area.reviewStatus === 'needs_review',
+        area => area.reviewStatus === 'needs_review',
       ),
       success: true,
     };
@@ -427,10 +429,12 @@ export class CustomDesignAssetTransactionCoordinator {
   cleanupUnreferencedAssets = (): Promise<AssetCleanupResult> =>
     this.enqueue(async () => {
       const references = new Set(await this.getReachableAssetIds());
-      this.activeStagedIds.forEach((assetId) => references.add(assetId));
+      this.activeStagedIds.forEach(assetId => references.add(assetId));
       return deleteUnreferencedAssets(this.repository, references, {
         confirmUnreferenced: async (assetId) => {
-          if (this.activeStagedIds.has(assetId)) return false;
+          if (this.activeStagedIds.has(assetId)) {
+            return false;
+          }
           return !(await this.getReachableAssetIds()).has(assetId);
         },
         onDeleted: async (assetId) => {
@@ -442,7 +446,7 @@ export class CustomDesignAssetTransactionCoordinator {
   /** Awaited Reset-Lab boundary: clears committed and staged browser assets. */
   clearAllAssets = (): Promise<number> => this.enqueue(async () => {
     const summaries = await this.repository.list({ includeStaged: true });
-    const assetIds = summaries.map((summary) => summary.metadata.id);
+    const assetIds = summaries.map(summary => summary.metadata.id);
     const cleared = await this.repository.clear();
     this.activeStagedIds.clear();
     await this.notifyAssetsChanged(assetIds, 'deleted');
@@ -460,7 +464,9 @@ export class CustomDesignAssetTransactionCoordinator {
   ): Promise<StagedAssetReclamationResult> => this.enqueue(async () =>
     reclaimStaleStagedAssets(this.repository, {
       confirmDiscard: async (assetId) => {
-        if (this.activeStagedIds.has(assetId)) return false;
+        if (this.activeStagedIds.has(assetId)) {
+          return false;
+        }
         return !(await this.getReachableAssetIds()).has(assetId);
       },
       protectedAssetIds: new Set(this.activeStagedIds),
@@ -472,7 +478,7 @@ export class CustomDesignAssetTransactionCoordinator {
    * Runs a document-reference mutation on the same queue as asset cleanup.
    * Callers must not invoke another coordinator method from inside `mutation`.
    */
-  coordinateDocumentMutation = <T,>(mutation: () => MaybePromise<T>): Promise<T> =>
+  coordinateDocumentMutation = <T>(mutation: () => MaybePromise<T>): Promise<T> =>
     this.enqueue(async () => mutation());
 
   private commitPreparedMutation = async ({
@@ -496,7 +502,7 @@ export class CustomDesignAssetTransactionCoordinator {
       cleanupErrors.push(...await this.discardStages(assets));
       return {
         cleanupErrors,
-        failures: fallbackFiles.map((file) => transitionFailure(
+        failures: fallbackFiles.map(file => transitionFailure(
           'document_rejected',
           error,
           file.fileName,
@@ -514,7 +520,7 @@ export class CustomDesignAssetTransactionCoordinator {
       cleanupErrors.push(...await this.discardStages(assets));
       return {
         cleanupErrors,
-        failures: fallbackFiles.map((file) => transitionFailure(
+        failures: fallbackFiles.map(file => transitionFailure(
           'document_rejected',
           new Error('The validated document command did not produce a change.'),
           file.fileName,
@@ -524,18 +530,18 @@ export class CustomDesignAssetTransactionCoordinator {
       };
     }
 
-    const assetIds = assets.map((asset) => asset.metadata.id);
+    const assetIds = assets.map(asset => asset.metadata.id);
     let assetsCommitted = false;
     try {
       await this.repository.commitBatch(assetIds);
       assetsCommitted = true;
-      assetIds.forEach((assetId) => this.activeStagedIds.delete(assetId));
+      assetIds.forEach(assetId => this.activeStagedIds.delete(assetId));
       if (!(await transition.publish())) {
         throw new Error('The prepared document changed before it could be published.');
       }
       return { cleanupErrors, failures: [], success: true };
     } catch (error) {
-      assetIds.forEach((assetId) => this.activeStagedIds.delete(assetId));
+      assetIds.forEach(assetId => this.activeStagedIds.delete(assetId));
       try {
         await transition.cancel?.();
       } catch (cancelError) {
@@ -551,7 +557,7 @@ export class CustomDesignAssetTransactionCoordinator {
       }
       return {
         cleanupErrors,
-        failures: fallbackFiles.map((file) => transitionFailure(
+        failures: fallbackFiles.map(file => transitionFailure(
           assetsCommitted ? 'document_publish_failed' : 'document_rejected',
           error,
           file.fileName,
@@ -568,7 +574,9 @@ export class CustomDesignAssetTransactionCoordinator {
     const errors: Error[] = [];
     for (const assetId of assetIds) {
       try {
-        if ((await this.getReachableAssetIds()).has(assetId)) continue;
+        if ((await this.getReachableAssetIds()).has(assetId)) {
+          continue;
+        }
         if (await this.repository.delete(assetId)) {
           await this.notifyAssetsChanged([assetId], 'deleted');
         }
@@ -599,7 +607,9 @@ export class CustomDesignAssetTransactionCoordinator {
     assetIds: readonly string[],
     reason: CustomDesignAssetChangeReason,
   ): Promise<void> => {
-    if (!this.onAssetsChanged || assetIds.length === 0) return;
+    if (!this.onAssetsChanged || assetIds.length === 0) {
+      return;
+    }
     try {
       await this.onAssetsChanged([...new Set(assetIds)], reason);
     } catch (error) {
@@ -607,7 +617,7 @@ export class CustomDesignAssetTransactionCoordinator {
     }
   };
 
-  private enqueue = <T,>(operation: () => Promise<T>): Promise<T> => {
+  private enqueue = <T>(operation: () => Promise<T>): Promise<T> => {
     if (this.closed) {
       return Promise.reject(new Error('The Custom Design asset coordinator is closed.'));
     }

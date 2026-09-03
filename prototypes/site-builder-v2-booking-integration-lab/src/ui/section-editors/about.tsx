@@ -25,12 +25,14 @@ export function AboutEditor({
         sharedValue={bio.lead ?? ''}
         value={settings.intro}
       />
-      {settings.intro.source === 'shared' && !bio.lead ? (
-        <small className="form-hint">
-          Your Business Profile has no bio yet, so there is no intro line to
-          show — add one there, or write your own line here.
-        </small>
-      ) : null}
+      {settings.intro.source === 'shared' && !bio.lead
+        ? (
+            <small className="form-hint">
+              Your Business Profile has no bio yet, so there is no intro line to
+              show — add one there, or write your own line here.
+            </small>
+          )
+        : null}
       <p className="form-hint">
         The rest of About — your bio, specialties, and credentials — comes from
         your Business Profile. Edit it there and this section follows.

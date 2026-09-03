@@ -1,6 +1,10 @@
-const SINGLE_LINE_CONTROL_CHARACTER_PATTERN = /[\u0000-\u001f\u007f]/u;
-const MULTILINE_UNSAFE_CONTROL_CHARACTER_PATTERN =
-  /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/u;
+/** ASCII controls are rejected; multiline plain text may retain tabs and line breaks. */
+export const hasUnsafeTextControls = (value: string, multiline = false): boolean =>
+  Array.from(value).some((character) => {
+    const code = character.charCodeAt(0);
+    return (code <= 31 || code === 127)
+      && !(multiline && (code === 9 || code === 10 || code === 13));
+  });
 
 export const parseBoundedSingleLineText = (
   value: unknown,
@@ -8,8 +12,8 @@ export const parseBoundedSingleLineText = (
   allowEmpty = false,
 ): string | null => {
   if (
-    typeof value !== 'string' ||
-    SINGLE_LINE_CONTROL_CHARACTER_PATTERN.test(value)
+    typeof value !== 'string'
+    || hasUnsafeTextControls(value)
   ) {
     return null;
   }
@@ -25,8 +29,8 @@ export const parseBoundedMultilinePlainText = (
   maximumLength: number,
 ): string | null => {
   if (
-    typeof value !== 'string' ||
-    MULTILINE_UNSAFE_CONTROL_CHARACTER_PATTERN.test(value)
+    typeof value !== 'string'
+    || hasUnsafeTextControls(value, true)
   ) {
     return null;
   }

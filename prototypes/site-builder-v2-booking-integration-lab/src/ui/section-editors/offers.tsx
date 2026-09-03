@@ -1,8 +1,8 @@
 import { Trash2 } from 'lucide-react';
 import { useState } from 'react';
 
-import type { OfferRecord } from '../../model/section-library/site-content';
 import type { OffersSettings } from '../../model/section-library/settings';
+import type { OfferRecord } from '../../model/section-library/site-content';
 import { TextField } from './fields';
 import type { LibrarySectionEditorProps } from './types';
 
@@ -36,7 +36,9 @@ export function OffersEditor({
 
   const addOffer = () => {
     const title = draftTitle.trim();
-    if (!title) return;
+    if (!title) {
+      return;
+    }
     const record: OfferRecord = {
       actionLabel: null,
       detail: '',
@@ -71,16 +73,18 @@ export function OffersEditor({
   return (
     <div className="form-field">
       <span>Offers</span>
-      {offers.length === 0 ? (
-        <small className="form-hint">
-          No offers yet — add your first below. The section stays off your site
-          until an offer is shown.
-        </small>
-      ) : (
-        <small className="form-hint">
-          This section shows up to three offers, in the order you tick them.
-        </small>
-      )}
+      {offers.length === 0
+        ? (
+            <small className="form-hint">
+              No offers yet — add your first below. The section stays off your site
+              until an offer is shown.
+            </small>
+          )
+        : (
+            <small className="form-hint">
+              This section shows up to three offers, in the order you tick them.
+            </small>
+          )}
       <div className="editor-record-list">
         {offers.map((offer) => {
           const included = settings.offerIds.includes(offer.id);
@@ -94,10 +98,22 @@ export function OffersEditor({
                     onChange={event => toggleOffer(offer.id, event.target.checked)}
                     type="checkbox"
                   />
-                  <span className="visually-hidden">Show {offer.title} in this section</span>
+                  <span className="visually-hidden">
+                    {'Show '}
+                    {offer.title}
+                    {' '}
+                    in this section
+                  </span>
                 </label>
                 <strong>{offer.title}</strong>
-                {offer.expiresAt ? <small>Ends {offer.expiresAt.slice(0, 10)}</small> : null}
+                {offer.expiresAt
+                  ? (
+                      <small>
+                        {'Ends '}
+                        {offer.expiresAt.slice(0, 10)}
+                      </small>
+                    )
+                  : null}
               </summary>
               <TextField
                 label="Offer title"
@@ -152,7 +168,9 @@ export function OffersEditor({
                 onClick={() => removeOffer(offer.id)}
                 type="button"
               >
-                <Trash2 aria-hidden="true" size={14} /> Remove {offer.title}
+                <Trash2 aria-hidden="true" size={14} />
+                {' Remove '}
+                {offer.title}
               </button>
             </details>
           );

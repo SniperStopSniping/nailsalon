@@ -4,10 +4,10 @@ import type { SiteStylePresetId } from '../model/types';
 import { ONBOARDING_STYLE_ROLES } from './OnboardingSitePreview';
 
 const relativeLuminance = (hex: string): number => {
-  const channels = hex.match(/[\da-f]{2}/giu)?.map((channel) => (
+  const channels = hex.match(/[\da-f]{2}/giu)?.map(channel => (
     Number.parseInt(channel, 16) / 255
   )) ?? [];
-  const linear = channels.map((channel) => (
+  const linear = channels.map(channel => (
     channel <= 0.03928
       ? channel / 12.92
       : ((channel + 0.055) / 1.055) ** 2.4
@@ -35,6 +35,7 @@ describe('Daniela-ready site style tokens', () => {
       'bold',
       'luxury',
     ]);
+
     for (const preset of presets) {
       expect(Object.keys(ONBOARDING_STYLE_ROLES[preset]).sort()).toEqual([
         'accent',
@@ -53,7 +54,8 @@ describe('Daniela-ready site style tokens', () => {
       expect(ONBOARDING_STYLE_ROLES[preset].accent)
         .not.toBe(ONBOARDING_STYLE_ROLES[preset].ground);
     }
-    expect(new Set(presets.map((preset) => JSON.stringify(ONBOARDING_STYLE_ROLES[preset]))))
+
+    expect(new Set(presets.map(preset => JSON.stringify(ONBOARDING_STYLE_ROLES[preset]))))
       .toHaveLength(6);
   });
 

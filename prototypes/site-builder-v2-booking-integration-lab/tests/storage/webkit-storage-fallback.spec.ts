@@ -3,17 +3,17 @@ import { join } from 'node:path';
 
 import {
   expect,
-  test,
   type Locator,
   type Page,
+  test,
   type TestInfo,
 } from '@playwright/test';
 
 import {
-  CUSTOM_DESIGN_ASSET_DB_NAME,
-  LAB_STORAGE_KEY,
   chooseStarter,
+  CUSTOM_DESIGN_ASSET_DB_NAME,
   documentSurfaceState,
+  LAB_STORAGE_KEY,
   openFreshLab,
   readCustomDesignAssetRecordCounts,
   waitForSaved,
@@ -25,8 +25,8 @@ const THUMBNAIL_STORE = 'image-asset-thumbnails-v1';
 
 // A tiny original test swatch, used only by engines that can decode WebP but
 // cannot encode it from canvas (the installed Playwright WebKit 18.0 build).
-const WEBP_TEST_SWATCH_BASE64 =
-  'UklGRhoCAABXRUJQVlA4WAoAAAAgAAAADwAADwAASUNDUMgBAAAAAAHIAAAAAAQwAABtbnRyUkdCIFhZWiAH4AABAAEAAAAAAABhY3NwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAA9tYAAQAAAADTLQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAlkZXNjAAAA8AAAACRyWFlaAAABFAAAABRnWFlaAAABKAAAABRiWFlaAAABPAAAABR3dHB0AAABUAAAABRyVFJDAAABZAAAAChnVFJDAAABZAAAAChiVFJDAAABZAAAAChjcHJ0AAABjAAAADxtbHVjAAAAAAAAAAEAAAAMZW5VUwAAAAgAAAAcAHMAUgBHAEJYWVogAAAAAAAAb6IAADj1AAADkFhZWiAAAAAAAABimQAAt4UAABjaWFlaIAAAAAAAACSgAAAPhAAAts9YWVogAAAAAAAA9tYAAQAAAADTLXBhcmEAAAAAAAQAAAACZmYAAPKnAAANWQAAE9AAAApbAAAAAAAAAABtbHVjAAAAAAAAAAEAAAAMZW5VUwAAACAAAAAcAEcAbwBvAGcAbABlACAASQBuAGMALgAgADIAMAAxADZWUDggLAAAAHABAJ0BKhAAEAAAwBIloAJ0AYhAAP7Y7pV6vMq//ID//8gP//yA//jyAAAA';
+const WEBP_TEST_SWATCH_BASE64
+  = 'UklGRhoCAABXRUJQVlA4WAoAAAAgAAAADwAADwAASUNDUMgBAAAAAAHIAAAAAAQwAABtbnRyUkdCIFhZWiAH4AABAAEAAAAAAABhY3NwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAA9tYAAQAAAADTLQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAlkZXNjAAAA8AAAACRyWFlaAAABFAAAABRnWFlaAAABKAAAABRiWFlaAAABPAAAABR3dHB0AAABUAAAABRyVFJDAAABZAAAAChnVFJDAAABZAAAAChiVFJDAAABZAAAAChjcHJ0AAABjAAAADxtbHVjAAAAAAAAAAEAAAAMZW5VUwAAAAgAAAAcAHMAUgBHAEJYWVogAAAAAAAAb6IAADj1AAADkFhZWiAAAAAAAABimQAAt4UAABjaWFlaIAAAAAAAACSgAAAPhAAAts9YWVogAAAAAAAA9tYAAQAAAADTLXBhcmEAAAAAAAQAAAACZmYAAPKnAAANWQAAE9AAAApbAAAAAAAAAABtbHVjAAAAAAAAAAEAAAAMZW5VUwAAACAAAAAcAEcAbwBvAGcAbABlACAASQBuAGMALgAgADIAMAAxADZWUDggLAAAAHABAJ0BKhAAEAAAwBIloAJ0AYhAAP7Y7pV6vMq//ID//8gP//yA//jyAAAA';
 
 type TestArtwork = {
   buffer: Buffer;
@@ -92,7 +92,9 @@ async function createArtwork(
     canvas.height = height;
     canvas.width = width;
     const context = canvas.getContext('2d');
-    if (!context) throw new Error('Canvas is unavailable.');
+    if (!context) {
+      throw new Error('Canvas is unavailable.');
+    }
     const gradient = context.createLinearGradient(0, 0, width, height);
     gradient.addColorStop(0, `hsl(${hue} 70% 90%)`);
     gradient.addColorStop(1, `hsl(${(hue + 45) % 360} 58% 60%)`);
@@ -107,7 +109,7 @@ async function createArtwork(
 
     const blob = await new Promise<Blob>((resolve, reject) => {
       canvas.toBlob(
-        (candidate) => candidate
+        candidate => candidate
           ? resolve(candidate)
           : reject(new Error(`Could not encode ${mimeType}.`)),
         mimeType,
@@ -131,7 +133,9 @@ async function createArtwork(
       name: options.name,
     };
   }
+
   expect(encoded.mimeType).toBe(requestedMime);
+
   return {
     buffer: Buffer.from(encoded.bytes),
     mimeType: requestedMime,
@@ -187,15 +191,23 @@ function startRuntimeAudit(page: Page): RuntimeAudit {
   const issues: string[] = [];
   const notices: string[] = [];
   const onConsole = (message: { text: () => string; type: () => string }) => {
-    if (message.type() !== 'error' && message.type() !== 'warning') return;
+    if (message.type() !== 'error' && message.type() !== 'warning') {
+      return;
+    }
     const value = `console.${message.type()}: ${message.text()}`;
-    if (/ResizeObserver loop/i.test(value)) notices.push(value);
-    else issues.push(value);
+    if (/ResizeObserver loop/i.test(value)) {
+      notices.push(value);
+    } else {
+      issues.push(value);
+    }
   };
   const onPageError = (error: Error) => {
     const value = `pageerror: ${error.message}`;
-    if (/ResizeObserver loop/i.test(value)) notices.push(value);
-    else issues.push(value);
+    if (/ResizeObserver loop/i.test(value)) {
+      notices.push(value);
+    } else {
+      issues.push(value);
+    }
   };
   const onRequestFailed = (request: { failure: () => { errorText?: string } | null; method: () => string; url: () => string }) => {
     issues.push(
@@ -203,11 +215,13 @@ function startRuntimeAudit(page: Page): RuntimeAudit {
     );
   };
   const onResponse = (response: { request: () => { method: () => string }; status: () => number; url: () => string }) => {
-    if (response.status() < 400) return;
+    if (response.status() < 400) {
+      return;
+    }
     const currentUrl = page.url();
     if (
-      currentUrl.startsWith('http') &&
-      new URL(response.url()).origin === new URL(currentUrl).origin
+      currentUrl.startsWith('http')
+      && new URL(response.url()).origin === new URL(currentUrl).origin
     ) {
       issues.push(
         `response.${response.status()}: ${response.request().method()} ${response.url()}`,
@@ -221,6 +235,7 @@ function startRuntimeAudit(page: Page): RuntimeAudit {
   return {
     assertClean: async () => {
       expect(issues, 'unexpected browser runtime issues').toEqual([]);
+
       await attachJson(test.info(), 'runtime-notices.json', notices);
     },
     stop: () => {
@@ -301,11 +316,11 @@ async function readRawAssetSnapshot(page: Page): Promise<RawAssetSnapshot> {
       const rows = await new Promise<Record<string, unknown>[][]>((resolve, reject) => {
         const stores = [summaryStore, originalStore, thumbnailStore];
         const transaction = database.transaction(stores, 'readonly');
-        const requests = stores.map((store) =>
+        const requests = stores.map(store =>
           transaction.objectStore(store).getAll() as IDBRequest<Record<string, unknown>[]>);
         transaction.onerror = () => reject(transaction.error);
         transaction.onabort = () => reject(transaction.error);
-        transaction.oncomplete = () => resolve(requests.map((request) => request.result));
+        transaction.oncomplete = () => resolve(requests.map(request => request.result));
       });
       const [summaryRows = [], originalRows = [], thumbnailRows = []] = rows;
       const binary = (row: Record<string, unknown>): RawBinarySummary => {
@@ -371,14 +386,17 @@ function assertSnapshotIntegrity(
   capability: BlobCapability,
   requirePreferredBlobPath: boolean,
 ): void {
-  const summaryIds = snapshot.summaries.map((summary) => summary.assetId).sort();
+  const summaryIds = snapshot.summaries.map(summary => summary.assetId).sort();
+
   expect(new Set(summaryIds).size).toBe(summaryIds.length);
-  expect(snapshot.originals.map((record) => record.assetId).sort()).toEqual(summaryIds);
-  expect(snapshot.thumbnails.map((record) => record.assetId).sort()).toEqual(summaryIds);
-  expect(snapshot.summaries.every((summary) => summary.state === 'committed')).toBe(true);
+  expect(snapshot.originals.map(record => record.assetId).sort()).toEqual(summaryIds);
+  expect(snapshot.thumbnails.map(record => record.assetId).sort()).toEqual(summaryIds);
+  expect(snapshot.summaries.every(summary => summary.state === 'committed')).toBe(true);
+
   for (const summary of snapshot.summaries) {
-    const original = snapshot.originals.find((record) => record.assetId === summary.assetId);
-    const thumbnail = snapshot.thumbnails.find((record) => record.assetId === summary.assetId);
+    const original = snapshot.originals.find(record => record.assetId === summary.assetId);
+    const thumbnail = snapshot.thumbnails.find(record => record.assetId === summary.assetId);
+
     expect(original).toMatchObject({
       byteSize: summary.byteSize,
       mimeType: summary.mimeType,
@@ -389,18 +407,20 @@ function assertSnapshotIntegrity(
     });
   }
   const binaryRecords = [...snapshot.originals, ...snapshot.thumbnails];
+
   expect(
-    binaryRecords.every((record) =>
+    binaryRecords.every(record =>
       record.kind === 'blob' || record.kind === 'array_buffer'),
   ).toBe(true);
+
   if (requirePreferredBlobPath) {
     expect(capability.supported).toBe(true);
-    expect(binaryRecords.every((record) => record.kind === 'blob')).toBe(true);
-    expect(binaryRecords.every((record) => record.isBlob)).toBe(true);
+    expect(binaryRecords.every(record => record.kind === 'blob')).toBe(true);
+    expect(binaryRecords.every(record => record.isBlob)).toBe(true);
   } else if (!capability.supported) {
     expect(capability).toMatchObject({ errorName: 'DataCloneError' });
-    expect(binaryRecords.every((record) => record.kind === 'array_buffer')).toBe(true);
-    expect(binaryRecords.every((record) => record.isArrayBuffer)).toBe(true);
+    expect(binaryRecords.every(record => record.kind === 'array_buffer')).toBe(true);
+    expect(binaryRecords.every(record => record.isArrayBuffer)).toBe(true);
   }
 }
 
@@ -416,14 +436,19 @@ function customDesignSettings(page: Page): Locator {
 
 async function addCustomDesign(page: Page): Promise<Locator> {
   const insertion = page.locator('button.final-insertion:visible').last();
-  if (await insertion.isVisible()) await insertion.click();
-  else await page.getByRole('button', { name: 'Add section', exact: true }).click();
+  if (await insertion.isVisible()) {
+    await insertion.click();
+  } else {
+    await page.getByRole('button', { name: 'Add section', exact: true }).click();
+  }
   const library = page.getByRole('dialog', { name: 'Add section' });
   await library.getByRole('searchbox', { name: 'Search sections' }).fill('Canva');
   await library.getByRole('button', { name: 'Add Custom Design' }).click();
   const card = customDesignCard(page);
+
   await expect(card).toHaveCount(1);
   await expect(customDesignSettings(page)).toBeVisible();
+
   return card;
 }
 
@@ -433,6 +458,7 @@ async function closeSettings(page: Page): Promise<void> {
     name: /Close Custom Design(?: settings)?/,
   });
   await close.click();
+
   await expect(settings).toHaveCount(0);
 }
 
@@ -442,23 +468,32 @@ async function openSettings(page: Page): Promise<Locator> {
     await card.locator('.section-card__select-surface').click();
   }
   const back = page.getByRole('button', { name: 'Back to Custom Design' });
-  if (await back.isVisible()) await back.click();
+  if (await back.isVisible()) {
+    await back.click();
+  }
   const edit = page.locator('[data-custom-design-settings-trigger-for]:visible');
   await edit.click();
+
   await expect(customDesignSettings(page)).toBeVisible();
+
   return customDesignSettings(page);
 }
 
 async function enterPreview(page: Page): Promise<void> {
   await page.getByRole('button', { name: 'Preview', exact: true }).click();
+
   await expect(page.getByRole('button', { name: 'Back to editor' })).toBeVisible();
+
   const images = page
     .locator('[data-section-type="custom_design"]')
     .locator('.custom-design-customer-image');
+
   await expect(images).toHaveCount(3);
+
   for (let index = 0; index < 3; index += 1) {
     const image = images.nth(index);
     await image.scrollIntoViewIfNeeded();
+
     await expect.poll(() => image.evaluate((element) => {
       const candidate = element as HTMLImageElement;
       return candidate.complete && candidate.naturalWidth > 0 && candidate.naturalHeight > 0;
@@ -491,6 +526,7 @@ test('keeps Blob storage preferred and falls back safely when WebKit cannot clon
   page,
 }, testInfo) => {
   test.setTimeout(180_000);
+
   await installObjectUrlAudit(page);
   await page.setViewportSize({ height: 844, width: 390 });
   const runtime = startRuntimeAudit(page);
@@ -503,28 +539,45 @@ test('keeps Blob storage preferred and falls back safely when WebKit cannot clon
     await chooseStarter(page, 'Quick Book');
     const files = await Promise.all([
       createArtwork(page, {
-        format: 'png', height: 900, hue: 330, name: 'webkit-page.png', width: 600,
+        format: 'png',
+        height: 900,
+        hue: 330,
+        name: 'webkit-page.png',
+        width: 600,
       }),
       createArtwork(page, {
-        format: 'jpeg', height: 1_000, hue: 25, name: 'webkit-page.jpg', width: 700,
+        format: 'jpeg',
+        height: 1_000,
+        hue: 25,
+        name: 'webkit-page.jpg',
+        width: 700,
       }),
       createArtwork(page, {
-        format: 'webp', height: 800, hue: 275, name: 'webkit-page.webp', width: 640,
+        format: 'webp',
+        height: 800,
+        hue: 275,
+        name: 'webkit-page.webp',
+        width: 640,
       }),
     ]);
     const card = await addCustomDesign(page);
     await card.locator('input[type="file"][multiple]').setInputFiles(files);
+
     await expect(card.locator('.custom-design-image-frame')).toHaveCount(3, {
       timeout: 30_000,
     });
     await expect(card.getByText(/could not be staged/i)).toHaveCount(0);
+
     await waitForSaved(page);
 
     let snapshot = await readRawAssetSnapshot(page);
     assertSnapshotIntegrity(snapshot, capability, requirePreferredBlobPath);
+
     expect(snapshot.summaries).toHaveLength(3);
+
     await attachJson(testInfo, 'after-upload-storage.json', snapshot);
-    const storedJson = await page.evaluate((key) => localStorage.getItem(key), LAB_STORAGE_KEY);
+    const storedJson = await page.evaluate(key => localStorage.getItem(key), LAB_STORAGE_KEY);
+
     expect(storedJson).not.toMatch(/data:image|base64|blob:/i);
 
     await closeSettings(page);
@@ -533,12 +586,14 @@ test('keeps Blob storage preferred and falls back safely when WebKit cannot clon
     const replacementFrames = customDesignCard(page).locator(
       '.custom-design-image-frame',
     );
+
     await expect(replacementFrames).toHaveCount(3);
     await expect(replacementFrames.first()).toHaveAttribute(
       'data-image-render-state',
       'loaded',
       { timeout: 30_000 },
     );
+
     await enterPreview(page);
     await page.getByRole('button', { name: 'Back to editor' }).click();
     await enterPreview(page);
@@ -546,78 +601,92 @@ test('keeps Blob storage preferred and falls back safely when WebKit cannot clon
 
     await page.setViewportSize({ height: 800, width: 1_180 });
     const beforeReplace = JSON.parse(
-      (await page.evaluate((key) => localStorage.getItem(key), LAB_STORAGE_KEY)) ?? '{}',
+      (await page.evaluate(key => localStorage.getItem(key), LAB_STORAGE_KEY)) ?? '{}',
     ) as { pages: Array<{ sections: Array<{ sectionType: string; settings?: { images: Array<{ assetId: string; id: string }> } }> }> };
     const beforeImage = beforeReplace.pages
-      .flatMap((candidate) => candidate.sections)
-      .find((section) => section.sectionType === 'custom_design')
+      .flatMap(candidate => candidate.sections)
+      .find(section => section.sectionType === 'custom_design')
       ?.settings?.images[0];
     const replacement = await createArtwork(page, {
-      format: 'png', height: 900, hue: 160, name: 'replacement.png', width: 600,
+      format: 'png',
+      height: 900,
+      hue: 160,
+      name: 'replacement.png',
+      width: 600,
     });
     const settings = await openSettings(page);
     const firstImageRow = settings.locator('[data-image-item-id]').first();
     await firstImageRow.locator('input[type="file"]')
       .setInputFiles(replacement);
+
     await expect(firstImageRow).toContainText('replacement.png', {
       timeout: 30_000,
     });
     await expect.poll(async () => {
       const stored = JSON.parse(
-        (await page.evaluate((key) => localStorage.getItem(key), LAB_STORAGE_KEY)) ?? '{}',
+        (await page.evaluate(key => localStorage.getItem(key), LAB_STORAGE_KEY)) ?? '{}',
       ) as typeof beforeReplace;
       return stored.pages
-        .flatMap((candidate) => candidate.sections)
-        .find((section) => section.sectionType === 'custom_design')
+        .flatMap(candidate => candidate.sections)
+        .find(section => section.sectionType === 'custom_design')
         ?.settings?.images[0]?.assetId;
     }).not.toBe(beforeImage?.assetId);
+
     await waitForSaved(page);
     const afterReplacementFrames = customDesignCard(page).locator(
       '.custom-design-image-frame',
     );
+
     await expect(afterReplacementFrames).toHaveCount(3);
     await expect(afterReplacementFrames.first()).toHaveAttribute(
       'data-image-render-state',
       'loaded',
       { timeout: 30_000 },
     );
+
     const afterReplace = JSON.parse(
-      (await page.evaluate((key) => localStorage.getItem(key), LAB_STORAGE_KEY)) ?? '{}',
+      (await page.evaluate(key => localStorage.getItem(key), LAB_STORAGE_KEY)) ?? '{}',
     ) as typeof beforeReplace;
     const afterImage = afterReplace.pages
-      .flatMap((candidate) => candidate.sections)
-      .find((section) => section.sectionType === 'custom_design')
+      .flatMap(candidate => candidate.sections)
+      .find(section => section.sectionType === 'custom_design')
       ?.settings?.images[0];
+
     expect(afterImage?.id).toBe(beforeImage?.id);
     expect(afterImage?.assetId).not.toBe(beforeImage?.assetId);
+
     snapshot = await readRawAssetSnapshot(page);
     assertSnapshotIntegrity(snapshot, capability, requirePreferredBlobPath);
+
     expect(snapshot.summaries.length).toBeGreaterThanOrEqual(3);
+
     await attachJson(testInfo, 'after-replacement-storage.json', snapshot);
 
     await closeSettings(page);
     const toolbar = page.getByRole('banner', { name: 'Site builder toolbar' });
     await toolbar.getByRole('button', { name: 'Undo', exact: true }).click();
+
     await expect.poll(async () => {
       const stored = JSON.parse(
-        (await page.evaluate((key) => localStorage.getItem(key), LAB_STORAGE_KEY)) ?? '{}',
+        (await page.evaluate(key => localStorage.getItem(key), LAB_STORAGE_KEY)) ?? '{}',
       ) as typeof beforeReplace;
       return stored.pages
-        .flatMap((candidate) => candidate.sections)
-        .find((section) => section.sectionType === 'custom_design')
+        .flatMap(candidate => candidate.sections)
+        .find(section => section.sectionType === 'custom_design')
         ?.settings?.images[0]?.assetId;
     }).toBe(beforeImage?.assetId);
     await expect(customDesignCard(page).locator('.custom-design-image-frame').first())
       .toHaveAttribute('data-image-render-state', 'loaded', { timeout: 30_000 });
 
     await toolbar.getByRole('button', { name: 'Redo', exact: true }).click();
+
     await expect.poll(async () => {
       const stored = JSON.parse(
-        (await page.evaluate((key) => localStorage.getItem(key), LAB_STORAGE_KEY)) ?? '{}',
+        (await page.evaluate(key => localStorage.getItem(key), LAB_STORAGE_KEY)) ?? '{}',
       ) as typeof beforeReplace;
       return stored.pages
-        .flatMap((candidate) => candidate.sections)
-        .find((section) => section.sectionType === 'custom_design')
+        .flatMap(candidate => candidate.sections)
+        .find(section => section.sectionType === 'custom_design')
         ?.settings?.images[0]?.assetId;
     }).toBe(afterImage?.assetId);
     await expect(customDesignCard(page).locator('.custom-design-image-frame').first())
@@ -631,6 +700,7 @@ test('keeps Blob storage preferred and falls back safely when WebKit cannot clon
     const reset = page.getByRole('dialog', { name: 'Reset to the starting point?' });
     await reset.getByRole('button', { name: 'Reset to starter' }).click();
     await waitForSaved(page);
+
     await expect(customDesignCard(page)).toHaveCount(0);
     await expect.poll(() => readCustomDesignAssetRecordCounts(page)).toEqual({
       [ORIGINAL_STORE]: 0,
@@ -638,9 +708,13 @@ test('keeps Blob storage preferred and falls back safely when WebKit cannot clon
       [THUMBNAIL_STORE]: 0,
     });
     await expect.poll(() => readUrlAudit(page)).toMatchObject({ live: [] });
+
     const urlAudit = await readUrlAudit(page);
+
     expect(urlAudit.created).toBe(urlAudit.revoked);
+
     await attachJson(testInfo, 'object-url-balance.json', urlAudit);
+
     expect(await page.evaluate(() => Object.keys(localStorage))).toEqual([LAB_STORAGE_KEY]);
     expect(await documentSurfaceState(page)).toMatchObject({
       body: { overflow: '', position: '' },
@@ -651,6 +725,7 @@ test('keeps Blob storage preferred and falls back safely when WebKit cannot clon
     await expect(page.getByRole('dialog')).toHaveCount(0);
 
     await page.reload();
+
     await expect(customDesignCard(page)).toHaveCount(0);
     await expect(readCustomDesignAssetRecordCounts(page)).resolves.toEqual({
       [ORIGINAL_STORE]: 0,
@@ -658,6 +733,7 @@ test('keeps Blob storage preferred and falls back safely when WebKit cannot clon
       [THUMBNAIL_STORE]: 0,
     });
     await expect.poll(() => readUrlAudit(page)).toMatchObject({ live: [] });
+
     await runtime.assertClean();
   } finally {
     runtime.stop();

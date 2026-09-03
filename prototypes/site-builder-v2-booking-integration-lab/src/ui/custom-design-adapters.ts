@@ -48,10 +48,10 @@ export const toCustomDesignOwnerAssetMap = (
 
 export const getCustomDesignInternalTargets = (
   document: SiteBuilderDocument,
-): CustomDesignInternalPageOption[] => document.pages.map((page) => ({
+): CustomDesignInternalPageOption[] => document.pages.map(page => ({
   id: page.id,
   label: page.name,
-  sections: page.sections.map((section) => ({
+  sections: page.sections.map(section => ({
     id: section.id,
     label: section.label,
     visible: section.visible,

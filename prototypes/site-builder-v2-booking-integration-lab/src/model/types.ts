@@ -290,16 +290,16 @@ export type MoveSectionToNewPageInput = AddPageInput & {
 
 export type CommitSectionMoveDestination =
   | {
-      type: 'existing_page';
-      pageId: string;
-      position?: number;
-    }
+    type: 'existing_page';
+    pageId: string;
+    position?: number;
+  }
   | {
-      type: 'new_page';
-      name: string;
-      slug?: string;
-      position?: number;
-    };
+    type: 'new_page';
+    name: string;
+    slug?: string;
+    position?: number;
+  };
 
 export type CommitSectionMoveInput = {
   sourcePageId: string;
@@ -311,41 +311,41 @@ export type CommitSectionMoveInput = {
 export type BuilderCommand =
   | { type: 'add_section'; input: AddSectionInput }
   | {
-      type: 'add_library_section_with_adjustment';
-      input: AddLibrarySectionInput;
-      adjustment: { sectionId: string; settings: unknown };
-    }
+    type: 'add_library_section_with_adjustment';
+    input: AddLibrarySectionInput;
+    adjustment: { sectionId: string; settings: unknown };
+  }
   | { type: 'remove_section'; sectionId: string }
   | {
-      type: 'restore_section';
-      sectionId: string;
-      pageId: string;
-      position?: number;
-    }
+    type: 'restore_section';
+    sectionId: string;
+    pageId: string;
+    position?: number;
+  }
   | { type: 'set_section_visible'; sectionId: string; visible: boolean }
   | {
-      type: 'update_section_settings';
-      sectionId: string;
-      note?: string;
-      size?: SectionSize;
-      label?: string;
-    }
+    type: 'update_section_settings';
+    sectionId: string;
+    note?: string;
+    size?: SectionSize;
+    label?: string;
+  }
   | {
-      type: 'update_booking_presentation';
-      sectionId: string;
-      settings: BookingSectionPresentationSettings;
-    }
+    type: 'update_booking_presentation';
+    sectionId: string;
+    settings: BookingSectionPresentationSettings;
+  }
   | {
-      type: 'update_custom_design_settings';
-      sectionId: string;
-      settings: CustomDesignSettings;
-    }
+    type: 'update_custom_design_settings';
+    sectionId: string;
+    settings: CustomDesignSettings;
+  }
   | {
-      type: 'update_library_section_settings';
-      sectionId: string;
-      /** Normalized through the registry before it touches the document. */
-      settings: unknown;
-    }
+    type: 'update_library_section_settings';
+    sectionId: string;
+    /** Normalized through the registry before it touches the document. */
+    settings: unknown;
+  }
   | { type: 'update_site_content'; input: UpdateSiteContentInput }
   | { type: 'reset_booking_presentation'; sectionId: string }
   | { type: 'move_section'; sectionId: string; position: number }
@@ -353,31 +353,31 @@ export type BuilderCommand =
   | { type: 'move_section_down'; sectionId: string }
   | { type: 'commit_section_move'; input: CommitSectionMoveInput }
   | {
-      type: 'move_section_to_page';
-      sectionId: string;
-      pageId: string;
-      position?: number;
-    }
+    type: 'move_section_to_page';
+    sectionId: string;
+    pageId: string;
+    position?: number;
+  }
   | { type: 'move_section_to_new_page'; input: MoveSectionToNewPageInput }
   | { type: 'add_page'; input: AddPageInput }
   | { type: 'remove_page'; pageId: string }
   | { type: 'restore_page'; pageId: string }
   | { type: 'rename_page'; pageId: string; name: string }
   | {
-      type: 'update_page_settings';
-      pageId: string;
-      name: string;
-      slug: string;
-      visible: boolean;
-      visibleInNavigation: boolean;
-    }
+    type: 'update_page_settings';
+    pageId: string;
+    name: string;
+    slug: string;
+    visible: boolean;
+    visibleInNavigation: boolean;
+  }
   | { type: 'set_page_slug'; pageId: string; slug: string }
   | { type: 'set_page_visible'; pageId: string; visible: boolean }
   | {
-      type: 'set_page_navigation_visibility';
-      pageId: string;
-      visible: boolean;
-    }
+    type: 'set_page_navigation_visibility';
+    pageId: string;
+    visible: boolean;
+  }
   | { type: 'move_page'; pageId: string; position: number }
   | { type: 'toggle_navigation'; enabled: boolean }
   | { type: 'move_navigation_item'; pageId: string; position: number }

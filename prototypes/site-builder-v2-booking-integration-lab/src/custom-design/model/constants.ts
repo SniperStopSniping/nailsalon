@@ -23,8 +23,8 @@ export const CUSTOM_DESIGN_ASPECT_RATIO_REVIEW_THRESHOLD = 0.05;
 export const CUSTOM_DESIGN_TAP_MOVEMENT_THRESHOLD_PX = 8;
 export const CUSTOM_DESIGN_TOUCH_ACTION = 'pan-y pinch-zoom' as const;
 
-export const CUSTOM_DESIGN_BACKUP_WARNING =
-  'Uploaded design files are stored in this browser and aren\u2019t included in the JSON backup.';
+export const CUSTOM_DESIGN_BACKUP_WARNING
+  = 'Uploaded design files are stored in this browser and aren\u2019t included in the JSON backup.';
 
 export const CUSTOM_DESIGN_SUPPORTED_MIME_TYPES = [
   'image/png',

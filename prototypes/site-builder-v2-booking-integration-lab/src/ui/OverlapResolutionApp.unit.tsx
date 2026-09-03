@@ -231,6 +231,7 @@ describe('Builder overlap resolution UI', () => {
 
     const actions = await screen.findByRole('group', { name: 'About actions' });
     await user.click(within(actions).getByRole('button', { name: 'Move' }));
+
     expect(await screen.findByRole('dialog', { name: 'Move About' })).toBeVisible();
   });
 

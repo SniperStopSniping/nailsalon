@@ -7,10 +7,10 @@
  */
 
 import { CANONICAL_SERVICES } from '../../booking/data';
-import { createEmptySiteContent } from '../../model/section-library/site-content';
 import type { SiteLibraryContext } from '../../model/section-library/registry';
 import type { PolicyToggleId, QuickInfoFactId } from '../../model/section-library/settings';
 import { POLICY_TOGGLE_IDS } from '../../model/section-library/settings';
+import { createEmptySiteContent } from '../../model/section-library/site-content';
 import type { SitePlanOptionalToggles } from '../../model/site-plan';
 import type { SiteBuilderDocument } from '../../model/types';
 import {
@@ -124,10 +124,18 @@ export const deriveSiteLibraryContextFromProfile = (input: {
     ),
     hasPublicContact: contactActions.some(action => action.method !== 'booking'),
     publicContactMethods: contactActions.flatMap((action) => {
-      if (action.method === 'instagram') return ['instagram' as const];
-      if (action.method === 'call') return ['phone' as const];
-      if (action.method === 'text') return ['text' as const];
-      if (action.method === 'email') return ['email' as const];
+      if (action.method === 'instagram') {
+        return ['instagram' as const];
+      }
+      if (action.method === 'call') {
+        return ['phone' as const];
+      }
+      if (action.method === 'text') {
+        return ['text' as const];
+      }
+      if (action.method === 'email') {
+        return ['email' as const];
+      }
       return [];
     }),
     hasPublicExactAddress: profile.location.addressVisibility === 'public'

@@ -10,7 +10,9 @@ import { SectionMovePanel } from './SectionMovePanel';
 
 const getQuickBookPage = (): PageDocument => {
   const page = initializeStarter('quick_book').pages[0];
-  if (!page) throw new Error('Quick Book did not initialize Home.');
+  if (!page) {
+    throw new Error('Quick Book did not initialize Home.');
+  }
   return page;
 };
 
@@ -20,9 +22,11 @@ const moveToPosition = (
   position: number,
 ): SectionInstance[] => {
   const next = [...sections];
-  const currentIndex = next.findIndex((section) => section.id === sectionId);
+  const currentIndex = next.findIndex(section => section.id === sectionId);
   const [section] = next.splice(currentIndex, 1);
-  if (!section) return sections;
+  if (!section) {
+    return sections;
+  }
   next.splice(position - 1, 0, section);
   return next.map((candidate, order) => ({ ...candidate, order }));
 };
@@ -33,31 +37,35 @@ type ReorderHarnessProps = {
   onMove?: (section: SectionInstance, position: number) => void;
 };
 
+const ignoreReorderAction = () => undefined;
+
 function ReorderHarness({
   initialSections,
-  onAnnounce = () => undefined,
-  onMove = () => undefined,
+  onAnnounce = ignoreReorderAction,
+  onMove = ignoreReorderAction,
 }: ReorderHarnessProps) {
   const [sections, setSections] = useState(initialSections);
   const selectedSectionId = initialSections.find(
-    (section) => section.sectionType === 'booking',
+    section => section.sectionType === 'booking',
   )?.id ?? initialSections[0]?.id ?? '';
 
   const move = (section: SectionInstance, position: number) => {
     onMove(section, position);
-    setSections((current) => moveToPosition(current, section.id, position));
+    setSections(current => moveToPosition(current, section.id, position));
   };
 
   return (
     <ReorderList
       onAnnounce={onAnnounce}
       onDragReorder={(sectionId, position) => {
-        const section = sections.find((candidate) => candidate.id === sectionId);
-        if (section) move(section, position);
+        const section = sections.find(candidate => candidate.id === sectionId);
+        if (section) {
+          move(section, position);
+        }
       }}
-      onMoveDown={(section) => move(section, section.order + 2)}
+      onMoveDown={section => move(section, section.order + 2)}
       onMoveToPosition={move}
-      onMoveUp={(section) => move(section, section.order)}
+      onMoveUp={section => move(section, section.order)}
       sections={sections}
       selectedSectionId={selectedSectionId}
     />
@@ -120,10 +128,12 @@ describe('shared section movement rows', () => {
       expect.objectContaining({ sectionType: 'booking' }),
       1,
     );
+
     await waitFor(() => {
       const movedPosition = screen.getByRole('spinbutton', {
         name: 'Position for Booking',
       });
+
       expect(movedPosition).toHaveValue(1);
       expect(movedPosition).toHaveFocus();
     });
@@ -151,6 +161,7 @@ describe('shared section movement rows', () => {
     const error = screen.getByText('Enter a position from 1 to 4.', {
       selector: '.position-input__error',
     });
+
     expect(error).toHaveTextContent('Enter a position from 1 to 4.');
     expect(bookingPosition).toHaveAttribute('aria-invalid', 'true');
     expect(bookingPosition).toHaveFocus();
@@ -176,6 +187,7 @@ describe('shared section movement rows', () => {
     const lastUnavailable = screen.getByRole('button', {
       name: 'Move Visit & Contact down, unavailable — already last',
     });
+
     expect(firstUnavailable).toHaveAttribute('aria-disabled', 'true');
     expect(lastUnavailable).toHaveAttribute('aria-disabled', 'true');
     expect(firstUnavailable).not.toBeDisabled();
@@ -183,6 +195,7 @@ describe('shared section movement rows', () => {
 
     await user.click(firstUnavailable);
     await user.click(lastUnavailable);
+
     expect(onMove).not.toHaveBeenCalled();
     expect(onAnnounce).toHaveBeenNthCalledWith(
       1,
@@ -201,9 +214,11 @@ describe('shared SectionMovePanel states', () => {
     installMobileDialogEnvironment();
     const document = initializeStarter('quick_book');
     const booking = document.pages[0]?.sections.find(
-      (section) => section.sectionType === 'booking',
+      section => section.sectionType === 'booking',
     );
-    if (!booking || !document.pages[0]) throw new Error('Booking fixture unavailable.');
+    if (!booking || !document.pages[0]) {
+      throw new Error('Booking fixture unavailable.');
+    }
     const page = { ...document.pages[0], sections: [{ ...booking, order: 0 }] };
     const oneSectionDocument = {
       ...document,
@@ -238,6 +253,7 @@ describe('shared SectionMovePanel states', () => {
     );
 
     const dialog = screen.getByRole('dialog', { name: 'Move Booking' });
+
     expect(within(dialog).getByText('Booking is the only section on Home.')).toBeVisible();
     expect(within(dialog).queryByRole('spinbutton')).not.toBeInTheDocument();
     expect(within(dialog).queryByRole('button', { name: /Move Booking (up|down)/ }))
@@ -248,6 +264,7 @@ describe('shared SectionMovePanel states', () => {
     const crossPage = within(dialog).getByRole('button', {
       name: 'Move Booking to another page',
     });
+
     expect(crossPage).toHaveAttribute('aria-expanded', 'true');
     expect(within(dialog).getByPlaceholderText('Page name')).toBeVisible();
     expect(within(dialog).getByRole('button', { name: 'Create page and move' }))
@@ -259,8 +276,10 @@ describe('shared SectionMovePanel states', () => {
     installMobileDialogEnvironment();
     const document = initializeStarter('quick_book');
     const page = document.pages[0];
-    const booking = page?.sections.find((section) => section.sectionType === 'booking');
-    if (!booking || !page) throw new Error('Booking fixture unavailable.');
+    const booking = page?.sections.find(section => section.sectionType === 'booking');
+    if (!booking || !page) {
+      throw new Error('Booking fixture unavailable.');
+    }
 
     render(
       <SectionMovePanel
@@ -290,6 +309,7 @@ describe('shared SectionMovePanel states', () => {
     );
 
     const dialog = screen.getByRole('dialog', { name: 'Move Booking' });
+
     expect(within(dialog).getByText('Order not saved yet')).toHaveAttribute(
       'data-status',
       'dirty',
@@ -301,15 +321,21 @@ describe('shared SectionMovePanel states', () => {
     installMobileDialogEnvironment();
     const user = userEvent.setup();
     const original = initializeStarter('multi_page');
-    const source = original.pages.find((page) => page.name === 'Services & Booking');
-    const home = original.pages.find((page) => page.name === 'Home');
-    const booking = source?.sections.find((section) => section.sectionType === 'booking');
-    if (!source || !home || !booking) throw new Error('Multi-page fixture unavailable.');
+    const source = original.pages.find(page => page.name === 'Services & Booking');
+    const home = original.pages.find(page => page.name === 'Home');
+    const booking = source?.sections.find(section => section.sectionType === 'booking');
+    if (!source || !home || !booking) {
+      throw new Error('Multi-page fixture unavailable.');
+    }
     const document = {
       ...original,
       pages: original.pages.map((candidate) => {
-        if (candidate.name === 'Gallery') return { ...candidate, visible: false };
-        if (candidate.name === 'About') return { ...candidate, visibleInNavigation: false };
+        if (candidate.name === 'Gallery') {
+          return { ...candidate, visible: false };
+        }
+        if (candidate.name === 'About') {
+          return { ...candidate, visibleInNavigation: false };
+        }
         return candidate;
       }),
     };
@@ -346,16 +372,21 @@ describe('shared SectionMovePanel states', () => {
       name: 'Move Booking to another page',
     }));
     const hidden = within(dialog).getByRole('button', { name: /Gallery.*Hidden from clients/ });
+
     expect(hidden).toHaveAttribute('aria-disabled', 'true');
     expect(hidden.closest('li')).toHaveTextContent(
       'Unavailable — Your site needs at least one visible way',
     );
+
     const notInNavigation = within(dialog).getByRole('button', {
       name: /About.*Not in navigation/,
     });
+
     expect(notInNavigation).not.toHaveAttribute('aria-disabled');
+
     await user.click(notInNavigation);
-    const aboutPageId = document.pages.find((page) => page.name === 'About')?.id;
+    const aboutPageId = document.pages.find(page => page.name === 'About')?.id;
+
     expect(aboutPageId).toBeTruthy();
     expect(onMoveToPage).toHaveBeenCalledWith(aboutPageId);
 
@@ -366,15 +397,22 @@ describe('shared SectionMovePanel states', () => {
       />,
     );
     dialog = screen.getByRole('dialog', { name: 'Move Booking' });
+
     expect(within(dialog).getByRole('button', { name: /^Home/ }))
       .toHaveAttribute('aria-pressed', 'true');
+
     const position = within(dialog).getByRole('combobox', { name: 'Position on Home' });
+
     expect(position).toHaveValue('1');
     expect(within(dialog).getByRole('list', { name: 'Preview of sections on Home' }))
       .toHaveTextContent('1BookingMoving here');
+
     await user.selectOptions(position, '3');
+
     expect(onDestinationPositionChange).toHaveBeenCalledWith(3);
+
     await user.click(within(dialog).getByRole('button', { name: 'Keep Booking on Services & Booking' }));
+
     expect(onClearDestination).toHaveBeenCalledTimes(1);
   });
 
@@ -383,8 +421,10 @@ describe('shared SectionMovePanel states', () => {
     const user = userEvent.setup();
     const document = initializeStarter('quick_book');
     const page = document.pages[0];
-    const booking = page?.sections.find((section) => section.sectionType === 'booking');
-    if (!page || !booking) throw new Error('Quick Book fixture unavailable.');
+    const booking = page?.sections.find(section => section.sectionType === 'booking');
+    if (!page || !booking) {
+      throw new Error('Quick Book fixture unavailable.');
+    }
     const onCreatePage = vi.fn();
 
     render(

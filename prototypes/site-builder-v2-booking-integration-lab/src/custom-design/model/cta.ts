@@ -17,21 +17,23 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 const hasOnlyKeys = (
   value: Record<string, unknown>,
   expected: readonly string[],
-): boolean => Object.keys(value).every((key) => expected.includes(key));
+): boolean => Object.keys(value).every(key => expected.includes(key));
 
 export const parseCtaPlacement = (
   value: unknown,
 ): CustomDesignCtaPlacement | null => {
-  if (!isRecord(value) || typeof value.type !== 'string') return null;
+  if (!isRecord(value) || typeof value.type !== 'string') {
+    return null;
+  }
   if (value.type === 'after_all') {
     return hasOnlyKeys(value, ['type']) ? { type: 'after_all' } : null;
   }
   if (
-    value.type === 'after_image' &&
-    hasOnlyKeys(value, ['type', 'imageItemId']) &&
-    typeof value.imageItemId === 'string' &&
-    value.imageItemId.trim().length > 0 &&
-    value.imageItemId.length <= 160
+    value.type === 'after_image'
+    && hasOnlyKeys(value, ['type', 'imageItemId'])
+    && typeof value.imageItemId === 'string'
+    && value.imageItemId.trim().length > 0
+    && value.imageItemId.length <= 160
   ) {
     return { type: 'after_image', imageItemId: value.imageItemId };
   }
@@ -39,13 +41,17 @@ export const parseCtaPlacement = (
 };
 
 export const parseNativeCta = (value: unknown): CustomDesignNativeCta | null => {
-  if (!isRecord(value) || typeof value.type !== 'string') return null;
+  if (!isRecord(value) || typeof value.type !== 'string') {
+    return null;
+  }
   if (value.type === 'none') {
     return hasOnlyKeys(value, ['type']) ? { type: 'none' } : null;
   }
   const label = parseBoundedSingleLineText(value.label, 80);
   const placement = parseCtaPlacement(value.placement);
-  if (!label || !placement) return null;
+  if (!label || !placement) {
+    return null;
+  }
 
   if (value.type === 'book_now') {
     return hasOnlyKeys(value, ['type', 'label', 'placement'])
@@ -68,10 +74,14 @@ export const getCtaInsertionIndex = (
   cta: CustomDesignNativeCta,
   images: readonly Pick<CustomDesignImageItem, 'id'>[],
 ): number | null => {
-  if (cta.type === 'none') return null;
+  if (cta.type === 'none') {
+    return null;
+  }
   const placement = cta.placement;
-  if (placement.type === 'after_all') return images.length;
-  const imageIndex = images.findIndex((image) => image.id === placement.imageItemId);
+  if (placement.type === 'after_all') {
+    return images.length;
+  }
+  const imageIndex = images.findIndex(image => image.id === placement.imageItemId);
   return imageIndex === -1 ? images.length : imageIndex + 1;
 };
 
@@ -86,9 +96,11 @@ export const repairCtaPlacementForImages = (
   }
   const placement = cta.placement;
   if (
-    placement.type === 'after_all' ||
-    images.some((image) => image.id === placement.imageItemId)
-  ) return cta;
+    placement.type === 'after_all'
+    || images.some(image => image.id === placement.imageItemId)
+  ) {
+    return cta;
+  }
   return { ...cta, placement: { type: 'after_all' } };
 };
 

@@ -55,6 +55,7 @@ describe('Move completion trailing-pointer shield', () => {
 
   it('releases immediately for outside geometry or a different pointer/button class', () => {
     const shield = createShield();
+
     expect(decideMoveCompletionPointerInteraction(shield, {
       button: 0,
       clientX: 87,
@@ -92,6 +93,7 @@ describe('Move completion trailing-pointer shield', () => {
 
   it('uses an absolute 550 ms base deadline and releases at the boundary', () => {
     const shield = createShield();
+
     expect(MOVE_COMPLETION_SHIELD_DURATION_MS).toBe(550);
     expect(shield).toMatchObject({
       button: 0,
@@ -116,6 +118,7 @@ describe('Move completion trailing-pointer shield', () => {
   it('latches a started matching sequence through its short hard cap only', () => {
     const shield = createShield();
     const sequenceUntil = 1_800;
+
     expect(MOVE_COMPLETION_SEQUENCE_HARD_CAP_MS).toBe(250);
     expect(moveCompletionShieldIsActive(shield, 1_600, sequenceUntil)).toBe(true);
     expect(decideMoveCompletionPointerInteraction(shield, {

@@ -11,9 +11,11 @@ vi.mock('../../custom-design/integration/CustomDesignAssetProvider', () => ({
   useCustomDesignAssetMap: () => new Map(),
 }));
 
+const ignoreContinue = () => undefined;
+
 function AboutHarness({
   initial,
-  onContinue = vi.fn(),
+  onContinue = ignoreContinue,
   onState,
 }: {
   initial: OnboardingLabState;
@@ -26,7 +28,7 @@ function AboutHarness({
       onBack={vi.fn()}
       onContinue={onContinue}
       onEditProfile={vi.fn()}
-      onUpdate={(transform) => setState((current) => {
+      onUpdate={transform => setState((current) => {
         const next = transform(current);
         onState?.(next);
         return next;
@@ -92,14 +94,24 @@ describe('Screen 8 About', () => {
     initial.profile.about.shortBio = 'Keep this introduction safe.';
     let latest = initial;
     const onContinue = vi.fn();
-    render(<AboutHarness initial={initial} onContinue={onContinue} onState={(state) => { latest = state; }} />);
+    render(
+      <AboutHarness
+        initial={initial}
+        onContinue={onContinue}
+        onState={(state) => {
+          latest = state;
+        }}
+      />,
+    );
 
     await user.click(screen.getByRole('switch', { name: 'Show an About section' }));
+
     expect(latest.recipe.aboutEnabled).toBe(false);
     expect(latest.profile.about.shortBio).toBe('Keep this introduction safe.');
     expect(screen.queryByRole('textbox', { name: 'Short introduction' })).not.toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'Skip for now' }));
+
     expect(onContinue).toHaveBeenCalledOnce();
     expect(latest.profile.about.shortBio).toBe('Keep this introduction safe.');
   });
@@ -107,7 +119,14 @@ describe('Screen 8 About', () => {
   it('marks the introduction complete without collapsing while the owner types', async () => {
     const user = userEvent.setup();
     let latest = createState();
-    render(<AboutHarness initial={latest} onState={(state) => { latest = state; }} />);
+    render(
+      <AboutHarness
+        initial={latest}
+        onState={(state) => {
+          latest = state;
+        }}
+      />,
+    );
 
     const introduction = screen.getByRole('textbox', { name: 'Short introduction' });
     await user.type(introduction, 'Two sentences are enough to introduce my calm nail studio.');
@@ -120,13 +139,21 @@ describe('Screen 8 About', () => {
   it('stores specialties, experience, full bio, certifications and languages in canonical About data', async () => {
     const user = userEvent.setup();
     let latest = createState();
-    render(<AboutHarness initial={latest} onState={(state) => { latest = state; }} />);
+    render(
+      <AboutHarness
+        initial={latest}
+        onState={(state) => {
+          latest = state;
+        }}
+      />,
+    );
 
     await user.click(screen.getByRole('button', { name: /Specialties & experience/ }));
     await user.click(screen.getByRole('checkbox', { name: 'BIAB' }));
     await user.type(screen.getByLabelText('Add your own'), 'Bridal nails');
     await user.click(screen.getByRole('button', { name: 'Add specialty' }));
     await user.type(screen.getByRole('spinbutton', { name: /Years of experience/ }), '12');
+
     expect(latest.profile.about.specialties).toEqual(['BIAB', 'Bridal nails']);
     expect(latest.profile.about.yearsOfExperience).toBe('12');
 
@@ -162,7 +189,14 @@ describe('Screen 8 About', () => {
   it('previews a writing suggestion and changes the introduction only after Use suggestion', async () => {
     const user = userEvent.setup();
     let latest = createState();
-    render(<AboutHarness initial={latest} onState={(state) => { latest = state; }} />);
+    render(
+      <AboutHarness
+        initial={latest}
+        onState={(state) => {
+          latest = state;
+        }}
+      />,
+    );
 
     await user.click(screen.getByRole('button', { name: 'Help me write' }));
     const contextDialog = screen.getByRole('dialog', { name: 'Tell us a little about yourself' });
@@ -170,10 +204,12 @@ describe('Screen 8 About', () => {
       target: { value: 'I specialize in natural nails and relaxed appointments.' },
     });
     await user.click(within(screen.getByRole('dialog', { name: 'Tell us a little about yourself' })).getByRole('button', { name: 'Generate suggestion' }));
+
     expect(latest.profile.about.shortBio).toBe('');
 
     const suggestionDialog = await screen.findByRole('dialog', { name: 'Your suggested introduction' });
     await user.click(within(suggestionDialog).getByRole('button', { name: 'Use suggestion' }));
+
     expect(latest.profile.about.shortBio).toContain('I specialize in natural nails');
     expect(latest.profile.about.shortBio.length).toBeLessThanOrEqual(180);
   });
@@ -184,6 +220,7 @@ describe('Screen 8 About', () => {
     render(<AboutHarness initial={createState()} onContinue={onContinue} />);
 
     await user.click(screen.getByRole('button', { name: 'Save and continue' }));
+
     expect(onContinue).toHaveBeenCalledOnce();
   });
 });

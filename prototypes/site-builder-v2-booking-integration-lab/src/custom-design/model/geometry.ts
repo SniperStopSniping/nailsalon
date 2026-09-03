@@ -61,8 +61,12 @@ export const validateNormalizedRect = (
   if (![rect.x, rect.y, rect.width, rect.height].every(finite)) {
     return ['Clickable-area geometry must contain finite numbers.'];
   }
-  if (rect.x < 0 || rect.x > 100) issues.push('x must be between 0 and 100.');
-  if (rect.y < 0 || rect.y > 100) issues.push('y must be between 0 and 100.');
+  if (rect.x < 0 || rect.x > 100) {
+    issues.push('x must be between 0 and 100.');
+  }
+  if (rect.y < 0 || rect.y > 100) {
+    issues.push('y must be between 0 and 100.');
+  }
   if (rect.width <= 0 || rect.width > 100) {
     issues.push('width must be greater than 0 and at most 100.');
   }
@@ -89,11 +93,11 @@ export const clampNormalizedRect = (
   const safeHeight = finite(rect.height) ? clamp(rect.height, 0.01, 100) : 0.01;
   const safeX = finite(rect.x) ? clamp(rect.x, 0, 100 - safeWidth) : 0;
   const safeY = finite(rect.y) ? clamp(rect.y, 0, 100 - safeHeight) : 0;
-  const adjusted =
-    safeX !== rect.x ||
-    safeY !== rect.y ||
-    safeWidth !== rect.width ||
-    safeHeight !== rect.height;
+  const adjusted
+    = safeX !== rect.x
+    || safeY !== rect.y
+    || safeWidth !== rect.width
+    || safeHeight !== rect.height;
   return {
     rect: { x: safeX, y: safeY, width: safeWidth, height: safeHeight },
     adjusted,
@@ -116,11 +120,11 @@ export const canonicalizeNormalizedRect = (
   const clamped = clampNormalizedRect(rounded);
   return {
     rect: clamped.rect,
-    adjusted: clamped.adjusted ||
-      rounded.x !== rect.x ||
-      rounded.y !== rect.y ||
-      rounded.width !== rect.width ||
-      rounded.height !== rect.height,
+    adjusted: clamped.adjusted
+      || rounded.x !== rect.x
+      || rounded.y !== rect.y
+      || rounded.width !== rect.width
+      || rounded.height !== rect.height,
   };
 };
 
@@ -139,9 +143,9 @@ export const pixelRectToNormalized = (
   imageRect: CustomDesignPixelRect,
 ): CustomDesignNormalizedRect | null => {
   if (
-    imageRect.width <= 0 ||
-    imageRect.height <= 0 ||
-    ![
+    imageRect.width <= 0
+    || imageRect.height <= 0
+    || ![
       rect.x,
       rect.y,
       rect.width,
@@ -178,10 +182,10 @@ export const calculateDisplayGeometry = ({
   maximumUpscaleFactor?: number;
 }): CustomDesignDisplayGeometry | null => {
   if (
-    ![availableWidth, intrinsicWidth, intrinsicHeight].every(finite) ||
-    availableWidth <= 0 ||
-    intrinsicWidth <= 0 ||
-    intrinsicHeight <= 0
+    ![availableWidth, intrinsicWidth, intrinsicHeight].every(finite)
+    || availableWidth <= 0
+    || intrinsicWidth <= 0
+    || intrinsicHeight <= 0
   ) {
     return null;
   }
@@ -190,9 +194,9 @@ export const calculateDisplayGeometry = ({
   const modeWidth = mode === 'poster'
     ? Math.min(availableWidth, posterMaximumWidth)
     : availableWidth;
-  const shouldApplyPosterQualityCap =
-    mode === 'poster' &&
-    availableWidth >= CUSTOM_DESIGN_POSTER_QUALITY_CAP_MIN_WIDTH_PX;
+  const shouldApplyPosterQualityCap
+    = mode === 'poster'
+    && availableWidth >= CUSTOM_DESIGN_POSTER_QUALITY_CAP_MIN_WIDTH_PX;
   const width = shouldApplyPosterQualityCap
     ? Math.min(modeWidth, qualityWidth)
     : modeWidth;
@@ -238,12 +242,16 @@ export const resizeNormalizedRect = (
     x += dx;
     width -= dx;
   }
-  if (handle.includes('east')) width += dx;
+  if (handle.includes('east')) {
+    width += dx;
+  }
   if (handle.includes('north')) {
     y += dy;
     height -= dy;
   }
-  if (handle.includes('south')) height += dy;
+  if (handle.includes('south')) {
+    height += dy;
+  }
 
   return clampNormalizedRect({ x, y, width, height });
 };
@@ -256,14 +264,14 @@ export const rectanglesHaveInteriorOverlap = (
     - Math.max(first.x, second.x);
   const overlapHeight = Math.min(first.y + first.height, second.y + second.height)
     - Math.max(first.y, second.y);
-  return overlapWidth > CUSTOM_DESIGN_GEOMETRY_EPSILON_PERCENT &&
-    overlapHeight > CUSTOM_DESIGN_GEOMETRY_EPSILON_PERCENT;
+  return overlapWidth > CUSTOM_DESIGN_GEOMETRY_EPSILON_PERCENT
+    && overlapHeight > CUSTOM_DESIGN_GEOMETRY_EPSILON_PERCENT;
 };
 
 export const isNearFullImageArea = (
   rect: CustomDesignNormalizedRect,
-): boolean => rect.width >= CUSTOM_DESIGN_NEAR_FULL_AXIS_PERCENT &&
-  rect.height >= CUSTOM_DESIGN_NEAR_FULL_AXIS_PERCENT;
+): boolean => rect.width >= CUSTOM_DESIGN_NEAR_FULL_AXIS_PERCENT
+  && rect.height >= CUSTOM_DESIGN_NEAR_FULL_AXIS_PERCENT;
 
 export const renderedAreaNeedsTargetWarning = (
   rect: CustomDesignNormalizedRect,
@@ -271,8 +279,8 @@ export const renderedAreaNeedsTargetWarning = (
 ): boolean => {
   const renderedWidth = (rect.width / 100) * renderedImage.width;
   const renderedHeight = (rect.height / 100) * renderedImage.height;
-  return renderedWidth < CUSTOM_DESIGN_MIN_TOUCH_TARGET_PX ||
-    renderedHeight < CUSTOM_DESIGN_MIN_TOUCH_TARGET_PX;
+  return renderedWidth < CUSTOM_DESIGN_MIN_TOUCH_TARGET_PX
+    || renderedHeight < CUSTOM_DESIGN_MIN_TOUCH_TARGET_PX;
 };
 
 export const createTapGestureState = (

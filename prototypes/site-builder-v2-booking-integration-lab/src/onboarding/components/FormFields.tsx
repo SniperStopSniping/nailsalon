@@ -1,13 +1,13 @@
 import { Check, ChevronDown, ChevronUp } from 'lucide-react';
 import {
-  useEffect,
-  useId,
-  useRef,
-  useState,
   type ChangeEvent,
   type InputHTMLAttributes,
   type ReactNode,
   type TextareaHTMLAttributes,
+  useEffect,
+  useId,
+  useRef,
+  useState,
 } from 'react';
 
 import { useFeedback } from '../feedback/useFeedback';
@@ -66,12 +66,14 @@ export const focusAndRevealControl = (
 export const focusFirstInvalidControl = (root: Element): void => {
   window.requestAnimationFrame(() => {
     const invalid = root.querySelector<HTMLElement>('[aria-invalid="true"]');
-    if (!invalid) return;
+    if (!invalid) {
+      return;
+    }
     const target = invalid.matches('input, textarea, select, button, [tabindex]')
       ? invalid
       : invalid.querySelector<HTMLElement>(
-          'input:not([disabled]), textarea:not([disabled]), select:not([disabled]), button:not([disabled]), [tabindex]:not([tabindex="-1"])',
-        ) ?? invalid;
+        'input:not([disabled]), textarea:not([disabled]), select:not([disabled]), button:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      ) ?? invalid;
     const invalidGroup = target.closest<HTMLElement>(
       '.onboarding-field, .onboarding-choice-group, .onboarding-contact-uses, [aria-invalid="true"]',
     ) ?? invalid;
@@ -88,19 +90,25 @@ export function ValidationSummary({
   onSelectError?: (fieldId: string) => void;
 }) {
   const entries = Object.entries(errors).filter((entry): entry is [string, string] => Boolean(entry[1]));
-  if (entries.length === 0) return null;
+  if (entries.length === 0) {
+    return null;
+  }
   return (
     <div className="onboarding-validation-summary" role="alert">
       <strong>Check the highlighted information.</strong>
-      <span>{entries.length === 1
-        ? '1 answer needs attention.'
-        : `${entries.length} answers need attention.`}</span>
+      <span>
+        {entries.length === 1
+          ? '1 answer needs attention.'
+          : `${entries.length} answers need attention.`}
+      </span>
       <ul>
         {entries.map(([fieldId, message]) => (
           <li key={fieldId}>
-            {onSelectError ? (
-              <button type="button" onClick={() => onSelectError(fieldId)}>{message}</button>
-            ) : message}
+            {onSelectError
+              ? (
+                  <button type="button" onClick={() => onSelectError(fieldId)}>{message}</button>
+                )
+              : message}
           </li>
         ))}
       </ul>
@@ -211,7 +219,7 @@ export function ChoiceGroup<T extends string>({
     >
       <legend>{legend}</legend>
       <div className="onboarding-choice-group__options">
-        {options.map((option) => (
+        {options.map(option => (
           <label className="onboarding-choice" key={option.value}>
             <input
               checked={value === option.value}
@@ -315,9 +323,9 @@ export function CollapsibleFormCard({
       ? 'Not shown'
       : resolvedStatus === 'optional'
         ? 'Optional'
-      : resolvedStatus === 'finish'
-        ? 'Finish'
-        : 'Set up';
+        : resolvedStatus === 'finish'
+          ? 'Finish'
+          : 'Set up';
   const previousStatusRef = useRef(resolvedStatus);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const wasOpenRef = useRef(open);
@@ -378,13 +386,17 @@ export function CollapsibleFormCard({
               )
             : null}
           <span aria-hidden="true" className="onboarding-collapsible-card__chevron">
-            {resolvedStatus === 'complete' && !open ? (
-              <Check size={15} strokeWidth={2.5} />
-            ) : open ? (
-              <ChevronUp size={16} />
-            ) : (
-              <ChevronDown size={16} />
-            )}
+            {resolvedStatus === 'complete' && !open
+              ? (
+                  <Check size={15} strokeWidth={2.5} />
+                )
+              : open
+                ? (
+                    <ChevronUp size={16} />
+                  )
+                : (
+                    <ChevronDown size={16} />
+                  )}
           </span>
         </span>
       </button>
@@ -457,7 +469,9 @@ export function ImageUploadField({
 
   const handleChange = (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
-    if (file) void processFile(file);
+    if (file) {
+      void processFile(file);
+    }
     event.target.value = '';
   };
 
@@ -476,40 +490,73 @@ export function ImageUploadField({
       data-media-role={mediaRole}
     >
       <span id={`${id}-label`}>{label}</span>
-      {processing ? (
-        <div aria-live="polite" className="onboarding-image-upload__status" role="status">
-          <span aria-hidden="true" className="onboarding-image-upload__spinner" />
-          <span><strong>Processing photo…</strong><small>{processingFileName}</small></span>
-        </div>
-      ) : currentLabel && assetLoading && !needsReselect ? (
-        <div aria-live="polite" className="onboarding-image-upload__status" role="status">
-          <span aria-hidden="true" className="onboarding-image-upload__spinner" />
-          <span><strong>{loadingLabel}</strong><small>{currentLabel}</small></span>
-        </div>
-      ) : ready ? (
-        <div aria-live="polite" className="onboarding-image-upload__status is-ready" role="status">
-          <img alt={previewAlt} src={previewUrl} />
-          <span><strong>{readyLabel}</strong><small>{currentLabel}{currentSummary ? ` · ${currentSummary}` : ''}</small></span>
-        </div>
-      ) : null}
-      {needsReselect ? (
-        <p role="status">{recoveryMessage}</p>
-      ) : null}
-      {failure ? (
-        <div aria-live="assertive" className="onboarding-image-upload__failure" role="alert">
-          <strong>{retryFileRef.current?.name ?? 'Selected image'}</strong>
-          <span>{failure}</span>
-          <div>
-            {retryFileRef.current ? (
-              <button className="is-primary" disabled={processing} type="button" onClick={() => {
-                const file = retryFileRef.current;
-                if (file) void processFile(file);
-              }}>Retry</button>
-            ) : null}
-            <button className="is-secondary" disabled={processing} type="button" onClick={() => inputRef.current?.click()}>Choose another image</button>
-          </div>
-        </div>
-      ) : null}
+      {processing
+        ? (
+            <div aria-live="polite" className="onboarding-image-upload__status" role="status">
+              <span aria-hidden="true" className="onboarding-image-upload__spinner" />
+              <span>
+                <strong>Processing photo…</strong>
+                <small>{processingFileName}</small>
+              </span>
+            </div>
+          )
+        : currentLabel && assetLoading && !needsReselect
+          ? (
+              <div aria-live="polite" className="onboarding-image-upload__status" role="status">
+                <span aria-hidden="true" className="onboarding-image-upload__spinner" />
+                <span>
+                  <strong>{loadingLabel}</strong>
+                  <small>{currentLabel}</small>
+                </span>
+              </div>
+            )
+          : ready
+            ? (
+                <div aria-live="polite" className="onboarding-image-upload__status is-ready" role="status">
+                  <img alt={previewAlt} src={previewUrl} />
+                  <span>
+                    <strong>{readyLabel}</strong>
+                    <small>
+                      {currentLabel}
+                      {currentSummary ? ` · ${currentSummary}` : ''}
+                    </small>
+                  </span>
+                </div>
+              )
+            : null}
+      {needsReselect
+        ? (
+            <p role="status">{recoveryMessage}</p>
+          )
+        : null}
+      {failure
+        ? (
+            <div aria-live="assertive" className="onboarding-image-upload__failure" role="alert">
+              <strong>{retryFileRef.current?.name ?? 'Selected image'}</strong>
+              <span>{failure}</span>
+              <div>
+                {retryFileRef.current
+                  ? (
+                      <button
+                        className="is-primary"
+                        disabled={processing}
+                        type="button"
+                        onClick={() => {
+                          const file = retryFileRef.current;
+                          if (file) {
+                            void processFile(file);
+                          }
+                        }}
+                      >
+                        Retry
+                      </button>
+                    )
+                  : null}
+                <button className="is-secondary" disabled={processing} type="button" onClick={() => inputRef.current?.click()}>Choose another image</button>
+              </div>
+            </div>
+          )
+        : null}
       <input
         ref={inputRef}
         accept={accept}
@@ -520,16 +567,20 @@ export function ImageUploadField({
         type="file"
         onChange={handleChange}
       />
-      {!failure ? (
-        <div className="onboarding-image-upload__actions">
-          <button disabled={processing} type="button" onClick={() => inputRef.current?.click()}>
-            {needsReselect ? 'Select again' : currentLabel ? 'Replace' : chooseLabel}
-          </button>
-          {currentLabel && onRemove ? (
-            <button disabled={processing} type="button" onClick={remove}>Remove</button>
-          ) : null}
-        </div>
-      ) : null}
+      {!failure
+        ? (
+            <div className="onboarding-image-upload__actions">
+              <button disabled={processing} type="button" onClick={() => inputRef.current?.click()}>
+                {needsReselect ? 'Select again' : currentLabel ? 'Replace' : chooseLabel}
+              </button>
+              {currentLabel && onRemove
+                ? (
+                    <button disabled={processing} type="button" onClick={remove}>Remove</button>
+                  )
+                : null}
+            </div>
+          )
+        : null}
     </div>
   );
 }

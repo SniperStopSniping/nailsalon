@@ -15,7 +15,7 @@
  *     one Undo reverses an in-session add.
  */
 
-import { expect, test, type Page } from '@playwright/test';
+import { expect, type Page, test } from '@playwright/test';
 
 import { chooseStarter, LAB_STORAGE_KEY, openFreshLab, waitForSaved } from './helpers';
 
@@ -28,7 +28,9 @@ const openAddSection = async (page: Page) => {
     await page.getByRole('button', { name: 'Add section', exact: true }).click();
   }
   const dialog = page.getByRole('dialog', { name: 'Add section' });
+
   await expect(dialog).toBeVisible();
+
   return dialog;
 };
 
@@ -46,13 +48,16 @@ test.describe('Section Library V1 owner journeys', () => {
   test('Journey A: fresh Quick Book renders coordinated, truthful customer sections', async ({ page }) => {
     await page.goto('/?audit=1&surface=sections&type=hero&second=featured_services');
     const preview = page.locator('[data-showcase-ready]');
+
     await expect(preview).toBeVisible();
     // Hero renders with the demo identity and booking CTA.
     await expect(page.locator('.onboarding-customer-hero h2')).toHaveText('Isla Nail Studio');
     await expect(page.locator('.onboarding-customer-hero .onboarding-customer-primary'))
       .toHaveText('Book an appointment');
+
     // Featured services bind the canonical catalogue (real prices, no lorem).
     const featured = page.locator('[data-library-type="featured_services"]');
+
     await expect(featured).toBeVisible();
     await expect(featured.locator('.customer-lib-featured-card').first()).toContainText('$');
   });
@@ -71,14 +76,19 @@ test.describe('Section Library V1 owner journeys', () => {
     // it never creates a second engine/singleton section.
     const heroCard = dialog.locator('[data-section-type="hero"]');
     const heroButton = heroCard.getByRole('button');
+
     await expect(heroButton).toBeEnabled();
     await expect(heroButton).toHaveText('Go to Hero');
     await expect(heroButton).toHaveAttribute('aria-haspopup', 'dialog');
+
     await heroButton.click();
     const blocker = page.getByRole('dialog', { name: 'Hero is already on Home' });
+
     await expect(blocker).toContainText('only once per page');
+
     await blocker.getByRole('button', { name: 'Go to Hero' }).click();
-    await expect(blocker).not.toBeVisible();
+
+    await expect(blocker).toBeHidden();
     await expect(page.getByRole('listitem', { name: 'Salon intro on Home' })
       .locator('.section-card__select-surface')).toHaveAttribute('aria-pressed', 'true');
 
@@ -87,10 +97,13 @@ test.describe('Section Library V1 owner journeys', () => {
     await reopenedDialog.locator('[data-section-type="reviews"]')
       .getByRole('button', { name: /Add Reviews/ })
       .click();
-    await expect(reopenedDialog).not.toBeVisible();
+
+    await expect(reopenedDialog).toBeHidden();
+
     await waitForSaved(page);
     const stored = await readStoredDocument(page);
     const types = stored.pages[0].sections.map((section: { sectionType: string }) => section.sectionType);
+
     expect(types).toContain('reviews');
   });
 
@@ -100,22 +113,29 @@ test.describe('Section Library V1 owner journeys', () => {
     // First Team add is unremarkable — no warning, no interruption.
     const firstAdd = await openAddSection(page);
     await firstAdd.locator('[data-section-type="team"]').getByRole('button', { name: /Add Team/ }).click();
-    await expect(firstAdd).not.toBeVisible();
+
+    await expect(firstAdd).toBeHidden();
+
     await waitForSaved(page);
 
     // A second Team add names the existing one and offers a real way through.
     const secondAdd = await openAddSection(page);
     await secondAdd.locator('[data-section-type="team"]').getByRole('button', { name: /Add Team/ }).click();
     const warning = page.getByRole('dialog', { name: 'Team is already on your site' });
+
     await expect(warning).toBeVisible();
     await expect(warning).toContainText('Home');
+
     await warning.getByRole('button', { name: 'Cancel' }).click();
-    await expect(warning).not.toBeVisible();
+
+    await expect(warning).toBeHidden();
     // Cancelling the resolution closes the modal flow and returns to Builder
     // without adding another Team section.
-    await expect(secondAdd).not.toBeVisible();
+    await expect(secondAdd).toBeHidden();
+
     await waitForSaved(page);
     const afterCancel = await readStoredDocument(page);
+
     expect(afterCancel.pages[0].sections.filter(
       (section: { sectionType: string }) => section.sectionType === 'team',
     )).toHaveLength(1);
@@ -131,7 +151,9 @@ test.describe('Section Library V1 owner journeys', () => {
     if (!(await toolbar.isVisible().catch(() => false))) {
       await teamCard.click();
     }
+
     await expect(toolbar).toBeVisible();
+
     // The toolbar parks in an "away" state while the selected card is out of
     // view; its return control brings the card and its controls back.
     const returnToSection = toolbar.getByRole('button', { name: 'Back to Team' });
@@ -139,24 +161,33 @@ test.describe('Section Library V1 owner journeys', () => {
       await returnToSection.click();
     }
     const selectedEdit = toolbar.getByRole('button', { name: 'Edit', exact: true });
+
     await expect(selectedEdit).toBeVisible();
+
     await selectedEdit.click();
     const editor = page.getByRole('dialog', { name: 'Edit Team' });
+
     await expect(editor).toBeVisible();
+
     await editor.getByPlaceholder('New team member’s name').fill('Vy Tran');
     await editor.getByRole('button', { name: 'Add member', exact: true }).click();
+
     // The new record appears with its own include control, ticked on.
     await expect(editor.getByRole('checkbox', { name: 'Show Vy Tran in this section' }))
       .toBeChecked();
+
     await editor.getByRole('button', { name: 'Save section' }).click();
     await waitForSaved(page);
 
     const stored = await readStoredDocument(page);
+
     expect(stored.siteContent.staff.map((member: { name: string }) => member.name))
       .toContain('Vy Tran');
+
     const team = stored.pages[0].sections.find(
       (section: { sectionType: string }) => section.sectionType === 'team',
     );
+
     expect(team.settings.memberIds).toHaveLength(1);
   });
 
@@ -167,12 +198,16 @@ test.describe('Section Library V1 owner journeys', () => {
     });
 
     await page.goto('/?audit=1&surface=sections&recipe=signature_one_page&style=modern&palette=luster_berry&device=phone');
+
     await expect(page.locator('[data-showcase-ready]')).toBeVisible();
     await expect(page.locator('[data-library-type="visit_us"]')).toBeVisible();
+
     const berry = await accentFor();
 
     await page.goto('/?audit=1&surface=sections&recipe=signature_one_page&style=luxury&palette=black_champagne&device=desktop');
+
     await expect(page.locator('[data-showcase-ready]')).toBeVisible();
+
     const champagne = await accentFor();
 
     expect(berry).not.toBeNull();
@@ -183,8 +218,11 @@ test.describe('Section Library V1 owner journeys', () => {
 
   test('Journey E: customer policy sections never leak owner-prompt copy', async ({ page }) => {
     await page.goto('/?audit=1&surface=sections&type=deposits_cancellations&second=policies');
+
     await expect(page.locator('[data-showcase-ready]')).toBeVisible();
+
     const deposits = page.locator('[data-library-type="deposits_cancellations"]');
+
     await expect(deposits).toBeVisible();
     await expect(deposits).toContainText('$30 deposit');
     // The owner-facing prompt line must never render for customers.
@@ -205,6 +243,7 @@ test.describe('Section Library V1 owner journeys', () => {
     await page.getByRole('button', { name: 'Undo', exact: true }).click();
     await waitForSaved(page);
     const afterUndo = await readStoredDocument(page);
+
     expect(afterUndo.pages[0].sections.filter(
       (section: { sectionType: string }) => section.sectionType === 'faq',
     )).toHaveLength(0);
@@ -213,8 +252,11 @@ test.describe('Section Library V1 owner journeys', () => {
     await page.getByRole('button', { name: 'Redo', exact: true }).click();
     await waitForSaved(page);
     await page.reload();
+
     await expect(page.locator('[data-section-label="FAQ"]').first()).toBeVisible();
+
     const afterReload = await readStoredDocument(page);
+
     expect(afterReload.pages[0].sections.filter(
       (section: { sectionType: string }) => section.sectionType === 'faq',
     )).toHaveLength(1);
@@ -284,6 +326,7 @@ test.describe('Section Library V1 owner journeys', () => {
       await expect(detail).toBeVisible();
 
       await expect(detail.getByRole('button', { name: 'Close service details' })).toBeFocused();
+
       await page.keyboard.press('Escape');
 
       await expect(detail).toHaveCount(0);

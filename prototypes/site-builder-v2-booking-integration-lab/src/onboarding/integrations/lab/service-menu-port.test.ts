@@ -14,7 +14,7 @@ describe('Product-template ServiceMenuPort', () => {
 
     expect(port.implementation).toBe('product-template-library');
     expect(draft.selectedServiceIds.length).toBeGreaterThan(0);
-    expect(draft.selectedServiceIds.every((id) => canonicalIds.has(id))).toBe(true);
+    expect(draft.selectedServiceIds.every(id => canonicalIds.has(id))).toBe(true);
     expect(new Set(draft.selectedServiceIds).size).toBe(draft.selectedServiceIds.length);
     expect(draft.ownerOverridesByServiceId).toEqual({});
     expect(JSON.stringify(draft)).not.toMatch(/Russian Manicure|durationLabel|priceLabel/u);
@@ -26,14 +26,19 @@ describe('Product-template ServiceMenuPort', () => {
     const unselected = port.getLibraryServices().find(
       ({ id }) => !initial.selectedServiceIds.includes(id),
     );
+
     expect(unselected).toBeDefined();
 
     const added = port.setServiceSelected(initial, unselected!.id, true);
+
     expect(added.selectedServiceIds).toContain(unselected!.id);
+
     const addedAgain = port.setServiceSelected(added, unselected!.id, true);
+
     expect(addedAgain.selectedServiceIds).toEqual(added.selectedServiceIds);
 
     const removed = port.setServiceSelected(addedAgain, unselected!.id, false);
+
     expect(removed.selectedServiceIds).not.toContain(unselected!.id);
     expect(port.setServiceSelected(removed, 'not-a-canonical-service', true))
       .toEqual(removed);

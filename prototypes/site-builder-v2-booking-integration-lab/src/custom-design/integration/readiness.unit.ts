@@ -5,9 +5,9 @@ import type {
   CustomDesignInteractiveArea,
 } from '../model/types';
 import {
+  type CustomDesignReadinessContext,
   getCustomDesignReadiness,
   isCustomDesignAreaReadyForCustomer,
-  type CustomDesignReadinessContext,
 } from './readiness';
 
 const resolved: CustomDesignActionResolution = {
@@ -66,6 +66,7 @@ describe('integrated Custom Design readiness', () => {
       ...createDefaultCustomDesignSettings(),
       images: [image({ altText: '' })],
     };
+
     expect(getCustomDesignReadiness(settings, context()).issues).toMatchObject([
       { code: 'alt_text_missing', imageItemId: 'image-one', source: 'asset' },
     ]);
@@ -77,6 +78,7 @@ describe('integrated Custom Design readiness', () => {
       images: [image()],
     };
     const readiness = getCustomDesignReadiness(settings, context());
+
     expect(readiness).toEqual({ customerReady: true, issues: [] });
     expect(
       isCustomDesignAreaReadyForCustomer(readiness, 'image-one', 'area-one'),
@@ -91,13 +93,14 @@ describe('integrated Custom Design readiness', () => {
     const readiness = getCustomDesignReadiness(settings, context({
       getAssetAvailability: () => 'missing',
     }));
+
     expect(readiness.customerReady).toBe(false);
     expect(readiness.issues).toMatchObject([
       { code: 'asset_missing', imageItemId: 'image-one', source: 'asset' },
     ]);
     // Customer rendering suppresses the whole image-local link layer when its
     // asset is unavailable, even though the metadata itself remains valid.
-    expect(readiness.issues.some((candidate) =>
+    expect(readiness.issues.some(candidate =>
       candidate.imageItemId === 'image-one')).toBe(true);
     expect(
       isCustomDesignAreaReadyForCustomer(readiness, 'image-one', 'area-one'),
@@ -127,7 +130,8 @@ describe('integrated Custom Design readiness', () => {
         reason: 'booking_unavailable',
       }),
     }));
-    expect(new Set(readiness.issues.map((candidate) => candidate.code))).toEqual(
+
+    expect(new Set(readiness.issues.map(candidate => candidate.code))).toEqual(
       new Set([
         'action_unresolved',
         'area_invalid',
@@ -140,7 +144,7 @@ describe('integrated Custom Design readiness', () => {
     expect(
       isCustomDesignAreaReadyForCustomer(readiness, 'image-one', 'area-one'),
     ).toBe(false);
-    expect(readiness.issues.filter((candidate) =>
+    expect(readiness.issues.filter(candidate =>
       candidate.code === 'overlap')).toHaveLength(2);
   });
 
@@ -154,6 +158,7 @@ describe('integrated Custom Design readiness', () => {
       })],
     };
     const readiness = getCustomDesignReadiness(settings, context());
+
     expect(readiness.issues).toContainEqual(expect.objectContaining({
       areaId: 'area-one',
       code: 'unsafe_full_image_area',
@@ -181,6 +186,7 @@ describe('integrated Custom Design readiness', () => {
         reason: 'booking_unavailable',
       }),
     }));
+
     expect(readiness).toMatchObject({
       customerReady: false,
       issues: [{ code: 'action_unresolved', source: 'cta' }],

@@ -1,12 +1,12 @@
 import {
   CUSTOM_DESIGN_MAX_DECODED_PIXELS,
   CUSTOM_DESIGN_MAX_IMAGE_DIMENSION_PX,
+  type DecodedImage,
   decodeImageInBrowser,
   detectImageMimeType,
+  type ImageDecoder,
   ImageUploadError,
   readBlobArrayBuffer,
-  type DecodedImage,
-  type ImageDecoder,
 } from '../../custom-design/assets/image-processing';
 import {
   CUSTOM_DESIGN_MAX_FILE_BYTES,
@@ -26,8 +26,8 @@ export const ONBOARDING_HEIC_MIME_TYPES = [
 
 export const ONBOARDING_LOCAL_IMAGE_MAX_BYTES = CUSTOM_DESIGN_MAX_FILE_BYTES;
 export const ONBOARDING_GALLERY_MAX_FILES = 8;
-export const ONBOARDING_GALLERY_MAX_TOTAL_BYTES =
-  CUSTOM_DESIGN_MAX_SECTION_BYTES;
+export const ONBOARDING_GALLERY_MAX_TOTAL_BYTES
+  = CUSTOM_DESIGN_MAX_SECTION_BYTES;
 
 const supportedMimeTypes = new Set<string>(ONBOARDING_LOCAL_IMAGE_MIME_TYPES);
 const heicMimeTypes = new Set<string>(ONBOARDING_HEIC_MIME_TYPES);
@@ -44,8 +44,8 @@ const heicBrands = new Set([
 const genericHeifBrands = new Set(['mif1', 'msf1']);
 const avifBrands = new Set(['avif', 'avis']);
 
-export const ONBOARDING_IMAGE_DECODE_ERROR =
-  'This image couldn’t be opened. Try exporting or selecting it again.';
+export const ONBOARDING_IMAGE_DECODE_ERROR
+  = 'This image couldn’t be opened. Try exporting or selecting it again.';
 
 export type OnboardingImageDimensions = {
   height: number;
@@ -95,7 +95,9 @@ export const hasHeicFileSignature = async (blob: Blob): Promise<boolean> => {
   const bytes = new Uint8Array(
     await readBlobArrayBuffer(blob.slice(0, Math.min(blob.size, 256))),
   );
-  if (bytes.length < 12 || ascii(bytes, 4, 4) !== 'ftyp') return false;
+  if (bytes.length < 12 || ascii(bytes, 4, 4) !== 'ftyp') {
+    return false;
+  }
   const brands = [
     ascii(bytes, 8, 4),
     ...Array.from(
@@ -103,8 +105,10 @@ export const hasHeicFileSignature = async (blob: Blob): Promise<boolean> => {
       (_, index) => ascii(bytes, 16 + index * 4, 4),
     ),
   ];
-  if (brands.some((brand) => avifBrands.has(brand))) return false;
-  return brands.some((brand) => heicBrands.has(brand) || genericHeifBrands.has(brand));
+  if (brands.some(brand => avifBrands.has(brand))) {
+    return false;
+  }
+  return brands.some(brand => heicBrands.has(brand) || genericHeifBrands.has(brand));
 };
 
 const normalizedJpegName = (fileName: string): string => {
@@ -227,7 +231,9 @@ export const normalizeOnboardingLocalImage = async (
       file,
     );
   } catch (error) {
-    if (error instanceof ImageUploadError) throw error;
+    if (error instanceof ImageUploadError) {
+      throw error;
+    }
     throw new ImageUploadError(
       'normalization_failed',
       'This iPhone photo could not be converted for the website.',

@@ -26,7 +26,9 @@ export const labelForNewClients = (profile: BusinessProfileDraft): string | null
 
 export const labelForMinimumNotice = (profile: BusinessProfileDraft): string | null => {
   const minutes = profile.bookingPreferences.minimumNoticeMinutes;
-  if (!Number.isFinite(minutes) || minutes <= 0) return null;
+  if (!Number.isFinite(minutes) || minutes <= 0) {
+    return null;
+  }
   if (minutes >= 1440) {
     const days = Math.round(minutes / 1440);
     return `Book ${days === 1 ? 'a day' : `${days} days`} ahead`;

@@ -2,6 +2,7 @@ import {
   LEGACY_SITE_BUILDER_SCHEMA_VERSION,
   SITE_BUILDER_SCHEMA_VERSION,
 } from '../types';
+import { LIBRARY_TYPE_BY_LEGACY_ROLE, SECTION_LIBRARY_REGISTRY } from './registry';
 /**
  * Lossless v1 → v2 document upgrade.
  *
@@ -16,9 +17,7 @@ import {
  * starter definitions evolve with the library, but what a v1 document meant
  * can never change.
  */
-
 import type { LibrarySectionType } from './settings';
-import { LIBRARY_TYPE_BY_LEGACY_ROLE, SECTION_LIBRARY_REGISTRY } from './registry';
 import { createEmptySiteContent } from './site-content';
 
 type RawRecord = Record<string, unknown>;
@@ -68,11 +67,11 @@ const LEGACY_V1_STARTER_SECTIONS: Record<string, readonly LegacyStarterSection[]
   ],
 };
 
-const LEGACY_CATALOGUE_LABEL = /^Section (0[1-9]|1[0-9]|20)$/u;
+const LEGACY_CATALOGUE_LABEL = /^Section (?:0[1-9]|1\d|20)$/u;
 
 const isLegacyPlaceholder = (section: RawRecord): boolean =>
   typeof section.sectionType === 'string'
-  && /^section_(0[1-9]|1[0-9]|20)$/u.test(section.sectionType);
+  && /^section_(?:0[1-9]|1\d|20)$/u.test(section.sectionType);
 
 /**
  * Preset adjustments the role mapping implies beyond registry defaults:
@@ -87,11 +86,15 @@ const upgradePlaceholderToLibrarySection = (
   previewLabel: string,
 ): RawRecord => {
   const type = LIBRARY_TYPE_BY_LEGACY_ROLE[role] as LibrarySectionType | undefined;
-  if (!type) return section;
+  if (!type) {
+    return section;
+  }
   const entry = SECTION_LIBRARY_REGISTRY[type];
   const settings: RawRecord = { ...entry.defaultSettings() };
   const preset = presetForRole(role);
-  if (preset && 'preset' in settings) settings.preset = preset;
+  if (preset && 'preset' in settings) {
+    settings.preset = preset;
+  }
   const label = typeof section.label === 'string'
     && !LEGACY_CATALOGUE_LABEL.test(section.label)
     ? section.label
@@ -137,7 +140,9 @@ const resolveLegacyRoles = (
   if (hasExplicit) {
     for (const section of allPlaceholders) {
       const role = section.starterSemanticRole;
-      if (typeof role !== 'string') continue;
+      if (typeof role !== 'string') {
+        continue;
+      }
       const definition = layout.find(candidate => candidate.role === role);
       byId.set(section.id, {
         previewLabel: definition?.previewLabel
@@ -164,9 +169,11 @@ const resolveLegacyRoles = (
     });
     const matched = candidates.find(({ page, section }) =>
       page.slug === definition.pageSlug && section.order === definition.sectionOrder)
-    ?? candidates.find(({ page }) => page.slug === definition.pageSlug)
-    ?? candidates[0];
-    if (!matched) continue;
+      ?? candidates.find(({ page }) => page.slug === definition.pageSlug)
+      ?? candidates[0];
+    if (!matched) {
+      continue;
+    }
     assigned.add(matched.section.id);
     byId.set(matched.section.id, {
       previewLabel: definition.previewLabel,
@@ -183,14 +190,22 @@ const resolveLegacyRoles = (
  * messages.
  */
 export const upgradeSiteBuilderDocument = (value: unknown): unknown => {
-  if (!isRecord(value)) return value;
-  if (value.schemaVersion === SITE_BUILDER_SCHEMA_VERSION) return value;
-  if (value.schemaVersion !== LEGACY_SITE_BUILDER_SCHEMA_VERSION) return value;
+  if (!isRecord(value)) {
+    return value;
+  }
+  if (value.schemaVersion === SITE_BUILDER_SCHEMA_VERSION) {
+    return value;
+  }
+  if (value.schemaVersion !== LEGACY_SITE_BUILDER_SCHEMA_VERSION) {
+    return value;
+  }
 
   const roles = resolveLegacyRoles(value);
 
   const upgradeSection = (section: unknown): unknown => {
-    if (!isRecord(section) || !isLegacyPlaceholder(section)) return section;
+    if (!isRecord(section) || !isLegacyPlaceholder(section)) {
+      return section;
+    }
     const resolved = roles.get(section.id);
     if (!resolved) {
       // Owner-added placeholder: survives as a legacy instance, minus the
@@ -207,13 +222,13 @@ export const upgradeSiteBuilderDocument = (value: unknown): unknown => {
 
   const pages = Array.isArray(value.pages)
     ? value.pages.map(page => isRecord(page)
-        ? {
-            ...page,
-            sections: Array.isArray(page.sections)
-              ? page.sections.map(upgradeSection)
-              : page.sections,
-          }
-        : page)
+      ? {
+          ...page,
+          sections: Array.isArray(page.sections)
+            ? page.sections.map(upgradeSection)
+            : page.sections,
+        }
+      : page)
     : value.pages;
 
   const unusedSections = Array.isArray(value.unusedSections)

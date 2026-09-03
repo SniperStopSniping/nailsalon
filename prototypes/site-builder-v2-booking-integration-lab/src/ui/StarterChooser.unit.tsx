@@ -195,12 +195,15 @@ describe('StarterChooser copy and accessibility', () => {
     );
 
     const logos = document.querySelectorAll('.final-starter-preview__logo');
+
     expect(logos).toHaveLength(3);
+
     logos.forEach((logo) => {
       expect(logo).toHaveAttribute('data-media-role', 'logo');
       expect(logo).toHaveAttribute('src', 'data:image/png;base64,logo');
       expect(logo).toHaveAttribute('alt', '');
     });
+
     expect(getCard('Quick Book')).not.toHaveAccessibleName(/Cedar Tips/u);
   });
 
@@ -224,8 +227,9 @@ describe('StarterChooser copy and accessibility', () => {
       expect(preview.querySelectorAll('[data-preview-scene]')).toHaveLength(
         starter.id === 'multi_page' ? pages.length : structure.length,
       );
+
       for (const item of starter.id === 'multi_page'
-        ? pages.map((page) => page.previewLabel ?? page.name)
+        ? pages.map(page => page.previewLabel ?? page.name)
         : structure) {
         expect(preview.textContent).toContain(item);
       }
@@ -246,6 +250,7 @@ describe('StarterChooser copy and accessibility', () => {
 
     for (const starter of EXPECTED_STARTERS) {
       const preview = getPreview(starter.id);
+
       expect(preview).toHaveTextContent(longName);
       expect(preview).toHaveTextContent('Mia Torres');
       expect(preview).toHaveTextContent('Hamilton, Ontario');
@@ -263,13 +268,13 @@ describe('StarterChooser copy and accessibility', () => {
     const builderSource = readFileSync(join(process.cwd(), 'src/ui/App.tsx'), 'utf8');
 
     expect(css).toMatch(
-      /\.final-starter-preview__identity\s*>\s*b\s*\{[^}]*overflow:\s*hidden;[^}]*text-overflow:\s*ellipsis;/su,
+      /\.final-starter-preview__identity\s*>\s*b\s*\{[^}]*overflow:\s*hidden;[^}]*text-overflow:\s*ellipsis;/u,
     );
     expect(css).toMatch(
-      /\.canvas-client-header\s*>\s*span:first-child\s*\{[^}]*min-width:\s*0;[^}]*flex:\s*1 1 auto;/su,
+      /\.canvas-client-header\s*>\s*span:first-child\s*\{[^}]*min-width:\s*0;[^}]*flex:\s*1 1 auto;/u,
     );
     expect(css).toMatch(
-      /\.canvas-client-header strong\s*\{[^}]*overflow:\s*hidden;[^}]*text-overflow:\s*ellipsis;/su,
+      /\.canvas-client-header strong\s*\{[^}]*overflow:\s*hidden;[^}]*text-overflow:\s*ellipsis;/u,
     );
     expect(builderSource).toContain('<span title={document.siteName}>');
   });
@@ -280,11 +285,13 @@ describe('StarterChooser copy and accessibility', () => {
     render(<StarterChooser onChoose={onChoose} />);
 
     await user.click(getCard('Quick Book'));
+
     expect(onChoose).toHaveBeenLastCalledWith('quick_book');
 
     const multiPage = getCard('Multi-page website');
     act(() => multiPage.focus());
     await user.keyboard('{Enter}');
+
     expect(onChoose).toHaveBeenLastCalledWith('multi_page');
     expect(onChoose).toHaveBeenCalledTimes(2);
   });
@@ -313,7 +320,9 @@ describe('StarterChooser preview playback', () => {
 
     act(() => multiPage.focus());
     expectOnlyPreviewActive('multi_page');
+
     expect(getPreview('multi_page')).toHaveAttribute('data-preview-state', 'playing');
+
     act(() => multiPage.blur());
     act(() => vi.advanceTimersByTime(180));
     expectOnlyPreviewActive(null);
@@ -323,6 +332,7 @@ describe('StarterChooser preview playback', () => {
     installBrowserPreferences({ finePointer: false });
     const { unmount } = render(<StarterChooser onChoose={vi.fn()} />);
     const observer = TestIntersectionObserver.instances.at(-1);
+
     expect(observer).toBeDefined();
 
     const quickBook = getCard('Quick Book');
@@ -359,6 +369,7 @@ describe('StarterChooser preview playback', () => {
     act(() => observer?.emit([{ ratio: 0.81, target: quickBook }]));
     expectOnlyPreviewActive('quick_book');
     unmount();
+
     expect(observer?.disconnect).toHaveBeenCalledTimes(1);
   });
 
@@ -378,16 +389,20 @@ describe('StarterChooser preview playback', () => {
   it('pauses the active preview while the document is hidden and resumes it in place', () => {
     render(<StarterChooser onChoose={vi.fn()} />);
     fireEvent.mouseEnter(getCard('Quick Book'));
+
     expect(getPreview('quick_book')).toHaveAttribute('data-preview-state', 'playing');
 
     visibilityState = 'hidden';
     act(() => document.dispatchEvent(new Event('visibilitychange')));
+
     expect(getPreview('quick_book')).toHaveAttribute('data-preview-state', 'paused');
     expect(getPreview('quick_book')).toHaveAttribute('data-preview-paused', 'true');
+
     expectOnlyPreviewActive('quick_book');
 
     visibilityState = 'visible';
     act(() => document.dispatchEvent(new Event('visibilitychange')));
+
     expect(getPreview('quick_book')).toHaveAttribute('data-preview-state', 'playing');
     expect(getPreview('quick_book')).toHaveAttribute('data-preview-paused', 'false');
   });
@@ -408,6 +423,7 @@ describe('StarterChooser preview playback', () => {
     }
 
     await user.click(getCard('Multi-page website'));
+
     expect(onChoose).toHaveBeenCalledWith('multi_page');
   });
 });

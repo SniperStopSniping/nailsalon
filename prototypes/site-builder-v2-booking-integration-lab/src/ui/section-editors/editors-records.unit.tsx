@@ -18,8 +18,8 @@ import type {
   UpdateSiteContentInput,
 } from '../../model/types';
 import {
-  DEMO_SITE_CONTENT,
   createDemoOnboardingState,
+  DEMO_SITE_CONTENT,
 } from '../../onboarding/model/demo-content';
 import { deriveSiteLibraryContext } from '../../onboarding/model/site-library-context';
 import { FaqEditor } from './faq';
@@ -50,14 +50,18 @@ const findRecord = <T extends { id: string }>(
   id: string,
 ): T => {
   const record = records.find(candidate => candidate.id === id);
-  if (!record) throw new Error(`Demo site content is missing ${id}.`);
+  if (!record) {
+    throw new Error(`Demo site content is missing ${id}.`);
+  }
   return record;
 };
 
 /** Record fields live inside a collapsed `<details>`; open it to read them. */
 const openRecord = (name: RegExp): HTMLElement => {
   const panel = screen.getByRole('checkbox', { name }).closest('details');
-  if (!panel) throw new Error(`No record panel for ${String(name)}.`);
+  if (!panel) {
+    throw new Error(`No record panel for ${String(name)}.`);
+  }
   panel.open = true;
   return panel;
 };
@@ -84,7 +88,9 @@ describe('OffersEditor', () => {
     expect(screen.getByRole('checkbox', {
       name: 'Show Bestie mornings in this section',
     })).not.toBeChecked();
+
     const panel = openRecord(/Show New client welcome/);
+
     expect(within(panel).getByLabelText(/Offer title/)).toHaveValue(NEW_CLIENT_OFFER.title);
     expect(within(panel).getByLabelText(/What the client gets/)).toHaveValue(
       NEW_CLIENT_OFFER.detail,
@@ -136,6 +142,7 @@ describe('OffersEditor', () => {
     const panel = openRecord(/Show Bestie mornings/);
 
     expect(within(panel).getByLabelText(/Ends on/)).toHaveValue('2026-12-24');
+
     fireEvent.change(within(panel).getByLabelText(/Ends on/), { target: { value: '' } });
     fireEvent.change(within(panel).getByLabelText(/Button label/), { target: { value: '' } });
 
@@ -167,7 +174,9 @@ describe('ReviewsEditor', () => {
     expect(screen.getByRole('checkbox', { name: /Show star ratings/ })).toBeChecked();
     expect(screen.getByRole('checkbox', { name: /Show Maya R\./ })).toBeChecked();
     expect(screen.getByRole('checkbox', { name: /Show Jess T\./ })).not.toBeChecked();
+
     const panel = openRecord(/Show Maya R\./);
+
     expect(within(panel).getByLabelText(/What they said/)).toHaveValue(MAYA_REVIEW.quote);
     expect(within(panel).getByRole('button', { name: '5' })).toHaveAttribute(
       'aria-pressed',
@@ -219,7 +228,9 @@ describe('FaqEditor', () => {
     expect(screen.getByRole('checkbox', { name: /How should I prepare/ })).toBeChecked();
     expect(screen.getByRole('checkbox', { name: /Can I bring nail inspiration/ }))
       .not.toBeChecked();
+
     const panel = openRecord(/How should I prepare/);
+
     expect(within(panel).getByLabelText(/Answer/)).toHaveValue(PREP_FAQ.answer);
   });
 
@@ -265,12 +276,17 @@ describe('FaqEditor', () => {
       screen.getByPlaceholderText('How should I prepare for my appointment?'),
       'Do you take walk-ins?',
     );
+
     expect(addButton).toBeDisabled();
+
     await user.type(screen.getByPlaceholderText(/Its answer/), 'Appointments only for now.');
     await user.click(addButton);
 
     const input = props.onSiteContent.mock.calls[0]?.[0];
-    if (input?.operation !== 'upsert') throw new Error('Expected an upsert.');
+    if (input?.operation !== 'upsert') {
+      throw new Error('Expected an upsert.');
+    }
+
     expect(input.record.id).toMatch(/^faq-/);
     expect(input).toEqual({
       collection: 'faq',
@@ -299,7 +315,9 @@ describe('QuickInfoEditor', () => {
     render(<QuickInfoEditor {...props} settings={{ ...settings, facts: ['visit_mode', 'location'] }} />);
 
     expect(screen.getAllByRole('checkbox')).toHaveLength(5);
+
     const [first, second] = screen.getAllByRole('checkbox');
+
     expect(first?.closest('label')).toHaveTextContent('Appointments or walk-ins');
     expect(second?.closest('label')).toHaveTextContent('Area or address');
     expect(screen.getByText('1189 Queen St E, Toronto')).toBeInTheDocument();
@@ -344,9 +362,11 @@ describe('QuickInfoEditor', () => {
 
     expect(screen.getByRole('checkbox', { name: /How far ahead to book/ })).toBeDisabled();
     expect(screen.getByRole('checkbox', { name: /Area or address/ })).toBeEnabled();
+
     unmount();
 
     render(<QuickInfoEditor {...props} settings={{ ...settings, facts: ['location'] }} />);
+
     expect(screen.getByRole('checkbox', { name: /Area or address/ })).toBeDisabled();
     expect(screen.getByRole('checkbox', { name: /Open right now/ })).toBeEnabled();
   });

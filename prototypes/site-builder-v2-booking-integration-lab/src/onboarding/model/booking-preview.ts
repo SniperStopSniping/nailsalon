@@ -31,9 +31,13 @@ export const createOnboardingBookingFixture = (
   const selectedIds = new Set(serviceMenu.selectedServiceIds);
   const selectedAddOnIds = new Set(serviceMenu.selectedAddOnIds ?? []);
   const services = fixture.services.flatMap((service): readonly MockService[] => {
-    if (!selectedIds.has(service.id)) return [];
+    if (!selectedIds.has(service.id)) {
+      return [];
+    }
     const override = serviceMenu.ownerOverridesByServiceId[service.id];
-    if (!override) return [service];
+    if (!override) {
+      return [service];
+    }
     return [{
       ...service,
       durationMinutes: override.durationMinutes ?? service.durationMinutes,

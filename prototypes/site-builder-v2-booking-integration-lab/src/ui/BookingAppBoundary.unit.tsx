@@ -113,6 +113,7 @@ describe('Booking editor selection boundary', () => {
     const editorPreview = screen.getByRole('group', {
       name: `Booking menu preview — ${createMenuFixture().services.length} services, Visual Grid. Not interactive while editing.`,
     });
+
     expect(editorPreview).not.toHaveAttribute('inert');
     expect(editorPreview).not.toHaveAttribute('aria-hidden');
     expect(within(editorPreview).queryByRole('button')).not.toBeInTheDocument();
@@ -121,8 +122,10 @@ describe('Booking editor selection boundary', () => {
       .toHaveAttribute('aria-hidden', 'true');
 
     const russianService = [...editorPreview.querySelectorAll<HTMLElement>('.vg-card-entry')]
-      .find((candidate) => candidate.textContent?.includes('Russian Manicure'));
-    if (!russianService) throw new Error('Russian Manicure preview card was not rendered.');
+      .find(candidate => candidate.textContent?.includes('Russian Manicure'));
+    if (!russianService) {
+      throw new Error('Russian Manicure preview card was not rendered.');
+    }
     await user.click(russianService);
 
     expect(onSelect).toHaveBeenCalledTimes(1);
@@ -140,6 +143,7 @@ describe('integrated Booking settings surfaces', () => {
     await chooseQuickBook(user);
 
     const dialog = await openBookingSettings(user);
+
     expect(dialog).toHaveAttribute('aria-modal', 'true');
     expect(dialog).toHaveClass('dialog-panel--context-panel');
     expect(screen.getByTestId('dialog-backdrop')).toContainElement(dialog);
@@ -192,6 +196,7 @@ describe('integrated Booking settings surfaces', () => {
         throw new Error(`${item.layout} layout choice was not rendered.`);
       }
       await user.click(option);
+
       expect(within(dialog).getByRole('group', { name: item.control })).toBeVisible();
       expect(within(dialog).queryByRole('group', { name: item.incompatible }))
         .not.toBeInTheDocument();
@@ -214,20 +219,26 @@ describe('integrated Booking settings surfaces', () => {
     const dialog = await screen.findByRole('dialog', { name: 'Booking' });
     const editor = screen.getByTestId('final-hybrid-editor');
     const heading = dialog.querySelector<HTMLElement>('[data-dialog-title]');
-    if (!heading) throw new Error('Mobile Booking dialog title was not rendered.');
+    if (!heading) {
+      throw new Error('Mobile Booking dialog title was not rendered.');
+    }
     await waitFor(() => expect(heading).toHaveFocus());
+
     expect(dialog).toHaveAttribute('aria-modal', 'true');
     expect(editor).toHaveAttribute('inert', '');
     expect(document.body.style.overflow).toBe('hidden');
 
     await user.tab({ shift: true });
+
     expect(dialog).toContainElement(document.activeElement as HTMLElement);
+
     await user.keyboard('{Escape}');
 
     await waitFor(() => {
       expect(screen.queryByRole('dialog', { name: 'Booking' })).not.toBeInTheDocument();
       expect(edit).toHaveFocus();
     });
+
     expect(editor).not.toHaveAttribute('inert');
     expect(document.body.style.overflow).toBe('');
     expect(document.body).not.toHaveFocus();
@@ -240,6 +251,7 @@ describe('integrated Booking settings surfaces', () => {
     await chooseQuickBook(user);
 
     const dialog = await openBookingSettings(user);
+
     expect(dialog).toHaveAccessibleName('Booking settings');
     expect(dialog).toHaveClass('final-booking-settings-drawer');
     expect(dialog).toHaveAttribute('aria-modal', 'false');
@@ -265,6 +277,7 @@ describe('integrated Booking settings surfaces', () => {
       throw new Error('Price List layout choice was not rendered.');
     }
     await user.click(priceList);
+
     expect(within(dialog).getByRole('group', {
       name: 'Editorial Price List divider style',
     })).toBeVisible();
@@ -273,14 +286,19 @@ describe('integrated Booking settings surfaces', () => {
       .toHaveAttribute('data-layout', 'editorial_price_list');
 
     const scrollBody = dialog.querySelector<HTMLElement>('.final-booking-settings-drawer__body');
-    if (!scrollBody) throw new Error('Desktop Booking settings body was not rendered.');
+    if (!scrollBody) {
+      throw new Error('Desktop Booking settings body was not rendered.');
+    }
     scrollBody.scrollTop = 180;
     await user.click(within(dialog).getByRole('button', { name: 'Hide settings' }));
+
     expect(dialog).not.toBeVisible();
     expect(screen.queryByRole('button', { name: 'Show Booking settings' }))
       .not.toBeInTheDocument();
+
     await user.click(within(screen.getByTestId('selected-section-toolbar'))
       .getByRole('button', { name: 'Edit' }));
+
     expect(dialog).toBeVisible();
     expect(scrollBody.scrollTop).toBe(180);
     expect(within(dialog).getByRole('heading', { name: 'Booking' })).toHaveFocus();
@@ -300,12 +318,16 @@ describe('integrated Booking settings surfaces', () => {
     const scrollBody = dialog.querySelector<HTMLElement>(
       '.final-booking-settings-drawer__body',
     );
-    if (!scrollBody) throw new Error('Desktop Booking settings body was not rendered.');
+    if (!scrollBody) {
+      throw new Error('Desktop Booking settings body was not rendered.');
+    }
     scrollBody.scrollTop = 220;
 
     const typography = within(dialog).getByLabelText('Booking typography preset');
     typography.focus();
+
     expect(typography).toHaveFocus();
+
     await user.keyboard('{Escape}');
 
     await waitFor(() => {
@@ -313,6 +335,7 @@ describe('integrated Booking settings surfaces', () => {
         .not.toBeInTheDocument();
       expect(edit).toHaveFocus();
     });
+
     expect(document.body).not.toHaveFocus();
     expect(scrollBody.scrollTop).toBe(220);
     expect(window.scrollTo).not.toHaveBeenCalled();
@@ -330,12 +353,14 @@ describe('integrated Booking settings surfaces', () => {
     const drawer = await screen.findByRole('dialog', { name: 'Booking settings' });
     await user.click(screen.getByRole('button', { name: 'More site options' }));
     const more = await screen.findByRole('dialog', { name: 'More' });
+
     expect(more).toHaveAttribute('aria-modal', 'true');
 
     await user.keyboard('{Escape}');
     await waitFor(() => {
       expect(screen.queryByRole('dialog', { name: 'More' })).not.toBeInTheDocument();
     });
+
     expect(drawer).toBeVisible();
 
     const typography = within(drawer).getByLabelText('Booking typography preset');
@@ -362,6 +387,7 @@ describe('integrated Booking settings surfaces', () => {
 
     await user.click(typography);
     await user.keyboard('{Escape}');
+
     expect(drawer).toBeVisible();
     expect(typography).toHaveFocus();
 
@@ -387,7 +413,9 @@ describe('nested Page settings surface', () => {
     await user.click(structureTrigger);
     const structure = await screen.findByRole('dialog', { name: 'Pages & Structure' });
     const structureBody = structure.querySelector<HTMLElement>('.dialog-body');
-    if (!structureBody) throw new Error('Pages & Structure scroll body was not rendered.');
+    if (!structureBody) {
+      throw new Error('Pages & Structure scroll body was not rendered.');
+    }
     structureBody.scrollTop = 96;
 
     const expectReturnedToPageTrigger = async (pageName: string) => {
@@ -395,10 +423,12 @@ describe('nested Page settings surface', () => {
         name: `Page settings for ${pageName}`,
       });
       await waitFor(() => expect(trigger).toHaveFocus());
+
       expect(structure).toBeVisible();
       expect(structureBody.scrollTop).toBe(96);
       expect(document.activeElement).not.toBe(document.body);
       expect(document.body.style.overflow).toBe('hidden');
+
       return trigger;
     };
 
@@ -411,8 +441,10 @@ describe('nested Page settings surface', () => {
     await user.clear(name);
     await user.type(name, 'Studio');
     await user.click(within(settings).getByRole('button', { name: 'Save page' }));
+
     expect(screen.queryByRole('dialog', { name: 'Home settings' }))
       .not.toBeInTheDocument();
+
     pageTrigger = await expectReturnedToPageTrigger('Studio');
 
     await user.click(pageTrigger);
@@ -438,13 +470,16 @@ describe('nested Page settings surface', () => {
     await user.click(pageTrigger);
     settings = await screen.findByRole('dialog', { name: 'Studio settings' });
     const childBackdrop = settings.closest<HTMLElement>('.dialog-backdrop');
-    if (!childBackdrop) throw new Error('Page settings backdrop was not rendered.');
+    if (!childBackdrop) {
+      throw new Error('Page settings backdrop was not rendered.');
+    }
     fireEvent.mouseDown(childBackdrop);
     await expectReturnedToPageTrigger('Studio');
 
     await user.keyboard('{Escape}');
     await waitFor(() => expect(structure).not.toBeInTheDocument());
     await waitFor(() => expect(structureTrigger).toHaveFocus());
+
     expect(document.body.style.overflow).toBe('');
   });
 });
@@ -458,7 +493,7 @@ describe('unified section movement', () => {
 
     const sectionOrder = () => [...screen.getByRole('list', { name: 'Sections on Home' })
       .querySelectorAll<HTMLElement>('[data-section-label]')]
-      .map((element) => element.dataset.sectionLabel);
+      .map(element => element.dataset.sectionLabel);
 
     const actions = await selectBooking(user);
     await user.click(within(actions).getByRole('button', { name: 'Move' }));
@@ -475,13 +510,21 @@ describe('unified section movement', () => {
 
     await user.clear(within(dialog).getByLabelText('Position for Booking'));
     await user.type(within(dialog).getByLabelText('Position for Booking'), '1{Enter}');
+
     expect(sectionOrder()).toEqual([
-      'Booking', 'Salon intro', 'Gallery', 'Visit & Contact',
+      'Booking',
+      'Salon intro',
+      'Gallery',
+      'Visit & Contact',
     ]);
 
     await user.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+
     expect(sectionOrder()).toEqual([
-      'Salon intro', 'Booking', 'Gallery', 'Visit & Contact',
+      'Salon intro',
+      'Booking',
+      'Gallery',
+      'Visit & Contact',
     ]);
 
     await user.click(within(screen.getByRole('group', { name: 'Booking actions' }))
@@ -490,12 +533,17 @@ describe('unified section movement', () => {
     await user.clear(within(dialog).getByLabelText('Position for Booking'));
     await user.type(within(dialog).getByLabelText('Position for Booking'), '1{Enter}');
     await user.click(within(dialog).getByRole('button', { name: 'Move Booking down' }));
+
     expect(within(dialog).getByLabelText('Position for Booking')).toHaveValue(2);
+
     await user.click(within(dialog).getByRole('button', { name: 'Move Booking up' }));
     await user.click(within(dialog).getByRole('button', { name: 'Done' }));
 
     expect(sectionOrder()).toEqual([
-      'Booking', 'Salon intro', 'Gallery', 'Visit & Contact',
+      'Booking',
+      'Salon intro',
+      'Gallery',
+      'Visit & Contact',
     ]);
   });
 
@@ -514,7 +562,9 @@ describe('unified section movement', () => {
 
     expect(disclosure).toHaveAttribute('aria-expanded', 'false');
     expect(within(dialog).queryByPlaceholderText('Page name')).not.toBeInTheDocument();
+
     await user.click(disclosure);
+
     expect(disclosure).toHaveAttribute('aria-expanded', 'true');
     expect(within(dialog).getByText(/There are no other pages yet/)).toBeVisible();
     expect(within(dialog).getByPlaceholderText('Page name')).toBeVisible();
@@ -542,12 +592,15 @@ describe('App customer Preview boundary', () => {
     }));
     const structure = await screen.findByRole('dialog', { name: 'Pages & Structure' });
     const aboutPage = within(structure).getByText('About').closest('button');
-    if (!aboutPage) throw new Error('About page control was not rendered.');
+    if (!aboutPage) {
+      throw new Error('About page control was not rendered.');
+    }
     await user.click(aboutPage);
     await screen.findByRole('heading', { level: 1, name: 'About' });
 
     await user.click(screen.getByRole('button', { name: 'Preview' }));
     const preview = await screen.findByRole('region', { name: 'Builder customer preview' });
+
     expect(screen.getByLabelText('Preview controls')).toHaveTextContent('Previewing About');
     expect(within(preview).getByRole('region', { name: 'About page' })).toBeVisible();
     expect(preview.querySelector('.onboarding-customer-about.is-editorial'))
@@ -556,6 +609,7 @@ describe('App customer Preview boundary', () => {
       .not.toBeInTheDocument();
 
     await user.click(within(preview).getByRole('link', { name: 'Services & Booking' }));
+
     expect(await within(preview).findByRole('region', { name: 'Services & Booking page' }))
       .toBeVisible();
     expect(screen.getByLabelText('Preview controls')).toHaveTextContent(
@@ -609,8 +663,10 @@ describe('App customer Preview boundary', () => {
     expect(phone).toHaveAttribute('aria-pressed', 'false');
 
     await user.click(phone);
+
     expect(phone).toHaveAttribute('aria-pressed', 'true');
     expect(desktop).toHaveAttribute('aria-pressed', 'false');
+
     await waitFor(() => {
       expect(liveRegion).toHaveTextContent(
         'Phone preview selected — 386 pixels wide.',
@@ -619,8 +675,10 @@ describe('App customer Preview boundary', () => {
 
     tablet.focus();
     await user.keyboard('{Enter}');
+
     expect(tablet).toHaveAttribute('aria-pressed', 'true');
     expect(phone).toHaveAttribute('aria-pressed', 'false');
+
     await waitFor(() => {
       expect(liveRegion).toHaveTextContent(
         'Tablet preview selected — 742 pixels wide.',
@@ -638,6 +696,7 @@ describe('App customer Preview boundary', () => {
     await user.click(tablet);
     await new Promise(resolve => window.setTimeout(resolve, 0));
     observer.disconnect();
+
     expect(liveRegion).toHaveTextContent(
       'Tablet preview selected — 742 pixels wide.',
     );
@@ -660,8 +719,10 @@ describe('App customer Preview boundary', () => {
 
     await user.click(screen.getByRole('button', { name: 'Preview' }));
     const preview = await screen.findByTestId('booking-section-preview');
+
     expect(screen.queryByLabelText('Quick actions for Booking')).not.toBeInTheDocument();
     expect(screen.queryByText('Collapse Booking preview')).not.toBeInTheDocument();
+
     const search = within(preview).getByRole('searchbox', {
       name: 'Search services',
     });
@@ -675,9 +736,12 @@ describe('App customer Preview boundary', () => {
     await user.click(russianAction);
     const detail = screen.getByTestId('service-detail-dialog');
     await user.click(within(detail).getByRole('checkbox', { name: /French/ }));
+
     expect(within(detail).getByTestId('service-detail-total'))
       .toHaveTextContent('1 hr 45 min·From $80');
+
     await user.click(within(detail).getByRole('button', { name: 'Keep browsing' }));
+
     expect(await screen.findByTestId('selected-service-summary'))
       .toHaveTextContent('Russian Manicure1 hr 45 min · From $80 · 1 add-on');
     expect(window.localStorage.getItem(SITE_BUILDER_STORAGE_KEY))
@@ -686,6 +750,7 @@ describe('App customer Preview boundary', () => {
 
     await user.click(screen.getByRole('button', { name: 'Back to editor' }));
     const editPreview = await screen.findByTestId('booking-section-edit');
+
     expect(editPreview.querySelector('input[placeholder="Try “Russian manicure”"]'))
       .toHaveValue('');
     expect(editPreview.querySelector('[data-has-selection="false"]')).toBeInTheDocument();
@@ -693,6 +758,7 @@ describe('App customer Preview boundary', () => {
     expect(screen.queryByTestId('service-detail-dialog')).not.toBeInTheDocument();
     expect(screen.queryByTestId('booking-handoff-dialog')).not.toBeInTheDocument();
     expect(within(editPreview).getAllByText('Russian Manicure').length).toBeGreaterThan(0);
+
     const settingsDialog = await openBookingSettings(user);
     const listOption = settingsDialog.querySelector<HTMLButtonElement>(
       '[data-layout-option="clean_list"]',
@@ -707,15 +773,18 @@ describe('App customer Preview boundary', () => {
     await user.click(screen.getByRole('button', { name: 'Preview' }));
 
     const nextPreview = await screen.findByTestId('booking-section-preview');
+
     expect(screen.getByTestId('selected-service-summary'))
       .toHaveTextContent('Russian Manicure1 hr 45 min · From $80 · 1 add-on');
     expect(within(nextPreview).getByRole('searchbox', {
       name: 'Search services',
     })).toHaveValue('');
+
     await user.click(within(screen.getByTestId('selected-service-summary')).getByRole('button', {
       name: 'Continue',
     }));
     const handoff = screen.getByTestId('booking-handoff-dialog');
+
     expect(handoff).toHaveAttribute('aria-modal', 'true');
     expect(handoff).toHaveTextContent('Booking flow continues here');
   });

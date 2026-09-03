@@ -6,14 +6,14 @@ import type {
 } from '../integrations/contracts/booking-preferences';
 import type { ServiceMenuSelectionDraft } from '../integrations/contracts/service-menu';
 import {
+  inferOnboardingBusinessType,
+  normalizeSiteSlug,
+} from '../model/business-identity';
+import {
   getCoherentPreferredContact,
   resolveInstagramUsername,
 } from '../model/contact';
 import { createDefaultOnboardingState } from '../model/defaults';
-import {
-  inferOnboardingBusinessType,
-  normalizeSiteSlug,
-} from '../model/business-identity';
 import { getResolvedPolicyWording } from '../model/policies';
 import { reconcileConditionalHistory } from '../model/routing';
 import {
@@ -27,8 +27,8 @@ import {
   type GalleryDraft,
   type LocalImageReference,
   type LocationType,
-  type OnboardingBusinessType,
   ONBOARDING_SCHEMA_VERSION,
+  type OnboardingBusinessType,
   type OnboardingLabState,
   type OnboardingScreenId,
   type OnboardingSessionStatus,
@@ -55,7 +55,7 @@ const normalizeFeedbackMilestones = (value: unknown): string[] => [
   ...new Set(
     Array.isArray(value)
       ? value.filter((item): item is string =>
-          typeof item === 'string' && FEEDBACK_MILESTONE_IDS.has(item))
+        typeof item === 'string' && FEEDBACK_MILESTONE_IDS.has(item))
       : [],
   ),
 ];
@@ -124,14 +124,14 @@ const isDayHours = (value: unknown): boolean => isRecord(value)
   && typeof value.close === 'string';
 
 const hasValidDays = (value: unknown): value is WeeklyHoursDraft['days'] => isRecord(value)
-  && WEEKDAYS.every((day) => isDayHours(value[day]));
+  && WEEKDAYS.every(day => isDayHours(value[day]));
 
 const isWeeklyHoursDraft = (value: unknown): value is WeeklyHoursDraft => isRecord(value)
   && hasValidDays(value.days)
   && (value.setupState === 'unset'
     || value.setupState === 'configured'
     || value.setupState === 'skipped')
-  && typeof value.showOnSite === 'boolean';
+    && typeof value.showOnSite === 'boolean';
 
 const isClientContactDraft = (value: unknown): value is ClientContactDraft => isRecord(value)
   && typeof value.primaryNumber === 'string'
@@ -166,28 +166,30 @@ const isDepositDraft = (value: unknown): value is DepositDraft => isRecord(value
   && (value.mode === 'none' || value.mode === 'fixed')
   && (value.amountCents === null
     || (Number.isSafeInteger(value.amountCents) && Number(value.amountCents) >= 0))
-  && isNullableBoolean(value.refundable)
-  && isNullableBoolean(value.transferable)
-  && typeof value.wordingOverride === 'string';
+    && isNullableBoolean(value.refundable)
+    && isNullableBoolean(value.transferable)
+    && typeof value.wordingOverride === 'string';
 
 const isOwnerOverride = (value: unknown): boolean => isRecord(value)
   && (value.durationMinutes === undefined
     || (Number.isSafeInteger(value.durationMinutes) && Number(value.durationMinutes) > 0))
-  && (value.priceCents === undefined
-    || (Number.isSafeInteger(value.priceCents) && Number(value.priceCents) >= 0));
+    && (value.priceCents === undefined
+      || (Number.isSafeInteger(value.priceCents) && Number(value.priceCents) >= 0));
 
 const isServiceMenuSelection = (
   value: unknown,
 ): value is ServiceMenuSelectionDraft => {
-  if (!isRecord(value)) return false;
+  if (!isRecord(value)) {
+    return false;
+  }
   const selectedServiceIds = value.selectedServiceIds;
   const selectedAddOnIds = value.selectedAddOnIds;
   const ownerOverridesByServiceId = value.ownerOverridesByServiceId;
   if (!Array.isArray(selectedServiceIds)
-    || !selectedServiceIds.every((item) => typeof item === 'string')
+    || !selectedServiceIds.every(item => typeof item === 'string')
     || (selectedAddOnIds !== undefined && (
       !Array.isArray(selectedAddOnIds)
-      || !selectedAddOnIds.every((item) => typeof item === 'string')
+      || !selectedAddOnIds.every(item => typeof item === 'string')
     ))
     || !isRecord(ownerOverridesByServiceId)
     || !Object.values(ownerOverridesByServiceId).every(isOwnerOverride)) {
@@ -207,7 +209,7 @@ const isServiceMenuSelection = (
       ) === true
     ))
     && Object.keys(normalized.ownerOverridesByServiceId).length
-      === Object.keys(ownerOverridesByServiceId).length;
+    === Object.keys(ownerOverridesByServiceId).length;
 };
 
 const isChecklistFixtureStatus = (
@@ -285,14 +287,14 @@ const isCanvaUploadResult = (
   && typeof value.addedCount === 'number'
   && typeof value.summary === 'string'
   && Array.isArray(value.failures)
-  && value.failures.every((failure) => isRecord(failure)
+  && value.failures.every(failure => isRecord(failure)
     && typeof failure.fileName === 'string'
     && typeof failure.message === 'string'
     && (failure.code === undefined || typeof failure.code === 'string'))
 );
 
 const isStringArray = (value: unknown): value is string[] =>
-  Array.isArray(value) && value.every((item) => typeof item === 'string');
+  Array.isArray(value) && value.every(item => typeof item === 'string');
 
 const isUnsafeEphemeralImageUrl = (value: unknown): boolean => typeof value === 'string'
   && /^\s*(?:blob|data):/iu.test(value);
@@ -337,9 +339,13 @@ const copySafeImageMetadata = (
 const normalizeLocalImageReference = (
   value: unknown,
 ): LocalImageReference | undefined => {
-  if (!isRecord(value)) return undefined;
+  if (!isRecord(value)) {
+    return undefined;
+  }
   const metadata = copySafeImageMetadata(value);
-  if (!metadata) return undefined;
+  if (!metadata) {
+    return undefined;
+  }
   const storageId = typeof value.storageId === 'string' && value.storageId.trim()
     ? value.storageId
     : undefined;
@@ -373,12 +379,14 @@ const normalizeGalleryDraft = (
   value: unknown,
   fallback: GalleryDraft,
 ): GalleryDraft => {
-  if (!isRecord(value)) return fallback;
+  if (!isRecord(value)) {
+    return fallback;
+  }
   const images = Array.isArray(value.images)
     ? value.images.flatMap((image) => {
-        const normalized = normalizeLocalImageReference(image);
-        return normalized ? [normalized] : [];
-      })
+      const normalized = normalizeLocalImageReference(image);
+      return normalized ? [normalized] : [];
+    })
     : [];
   const source = value.source === 'uploads' || value.source === 'mock_luster'
     ? value.source
@@ -396,7 +404,9 @@ const normalizeGalleryDraft = (
 };
 
 const normalizeOnboardingMediaReferences = <T>(value: T): T => {
-  if (!isRecord(value)) return value;
+  if (!isRecord(value)) {
+    return value;
+  }
   const defaults = createDefaultOnboardingState();
   const profile = isRecord(value.profile) ? { ...value.profile } : null;
   if (profile) {
@@ -404,8 +414,12 @@ const normalizeOnboardingMediaReferences = <T>(value: T): T => {
     const logo = normalizeLocalImageReference(profile.logo);
     delete profile.profilePhoto;
     delete profile.logo;
-    if (profilePhoto) profile.profilePhoto = profilePhoto;
-    if (logo) profile.logo = logo;
+    if (profilePhoto) {
+      profile.profilePhoto = profilePhoto;
+    }
+    if (logo) {
+      profile.logo = logo;
+    }
   }
   return {
     ...value,
@@ -418,7 +432,9 @@ const isCurrentLocalImageReference = (
   value: unknown,
 ): value is LocalImageReference => {
   const normalized = normalizeLocalImageReference(value);
-  if (!normalized || !isRecord(value) || normalized.source === 'data_url') return false;
+  if (!normalized || !isRecord(value) || normalized.source === 'data_url') {
+    return false;
+  }
   return JSON.stringify(normalized) === JSON.stringify(value);
 };
 
@@ -438,7 +454,9 @@ type SharedStateShape = Record<string, unknown> & {
 };
 
 const hasSharedStateShape = (value: unknown): value is SharedStateShape => {
-  if (!isRecord(value)) return false;
+  if (!isRecord(value)) {
+    return false;
+  }
   return isRecord(value.profile)
     && isRecord(value.recipe)
     && isRecord(value.progress)
@@ -462,7 +480,7 @@ const isOnboardingState = (value: unknown): value is OnboardingLabState => {
   }
   return isWeeklyHoursDraft(value.profile.hours)
     && typeof value.anonymousDraftId === 'string'
-    && /^draft_[a-z0-9_-]{12,100}$/iu.test(value.anonymousDraftId)
+    && /^draft_[\w-]{12,100}$/iu.test(value.anonymousDraftId)
     && isBusinessStructure(value.profile.businessStructure)
     && isOnboardingBusinessType(value.profile.businessType)
     && typeof value.profile.siteSlug === 'string'
@@ -470,33 +488,33 @@ const isOnboardingState = (value: unknown): value is OnboardingLabState => {
     && isClientContactDraft(value.profile.clientContact)
     && (value.profile.profilePhoto === undefined
       || isCurrentLocalImageReference(value.profile.profilePhoto))
-    && (value.profile.logo === undefined
-      || isCurrentLocalImageReference(value.profile.logo))
-    && isGalleryDraft(value.gallery)
-    && isRecord(value.profile.bookingPreferences)
-    && Number.isSafeInteger(value.profile.bookingPreferences.minimumNoticeMinutes)
-    && Number(value.profile.bookingPreferences.minimumNoticeMinutes) >= 0
-    && !('depositPreference' in value.profile.bookingPreferences)
-    && isServiceMenuSelection(value.profile.serviceMenu)
-    && isRecord(value.profile.policies)
-    && isDepositDraft(value.profile.policies.deposits)
-    && !('amount' in value.profile.policies.deposits)
-    && !('amountType' in value.profile.policies.deposits)
-    && !('required' in value.profile.policies.deposits)
-    && isDashboardHandoffDraft(value.dashboardHandoff)
-    && isRecord(value.recipe)
-    && isSitePalettePresetId(value.recipe.palettePreset)
-    && typeof value.recipe.paletteConfirmed === 'boolean'
-    && isQuickBookLayoutId(value.recipe.quickBookLayout)
-    && isQuickBookProfileVisibility(value.recipe.quickBookProfile)
-    && isRecord(value.profile.location)
-    && typeof value.profile.location.allowGeneralAreaDirections === 'boolean'
-    && isSessionStatus(value.progress.sessionStatus)
-    && isPlanIntent(value.planOffer.planIntent)
-    && isFoundingOfferMode(value.planOffer.foundingMode)
-    && typeof value.reviewOptions.previewTimestamp === 'string'
-    && isStringArray(value.canva.ownedAssetIds)
-    && isCanvaUploadResult(value.canva.uploadResult);
+      && (value.profile.logo === undefined
+        || isCurrentLocalImageReference(value.profile.logo))
+        && isGalleryDraft(value.gallery)
+        && isRecord(value.profile.bookingPreferences)
+        && Number.isSafeInteger(value.profile.bookingPreferences.minimumNoticeMinutes)
+        && Number(value.profile.bookingPreferences.minimumNoticeMinutes) >= 0
+        && !('depositPreference' in value.profile.bookingPreferences)
+        && isServiceMenuSelection(value.profile.serviceMenu)
+        && isRecord(value.profile.policies)
+        && isDepositDraft(value.profile.policies.deposits)
+        && !('amount' in value.profile.policies.deposits)
+        && !('amountType' in value.profile.policies.deposits)
+        && !('required' in value.profile.policies.deposits)
+        && isDashboardHandoffDraft(value.dashboardHandoff)
+        && isRecord(value.recipe)
+        && isSitePalettePresetId(value.recipe.palettePreset)
+        && typeof value.recipe.paletteConfirmed === 'boolean'
+        && isQuickBookLayoutId(value.recipe.quickBookLayout)
+        && isQuickBookProfileVisibility(value.recipe.quickBookProfile)
+        && isRecord(value.profile.location)
+        && typeof value.profile.location.allowGeneralAreaDirections === 'boolean'
+        && isSessionStatus(value.progress.sessionStatus)
+        && isPlanIntent(value.planOffer.planIntent)
+        && isFoundingOfferMode(value.planOffer.foundingMode)
+        && typeof value.reviewOptions.previewTimestamp === 'string'
+        && isStringArray(value.canva.ownedAssetIds)
+        && isCanvaUploadResult(value.canva.uploadResult);
 };
 
 type LegacyWeeklyHoursDraft = {
@@ -508,7 +526,7 @@ const isLegacyWeeklyHoursDraft = (value: unknown): value is LegacyWeeklyHoursDra
   isRecord(value) && hasValidDays(value.days) && typeof value.skipped === 'boolean';
 
 const LEGACY_DEFAULT_DAYS: WeeklyHoursDraft['days'] = Object.fromEntries(
-  WEEKDAYS.map((day) => [day, {
+  WEEKDAYS.map(day => [day, {
     close: day === 'saturday' ? '16:00' : '17:00',
     closed: day === 'sunday',
     open: day === 'saturday' ? '10:00' : '09:00',
@@ -550,7 +568,9 @@ const isLegacyBusinessType = (value: unknown): value is LegacyBusinessType =>
 const migrateClientContact = (
   profile: Record<string, unknown>,
 ): ClientContactDraft => {
-  if (isClientContactDraft(profile.clientContact)) return profile.clientContact;
+  if (isClientContactDraft(profile.clientContact)) {
+    return profile.clientContact;
+  }
   const phone = typeof profile.phone === 'string' ? profile.phone : '';
   const textPhone = typeof profile.textPhone === 'string' ? profile.textPhone : '';
   const hasPhone = Boolean(phone.trim());
@@ -587,9 +607,15 @@ const migrateLegacyDepositMode = (
   deposits: Record<string, unknown>,
   bookingPreferences: Record<string, unknown>,
 ): LegacyDepositMode => {
-  if (isLegacyDepositMode(deposits.mode)) return deposits.mode;
-  if (deposits.required === true) return 'generally_required';
-  if (deposits.required === false) return 'none';
+  if (isLegacyDepositMode(deposits.mode)) {
+    return deposits.mode;
+  }
+  if (deposits.required === true) {
+    return 'generally_required';
+  }
+  if (deposits.required === false) {
+    return 'none';
+  }
   switch (bookingPreferences.depositPreference) {
     case 'yes': return 'generally_required';
     case 'no': return 'none';
@@ -599,7 +625,9 @@ const migrateLegacyDepositMode = (
 };
 
 const parseLegacyFixedDepositCents = (value: unknown): number | null => {
-  if (typeof value !== 'string' && typeof value !== 'number') return null;
+  if (typeof value !== 'string' && typeof value !== 'number') {
+    return null;
+  }
   const parsed = Number(String(value).trim().replace(/^\$/u, '').replaceAll(',', ''));
   return bookingPreferencesPort.normalizeCustomDepositAmount(String(parsed));
 };
@@ -630,7 +658,9 @@ const migrateMinimumNoticeMinutes = (
         match[1] ?? '0',
         match[2]?.toLocaleLowerCase('en-US').startsWith('day') ? 'days' : 'hours',
       );
-      if (normalized !== null) minimumNoticeMinutes = normalized;
+      if (normalized !== null) {
+        minimumNoticeMinutes = normalized;
+      }
     }
   }
 
@@ -759,7 +789,9 @@ const migrateBusinessProfile = (
         : defaultVisible,
     ]),
   ) as BusinessProfileDraft['about']['visibility'];
-  for (const element of STRUCTURAL_ABOUT_VISIBILITY) aboutVisibility[element] = true;
+  for (const element of STRUCTURAL_ABOUT_VISIBILITY) {
+    aboutVisibility[element] = true;
+  }
   const migratedProfile = {
     ...defaults,
     ...(nextProfile as unknown as BusinessProfileDraft),
@@ -772,11 +804,11 @@ const migrateBusinessProfile = (
     businessType: isOnboardingBusinessType(value.businessType)
       ? value.businessType
       : inferOnboardingBusinessType({
-          businessStructure,
-          locationType: location.locationType
-            ? location.locationType as LocationType
-            : legacyLocationType ?? null,
-        }),
+        businessStructure,
+        locationType: location.locationType
+          ? location.locationType as LocationType
+          : legacyLocationType ?? null,
+      }),
     clientContact: migrateClientContact(value),
     ...depositPolicy,
     serviceMenu,
@@ -834,9 +866,9 @@ const migrateQuickBookProfileVisibility = (
     profile.policies.deposits.mode === 'fixed'
     && profile.policies.deposits.amountCents !== null
   ) || Boolean(
-      profile.policies.deposits.wordingOverride.trim()
-      || profile.policies.copy.deposits.wordingOverride.trim(),
-    );
+    profile.policies.deposits.wordingOverride.trim()
+    || profile.policies.copy.deposits.wordingOverride.trim(),
+  );
   const cancellationWording = getResolvedPolicyWording(
     profile.policies,
     'cancellations',
@@ -938,7 +970,7 @@ const migrateLegacyOnboardingState = (
       ownedAssetIds: [...new Set(isStringArray(value.canva.ownedAssetIds)
         ? value.canva.ownedAssetIds
         : (Array.isArray(value.canva.images)
-            ? value.canva.images.flatMap((image) => isRecord(image)
+            ? value.canva.images.flatMap(image => isRecord(image)
               && typeof image.storageId === 'string'
               ? [image.storageId]
               : [])
@@ -963,7 +995,7 @@ const migrateLegacyOnboardingState = (
           : null,
     },
     anonymousDraftId: typeof value.anonymousDraftId === 'string'
-      && /^draft_[a-z0-9_-]{12,100}$/iu.test(value.anonymousDraftId)
+      && /^draft_[\w-]{12,100}$/iu.test(value.anonymousDraftId)
       ? value.anonymousDraftId
       : defaults.anonymousDraftId,
     profile: migratedProfile,
@@ -1019,7 +1051,7 @@ const isLegacyOnboardingState = (value: unknown): value is SharedStateShape =>
 
 const defaultStorage = (): OnboardingStorage => {
   if (typeof window === 'undefined') {
-    throw new Error('Browser storage is not available.');
+    throw new TypeError('Browser storage is not available.');
   }
   return window.localStorage;
 };

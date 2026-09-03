@@ -1,10 +1,10 @@
 import { Download, FlaskConical } from 'lucide-react';
 import {
+  type ReactNode,
   useCallback,
   useEffect,
   useRef,
   useState,
-  type ReactNode,
 } from 'react';
 
 import {
@@ -13,22 +13,22 @@ import {
   useCustomDesignAssetRepository,
 } from '../custom-design/integration/CustomDesignAssetProvider';
 import { formatCustomDesignUploadSummary } from '../custom-design/integration/upload-summary';
-import { reconcileV1StarterDocument } from '../model/v1-starter-recipes';
 import type { SiteBuilderDocument } from '../model/types';
+import { reconcileV1StarterDocument } from '../model/v1-starter-recipes';
 import { Dialog } from '../ui/Dialog';
 import { ConfirmationDialog } from '../ui/EditorDialogs';
 import type { LabDocumentController } from '../ui/useLabDocument';
 import { OnboardingShell } from './components/OnboardingShell';
 import { CORE_SCREEN_ORDER } from './copy';
 import { recordOnboardingEvent } from './events/journal';
+import {
+  type CanvaIntegrationResult,
+  useCanvaIntegration,
+} from './extras/useCanvaIntegration';
 import { useFeedback } from './feedback/useFeedback';
 import {
-  useCanvaIntegration,
-  type CanvaIntegrationResult,
-} from './extras/useCanvaIntegration';
-import {
-  LAB_REVIEW_FIXTURES,
   applyLabReviewFixture,
+  LAB_REVIEW_FIXTURES,
   type LabReviewFixtureId,
 } from './fixtures';
 import {
@@ -64,29 +64,29 @@ import {
   getCompletedEssentialStages,
   getEssentialsLeft,
 } from './progress/essentials';
-import {
-  AboutDesignScreen,
-  AboutScreen,
-  ExtrasScreen,
-  PoliciesScreen,
-  QuickBookLayoutScreen,
-  SiteStyleScreen,
-  type OnboardingStateUpdater,
-} from './screens/DesignScreens';
+import { BrandBasicsScreen } from './screens/BasicsScreens';
+import { BookingLayoutScreen } from './screens/BookingLayoutScreen';
 import {
   BookingPreferencesScreen,
   StartingPointScreen,
   StartingPreviewScreen,
 } from './screens/BookingScreens';
-import { BrandBasicsScreen } from './screens/BasicsScreens';
-import { BookingLayoutScreen } from './screens/BookingLayoutScreen';
+import {
+  AboutDesignScreen,
+  AboutScreen,
+  ExtrasScreen,
+  type OnboardingStateUpdater,
+  PoliciesScreen,
+  QuickBookLayoutScreen,
+  SiteStyleScreen,
+} from './screens/DesignScreens';
 import { HoursScreen } from './screens/HoursScreen';
 import { LocationContactScreen } from './screens/LocationContactScreen';
-import { SaveProgressScreen } from './screens/SaveProgressScreen';
 import {
   BUILDER_HANDOFF_TRIGGER_ID,
   FinalReviewScreen,
 } from './screens/ReviewScreen';
+import { SaveProgressScreen } from './screens/SaveProgressScreen';
 import { switchOnboardingStarter } from './state/switchStarter';
 import { useOnboardingState } from './state/useOnboardingState';
 
@@ -113,7 +113,9 @@ type OnboardingBrowserHistoryState = {
 const isOnboardingBrowserHistoryState = (
   value: unknown,
 ): value is OnboardingBrowserHistoryState => {
-  if (!value || typeof value !== 'object') return false;
+  if (!value || typeof value !== 'object') {
+    return false;
+  }
   const candidate = value as Partial<OnboardingBrowserHistoryState>;
   const validOverlay = candidate.overlay === undefined
     || candidate.overlay?.kind === 'plan'
@@ -148,7 +150,9 @@ export type OnboardingSavePayload = {
 function AccountGateBridge({ onOpen }: { onOpen: () => void }) {
   const openedRef = useRef(false);
   useEffect(() => {
-    if (openedRef.current) return;
+    if (openedRef.current) {
+      return;
+    }
     openedRef.current = true;
     onOpen();
   }, [onOpen]);
@@ -181,10 +185,10 @@ export const getOnboardingAssetIds = (
   state: OnboardingLabState,
 ): string[] => [...new Set([
   ...[state.profile.profilePhoto, state.profile.logo]
-    .flatMap((image) => image?.storageId ? [image.storageId] : []),
-  ...state.gallery.images.flatMap((image) => image.storageId ? [image.storageId] : []),
+    .flatMap(image => image?.storageId ? [image.storageId] : []),
+  ...state.gallery.images.flatMap(image => image.storageId ? [image.storageId] : []),
   ...state.canva.ownedAssetIds,
-  ...state.canva.images.flatMap((image) => image.storageId ? [image.storageId] : []),
+  ...state.canva.images.flatMap(image => image.storageId ? [image.storageId] : []),
 ])];
 
 export const isOnboardingResetBlocked = (
@@ -197,9 +201,9 @@ export const getOnboardingReferencedAssetIds = (
   state: OnboardingLabState,
 ): string[] => [...new Set([
   ...[state.profile.profilePhoto, state.profile.logo]
-    .flatMap((image) => image?.storageId ? [image.storageId] : []),
-  ...state.gallery.images.flatMap((image) => image.storageId ? [image.storageId] : []),
-  ...state.canva.images.flatMap((image) => image.storageId ? [image.storageId] : []),
+    .flatMap(image => image?.storageId ? [image.storageId] : []),
+  ...state.gallery.images.flatMap(image => image.storageId ? [image.storageId] : []),
+  ...state.canva.images.flatMap(image => image.storageId ? [image.storageId] : []),
 ])];
 
 export const applyCanvaIntegrationResult = (
@@ -208,7 +212,7 @@ export const applyCanvaIntegrationResult = (
   displayMode: CanvaDisplayMode,
   placement: CanvaPlacement,
 ): OnboardingLabState => {
-  const acceptedImages = result.addedImages.map((image) => ({
+  const acceptedImages = result.addedImages.map(image => ({
     fileName: image.fileName,
     id: image.id,
     mimeType: image.mimeType,
@@ -216,13 +220,13 @@ export const applyCanvaIntegrationResult = (
     storageId: image.assetId,
   }));
   const imagesByStorageId = new Map(
-    [...current.canva.images, ...acceptedImages].map((image) => [
+    [...current.canva.images, ...acceptedImages].map(image => [
       image.storageId ?? image.id,
       image,
     ]),
   );
   const hasAcceptedImages = acceptedImages.length > 0;
-  const uploadFailures = result.failures.map((failure) => ({
+  const uploadFailures = result.failures.map(failure => ({
     ...(failure.code ? { code: failure.code } : {}),
     fileName: failure.fileName ?? 'Upload',
     message: failure.code === 'too_many_images'
@@ -231,15 +235,15 @@ export const applyCanvaIntegrationResult = (
   }));
   const uploadSummary = uploadFailures.length > 0
     ? formatCustomDesignUploadSummary(
-        result.addedCount,
-        uploadFailures.map((failure) => ({ code: failure.code ?? 'processing_failed' })),
-      )
+      result.addedCount,
+      uploadFailures.map(failure => ({ code: failure.code ?? 'processing_failed' })),
+    )
     : '';
   const status = result.status === 'committed' || (result.status === 'partial' && hasAcceptedImages)
     ? 'ready' as const
     : current.canva.images.length > 0
-        ? current.canva.status
-        : 'invalid' as const;
+      ? current.canva.status
+      : 'invalid' as const;
 
   return {
     ...current,
@@ -253,7 +257,7 @@ export const applyCanvaIntegrationResult = (
         : current.canva.images,
       ownedAssetIds: [...new Set([
         ...current.canva.ownedAssetIds,
-        ...acceptedImages.flatMap((image) => image.storageId ? [image.storageId] : []),
+        ...acceptedImages.flatMap(image => image.storageId ? [image.storageId] : []),
       ])],
       placement,
       status,
@@ -369,7 +373,7 @@ function LabReviewOptions({
           <p>Load a deterministic review state. A fixture with a starter rebuilds the exact existing universal starter document.</p>
         </div>
         <div className="onboarding-fixture-grid">
-          {LAB_REVIEW_FIXTURES.map((fixture) => (
+          {LAB_REVIEW_FIXTURES.map(fixture => (
             <button
               aria-pressed={appliedFixtureId === fixture.id}
               className="onboarding-fixture-card"
@@ -383,7 +387,11 @@ function LabReviewOptions({
         </div>
         <footer className="onboarding-overlay-actions">
           <button type="button" onClick={onExport}>
-            <Download aria-hidden="true" size={16} /> Export event log ({eventCount})
+            <Download aria-hidden="true" size={16} />
+            {' '}
+            Export event log (
+            {eventCount}
+            )
           </button>
           <button className="is-primary" type="button" onClick={onClose}>Done</button>
         </footer>
@@ -495,7 +503,9 @@ export function OnboardingApp({
   const essentialsRemaining = getEssentialsLeft(onboarding.state);
 
   useEffect(() => {
-    if (!startingSiteRevealActive) return undefined;
+    if (!startingSiteRevealActive) {
+      return undefined;
+    }
     const timer = window.setTimeout(() => setStartingSiteRevealActive(false), 760);
     return () => window.clearTimeout(timer);
   }, [startingSiteRevealActive]);
@@ -523,12 +533,16 @@ export function OnboardingApp({
       design: 'Your website design is set',
     } as const;
     for (const stage of completedStages) {
-      if (stage === 'review') continue;
+      if (stage === 'review') {
+        continue;
+      }
       const milestoneId = `stage_${stage}`;
       if (
         previousCompletedStagesRef.current.has(stage)
         || milestoneIds.includes(milestoneId)
-      ) continue;
+      ) {
+        continue;
+      }
       // Stage completion can land in the same commit as a navigation (the
       // design stage always does); preserve the toast across that one
       // transition so the moment is actually seen.
@@ -552,7 +566,7 @@ export function OnboardingApp({
     previousCompletedStagesRef.current = new Set(completedStages);
     previousEssentialsRemainingRef.current = essentialsRemaining;
     if (milestonesToRemember.length > 0) {
-      onboarding.updateState((current) => ({
+      onboarding.updateState(current => ({
         ...current,
         reviewOptions: {
           ...current.reviewOptions,
@@ -572,18 +586,20 @@ export function OnboardingApp({
   ]);
 
   useEffect(() => {
-    if (previousFeedbackScreenRef.current === screen) return;
+    if (previousFeedbackScreenRef.current === screen) {
+      return;
+    }
     previousFeedbackScreenRef.current = screen;
     feedback.clearQueuedVisuals();
   }, [feedback, screen]);
 
   const updateState: OnboardingStateUpdater = useCallback((update) => {
-    onboarding.updateState((current) => withObservableRecipeEvents(current, update(current)));
+    onboarding.updateState(current => withObservableRecipeEvents(current, update(current)));
   }, [onboarding.updateState]);
 
   const canva = useCanvaIntegration({
     lab,
-    onSectionIdChange: (customDesignSectionId) => onboarding.updateState((current) => ({
+    onSectionIdChange: customDesignSectionId => onboarding.updateState(current => ({
       ...current,
       canva: { ...current.canva, customDesignSectionId },
     })),
@@ -596,20 +612,26 @@ export function OnboardingApp({
       || lab.document
       || screen !== 'starter'
       || pendingAssetIds.length === 0
-    ) return undefined;
+    ) {
+      return undefined;
+    }
     const signature = [...pendingAssetIds].sort().join('|');
-    if (cleanupRetrySignatureRef.current === signature) return undefined;
+    if (cleanupRetrySignatureRef.current === signature) {
+      return undefined;
+    }
     cleanupRetrySignatureRef.current = signature;
     let cancelled = false;
     void coordinator.deleteAssetsIfUnreferenced(pendingAssetIds).then((cleanupErrors) => {
-      if (cancelled) return;
+      if (cancelled) {
+        return;
+      }
       if (cleanupErrors.length > 0) {
         setError(
           'Setup is clear, but this browser still couldn’t remove every uploaded setup image. The cleanup list remains saved and will be retried safely after reload.',
         );
         return;
       }
-      onboarding.updateState((current) => ({
+      onboarding.updateState(current => ({
         ...current,
         canva: { ...current.canva, ownedAssetIds: [] },
       }));
@@ -633,7 +655,9 @@ export function OnboardingApp({
 
   useEffect(() => {
     feedback.setVisualSuppressed(modalOpen || screen === 'final_preview');
-    if (surfaceRef.current) surfaceRef.current.inert = modalOpen;
+    if (surfaceRef.current) {
+      surfaceRef.current.inert = modalOpen;
+    }
     document.documentElement.classList.toggle('onboarding-modal-open', modalOpen);
     return () => {
       document.documentElement.classList.remove('onboarding-modal-open');
@@ -646,11 +670,17 @@ export function OnboardingApp({
   }, [feedback]);
 
   useEffect(() => {
-    if (onboarding.state.progress.sessionStatus !== 'active') return undefined;
+    if (onboarding.state.progress.sessionStatus !== 'active') {
+      return undefined;
+    }
     const frame = window.requestAnimationFrame(() => {
       const heading = surfaceRef.current?.querySelector<HTMLHeadingElement>('h1');
-      if (!heading) return;
-      if (document.scrollingElement) document.scrollingElement.scrollTop = 0;
+      if (!heading) {
+        return;
+      }
+      if (document.scrollingElement) {
+        document.scrollingElement.scrollTop = 0;
+      }
       document.documentElement.scrollTop = 0;
       document.body.scrollTop = 0;
       heading.tabIndex = -1;
@@ -667,12 +697,14 @@ export function OnboardingApp({
   }, [forceReview, onboarding.viewScreen]);
 
   useEffect(() => {
-    if (mountedRef.current) return;
+    if (mountedRef.current) {
+      return;
+    }
     mountedRef.current = true;
     if (
       (onboarding.state.progress.sessionStatus === 'builder'
         || onboarding.state.progress.sessionStatus === 'dashboard')
-      && !forceReview
+        && !forceReview
     ) {
       enterDashboard();
       return;
@@ -728,7 +760,9 @@ export function OnboardingApp({
       return;
     }
 
-    if (browserScreenRef.current === screen) return;
+    if (browserScreenRef.current === screen) {
+      return;
+    }
     const onboardingCursor = browserCursorRef.current + 1;
     browserCursorRef.current = onboardingCursor;
     browserOverlayRef.current = null;
@@ -744,7 +778,9 @@ export function OnboardingApp({
 
   useEffect(() => {
     const handlePopState = (event: PopStateEvent) => {
-      if (!isOnboardingBrowserHistoryState(event.state)) return;
+      if (!isOnboardingBrowserHistoryState(event.state)) {
+        return;
+      }
       if (event.state.onboardingSession !== historySessionRef.current) {
         window.history.forward();
         return;
@@ -754,12 +790,17 @@ export function OnboardingApp({
         : event.state.onboardingCursor > browserCursorRef.current
           ? 'forward'
           : null;
-      if (!direction) return;
+      if (!direction) {
+        return;
+      }
       if (event.state.screen === 'about_design'
         && !aboutEnabled
         && selectedStarter !== 'quick_book') {
-        if (direction === 'back') window.history.back();
-        else window.history.forward();
+        if (direction === 'back') {
+          window.history.back();
+        } else {
+          window.history.forward();
+        }
         return;
       }
 
@@ -869,7 +910,9 @@ export function OnboardingApp({
       window.history.back();
       return;
     }
-    if (previewSource) onboarding.recordEvent({ source: previewSource, type: 'preview_closed' });
+    if (previewSource) {
+      onboarding.recordEvent({ source: previewSource, type: 'preview_closed' });
+    }
     browserOverlayRef.current = null;
     setPreviewSource(null);
     if (continueSetup) {
@@ -922,8 +965,8 @@ export function OnboardingApp({
     if (assetRepository && removed.length > 0) {
       void onboardingMediaPort.deleteOwned(assetRepository, removed).then((cleanupErrors) => {
         if (cleanupErrors.length > 0) {
-          const cleanupIds = removed.flatMap((image) => image.storageId ? [image.storageId] : []);
-          onboarding.updateState((current) => ({
+          const cleanupIds = removed.flatMap(image => image.storageId ? [image.storageId] : []);
+          onboarding.updateState(current => ({
             ...current,
             canva: {
               ...current.canva,
@@ -942,7 +985,9 @@ export function OnboardingApp({
     setError('');
     profileMediaOperationsRef.current += 1;
     try {
-      if (!assetRepository) throw new Error(ONBOARDING_MEDIA_STORAGE_UNAVAILABLE_MESSAGE);
+      if (!assetRepository) {
+        throw new Error(ONBOARDING_MEDIA_STORAGE_UNAVAILABLE_MESSAGE);
+      }
       const previous = kind === 'profile'
         ? onboarding.state.profile.profilePhoto
         : onboarding.state.profile.logo;
@@ -950,8 +995,10 @@ export function OnboardingApp({
       onboarding.updateProfile(kind === 'profile' ? { profilePhoto: image } : { logo: image });
       if (previous) {
         void onboardingMediaPort.deleteOwned(assetRepository, [previous]).then((cleanupErrors) => {
-          if (cleanupErrors.length === 0 || !previous.storageId) return;
-          onboarding.updateState((current) => ({
+          if (cleanupErrors.length === 0 || !previous.storageId) {
+            return;
+          }
+          onboarding.updateState(current => ({
             ...current,
             canva: {
               ...current.canva,
@@ -997,7 +1044,7 @@ export function OnboardingApp({
       setError(result.message);
       return;
     }
-    onboarding.updateState((current) => continueFrom(recordOnboardingEvent({
+    onboarding.updateState(current => continueFrom(recordOnboardingEvent({
       ...current,
       recipe: {
         ...current.recipe,
@@ -1024,7 +1071,9 @@ export function OnboardingApp({
   };
 
   const confirmStarterChange = () => {
-    if (!pendingStarter) return;
+    if (!pendingStarter) {
+      return;
+    }
     const result = switchOnboardingStarter(
       lab,
       onboarding.state,
@@ -1037,7 +1086,7 @@ export function OnboardingApp({
       return;
     }
 
-    onboarding.updateState((current) => continueFrom(recordOnboardingEvent({
+    onboarding.updateState(current => continueFrom(recordOnboardingEvent({
       ...current,
       canva: {
         ...current.canva,
@@ -1132,7 +1181,9 @@ export function OnboardingApp({
   };
 
   const confirmReset = async () => {
-    if (resetPending) return;
+    if (resetPending) {
+      return;
+    }
     if (isOnboardingResetBlocked(
       lab.transactionPending,
       profileMediaOperationsRef.current,
@@ -1159,7 +1210,7 @@ export function OnboardingApp({
         onboardingAssetIds,
       ) ?? [];
       if (cleanupErrors.length > 0) {
-        onboarding.updateState((current) => ({
+        onboarding.updateState(current => ({
           ...current,
           canva: {
             ...current.canva,
@@ -1199,7 +1250,9 @@ export function OnboardingApp({
   };
 
   const syncBuilderSiteName = () => {
-    if (!lab.document) return true;
+    if (!lab.document) {
+      return true;
+    }
     const synced = lab.syncSiteName(onboarding.state.profile.businessName);
     if (!synced) {
       setError('Finish the current image upload before updating the Builder site name.');
@@ -1207,35 +1260,37 @@ export function OnboardingApp({
     return synced;
   };
 
-  const recipeContext = lab.document ? {
-    context: deriveSiteLibraryContext(onboarding.state, lab.document),
-    toggles: deriveSitePlanToggles(onboarding.state),
-  } : null;
+  const recipeContext = lab.document
+    ? {
+        context: deriveSiteLibraryContext(onboarding.state, lab.document),
+        toggles: deriveSitePlanToggles(onboarding.state),
+      }
+    : null;
   const acceptedBuilderDocument = lab.document && recipeContext
     ? reconcileV1StarterDocument(
-        applyOnboardingSitePresentation(lab.document, {
-          aboutPreset: onboarding.state.recipe.aboutPreset,
-          galleryLayout: onboarding.state.gallery.layout,
-        }),
-        recipeContext,
-      ).document
+      applyOnboardingSitePresentation(lab.document, {
+        aboutPreset: onboarding.state.recipe.aboutPreset,
+        galleryLayout: onboarding.state.gallery.layout,
+      }),
+      recipeContext,
+    ).document
     : null;
   const recipeSyncSignature = lab.document && recipeContext
     ? JSON.stringify({
-        aboutEnabled: recipeContext.toggles.aboutEnabled,
-        aboutPreset: onboarding.state.recipe.aboutPreset,
-        businessStructure: recipeContext.context.businessStructure,
-        galleryEnabled: recipeContext.toggles.galleryEnabled,
-        galleryImageIds: recipeContext.context.galleryImageIds,
-        galleryLayout: onboarding.state.gallery.layout,
-        policiesEnabled: recipeContext.toggles.policiesEnabled,
-        policiesMeaningful: recipeContext.context.policiesMeaningful,
-        reviewIds: recipeContext.context.siteContent.reviews
-          .filter(review => review.visible)
-          .map(review => review.id),
-        siteId: lab.document.siteId,
-        siteName: onboarding.state.profile.businessName,
-      })
+      aboutEnabled: recipeContext.toggles.aboutEnabled,
+      aboutPreset: onboarding.state.recipe.aboutPreset,
+      businessStructure: recipeContext.context.businessStructure,
+      galleryEnabled: recipeContext.toggles.galleryEnabled,
+      galleryImageIds: recipeContext.context.galleryImageIds,
+      galleryLayout: onboarding.state.gallery.layout,
+      policiesEnabled: recipeContext.toggles.policiesEnabled,
+      policiesMeaningful: recipeContext.context.policiesMeaningful,
+      reviewIds: recipeContext.context.siteContent.reviews
+        .filter(review => review.visible)
+        .map(review => review.id),
+      siteId: lab.document.siteId,
+      siteName: onboarding.state.profile.businessName,
+    })
     : '';
 
   useEffect(() => {
@@ -1287,7 +1342,9 @@ export function OnboardingApp({
       });
       return;
     }
-    if (onboarding.requestBuilderHandoff()) openPlan();
+    if (onboarding.requestBuilderHandoff()) {
+      openPlan();
+    }
   };
   const choosePlan = (intent: PlanIntent) => {
     const saved = onboarding.choosePlan(intent);
@@ -1315,21 +1372,23 @@ export function OnboardingApp({
           <BrandBasicsScreen
             onBack={goBack}
             onContinue={() => {
-              if (!syncBuilderSiteName()) return;
+              if (!syncBuilderSiteName()) {
+                return;
+              }
               setStartingSiteRevealActive(true);
               onboarding.continueFlow();
             }}
-            onLogoSelected={(file) => selectImage(file, 'logo')}
+            onLogoSelected={file => selectImage(file, 'logo')}
             onProfileChange={updatePhotoProfile}
-            onProfilePhotoSelected={(file) => selectImage(file, 'profile')}
-            onQuickBookProfileChange={(patch) => updateState((current) => ({
+            onProfilePhotoSelected={file => selectImage(file, 'profile')}
+            onQuickBookProfileChange={patch => updateState(current => ({
               ...current,
               recipe: {
                 ...current.recipe,
                 quickBookProfile: { ...current.recipe.quickBookProfile, ...patch },
               },
             }))}
-            onValidationFailure={(fieldIds) => onboarding.recordEvent({ fieldIds, screen, type: 'validation_failure' })}
+            onValidationFailure={fieldIds => onboarding.recordEvent({ fieldIds, screen, type: 'validation_failure' })}
             profile={onboarding.state.profile}
             reveal={startingSiteRevealActive}
             starter={lab.document?.originStarter ?? onboarding.state.recipe.starter}
@@ -1346,7 +1405,7 @@ export function OnboardingApp({
             }))}
             onContinue={onboarding.continueFlow}
             onProfileChange={updateProfile}
-            onValidationFailure={(fieldIds) => onboarding.recordEvent({ fieldIds, screen, type: 'validation_failure' })}
+            onValidationFailure={fieldIds => onboarding.recordEvent({ fieldIds, screen, type: 'validation_failure' })}
             profile={onboarding.state.profile}
           />
         );
@@ -1364,18 +1423,18 @@ export function OnboardingApp({
         return (
           <BookingPreferencesScreen
             onBack={goBack}
-            onBookingPreferencesChange={(patch) => onboarding.updateProfile({
+            onBookingPreferencesChange={patch => onboarding.updateProfile({
               bookingPreferences: { ...onboarding.state.profile.bookingPreferences, ...patch },
             })}
             onContinue={onboarding.continueFlow}
-            onDepositChange={(deposits) => onboarding.updateProfile({
+            onDepositChange={deposits => onboarding.updateProfile({
               policies: {
                 ...onboarding.state.profile.policies,
                 deposits,
               },
             })}
-            onServiceMenuChange={(serviceMenu) => onboarding.updateProfile({ serviceMenu })}
-            onValidationFailure={(fieldIds) => onboarding.recordEvent({ fieldIds, screen, type: 'validation_failure' })}
+            onServiceMenuChange={serviceMenu => onboarding.updateProfile({ serviceMenu })}
+            onValidationFailure={fieldIds => onboarding.recordEvent({ fieldIds, screen, type: 'validation_failure' })}
             previewTimestamp={onboarding.state.reviewOptions.previewTimestamp}
             profile={onboarding.state.profile}
           />
@@ -1390,7 +1449,7 @@ export function OnboardingApp({
             logoUrl={starterLogoUrl ?? undefined}
             onBack={goBack}
             onCanvaIntent={() => {
-              onboarding.updateState((current) => ({
+              onboarding.updateState(current => ({
                 ...current,
                 recipe: {
                   ...current.recipe,
@@ -1405,17 +1464,19 @@ export function OnboardingApp({
           />
         );
       case 'starting_preview':
-        return onboarding.state.recipe.starter ? (
-          <StartingPreviewScreen
-            onBack={goBack}
-            onContinue={onboarding.continueFlow}
-            onOpenPreview={() => openPreview('starting_preview')}
-            preview={previewFor(onboarding.state, lab.document, 'Personalized starting site preview')}
-            profile={onboarding.state.profile}
-            reveal={startingSiteRevealActive}
-            starter={onboarding.state.recipe.starter}
-          />
-        ) : null;
+        return onboarding.state.recipe.starter
+          ? (
+              <StartingPreviewScreen
+                onBack={goBack}
+                onContinue={onboarding.continueFlow}
+                onOpenPreview={() => openPreview('starting_preview')}
+                preview={previewFor(onboarding.state, lab.document, 'Personalized starting site preview')}
+                profile={onboarding.state.profile}
+                reveal={startingSiteRevealActive}
+                starter={onboarding.state.recipe.starter}
+              />
+            )
+          : null;
       case 'about':
         return (
           <AboutScreen
@@ -1440,7 +1501,7 @@ export function OnboardingApp({
             onContinue={onboarding.continueFlow}
             onEditBooking={() => onboarding.viewScreen('booking_preferences')}
             onSkip={() => {
-              updateState((current) => ({
+              updateState(current => ({
                 ...current,
                 recipe: { ...current.recipe, policiesEnabled: false },
               }));
@@ -1529,16 +1590,12 @@ export function OnboardingApp({
             state={onboarding.state}
           />
         );
-      // Legacy ids (welcome, photo_social) cannot be current: storage
-      // migration remaps them before any render.
-      default:
-        return null;
       case 'final_preview':
         return (
           <FinalReviewScreen
             document={acceptedBuilderDocument}
             onBack={goBack}
-            onEdit={(target) => onboarding.viewScreen(target)}
+            onEdit={target => onboarding.viewScreen(target)}
             onEditCanva={() => {
               onboarding.viewScreen('extras');
               setCanvaOpen(true);
@@ -1556,6 +1613,10 @@ export function OnboardingApp({
             state={onboarding.state}
           />
         );
+      // Legacy ids (welcome, photo_social) cannot be current: storage
+      // migration remaps them before any render.
+      default:
+        return null;
     }
   };
 
@@ -1577,29 +1638,35 @@ export function OnboardingApp({
   return (
     <div className={`onboarding-app${reducedMotionClass}${smallPhoneClass}`} data-onboarding-screen={screen}>
       <div className="onboarding-app__surface" ref={surfaceRef}>
-        {error || onboarding.storageIssue || lab.loadIssues.length > 0 ? (
-          <div className="onboarding-error-banner" role="alert">
-            <span>{error || onboarding.storageIssue || lab.loadIssues.join(' ')}</span>
-            {error ? <button type="button" onClick={() => setError('')}>Dismiss</button> : null}
-          </div>
-        ) : null}
-        {screen === 'starter' ? content : (
-          <OnboardingShell
-            autosaveState={onboarding.saveStatus}
-            completedStages={completedStages}
-            currentStage={getScreenStage(screen)}
-            essentialsRemaining={essentialsRemaining}
-            onLabOptions={auditMode ? () => setLabOptionsOpen(true) : undefined}
-            onRestart={() => setResetOpen(true)}
-            onSaveForLater={() => {
-              const result = onboarding.pause();
-              if (!result.success) setError(result.message);
-            }}
-            routeKey={screen}
-          >
-            {content}
-          </OnboardingShell>
-        )}
+        {error || onboarding.storageIssue || lab.loadIssues.length > 0
+          ? (
+              <div className="onboarding-error-banner" role="alert">
+                <span>{error || onboarding.storageIssue || lab.loadIssues.join(' ')}</span>
+                {error ? <button type="button" onClick={() => setError('')}>Dismiss</button> : null}
+              </div>
+            )
+          : null}
+        {screen === 'starter'
+          ? content
+          : (
+              <OnboardingShell
+                autosaveState={onboarding.saveStatus}
+                completedStages={completedStages}
+                currentStage={getScreenStage(screen)}
+                essentialsRemaining={essentialsRemaining}
+                onLabOptions={auditMode ? () => setLabOptionsOpen(true) : undefined}
+                onRestart={() => setResetOpen(true)}
+                onSaveForLater={() => {
+                  const result = onboarding.pause();
+                  if (!result.success) {
+                    setError(result.message);
+                  }
+                }}
+                routeKey={screen}
+              >
+                {content}
+              </OnboardingShell>
+            )}
       </div>
 
       <SetupPreviewOverlay
@@ -1635,16 +1702,20 @@ export function OnboardingApp({
         onClose={dismissPlan}
         open={planOpen}
       />
-      {auditMode ? (
-        <LabReviewOptions
-          appliedFixtureId={onboarding.state.reviewOptions.appliedFixtureId}
-          eventCount={onboarding.state.eventJournal.length}
-          onApply={(id) => { void applyFixture(id); }}
-          onClose={() => setLabOptionsOpen(false)}
-          onExport={() => downloadEventJournal(onboarding.eventLogJson())}
-          open={labOptionsOpen}
-        />
-      ) : null}
+      {auditMode
+        ? (
+            <LabReviewOptions
+              appliedFixtureId={onboarding.state.reviewOptions.appliedFixtureId}
+              eventCount={onboarding.state.eventJournal.length}
+              onApply={(id) => {
+                void applyFixture(id);
+              }}
+              onClose={() => setLabOptionsOpen(false)}
+              onExport={() => downloadEventJournal(onboarding.eventLogJson())}
+              open={labOptionsOpen}
+            />
+          )
+        : null}
       <ConfirmationDialog
         cancelLabel="Keep current"
         confirmLabel={builderHasBeenEntered
@@ -1666,8 +1737,14 @@ export function OnboardingApp({
         confirmLabel="Start over"
         danger
         description="This clears your onboarding answers, uploaded setup images and starting website from this device. Other saved Builder work stays untouched."
-        onClose={() => { if (!resetPending) setResetOpen(false); }}
-        onConfirm={() => { void confirmReset(); }}
+        onClose={() => {
+          if (!resetPending) {
+            setResetOpen(false);
+          }
+        }}
+        onConfirm={() => {
+          void confirmReset();
+        }}
         open={resetOpen}
         pending={resetPending}
         title="Start over?"
