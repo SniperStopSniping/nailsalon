@@ -9,8 +9,8 @@ import { parse } from 'dotenv';
 import { assertLocalAcceptanceEnvironment } from './safety';
 
 const action = process.argv[2];
-if (action !== 'server' && action !== 'test') {
-  throw new Error('Choose the fixed server or test acceptance action.');
+if (action !== 'server' && action !== 'test' && action !== 'test-setup') {
+  throw new Error('Choose the fixed server, test, or test-setup acceptance action.');
 }
 if (['.env', '.env.local', '.env.development', '.env.development.local'].some(file => existsSync(file))) {
   throw new Error('Use a clean acceptance worktree without local dotenv files; credentials are read only from the external Development source.');
@@ -70,6 +70,9 @@ process.stdout.write(`Disposable acceptance ${action}: ${baseURL}\nRuntime direc
 const args = action === 'server'
   ? ['node_modules/next/dist/bin/next', 'dev', '--hostname', 'localhost', '--port', '4211']
   : ['node_modules/@playwright/test/cli.js', 'test', '--config=live-acceptance/playwright.live.config.ts', `--project=${project}`];
+if (action === 'test-setup') {
+  args.push('--grep=Clerk setup propagates|obtain a Clerk development testing token');
+}
 const child = spawn(process.execPath, args, { env: environment, stdio: 'inherit' });
 for (const signal of ['SIGINT', 'SIGTERM'] as const) {
   process.on(signal, () => child.kill(signal));

@@ -44,7 +44,7 @@ contain development-only tooling. This is not a clean vulnerability audit.
 The application uses App Router. Although application source does not declare
 its own Server Actions, Clerk's client provider imports `invalidateCacheAction`
 from its `app-router/server-actions.js`; the acceptance build's server-reference
-manifest contains five Node Server Actions. The maintained advisory
+manifest contains seven Node Server Actions. The maintained advisory
 [GHSA-m99w-x7hq-7vfj](https://github.com/vercel/next.js/security/advisories/GHSA-m99w-x7hq-7vfj)
 therefore applies: crafted requests can exhaust CPU when at least one Server
 Action exists. It states no workaround other than upgrading. The

@@ -29,6 +29,20 @@ async function expectSavedPortrait(page: Page) {
   await expect.poll(() => portrait.evaluate(image => (image as HTMLImageElement).complete && (image as HTMLImageElement).naturalWidth > 0)).toBe(true);
 }
 
+test('Clerk setup propagates to the browser worker', async ({ page }, testInfo) => {
+  const presence = {
+    frontendApiPresent: Boolean(process.env.CLERK_FAPI),
+    testingTokenPresent: Boolean(process.env.CLERK_TESTING_TOKEN),
+  };
+
+  expect(presence).toEqual({ frontendApiPresent: true, testingTokenPresent: true });
+
+  await setupClerkTestingToken({ page });
+  const evidencePath = testInfo.outputPath('clerk-worker-presence.json');
+  await writeFile(evidencePath, JSON.stringify(presence));
+  await testInfo.attach('clerk-worker-presence', { contentType: 'application/json', path: evidencePath });
+});
+
 test('Quick Book owner can verify, save media, finish setup, and return to the same workspace', async ({ page, browser }, testInfo) => {
   test.setTimeout(420_000);
 

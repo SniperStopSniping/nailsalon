@@ -33,6 +33,11 @@ subsequent release work and does not claim that production has been updated.
 
 - Shared prototype: **112 files, 1,258 tests passed**.
 - Root and prototype TypeScript checks passed.
+- The final Next production build passed on commit `4727735`'s product source
+  and the refreshed lockfile, using only isolated CI placeholders and no real
+  database credentials.
+- The final source/client secret scan passed for **2,279 tracked files and 200
+  generated client assets**. All **35 secret-scanner self-tests** passed.
 - Final media/integration/service-image check: **35 files, 269 tests passed**
   (233 onboarding integration, 35 existing service-image, one decoder guard).
 - Existing image normalization: **29 tests passed**.
@@ -53,15 +58,12 @@ subsequent release work and does not claim that production has been updated.
    the development CAPTCHA before creating a user. See the exact
    [acceptance result](../live-acceptance/RESULTS-2026-09-03.md); this does not
    prove production signup is broken or establish downstream account parity.
-3. Complete the final production build and client-bundle secret scan on the
-   reviewed dependency lockfile; the earlier successful build predates the
-   Clerk security refresh.
-4. Push the reviewed commit, pass all required CI and Preview checks, and use
+3. Pass all required CI and Preview checks, and use
    the protected-main delivery path. Do not deploy a dirty checkout.
-5. Verify the production database target and recovery point, rehearse and run
+4. Verify the production database target and recovery point, rehearse and run
    guarded migration `0074_onboarding_account_site_foundation`, then activate
    `LUSTER_ONBOARDING_V1_INTEGRATION_ENABLED` for the verified release.
-6. Confirm the deployed Git SHA, homepage entry, account save, persistent media,
+5. Confirm the deployed Git SHA, homepage entry, account save, persistent media,
    dashboard parity, public-site privacy, and booking start after release.
 
 Production recovery preparation created the Neon snapshot

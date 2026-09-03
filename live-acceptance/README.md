@@ -52,3 +52,6 @@ node --import tsx --test live-acceptance/safety.node-test.ts
 The former unscoped captcha probe, historical-user tail journey, and dotenv
 global setup have been retired. The current Clerk token setup is a Playwright
 project dependency so its token is available to the dependent browser project.
+To verify token/FAPI propagation without starting or navigating to the app, use
+the same launcher environment with `test-setup` instead of `test`. It records
+presence booleans only, never token values.
