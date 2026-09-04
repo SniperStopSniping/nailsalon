@@ -1,3 +1,11 @@
+## [1.84.4](https://github.com/SniperStopSniping/nailsalon/compare/v1.84.3...v1.84.4) (2026-09-04)
+
+
+### Bug Fixes
+
+* **onboarding:** check site URL availability early ([593e196](https://github.com/SniperStopSniping/nailsalon/commit/593e19646d4f01cfd892971624bfc90e93be3196))
+* **onboarding:** show unavailable site URLs immediately ([128de6a](https://github.com/SniperStopSniping/nailsalon/commit/128de6ac939f166cd1ddc9547d5f6764a85d446a))
+
 ## [1.84.3](https://github.com/SniperStopSniping/nailsalon/compare/v1.84.2...v1.84.3) (2026-09-04)
 
 
