@@ -12,6 +12,7 @@ import {
   BOOKING_PAGE_PRESET_RECIPES,
   getBookingPagePresentationSignature,
 } from '@/libs/bookingPagePresetRecipes';
+import type { ServiceMenuLayout } from '@/libs/serviceMenuLayout';
 
 import BookingPageOwnerSurface from './page';
 
@@ -44,6 +45,7 @@ function baseConfig(overrides: Partial<{
   layout: string;
   stylePack: string;
   businessMode: string;
+  serviceMenuLayout: ServiceMenuLayout;
   quickBookProfile: QuickBookProfileVisibility;
   sectionOrder: string[];
   sectionVariants: Partial<Record<string, string>>;
@@ -51,6 +53,7 @@ function baseConfig(overrides: Partial<{
 }> = {}) {
   const side = {
     layout: 'quick_book',
+    serviceMenuLayout: 'visual_grid' as const,
     stylePack: 'default',
     tokenOverrides: null,
     sectionOrder: ['salonProfile', 'serviceMenu', 'featuredServices', 'policies', 'socialLinks', 'bookingCta'],
