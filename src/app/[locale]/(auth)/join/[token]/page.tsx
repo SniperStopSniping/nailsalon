@@ -9,7 +9,8 @@ import { salonSchema, salonSignupInviteSchema } from '@/models/Schema';
 
 export const dynamic = 'force-dynamic';
 
-export default async function JoinLusterPage({ params }: { params: { locale: string; token: string } }) {
+export default async function JoinLusterPage(props: { params: Promise<{ locale: string; token: string }> }) {
+  const params = await props.params;
   const [invite] = await db
     .select({
       invitedEmail: salonSignupInviteSchema.invitedEmail,

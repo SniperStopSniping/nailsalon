@@ -26,23 +26,24 @@ import { BookTimeClient } from './BookTimeClient';
  * Fetches services and technician from the database and passes them to the client component.
  * This is step 3 of the booking flow: Service → Tech → Time → Confirm
  */
-export default async function BookTimePage({
-  searchParams,
-  params,
-}: {
-  searchParams: {
-    serviceIds?: string;
-    baseServiceId?: string;
-    selectedAddOns?: string;
-    techId?: string;
-    locationId?: string;
-    salonSlug?: string;
-    originalAppointmentId?: string;
-    manageToken?: string;
-    campaign?: string;
-  };
-  params?: { locale?: string; slug?: string };
-}) {
+export default async function BookTimePage(
+  props: {
+    searchParams: Promise<{
+      serviceIds?: string;
+      baseServiceId?: string;
+      selectedAddOns?: string;
+      techId?: string;
+      locationId?: string;
+      salonSlug?: string;
+      originalAppointmentId?: string;
+      manageToken?: string;
+      campaign?: string;
+    }>;
+    params?: Promise<{ locale?: string; slug?: string }>;
+  },
+) {
+  const params = await props.params;
+  const searchParams = await props.searchParams;
   const context = await getPublicPageContext('book-datetime', searchParams, params);
 
   // Parse URL params
@@ -297,6 +298,7 @@ export default async function BookTimePage({
           technician={technician}
           technicianSelectionSource={resolvedTechnicianContext.effectiveTechnicianSelectionSource}
           bookingFlow={effectiveBookingFlow}
+          minimumNoticeMinutes={bookingConfig.minimumNoticeMinutes}
           salonTimeZone={bookingConfig.timezone}
         />
       </Suspense>

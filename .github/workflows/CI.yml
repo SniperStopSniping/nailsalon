@@ -68,6 +68,8 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build
+      - name: Scan production client bundles and runtime credentials
+        run: npm run security:check-secrets -- --tree
 
   full-vitest:
     name: Full Vitest Suite
@@ -176,8 +178,8 @@ jobs:
       # SaaS billing surface, dependency manifests, migration set, deploy
       # manifest, and salon-purge coverage contract.
       #
-      # The billing webhook route, SaaS billing surface, and dependency
-      # manifests are pinned to a hard ZERO DIFF for every PR in the ladder.
+      # The billing webhook route and SaaS billing surface are pinned to a hard
+      # ZERO DIFF. Dependency security upgrades require exact reviewed pairs.
       # D6's salon-purge extension is separately pinned to an exact additive
       # postimage: its reviewed registration and preflight may be added, while
       # no existing line may be removed or rewritten.
@@ -216,9 +218,27 @@ jobs:
           #    priceId and was replaced by the server-authoritative C2 route.
           git diff --exit-code "$base" -- \
             src/app/api/webhooks/stripe/route.ts \
-            src/app/api/billing/portal \
-            package.json \
-            package-lock.json
+            src/app/api/billing/portal
+
+          # Dependency manifests remain frozen except these reviewed exact
+          # manifest/lock pairs. Neither a generic version range nor an
+          # unrelated dependency refresh can ride along with a security fix.
+          if ! git diff --quiet "$base" -- package.json package-lock.json; then
+            dependency_manifest_blob="$(git hash-object package.json)"
+            dependency_lock_blob="$(git hash-object package-lock.json)"
+            case "$dependency_manifest_blob:$dependency_lock_blob" in
+              # Clerk 6.39.6: GHSA-vqx2-fgx2-5wq9 + GHSA-w24r-5266-9c3c.
+              158fcdce964972ec67f578e56bddba4db1408596:94fa39b23421c3eafeeddff7aac5fe50d6e71fa8) ;;
+              # Next 15.5.25 / React 19.2.8: patched App Router request handling
+              # (GHSA-m99w-x7hq-7vfj), with compatible intl/UI/test dependencies.
+              2566f6f2a1cb093ce512627a1568265c57aa8895:8d44f4449583e8d5d8bcc3cf6e844d9f47610578) ;;
+              *)
+                echo "::error::Dependency manifests must match a reviewed security-refresh pair."
+                printf 'actual blobs: %s:%s\n' "$dependency_manifest_blob" "$dependency_lock_blob"
+                exit 1
+                ;;
+            esac
+          fi
 
           # 1b. Billing checkout surface (Gate C2). Only the enumerated paths
           #     may change under src/app/api/billing, and the route itself
@@ -279,6 +299,10 @@ jobs:
               # technician-reference check, and the technician null-out.
               # Strictly additive over the Gate B1 postimage above.
               a9bee33c090b68feb4b8f3c9c351bc2bf7040b56) ;;
+              # Account-backed onboarding: tenant-scoped draft claim, media,
+              # revision and site cleanup, in child-before-parent order.
+              # Strictly additive over the Discover PR1 postimage above.
+              e62b6f637ee0c90f995657c15dd7ea4138bc102f) ;;
               *)
                 echo "::error::Unauthorized change outside the reviewed salon-purge postimages."
                 printf 'actual blob: %s\n' "$salon_purge_blob"
@@ -303,6 +327,8 @@ jobs:
               # Luster L1 PR2 — dark catalog grouping / capability / rule
               # foundation.
               migrations/0073_l1_catalog_rules_foundation.sql) ;;
+              # Account-backed onboarding — canonical saved site foundation.
+              migrations/0074_onboarding_account_site_foundation.sql) ;;
               migrations/meta/_journal.json) ;;
               vercel.json) ;;
               *)
@@ -384,6 +410,7 @@ jobs:
               # Luster L1 PR2 — dark catalog grouping / capability / rule
               # foundation.
               0073_l1_catalog_rules_foundation) ;;
+              0074_onboarding_account_site_foundation) ;;
               *)
                 echo "::error::Unauthorized migration journal entries: $tag"
                 exit 1
@@ -623,7 +650,7 @@ jobs:
         env:
           LUSTER_DISPOSABLE_POSTGRES_CONTAINER_ID: ${{ job.services.postgres.id }}
           LUSTER_DISPOSABLE_POSTGRES_NETWORK: ${{ job.services.postgres.network }}
-        run: npm run test:e2e -- tests/e2e/mobile-staff-uiqi.e2e.ts tests/e2e/booking-layout-variants.e2e.ts
+        run: npm run test:e2e -- tests/e2e/mobile-staff-uiqi.e2e.ts tests/e2e/booking-layout-variants.e2e.ts tests/e2e/account-gate-contrast.e2e.ts
 
       - name: Run E2E with trusted-main Percy coverage
         if: github.event_name == 'push'
@@ -633,9 +660,9 @@ jobs:
           LUSTER_DISPOSABLE_POSTGRES_NETWORK: ${{ job.services.postgres.network }}
         run: |
           if [ -n "$PERCY_TOKEN" ]; then
-            npx percy exec -- npm run test:e2e -- tests/e2e/mobile-staff-uiqi.e2e.ts tests/e2e/booking-layout-variants.e2e.ts
+            npx percy exec -- npm run test:e2e -- tests/e2e/mobile-staff-uiqi.e2e.ts tests/e2e/booking-layout-variants.e2e.ts tests/e2e/account-gate-contrast.e2e.ts
           else
-            npm run test:e2e -- tests/e2e/mobile-staff-uiqi.e2e.ts tests/e2e/booking-layout-variants.e2e.ts
+            npm run test:e2e -- tests/e2e/mobile-staff-uiqi.e2e.ts tests/e2e/booking-layout-variants.e2e.ts tests/e2e/account-gate-contrast.e2e.ts
           fi
 
       - uses: actions/upload-artifact@v4

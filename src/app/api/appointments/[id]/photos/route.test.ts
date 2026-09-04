@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { GET, POST } from './route';
+
 const {
   requireAppointmentManagerAccess,
   isCloudinaryConfigured,
@@ -39,8 +41,6 @@ vi.mock('@/libs/DB', () => ({
   db,
 }));
 
-import { GET, POST } from './route';
-
 describe('appointment photo route auth', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -63,7 +63,7 @@ describe('appointment photo route auth', () => {
         method: 'POST',
         body: formData,
       }),
-      { params: { id: 'appt_1' } },
+      { params: Promise.resolve({ id: 'appt_1' }) },
     );
 
     expect(response.status).toBe(401);
@@ -81,7 +81,7 @@ describe('appointment photo route auth', () => {
 
     const response = await GET(
       new Request('http://localhost/api/appointments/appt_1/photos'),
-      { params: { id: 'appt_1' } },
+      { params: Promise.resolve({ id: 'appt_1' }) },
     );
 
     expect(response.status).toBe(403);
@@ -122,7 +122,7 @@ describe('appointment photo route auth', () => {
         method: 'POST',
         body: formData,
       }),
-      { params: { id: 'appt_1' } },
+      { params: Promise.resolve({ id: 'appt_1' }) },
     );
 
     expect(response.status).toBe(201);

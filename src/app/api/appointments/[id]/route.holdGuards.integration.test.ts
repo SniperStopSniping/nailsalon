@@ -208,7 +208,7 @@ describe('§5.8 — PATCH /api/appointments/:id refuses holds', () => {
       holder.access = accessFor('awaiting_payment');
 
       const response = await PATCH(patchRequest({ status: target }), {
-        params: { id: APPT_ID },
+        params: Promise.resolve({ id: APPT_ID }),
       });
       const body = await response.json();
 
@@ -231,7 +231,7 @@ describe('§5.8 — PATCH /api/appointments/:id refuses holds', () => {
     holder.access = accessFor('confirmed');
 
     const response = await PATCH(patchRequest({ status: 'awaiting_payment' }), {
-      params: { id: APPT_ID },
+      params: Promise.resolve({ id: APPT_ID }),
     });
     const body = await response.json();
 
@@ -249,7 +249,7 @@ describe('§5.8 — PATCH /api/appointments/:id refuses holds', () => {
       status: 'cancelled',
       cancelReason: 'client_request',
     }), {
-      params: { id: APPT_ID },
+      params: Promise.resolve({ id: APPT_ID }),
     });
 
     expect(response.status).toBe(200);
@@ -280,7 +280,7 @@ describe('§5.8 — PATCH /api/appointments/:id refuses holds', () => {
     ]);
 
     const response = await PATCH(patchRequest({ status: 'no_show' }), {
-      params: { id: APPT_ID },
+      params: Promise.resolve({ id: APPT_ID }),
     });
 
     expect(response.status).toBe(200);
@@ -310,7 +310,7 @@ describe('§5.8 — PATCH /api/appointments/:id refuses holds', () => {
       .where(eq(schema.appointmentDepositSchema.id, DEPOSIT_ID));
 
     const response = await PATCH(patchRequest({ status: 'no_show' }), {
-      params: { id: APPT_ID },
+      params: Promise.resolve({ id: APPT_ID }),
     });
 
     expect(response.status).toBe(200);
@@ -343,7 +343,7 @@ describe('§5.8 — PATCH /api/appointments/:id refuses holds', () => {
       .where(eq(schema.appointmentDepositSchema.id, DEPOSIT_ID));
 
     const response = await PATCH(patchRequest({ status: 'no_show' }), {
-      params: { id: APPT_ID },
+      params: Promise.resolve({ id: APPT_ID }),
     });
     const body = await response.json();
 
@@ -382,7 +382,7 @@ describe('§5.8 — PATCH /api/appointments/:id refuses holds', () => {
     const response = await PATCH(patchRequest({
       status: 'cancelled',
       cancelReason: 'client_request',
-    }), { params: { id: APPT_ID } });
+    }), { params: Promise.resolve({ id: APPT_ID }) });
 
     expect(response.status).toBe(200);
     expect((await readBack()).appointment).toMatchObject({

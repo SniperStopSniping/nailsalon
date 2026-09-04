@@ -29,10 +29,8 @@ const resolveBodySchema = z.object({
 // PATCH /api/admin/fraud-signals/[id]/resolve
 // =============================================================================
 
-export async function PATCH(
-  request: Request,
-  { params }: { params: { id: string } },
-): Promise<Response> {
+export async function PATCH(request: Request, props: { params: Promise<{ id: string }> }): Promise<Response> {
+  const params = await props.params;
   try {
     const signalId = params.id;
 

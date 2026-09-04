@@ -11,13 +11,18 @@ import { ThemeProvider } from '@/theme';
 
 export const dynamic = 'force-dynamic';
 
-export default async function SlugTenantLayout({
-  children,
-  params,
-}: {
-  children: React.ReactNode;
-  params: { locale: string; slug: string };
-}) {
+export default async function SlugTenantLayout(
+  props: {
+    children: React.ReactNode;
+    params: Promise<{ locale: string; slug: string }>;
+  },
+) {
+  const params = await props.params;
+
+  const {
+    children,
+  } = props;
+
   const salon = await getResolvedSalon(undefined, params);
   if (!salon) {
     notFound();

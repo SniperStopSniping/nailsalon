@@ -233,7 +233,7 @@ export async function getAdminSession(): Promise<AdminWithSalons | null> {
   if (process.env.NODE_ENV !== 'production') {
     const { isDevModeServer, readDevRoleFromCookies, getMockAdminSession } = await import('./devRole.server');
     if (isDevModeServer()) {
-      const devRole = readDevRoleFromCookies();
+      const devRole = await readDevRoleFromCookies();
       if (devRole === 'super_admin' || devRole === 'admin') {
         return getMockAdminSession(devRole);
       }

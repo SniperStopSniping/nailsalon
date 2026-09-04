@@ -88,6 +88,10 @@ export function resolveBookingPagePresetPreviewSide({
 
   return {
     layout: recipe.layout,
+    quickBookLayout: currentSide.quickBookLayout,
+    serviceMenuLayout: currentSide.serviceMenuLayout,
+    sitePalettePreset: currentSide.sitePalettePreset,
+    siteStylePreset: currentSide.siteStylePreset,
     stylePack: currentSide.stylePack,
     tokenOverrides: currentSide.tokenOverrides,
     sectionOrder: [...recipe.sectionOrder],
@@ -95,5 +99,6 @@ export function resolveBookingPagePresetPreviewSide({
     hiddenSections: [...recipe.hiddenSections],
     businessMode: currentSide.businessMode,
     startMode: currentSide.startMode,
+    quickBookProfile: { ...currentSide.quickBookProfile },
   };
 }

@@ -59,7 +59,7 @@ describe('Google event editing-session detail route', () => {
   it('returns a tenant-authorized source snapshot for change detection', async () => {
     const response = await GET(
       new Request('http://localhost/api/admin/google-events/google_event_1?salonSlug=test-salon'),
-      { params: { id: 'google_event_1' } },
+      { params: Promise.resolve({ id: 'google_event_1' }) },
     );
     const body = await response.json();
 
@@ -79,7 +79,7 @@ describe('Google event editing-session detail route', () => {
     dbSelect.mockReturnValue(selectResult([eventRow({ deletedAt: new Date('2099-07-02T00:00:00.000Z') })]));
     const response = await GET(
       new Request('http://localhost/api/admin/google-events/google_event_1?salonSlug=test-salon'),
-      { params: { id: 'google_event_1' } },
+      { params: Promise.resolve({ id: 'google_event_1' }) },
     );
 
     expect(response.status).toBe(410);
@@ -95,7 +95,7 @@ describe('Google event editing-session detail route', () => {
     });
     const response = await GET(
       new Request('http://localhost/api/admin/google-events/google_event_1?salonSlug=other-salon'),
-      { params: { id: 'google_event_1' } },
+      { params: Promise.resolve({ id: 'google_event_1' }) },
     );
 
     expect(response.status).toBe(403);

@@ -12,6 +12,7 @@ import {
 import { Client, type QueryResultRow } from 'pg';
 import sharp from 'sharp';
 
+import type { BookingPageConfigSide } from '../../src/libs/bookingPageConfig';
 import {
   BOOKING_PAGE_PRESET_IDS,
   BOOKING_PAGE_PRESET_RECIPE_VERSION,
@@ -25,6 +26,7 @@ import {
   requireDisposableDatabaseTarget,
   resolveDisposableDatabaseServerExpectation,
 } from '../../src/libs/disposableDatabaseTarget';
+import type { ServiceMenuLayout } from '../../src/libs/serviceMenuLayout';
 import { formatDuration } from '../../src/utils/Helpers';
 import {
   appPath,
@@ -192,6 +194,41 @@ const STAGE7_PRESET_DOM_EXPECTATIONS = {
   present: readonly string[];
 }>;
 
+type PreviewPresentationState = Pick<BookingPageConfigSide, 'quickBookProfile' | 'serviceMenuLayout'>;
+
+function getPresetDomExpectations(
+  presetId: BookingPagePresetId,
+  presentation?: PreviewPresentationState,
+) {
+  const preset = STAGE7_PRESET_DOM_EXPECTATIONS[presetId];
+  const compactProfile = presetId === 'quick_book' && presentation?.quickBookProfile.version === 1;
+  const categoryMenu = presentation
+    ? presentation.serviceMenuLayout === 'category_menu'
+    : presetId === 'menu';
+  const present = preset.present.map((testId) => {
+    if (testId === 'service-menu-grouped-categories' || testId === 'service-menu-list') {
+      return categoryMenu ? 'service-menu-grouped-categories' : 'service-menu-list';
+    }
+    if (compactProfile && testId === 'booking-policy') {
+      return 'quick-book-policies';
+    }
+    if (compactProfile && testId === 'booking-social-links') {
+      return 'quick-book-instagram';
+    }
+    return testId;
+  });
+  const absent = [
+    ...preset.absent.map((testId) => {
+      if (testId === 'service-menu-grouped-categories' || testId === 'service-menu-list') {
+        return categoryMenu ? 'service-menu-list' : 'service-menu-grouped-categories';
+      }
+      return testId;
+    }),
+    ...(compactProfile ? ['booking-policy', 'booking-social-links'] : []),
+  ];
+  return { absent, present };
+}
+
 type SalonFixtureRow = QueryResultRow & {
   id: string;
   name: string;
@@ -252,6 +289,11 @@ type FeaturedServiceSnapshot = {
 
 type Stage7PresetSnapshot = {
   policyText: string;
+  serviceFacts: {
+    name: string;
+    duration: string;
+    price: string;
+  };
   serviceText: string;
   socialHref: string;
   structure: string;
@@ -282,10 +324,12 @@ type BuilderApiState = {
     draft: {
       hiddenSections: string[];
       layout: Layout;
+      quickBookProfile: BookingPageConfigSide['quickBookProfile'];
+      serviceMenuLayout: ServiceMenuLayout;
       sectionOrder: string[];
       sectionVariants: Record<string, string>;
     };
-    live: unknown;
+    live: BookingPageConfigSide;
     draftPresetBase: BookingPagePresetReference | null;
     livePresetBase: BookingPagePresetReference | null;
   };
@@ -307,6 +351,8 @@ const STAGE7_STRUCTURAL_MARKERS = [
   'editorial-policies',
   'booking-social-links',
   'booking-social-links-labeled',
+  'quick-book-policies',
+  'quick-book-instagram',
 ] as const;
 
 type TestIdSurface = {
@@ -385,6 +431,14 @@ function buildFixtureSettings(
       };
   const side = {
     layout,
+    // This legacy presentation has a deliberately public policy and social
+    // link. Keep their explicit consent when adopting the compact profile.
+    quickBookProfile: {
+      version: 0,
+      showBookingPolicy: true,
+      showCancellationPolicy: true,
+      showInstagram: true,
+    },
     stylePack: 'default',
     tokenOverrides: null,
     sectionOrder: [...(options.sectionOrder ?? SECTION_ORDER)],
@@ -739,8 +793,13 @@ async function expectStage7PresetStructure(
   presetId: BookingPagePresetId,
   salonName: string,
   technicians: TechnicianFixtureRow[],
+  presentation?: PreviewPresentationState,
 ): Promise<Stage7PresetSnapshot> {
-  const expectation = STAGE7_PRESET_DOM_EXPECTATIONS[presetId];
+  const expectation = getPresetDomExpectations(presetId, presentation);
+  const compactProfile = presetId === 'quick_book' && presentation?.quickBookProfile.version === 1;
+  const categoryMenu = presentation
+    ? presentation.serviceMenuLayout === 'category_menu'
+    : presetId === 'menu';
 
   await expect(page.locator('main')).toHaveCount(1);
   await expect(page.locator('main main')).toHaveCount(0);
@@ -748,7 +807,16 @@ async function expectStage7PresetStructure(
   await expect(page.locator('main h1')).toHaveCount(1);
   await expect(page.getByTestId(`service-card-${e2eConfig.serviceId}`)).toBeVisible();
   await expect(page.getByTestId('booking-experience-intro')).toHaveCount(1);
-  await expect(page.getByTestId('booking-appointment-only')).toHaveText('Synthetic appointment only');
+
+  if (compactProfile) {
+    await page.getByTestId('quick-book-policies').locator('summary').click();
+
+    await expect(page.getByTestId('quick-book-policies').getByText('Synthetic appointment only', { exact: true }))
+      .toBeVisible();
+    await expect(page.getByTestId('booking-appointment-only')).toHaveCount(0);
+  } else {
+    await expect(page.getByTestId('booking-appointment-only')).toHaveText('Synthetic appointment only');
+  }
 
   for (const testId of expectation.present) {
     await expect(page.getByTestId(testId), `${presetId} must render ${testId} exactly once`).toHaveCount(1);
@@ -758,14 +826,15 @@ async function expectStage7PresetStructure(
     await expect(page.getByTestId(testId), `${presetId} must not render ${testId}`).toHaveCount(0);
   }
 
-  await expect(page.locator('[data-public-surface="socialLinks"]')).toHaveCount(1);
+  await expect(page.locator('[data-public-surface="socialLinks"]')).toHaveCount(compactProfile ? 0 : 1);
+  await expect(page.locator('a[href="https://www.instagram.com/luster-stage4-fixture"]')).toHaveCount(1);
 
   if (presetId !== 'quick_book') {
     await expect(page.getByRole('heading', { level: 1 })).toHaveText(salonName);
     await expect(page.getByTestId('editorial-hero-image')).toHaveAttribute('alt', `${salonName} salon`);
   }
 
-  if (presetId === 'menu') {
+  if (categoryMenu) {
     await expect(page.getByTestId('service-category-scroll')).toHaveCount(0);
     await expect(page.getByRole('heading', { level: 2, name: 'Services' })).toHaveCount(1);
 
@@ -831,14 +900,26 @@ async function expectStage7PresetStructure(
   }
 
   const policy = presetId === 'quick_book'
-    ? page.getByTestId('booking-policy').locator('p')
+    ? compactProfile
+      ? page.getByTestId('quick-book-policies').getByText('Please arrive five minutes before your synthetic appointment.', { exact: true })
+      : page.getByTestId('booking-policy').locator('p')
     : page.getByTestId('editorial-policies').locator('p');
   const social = presetId === 'collective'
     ? page.getByTestId('booking-social-links-labeled').getByRole('link').first()
-    : page.getByTestId('booking-social-links').getByRole('link').first();
+    : compactProfile
+      ? page.getByTestId('quick-book-instagram')
+      : page.getByTestId('booking-social-links').getByRole('link').first();
 
   return {
     policyText: (await policy.textContent() ?? '').replace(/\s+/g, ' ').trim(),
+    serviceFacts: {
+      name: (await page.getByTestId(`service-card-content-${e2eConfig.serviceId}`)
+        .locator(':scope > div.break-words').textContent() ?? '').trim(),
+      duration: (await page.getByTestId(`service-card-meta-row-${e2eConfig.serviceId}`)
+        .locator(':scope > span').first().textContent() ?? '').trim(),
+      price: (await page.getByTestId(`service-card-price-${e2eConfig.serviceId}`)
+        .textContent() ?? '').trim(),
+    },
     serviceText: (await page.getByTestId(`service-card-${e2eConfig.serviceId}`).textContent() ?? '')
       .replace(/\s+/g, ' ')
       .trim(),
@@ -1987,6 +2068,11 @@ test('Stage 7 production recipes express four curated structures with one canoni
           expect(snapshot.serviceText).toContain(canonicalServiceName);
           expect(snapshot.serviceText).toContain(canonicalDuration);
           expect(snapshot.serviceText).toContain(canonicalPrice);
+          expect(snapshot.serviceFacts).toEqual({
+            name: canonicalServiceName,
+            duration: canonicalDuration,
+            price: canonicalPrice,
+          });
           expect(snapshot.policyText).toBe('Please arrive five minutes before your synthetic appointment.');
           expect(snapshot.socialHref).toBe('https://www.instagram.com/luster-stage4-fixture');
 
@@ -2014,7 +2100,10 @@ test('Stage 7 production recipes express four curated structures with one canoni
 
     expect(presetSnapshots.size).toBe(4);
     expect(new Set([...presetSnapshots.values()].map(snapshot => snapshot.structure)).size).toBe(4);
-    expect(new Set([...presetSnapshots.values()].map(snapshot => snapshot.serviceText)).size).toBe(1);
+    // The compact Category Menu intentionally omits description prose; only
+    // presentation differs. Compare exact canonical facts across recipes,
+    // while the per-recipe snapshot above still pins all text across sizes.
+    expect(new Set([...presetSnapshots.values()].map(snapshot => JSON.stringify(snapshot.serviceFacts))).size).toBe(1);
     expect(new Set([...presetSnapshots.values()].map(snapshot => snapshot.policyText)).size).toBe(1);
     expect(new Set([...presetSnapshots.values()].map(snapshot => snapshot.socialHref)).size).toBe(1);
     expect(presetSnapshots.get('signature')?.technicianNames).toEqual(
@@ -2343,6 +2432,19 @@ test('Production-split DRAFT Signature / LIVE Quick Book previews stay visible, 
           const beforeState = await fetchBuilderApiState(page);
           const beforePreviewSrc = await previewIframe.getAttribute('src');
 
+          // Site presets no longer own the independently selected booking
+          // catalogue layout. This fixture keeps Visual Grid throughout.
+          expect(beforeState.config.draft.serviceMenuLayout).toBe('visual_grid');
+
+          const { absent: absentMarkers, present: presentMarkers } = getPresetDomExpectations(presetId, {
+            ...beforeState.config.draft,
+            // Applying Quick Book adopts compact content ownership, unlike
+            // the untouched legacy LIVE fixture checked independently below.
+            quickBookProfile: presetId === 'quick_book'
+              ? { ...beforeState.config.draft.quickBookProfile, version: 1 }
+              : beforeState.config.draft.quickBookProfile,
+          });
+
           await page.getByRole('button', {
             name: `${presetLabel} starting design`,
           }).click();
@@ -2369,6 +2471,10 @@ test('Production-split DRAFT Signature / LIVE Quick Book previews stay visible, 
             topMarkerTestId,
             `${scenario.label} ${presetLabel} review preview`,
           );
+
+          await expect(reviewPreview.getByTestId('service-menu-list'))
+            .toHaveAttribute('data-booking-menu-layout', beforeState.config.draft.serviceMenuLayout);
+
           if (scenario === OWNER_PREVIEW_VIEWPORT_SCENARIOS[0]) {
             await testInfo.attach(`${testInfo.project.name}-${presetId}-dialog.png`, {
               body: await captureNonblankPreviewViewport(
@@ -2488,6 +2594,14 @@ test('Production-split DRAFT Signature / LIVE Quick Book previews stay visible, 
             recipeVersion: BOOKING_PAGE_PRESET_RECIPE_VERSION,
           });
           expect(appliedState.config.live).toEqual(beforeState.config.live);
+          expect(appliedState.config.draft.serviceMenuLayout)
+            .toBe(beforeState.config.draft.serviceMenuLayout);
+          expect(appliedState.content).toEqual(beforeState.content);
+          expect(appliedState.config.draft.quickBookProfile).toEqual(
+            presetId === 'quick_book'
+              ? { ...beforeState.config.draft.quickBookProfile, version: 1 }
+              : beforeState.config.draft.quickBookProfile,
+          );
           expect(appliedState.config.livePresetBase).toEqual(beforeState.config.livePresetBase);
           expect(appliedState.config.livePresetBase).toEqual(quickBookRecipe!.presetBase);
           await expect(page.getByTestId('booking-page-preset-state')).toHaveText(presetLabel);
@@ -2504,6 +2618,10 @@ test('Production-split DRAFT Signature / LIVE Quick Book previews stay visible, 
             topMarkerTestId,
             `${scenario.label} applied ${presetLabel} embedded preview`,
           );
+
+          await expect(preview.getByTestId('service-menu-list'))
+            .toHaveAttribute('data-booking-menu-layout', beforeState.config.draft.serviceMenuLayout);
+
           if (scenario === OWNER_PREVIEW_VIEWPORT_SCENARIOS[0]) {
             await testInfo.attach(`${testInfo.project.name}-${presetId}-embedded.png`, {
               body: await captureNonblankPreviewViewport(
@@ -2537,12 +2655,31 @@ test('Production-split DRAFT Signature / LIVE Quick Book previews stay visible, 
                 'draft-config',
               );
 
-              for (const testId of STAGE7_PRESET_DOM_EXPECTATIONS[presetId].present) {
+              for (const testId of presentMarkers) {
                 await expect(fullPreview.getByTestId(testId)).toBeVisible();
               }
-              for (const testId of STAGE7_PRESET_DOM_EXPECTATIONS[presetId].absent) {
+              for (const testId of absentMarkers) {
                 await expect(fullPreview.getByTestId(testId)).toHaveCount(0);
               }
+
+              await expect(fullPreview.getByTestId('service-menu-list'))
+                .toHaveAttribute('data-booking-menu-layout', beforeState.config.draft.serviceMenuLayout);
+
+              if (presetId === 'quick_book') {
+                const policies = fullPreview.getByTestId('quick-book-policies');
+
+                await policies.locator('summary').click();
+
+                await expect(policies.getByText('Please arrive five minutes before your synthetic appointment.', { exact: true }))
+                  .toBeVisible();
+                await expect(fullPreview.getByText('Please arrive five minutes before your synthetic appointment.', { exact: true }))
+                  .toHaveCount(1);
+                await expect(fullPreview.getByTestId('quick-book-instagram'))
+                  .toHaveAttribute('href', 'https://www.instagram.com/luster-stage4-fixture');
+                await expect(fullPreview.locator('a[href="https://www.instagram.com/luster-stage4-fixture"]'))
+                  .toHaveCount(1);
+              }
+
               await fullPreview.reload({ waitUntil: 'domcontentloaded' });
 
               await expect(fullPreview.getByTestId(topMarkerTestId)).toBeVisible();
@@ -2795,6 +2932,9 @@ test('scriptless embedded and dialog previews remain visible across mobile and z
         for (const presetId of ['menu', 'collective', 'quick_book'] as const) {
           const presetLabel = STAGE7_PRESET_LABELS[presetId];
           const beforeDialogState = await fetchBuilderApiState(page);
+          const dialogExpectation = getPresetDomExpectations(presetId, beforeDialogState.config.draft);
+
+          expect(beforeDialogState.config.draft.serviceMenuLayout).toBe('visual_grid');
 
           await page.getByRole('button', { name: `${presetLabel} starting design` }).click();
 
@@ -2812,12 +2952,16 @@ test('scriptless embedded and dialog previews remain visible across mobile and z
             STAGE7_PRESET_DOM_EXPECTATIONS[presetId].present[0],
             `${scenario.label} ${presetLabel} dialog preview`,
           );
-          for (const testId of STAGE7_PRESET_DOM_EXPECTATIONS[presetId].present) {
+          for (const testId of dialogExpectation.present) {
             await expect(dialogPreview.getByTestId(testId)).toBeVisible();
           }
-          for (const testId of STAGE7_PRESET_DOM_EXPECTATIONS[presetId].absent) {
+          for (const testId of dialogExpectation.absent) {
             await expect(dialogPreview.getByTestId(testId)).toHaveCount(0);
           }
+
+          await expect(dialogPreview.getByTestId('service-menu-list'))
+            .toHaveAttribute('data-booking-menu-layout', beforeDialogState.config.draft.serviceMenuLayout);
+
           await testInfo.attach(`${testInfo.project.name}-${scenario.label}-${presetId}-dialog.png`, {
             body: await captureNonblankPreviewViewport(
               dialogIframe,
@@ -3018,20 +3162,24 @@ test('owner preset draft, full-page preview, publish, and fresh public state sta
           recipeVersion: BOOKING_PAGE_PRESET_RECIPE_VERSION,
         });
         expect(appliedState.content).toEqual(beforeState.content);
+        expect(beforeState.config.draft.serviceMenuLayout).toBe('visual_grid');
+        expect(appliedState.config.draft.serviceMenuLayout)
+          .toBe(beforeState.config.draft.serviceMenuLayout);
         await expect(builderPage.getByTestId('booking-page-preset-state')).toHaveText(presetLabel);
         await expect(builderPage.getByTestId('booking-page-preset-picker').getByRole('status')).toContainText(
           'Starting design applied to your draft. Review the preview, then publish when you’re ready.',
         );
 
         const embeddedPreview = builderPage.frameLocator('iframe[title="Live booking page preview"]');
+        const appliedExpectation = getPresetDomExpectations(presetId, appliedState.config.draft);
 
-        for (const testId of STAGE7_PRESET_DOM_EXPECTATIONS[presetId].present) {
+        for (const testId of appliedExpectation.present) {
           await expect(
             embeddedPreview.getByTestId(testId),
             `embedded draft preview must adopt ${presetId}:${testId}`,
           ).toBeVisible();
         }
-        for (const testId of STAGE7_PRESET_DOM_EXPECTATIONS[presetId].absent) {
+        for (const testId of appliedExpectation.absent) {
           await expect(
             embeddedPreview.getByTestId(testId),
             `embedded draft preview must drop the prior recipe's ${testId}`,
@@ -3070,6 +3218,7 @@ test('owner preset draft, full-page preview, publish, and fresh public state sta
             presetId,
             salonName!,
             technicianResult.rows,
+            appliedState.config.draft,
           );
 
           await expect.poll(() => fullPreviewPage.evaluate(() => ({
@@ -3102,6 +3251,7 @@ test('owner preset draft, full-page preview, publish, and fresh public state sta
             currentLivePreset,
             salonName!,
             technicianResult.rows,
+            beforeState.config.live,
           );
 
           expect(draftPreviewSnapshot).not.toBeNull();
@@ -3153,6 +3303,7 @@ test('owner preset draft, full-page preview, publish, and fresh public state sta
             presetId,
             salonName!,
             technicianResult.rows,
+            appliedState.config.draft,
           );
 
           expect(liveAfterPublishSnapshot).toEqual(draftPreviewSnapshot);
@@ -4052,6 +4203,7 @@ test('Stage 7 owner preset confirmation updates only the real draft preview and 
           () => page.getByTestId('builder-variant-serviceMenu').selectOption('grouped_categories'),
         );
 
+        expect(groupedState.config.draft.serviceMenuLayout).toBe('category_menu');
         await expect(preview.getByTestId('service-menu-grouped-categories')).toBeVisible();
         await expect(preview.getByTestId('service-menu-list')).toHaveCount(0);
         await expect(preview.locator('h2', { hasText: /^Services$/ })).toHaveCount(1);
@@ -4092,8 +4244,9 @@ test('Stage 7 owner preset confirmation updates only the real draft preview and 
         await expect(page.getByTestId('booking-page-customization-state')).toHaveText('Using starting design');
         await expect(page.getByTestId('booking-page-preset-state')).toHaveText('Collective');
         await expect(page.getByTestId('builder-reset-all')).toBeDisabled();
-        await expect(preview.getByTestId('service-menu-list')).toBeVisible();
-        await expect(preview.getByTestId('service-menu-grouped-categories')).toHaveCount(0);
+        expect(resetState.config.draft.serviceMenuLayout).toBe('category_menu');
+        await expect(preview.getByTestId('service-menu-grouped-categories')).toBeVisible();
+        await expect(page.getByTestId('builder-variant-serviceMenu')).toHaveValue('grouped_categories');
         await expect(preview.getByTestId('technician-profile-cards')).toBeVisible();
         await expect(preview.getByTestId('location-cards')).toBeVisible();
 
@@ -4101,6 +4254,18 @@ test('Stage 7 owner preset confirmation updates only the real draft preview and 
           (STAGE6_FLOW_ORDER_PROOF_IDS as readonly string[]).includes(sectionId)
         ));
         await expectBuilderAndDraftPreviewOrder(page, resetFlowOrder);
+
+        // Resetting the site preserves the separate booking layout. Only
+        // this explicitly targeted Services reset restores its default.
+        const resetServicesState = await applyBuilderOperationFromPage(
+          page,
+          { type: 'reset_section', sectionId: 'serviceMenu' },
+          () => page.getByRole('button', { name: 'Reset Services', exact: true }).click(),
+        );
+
+        expect(resetServicesState.config.draft.serviceMenuLayout).toBe('visual_grid');
+        await expect(preview.getByTestId('service-menu-list')).toHaveAttribute('data-booking-menu-layout', 'visual_grid');
+        await expect(preview.getByTestId('service-menu-grouped-categories')).toHaveCount(0);
 
         const afterState = await fetchBuilderApiState(page);
         const serviceTextAfter = (
@@ -4137,6 +4302,7 @@ test('Stage 7 owner preset confirmation updates only the real draft preview and 
           { builderOperation: moveOperation },
           { builderOperation: groupedOperation },
           { builderOperation: resetOperation },
+          { builderOperation: { type: 'reset_section', sectionId: 'serviceMenu' } },
         ]);
         expect(blockedWrites, 'The owner builder lane must not attempt any non-builder browser mutation.').toEqual([]);
         expect(externalRequests, 'The owner builder lane must make no unexpected hosted requests.').toEqual([]);

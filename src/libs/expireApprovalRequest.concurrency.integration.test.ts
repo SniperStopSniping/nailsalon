@@ -278,7 +278,7 @@ suite('L1 PR5 — request-approval expiry lifecycle: genuine PostgreSQL races', 
     holder.confirmAccess = confirmAccessFor(id, 'pending', requestExpiresAt);
 
     const [confirmResponse, sweepOutcome] = await Promise.all([
-      confirmPatch(confirmRequest(id), { params: { id } }),
+      confirmPatch(confirmRequest(id), { params: Promise.resolve({ id }) }),
       db.transaction(tx => expireApprovalRequest(tx, { appointmentId: id, transactionNow: new Date() })),
     ]);
 
@@ -346,7 +346,7 @@ suite('L1 PR5 — request-approval expiry lifecycle: genuine PostgreSQL races', 
     holder.cancelAccess = cancelAccessFor(id, 'pending', requestExpiresAt);
 
     const [declineResponse, sweepOutcome] = await Promise.all([
-      cancelPatch(declineRequest(id), { params: { id } }),
+      cancelPatch(declineRequest(id), { params: Promise.resolve({ id }) }),
       db.transaction(tx => expireApprovalRequest(tx, { appointmentId: id, transactionNow: new Date() })),
     ]);
 
@@ -414,7 +414,7 @@ suite('L1 PR5 — request-approval expiry lifecycle: genuine PostgreSQL races', 
     // Wait until real time reaches (or passes) the deadline instant.
     await new Promise(resolve => setTimeout(resolve, 2100));
 
-    const atResponse = await confirmPatch(confirmRequest(idAt), { params: { id: idAt } });
+    const atResponse = await confirmPatch(confirmRequest(idAt), { params: Promise.resolve({ id: idAt }) });
 
     expect(atResponse.status).toBe(409);
     expect((await atResponse.json()).error.code).toBe('REQUEST_EXPIRED');
@@ -433,7 +433,7 @@ suite('L1 PR5 — request-approval expiry lifecycle: genuine PostgreSQL races', 
     });
     holder.confirmAccess = confirmAccessFor(idBefore, 'pending', notYet, { id: CLIENT_ID_2, phone: '4165550001' });
 
-    const beforeResponse = await confirmPatch(confirmRequest(idBefore), { params: { id: idBefore } });
+    const beforeResponse = await confirmPatch(confirmRequest(idBefore), { params: Promise.resolve({ id: idBefore }) });
 
     expect(beforeResponse.status).toBe(200);
     expect((await readAppointment(idBefore))?.status).toBe('confirmed');
@@ -446,7 +446,7 @@ suite('L1 PR5 — request-approval expiry lifecycle: genuine PostgreSQL races', 
     holder.confirmAccess = confirmAccessFor(id, 'pending', null);
 
     const [confirmResponse, sweepSummary] = await Promise.all([
-      confirmPatch(confirmRequest(id), { params: { id } }),
+      confirmPatch(confirmRequest(id), { params: Promise.resolve({ id }) }),
       sweepExpiredApprovalRequests(),
     ]);
 

@@ -660,8 +660,8 @@ describe('real appointment management mutations', () => {
       }),
     });
 
-    expect((await PATCH(request(), { params: { id: APPOINTMENT_ID } })).status).toBe(200);
-    expect((await PATCH(request(), { params: { id: APPOINTMENT_ID } })).status).toBe(200);
+    expect((await PATCH(request(), { params: Promise.resolve({ id: APPOINTMENT_ID }) })).status).toBe(200);
+    expect((await PATCH(request(), { params: Promise.resolve({ id: APPOINTMENT_ID }) })).status).toBe(200);
 
     expect(await staffRescheduleJobs()).toHaveLength(1);
   });
@@ -684,8 +684,8 @@ describe('real appointment management mutations', () => {
         startTime: '2027-01-04T16:00:00.000Z',
       }),
     });
-    const response = await POST(request(), { params: { token: capability.token } });
-    const replay = await POST(request(), { params: { token: capability.token } });
+    const response = await POST(request(), { params: Promise.resolve({ token: capability.token }) });
+    const replay = await POST(request(), { params: Promise.resolve({ token: capability.token }) });
 
     expect(response.status).toBe(200);
     expect(replay.status).toBe(200);

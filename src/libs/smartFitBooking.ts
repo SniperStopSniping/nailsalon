@@ -75,6 +75,7 @@ export type SmartFitDayContextArgs = {
   slotIntervalMinutes: number;
   /** UTC ms of the salon-local midnight (getZonedDayBounds().startOfDay). */
   gridAnchorMs: number;
+  minLeadTimeMinutes: number;
   nowMs: number;
 };
 
@@ -186,6 +187,7 @@ export function buildSmartFitDayContext(args: SmartFitDayContextArgs): SmartFitD
     blocks,
     slotIntervalMinutes: args.slotIntervalMinutes,
     gridAnchorMs: args.gridAnchorMs,
+    minLeadTimeMinutes: args.minLeadTimeMinutes,
     nowMs: args.nowMs,
   };
 }

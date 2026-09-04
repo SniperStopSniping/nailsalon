@@ -36,9 +36,19 @@ const isPublicClerkRoute = createRouteMatcher([
   '/:locale/join(.*)',
 ]);
 
+const isPublicOnboardingV1Route = createRouteMatcher([
+  '/onboarding-v1(.*)',
+  '/:locale/onboarding-v1(.*)',
+]);
+
 const isOwnerBookingPagePreviewRoute = createRouteMatcher([
   '/admin/booking-page/preview/(.*)',
   '/:locale/admin/booking-page/preview/(.*)',
+]);
+
+const isOwnerAdminPageRoute = createRouteMatcher([
+  '/admin(.*)',
+  '/:locale/admin(.*)',
 ]);
 
 export default async function middleware(
@@ -101,6 +111,7 @@ export default async function middleware(
     const isOwnerPath = firstPublicSegment === 'admin'
       || firstPublicSegment === 'super-admin'
       || firstPublicSegment === 'onboarding'
+      || firstPublicSegment === 'onboarding-v1'
       || firstPublicSegment === 'owner-sign-in'
       || firstPublicSegment === 'owner-sign-up'
       || firstPublicSegment === 'owner'
@@ -213,6 +224,21 @@ export default async function middleware(
     return finalized;
   }
 
+  // Owner Workspace pages resolve Clerk-backed owners through
+  // getAdminSession(). Establish Clerk request context only when the request
+  // actually carries Clerk's session cookie. Anonymous and repository legacy
+  // session/impersonation paths continue through the existing server guards
+  // without a Clerk handshake.
+  if (isOwnerAdminPageRoute(request)) {
+    const response = request.cookies.get('__session')?.value
+      ? await clerkMiddleware(
+        async (_auth, req) => intlMiddleware(req),
+        clerkOptions,
+      )(request, event)
+      : intlMiddleware(request);
+    return finalizeResponse((response as NextResponse | undefined) ?? NextResponse.next());
+  }
+
   // Invitation pages are public, but their server component calls Clerk auth()
   // to continue already-signed-in owners into onboarding.
   if (isPublicClerkRoute(request)) {
@@ -220,6 +246,24 @@ export default async function middleware(
       request,
       event,
     );
+    return finalizeResponse((response as NextResponse | undefined) ?? NextResponse.next());
+  }
+
+  // Onboarding V1 intentionally shows the completed customer-site value
+  // before account creation. Anonymous requests deliberately avoid Clerk's
+  // development-browser handshake: on a plain local/LAN HTTP origin that
+  // handshake cannot retain its cross-site cookie and loops before the public
+  // onboarding page can render. Once Clerk has established a real `__session`
+  // cookie, preserve server auth context so an existing owner can resume and
+  // save immediately. The claim APIs establish their own Clerk context and
+  // remain the authenticated persistence boundary.
+  if (isPublicOnboardingV1Route(request)) {
+    const response = request.cookies.get('__session')?.value
+      ? await clerkMiddleware(
+        async (_auth, req) => intlMiddleware(req),
+        clerkOptions,
+      )(request, event)
+      : intlMiddleware(request);
     return finalizeResponse((response as NextResponse | undefined) ?? NextResponse.next());
   }
 

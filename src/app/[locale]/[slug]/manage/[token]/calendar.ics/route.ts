@@ -18,9 +18,9 @@ function toIcsDate(value: Date): string {
   return value.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z');
 }
 
-export async function GET(_request: Request, context: { params: { slug: string; token: string } }) {
-  const capability = await verifyAppointmentAccessToken(context.params.token);
-  if (!capability || capability.salonSlug !== context.params.slug) {
+export async function GET(_request: Request, context: { params: Promise<{ slug: string; token: string }> }) {
+  const capability = await verifyAppointmentAccessToken((await context.params).token);
+  if (!capability || capability.salonSlug !== (await context.params).slug) {
     return new Response('This calendar link is invalid or expired.', { status: 404 });
   }
 

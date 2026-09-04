@@ -171,10 +171,10 @@ describe('BookTechPage', () => {
     });
 
     render(await BookTechPage({
-      searchParams: {
+      searchParams: Promise.resolve({
         baseServiceId: 'svc_combo',
         salonSlug: 'isla-nail-studio',
-      },
+      }),
     }));
 
     expect(screen.getByText(/"bookable":false/)).toBeInTheDocument();
@@ -272,10 +272,10 @@ describe('BookTechPage', () => {
     });
 
     await expect(BookTechPage({
-      searchParams: {
+      searchParams: Promise.resolve({
         salonSlug: 'isla-nail-studio',
         baseServiceId: 'svc_1',
-      },
+      }),
     })).rejects.toThrow('REDIRECT:/book/time?salonSlug=isla-nail-studio&baseServiceId=svc_1&techId=tech_1');
   });
 });
@@ -309,11 +309,11 @@ describe('BookTechPage owner-preview gate', () => {
     buildTenantRedirectPath.mockReturnValue('/en/isla-nail-studio/not-found');
 
     await expect(BookTechPage({
-      searchParams: {
+      searchParams: Promise.resolve({
         salonSlug: 'isla-nail-studio',
         baseServiceId: 'svc_1',
-      },
-      params: { locale: 'en', slug: 'isla-nail-studio' },
+      }),
+      params: Promise.resolve({ locale: 'en', slug: 'isla-nail-studio' }),
     })).rejects.toThrow('REDIRECT:/en/isla-nail-studio/not-found');
 
     // Real deny-before-render proof: nothing past the gate ever ran.
@@ -354,11 +354,11 @@ describe('BookTechPage owner-preview gate', () => {
     });
 
     render(await BookTechPage({
-      searchParams: {
+      searchParams: Promise.resolve({
         salonSlug: 'isla-nail-studio',
         baseServiceId: 'svc_1',
-      },
-      params: { locale: 'en', slug: 'isla-nail-studio' },
+      }),
+      params: Promise.resolve({ locale: 'en', slug: 'isla-nail-studio' }),
     }));
 
     expect(bookTechClientMock).toHaveBeenCalled();

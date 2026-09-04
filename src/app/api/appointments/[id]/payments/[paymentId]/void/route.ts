@@ -39,8 +39,9 @@ function errorJson(status: number, code: string, message: string, details?: unkn
 
 export async function POST(
   request: Request,
-  { params }: { params: { id: string; paymentId: string } },
+  props: { params: Promise<{ id: string; paymentId: string }> },
 ): Promise<Response> {
+  const params = await props.params;
   try {
     const { id: appointmentId, paymentId } = params;
     const access = await requireAppointmentManagerAccess(appointmentId, {

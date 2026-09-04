@@ -1,0 +1,132 @@
+.onboarding-gallery-draft-list {
+  display: grid;
+  min-width: 0;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.onboarding-gallery-draft-list > li {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: 64px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  padding: 9px;
+  border: 1px solid var(--onboarding-line);
+  border-radius: 12px;
+  background: var(--onboarding-surface);
+}
+
+.onboarding-gallery-draft-list img,
+.onboarding-gallery-draft-list > li > span {
+  display: grid;
+  width: 64px;
+  height: 64px;
+  place-items: center;
+  border-radius: 9px;
+  background: var(--onboarding-surface-soft);
+  object-fit: cover;
+}
+
+.onboarding-gallery-draft-list > li > div:not(.onboarding-gallery-draft-list__actions) {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.onboarding-gallery-draft-list strong {
+  overflow-wrap: anywhere;
+  font-size: 0.78rem;
+}
+
+.onboarding-gallery-draft-list small {
+  color: var(--onboarding-muted);
+  font-size: 0.69rem;
+}
+
+.onboarding-gallery-draft-list__actions {
+  display: flex;
+  grid-column: 1 / -1;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.onboarding-gallery-draft-list__actions button {
+  min-width: 44px;
+  min-height: 44px;
+  padding: 7px 10px;
+  border: 1px solid var(--onboarding-line);
+  border-radius: 9px;
+  color: var(--onboarding-accent-dark);
+  background: var(--onboarding-surface-soft);
+  font-size: 0.7rem;
+  font-weight: 760;
+}
+
+.onboarding-gallery-draft-list__actions button:disabled {
+  opacity: 0.42;
+}
+
+.onboarding-gallery-draft-list__actions button.is-primary {
+  border-color: var(--onboarding-accent);
+  color: white;
+  background: var(--onboarding-accent);
+}
+
+.onboarding-extra-card > button {
+  border: 1px solid color-mix(in srgb, var(--onboarding-accent) 55%, var(--onboarding-line));
+  color: var(--onboarding-accent-dark);
+  background: var(--onboarding-surface);
+}
+
+.onboarding-extra-card > button:hover {
+  background: var(--onboarding-accent-soft);
+}
+
+.onboarding-policy-copy-card > summary {
+  display: flex;
+  min-height: 44px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--onboarding-ink);
+  cursor: pointer;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 1rem;
+  font-weight: 550;
+  list-style: none;
+}
+
+.onboarding-policy-copy-card > summary::-webkit-details-marker {
+  display: none;
+}
+
+.onboarding-policy-copy-card > summary span {
+  color: var(--onboarding-muted);
+  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+  font-size: 0.67rem;
+  font-weight: 760;
+}
+
+.onboarding-policy-copy-card[open] > summary {
+  margin-bottom: 10px;
+}
+
+.onboarding-policy-later-helper {
+  margin: 4px 0 96px;
+  color: var(--onboarding-muted);
+  font-size: 0.76rem;
+  line-height: 1.5;
+}
+
+@media (min-width: 560px) {
+  .onboarding-gallery-draft-list > li {
+    grid-template-columns: 64px minmax(0, 1fr) auto;
+  }
+
+  .onboarding-gallery-draft-list__actions {
+    grid-column: auto;
+  }
+}

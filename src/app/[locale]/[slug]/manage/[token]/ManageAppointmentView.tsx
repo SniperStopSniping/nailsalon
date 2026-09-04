@@ -8,7 +8,10 @@ import { resolveBookingPageContent } from '@/libs/bookingPageContent';
 import { db } from '@/libs/DB';
 import { formatMoney } from '@/libs/formatMoney';
 import { resolveManageDepositCheckout } from '@/libs/manageDepositCheckout';
-import { applyPhoneDisplayMode } from '@/libs/salonContent';
+import {
+  resolvePublicSalonPhone,
+  resolveSharedSalonProfile,
+} from '@/libs/sharedSalonProfile';
 import { formatDateInTimeZone, formatTimeInTimeZone } from '@/libs/timeZone';
 import { appointmentAddOnSchema, appointmentDepositSchema, appointmentServicesSchema, technicianSchema } from '@/models/Schema';
 import type { SalonSettings } from '@/types/salonPolicy';
@@ -434,7 +437,8 @@ export async function ManageAppointmentView({
               isActive={isActive}
               canChange={changePolicy.canChange}
               cutoffHours={bookingConfig.clientChangeCutoffHours}
-              salonPhone={applyPhoneDisplayMode(
+              salonPhone={resolvePublicSalonPhone(
+                resolveSharedSalonProfile(capability.salonSettings),
                 capability.salonPhone,
                 resolveBookingPageContent(capability.salonSettings).live.locationDisplayMode,
               )}

@@ -10,6 +10,7 @@ import { BookingPageBuilder } from './BookingPageBuilder';
 function side(overrides: Partial<BookingPageConfigSide> = {}): BookingPageConfigSide {
   return {
     layout: 'quick_book',
+    serviceMenuLayout: 'visual_grid',
     stylePack: 'default',
     tokenOverrides: null,
     sectionOrder: [
@@ -24,6 +25,20 @@ function side(overrides: Partial<BookingPageConfigSide> = {}): BookingPageConfig
     hiddenSections: [],
     businessMode: 'solo',
     startMode: 'services_first',
+    quickBookProfile: {
+      version: 1,
+      showTechName: false,
+      showTechPhoto: false,
+      showLocation: false,
+      showHours: false,
+      showPhone: false,
+      showEmail: false,
+      showBookingPolicy: false,
+      showCancellationPolicy: false,
+      showReviews: false,
+      showInstagram: false,
+      showBio: false,
+    },
     ...overrides,
   };
 }
@@ -48,7 +63,7 @@ function reorderableSectionOrder(
   sectionOrder: readonly SectionId[] = draft.sectionOrder,
 ): SectionId[] {
   const reorderableIds = new Set(
-    listBookingPageBuilderSections(draft.layout)
+    listBookingPageBuilderSections(draft.layout, draft.quickBookProfile)
       .filter(definition => definition.reorderable)
       .map(definition => definition.id),
   );
@@ -57,10 +72,52 @@ function reorderableSectionOrder(
 }
 
 describe('BookingPageBuilder', () => {
+  it('shows the canonical Services choice after an independent site reset and permits a targeted reset', () => {
+    const onOperation = vi.fn();
+    render(
+      <BookingPageBuilder
+        draft={side({ layout: 'editorial', serviceMenuLayout: 'category_menu', sectionVariants: { serviceMenu: 'list' } })}
+        pending={false}
+        onOperation={onOperation}
+      />,
+    );
+
+    expect(screen.getByRole('combobox', { name: 'Services presentation' })).toHaveValue('grouped_categories');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Reset Services' }));
+
+    expect(onOperation).toHaveBeenCalledTimes(1);
+    expect(onOperation).toHaveBeenCalledWith({ type: 'reset_section', sectionId: 'serviceMenu' });
+  });
+
+  it.each(['clean_list', 'editorial_cards', 'editorial_price_list'] as const)(
+    'retains and honestly labels saved %s without changing it on render',
+    (serviceMenuLayout) => {
+      const onOperation = vi.fn();
+      render(
+        <BookingPageBuilder
+          draft={side({ layout: 'editorial', serviceMenuLayout })}
+          pending={false}
+          onOperation={onOperation}
+        />,
+      );
+
+      expect(screen.getByRole('combobox', { name: 'Services presentation' })).toHaveValue('saved-booking-layout');
+      expect(screen.getByRole('option', { name: /saved booking layout/ })).toBeDisabled();
+      expect(onOperation).not.toHaveBeenCalled();
+
+      fireEvent.change(screen.getByRole('combobox', { name: 'Services presentation' }), { target: { value: 'grouped_categories' } });
+
+      expect(onOperation).toHaveBeenCalledTimes(1);
+      expect(onOperation).toHaveBeenCalledWith({ type: 'set_variant', sectionId: 'serviceMenu', variant: 'grouped_categories' });
+    },
+  );
+
   it('keeps configured DOM order and appends every absent section exactly once', () => {
     render(
       <BookingPageBuilder
         draft={side({
+          layout: 'editorial',
           sectionOrder: ['salonProfile', 'hoursLocation', 'serviceMenu', 'bookingCta'],
         })}
         pending={false}
@@ -85,12 +142,50 @@ describe('BookingPageBuilder', () => {
     expect(new Set(sectionRowIds())).toHaveProperty('size', 12);
   });
 
+  it('leaves profile-owned legacy sections out of the Quick Book section editor', () => {
+    render(
+      <BookingPageBuilder
+        draft={side()}
+        pending={false}
+        onOperation={vi.fn()}
+      />,
+    );
+
+    expect(sectionRowIds()).not.toEqual(expect.arrayContaining([
+      'technicianProfile',
+      'hoursLocation',
+      'policies',
+      'socialLinks',
+    ]));
+    expect(screen.queryByTestId('builder-section-policies')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('builder-section-socialLinks')).not.toBeInTheDocument();
+  });
+
+  it('keeps legacy Quick Book section controls until the compact profile is adopted', () => {
+    render(
+      <BookingPageBuilder
+        draft={side({
+          quickBookProfile: {
+            ...side().quickBookProfile,
+            version: 0,
+          },
+        })}
+        pending={false}
+        onOperation={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByTestId('builder-section-policies')).toBeInTheDocument();
+    expect(screen.getByTestId('builder-section-socialLinks')).toBeInTheDocument();
+  });
+
   it('states protected, visible, hidden, missing-content, and unsupported states explicitly', () => {
     const previewed = new Set<SectionId>(['salonProfile', 'serviceMenu', 'featuredServices']);
 
     render(
       <BookingPageBuilder
         draft={side({
+          layout: 'editorial',
           sectionOrder: [
             'salonProfile',
             'serviceMenu',
@@ -127,7 +222,7 @@ describe('BookingPageBuilder', () => {
 
     render(
       <BookingPageBuilder
-        draft={side({ hiddenSections: ['policies'] })}
+        draft={side({ layout: 'editorial', hiddenSections: ['policies'] })}
         pending={false}
         onOperation={onOperation}
       />,
@@ -834,10 +929,10 @@ describe('BookingPageBuilder', () => {
     expect(screen.getByRole('button', { name: 'Move Featured services down' })).toBeDisabled();
   });
 
-  it('uses a concurrent Quick Book-to-Editorial movable order for focus and boundaries', async () => {
+  it('uses the admitted Editorial movable order for focus and boundaries', async () => {
     const onOperation = vi.fn();
     const initialDraft = side({
-      layout: 'quick_book',
+      layout: 'editorial',
       sectionOrder: [
         'salonProfile',
         'hoursLocation',
@@ -850,7 +945,7 @@ describe('BookingPageBuilder', () => {
       ],
     });
     const returnedDraft = side({
-      layout: 'quick_book',
+      layout: 'editorial',
       sectionOrder: [
         'salonProfile',
         'technicianProfile',
@@ -1613,6 +1708,7 @@ describe('BookingPageBuilder', () => {
     render(
       <BookingPageBuilder
         draft={side({
+          layout: 'editorial',
           hiddenSections: ['policies'],
           sectionVariants: { socialLinks: 'labeled' },
         })}
@@ -1632,6 +1728,7 @@ describe('BookingPageBuilder', () => {
       type: 'reset_all',
       expectedPresentationSignature: getBookingPagePresentationSignature({
         ...side({
+          layout: 'editorial',
           hiddenSections: ['policies'],
           sectionVariants: { socialLinks: 'labeled' },
         }),

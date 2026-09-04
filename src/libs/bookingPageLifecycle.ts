@@ -3,6 +3,12 @@ import 'server-only';
 import { eq, sql } from 'drizzle-orm';
 
 import {
+  applyPreparedCanonicalProfileMediaPromotion,
+  completeCanonicalProfileMediaPromotion,
+  discardPreparedCanonicalProfileMediaPromotion,
+  prepareCanonicalProfileMediaForPublish,
+} from '@/features/onboarding-v1-integration/canonical-profile-media-lifecycle.server';
+import {
   type BookingPageDraftPatch,
   bookingPageDraftPatchSchema,
   resolveBookingPageConfig,
@@ -88,36 +94,45 @@ export async function synchronizeBookingPageLifecycle(
   salonId: string,
   action: BookingPageLifecycleAction,
 ): Promise<unknown | null> {
-  return db.transaction(async (tx) => {
-    const [existing] = await tx
-      .select({ settings: salonSchema.settings })
-      .from(salonSchema)
-      .where(eq(salonSchema.id, salonId))
-      .for('update')
-      .limit(1);
+  // Identity media remains private while a published business is editing an
+  // onboarding draft. Prepare immutable, revision-addressed projections now,
+  // then publish their canonical references in the same locked transaction as
+  // the booking-page draft. A newer onboarding revision makes the apply step
+  // fail closed, so an older slow upload can never replace a newer image.
+  const preparedMedia = action === 'publish'
+    ? await prepareCanonicalProfileMediaForPublish(salonId)
+    : null;
+  try {
+    const synchronized = await db.transaction(async (tx) => {
+      const [existing] = await tx
+        .select({ settings: salonSchema.settings })
+        .from(salonSchema)
+        .where(eq(salonSchema.id, salonId))
+        .for('update')
+        .limit(1);
 
-    if (!existing) {
-      return null;
-    }
+      if (!existing) {
+        return null;
+      }
 
-    const config = resolveBookingPageConfig(existing.settings);
-    const content = resolveBookingPageContent(existing.settings);
-    const configSource = action === 'publish' ? config.draft : config.live;
-    const contentSource = action === 'publish' ? content.draft : content.live;
-    const presetSource = action === 'publish'
-      ? config.draftPresetBase
-      : config.livePresetBase;
-    const configTargetPath = action === 'publish'
-      ? sql.raw(`'{bookingPage,live}'`)
-      : sql.raw(`'{bookingPage,draft}'`);
-    const presetTargetPath = action === 'publish'
-      ? sql.raw(`'{bookingPage,livePresetBase}'`)
-      : sql.raw(`'{bookingPage,draftPresetBase}'`);
-    const contentTargetPath = action === 'publish'
-      ? sql.raw(`'{bookingPageContent,live}'`)
-      : sql.raw(`'{bookingPageContent,draft}'`);
+      const config = resolveBookingPageConfig(existing.settings);
+      const content = resolveBookingPageContent(existing.settings);
+      const configSource = action === 'publish' ? config.draft : config.live;
+      const contentSource = action === 'publish' ? content.draft : content.live;
+      const presetSource = action === 'publish'
+        ? config.draftPresetBase
+        : config.livePresetBase;
+      const configTargetPath = action === 'publish'
+        ? sql.raw(`'{bookingPage,live}'`)
+        : sql.raw(`'{bookingPage,draft}'`);
+      const presetTargetPath = action === 'publish'
+        ? sql.raw(`'{bookingPage,livePresetBase}'`)
+        : sql.raw(`'{bookingPage,draftPresetBase}'`);
+      const contentTargetPath = action === 'publish'
+        ? sql.raw(`'{bookingPageContent,live}'`)
+        : sql.raw(`'{bookingPageContent,draft}'`);
 
-    let settingsExpression = sql`
+      let settingsExpression = sql`
       CASE
         WHEN jsonb_typeof(${salonSchema.settings}) = 'object'
           THEN ${salonSchema.settings}
@@ -125,7 +140,7 @@ export async function synchronizeBookingPageLifecycle(
       END
     `;
 
-    settingsExpression = sql`
+      settingsExpression = sql`
       jsonb_set(
         ${settingsExpression},
         '{bookingPage}',
@@ -136,11 +151,11 @@ export async function synchronizeBookingPageLifecycle(
         END
       )
     `;
-    settingsExpression = sql`jsonb_set(${settingsExpression}, '{bookingPage,version}', '1'::jsonb)`;
-    settingsExpression = sql`jsonb_set(${settingsExpression}, ${configTargetPath}, ${JSON.stringify(configSource)}::jsonb)`;
-    settingsExpression = sql`jsonb_set(${settingsExpression}, ${presetTargetPath}, ${JSON.stringify(presetSource)}::jsonb)`;
+      settingsExpression = sql`jsonb_set(${settingsExpression}, '{bookingPage,version}', '1'::jsonb)`;
+      settingsExpression = sql`jsonb_set(${settingsExpression}, ${configTargetPath}, ${JSON.stringify(configSource)}::jsonb)`;
+      settingsExpression = sql`jsonb_set(${settingsExpression}, ${presetTargetPath}, ${JSON.stringify(presetSource)}::jsonb)`;
 
-    settingsExpression = sql`
+      settingsExpression = sql`
       jsonb_set(
         ${settingsExpression},
         '{bookingPageContent}',
@@ -151,15 +166,30 @@ export async function synchronizeBookingPageLifecycle(
         END
       )
     `;
-    settingsExpression = sql`jsonb_set(${settingsExpression}, '{bookingPageContent,version}', '1'::jsonb)`;
-    settingsExpression = sql`jsonb_set(${settingsExpression}, ${contentTargetPath}, ${JSON.stringify(contentSource)}::jsonb)`;
+      settingsExpression = sql`jsonb_set(${settingsExpression}, '{bookingPageContent,version}', '1'::jsonb)`;
+      settingsExpression = sql`jsonb_set(${settingsExpression}, ${contentTargetPath}, ${JSON.stringify(contentSource)}::jsonb)`;
 
-    const [updated] = await tx
-      .update(salonSchema)
-      .set({ settings: settingsExpression })
-      .where(eq(salonSchema.id, salonId))
-      .returning();
+      const [updated] = await tx
+        .update(salonSchema)
+        .set({ settings: settingsExpression })
+        .where(eq(salonSchema.id, salonId))
+        .returning();
 
-    return updated?.settings ?? null;
-  });
+      if (updated && preparedMedia) {
+        await applyPreparedCanonicalProfileMediaPromotion(tx, preparedMedia);
+      }
+      return updated?.settings ?? null;
+    });
+    if (preparedMedia && synchronized) {
+      await completeCanonicalProfileMediaPromotion(preparedMedia);
+    } else if (preparedMedia) {
+      await discardPreparedCanonicalProfileMediaPromotion(preparedMedia);
+    }
+    return synchronized;
+  } catch (error) {
+    if (preparedMedia) {
+      await discardPreparedCanonicalProfileMediaPromotion(preparedMedia);
+    }
+    throw error;
+  }
 }

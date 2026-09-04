@@ -16,7 +16,7 @@ const detailQuerySchema = z.object({
   salonSlug: z.string().min(1),
 });
 
-export async function GET(request: Request, context: { params: { id: string } }) {
+export async function GET(request: Request, context: { params: Promise<{ id: string }> }) {
   const url = new URL(request.url);
   const parsed = detailQuerySchema.safeParse(Object.fromEntries(url.searchParams.entries()));
   if (!parsed.success) {
@@ -29,7 +29,7 @@ export async function GET(request: Request, context: { params: { id: string } })
   }
 
   const [event] = await db.select().from(googleCalendarEventSchema).where(and(
-    eq(googleCalendarEventSchema.id, context.params.id),
+    eq(googleCalendarEventSchema.id, (await context.params).id),
     eq(googleCalendarEventSchema.salonId, salon.id),
   )).limit(1);
 
@@ -71,7 +71,7 @@ export async function GET(request: Request, context: { params: { id: string } })
   });
 }
 
-export async function PATCH(request: Request, context: { params: { id: string } }) {
+export async function PATCH(request: Request, context: { params: Promise<{ id: string }> }) {
   const parsed = actionSchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) {
     return Response.json({ error: 'Invalid Google event action' }, { status: 400 });
@@ -81,7 +81,7 @@ export async function PATCH(request: Request, context: { params: { id: string } 
     return error || Response.json({ error: 'Salon not found' }, { status: 404 });
   }
   const [event] = await db.select().from(googleCalendarEventSchema).where(and(
-    eq(googleCalendarEventSchema.id, context.params.id),
+    eq(googleCalendarEventSchema.id, (await context.params).id),
     eq(googleCalendarEventSchema.salonId, salon.id),
   )).limit(1);
   if (!event || event.deletedAt) {

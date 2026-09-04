@@ -22,8 +22,12 @@ import { resolveDraftSalonAccess } from '@/libs/ownerPreview';
 import { resolvePublicBookingTechnicianContext } from '@/libs/publicBookingTechnicians';
 import { resolvePublicRetentionCampaignPreview } from '@/libs/publicRetentionCampaign';
 import { getLocationById, getPrimaryLocation } from '@/libs/queries';
-import { applyLocationDisplayMode, applyPhoneDisplayMode } from '@/libs/salonContent';
+import { applyLocationDisplayMode } from '@/libs/salonContent';
 import { buildTenantRedirectPath, checkFeatureEnabled, checkSalonStatus, isRewardsEnabled, isSmsEnabled } from '@/libs/salonStatus';
+import {
+  resolvePublicSalonPhone,
+  resolveSharedSalonProfile,
+} from '@/libs/sharedSalonProfile';
 import { buildTaxConfigurationSnapshot, resolveTaxConfig } from '@/libs/taxConfig';
 import { getPublicPageContext } from '@/libs/tenant';
 import { getDateKeyInTimeZone, getTimeKeyInTimeZone } from '@/libs/timeZone';
@@ -40,28 +44,29 @@ import { BookConfirmClient } from './BookConfirmClient';
  *
  * This is step 4 of the booking flow: Service → Tech → Time → Confirm
  */
-export default async function BookConfirmPage({
-  searchParams,
-  params,
-}: {
-  searchParams: {
-    serviceIds?: string;
-    baseServiceId?: string;
-    selectedAddOns?: string;
-    techId?: string;
-    date?: string;
-    time?: string;
-    startTime?: string;
-    locationId?: string;
-    salonSlug?: string;
-    originalAppointmentId?: string;
-    manageToken?: string;
-    campaign?: string;
-    smartFitDiscountCents?: string | string[];
-    smartFitTotalCents?: string | string[];
-  };
-  params?: { locale?: string; slug?: string };
-}) {
+export default async function BookConfirmPage(
+  props: {
+    searchParams: Promise<{
+      serviceIds?: string;
+      baseServiceId?: string;
+      selectedAddOns?: string;
+      techId?: string;
+      date?: string;
+      time?: string;
+      startTime?: string;
+      locationId?: string;
+      salonSlug?: string;
+      originalAppointmentId?: string;
+      manageToken?: string;
+      campaign?: string;
+      smartFitDiscountCents?: string | string[];
+      smartFitTotalCents?: string | string[];
+    }>;
+    params?: Promise<{ locale?: string; slug?: string }>;
+  },
+) {
+  const params = await props.params;
+  const searchParams = await props.searchParams;
   const context = await getPublicPageContext('book-confirm', searchParams, params);
 
   const serviceIdList = searchParams.serviceIds?.split(',').filter(Boolean) || [];
@@ -141,6 +146,7 @@ export default async function BookConfirmPage({
   const activeBookingPageContentSide = previewGate.isPreviewingDraftConfig
     ? bookingPageContent.draft
     : bookingPageContent.live;
+  const sharedProfile = resolveSharedSalonProfile(salon.settings);
   const ownerPreviewState: SalonOwnerPreviewState = {
     isPreviewing: previewGate.isPreviewingDraftSalon || previewGate.isPreviewingDraftConfig,
     actorType: previewGate.actorType,
@@ -449,7 +455,11 @@ export default async function BookConfirmPage({
           // counterpart of the `applyLocationDisplayMode` calls above — same
           // choke point, same `activeBookingPageContentSide.locationDisplayMode`
           // gate, never a second/drifting redaction decision.
-          salonPhone={applyPhoneDisplayMode(salon.phone ?? null, activeBookingPageContentSide.locationDisplayMode)}
+          salonPhone={resolvePublicSalonPhone(
+            sharedProfile,
+            salon.phone ?? null,
+            activeBookingPageContentSide.locationDisplayMode,
+          )}
           depositDisclosure={depositDisclosure}
           depositNoticeSuppressed={depositNoticeSuppressed}
           depositFingerprint={depositFingerprint}

@@ -1,0 +1,1567 @@
+/*
+ * Section Library V1 — customer composition layer.
+ *
+ * Everything here derives from the --customer-* role tokens the style/palette
+ * system already defines, so all six styles × eight palettes restyle these
+ * sections with zero per-section overrides. Surface tones and attachment come
+ * from the shared page plan via data attributes.
+ */
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400..800&family=Newsreader:opsz,wght@6..72,400..760&display=swap');
+
+/* ---------------------------------------------------------------- */
+/* Composition: surfaces, rhythm, attachment                         */
+/* ---------------------------------------------------------------- */
+
+/*
+ * Two-speed motion system (from the Phantom teardown): colour/opacity
+ * feedback is instant, movement and elevation travel unhurried. Only
+ * compositor-friendly properties ever animate — the transform family
+ * (transform, translate, scale, rotate), opacity, box-shadow, colour, and
+ * background — never a layout property. A performance test enforces it,
+ * including inside @media, @supports, and @keyframes.
+ */
+.onboarding-site-preview {
+  --customer-motion-color: 150ms cubic-bezier(0.25, 1, 0.5, 1);
+  --customer-motion-move: 400ms cubic-bezier(0.22, 1, 0.36, 1);
+  --customer-motion-spring: 260ms cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.onboarding-site-preview [data-library-type] {
+  min-width: 0;
+  padding: var(--customer-section-space, clamp(24px, 8cqw, 76px)) clamp(16px, 7cqw, 68px);
+}
+
+.onboarding-site-preview [data-surface='tint'] {
+  background: color-mix(in srgb, var(--customer-surface) 62%, var(--customer-ground));
+}
+
+.onboarding-site-preview [data-surface='contrast'] {
+  /*
+   * Secondary tokens are authored for light grounds. On a contrast band they
+   * must be relit from the ground, or muted text lands at ~2.5:1.
+   */
+  --customer-muted: color-mix(in srgb, var(--customer-ground) 76%, var(--customer-ink));
+  --customer-line: color-mix(in srgb, var(--customer-ground) 26%, var(--customer-ink));
+  --customer-surface: color-mix(in srgb, var(--customer-ground) 9%, var(--customer-ink));
+
+  color: var(--customer-ground);
+  background: var(--customer-ink);
+}
+
+.onboarding-site-preview [data-surface='contrast'] .onboarding-customer-eyebrow {
+  color: color-mix(in srgb, var(--customer-accent) 72%, var(--customer-ground));
+}
+
+/*
+ * The primary button is filled with the palette's primary, which on a
+ * contrast band is the band's own colour — a dark button on a dark ground.
+ * On that surface it inverts: the band's ground becomes the fill.
+ */
+.onboarding-site-preview [data-surface='contrast'] .onboarding-customer-primary {
+  border-color: var(--customer-ground);
+  color: var(--customer-ink);
+  background: var(--customer-ground);
+}
+
+.onboarding-site-preview [data-surface='contrast'] .onboarding-customer-primary:hover {
+  box-shadow: 0 10px 26px color-mix(in srgb, var(--customer-ground) 26%, transparent);
+}
+
+.onboarding-site-preview [data-surface='accent'] {
+  color: var(--customer-button-text, var(--customer-surface));
+  background: var(--customer-accent);
+}
+
+.onboarding-site-preview [data-attached='true'] {
+  padding-top: 0;
+}
+
+/*
+ * A sticky on-page menu attaches to the content it introduces, but the
+ * content still needs air beneath the bar — only an announcement bar or a
+ * merged contrast band sits flush against its neighbour.
+ */
+.onboarding-site-preview [data-library-type='section_navigation'] + [data-attached='true'] {
+  padding-top: clamp(20px, 4cqw, 40px);
+}
+
+.onboarding-site-preview [data-library-type] :where(h2) {
+  margin: 0 0 12px;
+  font-size: clamp(1.35rem, 5cqw, 2.6rem);
+  font-weight: 560;
+  letter-spacing: -0.035em;
+  line-height: 1.08;
+  text-wrap: balance;
+}
+
+/* ---------------------------------------------------------------- */
+/* Shared interactive feel (micro-interactions)                      */
+/* ---------------------------------------------------------------- */
+
+.onboarding-site-preview :where(.onboarding-customer-primary, .customer-lib-text-cta, .customer-lib-announcement-action) {
+  transition:
+    transform var(--customer-motion-spring),
+    box-shadow var(--customer-motion-move),
+    background-color var(--customer-motion-color),
+    color var(--customer-motion-color);
+  will-change: transform;
+}
+
+.onboarding-site-preview :where(.onboarding-customer-primary):hover {
+  transform: translateY(-1px);
+  box-shadow: 0 10px 26px color-mix(in srgb, var(--customer-accent) 32%, transparent);
+}
+
+.onboarding-site-preview :where(.onboarding-customer-primary, .customer-lib-text-cta, .customer-lib-announcement-action):active {
+  transform: scale(0.97);
+}
+
+.customer-lib-text-cta {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  gap: 5px;
+  color: var(--customer-accent);
+  font-size: clamp(0.68rem, 2cqw, 0.82rem);
+  font-weight: 730;
+  text-decoration: none;
+}
+
+.customer-lib-text-cta::after {
+  content: '→';
+  transition: transform var(--customer-motion-spring);
+}
+
+.customer-lib-text-cta:hover::after {
+  transform: translateX(3px);
+}
+
+[data-surface='contrast'] .customer-lib-text-cta {
+  color: color-mix(in srgb, var(--customer-accent) 65%, var(--customer-ground));
+}
+
+/* Card idiom shared by featured services, offers, team, reviews. */
+:where(.customer-lib-featured-card, .customer-lib-offer-card, .customer-lib-team-card, .customer-lib-review-card) {
+  min-width: 0;
+  margin: 0;
+  padding: clamp(12px, 3cqw, 20px);
+  border: 1px solid var(--customer-line);
+  border-radius: var(--customer-radius);
+  background: var(--customer-surface);
+  transition:
+    transform var(--customer-motion-move),
+    box-shadow var(--customer-motion-move),
+    border-color var(--customer-motion-color);
+}
+
+:where(.customer-lib-featured-card, .customer-lib-offer-card, .customer-lib-team-card, .customer-lib-review-card):hover {
+  transform: translateY(-3px);
+  border-color: color-mix(in srgb, var(--customer-accent) 38%, var(--customer-line));
+  box-shadow: 0 14px 34px color-mix(in srgb, var(--customer-ink) 12%, transparent);
+}
+
+[data-surface='contrast'] :where(.customer-lib-review-card, .customer-lib-offer-card, .customer-lib-team-card, .customer-lib-featured-card) {
+  border-color: color-mix(in srgb, var(--customer-ground) 22%, transparent);
+  background: color-mix(in srgb, var(--customer-ground) 8%, var(--customer-ink));
+}
+
+.customer-lib-badge {
+  /* A flex child stretches by default; a tag must shrink-wrap its label. */
+  display: inline-block;
+  align-self: flex-start;
+  width: fit-content;
+  margin-bottom: 6px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  color: var(--customer-accent);
+  background: color-mix(in srgb, var(--customer-accent) 13%, transparent);
+  font-size: clamp(0.55rem, 1.6cqw, 0.66rem);
+  font-weight: 760;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+/* ---------------------------------------------------------------- */
+/* 01 · Announcement bar                                             */
+/* ---------------------------------------------------------------- */
+
+.customer-lib-announcement {
+  display: flex;
+  position: relative;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 4px 10px;
+  padding: 8px clamp(14px, 5cqw, 42px) !important;
+  color: var(--customer-button-text, var(--customer-surface));
+  background: var(--customer-accent);
+  font-size: clamp(0.6rem, 1.9cqw, 0.75rem);
+  font-weight: 690;
+  text-align: center;
+}
+
+.customer-lib-announcement.is-tint {
+  color: var(--customer-ink);
+  /* A real tonal step from the hero below, not a whisper against it. */
+  background: color-mix(in srgb, var(--customer-accent) 22%, var(--customer-surface));
+  box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--customer-accent) 32%, transparent);
+}
+
+.customer-lib-announcement-message {
+  overflow: hidden;
+  min-width: 0;
+  margin: 0;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.customer-lib-announcement-action {
+  color: inherit;
+  font-weight: 780;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.customer-lib-announcement-note {
+  flex-basis: 100%;
+  opacity: 0.82;
+  font-size: 0.92em;
+  font-weight: 560;
+}
+
+.customer-lib-announcement-dismiss {
+  position: absolute;
+  top: 50%;
+  right: max(8px, calc(clamp(16px, 7cqw, 68px) - 22px));
+  display: grid;
+  width: 44px;
+  height: 44px;
+  place-items: center;
+  padding: 0;
+  transform: translateY(-50%);
+  border: 0;
+  border-radius: 999px;
+  color: inherit;
+  background: transparent;
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background-color var(--customer-motion-color), transform var(--customer-motion-spring);
+}
+
+.customer-lib-announcement-dismiss:hover {
+  background: color-mix(in srgb, currentcolor 16%, transparent);
+}
+
+.customer-lib-announcement-dismiss:active {
+  transform: translateY(-50%) scale(0.9);
+}
+
+/* ---------------------------------------------------------------- */
+/* 03 · Quick info                                                   */
+/* ---------------------------------------------------------------- */
+
+.customer-lib-quick-info {
+  padding-block: clamp(10px, 2.4cqw, 18px) !important;
+  border-block: 1px solid var(--customer-line);
+  background: var(--customer-surface);
+}
+
+.customer-lib-quick-info ul {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px clamp(10px, 3cqw, 22px);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.customer-lib-quick-info li {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--customer-muted);
+  font-size: clamp(0.6rem, 1.9cqw, 0.74rem);
+  font-weight: 680;
+}
+
+.customer-lib-quick-info li:not(:last-child)::after {
+  content: '';
+  width: 4px;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--customer-accent);
+}
+
+/* Narrow strips wrap, and a separator at the start of a line reads as a
+   bullet — space alone carries the separation there. */
+@container onboarding-preview (max-width: 640px) {
+  .customer-lib-quick-info li:not(:last-child)::after {
+    display: none;
+  }
+
+  .customer-lib-quick-info ul {
+    gap: 4px 16px;
+  }
+}
+
+/* ---------------------------------------------------------------- */
+/* 04 · Section navigation                                           */
+/* ---------------------------------------------------------------- */
+
+.customer-lib-section-nav {
+  display: flex;
+  z-index: 4;
+  min-width: 0;
+  overflow-x: auto;
+  gap: 6px;
+  padding: 10px clamp(16px, 7cqw, 68px) !important;
+  border-bottom: 1px solid var(--customer-line);
+  background: color-mix(in srgb, var(--customer-surface) 94%, transparent);
+  backdrop-filter: blur(8px);
+  scrollbar-width: none;
+}
+
+.customer-lib-section-nav.is-sticky {
+  position: sticky;
+  top: 0;
+}
+
+.customer-lib-section-nav a {
+  display: inline-flex;
+  min-height: 44px;
+  flex: 0 0 auto;
+  align-items: center;
+  padding: 7px 11px;
+  border: 1px solid var(--customer-line);
+  border-radius: 999px;
+  color: var(--customer-muted);
+  font-size: clamp(0.6rem, 1.8cqw, 0.72rem);
+  font-weight: 710;
+  text-decoration: none;
+  transition: color var(--customer-motion-color), border-color var(--customer-motion-color), background-color var(--customer-motion-color), transform var(--customer-motion-spring);
+}
+
+.customer-lib-section-nav a:hover {
+  transform: translateY(-1px);
+  border-color: color-mix(in srgb, var(--customer-accent) 46%, var(--customer-line));
+  color: var(--customer-accent);
+}
+
+.customer-lib-section-nav a:active {
+  transform: scale(0.96);
+}
+
+/* ---------------------------------------------------------------- */
+/* 05 · Featured services                                            */
+/* ---------------------------------------------------------------- */
+
+.customer-lib-featured-items {
+  display: grid;
+  min-width: 0;
+  gap: clamp(10px, 2.6cqw, 18px);
+}
+
+.customer-lib-featured.is-grid .customer-lib-featured-items {
+  grid-template-columns: repeat(auto-fit, minmax(min(260px, 100%), 1fr));
+}
+
+/* Four columns crushes the descriptions; three keeps a readable measure. */
+@container onboarding-preview (min-width: 1000px) {
+  .customer-lib-featured.is-grid .customer-lib-featured-items {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+/* Cards share a baseline: body grows, the action sits on the card floor. */
+.customer-lib-featured-card,
+.customer-lib-offer-card,
+.customer-lib-team-card {
+  display: flex;
+  flex-direction: column;
+}
+
+.customer-lib-featured-body {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+}
+
+.customer-lib-featured-card .customer-lib-text-cta,
+.customer-lib-offer-card .customer-lib-text-cta,
+.customer-lib-team-card .customer-lib-text-cta {
+  margin-top: auto;
+}
+
+.customer-lib-featured.is-carousel .customer-lib-featured-items {
+  display: flex;
+  overflow-x: auto;
+  padding-bottom: 6px;
+  scroll-snap-type: x mandatory;
+  scrollbar-width: none;
+}
+
+.customer-lib-featured.is-carousel .customer-lib-featured-card {
+  flex: 0 0 min(240px, 78cqw);
+  scroll-snap-align: start;
+}
+
+.customer-lib-featured-card img {
+  display: block;
+  width: calc(100% + 2 * clamp(12px, 3cqw, 20px));
+  height: clamp(110px, 30cqw, 190px);
+  margin: calc(-1 * clamp(12px, 3cqw, 20px)) calc(-1 * clamp(12px, 3cqw, 20px)) 12px;
+  border-radius: var(--customer-radius) var(--customer-radius) 0 0;
+  object-fit: cover;
+  transition: filter var(--customer-motion-move);
+}
+
+.customer-lib-featured-card:hover img {
+  filter: saturate(1.12);
+}
+
+.customer-lib-featured.is-editorial .customer-lib-featured-card {
+  padding-block: 16px;
+  border-width: 0 0 1px;
+  border-radius: 0;
+  background: transparent;
+}
+
+/*
+ * The editorial preset is a price list. At width it reads as a menu — copy
+ * on the left, price and duration set right against the rule — instead of a
+ * short column with two thirds of the row empty.
+ */
+@container onboarding-preview (min-width: 720px) {
+  .customer-lib-featured.is-editorial .customer-lib-featured-items {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .customer-lib-featured.is-editorial .customer-lib-featured-body {
+    display: grid;
+    align-items: baseline;
+    grid-template-areas:
+      'title meta'
+      'copy cta';
+    grid-template-columns: minmax(0, 1fr) auto;
+    column-gap: clamp(20px, 5cqw, 64px);
+  }
+
+  .customer-lib-featured.is-editorial .customer-lib-badge {
+    grid-area: title;
+    justify-self: start;
+    align-self: start;
+  }
+
+  .customer-lib-featured.is-editorial .customer-lib-featured-body h3 {
+    grid-area: title;
+    margin-top: 22px;
+  }
+
+  .customer-lib-featured.is-editorial .customer-lib-featured-body > p:not(.customer-lib-featured-meta) {
+    grid-area: copy;
+    max-width: 58ch;
+  }
+
+  .customer-lib-featured.is-editorial .customer-lib-featured-meta {
+    grid-area: meta;
+    justify-content: flex-end;
+    white-space: nowrap;
+  }
+
+  .customer-lib-featured.is-editorial .customer-lib-text-cta {
+    grid-area: cta;
+    justify-self: end;
+  }
+}
+
+.customer-lib-featured.is-editorial .customer-lib-featured-card:hover {
+  transform: none;
+  box-shadow: none;
+  border-color: color-mix(in srgb, var(--customer-accent) 45%, var(--customer-line));
+}
+
+.customer-lib-featured-card h3 {
+  margin: 0 0 5px;
+  font-size: clamp(0.86rem, 2.6cqw, 1.08rem);
+  font-weight: 640;
+}
+
+.customer-lib-featured-card p {
+  margin: 0 0 8px;
+  color: var(--customer-muted);
+  font-size: clamp(0.66rem, 2cqw, 0.8rem);
+  line-height: 1.5;
+}
+
+.customer-lib-featured-meta {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  /* Inherit so the same run reads on light grounds and contrast bands. */
+  color: inherit;
+  font-size: clamp(0.68rem, 2cqw, 0.82rem);
+  font-weight: 720;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------------------------------------------------------------- */
+/* 07 · Offers                                                       */
+/* ---------------------------------------------------------------- */
+
+.customer-lib-offers-items {
+  display: grid;
+  min-width: 0;
+  gap: clamp(10px, 2.6cqw, 16px);
+}
+
+.customer-lib-offers.is-cards .customer-lib-offers-items {
+  grid-template-columns: repeat(auto-fit, minmax(min(230px, 100%), 1fr));
+}
+
+.customer-lib-offer-card {
+  border-left: 3px solid var(--customer-accent);
+}
+
+.customer-lib-offer-card h3 {
+  margin: 0 0 5px;
+  font-size: clamp(0.86rem, 2.6cqw, 1.05rem);
+}
+
+.customer-lib-offer-card p {
+  margin: 0 0 8px;
+  color: var(--customer-muted);
+  font-size: clamp(0.66rem, 2cqw, 0.8rem);
+  line-height: 1.5;
+}
+
+.customer-lib-offer-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  font-size: clamp(0.58rem, 1.7cqw, 0.7rem) !important;
+  font-weight: 660;
+}
+
+/* ---------------------------------------------------------------- */
+/* 10 · Team                                                         */
+/* ---------------------------------------------------------------- */
+
+.customer-lib-team-items {
+  display: grid;
+  min-width: 0;
+  gap: clamp(10px, 2.6cqw, 16px);
+}
+
+.customer-lib-team.is-profile_grid .customer-lib-team-items {
+  grid-template-columns: repeat(auto-fit, minmax(min(180px, 100%), 1fr));
+}
+
+.customer-lib-team.is-swipeable .customer-lib-team-items {
+  display: flex;
+  overflow-x: auto;
+  padding-bottom: 6px;
+  scroll-snap-type: x mandatory;
+  scrollbar-width: none;
+}
+
+.customer-lib-team.is-swipeable .customer-lib-team-card {
+  flex: 0 0 min(200px, 66cqw);
+  scroll-snap-align: start;
+}
+
+.customer-lib-avatar {
+  display: grid;
+  width: clamp(44px, 12cqw, 64px);
+  height: clamp(44px, 12cqw, 64px);
+  margin-bottom: 10px;
+  place-items: center;
+  border-radius: 999px;
+  color: var(--customer-button-text, var(--customer-surface));
+  background:
+    linear-gradient(
+      135deg,
+      var(--customer-accent),
+      color-mix(in srgb, var(--customer-secondary-accent, var(--customer-accent)) 80%, var(--customer-accent))
+    );
+  font-family: var(--customer-heading-font);
+  font-size: clamp(0.9rem, 3cqw, 1.2rem);
+  font-weight: 620;
+  transition: transform var(--customer-motion-spring);
+}
+
+.customer-lib-avatar.is-image {
+  object-fit: cover;
+}
+
+.customer-lib-team-card:hover .customer-lib-avatar {
+  transform: scale(1.06) rotate(-2deg);
+}
+
+.customer-lib-team-card h3 {
+  margin: 0 0 3px;
+  font-size: clamp(0.84rem, 2.5cqw, 1.02rem);
+}
+
+.customer-lib-team-title {
+  margin: 0 0 6px;
+  color: var(--customer-accent);
+  font-size: clamp(0.62rem, 1.9cqw, 0.75rem);
+  font-weight: 720;
+}
+
+.customer-lib-team-specialties {
+  margin: 0 0 8px;
+  color: var(--customer-muted);
+  font-size: clamp(0.62rem, 1.9cqw, 0.75rem);
+  line-height: 1.5;
+}
+
+/* ---------------------------------------------------------------- */
+/* 11 · Reviews                                                      */
+/* ---------------------------------------------------------------- */
+
+.customer-lib-reviews-items {
+  display: grid;
+  min-width: 0;
+  gap: clamp(10px, 2.6cqw, 16px);
+}
+
+.customer-lib-reviews.is-testimonial_cards .customer-lib-reviews-items {
+  grid-template-columns: repeat(auto-fit, minmax(min(230px, 100%), 1fr));
+}
+
+.customer-lib-reviews.is-carousel .customer-lib-reviews-items {
+  display: flex;
+  overflow-x: auto;
+  padding-bottom: 6px;
+  scroll-snap-type: x mandatory;
+  scrollbar-width: none;
+}
+
+.customer-lib-reviews.is-carousel .customer-lib-review-card {
+  flex: 0 0 min(250px, 80cqw);
+  scroll-snap-align: start;
+}
+
+.customer-lib-reviews.is-editorial_quote .customer-lib-review-card {
+  border: 0;
+  background: transparent;
+  text-align: center;
+}
+
+.customer-lib-reviews.is-editorial_quote .customer-lib-review-card p {
+  font-family: var(--customer-heading-font);
+  font-size: clamp(1rem, 3.6cqw, 1.5rem);
+  line-height: 1.35;
+}
+
+.customer-lib-review-stars {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--customer-accent);
+  font-size: clamp(0.7rem, 2.2cqw, 0.9rem);
+  letter-spacing: 2px;
+}
+
+.customer-lib-review-card p {
+  margin: 0 0 10px;
+  font-size: clamp(0.72rem, 2.2cqw, 0.9rem);
+  line-height: 1.55;
+}
+
+.customer-lib-review-card footer {
+  color: var(--customer-muted);
+  font-size: clamp(0.6rem, 1.8cqw, 0.72rem);
+  font-weight: 670;
+}
+
+.customer-lib-review-card cite {
+  font-style: normal;
+}
+
+/* ---------------------------------------------------------------- */
+/* 12 · Deposits & cancellations / 13 · Policies                     */
+/* ---------------------------------------------------------------- */
+
+.customer-lib-policy-body {
+  max-width: 58ch;
+  margin: 0;
+  color: var(--customer-muted);
+  font-size: clamp(0.72rem, 2.2cqw, 0.88rem);
+  line-height: 1.65;
+}
+
+.customer-lib-policies dl {
+  display: grid;
+  min-width: 0;
+  gap: clamp(10px, 2.6cqw, 16px);
+  margin: 0;
+}
+
+.customer-lib-policies dl > div {
+  min-width: 0;
+  padding: clamp(11px, 2.6cqw, 16px);
+  border: 1px solid var(--customer-line);
+  border-radius: var(--customer-radius);
+  background: var(--customer-surface);
+}
+
+.customer-lib-policies dt {
+  margin-bottom: 5px;
+  font-size: clamp(0.72rem, 2.2cqw, 0.88rem);
+  font-weight: 700;
+}
+
+.customer-lib-policies dd {
+  margin: 0;
+  color: var(--customer-muted);
+  font-size: clamp(0.66rem, 2cqw, 0.8rem);
+  line-height: 1.6;
+}
+
+/* ---------------------------------------------------------------- */
+/* 14 · FAQ                                                          */
+/* ---------------------------------------------------------------- */
+
+.customer-lib-faq-items {
+  display: grid;
+  min-width: 0;
+  gap: 8px;
+}
+
+.customer-lib-faq details {
+  overflow: hidden;
+  min-width: 0;
+  border: 1px solid var(--customer-line);
+  border-radius: var(--customer-radius);
+  background: var(--customer-surface);
+  transition: border-color var(--customer-motion-color);
+}
+
+.customer-lib-faq details[open] {
+  border-color: color-mix(in srgb, var(--customer-accent) 42%, var(--customer-line));
+}
+
+.customer-lib-faq summary {
+  display: flex;
+  min-height: 44px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: clamp(11px, 2.6cqw, 15px);
+  font-size: clamp(0.72rem, 2.2cqw, 0.88rem);
+  font-weight: 700;
+  cursor: pointer;
+  list-style: none;
+}
+
+.customer-lib-faq summary::-webkit-details-marker {
+  display: none;
+}
+
+.customer-lib-faq summary::after {
+  content: '+';
+  flex: 0 0 auto;
+  color: var(--customer-accent);
+  font-size: 1.1em;
+  font-weight: 600;
+  transition: transform var(--customer-motion-spring);
+}
+
+.customer-lib-faq details[open] summary::after {
+  transform: rotate(45deg);
+}
+
+.customer-lib-faq details > p {
+  margin: 0;
+  padding: 0 clamp(11px, 2.6cqw, 15px) clamp(11px, 2.6cqw, 15px);
+  color: var(--customer-muted);
+  font-size: clamp(0.66rem, 2cqw, 0.8rem);
+  line-height: 1.6;
+}
+
+/* ---------------------------------------------------------------- */
+/* 15 · Hours                                                        */
+/* ---------------------------------------------------------------- */
+
+.customer-lib-hours-status {
+  margin: 0 0 14px;
+  color: var(--customer-muted);
+  font-size: clamp(0.6rem, 1.8cqw, 0.72rem);
+  font-weight: 640;
+  letter-spacing: 0.02em;
+}
+
+.customer-lib-hours-rows dt {
+  color: var(--customer-ink);
+}
+
+.customer-lib-hours-status[data-hours-status='open'] {
+  color: var(--customer-accent);
+}
+
+.customer-lib-hours-rows {
+  display: grid;
+  min-width: 0;
+  max-width: 380px;
+  gap: 6px;
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.customer-lib-hours-rows > div {
+  display: grid;
+  align-items: baseline;
+  grid-template-columns: 4.5ch minmax(0, 1fr);
+  gap: 12px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid color-mix(in srgb, var(--customer-line) 62%, transparent);
+}
+
+.customer-lib-hours.is-full .customer-lib-hours-rows > div {
+  grid-template-columns: 10ch minmax(0, 1fr);
+}
+
+.customer-lib-hours-rows dd {
+  font-variant-numeric: tabular-nums;
+}
+
+.customer-lib-hours-rows dt {
+  font-size: clamp(0.66rem, 2cqw, 0.8rem);
+  font-weight: 700;
+}
+
+.customer-lib-hours-rows dd {
+  margin: 0;
+  color: var(--customer-muted);
+  font-size: clamp(0.66rem, 2cqw, 0.8rem);
+}
+
+.customer-lib-hours-rows dd[data-closed='true'] {
+  opacity: 0.6;
+}
+
+.customer-lib-hours.is-compact .customer-lib-hours-rows {
+  display: grid;
+  max-width: 460px;
+  grid-template-columns: repeat(auto-fit, minmax(min(190px, 100%), 1fr));
+  gap: 4px 24px;
+}
+
+.customer-lib-hours.is-compact .customer-lib-hours-rows > div {
+  gap: 12px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid color-mix(in srgb, var(--customer-line) 45%, transparent);
+}
+
+.customer-lib-hours-closed {
+  margin: 10px 0 0;
+  color: var(--customer-muted);
+  font-size: clamp(0.64rem, 1.9cqw, 0.77rem);
+}
+
+/* ---------------------------------------------------------------- */
+/* 16 · Visit us                                                     */
+/* ---------------------------------------------------------------- */
+
+.customer-lib-visit-body {
+  display: grid;
+  min-width: 0;
+  /* Columns size to their own content; nothing stretches to the tallest one. */
+  align-items: start;
+  gap: clamp(14px, 4cqw, 26px);
+}
+
+.customer-lib-visit.is-map_details .customer-lib-visit-body {
+  grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr));
+}
+
+.customer-lib-visit-primary {
+  margin: 0 0 3px;
+  font-size: clamp(0.82rem, 2.6cqw, 1.05rem);
+  font-weight: 680;
+}
+
+.customer-lib-visit-detail {
+  margin: 0 0 8px;
+  color: var(--customer-muted);
+  font-size: clamp(0.66rem, 2cqw, 0.8rem);
+}
+
+.customer-lib-visit-notes {
+  display: grid;
+  gap: 5px;
+  margin: 10px 0 0;
+  padding: 0;
+  color: var(--customer-muted);
+  font-size: clamp(0.64rem, 1.9cqw, 0.77rem);
+  line-height: 1.5;
+  list-style: none;
+}
+
+.customer-lib-visit-notes li {
+  display: flex;
+  gap: 7px;
+}
+
+.customer-lib-visit-notes li::before {
+  content: '·';
+  color: var(--customer-accent);
+  font-weight: 800;
+}
+
+.customer-lib-visit-map {
+  overflow: hidden;
+  min-height: 180px;
+  border: 1px solid var(--customer-line);
+  border-radius: var(--customer-card-radius);
+  background: color-mix(in srgb, var(--customer-surface) 86%, var(--customer-accent));
+  grid-column: 1 / -1;
+}
+
+.customer-lib-visit-map iframe {
+  display: block;
+  width: 100%;
+  height: clamp(180px, 48cqw, 300px);
+  border: 0;
+}
+
+.customer-lib-visit-contact {
+  display: flex;
+  align-items: flex-start;
+  align-content: flex-start;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0;
+}
+
+.customer-lib-visit-contact a {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  padding: 8px 12px;
+  border: 1px solid var(--customer-line);
+  border-radius: var(--customer-button-radius);
+  color: inherit;
+  font-size: clamp(0.64rem, 1.9cqw, 0.77rem);
+  font-weight: 720;
+  text-decoration: none;
+  transition: border-color var(--customer-motion-color), transform var(--customer-motion-spring);
+}
+
+.customer-lib-visit-contact a:hover {
+  transform: translateY(-1px);
+  border-color: color-mix(in srgb, var(--customer-accent) 50%, var(--customer-line));
+}
+
+/* ---------------------------------------------------------------- */
+/* 19 · Final CTA                                                    */
+/* ---------------------------------------------------------------- */
+
+.customer-lib-final-cta {
+  text-align: center;
+}
+
+.onboarding-site-preview .customer-lib-final-cta h2 {
+  margin-inline: auto;
+  max-width: 22ch;
+  text-align: center;
+}
+
+.customer-lib-final-cta > p {
+  max-width: 52ch;
+  text-wrap: pretty;
+  margin: 0 auto 16px;
+  color: var(--customer-muted);
+  font-size: clamp(0.72rem, 2.2cqw, 0.9rem);
+  line-height: 1.55;
+}
+
+.customer-lib-final-cta.is-editorial_cta {
+  border-block: 1px solid var(--customer-line);
+}
+
+.customer-lib-final-cta[data-surface='contrast'] > p {
+  color: color-mix(in srgb, var(--customer-ground) 78%, var(--customer-ink));
+}
+
+/* ---------------------------------------------------------------- */
+/* 20 · Footer                                                       */
+/* ---------------------------------------------------------------- */
+
+.customer-lib-footer {
+  display: grid;
+  gap: 12px;
+  padding-block: clamp(20px, 5cqw, 40px) !important;
+  border-top: 1px solid var(--customer-line);
+  background: var(--customer-surface);
+  font-size: clamp(0.64rem, 1.9cqw, 0.77rem);
+}
+
+.customer-lib-footer-brand {
+  display: grid;
+  gap: 2px;
+}
+
+.customer-lib-footer-brand strong {
+  font-family: var(--customer-heading-font);
+  font-size: clamp(0.8rem, 2.4cqw, 1rem);
+}
+
+.customer-lib-footer-brand span {
+  color: var(--customer-muted);
+}
+
+.customer-lib-footer-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+}
+
+.customer-lib-footer-links a {
+  color: inherit;
+  font-weight: 700;
+  text-decoration: none;
+  text-underline-offset: 3px;
+  transition: color var(--customer-motion-color);
+}
+
+.customer-lib-footer-links a:hover {
+  color: var(--customer-accent);
+  text-decoration: underline;
+}
+
+.customer-lib-footer small {
+  color: var(--customer-muted);
+}
+
+.customer-lib-footer.is-columns {
+  grid-template-columns: 1fr auto;
+  align-items: start;
+}
+
+.customer-lib-footer.is-columns small {
+  grid-column: 1 / -1;
+}
+
+/* ---------------------------------------------------------------- */
+/* Motion: entrances and reduced-motion safety                       */
+/* ---------------------------------------------------------------- */
+
+@media (prefers-reduced-motion: no-preference) {
+  /*
+   * Entrances move, they never hide. An opacity-from-zero entrance leaves
+   * real customer text invisible whenever the animation has not run — a
+   * paused tab, a slow device, a screenshot, a crawler — so the rise is
+   * transform-only and the content is readable from the first frame.
+   */
+  @keyframes customer-lib-rise {
+    from {
+      translate: 0 10px;
+    }
+
+    to {
+      translate: 0 0;
+    }
+  }
+
+  .customer-lib-announcement {
+    animation: customer-lib-rise 420ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+
+  .customer-lib-quick-info li {
+    animation: customer-lib-rise 460ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
+  }
+
+  .customer-lib-quick-info li:nth-child(2) { animation-delay: 60ms; }
+  .customer-lib-quick-info li:nth-child(3) { animation-delay: 120ms; }
+  .customer-lib-quick-info li:nth-child(4) { animation-delay: 180ms; }
+}
+
+/*
+ * Reduced motion strips travel (transforms, entrances) but keeps colour and
+ * opacity feedback, so controls still visibly acknowledge interaction.
+ */
+@media (prefers-reduced-motion: reduce) {
+  .onboarding-site-preview [data-library-type] *,
+  .customer-lib-announcement,
+  .customer-lib-section-nav a,
+  .onboarding-customer-primary {
+    transition-property: color, background-color, border-color, opacity !important;
+    animation-duration: 0.01ms !important;
+    animation-delay: 0ms !important;
+  }
+
+  /*
+   * A scroll-linked animation takes its progress from the scroll position,
+   * not from a duration, so shortening the duration would not stop it. The
+   * name and the timeline both have to go.
+   */
+  .onboarding-site-preview [data-library-type],
+  .onboarding-site-preview [data-library-type] *,
+  .onboarding-site-preview :where(
+    .onboarding-customer-about,
+    .onboarding-customer-gallery,
+    .onboarding-customer-contact
+  ) {
+    animation-name: none !important;
+    animation-timeline: auto !important;
+  }
+
+  .onboarding-site-preview :where(.onboarding-customer-primary, .customer-lib-text-cta):hover,
+  .onboarding-site-preview :where(.onboarding-customer-primary, .customer-lib-text-cta):active,
+  :where(.customer-lib-featured-card, .customer-lib-offer-card, .customer-lib-review-card, .customer-lib-team-card):active {
+    transform: none;
+  }
+}
+
+/* ---------------------------------------------------------------- */
+/* Motion: scroll reveals and per-section micro-interactions         */
+/* ---------------------------------------------------------------- */
+
+@media (prefers-reduced-motion: no-preference) {
+  /*
+   * Scroll-linked reveals as progressive enhancement. Where `view()` is not
+   * supported nothing animates and the page is simply already in place —
+   * the same fail-open rule the entrances follow, so no customer ever loses
+   * content to an animation that did not run. The announcement and hero are
+   * excluded because they are already on screen at load, the anchor menu
+   * because it can be sticky and a pinned element's own view timeline stops
+   * telling the truth, the footer because a page can end before its reveal
+   * completes, and Booking and Custom Design because they are engine
+   * sections this layer does not touch.
+   */
+  /*
+   * Reveals animate `translate` and `scale`, never `transform`. A filled
+   * animation outranks the declared style for the property it animates, so
+   * a transform-based reveal would hold `transform` for the life of the
+   * page and silently swallow every hover lift and press. The independent
+   * properties compose with `transform` by the CSS transform model instead,
+   * which needs no composition mode and no browser-specific behaviour.
+   */
+  @supports (animation-timeline: view()) {
+    .onboarding-site-preview [data-library-type]:not(
+      [data-library-type='announcement_bar'],
+      [data-library-type='hero'],
+      [data-library-type='section_navigation'],
+      [data-library-type='footer'],
+      [data-library-type='booking'],
+      [data-library-type='custom_design']
+    ) {
+      animation: customer-lib-rise linear both;
+      animation-timeline: view();
+      animation-range: entry 8% entry 52%;
+    }
+
+    /*
+     * The four accepted pre-library renderers do not carry
+     * `data-library-type`, and a page where half the sections rise and half
+     * arrive flat reads as a bug rather than a style. They are named here so
+     * the whole page moves as one.
+     */
+    .onboarding-site-preview :where(
+      .onboarding-customer-about,
+      .onboarding-customer-gallery,
+      .onboarding-customer-contact
+    ) {
+      animation: customer-lib-rise linear both;
+      animation-timeline: view();
+      animation-range: entry 8% entry 52%;
+    }
+
+    /*
+     * Collection items carry their own timeline, so the cascade comes from
+     * where each card actually sits on the page rather than from a scripted
+     * delay that guesses at it.
+     */
+    :where(
+      .customer-lib-featured-card,
+      .customer-lib-offer-card,
+      .customer-lib-review-card,
+      .customer-lib-team-card,
+      .customer-lib-faq details
+    ) {
+      animation: customer-lib-settle linear both;
+      animation-timeline: view();
+      animation-range: entry 4% entry 46%;
+    }
+
+    @keyframes customer-lib-settle {
+      from {
+        translate: 0 8px;
+        scale: 0.994;
+      }
+
+      to {
+        translate: 0 0;
+        scale: 1;
+      }
+    }
+  }
+
+  /* The open/closed line is the one live fact on the page: let it breathe. */
+  .customer-lib-hours-status[data-hours-status='open']::before {
+    animation: customer-lib-breathe 2600ms ease-in-out infinite;
+  }
+
+  @keyframes customer-lib-breathe {
+    0%,
+    100% {
+      opacity: 1;
+      transform: scale(1);
+    }
+
+    50% {
+      opacity: 0.5;
+      transform: scale(0.82);
+    }
+  }
+}
+
+/* The dot marks "open now" whether or not it is allowed to breathe. */
+.customer-lib-hours-status[data-hours-status='open']::before {
+  content: '';
+  display: inline-block;
+  width: 0.42em;
+  height: 0.42em;
+  margin-right: 0.5em;
+  border-radius: 50%;
+  background: currentcolor;
+  vertical-align: 0.06em;
+}
+
+/*
+ * Press acknowledgement on every card, including the styles whose hover
+ * deliberately does not lift — a tap should still answer.
+ */
+:where(
+  .customer-lib-featured-card,
+  .customer-lib-offer-card,
+  .customer-lib-review-card,
+  .customer-lib-team-card
+):active {
+  transform: scale(0.992);
+  transition-duration: 90ms;
+}
+
+/* Reviews warm as the card is read. */
+.customer-lib-review-stars {
+  transition: color var(--customer-motion-color), letter-spacing var(--customer-motion-move);
+}
+
+.customer-lib-review-card:hover .customer-lib-review-stars {
+  color: var(--customer-accent);
+  letter-spacing: 0.05em;
+}
+
+/* On a featured service the badge is the draw, so it answers the hover. */
+.customer-lib-featured-card .customer-lib-badge {
+  transition: transform var(--customer-motion-spring);
+}
+
+.customer-lib-featured-card:hover .customer-lib-badge {
+  transform: rotate(-1.6deg) scale(1.05);
+}
+
+/*
+ * FAQ: the marker turns into its own close state rather than swapping glyph.
+ * It uses `rotate` rather than `transform` for the same reason the reveals
+ * do — the independent properties compose with any `transform` a style
+ * preset may add later, instead of replacing it.
+ *
+ * The answer itself deliberately does NOT animate its height. A
+ * `::details-content` height transition is fail-closed: the answer starts at
+ * `block-size: 0` and only becomes readable once the transition runs, so
+ * anywhere transitions do not advance — a background tab, a paused
+ * renderer, a capture — the open answer stays clipped to the height of its
+ * own summary. Measured doing exactly that. An answer a customer cannot
+ * read is a far worse trade than an instant open.
+ */
+.customer-lib-faq summary::after {
+  transition: rotate var(--customer-motion-spring), color var(--customer-motion-color);
+}
+
+.customer-lib-faq details[open] summary::after {
+  rotate: 45deg;
+}
+
+.customer-lib-faq summary:hover {
+  background: color-mix(in srgb, var(--customer-accent) 7%, transparent);
+}
+
+
+/* Links draw their underline instead of switching it on. */
+:where(.customer-lib-footer-links, .customer-lib-visit-contact) a {
+  background-image: linear-gradient(currentcolor, currentcolor);
+  background-repeat: no-repeat;
+  background-position: 0 100%;
+  background-size: 0% 1px;
+  transition: background-size var(--customer-motion-move), color var(--customer-motion-color);
+}
+
+:where(.customer-lib-footer-links, .customer-lib-visit-contact) a:hover {
+  background-size: 100% 1px;
+}
+
+/* ---------------------------------------------------------------- */
+/* 02 · Hero media (image presets only)                              */
+/* ---------------------------------------------------------------- */
+
+.onboarding-customer-hero.is-image_right,
+.onboarding-customer-hero.is-editorial_split {
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.8fr);
+}
+
+.onboarding-customer-hero__media {
+  min-width: 0;
+  align-self: stretch;
+}
+
+.onboarding-customer-hero__media img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  min-height: 180px;
+  border-radius: var(--customer-radius);
+  object-fit: cover;
+}
+
+.onboarding-customer-hero.is-full_bleed {
+  position: relative;
+  overflow: hidden;
+}
+
+.onboarding-customer-hero.is-full_bleed .onboarding-customer-hero__media {
+  position: absolute;
+  z-index: 0;
+  inset: 0;
+  opacity: 0.24;
+}
+
+.onboarding-customer-hero.is-full_bleed .onboarding-customer-hero__media img {
+  min-height: 100%;
+  border-radius: 0;
+}
+
+.onboarding-customer-hero.is-full_bleed > div:first-child {
+  position: relative;
+  z-index: 1;
+}
+
+.onboarding-customer-hero__media.is-emblem {
+  display: grid;
+  align-self: center;
+  justify-self: center;
+  place-items: center;
+}
+
+.onboarding-customer-hero__media.is-emblem img {
+  width: clamp(84px, 22cqw, 150px);
+  height: clamp(84px, 22cqw, 150px);
+  min-height: 0;
+  border-radius: 999px;
+  object-fit: contain;
+  background: var(--customer-surface);
+  padding: 12px;
+  border: 1px solid var(--customer-line);
+}
+
+.onboarding-customer-hero__media.is-emblem i {
+  display: grid;
+  width: clamp(84px, 22cqw, 150px);
+  height: clamp(84px, 22cqw, 150px);
+  place-items: center;
+  border-radius: 999px;
+  color: var(--customer-button-text, var(--customer-surface));
+  background:
+    linear-gradient(
+      135deg,
+      var(--customer-accent),
+      color-mix(in srgb, var(--customer-secondary-accent, var(--customer-accent)) 80%, var(--customer-accent))
+    );
+  font-family: var(--customer-heading-font);
+  font-size: clamp(1.6rem, 6cqw, 2.6rem);
+  font-style: normal;
+  font-weight: 600;
+}
+
+@media (max-width: 560px) {
+  .onboarding-customer-hero.is-image_right,
+  .onboarding-customer-hero.is-editorial_split {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* ---------------------------------------------------------------- */
+/* Showcase capture mode (harness only)                              */
+/* ---------------------------------------------------------------- */
+
+/*
+ * `?full=1` unclips the emulated device frame so automated evidence can
+ * capture a whole customer page in one screenshot. It changes only the
+ * capture container — every section still renders at its real width.
+ */
+.section-showcase.is-full-flow .onboarding-preview-stage {
+  height: auto;
+  min-height: 0;
+}
+
+.section-showcase.is-full-flow .onboarding-preview-frame {
+  position: relative;
+  left: auto;
+  height: auto;
+  overflow: visible;
+  transform: none;
+}
+
+.section-showcase.is-full-flow .onboarding-preview-measurement-host {
+  display: none;
+}
+
+/* ---------------------------------------------------------------- */
+/* Style personalities                                               */
+/* ---------------------------------------------------------------- */
+
+/*
+ * The six style presets own typography, radius, and spacing tokens, but four
+ * of them share a typeface pairing — so on their own they read as one design
+ * with different corners. These rules give each style its own section
+ * behaviour (heading scale and tracking, eyebrow treatment, card chrome,
+ * divider language) using only tokens the styles already define. No accepted
+ * style token is modified.
+ */
+
+/* Editorial — rules, tight display tracking, small-caps eyebrows. */
+.onboarding-preview-frame[data-style-preset='editorial'] [data-library-type] :where(h2) {
+  font-size: clamp(1.5rem, 6cqw, 3.1rem);
+  letter-spacing: -0.045em;
+}
+
+.onboarding-preview-frame[data-style-preset='editorial'] [data-library-type] .onboarding-customer-eyebrow {
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--customer-line);
+  margin-bottom: 14px;
+  font-variant: small-caps;
+  letter-spacing: 0.12em;
+}
+
+.onboarding-preview-frame[data-style-preset='editorial'] :where(.customer-lib-featured-card, .customer-lib-offer-card, .customer-lib-review-card, .customer-lib-team-card) {
+  border-width: 0 0 1px;
+  border-radius: 0;
+  background: transparent;
+}
+
+/* Minimal — hairlines instead of cards, quieter headings, more air. */
+.onboarding-preview-frame[data-style-preset='minimal'] [data-library-type] :where(h2) {
+  font-size: clamp(1.2rem, 4.2cqw, 2.1rem);
+  font-weight: 620;
+  letter-spacing: -0.02em;
+}
+
+.onboarding-preview-frame[data-style-preset='minimal'] :where(.customer-lib-featured-card, .customer-lib-offer-card, .customer-lib-review-card, .customer-lib-team-card) {
+  padding-inline: 0;
+  border-width: 0 0 1px;
+  border-radius: 0;
+  background: transparent;
+}
+
+.onboarding-preview-frame[data-style-preset='minimal'] :where(.customer-lib-featured-card, .customer-lib-offer-card, .customer-lib-review-card, .customer-lib-team-card):hover {
+  transform: none;
+  box-shadow: none;
+}
+
+.onboarding-preview-frame[data-style-preset='minimal'] .onboarding-customer-eyebrow {
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+/* Bold — heavy, tight, flat: thick borders and no soft shadows. */
+.onboarding-preview-frame[data-style-preset='bold'] [data-library-type] :where(h2) {
+  font-size: clamp(1.6rem, 7cqw, 3.4rem);
+  font-weight: 860;
+  letter-spacing: -0.045em;
+  line-height: 0.98;
+  text-transform: uppercase;
+}
+
+.onboarding-preview-frame[data-style-preset='bold'] :where(.customer-lib-featured-card, .customer-lib-offer-card, .customer-lib-review-card, .customer-lib-team-card) {
+  border-width: 2px;
+  border-color: var(--customer-ink);
+}
+
+.onboarding-preview-frame[data-style-preset='bold'] :where(.customer-lib-featured-card, .customer-lib-offer-card, .customer-lib-review-card, .customer-lib-team-card):hover {
+  box-shadow: 5px 5px 0 var(--customer-ink);
+  transform: translate(-2px, -2px);
+}
+
+.onboarding-preview-frame[data-style-preset='bold'] .onboarding-customer-eyebrow {
+  font-weight: 820;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+/* Luxury — wide tracking, generous rhythm, hairline chrome. */
+.onboarding-preview-frame[data-style-preset='luxury'] [data-library-type] {
+  padding-block: calc(var(--customer-section-space, 60px) * 1.18);
+}
+
+.onboarding-preview-frame[data-style-preset='luxury'] [data-library-type] :where(h2) {
+  font-size: clamp(1.45rem, 5.4cqw, 2.9rem);
+  font-weight: 420;
+  letter-spacing: -0.012em;
+}
+
+.onboarding-preview-frame[data-style-preset='luxury'] .onboarding-customer-eyebrow {
+  font-size: clamp(0.54rem, 1.7cqw, 0.68rem);
+  letter-spacing: 0.34em;
+  text-transform: uppercase;
+}
+
+.onboarding-preview-frame[data-style-preset='luxury'] :where(.customer-lib-featured-card, .customer-lib-offer-card, .customer-lib-review-card, .customer-lib-team-card) {
+  border-color: color-mix(in srgb, var(--customer-line) 60%, transparent);
+}
+
+/* Soft — rounder, airier, gentler edges. */
+.onboarding-preview-frame[data-style-preset='soft'] :where(.customer-lib-featured-card, .customer-lib-offer-card, .customer-lib-review-card, .customer-lib-team-card) {
+  border-color: color-mix(in srgb, var(--customer-line) 70%, transparent);
+  box-shadow: 0 10px 30px color-mix(in srgb, var(--customer-ink) 7%, transparent);
+}
+
+.onboarding-preview-frame[data-style-preset='soft'] .onboarding-customer-eyebrow {
+  letter-spacing: 0.04em;
+  text-transform: none;
+}
+
+/* Modern keeps the library's default treatment. */
+
+/* ---------------------------------------------------------------- */
+/* Accepted-renderer corrections                                     */
+/* ---------------------------------------------------------------- */
+
+/*
+ * Every section in a page shares one gutter. About carried its own narrower
+ * one (18px against 26.6px at phone width), so its copy sat proud of the
+ * sections above and below it.
+ */
+.onboarding-site-preview .onboarding-customer-about {
+  padding-inline: clamp(16px, 7cqw, 68px);
+}
+
+/*
+ * About's two-column shells reserve a portrait column. With no portrait to
+ * show, the column stays empty and the copy sits in half a section — so the
+ * section collapses to one column and the copy takes the full measure.
+ */
+.onboarding-site-preview .onboarding-customer-about.is-photo-right:not(.has-portrait),
+.onboarding-site-preview .onboarding-customer-about.is-editorial:not(.has-portrait) {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.onboarding-site-preview .onboarding-customer-about:not(.has-portrait) .onboarding-about-copy {
+  max-width: 62ch;
+}

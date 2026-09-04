@@ -1,4 +1,4 @@
-import type { ServiceCategory } from '@/models/Schema';
+import type { ServiceCategory } from '../models/serviceCatalogTypes';
 
 export const LUSTER_MANICURE_TEMPLATE_KEY = 'luster_manicure';
 export const LUSTER_PEDICURE_TEMPLATE_KEY = 'luster_pedicure';

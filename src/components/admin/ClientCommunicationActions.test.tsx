@@ -391,7 +391,8 @@ describe('ClientCommunicationActions', () => {
         },
       },
     });
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(4));
+    // The requests starting does not mean their JSON has reached React state.
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Google review' })).toBeEnabled());
 
     fireEvent.click(screen.getByRole('button', { name: 'Directions' }));
 

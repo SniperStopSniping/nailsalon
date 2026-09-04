@@ -75,7 +75,7 @@ describe('DELETE /api/appointments/[id]/photos/[photoId]', () => {
     requireAppointmentManagerAccess.mockResolvedValue(ADMIN_ACCESS);
 
     const response = await DELETE(deleteRequest(), {
-      params: { id: 'appt_1', photoId: 'photo_1' },
+      params: Promise.resolve({ id: 'appt_1', photoId: 'photo_1' }),
     });
 
     expect(response.status).toBe(404);
@@ -87,7 +87,7 @@ describe('DELETE /api/appointments/[id]/photos/[photoId]', () => {
     photoRows.push(PHOTO);
 
     const response = await DELETE(deleteRequest(), {
-      params: { id: 'appt_1', photoId: 'photo_1' },
+      params: Promise.resolve({ id: 'appt_1', photoId: 'photo_1' }),
     });
 
     expect(response.status).toBe(200);
@@ -114,7 +114,7 @@ describe('DELETE /api/appointments/[id]/photos/[photoId]', () => {
     photoRows.push(PHOTO); // uploaded by tech_1
 
     const forbidden = await DELETE(deleteRequest(), {
-      params: { id: 'appt_1', photoId: 'photo_1' },
+      params: Promise.resolve({ id: 'appt_1', photoId: 'photo_1' }),
     });
 
     expect(forbidden.status).toBe(403);
@@ -135,7 +135,7 @@ describe('DELETE /api/appointments/[id]/photos/[photoId]', () => {
     photoRows.push(PHOTO);
 
     const allowed = await DELETE(deleteRequest(), {
-      params: { id: 'appt_1', photoId: 'photo_1' },
+      params: Promise.resolve({ id: 'appt_1', photoId: 'photo_1' }),
     });
 
     expect(allowed.status).toBe(200);

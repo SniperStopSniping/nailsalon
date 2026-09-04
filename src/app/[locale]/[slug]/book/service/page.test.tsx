@@ -190,6 +190,15 @@ vi.mock('@/libs/serviceAssignments', () => ({
   getPublicBookableServiceIds,
 }));
 
+// The shared server renderer also reads retention-backed profile content.
+// Keep this DB boundary isolated, as with the other page queries above.
+vi.mock('@/libs/retentionSettings.server', () => ({
+  getRetentionSettingsForSalon: vi.fn(async () => ({
+    googleReviewUrl: null,
+    parkingInstructions: null,
+  })),
+}));
+
 vi.mock('@/libs/bookingFlow', () => ({
   normalizeBookingFlow: vi.fn(() => ['service', 'tech', 'time', 'confirm']),
 }));
@@ -282,13 +291,13 @@ describe('Real nested route: [locale]/[slug]/layout.tsx wrapping [locale]/[slug]
     // renders first, then the parent layout.tsx receives that render as
     // `children` — both are the REAL exported components, not stubs.
     const pageElement = await BookServicePage({
-      searchParams: { salonSlug: SALON_SLUG },
-      params: { locale: 'en', slug: SALON_SLUG },
+      searchParams: Promise.resolve({ salonSlug: SALON_SLUG }),
+      params: Promise.resolve({ locale: 'en', slug: SALON_SLUG }),
     });
 
     const layoutElement = await SlugTenantLayout({
       children: pageElement,
-      params: { locale: 'en', slug: SALON_SLUG },
+      params: Promise.resolve({ locale: 'en', slug: SALON_SLUG }),
     });
 
     render(layoutElement);
@@ -325,13 +334,13 @@ describe('Real nested route: [locale]/[slug]/layout.tsx wrapping [locale]/[slug]
     getAdminSession.mockResolvedValue(null);
 
     const pageElement = await BookServicePage({
-      searchParams: { salonSlug: publishedSalon.slug },
-      params: { locale: 'en', slug: publishedSalon.slug },
+      searchParams: Promise.resolve({ salonSlug: publishedSalon.slug }),
+      params: Promise.resolve({ locale: 'en', slug: publishedSalon.slug }),
     });
 
     const layoutElement = await SlugTenantLayout({
       children: pageElement,
-      params: { locale: 'en', slug: publishedSalon.slug },
+      params: Promise.resolve({ locale: 'en', slug: publishedSalon.slug }),
     });
 
     render(layoutElement);

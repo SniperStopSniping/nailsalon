@@ -2619,7 +2619,7 @@ suite('POST /api/appointments — genuine concurrency', () => {
     }));
     const reopenPromise = reopenPOST(
       reopenRequest(appointmentId),
-      { params: { id: appointmentId } },
+      { params: Promise.resolve({ id: appointmentId }) },
     );
     await releaseHeldBarrier(held, 2, [bookingPromise, reopenPromise]);
 
@@ -2681,7 +2681,7 @@ suite('POST /api/appointments — genuine concurrency', () => {
     }));
     const reactivationPromise = reactivatePATCH(
       genericReactivationRequest(appointmentId),
-      { params: { id: appointmentId } },
+      { params: Promise.resolve({ id: appointmentId }) },
     );
     await releaseHeldBarrier(
       held,
@@ -2747,7 +2747,7 @@ suite('POST /api/appointments — genuine concurrency', () => {
     }));
     const transitionPromise = transitionPOST(
       transitionRequest(appointmentId),
-      { params: { id: appointmentId } },
+      { params: Promise.resolve({ id: appointmentId }) },
     );
     await releaseHeldBarrier(
       held,
@@ -2829,7 +2829,7 @@ suite('POST /api/appointments — genuine concurrency', () => {
     }));
     const startPromise = startPOST(
       startRequest(appointmentId),
-      { params: { id: appointmentId } },
+      { params: Promise.resolve({ id: appointmentId }) },
     );
     await releaseHeldBarrier(held, 2, [bookingPromise, startPromise]);
 
@@ -2897,11 +2897,11 @@ suite('POST /api/appointments — genuine concurrency', () => {
     const held = await holdTerminalClient('client_terminal');
     const reopenPromise = reopenPOST(
       reopenRequest(reopenId),
-      { params: { id: reopenId } },
+      { params: Promise.resolve({ id: reopenId }) },
     );
     const transitionPromise = transitionPOST(
       transitionRequest(transitionId),
-      { params: { id: transitionId } },
+      { params: Promise.resolve({ id: transitionId }) },
     );
     await releaseHeldBarrier(
       held,
@@ -4031,10 +4031,10 @@ suite('POST /api/appointments — genuine concurrency', () => {
     const held = await holdTechnicianMutationLocks([TECH_ID]);
     const requests = [
       PATCH(staffMoveRequest(appointment.id, target), {
-        params: { id: appointment.id },
+        params: Promise.resolve({ id: appointment.id }),
       }),
       PATCH(staffMoveRequest(appointment.id, target), {
-        params: { id: appointment.id },
+        params: Promise.resolve({ id: appointment.id }),
       }),
     ];
 
@@ -4135,7 +4135,7 @@ suite('POST /api/appointments — genuine concurrency', () => {
     ]);
     const held = await holdTechnicianMutationLocks([TECH_ID]);
     const staffRequest = PATCH(staffMoveRequest(appointment.id, target), {
-      params: { id: appointment.id },
+      params: Promise.resolve({ id: appointment.id }),
     });
     await waitForBlockedSessions(1, held.pid);
     const customerRequest = POST(new Request(
@@ -4145,7 +4145,7 @@ suite('POST /api/appointments — genuine concurrency', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'reschedule', startTime: target }),
       },
-    ), { params: { token: capability.token } });
+    ), { params: Promise.resolve({ token: capability.token }) });
 
     await releaseHeldBarrier(held, 2, [staffRequest, customerRequest]);
     const responses = await Promise.all([staffRequest, customerRequest]);

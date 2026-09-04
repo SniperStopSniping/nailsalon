@@ -64,14 +64,14 @@ const VALID_BODY = {
 let db: ReturnType<typeof drizzle<typeof schema>>;
 let client: PGlite;
 
-function patchRequest(id: string, body: unknown): [Request, { params: { id: string } }] {
+function patchRequest(id: string, body: unknown): [Request, { params: Promise<{ id: string }> }] {
   return [
     new Request(`http://localhost/api/salon/add-ons/${id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     }),
-    { params: { id } },
+    { params: Promise.resolve({ id }) },
   ];
 }
 

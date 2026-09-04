@@ -210,6 +210,18 @@ async function authorizeAndCreateSession(phoneE164: string): Promise<VerifyResul
   // Check 1: Existing admin user
   const existingAdmin = await getAdminByPhone(phoneE164);
   if (existingAdmin) {
+    // Clerk-first owners may legitimately have no phone identity. They must
+    // never be coerced into the retired phone-OTP session path; this query is
+    // expected to return only a matching non-null phone, but keep the boundary
+    // explicit now that `admin_user.phone_e164` is nullable.
+    if (!existingAdmin.phoneE164) {
+      return {
+        error: 'This account does not have a phone sign-in method.',
+        status: 403,
+        success: false,
+      };
+    }
+
     // ==========================================================================
     // CLAIM ANY PENDING INVITES FOR THIS EXISTING USER
     // This handles the case where a super admin or existing admin is invited

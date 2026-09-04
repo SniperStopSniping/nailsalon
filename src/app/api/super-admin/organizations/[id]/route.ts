@@ -1,6 +1,7 @@
 import { and, desc, eq, gte, isNull, sql } from 'drizzle-orm';
 import { z } from 'zod';
 
+import { deleteOnboardingMediaFiles, isOnboardingMediaStorageProvider } from '@/features/onboarding-v1-integration/media-storage.server';
 import { logAuditEvent } from '@/libs/auditLog';
 import { areSuperAdminTestToolsEnabled } from '@/libs/authConfig.server';
 import { db } from '@/libs/DB';
@@ -24,6 +25,7 @@ import {
   adminUserSchema,
   appointmentSchema,
   clientPreferencesSchema,
+  onboardingSiteMediaSchema,
   SALON_PLANS,
   SALON_STATUSES,
   salonAuditLogSchema,
@@ -691,7 +693,25 @@ export async function DELETE(
 
       // One transaction: a failure rolls the whole purge back rather than
       // leaving the tenant half-destroyed.
-      const purge = await db.transaction(async tx => purgeSalonData(tx as unknown as PurgeTx, id));
+      const { mediaStorageKeys, purge } = await db.transaction(async (tx) => {
+        const mediaRows = await tx
+          .select({
+            storageKey: onboardingSiteMediaSchema.storageKey,
+            storageProvider: onboardingSiteMediaSchema.storageProvider,
+          })
+          .from(onboardingSiteMediaSchema)
+          .where(eq(onboardingSiteMediaSchema.salonId, id));
+        const purgeResult = await purgeSalonData(tx as unknown as PurgeTx, id);
+        return {
+          mediaStorageKeys: mediaRows.flatMap(row => (
+            isOnboardingMediaStorageProvider(row.storageProvider) && row.storageKey
+              ? [row.storageKey]
+              : []
+          )),
+          purge: purgeResult,
+        };
+      });
+      const mediaCleanup = await deleteOnboardingMediaFiles(mediaStorageKeys, { salonId: id });
 
       // Written after the commit, with salonId null, so the record of the
       // deletion survives the salon it describes.
@@ -706,6 +726,8 @@ export async function DELETE(
           name: existing.name,
           slug: existing.slug,
           rowsDeleted: purge.totalRows,
+          onboardingMediaCleanupFailed: mediaCleanup.failed,
+          onboardingMediaFilesRemoved: mediaCleanup.removed,
           tables: purge.counts,
         },
       });

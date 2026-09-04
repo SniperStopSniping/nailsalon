@@ -31,7 +31,7 @@ export async function GET() {
     return new NextResponse(null, { status: 404 });
   }
 
-  const role = readDevRoleFromCookies();
+  const role = await readDevRoleFromCookies();
 
   return NextResponse.json(
     { role },

@@ -410,7 +410,7 @@ describe('§5.8 — manage-token cancel refuses a hold', () => {
     const hold = await seedAppointment('awaiting_payment', 40);
     manage.capability = capabilityFor('awaiting_payment', hold);
 
-    const response = await managePatch(cancelRequest(), { params: { token: TOKEN } });
+    const response = await managePatch(cancelRequest(), { params: Promise.resolve({ token: TOKEN }) });
     const body = await response.json();
 
     expect(response.status).toBe(409);
@@ -433,7 +433,7 @@ describe('§5.8 — manage-token cancel refuses a hold', () => {
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
     const consoleWarn = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
-    const response = await managePatch(cancelRequest(), { params: { token: TOKEN } });
+    const response = await managePatch(cancelRequest(), { params: Promise.resolve({ token: TOKEN }) });
     consoleError.mockRestore();
     consoleWarn.mockRestore();
 

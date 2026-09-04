@@ -604,8 +604,8 @@ suite('D5 — scope-clean Calendar PostgreSQL concurrency', () => {
 
     const held = await holdAppointmentRow(appointmentId);
     const requests = [
-      copyGoogleEvent(request(), { params: { id: sourceRowId } }),
-      copyGoogleEvent(request(), { params: { id: sourceRowId } }),
+      copyGoogleEvent(request(), { params: Promise.resolve({ id: sourceRowId }) }),
+      copyGoogleEvent(request(), { params: Promise.resolve({ id: sourceRowId }) }),
     ];
     await releaseAfterBlocked(held, 1, requests);
     const responses = await Promise.all(requests);
@@ -729,7 +729,7 @@ suite('D5 — scope-clean Calendar PostgreSQL concurrency', () => {
     let workerPromise: ReturnType<typeof processIntegrationOutbox> | undefined;
     let unrelatedBarrier: Promise<boolean> | undefined;
     try {
-      revertPromise = revertGoogleEvent(request, { params: { id: sourceRowId } });
+      revertPromise = revertGoogleEvent(request, { params: Promise.resolve({ id: sourceRowId }) });
       await waitForBlockedSessions(1, held.pid);
       unrelatedBarrier = db.transaction(tx => acquireGoogleCalendarMutationBarrierInTx(tx, {
         salonId: SALON_ID,

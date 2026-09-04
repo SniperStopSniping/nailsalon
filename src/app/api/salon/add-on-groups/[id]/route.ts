@@ -13,7 +13,7 @@ export const dynamic = 'force-dynamic';
  */
 export async function PATCH(
   request: Request,
-  context: { params: { id: string } },
+  context: { params: Promise<{ id: string }> },
 ) {
   let parsed: ReturnType<typeof parseAddOnGroupWrite>;
   try {
@@ -32,7 +32,7 @@ export async function PATCH(
   }
 
   try {
-    const updated = await updateAddOnGroup(salon.id, context.params.id, input);
+    const updated = await updateAddOnGroup(salon.id, (await context.params).id, input);
     const addOns = await getAllAddOnsBySalonId(salon.id);
     const members = groupMemberAddOnIds(addOns).get(updated.id) ?? [];
     return Response.json({ data: { group: buildAddOnGroupPayload(updated, members) } });
@@ -55,7 +55,7 @@ export async function PATCH(
  */
 export async function DELETE(
   request: Request,
-  context: { params: { id: string } },
+  context: { params: Promise<{ id: string }> },
 ) {
   const url = new URL(request.url);
   const salonSlug = url.searchParams.get('salonSlug');
@@ -72,7 +72,7 @@ export async function DELETE(
   }
 
   try {
-    await deleteAddOnGroup(salon.id, context.params.id);
+    await deleteAddOnGroup(salon.id, (await context.params).id);
     return Response.json({ data: { deleted: true } });
   } catch (deleteError) {
     if (deleteError instanceof OwnerCatalogConfigError) {

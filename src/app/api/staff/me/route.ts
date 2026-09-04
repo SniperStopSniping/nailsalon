@@ -28,7 +28,7 @@ export async function GET(): Promise<Response> {
     const { isDevModeServer, readDevRoleFromCookies, getMockStaffMeResponse }
       = await import('@/libs/devRole.server');
     if (isDevModeServer()) {
-      const devRole = readDevRoleFromCookies();
+      const devRole = await readDevRoleFromCookies();
       if (devRole === 'staff') {
         return Response.json(getMockStaffMeResponse(), {
           headers: { 'Cache-Control': 'no-store' },

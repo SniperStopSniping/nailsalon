@@ -47,10 +47,10 @@ const FOREIGN_ASSIGNMENT_ID = 'tc_id_route_foreign';
 let db: ReturnType<typeof drizzle<typeof schema>>;
 let client: PGlite;
 
-function deleteRequest(id: string, salonSlug: string): [Request, { params: { id: string } }] {
+function deleteRequest(id: string, salonSlug: string): [Request, { params: Promise<{ id: string }> }] {
   return [
     new Request(`http://localhost/api/salon/technician-capabilities/${id}?salonSlug=${salonSlug}`, { method: 'DELETE' }),
-    { params: { id } },
+    { params: Promise.resolve({ id }) },
   ];
 }
 

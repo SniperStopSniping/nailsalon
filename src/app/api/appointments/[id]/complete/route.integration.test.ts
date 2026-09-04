@@ -243,7 +243,7 @@ describe('PATCH /complete — checkout integration', () => {
       finalItems: [{ kind: 'custom', name: 'Set', quantity: 1, unitPriceCents: 10000 }],
       tipCents: 1000,
       payments: [{ amountCents: 8500, method: 'cash' }],
-    }), { params: { id } });
+    }), { params: Promise.resolve({ id }) });
     const body = await response.json();
 
     expect(response.status).toBe(200);
@@ -283,7 +283,7 @@ describe('PATCH /complete — checkout integration', () => {
     const response = await completePatch(patchRequest({
       finalItems: [{ kind: 'custom', name: 'Set', quantity: 1, unitPriceCents: 5000 }],
       payments: [],
-    }), { params: { id } });
+    }), { params: Promise.resolve({ id }) });
 
     expect(response.status).toBe(200);
     expect((await loadAppointment(id)).invoiceCurrency).toBe('USD');
@@ -300,7 +300,7 @@ describe('PATCH /complete — checkout integration', () => {
     const response = await completePatch(patchRequest({
       finalItems: [{ kind: 'custom', name: 'Trim', quantity: 1, unitPriceCents: 1000 }],
       payments: [],
-    }), { params: { id } });
+    }), { params: Promise.resolve({ id }) });
 
     expect(response.status).toBe(409);
 
@@ -333,7 +333,7 @@ describe('PATCH /complete — checkout integration', () => {
     const response = await completePatch(patchRequest({
       finalItems: [{ kind: 'custom', name: 'Set', quantity: 1, unitPriceCents: 5000 }],
       payments: [],
-    }), { params: { id } });
+    }), { params: Promise.resolve({ id }) });
 
     expect(response.status).toBe(409);
     expect((await response.json()).error.code).toBe('DEPOSIT_CURRENCY_MISMATCH');
@@ -344,7 +344,7 @@ describe('PATCH /complete — checkout integration', () => {
     const id = await seedAppointment();
     await addAfterPhoto(id);
 
-    const response = await completePatch(patchRequest({ paymentStatus: 'paid' }), { params: { id } });
+    const response = await completePatch(patchRequest({ paymentStatus: 'paid' }), { params: Promise.resolve({ id }) });
     const body = await response.json();
 
     expect(response.status).toBe(200);
@@ -386,7 +386,7 @@ describe('PATCH /complete — checkout integration', () => {
       });
       await addAfterPhoto(id);
 
-      const response = await completePatch(patchRequest({}), { params: { id } });
+      const response = await completePatch(patchRequest({}), { params: Promise.resolve({ id }) });
       const body = await response.json();
 
       expect(response.status).toBe(200);
@@ -417,7 +417,7 @@ describe('PATCH /complete — checkout integration', () => {
       });
       expect(payments).toHaveLength(0);
 
-      const replay = await completePatch(patchRequest({}), { params: { id } });
+      const replay = await completePatch(patchRequest({}), { params: Promise.resolve({ id }) });
       const replayBody = await replay.json();
 
       expect(replay.status).toBe(200);
@@ -436,7 +436,7 @@ describe('PATCH /complete — checkout integration', () => {
     await addPaidDeposit(id);
     await addAfterPhoto(id);
 
-    const response = await completePatch(patchRequest({}), { params: { id } });
+    const response = await completePatch(patchRequest({}), { params: Promise.resolve({ id }) });
     const body = await response.json();
 
     expect(response.status).toBe(200);
@@ -454,7 +454,7 @@ describe('PATCH /complete — checkout integration', () => {
     expect(stored.paymentStatus).toBe('partially_paid');
     expect(stored.amountPaidCents).toBe(0);
 
-    const replay = await completePatch(patchRequest({}), { params: { id } });
+    const replay = await completePatch(patchRequest({}), { params: Promise.resolve({ id }) });
     const replayBody = await replay.json();
 
     expect(replay.status).toBe(200);
@@ -477,7 +477,7 @@ describe('PATCH /complete — checkout integration', () => {
     const freshResponse = await completePatch(patchRequest({
       finalItems: [{ kind: 'custom', name: 'Set', quantity: 1, unitPriceCents: 4500 }],
       payments: [{ amountCents: 2000, method: 'cash' }],
-    }), { params: { id: freshId } });
+    }), { params: Promise.resolve({ id: freshId }) });
 
     expect(freshResponse.status).toBe(409);
     await expect(freshResponse.json()).resolves.toMatchObject({
@@ -494,7 +494,7 @@ describe('PATCH /complete — checkout integration', () => {
       amountPaidCents: 2500,
       paymentStatus: 'partially_paid',
     });
-    const replayResponse = await completePatch(patchRequest({}), { params: { id: replayId } });
+    const replayResponse = await completePatch(patchRequest({}), { params: Promise.resolve({ id: replayId }) });
 
     expect(replayResponse.status).toBe(409);
     await expect(replayResponse.json()).resolves.toMatchObject({
@@ -520,7 +520,7 @@ describe('PATCH /complete — checkout integration', () => {
       actualStartAt: '2026-07-18T14:05:00Z',
       actualEndAt: '2026-07-18T15:10:00Z',
       payments: [{ amountCents: 3000, method: 'e_transfer', reference: 'ETR-1' }],
-    }), { params: { id } });
+    }), { params: Promise.resolve({ id }) });
     const body = await response.json();
 
     expect(response.status).toBe(200);
@@ -597,7 +597,7 @@ describe('PATCH /complete — checkout integration', () => {
     const first = await completePatch(patchRequest({
       finalItems: [{ kind: 'custom', name: 'Set', quantity: 1, unitPriceCents: 5000 }],
       payments: [{ amountCents: 5000, method: 'cash' }],
-    }), { params: { id } });
+    }), { params: Promise.resolve({ id }) });
 
     expect(first.status).toBe(200);
 
@@ -606,7 +606,7 @@ describe('PATCH /complete — checkout integration', () => {
     const replay = await completePatch(patchRequest({
       finalItems: [{ kind: 'custom', name: 'Set', quantity: 1, unitPriceCents: 5000 }],
       payments: [{ amountCents: 5000, method: 'cash' }],
-    }), { params: { id } });
+    }), { params: Promise.resolve({ id }) });
 
     expect(replay.status).toBe(200);
 
@@ -633,7 +633,7 @@ describe('PATCH /complete — checkout integration', () => {
       payments: [{ amountCents: 5000, method: 'cash' }],
       taxExempt: true,
       taxExemptReason: '   ',
-    }), { params: { id } });
+    }), { params: Promise.resolve({ id }) });
 
     expect(first.status).toBe(200);
 
@@ -651,7 +651,7 @@ describe('PATCH /complete — checkout integration', () => {
       payments: [{ amountCents: 5000, method: 'cash' }],
       taxExempt: true,
       taxExemptReason: '',
-    }), { params: { id } });
+    }), { params: Promise.resolve({ id }) });
 
     expect(replay.status).toBe(200);
   });
@@ -665,7 +665,7 @@ describe('PATCH /complete — checkout integration', () => {
       payments: [{ amountCents: 5000, method: 'cash' }],
       taxExempt: true,
       taxExemptReason: '  Charity event  ',
-    }), { params: { id } });
+    }), { params: Promise.resolve({ id }) });
 
     expect(first.status).toBe(200);
 
@@ -680,7 +680,7 @@ describe('PATCH /complete — checkout integration', () => {
       payments: [{ amountCents: 5000, method: 'cash' }],
       taxExempt: true,
       taxExemptReason: 'Charity event',
-    }), { params: { id } });
+    }), { params: Promise.resolve({ id }) });
 
     expect(replay.status).toBe(200);
   });
@@ -709,7 +709,7 @@ describe('PATCH /complete — checkout integration', () => {
       taxAmountCents: 0,
     });
 
-    const response = await completePatch(patchRequest({}), { params: { id } });
+    const response = await completePatch(patchRequest({}), { params: Promise.resolve({ id }) });
 
     expect(response.status).toBe(409);
     await expect(response.json()).resolves.toMatchObject({
@@ -736,7 +736,7 @@ describe('PATCH /complete — checkout integration', () => {
       refundStatusChangedAt: new Date('2026-07-01T16:00:00.000Z'),
     });
 
-    const response = await completePatch(patchRequest({}), { params: { id } });
+    const response = await completePatch(patchRequest({}), { params: Promise.resolve({ id }) });
 
     expect(response.status).toBe(409);
     await expect(response.json()).resolves.toMatchObject({
@@ -765,7 +765,7 @@ describe('PATCH /complete — checkout integration', () => {
     });
     await addPaidDeposit(id);
 
-    const response = await completePatch(patchRequest({}), { params: { id } });
+    const response = await completePatch(patchRequest({}), { params: Promise.resolve({ id }) });
 
     expect(response.status).toBe(409);
     await expect(response.json()).resolves.toMatchObject({
@@ -783,7 +783,7 @@ describe('PATCH /complete — checkout integration', () => {
     const response = await completePatch(patchRequest({
       finalItems: [{ kind: 'custom', name: 'Set', quantity: 1, unitPriceCents: 4000 }],
       payments: [{ amountCents: 4000, method: 'cash' }],
-    }), { params: { id } });
+    }), { params: Promise.resolve({ id }) });
 
     expect(response.status).toBe(200);
     expect((await response.json()).data.appointment.paymentStatus).toBe('paid');
@@ -801,7 +801,7 @@ describe('PATCH /complete — checkout integration', () => {
       tipCents: 500,
       paymentMethod: 'cash',
       skipPhotoValidation: true,
-    }), { params: { id } });
+    }), { params: Promise.resolve({ id }) });
 
     expect(response.status).toBe(200);
 
@@ -825,7 +825,7 @@ describe('PATCH /complete — checkout integration', () => {
   it('legacy-shape completion on a tax-enabled salon still snapshots tax', async () => {
     const id = await seedAppointment({ salonId: TAX_SALON_ID, totalPrice: 10000 });
 
-    const response = await completePatch(patchRequest({ skipPhotoValidation: true }), { params: { id } });
+    const response = await completePatch(patchRequest({ skipPhotoValidation: true }), { params: Promise.resolve({ id }) });
 
     expect(response.status).toBe(200);
 
@@ -845,7 +845,7 @@ describe('PATCH /complete — checkout integration', () => {
     const response = await completePatch(patchRequest({
       finalItems: [{ kind: 'custom', name: 'Set', quantity: 1, unitPriceCents: 1000 }],
       payments: [{ amountCents: 5000, method: 'cash' }],
-    }), { params: { id } });
+    }), { params: Promise.resolve({ id }) });
 
     expect(response.status).toBe(422);
     expect((await response.json()).error.code).toBe('PAYMENTS_EXCEED_TOTAL');
@@ -859,7 +859,7 @@ describe('PATCH /complete — checkout integration', () => {
     const response = await completePatch(patchRequest({
       finalItems: [{ kind: 'custom', name: 'Set', quantity: 1, unitPriceCents: 5000 }],
       expectedTotalDueCents: 4200,
-    }), { params: { id } });
+    }), { params: Promise.resolve({ id }) });
     const body = await response.json();
 
     expect(response.status).toBe(409);
@@ -873,7 +873,7 @@ describe('PATCH /complete — checkout integration', () => {
     const response = await completePatch(patchRequest({
       skipPhotoValidation: true,
       expectedTotalDueCents: 10000,
-    }), { params: { id } });
+    }), { params: Promise.resolve({ id }) });
 
     expect(response.status).toBe(409);
     await expect(response.json()).resolves.toMatchObject({
@@ -896,7 +896,7 @@ describe('PATCH /complete — checkout integration', () => {
         quantity: 99,
         unitPriceCents: 1_000_000,
       }],
-    }), { params: { id } });
+    }), { params: Promise.resolve({ id }) });
 
     expect(response.status).toBe(422);
     await expect(response.json()).resolves.toMatchObject({
@@ -913,7 +913,7 @@ describe('PATCH /complete — checkout integration', () => {
       finalItems: [{ kind: 'custom', name: 'Set', quantity: 1, unitPriceCents: 5000 }],
       paymentStatusIntent: 'comp',
       payments: [],
-    }), { params: { id } });
+    }), { params: Promise.resolve({ id }) });
 
     expect(response.status).toBe(200);
 
@@ -933,7 +933,7 @@ describe('POST /payments + void + reopen — integration', () => {
       finalItems: [{ kind: 'custom', name: 'Set', quantity: 1, unitPriceCents: 10000 }],
       tipCents: 1000,
       payments: [{ amountCents: 4000, method: 'e_transfer', reference: 'ETR-9' }],
-    }), { params: { id } });
+    }), { params: Promise.resolve({ id }) });
 
     expect(response.status).toBe(200);
 
@@ -954,7 +954,7 @@ describe('POST /payments + void + reopen — integration', () => {
   it('records partial then final payments; fraud fires once on the paid transition', async () => {
     const id = await completeWithBalance();
 
-    const partial = await recordPayment(paymentRequest({ amountCents: 3000, method: 'cash' }), { params: { id } });
+    const partial = await recordPayment(paymentRequest({ amountCents: 3000, method: 'cash' }), { params: Promise.resolve({ id }) });
     const partialBody = await partial.json();
 
     expect(partial.status).toBe(200);
@@ -963,7 +963,7 @@ describe('POST /payments + void + reopen — integration', () => {
     expect(partialBody.data.balanceCents).toBe(4000);
     expect(evaluateAndFlagIfNeeded).not.toHaveBeenCalled();
 
-    const final = await recordPayment(paymentRequest({ amountCents: 4000, method: 'cash' }), { params: { id } });
+    const final = await recordPayment(paymentRequest({ amountCents: 4000, method: 'cash' }), { params: Promise.resolve({ id }) });
     const finalBody = await final.json();
 
     expect(final.status).toBe(200);
@@ -982,7 +982,7 @@ describe('POST /payments + void + reopen — integration', () => {
 
     const completed = await completePatch(patchRequest({
       finalItems: [{ kind: 'custom', name: 'Set', quantity: 1, unitPriceCents: 10000 }],
-    }), { params: { id } });
+    }), { params: Promise.resolve({ id }) });
 
     expect(completed.status).toBe(200);
     expect((await completed.json()).data.appointment.paymentStatus).toBe('partially_paid');
@@ -991,7 +991,7 @@ describe('POST /payments + void + reopen — integration', () => {
     const settled = await recordPayment(paymentRequest({
       amountCents: 7500,
       method: 'cash',
-    }), { params: { id } });
+    }), { params: Promise.resolve({ id }) });
 
     expect(settled.status).toBe(200);
     expect((await settled.json()).data.paymentStatus).toBe('paid');
@@ -1006,12 +1006,12 @@ describe('POST /payments + void + reopen — integration', () => {
       idempotencyKey: 'checkout-retry-key-1',
     } as const;
 
-    const first = await recordPayment(paymentRequest(request), { params: { id } });
-    const replay = await recordPayment(paymentRequest(request), { params: { id } });
+    const first = await recordPayment(paymentRequest(request), { params: Promise.resolve({ id }) });
+    const replay = await recordPayment(paymentRequest(request), { params: Promise.resolve({ id }) });
     const conflict = await recordPayment(paymentRequest({
       ...request,
       amountCents: 3001,
-    }), { params: { id } });
+    }), { params: Promise.resolve({ id }) });
 
     expect(first.status).toBe(200);
     expect(replay.status).toBe(200);
@@ -1037,7 +1037,7 @@ describe('POST /payments + void + reopen — integration', () => {
     const completed = await completePatch(patchRequest({
       finalItems: [{ kind: 'custom', name: 'Set', quantity: 1, unitPriceCents: 10000 }],
       payments: [{ amountCents: 4000, method: 'cash' }],
-    }), { params: { id } });
+    }), { params: Promise.resolve({ id }) });
 
     expect(completed.status).toBe(200);
 
@@ -1046,7 +1046,7 @@ describe('POST /payments + void + reopen — integration', () => {
       method: 'cash',
       idempotencyKey: 'refund-drift-retry-key',
     } as const;
-    const first = await recordPayment(paymentRequest(request), { params: { id } });
+    const first = await recordPayment(paymentRequest(request), { params: Promise.resolve({ id }) });
     const firstBody = await first.json();
 
     expect(first.status).toBe(200);
@@ -1076,7 +1076,7 @@ describe('POST /payments + void + reopen — integration', () => {
       taxableSubtotalCents: (completedAppointment.taxableSubtotalCents ?? 0) + 1,
     }).where(eq(schema.appointmentSchema.id, id));
 
-    const replay = await recordPayment(paymentRequest(request), { params: { id } });
+    const replay = await recordPayment(paymentRequest(request), { params: Promise.resolve({ id }) });
     const replayBody = await replay.json();
 
     expect(replay.status).toBe(200);
@@ -1112,7 +1112,7 @@ describe('POST /payments + void + reopen — integration', () => {
 
     const paymentResponse = await recordPayment(
       paymentRequest({ amountCents: 1000, method: 'cash' }),
-      { params: { id } },
+      { params: Promise.resolve({ id }) },
     );
 
     expect(paymentResponse.status).toBe(409);
@@ -1125,7 +1125,7 @@ describe('POST /payments + void + reopen — integration', () => {
 
     const voidResponse = await voidPayment(
       new Request('http://localhost/void', { method: 'POST' }),
-      { params: { id, paymentId: existingPayment!.id } },
+      { params: Promise.resolve({ id, paymentId: existingPayment!.id }) },
     );
 
     expect(voidResponse.status).toBe(409);
@@ -1207,7 +1207,7 @@ describe('POST /payments + void + reopen — integration', () => {
 
     const replayResponse = await recordPayment(
       paymentRequest({ amountCents: 4000, method: 'cash', idempotencyKey: replayKey }),
-      { params: { id } },
+      { params: Promise.resolve({ id }) },
     );
 
     expect(replayResponse.status).toBe(200);
@@ -1221,7 +1221,7 @@ describe('POST /payments + void + reopen — integration', () => {
 
     const paymentResponse = await recordPayment(
       paymentRequest({ amountCents: 1000, method: 'cash' }),
-      { params: { id } },
+      { params: Promise.resolve({ id }) },
     );
 
     expect(paymentResponse.status).toBe(409);
@@ -1234,7 +1234,7 @@ describe('POST /payments + void + reopen — integration', () => {
 
     const voidResponse = await voidPayment(
       new Request('http://localhost/void', { method: 'POST' }),
-      { params: { id, paymentId } },
+      { params: Promise.resolve({ id, paymentId }) },
     );
 
     expect(voidResponse.status).toBe(409);
@@ -1262,7 +1262,7 @@ describe('POST /payments + void + reopen — integration', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ amountCents: 1000, method: 'cash' }),
       },
-    ), { params: { id } });
+    ), { params: Promise.resolve({ id }) });
 
     expect(response.status).toBe(400);
     expect((await response.json()).error.code).toBe('VALIDATION_ERROR');
@@ -1275,7 +1275,7 @@ describe('POST /payments + void + reopen — integration', () => {
     const completed = await completePatch(patchRequest({
       finalItems: [{ kind: 'custom', name: 'Set', quantity: 1, unitPriceCents: 10000 }],
       payments: [{ amountCents: 4000, method: 'cash' }],
-    }), { params: { id } });
+    }), { params: Promise.resolve({ id }) });
 
     expect(completed.status).toBe(200);
 
@@ -1288,7 +1288,7 @@ describe('POST /payments + void + reopen — integration', () => {
 
     const response = await voidPayment(
       new Request('http://localhost/void', { method: 'POST' }),
-      { params: { id, paymentId: payment!.id } },
+      { params: Promise.resolve({ id, paymentId: payment!.id }) },
     );
     const [unchanged] = await db.select().from(schema.appointmentPaymentSchema)
       .where(eq(schema.appointmentPaymentSchema.id, payment!.id));
@@ -1302,7 +1302,7 @@ describe('POST /payments + void + reopen — integration', () => {
   it('rejects a payment exceeding the remaining balance', async () => {
     const id = await completeWithBalance();
 
-    const response = await recordPayment(paymentRequest({ amountCents: 8000 }), { params: { id } });
+    const response = await recordPayment(paymentRequest({ amountCents: 8000 }), { params: Promise.resolve({ id }) });
 
     expect(response.status).toBe(422);
     expect((await response.json()).error.code).toBe('PAYMENT_EXCEEDS_BALANCE');
@@ -1311,7 +1311,7 @@ describe('POST /payments + void + reopen — integration', () => {
   it('rejects payments on non-completed appointments', async () => {
     const id = await seedAppointment();
 
-    const response = await recordPayment(paymentRequest({ amountCents: 1000 }), { params: { id } });
+    const response = await recordPayment(paymentRequest({ amountCents: 1000 }), { params: Promise.resolve({ id }) });
 
     expect(response.status).toBe(409);
   });
@@ -1327,7 +1327,7 @@ describe('POST /payments + void + reopen — integration', () => {
     holder.access = { actorRole: 'staff', salonId: SALON_ID, technicianId: TECH_ID };
     const staffAttempt = await voidPayment(
       new Request('http://localhost/void', { method: 'POST' }),
-      { params: { id, paymentId: payment!.id } },
+      { params: Promise.resolve({ id, paymentId: payment!.id }) },
     );
 
     expect(staffAttempt.status).toBe(403);
@@ -1335,7 +1335,7 @@ describe('POST /payments + void + reopen — integration', () => {
     holder.access = { actorRole: 'admin', salonId: SALON_ID };
     const adminVoid = await voidPayment(
       new Request('http://localhost/void', { method: 'POST' }),
-      { params: { id, paymentId: payment!.id } },
+      { params: Promise.resolve({ id, paymentId: payment!.id }) },
     );
     const voidBody = await adminVoid.json();
 
@@ -1351,7 +1351,7 @@ describe('POST /payments + void + reopen — integration', () => {
     holder.access = { actorRole: 'staff', salonId: SALON_ID, technicianId: TECH_ID };
     const staffAttempt = await reopenAppointment(
       new Request('http://localhost/reopen', { method: 'POST' }),
-      { params: { id } },
+      { params: Promise.resolve({ id }) },
     );
 
     expect(staffAttempt.status).toBe(403);
@@ -1359,7 +1359,7 @@ describe('POST /payments + void + reopen — integration', () => {
     holder.access = { actorRole: 'admin', salonId: SALON_ID };
     const reopenAttempt = await reopenAppointment(
       new Request('http://localhost/reopen', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reason: 'Wrong price' }) }),
-      { params: { id } },
+      { params: Promise.resolve({ id }) },
     );
     const reopenBody = await reopenAttempt.json();
 

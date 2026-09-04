@@ -217,7 +217,7 @@ describe('POST /api/appointments/:id/transition', () => {
   });
 
   it('serializes an active transition behind the terminal client and technician', async () => {
-    const response = await POST(transitionRequest('working'), { params: { id: 'appt_1' } });
+    const response = await POST(transitionRequest('working'), { params: Promise.resolve({ id: 'appt_1' }) });
 
     expect(response.status).toBe(200);
     expect(capturedUpdates[0]).toMatchObject({
@@ -252,7 +252,7 @@ describe('POST /api/appointments/:id/transition', () => {
       },
     );
 
-    const response = await POST(transitionRequest('working'), { params: { id: 'appt_1' } });
+    const response = await POST(transitionRequest('working'), { params: Promise.resolve({ id: 'appt_1' }) });
 
     expect(response.status).toBe(409);
     expect(callOrder).not.toContain('appointment-cas');
@@ -264,7 +264,7 @@ describe('POST /api/appointments/:id/transition', () => {
   it('lets only the compare-and-set winner emit audit and notification side effects', async () => {
     updateResult.current = null;
 
-    const response = await POST(transitionRequest('working'), { params: { id: 'appt_1' } });
+    const response = await POST(transitionRequest('working'), { params: Promise.resolve({ id: 'appt_1' }) });
 
     expect(response.status).toBe(409);
     expect(logAppointmentChange).not.toHaveBeenCalled();
@@ -286,7 +286,7 @@ describe('POST /api/appointments/:id/transition', () => {
       status: 'completed',
     };
 
-    const response = await POST(transitionRequest('complete'), { params: { id: 'appt_1' } });
+    const response = await POST(transitionRequest('complete'), { params: Promise.resolve({ id: 'appt_1' }) });
 
     expect(response.status).toBe(409);
     await expect(response.json()).resolves.toEqual({
@@ -317,7 +317,7 @@ describe('POST /api/appointments/:id/transition', () => {
 
     const response = await POST(
       transitionRequest('wrap_up'),
-      { params: { id: 'appt_1' } },
+      { params: Promise.resolve({ id: 'appt_1' }) },
     );
 
     expect(response.status).toBe(200);
@@ -338,7 +338,7 @@ describe('POST /api/appointments/:id/transition', () => {
       status: 'no_show',
     };
 
-    const response = await POST(transitionRequest('no_show'), { params: { id: 'appt_1' } });
+    const response = await POST(transitionRequest('no_show'), { params: Promise.resolve({ id: 'appt_1' }) });
 
     expect(response.status).toBe(200);
     expect(capturedUpdates[0]).toMatchObject({
@@ -365,7 +365,7 @@ describe('POST /api/appointments/:id/transition', () => {
   it('rejects transitions on already-terminal appointments before transaction work', async () => {
     requireStaffAppointmentAccess.mockResolvedValue(makeAccess({ canvasState: 'complete' }));
 
-    const response = await POST(transitionRequest('cancelled'), { params: { id: 'appt_1' } });
+    const response = await POST(transitionRequest('cancelled'), { params: Promise.resolve({ id: 'appt_1' }) });
 
     expect(response.status).toBe(409);
     expect(db.transaction).not.toHaveBeenCalled();

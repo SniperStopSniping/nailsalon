@@ -399,7 +399,7 @@ export function BookingPagePresetPicker({
                             title={`${selectedCopy.label} design preview`}
                             src={selectedPreviewUrl}
                             aria-hidden="true"
-                            inert={'' as unknown as boolean}
+                            inert
                             sandbox="allow-same-origin"
                             tabIndex={-1}
                             onLoad={event => normalizeBookingPagePreviewFrame({

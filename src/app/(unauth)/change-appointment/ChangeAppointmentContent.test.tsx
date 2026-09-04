@@ -1,7 +1,8 @@
-import React from 'react';
-
 import { act, fireEvent, render, screen } from '@testing-library/react';
+import React from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+import { ChangeAppointmentClient } from './ChangeAppointmentContent';
 
 const {
   fetchMock,
@@ -31,8 +32,6 @@ vi.mock('@/providers/SalonProvider', () => ({
     salonSlug: 'salon-a',
   }),
 }));
-
-import { ChangeAppointmentClient } from './ChangeAppointmentContent';
 
 describe('ChangeAppointmentClient', () => {
   beforeEach(() => {
@@ -70,7 +69,10 @@ describe('ChangeAppointmentClient', () => {
 
     await screen.findByRole('button', { name: '9:00 AM' });
 
+    expect(screen.queryByText(/2 hours notice/i)).not.toBeInTheDocument();
+
     const initialCallCount = fetchMock.mock.calls.length;
+
     expect(initialCallCount).toBeGreaterThan(0);
 
     const selectedDateButton = screen.getByRole('button', { name: '16' });

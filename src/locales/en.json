@@ -3,6 +3,27 @@
     "meta_title": "Luster — Free booking and CRM for nail techs",
     "meta_description": "Free booking, client management, Google Calendar sync, and growth tools built for nail professionals."
   },
+  "LusterHome": {
+    "owner_sign_in": "Salon owner sign in",
+    "eyebrow": "Luster for nail techs",
+    "headline": "Let’s build your website.",
+    "description": "Create a website that feels like your business. Add your services, let clients book online, and manage everything from your Luster dashboard.",
+    "build_website": "Build my website",
+    "open_dashboard": "Open owner dashboard",
+    "preview_reassurance": "Preview your website before choosing a plan. Already using Luster? Your dashboard is right here too.",
+    "legacy_headline": "Free booking tools built for better nail businesses.",
+    "legacy_description": "Manage appointments, clients, services, Google Calendar, and optional reminders in one polished workspace—powered by Luster Builder Gel.",
+    "request_invite": "Request an invite",
+    "customer_help": "Already booked with a salon? Use the private link in your confirmation email or the salon’s “Find my booking” page.",
+    "scheduling_title": "Smarter scheduling",
+    "scheduling_copy": "Services, buffers, availability, and Google busy time work together to prevent double-booking.",
+    "booking_title": "Guest-friendly booking",
+    "booking_copy": "Clients book without an account and manage appointments through secure email links.",
+    "website_title": "Your website, your style",
+    "website_copy": "Choose your look, add your services, and let clients book from your own page.",
+    "growth_title": "Built to help nail techs grow",
+    "growth_copy": "A simple CRM, polished booking page, and Luster education live in the same free workspace."
+  },
   "Navbar": {
     "sign_in": "Sign In",
     "sign_up": "Sign Up",

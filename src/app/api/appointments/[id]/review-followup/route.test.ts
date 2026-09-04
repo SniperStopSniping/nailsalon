@@ -100,7 +100,7 @@ function post(action: string, url = 'https://app.test/api/appointments/appt_1/re
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action }),
     }),
-    { params: { id: 'appt_1' } },
+    { params: Promise.resolve({ id: 'appt_1' }) },
   );
 }
 

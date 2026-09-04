@@ -519,6 +519,13 @@
       "when": 1787217192670,
       "tag": "0073_l1_catalog_rules_foundation",
       "breakpoints": true
+    },
+    {
+      "idx": 74,
+      "version": "7",
+      "when": 1787303592670,
+      "tag": "0074_onboarding_account_site_foundation",
+      "breakpoints": true
     }
   ]
 }

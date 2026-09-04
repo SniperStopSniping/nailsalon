@@ -36,10 +36,8 @@ const bodySchema = z.object({
 
 type ErrorResponse = { error: { code: string; message: string; details?: unknown } };
 
-export async function POST(
-  request: Request,
-  { params }: { params: { id: string } },
-): Promise<Response> {
+export async function POST(request: Request, props: { params: Promise<{ id: string }> }): Promise<Response> {
+  const params = await props.params;
   try {
     const appointmentId = params.id;
     const access = await requireAppointmentManagerAccess(appointmentId, {
@@ -77,14 +75,14 @@ export async function POST(
     if (action === 'already_reviewed') {
       const salonClient = appointment.salonClientId
         ? { id: appointment.salonClientId }
-        : await resolveOperationalSalonClientByPhoneWithHandle(db, {
-          salonId: appointment.salonId,
-          phone: appointment.clientPhone,
-        }) ?? await getOrCreateSalonClient(
-          appointment.salonId,
-          appointment.clientPhone,
-          appointment.clientName ?? undefined,
-        );
+        : (await resolveOperationalSalonClientByPhoneWithHandle(db, {
+            salonId: appointment.salonId,
+            phone: appointment.clientPhone,
+          })) ?? (await getOrCreateSalonClient(
+            appointment.salonId,
+            appointment.clientPhone,
+            appointment.clientName ?? undefined,
+          ));
 
       if (salonClient?.id) {
         await withClientLifecycleTransactionRetry(() =>

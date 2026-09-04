@@ -209,7 +209,9 @@ describe('S5 — source-level guards for in-route projections', () => {
     const source = readSource('src/app/(unauth)/book/service/BookServicePageServer.tsx');
 
     expect(routeSource).toContain('from \'./BookServicePageServer\'');
-    expect(routeSource).toContain('return renderBookServicePage(props)');
+    expect(routeSource).toContain('return renderBookServicePage({');
+    expect(routeSource).toContain('searchParams: await props.searchParams');
+    expect(routeSource).toContain('params: await props.params');
 
     expect(source).toContain('dbTechnicians.map(mapPublicTechnician)');
     expect(source).not.toMatch(/dbTechnicians\.map\(technician => \(\{/);

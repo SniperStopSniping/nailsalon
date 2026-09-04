@@ -21,7 +21,7 @@ export const e2eConfig = {
   freeSolo: process.env.E2E_FREE_SOLO !== 'false',
   locale: DEFAULT_LOCALE,
   salonSlug: DEFAULT_SALON_SLUG,
-  salonName: process.env.E2E_SALON_NAME || 'Luster Demo Studio',
+  salonName: process.env.E2E_SALON_NAME || 'Nail Salon No.5',
   serviceId: process.env.E2E_SERVICE_ID || 'svc_biab-short',
   serviceName: process.env.E2E_SERVICE_NAME || 'BIAB Short',
   serviceDurationMinutes: Number.parseInt(process.env.E2E_SERVICE_DURATION_MINUTES || '75', 10),

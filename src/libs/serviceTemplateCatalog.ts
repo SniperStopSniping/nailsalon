@@ -8,8 +8,8 @@
  * salons already created from it.
  */
 
-import { LUSTER_MANICURE_TEMPLATE_KEY, LUSTER_PEDICURE_TEMPLATE_KEY } from '@/libs/bookingMerchandising';
-import type { AddOnCategory, BookingCategory, ServiceCategory } from '@/models/Schema';
+import type { AddOnCategory, BookingCategory, ServiceCategory } from '../models/serviceCatalogTypes';
+import { LUSTER_MANICURE_TEMPLATE_KEY, LUSTER_PEDICURE_TEMPLATE_KEY } from './bookingMerchandising';
 
 export const SERVICE_TEMPLATE_CATEGORIES = [
   'popular',

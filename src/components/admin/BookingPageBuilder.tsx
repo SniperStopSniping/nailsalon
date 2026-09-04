@@ -237,7 +237,10 @@ export function BookingPageBuilder({
   onOperation,
 }: BookingPageBuilderProps) {
   const presentationState = { ...draft, presetBase };
-  const sectionDefinitions = listBookingPageBuilderSections(draft.layout);
+  const sectionDefinitions = listBookingPageBuilderSections(
+    draft.layout,
+    draft.quickBookProfile,
+  );
   const definitionsById = new Map(
     sectionDefinitions.map(definition => [definition.id, definition]),
   );
@@ -329,7 +332,10 @@ export function BookingPageBuilder({
       previewedReorderableSectionOrder,
     );
     const currentPosition = currentOrder.indexOf(completed.sectionId);
-    const label = listBookingPageBuilderSections(currentDraft.layout)
+    const label = listBookingPageBuilderSections(
+      currentDraft.layout,
+      currentDraft.quickBookProfile,
+    )
       .find(definition => definition.id === completed.sectionId)?.label
       ?? completed.sectionId;
     restoreMoveFocusIfLost({
@@ -433,7 +439,14 @@ export function BookingPageBuilder({
           const explicitVariant = draft.sectionVariants[definition.id];
           const explicitVariantIsAllowed = explicitVariant !== undefined
             && (definition.allowedVariants as readonly string[]).includes(explicitVariant);
-          const selectedVariant = explicitVariantIsAllowed ? explicitVariant : '';
+          const savedMenuVariant = draft.serviceMenuLayout === 'category_menu'
+            ? 'grouped_categories'
+            : draft.serviceMenuLayout === 'visual_grid'
+              ? 'list'
+              : null;
+          const selectedVariant = definition.id === 'serviceMenu'
+            ? savedMenuVariant ?? 'saved-booking-layout'
+            : explicitVariantIsAllowed ? explicitVariant : '';
           const showMoveControls = definition.reorderable
             && configuredVisible
             && previewedSectionIds !== null
@@ -543,6 +556,14 @@ export function BookingPageBuilder({
                           variant: event.target.value === '' ? null : event.target.value,
                         })}
                       >
+                        {definition.id === 'serviceMenu' && savedMenuVariant === null
+                          ? (
+                              <option value="saved-booking-layout" disabled>
+                                {getBookingPageBuilderVariantLabel(draft.serviceMenuLayout)}
+                                {' (saved booking layout)'}
+                              </option>
+                            )
+                          : null}
                         <option value="">Inherited default</option>
                         {definition.allowedVariants.map(variant => (
                           <option key={variant} value={variant}>

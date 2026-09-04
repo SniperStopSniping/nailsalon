@@ -42,11 +42,12 @@ function ErrorCard({ title, body, href, cta }: { title: string; body: string; hr
  * service, so the flow stays visibly attached to the existing appointment
  * instead of restarting the public booking funnel.
  */
-export default async function RescheduleAppointmentPage({
-  params,
-}: {
-  params: { locale: string; slug: string; token: string };
-}) {
+export default async function RescheduleAppointmentPage(
+  props: {
+    params: Promise<{ locale: string; slug: string; token: string }>;
+  },
+) {
+  const params = await props.params;
   const capability = await verifyAppointmentAccessToken(params.token);
   const findBookingHref = `/${params.locale}/${params.slug}/find-booking`;
 

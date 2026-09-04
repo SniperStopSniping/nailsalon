@@ -32,10 +32,8 @@ function errorJson(status: number, code: string, message: string): Response {
   return Response.json({ error: { code, message } }, { status });
 }
 
-export async function POST(
-  request: Request,
-  { params }: { params: { id: string } },
-): Promise<Response> {
+export async function POST(request: Request, props: { params: Promise<{ id: string }> }): Promise<Response> {
+  const params = await props.params;
   const parsed = requestSchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) {
     return errorJson(

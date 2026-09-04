@@ -1,0 +1,145 @@
+:root {
+  --luster-motion-press: 100ms;
+  --luster-motion-selection: 190ms;
+  --luster-motion-complete: 280ms;
+  --luster-motion-stage: 440ms;
+  --luster-motion-reveal: 680ms;
+  --onboarding-feedback-footer-clearance: 124px;
+  --onboarding-feedback-footer-gap: 16px;
+}
+
+.onboarding-app button,
+.lab-dashboard-preview button {
+  transition:
+    transform var(--luster-motion-press) ease,
+    border-color var(--luster-motion-selection) ease,
+    background-color var(--luster-motion-selection) ease,
+    box-shadow var(--luster-motion-selection) ease;
+}
+
+.onboarding-app button:not(:disabled):active,
+.lab-dashboard-preview button:not(:disabled):active {
+  transform: scale(0.985);
+}
+
+.onboarding-feedback {
+  position: fixed;
+  z-index: 1500;
+  right: max(16px, env(safe-area-inset-right));
+  bottom: max(
+    20px,
+    calc(
+      env(safe-area-inset-bottom)
+      + var(--onboarding-feedback-footer-clearance)
+      + var(--onboarding-feedback-footer-gap)
+    )
+  );
+  display: flex;
+  max-width: min(360px, calc(100vw - 32px));
+  min-height: 48px;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 14px;
+  border: 1px solid color-mix(in srgb, var(--onboarding-accent, #96345d) 30%, white);
+  border-radius: 16px;
+  color: var(--onboarding-ink, #34292c);
+  background: color-mix(in srgb, #fff 92%, var(--onboarding-accent-soft, #f8e4ec));
+  box-shadow: 0 18px 46px rgba(72, 42, 53, 0.18);
+  font-size: 0.84rem;
+  font-weight: 760;
+  pointer-events: none;
+  animation: onboarding-feedback-in var(--luster-motion-complete) cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+.luster-dialog-open .onboarding-feedback,
+.onboarding-modal-open .onboarding-feedback {
+  display: none;
+}
+
+.onboarding-feedback.is-stage_complete,
+.onboarding-feedback.is-milestone {
+  border-color: color-mix(in srgb, var(--onboarding-accent, #96345d) 48%, white);
+  background: linear-gradient(135deg, #fff 5%, var(--onboarding-accent-soft, #f8e4ec));
+  animation-duration: var(--luster-motion-stage);
+}
+
+.onboarding-feedback.is-warning {
+  border-color: color-mix(in srgb, #b84b54 48%, white);
+}
+
+.onboarding-feedback__sparkles {
+  position: absolute;
+  inset: -7px;
+  pointer-events: none;
+  border: 1px solid color-mix(in srgb, var(--onboarding-accent, #96345d) 18%, transparent);
+  border-radius: 20px;
+  opacity: 0;
+  animation: onboarding-feedback-glow var(--luster-motion-reveal) ease-out both;
+}
+
+.onboarding-collapsible-card.is-complete {
+  transition:
+    border-color var(--luster-motion-complete) ease,
+    background-color var(--luster-motion-complete) ease,
+    box-shadow var(--luster-motion-complete) ease;
+}
+
+@keyframes onboarding-feedback-in {
+  from { opacity: 0; transform: translateY(8px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes onboarding-feedback-glow {
+  0% { opacity: 0; transform: scale(0.97); }
+  45% { opacity: 1; }
+  100% { opacity: 0; transform: scale(1.035); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .onboarding-feedback,
+  .onboarding-feedback__sparkles {
+    animation: none;
+  }
+
+  .onboarding-app button,
+  .lab-dashboard-preview button {
+    transition: none;
+  }
+}
+
+.onboarding-feedback.is-reduced-motion,
+.onboarding-feedback.is-reduced-motion .onboarding-feedback__sparkles {
+  animation: none;
+}
+
+@media (min-width: 480px) {
+  :root {
+    --onboarding-feedback-footer-clearance: 66px;
+  }
+}
+
+@media (max-height: 400px) {
+  :root {
+    --onboarding-feedback-footer-clearance: 72px;
+    --onboarding-feedback-footer-gap: 12px;
+  }
+}
+
+@media (max-width: 479px) {
+  .onboarding-feedback {
+    right: max(10px, env(safe-area-inset-right));
+    max-width: min(240px, calc(100vw - 20px));
+    min-height: 44px;
+    padding: 9px 11px;
+    font-size: 0.76rem;
+  }
+}
+
+/* Compact card completion already has a visible inline check. On short
+   phones, keep the live announcement but omit the transient overlay so it
+   cannot cover the next question or its action. */
+@media (max-width: 479px) and (max-height: 700px) {
+  .onboarding-feedback.is-completed {
+    display: none;
+  }
+}

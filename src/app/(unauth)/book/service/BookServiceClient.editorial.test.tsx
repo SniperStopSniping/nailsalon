@@ -63,6 +63,7 @@ const BASE_BOOKING_EXPERIENCE: BookingExperience = {
 
 const EDITORIAL_BOOKING_PAGE_SIDE: BookingPageConfigSide = {
   layout: 'editorial',
+  serviceMenuLayout: 'visual_grid',
   stylePack: 'default',
   tokenOverrides: null,
   sectionOrder: [
@@ -80,6 +81,19 @@ const EDITORIAL_BOOKING_PAGE_SIDE: BookingPageConfigSide = {
   hiddenSections: [],
   businessMode: 'solo',
   startMode: 'services_first',
+  quickBookProfile: {
+    showTechName: false,
+    showTechPhoto: false,
+    showLocation: false,
+    showHours: false,
+    showPhone: false,
+    showEmail: false,
+    showBookingPolicy: false,
+    showCancellationPolicy: false,
+    showReviews: false,
+    showInstagram: false,
+    showBio: false,
+  },
 };
 
 const EDITORIAL_PRESET_IDS = [
@@ -519,6 +533,7 @@ describe('BookServiceClient — Editorial Luxury layout', () => {
     salonContextMock.salonContent = canonicalContent;
     salonContextMock.bookingPage = {
       ...EDITORIAL_BOOKING_PAGE_SIDE,
+      serviceMenuLayout: 'category_menu',
       sectionVariants: { serviceMenu: 'grouped_categories' },
     };
 

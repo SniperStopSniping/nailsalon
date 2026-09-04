@@ -63,6 +63,7 @@ const BASE_BOOKING_EXPERIENCE: BookingExperience = {
 
 const QUICK_BOOK_BOOKING_PAGE_SIDE: BookingPageConfigSide = {
   layout: 'quick_book',
+  serviceMenuLayout: 'visual_grid',
   stylePack: 'default',
   tokenOverrides: null,
   sectionOrder: ['salonProfile', 'serviceMenu', 'featuredServices', 'policies', 'socialLinks', 'bookingCta'],
@@ -70,6 +71,19 @@ const QUICK_BOOK_BOOKING_PAGE_SIDE: BookingPageConfigSide = {
   hiddenSections: [],
   businessMode: 'solo',
   startMode: 'services_first',
+  quickBookProfile: {
+    showTechName: false,
+    showTechPhoto: false,
+    showLocation: false,
+    showHours: false,
+    showPhone: false,
+    showEmail: false,
+    showBookingPolicy: false,
+    showCancellationPolicy: false,
+    showReviews: false,
+    showInstagram: false,
+    showBio: false,
+  },
 };
 
 vi.mock('next/navigation', () => ({

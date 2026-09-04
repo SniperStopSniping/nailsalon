@@ -1926,6 +1926,8 @@ describe('ClientsModal', () => {
       render(<ClientsModal onClose={() => {}} />);
 
       fireEvent.click(await screen.findByRole('button', { name: /ava thompson/i }));
+      // Appointment preferences arrive with the detail, after the directory card.
+      await screen.findByTestId('edit-client-action');
       fireEvent.click(await screen.findByTestId('client-book-appointment'));
 
       const bookingModal = await screen.findByTestId('new-appointment-modal');

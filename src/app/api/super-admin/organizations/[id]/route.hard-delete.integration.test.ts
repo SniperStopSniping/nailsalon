@@ -10,6 +10,7 @@
  * with service line items plus a fraud_signal row whose ON DELETE RESTRICT
  * foreign key blocked the delete half-way through.
  */
+import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 
 import { PGlite } from '@electric-sql/pglite';
@@ -23,6 +24,12 @@ import * as schema from '@/models/Schema';
 vi.mock('server-only', () => ({}));
 
 const holder = vi.hoisted(() => ({ db: null as unknown }));
+const mediaCleanup = vi.hoisted(() => vi.fn(async (_keys: string[], _owner: { salonId: string }) => ({ failed: 0, removed: 0 })));
+
+vi.mock('@/features/onboarding-v1-integration/media-storage.server', async importOriginal => ({
+  ...await importOriginal<typeof import('@/features/onboarding-v1-integration/media-storage.server')>(),
+  deleteOnboardingMediaFiles: mediaCleanup,
+}));
 
 vi.mock('@/libs/DB', () => ({
   get db() {
@@ -84,6 +91,7 @@ async function counts(): Promise<{ salons: number; appointments: number; lineIte
 }
 
 beforeEach(async () => {
+  mediaCleanup.mockClear();
   superAdmin.guard = null;
 
   client = new PGlite();
@@ -208,6 +216,61 @@ describe('DELETE ?hard=true', () => {
     // the salon and the deletion would leave no trace anywhere.
     expect(audits[0]).toMatchObject({ salonId: null, entityType: 'salon', entityId: SALON });
     expect(audits[0]?.metadata).toMatchObject({ slug: SLUG, name: 'Endpoint Salon' });
+  });
+
+  it('cleans only managed private media from the deleted tenant after the transaction commits', async () => {
+    await db.insert(schema.adminUserSchema).values({ id: 'media_owner', name: 'Owner', email: 'owner@example.test' });
+    await db.insert(schema.salonSchema).values({ id: 'other_salon', name: 'Other', slug: 'other-media-salon' });
+    const tenants = [SALON, 'other_salon'];
+    for (const [index, salonId] of tenants.entries()) {
+      const siteId = `22222222-2222-4222-8222-22222222222${index}`;
+      const revisionId = `33333333-3333-4333-8333-33333333333${index}`;
+      await client.query(`
+        INSERT INTO onboarding_site (id, salon_id, created_by_admin_id, current_revision, style_preset_id, palette_preset_id)
+        VALUES ($1, $2, 'media_owner', 1, 'modern', 'luster_berry')
+      `, [siteId, salonId]);
+      await client.query(`
+        INSERT INTO onboarding_site_revision
+          (id, salon_id, site_id, revision, created_by_admin_id, snapshot_version, snapshot,
+           snapshot_fingerprint, document_version, document, document_fingerprint)
+        VALUES ($1, $2, $3, 1, 'media_owner', 1, '{}', 'snapshot', 1, '{}', 'document')
+      `, [revisionId, salonId, siteId]);
+      for (const storageProvider of ['cloudinary_authenticated', 'development_local', 'cloudinary']) {
+        await db.insert(schema.onboardingSiteMediaSchema).values({
+          fileName: 'photo.webp',
+          id: randomUUID(),
+          localItemId: storageProvider,
+          mimeType: 'image/webp',
+          revisionId,
+          role: 'gallery',
+          salonId,
+          siteId,
+          storageKey: `${salonId}/${storageProvider}`,
+          storageProvider,
+        });
+      }
+    }
+    await softDelete();
+    mediaCleanup.mockImplementationOnce(async () => {
+      expect((await counts()).salons).toBe(0);
+
+      return { failed: 0, removed: 2 };
+    });
+
+    const response = await DELETE(deleteRequest({ hard: true, body: { confirmSlug: SLUG } }), { params });
+
+    expect(response.status).toBe(200);
+    expect(mediaCleanup).toHaveBeenCalledOnce();
+    expect(mediaCleanup).toHaveBeenCalledWith(expect.arrayContaining([
+      `${SALON}/cloudinary_authenticated`,
+      `${SALON}/development_local`,
+    ]), { salonId: SALON });
+    expect(mediaCleanup.mock.calls[0]?.[0]).toHaveLength(2);
+
+    const otherMedia = await db.select().from(schema.onboardingSiteMediaSchema)
+      .where(eq(schema.onboardingSiteMediaSchema.salonId, 'other_salon'));
+
+    expect(otherMedia).toHaveLength(3);
   });
 });
 

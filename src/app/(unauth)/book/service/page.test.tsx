@@ -15,6 +15,7 @@ const {
   getClientSession,
   getPublicPageContext,
   getPublicBookableServiceIds,
+  getRetentionSettingsForSalon,
   getServiceAddOnRulesBySalonId,
   getServicesBySalonId,
   getTechniciansBySalonId,
@@ -39,6 +40,7 @@ const {
   getClientSession: vi.fn(),
   getPublicPageContext: vi.fn(),
   getPublicBookableServiceIds: vi.fn(),
+  getRetentionSettingsForSalon: vi.fn(),
   getServiceAddOnRulesBySalonId: vi.fn(),
   getServicesBySalonId: vi.fn(),
   getTechniciansBySalonId: vi.fn(),
@@ -139,6 +141,10 @@ vi.mock('@/libs/serviceAssignments', () => ({
   getPublicBookableServiceIds,
 }));
 
+vi.mock('@/libs/retentionSettings.server', () => ({
+  getRetentionSettingsForSalon,
+}));
+
 // S5 (Stage 1): the page now projects technicians through the shared
 // `mapPublicTechnician` instead of an inline copy. That module starts with
 // `import 'server-only'`, so it is mocked here with a SIMPLIFIED stand-in —
@@ -206,6 +212,7 @@ describe('BookServicePage first-visit offer visibility', () => {
     getTechniciansBySalonId.mockResolvedValue([]);
     getPublicBookableServiceIds.mockResolvedValue(null);
     getActiveLocationsBySalonId.mockResolvedValue([]);
+    getRetentionSettingsForSalon.mockResolvedValue({ googleReviewUrl: null });
   });
 
   afterEach(() => {
@@ -216,8 +223,8 @@ describe('BookServicePage first-visit offer visibility', () => {
     getClientSession.mockResolvedValue(null);
 
     const element = await BookServicePage({
-      searchParams: { salonSlug: 'salon-a' },
-      params: { locale: 'en', slug: 'salon-a' },
+      searchParams: Promise.resolve({ salonSlug: 'salon-a' }),
+      params: Promise.resolve({ locale: 'en', slug: 'salon-a' }),
     });
 
     render(element);
@@ -273,8 +280,8 @@ describe('BookServicePage first-visit offer visibility', () => {
     ]);
 
     const element = await BookServicePage({
-      searchParams: { salonSlug: 'salon-a' },
-      params: { locale: 'en', slug: 'salon-a' },
+      searchParams: Promise.resolve({ salonSlug: 'salon-a' }),
+      params: Promise.resolve({ locale: 'en', slug: 'salon-a' }),
     });
 
     render(element);
@@ -295,8 +302,8 @@ describe('BookServicePage first-visit offer visibility', () => {
     isClientEligibleForFirstVisitDiscount.mockResolvedValue(true);
 
     const element = await BookServicePage({
-      searchParams: { salonSlug: 'salon-a' },
-      params: { locale: 'en', slug: 'salon-a' },
+      searchParams: Promise.resolve({ salonSlug: 'salon-a' }),
+      params: Promise.resolve({ locale: 'en', slug: 'salon-a' }),
     });
 
     render(element);
@@ -315,8 +322,8 @@ describe('BookServicePage first-visit offer visibility', () => {
     isClientEligibleForFirstVisitDiscount.mockResolvedValue(false);
 
     const element = await BookServicePage({
-      searchParams: { salonSlug: 'salon-a' },
-      params: { locale: 'en', slug: 'salon-a' },
+      searchParams: Promise.resolve({ salonSlug: 'salon-a' }),
+      params: Promise.resolve({ locale: 'en', slug: 'salon-a' }),
     });
 
     render(element);
@@ -331,8 +338,8 @@ describe('BookServicePage first-visit offer visibility', () => {
     getClientSession.mockResolvedValue(null);
 
     const element = await BookServicePage({
-      searchParams: { salonSlug: 'salon-a' },
-      params: { locale: 'en', slug: 'salon-a' },
+      searchParams: Promise.resolve({ salonSlug: 'salon-a' }),
+      params: Promise.resolve({ locale: 'en', slug: 'salon-a' }),
     });
 
     render(element);
@@ -453,8 +460,8 @@ describe('BookServicePage first-visit offer visibility', () => {
     ]);
 
     const element = await BookServicePage({
-      searchParams: { salonSlug: 'salon-a' },
-      params: { locale: 'en', slug: 'salon-a' },
+      searchParams: Promise.resolve({ salonSlug: 'salon-a' }),
+      params: Promise.resolve({ locale: 'en', slug: 'salon-a' }),
     });
 
     render(element);
@@ -508,8 +515,8 @@ describe('BookServicePage first-visit offer visibility', () => {
     ]);
 
     const element = await BookServicePage({
-      searchParams: { salonSlug: 'salon-a' },
-      params: { locale: 'en', slug: 'salon-a' },
+      searchParams: Promise.resolve({ salonSlug: 'salon-a' }),
+      params: Promise.resolve({ locale: 'en', slug: 'salon-a' }),
     });
     render(element);
 
@@ -561,8 +568,8 @@ describe('BookServicePage owner-preview wiring', () => {
     });
 
     const element = await BookServicePage({
-      searchParams: { salonSlug: 'salon-a' },
-      params: { locale: 'en', slug: 'salon-a' },
+      searchParams: Promise.resolve({ salonSlug: 'salon-a' }),
+      params: Promise.resolve({ locale: 'en', slug: 'salon-a' }),
     });
     render(element);
 
@@ -582,12 +589,12 @@ describe('BookServicePage owner-preview wiring', () => {
     });
 
     const element = await BookServicePage({
-      searchParams: {
+      searchParams: Promise.resolve({
         salonSlug: 'salon-a',
         presetPreview: 'collective',
         presetPreviewVersion: '1',
-      },
-      params: { locale: 'en', slug: 'salon-a' },
+      }),
+      params: Promise.resolve({ locale: 'en', slug: 'salon-a' }),
     });
     render(element);
 
@@ -609,8 +616,8 @@ describe('BookServicePage owner-preview wiring', () => {
     });
 
     const element = await BookServicePage({
-      searchParams: { salonSlug: 'salon-a' },
-      params: { locale: 'en', slug: 'salon-a' },
+      searchParams: Promise.resolve({ salonSlug: 'salon-a' }),
+      params: Promise.resolve({ locale: 'en', slug: 'salon-a' }),
     });
     render(element);
 
@@ -630,8 +637,8 @@ describe('BookServicePage owner-preview wiring', () => {
     });
 
     const element = await BookServicePage({
-      searchParams: { salonSlug: 'salon-a' },
-      params: { locale: 'en', slug: 'salon-a' },
+      searchParams: Promise.resolve({ salonSlug: 'salon-a' }),
+      params: Promise.resolve({ locale: 'en', slug: 'salon-a' }),
     });
     render(element);
 
@@ -647,6 +654,7 @@ describe('BookServicePage owner-preview wiring', () => {
       version: 1,
       draft: {
         layout: 'quick_book',
+        serviceMenuLayout: 'visual_grid',
         stylePack: 'default',
         tokenOverrides: null,
         sectionOrder: ['salonProfile', 'serviceMenu', 'bookingCta'],
@@ -654,9 +662,23 @@ describe('BookServicePage owner-preview wiring', () => {
         hiddenSections: [],
         businessMode: 'solo',
         startMode: 'services_first',
+        quickBookProfile: {
+          showTechName: true,
+          showTechPhoto: false,
+          showLocation: false,
+          showHours: false,
+          showPhone: false,
+          showEmail: false,
+          showBookingPolicy: false,
+          showCancellationPolicy: false,
+          showReviews: false,
+          showInstagram: false,
+          showBio: false,
+        },
       },
       live: {
         layout: 'editorial',
+        serviceMenuLayout: 'visual_grid',
         stylePack: 'default',
         tokenOverrides: null,
         sectionOrder: ['salonProfile', 'featuredServices', 'technicianProfile', 'serviceMenu', 'bookingCta'],
@@ -664,6 +686,19 @@ describe('BookServicePage owner-preview wiring', () => {
         hiddenSections: [],
         businessMode: 'team',
         startMode: 'services_first',
+        quickBookProfile: {
+          showTechName: false,
+          showTechPhoto: false,
+          showLocation: true,
+          showHours: false,
+          showPhone: false,
+          showEmail: false,
+          showBookingPolicy: false,
+          showCancellationPolicy: false,
+          showReviews: false,
+          showInstagram: false,
+          showBio: false,
+        },
       },
       draftPresetBase: { presetId: 'quick_book', recipeVersion: 1 },
       livePresetBase: { presetId: 'signature', recipeVersion: 1 },
@@ -705,8 +740,8 @@ describe('BookServicePage owner-preview wiring', () => {
       });
 
     const previewElement = await BookServicePage({
-      searchParams: { salonSlug: 'salon-a' },
-      params: { locale: 'en', slug: 'salon-a' },
+      searchParams: Promise.resolve({ salonSlug: 'salon-a' }),
+      params: Promise.resolve({ locale: 'en', slug: 'salon-a' }),
     });
     render(previewElement);
 
@@ -724,8 +759,8 @@ describe('BookServicePage owner-preview wiring', () => {
     }));
 
     const publicElement = await BookServicePage({
-      searchParams: { salonSlug: 'salon-a' },
-      params: { locale: 'en', slug: 'salon-a' },
+      searchParams: Promise.resolve({ salonSlug: 'salon-a' }),
+      params: Promise.resolve({ locale: 'en', slug: 'salon-a' }),
     });
     render(publicElement);
 
@@ -754,13 +789,13 @@ describe('BookServicePage owner-preview wiring', () => {
       });
 
       const element = await BookServicePage({
-        searchParams: {
+        searchParams: Promise.resolve({
           salonSlug: 'salon-a',
           builderPreview: typeof builderPreview === 'string' || builderPreview === undefined
             ? builderPreview
             : [...builderPreview],
-        },
-        params: { locale: 'en', slug: 'salon-a' },
+        }),
+        params: Promise.resolve({ locale: 'en', slug: 'salon-a' }),
       });
       render(element);
 
@@ -808,6 +843,12 @@ describe('BookServicePage owner-preview wiring', () => {
       searchParams: { builderPreview: '0' },
       params: { locale: 'en', slug: 'salon-a' },
     }, { requireOwnerDraftPreview: true });
+
+    // Script-disabled iframe previews cannot execute React's streamed
+    // Suspense reveal instruction. Their canonical content must be direct.
+    expect(element.props.children.type).not.toBe(React.Suspense);
+    expect(element.props.children.props.isEmbeddedBuilderPreview).toBe(true);
+
     render(element);
 
     expect(resolveDraftSalonAccess).toHaveBeenCalledTimes(1);
@@ -862,9 +903,12 @@ describe('BookServicePage owner-preview wiring', () => {
     });
 
     const element = await BookServicePage({
-      searchParams: { salonSlug: 'salon-a', builderPreview: '8' },
-      params: { locale: 'en', slug: 'salon-a' },
+      searchParams: Promise.resolve({ salonSlug: 'salon-a', builderPreview: '8' }),
+      params: Promise.resolve({ locale: 'en', slug: 'salon-a' }),
     });
+
+    expect(element.props.children.type).toBe(React.Suspense);
+
     render(element);
 
     expect(bookServiceClientSpy).toHaveBeenCalledWith(expect.objectContaining({
@@ -892,13 +936,13 @@ describe('BookServicePage owner-preview wiring', () => {
       });
 
       const element = await BookServicePage({
-        searchParams: {
+        searchParams: Promise.resolve({
           salonSlug: 'salon-a',
           builderPreview: typeof builderPreview === 'string' || builderPreview === undefined
             ? builderPreview
             : [...builderPreview],
-        },
-        params: { locale: 'en', slug: 'salon-a' },
+        }),
+        params: Promise.resolve({ locale: 'en', slug: 'salon-a' }),
       });
       render(element);
 
@@ -937,12 +981,12 @@ describe('BookServicePage owner-preview wiring', () => {
     });
 
     const element = await BookServicePage({
-      searchParams: {
+      searchParams: Promise.resolve({
         salonSlug: 'salon-a',
         presetPreview: 'collective',
         presetPreviewVersion: '1',
-      },
-      params: { locale: 'en', slug: 'salon-a' },
+      }),
+      params: Promise.resolve({ locale: 'en', slug: 'salon-a' }),
     });
     render(element);
 
@@ -976,6 +1020,7 @@ describe('BookServicePage owner-preview wiring', () => {
         hiddenSections: [],
         businessMode: 'solo',
         startMode: 'services_first',
+        quickBookProfile: {},
       },
     }));
     expect(bookServiceClientSpy).toHaveBeenCalledWith(expect.objectContaining({
@@ -1016,8 +1061,8 @@ describe('BookServicePage owner-preview wiring', () => {
       });
 
       const element = await BookServicePage({
-        searchParams: { salonSlug: 'salon-a', presetPreview, presetPreviewVersion },
-        params: { locale: 'en', slug: 'salon-a' },
+        searchParams: Promise.resolve({ salonSlug: 'salon-a', presetPreview, presetPreviewVersion }),
+        params: Promise.resolve({ locale: 'en', slug: 'salon-a' }),
       });
       render(element);
 
@@ -1046,8 +1091,8 @@ describe('BookServicePage owner-preview wiring', () => {
     });
 
     const element = await BookServicePage({
-      searchParams: { salonSlug: 'salon-a' },
-      params: { locale: 'en', slug: 'salon-a' },
+      searchParams: Promise.resolve({ salonSlug: 'salon-a' }),
+      params: Promise.resolve({ locale: 'en', slug: 'salon-a' }),
     });
     render(element);
 
@@ -1067,8 +1112,8 @@ describe('BookServicePage owner-preview wiring', () => {
     buildTenantRedirectPath.mockReturnValue('/en/salon-a/not-found');
 
     await expect(BookServicePage({
-      searchParams: { salonSlug: 'salon-a' },
-      params: { locale: 'en', slug: 'salon-a' },
+      searchParams: Promise.resolve({ salonSlug: 'salon-a' }),
+      params: Promise.resolve({ locale: 'en', slug: 'salon-a' }),
     })).rejects.toThrow('REDIRECT:/en/salon-a/not-found');
 
     // Real deny-before-render proof: nothing past the gate ever ran —
@@ -1164,8 +1209,8 @@ describe('BookServicePage location privacy (locationDisplayMode)', () => {
 
   it('full_address (default) passes the exact address and phone through to the locations prop unchanged', async () => {
     const element = await BookServicePage({
-      searchParams: { salonSlug: 'salon-a' },
-      params: { locale: 'en', slug: 'salon-a' },
+      searchParams: Promise.resolve({ salonSlug: 'salon-a' }),
+      params: Promise.resolve({ locale: 'en', slug: 'salon-a' }),
     });
     render(element);
 
@@ -1180,6 +1225,35 @@ describe('BookServicePage location privacy (locationDisplayMode)', () => {
         phone: PRIVATE_PHONE,
       }),
     ]);
+  });
+
+  it('booking-only contact strips phone from the public location payload even with full_address', async () => {
+    getPublicPageContext.mockResolvedValueOnce({
+      appearance: null,
+      salon: {
+        id: 'salon_1',
+        slug: 'salon-a',
+        bookingFlow: ['service', 'tech', 'time', 'confirm'],
+        settings: { sharedProfile: { bookingOnlyContact: true } },
+      },
+    });
+
+    const element = await BookServicePage({
+      searchParams: Promise.resolve({ salonSlug: 'salon-a' }),
+      params: Promise.resolve({ locale: 'en', slug: 'salon-a' }),
+    });
+    render(element);
+
+    const passedLocations = bookServiceClientSpy.mock.calls.at(-1)?.[0]?.locations;
+
+    expect(passedLocations).toEqual([
+      expect.objectContaining({
+        address: PRIVATE_FULL_ADDRESS,
+        phone: null,
+        zipCode: PRIVATE_POSTAL_CODE,
+      }),
+    ]);
+    expect(JSON.stringify(passedLocations)).not.toContain(PRIVATE_PHONE);
   });
 
   // Post-launch privacy fix: this test previously asserted `phone:
@@ -1198,8 +1272,8 @@ describe('BookServicePage location privacy (locationDisplayMode)', () => {
     });
 
     const element = await BookServicePage({
-      searchParams: { salonSlug: 'salon-a' },
-      params: { locale: 'en', slug: 'salon-a' },
+      searchParams: Promise.resolve({ salonSlug: 'salon-a' }),
+      params: Promise.resolve({ locale: 'en', slug: 'salon-a' }),
     });
     render(element);
 

@@ -55,7 +55,7 @@ const updateAddOnSchema = z.object({
  */
 export async function PATCH(
   request: Request,
-  context: { params: { id: string } },
+  context: { params: Promise<{ id: string }> },
 ) {
   const parsed = updateAddOnSchema.safeParse(
     await request.json().catch(() => null),
@@ -77,7 +77,7 @@ export async function PATCH(
     return error!;
   }
 
-  const addOnId = context.params.id;
+  const addOnId = (await context.params).id;
 
   try {
     if (input.groupId) {

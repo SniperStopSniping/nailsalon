@@ -59,6 +59,7 @@ type ViolationKind =
 type Violation = { kind: ViolationKind; text: string };
 type ApprovedRendererSeam =
   | 'salonProfile:BookingStepHeader'
+  | 'salonProfile:QuickBookProfileHeader'
   | 'featuredServices:marked-fragment'
   | 'serviceMenu:renderServiceMenuContent-declaration'
   | 'serviceMenu:list:renderServiceMenuContent-call'
@@ -377,6 +378,22 @@ function isApprovedBookingStepHeader(
   }) && hasSalonName;
 }
 
+function isApprovedQuickBookProfileHeader(
+  sectionId: ContentSectionId,
+  root: ts.JsxOpeningLikeElement,
+  file: ts.SourceFile,
+): boolean {
+  if (sectionId !== 'salonProfile' || root.tagName.getText(file) !== 'QuickBookProfileHeader') {
+    return false;
+  }
+  const allowed = new Set(['profile', 'mounted', 'bookingFlow', 'layout', 'announcement']);
+  return root.attributes.properties.every(attribute => ts.isJsxAttribute(attribute)
+    && allowed.has(attribute.name.getText(file)))
+    && root.attributes.properties.some(attribute => ts.isJsxAttribute(attribute)
+      && attribute.name.getText(file) === 'profile'
+      && attributeValue(attribute, file) === '{resolvedQuickBookProfile}');
+}
+
 function isApprovedServicesAnchorWrapper(
   sectionId: ContentSectionId,
   expression: ts.Expression,
@@ -509,6 +526,10 @@ function inspectRendererDefinition(
       inspection.approvedRendererSeams.push('salonProfile:BookingStepHeader');
       continue;
     }
+    if (root && isApprovedQuickBookProfileHeader(sectionId, root, file)) {
+      inspection.approvedRendererSeams.push('salonProfile:QuickBookProfileHeader');
+      continue;
+    }
     if (ts.isIdentifier(unwrapExpression(expression))
       && sharedLeafBindings.has(unwrapExpression(expression).getText(file))) {
       continue;
@@ -631,6 +652,12 @@ function heroRendererUsesCanonicalDerivedAlt(node: ts.Node, file: ts.SourceFile)
 
 function comparisonResultForGroupedMenu(expression: ts.Expression): boolean | null {
   const value = unwrapExpression(expression);
+  if (ts.isCallExpression(value) && ts.isIdentifier(value.expression)
+    && value.expression.text === 'shouldGroupServiceMenu'
+    && value.arguments.map(argument => argument.getText().replaceAll(/\s/g, '')).join(',')
+    === 'bookingPage?.serviceMenuLayout,serviceMenuPresentation.grouped,menuVariant') {
+    return true;
+  }
   if (!ts.isBinaryExpression(value)) {
     return null;
   }
@@ -869,10 +896,78 @@ function inspectCanonicalRendererRegistry(
   }
 }
 
+function isResolvedServiceMenuLayoutRead(node: ts.Node): boolean {
+  if (!ts.isPropertyAccessExpression(node) || node.name.text !== 'layout'
+    || !ts.isIdentifier(node.expression)) {
+    return false;
+  }
+  const receiver = node.expression.text;
+  const file = node.getSourceFile();
+  const resolverNames = new Set<string>();
+  for (const statement of file.statements) {
+    if (ts.isImportDeclaration(statement)
+      && ts.isStringLiteral(statement.moduleSpecifier)
+      && statement.moduleSpecifier.text === '@/libs/serviceMenuLayout'
+      && statement.importClause?.namedBindings
+      && ts.isNamedImports(statement.importClause.namedBindings)) {
+      for (const specifier of statement.importClause.namedBindings.elements) {
+        if ((specifier.propertyName ?? specifier.name).text === 'resolveServiceMenuPresentation') {
+          resolverNames.add(specifier.name.text);
+        }
+      }
+    }
+  }
+  const isResolvedDeclaration = (child: ts.Node): boolean => {
+    if (ts.isVariableDeclaration(child) && ts.isIdentifier(child.name)
+      && child.name.text === receiver && child.initializer) {
+      const initializer = unwrapExpression(child.initializer);
+      return ts.isCallExpression(initializer) && ts.isIdentifier(initializer.expression)
+        && resolverNames.has(initializer.expression.text);
+    }
+    return ts.forEachChild(child, isResolvedDeclaration) ?? false;
+  };
+  return isResolvedDeclaration(file);
+}
+
+function isApprovedCompactProfileAdoption(node: ts.Node): boolean {
+  let declaration: ts.Node = node;
+  while (declaration.parent && !ts.isVariableDeclaration(declaration)) {
+    declaration = declaration.parent;
+  }
+  return ts.isVariableDeclaration(declaration)
+    && ts.isIdentifier(declaration.name)
+    && declaration.name.text === 'compactQuickBookProfileEnabled'
+    && declaration.initializer?.getText().replaceAll(/\s/g, '')
+    === 'layout===\'quick_book\'&&usesCompactQuickBookProfile(bookingPage?.quickBookProfile)';
+}
+
+function isApprovedServerProfileProjection(node: ts.Node): boolean {
+  const expression = ts.isConditionalExpression(node)
+    ? node
+    : ts.isConditionalExpression(node.parent) ? node.parent : null;
+  if (!expression || expression.condition.getText().replaceAll(/\s/g, '') !== 'activeBookingPageSide.layout===\'quick_book\''
+    || !expression.getSourceFile().statements.some(statement => ts.isImportDeclaration(statement)
+      && ts.isStringLiteral(statement.moduleSpecifier) && statement.moduleSpecifier.text === 'server-only')) {
+    return false;
+  }
+  const projected = unwrapExpression(expression.whenTrue);
+  if (!ts.isCallExpression(projected) || !ts.isIdentifier(projected.expression)) {
+    return false;
+  }
+  return (projected.getText().replaceAll(/\s/g, '') === 'getRetentionSettingsForSalon(salon.id)'
+    && expression.whenFalse.getText().replaceAll(/\s/g, '') === 'Promise.resolve(null)')
+    || (projected.expression.text === 'resolvePublicQuickBookProfile'
+      && projected.arguments.length === 1
+      && ts.isObjectLiteralExpression(projected.arguments[0]!)
+      && expression.whenFalse.kind === ts.SyntaxKind.Identifier
+      && expression.whenFalse.getText() === 'undefined');
+}
+
 function containsPropertyRead(node: ts.Node, propertyName: string): boolean {
   let found = false;
   const visit = (child: ts.Node) => {
-    if (ts.isPropertyAccessExpression(child) && child.name.text === propertyName) {
+    if (ts.isPropertyAccessExpression(child) && child.name.text === propertyName
+      && !isResolvedServiceMenuLayoutRead(child)) {
       found = true;
       return;
     }
@@ -894,6 +989,9 @@ function isSectionPresentationResolverCall(expression: ts.Expression): boolean {
 function referencesIdentifier(node: ts.Node, identifiers: ReadonlySet<string>): boolean {
   let found = false;
   const visit = (child: ts.Node) => {
+    if (isResolvedServiceMenuLayoutRead(child)) {
+      return;
+    }
     if (ts.isIdentifier(child) && identifiers.has(child.text)) {
       found = true;
       return;
@@ -916,6 +1014,7 @@ function collectRawLayoutAliases(file: ts.SourceFile): Set<string> {
         && ts.isIdentifier(node.name)
         && node.initializer
         && !isSectionPresentationResolverCall(node.initializer)
+        && !isApprovedCompactProfileAdoption(node)
         && (containsPropertyRead(node.initializer, 'layout') || referencesIdentifier(node.initializer, aliases))
         && !aliases.has(node.name.text)) {
         aliases.add(node.name.text);
@@ -931,6 +1030,11 @@ function collectRawLayoutAliases(file: ts.SourceFile): Set<string> {
 function referencesRawLayout(node: ts.Node, aliases: ReadonlySet<string>): boolean {
   let found = false;
   const visit = (child: ts.Node) => {
+    // A menu's resolved card arrangement is not the raw whole-page layout.
+    // Skip the property identifier too: a local `layout` alias is unrelated.
+    if (isResolvedServiceMenuLayoutRead(child)) {
+      return;
+    }
     if ((ts.isPropertyAccessExpression(child) && child.name.text === 'layout')
       || (ts.isIdentifier(child) && aliases.has(child.text))) {
       found = true;
@@ -960,6 +1064,11 @@ function forbiddenPublicRendererReadKind(
 ): Extract<ViolationKind, 'preset-recipe-identity-read' | 'premium-style-read'> | null {
   const normalized = normalizedPropertyName(propertyName);
 
+  // Free onboarding appearance is a public presentation contract, distinct
+  // from the premium recipe/presetBase identity guarded below.
+  if (propertyName === 'siteStylePreset' || propertyName === 'sitePalettePreset') {
+    return null;
+  }
   if (normalized.includes('preset') || normalized.includes('recipe')) {
     return 'preset-recipe-identity-read';
   }
@@ -1046,9 +1155,10 @@ function inspectPublicRendererDetailed(source: string): RendererInspection {
       }
     }
     if ((ts.isIfStatement(node) && referencesRawLayout(node.expression, rawLayoutAliases))
-      || (ts.isConditionalExpression(node) && referencesRawLayout(node.condition, rawLayoutAliases))
-      || (ts.isSwitchStatement(node) && referencesRawLayout(node.expression, rawLayoutAliases))
-      || (ts.isElementAccessExpression(node) && referencesRawLayout(node.argumentExpression, rawLayoutAliases))) {
+      || (ts.isConditionalExpression(node) && referencesRawLayout(node.condition, rawLayoutAliases)
+        && !isApprovedServerProfileProjection(node))
+        || (ts.isSwitchStatement(node) && referencesRawLayout(node.expression, rawLayoutAliases))
+        || (ts.isElementAccessExpression(node) && referencesRawLayout(node.argumentExpression, rawLayoutAliases))) {
       inspection.violations.push({ kind: 'independent-layout-fork', text: node.getText(file) });
     }
     if (ts.isBinaryExpression(node)
@@ -1058,7 +1168,9 @@ function inspectPublicRendererDetailed(source: string): RendererInspection {
         ts.SyntaxKind.ExclamationEqualsEqualsToken,
         ts.SyntaxKind.ExclamationEqualsToken,
       ].includes(node.operatorToken.kind)
-      && referencesRawLayout(node, rawLayoutAliases)) {
+      && referencesRawLayout(node, rawLayoutAliases)
+      && !isApprovedCompactProfileAdoption(node)
+      && !isApprovedServerProfileProjection(node)) {
       inspection.violations.push({ kind: 'independent-layout-fork', text: node.getText(file) });
     }
     if (ts.isPropertyAssignment(node)
@@ -1208,6 +1320,86 @@ function canonicalRegistryFixture(name = 'sectionRenderers'): string {
 }
 
 describe('public section architecture guard', () => {
+  it('permits only the server-only profile data projection, not a second layout renderer', () => {
+    const projection = `
+      import 'server-only';
+      const profile = activeBookingPageSide.layout === 'quick_book'
+        ? resolvePublicQuickBookProfile({ visibility, sharedProfile }) : undefined;
+      const retention = activeBookingPageSide.layout === 'quick_book'
+        ? getRetentionSettingsForSalon(salon.id) : Promise.resolve(null);
+    `;
+
+    expect(inspectPublicRenderer(projection)).toEqual([]);
+
+    for (const mutated of [
+      projection.replace('import \'server-only\';', ''),
+      projection.replace('resolvePublicQuickBookProfile', 'renderQuickBookProfile'),
+      projection.replace('getRetentionSettingsForSalon(salon.id)', 'renderEditorialPage()'),
+    ]) {
+      expect(inspectPublicRenderer(mutated)).toContainEqual(expect.objectContaining({ kind: 'independent-layout-fork' }));
+    }
+  });
+
+  it('recognizes only canonical free presentation adapters, not raw layout or recipe lookalikes', () => {
+    const presentation = `
+      import { resolveServiceMenuPresentation } from '@/libs/serviceMenuLayout';
+      const layout = bookingPage?.layout ?? 'quick_book';
+      const serviceMenuPresentation = resolveServiceMenuPresentation(bookingPage?.serviceMenuLayout);
+      const cards = serviceMenuPresentation.layout === 'visual_grid' ? gridClasses : listClasses;
+      const compactQuickBookProfileEnabled = layout === 'quick_book'
+        && usesCompactQuickBookProfile(bookingPage?.quickBookProfile);
+      const header = compactQuickBookProfileEnabled ? compactHeader : legacyHeader;
+      const appearance = [bookingPage.siteStylePreset, bookingPage.sitePalettePreset];
+    `;
+
+    expect(inspectPublicRenderer(presentation)).toEqual([]);
+
+    for (const mutated of [
+      presentation.replace('\'@/libs/serviceMenuLayout\'', '\'./unreviewed-layout\''),
+      presentation.replace('resolveServiceMenuPresentation(bookingPage?.serviceMenuLayout)', 'bookingPage'),
+      presentation.replace('usesCompactQuickBookProfile(bookingPage?.quickBookProfile)', 'true'),
+    ]) {
+      expect(inspectPublicRenderer(mutated)).toContainEqual(expect.objectContaining({ kind: 'independent-layout-fork' }));
+    }
+
+    expect(inspectPublicRenderer(presentation.replace('siteStylePreset', 'siteStylePresetRecipe')))
+      .toContainEqual(expect.objectContaining({ kind: 'preset-recipe-identity-read' }));
+  });
+
+  it('requires the compact profile seam to use resolved profile props without a spread or raw content', () => {
+    const source = canonicalRegistryFixture().replace(
+      'compact: () => <section data-public-surface="salonProfile" />',
+      'compact: () => <QuickBookProfileHeader profile={resolvedQuickBookProfile} mounted={true} bookingFlow={bookingFlow} />',
+    );
+
+    expect(inspectPublicRenderer(source)).toEqual([]);
+
+    for (const mutated of [
+      source.replace('profile={resolvedQuickBookProfile}', 'profile={content}'),
+      source.replace('profile={resolvedQuickBookProfile}', '{...resolvedQuickBookProfile}'),
+      source.replace('profile={resolvedQuickBookProfile}', 'profile={resolvedQuickBookProfile} content={content}'),
+    ]) {
+      expect(inspectPublicRenderer(mutated)).toContainEqual(expect.objectContaining({ kind: 'unclassified-section' }));
+    }
+  });
+
+  it('requires semantic grouped headings when the shared menu grouping adapter is used', () => {
+    const source = canonicalRegistryFixture().replaceAll(
+      'menuVariant === \'grouped_categories\'',
+      'shouldGroupServiceMenu(bookingPage?.serviceMenuLayout, serviceMenuPresentation.grouped, menuVariant)',
+    );
+
+    expect(inspectPublicRenderer(source)).toEqual([]);
+
+    for (const mutated of [
+      source.replace('<h2>Services</h2>', '<div>Services</div>'),
+      source.replace('<h3 id=', '<div id=').replace('</h3>', '</div>'),
+      source.replace('serviceMenuPresentation.grouped, menuVariant)', 'serviceMenuPresentation.grouped, wrongVariant)'),
+    ]) {
+      expect(inspectPublicRenderer(mutated)).toContainEqual(expect.objectContaining({ kind: 'grouped-service-menu-heading-bypass' }));
+    }
+  });
+
   it('pins the closed section vocabulary independently of the registry', () => {
     expect([...REGISTERED_SECTION_IDS].sort()).toEqual([...EXPECTED_SECTION_IDS].sort());
 
@@ -1249,6 +1441,7 @@ describe('public section architecture guard', () => {
         expect(inspection.approvedRendererSeams.sort(), 'closed-prop/shared renderer seams are pinned exactly').toEqual([
           'featuredServices:marked-fragment',
           'salonProfile:BookingStepHeader',
+          'salonProfile:QuickBookProfileHeader',
           'serviceMenu:grouped_categories:renderServiceMenuContent-call',
           'serviceMenu:grouped_categories:services-anchor-wrapper',
           'serviceMenu:list:renderServiceMenuContent-call',

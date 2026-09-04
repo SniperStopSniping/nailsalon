@@ -45,6 +45,10 @@ import {
   clientPreferencesSchema,
   fraudSignalSchema,
   googleCalendarDraftSchema,
+  onboardingDraftClaimSchema,
+  onboardingSiteMediaSchema,
+  onboardingSiteRevisionSchema,
+  onboardingSiteSchema,
   referralSchema,
   reviewSchema,
   rewardSchema,
@@ -632,6 +636,36 @@ export const SALON_PURGE_PLAN: PurgeStep[] = [
     reason:
       'NULL OUT: billing webhook-event audit rows survive the purge like audit_log; the salon association is informational.',
     where: (_tx, salonId) => eq(billingStripeEventSchema.salonId, salonId),
+  }),
+  deleteStep({
+    table: 'onboarding_draft_claim',
+    group: 'salon',
+    target: onboardingDraftClaimSchema,
+    reason:
+      'Delete the idempotent claim first because it references both the account-owned site and its exact revision.',
+    where: (_tx, salonId) => eq(onboardingDraftClaimSchema.salonId, salonId),
+  }),
+  deleteStep({
+    table: 'onboarding_site_media',
+    group: 'salon',
+    target: onboardingSiteMediaSchema,
+    reason:
+      'Delete role-owned media claim rows before their revision and site; the hard-delete caller collects provider keys in the same transaction and removes bytes after commit.',
+    where: (_tx, salonId) => eq(onboardingSiteMediaSchema.salonId, salonId),
+  }),
+  deleteStep({
+    table: 'onboarding_site_revision',
+    group: 'salon',
+    target: onboardingSiteRevisionSchema,
+    reason: 'Delete append-only saved-site revisions after claims and media stop referencing them.',
+    where: (_tx, salonId) => eq(onboardingSiteRevisionSchema.salonId, salonId),
+  }),
+  deleteStep({
+    table: 'onboarding_site',
+    group: 'salon',
+    target: onboardingSiteSchema,
+    reason: 'Delete the tenant-owned site only after its claim, media, and revision children.',
+    where: (_tx, salonId) => eq(onboardingSiteSchema.salonId, salonId),
   }),
   deleteStep({
     table: 'salon',

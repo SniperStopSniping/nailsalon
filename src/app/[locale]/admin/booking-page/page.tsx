@@ -31,6 +31,7 @@ import {
   disableBookingPagePreviewFrameInteraction,
   normalizeBookingPagePreviewFrame,
 } from '@/components/admin/bookingPagePreviewFrame';
+import { QuickBookProfileVisibilityCard } from '@/components/admin/QuickBookProfileVisibilityCard';
 import type { BookingPageBuilderOperation } from '@/libs/bookingPageBuilder';
 import type {
   BookingPageConfig,
@@ -892,7 +893,7 @@ export default function BookingPageOwnerSurface() {
                       title="Live booking page preview"
                       src={previewFrameSrc}
                       aria-hidden="true"
-                      inert={'' as unknown as boolean}
+                      inert
                       sandbox="allow-same-origin"
                       tabIndex={-1}
                       onLoad={event => handlePreviewLoad(
@@ -922,6 +923,12 @@ export default function BookingPageOwnerSurface() {
               </button>
             </div>
           </SectionCard>
+
+          <QuickBookProfileVisibilityCard
+            disabled={presentationPending}
+            draft={draft}
+            onConfigPatch={patch => void saveConfigPatch(patch)}
+          />
 
           <BookingPagePresetPicker
             draft={{ ...draft, presetBase: config.draftPresetBase }}

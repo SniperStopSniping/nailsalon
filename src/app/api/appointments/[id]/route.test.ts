@@ -447,7 +447,7 @@ describe('appointment detail route auth', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: 'cancelled', cancelReason: 'client_request' }),
       }),
-      { params: { id: 'appt_1' } },
+      { params: Promise.resolve({ id: 'appt_1' }) },
     );
 
     expect(response.status).toBe(401);
@@ -478,7 +478,7 @@ describe('appointment detail route auth', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: 'cancelled', cancelReason: 'client_request' }),
       }),
-      { params: { id: 'appt_1' } },
+      { params: Promise.resolve({ id: 'appt_1' }) },
     );
     const body = await response.json();
 
@@ -518,7 +518,7 @@ describe('appointment detail route auth', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: 'confirmed' }),
       }),
-      { params: { id: 'appt_1' } },
+      { params: Promise.resolve({ id: 'appt_1' }) },
     );
     const body = await response.json();
 
@@ -539,7 +539,7 @@ describe('appointment detail route auth', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: 'completed' }),
       }),
-      { params: { id: 'appt_1' } },
+      { params: Promise.resolve({ id: 'appt_1' }) },
     );
 
     expect(response.status).toBe(409);
@@ -582,7 +582,7 @@ describe('appointment detail route auth', () => {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ status: 'confirmed' }),
         }),
-        { params: { id: 'appt_1' } },
+        { params: Promise.resolve({ id: 'appt_1' }) },
       );
 
       expect(response.status).toBe(409);
@@ -632,7 +632,7 @@ describe('appointment detail route auth', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: 'confirmed' }),
       }),
-      { params: { id: 'appt_1' } },
+      { params: Promise.resolve({ id: 'appt_1' }) },
     );
     const body = await response.json();
 
@@ -740,7 +740,7 @@ describe('appointment detail route auth', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: 'confirmed' }),
       }),
-      { params: { id: 'appt_1' } },
+      { params: Promise.resolve({ id: 'appt_1' }) },
     );
     const body = await response.json();
 
@@ -795,7 +795,7 @@ describe('appointment detail route auth', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: 'confirmed' }),
       }),
-      { params: { id: 'appt_1' } },
+      { params: Promise.resolve({ id: 'appt_1' }) },
     );
 
     expect(response.status).toBe(200);
@@ -856,7 +856,7 @@ describe('appointment detail route auth', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: 'pending' }),
       }),
-      { params: { id: 'appt_1' } },
+      { params: Promise.resolve({ id: 'appt_1' }) },
     );
 
     expect(response.status).toBe(200);
@@ -912,7 +912,7 @@ describe('appointment detail route auth', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: 'pending' }),
       }),
-      { params: { id: 'appt_1' } },
+      { params: Promise.resolve({ id: 'appt_1' }) },
     );
 
     expect(response.status).toBe(409);
@@ -961,7 +961,7 @@ describe('appointment detail route auth', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: 'confirmed' }),
       }),
-      { params: { id: 'appt_1' } },
+      { params: Promise.resolve({ id: 'appt_1' }) },
     );
 
     expect(response.status).toBe(409);
@@ -1010,7 +1010,7 @@ describe('appointment detail route auth', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: 'in_progress' }),
       }),
-      { params: { id: 'appt_1' } },
+      { params: Promise.resolve({ id: 'appt_1' }) },
     );
     const body = await response.json();
 
@@ -1062,7 +1062,7 @@ describe('appointment detail route auth', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: 'confirmed' }),
       }),
-      { params: { id: 'appt_1' } },
+      { params: Promise.resolve({ id: 'appt_1' }) },
     );
 
     const responses = await Promise.all([reactivate(), reactivate()]);
@@ -1110,7 +1110,7 @@ describe('appointment detail route auth', () => {
 
     const response = await GET(
       new Request('http://localhost/api/appointments/appt_1'),
-      { params: { id: 'appt_1' } },
+      { params: Promise.resolve({ id: 'appt_1' }) },
     );
 
     expect(response.status).toBe(403);
@@ -1158,7 +1158,7 @@ describe('appointment detail route auth', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: 'cancelled', cancelReason: 'client_request' }),
       }),
-      { params: { id: 'appt_1' } },
+      { params: Promise.resolve({ id: 'appt_1' }) },
     );
 
     expect(response.status).toBe(200);
@@ -1210,7 +1210,7 @@ describe('appointment detail route auth', () => {
           cancelReason: 'client_request',
         }),
       }),
-      { params: { id: 'appt_1' } },
+      { params: Promise.resolve({ id: 'appt_1' }) },
     );
 
     expect(response.status).toBe(200);
@@ -1259,7 +1259,7 @@ describe('appointment detail route auth', () => {
           cancelReason: 'client_request',
         }),
       }),
-      { params: { id: 'appt_1' } },
+      { params: Promise.resolve({ id: 'appt_1' }) },
     );
 
     expect(response.status).toBe(409);
@@ -1306,7 +1306,7 @@ describe('appointment detail route auth', () => {
           cancelReason: 'client_request',
         }),
       }),
-      { params: { id: 'appt_1' } },
+      { params: Promise.resolve({ id: 'appt_1' }) },
     );
 
     expect(response.status).toBe(200);
@@ -1394,7 +1394,7 @@ describe('appointment detail route auth', () => {
           cancelReason: 'client_request',
         }),
       }),
-      { params: { id: 'appt_1' } },
+      { params: Promise.resolve({ id: 'appt_1' }) },
     );
 
     const [firstResponse, secondResponse] = await Promise.all([
@@ -1611,7 +1611,7 @@ describe('appointment detail route auth', () => {
           cancelReason: 'client_request',
         }),
       }),
-      { params: { id: 'appt_1' } },
+      { params: Promise.resolve({ id: 'appt_1' }) },
     );
 
     expect(response.status).toBe(500);

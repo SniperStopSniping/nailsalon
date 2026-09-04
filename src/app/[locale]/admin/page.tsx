@@ -22,6 +22,15 @@ import { AppGrid, type AppId } from '@/components/admin/AppGrid';
 import { AdminDashboardNoticeStack } from '@/components/admin/dashboard/AdminDashboardNoticeStack';
 import { AdminDashboardSkeleton } from '@/components/admin/dashboard/AdminDashboardSkeleton';
 import { AdminSalonSelector } from '@/components/admin/dashboard/AdminSalonSelector';
+import {
+  type OnboardingHandoffResolution,
+  type OnboardingSiteHandoff,
+  OnboardingWorkspaceHandoff,
+} from '@/components/admin/onboarding/OnboardingWorkspaceHandoff';
+import {
+  WorkspaceQuickTour,
+  type WorkspaceTourTarget,
+} from '@/components/admin/onboarding/WorkspaceQuickTour';
 import { OwnerTodayWorkspace } from '@/components/admin/OwnerTodayWorkspace';
 import {
   OwnerWorkspaceNav,
@@ -36,6 +45,8 @@ import { formatMoney } from '@/libs/formatMoney';
 import type { AnalyticsResponse } from '@/types/admin';
 import type { RetentionStage } from '@/types/retention';
 import type { ModuleKey } from '@/types/salonPolicy';
+
+import { useOwnerAdminFeatureFlags } from './OwnerAdminFeatureFlags';
 
 type PromotionSettingsStage = Extract<
   RetentionStage,
@@ -278,6 +289,7 @@ function mapAnalyticsModuleStatus(
 
 // Main component that uses useSearchParams (must be wrapped in Suspense)
 function AdminDashboardContent() {
+  const { onboardingV1IntegrationEnabled } = useOwnerAdminFeatureFlags();
   const clerk = useClerk();
   const router = useRouter();
   const params = useParams();
@@ -331,6 +343,17 @@ function AdminDashboardContent() {
 
   // Swipe page state
   const [workspaceTab, setWorkspaceTab] = useState<OwnerWorkspaceTab>('today');
+  const [onboardingHandoffAvailable, setOnboardingHandoffAvailable]
+    = useState(false);
+  const [onboardingSavedSite, setOnboardingSavedSite] = useState<{
+    previewUrl: string;
+    salonSlug: string;
+  } | null>(null);
+  const [onboardingHandoffResolution, setOnboardingHandoffResolution]
+    = useState<'pending' | OnboardingHandoffResolution>(
+      onboardingV1IntegrationEnabled ? 'pending' : 'absent',
+    );
+  const [showOnboardingTour, setShowOnboardingTour] = useState(false);
 
   // Modal state
   const [activeModal, setActiveModal] = useState<AppId | null>(null);
@@ -359,6 +382,33 @@ function AdminDashboardContent() {
   const activeDashboardSalonName = activeDashboardSalon?.name ?? null;
   const activeDashboardSalonStatus = activeDashboardSalon?.status ?? null;
   const isFreeSolo = activeDashboardSalon?.freeSoloEnabled === true;
+  const handleOnboardingHandoffChange = useCallback((handoff: OnboardingSiteHandoff | null) => {
+    setOnboardingSavedSite(handoff && activeDashboardSalonSlug
+      ? {
+          previewUrl: handoff.site.previewUrl,
+          salonSlug: activeDashboardSalonSlug,
+        }
+      : null);
+  }, [activeDashboardSalonSlug]);
+  const handleOnboardingHandoffResolution = useCallback((
+    resolution: OnboardingHandoffResolution,
+  ) => {
+    setOnboardingHandoffResolution(resolution);
+    if (resolution !== 'error') {
+      setNonBlockingMessage(null);
+    }
+  }, []);
+
+  useEffect(() => {
+    setOnboardingHandoffAvailable(false);
+    setOnboardingHandoffResolution(
+      onboardingV1IntegrationEnabled ? 'pending' : 'absent',
+    );
+    setOnboardingSavedSite(null);
+    if (!onboardingV1IntegrationEnabled) {
+      setShowOnboardingTour(false);
+    }
+  }, [activeDashboardSalonSlug, onboardingV1IntegrationEnabled]);
 
   // Fraud signals - parent owns state
   const [fraudSignals, setFraudSignals] = useState<
@@ -1080,11 +1130,34 @@ function AdminDashboardContent() {
         `/${locale}/admin/luster${activeDashboardSalonSlug ? `?salon=${encodeURIComponent(activeDashboardSalonSlug)}` : ''}`,
       );
     } else if (appId === 'booking-page') {
-      // Luster UI/UX plan rev 3, PR 5: a full navigation like 'luster', not a
-      // ?app= modal — the owner Booking Page surface is its own route.
-      router.push(
-        `/${locale}/admin/booking-page${activeDashboardSalonSlug ? `?salon=${encodeURIComponent(activeDashboardSalonSlug)}` : ''}`,
-      );
+      if (!onboardingV1IntegrationEnabled) {
+        router.push(
+          `/${locale}/admin/booking-page${activeDashboardSalonSlug ? `?salon=${encodeURIComponent(activeDashboardSalonSlug)}` : ''}`,
+        );
+        return;
+      }
+      const accountBackedPreviewUrl = onboardingSavedSite?.salonSlug
+        === activeDashboardSalonSlug
+        ? onboardingSavedSite.previewUrl
+        : null;
+      // Account-backed onboarding sites always reopen their exact persisted
+      // revision. Until resolution completes (or if it fails), never fail open
+      // into the legacy placeholder editor.
+      if (onboardingHandoffResolution === 'available' && accountBackedPreviewUrl) {
+        router.push(accountBackedPreviewUrl);
+      } else if (onboardingHandoffResolution === 'absent') {
+        router.push(
+          `/${locale}/admin/booking-page${activeDashboardSalonSlug ? `?salon=${encodeURIComponent(activeDashboardSalonSlug)}` : ''}`,
+        );
+      } else {
+        setNonBlockingMessage(onboardingHandoffResolution === 'error'
+          ? 'Your saved website could not be loaded yet. Try again before opening Booking Page.'
+          : 'Checking your saved website… Try Booking Page again in a moment.');
+      }
+    } else if (appId === 'workspace-tour') {
+      if (onboardingV1IntegrationEnabled && onboardingHandoffAvailable) {
+        setShowOnboardingTour(true);
+      }
     } else if (appId === 'schedule') {
       setShowScheduleCalendar(true);
     } else {
@@ -1169,6 +1242,53 @@ function AdminDashboardContent() {
       setActiveModal('services');
     }
   }, [router, buildAdminUrl]);
+
+  const handleWorkspaceTourTarget = useCallback((target: WorkspaceTourTarget) => {
+    switch (target) {
+      case 'today':
+        handleWorkspaceTab('today');
+        break;
+      case 'calendar':
+        handleWorkspaceTab('calendar');
+        break;
+      case 'clients':
+        handleWorkspaceTab('clients');
+        break;
+      case 'services':
+        handleWorkspaceTab('services');
+        break;
+      case 'website':
+        handleWorkspaceTab('more');
+        window.requestAnimationFrame(() => {
+          document.querySelector<HTMLElement>('[data-testid="admin-app-tile-booking-page"]')
+            ?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        });
+        break;
+      default:
+        break;
+    }
+  }, [handleWorkspaceTab]);
+
+  const closeWorkspaceTour = useCallback(() => {
+    setShowOnboardingTour(false);
+    handleWorkspaceTab('today');
+  }, [handleWorkspaceTab]);
+
+  const completeWorkspaceTour = useCallback(() => {
+    setShowOnboardingTour(false);
+    handleWorkspaceTab('today');
+    if (!activeDashboardSalonSlug) {
+      return;
+    }
+    void fetch(
+      `/api/admin/onboarding-site?salonSlug=${encodeURIComponent(activeDashboardSalonSlug)}`,
+      {
+        body: JSON.stringify({ action: 'complete_tour' }),
+        headers: { 'Content-Type': 'application/json' },
+        method: 'PATCH',
+      },
+    );
+  }, [activeDashboardSalonSlug, handleWorkspaceTab]);
 
   // Close modal
   const handleCloseModal = () => {
@@ -1311,7 +1431,8 @@ function AdminDashboardContent() {
 
   return (
     <div
-      className="min-h-screen bg-[#F8F3F0] font-sans text-stone-950"
+      className="owner-workspace-theme min-h-screen bg-[var(--owner-ground)] font-sans text-[var(--owner-ink)]"
+      data-theme-scope="owner"
       style={{
         opacity: mounted ? 1 : 0,
         transition: 'opacity 300ms ease-out',
@@ -1408,36 +1529,53 @@ function AdminDashboardContent() {
                   theme="apple"
                   badges={appBadges}
                   onAppTap={handleAppTap}
-                  hiddenIds={hiddenAppIds}
+                  hiddenIds={onboardingV1IntegrationEnabled && onboardingHandoffAvailable
+                    ? hiddenAppIds
+                    : [...hiddenAppIds, 'workspace-tour']}
                 />
               </div>
             )
           : (
-              <OwnerTodayWorkspace
-                salonSlug={activeDashboardSalonSlug || ''}
-                appointments={coreAppointments}
-                analyticsTitle={analyticsUnavailableState?.title}
-                analyticsMessage={analyticsUnavailableState?.description}
-                onRefreshAnalytics={
-                  analyticsUnavailableState ? handleRefreshAnalytics : undefined
-                }
-                onQuickAction={handleQuickAction}
-                onOpenBookings={() => setActiveModal('bookings')}
-                onOpenCalendar={() => setShowScheduleCalendar(true)}
-                onOpenIntegrations={() => openAppViaUrl('integrations')}
-                onOpenAppointment={(appointmentId) => {
-                  setInitialClientId(null);
-                  setInitialAppointmentId(appointmentId);
-                  setActiveModal('bookings');
-                }}
-                onOpenClient={(clientId) => {
-                  setInitialAppointmentId(null);
-                  setInitialClientId(clientId);
-                  setInitialPromotionStage(null);
-                  setPromotionSettingsReturnClientId(null);
-                  setActiveModal('clients');
-                }}
-              />
+              <>
+                {onboardingV1IntegrationEnabled && activeDashboardSalonSlug
+                  ? (
+                      <OnboardingWorkspaceHandoff
+                        focusWelcome={searchParams.get('onboarding') === 'complete'}
+                        locale={locale}
+                        onAvailabilityChange={setOnboardingHandoffAvailable}
+                        onHandoffChange={handleOnboardingHandoffChange}
+                        onResolutionChange={handleOnboardingHandoffResolution}
+                        onTakeTour={() => setShowOnboardingTour(true)}
+                        salonSlug={activeDashboardSalonSlug}
+                      />
+                    )
+                  : null}
+                <OwnerTodayWorkspace
+                  salonSlug={activeDashboardSalonSlug || ''}
+                  appointments={coreAppointments}
+                  analyticsTitle={analyticsUnavailableState?.title}
+                  analyticsMessage={analyticsUnavailableState?.description}
+                  onRefreshAnalytics={
+                    analyticsUnavailableState ? handleRefreshAnalytics : undefined
+                  }
+                  onQuickAction={handleQuickAction}
+                  onOpenBookings={() => setActiveModal('bookings')}
+                  onOpenCalendar={() => setShowScheduleCalendar(true)}
+                  onOpenIntegrations={() => openAppViaUrl('integrations')}
+                  onOpenAppointment={(appointmentId) => {
+                    setInitialClientId(null);
+                    setInitialAppointmentId(appointmentId);
+                    setActiveModal('bookings');
+                  }}
+                  onOpenClient={(clientId) => {
+                    setInitialAppointmentId(null);
+                    setInitialClientId(clientId);
+                    setInitialPromotionStage(null);
+                    setPromotionSettingsReturnClientId(null);
+                    setActiveModal('clients');
+                  }}
+                />
+              </>
             )}
 
         <OwnerWorkspaceNav
@@ -1524,6 +1662,17 @@ function AdminDashboardContent() {
           setFraudSignalsTotalCount(prev => Math.max(0, prev - 1));
         }}
       />
+
+      {onboardingV1IntegrationEnabled
+        ? (
+            <WorkspaceQuickTour
+              onClose={closeWorkspaceTour}
+              onComplete={completeWorkspaceTour}
+              onTargetChange={handleWorkspaceTourTarget}
+              open={showOnboardingTour}
+            />
+          )
+        : null}
     </div>
   );
 }

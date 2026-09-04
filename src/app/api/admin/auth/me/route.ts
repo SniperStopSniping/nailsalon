@@ -167,7 +167,7 @@ export async function GET(request: Request) {
         = await import('@/libs/devRole.server');
 
       if (isDevModeServer()) {
-        const devRole = readDevRoleFromCookies();
+        const devRole = await readDevRoleFromCookies();
 
         if (devRole === 'super_admin' || devRole === 'admin') {
           const mockResponse = getMockAdminMeResponse(devRole);

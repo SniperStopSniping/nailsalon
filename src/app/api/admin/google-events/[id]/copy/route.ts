@@ -11,7 +11,7 @@ import { appointmentSchema, googleCalendarEventSchema, salonGoogleCalendarConnec
 
 const bodySchema = z.object({ salonSlug: z.string().min(1) });
 
-export async function POST(request: Request, context: { params: { id: string } }) {
+export async function POST(request: Request, context: { params: Promise<{ id: string }> }) {
   const parsed = bodySchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) {
     return Response.json({ error: 'Invalid Google event request' }, { status: 400 });
@@ -34,7 +34,7 @@ export async function POST(request: Request, context: { params: { id: string } }
       // takes every write lock in the worker's canonical outbox -> appointment ->
       // source order and revalidates this snapshot before committing any job.
       const [event] = await tx.select().from(googleCalendarEventSchema).where(and(
-        eq(googleCalendarEventSchema.id, context.params.id),
+        eq(googleCalendarEventSchema.id, (await context.params).id),
         eq(googleCalendarEventSchema.salonId, salon.id),
       )).limit(1);
       if (!event || event.reviewStatus !== 'appointment') {

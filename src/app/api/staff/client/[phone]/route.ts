@@ -56,10 +56,8 @@ function normalizePhone(phone: string): string {
 // Scoped to salon for multi-tenancy
 // =============================================================================
 
-export async function GET(
-  request: Request,
-  { params }: { params: { phone: string } },
-): Promise<Response> {
+export async function GET(request: Request, props: { params: Promise<{ phone: string }> }): Promise<Response> {
+  const params = await props.params;
   try {
     const rawPhone = params.phone;
     const { searchParams } = new URL(request.url);

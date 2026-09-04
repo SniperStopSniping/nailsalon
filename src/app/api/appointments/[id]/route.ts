@@ -218,10 +218,8 @@ function pointsRedeemedFromNotes(notes: string | null): number {
 // PATCH /api/appointments/[id] - Update appointment status
 // =============================================================================
 
-export async function PATCH(
-  request: Request,
-  { params }: { params: { id: string } },
-): Promise<Response> {
+export async function PATCH(request: Request, props: { params: Promise<{ id: string }> }): Promise<Response> {
+  const params = await props.params;
   try {
     const appointmentId = params.id;
     const access = await requireAppointmentAccess(appointmentId, {
@@ -1233,10 +1231,8 @@ export async function PATCH(
 // GET /api/appointments/[id] - Get appointment by ID
 // =============================================================================
 
-export async function GET(
-  _request: Request,
-  { params }: { params: { id: string } },
-): Promise<Response> {
+export async function GET(_request: Request, props: { params: Promise<{ id: string }> }): Promise<Response> {
+  const params = await props.params;
   try {
     const appointmentId = params.id;
     const access = await requireAppointmentAccess(appointmentId, {

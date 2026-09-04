@@ -166,7 +166,7 @@ async function renderLayout(slug: string) {
         <ContextProbe />
       </div>
     ),
-    params: { locale: 'en', slug },
+    params: Promise.resolve({ locale: 'en', slug }),
   });
   render(<>{element}</>);
 }

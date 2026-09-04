@@ -16,6 +16,9 @@ import {
 function currentSide(): BookingPageConfigSide {
   return {
     layout: 'quick_book',
+    serviceMenuLayout: 'clean_list',
+    sitePalettePreset: 'black_champagne',
+    siteStylePreset: 'luxury',
     stylePack: 'future-premium-style',
     tokenOverrides: {
       accentColor: '#AABBCC',
@@ -36,6 +39,19 @@ function currentSide(): BookingPageConfigSide {
     hiddenSections: ['socialLinks'],
     businessMode: 'team',
     startMode: 'staff_first',
+    quickBookProfile: {
+      showTechName: true,
+      showTechPhoto: true,
+      showLocation: true,
+      showHours: true,
+      showPhone: false,
+      showEmail: true,
+      showBookingPolicy: true,
+      showCancellationPolicy: false,
+      showReviews: false,
+      showInstagram: true,
+      showBio: true,
+    },
   };
 }
 
@@ -71,6 +87,10 @@ describe('booking-page preset target preview', () => {
 
     expect(result).toEqual({
       layout: recipe!.layout,
+      quickBookLayout: current.quickBookLayout,
+      serviceMenuLayout: current.serviceMenuLayout,
+      sitePalettePreset: current.sitePalettePreset,
+      siteStylePreset: current.siteStylePreset,
       stylePack: current.stylePack,
       tokenOverrides,
       sectionOrder: [...recipe!.sectionOrder],
@@ -78,12 +98,15 @@ describe('booking-page preset target preview', () => {
       hiddenSections: [...recipe!.hiddenSections],
       businessMode: current.businessMode,
       startMode: current.startMode,
+      quickBookProfile: current.quickBookProfile,
     });
     expect(result.tokenOverrides).toBe(tokenOverrides);
     expect(current).toEqual(currentSnapshot);
     expect(result.sectionOrder).not.toBe(recipe!.sectionOrder);
     expect(result.sectionVariants).not.toBe(recipe!.sectionVariants);
     expect(result.hiddenSections).not.toBe(recipe!.hiddenSections);
+    expect(result.quickBookProfile).toEqual(current.quickBookProfile);
+    expect(result.quickBookProfile).not.toBe(current.quickBookProfile);
   });
 
   it('does not copy, duplicate, or mutate an accidental canonical-content extension', () => {

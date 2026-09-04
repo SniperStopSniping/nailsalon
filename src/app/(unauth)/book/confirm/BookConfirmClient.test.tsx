@@ -1693,7 +1693,9 @@ describe('BookConfirmClient', () => {
       expect(sessionStorage.getItem('luster_booking_contact')).not.toBeNull();
 
       // Focus lands on the one action so keyboard users are not stranded.
-      expect(screen.getByRole('button', { name: 'Choose another time' })).toHaveFocus();
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: 'Choose another time' })).toHaveFocus();
+      });
 
       // Returning to the time step flags the availability refresh for THIS
       // salon; the URL still carries every selection, so nothing else is lost.

@@ -10,6 +10,7 @@ import {
   getBookingPagePresentationSignature,
   resolveBookingPagePresetRecipe,
 } from '@/libs/bookingPagePresetRecipes';
+import { isQuickBookProfileOwnedLegacySection } from '@/libs/quickBookProfilePresentation';
 import {
   getAllowedSectionVariants,
   getSectionPresentationPlacement,
@@ -19,6 +20,7 @@ import {
   SECTION_PRESENTATION_SECTION_IDS,
 } from '@/libs/sectionPresentation';
 import { SECTION_REGISTRY } from '@/libs/sectionRegistry';
+import { DEFAULT_SERVICE_MENU_LAYOUT, type ServiceMenuLayout } from '@/libs/serviceMenuLayout';
 
 /**
  * Client-safe, deterministic owner customization model.
@@ -32,6 +34,7 @@ import { SECTION_REGISTRY } from '@/libs/sectionRegistry';
 
 export type BookingPagePresentationState = {
   layout: BookingPageConfigSide['layout'];
+  serviceMenuLayout?: ServiceMenuLayout;
   sectionOrder: readonly SectionId[];
   sectionVariants: Readonly<BookingPageConfigSide['sectionVariants']>;
   hiddenSections: readonly SectionId[];
@@ -41,6 +44,7 @@ export type BookingPagePresentationState = {
 
 export type BookingPagePresentationPatch = {
   layout?: BookingPageLayout;
+  serviceMenuLayout?: ServiceMenuLayout;
   sectionOrder?: SectionId[];
   sectionVariants?: BookingPageConfigSide['sectionVariants'];
   hiddenSections?: SectionId[];
@@ -245,10 +249,15 @@ export function getBookingPageBuilderSectionDefinition(
 
 export function listBookingPageBuilderSections(
   layout: BookingPageLayout | string | null | undefined,
+  quickBookProfile: BookingPageConfigSide['quickBookProfile'] | null | undefined = null,
 ) {
-  return SECTION_PRESENTATION_SECTION_IDS.map(sectionId => (
-    getBookingPageBuilderSectionDefinition(sectionId, layout)
-  ));
+  return SECTION_PRESENTATION_SECTION_IDS
+    .filter(sectionId => !isQuickBookProfileOwnedLegacySection(
+      layout,
+      sectionId,
+      quickBookProfile,
+    ))
+    .map(sectionId => getBookingPageBuilderSectionDefinition(sectionId, layout));
 }
 
 function sameValues(left: readonly string[], right: readonly string[]): boolean {
@@ -283,6 +292,10 @@ function comparisonVariant(
   }
 
   return SECTION_PRESENTATION_CONTRACT[sectionId].defaults[resolveRenderableLayout(state.layout)];
+}
+
+function serviceMenuLayoutForVariant(variant: string | null | undefined): ServiceMenuLayout {
+  return variant === 'grouped_categories' ? 'category_menu' : DEFAULT_SERVICE_MENU_LAYOUT;
 }
 
 function sameEffectiveVariants(
@@ -326,7 +339,10 @@ export function isBookingPageSectionCustomized(
         presetBase: state.presetBase ?? null,
       }
     : resolveInheritedPresentation(state);
-  return state.sectionOrder.indexOf(sectionId) !== inherited.sectionOrder.indexOf(sectionId)
+  return (sectionId === 'serviceMenu'
+    && state.serviceMenuLayout !== undefined
+    && state.serviceMenuLayout !== serviceMenuLayoutForVariant(inherited.sectionVariants.serviceMenu))
+    || state.sectionOrder.indexOf(sectionId) !== inherited.sectionOrder.indexOf(sectionId)
     || state.hiddenSections.includes(sectionId) !== inherited.hiddenSections.includes(sectionId)
     || comparisonVariant(state, sectionId) !== comparisonVariant(inherited, sectionId);
 }
@@ -504,7 +520,17 @@ export function applyBookingPageBuilderOperation(
       (next.sectionVariants as Partial<Record<SectionId, string>>)[operation.sectionId]
         = operation.variant;
     }
-    return { ok: true, patch: { sectionVariants: next.sectionVariants } };
+    return {
+      ok: true,
+      patch: {
+        sectionVariants: next.sectionVariants,
+        // The legacy Services control is still an explicit booking-layout
+        // edit. Site presets and page-wide resets do not own this field.
+        ...(operation.sectionId === 'serviceMenu'
+          ? { serviceMenuLayout: serviceMenuLayoutForVariant(operation.variant ?? inherited.sectionVariants.serviceMenu) }
+          : {}),
+      },
+    };
   }
 
   const inheritedOrder = inherited.sectionOrder;
@@ -537,6 +563,9 @@ export function applyBookingPageBuilderOperation(
   }
   if (!sameRecord(next.sectionVariants, current.sectionVariants)) {
     patch.sectionVariants = next.sectionVariants;
+  }
+  if (operation.sectionId === 'serviceMenu') {
+    patch.serviceMenuLayout = serviceMenuLayoutForVariant(inheritedVariant);
   }
 
   return { ok: true, patch };

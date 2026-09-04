@@ -1,7 +1,5 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import React from 'react';
-// @ts-expect-error -- React DOM's server runtime ships with Next.js, while this
-// repository intentionally does not carry the separate @types/react-dom package.
 import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -45,6 +43,31 @@ const {
     searchParams: new URLSearchParams('salonSlug=salon-a'),
   },
   salonContextMock: {
+    bookingPage: {
+      layout: 'quick_book',
+      serviceMenuLayout: 'visual_grid',
+      stylePack: 'default',
+      tokenOverrides: null,
+      sectionOrder: ['salonProfile', 'serviceMenu', 'featuredServices', 'policies', 'socialLinks', 'bookingCta'],
+      sectionVariants: {},
+      hiddenSections: [],
+      businessMode: 'solo',
+      startMode: 'services_first',
+      quickBookProfile: {
+        version: 1 as const,
+        showTechName: false,
+        showTechPhoto: false,
+        showLocation: false,
+        showHours: false,
+        showPhone: false,
+        showEmail: false,
+        showBookingPolicy: false,
+        showCancellationPolicy: false,
+        showReviews: false,
+        showInstagram: false,
+        showBio: false,
+      },
+    },
     bookingExperience: {
       primaryColor: null as string | null,
       bookingMessage: null as string | null,
@@ -269,6 +292,7 @@ vi.mock('@/providers/SalonProvider', () => ({
   },
   useSalon: () => ({
     bookingExperience: salonContextMock.bookingExperience,
+    bookingPage: salonContextMock.bookingPage,
     salonName: 'Salon A',
     salonSlug: 'salon-a',
   }),
@@ -309,6 +333,27 @@ function resetBookingExperienceMock() {
     },
     confirmationMessage: null,
   };
+  salonContextMock.bookingPage.layout = 'quick_book';
+  salonContextMock.bookingPage.serviceMenuLayout = 'visual_grid';
+  delete (salonContextMock.bookingPage as { sitePalettePreset?: string }).sitePalettePreset;
+  delete (salonContextMock.bookingPage as { siteStylePreset?: string }).siteStylePreset;
+  salonContextMock.bookingPage.sectionOrder = [
+    'salonProfile',
+    'serviceMenu',
+    'featuredServices',
+    'policies',
+    'socialLinks',
+    'bookingCta',
+  ];
+  salonContextMock.bookingPage.sectionVariants = {};
+  salonContextMock.bookingPage.hiddenSections = [];
+  salonContextMock.bookingPage.quickBookProfile.version = 1;
+}
+
+function getRenderedBookingSteps(): string[] {
+  return screen.getAllByTestId(/^booking-step-marker-/).map(element => (
+    element.getAttribute('data-testid')?.replace('booking-step-marker-', '') ?? ''
+  ));
 }
 
 function buildPublicShellSalon(
@@ -526,6 +571,128 @@ describe('BookServiceClient', () => {
     expect(screen.getByText(/does not have any active services available to book right now/i)).toBeInTheDocument();
   });
 
+  it.each([
+    'visual_grid',
+    'clean_list',
+    'editorial_cards',
+    'category_menu',
+    'editorial_price_list',
+  ] as const)('renders the %s catalogue with the shared service-selection behavior', (layout) => {
+    salonContextMock.bookingPage.serviceMenuLayout = layout;
+
+    render(
+      <BookServiceClient
+        services={services}
+        addOns={addOns}
+        serviceAddOnRules={serviceAddOnRules}
+        bookingFlow={['service', 'tech', 'time', 'confirm']}
+        locations={locations}
+      />,
+    );
+
+    const menu = layout === 'category_menu'
+      ? screen.getByTestId('service-menu-grouped-categories')
+      : screen.getByTestId('service-menu-list');
+    const serviceCard = screen.getByTestId('service-card-svc-1');
+
+    expect(menu).toHaveAttribute('data-booking-menu-layout', layout);
+    expect(screen.getByTestId(`service-menu-presentation-${layout}`)).toBeInTheDocument();
+
+    if (layout === 'visual_grid') {
+      expect(serviceCard).toHaveClass('flex-col', 'rounded-2xl');
+      expect(screen.getByTestId('service-card-image-svc-1')).toHaveClass('h-[68px]');
+    } else if (layout === 'clean_list') {
+      expect(serviceCard).toHaveClass('flex-row', 'rounded-xl');
+      expect(screen.getByTestId('service-card-image-svc-1')).toHaveClass('w-24');
+    } else if (layout === 'editorial_cards') {
+      expect(serviceCard).toHaveClass('flex-col', 'rounded-[24px]');
+      expect(screen.getByTestId('service-card-image-svc-1')).toHaveClass('h-[148px]');
+    } else if (layout === 'category_menu') {
+      expect(screen.getByTestId('service-category-group-manicure')).toBeInTheDocument();
+      expect(screen.queryByTestId('service-category-scroll')).not.toBeInTheDocument();
+    } else {
+      expect(serviceCard).toHaveClass('rounded-none', 'border-x-0', 'border-t-0');
+      expect(screen.queryByTestId('service-card-image-svc-1')).not.toBeInTheDocument();
+    }
+
+    fireEvent.click(serviceCard);
+
+    expect(serviceCard).toHaveAttribute('data-selected', 'true');
+    expect(screen.getByTestId('service-inline-addons-panel')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Add French Tip' })).toBeInTheDocument();
+  });
+
+  it('applies the saved free site style and palette only to the customer booking surface', () => {
+    Object.assign(salonContextMock.bookingPage, {
+      sitePalettePreset: 'black_champagne',
+      siteStylePreset: 'luxury',
+    });
+
+    const { container } = render(
+      <BookServiceClient
+        services={services}
+        addOns={addOns}
+        serviceAddOnRules={serviceAddOnRules}
+        bookingFlow={['service', 'tech', 'time', 'confirm']}
+        locations={locations}
+      />,
+    );
+
+    const viewport = container.querySelector('main.service-page-viewport');
+
+    expect(viewport).toHaveAttribute('data-customer-site-palette', 'black_champagne');
+    expect(viewport).toHaveAttribute('data-customer-site-style', 'luxury');
+    expect(viewport).toHaveStyle({
+      '--booking-brand-foreground': '#211a16',
+      '--booking-brand-primary': '#e1c27e',
+      '--customer-site-card-radius': '10px',
+      '--theme-background': '#151315',
+    });
+  });
+
+  it('renders the salon profile only for Quick Book and preserves the existing Editorial renderer', () => {
+    const profile = {
+      identity: {
+        salonName: 'Isla Nail Studio',
+        logoUrl: '/isla-logo.png',
+        technicianName: 'Daniela',
+        technicianPhotoUrl: '/daniela.jpg',
+      },
+      location: null,
+      hours: null,
+      contact: null,
+      policies: [],
+      reviews: null,
+      instagram: null,
+      bio: null,
+    };
+    const { rerender } = render(
+      <BookServiceClient
+        services={[services[0]!]}
+        bookingFlow={['service', 'tech', 'time', 'confirm']}
+        locations={[]}
+        quickBookProfile={profile}
+      />,
+    );
+
+    expect(screen.getByTestId('quick-book-profile')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 1, name: 'Isla Nail Studio' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 2, name: 'Book an appointment' })).toBeInTheDocument();
+
+    salonContextMock.bookingPage.layout = 'editorial';
+    rerender(
+      <BookServiceClient
+        services={[services[0]!]}
+        bookingFlow={['service', 'tech', 'time', 'confirm']}
+        locations={[]}
+        quickBookProfile={profile}
+      />,
+    );
+
+    expect(screen.queryByTestId('quick-book-profile')).not.toBeInTheDocument();
+    expect(screen.getByTestId('booking-step-header-salon-variant')).toHaveTextContent('editorial');
+  });
+
   it('server-renders opaque real content for the authorized script-blocked builder preview only', () => {
     const renderBeforeHydration = (isEmbeddedBuilderPreview: boolean) => {
       const root = document.createElement('div');
@@ -588,6 +755,8 @@ describe('BookServiceClient', () => {
   });
 
   it('renders the configured booking content as plain text with safe social links above the sticky clearance', () => {
+    Reflect.deleteProperty(salonContextMock.bookingPage.quickBookProfile, 'version');
+    salonContextMock.bookingPage.sectionVariants = { policies: 'card' };
     salonContextMock.bookingExperience = {
       primaryColor: '#112233',
       bookingMessage: '<strong>Welcome</strong>\nSee https://example.com before booking.',
@@ -718,7 +887,109 @@ describe('BookServiceClient', () => {
     );
   });
 
+  it('uses the compact profile as the only Quick Book owner of profile policy and social content', () => {
+    salonContextMock.bookingExperience = {
+      primaryColor: null,
+      bookingMessage: null,
+      policy: {
+        enabled: true,
+        title: 'Before your visit',
+        text: 'Please provide 24 hours notice.',
+        showOnServicePage: true,
+        showBeforeConfirmation: true,
+        showAfterConfirmation: true,
+        showInConfirmationEmail: true,
+      },
+      quickFacts: {
+        appointmentOnly: { enabled: true, label: 'Appointment only' },
+        depositNotice: { enabled: true, label: '$15 deposit required' },
+        cancellationNotice: { enabled: true, label: '24 hours notice' },
+      },
+      socialLinks: {
+        instagram: 'https://www.instagram.com/salon-a',
+        facebook: null,
+        tiktok: null,
+      },
+      confirmationMessage: null,
+    };
+
+    render(
+      <BookServiceClient
+        services={[services[0]!]}
+        bookingFlow={['service', 'tech', 'time', 'confirm']}
+        locations={[]}
+        quickBookProfile={{
+          identity: {
+            salonName: 'Salon A',
+            logoUrl: null,
+            technicianName: null,
+            technicianPhotoUrl: null,
+          },
+          location: null,
+          hours: null,
+          contact: null,
+          policies: [],
+          reviews: null,
+          instagram: null,
+          bio: null,
+        }}
+      />,
+    );
+
+    expect(screen.getByTestId('quick-book-profile')).toBeInTheDocument();
+    expect(screen.queryByTestId('booking-policy')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('booking-social-links')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('booking-quick-facts')).not.toBeInTheDocument();
+    expect(screen.queryByText('Appointment only')).not.toBeInTheDocument();
+    expect(screen.queryByText('$15 deposit required')).not.toBeInTheDocument();
+    expect(screen.queryByText('24 hours notice')).not.toBeInTheDocument();
+  });
+
+  it('preserves the legacy Quick Book header and public sections without an adoption marker', () => {
+    Reflect.set(salonContextMock.bookingPage.quickBookProfile, 'version', 0);
+    salonContextMock.bookingExperience = {
+      primaryColor: null,
+      bookingMessage: null,
+      policy: {
+        enabled: true,
+        title: 'Before your visit',
+        text: 'Please provide 24 hours notice.',
+        showOnServicePage: true,
+        showBeforeConfirmation: true,
+        showAfterConfirmation: true,
+        showInConfirmationEmail: true,
+      },
+      quickFacts: {
+        appointmentOnly: { enabled: true, label: 'Appointment only' },
+        depositNotice: { enabled: false, label: null },
+        cancellationNotice: { enabled: false, label: null },
+      },
+      socialLinks: {
+        instagram: 'https://www.instagram.com/salon-a',
+        facebook: null,
+        tiktok: null,
+      },
+      confirmationMessage: null,
+    };
+
+    render(
+      <BookServiceClient
+        services={[services[0]!]}
+        bookingFlow={['service', 'tech', 'time', 'confirm']}
+        locations={[]}
+      />,
+    );
+
+    expect(screen.queryByTestId('quick-book-profile')).not.toBeInTheDocument();
+    expect(screen.getByTestId('booking-step-header-salon-variant')).toHaveTextContent('editorial');
+    expect(screen.getByTestId('booking-quick-facts')).toHaveTextContent('Appointment only');
+    expect(screen.getByTestId('booking-policy')).toHaveTextContent('Please provide 24 hours notice.');
+    expect(screen.getByRole('link', { name: 'Visit Salon A on Instagram' }))
+      .toHaveAttribute('href', 'https://www.instagram.com/salon-a');
+  });
+
   it('renders the legacy Appointment Only setting through the resolved provider quick fact', () => {
+    salonContextMock.bookingPage.layout = 'editorial';
     const salon = buildPublicShellSalon({
       bookingExperience: {
         primaryColor: null,
@@ -762,6 +1033,7 @@ describe('BookServiceClient', () => {
   });
 
   it('shows only explicitly enabled quick facts and uses their configured labels', () => {
+    salonContextMock.bookingPage.layout = 'editorial';
     salonContextMock.bookingExperience = {
       ...DEFAULT_BOOKING_EXPERIENCE,
       policy: {
@@ -806,6 +1078,8 @@ describe('BookServiceClient', () => {
   });
 
   it('wraps uninterrupted quick-fact labels and policy titles without horizontal overflow classes', () => {
+    salonContextMock.bookingPage.layout = 'editorial';
+    salonContextMock.bookingPage.sectionVariants = { policies: 'card' };
     const longBadgeLabel = 'D'.repeat(40);
     const longPolicyTitle = 'P'.repeat(60);
     salonContextMock.bookingExperience = {
@@ -876,6 +1150,7 @@ describe('BookServiceClient', () => {
   });
 
   it('keeps a disabled policy unpublished and displays only configured social platforms', () => {
+    salonContextMock.bookingPage.layout = 'editorial';
     salonContextMock.bookingExperience = {
       primaryColor: null,
       bookingMessage: null,
@@ -1198,7 +1473,7 @@ describe('BookServiceClient', () => {
       />,
     );
 
-    expect(screen.getByTestId('booking-step-header-salon-variant')).toHaveTextContent('editorial');
+    expect(screen.getByTestId('quick-book-profile')).toBeInTheDocument();
     expect(screen.getByTestId('booking-step-header-announcement')).toHaveTextContent('25% off for new clients — until April 30');
     expect(screen.queryByText('First-visit offer')).not.toBeInTheDocument();
     expect(screen.queryByText('New clients may be eligible for 25% off their first appointment')).not.toBeInTheDocument();
@@ -1770,7 +2045,7 @@ describe('BookServiceClient', () => {
     );
 
     expect(screen.getByTestId('service-card-svc-1')).toHaveAttribute('data-selected', 'false');
-    expect(screen.getByTestId('booking-step-header')).toHaveTextContent('service > tech > time > confirm');
+    expect(getRenderedBookingSteps()).toEqual(['service', 'tech', 'time', 'confirm']);
     expect(screen.queryByTestId('service-inline-addons-panel')).not.toBeInTheDocument();
     expect(screen.queryByTestId('service-sticky-bar')).not.toBeInTheDocument();
     expect(screen.queryByTestId('service-sticky-spacer')).not.toBeInTheDocument();
@@ -1790,7 +2065,7 @@ describe('BookServiceClient', () => {
     );
 
     expect(screen.getByTestId('service-card-svc-1')).toHaveAttribute('data-selected', 'false');
-    expect(screen.getByTestId('booking-step-header')).toHaveTextContent('service > time > confirm');
+    expect(getRenderedBookingSteps()).toEqual(['service', 'time', 'confirm']);
     expect(screen.queryByTestId('service-inline-addons-panel')).not.toBeInTheDocument();
     expect(screen.queryByTestId('service-sticky-bar')).not.toBeInTheDocument();
   });
@@ -1814,7 +2089,7 @@ describe('BookServiceClient', () => {
     expect(screen.getByTestId('service-auto-technician-preview')).toBeInTheDocument();
     expect(screen.getByText('Mila')).toBeInTheDocument();
     expect(screen.getByText('42 reviews')).toBeInTheDocument();
-    expect(screen.getByTestId('booking-step-header')).toHaveTextContent('service > time > confirm');
+    expect(getRenderedBookingSteps()).toEqual(['service', 'time', 'confirm']);
 
     fireEvent.click(screen.getByTestId('service-continue-button'));
 
@@ -1839,7 +2114,7 @@ describe('BookServiceClient', () => {
     fireEvent.click(screen.getByTestId('service-card-svc-1'));
 
     expect(screen.getByTestId('service-auto-technician-preview')).toBeInTheDocument();
-    expect(screen.getByTestId('booking-step-header')).toHaveTextContent('service > time > confirm');
+    expect(getRenderedBookingSteps()).toEqual(['service', 'time', 'confirm']);
 
     fireEvent.click(screen.getByTestId('service-card-svc-2'));
 
@@ -1847,7 +2122,7 @@ describe('BookServiceClient', () => {
       expect(screen.queryByTestId('service-auto-technician-preview')).not.toBeInTheDocument();
     });
 
-    expect(screen.getByTestId('booking-step-header')).toHaveTextContent('service > tech > time > confirm');
+    expect(getRenderedBookingSteps()).toEqual(['service', 'tech', 'time', 'confirm']);
   });
 
   it('does not auto-skip when no compatible technician exists for the selected service', () => {
@@ -1865,7 +2140,7 @@ describe('BookServiceClient', () => {
     fireEvent.click(screen.getByTestId('service-card-svc-1'));
 
     expect(screen.queryByTestId('service-auto-technician-preview')).not.toBeInTheDocument();
-    expect(screen.getByTestId('booking-step-header')).toHaveTextContent('service > tech > time > confirm');
+    expect(getRenderedBookingSteps()).toEqual(['service', 'tech', 'time', 'confirm']);
     expect(bookingStateMock.setTechnicianId).not.toHaveBeenCalledWith('tech-1', 'auto');
   });
 

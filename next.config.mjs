@@ -98,10 +98,9 @@ const baseNextConfig = bundleAnalyzer(
       NEXT_PUBLIC_SENTRY_ENVIRONMENT: sentryPublicRuntimeEnv.NEXT_PUBLIC_SENTRY_ENVIRONMENT,
     },
     poweredByHeader: false,
+    outputFileTracingRoot: fileURLToPath(new URL('.', import.meta.url)),
     reactStrictMode: true,
-    experimental: {
-      serverComponentsExternalPackages: ['@electric-sql/pglite'],
-    },
+    serverExternalPackages: ['@electric-sql/pglite'],
   }),
 );
 const nextConfig = shouldEnableSentryPlugin ? baseNextConfig : applyScopedPrismaOtelIgnoreWarnings(baseNextConfig);

@@ -5,6 +5,17 @@ export const Env = createEnv({
   server: {
     CLERK_SECRET_KEY: z.string().min(1),
     DATABASE_URL: z.string().optional(),
+    // Feature-flagged account-backed Onboarding V1 integration. Omission is
+    // disabled; both the page and mutating APIs enforce this server-side.
+    LUSTER_ONBOARDING_V1_INTEGRATION_ENABLED: z.enum(['true', 'false']).optional(),
+    LUSTER_SECTION_LIBRARY_V1_ENABLED: z.enum(['true', 'false']).optional(),
+    // Local development only: an absolute directory outside the repository
+    // for restart-persistent PGlite. Hosted environments reject PGlite before
+    // this seam is considered.
+    LUSTER_PGLITE_DATA_DIR: z.string().optional(),
+    // Development-only server-owned media adapter. Production deliberately
+    // fails closed until the existing cloud-media provider seam is connected.
+    LUSTER_ONBOARDING_MEDIA_DIR: z.string().optional(),
     LOGTAIL_SOURCE_TOKEN: z.string().optional(),
     STRIPE_SECRET_KEY: z.string().min(1),
     STRIPE_WEBHOOK_SECRET: z.string().min(1),
@@ -107,6 +118,12 @@ export const Env = createEnv({
   runtimeEnv: {
     CLERK_SECRET_KEY: process.env.CLERK_SECRET_KEY,
     DATABASE_URL: process.env.DATABASE_URL,
+    LUSTER_ONBOARDING_V1_INTEGRATION_ENABLED:
+      process.env.LUSTER_ONBOARDING_V1_INTEGRATION_ENABLED,
+    LUSTER_SECTION_LIBRARY_V1_ENABLED:
+      process.env.LUSTER_SECTION_LIBRARY_V1_ENABLED,
+    LUSTER_PGLITE_DATA_DIR: process.env.LUSTER_PGLITE_DATA_DIR,
+    LUSTER_ONBOARDING_MEDIA_DIR: process.env.LUSTER_ONBOARDING_MEDIA_DIR,
     LOGTAIL_SOURCE_TOKEN: process.env.LOGTAIL_SOURCE_TOKEN,
     STRIPE_SECRET_KEY: process.env.STRIPE_SECRET_KEY,
     STRIPE_WEBHOOK_SECRET: process.env.STRIPE_WEBHOOK_SECRET,

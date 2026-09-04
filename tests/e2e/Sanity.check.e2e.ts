@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
 
 import { e2eConfig, usingExternalBaseUrl } from './support/config';
+import { expectBookingServicePageReady } from './support/service-page';
 
 // Checkly is a tool used to monitor deployed environments, such as production or preview environments.
 // It runs end-to-end tests with the `.check.e2e.ts` extension after each deployment to ensure that the environment is up and running.
@@ -46,16 +47,16 @@ test.describe('Sanity', () => {
       page,
       baseURL,
     }) => {
-      await page.goto(
+      const response = await page.goto(
         `${baseURL}/book/service?salonSlug=${e2eConfig.salonSlug}`,
         {
           waitUntil: 'domcontentloaded',
         },
       );
 
-      await expect(
-        page.getByRole('heading', { name: /choose your service/i }),
-      ).toBeVisible();
+      expect(response?.status()).toBe(200);
+
+      await expectBookingServicePageReady(page);
     });
 
     test('owner sign-in is available and Luster branded', async ({

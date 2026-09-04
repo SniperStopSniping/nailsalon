@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { PATCH } from './route';
+
 const { requireActiveAdminSalon, db, setSelectResults, updateSet } = vi.hoisted(() => {
   let selectResults: unknown[][] = [];
 
@@ -47,8 +49,6 @@ vi.mock('@/libs/DB', () => ({
   db,
 }));
 
-import { PATCH } from './route';
-
 describe('PATCH /api/admin/fraud-signals/[id]/resolve', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -69,7 +69,7 @@ describe('PATCH /api/admin/fraud-signals/[id]/resolve', () => {
       new Request('http://localhost/api/admin/fraud-signals/signal_1/resolve', {
         method: 'PATCH',
       }),
-      { params: { id: 'signal_1' } },
+      { params: Promise.resolve({ id: 'signal_1' }) },
     );
 
     expect(response.status).toBe(401);
@@ -97,7 +97,7 @@ describe('PATCH /api/admin/fraud-signals/[id]/resolve', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ note: 'Looks legitimate' }),
       }),
-      { params: { id: 'signal_1' } },
+      { params: Promise.resolve({ id: 'signal_1' }) },
     );
     const body = await response.json();
 
