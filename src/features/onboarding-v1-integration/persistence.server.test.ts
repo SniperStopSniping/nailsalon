@@ -36,6 +36,7 @@ import {
   claimOnboardingDraft,
   getClaimedOnboardingSite,
   getOnboardingDraftClaimStatus,
+  getOnboardingSiteSlugAvailability,
   saveOnboardingPlanIntent,
 } from './persistence.server';
 import { createPersistableOnboardingDraft } from './snapshot';
@@ -164,6 +165,40 @@ describe.sequential('account-backed onboarding persistence', () => {
   });
 
   const handle = () => database as unknown as DatabaseSessionHandle;
+
+  it('checks available, occupied, and invalid URLs without exposing the occupying salon', async () => {
+    const occupiedSalonId = crypto.randomUUID();
+    await database.insert(schema.salonSchema).values({
+      id: occupiedSalonId,
+      name: 'Occupied Studio',
+      slug: 'occupied-studio',
+    });
+
+    await expect(getOnboardingSiteSlugAvailability(
+      '  Available-Studio  ',
+      handle(),
+    )).resolves.toEqual({
+      available: true,
+      reason: 'available',
+      slug: 'available-studio',
+    });
+    await expect(getOnboardingSiteSlugAvailability(
+      'occupied-studio',
+      handle(),
+    )).resolves.toEqual({
+      available: false,
+      reason: 'unavailable',
+      slug: 'occupied-studio',
+    });
+    await expect(getOnboardingSiteSlugAvailability(
+      'admin',
+      handle(),
+    )).resolves.toEqual({
+      available: false,
+      reason: 'invalid',
+      slug: 'admin',
+    });
+  });
 
   it.each([false, true])('rejects an occupied URL without renaming the salon (customized: %s)', async (customized) => {
     const suffix = customized ? 'custom_slug_collision' : 'suggested_slug_collision';
