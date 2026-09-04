@@ -62,6 +62,7 @@ const cookieJar = vi.hoisted(() => new Map<string, { value: string }>());
 vi.mock('next/headers', () => ({
   cookies: async () => ({
     get: (name: string) => cookieJar.get(name),
+    getAll: () => [...cookieJar].map(([name, cookie]) => ({ name, value: cookie.value })),
     set: (name: string, value: string) => {
       cookieJar.set(name, { value });
     },
@@ -235,10 +236,10 @@ describe('resolveOwnerPreviewContext — authorization matrix', () => {
   });
 });
 
-describe('resolveOwnerPreviewContext — Production Clerk-only Owner path', () => {
+describe.each(['__session', '__session_XxiNjKcO'])('resolveOwnerPreviewContext — Clerk-only Owner path with %s', (cookieName) => {
   beforeEach(() => {
     clearCookies();
-    setCookie('__session', 'opaque-clerk-session-cookie');
+    setCookie(cookieName, 'opaque-clerk-session-cookie');
     clerkAuth.mockReset();
   });
 
@@ -277,6 +278,27 @@ describe('resolveOwnerPreviewContext — Production Clerk-only Owner path', () =
       actorType: null,
       reason: 'no_session',
     });
+  });
+
+  it('never authenticates a forged cookie without a verified Clerk user', async () => {
+    setCookie(cookieName, 'forged-session-token');
+    clerkAuth.mockResolvedValue({ userId: null });
+
+    await expect(resolveOwnerPreviewContext(SALON_ID)).resolves.toMatchObject({
+      isPreviewing: false,
+      reason: 'no_session',
+    });
+    expect(clerkAuth).toHaveBeenCalledOnce();
+  });
+
+  it('does not invoke Clerk for an empty session cookie', async () => {
+    setCookie(cookieName, '');
+
+    await expect(resolveOwnerPreviewContext(SALON_ID)).resolves.toMatchObject({
+      isPreviewing: false,
+      reason: 'no_session',
+    });
+    expect(clerkAuth).not.toHaveBeenCalled();
   });
 
   it('fails closed when Clerk middleware context is absent or throws', async () => {

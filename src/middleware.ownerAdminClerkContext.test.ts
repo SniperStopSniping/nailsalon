@@ -53,11 +53,14 @@ describe('middleware — Owner Workspace Clerk context', () => {
   });
 
   it.each([
-    '/en/admin',
-    '/fr/admin?app=services',
-    '/en/admin/website/preview/22222222-2222-4222-8222-222222222222',
-  ])('establishes Clerk context for a signed-in owner on %s', async (path) => {
-    await middleware(request(path, { __session: 'opaque-clerk-session' }), event);
+    ['/en/admin', '__session'],
+    ['/fr/admin?app=services', '__session'],
+    ['/en/admin/website/preview/22222222-2222-4222-8222-222222222222', '__session'],
+    ['/en/admin', '__session_XxiNjKcO'],
+    ['/fr/admin?app=services', '__session_XxiNjKcO'],
+    ['/en/admin/website/preview/22222222-2222-4222-8222-222222222222', '__session_XxiNjKcO'],
+  ] as const)('establishes Clerk context for a signed-in owner on %s with %s', async (path, cookieName) => {
+    await middleware(request(path, { [cookieName]: 'opaque-clerk-session' }), event);
 
     expect(clerkMiddlewareFactory).toHaveBeenCalledTimes(1);
     expect(intlMiddleware).toHaveBeenCalledTimes(1);
@@ -65,6 +68,8 @@ describe('middleware — Owner Workspace Clerk context', () => {
 
   it.each([
     ['anonymous', {}],
+    ['empty Clerk cookie', { __session_XxiNjKcO: '' }],
+    ['misleading cookie prefix', { __sessionOther: 'opaque-token' }],
     ['legacy session', { n5_admin_session: 'opaque-server-session' }],
     ['signed impersonation', {
       n5_admin_session: 'opaque-server-session',

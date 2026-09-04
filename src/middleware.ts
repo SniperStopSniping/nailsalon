@@ -7,6 +7,7 @@ import {
 import createMiddleware from 'next-intl/middleware';
 
 import { apiPathNeedsClerkContext } from './libs/clerkApiContext';
+import { hasClerkSessionCookie } from './libs/clerkSessionCookie';
 import { getCanonicalAppOrigin } from './libs/publicUrl';
 import {
   ACTIVE_SALON_COOKIE,
@@ -210,7 +211,7 @@ export default async function middleware(
   // absence, expiry, forgery, or a wrong-salon session returns 404 before DRAFT
   // content renders.
   if (isOwnerBookingPagePreviewRoute(request)) {
-    const response = request.cookies.get('__session')?.value
+    const response = hasClerkSessionCookie(request.cookies.getAll())
       ? await clerkMiddleware(
         async (_auth, req) => intlMiddleware(req),
         clerkOptions,
@@ -230,7 +231,7 @@ export default async function middleware(
   // session/impersonation paths continue through the existing server guards
   // without a Clerk handshake.
   if (isOwnerAdminPageRoute(request)) {
-    const response = request.cookies.get('__session')?.value
+    const response = hasClerkSessionCookie(request.cookies.getAll())
       ? await clerkMiddleware(
         async (_auth, req) => intlMiddleware(req),
         clerkOptions,
@@ -253,12 +254,12 @@ export default async function middleware(
   // before account creation. Anonymous requests deliberately avoid Clerk's
   // development-browser handshake: on a plain local/LAN HTTP origin that
   // handshake cannot retain its cross-site cookie and loops before the public
-  // onboarding page can render. Once Clerk has established a real `__session`
-  // cookie, preserve server auth context so an existing owner can resume and
+  // onboarding page can render. Once Clerk has established a session cookie
+  // (bare or instance-suffixed), preserve context so an owner can resume and
   // save immediately. The claim APIs establish their own Clerk context and
   // remain the authenticated persistence boundary.
   if (isPublicOnboardingV1Route(request)) {
-    const response = request.cookies.get('__session')?.value
+    const response = hasClerkSessionCookie(request.cookies.getAll())
       ? await clerkMiddleware(
         async (_auth, req) => intlMiddleware(req),
         clerkOptions,
