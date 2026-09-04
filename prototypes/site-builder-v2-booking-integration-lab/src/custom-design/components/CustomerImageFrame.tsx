@@ -12,10 +12,6 @@ import type {
 
 type ReadyAsset = Extract<CustomDesignResolvedAsset, { status: 'ready' }>;
 
-type React18FetchPriorityAttribute = {
-  fetchpriority: 'auto' | 'high';
-};
-
 type CustomerImageFrameProps = {
   asset: ReadyAsset;
   getScrollPosition?: CustomDesignScrollPositionReader;
@@ -53,12 +49,6 @@ export function CustomerImageFrame({
     );
   }
 
-  const fetchPriorityAttributes: React18FetchPriorityAttribute = {
-    // React 18.3 warns for the camel-case prop even though fetchpriority is
-    // standards-valid HTML. Keep it in initial markup so priority is not late.
-    fetchpriority: isFirstReadyImage ? 'high' : 'auto',
-  };
-
   return (
     <>
       <div
@@ -74,6 +64,7 @@ export function CustomerImageFrame({
           data-media-role="custom_design"
           decoding="async"
           draggable={false}
+          fetchPriority={isFirstReadyImage ? 'high' : 'auto'}
           height={image.height}
           loading={isFirstReadyImage ? 'eager' : 'lazy'}
           src={asset.url}
@@ -88,7 +79,6 @@ export function CustomerImageFrame({
           onLoad={() => {
             setRenderState(current => current === 'error' ? current : 'loaded');
           }}
-          {...fetchPriorityAttributes}
         />
         {renderState === 'loaded'
           ? (

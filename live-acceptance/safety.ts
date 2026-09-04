@@ -4,7 +4,6 @@ import path from 'node:path';
 type AcceptanceEnvironment = Record<string, string | undefined>;
 
 const FORBIDDEN_PROVIDER_KEYS = [
-  'DATABASE_URL',
   'RESEND_API_KEY',
   'TWILIO_ACCOUNT_SID',
   'TWILIO_AUTH_TOKEN',
@@ -46,6 +45,21 @@ export function assertLocalAcceptanceEnvironment(
   if (!/^acceptance-[a-z0-9-]{12,80}$/.test(runId)) {
     throw new Error('Live acceptance requires a unique run-scoped identity suffix.');
   }
+  if (environment.DATABASE_URL || environment.LIVE_LOCAL_POSTGRES_CONFIRMED) {
+    const database = new URL(environment.DATABASE_URL ?? '');
+    const expected = runScopedPostgresName(runId);
+    if (
+      environment.LIVE_LOCAL_POSTGRES_CONFIRMED !== 'true'
+      || !['postgres:', 'postgresql:'].includes(database.protocol)
+      || !['localhost', '127.0.0.1'].includes(database.hostname)
+      || database.port !== '55441'
+      || database.username !== expected
+      || database.pathname !== `/${expected}`
+      || database.search || database.hash
+    ) {
+      throw new Error('Acceptance PostgreSQL requires the exact run-scoped loopback database and role on port 55441.');
+    }
+  }
   let runtimeDirectory: string | undefined;
   for (const [key, child] of [
     ['LUSTER_PGLITE_DATA_DIR', 'database'],
@@ -67,6 +81,18 @@ export function assertLocalAcceptanceEnvironment(
     runtimeDirectory = parent;
   }
   return { baseURL: url.origin, evidenceDirectory: environment.LIVE_EVIDENCE_DIR!, runId };
+}
+
+export function runScopedPostgresName(runId: string): string {
+  if (!/^acceptance-[a-z0-9-]{12,80}$/.test(runId)) {
+    throw new Error('Invalid live acceptance database scope.');
+  }
+  return `luster_acceptance_${createHash('sha256').update(runId).digest('hex').slice(0, 16)}`;
+}
+
+export function runCleanupIsConfirmed(environment: AcceptanceEnvironment, runId: string): boolean {
+  return /^acceptance-[a-z0-9-]{12,80}$/.test(runId)
+    && environment.LIVE_CLERK_CLEANUP_CONFIRMED === runId;
 }
 
 export function runScopedEmail(runId: string, projectName: string): string {

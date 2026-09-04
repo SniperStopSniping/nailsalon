@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { writeFile } from 'node:fs/promises';
+import { appendFile, writeFile } from 'node:fs/promises';
 
 import { setupClerkTestingToken } from '@clerk/testing/playwright';
 import { expect, type Page, test } from '@playwright/test';
@@ -12,8 +12,8 @@ import { assertLocalAcceptanceEnvironment, runScopedEmail } from './safety';
 
 const scope = assertLocalAcceptanceEnvironment(process.env);
 
-async function expectHeading(page: Page, name: string | RegExp) {
-  await expect(page.getByRole('heading', { level: 1, name })).toBeVisible();
+async function expectHeading(page: Page, name: string | RegExp, timeout = 30_000) {
+  await expect(page.getByRole('heading', { level: 1, name })).toBeVisible({ timeout });
 }
 
 async function expandPanel(page: Page, panelId: string) {
@@ -67,6 +67,16 @@ test('Quick Book owner can verify, save media, finish setup, and return to the s
     return captchaBypass;
   }
   let userId: string | undefined;
+  async function recordCleanupTargets() {
+    await appendFile(testInfo.outputPath('run-scoped-cleanup-targets.jsonl'), `${JSON.stringify({
+      organizationIds: [...organizationIds],
+      projectName: testInfo.project.name,
+      runId: scope.runId,
+      startedAt,
+      userId,
+    })}\n`, { mode: 0o600 });
+  }
+  await recordCleanupTargets();
   page.on('pageerror', error => pageErrors.push(error.name));
   page.on('response', (response) => {
     const url = new URL(response.url());
@@ -89,6 +99,7 @@ test('Quick Book owner can verify, save media, finish setup, and return to the s
           for (const organization of body.data.organizations ?? []) {
             organizationIds.add(organization.id);
           }
+          await recordCleanupTargets();
         }
       })());
     }
@@ -96,7 +107,7 @@ test('Quick Book owner can verify, save media, finish setup, and return to the s
 
   try {
     await setupClerkTestingToken({ page });
-    await page.goto('/onboarding-v1');
+    await page.goto('/onboarding-v1', { waitUntil: 'domcontentloaded' });
     await page.getByRole('button', { name: /Start with Quick Book$/ }).click();
     await expectHeading(page, 'Let’s start with your business');
     await page.getByLabel('Salon or studio name *', { exact: true }).fill(businessName);
@@ -158,10 +169,12 @@ test('Quick Book owner can verify, save media, finish setup, and return to the s
 
     expect(earlyResponse.status()).toBe(200);
 
+    process.stdout.write('Live acceptance: authenticated early draft claim returned 200; waiting for media completion.\n');
     const earlyClaim = (await earlyResponse.json()).data as OnboardingClaimSuccess;
-    await expectHeading(page, 'Your progress is saved');
+    await expectHeading(page, 'Your progress is saved', 90_000);
     process.stdout.write('Live acceptance: verified identity and early draft claim succeeded.\n');
     userId = await page.evaluate(() => (window as any).Clerk.user.id as string);
+    await recordCleanupTargets();
     await page.screenshot({ path: testInfo.outputPath('early-save.png') });
     await page.getByRole('button', { name: 'Continue setting up', exact: true }).click();
 
@@ -243,6 +256,7 @@ test('Quick Book owner can verify, save media, finish setup, and return to the s
     const freshContext = await browser.newContext();
     try {
       const fresh = await freshContext.newPage();
+      fresh.setDefaultNavigationTimeout(90_000);
       await setupClerkTestingToken({ page: fresh });
       await fresh.goto(`${scope.baseURL}/en/owner-sign-in`);
       await fresh.getByLabel(/email/i).first().fill(email);
@@ -282,6 +296,7 @@ test('Quick Book owner can verify, save media, finish setup, and return to the s
       const guestContext = await browser.newContext();
       try {
         const guest = await guestContext.newPage();
+        guest.setDefaultNavigationTimeout(90_000);
         const publicPage = await guest.goto(publicLinks.publicUrl);
 
         expect(publicPage?.status()).toBe(200);

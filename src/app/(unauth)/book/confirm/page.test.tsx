@@ -956,7 +956,7 @@ describe('BookConfirmPage deposit disclosure — dark', () => {
   ) {
     const element = await BookConfirmPage({
       searchParams: Promise.resolve({ ...baseSearchParams, ...searchParams }),
-      ...(params ? { params } : {}),
+      ...(params ? { params: Promise.resolve(params) } : {}),
     });
     render(element);
     return bookConfirmClientSpy.mock.calls.at(-1)![0] as Record<string, unknown>;

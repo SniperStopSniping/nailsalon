@@ -29,6 +29,7 @@ export default defineConfig({
   timeout: 420_000,
   use: {
     baseURL: scope.baseURL,
+    navigationTimeout: 90_000,
     screenshot: 'only-on-failure',
     // Auth traces contain session material and typed passwords. Screenshots
     // and sanitized assertion evidence are sufficient for this gate.

@@ -90,6 +90,7 @@ export type PremiumAccountGateProps = {
   locale: string;
   needsSessionEmailVerification: boolean;
   onCancel: () => void;
+  onSessionEmailVerified?: () => void;
   providers: OnboardingAuthProviderAvailability;
   state: OnboardingLabState;
 };
@@ -101,6 +102,7 @@ export function PremiumAccountGate({
   locale,
   needsSessionEmailVerification,
   onCancel,
+  onSessionEmailVerified,
   providers,
   state,
 }: PremiumAccountGateProps) {
@@ -368,15 +370,20 @@ export function PremiumAccountGate({
     setBusy(true);
     clearTransient();
     try {
-      await sessionEmail.attemptVerification({ code });
+      const result = await sessionEmail.attemptVerification({ code });
+      if (result.verification.status !== 'verified') {
+        setFormError('That code didn’t finish verification. Send a new code and try again.');
+        return;
+      }
       setStep({ kind: 'finalizing' });
       await user.reload();
+      onSessionEmailVerified?.();
     } catch (error) {
       setFormError(describeClerkError(error, 'That code doesn’t match. Check the newest email and try again.'));
     } finally {
       setBusy(false);
     }
-  }, [busy, clearTransient, codeValue, sessionEmail, user]);
+  }, [busy, clearTransient, codeValue, onSessionEmailVerified, sessionEmail, user]);
 
   const resendCode = useCallback(async () => {
     if (busy || Date.now() < resendAvailableAt) {

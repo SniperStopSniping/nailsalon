@@ -893,7 +893,7 @@ export default function BookingPageOwnerSurface() {
                       title="Live booking page preview"
                       src={previewFrameSrc}
                       aria-hidden="true"
-                      inert={'' as unknown as boolean}
+                      inert
                       sandbox="allow-same-origin"
                       tabIndex={-1}
                       onLoad={event => handlePreviewLoad(

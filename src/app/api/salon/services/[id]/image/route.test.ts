@@ -161,7 +161,7 @@ function cloudRequest(overrides: Record<string, unknown> = {}) {
   });
 }
 
-const context = { params: { id: 'svc_1' } };
+const context = { params: Promise.resolve({ id: 'svc_1' }) };
 
 describe('/api/salon/services/[id]/image', () => {
   beforeEach(() => {

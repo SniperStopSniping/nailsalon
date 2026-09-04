@@ -10,6 +10,7 @@ import type { OnboardingAuthProviderAvailability } from './auth-providers';
 import type { OnboardingClaimSuccess } from './contracts';
 import {
   createOnboardingIntegrationFlow,
+  loadOnboardingIntegrationFlow,
   saveOnboardingIntegrationFlow,
 } from './flow-storage';
 import { OnboardingV1Integration } from './OnboardingV1Integration';
@@ -208,24 +209,85 @@ describe('OnboardingV1Integration rendered account-save flow', () => {
     expect(mocks.claim).not.toHaveBeenCalled();
   });
 
-  it('returns a server EMAIL_NOT_VERIFIED refusal to the account gate instead of a dead end', async () => {
+  it.each([false, true])('returns EMAIL_NOT_VERIFIED to verification without retrying (reload fails: %s)', async (reloadFails) => {
     const { OnboardingIntegrationRequestError } = await import('./client');
     mocks.auth.isSignedIn = true;
     const user = verifiedClerkUser();
+    if (reloadFails) {
+      user.reload.mockRejectedValue(new Error('Clerk is temporarily unavailable.'));
+    }
     mocks.userState.user = user;
     mocks.claim.mockRejectedValue(new OnboardingIntegrationRequestError(
       'Verify your email before saving your Luster site.',
       { code: 'EMAIL_NOT_VERIFIED', status: 403 },
     ));
 
-    render(<OnboardingV1Integration authProviders={ALL_PROVIDERS} locale="en" />);
+    const { rerender } = render(<OnboardingV1Integration authProviders={ALL_PROVIDERS} locale="en" />);
 
-    expect(await screen.findByText('Verify your email to finish saving your site.')).toBeVisible();
+    expect(await screen.findByRole('heading', { level: 1, name: 'Check your email' })).toBeVisible();
+    expect(loadOnboardingIntegrationFlow().errorMessage).toBe('Verify your email to finish saving your site.');
     expect(screen.queryByRole('heading', {
       level: 1,
       name: 'We couldn’t finish saving your site',
     })).not.toBeInTheDocument();
     expect(user.reload).toHaveBeenCalled();
+    expect(mocks.claim).toHaveBeenCalledTimes(1);
+    expect(mocks.claimMedia).not.toHaveBeenCalled();
+    expect(mocks.cleanupMedia).not.toHaveBeenCalled();
+
+    // An unrelated render and stale verified hook value must not resubmit.
+    rerender(<OnboardingV1Integration authProviders={ALL_PROVIDERS} locale="en" />);
+
+    expect(screen.getByRole('button', { name: 'Verify and save my site' })).toBeVisible();
+    expect(mocks.claim).toHaveBeenCalledTimes(1);
+    expect(window.localStorage.getItem(SITE_BUILDER_STORAGE_KEY)).not.toBeNull();
+  });
+
+  it('retries the same preserved draft only after explicit successful email verification', async () => {
+    const { OnboardingIntegrationRequestError } = await import('./client');
+    const interaction = userEvent.setup();
+    mocks.auth.isSignedIn = true;
+    const user = verifiedClerkUser();
+    mocks.userState.user = user;
+    user.primaryEmailAddress.attemptVerification.mockResolvedValue({ verification: { status: 'verified' } });
+    mocks.claim
+      .mockRejectedValueOnce(new OnboardingIntegrationRequestError('Verify your email.', {
+        code: 'EMAIL_NOT_VERIFIED',
+        status: 403,
+      }))
+      .mockResolvedValueOnce({ status: 'saved', value: savedSite });
+    mocks.claimMedia.mockResolvedValue({ failures: [], verifiedRevision: 1 });
+    mocks.cleanupMedia.mockResolvedValue({ removedAssetIds: [] });
+
+    render(<OnboardingV1Integration authProviders={ALL_PROVIDERS} locale="en" />);
+
+    await screen.findByRole('heading', { level: 1, name: 'Check your email' });
+
+    expect(mocks.claim).toHaveBeenCalledTimes(1);
+
+    const firstClaim = mocks.claim.mock.calls[0]?.[0];
+    await interaction.type(screen.getByLabelText('Verification code'), '424242');
+    await interaction.click(screen.getByRole('button', { name: 'Verify and save my site' }));
+
+    expect(await screen.findByRole('heading', { level: 1, name: 'Your Luster site is saved' })).toBeVisible();
+    expect(user.primaryEmailAddress.attemptVerification).toHaveBeenCalledWith({ code: '424242' });
+    expect(mocks.claim).toHaveBeenCalledTimes(2);
+    expect(mocks.claim.mock.calls[1]?.[0]).toEqual(firstClaim);
+    expect(mocks.claimMedia).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps ordinary request failures retryable without requesting email verification', async () => {
+    mocks.auth.isSignedIn = true;
+    const user = verifiedClerkUser();
+    mocks.userState.user = user;
+    mocks.claim.mockRejectedValue(new Error('The connection was interrupted.'));
+
+    render(<OnboardingV1Integration authProviders={ALL_PROVIDERS} locale="en" />);
+
+    expect(await screen.findByRole('heading', { level: 1, name: 'We couldn’t finish saving your site' })).toBeVisible();
+    expect(screen.queryByRole('heading', { level: 1, name: 'Check your email' })).not.toBeInTheDocument();
+    expect(user.primaryEmailAddress.prepareVerification).not.toHaveBeenCalled();
+    expect(mocks.claim).toHaveBeenCalledTimes(1);
   });
 
   it('claims an authenticated draft, reveals the saved site, then offers one plan action', async () => {

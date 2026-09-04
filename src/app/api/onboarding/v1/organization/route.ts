@@ -27,7 +27,9 @@ const FALLBACK_ORGANIZATION_NAME = 'My nail studio';
 export async function POST(request: Request): Promise<Response> {
   try {
     requireOnboardingV1IntegrationEnabled();
-    const { userId } = await auth();
+    // This endpoint completes the task that keeps a valid session pending.
+    // Other endpoints, including draft claims, retain their stricter boundary.
+    const { userId } = await auth({ treatPendingAsSignedOut: false });
     if (!userId) {
       throw new OnboardingPersistenceError(
         'UNAUTHENTICATED',

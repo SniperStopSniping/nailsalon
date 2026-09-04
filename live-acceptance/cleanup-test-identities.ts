@@ -1,6 +1,6 @@
 import { createClerkClient } from '@clerk/backend';
 
-import { assertLocalAcceptanceEnvironment, runScopedEmail } from './safety';
+import { assertLocalAcceptanceEnvironment, runCleanupIsConfirmed, runScopedEmail } from './safety';
 
 /** Never enumerates or deletes historical test users. All targets belong to one run. */
 export async function cleanupRunIdentity(input: {
@@ -8,8 +8,11 @@ export async function cleanupRunIdentity(input: {
   projectName: string;
   startedAt: number;
   userId?: string;
-}): Promise<{ organizationsRemoved: number; usersRemoved: number }> {
+}): Promise<{ organizationsRemoved: number; retainedPendingConfirmation?: boolean; usersRemoved: number }> {
   const scope = assertLocalAcceptanceEnvironment(process.env);
+  if (!runCleanupIsConfirmed(process.env, scope.runId)) {
+    return { organizationsRemoved: 0, retainedPendingConfirmation: true, usersRemoved: 0 };
+  }
   const email = runScopedEmail(scope.runId, input.projectName);
   const client = createClerkClient({ secretKey: process.env.CLERK_SECRET_KEY });
   const matches = input.userId

@@ -20,6 +20,10 @@ if (!path.isAbsolute(sourcePath) || !/^\.env\.development(?:\.local)?$/.test(pat
   throw new Error('Provide an absolute Development-only credential source path.');
 }
 const source = parse(readFileSync(sourcePath));
+const localPostgresURL = process.env.LIVE_LOCAL_POSTGRES_URL ?? '';
+if (localPostgresURL && (!process.env.LIVE_RUNTIME_DIR || !process.env.LIVE_RUN_SUFFIX)) {
+  throw new Error('Local PostgreSQL acceptance requires an explicit shared runtime directory and run scope.');
+}
 const runtimeDirectory = process.env.LIVE_RUNTIME_DIR
   ?? (action === 'server' ? mkdtempSync(path.join(tmpdir(), 'luster-live-acceptance-')) : '');
 if (!runtimeDirectory || !path.isAbsolute(runtimeDirectory)) {
@@ -31,20 +35,24 @@ if (!['chromium-live', 'webkit-live'].includes(project)) {
   throw new Error('Choose chromium-live or webkit-live for local acceptance.');
 }
 const baseURL = 'http://localhost:4211';
-// Only the Clerk pair is imported. No database, Stripe, messaging, media, or
-// production deployment configuration can leak from the source or parent.
+// Only the Clerk pair is imported from dotenv. The optional database URL uses
+// a separate explicit input and must pass the exact loopback/run/role guard.
+// Inherited DATABASE_URL and external provider configuration are never copied.
 const environment: NodeJS.ProcessEnv = {
   APP_ENV: 'development',
   BILLING_PLAN_ENV: 'dev',
   CLERK_PUBLISHABLE_KEY: source.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY,
   CLERK_SECRET_KEY: source.CLERK_SECRET_KEY,
-  DATABASE_URL: '',
+  DATABASE_URL: localPostgresURL,
   HOME: process.env.HOME,
   LANG: process.env.LANG,
   LEGACY_OTP_AUTH_ENABLED: 'false',
   LIVE_BASE_URL: baseURL,
+  // Set to the exact run ID only after explicit irreversible-cleanup consent.
+  LIVE_CLERK_CLEANUP_CONFIRMED: process.env.LIVE_CLERK_CLEANUP_CONFIRMED,
   LIVE_DISPOSABLE_LOCAL_CONFIRMED: 'true',
   LIVE_EVIDENCE_DIR: path.join(runtimeDirectory, 'evidence'),
+  LIVE_LOCAL_POSTGRES_CONFIRMED: process.env.LIVE_LOCAL_POSTGRES_CONFIRMED,
   LIVE_RUN_SUFFIX: runId,
   LUSTER_ONBOARDING_MEDIA_DIR: path.join(runtimeDirectory, 'media'),
   LUSTER_ONBOARDING_V1_INTEGRATION_ENABLED: 'true',

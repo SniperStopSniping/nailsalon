@@ -22,9 +22,8 @@ export default async function TenantRewardsDisabledPage(
     searchParams: Promise<{ salonSlug?: string }>;
   },
 ) {
-  const searchParams = await props.searchParams;
   const params = await props.params;
   await requirePublishedTenantSalon(params.slug);
 
-  return <RewardsDisabledPage params={params} searchParams={searchParams} />;
+  return <RewardsDisabledPage params={props.params} searchParams={props.searchParams} />;
 }

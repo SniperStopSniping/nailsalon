@@ -245,7 +245,7 @@ describe('Custom Design customer renderer', () => {
     expect(screen.queryByRole('link')).not.toBeInTheDocument();
   });
 
-  it('emits fetch priority in initial markup without a React 18 unknown-prop warning', () => {
+  it('emits fetch priority in initial markup without a React 19 unknown-prop warning', () => {
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     try {
       render(

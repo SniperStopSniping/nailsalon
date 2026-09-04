@@ -51,10 +51,9 @@ subsequent release work and does not claim that production has been updated.
 
 ## Deployment gates still required
 
-1. Finish production-build and runtime verification of the Next.js 15.5.25
-   security upgrade. The patch and compatibility changes are implemented;
-   passing checks from the earlier 14.x checkpoint are not a substitute for
-   verification on the new framework.
+1. Finish the remaining hosted/runtime verification of the Next.js 15.5.25
+   security upgrade. Its production build, type check, and client scan now pass;
+   production activation still depends on the remaining account and CI gates.
 2. Finish the current-commit Development Clerk signup/save/reopen acceptance.
    The official testing helper was updated, but the final run still stopped at
    the development CAPTCHA before creating a user. See the exact
@@ -67,6 +66,40 @@ subsequent release work and does not claim that production has been updated.
    `LUSTER_ONBOARDING_V1_INTEGRATION_ENABLED` for the verified release.
 5. Confirm the deployed Git SHA, homepage entry, account save, persistent media,
    dashboard parity, public-site privacy, and booking start after release.
+
+### Framework and real-account verification progress
+
+- Root TypeScript, including Next.js 15 generated route signatures, passed.
+- The updated Next.js production build passed, including 142 static pages,
+  using isolated CI placeholders and no external database credentials. Its
+  client/tree secret scan passed: **2,284 tracked files, 425 generated files**.
+- The consolidated updated onboarding suite passed: **112 files, 1,278 tests**
+  with default timeouts and one worker. The final image-renderer compatibility
+  check passed another 32 tests. The oversized booking test was split into
+  independent cases without dropping assertions or increasing timeouts.
+- The full root run completed with 6,702 passing tests and six failing tests.
+  All six affected suites plus AccountGate subsequently passed together:
+  **7 files, 135 tests**, with unchanged timeouts and external-database gates.
+- Actual Development Clerk signup, first-organization creation, email-code
+  verification, authenticated draft claim, photo upload, and media verification
+  passed in the same browser journey. The owner reached saved-progress feedback
+  and continued through later setup to the final preview.
+- That local file-backed PGlite process then aborted during route compilation.
+  Final claim, dashboard persistence, fresh login, and public booking start
+  remain unproven by that run. Acceptance is moving to an isolated loopback
+  PostgreSQL process; this does not change the application's production data
+  path or use production credentials for tests.
+- The real signup check identified and fixed the pending-session organization
+  handoff. Draft claims still require verified, tenant-scoped identity.
+- Server-rejected email verification now pauses automatic claim retries until
+  explicit verification succeeds, preserving the same draft and idempotency
+  payload. Focused tests cover stale client state and a failed profile reload.
+- Read-only production Clerk configuration permits public email/password
+  signup and email-code verification. Google and Apple are not enabled and
+  remain hidden. No production auth configuration or account was changed.
+- The first cloud Preview attempt safely rejected its pre-existing mismatched
+  Clerk key modes. A known Development pair is now scoped only to the dedicated
+  `codex/quick-book-release-preview` branch; production auth is untouched.
 
 Production recovery preparation created the Neon snapshot
 `quick-book-pre-0074-20260903T231014Z` on the verified production branch. Snapshot

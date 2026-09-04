@@ -8,9 +8,9 @@ import { AppConfig } from '@/utils/AppConfig';
 
 export default function AuthLayout(props: {
   children: React.ReactNode;
-  params: Promise<{ locale: string }>;
+  params: Promise<{ locale?: string }>;
 }) {
-  const params = use(props.params);
+  const { locale = AppConfig.defaultLocale } = use(props.params);
   let clerkLocale = enUS;
   // Use admin-login (phone OTP) instead of Clerk sign-in/sign-up
   let signInUrl = '/admin-login';
@@ -18,15 +18,15 @@ export default function AuthLayout(props: {
   let dashboardUrl = '/admin';
   let afterSignOutUrl = '/';
 
-  if (params.locale === 'fr') {
+  if (locale === 'fr') {
     clerkLocale = frFR;
   }
 
-  if (params.locale !== AppConfig.defaultLocale) {
-    signInUrl = `/${params.locale}${signInUrl}`;
-    signUpUrl = `/${params.locale}${signUpUrl}`;
-    dashboardUrl = `/${params.locale}${dashboardUrl}`;
-    afterSignOutUrl = `/${params.locale}${afterSignOutUrl}`;
+  if (locale !== AppConfig.defaultLocale) {
+    signInUrl = `/${locale}${signInUrl}`;
+    signUpUrl = `/${locale}${signUpUrl}`;
+    dashboardUrl = `/${locale}${dashboardUrl}`;
+    afterSignOutUrl = `/${locale}${afterSignOutUrl}`;
   }
 
   return (

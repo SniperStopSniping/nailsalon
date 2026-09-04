@@ -191,12 +191,12 @@ describe.each(APPROVED_LAYOUTS)('%s customer renderer', (layout) => {
       .toHaveTextContent('ServiceOptionsTechnicianTimeDetailsPaymentConfirmation');
   });
 
-  it('saves or explicitly discards every Change options draft', async () => {
+  function setupChangeOptions(addOnIds = ['addon-french']) {
     const user = userEvent.setup();
     const committedFrench: BookingSessionState = {
       selection: {
         serviceId: 'svc-manicure-russian',
-        addOnIds: ['addon-french'],
+        addOnIds,
       },
       query: '',
       activeCategory: 'all',
@@ -220,7 +220,12 @@ describe.each(APPROVED_LAYOUTS)('%s customer renderer', (layout) => {
       await user.click(within(detail).getByRole('checkbox', { name: 'French' }));
     };
 
-    let detail = await openOptions();
+    return { user, summary, openOptions, toggleFrench };
+  }
+
+  it('commits Change options when the customer keeps browsing', async () => {
+    const { user, summary, openOptions, toggleFrench } = setupChangeOptions();
+    const detail = await openOptions();
     await toggleFrench(detail);
 
     expect(within(detail).getByTestId('service-detail-total'))
@@ -231,8 +236,11 @@ describe.each(APPROVED_LAYOUTS)('%s customer renderer', (layout) => {
 
     expect(summary).toHaveTextContent('1 hr 30 min · From $65');
     expect(readSession().selection.addOnIds).toEqual([]);
+  });
 
-    detail = await openOptions();
+  it('preserves dirty options when each service-detail dismissal returns to editing', async () => {
+    const { user, summary, openOptions, toggleFrench } = setupChangeOptions([]);
+    const detail = await openOptions();
     await toggleFrench(detail);
     const close = within(detail).getByRole('button', { name: 'Close service details' });
     await user.click(close);
@@ -275,9 +283,15 @@ describe.each(APPROVED_LAYOUTS)('%s customer renderer', (layout) => {
     expect(within(detail).getByRole('checkbox', { name: 'French' })).toBeChecked();
 
     await waitFor(() => expect(close).toHaveFocus());
+  });
 
+  it('dismisses only the option warning with Escape or its backdrop', async () => {
+    const { user, openOptions, toggleFrench } = setupChangeOptions([]);
+    const detail = await openOptions();
+    await toggleFrench(detail);
+    const close = within(detail).getByRole('button', { name: 'Close service details' });
     await user.click(close);
-    warning = await screen.findByRole('dialog', { name: 'Save your option changes?' });
+    await screen.findByRole('dialog', { name: 'Save your option changes?' });
     await user.keyboard('{Escape}');
 
     expect(screen.queryByRole('dialog', { name: 'Save your option changes?' }))
@@ -288,15 +302,22 @@ describe.each(APPROVED_LAYOUTS)('%s customer renderer', (layout) => {
     await waitFor(() => expect(close).toHaveFocus());
 
     fireEvent.mouseDown(screen.getByTestId('service-detail-dialog-backdrop'));
-    warning = await screen.findByRole('dialog', { name: 'Save your option changes?' });
+    await screen.findByRole('dialog', { name: 'Save your option changes?' });
     fireEvent.mouseDown(screen.getByTestId('booking-option-warning-dialog-backdrop'));
 
     expect(screen.queryByRole('dialog', { name: 'Save your option changes?' }))
       .not.toBeInTheDocument();
     expect(detail).toBeVisible();
+    expect(within(detail).getByRole('checkbox', { name: 'French' })).toBeChecked();
+    expect(readSession().selection.addOnIds).toEqual([]);
+  });
 
+  it('explicitly saves or discards dirty Change options', async () => {
+    const { user, summary, openOptions, toggleFrench } = setupChangeOptions([]);
+    let detail = await openOptions();
+    await toggleFrench(detail);
     await user.keyboard('{Escape}');
-    warning = await screen.findByRole('dialog', { name: 'Save your option changes?' });
+    let warning = await screen.findByRole('dialog', { name: 'Save your option changes?' });
     await user.click(within(warning).getByRole('button', { name: 'Save changes' }));
 
     expect(summary).toHaveTextContent('1 hr 45 min · From $80');
@@ -310,8 +331,11 @@ describe.each(APPROVED_LAYOUTS)('%s customer renderer', (layout) => {
 
     expect(summary).toHaveTextContent('1 hr 45 min · From $80');
     expect(readSession().selection.addOnIds).toEqual(['addon-french']);
+  });
 
-    detail = await openOptions();
+  it('closes unchanged options without a warning and commits when continuing', async () => {
+    const { user, openOptions, toggleFrench } = setupChangeOptions();
+    let detail = await openOptions();
     await user.click(within(detail).getByRole('button', { name: 'Close service details' }));
 
     expect(screen.queryByTestId('service-detail-dialog')).not.toBeInTheDocument();

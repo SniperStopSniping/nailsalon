@@ -90,6 +90,7 @@ const renderGate = (overrides: {
   configureDraft?: (draft: ReturnType<typeof buildDraft>) => void;
   errorMessage?: string | null;
   needsSessionEmailVerification?: boolean;
+  onSessionEmailVerified?: () => void;
   providers?: OnboardingAuthProviderAvailability;
 } = {}) => {
   const draft = buildDraft();
@@ -103,6 +104,7 @@ const renderGate = (overrides: {
       locale="en"
       needsSessionEmailVerification={overrides.needsSessionEmailVerification ?? false}
       onCancel={() => undefined}
+      onSessionEmailVerified={overrides.onSessionEmailVerified}
       providers={overrides.providers ?? ALL_PROVIDERS}
       state={draft.state}
     />,
@@ -388,7 +390,8 @@ describe('PremiumAccountGate', () => {
 
   it('verifies a signed-in owner’s email in place before any claim', async () => {
     const prepareVerification = vi.fn().mockResolvedValue({});
-    const attemptVerification = vi.fn().mockResolvedValue({});
+    const attemptVerification = vi.fn().mockResolvedValue({ verification: { status: 'verified' } });
+    const onSessionEmailVerified = vi.fn();
     mocks.userState.user = {
       primaryEmailAddress: {
         attemptVerification,
@@ -399,7 +402,7 @@ describe('PremiumAccountGate', () => {
       reload: vi.fn().mockResolvedValue(undefined),
     };
     const user = userEvent.setup();
-    renderGate({ needsSessionEmailVerification: true });
+    renderGate({ needsSessionEmailVerification: true, onSessionEmailVerified });
 
     expect(await screen.findByRole('heading', {
       level: 1,
@@ -412,6 +415,62 @@ describe('PremiumAccountGate', () => {
 
     await waitFor(() => {
       expect(attemptVerification).toHaveBeenCalledWith({ code: '424242' });
+      expect(onSessionEmailVerified).toHaveBeenCalledTimes(1);
     });
+  });
+
+  it('does not unlock a claim when the email verification response is still unverified', async () => {
+    const onSessionEmailVerified = vi.fn();
+    const reload = vi.fn();
+    mocks.userState.user = {
+      primaryEmailAddress: {
+        attemptVerification: vi.fn().mockResolvedValue({ verification: { status: 'unverified' } }),
+        emailAddress: 'owner@example.com',
+        prepareVerification: vi.fn().mockResolvedValue({}),
+        verification: { status: 'unverified' },
+      },
+      reload,
+    };
+    const user = userEvent.setup();
+    renderGate({ needsSessionEmailVerification: true, onSessionEmailVerified });
+
+    await user.type(screen.getByLabelText('Verification code'), '424242');
+    await user.click(screen.getByRole('button', { name: 'Verify and save my site' }));
+
+    expect(await screen.findByText('That code didn’t finish verification. Send a new code and try again.')).toBeVisible();
+    expect(onSessionEmailVerified).not.toHaveBeenCalled();
+    expect(reload).not.toHaveBeenCalled();
+  });
+
+  it('keeps session verification retryable when refreshing a successfully verified user fails', async () => {
+    const onSessionEmailVerified = vi.fn();
+    const reload = vi.fn()
+      .mockRejectedValueOnce(new Error('The connection was interrupted.'))
+      .mockResolvedValueOnce(undefined);
+    mocks.userState.user = {
+      primaryEmailAddress: {
+        attemptVerification: vi.fn().mockResolvedValue({ verification: { status: 'verified' } }),
+        emailAddress: 'owner@example.com',
+        prepareVerification: vi.fn().mockResolvedValue({}),
+        verification: { status: 'verified' },
+      },
+      reload,
+    };
+    const user = userEvent.setup();
+    renderGate({ needsSessionEmailVerification: true, onSessionEmailVerified });
+
+    await user.type(screen.getByLabelText('Verification code'), '424242');
+    await user.click(screen.getByRole('button', { name: 'Verify and save my site' }));
+
+    expect(await screen.findByRole('alert')).toBeVisible();
+    expect(screen.getByRole('heading', { level: 1, name: 'Check your email' })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Verify and save my site' })).toBeEnabled();
+    expect(onSessionEmailVerified).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole('button', { name: 'Verify and save my site' }));
+
+    await waitFor(() => expect(onSessionEmailVerified).toHaveBeenCalledTimes(1));
+
+    expect(reload).toHaveBeenCalledTimes(2);
   });
 });

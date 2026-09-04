@@ -164,6 +164,7 @@ describe('BookingPagePresetPicker', () => {
     );
     expect(preview).toHaveAttribute('sandbox', 'allow-same-origin');
     expect(preview).toHaveAttribute('aria-hidden', 'true');
+    expect(preview).toHaveAttribute('inert');
     expect(preview).toHaveAttribute('tabindex', '-1');
     expect(preview).toHaveClass('pointer-events-none');
     expect(onOperation).not.toHaveBeenCalled();

@@ -70,7 +70,7 @@ describe('POST /api/onboarding/v1/organization', () => {
       },
     });
     expect(mocks.auth).toHaveBeenCalledTimes(1);
-    expect(mocks.auth).toHaveBeenCalledWith();
+    expect(mocks.auth).toHaveBeenCalledWith({ treatPendingAsSignedOut: false });
     expect(mocks.getUser).toHaveBeenCalledTimes(1);
     expect(mocks.getUser).toHaveBeenCalledWith('user_1');
     expect(mocks.getOrganizationMembershipList).toHaveBeenCalledTimes(1);
@@ -104,6 +104,33 @@ describe('POST /api/onboarding/v1/organization', () => {
         ],
       },
     });
+    expect(mocks.createOrganization).not.toHaveBeenCalled();
+  });
+
+  it('resolves only the authenticated pending-session user when completing organization setup', async () => {
+    mocks.auth.mockImplementation(async options => ({
+      userId: options?.treatPendingAsSignedOut === false ? 'user_pending' : null,
+    }));
+    mocks.getUser.mockResolvedValue({ id: 'user_pending' });
+
+    const response = await POST(organizationRequest({ businessName: 'Pending Studio' }));
+
+    expect(response.status).toBe(200);
+    expect(mocks.getUser).toHaveBeenCalledWith('user_pending');
+    expect(mocks.getOrganizationMembershipList).toHaveBeenCalledWith({ limit: 20, userId: 'user_pending' });
+    expect(mocks.createOrganization).toHaveBeenCalledWith({ createdBy: 'user_pending', name: 'Pending Studio' });
+  });
+
+  it.each([
+    { businessName: 'Wrong user', userId: 'user_other' },
+    { businessName: 'Wrong organization', organizationId: 'org_other' },
+    { businessName: 'Wrong salon', salonId: 'salon_other' },
+  ])('rejects client-selected identity and tenancy fields: %j', async (body) => {
+    const response = await POST(organizationRequest(body));
+
+    expect(response.status).toBe(400);
+    expect(mocks.getUser).toHaveBeenCalledWith('user_1');
+    expect(mocks.getOrganizationMembershipList).not.toHaveBeenCalled();
     expect(mocks.createOrganization).not.toHaveBeenCalled();
   });
 

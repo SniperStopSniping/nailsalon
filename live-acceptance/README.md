@@ -47,11 +47,14 @@ saved media, a second claim with services/about/layout/policies, the free-plan
 handoff, dashboard reload, sign-out, fresh-browser sign-in, saved preview,
 explicit local publication, and unauthenticated public booking start. Local
 publication changes only the disposable database; it is not a deployment.
-Run-scoped cleanup runs even on failure. It only deletes an exact matching
-new user and captured newly-created organizations whose sole member is that
-user. It refuses ambiguous or older identities; it never enumerates historical
-test identities for deletion. A cleanup failure must be investigated using
-the exact run scope, not a broader cleanup script.
+Identities are retained by default, with run-scoped cleanup targets journaled
+outside the repository in a mode-0600 file (no passwords or tokens). Cleanup
+requires explicit user consent for irreversible deletion and an exact matching
+`LIVE_CLERK_CLEANUP_CONFIRMED=<run ID>` after the operator has checked provider
+permissions. It only deletes that new user and captured newly-created
+organizations whose sole member is that user. It refuses ambiguous or older
+identities and never enumerates historical identities for deletion. A cleanup
+failure must be investigated using that exact run scope, not a broader script.
 
 Safety tests need no credentials or running application:
 
@@ -65,3 +68,16 @@ project dependency so its token is available to the dependent browser project.
 To verify token/FAPI propagation without starting or navigating to the app, use
 the same launcher environment with `test-setup` instead of `test`. It records
 presence booleans only, never token values.
+
+## Optional disposable loopback PostgreSQL
+
+When file-backed PGlite is unstable across Next development compilation, an
+operator may initialize a new local PostgreSQL cluster using the guarded
+Development initializer/migrations. Do not use a hosted database or copy data.
+Both server and test commands must receive the same explicit `LIVE_RUNTIME_DIR`
+and `LIVE_RUN_SUFFIX`, plus `LIVE_LOCAL_POSTGRES_CONFIRMED=true` and
+`LIVE_LOCAL_POSTGRES_URL`. The URL must use localhost/127.0.0.1 port 55441 with
+database and role both equal to `luster_acceptance_` followed by the first 16
+hex characters of SHA-256 of the run ID. Query strings are rejected. The normal
+runtime database guard must additionally verify the Development marker.
+The launcher never imports `DATABASE_URL` from dotenv or the parent environment.

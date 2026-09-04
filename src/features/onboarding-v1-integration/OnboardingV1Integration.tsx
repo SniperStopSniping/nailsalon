@@ -272,11 +272,20 @@ function OnboardingIntegrationController({
 }) {
   const { isLoaded, isSignedIn } = useAuth();
   const { isLoaded: userLoaded, user } = useUser();
+  const [serverEmailVerificationRequired, setServerEmailVerificationRequired] = useState(false);
   // A signed-in session only unlocks account-backed work once its primary
   // email is verified — the same contract the server enforces at claim time.
   const emailVerified = user?.primaryEmailAddress?.verification?.status === 'verified';
   const authSettled = isLoaded && (!isSignedIn || userLoaded);
-  const accountReady = isSignedIn === true && emailVerified;
+  const accountReady = isSignedIn === true && emailVerified && !serverEmailVerificationRequired;
+  useEffect(() => {
+    if (isLoaded && !isSignedIn) {
+      setServerEmailVerificationRequired(false);
+    }
+  }, [isLoaded, isSignedIn]);
+  const completeSessionEmailVerification = useCallback(() => {
+    setServerEmailVerificationRequired(false);
+  }, []);
   const repository = useCustomDesignAssetRepository();
   const [flow, setFlow] = usePersistentFlow();
   const [payload, setPayload] = useState<OnboardingSavePayload | null>(null);
@@ -453,6 +462,9 @@ function OnboardingIntegrationController({
         // The server refused an unverified identity. Refresh the client's
         // view of the email and return to the account gate's verification
         // step instead of a dead-end failure screen.
+        // Clerk's cached user may still say verified, including if reload
+        // fails. Only an explicit successful verification may retry the claim.
+        setServerEmailVerificationRequired(true);
         void user?.reload().catch(() => undefined);
         setFlow(current => ({
           ...current,
@@ -793,8 +805,10 @@ function OnboardingIntegrationController({
               document={currentPayload.document}
               errorMessage={flow.errorMessage}
               locale={locale}
-              needsSessionEmailVerification={isSignedIn === true && userLoaded && !emailVerified}
+              needsSessionEmailVerification={isSignedIn === true && userLoaded
+              && (!emailVerified || serverEmailVerificationRequired)}
               onCancel={returnToReview}
+              onSessionEmailVerified={completeSessionEmailVerification}
               providers={authProviders}
               state={currentPayload.state}
             />
