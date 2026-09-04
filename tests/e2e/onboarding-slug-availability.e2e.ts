@@ -54,10 +54,12 @@ for (const viewport of MOBILE_VIEWPORTS) {
     await expect(page.getByRole('heading', { name: 'Let’s start with your business' }))
       .toBeVisible();
 
-    const statusId = customUrl;
+    const availabilityStatus = page.getByRole('status').filter({
+      hasText: 'This URL is not available',
+    });
 
-    await expect(statusId).toHaveAttribute('aria-describedby');
-    await expect(page.locator(`#${statusId}`)).toContainText('This URL is not available');
+    await expect(availabilityStatus).toHaveAttribute('id', /.+/u);
+    await expect(customUrl).toHaveAttribute('aria-describedby', /.+/u);
 
     await customUrl.fill('isla-nail-studio-new-owner');
 
