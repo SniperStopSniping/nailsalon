@@ -1,3 +1,11 @@
+## [1.84.2](https://github.com/SniperStopSniping/nailsalon/compare/v1.84.1...v1.84.2) (2026-09-04)
+
+
+### Bug Fixes
+
+* **onboarding:** keep mobile actions clear of the keyboard ([ee06262](https://github.com/SniperStopSniping/nailsalon/commit/ee062622014c1cb5677b0210de7bc29411d204a3))
+* **onboarding:** separate optional business labels ([abaa191](https://github.com/SniperStopSniping/nailsalon/commit/abaa191892cd40916647b8554ea5e501f32c3baa))
+
 ## [1.84.1](https://github.com/SniperStopSniping/nailsalon/compare/v1.84.0...v1.84.1) (2026-09-04)
 
 
