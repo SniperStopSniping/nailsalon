@@ -80,7 +80,10 @@ describe('booking-page builder operations', () => {
     'preserves independent %s on site preset and page reset operations',
     (serviceMenuLayout) => {
       const current = editorialState({ serviceMenuLayout });
-      const expectedPresentationSignature = getBookingPagePresentationSignature(current);
+      const expectedPresentationSignature = getBookingPagePresentationSignature({
+        ...current,
+        presetBase: current.presetBase ?? null,
+      });
 
       for (const operation of [
         { type: 'reset_all', expectedPresentationSignature },

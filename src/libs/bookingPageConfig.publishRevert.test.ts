@@ -685,7 +685,10 @@ describe('bookingPage draft/publish/revert lifecycle (PGlite)', () => {
 
       const resetPage = {
         type: 'reset_all',
-        expectedPresentationSignature: getBookingPagePresentationSignature(getBookingPageDraftPresentationState(selected!)),
+        expectedPresentationSignature: getBookingPagePresentationSignature({
+          ...getBookingPageDraftPresentationState(selected!),
+          presetBase: selected!.draftPresetBase,
+        }),
       } as const;
       const pageReset = await updateBookingPageDraft(salonId, {}, { builderOperation: resetPage });
 
