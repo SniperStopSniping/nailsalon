@@ -82,6 +82,9 @@ retains the same site as the continuation target. If another session has saved
 a newer revision in the meantime, setup asks the owner to reopen the latest
 version instead of saving stale content. Reloading the early account-save
 celebration continues the remaining setup screens before plan selection.
+After plan acceptance, the local saved-site flow stays retryable until the
+dashboard confirms the same owner, salon, site revision and plan. Interrupted
+navigation therefore resumes the same plan handoff instead of restarting setup.
 
 ## Style isolation
 

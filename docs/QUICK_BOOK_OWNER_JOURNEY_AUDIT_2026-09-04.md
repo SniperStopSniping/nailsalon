@@ -17,6 +17,7 @@ Scope: improve the existing Quick Book flow, account-backed persistence, returni
 - The disabled public-hours switch did not explain the next step. It now asks the owner to apply regular hours first.
 - On mobile, the save-success preview pushed the confirmation and Continue action below a large loading area. Confirmation/actions now lead, with explicit preview-loading feedback.
 - WebKit reported a Blob-specific `UnknownError` when saving profile photos, bypassing the existing IndexedDB compatibility retry. That exact error now uses the existing atomic ArrayBuffer fallback; unrelated storage, quota, and permission failures remain failures. Headed WebKit verified upload, decoded preview, and reload persistence.
+- Plan continuation cleared recovery state before the dashboard had opened. The verified site, selected plan, and retry key now remain recoverable until the dashboard confirms the matching owner/site/revision/plan. An interrupted navigation can no longer reset the owner to Services.
 
 ## Local check evidence
 
@@ -26,6 +27,7 @@ Scope: improve the existing Quick Book flow, account-backed persistence, returni
 - Full root units: 6,806 passed, one obsolete frame-class assertion failed. Its updated AccountGate suite passed all 16 tests. PostgreSQL-only/optional gates retain their configured skips.
 - Full shared-runtime units: 1,317 passed; three timing-sensitive cases failed during concurrent compilation. Both affected suites then passed all 48 tests without changing timeouts. The Safari compatibility change separately passed 44 asset/media tests.
 - A source/client secret scan against Next development output refused five oversized development chunks. Optimized-build scanning remains a CI release gate; this is not evidence of a leaked credential.
+- Hosted Preview at `7f70ac2` built successfully and passed the 390×844 Business-to-Screen-6 browser journey, visible footer, signup reachability, and horizontal-overflow checks. No hosted account was created. The final handoff follow-up remains subject to the same required gates.
 
 ## Verification boundaries
 

@@ -1,7 +1,11 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { createOnboardingIntegrationFlow, loadOnboardingIntegrationFlow, saveOnboardingIntegrationFlow } from '@/features/onboarding-v1-integration/flow-storage';
+
 import { OnboardingWorkspaceHandoff } from './OnboardingWorkspaceHandoff';
+
+vi.mock('@clerk/nextjs', () => ({ useAuth: () => ({ userId: 'owner_1' }) }));
 
 const fetchMock = vi.fn();
 const handoff = {
@@ -25,10 +29,46 @@ const handoff = {
 beforeEach(() => {
   vi.clearAllMocks();
   window.localStorage.clear();
+  window.history.replaceState({}, '', '/en/admin');
   vi.stubGlobal('fetch', fetchMock);
 });
 
 describe('OnboardingWorkspaceHandoff', () => {
+  it.each([
+    { focusWelcome: true, retired: true, targetSite: 'site_1' },
+    { focusWelcome: false, retired: false, targetSite: 'site_1' },
+    { focusWelcome: true, retired: false, targetSite: 'another_site' },
+  ])('retires a matching plan only after its explicit dashboard handoff (%j)', async ({ focusWelcome, retired, targetSite }) => {
+    window.history.replaceState({}, '', `/en/admin?onboarding=complete&site=${targetSite}`);
+    const flow = {
+      ...createOnboardingIntegrationFlow(),
+      phase: 'plans' as const,
+      savedSite: {
+        claimId: 'claim_1',
+        created: true,
+        dashboardUrl: '/en/admin',
+        media: { failed: 0, pending: 0, ready: 0 },
+        ownerCreatedServiceIds: [],
+        payloadFingerprint: '0123456789abcdef',
+        revision: handoff.site.revision,
+        revisionId: 'revision_1',
+        salonId: 'salon_1',
+        salonSlug: 'isla',
+        serviceMappingIssues: [],
+        serviceMenuApplied: true,
+        siteId: handoff.site.id,
+      },
+      savedSiteOwnerId: 'owner_1',
+    };
+    saveOnboardingIntegrationFlow(flow);
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ data: handoff }), { status: 200 }));
+
+    render(<OnboardingWorkspaceHandoff focusWelcome={focusWelcome} locale="en" onTakeTour={vi.fn()} salonSlug="isla" />);
+    await screen.findByRole('link', { name: /Preview website/i });
+
+    expect(loadOnboardingIntegrationFlow().savedSite).toEqual(retired ? null : flow.savedSite);
+  });
+
   it('shows account-backed actions and derives checklist copy from returned statuses', async () => {
     fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ data: handoff }), { status: 200 }));
     const onTakeTour = vi.fn();

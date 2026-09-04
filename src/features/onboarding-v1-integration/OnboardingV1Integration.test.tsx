@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { ReactNode } from 'react';
+import { onTestFinished } from 'vitest';
 
 import { initializeStarter } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/model/starters';
 import { SITE_BUILDER_STORAGE_KEY } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/model/validation';
@@ -676,6 +677,63 @@ describe('OnboardingV1Integration rendered account-save flow', () => {
     expect(screen.getByText('Nothing is charged today.')).toBeVisible();
     expect(screen.queryByRole('button', { name: /pay|checkout|purchase/iu }))
       .not.toBeInTheDocument();
+  });
+
+  it('retains the same saved site and plan retry key when dashboard navigation is interrupted', async () => {
+    const user = userEvent.setup();
+    const navigationErrors = vi.spyOn(console, 'error').mockImplementation(() => {});
+    onTestFinished(() => navigationErrors.mockRestore());
+    mocks.auth.isSignedIn = true;
+    mocks.userState.user = verifiedClerkUser();
+    mocks.status.mockResolvedValue({ claim: savedSite });
+    mocks.savePlan.mockResolvedValue({ intent: 'free', siteId: savedSite.siteId });
+    const flow = {
+      ...createOnboardingIntegrationFlow(),
+      phase: 'plans' as const,
+      savedSite,
+      savedSiteOwnerId: 'user-owner',
+    };
+    saveOnboardingIntegrationFlow(flow);
+    const originalToken = loadOnboardingState().state.anonymousDraftId;
+    const view = render(<OnboardingV1Integration authProviders={ALL_PROVIDERS} locale="en" />);
+
+    // jsdom deliberately does not complete location.assign, modeling an
+    // interrupted handoff after the plan API has accepted this exact site.
+    await user.click(await screen.findByRole('button', { name: 'Continue free' }));
+    await waitFor(() => expect(loadOnboardingState().state.anonymousDraftId).not.toBe(originalToken));
+    const rotatedToken = loadOnboardingState().state.anonymousDraftId;
+
+    expect(loadOnboardingIntegrationFlow()).toMatchObject({
+      phase: 'plans',
+      planIdempotencyKey: flow.planIdempotencyKey,
+      savedSite: { siteId: savedSite.siteId },
+      selectedPlan: 'free',
+    });
+    expect(loadOnboardingState().state.eventJournal.some(event => event.type === 'dashboard_entered')).toBe(false);
+
+    view.unmount();
+    render(<OnboardingV1Integration authProviders={ALL_PROVIDERS} locale="en" />);
+
+    await user.click(await screen.findByRole('button', { name: 'Continue free' }));
+
+    expect(mocks.status).toHaveBeenCalledWith(rotatedToken, expect.objectContaining({ savedSiteId: savedSite.siteId }));
+    expect(mocks.savePlan).toHaveBeenCalledTimes(2);
+    expect(mocks.savePlan).toHaveBeenNthCalledWith(1, {
+      idempotencyKey: flow.planIdempotencyKey,
+      intent: 'free',
+      siteId: savedSite.siteId,
+    });
+    expect(mocks.savePlan).toHaveBeenNthCalledWith(2, {
+      idempotencyKey: flow.planIdempotencyKey,
+      intent: 'free',
+      siteId: savedSite.siteId,
+    });
+    expect(mocks.claim).not.toHaveBeenCalled();
+    expect(navigationErrors).toHaveBeenCalledTimes(2);
+    expect(navigationErrors.mock.calls.map(([error]) => String(error).split('\n')[0])).toEqual([
+      'Error: Not implemented: navigation (except hash changes)',
+      'Error: Not implemented: navigation (except hash changes)',
+    ]);
   });
 
   it('retains a successful core claim when media finalization must be retried', async () => {

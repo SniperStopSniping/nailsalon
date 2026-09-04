@@ -76,7 +76,6 @@ import {
 import {
   canResumeVerifiedOnboardingSetup,
   clearOnboardingIntegrationBrowserState,
-  clearOnboardingIntegrationFlow,
   loadOnboardingIntegrationFlow,
   type OnboardingIntegrationFlow,
   phaseAfterOnboardingReauthentication,
@@ -936,7 +935,6 @@ function OnboardingIntegrationController({
         intent: LAB_INTENT_BY_PLAN_INTENT[result.intent],
         type: 'plan_selected',
       });
-      recordIntegrationEvent({ type: 'dashboard_entered' }, true);
       const localDraft = loadOnboardingState();
       if (localDraft.status === 'loaded') {
         const rotatedDraft = saveOnboardingState({
@@ -951,7 +949,8 @@ function OnboardingIntegrationController({
           });
         }
       }
-      clearOnboardingIntegrationFlow();
+      // Keep the verified site and plan retry key until the dashboard actually
+      // loads this handoff. A navigation interruption must not restart setup.
       const dashboardUrl = new URL(`/${locale}/admin`, window.location.origin);
       dashboardUrl.searchParams.set('onboarding', 'complete');
       dashboardUrl.searchParams.set('salon', flow.savedSite.salonSlug);

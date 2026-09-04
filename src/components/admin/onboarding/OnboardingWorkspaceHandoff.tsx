@@ -1,5 +1,6 @@
 'use client';
 
+import { useAuth } from '@clerk/nextjs';
 import {
   CalendarCheck,
   Check,
@@ -15,6 +16,8 @@ import {
   X,
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+
+import { completeOnboardingDashboardHandoff } from '@/features/onboarding-v1-integration/flow-storage';
 
 export type HandoffSetupStatus = 'complete' | 'needs_attention' | 'not_started';
 export type OnboardingHandoffResolution = 'absent' | 'available' | 'error';
@@ -123,6 +126,7 @@ export function OnboardingWorkspaceHandoff({
   onTakeTour: () => void;
   salonSlug: string;
 }) {
+  const { userId } = useAuth();
   const [handoff, setHandoff] = useState<OnboardingSiteHandoff | null>(null);
   const [handoffSalonSlug, setHandoffSalonSlug] = useState<string | null>(null);
   const [canChangeSetup, setCanChangeSetup] = useState(false);
@@ -170,10 +174,20 @@ export function OnboardingWorkspaceHandoff({
     // Setup loads the authorized saved revision from the server, including
     // when the owner signs in on a new device with no local draft.
     setCanChangeSetup(next.site.setupAvailable);
+    if (focusWelcome && userId
+      && new URLSearchParams(window.location.search).get('site') === next.site.id) {
+      completeOnboardingDashboardHandoff({
+        ownerId: userId,
+        planIntent: next.handoff.planIntent,
+        revision: next.site.revision,
+        salonSlug,
+        siteId: next.site.id,
+      });
+    }
     onHandoffChange?.(next);
     onAvailabilityChange?.(true);
     onResolutionChange?.('available');
-  }, [locale, onAvailabilityChange, onHandoffChange, onResolutionChange, salonSlug]);
+  }, [focusWelcome, locale, onAvailabilityChange, onHandoffChange, onResolutionChange, salonSlug, userId]);
 
   useEffect(() => {
     const controller = new AbortController();
