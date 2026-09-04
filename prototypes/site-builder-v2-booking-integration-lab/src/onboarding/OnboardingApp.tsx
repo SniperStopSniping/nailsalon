@@ -64,7 +64,10 @@ import {
   getCompletedEssentialStages,
   getEssentialsLeft,
 } from './progress/essentials';
-import { BrandBasicsScreen } from './screens/BasicsScreens';
+import {
+  BrandBasicsScreen,
+  type SiteSlugAvailabilityCheck,
+} from './screens/BasicsScreens';
 import { BookingLayoutScreen } from './screens/BookingLayoutScreen';
 import {
   BookingPreferencesScreen,
@@ -134,6 +137,10 @@ type OnboardingAppProps = {
   forceReview?: boolean;
   lab: LabDocumentController;
   integration?: {
+    checkSiteSlugAvailability?: (
+      slug: string,
+      signal?: AbortSignal,
+    ) => Promise<SiteSlugAvailabilityCheck>;
     hasSavedSite?: boolean;
     onSaveSite: (payload: OnboardingSavePayload) => void;
     onStartOver?: () => void;
@@ -1370,6 +1377,7 @@ export function OnboardingApp({
       case 'business':
         return (
           <BrandBasicsScreen
+            checkSiteSlugAvailability={integration?.checkSiteSlugAvailability}
             onBack={goBack}
             onContinue={() => {
               if (!syncBuilderSiteName()) {

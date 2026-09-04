@@ -1,9 +1,12 @@
+import { normalizeSalonSlug } from '@/libs/tenantSlug';
+
 import type {
   OnboardingClaimConflict,
   OnboardingClaimSuccess,
   OnboardingDraftClaimRequest,
   OnboardingPlanIntent,
   OnboardingPlanIntentRequest,
+  OnboardingSiteSlugAvailability,
 } from './contracts';
 
 type ErrorEnvelope = {
@@ -49,6 +52,46 @@ const readJson = async <Value>(response: Response): Promise<Value | null> =>
 const ownerMessage = (body: ErrorEnvelope | null, fallback: string): string => {
   const message = body?.error?.message;
   return typeof message === 'string' && message.trim() ? message : fallback;
+};
+
+export const checkOnboardingSiteSlugAvailability = async (
+  slug: string,
+  signal?: AbortSignal,
+  options: { fetcher?: typeof fetch; knownAvailableSlug?: string } = {},
+): Promise<OnboardingSiteSlugAvailability> => {
+  const normalizedSlug = normalizeSalonSlug(slug) ?? '';
+  if (
+    options.knownAvailableSlug
+    && normalizeSalonSlug(options.knownAvailableSlug) === normalizedSlug
+  ) {
+    return { available: true, reason: 'available', slug: normalizedSlug };
+  }
+  const response = await (options.fetcher ?? fetch)('/api/onboarding/v1/slug-availability', {
+    body: JSON.stringify({ slug }),
+    headers: { 'Content-Type': 'application/json' },
+    method: 'POST',
+    signal,
+  });
+  const body = await readJson<DataEnvelope<OnboardingSiteSlugAvailability> & ErrorEnvelope>(response);
+  const availability = body?.data;
+  if (
+    !response.ok
+    || !availability
+    || typeof availability.available !== 'boolean'
+    || typeof availability.slug !== 'string'
+    || availability.slug !== normalizedSlug
+    || !['available', 'invalid', 'unavailable'].includes(availability.reason)
+    || availability.available !== (availability.reason === 'available')
+  ) {
+    throw new OnboardingIntegrationRequestError(
+      ownerMessage(body, 'We couldn’t check this URL right now.'),
+      {
+        code: typeof body?.error?.code === 'string' ? body.error.code : undefined,
+        status: response.status,
+      },
+    );
+  }
+  return availability;
 };
 
 export const claimOnboardingDraft = async (

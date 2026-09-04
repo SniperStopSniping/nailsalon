@@ -56,6 +56,7 @@ import {
   type OnboardingAuthProviderAvailability,
 } from './auth-providers';
 import {
+  checkOnboardingSiteSlugAvailability,
   claimOnboardingDraft,
   getOnboardingDraftClaimStatus,
   OnboardingIntegrationRequestError,
@@ -304,6 +305,11 @@ function OnboardingIntegrationController({
     && flow.savedSiteOwnerId === accountId
     && verifiedSavedSiteRef.current?.ownerId === accountId
     && verifiedSavedSiteRef.current.claimId === flow.savedSite.claimId);
+  const checkSiteSlugAvailability = useCallback((slug: string, signal?: AbortSignal) => (
+    checkOnboardingSiteSlugAvailability(slug, signal, {
+      knownAvailableSlug: savedSiteVerified ? flow.savedSite?.salonSlug : undefined,
+    })
+  ), [flow.savedSite?.salonSlug, savedSiteVerified]);
   const [verificationFailure, setVerificationFailure] = useState<{ ownerId: string; siteId: string; message: string } | null>(null);
   const currentVerificationFailure = accountId && verificationFailure?.ownerId === accountId
     && verificationFailure.siteId === flow.savedSite?.siteId
@@ -1110,6 +1116,7 @@ function OnboardingIntegrationController({
         <OnboardingApp
           forceReview={forceReview}
           integration={{
+            checkSiteSlugAvailability,
             hasSavedSite: savedSiteVerified,
             onSaveSite: startSave,
             onStartOver: () => {
