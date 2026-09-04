@@ -158,6 +158,7 @@ const usePersistentFlow = () => {
   const [flow, setFlowState] = useState<OnboardingIntegrationFlow>(() => {
     const loaded = loadOnboardingIntegrationFlow();
     return loaded.phase === 'saved' && loaded.celebrationSeen
+      && loadOnboardingState().state.progress.currentScreen !== 'save_progress'
       ? { ...loaded, phase: 'plans' }
       : loaded;
   });
@@ -252,6 +253,7 @@ function OnboardingV1Runtime({
         <OnboardingIntegrationController
           authProviders={authProviders}
           existingCustomMediaByLogicalId={existingCustomMediaByLogicalId}
+          initialResumeDraft={initialResumeDraft}
           lab={lab}
           locale={locale}
         />
@@ -263,11 +265,13 @@ function OnboardingV1Runtime({
 function OnboardingIntegrationController({
   authProviders,
   existingCustomMediaByLogicalId,
+  initialResumeDraft,
   lab,
   locale,
 }: {
   authProviders: OnboardingAuthProviderAvailability;
   existingCustomMediaByLogicalId: ExistingCustomDesignMediaByLogicalId;
+  initialResumeDraft?: InitialOnboardingResumeDraft;
   lab: ReturnType<typeof useLabDocument>;
   locale: string;
 }) {
@@ -311,8 +315,9 @@ function OnboardingIntegrationController({
     })
   ), [flow.savedSite?.salonSlug, savedSiteVerified]);
   const [verificationFailure, setVerificationFailure] = useState<{ ownerId: string; siteId: string; message: string } | null>(null);
+  const verificationSiteId = flow.savedSite?.siteId ?? initialResumeDraft?.siteId;
   const currentVerificationFailure = accountId && verificationFailure?.ownerId === accountId
-    && verificationFailure.siteId === flow.savedSite?.siteId
+    && verificationFailure.siteId === verificationSiteId
     ? verificationFailure
     : null;
   const [payload, setPayload] = useState<OnboardingSavePayload | null>(null);
@@ -353,12 +358,12 @@ function OnboardingIntegrationController({
     payloadRef.current ?? getPayloadFromBrowser(lab.document), [lab.document]);
 
   useEffect(() => {
-    if (!accountId || !flow.savedSite || savedSiteVerified || currentVerificationFailure
+    if (!accountId || !verificationSiteId || savedSiteVerified || currentVerificationFailure
       || claimInFlightRef.current || mediaInFlightRef.current) {
       return;
     }
     const expectedOwnerId = accountId;
-    const savedSiteId = flow.savedSite.siteId;
+    const savedSiteId = verificationSiteId;
     const controller = new AbortController();
     const currentPayload = resolvePayload();
     void (async () => {
@@ -376,6 +381,10 @@ function OnboardingIntegrationController({
         if (!status.claim || status.claim.siteId !== savedSiteId) {
           throw new Error('We couldn’t verify this saved website. Open it from your dashboard or sign in with the account that saved it.');
         }
+        const expectedRevision = flow.savedSite?.revision ?? initialResumeDraft?.verifiedRevision;
+        if (expectedRevision !== undefined && status.claim.revision !== expectedRevision) {
+          throw new Error('This website has newer changes. Open its latest version from your dashboard before editing.');
+        }
         verifiedSavedSiteRef.current = { ownerId: expectedOwnerId, claimId: status.claim.claimId };
         setFlow(current => ({ ...current, savedSite: status.claim, savedSiteOwnerId: expectedOwnerId }));
       } catch (error) {
@@ -390,7 +399,7 @@ function OnboardingIntegrationController({
       }
     })();
     return () => controller.abort();
-  }, [accountId, currentVerificationFailure, flow.phase, flow.savedSite, resolvePayload, savedSiteVerified, setFlow]);
+  }, [accountId, currentVerificationFailure, flow.phase, flow.savedSite, initialResumeDraft, resolvePayload, savedSiteVerified, setFlow, verificationSiteId]);
 
   const finishCoreClaim = useCallback(async (
     savedSite: OnboardingClaimSuccess,
@@ -492,8 +501,9 @@ function OnboardingIntegrationController({
     if (claimInFlightRef.current) {
       return;
     }
-    if (latestFlowRef.current.savedSite
-      && (verifiedSavedSiteRef.current?.ownerId !== claimAccountId
+    if ((latestFlowRef.current.savedSite || initialResumeDraft)
+      && (!latestFlowRef.current.savedSite
+        || verifiedSavedSiteRef.current?.ownerId !== claimAccountId
         || verifiedSavedSiteRef.current.claimId !== latestFlowRef.current.savedSite.claimId)) {
       setFlow(current => ({ ...current, phase: 'account' }));
       return;
@@ -596,13 +606,15 @@ function OnboardingIntegrationController({
         setFlow(current => ({ ...current, phase: 'account' }));
       }
     }
-  }, [existingCustomMediaByLogicalId, finishCoreClaim, resolvePayload, setFlow, user]);
+  }, [existingCustomMediaByLogicalId, finishCoreClaim, initialResumeDraft, resolvePayload, setFlow, user]);
 
   useEffect(() => {
-    if (!authSettled || !accountReady || flow.phase !== 'account' || (flow.savedSite && !savedSiteVerified)) {
+    if (!authSettled || !accountReady || flow.phase !== 'account' || (verificationSiteId && !savedSiteVerified)) {
       return;
     }
-    const resumePhase = phaseAfterOnboardingReauthentication(flow);
+    const resumePhase = phaseAfterOnboardingReauthentication(flow, {
+      earlySave: resolvePayload()?.state.progress.currentScreen === 'save_progress',
+    });
     if (resumePhase) {
       setFlow(current => ({
         ...current,
@@ -616,7 +628,7 @@ function OnboardingIntegrationController({
       type: authMode === 'sign-in' ? 'sign_in_completed' : 'sign_up_completed',
     }, true);
     void claim();
-  }, [accountReady, authMode, authSettled, claim, flow, savedSiteVerified, setFlow]);
+  }, [accountReady, authMode, authSettled, claim, flow, resolvePayload, savedSiteVerified, setFlow, verificationSiteId]);
 
   useEffect(() => {
     if (!shouldReturnInterruptedSaveToAccountGate({
@@ -961,7 +973,11 @@ function OnboardingIntegrationController({
 
   const currentPayload = resolvePayload();
 
-  if (accountReady && flow.savedSite && !savedSiteVerified && flow.phase !== 'onboarding') {
+  if (initialResumeDraft && !authSettled) {
+    return <main className="onboarding-integration-loading" aria-busy="true">Preparing your saved website…</main>;
+  }
+  if (accountReady && verificationSiteId && !savedSiteVerified
+    && (initialResumeDraft || flow.phase !== 'onboarding')) {
     return currentVerificationFailure
       ? (
           <OwnerSurface modifier="is-centred">
@@ -989,7 +1005,7 @@ function OnboardingIntegrationController({
   }
   // Gate rendering itself, not just the post-render recovery effect. This
   // prevents a stale picker flashing during auth loading or session changes.
-  const visiblePhase = flow.phase !== 'onboarding' && !accountReady ? 'account' : flow.phase;
+  const visiblePhase = (initialResumeDraft || flow.phase !== 'onboarding') && !accountReady ? 'account' : flow.phase;
   switch (visiblePhase) {
     case 'account':
       return currentPayload
@@ -1359,6 +1375,7 @@ function SavedCelebration({
 }) {
   const feedback = useFeedback();
   const headingRef = useRef<HTMLHeadingElement>(null);
+  const [previewLoaded, setPreviewLoaded] = useState(false);
   const salonName = state.profile.businessName.trim() || 'Your nail studio';
   useEffect(() => {
     headingRef.current?.focus({ preventScroll: true });
@@ -1406,10 +1423,12 @@ function SavedCelebration({
           </div>
         </div>
         <div className="onboarding-saved-preview" aria-label={`Saved preview of ${salonName}`}>
+          {!previewLoaded && <p className="onboarding-saved-preview-loading" role="status">Loading your saved preview…</p>}
           {/* eslint-disable-next-line react-dom/no-missing-iframe-sandbox -- This trusted same-origin read-only route needs cookies and client hydration; adding both same-origin and scripts would create a misleading sandbox boundary. */}
           <iframe
             aria-hidden="true"
             loading="eager"
+            onLoad={() => setPreviewLoaded(true)}
             // This is a trusted, same-origin, read-only customer route. The
             // owner shell keeps it pointer-inert and outside the tab order;
             // deliberately avoid a same-origin + scripts sandbox combination,

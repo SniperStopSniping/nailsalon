@@ -6,7 +6,7 @@ import path from 'node:path';
 
 import { parse } from 'dotenv';
 
-import { assertLocalAcceptanceEnvironment } from './safety';
+import { assertLocalAcceptanceEnvironment, localAcceptanceBaseURL } from './safety';
 
 const action = process.argv[2];
 if (action !== 'server' && action !== 'test' && action !== 'test-setup') {
@@ -34,7 +34,7 @@ const project = process.env.LIVE_BROWSER_PROJECT ?? 'chromium-live';
 if (!['chromium-live', 'webkit-live'].includes(project)) {
   throw new Error('Choose chromium-live or webkit-live for local acceptance.');
 }
-const baseURL = 'http://localhost:4211';
+const baseURL = localAcceptanceBaseURL(process.env.LIVE_LOCAL_PORT);
 // Only the Clerk pair is imported from dotenv. The optional database URL uses
 // a separate explicit input and must pass the exact loopback/run/role guard.
 // Inherited DATABASE_URL and external provider configuration are never copied.
@@ -76,10 +76,13 @@ assertLocalAcceptanceEnvironment(environment);
 mkdirSync(environment.LIVE_EVIDENCE_DIR!, { recursive: true, mode: 0o700 });
 process.stdout.write(`Disposable acceptance ${action}: ${baseURL}\nRuntime directory: ${runtimeDirectory}\nRun scope: ${runId}\n`);
 const args = action === 'server'
-  ? ['node_modules/next/dist/bin/next', 'dev', '--hostname', 'localhost', '--port', '4211']
+  ? ['node_modules/next/dist/bin/next', 'dev', '--hostname', 'localhost', '--port', new URL(baseURL).port]
   : ['node_modules/@playwright/test/cli.js', 'test', '--config=live-acceptance/playwright.live.config.ts', `--project=${project}`];
 if (action === 'test-setup') {
   args.push('--grep=Clerk setup propagates|obtain a Clerk development testing token');
+}
+if (action === 'test' && process.env.LIVE_HEADED === 'true') {
+  args.push('--headed');
 }
 const child = spawn(process.execPath, args, { env: environment, stdio: 'inherit' });
 for (const signal of ['SIGINT', 'SIGTERM'] as const) {

@@ -1,12 +1,8 @@
 'use client';
 
 import { ArrowLeft, CalendarCheck, Monitor, MonitorSmartphone, Settings2, Smartphone, Tablet } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 
-import {
-  authorizeVerifiedOnboardingSetupResume,
-  canResumeVerifiedOnboardingSetup,
-} from '@/features/onboarding-v1-integration/flow-storage';
 import type { SavedSitePreviewModel } from '@/features/onboarding-v1-integration/saved-preview';
 import { SavedPreviewAssetRepository } from '@/features/onboarding-v1-integration/saved-preview-assets';
 
@@ -32,7 +28,6 @@ export function SavedSitePreviewClient({
   model,
   revision,
   salonSlug,
-  siteId,
   setupAvailable,
   setupUrl,
   showAuditRevision,
@@ -48,14 +43,7 @@ export function SavedSitePreviewClient({
   showAuditRevision: boolean;
 }) {
   const [device, setDevice] = useState<OnboardingPreviewDevice>('phone');
-  const [canChangeSetup, setCanChangeSetup] = useState(false);
   const bookingPageUrl = `/${locale}/admin/booking-page?salon=${encodeURIComponent(salonSlug)}`;
-  useEffect(() => {
-    setCanChangeSetup(setupAvailable && canResumeVerifiedOnboardingSetup({
-      siteId,
-      verifiedRevision: revision,
-    }));
-  }, [revision, setupAvailable, siteId]);
   const repository = useMemo(
     () => new SavedPreviewAssetRepository(model.media),
     [model.media],
@@ -124,6 +112,7 @@ export function SavedSitePreviewClient({
                     {DEVICES.map(({ icon: Icon, id, label }) => (
                       <button
                         key={id}
+                        aria-label={label}
                         aria-pressed={device === id}
                         className={`flex min-h-11 flex-1 items-center justify-center gap-2 rounded-full px-3 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)] ${
                           device === id
@@ -151,15 +140,11 @@ export function SavedSitePreviewClient({
                     <CalendarCheck aria-hidden="true" size={18} />
                     Manage &amp; publish Booking Page
                   </a>
-                  {canChangeSetup
+                  {setupAvailable
                     ? (
                         <a
                           className="inline-flex min-h-11 items-center justify-center gap-2 rounded-full border border-[var(--owner-line-strong)] bg-white px-5 text-sm font-semibold text-[var(--owner-ink)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)]"
                           href={setupUrl}
-                          onClick={() => authorizeVerifiedOnboardingSetupResume({
-                            siteId,
-                            verifiedRevision: revision,
-                          })}
                         >
                           <Settings2 aria-hidden="true" size={18} />
                           Change website setup

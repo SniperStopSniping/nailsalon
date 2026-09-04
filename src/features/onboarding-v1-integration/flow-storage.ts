@@ -381,11 +381,12 @@ export const shouldReturnInterruptedSaveToAccountGate = (input: {
 
 export const phaseAfterOnboardingReauthentication = (
   flow: Pick<OnboardingIntegrationFlow, 'celebrationSeen' | 'reauthResumePhase' | 'savedSite'>,
+  options: { earlySave?: boolean } = {},
 ): OnboardingIntegrationPhase | null => {
   if (!flow.reauthResumePhase) {
     return null;
   }
-  if (flow.reauthResumePhase === 'saved' && flow.celebrationSeen) {
+  if (flow.reauthResumePhase === 'saved' && flow.celebrationSeen && !options.earlySave) {
     return 'plans';
   }
   if (

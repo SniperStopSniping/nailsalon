@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { ReactNode } from 'react';
 
@@ -14,6 +14,9 @@ import {
   saveOnboardingIntegrationFlow,
 } from './flow-storage';
 import { OnboardingV1Integration } from './OnboardingV1Integration';
+import { fingerprintOnboardingPayload } from './payload-fingerprint';
+import type { InitialOnboardingResumeDraft } from './resume-draft';
+import { createPersistableOnboardingDraft } from './snapshot';
 
 type MockedClerkUser = {
   id: string;
@@ -82,6 +85,10 @@ vi.mock('../../../prototypes/site-builder-v2-booking-integration-lab/src/ui/useL
   useLabDocument: () => mocks.lab,
 }));
 
+vi.mock('./resume-assets', () => ({
+  ResumedOnboardingAssetRepository: class {},
+}));
+
 vi.mock('./client', async (importOriginal) => {
   const actual = await importOriginal<typeof import('./client')>();
 
@@ -147,6 +154,31 @@ const seedAcceptedReview = () => {
 
   window.localStorage.setItem(SITE_BUILDER_STORAGE_KEY, JSON.stringify(document));
   mocks.lab.document = document;
+};
+
+const savedResumeDraft = (): InitialOnboardingResumeDraft => {
+  const state = loadOnboardingState().state;
+  state.profile.businessType = 'home_based';
+  state.profile.siteSlug = savedSite.salonSlug;
+  state.profile.bookingOnlyContact = true;
+  state.profile.location.cityOrArea = 'Toronto';
+  state.profile.location.exactAddress = '10 Example Street';
+  state.profile.bookingPreferences.visitMode = 'appointment_only';
+  state.profile.bookingPreferences.newClientStatus = 'yes';
+  state.recipe.starter = 'quick_book';
+  state.recipe.styleConfirmed = true;
+  state.recipe.paletteConfirmed = true;
+  const document = initializeStarter('quick_book', { siteId: 'local-site', siteName: state.profile.businessName });
+  const { snapshot } = createPersistableOnboardingDraft(state, state.recipe.palettePreset, null, document);
+  mocks.lab.document = document;
+  return {
+    document,
+    media: [],
+    payloadFingerprint: fingerprintOnboardingPayload(snapshot),
+    siteId: savedSite.siteId,
+    state,
+    verifiedRevision: savedSite.revision,
+  };
 };
 
 describe('OnboardingV1Integration rendered account-save flow', () => {
@@ -435,6 +467,134 @@ describe('OnboardingV1Integration rendered account-save flow', () => {
 
     expect(mocks.savePlan).not.toHaveBeenCalled();
     expect(mocks.claim).not.toHaveBeenCalled();
+  });
+
+  it('resumes the same account-backed site on a new device before allowing edits', async () => {
+    mocks.auth.isSignedIn = true;
+    mocks.userState.user = verifiedClerkUser();
+    const draft = savedResumeDraft();
+    window.localStorage.clear();
+    window.history.replaceState({}, '', `/en/onboarding-v1?resume=review&site=${draft.siteId}&revision=${draft.verifiedRevision}`);
+    mocks.status.mockResolvedValue({ claim: savedSite });
+    render(<OnboardingV1Integration authProviders={ALL_PROVIDERS} initialResumeDraft={draft} locale="en" />);
+
+    await waitFor(() => expect(loadOnboardingIntegrationFlow().savedSite).toEqual(savedSite));
+
+    expect(mocks.status).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ savedSiteId: draft.siteId }));
+    expect(loadOnboardingIntegrationFlow().savedSiteOwnerId).toBe('user-owner');
+    expect(loadOnboardingState().state.profile).toEqual(draft.state.profile);
+    expect(loadOnboardingState().state.anonymousDraftId).not.toBe(draft.state.anonymousDraftId);
+    expect(mocks.claim).not.toHaveBeenCalled();
+
+    mocks.claim.mockResolvedValue({ status: 'saved', value: { ...savedSite, revision: 2 } });
+    mocks.claimMedia.mockResolvedValue({ failures: [], verifiedRevision: 2 });
+    mocks.cleanupMedia.mockResolvedValue({ removedAssetIds: [] });
+    mocks.lab.acceptOnboardingPresentation.mockReturnValueOnce(draft.document as never);
+
+    await userEvent.setup().click(await screen.findByRole('button', { name: 'Finish setup' }));
+
+    await waitFor(() => expect(mocks.claim).toHaveBeenCalledWith(expect.objectContaining({
+      target: {
+        continuationClaimId: savedSite.claimId,
+        existingSiteStrategy: 'continue_onboarding_draft',
+        expectedRevision: savedSite.revision,
+        expectedSiteId: savedSite.siteId,
+        mode: 'existing_business',
+        salonId: savedSite.salonId,
+      },
+    })));
+  });
+
+  it('blocks stale resume content when a newer revision was saved in another session', async () => {
+    mocks.auth.isSignedIn = true;
+    mocks.userState.user = verifiedClerkUser();
+    const draft = savedResumeDraft();
+    mocks.status.mockResolvedValue({ claim: { ...savedSite, revision: savedSite.revision + 1 } });
+    render(<OnboardingV1Integration authProviders={ALL_PROVIDERS} initialResumeDraft={draft} locale="en" />);
+
+    expect(await screen.findByRole('heading', { name: 'Check the account for this website' })).toBeVisible();
+    expect(screen.getByText(/This website has newer changes/u)).toBeVisible();
+    expect(loadOnboardingIntegrationFlow().savedSite).toBeNull();
+    expect(mocks.claim).not.toHaveBeenCalled();
+  });
+
+  it('keeps a server-resumed draft behind identity and ownership verification', async () => {
+    const draft = savedResumeDraft();
+    mocks.auth.isLoaded = false;
+    mocks.auth.isSignedIn = false;
+    const view = render(<OnboardingV1Integration authProviders={ALL_PROVIDERS} initialResumeDraft={draft} locale="en" />);
+
+    expect(await screen.findByText('Preparing your saved website…')).toBeVisible();
+    expect(screen.queryByRole('button', { name: 'Finish setup' })).not.toBeInTheDocument();
+    expect(mocks.status).not.toHaveBeenCalled();
+
+    mocks.auth.isLoaded = true;
+    view.rerender(<OnboardingV1Integration authProviders={ALL_PROVIDERS} initialResumeDraft={draft} locale="en" />);
+
+    expect(await screen.findByRole('button', { name: 'Continue with email' })).toBeVisible();
+    expect(screen.queryByRole('button', { name: 'Finish setup' })).not.toBeInTheDocument();
+    expect(mocks.claim).not.toHaveBeenCalled();
+
+    let verifyOwnership!: (value: { claim: OnboardingClaimSuccess }) => void;
+    mocks.status.mockImplementationOnce(() => new Promise((resolve) => {
+      verifyOwnership = resolve;
+    }));
+    mocks.auth.isSignedIn = true;
+    mocks.userState.user = verifiedClerkUser();
+    view.rerender(<OnboardingV1Integration authProviders={ALL_PROVIDERS} initialResumeDraft={draft} locale="en" />);
+
+    await waitFor(() => expect(mocks.status).toHaveBeenCalledTimes(1));
+
+    expect(screen.queryByRole('button', { name: 'Finish setup' })).not.toBeInTheDocument();
+    expect(mocks.claim).not.toHaveBeenCalled();
+
+    await act(async () => verifyOwnership({ claim: savedSite }));
+
+    expect(await screen.findByRole('button', { name: 'Finish setup' })).toBeVisible();
+    expect(mocks.claim).not.toHaveBeenCalled();
+  });
+
+  it('does not advance an older local snapshot to a newer server revision', async () => {
+    mocks.auth.isSignedIn = true;
+    mocks.userState.user = verifiedClerkUser();
+    saveOnboardingIntegrationFlow({ ...createOnboardingIntegrationFlow(), phase: 'plans', savedSite });
+    mocks.status.mockResolvedValue({ claim: { ...savedSite, revision: savedSite.revision + 1 } });
+    render(<OnboardingV1Integration authProviders={ALL_PROVIDERS} locale="en" />);
+
+    expect(await screen.findByText(/This website has newer changes/u)).toBeVisible();
+    expect(loadOnboardingIntegrationFlow().savedSite?.revision).toBe(savedSite.revision);
+    expect(screen.queryByRole('button', { name: 'Continue free' })).not.toBeInTheDocument();
+    expect(mocks.claim).not.toHaveBeenCalled();
+  });
+
+  it('reloads early saved progress without skipping services and the remaining setup', async () => {
+    mocks.auth.isSignedIn = true;
+    mocks.userState.user = verifiedClerkUser();
+    const state = loadOnboardingState().state;
+    saveOnboardingState({ ...state, progress: { ...state.progress, currentScreen: 'save_progress' } });
+    saveOnboardingIntegrationFlow({
+      ...createOnboardingIntegrationFlow(),
+      celebrationSeen: true,
+      phase: 'saved',
+      savedSite,
+      savedSiteOwnerId: 'user-owner',
+    });
+    mocks.status.mockResolvedValue({ claim: savedSite });
+    render(<OnboardingV1Integration authProviders={ALL_PROVIDERS} locale="en" />);
+
+    expect(await screen.findByRole('button', { name: 'Continue setting up' })).toBeVisible();
+    expect(screen.queryByRole('button', { name: 'Continue free' })).not.toBeInTheDocument();
+    expect(screen.getByText('Loading your saved preview…')).toBeVisible();
+
+    fireEvent.load(screen.getByTitle(/^Saved preview of /u));
+
+    expect(screen.queryByText('Loading your saved preview…')).not.toBeInTheDocument();
+
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Continue setting up' }));
+
+    expect(loadOnboardingState().state.progress.currentScreen).toBe('booking_preferences');
+    expect(loadOnboardingIntegrationFlow().savedSite).toEqual(savedSite);
+    expect(loadOnboardingIntegrationFlow().phase).toBe('onboarding');
   });
 
   it('ignores an interrupted-save status response after the account changes', async () => {

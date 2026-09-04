@@ -796,6 +796,14 @@
     linear-gradient(145deg, #f9ecec 0%, #fff8f2 60%, #f0ddd9 100%);
 }
 
+/* Quick Book supplies the heading above this shared menu. Keep only search
+   here, without an empty desktop column or a second promotional band. */
+.vg-hero[data-introduction='hidden'] {
+  display: block;
+  padding: 0 18px 12px;
+  background: transparent;
+}
+
 .vg-identity {
   display: flex;
   align-items: center;

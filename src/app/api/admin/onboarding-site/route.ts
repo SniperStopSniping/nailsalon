@@ -5,7 +5,7 @@ import {
   updateOnboardingSiteHandoff,
 } from '@/features/onboarding-v1-integration/admin-handoff.server';
 import { isOnboardingV1IntegrationEnabled } from '@/features/onboarding-v1-integration/config.server';
-import { requireAdminSalon } from '@/libs/adminAuth';
+import { getAdminSession, requireAdminSalon } from '@/libs/adminAuth';
 
 export const dynamic = 'force-dynamic';
 
@@ -50,9 +50,14 @@ export async function GET(request: Request) {
   if (authorization.error || !authorization.salon) {
     return authorization.error!;
   }
+  const admin = await getAdminSession();
+  const salon = authorization.salon;
   const data = await getOnboardingSiteHandoff({
+    canEditSetup: admin?.salons.some(membership => (
+      membership.salonId === salon.id && membership.role === 'owner'
+    )) ?? false,
     locale: authorization.locale,
-    salon: authorization.salon,
+    salon,
   });
   if (!data) {
     return notFound();

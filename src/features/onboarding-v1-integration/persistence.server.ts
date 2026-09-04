@@ -637,6 +637,7 @@ async function membershipsForAdmin(database: QueryDatabase, adminId: string) {
       name: salonSchema.name,
       publicationStatus: salonSchema.publicationStatus,
       slug: salonSchema.slug,
+      slugLockedAt: salonSchema.slugLockedAt,
     })
     .from(adminSalonMembershipSchema)
     .innerJoin(salonSchema, eq(adminSalonMembershipSchema.salonId, salonSchema.id))
@@ -1393,6 +1394,14 @@ async function assertClaimOwner(
       409,
     );
   }
+  const memberships = await membershipsForAdmin(database, admin.id);
+  if (!memberships.some(membership => membership.id === claim.salonId)) {
+    throw new OnboardingPersistenceError(
+      'BUSINESS_ACCESS_DENIED',
+      'Sign in to the account that owns this website.',
+      403,
+    );
+  }
 }
 
 async function claimSuccessForSnapshot(
@@ -1567,6 +1576,40 @@ async function claimOnboardingDraftUnlocked(
         continuingOnboardingDraft
         && membership.publicationStatus === 'published'
       );
+      if (continuingOnboardingDraft && !preserveExistingProductData) {
+        const requestedSlug = normalizeSalonSlug(input.snapshot.profile.siteSlug)
+          ?? (input.snapshot.profile.siteSlugCustomized ? '' : membership.slug);
+        if (requestedSlug !== membership.slug) {
+          if (membership.slugLockedAt) {
+            throw new OnboardingPersistenceError(
+              'SITE_SLUG_LOCKED',
+              'This website already has a published URL. Keep its current URL or contact support to change it.',
+              409,
+            );
+          }
+          const nextSlug = await salonSlugForSnapshot(tx as QueryDatabase, input.snapshot);
+          // The same exact-draft save owns the URL change. A competing
+          // publication or URL edit must not leave the snapshot and public
+          // route pointing at different salons.
+          const [renamed] = await tx.update(salonSchema).set({ slug: nextSlug })
+            .where(and(
+              eq(salonSchema.id, salonId),
+              eq(salonSchema.slug, membership.slug),
+              eq(salonSchema.publicationStatus, 'draft'),
+              isNull(salonSchema.slugLockedAt),
+              isNull(salonSchema.deletedAt),
+            ))
+            .returning();
+          if (!renamed) {
+            throw new OnboardingPersistenceError(
+              'SITE_REVISION_CONFLICT',
+              'That website changed after you opened it. Reload the current draft before continuing.',
+              409,
+            );
+          }
+          salonSlug = renamed.slug;
+        }
+      }
       admin = await ensureIdentityAdmin(tx as QueryDatabase, identity, input.snapshot);
       if (!preserveExistingProductData) {
         technicianId = await syncExistingBusinessProfile({
@@ -1847,7 +1890,10 @@ export async function claimOnboardingDraft(
     const existing = await existingClaimForToken(database, anonymousDraftTokenHash);
     if (existing) {
       await assertClaimOwner(database, identity, existing);
-      return { kind: 'success', data: await claimSuccess(database, existing, false) };
+      return {
+        kind: 'success',
+        data: await claimSuccessForSnapshot(database, existing, false, input.snapshot),
+      };
     }
     if (['salon_slug_unique', 'salon_slug_idx'].includes(constraint)) {
       throw new OnboardingPersistenceError(
@@ -1936,6 +1982,7 @@ export async function saveOnboardingPlanIntent(
     .where(and(
       eq(onboardingSiteSchema.id, input.siteId),
       eq(onboardingSiteSchema.isCurrent, true),
+      isNull(salonSchema.deletedAt),
     ))
     .limit(1);
   if (!site) {

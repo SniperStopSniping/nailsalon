@@ -47,6 +47,7 @@ export function hasVisibleBookingSection(
 
 export function deriveOnboardingSiteHandoff(input: {
   activeServiceSourceIds: readonly string[];
+  canEditSetup: boolean;
   document: OnboardingCompiledSiteDocument;
   googleReadiness: string;
   locale: string;
@@ -59,6 +60,7 @@ export function deriveOnboardingSiteHandoff(input: {
     planIntent: 'founding_interest' | 'free' | 'monthly_interest' | null;
     revision: number;
     serviceMenuApplied: boolean;
+    status: string;
   };
 }): OnboardingSiteHandoff {
   const selectedServiceIds = input.document.serviceSelection.selectedServiceIds;
@@ -108,13 +110,16 @@ export function deriveOnboardingSiteHandoff(input: {
         siteId: input.site.id,
       }),
       revision: input.site.revision,
-      setupAvailable: input.salon.publicationStatus !== 'published',
+      setupAvailable: input.canEditSetup
+        && input.salon.publicationStatus === 'draft'
+        && input.site.status === 'draft',
       setupUrl: `/${locale}/onboarding-v1?resume=review&site=${encodeURIComponent(input.site.id)}&revision=${input.site.revision}`,
     },
   };
 }
 
 export async function getOnboardingSiteHandoff(input: {
+  canEditSetup: boolean;
   locale: string;
   salon: HandoffSalon;
 }): Promise<OnboardingSiteHandoff | null> {
@@ -128,6 +133,7 @@ export async function getOnboardingSiteHandoff(input: {
         planIntent: onboardingSiteSchema.planIntent,
         revision: onboardingSiteRevisionSchema.revision,
         serviceMenuApplied: onboardingSiteSchema.serviceMenuApplied,
+        status: onboardingSiteSchema.status,
       })
       .from(onboardingSiteSchema)
       .innerJoin(
@@ -165,6 +171,7 @@ export async function getOnboardingSiteHandoff(input: {
       item.onboardingSourceServiceId,
       item.templateKey,
     ].filter((value): value is string => Boolean(value))))],
+    canEditSetup: input.canEditSetup,
     document: site.document,
     googleReadiness: health.google.readiness,
     locale: input.locale,

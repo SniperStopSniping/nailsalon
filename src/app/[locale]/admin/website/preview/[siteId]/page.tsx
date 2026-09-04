@@ -64,7 +64,13 @@ export default async function SavedWebsitePreviewPage(props: SavedWebsitePreview
       revision={claimed.revision.revision}
       salonSlug={claimed.site.salonSlug}
       siteId={claimed.site.id}
-      setupAvailable={claimed.site.salonPublicationStatus !== 'published'}
+      setupAvailable={
+        claimed.site.salonPublicationStatus === 'draft'
+        && claimed.site.status === 'draft'
+        && admin.salons.some(membership => (
+          membership.salonId === claimed.site.salonId && membership.role === 'owner'
+        ))
+      }
       setupUrl={setupUrl}
       showAuditRevision={
         process.env.NODE_ENV !== 'production'

@@ -127,6 +127,11 @@ describe('onboarding account-flow persistence', () => {
       savedSite,
     })).toBe('plans');
     expect(phaseAfterOnboardingReauthentication({
+      celebrationSeen: true,
+      reauthResumePhase: 'saved',
+      savedSite,
+    }, { earlySave: true })).toBe('saved');
+    expect(phaseAfterOnboardingReauthentication({
       celebrationSeen: false,
       reauthResumePhase: 'saving',
       savedSite: null,

@@ -55,6 +55,7 @@ export type BookingSectionRendererProps = {
   presentationSettings: BookingSectionPresentationSettings;
   previewViewport?: 'desktop' | 'tablet' | 'mobile';
   session: BookingSessionState;
+  showIntroduction?: boolean;
   showSalonIdentity?: boolean;
   tokenPreset?: BookingTokenPresetId;
   onSessionChange: BookingSessionUpdater;
@@ -70,6 +71,7 @@ export function BookingSectionRenderer({
   presentationSettings,
   previewViewport = 'desktop',
   session,
+  showIntroduction = true,
   showSalonIdentity = true,
   tokenPreset = 'warm',
   onSessionChange,
@@ -327,6 +329,7 @@ export function BookingSectionRenderer({
             onOpenDetails={openDetails}
             onQueryChange={updateQuery}
             readOnly={mode === 'edit'}
+            showIntroduction={showIntroduction}
             showSalonIdentity={showSalonIdentity}
           />
         </div>
