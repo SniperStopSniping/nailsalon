@@ -30,6 +30,77 @@ function editorialState(
 }
 
 describe('booking-page builder operations', () => {
+  it.each([
+    ['grouped_categories', 'category_menu'],
+    ['list', 'visual_grid'],
+    [null, 'visual_grid'],
+  ] as const)('maps a direct Services %s selection to canonical %s', (variant, serviceMenuLayout) => {
+    const current = editorialState({ serviceMenuLayout: 'editorial_cards' });
+    const snapshot = structuredClone(current);
+    const result = applyBookingPageBuilderOperation(current, {
+      type: 'set_variant',
+      sectionId: 'serviceMenu',
+      variant,
+    });
+
+    expect(result).toMatchObject({ ok: true, patch: { serviceMenuLayout } });
+    expect(current).toEqual(snapshot);
+
+    if (!result.ok) {
+      throw new Error('Expected a valid service presentation');
+    }
+
+    expect(Object.keys(result.patch).sort()).toEqual(['sectionVariants', 'serviceMenuLayout']);
+  });
+
+  it('resets only an explicitly targeted Services layout to its inherited recipe', () => {
+    const current = editorialState({ serviceMenuLayout: 'category_menu' });
+
+    expect(isBookingPageSectionCustomized(current, 'serviceMenu')).toBe(true);
+    expect(applyBookingPageBuilderOperation(current, {
+      type: 'reset_section',
+      sectionId: 'serviceMenu',
+    })).toEqual({ ok: true, patch: { serviceMenuLayout: 'visual_grid' } });
+    expect(applyBookingPageBuilderOperation(current, {
+      type: 'reset_section',
+      sectionId: 'policies',
+    })).toEqual({ ok: true, patch: {} });
+
+    const menu = BOOKING_PAGE_PRESET_RECIPES.menu;
+    const menuState = { ...current, ...menu, presetBase: menu.presetBase };
+
+    expect(applyBookingPageBuilderOperation(menuState, {
+      type: 'set_variant',
+      sectionId: 'serviceMenu',
+      variant: null,
+    })).toMatchObject({ ok: true, patch: { serviceMenuLayout: 'category_menu' } });
+  });
+
+  it.each(['visual_grid', 'clean_list', 'editorial_cards', 'category_menu', 'editorial_price_list'] as const)(
+    'preserves independent %s on site preset and page reset operations',
+    (serviceMenuLayout) => {
+      const current = editorialState({ serviceMenuLayout });
+      const expectedPresentationSignature = getBookingPagePresentationSignature(current);
+
+      for (const operation of [
+        { type: 'reset_all', expectedPresentationSignature },
+        { type: 'apply_preset', presetId: 'menu', presetVersion: BOOKING_PAGE_PRESET_RECIPE_VERSION, expectedPresentationSignature },
+        { type: 'set_variant', sectionId: 'policies', variant: 'inline' },
+      ] as const) {
+        const result = applyBookingPageBuilderOperation(current, operation);
+
+        expect(result.ok).toBe(true);
+
+        if (!result.ok) {
+          throw new Error('Expected a valid site presentation operation');
+        }
+
+        expect(result.patch).not.toHaveProperty('serviceMenuLayout');
+        expect({ ...current, ...result.patch }.serviceMenuLayout).toBe(serviceMenuLayout);
+      }
+    },
+  );
+
   it('rejects hiding every protected Stage 2 floor section', () => {
     const current = editorialState();
 

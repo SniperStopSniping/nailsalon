@@ -72,6 +72,47 @@ function reorderableSectionOrder(
 }
 
 describe('BookingPageBuilder', () => {
+  it('shows the canonical Services choice after an independent site reset and permits a targeted reset', () => {
+    const onOperation = vi.fn();
+    render(
+      <BookingPageBuilder
+        draft={side({ layout: 'editorial', serviceMenuLayout: 'category_menu', sectionVariants: { serviceMenu: 'list' } })}
+        pending={false}
+        onOperation={onOperation}
+      />,
+    );
+
+    expect(screen.getByRole('combobox', { name: 'Services presentation' })).toHaveValue('grouped_categories');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Reset Services' }));
+
+    expect(onOperation).toHaveBeenCalledTimes(1);
+    expect(onOperation).toHaveBeenCalledWith({ type: 'reset_section', sectionId: 'serviceMenu' });
+  });
+
+  it.each(['clean_list', 'editorial_cards', 'editorial_price_list'] as const)(
+    'retains and honestly labels saved %s without changing it on render',
+    (serviceMenuLayout) => {
+      const onOperation = vi.fn();
+      render(
+        <BookingPageBuilder
+          draft={side({ layout: 'editorial', serviceMenuLayout })}
+          pending={false}
+          onOperation={onOperation}
+        />,
+      );
+
+      expect(screen.getByRole('combobox', { name: 'Services presentation' })).toHaveValue('saved-booking-layout');
+      expect(screen.getByRole('option', { name: /saved booking layout/ })).toBeDisabled();
+      expect(onOperation).not.toHaveBeenCalled();
+
+      fireEvent.change(screen.getByRole('combobox', { name: 'Services presentation' }), { target: { value: 'grouped_categories' } });
+
+      expect(onOperation).toHaveBeenCalledTimes(1);
+      expect(onOperation).toHaveBeenCalledWith({ type: 'set_variant', sectionId: 'serviceMenu', variant: 'grouped_categories' });
+    },
+  );
+
   it('keeps configured DOM order and appends every absent section exactly once', () => {
     render(
       <BookingPageBuilder

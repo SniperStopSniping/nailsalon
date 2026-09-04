@@ -665,6 +665,41 @@ describe('bookingPage draft/publish/revert lifecycle (PGlite)', () => {
       ]);
     });
 
+    it('persists direct Services edits on the canonical layout without touching live or another tenant', async () => {
+      const otherBefore = await readStoredSettings(BUILDER_CONCURRENCY_SALON_ID);
+      const salonId = 'salon_builder_service_layout';
+      const settings = await readStoredSettings(BUILDER_VARIANT_SALON_ID);
+      await db.insert(schema.salonSchema).values({
+        id: salonId,
+        name: 'Builder Service Layout',
+        slug: 'builder-service-layout',
+        settings: settings as SalonSettings,
+      });
+      const before = resolveBookingPageConfig(settings);
+      const select = { type: 'set_variant', sectionId: 'serviceMenu', variant: 'grouped_categories' } as const;
+      const selected = await updateBookingPageDraft(salonId, {}, { builderOperation: select });
+
+      expect(selected?.draft.serviceMenuLayout).toBe('category_menu');
+      expect(selected?.draft.sectionVariants.serviceMenu).toBe('grouped_categories');
+      expect(selected?.live).toEqual(before.live);
+
+      const resetPage = {
+        type: 'reset_all',
+        expectedPresentationSignature: getBookingPagePresentationSignature(getBookingPageDraftPresentationState(selected!)),
+      } as const;
+      const pageReset = await updateBookingPageDraft(salonId, {}, { builderOperation: resetPage });
+
+      expect(pageReset?.draft.serviceMenuLayout).toBe('category_menu');
+      expect(pageReset?.live).toEqual(before.live);
+
+      const resetServices = { type: 'reset_section', sectionId: 'serviceMenu' } as const;
+      const servicesReset = await updateBookingPageDraft(salonId, {}, { builderOperation: resetServices });
+
+      expect(servicesReset?.draft.serviceMenuLayout).toBe('visual_grid');
+      expect(servicesReset?.live).toEqual(before.live);
+      expect(await readStoredSettings(BUILDER_CONCURRENCY_SALON_ID)).toEqual(otherBefore);
+    });
+
     it('preserves unrelated legacy/future values while persisting a targeted variant choice', async () => {
       const stored = await readStoredSettings(BUILDER_VARIANT_SALON_ID);
       const current = resolveBookingPageConfig(stored).draft;

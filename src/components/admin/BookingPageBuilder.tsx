@@ -439,7 +439,14 @@ export function BookingPageBuilder({
           const explicitVariant = draft.sectionVariants[definition.id];
           const explicitVariantIsAllowed = explicitVariant !== undefined
             && (definition.allowedVariants as readonly string[]).includes(explicitVariant);
-          const selectedVariant = explicitVariantIsAllowed ? explicitVariant : '';
+          const savedMenuVariant = draft.serviceMenuLayout === 'category_menu'
+            ? 'grouped_categories'
+            : draft.serviceMenuLayout === 'visual_grid'
+              ? 'list'
+              : null;
+          const selectedVariant = definition.id === 'serviceMenu'
+            ? savedMenuVariant ?? 'saved-booking-layout'
+            : explicitVariantIsAllowed ? explicitVariant : '';
           const showMoveControls = definition.reorderable
             && configuredVisible
             && previewedSectionIds !== null
@@ -549,6 +556,14 @@ export function BookingPageBuilder({
                           variant: event.target.value === '' ? null : event.target.value,
                         })}
                       >
+                        {definition.id === 'serviceMenu' && savedMenuVariant === null
+                          ? (
+                              <option value="saved-booking-layout" disabled>
+                                {getBookingPageBuilderVariantLabel(draft.serviceMenuLayout)}
+                                {' (saved booking layout)'}
+                              </option>
+                            )
+                          : null}
                         <option value="">Inherited default</option>
                         {definition.allowedVariants.map(variant => (
                           <option key={variant} value={variant}>

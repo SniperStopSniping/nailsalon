@@ -223,7 +223,8 @@ body:has(.onboarding-integration-owner.is-account) {
 }
 
 .onboarding-gate__provider.is-apple:hover,
-.onboarding-gate__provider.is-google:hover {
+.onboarding-gate__provider.is-google:hover,
+.onboarding-gate__provider.is-email:hover {
   background: #f2edf0;
 }
 
@@ -231,10 +232,6 @@ body:has(.onboarding-integration-owner.is-account) {
   background: var(--gate-accent);
   box-shadow: 0 14px 34px rgb(143 49 85 / 35%);
   color: #ffffff;
-}
-
-.onboarding-gate__provider.is-email:hover {
-  background: var(--gate-accent-dark);
 }
 
 .onboarding-gate__switch {
