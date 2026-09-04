@@ -51,21 +51,21 @@ const SERVICE_ID = 'svc_id_route';
 let db: ReturnType<typeof drizzle<typeof schema>>;
 let client: PGlite;
 
-function patchRequest(id: string, body: unknown): [Request, { params: { id: string } }] {
+function patchRequest(id: string, body: unknown): [Request, { params: Promise<{ id: string }> }] {
   return [
     new Request(`http://localhost/api/salon/capabilities/${id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     }),
-    { params: { id } },
+    { params: Promise.resolve({ id }) },
   ];
 }
 
-function deleteRequest(id: string, salonSlug: string): [Request, { params: { id: string } }] {
+function deleteRequest(id: string, salonSlug: string): [Request, { params: Promise<{ id: string }> }] {
   return [
     new Request(`http://localhost/api/salon/capabilities/${id}?salonSlug=${salonSlug}`, { method: 'DELETE' }),
-    { params: { id } },
+    { params: Promise.resolve({ id }) },
   ];
 }
 

@@ -25,7 +25,7 @@ describe('POST /api/appointments/:id/resend-confirmation', () => {
   it('resends only through the tenant-scoped managed appointment', async () => {
     const response = await POST(
       new Request('http://localhost?salonSlug=glow', { method: 'POST' }),
-      { params: { id: 'appt_1' } },
+      { params: Promise.resolve({ id: 'appt_1' }) },
     );
 
     expect(response.status).toBe(200);
@@ -51,7 +51,7 @@ describe('POST /api/appointments/:id/resend-confirmation', () => {
       ),
     });
 
-    const response = await POST(new Request('http://localhost', { method: 'POST' }), { params: { id: 'appt_other' } });
+    const response = await POST(new Request('http://localhost', { method: 'POST' }), { params: Promise.resolve({ id: 'appt_other' }) });
 
     expect(response.status).toBe(404);
     await expect(response.json()).resolves.toEqual({
@@ -67,7 +67,7 @@ describe('POST /api/appointments/:id/resend-confirmation', () => {
       appointment: { id: 'appt_1', salonId: 'salon_1', clientEmail: null },
     });
 
-    const response = await POST(new Request('http://localhost', { method: 'POST' }), { params: { id: 'appt_1' } });
+    const response = await POST(new Request('http://localhost', { method: 'POST' }), { params: Promise.resolve({ id: 'appt_1' }) });
 
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual({
@@ -86,7 +86,7 @@ describe('POST /api/appointments/:id/resend-confirmation', () => {
       providerMessageId: null,
     });
 
-    const response = await POST(new Request('http://localhost', { method: 'POST' }), { params: { id: 'appt_1' } });
+    const response = await POST(new Request('http://localhost', { method: 'POST' }), { params: Promise.resolve({ id: 'appt_1' }) });
 
     expect(response.status).toBe(400);
     await expect(response.json()).resolves.toEqual({
@@ -104,7 +104,7 @@ describe('POST /api/appointments/:id/resend-confirmation', () => {
 
     const response = await POST(
       new Request('http://localhost', { method: 'POST' }),
-      { params: { id: 'appt_1' } },
+      { params: Promise.resolve({ id: 'appt_1' }) },
     );
 
     expect(response.status).toBe(502);

@@ -3,15 +3,15 @@ import { renderBookServicePage } from '@/app/(unauth)/book/service/BookServicePa
 export const dynamic = 'force-dynamic';
 
 type OwnerBookingPagePreviewProps = {
-  searchParams: {
+  searchParams: Promise<{
     locationId?: string;
     salonSlug?: string;
     campaign?: string;
     builderPreview?: string | string[];
     presetPreview?: string;
     presetPreviewVersion?: string;
-  };
-  params: { locale: string; slug: string };
+  }>;
+  params: Promise<{ locale: string; slug: string }>;
 };
 
 /**
@@ -23,10 +23,9 @@ type OwnerBookingPagePreviewProps = {
  * context on the dashboard origin without teaching the public booking route
  * to understand a privileged query flag or exposing a reusable draft token.
  */
-export default async function OwnerBookingPagePreview({
-  searchParams,
-  params,
-}: OwnerBookingPagePreviewProps) {
+export default async function OwnerBookingPagePreview(props: OwnerBookingPagePreviewProps) {
+  const params = await props.params;
+  const searchParams = await props.searchParams;
   return renderBookServicePage({
     searchParams,
     params,

@@ -56,10 +56,8 @@ function normalizePhone(phone: string): string {
 // POST /api/appointments/[id]/photos - Upload photo for an appointment
 // =============================================================================
 
-export async function POST(
-  request: Request,
-  { params }: { params: { id: string } },
-): Promise<Response> {
+export async function POST(request: Request, props: { params: Promise<{ id: string }> }): Promise<Response> {
+  const params = await props.params;
   try {
     const appointmentId = params.id;
     const access = await requireAppointmentManagerAccess(appointmentId, {
@@ -234,10 +232,8 @@ export async function POST(
 // GET /api/appointments/[id]/photos - Get photos for an appointment
 // =============================================================================
 
-export async function GET(
-  _request: Request,
-  { params }: { params: { id: string } },
-): Promise<Response> {
+export async function GET(_request: Request, props: { params: Promise<{ id: string }> }): Promise<Response> {
+  const params = await props.params;
   try {
     const appointmentId = params.id;
     const access = await requireAppointmentManagerAccess(appointmentId, {

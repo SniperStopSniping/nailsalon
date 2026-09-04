@@ -8,13 +8,14 @@ export const metadata = {
   description: 'The rewards program is not currently available for this salon.',
 };
 
-export default function RewardsDisabledPage({
-  searchParams,
-  params,
-}: {
-  searchParams: { salonSlug?: string };
-  params?: { locale?: string; slug?: string };
-}) {
+export default async function RewardsDisabledPage(
+  props: {
+    searchParams: Promise<{ salonSlug?: string }>;
+    params?: Promise<{ locale?: string; slug?: string }>;
+  },
+) {
+  const params = await props.params;
+  const searchParams = await props.searchParams;
   const resolvedSalonSlug = params?.slug ?? searchParams.salonSlug;
   const tenantRoute = { routeSalonSlug: params?.slug, locale: params?.locale };
 

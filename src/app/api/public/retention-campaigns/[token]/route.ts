@@ -25,8 +25,9 @@ function formatOffer(discountType: 'percent' | 'fixed', value: number): string {
 
 export async function GET(
   request: Request,
-  { params }: { params: { token: string } | Promise<{ token: string }> },
+  props: { params: Promise<{ token: string } | Promise<{ token: string }>> },
 ): Promise<Response> {
+  const params = await props.params;
   // Public, unauthenticated endpoint: throttle per IP before any DB work.
   // A legitimate client opens a campaign link at most a few times.
   const rateLimit = checkEndpointRateLimit('public/retention-campaigns', getClientIp(request), 'REFERRAL');

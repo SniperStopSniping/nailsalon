@@ -7,7 +7,7 @@ export const dynamic = 'force-dynamic';
 /** DELETE /api/salon/technician-capabilities/[id] — unassign a capability from a technician. */
 export async function DELETE(
   request: Request,
-  context: { params: { id: string } },
+  context: { params: Promise<{ id: string }> },
 ) {
   const url = new URL(request.url);
   const salonSlug = url.searchParams.get('salonSlug');
@@ -24,7 +24,7 @@ export async function DELETE(
   }
 
   try {
-    await unassignTechnicianCapability(salon.id, context.params.id);
+    await unassignTechnicianCapability(salon.id, (await context.params).id);
     return Response.json({ data: { deleted: true } });
   } catch (deleteError) {
     if (deleteError instanceof OwnerCatalogConfigError) {

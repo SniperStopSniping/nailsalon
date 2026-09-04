@@ -8,12 +8,11 @@ import { SectionGalleryClient } from './SectionGalleryClient';
 export const dynamic = 'force-dynamic';
 
 type SectionGalleryPageProps = {
-  params: { locale: string };
+  params: Promise<{ locale: string }>;
 };
 
-export default async function SectionGalleryPage({
-  params,
-}: SectionGalleryPageProps) {
+export default async function SectionGalleryPage(props: SectionGalleryPageProps) {
+  const params = await props.params;
   if (!isSectionLibraryV1Enabled()) {
     notFound();
   }

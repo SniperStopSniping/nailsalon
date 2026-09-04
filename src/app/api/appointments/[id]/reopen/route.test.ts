@@ -203,7 +203,7 @@ describe('POST /api/appointments/:id/reopen', () => {
   });
 
   it('locks source lineage, technician, and appointment before the active check and CAS', async () => {
-    const response = await POST(request(), { params: { id: 'appt_1' } });
+    const response = await POST(request(), { params: Promise.resolve({ id: 'appt_1' }) });
     const responseBody = await response.clone().json();
 
     expect(response.status, JSON.stringify(responseBody)).toBe(200);
@@ -243,7 +243,7 @@ describe('POST /api/appointments/:id/reopen', () => {
       },
     );
 
-    const response = await POST(request(), { params: { id: 'appt_1' } });
+    const response = await POST(request(), { params: Promise.resolve({ id: 'appt_1' }) });
 
     expect(response.status).toBe(409);
     expect(callOrder).not.toContain('appointment-cas');
@@ -270,7 +270,7 @@ describe('POST /api/appointments/:id/reopen', () => {
       appointment: { ...completedAppointment, finalTaxSnapshot },
     });
 
-    const response = await POST(request(), { params: { id: 'appt_1' } });
+    const response = await POST(request(), { params: Promise.resolve({ id: 'appt_1' }) });
     const body = await response.json();
 
     expect(response.status).toBe(409);
@@ -286,7 +286,7 @@ describe('POST /api/appointments/:id/reopen', () => {
   it('lets only the compare-and-set winner mutate dependent state', async () => {
     appointmentUpdateResult.current = [];
 
-    const response = await POST(request(), { params: { id: 'appt_1' } });
+    const response = await POST(request(), { params: Promise.resolve({ id: 'appt_1' }) });
 
     expect(response.status).toBe(409);
     expect(dependentUpdate).not.toHaveBeenCalled();

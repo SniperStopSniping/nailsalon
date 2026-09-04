@@ -132,10 +132,10 @@ describe('BookTimePage', () => {
     checkFeatureEnabled.mockResolvedValue({});
 
     await expect(BookTimePage({
-      searchParams: {
+      searchParams: Promise.resolve({
         salonSlug: 'salon-a',
         techId: 'tech_1',
-      },
+      }),
     })).rejects.toThrow('REDIRECT:/book/service?salonSlug=salon-a&techId=tech_1');
     expect(resolvePublicBookingTechnicianContext).not.toHaveBeenCalled();
   });
@@ -155,11 +155,11 @@ describe('BookTimePage', () => {
     resolvePublicBookingTechnicianContext.mockRejectedValue(new Error('INVALID_SERVICES'));
 
     await expect(BookTimePage({
-      searchParams: {
+      searchParams: Promise.resolve({
         salonSlug: 'salon-a',
         serviceIds: 'srv_1',
         techId: 'tech_1',
-      },
+      }),
     })).rejects.toThrow('REDIRECT:/book/service?salonSlug=salon-a&techId=tech_1');
   });
 
@@ -176,14 +176,14 @@ describe('BookTimePage', () => {
     buildTenantRedirectPath.mockReturnValue('/en/salon-a/cancelled');
 
     await expect(BookTimePage({
-      params: {
+      params: Promise.resolve({
         locale: 'en',
         slug: 'salon-a',
-      },
-      searchParams: {
+      }),
+      searchParams: Promise.resolve({
         serviceIds: 'srv_1',
         techId: 'tech_1',
-      },
+      }),
     })).rejects.toThrow('REDIRECT:/en/salon-a/cancelled');
   });
 
@@ -241,11 +241,11 @@ describe('BookTimePage', () => {
     });
 
     await expect(BookTimePage({
-      searchParams: {
+      searchParams: Promise.resolve({
         salonSlug: 'salon-a',
         baseServiceId: 'svc_combo',
         selectedAddOns: JSON.stringify([{ addOnId: 'addon_1' }]),
-      },
+      }),
     })).rejects.toThrow(
       'REDIRECT:/book/time?salonSlug=salon-a&baseServiceId=svc_combo&selectedAddOns=%5B%7B%22addOnId%22%3A%22addon_1%22%7D%5D&techId=tech_1',
     );
@@ -306,10 +306,10 @@ describe('BookTimePage', () => {
     });
 
     await expect(BookTimePage({
-      searchParams: {
+      searchParams: Promise.resolve({
         salonSlug: 'salon-a',
         baseServiceId: 'svc_1',
-      },
+      }),
     })).rejects.toThrow(
       'REDIRECT:/book/time?salonSlug=salon-a&baseServiceId=svc_1&techId=tech_daniela',
     );
@@ -353,10 +353,10 @@ describe('BookTimePage', () => {
     });
 
     await expect(BookTimePage({
-      searchParams: {
+      searchParams: Promise.resolve({
         salonSlug: 'salon-a',
         baseServiceId: 'svc_1',
-      },
+      }),
     })).rejects.toThrow('REDIRECT:/book/tech?salonSlug=salon-a&baseServiceId=svc_1');
   });
 
@@ -400,11 +400,11 @@ describe('BookTimePage', () => {
     });
 
     const element = await BookTimePage({
-      searchParams: {
+      searchParams: Promise.resolve({
         salonSlug: 'salon-a',
         baseServiceId: 'svc_1',
         techId: 'any',
-      },
+      }),
     });
 
     expect(resolvePublicBookingTechnicianContext).toHaveBeenCalledWith(expect.objectContaining({
@@ -461,11 +461,11 @@ describe('BookTimePage owner-preview gate', () => {
     buildTenantRedirectPath.mockReturnValue('/en/salon-a/not-found');
 
     await expect(BookTimePage({
-      searchParams: {
+      searchParams: Promise.resolve({
         salonSlug: 'salon-a',
         baseServiceId: 'svc_1',
-      },
-      params: { locale: 'en', slug: 'salon-a' },
+      }),
+      params: Promise.resolve({ locale: 'en', slug: 'salon-a' }),
     })).rejects.toThrow('REDIRECT:/en/salon-a/not-found');
 
     // Real deny-before-render proof: nothing past the gate ever ran.
@@ -502,12 +502,12 @@ describe('BookTimePage owner-preview gate', () => {
     });
 
     const element = await BookTimePage({
-      searchParams: {
+      searchParams: Promise.resolve({
         salonSlug: 'salon-a',
         baseServiceId: 'svc_1',
         techId: 'any',
-      },
-      params: { locale: 'en', slug: 'salon-a' },
+      }),
+      params: Promise.resolve({ locale: 'en', slug: 'salon-a' }),
     });
 
     expect(element).toBeTruthy();

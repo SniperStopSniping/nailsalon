@@ -24,7 +24,8 @@ export const metadata: Metadata = {
  * else — never a redirect into the public booking flow, and never a hint about
  * which salon or appointment the token might have belonged to.
  */
-export default async function HostRelativeManageRedirect({ params }: { params: { path: string[] } }) {
+export default async function HostRelativeManageRedirect(props: { params: Promise<{ path: string[] }> }) {
+  const params = await props.params;
   const [token, ...rest] = params.path;
   const capability = token ? await verifyAppointmentAccessToken(token) : null;
 

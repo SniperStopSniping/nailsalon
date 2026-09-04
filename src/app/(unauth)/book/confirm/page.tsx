@@ -44,28 +44,29 @@ import { BookConfirmClient } from './BookConfirmClient';
  *
  * This is step 4 of the booking flow: Service → Tech → Time → Confirm
  */
-export default async function BookConfirmPage({
-  searchParams,
-  params,
-}: {
-  searchParams: {
-    serviceIds?: string;
-    baseServiceId?: string;
-    selectedAddOns?: string;
-    techId?: string;
-    date?: string;
-    time?: string;
-    startTime?: string;
-    locationId?: string;
-    salonSlug?: string;
-    originalAppointmentId?: string;
-    manageToken?: string;
-    campaign?: string;
-    smartFitDiscountCents?: string | string[];
-    smartFitTotalCents?: string | string[];
-  };
-  params?: { locale?: string; slug?: string };
-}) {
+export default async function BookConfirmPage(
+  props: {
+    searchParams: Promise<{
+      serviceIds?: string;
+      baseServiceId?: string;
+      selectedAddOns?: string;
+      techId?: string;
+      date?: string;
+      time?: string;
+      startTime?: string;
+      locationId?: string;
+      salonSlug?: string;
+      originalAppointmentId?: string;
+      manageToken?: string;
+      campaign?: string;
+      smartFitDiscountCents?: string | string[];
+      smartFitTotalCents?: string | string[];
+    }>;
+    params?: Promise<{ locale?: string; slug?: string }>;
+  },
+) {
+  const params = await props.params;
+  const searchParams = await props.searchParams;
   const context = await getPublicPageContext('book-confirm', searchParams, params);
 
   const serviceIdList = searchParams.serviceIds?.split(',').filter(Boolean) || [];

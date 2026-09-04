@@ -226,7 +226,7 @@ describe('PATCH /api/appointments/[id]/cancel', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ cancelReason: 'client_request' }),
       }),
-      { params: { id: 'appt_1' } },
+      { params: Promise.resolve({ id: 'appt_1' }) },
     );
 
     expect(response.status).toBe(403);
@@ -248,7 +248,7 @@ describe('PATCH /api/appointments/[id]/cancel', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ cancelReason: 'no_show' }),
       }),
-      { params: { id: 'appt_1' } },
+      { params: Promise.resolve({ id: 'appt_1' }) },
     );
 
     expect(response.status).toBe(403);
@@ -283,7 +283,7 @@ describe('PATCH /api/appointments/[id]/cancel', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ cancelReason: 'client_request' }),
       }),
-      { params: { id: 'appt_1' } },
+      { params: Promise.resolve({ id: 'appt_1' }) },
     );
     const body = await response.json();
 
@@ -334,7 +334,7 @@ describe('PATCH /api/appointments/[id]/cancel', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ cancelReason: 'no_show' }),
       }),
-      { params: { id: 'appt_1' } },
+      { params: Promise.resolve({ id: 'appt_1' }) },
     );
     const body = await response.json();
 
@@ -381,7 +381,7 @@ describe('PATCH /api/appointments/[id]/cancel', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ cancelReason: 'client_request' }),
       }),
-      { params: { id: 'appt_1' } },
+      { params: Promise.resolve({ id: 'appt_1' }) },
     );
 
     expect(response.status).toBe(200);
@@ -422,7 +422,7 @@ describe('PATCH /api/appointments/[id]/cancel', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ cancelReason: 'client_request' }),
       }),
-      { params: { id: 'appt_1' } },
+      { params: Promise.resolve({ id: 'appt_1' }) },
     );
 
     const [firstResponse, secondResponse] = await Promise.all([cancel(), cancel()]);
@@ -490,7 +490,7 @@ describe('PATCH /api/appointments/[id]/cancel', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ cancelReason: 'client_request' }),
       }),
-      { params: { id: 'appt_1' } },
+      { params: Promise.resolve({ id: 'appt_1' }) },
     );
 
     expect(response.status).toBe(200);
@@ -549,7 +549,7 @@ describe('PATCH /api/appointments/[id]/cancel', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ cancelReason: 'client_request' }),
       }),
-      { params: { id: 'appt_1' } },
+      { params: Promise.resolve({ id: 'appt_1' }) },
     );
 
     expect(response.status).toBe(200);
@@ -604,7 +604,7 @@ describe('PATCH /api/appointments/[id]/cancel', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ cancelReason: 'client_request' }),
       }),
-      { params: { id: 'appt_1' } },
+      { params: Promise.resolve({ id: 'appt_1' }) },
     );
     await response.json();
 

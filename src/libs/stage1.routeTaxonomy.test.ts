@@ -145,7 +145,9 @@ describe('S3 — route classification matrix', () => {
         // public wrapper to the one shared server implementation as well as
         // pinning the implementation's original Stage 1 status checks.
         expect(routeSource).toContain('from \'./BookServicePageServer\'');
-        expect(routeSource).toContain('return renderBookServicePage(props)');
+        expect(routeSource).toContain('return renderBookServicePage({');
+        expect(routeSource).toContain('searchParams: await props.searchParams');
+        expect(routeSource).toContain('params: await props.params');
       }
 
       expect(source).toContain('checkSalonStatus');
@@ -186,7 +188,15 @@ describe('S7 — token surfaces expose the minimum contact surface', () => {
       'src/app/[locale]/[slug]/manage/[token]/ManageAppointmentView.tsx',
     );
 
-    expect(source).toContain('applyPhoneDisplayMode(');
+    expect(source).toContain('salonPhone={resolvePublicSalonPhone(');
+    expect(source).toContain('resolveSharedSalonProfile(capability.salonSettings)');
+
+    // The shared resolver adds the global booking-only gate, then delegates
+    // to the same location-mode redaction rule used before that gate landed.
+    const resolver = readSource('src/libs/sharedSalonProfile.ts');
+
+    expect(resolver).toContain('profile.bookingOnlyContact === true');
+    expect(resolver).toContain('applyPhoneDisplayMode(phone ?? null, locationDisplayMode)');
     expect(source).toContain('locationDisplayMode');
     expect(source).not.toMatch(/salonPhone=\{capability\.salonPhone\}/);
     expect(source).not.toContain('salonEmail={capability.salonEmail}');
@@ -208,6 +218,6 @@ describe('S7 — token surfaces expose the minimum contact surface', () => {
     expect(source).not.toContain('salonEmail');
     // Still token-authenticated and slug-bound.
     expect(source).toContain('verifyAppointmentAccessToken');
-    expect(source).toContain('capability.salonSlug !== context.params.slug');
+    expect(source).toContain('capability.salonSlug !== (await context.params).slug');
   });
 });

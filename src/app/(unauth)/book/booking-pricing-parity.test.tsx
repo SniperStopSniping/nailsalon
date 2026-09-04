@@ -234,14 +234,14 @@ async function renderParityScenario(args: {
   };
 
   render(await BookTimePage({
-    searchParams,
+    searchParams: Promise.resolve(searchParams),
   }));
   render(await BookConfirmPage({
-    searchParams: {
+    searchParams: Promise.resolve({
       ...searchParams,
       date: '2026-04-01',
       time: '10:00',
-    },
+    }),
   }));
 
   const timeProps = bookTimeClientSpy.mock.calls.at(-1)?.[0] as Record<string, unknown>;
@@ -460,13 +460,13 @@ describe('deposit props while both dark gates are off', () => {
     // React serialises `null`/`false` props rather than eliding them, so the
     // served payload genuinely grows by these three — and only these three.
     const element = await BookConfirmPage({
-      searchParams: {
+      searchParams: Promise.resolve({
         salonSlug: 'salon-a',
         serviceIds: 'srv_1',
         techId: 'any',
         date: '2026-03-20',
         time: '10:00',
-      },
+      }),
     });
 
     render(element);

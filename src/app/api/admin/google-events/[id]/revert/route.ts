@@ -9,7 +9,7 @@ import { appointmentSchema, googleCalendarEventSchema } from '@/models/Schema';
 
 const bodySchema = z.object({ salonSlug: z.string().min(1) });
 
-export async function POST(request: Request, context: { params: { id: string } }) {
+export async function POST(request: Request, context: { params: Promise<{ id: string }> }) {
   const parsed = bodySchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) {
     return Response.json({ error: 'Invalid Google event request' }, { status: 400 });
@@ -19,7 +19,7 @@ export async function POST(request: Request, context: { params: { id: string } }
     return error || Response.json({ error: 'Salon not found' }, { status: 404 });
   }
   const [event] = await db.select().from(googleCalendarEventSchema).where(and(
-    eq(googleCalendarEventSchema.id, context.params.id),
+    eq(googleCalendarEventSchema.id, (await context.params).id),
     eq(googleCalendarEventSchema.salonId, salon.id),
   )).limit(1);
   if (!event?.appointmentId || event.reviewStatus !== 'appointment') {

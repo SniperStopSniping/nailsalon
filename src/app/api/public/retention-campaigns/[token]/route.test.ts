@@ -71,7 +71,7 @@ describe('GET /api/public/retention-campaigns/[token]', () => {
 
     const response = await GET(
       new Request(`http://localhost/api/public/retention-campaigns/${token}?salonSlug=salon-a`),
-      { params: { token } },
+      { params: Promise.resolve({ token }) },
     );
 
     expect(response.status).toBe(404);

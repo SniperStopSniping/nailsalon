@@ -19,13 +19,14 @@ export const dynamic = 'force-dynamic';
  *
  * This way, when a salon reorders or disables steps, external links don't need to change.
  */
-export default async function BookEntryPage({
-  searchParams,
-  params,
-}: {
-  searchParams: { salonSlug?: string; campaign?: string };
-  params?: { locale?: string; slug?: string };
-}) {
+export default async function BookEntryPage(
+  props: {
+    searchParams: Promise<{ salonSlug?: string; campaign?: string }>;
+    params?: Promise<{ locale?: string; slug?: string }>;
+  },
+) {
+  const params = await props.params;
+  const searchParams = await props.searchParams;
   // Fetch salon data to get the booking flow
   const salon = await requireResolvedSalon(searchParams, params);
 

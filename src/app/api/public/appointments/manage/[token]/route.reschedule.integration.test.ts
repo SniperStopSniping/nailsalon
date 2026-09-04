@@ -12,7 +12,7 @@ import { PGlite } from '@electric-sql/pglite';
 import { and, eq } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/pglite';
 import { migrate } from 'drizzle-orm/pglite/migrator';
-import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createOpaqueToken } from '@/libs/lusterSecurity';
 import {
@@ -202,6 +202,10 @@ beforeAll(async () => {
 });
 
 beforeEach(async () => {
+  // Keep the seeded Tuesday slots in the future without freezing PGlite's
+  // asynchronous timers or aging these fixtures out on the wall clock.
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(new Date('2026-09-01T12:00:00.000Z'));
   vi.clearAllMocks();
   sendTransactionalEmail.mockResolvedValue(true);
   sendTransactionalEmailDetailed.mockResolvedValue({
@@ -221,11 +225,28 @@ beforeEach(async () => {
   }).where(eq(schema.salonSchema.id, SALON_ID));
 });
 
+afterEach(() => {
+  vi.useRealTimers();
+});
+
+afterAll(async () => {
+  await client.close();
+});
+
 describe('customer manage-link reschedule', () => {
+  it('still rejects a past start time under the explicit fixture clock', async () => {
+    const { token } = await seedAppointmentWithToken();
+    const response = await POST(rescheduleRequest('2026-09-01T11:00:00.000Z'), { params: Promise.resolve({ token }) });
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({ error: { code: 'START_TIME_IN_PAST' } });
+    expect((await appointmentRows())[0]!.startTime.toISOString()).toBe(CURRENT_START.toISOString());
+  });
+
   it('moves the existing appointment without creating a second row', async () => {
     const { appointmentId, token } = await seedAppointmentWithToken();
 
-    const response = await POST(rescheduleRequest(NEW_START.toISOString()), { params: { token } });
+    const response = await POST(rescheduleRequest(NEW_START.toISOString()), { params: Promise.resolve({ token }) });
     const body = await response.json();
 
     expect(response.status).toBe(200);
@@ -276,7 +297,7 @@ describe('customer manage-link reschedule', () => {
 
     const response = await POST(
       rescheduleRequest(NEW_START.toISOString()),
-      { params: { token } },
+      { params: Promise.resolve({ token }) },
     );
     const [row] = await db.select().from(schema.appointmentSchema)
       .where(eq(schema.appointmentSchema.id, appointmentId));
@@ -306,7 +327,7 @@ describe('customer manage-link reschedule', () => {
     const historical = await seedAppointmentWithToken();
     const unchanged = await POST(
       rescheduleRequest(CURRENT_START.toISOString()),
-      { params: { token: historical.token } },
+      { params: Promise.resolve({ token: historical.token }) },
     );
     let [row] = await db.select().from(schema.appointmentSchema)
       .where(eq(schema.appointmentSchema.id, historical.appointmentId));
@@ -317,7 +338,7 @@ describe('customer manage-link reschedule', () => {
 
     const moved = await POST(
       rescheduleRequest(NEW_START.toISOString()),
-      { params: { token: historical.token } },
+      { params: Promise.resolve({ token: historical.token }) },
     );
     [row] = await db.select().from(schema.appointmentSchema)
       .where(eq(schema.appointmentSchema.id, historical.appointmentId));
@@ -330,7 +351,7 @@ describe('customer manage-link reschedule', () => {
   it('keeps the customer’s capability token working after the move', async () => {
     const { appointmentId, token } = await seedAppointmentWithToken();
 
-    await POST(rescheduleRequest(NEW_START.toISOString()), { params: { token } });
+    await POST(rescheduleRequest(NEW_START.toISOString()), { params: Promise.resolve({ token }) });
 
     const tokens = await db
       .select()
@@ -344,7 +365,7 @@ describe('customer manage-link reschedule', () => {
   it('reports "no changes" and writes nothing when the same time is submitted', async () => {
     const { appointmentId, token } = await seedAppointmentWithToken();
 
-    const response = await POST(rescheduleRequest(CURRENT_START.toISOString()), { params: { token } });
+    const response = await POST(rescheduleRequest(CURRENT_START.toISOString()), { params: Promise.resolve({ token }) });
     const body = await response.json();
 
     expect(response.status).toBe(200);
@@ -367,7 +388,7 @@ describe('customer manage-link reschedule', () => {
   it('notifies the customer and the salon exactly once', async () => {
     const { appointmentId, token } = await seedAppointmentWithToken();
 
-    await POST(rescheduleRequest(NEW_START.toISOString()), { params: { token } });
+    await POST(rescheduleRequest(NEW_START.toISOString()), { params: Promise.resolve({ token }) });
 
     expect(detailedEmailsTo('current@example.com')).toHaveLength(1);
     expect(detailedEmailsTo('current@example.com')[0]).toMatchObject({
@@ -395,7 +416,7 @@ describe('customer manage-link reschedule', () => {
   it('sends the customer the working management link, not a booking URL', async () => {
     const { token } = await seedAppointmentWithToken();
 
-    await POST(rescheduleRequest(NEW_START.toISOString()), { params: { token } });
+    await POST(rescheduleRequest(NEW_START.toISOString()), { params: Promise.resolve({ token }) });
 
     const [email] = detailedEmailsTo('current@example.com');
 
@@ -409,11 +430,11 @@ describe('customer manage-link reschedule', () => {
 
     const first = await POST(
       rescheduleRequest(NEW_START.toISOString()),
-      { params: { token } },
+      { params: Promise.resolve({ token }) },
     );
     const second = await POST(
       rescheduleRequest(NEW_START.toISOString()),
-      { params: { token } },
+      { params: Promise.resolve({ token }) },
     );
     const secondBody = await second.json();
 
@@ -444,8 +465,8 @@ describe('customer manage-link reschedule', () => {
     });
 
     const pendingResponses = Promise.all([
-      POST(rescheduleRequest(NEW_START.toISOString()), { params: { token } }),
-      POST(rescheduleRequest(NEW_START.toISOString()), { params: { token } }),
+      POST(rescheduleRequest(NEW_START.toISOString()), { params: Promise.resolve({ token }) }),
+      POST(rescheduleRequest(NEW_START.toISOString()), { params: Promise.resolve({ token }) }),
     ]);
     await bothArrived;
     releaseBoth();
@@ -470,7 +491,7 @@ describe('customer manage-link reschedule', () => {
     });
     const { token } = await seedAppointmentWithToken();
 
-    await POST(rescheduleRequest(NEW_START.toISOString()), { params: { token } });
+    await POST(rescheduleRequest(NEW_START.toISOString()), { params: Promise.resolve({ token }) });
 
     expect(detailedEmailsTo('current@example.com')).toHaveLength(0);
     expect(detailedEmailsTo('changed@example.com')).toHaveLength(1);
@@ -490,7 +511,7 @@ describe('customer manage-link reschedule', () => {
 
     const response = await POST(
       rescheduleRequest(NEW_START.toISOString()),
-      { params: { token } },
+      { params: Promise.resolve({ token }) },
     );
 
     expect(response.status).toBe(500);
@@ -514,7 +535,7 @@ describe('customer manage-link reschedule', () => {
 
     const response = await POST(
       rescheduleRequest(NEW_START.toISOString()),
-      { params: { token } },
+      { params: Promise.resolve({ token }) },
     );
 
     expect(response.status).toBe(200);
@@ -539,7 +560,7 @@ describe('customer manage-link reschedule', () => {
 
     const response = await POST(
       rescheduleRequest(NEW_START.toISOString()),
-      { params: { token } },
+      { params: Promise.resolve({ token }) },
     );
 
     expect(response.status).toBe(200);
@@ -583,7 +604,7 @@ describe('customer manage-link reschedule', () => {
       totalPrice: 4500,
     });
 
-    await POST(rescheduleRequest(NEW_START.toISOString()), { params: { token } });
+    await POST(rescheduleRequest(NEW_START.toISOString()), { params: Promise.resolve({ token }) });
 
     const [row] = await db
       .select()
@@ -600,7 +621,7 @@ describe('customer manage-link reschedule', () => {
   it('does not invent a discount for an undiscounted booking on a loose slot', async () => {
     const { appointmentId, token } = await seedAppointmentWithToken();
 
-    const response = await POST(rescheduleRequest(NEW_START.toISOString()), { params: { token } });
+    const response = await POST(rescheduleRequest(NEW_START.toISOString()), { params: Promise.resolve({ token }) });
     const body = await response.json();
 
     expect(body.data.smartFit).toBe('none');
@@ -668,7 +689,7 @@ describe('customer manage-link reschedule', () => {
 
     const response = await POST(
       rescheduleRequest(NEW_START.toISOString()),
-      { params: { token } },
+      { params: Promise.resolve({ token }) },
     );
     const body = await response.json();
     const [row] = await db.select().from(schema.appointmentSchema)
@@ -704,7 +725,7 @@ describe('customer manage-link reschedule', () => {
       totalPrice: 4000,
     });
 
-    await POST(rescheduleRequest(NEW_START.toISOString()), { params: { token } });
+    await POST(rescheduleRequest(NEW_START.toISOString()), { params: Promise.resolve({ token }) });
 
     const [row] = await db
       .select()
@@ -725,9 +746,9 @@ describe('customer manage-link reschedule', () => {
       totalPrice: 4500,
     });
 
-    await POST(rescheduleRequest(NEW_START.toISOString()), { params: { token } });
+    await POST(rescheduleRequest(NEW_START.toISOString()), { params: Promise.resolve({ token }) });
     const LATER = new Date('2026-09-01T21:00:00.000Z');
-    await POST(rescheduleRequest(LATER.toISOString()), { params: { token } });
+    await POST(rescheduleRequest(LATER.toISOString()), { params: Promise.resolve({ token }) });
 
     const rows = await appointmentRows();
 
@@ -744,7 +765,7 @@ describe('customer manage-link reschedule', () => {
     }]);
     const { token } = await seedAppointmentWithToken();
 
-    const response = await POST(rescheduleRequest(NEW_START.toISOString()), { params: { token } });
+    const response = await POST(rescheduleRequest(NEW_START.toISOString()), { params: Promise.resolve({ token }) });
     const body = await response.json();
 
     expect(response.status).toBe(409);
@@ -755,7 +776,7 @@ describe('customer manage-link reschedule', () => {
   it('excludes this appointment from its own Google mirror check', async () => {
     const { appointmentId, token } = await seedAppointmentWithToken();
 
-    await POST(rescheduleRequest(NEW_START.toISOString()), { params: { token } });
+    await POST(rescheduleRequest(NEW_START.toISOString()), { params: Promise.resolve({ token }) });
 
     expect(getGoogleCalendarBusyWindows).toHaveBeenCalledWith(
       expect.objectContaining({ excludeAppointmentId: appointmentId }),
@@ -767,7 +788,7 @@ describe('customer manage-link reschedule', () => {
     getGoogleCalendarBusyWindows.mockRejectedValue(new Error('google down'));
     const { token } = await seedAppointmentWithToken();
 
-    const response = await POST(rescheduleRequest(NEW_START.toISOString()), { params: { token } });
+    const response = await POST(rescheduleRequest(NEW_START.toISOString()), { params: Promise.resolve({ token }) });
 
     expect(response.status).toBe(503);
     expect((await appointmentRows())[0]!.startTime.toISOString()).toBe(CURRENT_START.toISOString());
@@ -780,7 +801,7 @@ describe('customer manage-link reschedule', () => {
 
     const response = await POST(
       rescheduleRequest(NEW_START.toISOString()),
-      { params: { token: 'not-a-real-token' } },
+      { params: Promise.resolve({ token: 'not-a-real-token' }) },
     );
     const body = await response.json();
 
@@ -796,7 +817,7 @@ describe('customer manage-link reschedule', () => {
       .set({ expiresAt: new Date('2020-01-01T00:00:00.000Z') })
       .where(eq(schema.appointmentAccessTokenSchema.appointmentId, appointmentId));
 
-    const response = await POST(rescheduleRequest(NEW_START.toISOString()), { params: { token } });
+    const response = await POST(rescheduleRequest(NEW_START.toISOString()), { params: Promise.resolve({ token }) });
 
     expect(response.status).toBe(404);
     expect((await appointmentRows())[0]!.startTime.toISOString()).toBe(CURRENT_START.toISOString());
@@ -805,11 +826,11 @@ describe('customer manage-link reschedule', () => {
   it('rejects malformed and off-grid start times', async () => {
     const { token } = await seedAppointmentWithToken();
 
-    const missing = await POST(rescheduleRequest(undefined), { params: { token } });
-    const garbage = await POST(rescheduleRequest('not-a-date'), { params: { token } });
+    const missing = await POST(rescheduleRequest(undefined), { params: Promise.resolve({ token }) });
+    const garbage = await POST(rescheduleRequest('not-a-date'), { params: Promise.resolve({ token }) });
     const offGrid = await POST(
       rescheduleRequest(new Date('2026-09-01T20:07:00.000Z').toISOString()),
-      { params: { token } },
+      { params: Promise.resolve({ token }) },
     );
 
     expect(missing.status).toBe(400);
@@ -821,7 +842,7 @@ describe('customer manage-link reschedule', () => {
   it('rejects a non-reschedule action on this endpoint', async () => {
     const { token } = await seedAppointmentWithToken();
 
-    const response = await POST(rescheduleRequest(NEW_START.toISOString(), 'cancel'), { params: { token } });
+    const response = await POST(rescheduleRequest(NEW_START.toISOString(), 'cancel'), { params: Promise.resolve({ token }) });
 
     expect(response.status).toBe(400);
   });
@@ -829,7 +850,7 @@ describe('customer manage-link reschedule', () => {
   it('refuses to move an appointment that is no longer active', async () => {
     const { token } = await seedAppointmentWithToken({ status: 'cancelled' });
 
-    const response = await POST(rescheduleRequest(NEW_START.toISOString()), { params: { token } });
+    const response = await POST(rescheduleRequest(NEW_START.toISOString()), { params: Promise.resolve({ token }) });
     const body = await response.json();
 
     expect(response.status).toBe(409);
@@ -842,7 +863,7 @@ describe('customer manage-link reschedule', () => {
     getGoogleCalendarBusyWindows.mockRejectedValue(new Error('google down'));
     const { token } = await seedAppointmentWithToken();
 
-    await POST(rescheduleRequest(NEW_START.toISOString()), { params: { token } });
+    await POST(rescheduleRequest(NEW_START.toISOString()), { params: Promise.resolve({ token }) });
 
     const logged = [...errorSpy.mock.calls, ...warnSpy.mock.calls]
       .map(call => JSON.stringify(call))

@@ -22,23 +22,24 @@ import { BookTechClient } from './BookTechClient';
  * Fetches technicians and selected services from the database.
  * This is step 2 of the booking flow: Service → Tech → Time → Confirm
  */
-export default async function BookTechPage({
-  searchParams,
-  params,
-}: {
-  searchParams: {
-    serviceIds?: string;
-    baseServiceId?: string;
-    selectedAddOns?: string;
-    techId?: string;
-    locationId?: string;
-    salonSlug?: string;
-    originalAppointmentId?: string;
-    manageToken?: string;
-    campaign?: string;
-  };
-  params?: { locale?: string; slug?: string };
-}) {
+export default async function BookTechPage(
+  props: {
+    searchParams: Promise<{
+      serviceIds?: string;
+      baseServiceId?: string;
+      selectedAddOns?: string;
+      techId?: string;
+      locationId?: string;
+      salonSlug?: string;
+      originalAppointmentId?: string;
+      manageToken?: string;
+      campaign?: string;
+    }>;
+    params?: Promise<{ locale?: string; slug?: string }>;
+  },
+) {
+  const params = await props.params;
+  const searchParams = await props.searchParams;
   const context = await getPublicPageContext('book-technician', searchParams, params);
 
   const serviceIdList = searchParams.serviceIds?.split(',').filter(Boolean) || [];

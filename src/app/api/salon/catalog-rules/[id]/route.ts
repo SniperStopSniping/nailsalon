@@ -13,7 +13,7 @@ export const dynamic = 'force-dynamic';
  */
 export async function PATCH(
   request: Request,
-  context: { params: { id: string } },
+  context: { params: Promise<{ id: string }> },
 ) {
   let parsed: ReturnType<typeof parseOwnerRuleWrite>;
   try {
@@ -32,7 +32,7 @@ export async function PATCH(
   }
 
   try {
-    const updated = await updateCatalogRule(salon.id, context.params.id, ruleWrite);
+    const updated = await updateCatalogRule(salon.id, (await context.params).id, ruleWrite);
     return Response.json({ data: { rule: buildCatalogRuleResponse(updated) } });
   } catch (updateError) {
     if (updateError instanceof OwnerCatalogConfigError) {
@@ -49,7 +49,7 @@ export async function PATCH(
 /** DELETE /api/salon/catalog-rules/[id] — removes a rule. Cannot introduce a graph cycle, so no re-validation is needed. */
 export async function DELETE(
   request: Request,
-  context: { params: { id: string } },
+  context: { params: Promise<{ id: string }> },
 ) {
   const url = new URL(request.url);
   const salonSlug = url.searchParams.get('salonSlug');
@@ -66,7 +66,7 @@ export async function DELETE(
   }
 
   try {
-    await deleteCatalogRule(salon.id, context.params.id);
+    await deleteCatalogRule(salon.id, (await context.params).id);
     return Response.json({ data: { deleted: true } });
   } catch (deleteError) {
     if (deleteError instanceof OwnerCatalogConfigError) {

@@ -356,7 +356,7 @@ describe('Luster Manicure price — every booking surface derives the same curre
           isActive: true,
         }),
       }),
-      { params: { id: STALE_SERVICE_ID } },
+      { params: Promise.resolve({ id: STALE_SERVICE_ID }) },
     );
     holder.adminSalon = null;
 

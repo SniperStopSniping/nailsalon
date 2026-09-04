@@ -223,8 +223,8 @@ describe('BookServicePage first-visit offer visibility', () => {
     getClientSession.mockResolvedValue(null);
 
     const element = await BookServicePage({
-      searchParams: { salonSlug: 'salon-a' },
-      params: { locale: 'en', slug: 'salon-a' },
+      searchParams: Promise.resolve({ salonSlug: 'salon-a' }),
+      params: Promise.resolve({ locale: 'en', slug: 'salon-a' }),
     });
 
     render(element);
@@ -280,8 +280,8 @@ describe('BookServicePage first-visit offer visibility', () => {
     ]);
 
     const element = await BookServicePage({
-      searchParams: { salonSlug: 'salon-a' },
-      params: { locale: 'en', slug: 'salon-a' },
+      searchParams: Promise.resolve({ salonSlug: 'salon-a' }),
+      params: Promise.resolve({ locale: 'en', slug: 'salon-a' }),
     });
 
     render(element);
@@ -302,8 +302,8 @@ describe('BookServicePage first-visit offer visibility', () => {
     isClientEligibleForFirstVisitDiscount.mockResolvedValue(true);
 
     const element = await BookServicePage({
-      searchParams: { salonSlug: 'salon-a' },
-      params: { locale: 'en', slug: 'salon-a' },
+      searchParams: Promise.resolve({ salonSlug: 'salon-a' }),
+      params: Promise.resolve({ locale: 'en', slug: 'salon-a' }),
     });
 
     render(element);
@@ -322,8 +322,8 @@ describe('BookServicePage first-visit offer visibility', () => {
     isClientEligibleForFirstVisitDiscount.mockResolvedValue(false);
 
     const element = await BookServicePage({
-      searchParams: { salonSlug: 'salon-a' },
-      params: { locale: 'en', slug: 'salon-a' },
+      searchParams: Promise.resolve({ salonSlug: 'salon-a' }),
+      params: Promise.resolve({ locale: 'en', slug: 'salon-a' }),
     });
 
     render(element);
@@ -338,8 +338,8 @@ describe('BookServicePage first-visit offer visibility', () => {
     getClientSession.mockResolvedValue(null);
 
     const element = await BookServicePage({
-      searchParams: { salonSlug: 'salon-a' },
-      params: { locale: 'en', slug: 'salon-a' },
+      searchParams: Promise.resolve({ salonSlug: 'salon-a' }),
+      params: Promise.resolve({ locale: 'en', slug: 'salon-a' }),
     });
 
     render(element);
@@ -460,8 +460,8 @@ describe('BookServicePage first-visit offer visibility', () => {
     ]);
 
     const element = await BookServicePage({
-      searchParams: { salonSlug: 'salon-a' },
-      params: { locale: 'en', slug: 'salon-a' },
+      searchParams: Promise.resolve({ salonSlug: 'salon-a' }),
+      params: Promise.resolve({ locale: 'en', slug: 'salon-a' }),
     });
 
     render(element);
@@ -515,8 +515,8 @@ describe('BookServicePage first-visit offer visibility', () => {
     ]);
 
     const element = await BookServicePage({
-      searchParams: { salonSlug: 'salon-a' },
-      params: { locale: 'en', slug: 'salon-a' },
+      searchParams: Promise.resolve({ salonSlug: 'salon-a' }),
+      params: Promise.resolve({ locale: 'en', slug: 'salon-a' }),
     });
     render(element);
 
@@ -568,8 +568,8 @@ describe('BookServicePage owner-preview wiring', () => {
     });
 
     const element = await BookServicePage({
-      searchParams: { salonSlug: 'salon-a' },
-      params: { locale: 'en', slug: 'salon-a' },
+      searchParams: Promise.resolve({ salonSlug: 'salon-a' }),
+      params: Promise.resolve({ locale: 'en', slug: 'salon-a' }),
     });
     render(element);
 
@@ -589,12 +589,12 @@ describe('BookServicePage owner-preview wiring', () => {
     });
 
     const element = await BookServicePage({
-      searchParams: {
+      searchParams: Promise.resolve({
         salonSlug: 'salon-a',
         presetPreview: 'collective',
         presetPreviewVersion: '1',
-      },
-      params: { locale: 'en', slug: 'salon-a' },
+      }),
+      params: Promise.resolve({ locale: 'en', slug: 'salon-a' }),
     });
     render(element);
 
@@ -616,8 +616,8 @@ describe('BookServicePage owner-preview wiring', () => {
     });
 
     const element = await BookServicePage({
-      searchParams: { salonSlug: 'salon-a' },
-      params: { locale: 'en', slug: 'salon-a' },
+      searchParams: Promise.resolve({ salonSlug: 'salon-a' }),
+      params: Promise.resolve({ locale: 'en', slug: 'salon-a' }),
     });
     render(element);
 
@@ -637,8 +637,8 @@ describe('BookServicePage owner-preview wiring', () => {
     });
 
     const element = await BookServicePage({
-      searchParams: { salonSlug: 'salon-a' },
-      params: { locale: 'en', slug: 'salon-a' },
+      searchParams: Promise.resolve({ salonSlug: 'salon-a' }),
+      params: Promise.resolve({ locale: 'en', slug: 'salon-a' }),
     });
     render(element);
 
@@ -740,8 +740,8 @@ describe('BookServicePage owner-preview wiring', () => {
       });
 
     const previewElement = await BookServicePage({
-      searchParams: { salonSlug: 'salon-a' },
-      params: { locale: 'en', slug: 'salon-a' },
+      searchParams: Promise.resolve({ salonSlug: 'salon-a' }),
+      params: Promise.resolve({ locale: 'en', slug: 'salon-a' }),
     });
     render(previewElement);
 
@@ -759,8 +759,8 @@ describe('BookServicePage owner-preview wiring', () => {
     }));
 
     const publicElement = await BookServicePage({
-      searchParams: { salonSlug: 'salon-a' },
-      params: { locale: 'en', slug: 'salon-a' },
+      searchParams: Promise.resolve({ salonSlug: 'salon-a' }),
+      params: Promise.resolve({ locale: 'en', slug: 'salon-a' }),
     });
     render(publicElement);
 
@@ -789,13 +789,13 @@ describe('BookServicePage owner-preview wiring', () => {
       });
 
       const element = await BookServicePage({
-        searchParams: {
+        searchParams: Promise.resolve({
           salonSlug: 'salon-a',
           builderPreview: typeof builderPreview === 'string' || builderPreview === undefined
             ? builderPreview
             : [...builderPreview],
-        },
-        params: { locale: 'en', slug: 'salon-a' },
+        }),
+        params: Promise.resolve({ locale: 'en', slug: 'salon-a' }),
       });
       render(element);
 
@@ -897,8 +897,8 @@ describe('BookServicePage owner-preview wiring', () => {
     });
 
     const element = await BookServicePage({
-      searchParams: { salonSlug: 'salon-a', builderPreview: '8' },
-      params: { locale: 'en', slug: 'salon-a' },
+      searchParams: Promise.resolve({ salonSlug: 'salon-a', builderPreview: '8' }),
+      params: Promise.resolve({ locale: 'en', slug: 'salon-a' }),
     });
     render(element);
 
@@ -927,13 +927,13 @@ describe('BookServicePage owner-preview wiring', () => {
       });
 
       const element = await BookServicePage({
-        searchParams: {
+        searchParams: Promise.resolve({
           salonSlug: 'salon-a',
           builderPreview: typeof builderPreview === 'string' || builderPreview === undefined
             ? builderPreview
             : [...builderPreview],
-        },
-        params: { locale: 'en', slug: 'salon-a' },
+        }),
+        params: Promise.resolve({ locale: 'en', slug: 'salon-a' }),
       });
       render(element);
 
@@ -972,12 +972,12 @@ describe('BookServicePage owner-preview wiring', () => {
     });
 
     const element = await BookServicePage({
-      searchParams: {
+      searchParams: Promise.resolve({
         salonSlug: 'salon-a',
         presetPreview: 'collective',
         presetPreviewVersion: '1',
-      },
-      params: { locale: 'en', slug: 'salon-a' },
+      }),
+      params: Promise.resolve({ locale: 'en', slug: 'salon-a' }),
     });
     render(element);
 
@@ -1052,8 +1052,8 @@ describe('BookServicePage owner-preview wiring', () => {
       });
 
       const element = await BookServicePage({
-        searchParams: { salonSlug: 'salon-a', presetPreview, presetPreviewVersion },
-        params: { locale: 'en', slug: 'salon-a' },
+        searchParams: Promise.resolve({ salonSlug: 'salon-a', presetPreview, presetPreviewVersion }),
+        params: Promise.resolve({ locale: 'en', slug: 'salon-a' }),
       });
       render(element);
 
@@ -1082,8 +1082,8 @@ describe('BookServicePage owner-preview wiring', () => {
     });
 
     const element = await BookServicePage({
-      searchParams: { salonSlug: 'salon-a' },
-      params: { locale: 'en', slug: 'salon-a' },
+      searchParams: Promise.resolve({ salonSlug: 'salon-a' }),
+      params: Promise.resolve({ locale: 'en', slug: 'salon-a' }),
     });
     render(element);
 
@@ -1103,8 +1103,8 @@ describe('BookServicePage owner-preview wiring', () => {
     buildTenantRedirectPath.mockReturnValue('/en/salon-a/not-found');
 
     await expect(BookServicePage({
-      searchParams: { salonSlug: 'salon-a' },
-      params: { locale: 'en', slug: 'salon-a' },
+      searchParams: Promise.resolve({ salonSlug: 'salon-a' }),
+      params: Promise.resolve({ locale: 'en', slug: 'salon-a' }),
     })).rejects.toThrow('REDIRECT:/en/salon-a/not-found');
 
     // Real deny-before-render proof: nothing past the gate ever ran —
@@ -1200,8 +1200,8 @@ describe('BookServicePage location privacy (locationDisplayMode)', () => {
 
   it('full_address (default) passes the exact address and phone through to the locations prop unchanged', async () => {
     const element = await BookServicePage({
-      searchParams: { salonSlug: 'salon-a' },
-      params: { locale: 'en', slug: 'salon-a' },
+      searchParams: Promise.resolve({ salonSlug: 'salon-a' }),
+      params: Promise.resolve({ locale: 'en', slug: 'salon-a' }),
     });
     render(element);
 
@@ -1230,8 +1230,8 @@ describe('BookServicePage location privacy (locationDisplayMode)', () => {
     });
 
     const element = await BookServicePage({
-      searchParams: { salonSlug: 'salon-a' },
-      params: { locale: 'en', slug: 'salon-a' },
+      searchParams: Promise.resolve({ salonSlug: 'salon-a' }),
+      params: Promise.resolve({ locale: 'en', slug: 'salon-a' }),
     });
     render(element);
 
@@ -1263,8 +1263,8 @@ describe('BookServicePage location privacy (locationDisplayMode)', () => {
     });
 
     const element = await BookServicePage({
-      searchParams: { salonSlug: 'salon-a' },
-      params: { locale: 'en', slug: 'salon-a' },
+      searchParams: Promise.resolve({ salonSlug: 'salon-a' }),
+      params: Promise.resolve({ locale: 'en', slug: 'salon-a' }),
     });
     render(element);
 

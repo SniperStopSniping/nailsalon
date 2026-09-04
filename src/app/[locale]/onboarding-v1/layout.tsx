@@ -18,13 +18,15 @@ import '@/features/onboarding-v1-integration/account-gate/account-gate.css';
 
 import { enUS, frFR } from '@clerk/localizations';
 import { ClerkProvider } from '@clerk/nextjs';
+import { use } from 'react';
 
 export default function OnboardingV1Layout(props: {
   children: React.ReactNode;
-  params: { locale: string };
+  params: Promise<{ locale: string }>;
 }) {
-  const onboardingUrl = `/${props.params.locale}/onboarding-v1`;
-  const homeUrl = props.params.locale === 'en' ? '/' : `/${props.params.locale}`;
+  const params = use(props.params);
+  const onboardingUrl = `/${params.locale}/onboarding-v1`;
+  const homeUrl = params.locale === 'en' ? '/' : `/${params.locale}`;
 
   return (
     <ClerkProvider
@@ -38,7 +40,7 @@ export default function OnboardingV1Layout(props: {
           colorTextSecondary: '#706267',
         },
       }}
-      localization={props.params.locale === 'fr' ? frFR : enUS}
+      localization={params.locale === 'fr' ? frFR : enUS}
       signInFallbackRedirectUrl={`${onboardingUrl}?claim=1`}
       signInUrl={`${onboardingUrl}?auth=sign-in`}
       signUpFallbackRedirectUrl={`${onboardingUrl}?claim=1`}

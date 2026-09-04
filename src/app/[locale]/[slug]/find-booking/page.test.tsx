@@ -77,7 +77,7 @@ describe('FindBookingPage phone privacy (locationDisplayMode)', () => {
   });
 
   it('full_address (default/control) passes the exact salon phone through unredacted — proves the city_only assertion below is not vacuous', async () => {
-    const element = await FindBookingPage({ params: { slug: 'salon-a' } });
+    const element = await FindBookingPage({ params: Promise.resolve({ slug: 'salon-a' }) });
     render(element);
 
     expect(screen.getByText('Find booking form')).toBeInTheDocument();
@@ -97,7 +97,7 @@ describe('FindBookingPage phone privacy (locationDisplayMode)', () => {
       settings: { sharedProfile: { bookingOnlyContact: true } },
     });
 
-    const element = await FindBookingPage({ params: { slug: 'salon-a' } });
+    const element = await FindBookingPage({ params: Promise.resolve({ slug: 'salon-a' }) });
     render(element);
 
     expect(findBookingFormSpy).toHaveBeenCalledWith(expect.objectContaining({
@@ -109,7 +109,7 @@ describe('FindBookingPage phone privacy (locationDisplayMode)', () => {
   it('city_only redacts salonPhone to null — the exact string never reaches the FindBookingForm props', async () => {
     resolveBookingPageContent.mockReturnValue(bookingPageContentReturn('city_only'));
 
-    const element = await FindBookingPage({ params: { slug: 'salon-a' } });
+    const element = await FindBookingPage({ params: Promise.resolve({ slug: 'salon-a' }) });
     render(element);
 
     expect(findBookingFormSpy).toHaveBeenCalledWith(expect.objectContaining({
@@ -132,7 +132,7 @@ describe('FindBookingPage phone privacy (locationDisplayMode)', () => {
   it('an unpublished or nonexistent salon 404s instead of rendering', async () => {
     requirePublishedTenantSalon.mockRejectedValue(new Error('NEXT_NOT_FOUND'));
 
-    await expect(FindBookingPage({ params: { slug: 'unknown-salon' } }))
+    await expect(FindBookingPage({ params: Promise.resolve({ slug: 'unknown-salon' }) }))
       .rejects
       .toThrow('NEXT_NOT_FOUND');
 

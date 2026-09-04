@@ -32,10 +32,8 @@ export const dynamic = 'force-dynamic';
 // 404 for unknown or revoked tokens (revoked on full payment and on reopen).
 // =============================================================================
 
-export async function GET(
-  _request: Request,
-  { params }: { params: { token: string } },
-): Promise<Response> {
+export async function GET(_request: Request, props: { params: Promise<{ token: string }> }): Promise<Response> {
+  const params = await props.params;
   try {
     const tokenHash = hashOpaqueToken(params.token);
     const [row] = await db

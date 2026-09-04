@@ -52,21 +52,21 @@ const ADD_ON_C = 'addon_rule_id_route_c';
 let db: ReturnType<typeof drizzle<typeof schema>>;
 let client: PGlite;
 
-function patchRequest(id: string, body: unknown): [Request, { params: { id: string } }] {
+function patchRequest(id: string, body: unknown): [Request, { params: Promise<{ id: string }> }] {
   return [
     new Request(`http://localhost/api/salon/catalog-rules/${id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     }),
-    { params: { id } },
+    { params: Promise.resolve({ id }) },
   ];
 }
 
-function deleteRequest(id: string, salonSlug: string): [Request, { params: { id: string } }] {
+function deleteRequest(id: string, salonSlug: string): [Request, { params: Promise<{ id: string }> }] {
   return [
     new Request(`http://localhost/api/salon/catalog-rules/${id}?salonSlug=${salonSlug}`, { method: 'DELETE' }),
-    { params: { id } },
+    { params: Promise.resolve({ id }) },
   ];
 }
 

@@ -16,13 +16,14 @@ import RewardsDisabledPage from '../../../(unauth)/rewards-disabled/page';
  * unverifiable user-facing work on dead code, so the route is gated for safety
  * and its dead status is recorded in the defect register instead.
  */
-export default async function TenantRewardsDisabledPage({
-  params,
-  searchParams,
-}: {
-  params: { locale?: string; slug: string };
-  searchParams: { salonSlug?: string };
-}) {
+export default async function TenantRewardsDisabledPage(
+  props: {
+    params: Promise<{ locale?: string; slug: string }>;
+    searchParams: Promise<{ salonSlug?: string }>;
+  },
+) {
+  const searchParams = await props.searchParams;
+  const params = await props.params;
   await requirePublishedTenantSalon(params.slug);
 
   return <RewardsDisabledPage params={params} searchParams={searchParams} />;

@@ -67,7 +67,7 @@ function request(body: unknown) {
   });
 }
 
-const context = { params: { id: 'svc_1' } };
+const context = { params: Promise.resolve({ id: 'svc_1' }) };
 const validBody = {
   salonSlug: 'isla-nail-studio',
   contentType: 'image/jpeg',

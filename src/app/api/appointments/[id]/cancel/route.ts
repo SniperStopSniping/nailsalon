@@ -127,10 +127,8 @@ function pointsRedeemedFromNotes(notes: string | null): number {
 // This also unlinks any pending rewards tied to this appointment.
 // =============================================================================
 
-export async function PATCH(
-  request: Request,
-  { params }: { params: { id: string } },
-): Promise<Response> {
+export async function PATCH(request: Request, props: { params: Promise<{ id: string }> }): Promise<Response> {
+  const params = await props.params;
   try {
     const appointmentId = params.id;
     const access = await requireAppointmentManagerAccess(appointmentId, {

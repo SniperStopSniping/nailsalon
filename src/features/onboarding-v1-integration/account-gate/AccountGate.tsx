@@ -1041,9 +1041,9 @@ function CodeStep({
   busy: boolean;
   codeValue: string;
   email: string;
-  focusRef: React.RefObject<HTMLInputElement>;
+  focusRef: React.RefObject<HTMLInputElement | null>;
   formError: string | null;
-  headingRef: React.RefObject<HTMLHeadingElement>;
+  headingRef: React.RefObject<HTMLHeadingElement | null>;
   intro: string;
   onChangeCode: (value: string) => void;
   onChangeEmail: (() => void) | null;

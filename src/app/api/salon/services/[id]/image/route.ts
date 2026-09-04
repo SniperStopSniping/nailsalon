@@ -599,10 +599,8 @@ async function finalizeLocalImage(
   }
 }
 
-export async function POST(
-  request: Request,
-  { params }: { params: { id: string } },
-): Promise<Response> {
+export async function POST(request: Request, props: { params: Promise<{ id: string }> }): Promise<Response> {
+  const params = await props.params;
   const contentType = request.headers.get('content-type') ?? '';
 
   if (contentType.startsWith('application/json')) {
@@ -619,10 +617,8 @@ export async function POST(
   );
 }
 
-export async function DELETE(
-  request: Request,
-  { params }: { params: { id: string } },
-): Promise<Response> {
+export async function DELETE(request: Request, props: { params: Promise<{ id: string }> }): Promise<Response> {
+  const params = await props.params;
   const { searchParams } = new URL(request.url);
   const salonSlug = searchParams.get('salonSlug');
   const expectedImageUrl = searchParams.get('expectedImageUrl');

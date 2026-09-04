@@ -1,19 +1,13 @@
 import type { Metadata } from 'next';
-import dynamicImport from 'next/dynamic';
 import { NextIntlClientProvider } from 'next-intl';
 import { getMessages, unstable_setRequestLocale } from 'next-intl/server';
 
+import { DevRoleSwitcherLoader } from '@/components/DevRoleSwitcherLoader';
 import { getResolvedSalon } from '@/libs/tenant';
 import type { SalonStatus } from '@/models/Schema';
 import { SalonProvider } from '@/providers/SalonProvider';
 import { ThemeProvider } from '@/theme';
 import { AllLocales } from '@/utils/AppConfig';
-
-// DEV ONLY: Dynamic import for tree-shaking in production
-const DevRoleSwitcher = dynamicImport(
-  () => import('@/components/DevRoleSwitcher'),
-  { ssr: false },
-);
 
 export const metadata: Metadata = {
   title: {
@@ -53,9 +47,9 @@ export function generateStaticParams() {
 
 export default async function RootLayout(props: {
   children: React.ReactNode;
-  params: { locale: string };
+  params: Promise<{ locale: string }>;
 }) {
-  unstable_setRequestLocale(props.params.locale);
+  unstable_setRequestLocale((await props.params).locale);
 
   // Fetch messages for internationalization
   const messages = await getMessages();
@@ -78,7 +72,7 @@ export default async function RootLayout(props: {
   return (
     <>
       {/* DEV ONLY: Role switcher for testing */}
-      {process.env.NEXT_PUBLIC_DEV_MODE === 'true' && <DevRoleSwitcher />}
+      {process.env.NODE_ENV !== 'production' && process.env.NEXT_PUBLIC_DEV_MODE === 'true' && <DevRoleSwitcherLoader />}
       {/* ThemeProvider injects CSS variables based on themeKey */}
       <ThemeProvider themeKey={salon?.themeKey ?? undefined}>
         {/* SalonProvider provides tenant context to all child components */}
@@ -90,7 +84,7 @@ export default async function RootLayout(props: {
           status={salonStatus}
         >
           <NextIntlClientProvider
-            locale={props.params.locale}
+            locale={(await props.params).locale}
             messages={messages}
           >
             {props.children}

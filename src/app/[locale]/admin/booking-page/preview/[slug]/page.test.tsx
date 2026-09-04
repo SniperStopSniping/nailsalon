@@ -25,8 +25,8 @@ async function renderPreview({
   salonSlugQuery?: string;
 } = {}) {
   return OwnerBookingPagePreview({
-    params: { locale: 'en', slug: routeSlug },
-    searchParams: salonSlugQuery ? { salonSlug: salonSlugQuery } : {},
+    params: Promise.resolve({ locale: 'en', slug: routeSlug }),
+    searchParams: Promise.resolve(salonSlugQuery ? { salonSlug: salonSlugQuery } : {}),
   });
 }
 

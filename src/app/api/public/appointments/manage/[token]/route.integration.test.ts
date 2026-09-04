@@ -231,7 +231,7 @@ describe('customer manage-link deposit checkout', () => {
 
     const response = await GET(
       new Request('http://localhost/api/public/appointments/manage/x'),
-      { params: { token } },
+      { params: Promise.resolve({ token }) },
     );
     const body = await response.json();
 
@@ -262,7 +262,7 @@ describe('customer manage-link deposit checkout', () => {
 
     const response = await GET(
       new Request('http://localhost/api/public/appointments/manage/x'),
-      { params: { token } },
+      { params: Promise.resolve({ token }) },
     );
     const body = await response.json();
 
@@ -710,7 +710,7 @@ describe('customer manage-link cancellation', () => {
   it('cancels the appointment and queues exactly one salon alert', async () => {
     const { appointmentId, token } = await seedAppointmentWithToken();
 
-    const response = await PATCH(cancelRequest(), { params: { token } });
+    const response = await PATCH(cancelRequest(), { params: Promise.resolve({ token }) });
 
     expect(response.status).toBe(200);
 
@@ -742,7 +742,7 @@ describe('customer manage-link cancellation', () => {
   it('sends the client confirmation to the current terminal email without changing the snapshot', async () => {
     const { appointmentId, token } = await seedAppointmentWithToken();
 
-    await PATCH(cancelRequest(), { params: { token } });
+    await PATCH(cancelRequest(), { params: Promise.resolve({ token }) });
 
     expect(detailedEmailsTo('current@example.com')).toHaveLength(1);
     expect(detailedEmailsTo('current@example.com')[0]).toMatchObject({
@@ -799,7 +799,7 @@ describe('customer manage-link cancellation', () => {
       };
     });
 
-    const response = await PATCH(cancelRequest(), { params: { token } });
+    const response = await PATCH(cancelRequest(), { params: Promise.resolve({ token }) });
 
     expect(response.status).toBe(200);
     expect(detailedEmailsTo('current@example.com')).toHaveLength(1);
@@ -813,7 +813,7 @@ describe('customer manage-link cancellation', () => {
     const { token } = await seedAppointmentWithToken();
 
     try {
-      const response = await PATCH(cancelRequest(), { params: { token } });
+      const response = await PATCH(cancelRequest(), { params: Promise.resolve({ token }) });
 
       expect(response.status).toBe(200);
 
@@ -835,8 +835,8 @@ describe('customer manage-link cancellation', () => {
   it('does not notify again when the cancellation is repeated', async () => {
     const { appointmentId, token } = await seedAppointmentWithToken();
 
-    const first = await PATCH(cancelRequest(), { params: { token } });
-    const second = await PATCH(cancelRequest(), { params: { token } });
+    const first = await PATCH(cancelRequest(), { params: Promise.resolve({ token }) });
+    const second = await PATCH(cancelRequest(), { params: Promise.resolve({ token }) });
 
     expect(first.status).toBe(200);
     expect(second.status).toBe(409);
@@ -849,8 +849,8 @@ describe('customer manage-link cancellation', () => {
   it('allows only one concurrent cancellation to notify the customer', async () => {
     const { appointmentId, token } = await seedAppointmentWithToken();
     const responses = await Promise.all([
-      PATCH(cancelRequest(), { params: { token } }),
-      PATCH(cancelRequest(), { params: { token } }),
+      PATCH(cancelRequest(), { params: Promise.resolve({ token }) }),
+      PATCH(cancelRequest(), { params: Promise.resolve({ token }) }),
     ]);
 
     expect(responses.map(response => response.status).sort())
@@ -866,7 +866,7 @@ describe('customer manage-link cancellation', () => {
       cancelReason: 'client_request',
     });
 
-    const response = await PATCH(cancelRequest(), { params: { token } });
+    const response = await PATCH(cancelRequest(), { params: Promise.resolve({ token }) });
 
     expect(response.status).toBe(409);
     expect(await salonDeliveriesFor(appointmentId)).toHaveLength(0);
@@ -885,7 +885,7 @@ describe('customer manage-link cancellation', () => {
       .where(eq(schema.salonSchema.id, SALON_ID));
     const { appointmentId, token } = await seedAppointmentWithToken();
 
-    await PATCH(cancelRequest(), { params: { token } });
+    await PATCH(cancelRequest(), { params: Promise.resolve({ token }) });
 
     expect(await salonDeliveriesFor(appointmentId)).toHaveLength(0);
     expect(detailedEmailsTo('owner@example.com')).toHaveLength(0);
@@ -906,7 +906,7 @@ describe('customer manage-link cancellation', () => {
     });
     const { appointmentId, token } = await seedAppointmentWithToken();
 
-    const response = await PATCH(cancelRequest(), { params: { token } });
+    const response = await PATCH(cancelRequest(), { params: Promise.resolve({ token }) });
 
     expect(response.status).toBe(200);
 
@@ -931,7 +931,7 @@ describe('customer manage-link cancellation', () => {
     );
     const { appointmentId, token } = await seedAppointmentWithToken();
 
-    const response = await PATCH(cancelRequest(), { params: { token } });
+    const response = await PATCH(cancelRequest(), { params: Promise.resolve({ token }) });
 
     expect(response.status).toBe(200);
 
@@ -953,7 +953,7 @@ describe('customer manage-link cancellation', () => {
       .where(eq(schema.salonClientSchema.id, CLIENT_ID));
     const { appointmentId, token } = await seedAppointmentWithToken();
 
-    const response = await PATCH(cancelRequest(), { params: { token } });
+    const response = await PATCH(cancelRequest(), { params: Promise.resolve({ token }) });
 
     expect(response.status).toBe(200);
     expect(detailedEmailsTo('current@example.com')).toHaveLength(0);

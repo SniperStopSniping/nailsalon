@@ -1,7 +1,5 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import React from 'react';
-// @ts-expect-error -- React DOM's server runtime ships with Next.js, while this
-// repository intentionally does not carry the separate @types/react-dom package.
 import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 

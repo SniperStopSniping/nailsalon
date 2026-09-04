@@ -86,15 +86,15 @@ export function isDevModeServer(): boolean {
  * Read dev role override from cookies
  * Returns null if no valid role is set
  *
- * NOTE: cookies() is synchronous in Next.js App Router
+ * Next.js request cookies are resolved asynchronously.
  */
-export function readDevRoleFromCookies(): DevRole | null {
+export async function readDevRoleFromCookies(): Promise<DevRole | null> {
   if (!isDevModeServer()) {
     return null;
   }
 
   try {
-    const cookieStore = cookies();
+    const cookieStore = await cookies();
     const value = cookieStore.get(DEV_COOKIE_NAME)?.value;
 
     if (value && ALLOWED_ROLES.has(value as DevRole)) {

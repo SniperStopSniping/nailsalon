@@ -23,7 +23,8 @@ export const metadata = {
  * disclosure. Only the narrow `resolvePublicSalonStatusIdentity` projection is
  * passed — name plus city/state, never address, postal code, phone or email.
  */
-export default async function TenantSuspendedPage({ params }: { params: { slug: string } }) {
+export default async function TenantSuspendedPage(props: { params: Promise<{ slug: string }> }) {
+  const params = await props.params;
   const salon = await requirePublishedTenantSalon(params.slug);
 
   return (

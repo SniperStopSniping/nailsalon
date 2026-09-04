@@ -500,10 +500,8 @@ async function resolveFinalItems(
 // replay inserts nothing.
 // =============================================================================
 
-export async function PATCH(
-  request: Request,
-  { params }: { params: { id: string } },
-): Promise<Response> {
+export async function PATCH(request: Request, props: { params: Promise<{ id: string }> }): Promise<Response> {
+  const params = await props.params;
   try {
     const appointmentId = params.id;
     const access = await requireAppointmentManagerAccess(appointmentId, {
@@ -1555,10 +1553,8 @@ async function handleSuccessfulCompletion(
 // Used when tech begins working on client.
 // =============================================================================
 
-export async function POST(
-  request: Request,
-  { params }: { params: { id: string } },
-): Promise<Response> {
+export async function POST(request: Request, props: { params: Promise<{ id: string }> }): Promise<Response> {
+  const params = await props.params;
   try {
     const appointmentId = params.id;
     const access = await requireAppointmentManagerAccess(appointmentId, {

@@ -843,7 +843,7 @@ suite('D6 — genuine PostgreSQL refund concurrency', () => {
             expectedTotalDueCents: 11_300,
           }),
         }),
-        { params: { id: appointmentId } },
+        { params: Promise.resolve({ id: appointmentId }) },
       );
 
       expect(busy.status).toBe(409);
@@ -871,7 +871,7 @@ suite('D6 — genuine PostgreSQL refund concurrency', () => {
           expectedTotalDueCents: 11_300,
         }),
       }),
-      { params: { id: appointmentId } },
+      { params: Promise.resolve({ id: appointmentId }) },
     );
 
     expect(reQuote.status).toBe(409);

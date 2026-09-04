@@ -182,7 +182,7 @@ describe('§5.2 — the staff transition route refuses a hold', () => {
       await seedAppointment('awaiting_payment');
       holder.access = accessFor('awaiting_payment');
 
-      const response = await POST(transitionRequest(to), { params: { id: APPT_ID } });
+      const response = await POST(transitionRequest(to), { params: Promise.resolve({ id: APPT_ID }) });
       const body = await response.json();
 
       expect(response.status).toBe(409);
@@ -209,7 +209,7 @@ describe('§5.2 — the staff transition route refuses a hold', () => {
     await seedAppointment('awaiting_payment');
     holder.access = accessFor('awaiting_payment');
 
-    const response = await POST(transitionRequest('working'), { params: { id: APPT_ID } });
+    const response = await POST(transitionRequest('working'), { params: Promise.resolve({ id: APPT_ID }) });
     const body = await response.json();
 
     expect(body.error.code).toBe('HOLD_LOCKED');
@@ -222,7 +222,7 @@ describe('§5.2 — the staff transition route refuses a hold', () => {
     await seedAppointment('confirmed');
     holder.access = accessFor('confirmed');
 
-    const response = await POST(transitionRequest('cancelled'), { params: { id: APPT_ID } });
+    const response = await POST(transitionRequest('cancelled'), { params: Promise.resolve({ id: APPT_ID }) });
 
     expect(response.status).toBe(200);
 
@@ -257,7 +257,7 @@ describe('§5.2 — the staff transition route refuses a hold', () => {
         },
       ]);
 
-      const response = await POST(transitionRequest(to), { params: { id: APPT_ID } });
+      const response = await POST(transitionRequest(to), { params: Promise.resolve({ id: APPT_ID }) });
 
       expect(response.status).toBe(200);
       expect((await db.select().from(schema.rewardSchema)
@@ -294,7 +294,7 @@ describe('§5.2 — the CAS refuses a row that became a hold after the pre-read'
     // in-transaction staleness check before the CAS is even reached.
     holder.access = accessFor('confirmed');
 
-    const response = await POST(transitionRequest('cancelled'), { params: { id: APPT_ID } });
+    const response = await POST(transitionRequest('cancelled'), { params: Promise.resolve({ id: APPT_ID }) });
 
     expect(response.status).toBe(409);
 
@@ -373,7 +373,7 @@ describe('§5.2 — the CAS refuses a row that became a hold after the pre-read'
       return callback(patched);
     }) as never, ...(rest as []))) as unknown as typeof db.transaction);
 
-    const response = await POST(transitionRequest('cancelled'), { params: { id: APPT_ID } });
+    const response = await POST(transitionRequest('cancelled'), { params: Promise.resolve({ id: APPT_ID }) });
     spy.mockRestore();
 
     // The flip must actually have happened, or this leg proves nothing.

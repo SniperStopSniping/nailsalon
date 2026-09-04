@@ -71,7 +71,7 @@ describe('Google event revert D5 ordering', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ salonSlug: 'google-revert-salon' }),
       },
-    ), { params: { id: event.id } });
+    ), { params: Promise.resolve({ id: event.id }) });
 
     expect(response.status).toBe(409);
     expect(acquireGoogleCalendarMutationBarrierInTx).toHaveBeenCalledWith(

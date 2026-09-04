@@ -87,7 +87,7 @@ describe('POST /api/appointments/[id]/send-reminder', () => {
       new Request('https://app.test/api/appointments/appt_1/send-reminder?salonSlug=isla', {
         method: 'POST',
       }),
-      { params: { id: 'appt_1' } },
+      { params: Promise.resolve({ id: 'appt_1' }) },
     );
 
     expect(requireAppointmentManagerAccess).toHaveBeenCalledWith('appt_1', expect.objectContaining({
@@ -123,7 +123,7 @@ describe('POST /api/appointments/[id]/send-reminder', () => {
 
     const response = await POST(
       new Request('https://app.test/api/appointments/appt_1/send-reminder', { method: 'POST' }),
-      { params: { id: 'appt_1' } },
+      { params: Promise.resolve({ id: 'appt_1' }) },
     );
 
     expect(response.status).toBe(200);
@@ -153,7 +153,7 @@ describe('POST /api/appointments/[id]/send-reminder', () => {
       new Request('https://app.test/api/appointments/appt_1/send-reminder', {
         method: 'POST',
       }),
-      { params: { id: 'appt_1' } },
+      { params: Promise.resolve({ id: 'appt_1' }) },
     );
 
     expect(response.status).toBe(200);
@@ -193,7 +193,7 @@ describe('POST /api/appointments/[id]/send-reminder', () => {
       new Request('https://app.test/api/appointments/appt_1/send-reminder', {
         method: 'POST',
       }),
-      { params: { id: 'appt_1' } },
+      { params: Promise.resolve({ id: 'appt_1' }) },
     );
 
     expect(response.status).toBe(200);
@@ -227,7 +227,7 @@ describe('POST /api/appointments/[id]/send-reminder', () => {
       new Request('https://app.test/api/appointments/appt_1/send-reminder', {
         method: 'POST',
       }),
-      { params: { id: 'appt_1' } },
+      { params: Promise.resolve({ id: 'appt_1' }) },
     );
 
     expect(response.status).toBe(500);
@@ -248,7 +248,7 @@ describe('POST /api/appointments/[id]/send-reminder', () => {
 
     const response = await POST(
       new Request('https://app.test/api/appointments/appt_1/send-reminder', { method: 'POST' }),
-      { params: { id: 'appt_1' } },
+      { params: Promise.resolve({ id: 'appt_1' }) },
     );
 
     expect(response.status).toBe(502);
@@ -271,7 +271,7 @@ describe('POST /api/appointments/[id]/send-reminder', () => {
 
     const response = await POST(
       new Request('https://app.test/api/appointments/appt_1/send-reminder', { method: 'POST' }),
-      { params: { id: 'appt_1' } },
+      { params: Promise.resolve({ id: 'appt_1' }) },
     );
 
     await expect(response.json()).resolves.toEqual({
@@ -290,7 +290,7 @@ describe('POST /api/appointments/[id]/send-reminder', () => {
         method: 'POST',
         body: JSON.stringify({ force: true }),
       }),
-      { params: { id: 'appt_1' } },
+      { params: Promise.resolve({ id: 'appt_1' }) },
     );
 
     expect(sendSmartAppointmentReminder).toHaveBeenCalledWith(
@@ -308,7 +308,7 @@ describe('POST /api/appointments/[id]/send-reminder', () => {
 
     const response = await POST(
       new Request('https://app.test/api/appointments/appt_1/send-reminder', { method: 'POST' }),
-      { params: { id: 'appt_1' } },
+      { params: Promise.resolve({ id: 'appt_1' }) },
     );
 
     expect(response.status).toBe(409);
@@ -324,7 +324,7 @@ describe('POST /api/appointments/[id]/send-reminder', () => {
 
     const response = await POST(
       new Request('https://app.test/api/appointments/appt_other/send-reminder', { method: 'POST' }),
-      { params: { id: 'appt_other' } },
+      { params: Promise.resolve({ id: 'appt_other' }) },
     );
 
     expect(response.status).toBe(403);

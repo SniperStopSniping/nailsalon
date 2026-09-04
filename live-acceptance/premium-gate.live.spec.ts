@@ -7,6 +7,7 @@ import sharp from 'sharp';
 
 import type { OnboardingClaimSuccess } from '../src/features/onboarding-v1-integration/contracts';
 import { cleanupRunIdentity } from './cleanup-test-identities';
+import { clerkResponseShape } from './clerk-diagnostics';
 import { assertLocalAcceptanceEnvironment, runScopedEmail } from './safety';
 
 const scope = assertLocalAcceptanceEnvironment(process.env);
@@ -55,13 +56,25 @@ test('Quick Book owner can verify, save media, finish setup, and return to the s
   const pendingResponses: Promise<void>[] = [];
   const pageErrors: string[] = [];
   const failedApiResponses: Array<{ path: string; status: number }> = [];
-  const clerkResponses: Array<{ path: string; status: number; testingToken: boolean }> = [];
+  const clerkResponses: Array<{ path: string; status: number } & ReturnType<typeof clerkResponseShape>> = [];
+  const clerkCheckpoints: Array<{ checkpoint: string; captchaBypass: boolean | null }> = [];
+  async function captureClerkCheckpoint(checkpoint: string) {
+    const captchaBypass = await page.evaluate(() => {
+      const value = (window as any).Clerk?.client?.captchaBypass;
+      return typeof value === 'boolean' ? value : null;
+    });
+    clerkCheckpoints.push({ checkpoint, captchaBypass });
+    return captchaBypass;
+  }
   let userId: string | undefined;
   page.on('pageerror', error => pageErrors.push(error.name));
   page.on('response', (response) => {
     const url = new URL(response.url());
     if (url.hostname === process.env.CLERK_FAPI && url.pathname.startsWith('/v1/')) {
-      clerkResponses.push({ path: url.pathname, status: response.status(), testingToken: url.searchParams.has('__clerk_testing_token') });
+      pendingResponses.push((async () => {
+        const shape = clerkResponseShape(await response.json().catch(() => null));
+        clerkResponses.push({ path: url.pathname, status: response.status(), ...shape });
+      })());
     }
     if (url.origin !== scope.baseURL || !url.pathname.startsWith('/api/')) {
       return;
@@ -117,16 +130,29 @@ test('Quick Book owner can verify, save media, finish setup, and return to the s
     await page.getByRole('button', { name: 'Use this look', exact: true }).click();
     await expectHeading(page, /Your site is coming together/);
     await page.getByRole('button', { name: 'Continue with email', exact: true }).click();
+    await captureClerkCheckpoint('before-email-lookup');
     await page.getByLabel('Email address', { exact: true }).fill(email);
     await page.getByRole('button', { name: 'Continue', exact: true }).click();
     await expectHeading(page, 'Create your password');
+    await captureClerkCheckpoint('after-unknown-email-lookup');
+    // Failed sign-in lookups can piggyback meta.client, which the official
+    // testing helper does not normalize. Reload the public client resource
+    // through that unmodified helper; never alter application CAPTCHA state.
+    await page.evaluate(async () => {
+      await (window as any).Clerk.client.reload();
+    });
+
+    expect(await captureClerkCheckpoint('before-signup')).toBe(true);
+
+    process.stdout.write('Live acceptance: official-helper client reload ready; submitting Development signup.\n');
     await page.getByLabel('Password', { exact: true }).fill(password);
     await page.getByRole('button', { name: 'Create account and continue', exact: true }).click();
 
     await expect(page.getByRole('heading', { name: 'Check your email', exact: true })).toBeVisible({ timeout: 120_000 });
 
+    process.stdout.write('Live acceptance: Development signup reached email verification.\n');
     await page.getByLabel('Verification code', { exact: true }).fill('424242');
-    const earlyClaimResponse = page.waitForResponse(response => new URL(response.url()).pathname === '/api/onboarding/v1/claim');
+    const earlyClaimResponse = page.waitForResponse(response => new URL(response.url()).pathname === '/api/onboarding/v1/claim', { timeout: 90_000 });
     await page.getByRole('button', { name: /Verify and save/ }).click();
     const earlyResponse = await earlyClaimResponse;
 
@@ -134,6 +160,7 @@ test('Quick Book owner can verify, save media, finish setup, and return to the s
 
     const earlyClaim = (await earlyResponse.json()).data as OnboardingClaimSuccess;
     await expectHeading(page, 'Your progress is saved');
+    process.stdout.write('Live acceptance: verified identity and early draft claim succeeded.\n');
     userId = await page.evaluate(() => (window as any).Clerk.user.id as string);
     await page.screenshot({ path: testInfo.outputPath('early-save.png') });
     await page.getByRole('button', { name: 'Continue setting up', exact: true }).click();
@@ -178,10 +205,11 @@ test('Quick Book owner can verify, save media, finish setup, and return to the s
     expect(finalClaim.media.failed).toBe(0);
     expect(finalClaim.media.pending).toBe(0);
 
+    process.stdout.write('Live acceptance: same-site final claim, service menu, and saved media verified.\n');
     await expectHeading(page, 'Your Luster site is saved');
     await page.getByRole('button', { name: 'Choose how to start', exact: true }).click();
     await page.getByRole('button', { name: 'Continue free', exact: true }).click();
-    await page.waitForURL(/\/admin\?/);
+    await page.waitForURL(/\/admin\?/, { timeout: 90_000 });
 
     await expect(page.getByTestId('owner-today-workspace')).toBeVisible();
 
@@ -225,6 +253,7 @@ test('Quick Book owner can verify, save media, finish setup, and return to the s
 
       await expect(fresh.getByTestId('owner-today-workspace')).toBeVisible();
 
+      process.stdout.write('Live acceptance: fresh-browser owner login reached the dashboard.\n');
       await fresh.goto(`${scope.baseURL}${handoff.site.previewUrl}`);
 
       await expect(fresh.getByText(businessName).first()).toBeVisible();
@@ -265,6 +294,7 @@ test('Quick Book owner can verify, save media, finish setup, and return to the s
         await guest.locator('button[data-testid^="service-card-"]').first().click();
         await guest.getByTestId('service-continue-button').click();
         await guest.waitForURL(/\/book\/(?:tech|time)(?:\?|$)/);
+        process.stdout.write('Live acceptance: unauthenticated public booking advanced past service selection.\n');
         await guest.screenshot({ path: testInfo.outputPath('public-guest-booking-start.png') });
       } finally {
         await guestContext.close();
@@ -294,7 +324,7 @@ test('Quick Book owner can verify, save media, finish setup, and return to the s
         };
       }).catch(() => null);
       const diagnosticsPath = testInfo.outputPath('sanitized-provider-diagnostics.json');
-      await writeFile(diagnosticsPath, JSON.stringify({ clerkResponses, failedApiResponses, pageErrors, state }));
+      await writeFile(diagnosticsPath, JSON.stringify({ clerkCheckpoints, clerkResponses, failedApiResponses, pageErrors, state }));
       await testInfo.attach('sanitized-provider-diagnostics', { contentType: 'application/json', path: diagnosticsPath });
     } finally {
       const cleanup = await cleanupRunIdentity({

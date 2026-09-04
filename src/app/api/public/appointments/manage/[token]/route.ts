@@ -195,8 +195,8 @@ async function loadManagedAppointment(token: string) {
   };
 }
 
-export async function GET(_request: Request, context: { params: { token: string } }) {
-  const managed = await loadManagedAppointment(context.params.token);
+export async function GET(_request: Request, context: { params: Promise<{ token: string }> }) {
+  const managed = await loadManagedAppointment((await context.params).token);
   if (!managed) {
     return Response.json({ error: { code: 'MANAGE_LINK_INVALID', message: 'This appointment link is invalid or expired.' } }, { status: 404 });
   }
@@ -266,7 +266,7 @@ export async function GET(_request: Request, context: { params: { token: string 
  * excluded from its own conflict check, so a slot claimed between display and
  * submit fails atomically instead of double-booking.
  */
-export async function POST(request: Request, context: { params: { token: string } }) {
+export async function POST(request: Request, context: { params: Promise<{ token: string }> }) {
   const body = await request.json().catch(() => null) as { action?: string; startTime?: unknown } | null;
   if (body?.action !== 'reschedule') {
     return Response.json({ error: { code: 'INVALID_ACTION', message: 'Only rescheduling is supported here.' } }, { status: 400 });
@@ -279,7 +279,7 @@ export async function POST(request: Request, context: { params: { token: string 
     return Response.json({ error: { code: 'START_TIME_INVALID', message: 'That start time could not be read.' } }, { status: 400 });
   }
 
-  const managed = await loadManagedAppointment(context.params.token);
+  const managed = await loadManagedAppointment((await context.params).token);
   if (!managed) {
     return Response.json({ error: { code: 'MANAGE_LINK_INVALID', message: 'This appointment link is invalid or expired.' } }, { status: 404 });
   }
@@ -546,7 +546,7 @@ export async function POST(request: Request, context: { params: { token: string 
       const time = formatTimeInTimeZone(newStart.toISOString(), {}, timeZone);
       const manageUrl = buildAppointmentManageUrl(
         { slug: managed.details.salonSlug, customDomain: managed.details.salonCustomDomain },
-        context.params.token,
+        (await context.params).token,
       );
       const text = `Your ${managed.details.salonName} appointment has been moved to ${date} at ${time}.\n\nView, reschedule, or cancel: ${manageUrl}`;
       await sendAppointmentOperationalEmailOnce({
@@ -600,12 +600,12 @@ export async function POST(request: Request, context: { params: { token: string 
   } });
 }
 
-export async function PATCH(request: Request, context: { params: { token: string } }) {
+export async function PATCH(request: Request, context: { params: Promise<{ token: string }> }) {
   const body = await request.json().catch(() => null) as { action?: string; reason?: string } | null;
   if (body?.action !== 'cancel') {
     return Response.json({ error: { code: 'INVALID_ACTION', message: 'Only cancellation is supported here.' } }, { status: 400 });
   }
-  const managed = await loadManagedAppointment(context.params.token);
+  const managed = await loadManagedAppointment((await context.params).token);
   if (!managed) {
     return Response.json({ error: { code: 'MANAGE_LINK_INVALID', message: 'This appointment link is invalid or expired.' } }, { status: 404 });
   }

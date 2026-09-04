@@ -31,10 +31,8 @@ type ErrorResponse = {
   };
 };
 
-export async function GET(
-  request: Request,
-  { params }: { params: { id: string } },
-): Promise<Response> {
+export async function GET(request: Request, props: { params: Promise<{ id: string }> }): Promise<Response> {
+  const params = await props.params;
   try {
     const appointmentId = params.id;
     const access = await requireAppointmentAccess(appointmentId, {

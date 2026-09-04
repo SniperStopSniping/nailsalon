@@ -87,6 +87,7 @@ export function QuickBookProfileHeader({
       }}
     >
       <section
+        data-public-surface="salonProfile"
         data-testid="quick-book-profile"
         data-layout-presentation={activeLayout}
         aria-labelledby="quick-book-profile-name"

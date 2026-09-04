@@ -9,12 +9,12 @@ import { getAdminSession } from '@/libs/adminAuth';
 export const dynamic = 'force-dynamic';
 
 type OnboardingV1PageProps = {
-  params: { locale: string };
-  searchParams: {
+  params: Promise<{ locale: string }>;
+  searchParams: Promise<{
     resume?: string | string[];
     revision?: string | string[];
     site?: string | string[];
-  };
+  }>;
 };
 
 const firstQueryValue = (value: string | string[] | undefined): string =>
@@ -23,10 +23,9 @@ const firstQueryValue = (value: string | string[] | undefined): string =>
 const isUuid = (value: string): boolean =>
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(value);
 
-export default async function OnboardingV1Page({
-  params,
-  searchParams,
-}: OnboardingV1PageProps) {
+export default async function OnboardingV1Page(props: OnboardingV1PageProps) {
+  const searchParams = await props.searchParams;
+  const params = await props.params;
   if (!isOnboardingV1IntegrationEnabled()) {
     notFound();
   }

@@ -62,8 +62,8 @@ beforeEach(() => {
 describe('account-backed onboarding resume route', () => {
   it('keeps the ordinary onboarding entry public and does not query account data', async () => {
     const element = await OnboardingV1Page({
-      params: { locale: 'en' },
-      searchParams: {},
+      params: Promise.resolve({ locale: 'en' }),
+      searchParams: Promise.resolve({}),
     });
 
     expect(mocks.getAdmin).not.toHaveBeenCalled();
@@ -76,8 +76,8 @@ describe('account-backed onboarding resume route', () => {
 
   it('passes an exact owner-authorized revision to the client rehydration boundary', async () => {
     const element = await OnboardingV1Page({
-      params: { locale: 'en' },
-      searchParams: { resume: 'review', revision: '4', site: siteId },
+      params: Promise.resolve({ locale: 'en' }),
+      searchParams: Promise.resolve({ resume: 'review', revision: '4', site: siteId }),
     });
 
     expect(mocks.getAdmin).toHaveBeenCalledOnce();
@@ -97,8 +97,8 @@ describe('account-backed onboarding resume route', () => {
     mocks.getAdmin.mockResolvedValue(null);
 
     await expect(OnboardingV1Page({
-      params: { locale: 'fr' },
-      searchParams: { resume: 'review', revision: '4', site: siteId },
+      params: Promise.resolve({ locale: 'fr' }),
+      searchParams: Promise.resolve({ resume: 'review', revision: '4', site: siteId }),
     })).rejects.toThrow('REDIRECT');
 
     expect(mocks.redirect).toHaveBeenCalledWith('/fr/owner-sign-in');
@@ -114,15 +114,15 @@ describe('account-backed onboarding resume route', () => {
     mocks.loadResume.mockResolvedValue(null);
 
     await expect(OnboardingV1Page({
-      params: { locale: 'en' },
-      searchParams: { resume: 'review', revision: '4', site: siteId },
+      params: Promise.resolve({ locale: 'en' }),
+      searchParams: Promise.resolve({ resume: 'review', revision: '4', site: siteId }),
     })).rejects.toThrow('NOT_FOUND');
   });
 
   it('rejects malformed resume coordinates before authentication', async () => {
     await expect(OnboardingV1Page({
-      params: { locale: 'en' },
-      searchParams: { resume: 'review', revision: '4x', site: 'not-a-site-id' },
+      params: Promise.resolve({ locale: 'en' }),
+      searchParams: Promise.resolve({ resume: 'review', revision: '4x', site: 'not-a-site-id' }),
     })).rejects.toThrow('NOT_FOUND');
 
     expect(mocks.getAdmin).not.toHaveBeenCalled();

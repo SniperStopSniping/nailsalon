@@ -7,7 +7,8 @@ import { requirePublishedTenantSalon } from '@/libs/tenant';
 
 import { FindBookingForm } from './FindBookingForm';
 
-export default async function FindBookingPage({ params }: { params: { slug: string } }) {
+export default async function FindBookingPage(props: { params: Promise<{ slug: string }> }) {
+  const params = await props.params;
   // S3 (Stage 1): this anonymous salon-by-slug route had NO gate of any kind —
   // no publication check, no owner-preview gate — so an unpublished salon
   // rendered here at HTTP 200 and exposed its identity and phone number. The

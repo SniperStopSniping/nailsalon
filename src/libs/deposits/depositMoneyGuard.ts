@@ -73,7 +73,7 @@ function applyBillingRateLimit(args: RateLimitedRequest): Response | null {
  */
 export async function assertNoDevRoleBypass(): Promise<Response | null> {
   const { isDevModeServer, readDevRoleFromCookies } = await import('@/libs/devRole.server');
-  if (isDevModeServer() && readDevRoleFromCookies() !== null) {
+  if (isDevModeServer() && await readDevRoleFromCookies() !== null) {
     return typedError(
       403,
       'DEV_ROLE_BYPASS_FORBIDDEN',

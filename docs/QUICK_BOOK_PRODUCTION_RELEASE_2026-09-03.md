@@ -24,12 +24,14 @@ subsequent release work and does not claim that production has been updated.
   word spacing, stable defaults, and keyboard-selection behavior are covered by
   the rerun prototype suite.
 - Clerk is refreshed within its existing major version for published security
-  fixes. See [security review](QUICK_BOOK_RELEASE_SECURITY.md).
+  fixes. Next.js 15.5.25 and React 19.2.8 provide the required framework patch,
+  with request-boundary and dependency compatibility updates. See
+  [security review](QUICK_BOOK_RELEASE_SECURITY.md).
 - The real-auth acceptance harness now refuses non-local targets, imports only
   Development Clerk credentials, uses an isolated database/media directory,
   and cleans up only identities created by that exact test run.
 
-## Completed checks
+## Completed checks at the pre-framework-upgrade checkpoint
 
 - Shared prototype: **112 files, 1,258 tests passed**.
 - Root and prototype TypeScript checks passed.
@@ -49,10 +51,10 @@ subsequent release work and does not claim that production has been updated.
 
 ## Deployment gates still required
 
-1. Resolve the applicable Next.js Server Actions security advisory recorded in
-   the security review. The current 14.x framework does not have the required
-   upstream patch; the login SDK registers Server Actions even though the app
-   does not define its own `use server` modules.
+1. Finish production-build and runtime verification of the Next.js 15.5.25
+   security upgrade. The patch and compatibility changes are implemented;
+   passing checks from the earlier 14.x checkpoint are not a substitute for
+   verification on the new framework.
 2. Finish the current-commit Development Clerk signup/save/reopen acceptance.
    The official testing helper was updated, but the final run still stopped at
    the development CAPTCHA before creating a user. See the exact
@@ -68,9 +70,32 @@ subsequent release work and does not claim that production has been updated.
 
 Production recovery preparation created the Neon snapshot
 `quick-book-pre-0074-20260903T231014Z` on the verified production branch. Snapshot
-completion and restore readiness still require verification before migration.
-No production migration, feature activation, or application deployment is
-established by this checkpoint.
+completion was verified through the authenticated Neon CLI: snapshot
+`snap-steep-pine-a4rh3da0`, source `br-lucky-shape-a4fizifo`, 44,457,984 bytes.
+
+### Database release rehearsal (September 4, UTC)
+
+- Read-only production preflight confirmed immutable migration `0073` and its
+  exact repository hash. No onboarding tables existed yet.
+- Created an isolated child branch, `br-late-union-a4ds4k9u`, from that verified
+  production branch. It expires September 5 at 02:00 UTC and is not connected to
+  any application, email, billing, or scheduled job.
+- Ran the guarded database command against the isolated branch with direct TLS
+  credentials held only in the process environment. Lock/statement timeouts
+  bounded the operation. Migration `0074` and its repository hash verified;
+  all four onboarding tables, both source-ID columns, and nullable owner phone
+  were present afterward.
+- Server-side fingerprints of existing salon, owner, service, add-on,
+  appointment, and payment rows were unchanged. Neither row values nor
+  connection credentials were emitted by the rehearsal.
+- The separate Vercel Preview project, `lingering-credit-02870328`, had a
+  verified `preview` marker and migration `0064`. Created recovery snapshot
+  `snap-cold-star-aummg63x`, then used `migrate:preview` with an exact-host
+  allowlist to apply its repository chain through `0074` successfully.
+
+Production itself remains on `0073` until the reviewed application release is
+ready. No production migration, feature activation, or application deployment
+is established by this checkpoint.
 
 ## Explicit launch scope
 

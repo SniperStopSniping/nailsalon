@@ -53,15 +53,13 @@ type ErrorResponse = {
 // POST /api/appointments/[id]/photos/presign
 // =============================================================================
 
-export async function POST(
-  request: Request,
-  { params }: { params: { id: string } },
-): Promise<Response> {
+export async function POST(request: Request, props: { params: Promise<{ id: string }> }): Promise<Response> {
+  const params = await props.params;
   try {
     const appointmentId = params.id;
 
     // 1. Check Redis is available (fail closed)
-    if (!await isRedisAvailable()) {
+    if (!(await isRedisAvailable())) {
       return Response.json(
         {
           error: {

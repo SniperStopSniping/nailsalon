@@ -78,10 +78,8 @@ function toErrorResponse(error: unknown): Response {
   );
 }
 
-export async function GET(
-  request: Request,
-  { params }: { params: { id: string } },
-): Promise<Response> {
+export async function GET(request: Request, props: { params: Promise<{ id: string }> }): Promise<Response> {
+  const params = await props.params;
   try {
     const access = await requireAppointmentManagerAccess(params.id, {
       assignedOnly: true,
@@ -113,10 +111,8 @@ export async function GET(
   }
 }
 
-export async function PATCH(
-  request: Request,
-  { params }: { params: { id: string } },
-): Promise<Response> {
+export async function PATCH(request: Request, props: { params: Promise<{ id: string }> }): Promise<Response> {
+  const params = await props.params;
   try {
     const access = await requireAppointmentManagerAccess(params.id, {
       assignedOnly: true,

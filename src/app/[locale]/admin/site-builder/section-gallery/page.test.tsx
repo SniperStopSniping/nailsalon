@@ -40,7 +40,7 @@ describe('SectionGalleryPage gating', () => {
   it('is not found while the section library flag is dark', async () => {
     mocks.enabled.mockReturnValue(false);
 
-    await expect(SectionGalleryPage({ params: { locale: 'en' } }))
+    await expect(SectionGalleryPage({ params: Promise.resolve({ locale: 'en' }) }))
       .rejects.toThrow('NOT_FOUND');
 
     expect(mocks.notFound).toHaveBeenCalledTimes(1);
@@ -50,21 +50,21 @@ describe('SectionGalleryPage gating', () => {
   it('redirects anonymous visitors to owner sign-in with a safe locale', async () => {
     mocks.getAdmin.mockResolvedValue(null);
 
-    await expect(SectionGalleryPage({ params: { locale: 'fr' } }))
+    await expect(SectionGalleryPage({ params: Promise.resolve({ locale: 'fr' }) }))
       .rejects.toThrow('REDIRECT');
 
     expect(mocks.redirect).toHaveBeenCalledWith('/fr/owner-sign-in');
 
     mocks.getAdmin.mockResolvedValue(null);
 
-    await expect(SectionGalleryPage({ params: { locale: '../evil' } }))
+    await expect(SectionGalleryPage({ params: Promise.resolve({ locale: '../evil' }) }))
       .rejects.toThrow('REDIRECT');
 
     expect(mocks.redirect).toHaveBeenLastCalledWith('/en/owner-sign-in');
   });
 
   it('renders the gallery for an authenticated owner when enabled', async () => {
-    const element = await SectionGalleryPage({ params: { locale: 'en' } });
+    const element = await SectionGalleryPage({ params: Promise.resolve({ locale: 'en' }) });
 
     expect(element).toBeTruthy();
     expect(mocks.notFound).not.toHaveBeenCalled();

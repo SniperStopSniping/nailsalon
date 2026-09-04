@@ -109,7 +109,7 @@ describe('POST /api/appointments/[id]/photos/confirm', () => {
   });
 
   it('dual-writes the confirmed photo into appointment_artifacts AND appointment_photo', async () => {
-    const response = await POST(confirmRequest(), { params: { id: 'appt_1' } });
+    const response = await POST(confirmRequest(), { params: Promise.resolve({ id: 'appt_1' }) });
 
     expect(response.status).toBe(200);
 
@@ -136,7 +136,7 @@ describe('POST /api/appointments/[id]/photos/confirm', () => {
   it('does not duplicate the appointment_photo row when the objectKey was already confirmed', async () => {
     (db as unknown as { __selectResults: unknown[][] }).__selectResults.push([{ id: 'photo_existing' }]);
 
-    const response = await POST(confirmRequest(), { params: { id: 'appt_1' } });
+    const response = await POST(confirmRequest(), { params: Promise.resolve({ id: 'appt_1' }) });
 
     expect(response.status).toBe(200);
 

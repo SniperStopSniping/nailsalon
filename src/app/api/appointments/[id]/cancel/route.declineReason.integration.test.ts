@@ -179,7 +179,7 @@ describe('PATCH /api/appointments/:id/cancel — request-lifecycle reason guards
     holder.access = accessFor('pending', requestExpiresAt);
 
     const response = await PATCH(patchRequest({ cancelReason: 'declined_by_salon' }), {
-      params: { id: APPT_ID },
+      params: Promise.resolve({ id: APPT_ID }),
     });
 
     expect(response.status).toBe(200);
@@ -206,7 +206,7 @@ describe('PATCH /api/appointments/:id/cancel — request-lifecycle reason guards
     holder.access = accessFor('pending', requestExpiresAt);
 
     const response = await PATCH(patchRequest({ cancelReason: 'declined_by_salon' }), {
-      params: { id: APPT_ID },
+      params: Promise.resolve({ id: APPT_ID }),
     });
 
     expect(response.status).toBe(409);
@@ -224,7 +224,7 @@ describe('PATCH /api/appointments/:id/cancel — request-lifecycle reason guards
     holder.access = accessFor('pending', null);
 
     const response = await PATCH(patchRequest({ cancelReason: 'declined_by_salon' }), {
-      params: { id: APPT_ID },
+      params: Promise.resolve({ id: APPT_ID }),
     });
     const body = await response.json();
 
@@ -238,7 +238,7 @@ describe('PATCH /api/appointments/:id/cancel — request-lifecycle reason guards
     holder.access = accessFor('confirmed', null);
 
     const response = await PATCH(patchRequest({ cancelReason: 'declined_by_salon' }), {
-      params: { id: APPT_ID },
+      params: Promise.resolve({ id: APPT_ID }),
     });
 
     expect(response.status).toBe(400);
@@ -251,7 +251,7 @@ describe('PATCH /api/appointments/:id/cancel — request-lifecycle reason guards
     holder.access = accessFor('pending', requestExpiresAt);
 
     const response = await PATCH(patchRequest({ cancelReason: 'request_expired' }), {
-      params: { id: APPT_ID },
+      params: Promise.resolve({ id: APPT_ID }),
     });
     const body = await response.json();
 
@@ -266,7 +266,7 @@ describe('PATCH /api/appointments/:id/cancel — request-lifecycle reason guards
     holder.access = accessFor('cancelled', requestExpiresAt, 'declined_by_salon');
 
     const response = await PATCH(patchRequest({ cancelReason: 'declined_by_salon' }), {
-      params: { id: APPT_ID },
+      params: Promise.resolve({ id: APPT_ID }),
     });
 
     expect(response.status).toBe(200);
@@ -278,7 +278,7 @@ describe('PATCH /api/appointments/:id/cancel — request-lifecycle reason guards
     holder.access = accessFor('pending', null);
 
     const response = await PATCH(patchRequest({ cancelReason: 'client_request' }), {
-      params: { id: APPT_ID },
+      params: Promise.resolve({ id: APPT_ID }),
     });
 
     expect(response.status).toBe(200);

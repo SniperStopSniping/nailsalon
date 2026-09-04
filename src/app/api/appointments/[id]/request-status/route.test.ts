@@ -99,7 +99,7 @@ describe('GET /api/appointments/:id/request-status', () => {
       },
     };
 
-    const response = await GET(request(), { params: { id: 'appt_1' } });
+    const response = await GET(request(), { params: Promise.resolve({ id: 'appt_1' }) });
     const body = await response.json();
 
     expect(response.status).toBe(200);
@@ -115,7 +115,7 @@ describe('GET /api/appointments/:id/request-status', () => {
     const denied = Response.json({ error: { code: 'FORBIDDEN', message: 'nope' } }, { status: 403 });
     holder.access = { ok: false, response: denied };
 
-    const response = await GET(request(), { params: { id: 'appt_1' } });
+    const response = await GET(request(), { params: Promise.resolve({ id: 'appt_1' }) });
 
     expect(response.status).toBe(403);
   });
@@ -136,7 +136,7 @@ describe('GET /api/appointments/:id/request-status', () => {
       },
     };
 
-    const response = await GET(request(), { params: { id: 'appt_1' } });
+    const response = await GET(request(), { params: Promise.resolve({ id: 'appt_1' }) });
     const body = await response.json();
 
     expect(Object.keys(body.data).sort()).toEqual(

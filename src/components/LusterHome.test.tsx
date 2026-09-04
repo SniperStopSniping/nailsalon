@@ -24,8 +24,8 @@ describe('Luster homepage entry points', () => {
     mocks.enabled.mockReturnValue(true);
   });
 
-  it('offers website setup before dashboard access when the integration is enabled', () => {
-    render(<HomePage />);
+  it('offers website setup before dashboard access when the integration is enabled', async () => {
+    render(await HomePage({}));
 
     expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Let’s build your website.');
     expect(screen.getByRole('link', { name: 'Build my website' })).toHaveAttribute('href', '/en/onboarding-v1');
@@ -33,9 +33,9 @@ describe('Luster homepage entry points', () => {
     expect(screen.getByRole('link', { name: 'Salon owner sign in' })).toHaveAttribute('href', '/en/owner-sign-in');
   });
 
-  it('does not advertise disabled onboarding or change the existing owner entry', () => {
+  it('does not advertise disabled onboarding or change the existing owner entry', async () => {
     mocks.enabled.mockReturnValue(false);
-    render(<HomePage />);
+    render(await HomePage({}));
 
     expect(screen.queryByRole('link', { name: 'Build my website' })).not.toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Open owner dashboard' })).toHaveAttribute('href', '/en/owner-sign-in');
@@ -48,22 +48,22 @@ describe('Luster homepage entry points', () => {
     expect(screen.queryByRole('link', { name: 'Build my website' })).not.toBeInTheDocument();
   });
 
-  it('keeps French copy and destinations in sync', () => {
-    render(<LocalizedHomePage params={{ locale: 'fr' }} />);
+  it('keeps French copy and destinations in sync', async () => {
+    render(await LocalizedHomePage({ params: Promise.resolve({ locale: 'fr' }) }));
 
     expect(screen.getByRole('link', { name: 'Créer mon site web' })).toHaveAttribute('href', '/fr/onboarding-v1');
     expect(screen.getByRole('link', { name: 'Ouvrir mon tableau de bord' })).toHaveAttribute('href', '/fr/owner-sign-in');
     expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1);
   });
 
-  it('preserves tenant customer booking redirects on the root homepage', () => {
-    expect(() => HomePage({ searchParams: { salonSlug: 'maya-nails' } })).toThrow('NEXT_REDIRECT');
+  it('preserves tenant customer booking redirects on the root homepage', async () => {
+    await expect(HomePage({ searchParams: Promise.resolve({ salonSlug: 'maya-nails' }) })).rejects.toThrow('NEXT_REDIRECT');
     expect(mocks.redirect).toHaveBeenCalledWith(expect.stringContaining('maya-nails'));
     expect(mocks.enabled).not.toHaveBeenCalled();
   });
 
-  it('preserves tenant customer booking redirects on localized homepages', () => {
-    expect(() => LocalizedHomePage({ params: { locale: 'fr' }, searchParams: { salonSlug: 'maya-nails' } })).toThrow('NEXT_REDIRECT');
+  it('preserves tenant customer booking redirects on localized homepages', async () => {
+    await expect(LocalizedHomePage({ params: Promise.resolve({ locale: 'fr' }), searchParams: Promise.resolve({ salonSlug: 'maya-nails' }) })).rejects.toThrow('NEXT_REDIRECT');
     expect(mocks.redirect).toHaveBeenCalledWith(expect.stringMatching(/^\/fr\/.*maya-nails/u));
     expect(mocks.enabled).not.toHaveBeenCalled();
   });

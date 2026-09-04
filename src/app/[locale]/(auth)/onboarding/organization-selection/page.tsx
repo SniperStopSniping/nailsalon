@@ -1,9 +1,9 @@
 import { OrganizationList } from '@clerk/nextjs';
 import { getTranslations } from 'next-intl/server';
 
-export async function generateMetadata(props: { params: { locale: string } }) {
+export async function generateMetadata(props: { params: Promise<{ locale: string }> }) {
   const t = await getTranslations({
-    locale: props.params.locale,
+    locale: (await props.params).locale,
     namespace: 'Dashboard',
   });
 

@@ -256,13 +256,13 @@ describe('BookConfirmPage directions fallback', () => {
 
   it('passes the primary active location to the confirmed screen instead of the stale salon root address', async () => {
     const element = await BookConfirmPage({
-      searchParams: {
+      searchParams: Promise.resolve({
         salonSlug: 'salon-a',
         serviceIds: 'srv_1',
         techId: 'any',
         date: '2026-03-20',
         time: '10:00',
-      },
+      }),
     });
 
     render(element);
@@ -288,13 +288,13 @@ describe('BookConfirmPage directions fallback', () => {
     });
 
     const element = await BookConfirmPage({
-      searchParams: {
+      searchParams: Promise.resolve({
         salonSlug: 'salon-a',
         serviceIds: 'srv_1',
         techId: 'any',
         date: '2026-03-20',
         time: '10:00',
-      },
+      }),
     });
 
     render(element);
@@ -308,13 +308,13 @@ describe('BookConfirmPage directions fallback', () => {
     getPrimaryLocation.mockResolvedValue(null);
 
     const element = await BookConfirmPage({
-      searchParams: {
+      searchParams: Promise.resolve({
         salonSlug: 'salon-a',
         serviceIds: 'srv_1',
         techId: 'any',
         date: '2026-03-20',
         time: '10:00',
-      },
+      }),
     });
 
     render(element);
@@ -407,13 +407,13 @@ describe('BookConfirmPage directions fallback', () => {
     });
 
     const element = await BookConfirmPage({
-      searchParams: {
+      searchParams: Promise.resolve({
         salonSlug: 'salon-a',
         baseServiceId: 'srv_1',
         techId: 'tech_1',
         date: '2026-03-20',
         time: '10:00',
-      },
+      }),
     });
 
     render(element);
@@ -444,14 +444,14 @@ describe('BookConfirmPage directions fallback', () => {
     });
 
     const element = await BookConfirmPage({
-      searchParams: {
+      searchParams: Promise.resolve({
         salonSlug: 'salon-a',
         serviceIds: 'srv_1',
         techId: 'any',
         date: '2026-03-20',
         time: '10:00',
         campaign: 'campaign_token_123456789012345678901234',
-      },
+      }),
     });
 
     render(element);
@@ -583,13 +583,13 @@ describe('BookConfirmPage location privacy (locationDisplayMode) — Blocker 1',
 
   async function renderAndCaptureLocation() {
     const element = await BookConfirmPage({
-      searchParams: {
+      searchParams: Promise.resolve({
         salonSlug: 'salon-a',
         serviceIds: 'srv_1',
         techId: 'any',
         date: '2026-03-20',
         time: '10:00',
-      },
+      }),
     });
     render(element);
     const props = bookConfirmClientSpy.mock.calls.at(-1)![0] as Record<string, unknown>;
@@ -598,13 +598,13 @@ describe('BookConfirmPage location privacy (locationDisplayMode) — Blocker 1',
 
   async function renderAndCaptureSalonPhone() {
     const element = await BookConfirmPage({
-      searchParams: {
+      searchParams: Promise.resolve({
         salonSlug: 'salon-a',
         serviceIds: 'srv_1',
         techId: 'any',
         date: '2026-03-20',
         time: '10:00',
-      },
+      }),
     });
     render(element);
     const props = bookConfirmClientSpy.mock.calls.at(-1)![0] as Record<string, unknown>;
@@ -955,7 +955,7 @@ describe('BookConfirmPage deposit disclosure — dark', () => {
     params?: { locale?: string },
   ) {
     const element = await BookConfirmPage({
-      searchParams: { ...baseSearchParams, ...searchParams },
+      searchParams: Promise.resolve({ ...baseSearchParams, ...searchParams }),
       ...(params ? { params } : {}),
     });
     render(element);
@@ -1141,8 +1141,8 @@ describe('BookConfirmPage owner-preview gate', () => {
     buildTenantRedirectPath.mockReturnValue('/en/salon-a/not-found');
 
     await expect(BookConfirmPage({
-      searchParams: { salonSlug: 'salon-a' },
-      params: { locale: 'en', slug: 'salon-a' },
+      searchParams: Promise.resolve({ salonSlug: 'salon-a' }),
+      params: Promise.resolve({ locale: 'en', slug: 'salon-a' }),
     })).rejects.toThrow('REDIRECT:/en/salon-a/not-found');
 
     // Real deny-before-render proof: nothing past the gate ever ran.
@@ -1213,15 +1213,15 @@ describe('BookConfirmPage owner-preview gate', () => {
     });
 
     const element = await BookConfirmPage({
-      searchParams: {
+      searchParams: Promise.resolve({
         salonSlug: 'salon-a',
         serviceIds: 'srv_1',
         techId: 'any',
         date: '2026-03-20',
         time: '10:00',
         locationId: 'loc_primary',
-      },
-      params: { locale: 'en', slug: 'salon-a' },
+      }),
+      params: Promise.resolve({ locale: 'en', slug: 'salon-a' }),
     });
 
     render(element);

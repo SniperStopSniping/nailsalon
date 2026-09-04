@@ -62,7 +62,7 @@ const updateServiceSchema = z.object({
 
 export async function PATCH(
   request: Request,
-  context: { params: { id: string } },
+  context: { params: Promise<{ id: string }> },
 ) {
   const parsed = updateServiceSchema.safeParse(
     await request.json().catch(() => null),
@@ -113,7 +113,7 @@ export async function PATCH(
         .where(
           and(
             eq(serviceSchema.salonId, salon.id),
-            eq(serviceSchema.parentServiceId, context.params.id),
+            eq(serviceSchema.parentServiceId, (await context.params).id),
             eq(serviceSchema.isActive, true),
           ),
         )
@@ -122,7 +122,7 @@ export async function PATCH(
         return ownerCatalogErrorResponse(new OwnerCatalogConfigError({
           code: 'PARENT_HAS_ACTIVE_CHILDREN',
           message: 'This service has an active variant. Deactivate its variants first, or deactivate the whole family from the variant editor.',
-          anchor: { kind: 'service', serviceId: context.params.id },
+          anchor: { kind: 'service', serviceId: (await context.params).id },
           status: 409,
         }));
       }
@@ -141,7 +141,7 @@ export async function PATCH(
         .from(serviceSchema)
         .where(
           and(
-            eq(serviceSchema.id, context.params.id),
+            eq(serviceSchema.id, (await context.params).id),
             eq(serviceSchema.salonId, salon.id),
           ),
         )
@@ -162,7 +162,7 @@ export async function PATCH(
           return ownerCatalogErrorResponse(new OwnerCatalogConfigError({
             code: 'PARENT_NOT_ACTIVE',
             message: 'This variant belongs to a service that is currently inactive. Reactivate the main service first, then reactivate this variant.',
-            anchor: { kind: 'service', serviceId: context.params.id },
+            anchor: { kind: 'service', serviceId: (await context.params).id },
             status: 409,
           }));
         }
@@ -202,7 +202,7 @@ export async function PATCH(
       })
       .where(
         and(
-          eq(serviceSchema.id, context.params.id),
+          eq(serviceSchema.id, (await context.params).id),
           eq(serviceSchema.salonId, salon.id),
         ),
       )

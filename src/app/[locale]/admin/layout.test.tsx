@@ -29,12 +29,11 @@ beforeEach(() => {
 });
 
 describe('OwnerAdminLayout integration flag boundary', () => {
-  it('resolves the dark-default integration flag on the server boundary', () => {
-    render(
-      <OwnerAdminLayout params={{ locale: 'en' }}>
-        <p>Workspace</p>
-      </OwnerAdminLayout>,
-    );
+  it('resolves the dark-default integration flag on the server boundary', async () => {
+    render(await OwnerAdminLayout({
+      params: Promise.resolve({ locale: 'en' }),
+      children: <p>Workspace</p>,
+    }));
 
     expect(screen.getByTestId('owner-admin-boundary')).toHaveTextContent('Workspace');
     expect(mocks.enabled).toHaveBeenCalledOnce();
@@ -44,14 +43,13 @@ describe('OwnerAdminLayout integration flag boundary', () => {
     }));
   });
 
-  it('passes an explicit enabled value to the client dashboard', () => {
+  it('passes an explicit enabled value to the client dashboard', async () => {
     mocks.enabled.mockReturnValue(true);
 
-    render(
-      <OwnerAdminLayout params={{ locale: 'fr' }}>
-        <p>Espace de travail</p>
-      </OwnerAdminLayout>,
-    );
+    render(await OwnerAdminLayout({
+      params: Promise.resolve({ locale: 'fr' }),
+      children: <p>Espace de travail</p>,
+    }));
 
     expect(mocks.boundary).toHaveBeenCalledWith(expect.objectContaining({
       locale: 'fr',

@@ -5,11 +5,12 @@ import { isOnboardingV1IntegrationEnabled } from '@/features/onboarding-v1-integ
 import { buildBookingUrl } from '@/libs/bookingParams';
 import { AppConfig } from '@/utils/AppConfig';
 
-export default function HomePage({
-  searchParams,
-}: {
-  searchParams?: { salonSlug?: string };
-}) {
+export default async function HomePage(
+  props: {
+    searchParams?: Promise<{ salonSlug?: string }>;
+  },
+) {
+  const searchParams = await props.searchParams;
   if (searchParams?.salonSlug) {
     redirect(buildBookingUrl('/book', {
       salonSlug: searchParams.salonSlug,

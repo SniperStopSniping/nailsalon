@@ -214,7 +214,7 @@ describe('/api/appointments/[id]/communication', () => {
 
     const response = await GET(
       new Request('https://app.test/api/appointments/appt_1/communication?salonSlug=isla'),
-      { params: { id: 'appt_1' } },
+      { params: Promise.resolve({ id: 'appt_1' }) },
     );
 
     expect(requireAppointmentManagerAccess).toHaveBeenCalledWith('appt_1', expect.objectContaining({
@@ -245,7 +245,7 @@ describe('/api/appointments/[id]/communication', () => {
 
     const response = await GET(
       new Request('https://app.test/api/appointments/appt_1/communication'),
-      { params: { id: 'appt_1' } },
+      { params: Promise.resolve({ id: 'appt_1' }) },
     );
 
     await expect(response.json()).resolves.toEqual({
@@ -258,7 +258,7 @@ describe('/api/appointments/[id]/communication', () => {
 
     const response = await GET(
       new Request('https://app.test/api/appointments/appt_1/communication'),
-      { params: { id: 'appt_1' } },
+      { params: Promise.resolve({ id: 'appt_1' }) },
     );
 
     await expect(response.json()).resolves.toEqual({
@@ -282,7 +282,7 @@ describe('/api/appointments/[id]/communication', () => {
 
     const response = await GET(
       new Request('https://app.test/api/appointments/appt_1/communication'),
-      { params: { id: 'appt_1' } },
+      { params: Promise.resolve({ id: 'appt_1' }) },
     );
 
     expect(response.status).toBe(200);
@@ -330,7 +330,7 @@ describe('/api/appointments/[id]/communication', () => {
 
     const response = await GET(
       new Request('https://app.test/api/appointments/appt_1/communication'),
-      { params: { id: 'appt_1' } },
+      { params: Promise.resolve({ id: 'appt_1' }) },
     );
 
     expect(response.status).toBe(200);
@@ -366,7 +366,7 @@ describe('/api/appointments/[id]/communication', () => {
 
     const getResponse = await GET(
       new Request('https://app.test/api/appointments/appt_1/communication'),
-      { params: { id: 'appt_1' } },
+      { params: Promise.resolve({ id: 'appt_1' }) },
     );
     const postResponse = await POST(
       new Request('https://app.test/api/appointments/appt_1/communication', {
@@ -377,7 +377,7 @@ describe('/api/appointments/[id]/communication', () => {
           status: 'marked_sent',
         }),
       }),
-      { params: { id: 'appt_1' } },
+      { params: Promise.resolve({ id: 'appt_1' }) },
     );
 
     expect(getResponse.status).toBe(200);
@@ -410,7 +410,7 @@ describe('/api/appointments/[id]/communication', () => {
           messageSnapshot: 'Manage: https://example.com/en/isla/manage/secret-token',
         }),
       }),
-      { params: { id: 'appt_1' } },
+      { params: Promise.resolve({ id: 'appt_1' }) },
     );
 
     expect(response.status).toBe(200);
@@ -454,7 +454,7 @@ describe('/api/appointments/[id]/communication', () => {
           messageSnapshot: 'Historical appointment details',
         }),
       }),
-      { params: { id: 'appt_1' } },
+      { params: Promise.resolve({ id: 'appt_1' }) },
     );
 
     expect(response.status).toBe(200);
@@ -500,7 +500,7 @@ describe('/api/appointments/[id]/communication', () => {
           snoozeHours: 3,
         }),
       }),
-      { params: { id: 'appt_1' } },
+      { params: Promise.resolve({ id: 'appt_1' }) },
     );
 
     expect(response.status).toBe(200);
@@ -523,7 +523,7 @@ describe('/api/appointments/[id]/communication', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ kind: 'generic_text', status: 'prepared' }),
       }),
-      { params: { id: 'appt_1' } },
+      { params: Promise.resolve({ id: 'appt_1' }) },
     );
 
     await expect(response.json()).resolves.toEqual({
@@ -538,7 +538,7 @@ describe('/api/appointments/[id]/communication', () => {
         method: 'POST',
         body: JSON.stringify({ kind: 'rebook', status: 'prepared' }),
       }),
-      { params: { id: 'appt_1' } },
+      { params: Promise.resolve({ id: 'appt_1' }) },
     );
     const injectedAppointment = await POST(
       new Request('https://app.test/api/appointments/appt_1/communication', {
@@ -549,7 +549,7 @@ describe('/api/appointments/[id]/communication', () => {
           status: 'prepared',
         }),
       }),
-      { params: { id: 'appt_1' } },
+      { params: Promise.resolve({ id: 'appt_1' }) },
     );
 
     expect(unsupportedKind.status).toBe(400);
@@ -565,7 +565,7 @@ describe('/api/appointments/[id]/communication', () => {
         method: 'POST',
         body: JSON.stringify({ kind: 'reminder', status: 'converted' }),
       }),
-      { params: { id: 'appt_1' } },
+      { params: Promise.resolve({ id: 'appt_1' }) },
     );
 
     expect(response.status).toBe(409);
@@ -585,7 +585,7 @@ describe('/api/appointments/[id]/communication', () => {
 
     const response = await GET(
       new Request('https://app.test/api/appointments/appt_other/communication'),
-      { params: { id: 'appt_other' } },
+      { params: Promise.resolve({ id: 'appt_other' }) },
     );
 
     expect(response.status).toBe(403);

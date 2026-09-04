@@ -31,7 +31,7 @@ describe('POST /api/appointments/[id]/manage-link', () => {
   it('uses the explicit salon hint and returns a customer management link', async () => {
     const response = await POST(
       new Request('https://app.test/api/appointments/appt_1/manage-link?salonSlug=glow'),
-      { params: { id: 'appt_1' } },
+      { params: Promise.resolve({ id: 'appt_1' }) },
     );
 
     expect(requireAppointmentManagerAccess).toHaveBeenCalledWith('appt_1', expect.objectContaining({
@@ -52,7 +52,7 @@ describe('POST /api/appointments/[id]/manage-link', () => {
 
     const response = await POST(
       new Request('https://app.test/api/appointments/appt_1/manage-link'),
-      { params: { id: 'appt_1' } },
+      { params: Promise.resolve({ id: 'appt_1' }) },
     );
 
     expect(response.status).toBe(403);
@@ -68,7 +68,7 @@ describe('POST /api/appointments/[id]/manage-link', () => {
 
     const response = await POST(
       new Request('https://app.test/api/appointments/appt_1/manage-link'),
-      { params: { id: 'appt_1' } },
+      { params: Promise.resolve({ id: 'appt_1' }) },
     );
 
     expect(response.status).toBe(409);

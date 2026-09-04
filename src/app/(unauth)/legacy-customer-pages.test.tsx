@@ -347,6 +347,12 @@ function findMatchingLines(
   );
 }
 
+function referencesLegacyContent(source: string, contentName: string): boolean {
+  // Match an imported/rendered component identifier or its module path, not
+  // an unrelated identifier such as syncSharedSalonProfileContent.
+  return new RegExp(`\\b${contentName}\\b`).test(source);
+}
+
 describe('retired legacy customer pages', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -479,7 +485,7 @@ describe('retired legacy customer pages', () => {
       const source = readSource(file);
 
       return LEGACY_CONTENT_NAMES
-        .filter(contentName => source.includes(contentName))
+        .filter(contentName => referencesLegacyContent(source, contentName))
         .filter(contentName => !file.endsWith(`/${contentName}.tsx`))
         .map(contentName => ({ file, contentName }));
     });
@@ -488,6 +494,12 @@ describe('retired legacy customer pages', () => {
       unexpectedLegacyContentReferences,
       'A runtime source imports or renders retained legacy customer content',
     ).toEqual([]);
+  });
+
+  it('detects legacy component imports and renders without matching unrelated identifiers', () => {
+    expect(referencesLegacyContent('import Renamed from "./profile/ProfileContent";', 'ProfileContent')).toBe(true);
+    expect(referencesLegacyContent('<ProfileContent />', 'ProfileContent')).toBe(true);
+    expect(referencesLegacyContent('async function syncSharedSalonProfileContent() {}', 'ProfileContent')).toBe(false);
   });
 
   it('keeps booking, shared navigation, manage links, and recovery free of retired pages', () => {

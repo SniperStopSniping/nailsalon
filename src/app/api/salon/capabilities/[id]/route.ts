@@ -24,7 +24,7 @@ function buildCapabilityPayload(capability: {
 /** PATCH /api/salon/capabilities/[id] — owner edit of name, description, active state. */
 export async function PATCH(
   request: Request,
-  context: { params: { id: string } },
+  context: { params: Promise<{ id: string }> },
 ) {
   const validated = capabilityWriteSchema.safeParse(await request.json().catch(() => null));
   if (!validated.success) {
@@ -41,7 +41,7 @@ export async function PATCH(
   }
 
   try {
-    const updated = await updateCapability(salon.id, context.params.id, input);
+    const updated = await updateCapability(salon.id, (await context.params).id, input);
     return Response.json({ data: { capability: buildCapabilityPayload(updated) } });
   } catch (updateError) {
     if (updateError instanceof OwnerCatalogConfigError) {
@@ -58,7 +58,7 @@ export async function PATCH(
 /** DELETE /api/salon/capabilities/[id] — refuses while assigned to a technician or required by a rule. */
 export async function DELETE(
   request: Request,
-  context: { params: { id: string } },
+  context: { params: Promise<{ id: string }> },
 ) {
   const url = new URL(request.url);
   const salonSlug = url.searchParams.get('salonSlug');
@@ -75,7 +75,7 @@ export async function DELETE(
   }
 
   try {
-    await deleteCapability(salon.id, context.params.id);
+    await deleteCapability(salon.id, (await context.params).id);
     return Response.json({ data: { deleted: true } });
   } catch (deleteError) {
     if (deleteError instanceof OwnerCatalogConfigError) {

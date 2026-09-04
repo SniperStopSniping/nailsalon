@@ -82,23 +82,25 @@ Clerk, plan, and Workspace surfaces use fixed `--owner-*` tokens. The six style
 presets and eight palette presets persist independently on the site revision;
 they cannot recolour owner tools.
 
-## Development-only media adapter
+## Media storage
 
-`media-storage.server.ts` stores normalized image files outside the repository
-when `APP_ENV=development` and `LUSTER_ONBOARDING_MEDIA_DIR` is set. It fails
-closed outside that environment. This adapter exists only to prove ownership,
-transaction, retry, and cross-browser behavior without mutating a live media
-provider.
+`media-storage.server.ts` uses the existing configured Cloudinary service for
+authenticated, immutable originals in hosted environments. Storage keys remain
+salon/site/revision/role scoped. Reads and cleanup are authorized before provider
+access; provider credentials and private original URLs never enter the browser
+document. Only the approved public identity projection publishes logo/profile
+media according to existing visibility settings.
 
-Before Production connection lands, replace only that storage adapter with the
-existing approved cloud-media service while retaining the media authorization,
-role, revision, and idempotency contracts. Delete the local adapter and its
-filesystem tests after equivalent provider tests pass. Do not change the
-browser manifest or site-document contracts.
+Local development retains an explicit filesystem adapter outside the repository
+when `LUSTER_ONBOARDING_MEDIA_DIR` is set. That adapter refuses production
+runtime use. Both paths use the same ownership, revision, retry and image
+validation contracts. Missing cloud configuration fails closed rather than
+silently saving ephemeral files on a hosted server.
 
 ## Safe local verification
 
 Use an empty `DATABASE_URL`, `APP_ENV=development`, a disposable
 `LUSTER_PGLITE_DATA_DIR`, and a disposable `LUSTER_ONBOARDING_MEDIA_DIR`.
-Never point this integration branch at Production credentials or apply its
-migration to the live database.
+Tests never use Production credentials. An explicitly authorized release must
+follow the repository's guarded database commands, verified backup/rehearsal,
+and protected-main deployment workflow before enabling the integration.

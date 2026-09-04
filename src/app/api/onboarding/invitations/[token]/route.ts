@@ -6,7 +6,7 @@ import { salonSchema, salonSignupInviteSchema } from '@/models/Schema';
 
 export const dynamic = 'force-dynamic';
 
-export async function GET(_request: Request, context: { params: { token: string } }) {
+export async function GET(_request: Request, context: { params: Promise<{ token: string }> }) {
   const [invite] = await db
     .select({
       invitedEmail: salonSignupInviteSchema.invitedEmail,
@@ -20,7 +20,7 @@ export async function GET(_request: Request, context: { params: { token: string 
     .from(salonSignupInviteSchema)
     .leftJoin(salonSchema, eq(salonSignupInviteSchema.salonId, salonSchema.id))
     .where(and(
-      eq(salonSignupInviteSchema.tokenHash, hashOpaqueToken(context.params.token)),
+      eq(salonSignupInviteSchema.tokenHash, hashOpaqueToken((await context.params).token)),
       isNull(salonSignupInviteSchema.consumedAt),
       isNull(salonSignupInviteSchema.revokedAt),
       gt(salonSignupInviteSchema.expiresAt, new Date()),

@@ -35,7 +35,7 @@ describe('POST /api/appointments/[id]/photos/presign setup errors', () => {
 
     const response = await POST(
       new Request('http://localhost/api/appointments/appt_1/photos/presign', { method: 'POST' }),
-      { params: { id: 'appt_1' } },
+      { params: Promise.resolve({ id: 'appt_1' }) },
     );
     const body = await response.json();
 
@@ -52,7 +52,7 @@ describe('POST /api/appointments/[id]/photos/presign setup errors', () => {
 
     const response = await POST(
       new Request('http://localhost/api/appointments/appt_1/photos/presign', { method: 'POST' }),
-      { params: { id: 'appt_1' } },
+      { params: Promise.resolve({ id: 'appt_1' }) },
     );
     const body = await response.json();
 

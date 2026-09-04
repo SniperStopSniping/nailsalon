@@ -97,8 +97,8 @@ beforeEach(() => {
 describe('saved website Preview route', () => {
   it('loads the exact persisted revision through a tenant-scoped membership query', async () => {
     const element = await SavedWebsitePreviewPage({
-      params: { locale: 'en', siteId },
-      searchParams: {},
+      params: Promise.resolve({ locale: 'en', siteId }),
+      searchParams: Promise.resolve({}),
     });
 
     expect(mocks.getClaimed).toHaveBeenCalledWith({ adminId: 'admin-1', siteId });
@@ -125,8 +125,8 @@ describe('saved website Preview route', () => {
     const priorNodeEnv = process.env.NODE_ENV;
     Object.assign(process.env, { NODE_ENV: 'test' });
     const element = await SavedWebsitePreviewPage({
-      params: { locale: 'en', siteId },
-      searchParams: { audit: '1', embed: '1' },
+      params: Promise.resolve({ locale: 'en', siteId }),
+      searchParams: Promise.resolve({ audit: '1', embed: '1' }),
     });
     Object.assign(process.env, { NODE_ENV: priorNodeEnv });
 
@@ -140,8 +140,8 @@ describe('saved website Preview route', () => {
     mocks.getClaimed.mockResolvedValue(null);
 
     await expect(SavedWebsitePreviewPage({
-      params: { locale: 'en', siteId },
-      searchParams: {},
+      params: Promise.resolve({ locale: 'en', siteId }),
+      searchParams: Promise.resolve({}),
     })).rejects.toThrow('NOT_FOUND');
   });
 });

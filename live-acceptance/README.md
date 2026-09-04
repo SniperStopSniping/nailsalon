@@ -32,6 +32,16 @@ address use the test verification code without sending verification email.
 Passwords are generated in memory. Auth traces are disabled because they can
 retain passwords or session material. Evidence is outside the repository.
 
+After the expected unknown-email sign-in lookup, the browser test reloads
+Clerk's public client resource through the unmodified official testing helper
+and checks that the helper is ready before submitting signup. Clerk's error
+responses can carry `meta.client`, which its current helper does not normalize.
+This compatibility step exists only in the disposable browser harness; it does
+not change the application, provider configuration, or CAPTCHA protection.
+Diagnostics retain only status codes and allowlisted booleans, not raw provider
+responses. See the [official helper source](https://github.com/clerk/javascript/blob/main/packages/testing/src/playwright/setupClerkTestingToken.ts)
+and [client resource handling](https://github.com/clerk/javascript/blob/main/packages/clerk-js/src/core/resources/Client.ts).
+
 The main journey checks real account creation, verification, an early claim,
 saved media, a second claim with services/about/layout/policies, the free-plan
 handoff, dashboard reload, sign-out, fresh-browser sign-in, saved preview,
@@ -46,7 +56,7 @@ the exact run scope, not a broader cleanup script.
 Safety tests need no credentials or running application:
 
 ```sh
-node --import tsx --test live-acceptance/safety.node-test.ts
+node --import tsx --test live-acceptance/safety.node-test.ts live-acceptance/clerk-diagnostics.node-test.ts
 ```
 
 The former unscoped captcha probe, historical-user tail journey, and dotenv

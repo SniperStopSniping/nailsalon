@@ -9,7 +9,10 @@ export const metadata: Metadata = {
   robots: { index: false, follow: false, nocache: true },
 };
 
-export default async function ManageAppointmentPage({ params }: { params: { locale: string; slug: string; token: string } }) {
+export default async function ManageAppointmentPage(
+  props: { params: Promise<{ locale: string; slug: string; token: string }> },
+) {
+  const params = await props.params;
   return (
     <ManageAppointmentView
       token={params.token}

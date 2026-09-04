@@ -225,7 +225,7 @@ afterAll(async () => {
 async function mintToken(appointmentId: string): Promise<string> {
   const response = await mintPaymentLink(
     new Request('http://localhost/api/appointments/x/payment-link', { method: 'POST' }),
-    { params: { id: appointmentId } },
+    { params: Promise.resolve({ id: appointmentId }) },
   );
 
   expect(response.status).toBe(200);
@@ -238,7 +238,7 @@ describe('payment link + public pay page', () => {
   it('refuses to mint payment instructions from an editable booking estimate', async () => {
     const response = await mintPaymentLink(
       new Request('http://localhost/api/appointments/x/payment-link', { method: 'POST' }),
-      { params: { id: ESTIMATE_APPT_ID } },
+      { params: Promise.resolve({ id: ESTIMATE_APPT_ID }) },
     );
 
     expect(response.status).toBe(409);
@@ -252,7 +252,7 @@ describe('payment link + public pay page', () => {
 
     const response = await getPayPage(
       new Request(`http://localhost/api/public/pay/${token}`),
-      { params: { token } },
+      { params: Promise.resolve({ token }) },
     );
     const body = await response.json();
 
@@ -281,7 +281,7 @@ describe('payment link + public pay page', () => {
 
     const response = await getPayPage(
       new Request(`http://localhost/api/public/pay/${token}`),
-      { params: { token } },
+      { params: Promise.resolve({ token }) },
     );
 
     expect(response.status).toBe(404);
@@ -293,7 +293,7 @@ describe('payment link + public pay page', () => {
   it('does not create a collection link for a historical invoice with unknown currency', async () => {
     const response = await mintPaymentLink(
       new Request('http://localhost/api/appointments/x/payment-link', { method: 'POST' }),
-      { params: { id: HISTORICAL_APPT_ID } },
+      { params: Promise.resolve({ id: HISTORICAL_APPT_ID }) },
     );
 
     expect(response.status).toBe(409);
@@ -331,7 +331,7 @@ describe('payment link + public pay page', () => {
 
       const malformedPublic = await getPayPage(
         new Request(`http://localhost/api/public/pay/${token}`),
-        { params: { token } },
+        { params: Promise.resolve({ token }) },
       );
 
       expect(malformedPublic.status).toBe(409);
@@ -344,7 +344,7 @@ describe('payment link + public pay page', () => {
 
       const malformedMint = await mintPaymentLink(
         new Request('http://localhost/api/appointments/x/payment-link', { method: 'POST' }),
-        { params: { id: OTHER_APPT_ID } },
+        { params: Promise.resolve({ id: OTHER_APPT_ID }) },
       );
 
       expect(malformedMint.status).toBe(409);
@@ -362,7 +362,7 @@ describe('payment link + public pay page', () => {
 
       const driftedPublic = await getPayPage(
         new Request(`http://localhost/api/public/pay/${token}`),
-        { params: { token } },
+        { params: Promise.resolve({ token }) },
       );
 
       expect(driftedPublic.status).toBe(409);
@@ -375,7 +375,7 @@ describe('payment link + public pay page', () => {
 
       const driftedMint = await mintPaymentLink(
         new Request('http://localhost/api/appointments/x/payment-link', { method: 'POST' }),
-        { params: { id: OTHER_APPT_ID } },
+        { params: Promise.resolve({ id: OTHER_APPT_ID }) },
       );
 
       expect(driftedMint.status).toBe(409);
@@ -418,7 +418,7 @@ describe('payment link + public pay page', () => {
     try {
       const publicResponse = await getPayPage(
         new Request(`http://localhost/api/public/pay/${token}`),
-        { params: { token } },
+        { params: Promise.resolve({ token }) },
       );
 
       expect(publicResponse.status).toBe(409);
@@ -431,7 +431,7 @@ describe('payment link + public pay page', () => {
 
       const mintResponse = await mintPaymentLink(
         new Request('http://localhost/api/appointments/x/payment-link', { method: 'POST' }),
-        { params: { id: OTHER_APPT_ID } },
+        { params: Promise.resolve({ id: OTHER_APPT_ID }) },
       );
 
       expect(mintResponse.status).toBe(409);
@@ -451,7 +451,7 @@ describe('payment link + public pay page', () => {
   it('does not recollect a historical paid invoice after a deposit refund erases the paid scalar', async () => {
     const response = await mintPaymentLink(
       new Request('http://localhost/api/appointments/x/payment-link', { method: 'POST' }),
-      { params: { id: LEGACY_REFUNDED_APPT_ID } },
+      { params: Promise.resolve({ id: LEGACY_REFUNDED_APPT_ID }) },
     );
 
     expect(response.status).toBe(409);
@@ -475,14 +475,14 @@ describe('payment link + public pay page', () => {
     const otherToken = await mintToken(OTHER_APPT_ID);
     const otherResponse = await getPayPage(
       new Request(`http://localhost/api/public/pay/${otherToken}`),
-      { params: { token: otherToken } },
+      { params: Promise.resolve({ token: otherToken }) },
     );
 
     expect((await otherResponse.json()).data.amountDueCents).toBe(5000);
 
     const garbage = await getPayPage(
       new Request('http://localhost/api/public/pay/not-a-token'),
-      { params: { token: 'not-a-token' } },
+      { params: Promise.resolve({ token: 'not-a-token' }) },
     );
 
     expect(garbage.status).toBe(404);
@@ -497,7 +497,7 @@ describe('payment link + public pay page', () => {
     try {
       const publicResponse = await getPayPage(
         new Request(`http://localhost/api/public/pay/${token}`),
-        { params: { token } },
+        { params: Promise.resolve({ token }) },
       );
 
       expect(publicResponse.status).toBe(409);
@@ -507,7 +507,7 @@ describe('payment link + public pay page', () => {
 
       const mintResponse = await mintPaymentLink(
         new Request('http://localhost/api/appointments/x/payment-link', { method: 'POST' }),
-        { params: { id: APPT_ID } },
+        { params: Promise.resolve({ id: APPT_ID }) },
       );
 
       expect(mintResponse.status).toBe(409);
@@ -525,7 +525,7 @@ describe('payment link + public pay page', () => {
             idempotencyKey: 'blocked-cache-without-ledger',
           }),
         }),
-        { params: { id: APPT_ID } },
+        { params: Promise.resolve({ id: APPT_ID }) },
       );
 
       expect(paymentResponse.status).toBe(409);
@@ -568,7 +568,7 @@ describe('payment link + public pay page', () => {
     try {
       const publicResponse = await getPayPage(
         new Request(`http://localhost/api/public/pay/${token}`),
-        { params: { token } },
+        { params: Promise.resolve({ token }) },
       );
 
       expect(publicResponse.status).toBe(409);
@@ -580,7 +580,7 @@ describe('payment link + public pay page', () => {
 
       const mintResponse = await mintPaymentLink(
         new Request('http://localhost/api/appointments/x/payment-link', { method: 'POST' }),
-        { params: { id: OTHER_APPT_ID } },
+        { params: Promise.resolve({ id: OTHER_APPT_ID }) },
       );
 
       expect(mintResponse.status).toBe(409);
@@ -600,7 +600,7 @@ describe('payment link + public pay page', () => {
             idempotencyKey: 'blocked-late-deposit-overpayment',
           }),
         }),
-        { params: { id: OTHER_APPT_ID } },
+        { params: Promise.resolve({ id: OTHER_APPT_ID }) },
       );
 
       expect(paymentResponse.status).toBe(409);
@@ -634,7 +634,7 @@ describe('payment link + public pay page', () => {
           idempotencyKey: 'public-pay-integration-1',
         }),
       }),
-      { params: { id: APPT_ID } },
+      { params: Promise.resolve({ id: APPT_ID }) },
     );
 
     expect(paymentResponse.status).toBe(200);
@@ -642,7 +642,7 @@ describe('payment link + public pay page', () => {
 
     const afterPaid = await getPayPage(
       new Request(`http://localhost/api/public/pay/${token}`),
-      { params: { token } },
+      { params: Promise.resolve({ token }) },
     );
 
     expect(afterPaid.status).toBe(404);
@@ -654,11 +654,11 @@ describe('payment link + public pay page', () => {
 
     const firstResponse = await getPayPage(
       new Request(`http://localhost/api/public/pay/${first}`),
-      { params: { token: first } },
+      { params: Promise.resolve({ token: first }) },
     );
     const secondResponse = await getPayPage(
       new Request(`http://localhost/api/public/pay/${second}`),
-      { params: { token: second } },
+      { params: Promise.resolve({ token: second }) },
     );
 
     expect(firstResponse.status).toBe(404);

@@ -89,7 +89,7 @@ describe('appointment manage route', () => {
 
     const response = await GET(
       new Request('http://localhost/api/appointments/appt_1/manage'),
-      { params: { id: 'appt_1' } },
+      { params: Promise.resolve({ id: 'appt_1' }) },
     );
     const body = await response.json();
 
@@ -120,7 +120,7 @@ describe('appointment manage route', () => {
         operation: 'reassignTechnician',
         technicianId: 'tech_2',
       }),
-    }), { params: { id: 'appt_1' } });
+    }), { params: Promise.resolve({ id: 'appt_1' }) });
     const body = await response.json();
 
     expect(response.status).toBe(403);
@@ -153,7 +153,7 @@ describe('appointment manage route', () => {
           durationMinutes: 105,
         }),
       }),
-      { params: { id: 'appt_1' } },
+      { params: Promise.resolve({ id: 'appt_1' }) },
     );
 
     expect((await patch()).status).toBe(200);

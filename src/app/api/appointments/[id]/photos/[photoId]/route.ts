@@ -25,8 +25,9 @@ function errorJson(status: number, code: string, message: string): Response {
 
 export async function DELETE(
   request: Request,
-  { params }: { params: { id: string; photoId: string } },
+  props: { params: Promise<{ id: string; photoId: string }> },
 ): Promise<Response> {
+  const params = await props.params;
   try {
     const { id: appointmentId, photoId } = params;
     const access = await requireAppointmentManagerAccess(appointmentId, {

@@ -192,7 +192,7 @@ describe('PATCH /api/appointments/:id — strict REQUEST_EXPIRED on confirm', ()
     holder.access = accessFor('pending', requestExpiresAt);
 
     const response = await PATCH(patchRequest({ status: 'confirmed' }), {
-      params: { id: APPT_ID },
+      params: Promise.resolve({ id: APPT_ID }),
     });
     const body = await response.json();
 
@@ -222,7 +222,7 @@ describe('PATCH /api/appointments/:id — strict REQUEST_EXPIRED on confirm', ()
       vi.setSystemTime(requestExpiresAt);
 
       const response = await PATCH(patchRequest({ status: 'confirmed' }), {
-        params: { id: APPT_ID },
+        params: Promise.resolve({ id: APPT_ID }),
       });
 
       expect(response.status).toBe(409);
@@ -247,7 +247,7 @@ describe('PATCH /api/appointments/:id — strict REQUEST_EXPIRED on confirm', ()
 
     const response = await PATCH(
       patchRequest({ status: 'cancelled', cancelReason: 'declined_by_salon' }),
-      { params: { id: APPT_ID } },
+      { params: Promise.resolve({ id: APPT_ID }) },
     );
 
     expect(response.status).toBe(409);
@@ -264,7 +264,7 @@ describe('PATCH /api/appointments/:id — strict REQUEST_EXPIRED on confirm', ()
     holder.access = accessFor('pending', requestExpiresAt);
 
     const response = await PATCH(patchRequest({ status: 'confirmed' }), {
-      params: { id: APPT_ID },
+      params: Promise.resolve({ id: APPT_ID }),
     });
 
     expect(response.status).toBe(200);
@@ -276,7 +276,7 @@ describe('PATCH /api/appointments/:id — strict REQUEST_EXPIRED on confirm', ()
     holder.access = accessFor('pending', null);
 
     const response = await PATCH(patchRequest({ status: 'confirmed' }), {
-      params: { id: APPT_ID },
+      params: Promise.resolve({ id: APPT_ID }),
     });
 
     expect(response.status).toBe(200);
@@ -292,7 +292,7 @@ describe('PATCH /api/appointments/:id — strict REQUEST_EXPIRED on confirm', ()
     holder.access = accessFor('cancelled', requestExpiresAt);
 
     const response = await PATCH(patchRequest({ status: 'confirmed' }), {
-      params: { id: APPT_ID },
+      params: Promise.resolve({ id: APPT_ID }),
     });
     const body = await response.json();
 

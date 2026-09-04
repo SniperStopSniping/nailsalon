@@ -108,13 +108,11 @@ describe('retired customer entry points', () => {
     expect(screen.queryByText(/log in|sign in|customer account/i)).not.toBeInTheDocument();
   });
 
-  it('keeps the valid rewards-disabled booking action without an account action', () => {
-    render(
-      <RewardsDisabledPage
-        searchParams={{}}
-        params={{ locale: 'en', slug: 'isla-nail-studio' }}
-      />,
-    );
+  it('keeps the valid rewards-disabled booking action without an account action', async () => {
+    render(await RewardsDisabledPage({
+      searchParams: Promise.resolve({}),
+      params: Promise.resolve({ locale: 'en', slug: 'isla-nail-studio' }),
+    }));
 
     expect(screen.getByRole('heading', { name: 'Rewards Program Unavailable' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Book an Appointment' })).toHaveAttribute(

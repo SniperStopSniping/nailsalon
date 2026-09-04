@@ -88,6 +88,7 @@ describe('QuickBookProfileHeader', () => {
 
       expect(header).toHaveAttribute('data-quick-book-layout', layout);
       expect(profile).toHaveAttribute('data-layout-presentation', layout);
+      expect(profile).toHaveAttribute('data-public-surface', 'salonProfile');
 
       fingerprints.add([
         profile.className,

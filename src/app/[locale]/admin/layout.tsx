@@ -2,13 +2,15 @@ import { isOnboardingV1IntegrationEnabled } from '@/features/onboarding-v1-integ
 
 import { OwnerAdminClientBoundary } from './OwnerAdminClientBoundary';
 
-export default function OwnerAdminLayout(props: {
-  children: React.ReactNode;
-  params: { locale: string };
-}) {
+export default async function OwnerAdminLayout(
+  props: {
+    children: React.ReactNode;
+    params: Promise<{ locale: string }>;
+  },
+) {
   return (
     <OwnerAdminClientBoundary
-      locale={props.params.locale}
+      locale={(await props.params).locale}
       onboardingV1IntegrationEnabled={isOnboardingV1IntegrationEnabled()}
     >
       {props.children}

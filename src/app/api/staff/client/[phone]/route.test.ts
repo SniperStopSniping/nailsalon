@@ -84,7 +84,7 @@ describe('GET /api/staff/client/[phone]', () => {
 
     const response = await GET(
       new Request('http://localhost/api/staff/client/5551234567?salonSlug=salon-a'),
-      { params: { phone: '5551234567' } },
+      { params: Promise.resolve({ phone: '5551234567' }) },
     );
 
     expect(response.status).toBe(401);
@@ -101,7 +101,7 @@ describe('GET /api/staff/client/[phone]', () => {
 
     const response = await GET(
       new Request('http://localhost/api/staff/client/5551234567?salonSlug=salon-a'),
-      { params: { phone: '5551234567' } },
+      { params: Promise.resolve({ phone: '5551234567' }) },
     );
 
     expect(response.status).toBe(403);
@@ -135,7 +135,7 @@ describe('GET /api/staff/client/[phone]', () => {
 
     const response = await GET(
       new Request('http://localhost/api/staff/client/5551234567?salonSlug=salon-a'),
-      { params: { phone: '5551234567' } },
+      { params: Promise.resolve({ phone: '5551234567' }) },
     );
     const body = await response.json();
 
@@ -194,7 +194,7 @@ describe('GET /api/staff/client/[phone]', () => {
 
     const response = await GET(
       new Request('http://localhost/api/staff/client/5551234567?salonSlug=salon-a'),
-      { params: { phone: '5551234567' } },
+      { params: Promise.resolve({ phone: '5551234567' }) },
     );
     const body = await response.json();
 
@@ -264,7 +264,7 @@ describe('GET /api/staff/client/[phone]', () => {
 
     const response = await GET(
       new Request('http://localhost/api/staff/client/5551234567?salonSlug=salon-a'),
-      { params: { phone: '5551234567' } },
+      { params: Promise.resolve({ phone: '5551234567' }) },
     );
     const body = await response.json();
 
@@ -312,7 +312,7 @@ describe('GET /api/staff/client/[phone]', () => {
 
     const response = await GET(
       new Request('http://localhost/api/staff/client/5551234567?salonSlug=salon-a'),
-      { params: { phone: '5551234567' } },
+      { params: Promise.resolve({ phone: '5551234567' }) },
     );
     const body = await response.json();
 

@@ -17,17 +17,16 @@ import { SavedSitePreviewClient } from './SavedSitePreviewClient';
 export const dynamic = 'force-dynamic';
 
 type SavedWebsitePreviewPageProps = {
-  params: { locale: string; siteId: string };
-  searchParams: { audit?: string | string[]; embed?: string | string[] };
+  params: Promise<{ locale: string; siteId: string }>;
+  searchParams: Promise<{ audit?: string | string[]; embed?: string | string[] }>;
 };
 
 const queryEnabled = (value: string | string[] | undefined): boolean =>
   (Array.isArray(value) ? value[0] : value) === '1';
 
-export default async function SavedWebsitePreviewPage({
-  params,
-  searchParams,
-}: SavedWebsitePreviewPageProps) {
+export default async function SavedWebsitePreviewPage(props: SavedWebsitePreviewPageProps) {
+  const searchParams = await props.searchParams;
+  const params = await props.params;
   if (!isOnboardingV1IntegrationEnabled()) {
     notFound();
   }

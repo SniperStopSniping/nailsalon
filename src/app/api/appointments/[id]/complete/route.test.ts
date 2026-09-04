@@ -187,7 +187,7 @@ describe('PATCH /api/appointments/[id]/complete', () => {
       new Request('http://localhost/api/appointments/appt_1/complete', {
         method: 'POST',
       }),
-      { params: { id: 'appt_1' } },
+      { params: Promise.resolve({ id: 'appt_1' }) },
     );
 
     expect(response.status).toBe(401);
@@ -206,7 +206,7 @@ describe('PATCH /api/appointments/[id]/complete', () => {
       new Request('http://localhost/api/appointments/appt_1/complete', {
         method: 'PATCH',
       }),
-      { params: { id: 'appt_1' } },
+      { params: Promise.resolve({ id: 'appt_1' }) },
     );
 
     expect(response.status).toBe(401);
@@ -273,7 +273,7 @@ describe('PATCH /api/appointments/[id]/complete', () => {
       new Request('http://localhost/api/appointments/appt_1/complete', {
         method: 'POST',
       }),
-      { params: { id: 'appt_1' } },
+      { params: Promise.resolve({ id: 'appt_1' }) },
     );
     const body = await response.json();
 
@@ -353,7 +353,7 @@ describe('PATCH /api/appointments/[id]/complete', () => {
       new Request('http://localhost/api/appointments/appt_1/complete', {
         method: 'POST',
       }),
-      { params: { id: 'appt_1' } },
+      { params: Promise.resolve({ id: 'appt_1' }) },
     );
     const body = await response.json();
 
@@ -389,7 +389,7 @@ describe('PATCH /api/appointments/[id]/complete', () => {
       new Request('http://localhost/api/appointments/appt_1/complete', {
         method: 'POST',
       }),
-      { params: { id: 'appt_1' } },
+      { params: Promise.resolve({ id: 'appt_1' }) },
     );
     const body = await response.json();
 
@@ -427,7 +427,7 @@ describe('PATCH /api/appointments/[id]/complete', () => {
       new Request('http://localhost/api/appointments/appt_1/complete', {
         method: 'POST',
       }),
-      { params: { id: 'appt_1' } },
+      { params: Promise.resolve({ id: 'appt_1' }) },
     );
     const body = await response.json();
 
@@ -449,7 +449,7 @@ describe('PATCH /api/appointments/[id]/complete', () => {
       new Request('http://localhost/api/appointments/appt_1/complete', {
         method: 'PATCH',
       }),
-      { params: { id: 'appt_1' } },
+      { params: Promise.resolve({ id: 'appt_1' }) },
     );
 
     expect(response.status).toBe(403);
@@ -464,7 +464,7 @@ describe('PATCH /api/appointments/[id]/complete', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({}),
       }),
-      { params: { id: 'appt_1' } },
+      { params: Promise.resolve({ id: 'appt_1' }) },
     );
     const body = await response.json();
 
@@ -495,7 +495,7 @@ describe('PATCH /api/appointments/[id]/complete', () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ skipPhotoValidation: true }),
       }),
-      { params: { id: 'appt_1' } },
+      { params: Promise.resolve({ id: 'appt_1' }) },
     );
     const body = await response.json();
 
@@ -518,7 +518,7 @@ describe('PATCH /api/appointments/[id]/complete', () => {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload),
         }),
-        { params: { id: 'appt_1' } },
+        { params: Promise.resolve({ id: 'appt_1' }) },
       );
 
       expect(response.status).toBe(403);
@@ -538,7 +538,7 @@ describe('PATCH /api/appointments/[id]/complete', () => {
           actualEndAt: '2026-07-18T14:00:00Z',
         }),
       }),
-      { params: { id: 'appt_1' } },
+      { params: Promise.resolve({ id: 'appt_1' }) },
     );
     const body = await response.json();
 
@@ -563,7 +563,7 @@ describe('PATCH /api/appointments/[id]/complete', () => {
           payments: [{ amountCents: 1000, method: 'cash' }],
         }),
       }),
-      { params: { id: 'appt_1' } },
+      { params: Promise.resolve({ id: 'appt_1' }) },
     );
     const body = await response.json();
 

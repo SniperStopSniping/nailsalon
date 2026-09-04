@@ -202,7 +202,7 @@ describe('admin Google event copy', () => {
     await seedLinkedEvent();
     queryLog.length = 0;
 
-    const response = await POST(request(), { params: { id: EVENT_ID } });
+    const response = await POST(request(), { params: Promise.resolve({ id: EVENT_ID }) });
     const body = await response.json();
     const jobs = await calendarJobs();
     const [appointment] = await db
@@ -256,9 +256,9 @@ describe('admin Google event copy', () => {
   it('makes a replay an explicit no-write success', async () => {
     await seedLinkedEvent();
 
-    const first = await POST(request(), { params: { id: EVENT_ID } });
+    const first = await POST(request(), { params: Promise.resolve({ id: EVENT_ID }) });
     const firstBody = await first.json();
-    const second = await POST(request(), { params: { id: EVENT_ID } });
+    const second = await POST(request(), { params: Promise.resolve({ id: EVENT_ID }) });
     const secondBody = await second.json();
 
     expect(first.status).toBe(202);
@@ -274,8 +274,8 @@ describe('admin Google event copy', () => {
     await seedLinkedEvent();
 
     const responses = await Promise.all([
-      POST(request(), { params: { id: EVENT_ID } }),
-      POST(request(), { params: { id: EVENT_ID } }),
+      POST(request(), { params: Promise.resolve({ id: EVENT_ID }) }),
+      POST(request(), { params: Promise.resolve({ id: EVENT_ID }) }),
     ]);
     const bodies = await Promise.all(responses.map(response => response.json()));
 
@@ -303,7 +303,7 @@ describe('admin Google event copy', () => {
     });
     queryLog.length = 0;
 
-    const response = await POST(request(), { params: { id: EVENT_ID } });
+    const response = await POST(request(), { params: Promise.resolve({ id: EVENT_ID }) });
     const body = await response.json();
     const jobs = await calendarJobs();
     const [appointment] = await db
@@ -360,7 +360,7 @@ describe('admin Google event copy', () => {
       lastError: 'ADMIN_COPY_PRECONDITION_CHANGED',
     });
 
-    const response = await POST(request(), { params: { id: EVENT_ID } });
+    const response = await POST(request(), { params: Promise.resolve({ id: EVENT_ID }) });
     const body = await response.json();
     const jobs = await calendarJobs();
     const [appointment] = await db
@@ -462,7 +462,7 @@ describe('admin Google event copy', () => {
       processedAt,
     });
 
-    const response = await POST(request(), { params: { id: EVENT_ID } });
+    const response = await POST(request(), { params: Promise.resolve({ id: EVENT_ID }) });
     const body = await response.json();
     const jobs = await calendarJobs();
     const [appointment] = await db
@@ -532,7 +532,7 @@ describe('admin Google event copy', () => {
       destinationCalendarId: 'replacement_calendar',
     }).where(eq(schema.salonGoogleCalendarConnectionSchema.salonId, SALON_ID));
 
-    const response = await POST(request(), { params: { id: EVENT_ID } });
+    const response = await POST(request(), { params: Promise.resolve({ id: EVENT_ID }) });
     const body = await response.json();
 
     expect(response.status).toBe(200);
@@ -595,7 +595,7 @@ describe('admin Google event copy', () => {
       processedAt: new Date('2026-08-12T12:05:00.000Z'),
     });
 
-    const response = await POST(request(), { params: { id: EVENT_ID } });
+    const response = await POST(request(), { params: Promise.resolve({ id: EVENT_ID }) });
     const body = await response.json();
 
     expect(response.status).toBe(409);
@@ -608,7 +608,7 @@ describe('admin Google event copy', () => {
   it('rejects a linked appointment that is terminal without scheduling work', async () => {
     await seedLinkedEvent({ appointment: { status: 'cancelled' } });
 
-    const response = await POST(request(), { params: { id: EVENT_ID } });
+    const response = await POST(request(), { params: Promise.resolve({ id: EVENT_ID }) });
 
     expect(response.status).toBe(409);
     expect(await calendarJobs()).toEqual([]);
@@ -617,7 +617,7 @@ describe('admin Google event copy', () => {
   it('rejects an awaiting-payment hold without a job or provider call', async () => {
     await seedLinkedEvent({ appointment: { status: 'awaiting_payment' } });
 
-    const response = await POST(request(), { params: { id: EVENT_ID } });
+    const response = await POST(request(), { params: Promise.resolve({ id: EVENT_ID }) });
 
     expect(response.status).toBe(409);
     await expect(response.json()).resolves.toEqual({
@@ -658,7 +658,7 @@ describe('admin Google event copy', () => {
   it('rejects a source that is not an inbound-only linked appointment', async () => {
     await seedLinkedEvent({ event: { syncMode: 'bidirectional' } });
 
-    const response = await POST(request(), { params: { id: EVENT_ID } });
+    const response = await POST(request(), { params: Promise.resolve({ id: EVENT_ID }) });
 
     expect(response.status).toBe(409);
     expect(await calendarJobs()).toEqual([]);
@@ -668,7 +668,7 @@ describe('admin Google event copy', () => {
     await seedLinkedEvent();
     await db.delete(schema.salonGoogleCalendarConnectionSchema);
 
-    const response = await POST(request(), { params: { id: EVENT_ID } });
+    const response = await POST(request(), { params: Promise.resolve({ id: EVENT_ID }) });
 
     expect(response.status).toBe(409);
     expect(await calendarJobs()).toEqual([]);
@@ -680,7 +680,7 @@ describe('admin Google event copy', () => {
       .set({ status: 'disconnected' })
       .where(eq(schema.salonGoogleCalendarConnectionSchema.salonId, SALON_ID));
 
-    const response = await POST(request(), { params: { id: EVENT_ID } });
+    const response = await POST(request(), { params: Promise.resolve({ id: EVENT_ID }) });
 
     expect(response.status).toBe(409);
     expect(await calendarJobs()).toEqual([]);
@@ -692,7 +692,7 @@ describe('admin Google event copy', () => {
       .set({ status: 'degraded' })
       .where(eq(schema.salonGoogleCalendarConnectionSchema.salonId, SALON_ID));
 
-    const response = await POST(request(), { params: { id: EVENT_ID } });
+    const response = await POST(request(), { params: Promise.resolve({ id: EVENT_ID }) });
     const body = await response.json();
 
     expect(response.status).toBe(202);
@@ -728,14 +728,14 @@ describe('admin Google event copy', () => {
       reviewStatus: 'appointment',
     });
 
-    const response = await POST(request(), { params: { id: EVENT_ID } });
+    const response = await POST(request(), { params: Promise.resolve({ id: EVENT_ID }) });
 
     expect(response.status).toBe(409);
     expect(await calendarJobs()).toEqual([]);
   });
 
   it('validates the request before authorization or database work', async () => {
-    const response = await POST(request({ salonSlug: '' }), { params: { id: EVENT_ID } });
+    const response = await POST(request({ salonSlug: '' }), { params: Promise.resolve({ id: EVENT_ID }) });
 
     expect(response.status).toBe(400);
     expect(requireAdminSalon).not.toHaveBeenCalled();
