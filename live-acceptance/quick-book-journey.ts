@@ -163,7 +163,18 @@ export async function runQuickBookJourney(
 
     process.stdout.write('Live acceptance: official-helper client reload ready; submitting Development signup.\n');
     await page.getByLabel('Password', { exact: true }).fill(password);
-    await page.getByRole('button', { name: 'Create account and continue', exact: true }).click();
+    // A real recipient cannot enter the code before Clerk prepares the email.
+    // Register before signup so the known test code cannot race that request.
+    await Promise.all([
+      page.waitForResponse((response) => {
+        const url = new URL(response.url());
+        return url.hostname === process.env.CLERK_FAPI
+          && url.pathname.endsWith('/prepare_verification')
+          && response.request().method() === 'POST'
+          && response.status() === 200;
+      }, { timeout: 120_000 }),
+      page.getByRole('button', { name: 'Create account and continue', exact: true }).click(),
+    ]);
 
     await expect(page.getByRole('heading', { name: 'Check your email', exact: true })).toBeVisible({ timeout: 120_000 });
 

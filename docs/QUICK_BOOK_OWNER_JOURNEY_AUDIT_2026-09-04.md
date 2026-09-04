@@ -37,3 +37,5 @@ Scope: improve the existing Quick Book flow, account-backed persistence, returni
 Real account journeys use Clerk Development identities, isolated loopback PostgreSQL, and disposable local media. No production owner/customer data, real charges, SMS, or email sends are test fixtures.
 
 Browser emulation does not establish physical iPhone or VoiceOver success. The plan screen continues to record the existing free/beta intent; this pass does not certify paid checkout.
+
+The final WebKit Development-auth lifecycle remains unverified: Clerk rejected normal requests with `dev-browser-missing` because WebKit omitted the development-browser cookie. The installed SDK applies this requirement only to development instances. No production auth bypass was added. A subsequent ordinary Chromium run exposed an acceptance-runner race (known OTP submitted before preparation completed); the runner now waits for successful preparation before submitting that test code.
