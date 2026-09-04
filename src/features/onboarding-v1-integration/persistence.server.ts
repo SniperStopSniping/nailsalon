@@ -60,6 +60,7 @@ import type {
   OnboardingDraftClaimRequest,
   OnboardingPersistedSnapshot,
   OnboardingPlanIntentRequest,
+  OnboardingSiteSlugAvailability,
 } from './contracts';
 import { fingerprintOnboardingPayload } from './payload-fingerprint';
 
@@ -494,28 +495,50 @@ async function salonSlugForSnapshot(
 ): Promise<string> {
   // Suggested URLs are the owner's choice too. Never silently rename one
   // after the owner has previewed it, including concurrent first-time claims.
-  const requestedSlug = normalizeSalonSlug(snapshot.profile.siteSlug
-    || (snapshot.profile.siteSlugCustomized ? '' : baseSlug(snapshot.profile.businessName)));
-  if (!requestedSlug || !isValidSalonSlug(requestedSlug)) {
+  const availability = await getOnboardingSiteSlugAvailability(
+    snapshot.profile.siteSlug
+    || (snapshot.profile.siteSlugCustomized ? '' : baseSlug(snapshot.profile.businessName)),
+    database,
+  );
+  if (availability.reason === 'invalid') {
     throw new OnboardingPersistenceError(
       'SITE_SLUG_INVALID',
       'Choose a valid Luster URL before saving your site.',
       400,
     );
   }
-  const [existing] = await database
-    .select({ id: salonSchema.id })
-    .from(salonSchema)
-    .where(eq(salonSchema.slug, requestedSlug))
-    .limit(1);
-  if (existing) {
+  if (!availability.available) {
     throw new OnboardingPersistenceError(
       'SITE_SLUG_UNAVAILABLE',
       'That Luster URL is no longer available. Choose another URL and try again.',
       409,
     );
   }
-  return requestedSlug;
+  return availability.slug;
+}
+
+/**
+ * Checks the same global URL namespace used by account claim without exposing
+ * the occupying salon or owner. This is intentionally safe for anonymous
+ * onboarding: only the public URL candidate and a boolean availability result
+ * cross the boundary.
+ */
+export async function getOnboardingSiteSlugAvailability(
+  candidate: string,
+  database: QueryDatabase = db,
+): Promise<OnboardingSiteSlugAvailability> {
+  const slug = normalizeSalonSlug(candidate) ?? '';
+  if (!isValidSalonSlug(slug)) {
+    return { available: false, reason: 'invalid', slug };
+  }
+  const [existing] = await database
+    .select({ id: salonSchema.id })
+    .from(salonSchema)
+    .where(eq(salonSchema.slug, slug))
+    .limit(1);
+  return existing
+    ? { available: false, reason: 'unavailable', slug }
+    : { available: true, reason: 'available', slug };
 }
 
 async function resolveIdentityAdmin(

@@ -702,6 +702,16 @@ export const onboardingDraftClaimRequestSchema = z.object({
 
 export type OnboardingDraftClaimRequest = z.infer<typeof onboardingDraftClaimRequestSchema>;
 
+export const onboardingSiteSlugAvailabilityRequestSchema = z.object({
+  slug: text(64),
+}).strict();
+
+export type OnboardingSiteSlugAvailability = {
+  available: boolean;
+  reason: 'available' | 'invalid' | 'unavailable';
+  slug: string;
+};
+
 export const onboardingDraftStatusRequestSchema = z.object({
   anonymousDraftToken: opaqueTokenSchema,
   savedSiteId: z.string().uuid().optional(),

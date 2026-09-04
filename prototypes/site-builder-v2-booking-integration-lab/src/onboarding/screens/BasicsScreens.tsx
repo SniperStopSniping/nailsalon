@@ -97,7 +97,19 @@ const ADDRESS_VISIBILITY: readonly ChoiceOption<AddressVisibility>[] = [
   { label: 'Do not show', value: 'hidden' },
 ];
 
+const SLUG_INVALID_MESSAGE = 'This URL can’t be used. Choose a different URL.';
+const SLUG_UNAVAILABLE_MESSAGE = 'This URL is not available. Choose a different URL.';
+
+export type SiteSlugAvailabilityCheck = {
+  reason: 'available' | 'invalid' | 'unavailable';
+  slug: string;
+};
+
 type BrandBasicsScreenProps = SharedBasicsScreenProps & {
+  checkSiteSlugAvailability?: (
+    slug: string,
+    signal?: AbortSignal,
+  ) => Promise<SiteSlugAvailabilityCheck>;
   onContinue: () => void;
   onLogoSelected: (file: File) => Promise<void>;
   onProfilePhotoSelected: (file: File) => Promise<void>;
@@ -110,6 +122,7 @@ type BrandBasicsScreenProps = SharedBasicsScreenProps & {
 type OptionalBusinessSection = 'instagram' | 'logo' | 'profile_photo';
 
 export function BrandBasicsScreen({
+  checkSiteSlugAvailability,
   onBack,
   onContinue,
   onLogoSelected,
@@ -121,10 +134,15 @@ export function BrandBasicsScreen({
   reveal = false,
 }: BrandBasicsScreenProps) {
   const formId = useId();
+  const slugStatusId = useId();
   const formRef = useRef<HTMLFormElement>(null);
   const feedback = useFeedback();
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [editingSlug, setEditingSlug] = useState(profile.siteSlugCustomized);
+  const [slugAvailability, setSlugAvailability] = useState<{
+    slug: string;
+    status: 'available' | 'checking' | 'idle' | 'invalid' | 'unavailable' | 'unknown';
+  }>({ slug: '', status: 'idle' });
   const [expandedOptionalSection, setExpandedOptionalSection]
     = useState<OptionalBusinessSection | null>(null);
   const isShortPhone = useMediaQuery('(max-width: 479px) and (max-height: 700px)');
@@ -145,6 +163,49 @@ export function BrandBasicsScreen({
     ? profile.siteSlug
     : normalizeSiteSlug(profile.businessName);
   const slugError = validateSiteSlug(effectiveSlug);
+  const currentSlugAvailability = slugAvailability.slug === effectiveSlug
+    ? slugAvailability.status
+    : checkSiteSlugAvailability && profile.businessName.trim() && !slugError
+      ? 'checking'
+      : 'idle';
+  useEffect(() => {
+    if (!checkSiteSlugAvailability || !profile.businessName.trim() || slugError) {
+      setSlugAvailability({ slug: effectiveSlug, status: 'idle' });
+      return undefined;
+    }
+
+    const controller = new AbortController();
+    setSlugAvailability({ slug: effectiveSlug, status: 'checking' });
+    setErrors(current => ({ ...current, siteSlug: '' }));
+    const timer = window.setTimeout(() => {
+      void checkSiteSlugAvailability(effectiveSlug, controller.signal)
+        .then((availability) => {
+          if (controller.signal.aborted) {
+            return;
+          }
+          const matchesRequestedSlug = availability.slug === effectiveSlug;
+          setSlugAvailability({
+            slug: effectiveSlug,
+            status: matchesRequestedSlug
+              ? availability.reason
+              : 'unknown',
+          });
+          if (matchesRequestedSlug && availability.reason === 'available') {
+            setErrors(current => ({ ...current, siteSlug: '' }));
+          }
+        })
+        .catch(() => {
+          if (!controller.signal.aborted) {
+            setSlugAvailability({ slug: effectiveSlug, status: 'unknown' });
+          }
+        });
+    }, 300);
+
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+    };
+  }, [checkSiteSlugAvailability, effectiveSlug, profile.businessName, slugError]);
   const basicsComplete = Boolean(
     profile.businessName.trim()
     && profile.businessType
@@ -199,9 +260,21 @@ export function BrandBasicsScreen({
     }
     if (profile.businessName.trim() && slugError) {
       nextErrors.siteSlug = slugError;
+    } else if (profile.businessName.trim() && checkSiteSlugAvailability) {
+      if (currentSlugAvailability === 'invalid') {
+        nextErrors.siteSlug = SLUG_INVALID_MESSAGE;
+      } else if (currentSlugAvailability === 'unavailable') {
+        nextErrors.siteSlug = SLUG_UNAVAILABLE_MESSAGE;
+      }
     }
     if (instagramError) {
       nextErrors.instagram = instagramError;
+    }
+    if (
+      currentSlugAvailability === 'invalid'
+      || currentSlugAvailability === 'unavailable'
+    ) {
+      setEditingSlug(true);
     }
     setErrors(nextErrors);
     const failedFields = Object.keys(nextErrors);
@@ -215,6 +288,12 @@ export function BrandBasicsScreen({
           focusFirstInvalidControl(formRef.current);
         }
       });
+      return;
+    }
+    if (
+      checkSiteSlugAvailability
+      && (currentSlugAvailability === 'checking' || currentSlugAvailability === 'idle')
+    ) {
       return;
     }
     commitInstagram();
@@ -301,6 +380,7 @@ export function BrandBasicsScreen({
                     {editingSlug
                       ? (
                           <button
+                            aria-describedby={slugStatusId}
                             type="button"
                             onClick={() => {
                               setEditingSlug(false);
@@ -310,15 +390,33 @@ export function BrandBasicsScreen({
                             Use suggested URL
                           </button>
                         )
-                      : <button type="button" onClick={() => setEditingSlug(true)}>Change URL</button>}
+                      : (
+                          <button
+                            aria-describedby={slugStatusId}
+                            type="button"
+                            onClick={() => setEditingSlug(true)}
+                          >
+                            {currentSlugAvailability === 'invalid'
+                            || currentSlugAvailability === 'unavailable'
+                              ? 'Choose another URL'
+                              : 'Change URL'}
+                          </button>
+                        )}
                   </div>
                   {editingSlug
                     ? (
                         <label>
                           <span>lustergel.app/</span>
                           <input
+                            aria-describedby={slugStatusId}
                             aria-label="Custom Luster URL"
-                            aria-invalid={errors.siteSlug ? 'true' : undefined}
+                            aria-invalid={
+                              errors.siteSlug
+                              || currentSlugAvailability === 'invalid'
+                              || currentSlugAvailability === 'unavailable'
+                                ? 'true'
+                                : undefined
+                            }
                             value={effectiveSlug}
                             onChange={(event) => {
                               const siteSlug = normalizeSiteSlugInput(event.target.value);
@@ -329,19 +427,39 @@ export function BrandBasicsScreen({
                         </label>
                       )
                     : <strong>{siteUrlForSlug(effectiveSlug)}</strong>}
-                  {errors.siteSlug
-                    ? <p className="onboarding-field__error">{errors.siteSlug}</p>
-                    : !slugError
-                        ? (
-                            <p className="onboarding-site-url__valid">
-                              <Check aria-hidden="true" size={14} />
-                              {' '}
-                              This URL format looks good
-                              {' '}
-                              <small>Final availability is confirmed when you save.</small>
-                            </p>
-                          )
-                        : null}
+                  <div
+                    aria-atomic="true"
+                    aria-live="polite"
+                    id={slugStatusId}
+                    role="status"
+                  >
+                    {errors.siteSlug
+                      ? <p className="onboarding-field__error">{errors.siteSlug}</p>
+                      : currentSlugAvailability === 'invalid'
+                        ? <p className="onboarding-field__error">{SLUG_INVALID_MESSAGE}</p>
+                        : currentSlugAvailability === 'unavailable'
+                          ? <p className="onboarding-field__error">{SLUG_UNAVAILABLE_MESSAGE}</p>
+                          : currentSlugAvailability === 'checking'
+                            ? <p className="onboarding-site-url__status">Checking availability…</p>
+                            : currentSlugAvailability === 'unknown'
+                              ? <p className="onboarding-site-url__status">We couldn’t check right now. We’ll check again before saving.</p>
+                              : !slugError
+                                  ? (
+                                      <p className="onboarding-site-url__valid">
+                                        <Check aria-hidden="true" size={14} />
+                                        {' '}
+                                        {currentSlugAvailability === 'available'
+                                          ? 'This URL is available'
+                                          : 'This URL format looks good'}
+                                        <small>
+                                          {currentSlugAvailability === 'available'
+                                            ? 'We’ll confirm again when you save.'
+                                            : 'Final availability is confirmed when you save.'}
+                                        </small>
+                                      </p>
+                                    )
+                                  : null}
+                  </div>
                 </div>
               )
             : null}
@@ -558,6 +676,7 @@ export function BrandBasicsScreen({
       <StickyOnboardingActions
         formId={formId}
         onBack={onBack}
+        primaryDisabled={currentSlugAvailability === 'checking'}
         primaryFirst
         primaryLabel="Show me my site →"
       />

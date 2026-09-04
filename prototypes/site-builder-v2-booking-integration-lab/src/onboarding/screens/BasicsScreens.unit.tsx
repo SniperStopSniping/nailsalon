@@ -8,6 +8,7 @@ import type { BusinessProfileDraft, StarterId } from '../model/types';
 import {
   BrandBasicsScreen,
   LocationContactScreen,
+  type SiteSlugAvailabilityCheck,
 } from './BasicsScreens';
 
 vi.mock('../../custom-design/integration/CustomDesignAssetProvider', () => ({
@@ -42,6 +43,10 @@ function useProfileHarness() {
 }
 
 type BrandBasicsHandlers = Partial<{
+  checkSiteSlugAvailability: (
+    slug: string,
+    signal?: AbortSignal,
+  ) => Promise<SiteSlugAvailabilityCheck>;
   onContinue: () => void;
   onLogoSelected: (file: File) => Promise<void>;
   onProfilePhotoSelected: (file: File) => Promise<void>;
@@ -59,6 +64,7 @@ function renderBrandBasics(
     const { profile, update } = useProfileHarness();
     return (
       <BrandBasicsScreen
+        checkSiteSlugAvailability={handlers.checkSiteSlugAvailability}
         profile={fixedProfile ?? { ...profile, ...profileOverrides }}
         starter={handlers.starter === undefined ? 'one_page' : handlers.starter}
         onBack={vi.fn()}
@@ -75,6 +81,139 @@ function renderBrandBasics(
 }
 
 describe('BrandBasicsScreen', () => {
+  it('checks the suggested URL and identifies one that is available', async () => {
+    const user = userEvent.setup();
+    const checkSiteSlugAvailability = vi.fn().mockResolvedValue({
+      reason: 'available',
+      slug: 'maya-nail-studio',
+    });
+    renderBrandBasics({ checkSiteSlugAvailability });
+
+    await user.type(screen.getByLabelText(/Salon or studio name/u), 'Maya Nail Studio');
+
+    expect(screen.getByText('Checking availability…')).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Show me my site →' })).toBeDisabled();
+
+    await waitFor(() => expect(checkSiteSlugAvailability).toHaveBeenCalledWith(
+      'maya-nail-studio',
+      expect.any(AbortSignal),
+    ));
+
+    expect(await screen.findByText('This URL is available')).toBeVisible();
+  });
+
+  it('shows an occupied URL as unavailable and blocks continuation', async () => {
+    const user = userEvent.setup();
+    const onContinue = vi.fn();
+    const checkSiteSlugAvailability = vi.fn().mockResolvedValue({
+      reason: 'unavailable',
+      slug: 'isla-nail-studio',
+    });
+    renderBrandBasics({ checkSiteSlugAvailability, onContinue });
+
+    await user.type(screen.getByLabelText(/Salon or studio name/u), 'Isla Nail Studio');
+    await user.click(screen.getByRole('radio', { name: /Independent nail tech/u }));
+    await user.type(screen.getByLabelText('Your name *'), 'Daniela');
+
+    expect(await screen.findByText('This URL is not available. Choose a different URL.'))
+      .toBeVisible();
+
+    await user.click(screen.getByRole('button', { name: 'Show me my site →' }));
+
+    expect(onContinue).not.toHaveBeenCalled();
+
+    await waitFor(() => expect(screen.getByLabelText('Custom Luster URL')).toHaveFocus());
+
+    expect(screen.getByLabelText('Custom Luster URL')).toHaveAccessibleDescription(
+      'This URL is not available. Choose a different URL.',
+    );
+  });
+
+  it('distinguishes a URL rejected by server rules from an occupied URL', async () => {
+    const user = userEvent.setup();
+    const onContinue = vi.fn();
+    const checkSiteSlugAvailability = vi.fn().mockResolvedValue({
+      reason: 'invalid',
+      slug: 'pricing',
+    });
+    renderBrandBasics({ checkSiteSlugAvailability, onContinue });
+
+    await user.type(screen.getByLabelText(/Salon or studio name/u), 'Pricing');
+    await user.click(screen.getByRole('radio', { name: /Independent nail tech/u }));
+    await user.type(screen.getByLabelText('Your name *'), 'Maya');
+
+    expect(await screen.findByText('This URL can’t be used. Choose a different URL.'))
+      .toBeVisible();
+
+    await user.click(screen.getByRole('button', { name: 'Show me my site →' }));
+
+    expect(onContinue).not.toHaveBeenCalled();
+
+    await waitFor(() => expect(screen.getByLabelText('Custom Luster URL')).toHaveFocus());
+  });
+
+  it('does not request availability for a locally invalid URL', () => {
+    const checkSiteSlugAvailability = vi.fn();
+
+    renderBrandBasics(
+      { checkSiteSlugAvailability },
+      undefined,
+      { businessName: 'X' },
+    );
+
+    expect(checkSiteSlugAvailability).not.toHaveBeenCalled();
+  });
+
+  it('never lets a late response replace the current URL result', async () => {
+    const user = userEvent.setup();
+    let resolveFirst: ((availability: SiteSlugAvailabilityCheck) => void) | undefined;
+    const firstResult = new Promise<SiteSlugAvailabilityCheck>((resolve) => {
+      resolveFirst = resolve;
+    });
+    const checkSiteSlugAvailability = vi.fn((slug: string) =>
+      slug === 'first-studio'
+        ? firstResult
+        : Promise.resolve({ reason: 'available' as const, slug }));
+    renderBrandBasics({ checkSiteSlugAvailability });
+    const businessName = screen.getByLabelText(/Salon or studio name/u);
+
+    await user.type(businessName, 'First Studio');
+    await waitFor(() => expect(checkSiteSlugAvailability).toHaveBeenCalledWith(
+      'first-studio',
+      expect.any(AbortSignal),
+    ));
+    await user.clear(businessName);
+    await user.type(businessName, 'Second Studio');
+
+    expect(await screen.findByText('This URL is available')).toBeVisible();
+
+    resolveFirst?.({ reason: 'unavailable', slug: 'first-studio' });
+    await waitFor(() => expect(screen.queryByText(
+      'This URL is not available. Choose a different URL.',
+    )).not.toBeInTheDocument());
+  });
+
+  it('keeps setup usable when the availability service is temporarily unavailable', async () => {
+    const user = userEvent.setup();
+    const onContinue = vi.fn();
+    renderBrandBasics({
+      checkSiteSlugAvailability: vi.fn().mockRejectedValue(new Error('offline')),
+      onContinue,
+    });
+
+    await user.type(screen.getByLabelText(/Salon or studio name/u), 'Offline Studio');
+    await user.click(screen.getByRole('radio', { name: /Independent nail tech/u }));
+    await user.type(screen.getByLabelText('Your name *'), 'Maya');
+
+    expect(await screen.findByText(
+      'We couldn’t check right now. We’ll check again before saving.',
+    )).toBeVisible();
+
+    await user.click(screen.getByRole('button', { name: 'Show me my site →' }));
+
+    expect(onContinue).toHaveBeenCalledOnce();
+  });
+
   it('separates each optional label from its business field heading', () => {
     renderBrandBasics({}, undefined, { businessType: 'independent_salon' });
 

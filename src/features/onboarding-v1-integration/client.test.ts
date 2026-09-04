@@ -2,6 +2,7 @@ import type {
   OnboardingIntegrationRequestError,
 } from './client';
 import {
+  checkOnboardingSiteSlugAvailability,
   claimOnboardingDraft,
   getOnboardingDraftClaimStatus,
   saveOnboardingPlanIntent,
@@ -30,6 +31,60 @@ const jsonResponse = (body: unknown, status = 200): Response => new Response(
 );
 
 describe('onboarding integration client', () => {
+  it('checks a site URL through the anonymous availability route', async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({ data: {
+      available: false,
+      reason: 'unavailable',
+      slug: 'isla-nail-studio',
+    } }));
+    const signal = new AbortController().signal;
+
+    await expect(checkOnboardingSiteSlugAvailability(
+      'isla-nail-studio',
+      signal,
+      { fetcher },
+    )).resolves.toEqual({
+      available: false,
+      reason: 'unavailable',
+      slug: 'isla-nail-studio',
+    });
+    expect(fetcher).toHaveBeenCalledWith('/api/onboarding/v1/slug-availability', {
+      body: JSON.stringify({ slug: 'isla-nail-studio' }),
+      headers: { 'Content-Type': 'application/json' },
+      method: 'POST',
+      signal,
+    });
+  });
+
+  it('rejects an availability response for a different URL', async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({ data: {
+      available: true,
+      reason: 'available',
+      slug: 'different-studio',
+    } }));
+
+    await expect(checkOnboardingSiteSlugAvailability(
+      'requested-studio',
+      undefined,
+      { fetcher },
+    )).rejects.toMatchObject({ status: 200 });
+  });
+
+  it('recognizes the verified owner’s saved URL without reporting its own row as occupied', async () => {
+    const fetcher = vi.fn<typeof fetch>();
+
+    await expect(checkOnboardingSiteSlugAvailability(
+      'isla-nail-studio',
+      undefined,
+      { fetcher, knownAvailableSlug: 'isla-nail-studio' },
+    )).resolves.toEqual({
+      available: true,
+      reason: 'available',
+      slug: 'isla-nail-studio',
+    });
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
   it('reads canonical claim and interrupted-save status envelopes', async () => {
     const claimFetcher = vi.fn<typeof fetch>().mockResolvedValue(
       jsonResponse({ data: savedSite }),

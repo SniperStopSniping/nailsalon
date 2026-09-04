@@ -164,6 +164,13 @@
   font-weight: 520;
 }
 
+.onboarding-site-url__status {
+  margin: 0;
+  color: var(--onboarding-muted);
+  font-size: 0.7rem;
+  font-weight: 650;
+}
+
 .onboarding-business-type {
   padding: clamp(15px, 3.4vw, 22px);
 }
