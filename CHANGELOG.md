@@ -1,3 +1,10 @@
+## [1.84.3](https://github.com/SniperStopSniping/nailsalon/compare/v1.84.2...v1.84.3) (2026-09-04)
+
+
+### Bug Fixes
+
+* **onboarding:** protect owner choices and improve setup defaults ([38f7382](https://github.com/SniperStopSniping/nailsalon/commit/38f73825263203996f0fe08893a84cd5dd00e0fd))
+
 ## [1.84.2](https://github.com/SniperStopSniping/nailsalon/compare/v1.84.1...v1.84.2) (2026-09-04)
 
 
