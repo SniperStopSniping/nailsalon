@@ -259,6 +259,18 @@
   grid-template-columns: 38px minmax(0, 1fr) auto;
 }
 
+.onboarding-business-card--optional h2 {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+}
+
+.onboarding-business-card--optional h2 > span {
+  flex: none;
+  white-space: nowrap;
+}
+
 .onboarding-business-card__compact-summary,
 .onboarding-business-card__compact-action {
   display: none;

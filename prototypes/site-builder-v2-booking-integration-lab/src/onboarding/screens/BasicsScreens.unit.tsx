@@ -75,6 +75,15 @@ function renderBrandBasics(
 }
 
 describe('BrandBasicsScreen', () => {
+  it('separates each optional label from its business field heading', () => {
+    renderBrandBasics({}, undefined, { businessType: 'independent_salon' });
+
+    for (const title of ['Profile photo', 'Logo', 'Instagram']) {
+      expect(screen.getByRole('heading', { name: `${title} Optional` }))
+        .toHaveTextContent(`${title} Optional`);
+    }
+  });
+
   it('shows associated inline errors, then continues with canonical business identity', async () => {
     const user = userEvent.setup();
     const onContinue = vi.fn();
