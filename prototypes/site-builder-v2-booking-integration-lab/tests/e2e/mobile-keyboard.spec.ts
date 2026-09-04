@@ -36,7 +36,7 @@ async function openBusiness(page: Page) {
   await page.goto('/?audit=1');
   await page.getByRole('button', { name: 'Start with Quick Book' }).click();
 
-  await expect(page.getByRole('heading', { name: 'Let’s start with your business' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Let’s start with your business' })).toBeFocused();
 }
 
 async function expectActionsHidden(page: Page) {
