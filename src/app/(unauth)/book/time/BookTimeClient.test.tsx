@@ -651,10 +651,19 @@ describe('BookTimeClient', () => {
 
       renderStep();
 
-      fireEvent.click(await screen.findByTestId('calendar-day-2026-03-20'));
+      const chosenDay = await screen.findByTestId('calendar-day-2026-03-20');
+      // The calendar renders before availability settles, but its controls
+      // intentionally stay disabled until that request completes.
+      await waitFor(() => expect(chosenDay).toBeEnabled());
+      replaceSpy.mockClear();
+      fireEvent.click(chosenDay);
 
       await waitFor(() => {
-        expect(replaceSpy).toHaveBeenCalled();
+        expect(replaceSpy).toHaveBeenLastCalledWith(
+          null,
+          '',
+          expect.stringContaining('date=2026-03-20'),
+        );
       });
 
       const replacedUrl = String(replaceSpy.mock.calls.at(-1)?.[2]);

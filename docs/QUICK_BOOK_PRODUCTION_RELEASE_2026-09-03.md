@@ -29,7 +29,8 @@ subsequent release work and does not claim that production has been updated.
   [security review](QUICK_BOOK_RELEASE_SECURITY.md).
 - The real-auth acceptance harness now refuses non-local targets, imports only
   Development Clerk credentials, uses an isolated database/media directory,
-  and cleans up only identities created by that exact test run.
+  and records only identities created by that exact test run for explicitly
+  approved cleanup. Without cleanup confirmation, those test identities remain.
 
 ## Completed checks at the pre-framework-upgrade checkpoint
 
@@ -54,11 +55,11 @@ subsequent release work and does not claim that production has been updated.
 1. Finish the remaining hosted/runtime verification of the Next.js 15.5.25
    security upgrade. Its production build, type check, and client scan now pass;
    production activation still depends on the remaining account and CI gates.
-2. Finish the current-commit Development Clerk signup/save/reopen acceptance.
-   The official testing helper was updated, but the final run still stopped at
-   the development CAPTCHA before creating a user. See the exact
-   [acceptance result](../live-acceptance/RESULTS-2026-09-03.md); this does not
-   prove production signup is broken or establish downstream account parity.
+2. Finish the current-commit Development Clerk save/reopen acceptance.
+   Signup, verification, organization creation, and early/final same-site
+   claims now succeed. Dashboard, fresh login, and public booking still need
+   their complete runtime evidence; successful signup alone does not prove
+   the rest of that journey.
 3. Pass all required CI and Preview checks, and use
    the protected-main delivery path. Do not deploy a dirty checkout.
 4. Verify the production database target and recovery point, rehearse and run
@@ -100,6 +101,15 @@ subsequent release work and does not claim that production has been updated.
 - The first cloud Preview attempt safely rejected its pre-existing mismatched
   Clerk key modes. A known Development pair is now scoped only to the dedicated
   `codex/quick-book-release-preview` branch; production auth is untouched.
+- The dedicated Git-source Preview exposed a second pre-existing test/live
+  mismatch in Stripe configuration. Known Development/test credentials and
+  explicit Preview environment markers are scoped only to that verification
+  branch. Production payment keys, endpoints, accounts, and charges are untouched.
+  This is a free-plan application check, not paid-checkout verification.
+- At `f83efff`, both CI production builds and the full Vitest suite passed,
+  along with all PostgreSQL compatibility/concurrency jobs. The combined CI
+  journey exposed a test timing race around a disabled/loading calendar date;
+  the required combined check must pass before merging.
 
 Production recovery preparation created the Neon snapshot
 `quick-book-pre-0074-20260903T231014Z` on the verified production branch. Snapshot
