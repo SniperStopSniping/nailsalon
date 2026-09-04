@@ -52,7 +52,7 @@ describe('focusFirstInvalidControl', () => {
       .not.toHaveFocus();
   });
 
-  it('moves a focused invalid control above the sticky actions in a short viewport', async () => {
+  it.each([false, true])('respects only visible sticky actions when revealing invalid inputs (hidden: %s)', async (hidden) => {
     const { container } = render(
       <div>
         <header className="onboarding-shell__header" />
@@ -63,7 +63,7 @@ describe('focusFirstInvalidControl', () => {
             <input aria-invalid="true" />
           </label>
         </form>
-        <footer className="sticky-onboarding-actions" />
+        <footer className="sticky-onboarding-actions" style={{ visibility: hidden ? 'hidden' : 'visible' }} />
       </div>,
     );
     const form = container.querySelector('form');
@@ -90,7 +90,11 @@ describe('focusFirstInvalidControl', () => {
 
     await waitFor(() => expect(target).toHaveFocus());
 
-    expect(scrollBy).toHaveBeenCalledWith({ behavior: 'auto', top: 47 });
+    if (hidden) {
+      expect(scrollBy).not.toHaveBeenCalled();
+    } else {
+      expect(scrollBy).toHaveBeenCalledWith({ behavior: 'auto', top: 47 });
+    }
 
     scrollBy.mockRestore();
   });

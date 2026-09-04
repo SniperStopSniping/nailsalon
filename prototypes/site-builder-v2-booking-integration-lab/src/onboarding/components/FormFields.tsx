@@ -23,9 +23,10 @@ const revealControlWithinOnboardingChrome = (
     bottom,
     element?.getBoundingClientRect().bottom ?? 0,
   ), 0);
-  const stickyActionsTop = document
-    .querySelector<HTMLElement>('.sticky-onboarding-actions')
-    ?.getBoundingClientRect().top;
+  const stickyActions = document.querySelector<HTMLElement>('.sticky-onboarding-actions');
+  const stickyActionsTop = stickyActions && getComputedStyle(stickyActions).visibility !== 'hidden'
+    ? stickyActions.getBoundingClientRect().top
+    : undefined;
   const visualViewportTop = window.visualViewport?.offsetTop ?? 0;
   const viewportBottom = Math.min(
     visualViewportTop + (window.visualViewport?.height ?? window.innerHeight),
