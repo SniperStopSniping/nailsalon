@@ -1,3 +1,10 @@
+## [1.84.1](https://github.com/SniperStopSniping/nailsalon/compare/v1.84.0...v1.84.1) (2026-09-04)
+
+
+### Bug Fixes
+
+* **onboarding:** streamline setup and restore published previews ([4068bcb](https://github.com/SniperStopSniping/nailsalon/commit/4068bcb91c06850caff617ce8f8f915f025f2f68))
+
 # [1.84.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.83.2...v1.84.0) (2026-09-04)
 
 
