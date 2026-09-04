@@ -52,20 +52,14 @@ subsequent release work and does not claim that production has been updated.
 
 ## Deployment gates still required
 
-1. Finish the remaining hosted/runtime verification of the Next.js 15.5.25
-   security upgrade. Its production build, type check, and client scan now pass;
-   production activation still depends on the remaining account and CI gates.
-2. Finish the current-commit Development Clerk save/reopen acceptance.
-   Signup, verification, organization creation, and early/final same-site
-   claims now succeed. Dashboard, fresh login, and public booking still need
-   their complete runtime evidence; successful signup alone does not prove
-   the rest of that journey.
-3. Pass all required CI and Preview checks, and use
+1. Pass all required CI and Preview checks for the final immutable checkpoint;
+   the hosted application and real-account journey below are verified, but
+   those results do not waive the remaining required CI checks. Use
    the protected-main delivery path. Do not deploy a dirty checkout.
-4. Verify the production database target and recovery point, rehearse and run
+2. Verify the production database target and a fresh recovery point, then run
    guarded migration `0074_onboarding_account_site_foundation`, then activate
    `LUSTER_ONBOARDING_V1_INTEGRATION_ENABLED` for the verified release.
-5. Confirm the deployed Git SHA, homepage entry, account save, persistent media,
+3. Confirm the deployed Git SHA, homepage entry, account save, persistent media,
    dashboard parity, public-site privacy, and booking start after release.
 
 ### Framework and real-account verification progress
@@ -86,10 +80,17 @@ subsequent release work and does not claim that production has been updated.
   passed in the same browser journey. The owner reached saved-progress feedback
   and continued through later setup to the final preview.
 - That local file-backed PGlite process then aborted during route compilation.
-  Final claim, dashboard persistence, fresh login, and public booking start
-  remain unproven by that run. Acceptance is moving to an isolated loopback
-  PostgreSQL process; this does not change the application's production data
-  path or use production credentials for tests.
+  That attempt did not prove the final handoff. The subsequent complete
+  acceptance used isolated loopback PostgreSQL; this does not change the
+  application's production data path or use production credentials for tests.
+- The retained headed PostgreSQL journey subsequently verified signup/email
+  code, early save, same-site final revision, applied services, completed media,
+  free-plan intent, real dashboard, reload, saved portrait, logout, a fresh
+  browser's password login, the same portrait, explicit local publication, and
+  an unauthenticated customer advancing from service selection to booking time.
+  It resumed after test-only timing/selector corrections; it is not reported
+  as a pristine all-green Playwright run. No booking was submitted and no
+  production, payment, messaging, or existing-owner data was mutated.
 - The real signup check identified and fixed the pending-session organization
   handoff. Draft claims still require verified, tenant-scoped identity.
 - Server-rejected email verification now pauses automatic claim retries until
@@ -110,6 +111,14 @@ subsequent release work and does not claim that production has been updated.
   along with all PostgreSQL compatibility/concurrency jobs. The combined CI
   journey exposed a test timing race around a disabled/loading calendar date;
   the required combined check must pass before merging.
+- Hosted Preview `dpl_3s6WrHSPFnHTZpNay5xWWjRLwTzu` built successfully from
+  `f83efff`. Authenticated HTTP checks returned 200 for the homepage and
+  onboarding; the homepage includes both website-building and owner entries.
+  An actual 390-by-844 browser hydrated the starter picker and entered Business.
+  Preview health confirms database and all schema-readiness checks, but is
+  degraded because operational Preview services are not provisioned
+  (including Redis and Cloudinary). This does not establish those production
+  provider integrations through the isolated Preview.
 
 Production recovery preparation created the Neon snapshot
 `quick-book-pre-0074-20260903T231014Z` on the verified production branch. Snapshot
@@ -120,6 +129,14 @@ completion was verified through the authenticated Neon CLI: snapshot
 
 - Read-only production preflight confirmed immutable migration `0073` and its
   exact repository hash. No onboarding tables existed yet.
+- A broader read-only history comparison found 35 unreconciled older SQL-hash
+  differences in migrations `0010` through `0053`. Those files are unchanged
+  from protected `origin/main`; this release adds only `0074` and its journal
+  entry. The existing guard uses the attested current tail and forward-only
+  application, not an all-history rewrite. No historical ledger row or applied
+  SQL was modified or reapplied. This inherited history remains separate
+  maintenance; the exact `0073` tail, sole pending `0074`, successful clone
+  rehearsal, fresh backup, and post-migration readiness are still required.
 - Created an isolated child branch, `br-late-union-a4ds4k9u`, from that verified
   production branch. It expires September 5 at 02:00 UTC and is not connected to
   any application, email, billing, or scheduled job.

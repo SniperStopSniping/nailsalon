@@ -24,10 +24,12 @@ async function expandPanel(page: Page, panelId: string) {
 }
 
 async function expectSavedPortrait(page: Page) {
-  const portrait = page.getByRole('img', { name: 'Acceptance Owner profile photo', exact: true });
+  const portrait = page.getByRole('img', { name: 'Business owner portrait', exact: true });
 
   await expect(portrait).toBeVisible();
   await expect.poll(() => portrait.evaluate(image => (image as HTMLImageElement).complete && (image as HTMLImageElement).naturalWidth > 0)).toBe(true);
+  await expect(portrait).toHaveAttribute('src', /\/api\/onboarding\/v1\/media\//);
+  expect(await portrait.evaluate(image => new URL((image as HTMLImageElement).currentSrc).origin === window.location.origin)).toBe(true);
 }
 
 export type QuickBookJourneySession = {
@@ -239,7 +241,8 @@ export async function runQuickBookJourney(
     ]);
 
     expect(planResponse.status()).toBe(200);
-    expect((await planResponse.json()).data).toMatchObject({ intent: 'free', siteId: finalClaim.siteId });
+    // The hard dashboard navigation can release Chrome's response body.
+    // Assert the persisted same-site plan through the handoff read below.
 
     await page.waitForURL(/\/admin\?/, { timeout: 90_000 });
 
