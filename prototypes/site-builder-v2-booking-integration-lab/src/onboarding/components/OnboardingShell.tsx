@@ -16,6 +16,7 @@ import {
 } from './AutosaveStatus';
 import { EssentialsCounter } from './EssentialsCounter';
 import { OnboardingStageProgress } from './OnboardingStageProgress';
+import { useOnboardingKeyboard } from './useOnboardingKeyboard';
 
 type OnboardingShellProps = {
   actions?: ReactNode;
@@ -42,6 +43,8 @@ export function OnboardingShell({
   onSaveForLater,
   routeKey,
 }: OnboardingShellProps) {
+  const shellRef = useRef<HTMLDivElement>(null);
+  const keyboardOpen = useOnboardingKeyboard(shellRef);
   const contentId = useId();
   const moreMenuId = useId();
   const moreTriggerId = useId();
@@ -157,7 +160,7 @@ export function OnboardingShell({
   }, [closeMore]);
 
   return (
-    <div className="onboarding-shell" data-onboarding-stage={currentStage}>
+    <div ref={shellRef} className="onboarding-shell" data-keyboard-open={keyboardOpen} data-onboarding-stage={currentStage}>
       <header className="onboarding-shell__header">
         <a aria-label="Luster onboarding" className="onboarding-shell__brand" href={`#${contentId}`}>
           <span aria-hidden="true">L</span>

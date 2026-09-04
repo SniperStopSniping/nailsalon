@@ -1470,6 +1470,13 @@ body:has(.onboarding-app) {
 
 /* Persistent keyboard-safe actions */
 
+/* Preserve document height so dismissing the keyboard cannot jump the form.
+   Visibility also removes these actions from keyboard/accessibility navigation. */
+.onboarding-shell[data-keyboard-open="true"] .sticky-onboarding-actions {
+  visibility: hidden;
+  pointer-events: none;
+}
+
 .sticky-onboarding-actions {
   display: grid;
   position: sticky;
