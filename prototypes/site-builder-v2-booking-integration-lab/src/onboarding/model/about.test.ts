@@ -10,6 +10,7 @@ import {
   parseAboutListInput,
   resolveAboutBio,
 } from './about';
+import { createDefaultBusinessProfile } from './defaults';
 import type { AboutPresetId } from './types';
 
 describe('About profile editing helpers', () => {
@@ -38,6 +39,23 @@ describe('About profile editing helpers', () => {
     expect(first).toContain('Russian Manicure');
     expect(first).toContain('Scarborough, Ontario');
     expect(first).not.toMatch(/\bDaniela creates\b/u);
+  });
+
+  it.each(['Polished Studio', ''])('excludes a hidden internal owner name with business name "%s"', (businessName) => {
+    const profile = createDefaultBusinessProfile();
+    profile.ownerName = 'Private Owner Maya';
+    profile.businessName = businessName;
+    profile.about.visibility.owner_name = false;
+    const original = structuredClone(profile);
+
+    const suggestion = buildAboutWordingSuggestion(profile);
+
+    expect(suggestion).not.toContain('Private Owner Maya');
+    expect(suggestion).not.toMatch(/Daniela|Isla/u);
+    expect(suggestion).toContain(businessName
+      ? `I’m the nail artist behind ${businessName}.`
+      : 'I’m an independent nail artist.');
+    expect(profile).toEqual(original);
   });
 
   it('resolves short and full biographies without discarding the longer story', () => {

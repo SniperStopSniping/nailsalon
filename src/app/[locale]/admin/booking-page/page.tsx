@@ -794,6 +794,7 @@ export default function BookingPageOwnerSurface() {
     try {
       const data = await publishSalon(salonSlug);
       setSalonPublicationStatus(data.publicationStatus);
+      refreshPreview();
       setSalonPublishStatus('idle');
     } catch {
       setSalonPublishStatus('error');

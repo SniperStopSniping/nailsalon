@@ -103,6 +103,7 @@ const DEPOSIT_AMOUNT_LABELS = Object.fromEntries([
 type ServiceLibraryDialogProps = {
   initialTab: 'services' | 'add_ons';
   onClose: () => void;
+  onDone: () => void;
   onServiceMenuChange: (draft: ServiceMenuSelectionDraft) => void;
   open: boolean;
   serviceMenu: ServiceMenuSelectionDraft;
@@ -111,6 +112,7 @@ type ServiceLibraryDialogProps = {
 function ServiceLibraryDialog({
   initialTab,
   onClose,
+  onDone,
   onServiceMenuChange,
   open,
   serviceMenu,
@@ -409,8 +411,11 @@ function ServiceLibraryDialog({
                 )
               : null}
           </span>
-          <button type="button" onClick={onClose}>Done</button>
+          <button disabled={selectedServiceCount === 0} type="button" onClick={onDone}>Done</button>
         </footer>
+        {selectedServiceCount === 0
+          ? <p className="onboarding-field-error" role="alert">Choose at least one service.</p>
+          : null}
       </div>
     </Dialog>
   );
@@ -583,7 +588,7 @@ export function BookingPreferencesScreen({
       nextErrors.services = 'Choose at least one service.';
     }
     if (selectedServices.length > 0 && !profile.serviceMenu.reviewed) {
-      nextErrors.services = 'Confirm the services you want to start with.';
+      nextErrors.services = 'Review your services and select Done.';
     }
     if (!preferences.visitMode) {
       nextErrors.visitMode = 'Choose how clients can visit you.';
@@ -621,19 +626,43 @@ export function BookingPreferencesScreen({
     onContinue();
   };
 
-  const revealTask = (task: BookingTaskId) => {
+  const revealTask = (task: BookingTaskId, { focusHeader = false } = {}) => {
     setOpenTask(task);
     window.requestAnimationFrame(() => {
-      document.querySelector<HTMLElement>(`[data-booking-task="${task}"]`)?.scrollIntoView?.({
+      const taskElement = document.querySelector<HTMLElement>(`[data-booking-task="${task}"]`);
+      taskElement?.scrollIntoView?.({
         behavior: window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth',
         block: 'start',
       });
+      if (focusHeader) {
+        taskElement?.querySelector<HTMLButtonElement>('.onboarding-booking-task__header')
+          ?.focus({ preventScroll: true });
+      }
     });
   };
 
   const openServiceLibrary = (tab: 'services' | 'add_ons') => {
     setServiceLibraryTab(tab);
     setServiceLibraryOpen(true);
+  };
+
+  const finishServiceMenu = () => {
+    if (selectedServices.length === 0) {
+      return;
+    }
+    onServiceMenuChange({ ...profile.serviceMenu, reviewed: true });
+    if (!profile.serviceMenu.reviewed) {
+      startServiceMenuCelebration();
+      feedback.send({
+        kind: 'milestone',
+        message: `Your service menu is ready. ${selectedServices.length} ${selectedServices.length === 1 ? 'service' : 'services'} added.`,
+        onceKey: 'service_menu_ready',
+        visual: false,
+      });
+    }
+    setErrors(current => ({ ...current, services: '' }));
+    setServiceLibraryOpen(false);
+    revealTask('clients', { focusHeader: true });
   };
 
   const finishLastTask = () => {
@@ -757,32 +786,6 @@ export function BookingPreferencesScreen({
           <div className="onboarding-inline-actions">
             <button type="button" onClick={() => openServiceLibrary('services')}>
               Review services &amp; add-ons
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                onServiceMenuChange({
-                  ...profile.serviceMenu,
-                  reviewed: true,
-                });
-                if (!profile.serviceMenu.reviewed) {
-                  startServiceMenuCelebration();
-                  feedback.send({
-                    kind: 'milestone',
-                    message: `Your service menu is ready. ${selectedServices.length} ${selectedServices.length === 1 ? 'service' : 'services'} added.`,
-                    onceKey: 'service_menu_ready',
-                    visual: false,
-                  });
-                }
-                setErrors(current => ({ ...current, services: '' }));
-                revealTask('clients');
-              }}
-            >
-              Use these
-              {' '}
-              {selectedServices.length}
-              {' '}
-              {selectedServices.length === 1 ? 'service' : 'services'}
             </button>
           </div>
           <p className="onboarding-booking-later-note">
@@ -1067,6 +1070,7 @@ export function BookingPreferencesScreen({
       <ServiceLibraryDialog
         initialTab={serviceLibraryTab}
         onClose={() => setServiceLibraryOpen(false)}
+        onDone={finishServiceMenu}
         onServiceMenuChange={onServiceMenuChange}
         open={serviceLibraryOpen}
         serviceMenu={profile.serviceMenu}

@@ -198,12 +198,12 @@ export type DraftSalonGateResult =
  * call so there is only one authorization matrix to reason about, per the
  * plan's stated rationale for this primitive.
  *
- * Today's draft-salon condition — `freeSoloEnabled && publicationStatus !==
- * 'published'` — is copied verbatim from the existing gate in
- * `src/app/[locale]/[slug]/layout.tsx` (non-free-solo salons default to
- * `publicationStatus: 'published'` and have never been gated), so this
- * function changes nothing about *which* salons are considered draft, only
- * who may see one.
+ * Keep the legacy Free Solo layout admission gate: other unpublished salons
+ * still need publication-independent capability and payment-return routes.
+ * Their public booking pages enforce publication through checkSalonStatus.
+ * An authorized owner preview of ANY unpublished salon, however, must set
+ * isPreviewingDraftSalon so those status checks allow the same private draft
+ * preview regardless of plan.
  */
 export async function resolveDraftSalonAccess(
   salon: OwnerPreviewSalonInput,
@@ -225,12 +225,12 @@ export async function resolveDraftSalonAccess(
     };
   }
 
-  // Already published (or never gated): anonymous and unauthorized visitors
-  // still see the live page — only the bookingPage side changes for an
-  // authorized previewer, never whether the page renders at all.
+  // Preserve admission for non-Free-Solo routes. Preview flags still require
+  // exact owner/impersonation authorization, including for new onboarding
+  // drafts that do not use the legacy Free Solo flag.
   return {
     allowed: true,
-    isPreviewingDraftSalon: false,
+    isPreviewingDraftSalon: salon.publicationStatus !== 'published' && preview.isPreviewing,
     isPreviewingDraftConfig: preview.isPreviewing,
     actorType: preview.actorType,
   };

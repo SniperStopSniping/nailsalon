@@ -945,6 +945,58 @@ describe('BookServiceClient', () => {
     expect(screen.queryByText('24 hours notice')).not.toBeInTheDocument();
   });
 
+  it('places one public-safe map below the unchanged Quick Book service menu and compacts when hidden', () => {
+    const profile = {
+      identity: { salonName: 'Salon A', logoUrl: null, technicianName: null, technicianPhotoUrl: null },
+      location: {
+        name: null,
+        addressLine: null,
+        localityLine: 'Toronto, ON',
+        directionsUrl: 'https://www.google.com/maps/search/?api=1&query=Toronto%2C%20ON',
+        instructionLines: [],
+      },
+      hours: null,
+      contact: null,
+      policies: [],
+      reviews: null,
+      instagram: null,
+      bio: null,
+    };
+    const props = {
+      services: [services[0]!],
+      bookingFlow: ['service', 'tech', 'time', 'confirm'] as ('service' | 'tech' | 'time' | 'confirm')[],
+      locations: [],
+      quickBookProfile: profile,
+    };
+    const { container, rerender } = render(<BookServiceClient {...props} />);
+    const map = screen.getByTestId('quick-book-location-map');
+    const service = screen.getByTestId('service-card-svc-1');
+
+    expect(service).toBeEnabled();
+    expect(service.compareDocumentPosition(map) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(container.querySelectorAll('iframe')).toHaveLength(1);
+    expect(screen.getAllByText('Toronto, ON')).toHaveLength(1);
+    expect(screen.queryByTestId('editorial-visit')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('location-cards')).not.toBeInTheDocument();
+    expect(screen.getByTitle('Map of Toronto, ON')).toHaveAttribute('src', 'https://www.google.com/maps?q=Toronto%2C%20ON&output=embed');
+
+    rerender(<BookServiceClient {...props} quickBookProfile={{ ...profile, location: null }} />);
+
+    expect(screen.queryByTestId('quick-book-location-map')).not.toBeInTheDocument();
+    expect(screen.getByTestId('service-card-svc-1')).toBeEnabled();
+
+    salonContextMock.bookingPage.layout = 'editorial';
+    rerender(<BookServiceClient {...props} />);
+
+    expect(screen.queryByTestId('quick-book-location-map')).not.toBeInTheDocument();
+
+    salonContextMock.bookingPage.layout = 'quick_book';
+    Reflect.set(salonContextMock.bookingPage.quickBookProfile, 'version', 0);
+    rerender(<BookServiceClient {...props} />);
+
+    expect(screen.queryByTestId('quick-book-location-map')).not.toBeInTheDocument();
+  });
+
   it('preserves the legacy Quick Book header and public sections without an adoption marker', () => {
     Reflect.set(salonContextMock.bookingPage.quickBookProfile, 'version', 0);
     salonContextMock.bookingExperience = {

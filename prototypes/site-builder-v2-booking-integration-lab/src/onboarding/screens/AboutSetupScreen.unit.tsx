@@ -186,7 +186,7 @@ describe('Screen 8 About', () => {
     expect(latest.profile.about.languages).toEqual(['English']);
   });
 
-  it('previews a writing suggestion and changes the introduction only after Use suggestion', async () => {
+  it('fills the editable introduction as soon as the owner generates a suggestion', async () => {
     const user = userEvent.setup();
     let latest = createState();
     render(
@@ -201,17 +201,105 @@ describe('Screen 8 About', () => {
     await user.click(screen.getByRole('button', { name: 'Help me write' }));
     const contextDialog = screen.getByRole('dialog', { name: 'Tell us a little about yourself' });
     fireEvent.change(within(contextDialog).getByRole('textbox'), {
-      target: { value: 'I specialize in natural nails and relaxed appointments.' },
+      target: { value: 'I specialize in natural nails and relaxed appointments. '.repeat(8) },
     });
     await user.click(within(screen.getByRole('dialog', { name: 'Tell us a little about yourself' })).getByRole('button', { name: 'Generate suggestion' }));
 
-    expect(latest.profile.about.shortBio).toBe('');
-
-    const suggestionDialog = await screen.findByRole('dialog', { name: 'Your suggested introduction' });
-    await user.click(within(suggestionDialog).getByRole('button', { name: 'Use suggestion' }));
-
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Use suggestion' })).not.toBeInTheDocument();
     expect(latest.profile.about.shortBio).toContain('I specialize in natural nails');
     expect(latest.profile.about.shortBio.length).toBeLessThanOrEqual(180);
+
+    const introduction = screen.getByRole('textbox', { name: 'Short introduction' });
+
+    expect(introduction).toHaveValue(latest.profile.about.shortBio);
+
+    await waitFor(() => expect(introduction).toHaveFocus());
+    await user.clear(introduction);
+    await user.type(introduction, 'My edited introduction.');
+
+    expect(latest.profile.about.shortBio).toBe('My edited introduction.');
+  });
+
+  it('generates from this owner’s saved identity without promoting placeholder examples or adding credentials', async () => {
+    const user = userEvent.setup();
+    let latest = createState();
+    latest.profile.ownerName = 'Maya';
+    latest.profile.businessName = 'Polished Studio';
+    latest.profile.location.cityOrArea = 'Ottawa';
+    render(
+      <AboutHarness
+        initial={latest}
+        onState={(state) => {
+          latest = state;
+        }}
+      />,
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Help me write' }));
+    const contextDialog = screen.getByRole('dialog', { name: 'Tell us a little about yourself' });
+
+    expect(within(contextDialog).getByRole('textbox')).toHaveValue('');
+    expect(within(contextDialog).getByRole('textbox')).toHaveAttribute('placeholder', expect.stringMatching(/^Example:/u));
+
+    await user.click(within(contextDialog).getByRole('button', { name: 'Generate suggestion' }));
+
+    expect(screen.getByRole('textbox', { name: 'Short introduction' })).toHaveValue(latest.profile.about.shortBio);
+    expect(latest.profile.about.shortBio).toContain('I’m Maya');
+    expect(latest.profile.about.shortBio).toContain('Polished Studio');
+    expect(latest.profile.about.shortBio).not.toMatch(/Daniela|Isla|Example:|certif|years of experience/iu);
+    expect(latest.profile.about.certifications).toEqual([]);
+    expect(latest.profile.about.yearsOfExperience).toBe('');
+    expect(latest.profile.about.specialties).toEqual([]);
+  });
+
+  it.each(['', 'I specialize in natural nails.'])('keeps a hidden owner name out of an autofilled introduction with context "%s"', async (context) => {
+    const user = userEvent.setup();
+    let latest = createState();
+    latest.profile.ownerName = 'Private Owner Maya';
+    latest.profile.businessName = 'Polished Studio';
+    latest.profile.about.visibility.owner_name = false;
+    render(
+      <AboutHarness
+        initial={latest}
+        onState={(state) => {
+          latest = state;
+        }}
+      />,
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Help me write' }));
+    const contextDialog = screen.getByRole('dialog', { name: 'Tell us a little about yourself' });
+    fireEvent.change(within(contextDialog).getByRole('textbox'), { target: { value: context } });
+    await user.click(within(contextDialog).getByRole('button', { name: 'Generate suggestion' }));
+
+    expect(latest.profile.about.shortBio).toContain('I’m the nail artist behind Polished Studio.');
+    expect(latest.profile.about.shortBio).not.toMatch(/Private Owner Maya|Daniela|Isla/u);
+    expect(screen.getByRole('textbox', { name: 'Short introduction' })).toHaveValue(latest.profile.about.shortBio);
+    expect(latest.profile.ownerName).toBe('Private Owner Maya');
+    expect(latest.profile.about.visibility.owner_name).toBe(false);
+  });
+
+  it('preserves an existing introduction when the writing helper is cancelled', async () => {
+    const user = userEvent.setup();
+    let latest = createState();
+    latest.profile.about.shortBio = 'Keep my existing introduction.';
+    render(
+      <AboutHarness
+        initial={latest}
+        onState={(state) => {
+          latest = state;
+        }}
+      />,
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Help me write' }));
+    const contextDialog = screen.getByRole('dialog', { name: 'Tell us a little about yourself' });
+    await user.type(within(contextDialog).getByRole('textbox'), 'Unused wording.');
+    await user.click(within(contextDialog).getByRole('button', { name: 'Cancel' }));
+
+    expect(latest.profile.about.shortBio).toBe('Keep my existing introduction.');
+    expect(screen.getByRole('textbox', { name: 'Short introduction' })).toHaveValue('Keep my existing introduction.');
   });
 
   it('continues to About layout without requiring optional content', async () => {
