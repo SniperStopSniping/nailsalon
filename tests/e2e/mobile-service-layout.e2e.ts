@@ -2,6 +2,7 @@ import { expect, type Locator, type Page, test } from '@playwright/test';
 
 import { selectBookableSlotFromApi } from './support/booking';
 import { appPath, appPathPattern, e2eConfig } from './support/config';
+import { meetsMinimumTargetSize } from './support/target-size';
 
 const IPHONE_CHROME_USER_AGENT
   = 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/126.0.0.0 Mobile/15E148 Safari/604.1';
@@ -98,7 +99,7 @@ async function expectPracticalBookingTargets(page: Page): Promise<TargetMeasurem
   });
 
   const unnamed = targets.filter(target => !target.label);
-  const undersized = targets.filter(target => target.width < 44 || target.height < 44);
+  const undersized = targets.filter(target => !meetsMinimumTargetSize(target));
 
   expect(unnamed, 'Every visible booking target needs an accessible name or visible label.').toEqual([]);
   expect(undersized, `Sub-44px booking targets: ${JSON.stringify(undersized)}`).toEqual([]);
@@ -466,8 +467,7 @@ test('named add-on quantity controls announce the resulting canonical totals @mo
       const bounds = await control.boundingBox();
 
       expect(bounds).not.toBeNull();
-      expect(bounds!.width).toBeGreaterThanOrEqual(44);
-      expect(bounds!.height).toBeGreaterThanOrEqual(44);
+      expect(meetsMinimumTargetSize(bounds!)).toBe(true);
     }
 
     await increase.click();

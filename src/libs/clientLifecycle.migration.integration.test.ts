@@ -768,7 +768,7 @@ describePostgres.sequential('client lifecycle migration chain', () => {
         `select to_regclass('public.app_schema_capability') is null as missing`,
       ),
     ).toMatchObject({ rows: [{ missing: true }] });
-  });
+  }, MIGRATION_REPLAY_TIMEOUT_MS);
 
   it('serializes 0062 with a pooled-safe transaction lock, then applies and no-ops', async () => {
     await resetDatabase(pool);

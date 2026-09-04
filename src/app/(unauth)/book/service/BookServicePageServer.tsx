@@ -386,6 +386,23 @@ export async function renderBookServicePage({
     })
     : undefined;
 
+  const bookingContent = (
+    <BookServiceClient
+      services={services}
+      addOns={addOns}
+      serviceAddOnRules={serviceAddOnRules}
+      bookingFlow={bookingFlow}
+      locations={locations}
+      technicians={technicians}
+      currency={bookingConfig.currency}
+      showNewClientPromo={showNewClientPromo}
+      lusterFeaturingEnabled={merchandising.featureLusterManicure}
+      showServiceImages={merchandising.showServiceImages}
+      isEmbeddedBuilderPreview={isEmbeddedBuilderPreview}
+      quickBookProfile={quickBookProfile}
+    />
+  );
+
   return (
     <PublicSalonPageShell
       appearance={context.appearance}
@@ -408,22 +425,16 @@ export async function renderBookServicePage({
       }}
       previewBannerVariant={previewBannerVariant}
     >
-      <Suspense fallback={<div className="flex min-h-screen items-center justify-center"><div className="size-8 animate-spin rounded-full border-2 border-amber-500 border-t-transparent" /></div>}>
-        <BookServiceClient
-          services={services}
-          addOns={addOns}
-          serviceAddOnRules={serviceAddOnRules}
-          bookingFlow={bookingFlow}
-          locations={locations}
-          technicians={technicians}
-          currency={bookingConfig.currency}
-          showNewClientPromo={showNewClientPromo}
-          lusterFeaturingEnabled={merchandising.featureLusterManicure}
-          showServiceImages={merchandising.showServiceImages}
-          isEmbeddedBuilderPreview={isEmbeddedBuilderPreview}
-          quickBookProfile={quickBookProfile}
-        />
-      </Suspense>
+      {/* The view-only iframe deliberately cannot run scripts. Streaming a
+          Suspense fallback would leave its real content hidden until React's
+          reveal script runs, so this dynamic route waits for the content. */}
+      {isEmbeddedBuilderPreview
+        ? bookingContent
+        : (
+            <Suspense fallback={<div className="flex min-h-screen items-center justify-center"><div className="size-8 animate-spin rounded-full border-2 border-amber-500 border-t-transparent" /></div>}>
+              {bookingContent}
+            </Suspense>
+          )}
     </PublicSalonPageShell>
   );
 }

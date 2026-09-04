@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
 
 import { appPath, e2eConfig } from './support/config';
+import { expectBookingServicePageReady } from './support/service-page';
 
 test.describe('I18n', () => {
   test.describe('Language Switching', () => {
@@ -9,7 +10,9 @@ test.describe('I18n', () => {
         waitUntil: 'domcontentloaded',
       });
 
-      await expect(page.getByRole('heading', { name: /choose your service/i })).toBeVisible();
+      await expect(page).toHaveURL(url => url.pathname === appPath('/book/service'));
+
+      await expectBookingServicePageReady(page);
     });
 
     test('should display the French locale booking route', async ({ page }) => {
@@ -17,7 +20,9 @@ test.describe('I18n', () => {
         waitUntil: 'domcontentloaded',
       });
 
-      await expect(page.getByRole('heading', { name: /choose your service/i })).toBeVisible();
+      await expect(page).toHaveURL(url => url.pathname === '/fr/book/service');
+
+      await expectBookingServicePageReady(page);
     });
   });
 });

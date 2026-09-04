@@ -252,6 +252,11 @@ type FeaturedServiceSnapshot = {
 
 type Stage7PresetSnapshot = {
   policyText: string;
+  serviceFacts: {
+    name: string;
+    duration: string;
+    price: string;
+  };
   serviceText: string;
   socialHref: string;
   structure: string;
@@ -839,6 +844,14 @@ async function expectStage7PresetStructure(
 
   return {
     policyText: (await policy.textContent() ?? '').replace(/\s+/g, ' ').trim(),
+    serviceFacts: {
+      name: (await page.getByTestId(`service-card-content-${e2eConfig.serviceId}`)
+        .locator(':scope > div.break-words').textContent() ?? '').trim(),
+      duration: (await page.getByTestId(`service-card-meta-row-${e2eConfig.serviceId}`)
+        .locator(':scope > span').first().textContent() ?? '').trim(),
+      price: (await page.getByTestId(`service-card-price-${e2eConfig.serviceId}`)
+        .textContent() ?? '').trim(),
+    },
     serviceText: (await page.getByTestId(`service-card-${e2eConfig.serviceId}`).textContent() ?? '')
       .replace(/\s+/g, ' ')
       .trim(),
@@ -1987,6 +2000,11 @@ test('Stage 7 production recipes express four curated structures with one canoni
           expect(snapshot.serviceText).toContain(canonicalServiceName);
           expect(snapshot.serviceText).toContain(canonicalDuration);
           expect(snapshot.serviceText).toContain(canonicalPrice);
+          expect(snapshot.serviceFacts).toEqual({
+            name: canonicalServiceName,
+            duration: canonicalDuration,
+            price: canonicalPrice,
+          });
           expect(snapshot.policyText).toBe('Please arrive five minutes before your synthetic appointment.');
           expect(snapshot.socialHref).toBe('https://www.instagram.com/luster-stage4-fixture');
 
@@ -2014,7 +2032,10 @@ test('Stage 7 production recipes express four curated structures with one canoni
 
     expect(presetSnapshots.size).toBe(4);
     expect(new Set([...presetSnapshots.values()].map(snapshot => snapshot.structure)).size).toBe(4);
-    expect(new Set([...presetSnapshots.values()].map(snapshot => snapshot.serviceText)).size).toBe(1);
+    // The compact Category Menu intentionally omits description prose; only
+    // presentation differs. Compare exact canonical facts across recipes,
+    // while the per-recipe snapshot above still pins all text across sizes.
+    expect(new Set([...presetSnapshots.values()].map(snapshot => JSON.stringify(snapshot.serviceFacts))).size).toBe(1);
     expect(new Set([...presetSnapshots.values()].map(snapshot => snapshot.policyText)).size).toBe(1);
     expect(new Set([...presetSnapshots.values()].map(snapshot => snapshot.socialHref)).size).toBe(1);
     expect(presetSnapshots.get('signature')?.technicianNames).toEqual(

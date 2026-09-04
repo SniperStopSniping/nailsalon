@@ -843,6 +843,12 @@ describe('BookServicePage owner-preview wiring', () => {
       searchParams: { builderPreview: '0' },
       params: { locale: 'en', slug: 'salon-a' },
     }, { requireOwnerDraftPreview: true });
+
+    // Script-disabled iframe previews cannot execute React's streamed
+    // Suspense reveal instruction. Their canonical content must be direct.
+    expect(element.props.children.type).not.toBe(React.Suspense);
+    expect(element.props.children.props.isEmbeddedBuilderPreview).toBe(true);
+
     render(element);
 
     expect(resolveDraftSalonAccess).toHaveBeenCalledTimes(1);
@@ -900,6 +906,9 @@ describe('BookServicePage owner-preview wiring', () => {
       searchParams: Promise.resolve({ salonSlug: 'salon-a', builderPreview: '8' }),
       params: Promise.resolve({ locale: 'en', slug: 'salon-a' }),
     });
+
+    expect(element.props.children.type).toBe(React.Suspense);
+
     render(element);
 
     expect(bookServiceClientSpy).toHaveBeenCalledWith(expect.objectContaining({
