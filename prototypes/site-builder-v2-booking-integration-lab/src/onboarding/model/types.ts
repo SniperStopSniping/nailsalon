@@ -101,6 +101,8 @@ export type LocationDraft = {
   serviceAreas?: string;
   locationType: LocationType | null;
   addressVisibility: AddressVisibility;
+  // Only fresh, unedited setup may adapt this default when business type changes.
+  addressVisibilityDefaulted?: boolean;
   allowGeneralAreaDirections: boolean;
   parking: string;
   entranceInstructions: string;

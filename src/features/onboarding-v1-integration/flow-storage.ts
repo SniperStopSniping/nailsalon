@@ -52,12 +52,14 @@ export type OnboardingIntegrationFlow = {
   celebrationSeen: boolean;
   claimIdempotencyKey: string;
   errorMessage: string | null;
+  errorCode: string | null;
   mediaComplete: boolean;
   mediaFailures: StoredMediaFailure[];
   phase: OnboardingIntegrationPhase;
   planIdempotencyKey: string;
   reauthResumePhase: Exclude<OnboardingIntegrationPhase, 'account' | 'onboarding'> | null;
   savedSite: OnboardingClaimSuccess | null;
+  savedSiteOwnerId: string | null;
   selectedPlan: OnboardingPlanIntent;
   version: 1;
 };
@@ -71,12 +73,14 @@ export const createOnboardingIntegrationFlow = (): OnboardingIntegrationFlow => 
   celebrationSeen: false,
   claimIdempotencyKey: createOpaqueIntegrationKey('claim'),
   errorMessage: null,
+  errorCode: null,
   mediaComplete: true,
   mediaFailures: [],
   phase: 'onboarding',
   planIdempotencyKey: createOpaqueIntegrationKey('plan'),
   reauthResumePhase: null,
   savedSite: null,
+  savedSiteOwnerId: null,
   selectedPlan: 'free',
   version: 1,
 });
@@ -130,6 +134,7 @@ export const loadOnboardingIntegrationFlow = (): OnboardingIntegrationFlow => {
         ? parsed.claimIdempotencyKey
         : fallback.claimIdempotencyKey,
       errorMessage: typeof parsed.errorMessage === 'string' ? parsed.errorMessage : null,
+      errorCode: typeof parsed.errorCode === 'string' ? parsed.errorCode : null,
       celebrationSeen: parsed.celebrationSeen === true,
       mediaComplete: parsed.mediaComplete !== false,
       mediaFailures: Array.isArray(parsed.mediaFailures)
@@ -151,6 +156,7 @@ export const loadOnboardingIntegrationFlow = (): OnboardingIntegrationFlow => {
         ? parsed.reauthResumePhase as OnboardingIntegrationFlow['reauthResumePhase']
         : null,
       savedSite: isSavedSite(parsed.savedSite) ? parsed.savedSite : null,
+      savedSiteOwnerId: typeof parsed.savedSiteOwnerId === 'string' ? parsed.savedSiteOwnerId : null,
       selectedPlan: parsed.selectedPlan,
     };
   } catch {

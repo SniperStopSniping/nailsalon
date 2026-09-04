@@ -81,7 +81,7 @@ export function AddressSearchField({ city, error, label, onChange, onSelect, val
         aria-expanded={open}
         autoComplete="street-address"
         error={error}
-        hint="Start typing for suggestions, or enter your address manually. Add your unit or suite after selecting."
+        hint="Start typing for suggestions, or enter your address manually. Check the address and add your unit and postal code after selecting."
         label={label}
         required
         role="combobox"

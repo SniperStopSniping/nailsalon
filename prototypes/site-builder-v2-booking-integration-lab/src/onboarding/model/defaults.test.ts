@@ -1,6 +1,18 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { createAnonymousDraftId, createSecureBrowserToken } from './defaults';
+import { createAnonymousDraftId, createDefaultBusinessProfile, createSecureBrowserToken } from './defaults';
+
+describe('fresh owner setup defaults', () => {
+  it('starts with direct contact and an adaptable public address default', () => {
+    const profile = createDefaultBusinessProfile();
+
+    expect(profile.bookingOnlyContact).toBe(false);
+    expect(profile.location.addressVisibility).toBe('public');
+    expect(profile.location.addressVisibilityDefaulted).toBe(true);
+    expect(profile.clientContact.callEnabled).toBe(false);
+    expect(profile.clientContact.textEnabled).toBe(false);
+  });
+});
 
 describe('secure browser onboarding identifiers', () => {
   afterEach(() => {

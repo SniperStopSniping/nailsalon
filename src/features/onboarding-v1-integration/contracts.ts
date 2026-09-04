@@ -245,6 +245,7 @@ const profileSchema = z.object({
     exactAddress: text(300),
     locationType: z.enum(['home_studio', 'salon_suite', 'traditional_salon', 'mobile_service']).nullable(),
     parking: text(2_000),
+    serviceAreas: text(2_000).optional(),
     transitInformation: text(2_000),
   }).strict(),
   logoItemId: nonEmptyText(160).nullable(),
@@ -703,6 +704,7 @@ export type OnboardingDraftClaimRequest = z.infer<typeof onboardingDraftClaimReq
 
 export const onboardingDraftStatusRequestSchema = z.object({
   anonymousDraftToken: opaqueTokenSchema,
+  savedSiteId: z.string().uuid().optional(),
 }).strict();
 
 export const onboardingPlanIntentRequestSchema = z.object({

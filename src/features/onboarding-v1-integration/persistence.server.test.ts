@@ -92,6 +92,9 @@ const request = (
 ) => {
   const state = createDefaultOnboardingState();
   state.profile.businessName = `Isla Nail Studio ${suffix}`;
+  // Real onboarding saves the suggested URL before claiming. Use an explicit
+  // unique fixture URL instead of relying on the retired collision suffixing.
+  state.profile.siteSlug = suffix.replace(/_/g, '-');
   state.profile.businessStructure = 'solo';
   state.profile.ownerName = 'Daniela';
   state.profile.instagram = 'islanailstudio';
@@ -161,6 +164,54 @@ describe.sequential('account-backed onboarding persistence', () => {
   });
 
   const handle = () => database as unknown as DatabaseSessionHandle;
+
+  it.each([false, true])('rejects an occupied URL without renaming the salon (customized: %s)', async (customized) => {
+    const suffix = customized ? 'custom_slug_collision' : 'suggested_slug_collision';
+    const existingSalonId = crypto.randomUUID();
+    const requestedSlug = customized ? 'taken-custom-url' : 'taken-suggested-url';
+    await database.insert(schema.salonSchema).values({
+      id: existingSalonId,
+      name: 'Existing Business',
+      slug: requestedSlug,
+    });
+    const owner = identity(suffix);
+    const input = request(suffix);
+    input.snapshot.profile.siteSlug = requestedSlug;
+    input.snapshot.profile.siteSlugCustomized = customized;
+
+    await expect(claimOnboardingDraft(owner, input, handle())).rejects.toMatchObject({
+      code: 'SITE_SLUG_UNAVAILABLE',
+      status: 409,
+    });
+    expect(await database.select({ id: schema.salonSchema.id }).from(schema.salonSchema)
+      .where(eq(schema.salonSchema.slug, requestedSlug))).toEqual([{ id: existingSalonId }]);
+    expect(await database.select({ id: schema.adminUserSchema.id }).from(schema.adminUserSchema)
+      .where(eq(schema.adminUserSchema.clerkUserId, owner.clerkUserId))).toEqual([]);
+    expect(input.snapshot.profile.siteSlug).toBe(requestedSlug);
+  });
+
+  it('allows independent owners with the same business name to choose distinct URLs', async () => {
+    const firstInput = request('same_name_east');
+    const secondInput = request('same_name_west');
+    firstInput.snapshot.profile.businessName = 'Neighbourhood Nail Studio';
+    firstInput.snapshot.profile.siteSlug = 'neighbourhood-nails-east';
+    firstInput.snapshot.profile.siteSlugCustomized = true;
+    secondInput.snapshot.profile.businessName = 'Neighbourhood Nail Studio';
+    secondInput.snapshot.profile.siteSlug = 'neighbourhood-nails-west';
+    secondInput.snapshot.profile.siteSlugCustomized = true;
+    const first = await claimOnboardingDraft(identity('same_name_east'), firstInput, handle());
+    const second = await claimOnboardingDraft(identity('same_name_west'), secondInput, handle());
+
+    expect(first).toMatchObject({ kind: 'success', data: { salonSlug: 'neighbourhood-nails-east' } });
+    expect(second).toMatchObject({ kind: 'success', data: { salonSlug: 'neighbourhood-nails-west' } });
+    expect(await database.select({ name: schema.salonSchema.name, slug: schema.salonSchema.slug })
+      .from(schema.salonSchema)
+      .where(eq(schema.salonSchema.name, 'Neighbourhood Nail Studio'))
+      .orderBy(asc(schema.salonSchema.slug))).toEqual([
+      { name: 'Neighbourhood Nail Studio', slug: 'neighbourhood-nails-east' },
+      { name: 'Neighbourhood Nail Studio', slug: 'neighbourhood-nails-west' },
+    ]);
+  });
 
   it('claims the complete Product library into tenant-owned rows and rejects another owner', async () => {
     const owner = identity('full_product_library');
@@ -813,6 +864,70 @@ describe.sequential('account-backed onboarding persistence', () => {
       });
   });
 
+  it('does not return a claimed site status to another Clerk owner', async () => {
+    const owner = identity('status_owner');
+    const input = request('status_owner');
+    const claim = await claimOnboardingDraft(owner, input, handle());
+    if (claim.kind !== 'success') {
+      throw new Error('Expected initial claim.');
+    }
+
+    await expect(getOnboardingDraftClaimStatus(identity('status_foreign_owner'), input.anonymousDraftToken, handle()))
+      .rejects.toMatchObject({ code: 'DRAFT_ALREADY_CLAIMED', status: 409 });
+    await expect(getOnboardingDraftClaimStatus(owner, input.anonymousDraftToken, handle()))
+      .resolves.toMatchObject({ salonId: claim.data.salonId, siteId: claim.data.siteId });
+    await expect(getOnboardingDraftClaimStatus(owner, opaque('rotated_status'), handle(), claim.data.siteId))
+      .resolves.toMatchObject({ salonId: claim.data.salonId, siteId: claim.data.siteId, claimId: claim.data.claimId });
+    await expect(getOnboardingDraftClaimStatus(identity('status_foreign_owner'), opaque('rotated_foreign_status'), handle(), claim.data.siteId))
+      .rejects.toMatchObject({ code: 'BUSINESS_ACCESS_DENIED', status: 403 });
+    await expect(getOnboardingDraftClaimStatus(identity('status_foreign_owner'), input.anonymousDraftToken, handle(), claim.data.siteId))
+      .rejects.toMatchObject({ code: 'DRAFT_ALREADY_CLAIMED', status: 409 });
+  });
+
+  it('lists only the signed-in account’s non-deleted owner memberships in save choices', async () => {
+    const owner = identity('picker_scope');
+    const initial = await claimOnboardingDraft(owner, request('picker_scope_initial'), handle());
+    if (initial.kind !== 'success') {
+      throw new Error('Expected initial claim.');
+    }
+    const [ownerAdmin] = await database.select({ id: schema.adminUserSchema.id })
+      .from(schema.adminUserSchema)
+      .where(eq(schema.adminUserSchema.clerkUserId, owner.clerkUserId));
+    const foreignAdminId = crypto.randomUUID();
+    const foreignSalonId = crypto.randomUUID();
+    const adminOnlySalonId = crypto.randomUUID();
+    const deletedSalonId = crypto.randomUUID();
+    await database.insert(schema.adminUserSchema).values({
+      clerkUserId: 'user_picker_foreign',
+      email: 'picker_foreign@example.test',
+      id: foreignAdminId,
+    });
+    await database.insert(schema.salonSchema).values([
+      { id: foreignSalonId, name: 'Foreign owner salon', slug: 'picker-foreign' },
+      { id: adminOnlySalonId, name: 'Admin membership only', slug: 'picker-admin-only' },
+      { deletedAt: new Date(), id: deletedSalonId, name: 'Deleted owned salon', slug: 'picker-deleted' },
+    ]);
+    await database.insert(schema.adminSalonMembershipSchema).values([
+      { adminId: foreignAdminId, role: 'owner', salonId: foreignSalonId },
+      { adminId: ownerAdmin!.id, role: 'admin', salonId: adminOnlySalonId },
+      { adminId: ownerAdmin!.id, role: 'owner', salonId: deletedSalonId },
+    ]);
+    const result = await claimOnboardingDraft(owner, request('picker_scope_next'), handle());
+
+    expect(result).toEqual({
+      kind: 'conflict',
+      conflict: {
+        businesses: [{
+          hasSite: true,
+          id: initial.data.salonId,
+          name: 'Isla Nail Studio picker_scope_initial',
+          slug: initial.data.salonSlug,
+        }],
+        code: 'BUSINESS_TARGET_REQUIRED',
+      },
+    });
+  });
+
   it('returns structured business/site conflicts and creates a revision-scoped replacement', async () => {
     const owner = identity('conflict');
     const initial = await claimOnboardingDraft(owner, request('conflict_initial'), handle());
@@ -1413,6 +1528,13 @@ describe.sequential('account-backed onboarding persistence', () => {
       code: 'BUSINESS_ACCESS_DENIED',
       status: 403,
     });
+    await expect(getOnboardingDraftClaimStatus(memberIdentity, opaque('rotated_admin_status'), handle(), initial.data.siteId))
+      .rejects.toMatchObject({ code: 'BUSINESS_ACCESS_DENIED', status: 403 });
+
+    await database.update(schema.salonSchema).set({ deletedAt: new Date() }).where(eq(schema.salonSchema.id, initial.data.salonId));
+
+    await expect(getOnboardingDraftClaimStatus(owner, opaque('rotated_deleted_status'), handle(), initial.data.siteId))
+      .rejects.toMatchObject({ code: 'BUSINESS_ACCESS_DENIED', status: 403 });
   });
 
   it('stores plan intent only, with stable idempotency and tenant-scoped loading', async () => {

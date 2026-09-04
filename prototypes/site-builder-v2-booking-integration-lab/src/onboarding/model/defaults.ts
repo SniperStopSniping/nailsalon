@@ -165,7 +165,7 @@ export const createDefaultBusinessProfile = (): BusinessProfileDraft => ({
     ) as Record<AboutElementId, boolean>,
     yearsOfExperience: '',
   },
-  bookingOnlyContact: true,
+  bookingOnlyContact: false,
   bookingPreferences: {
     minimumNoticeMinutes: 120,
     newClientStatus: null,
@@ -191,7 +191,8 @@ export const createDefaultBusinessProfile = (): BusinessProfileDraft => ({
   instagram: '',
   location: {
     allowGeneralAreaDirections: false,
-    addressVisibility: 'after_booking',
+    addressVisibility: 'public',
+    addressVisibilityDefaulted: true,
     cityOrArea: '',
     entranceInstructions: '',
     exactAddress: '',

@@ -1,6 +1,6 @@
 'use client';
 
-import { useAuth, useUser } from '@clerk/nextjs';
+import { useAuth, useClerk, useUser } from '@clerk/nextjs';
 import {
   Check,
   CheckCircle2,
@@ -271,13 +271,19 @@ function OnboardingIntegrationController({
   locale: string;
 }) {
   const { isLoaded, isSignedIn } = useAuth();
+  const clerk = useClerk();
   const { isLoaded: userLoaded, user } = useUser();
+  const [changingAccount, setChangingAccount] = useState(false);
   const [serverEmailVerificationRequired, setServerEmailVerificationRequired] = useState(false);
   // A signed-in session only unlocks account-backed work once its primary
   // email is verified — the same contract the server enforces at claim time.
   const emailVerified = user?.primaryEmailAddress?.verification?.status === 'verified';
   const authSettled = isLoaded && (!isSignedIn || userLoaded);
-  const accountReady = isSignedIn === true && emailVerified && !serverEmailVerificationRequired;
+  const accountReady = authSettled && isSignedIn === true && Boolean(user?.id)
+    && emailVerified && !serverEmailVerificationRequired && !changingAccount;
+  const accountId = accountReady ? user!.id : null;
+  const accountIdRef = useRef(accountId);
+  accountIdRef.current = accountId;
   useEffect(() => {
     if (isLoaded && !isSignedIn) {
       setServerEmailVerificationRequired(false);
@@ -288,8 +294,29 @@ function OnboardingIntegrationController({
   }, []);
   const repository = useCustomDesignAssetRepository();
   const [flow, setFlow] = usePersistentFlow();
+  const verifiedSavedSiteRef = useRef<{ ownerId: string; claimId: string } | null>(null);
+  const verificationAccountRef = useRef(accountId);
+  if (verificationAccountRef.current !== accountId) {
+    verificationAccountRef.current = accountId;
+    verifiedSavedSiteRef.current = null;
+  }
+  const savedSiteVerified = Boolean(accountId && flow.savedSite
+    && flow.savedSiteOwnerId === accountId
+    && verifiedSavedSiteRef.current?.ownerId === accountId
+    && verifiedSavedSiteRef.current.claimId === flow.savedSite.claimId);
+  const [verificationFailure, setVerificationFailure] = useState<{ ownerId: string; siteId: string; message: string } | null>(null);
+  const currentVerificationFailure = accountId && verificationFailure?.ownerId === accountId
+    && verificationFailure.siteId === flow.savedSite?.siteId
+    ? verificationFailure
+    : null;
   const [payload, setPayload] = useState<OnboardingSavePayload | null>(null);
-  const [conflict, setConflict] = useState<OnboardingClaimConflict | null>(null);
+  const [conflict, setConflict] = useState<{ ownerId: string; value: OnboardingClaimConflict } | null>(null);
+  const currentConflict = accountId && conflict?.ownerId === accountId ? conflict.value : null;
+  useEffect(() => {
+    if (conflict && conflict.ownerId !== accountId) {
+      setConflict(null);
+    }
+  }, [accountId, conflict]);
   const [savingStep, setSavingStep] = useState<SavingStep>('core');
   const [authMode, setAuthMode] = useState<'sign-in' | 'sign-up'>(() => {
     const queryMode = new URLSearchParams(window.location.search).get('auth');
@@ -319,11 +346,56 @@ function OnboardingIntegrationController({
   const resolvePayload = useCallback((): OnboardingSavePayload | null =>
     payloadRef.current ?? getPayloadFromBrowser(lab.document), [lab.document]);
 
+  useEffect(() => {
+    if (!accountId || !flow.savedSite || savedSiteVerified || currentVerificationFailure
+      || claimInFlightRef.current || mediaInFlightRef.current) {
+      return;
+    }
+    const expectedOwnerId = accountId;
+    const savedSiteId = flow.savedSite.siteId;
+    const controller = new AbortController();
+    const currentPayload = resolvePayload();
+    void (async () => {
+      try {
+        if (!currentPayload) {
+          throw new Error('Return to your dashboard to reopen this saved website.');
+        }
+        const status = await getOnboardingDraftClaimStatus(currentPayload.state.anonymousDraftId, {
+          savedSiteId,
+          signal: controller.signal,
+        });
+        if (controller.signal.aborted || accountIdRef.current !== expectedOwnerId) {
+          return;
+        }
+        if (!status.claim || status.claim.siteId !== savedSiteId) {
+          throw new Error('We couldn’t verify this saved website. Open it from your dashboard or sign in with the account that saved it.');
+        }
+        verifiedSavedSiteRef.current = { ownerId: expectedOwnerId, claimId: status.claim.claimId };
+        setFlow(current => ({ ...current, savedSite: status.claim, savedSiteOwnerId: expectedOwnerId }));
+      } catch (error) {
+        if (controller.signal.aborted || accountIdRef.current !== expectedOwnerId) {
+          return;
+        }
+        setVerificationFailure({
+          ownerId: expectedOwnerId,
+          siteId: savedSiteId,
+          message: error instanceof Error ? error.message : 'Sign in to the account that saved this website.',
+        });
+      }
+    })();
+    return () => controller.abort();
+  }, [accountId, currentVerificationFailure, flow.phase, flow.savedSite, resolvePayload, savedSiteVerified, setFlow]);
+
   const finishCoreClaim = useCallback(async (
     savedSite: OnboardingClaimSuccess,
     currentPayload: OnboardingSavePayload,
     idempotencyKey: string,
+    mediaAccountId: string,
   ) => {
+    if (accountIdRef.current !== mediaAccountId) {
+      return;
+    }
+    verifiedSavedSiteRef.current = { ownerId: mediaAccountId, claimId: savedSite.claimId };
     setSavingStep(countSavedMedia(
       currentPayload.state,
       currentPayload.document,
@@ -341,6 +413,9 @@ function OnboardingIntegrationController({
       siteRevision: savedSite.revision,
       state: currentPayload.state,
     });
+    if (accountIdRef.current !== mediaAccountId) {
+      return;
+    }
     if (mediaResult.failures.length > 0) {
       recordIntegrationEvent({ type: 'media_claim_failed' });
       setFlow(current => ({
@@ -356,6 +431,7 @@ function OnboardingIntegrationController({
         })),
         phase: 'media_failure',
         savedSite: { ...savedSite, revision: mediaResult.verifiedRevision },
+        savedSiteOwnerId: mediaAccountId,
       }));
       return;
     }
@@ -364,6 +440,9 @@ function OnboardingIntegrationController({
       currentPayload.state,
       currentPayload.document,
     );
+    if (accountIdRef.current !== mediaAccountId) {
+      return;
+    }
     if (cleanup.removedAssetIds.length > 0) {
       const removed = new Set(cleanup.removedAssetIds);
       const cleanedState = {
@@ -391,6 +470,7 @@ function OnboardingIntegrationController({
       mediaFailures: [],
       phase: 'saved',
       savedSite: { ...savedSite, revision: mediaResult.verifiedRevision },
+      savedSiteOwnerId: mediaAccountId,
     }));
   }, [existingCustomMediaByLogicalId, repository, setFlow]);
 
@@ -398,7 +478,18 @@ function OnboardingIntegrationController({
     target?: IntegrationTarget,
     explicitIdempotencyKey?: string,
   ) => {
+    const claimAccountId = accountIdRef.current;
+    if (!claimAccountId) {
+      setFlow(current => ({ ...current, phase: 'account' }));
+      return;
+    }
     if (claimInFlightRef.current) {
+      return;
+    }
+    if (latestFlowRef.current.savedSite
+      && (verifiedSavedSiteRef.current?.ownerId !== claimAccountId
+        || verifiedSavedSiteRef.current.claimId !== latestFlowRef.current.savedSite.claimId)) {
+      setFlow(current => ({ ...current, phase: 'account' }));
       return;
     }
     const currentPayload = resolvePayload();
@@ -418,6 +509,7 @@ function OnboardingIntegrationController({
       ...current,
       claimIdempotencyKey: idempotencyKey,
       errorMessage: null,
+      errorCode: null,
       phase: 'saving',
     }));
     let coreSavedSite: OnboardingClaimSuccess | null = null;
@@ -443,16 +535,24 @@ function OnboardingIntegrationController({
         snapshot: persisted.snapshot,
         ...(resolvedTarget ? { target: resolvedTarget } : {}),
       });
+      // A reply to the previous account must never populate the next account's
+      // picker (or a signed-out screen), even when it arrives after sign-out.
+      if (accountIdRef.current !== claimAccountId) {
+        return;
+      }
       if (result.status === 'conflict') {
-        setConflict(result.conflict);
+        setConflict({ ownerId: claimAccountId, value: result.conflict });
         setFlow(current => ({ ...current, phase: 'conflict' }));
         return;
       }
       recordIntegrationEvent({ type: 'draft_claim_completed' });
       recordIntegrationEvent({ type: 'site_saved' }, true);
       coreSavedSite = result.value;
-      await finishCoreClaim(result.value, currentPayload, idempotencyKey);
+      await finishCoreClaim(result.value, currentPayload, idempotencyKey, claimAccountId);
     } catch (error) {
+      if (accountIdRef.current !== claimAccountId) {
+        return;
+      }
       recordIntegrationEvent({ type: 'draft_claim_failed' });
       if (
         error instanceof OnboardingIntegrationRequestError
@@ -475,20 +575,25 @@ function OnboardingIntegrationController({
       }
       setFlow(current => ({
         ...current,
+        errorCode: error instanceof OnboardingIntegrationRequestError ? error.code : null,
         errorMessage: error instanceof Error && error.message.trim()
           ? error.message
           : 'We couldn’t finish saving your site. Your work is still safe on this device.',
         mediaComplete: coreSavedSite ? false : current.mediaComplete,
         phase: coreSavedSite ? 'media_failure' : 'failure',
         savedSite: coreSavedSite ?? current.savedSite,
+        savedSiteOwnerId: coreSavedSite ? claimAccountId : current.savedSiteOwnerId,
       }));
     } finally {
       claimInFlightRef.current = false;
+      if (accountIdRef.current !== claimAccountId) {
+        setFlow(current => ({ ...current, phase: 'account' }));
+      }
     }
   }, [existingCustomMediaByLogicalId, finishCoreClaim, resolvePayload, setFlow, user]);
 
   useEffect(() => {
-    if (!authSettled || !accountReady || flow.phase !== 'account') {
+    if (!authSettled || !accountReady || flow.phase !== 'account' || (flow.savedSite && !savedSiteVerified)) {
       return;
     }
     const resumePhase = phaseAfterOnboardingReauthentication(flow);
@@ -505,7 +610,7 @@ function OnboardingIntegrationController({
       type: authMode === 'sign-in' ? 'sign_in_completed' : 'sign_up_completed',
     }, true);
     void claim();
-  }, [accountReady, authMode, authSettled, claim, flow, setFlow]);
+  }, [accountReady, authMode, authSettled, claim, flow, savedSiteVerified, setFlow]);
 
   useEffect(() => {
     if (!shouldReturnInterruptedSaveToAccountGate({
@@ -535,13 +640,13 @@ function OnboardingIntegrationController({
       !authSettled
       || !accountReady
       || flow.phase !== 'conflict'
-      || conflict
+      || currentConflict
       || claimInFlightRef.current
     ) {
       return;
     }
     void claim(undefined, flow.claimIdempotencyKey);
-  }, [accountReady, authSettled, claim, conflict, flow.claimIdempotencyKey, flow.phase]);
+  }, [accountReady, authSettled, claim, currentConflict, flow.claimIdempotencyKey, flow.phase]);
 
   useEffect(() => {
     if (authMode === flow.authMode) {
@@ -551,8 +656,11 @@ function OnboardingIntegrationController({
   }, [authMode, flow.authMode, setFlow]);
 
   useEffect(() => {
+    if (flow.savedSite && !savedSiteVerified) {
+      return undefined;
+    }
     if (!shouldRecoverInterruptedOnboardingSave({
-      claimInFlight: claimInFlightRef.current,
+      claimInFlight: claimInFlightRef.current || mediaInFlightRef.current,
       isLoaded: authSettled,
       isSignedIn: accountReady,
       phase: flow.phase,
@@ -570,6 +678,10 @@ function OnboardingIntegrationController({
       return undefined;
     }
     const controller = new AbortController();
+    const recoveryAccountId = accountIdRef.current;
+    if (!recoveryAccountId) {
+      return undefined;
+    }
     resumeInFlightRef.current = true;
     void (async () => {
       try {
@@ -577,6 +689,9 @@ function OnboardingIntegrationController({
           currentPayload.state.anonymousDraftId,
           { signal: controller.signal },
         );
+        if (controller.signal.aborted || accountIdRef.current !== recoveryAccountId) {
+          return;
+        }
         if (status.claim) {
           recordIntegrationEvent({ type: 'draft_claim_completed' }, true);
           recordIntegrationEvent({ type: 'site_saved' }, true);
@@ -584,12 +699,13 @@ function OnboardingIntegrationController({
             status.claim,
             currentPayload,
             flow.claimIdempotencyKey,
+            recoveryAccountId,
           );
           return;
         }
         await claim(undefined, flow.claimIdempotencyKey);
       } catch (error) {
-        if (controller.signal.aborted) {
+        if (controller.signal.aborted || accountIdRef.current !== recoveryAccountId) {
           return;
         }
         setFlow(current => ({
@@ -600,18 +716,26 @@ function OnboardingIntegrationController({
           phase: 'failure',
         }));
       } finally {
-        resumeInFlightRef.current = false;
+        if (!controller.signal.aborted) {
+          resumeInFlightRef.current = false;
+        }
       }
     })();
-    return () => controller.abort();
+    return () => {
+      controller.abort();
+      resumeInFlightRef.current = false;
+    };
   }, [
+    accountId,
     accountReady,
     authSettled,
     claim,
     finishCoreClaim,
     flow.claimIdempotencyKey,
     flow.phase,
+    flow.savedSite,
     resolvePayload,
+    savedSiteVerified,
     setFlow,
   ]);
 
@@ -710,7 +834,8 @@ function OnboardingIntegrationController({
   }, [claim]);
 
   const retryMedia = useCallback(async () => {
-    if (mediaInFlightRef.current || !flow.savedSite) {
+    const retryAccountId = accountIdRef.current;
+    if (mediaInFlightRef.current || !flow.savedSite || !savedSiteVerified || !retryAccountId) {
       return;
     }
     const currentPayload = resolvePayload();
@@ -725,8 +850,12 @@ function OnboardingIntegrationController({
         flow.savedSite,
         currentPayload,
         flow.claimIdempotencyKey,
+        retryAccountId,
       );
     } catch (error) {
+      if (accountIdRef.current !== retryAccountId) {
+        return;
+      }
       recordIntegrationEvent({ type: 'media_claim_failed' });
       setFlow(current => ({
         ...current,
@@ -738,15 +867,38 @@ function OnboardingIntegrationController({
     } finally {
       mediaInFlightRef.current = false;
     }
-  }, [finishCoreClaim, flow.claimIdempotencyKey, flow.savedSite, resolvePayload, setFlow]);
+  }, [finishCoreClaim, flow.claimIdempotencyKey, flow.savedSite, resolvePayload, savedSiteVerified, setFlow]);
 
   const chooseConflictTarget = useCallback((target: IntegrationTarget) => {
+    if (!currentConflict || !accountIdRef.current) {
+      return;
+    }
     const nextKey = renewClaimIdempotencyKey();
     void claim(target, nextKey);
-  }, [claim]);
+  }, [claim, currentConflict]);
+
+  const changeAccount = useCallback(async () => {
+    setChangingAccount(true);
+    setConflict(null);
+    try {
+      await clerk.signOut({ redirectUrl: `${getOnboardingIntegrationRoute(locale)}?account=1&auth=sign-in` });
+    } catch {
+      setChangingAccount(false);
+      setFlow(current => ({ ...current, phase: 'failure', errorCode: null, errorMessage: 'We couldn’t sign you out. Try again before choosing a business.' }));
+    }
+  }, [clerk, locale, setFlow]);
+
+  const editBusinessUrl = useCallback(() => {
+    saveOnboardingState(goToScreen(loadOnboardingState().state, 'business'));
+    payloadRef.current = null;
+    setPayload(null);
+    setFlow(current => ({ ...current, errorCode: null, errorMessage: null, phase: 'onboarding' }));
+    window.history.replaceState({}, '', getOnboardingIntegrationRoute(locale));
+  }, [locale, setFlow]);
 
   const choosePlan = useCallback(async (intent: OnboardingPlanIntent) => {
-    if (planInFlightRef.current || !flow.savedSite) {
+    const planAccountId = accountIdRef.current;
+    if (planInFlightRef.current || !flow.savedSite || !savedSiteVerified || !planAccountId) {
       return;
     }
     planInFlightRef.current = true;
@@ -759,6 +911,9 @@ function OnboardingIntegrationController({
         intent,
         siteId: flow.savedSite.siteId,
       });
+      if (accountIdRef.current !== planAccountId) {
+        return;
+      }
       recordIntegrationEvent({
         intent: LAB_INTENT_BY_PLAN_INTENT[result.intent],
         type: 'plan_selected',
@@ -786,17 +941,50 @@ function OnboardingIntegrationController({
       dashboardUrl.searchParams.set('planIntent', result.intent);
       window.location.assign(`${dashboardUrl.pathname}${dashboardUrl.search}`);
     } catch (error) {
+      if (accountIdRef.current !== planAccountId) {
+        return;
+      }
       setPlanConfirmation(error instanceof Error
         ? error.message
         : 'Your plan choice could not be saved. Nothing was charged.');
+    } finally {
       setPlanPending(false);
       planInFlightRef.current = false;
     }
-  }, [flow.planIdempotencyKey, flow.savedSite, locale, setFlow]);
+  }, [flow.planIdempotencyKey, flow.savedSite, locale, savedSiteVerified, setFlow]);
 
   const currentPayload = resolvePayload();
 
-  switch (flow.phase) {
+  if (accountReady && flow.savedSite && !savedSiteVerified && flow.phase !== 'onboarding') {
+    return currentVerificationFailure
+      ? (
+          <OwnerSurface modifier="is-centred">
+            <section className="onboarding-integration-state-card" role="alert">
+              <h1>Check the account for this website</h1>
+              <p>{currentVerificationFailure.message}</p>
+              <p>Your saved website and the setup on this device are unchanged.</p>
+              <div className="onboarding-integration-action-stack">
+                <button className="onboarding-integration-primary" type="button" onClick={() => setVerificationFailure(null)}>Try again</button>
+                <button
+                  className="onboarding-integration-secondary"
+                  type="button"
+                  onClick={() => {
+                    void changeAccount();
+                  }}
+                >
+                  Use a different account
+                </button>
+                <a className="onboarding-integration-text-action" href={`/${locale}/admin`}>Open my dashboard</a>
+              </div>
+            </section>
+          </OwnerSurface>
+        )
+      : <SavingScreen mediaCount={0} salonName="your website" step="core" />;
+  }
+  // Gate rendering itself, not just the post-render recovery effect. This
+  // prevents a stale picker flashing during auth loading or session changes.
+  const visiblePhase = flow.phase !== 'onboarding' && !accountReady ? 'account' : flow.phase;
+  switch (visiblePhase) {
     case 'account':
       return currentPayload
         ? (
@@ -815,16 +1003,36 @@ function OnboardingIntegrationController({
           )
         : <IntegrationFailure message="Return to Review so Luster can prepare your site." onReturn={returnToReview} onRetry={returnToReview} />;
     case 'conflict':
-      return conflict
+      return currentConflict
         ? (
             <ConflictScreen
-              conflict={conflict}
+              accountEmail={user?.primaryEmailAddress?.emailAddress ?? ''}
+              conflict={currentConflict}
               onCancel={returnToReview}
               onChoose={chooseConflictTarget}
+              onChangeAccount={() => {
+                void changeAccount();
+              }}
             />
           )
         : <SavingScreen mediaCount={0} salonName="your website" step="core" />;
     case 'failure':
+      if (flow.errorCode === 'SITE_SLUG_UNAVAILABLE' || flow.errorCode === 'SITE_SLUG_INVALID') {
+        return (
+          <OwnerSurface modifier="is-centred">
+            <section className="onboarding-integration-state-card" role="alert">
+              <h1>Choose a different website URL</h1>
+              <p>{flow.errorMessage}</p>
+              <p>If this is your existing salon, log in to edit it. A different business can use the same name, but needs its own unique URL.</p>
+              <div className="onboarding-integration-action-stack">
+                <button className="onboarding-integration-primary" type="button" onClick={editBusinessUrl}>Change my URL</button>
+                <a className="onboarding-integration-secondary" href={`/${locale}/admin`}>Log in to edit my existing salon</a>
+                <a className="onboarding-integration-text-action" href="mailto:support@islanailsalon.com">Can’t access your account? Contact support</a>
+              </div>
+            </section>
+          </OwnerSurface>
+        );
+      }
       return (
         <IntegrationFailure
           message={flow.errorMessage ?? 'We couldn’t finish saving your site. Your work is still safe on this device.'}
@@ -902,7 +1110,7 @@ function OnboardingIntegrationController({
         <OnboardingApp
           forceReview={forceReview}
           integration={{
-            hasSavedSite: flow.savedSite !== null,
+            hasSavedSite: savedSiteVerified,
             onSaveSite: startSave,
             onStartOver: () => {
               clearOnboardingIntegrationBrowserState();
@@ -1027,12 +1235,16 @@ function MediaFailureScreen({
 }
 
 function ConflictScreen({
+  accountEmail,
   conflict,
   onCancel,
+  onChangeAccount,
   onChoose,
 }: {
+  accountEmail: string;
   conflict: OnboardingClaimConflict;
   onCancel: () => void;
+  onChangeAccount: () => void;
   onChoose: (target: IntegrationTarget) => void;
 }) {
   if (conflict.code === 'BUSINESS_TARGET_REQUIRED') {
@@ -1041,7 +1253,14 @@ function ConflictScreen({
         <section className="onboarding-integration-state-card is-wide">
           <p className="onboarding-integration-eyebrow">Choose a workspace</p>
           <h1>Where should we save this site?</h1>
-          <p>Choose an existing nail business, or create a new one. Nothing will be overwritten.</p>
+          <p>
+            Signed in as
+            {' '}
+            <strong>{accountEmail}</strong>
+            . Only businesses you own with this account are listed.
+          </p>
+          <button className="onboarding-integration-text-action" type="button" onClick={onChangeAccount}>Use a different account</button>
+          <p>Choose your existing nail business, or create a new one. Nothing will be overwritten.</p>
           <div className="onboarding-conflict-options" role="group" aria-label="Business for this website">
             {conflict.businesses.map(business => (
               <button
@@ -1070,6 +1289,13 @@ function ConflictScreen({
       <section className="onboarding-integration-state-card is-wide">
         <p className="onboarding-integration-eyebrow">Protecting your website</p>
         <h1>This business already has a website</h1>
+        <p>
+          Signed in as
+          {' '}
+          <strong>{accountEmail}</strong>
+          .
+        </p>
+        <button className="onboarding-integration-text-action" type="button" onClick={onChangeAccount}>Use a different account</button>
         <p>Choose how to keep both versions. A published website is never replaced here.</p>
         <div className="onboarding-conflict-options" role="group" aria-label="Website save choice">
           <button

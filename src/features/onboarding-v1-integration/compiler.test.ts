@@ -581,6 +581,7 @@ describe('account-backed onboarding document compiler', () => {
 
   it('keeps Quick Info out of V1 even when its former facts have content', () => {
     const state = acceptedState('one_page');
+    state.profile.bookingOnlyContact = true;
     const document = initializeStarter('one_page', {
       idFactory: createDeterministicIdFactory('quick-info-facts'),
       siteId: 'site_one_page',

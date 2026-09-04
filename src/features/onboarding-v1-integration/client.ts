@@ -91,10 +91,10 @@ export const claimOnboardingDraft = async (
 
 export const getOnboardingDraftClaimStatus = async (
   anonymousDraftToken: string,
-  options: { fetcher?: typeof fetch; signal?: AbortSignal } = {},
+  options: { fetcher?: typeof fetch; savedSiteId?: string; signal?: AbortSignal } = {},
 ): Promise<OnboardingDraftClaimStatus> => {
   const response = await (options.fetcher ?? fetch)('/api/onboarding/v1/status', {
-    body: JSON.stringify({ anonymousDraftToken }),
+    body: JSON.stringify({ anonymousDraftToken, ...(options.savedSiteId ? { savedSiteId: options.savedSiteId } : {}) }),
     headers: { 'Content-Type': 'application/json' },
     method: 'POST',
     signal: options.signal,

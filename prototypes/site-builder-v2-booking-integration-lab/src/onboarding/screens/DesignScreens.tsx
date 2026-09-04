@@ -2,6 +2,7 @@ import {
   Check,
   FileImage,
   Images,
+  Palette,
   Sparkles,
 } from 'lucide-react';
 import {
@@ -2147,7 +2148,7 @@ export function SiteStyleScreen({
   const selectedStyle = SITE_STYLE_PRESETS.find(preset =>
     preset.id === state.recipe.stylePreset) ?? SITE_STYLE_PRESETS[0];
   const selectedPalette = SITE_PALETTE_PRESETS.find(preset =>
-    preset.id === state.recipe.palettePreset) ?? SITE_PALETTE_PRESETS[0];
+    preset.id === state.recipe.palettePreset) ?? SITE_PALETTE_BY_ID.luster_berry;
   return (
     <div className="onboarding-screen onboarding-screen--style" data-screen="site_style">
       <div className="onboarding-screen__form">
@@ -2249,27 +2250,31 @@ export function SiteStyleScreen({
         <section className="onboarding-palette-section" aria-labelledby="onboarding-palette-heading">
           <div className="onboarding-palette-section__heading">
             <div className="onboarding-choice-heading">
-              <span aria-hidden="true">◉</span>
+              <Palette aria-hidden="true" size={22} />
               <div>
+                <p className="onboarding-palette-section__eyebrow">Next, make it yours</p>
                 <h2 id="onboarding-palette-heading">Choose your colours</h2>
-                <p>Keep the same layout and style, then choose the colours that feel most like your brand.</p>
+                <p>Choose a colour palette for your website. Your layout and style stay the same.</p>
               </div>
             </div>
             <div className="onboarding-look-choice-summary" hidden={!isShortPhone}>
-              <span>
-                <Check aria-hidden="true" size={15} />
-                {' '}
-                {selectedPalette?.label}
+              <span className="onboarding-palette-summary">
+                <span aria-hidden="true" className="onboarding-palette-summary__swatches">
+                  {(['ground', 'surface', 'accent', 'secondaryAccent', 'ink'] as const).map(role => (
+                    <i key={role} style={{ backgroundColor: selectedPalette.roles[role] }} />
+                  ))}
+                </span>
+                <span>{selectedPalette.label}</span>
               </span>
               <button
+                aria-label={openShortPhoneChoice === 'palette' ? 'Done choosing website colours' : 'Choose website colours'}
                 aria-controls="onboarding-palette-options"
                 aria-expanded={openShortPhoneChoice === 'palette'}
                 type="button"
                 onClick={() => setOpenShortPhoneChoice(current =>
                   current === 'palette' ? null : 'palette')}
               >
-                {openShortPhoneChoice === 'palette' ? 'Done' : 'Change'}
-                <span className="visually-hidden"> website colours</span>
+                {openShortPhoneChoice === 'palette' ? 'Done' : 'Choose colours'}
               </button>
             </div>
           </div>

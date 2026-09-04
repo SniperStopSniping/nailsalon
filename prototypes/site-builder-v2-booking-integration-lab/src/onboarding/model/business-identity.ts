@@ -1,6 +1,7 @@
 import type {
   AddressVisibility,
   BusinessStructure,
+  LocationDraft,
   LocationType,
   OnboardingBusinessType,
 } from './types';
@@ -48,7 +49,7 @@ export const deriveLegacyBusinessFields = (
   switch (businessType) {
     case 'home_based':
       return {
-        addressVisibility: 'hidden',
+        addressVisibility: 'after_booking',
         businessStructure: 'solo',
         locationType: 'home_studio',
       };
@@ -63,6 +64,24 @@ export const deriveLegacyBusinessFields = (
     case 'independent_salon':
       return { businessStructure: 'solo', locationType: 'salon_suite' };
   }
+};
+
+export const locationForBusinessType = (
+  location: LocationDraft,
+  businessType: OnboardingBusinessType,
+): LocationDraft => {
+  const derived = deriveLegacyBusinessFields(businessType);
+  const canApplyDefault = location.addressVisibilityDefaulted === true
+    && !location.cityOrArea.trim()
+    && !location.exactAddress.trim()
+    && !location.serviceAreas?.trim();
+  return {
+    ...location,
+    addressVisibility: canApplyDefault
+      ? derived.addressVisibility ?? 'public'
+      : location.addressVisibility,
+    locationType: derived.locationType,
+  };
 };
 
 export const inferOnboardingBusinessType = (input: {

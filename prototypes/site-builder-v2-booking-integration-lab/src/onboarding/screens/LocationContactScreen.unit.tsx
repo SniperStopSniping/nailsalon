@@ -69,11 +69,11 @@ describe('LocationContactScreen', () => {
     await user.type(screen.getByLabelText('City *'), 'Toronto');
     await user.type(screen.getByLabelText('Full address *'), '880 Ellesmere Rd, Scarborough, ON');
 
-    const balanced = screen.getByRole('radio', {
-      name: /Show my full address after they book/u,
+    const publicAddress = screen.getByRole('radio', {
+      name: /Always show my full address/u,
     });
 
-    expect(balanced).toBeChecked();
+    expect(publicAddress).toBeChecked();
     expect(screen.queryByText('Before booking')).not.toBeInTheDocument();
     expect(screen.queryByText('After booking')).not.toBeInTheDocument();
 
@@ -148,14 +148,16 @@ describe('LocationContactScreen', () => {
     expect(screen.getByRole('radio', { name: /Online booking only/u })).not.toBeChecked();
     expect(screen.getByText('@isla_nail_studio')).toBeVisible();
     expect(screen.getByText('✓ Saved')).toBeVisible();
-    expect(screen.queryByLabelText('Phone number')).not.toBeInTheDocument();
-
-    await user.click(screen.getByRole('radio', { name: /Let clients contact me directly/u }));
-
+    expect(screen.getByRole('radio', { name: /Let clients contact me directly/u })).toBeChecked();
     expect(screen.getByLabelText('Phone number')).toBeVisible();
     expect(screen.getByRole('switch', { name: 'Clients can call this number' })).toBeVisible();
     expect(screen.getByRole('switch', { name: 'Clients can text this number' })).toBeVisible();
     expect(screen.getByLabelText('Email · Optional')).toBeVisible();
+
+    // A selected default still lets the owner explicitly confirm Instagram-only contact.
+    await user.click(screen.getByRole('radio', { name: /Let clients contact me directly/u }));
+
+    expect(contactCard).toHaveTextContent('Complete');
   });
 
   it('marks Contact complete only after the owner explicitly chooses online booking only', async () => {
@@ -173,14 +175,14 @@ describe('LocationContactScreen', () => {
   });
 
   it('restores an explicitly confirmed online-booking contact choice', () => {
-    renderScreen({}, vi.fn(), true);
+    renderScreen({ bookingOnlyContact: true }, vi.fn(), true);
 
     expect(screen.getByRole('button', { name: /^Contact/u })).toHaveTextContent('Complete');
   });
 
   it('keeps Arrival details optional and saves it in the canonical location', async () => {
     const user = userEvent.setup();
-    renderScreen();
+    renderScreen({ location: { ...createDefaultBusinessProfile().location, addressVisibility: 'after_booking' } });
     const arrivalCard = screen.getByRole('button', { name: /^Arrival details/u });
 
     expect(arrivalCard).toHaveTextContent('Optional');
@@ -194,6 +196,24 @@ describe('LocationContactScreen', () => {
 
     expect(arrivalCard).toHaveTextContent('Arrival instructions added');
     expect(screen.getByText(/follow your address privacy choice/u)).toBeVisible();
+  });
+
+  it('accepts a direct contact method without requiring the selected default to be selected again', async () => {
+    const user = userEvent.setup();
+    renderScreen();
+    const contactCard = screen.getByRole('button', { name: /^Contact/u });
+    await user.click(contactCard);
+
+    expect(screen.getByRole('radio', { name: /Let clients contact me directly/u })).toBeChecked();
+    expect(contactCard).not.toHaveTextContent('Complete');
+
+    await user.type(screen.getByLabelText('Phone number'), '4165550123');
+
+    expect(contactCard).not.toHaveTextContent('Complete');
+
+    await user.click(screen.getByRole('switch', { name: 'Clients can call this number' }));
+
+    expect(contactCard).toHaveTextContent('Complete');
   });
 
   it('requires the correct Location fields and then continues to Hours', async () => {

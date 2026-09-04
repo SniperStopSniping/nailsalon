@@ -121,7 +121,11 @@ export function LocationContactScreen({
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [editingInstagram, setEditingInstagram] = useState(false);
   const [contactConfirmed, setContactConfirmed] = useState(
-    contactSetupConfirmed || !profile.bookingOnlyContact,
+    contactSetupConfirmed || (!profile.bookingOnlyContact && Boolean(
+      profile.clientContact.callEnabled
+      || profile.clientContact.textEnabled
+      || profile.email.trim(),
+    )),
   );
   const mobileBusiness = profile.businessType === 'mobile';
   const instagram = resolveInstagramUsername(profile.instagram);
@@ -132,6 +136,12 @@ export function LocationContactScreen({
 
   const updateLocation = (patch: Partial<BusinessProfileDraft['location']>) => {
     onProfileChange({ location: { ...profile.location, ...patch } });
+  };
+
+  const updateContact = (patch: ProfilePatch) => {
+    setContactConfirmed(true);
+    onContactConfirmed?.();
+    onProfileChange(patch);
   };
 
   const rawAvailableMethods = getAvailableContactMethods(profile);
@@ -254,14 +264,12 @@ export function LocationContactScreen({
   };
 
   const selectContactMode = (bookingOnlyContact: boolean) => {
-    setContactConfirmed(true);
-    onContactConfirmed?.();
     setErrors(current => ({
       ...current,
       contact: '',
       preferredContact: '',
     }));
-    onProfileChange({
+    updateContact({
       bookingOnlyContact,
       preferredContact: bookingOnlyContact
         ? profile.preferredContact
@@ -352,6 +360,7 @@ export function LocationContactScreen({
                           value={option.value}
                           onChange={() => updateLocation({
                             addressVisibility: option.value,
+                            addressVisibilityDefaulted: false,
                             allowGeneralAreaDirections: option.value === 'hidden',
                           })}
                         />
@@ -416,9 +425,14 @@ export function LocationContactScreen({
             </label>
             <label>
               <input
-                checked={contactConfirmed && !profile.bookingOnlyContact}
+                checked={!profile.bookingOnlyContact}
                 name="contact-mode"
                 type="radio"
+                onClick={() => {
+                  if (!profile.bookingOnlyContact && !contactConfirmed) {
+                    selectContactMode(false);
+                  }
+                }}
                 onChange={() => selectContactMode(false)}
               />
               <span>
@@ -443,7 +457,7 @@ export function LocationContactScreen({
                         ...profile.clientContact,
                         primaryNumber: event.target.value,
                       };
-                      onProfileChange({
+                      updateContact({
                         clientContact,
                         preferredContact: getCoherentPreferredContact({ ...profile, clientContact }),
                       });
@@ -455,7 +469,7 @@ export function LocationContactScreen({
                     label="Clients can call this number"
                     onChange={(callEnabled) => {
                       const clientContact = { ...profile.clientContact, callEnabled };
-                      onProfileChange({
+                      updateContact({
                         clientContact,
                         preferredContact: getCoherentPreferredContact({ ...profile, clientContact }),
                       });
@@ -467,7 +481,7 @@ export function LocationContactScreen({
                     label="Clients can text this number"
                     onChange={(textEnabled) => {
                       const clientContact = { ...profile.clientContact, textEnabled };
-                      onProfileChange({
+                      updateContact({
                         clientContact,
                         preferredContact: getCoherentPreferredContact({ ...profile, clientContact }),
                       });
@@ -479,7 +493,7 @@ export function LocationContactScreen({
                           checked={profile.clientContact.useDifferentTextNumber}
                           description="Keep calls on the primary number and route texts somewhere else."
                           label="Use a different number for texts"
-                          onChange={useDifferentTextNumber => onProfileChange({
+                          onChange={useDifferentTextNumber => updateContact({
                             clientContact: { ...profile.clientContact, useDifferentTextNumber },
                           })}
                         />
@@ -493,7 +507,7 @@ export function LocationContactScreen({
                           label="Text message number"
                           type="tel"
                           value={profile.clientContact.differentTextNumber}
-                          onChange={event => onProfileChange({
+                          onChange={event => updateContact({
                             clientContact: {
                               ...profile.clientContact,
                               differentTextNumber: event.target.value,
@@ -511,7 +525,7 @@ export function LocationContactScreen({
                     onChange={(event) => {
                       setErrors(current => ({ ...current, email: '', preferredContact: '' }));
                       const email = event.target.value;
-                      onProfileChange({
+                      updateContact({
                         email,
                         preferredContact: getCoherentPreferredContact({ ...profile, email }),
                       });
@@ -550,7 +564,7 @@ export function LocationContactScreen({
                   }}
                   onChange={(event) => {
                     setErrors(current => ({ ...current, instagram: '', preferredContact: '' }));
-                    onProfileChange({ instagram: event.target.value });
+                    updateContact({ instagram: event.target.value });
                   }}
                 />
               )
@@ -566,7 +580,7 @@ export function LocationContactScreen({
                   value={profile.preferredContact}
                   onChange={(preferredContact) => {
                     setErrors(current => ({ ...current, preferredContact: '' }));
-                    onProfileChange({ preferredContact });
+                    updateContact({ preferredContact });
                   }}
                 />
               )

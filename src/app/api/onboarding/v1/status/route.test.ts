@@ -31,9 +31,9 @@ import { POST } from './route';
 
 const ANONYMOUS_DRAFT_TOKEN = 'draft_123456789012345678901234567890';
 
-function statusRequest(): Request {
+function statusRequest(savedSiteId?: string): Request {
   return new Request('http://localhost/api/onboarding/v1/status', {
-    body: JSON.stringify({ anonymousDraftToken: ANONYMOUS_DRAFT_TOKEN }),
+    body: JSON.stringify({ anonymousDraftToken: ANONYMOUS_DRAFT_TOKEN, savedSiteId }),
     headers: { 'Content-Type': 'application/json' },
     method: 'POST',
   });
@@ -59,6 +59,16 @@ describe('POST /api/onboarding/v1/status', () => {
     expect(mocks.getOnboardingDraftClaimStatus).toHaveBeenCalledWith(
       mocks.identity,
       ANONYMOUS_DRAFT_TOKEN,
+      undefined,
+      undefined,
     );
+  });
+
+  it('passes an optional saved site only to the server-owned membership resolver', async () => {
+    const savedSiteId = '11111111-1111-4111-8111-111111111111';
+    const response = await POST(statusRequest(savedSiteId));
+
+    expect(response.status).toBe(200);
+    expect(mocks.getOnboardingDraftClaimStatus).toHaveBeenCalledWith(mocks.identity, ANONYMOUS_DRAFT_TOKEN, undefined, savedSiteId);
   });
 });

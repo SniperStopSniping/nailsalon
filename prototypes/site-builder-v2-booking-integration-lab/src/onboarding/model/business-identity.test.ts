@@ -4,10 +4,12 @@ import {
   deriveLegacyBusinessFields,
   inferOnboardingBusinessType,
   isPersonalBusinessType,
+  locationForBusinessType,
   normalizeSiteSlug,
   normalizeSiteSlugInput,
   validateSiteSlug,
 } from './business-identity';
+import { createDefaultBusinessProfile } from './defaults';
 
 describe('business identity', () => {
   it('maps the four owner-facing choices onto the existing structure and location fields', () => {
@@ -16,7 +18,7 @@ describe('business identity', () => {
       locationType: 'salon_suite',
     });
     expect(deriveLegacyBusinessFields('home_based')).toEqual({
-      addressVisibility: 'hidden',
+      addressVisibility: 'after_booking',
       businessStructure: 'solo',
       locationType: 'home_studio',
     });
@@ -29,6 +31,41 @@ describe('business identity', () => {
       businessStructure: 'multi_tech',
       locationType: 'traditional_salon',
     });
+  });
+
+  it('adapts only fresh location defaults to the selected business type', () => {
+    const location = createDefaultBusinessProfile().location;
+
+    expect(locationForBusinessType(location, 'independent_salon').addressVisibility).toBe('public');
+    expect(locationForBusinessType(location, 'salon_team').addressVisibility).toBe('public');
+
+    const home = locationForBusinessType(location, 'home_based');
+
+    expect(home.addressVisibility).toBe('after_booking');
+    expect(locationForBusinessType(home, 'independent_salon').addressVisibility).toBe('public');
+    expect(locationForBusinessType(location, 'mobile').addressVisibility).toBe('hidden');
+  });
+
+  it('does not change explicit or previously saved privacy choices when business type changes', () => {
+    const location = createDefaultBusinessProfile().location;
+
+    for (const addressVisibility of ['hidden', 'after_booking', 'public'] as const) {
+      for (const businessType of ['independent_salon', 'home_based', 'salon_team', 'mobile'] as const) {
+        for (const addressVisibilityDefaulted of [false, undefined]) {
+          expect(locationForBusinessType({
+            ...location,
+            addressVisibility,
+            addressVisibilityDefaulted,
+          }, businessType).addressVisibility).toBe(addressVisibility);
+        }
+      }
+    }
+
+    expect(locationForBusinessType({
+      ...location,
+      addressVisibility: 'after_booking',
+      exactAddress: '10 Test Avenue',
+    }, 'independent_salon').addressVisibility).toBe('after_booking');
   });
 
   it('infers old drafts without asking a duplicate business question', () => {

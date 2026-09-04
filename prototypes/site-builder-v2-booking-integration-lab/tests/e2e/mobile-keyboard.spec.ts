@@ -192,13 +192,13 @@ for (const [width, height] of sizes) {
 
       await expect(page.locator('.sticky-onboarding-actions')).toHaveCSS('visibility', 'hidden');
 
-      const option = page.getByRole('option', { name: '100 Queen Street West, Toronto, Ontario M5H 2N2', exact: true });
+      const option = page.getByRole('option', { name: '100 Queen Street West, Toronto, Ontario', exact: true });
 
       await expect(option).toBeVisible();
 
       await option.tap();
 
-      await expect(address).toHaveValue('100 Queen Street West, Toronto, Ontario M5H 2N2');
+      await expect(address).toHaveValue('100 Queen Street West, Toronto, Ontario');
       await expect(page.getByLabel('City *', { exact: true })).toHaveValue('Toronto');
       await expect(page.locator('input[name="address-visibility"][value="after_booking"]')).toBeChecked();
 

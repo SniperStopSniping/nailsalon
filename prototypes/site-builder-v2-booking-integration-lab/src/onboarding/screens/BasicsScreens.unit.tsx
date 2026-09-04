@@ -400,10 +400,6 @@ describe('LocationContactScreen', () => {
     expect(screen.getByRole('button', { name: /Location/ })).toHaveAttribute('aria-expanded', 'false');
     expect(screen.getByRole('button', { name: /^Contact/u })).toHaveAttribute('aria-expanded', 'true');
 
-    await user.click(screen.getByRole('switch', {
-      name: 'Clients should use online booking only',
-    }));
-
     await user.click(screen.getByRole('button', { name: 'Save and continue' }));
 
     expect(screen.getByRole('alert')).toHaveTextContent('1 answer needs attention.');
@@ -459,6 +455,7 @@ describe('LocationContactScreen', () => {
 
     await user.type(screen.getByLabelText('City or general service area'), 'Scarborough, Ontario');
     await user.type(screen.getByLabelText('Exact address (optional)'), '123 Example Avenue');
+    await user.click(screen.getByRole('radio', { name: 'Show after booking' }));
 
     expect(within(preview).getByText('Scarborough, Ontario')).toBeVisible();
     expect(within(preview).getByText('Exact address shared after booking.')).toBeVisible();
@@ -504,9 +501,6 @@ describe('LocationContactScreen', () => {
 
     render(<Harness />);
     await user.click(screen.getByRole('button', { name: /^Contact/u }));
-    await user.click(screen.getByRole('switch', {
-      name: 'Clients should use online booking only',
-    }));
     await user.type(screen.getByLabelText('Phone number clients can use'), '416-555-0100');
     await user.click(screen.getByRole('switch', { name: 'Call this number' }));
     await user.click(screen.getByRole('switch', { name: 'Text this number' }));
@@ -567,9 +561,6 @@ describe('LocationContactScreen', () => {
 
     render(<Harness />);
     await user.click(screen.getByRole('button', { name: /^Contact/u }));
-    await user.click(screen.getByRole('switch', {
-      name: 'Clients should use online booking only',
-    }));
     const instagram = screen.getByLabelText('Instagram handle');
     await user.type(instagram, 'instagram.com/isla/reels');
     await user.click(screen.getByRole('button', { name: 'Done' }));
