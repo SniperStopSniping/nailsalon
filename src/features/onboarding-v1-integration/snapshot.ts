@@ -205,7 +205,19 @@ export function createPersistableOnboardingDraft(
       email: state.profile.email,
       hours: state.profile.hours,
       instagram: state.profile.instagram,
-      location: state.profile.location,
+      location: {
+        addressVisibility: state.profile.location.addressVisibility,
+        allowGeneralAreaDirections: state.profile.location.allowGeneralAreaDirections,
+        cityOrArea: state.profile.location.cityOrArea,
+        entranceInstructions: state.profile.location.entranceInstructions,
+        exactAddress: state.profile.location.exactAddress,
+        locationType: state.profile.location.locationType,
+        parking: state.profile.location.parking,
+        ...(state.profile.location.serviceAreas !== undefined
+          ? { serviceAreas: state.profile.location.serviceAreas }
+          : {}),
+        transitInformation: state.profile.location.transitInformation,
+      },
       logoItemId: logo?.localItemId ?? null,
       ownerName: state.profile.ownerName,
       policies: state.profile.policies,

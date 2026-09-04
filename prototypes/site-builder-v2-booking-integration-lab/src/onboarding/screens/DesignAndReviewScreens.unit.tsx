@@ -300,14 +300,20 @@ describe('SiteStyleScreen', () => {
 
     expect(screen.queryByRole('group', { name: 'Site style presets' })).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole('button', { name: 'Change website colours' }));
+    const coloursSection = screen.getByRole('region', { name: 'Choose your colours' });
+
+    expect(within(coloursSection).getByText('Next, make it yours')).toBeVisible();
+    expect(coloursSection.querySelectorAll('.onboarding-palette-summary__swatches i')).toHaveLength(5);
+    expect(within(coloursSection).queryByText('✓')).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Choose website colours' }));
     const palettes = screen.getByRole('group', { name: 'Website colour palettes' });
 
     expect(within(palettes).getAllByRole('button')).toHaveLength(8);
 
     await user.click(within(palettes).getByRole('button', { name: /Black & Champagne/u }));
 
-    expect(screen.getByRole('button', { name: 'Done website colours' }))
+    expect(screen.getByRole('button', { name: 'Done choosing website colours' }))
       .toHaveAttribute('aria-expanded', 'true');
   });
 

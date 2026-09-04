@@ -2,8 +2,10 @@
   display: grid;
   gap: 16px;
   margin-top: 28px;
-  padding-top: 26px;
-  border-top: 1px solid var(--onboarding-line);
+  padding: 20px;
+  border: 1px solid color-mix(in srgb, var(--onboarding-accent) 34%, var(--onboarding-line));
+  border-radius: 20px;
+  background: color-mix(in srgb, var(--onboarding-accent-soft) 48%, var(--onboarding-surface));
 }
 
 .onboarding-palette-section__heading {
@@ -20,6 +22,39 @@
   font-family: Georgia, 'Times New Roman', serif;
   font-size: clamp(1.42rem, 4vw, 1.85rem);
   line-height: 1.08;
+}
+
+.onboarding-palette-section .onboarding-palette-section__eyebrow {
+  margin-bottom: 6px;
+  color: var(--onboarding-accent-dark);
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.onboarding-palette-section .onboarding-palette-summary {
+  display: grid;
+  gap: 7px;
+}
+
+.onboarding-palette-summary__swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+}
+
+.onboarding-palette-summary__swatches i {
+  width: 17px;
+  height: 17px;
+  border: 1px solid color-mix(in srgb, var(--onboarding-ink) 16%, transparent);
+  border-radius: 50%;
+}
+
+.onboarding-palette-section .onboarding-look-choice-summary > button {
+  border-color: var(--onboarding-accent);
+  color: var(--onboarding-accent-dark);
+  background: var(--onboarding-surface);
 }
 
 .onboarding-palette-section__heading > p:last-child {
@@ -146,7 +181,7 @@
   .onboarding-palette-section {
     gap: 12px;
     margin-top: 20px;
-    padding-top: 18px;
+    padding: 14px;
   }
 
   .onboarding-palette-grid {

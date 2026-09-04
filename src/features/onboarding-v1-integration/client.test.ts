@@ -70,6 +70,19 @@ describe('onboarding integration client', () => {
       .resolves.toEqual({ conflict, status: 'conflict' });
   });
 
+  it('posts a legacy saved-site fallback for server owner verification without URL tokens', async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({ data: { claim: savedSite } }));
+    const signal = new AbortController().signal;
+    await getOnboardingDraftClaimStatus('rotated-draft-token', { fetcher, savedSiteId: savedSite.siteId, signal });
+
+    expect(fetcher).toHaveBeenCalledWith('/api/onboarding/v1/status', {
+      body: JSON.stringify({ anonymousDraftToken: 'rotated-draft-token', savedSiteId: savedSite.siteId }),
+      headers: { 'Content-Type': 'application/json' },
+      method: 'POST',
+      signal,
+    });
+  });
+
   it('stores plan intent through one truthful server response', async () => {
     const fetcher = vi.fn<typeof fetch>().mockResolvedValue(jsonResponse({ data: {
       confirmationMessage: 'Nothing was charged today.',

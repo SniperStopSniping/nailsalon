@@ -815,6 +815,7 @@ const migrateBusinessProfile = (
     location: {
       ...defaults.location,
       ...(location as unknown as BusinessProfileDraft['location']),
+      addressVisibilityDefaulted: location.addressVisibilityDefaulted === true,
       allowGeneralAreaDirections: typeof location.allowGeneralAreaDirections === 'boolean'
         ? location.allowGeneralAreaDirections
         : false,

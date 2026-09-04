@@ -35,6 +35,7 @@ describe('onboarding Booking preview adapter', () => {
     const profile = createDefaultBusinessProfile();
     profile.location.cityOrArea = 'Scarborough, Ontario';
     profile.location.exactAddress = '123 Example Avenue';
+    profile.location.addressVisibility = 'after_booking';
 
     expect(getOnboardingPreviewLocation(profile)).toBe('Scarborough, Ontario');
 

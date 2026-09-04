@@ -38,6 +38,7 @@ import {
   BUSINESS_TYPE_OPTIONS,
   deriveLegacyBusinessFields,
   isPersonalBusinessType,
+  locationForBusinessType,
   normalizeSiteSlug,
   normalizeSiteSlugInput,
   siteUrlForSlug,
@@ -243,13 +244,7 @@ export function BrandBasicsScreen({
     onProfileChange({
       businessStructure: derived.businessStructure,
       businessType,
-      location: {
-        ...profile.location,
-        ...(derived.addressVisibility
-          ? { addressVisibility: derived.addressVisibility }
-          : {}),
-        locationType: derived.locationType,
-      },
+      location: locationForBusinessType(profile.location, businessType),
     });
   };
 
@@ -341,7 +336,7 @@ export function BrandBasicsScreen({
                             <p className="onboarding-site-url__valid">
                               <Check aria-hidden="true" size={14} />
                               {' '}
-                              This URL looks good
+                              This URL format looks good
                               {' '}
                               <small>Final availability is confirmed when you save.</small>
                             </p>
@@ -766,8 +761,8 @@ export function LocationContactScreen({
                 setErrors(current => ({ ...current, locationType: '' }));
                 updateLocation({
                   locationType,
-                  ...(locationType === 'home_studio'
-                    ? { addressVisibility: 'hidden' as const }
+                  ...(profile.location.addressVisibilityDefaulted === true
+                    ? { addressVisibility: locationType === 'home_studio' ? 'after_booking' as const : 'public' as const }
                     : {}),
                 });
               }}
@@ -777,7 +772,7 @@ export function LocationContactScreen({
               name="address-visibility"
               options={ADDRESS_VISIBILITY}
               value={profile.location.addressVisibility}
-              onChange={addressVisibility => updateLocation({ addressVisibility })}
+              onChange={addressVisibility => updateLocation({ addressVisibility, addressVisibilityDefaulted: false })}
             />
             {profile.location.addressVisibility !== 'hidden'
               ? (

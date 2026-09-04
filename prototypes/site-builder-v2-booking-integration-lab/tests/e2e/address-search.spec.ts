@@ -2,7 +2,7 @@ import { expect, type Page, type Route, test } from '@playwright/test';
 
 const STORAGE_KEY = 'luster:onboarding-v1-lab';
 const PHOTON_ROUTE = 'https://photon.komoot.io/api/**';
-const SELECTED_ADDRESS = '100 Queen Street West, Toronto, Ontario M5H 2N2';
+const SELECTED_ADDRESS = '100 Queen Street West, Toronto, Ontario';
 
 function suggestions(houseNumber = '100', street = 'Queen Street West') {
   return {
@@ -163,6 +163,18 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 320, height: 568 }
       await page.clock.runFor(1_000);
       await expectPrivacy(page, visibility);
 
+      // Lookup fills street/city, not an unverified postcode; manual details persist.
+      await expect(page.getByText(/Check the address and add your unit and postal code/)).toBeVisible();
+
+      const completedAddress = `${SELECTED_ADDRESS}, Unit 4, M5H 2N2`;
+      await address.fill(completedAddress);
+      await page.getByLabel('City *', { exact: true }).focus();
+      await page.clock.runFor(1_000);
+
+      await expect.poll(async () => (await storedLocation(page))?.exactAddress).toBe(completedAddress);
+
+      await expectPrivacy(page, visibility);
+
       expect(errors).toEqual([]);
     });
 
@@ -191,12 +203,12 @@ for (const viewport of [{ width: 390, height: 844 }, { width: 320, height: 568 }
       await address.fill('200 New Street');
       await page.clock.runFor(650);
 
-      await expect(page.getByRole('option', { name: '200 New Street, Toronto, Ontario M5H 2N2', exact: true })).toBeVisible();
+      await expect(page.getByRole('option', { name: '200 New Street, Toronto, Ontario', exact: true })).toBeVisible();
 
       await delayedRoute!.fulfill({ json: suggestions('100', 'Old Street') });
 
       await expect(page.getByRole('option')).toHaveCount(1);
-      await expect(page.getByRole('option')).toHaveText('200 New Street, Toronto, Ontario M5H 2N2');
+      await expect(page.getByRole('option')).toHaveText('200 New Street, Toronto, Ontario');
       await expect(address).toHaveValue('200 New Street');
 
       await address.fill('Unavailable address');

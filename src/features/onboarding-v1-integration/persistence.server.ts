@@ -488,34 +488,14 @@ function baseSlug(businessName: string): string {
   return candidate;
 }
 
-async function uniqueSalonSlug(
-  database: QueryDatabase,
-  businessName: string,
-  salonId: string,
-): Promise<string> {
-  const base = baseSlug(businessName);
-  const [existing] = await database
-    .select({ id: salonSchema.id })
-    .from(salonSchema)
-    .where(eq(salonSchema.slug, base))
-    .limit(1);
-  if (!existing) {
-    return base;
-  }
-  const suffix = salonId.replace(/-/g, '').slice(0, 8).toLowerCase();
-  return `${base.slice(0, 38)}-${suffix}`;
-}
-
 async function salonSlugForSnapshot(
   database: QueryDatabase,
   snapshot: OnboardingPersistedSnapshot,
-  salonId: string,
 ): Promise<string> {
-  if (!snapshot.profile.siteSlugCustomized) {
-    return uniqueSalonSlug(database, snapshot.profile.businessName, salonId);
-  }
-
-  const requestedSlug = normalizeSalonSlug(snapshot.profile.siteSlug);
+  // Suggested URLs are the owner's choice too. Never silently rename one
+  // after the owner has previewed it, including concurrent first-time claims.
+  const requestedSlug = normalizeSalonSlug(snapshot.profile.siteSlug
+    || (snapshot.profile.siteSlugCustomized ? '' : baseSlug(snapshot.profile.businessName)));
   if (!requestedSlug || !isValidSalonSlug(requestedSlug)) {
     throw new OnboardingPersistenceError(
       'SITE_SLUG_INVALID',
@@ -686,7 +666,7 @@ async function createBusiness(
   snapshot: OnboardingPersistedSnapshot,
 ): Promise<{ salonId: string; salonSlug: string; technicianId: string }> {
   const salonId = crypto.randomUUID();
-  const salonSlug = await salonSlugForSnapshot(database, snapshot, salonId);
+  const salonSlug = await salonSlugForSnapshot(database, snapshot);
   const locationId = crypto.randomUUID();
   const technicianId = crypto.randomUUID();
   const phone = canonicalSalonPhone(snapshot);
@@ -1834,18 +1814,26 @@ export async function claimOnboardingDraft(
       () => claimOnboardingDraftUnlocked(identity, input, database),
     );
   } catch (error) {
-    if (uniqueConstraint(error) === null) {
+    const constraint = uniqueConstraint(error);
+    if (constraint === null) {
       throw error;
     }
     // A different runtime may have committed the same opaque draft token
     // between our absent-row check and insert. The unique key prevents any
     // duplicate resources; reload the winner and apply the same owner check.
     const existing = await existingClaimForToken(database, anonymousDraftTokenHash);
-    if (!existing) {
-      throw error;
+    if (existing) {
+      await assertClaimOwner(database, identity, existing);
+      return { kind: 'success', data: await claimSuccess(database, existing, false) };
     }
-    await assertClaimOwner(database, identity, existing);
-    return { kind: 'success', data: await claimSuccess(database, existing, false) };
+    if (['salon_slug_unique', 'salon_slug_idx'].includes(constraint)) {
+      throw new OnboardingPersistenceError(
+        'SITE_SLUG_UNAVAILABLE',
+        'That Luster URL is no longer available. Choose another URL and try again.',
+        409,
+      );
+    }
+    throw error;
   }
 }
 
@@ -1853,13 +1841,41 @@ export async function getOnboardingDraftClaimStatus(
   identity: AuthenticatedOnboardingIdentity,
   anonymousDraftToken: string,
   database: QueryDatabase = db,
+  savedSiteId?: string,
 ): Promise<OnboardingClaimSuccess | null> {
   const claim = await existingClaimForToken(database, hashOpaqueToken(anonymousDraftToken));
-  if (!claim) {
+  if (claim) {
+    await assertClaimOwner(database, identity, claim);
+    return claimSuccess(database, claim, false);
+  }
+  if (!savedSiteId) {
     return null;
   }
-  await assertClaimOwner(database, identity, claim);
-  return claimSuccess(database, claim, false);
+  // Early-save rotates the local token before later onboarding steps. Legacy
+  // drafts can still re-establish ownership through their saved site, never
+  // through a browser-supplied salon/account identity.
+  const admin = await resolveIdentityAdmin(database, identity);
+  const owned = admin
+    ? await getClaimedOnboardingSite({
+      adminId: admin.id,
+      database,
+      ownerOnly: true,
+      siteId: savedSiteId,
+    })
+    : null;
+  if (!admin || !owned) {
+    throw new OnboardingPersistenceError('BUSINESS_ACCESS_DENIED', 'Sign in to the account that saved this website.', 403);
+  }
+  const [savedClaim] = await database.select().from(onboardingDraftClaimSchema).where(and(
+    eq(onboardingDraftClaimSchema.siteId, owned.site.id),
+    eq(onboardingDraftClaimSchema.salonId, owned.site.salonId),
+    eq(onboardingDraftClaimSchema.revisionId, owned.revision.id),
+    eq(onboardingDraftClaimSchema.claimedByAdminId, admin.id),
+  )).limit(1);
+  if (!savedClaim) {
+    throw new OnboardingPersistenceError('BUSINESS_ACCESS_DENIED', 'Sign in to the account that saved this website.', 403);
+  }
+  return claimSuccess(database, savedClaim, false);
 }
 
 export async function saveOnboardingPlanIntent(
@@ -1977,6 +1993,7 @@ export async function getClaimedOnboardingSite(input: {
   const filters = [
     eq(adminSalonMembershipSchema.adminId, input.adminId),
     eq(onboardingSiteSchema.isCurrent, true),
+    isNull(salonSchema.deletedAt),
   ];
   if (input.ownerOnly) {
     filters.push(eq(adminSalonMembershipSchema.role, 'owner'));

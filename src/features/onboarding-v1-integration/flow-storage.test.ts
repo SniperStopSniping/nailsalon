@@ -104,6 +104,22 @@ describe('onboarding account-flow persistence', () => {
     })).toBe(false);
   });
 
+  it('restores new recovery metadata without treating legacy storage as verified ownership', () => {
+    const flow = { ...createOnboardingIntegrationFlow(), savedSite };
+    const { savedSiteOwnerId: _ownerId, errorCode: _errorCode, ...legacy } = flow;
+    window.localStorage.setItem(ONBOARDING_INTEGRATION_FLOW_STORAGE_KEY, JSON.stringify(legacy));
+
+    expect(loadOnboardingIntegrationFlow()).toMatchObject({ savedSite, savedSiteOwnerId: null, errorCode: null });
+
+    saveOnboardingIntegrationFlow({ ...flow, savedSiteOwnerId: 'current-owner', errorCode: 'SITE_SLUG_UNAVAILABLE' });
+
+    expect(loadOnboardingIntegrationFlow()).toMatchObject({
+      savedSite,
+      savedSiteOwnerId: 'current-owner',
+      errorCode: 'SITE_SLUG_UNAVAILABLE',
+    });
+  });
+
   it('resumes the pre-auth phase without replaying a completed save celebration', () => {
     expect(phaseAfterOnboardingReauthentication({
       celebrationSeen: true,

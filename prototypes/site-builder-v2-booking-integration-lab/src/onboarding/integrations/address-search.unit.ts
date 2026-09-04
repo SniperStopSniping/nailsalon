@@ -14,9 +14,24 @@ describe('address search adapter', () => {
       { properties: { street: 'Queen Street West', city: 'Toronto' } },
       { properties: { city: 'Toronto' } },
       null,
-    ] })).toEqual([{ address: '100 Queen Street West, Toronto, Ontario M5H 2N2', city: 'Toronto', label: '100 Queen Street West, Toronto, Ontario M5H 2N2' }]);
+    ] })).toEqual([{ address: '100 Queen Street West, Toronto, Ontario', city: 'Toronto', label: '100 Queen Street West, Toronto, Ontario' }]);
     expect(parseAddressSuggestions(null)).toEqual([]);
     expect(parseAddressSuggestions({ features: 'invalid' })).toEqual([]);
+  });
+
+  it('never treats a provider postal code as verified for the selected building or unit', () => {
+    const house = { housenumber: '10', street: 'Chichester Place', city: 'Toronto', state: 'Ontario', type: 'house' };
+    const result = parseAddressSuggestions({ features: [
+      { properties: { ...house, postcode: 'M1T 3J4' } },
+      { properties: { ...house, postcode: 'M1T 0A0' } },
+      { properties: house },
+    ] });
+
+    expect(result).toEqual([{
+      address: '10 Chichester Place, Toronto, Ontario',
+      city: 'Toronto',
+      label: '10 Chichester Place, Toronto, Ontario',
+    }]);
   });
 
   it('sends a bounded, city-aware search without credentials or referrer', async () => {

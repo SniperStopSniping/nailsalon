@@ -14,6 +14,8 @@ export async function POST(request: Request): Promise<Response> {
     const claim = await getOnboardingDraftClaimStatus(
       identity,
       input.anonymousDraftToken,
+      undefined,
+      input.savedSiteId,
     );
     return Response.json(
       { data: { claim } },

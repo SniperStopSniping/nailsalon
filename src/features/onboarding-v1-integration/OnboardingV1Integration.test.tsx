@@ -1,11 +1,11 @@
-import { render, screen } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { ReactNode } from 'react';
 
 import { initializeStarter } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/model/starters';
 import { SITE_BUILDER_STORAGE_KEY } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/model/validation';
 import { createDefaultOnboardingState } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/model/defaults';
-import { saveOnboardingState } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/storage/storage';
+import { loadOnboardingState, saveOnboardingState } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/storage/storage';
 import type { OnboardingAuthProviderAvailability } from './auth-providers';
 import type { OnboardingClaimSuccess } from './contracts';
 import {
@@ -16,6 +16,7 @@ import {
 import { OnboardingV1Integration } from './OnboardingV1Integration';
 
 type MockedClerkUser = {
+  id: string;
   primaryEmailAddress: {
     attemptVerification: ReturnType<typeof vi.fn>;
     emailAddress: string;
@@ -34,18 +35,23 @@ const mocks = vi.hoisted(() => ({
     addListener: vi.fn(() => () => undefined),
     session: null as unknown,
     setActive: vi.fn(),
+    signOut: vi.fn(),
   },
   lab: {
+    acceptOnboardingPresentation: vi.fn(() => null),
     document: null as unknown,
     getReachableAssetIds: vi.fn(() => []),
+    loadIssues: [],
   },
   savePlan: vi.fn(),
+  status: vi.fn(),
   signIn: { authenticateWithRedirect: vi.fn(), create: vi.fn() },
   signUp: { create: vi.fn(), prepareEmailAddressVerification: vi.fn() },
   userState: { isLoaded: true, user: null as unknown },
 }));
 
 const verifiedClerkUser = (): NonNullable<MockedClerkUser> => ({
+  id: 'user-owner',
   primaryEmailAddress: {
     attemptVerification: vi.fn(),
     emailAddress: 'owner@example.com',
@@ -69,6 +75,7 @@ vi.mock('../../../prototypes/site-builder-v2-booking-integration-lab/src/custom-
   useCustomDesignAssetCoordinator: () => null,
   useCustomDesignAssetMap: () => new Map(),
   useCustomDesignAssetRepository: () => ({}),
+  useCustomDesignAssetStorageError: () => null,
 }));
 
 vi.mock('../../../prototypes/site-builder-v2-booking-integration-lab/src/ui/useLabDocument', () => ({
@@ -81,7 +88,7 @@ vi.mock('./client', async (importOriginal) => {
   return {
     ...actual,
     claimOnboardingDraft: (...args: unknown[]) => mocks.claim(...args),
-    getOnboardingDraftClaimStatus: vi.fn(),
+    getOnboardingDraftClaimStatus: (...args: unknown[]) => mocks.status(...args),
     resolveOnboardingOrganization: vi.fn(),
     saveOnboardingPlanIntent: (...args: unknown[]) => mocks.savePlan(...args),
   };
@@ -116,6 +123,14 @@ const savedSite: OnboardingClaimSuccess = {
   siteId: '11111111-1111-4111-8111-111111111111',
 };
 
+const ownedBusinessConflict = {
+  status: 'conflict' as const,
+  conflict: {
+    code: 'BUSINESS_TARGET_REQUIRED' as const,
+    businesses: [{ id: 'owned-salon', name: 'My existing salon', slug: 'my-existing-salon', hasSite: false }],
+  },
+};
+
 const seedAcceptedReview = () => {
   const state = createDefaultOnboardingState();
   state.profile.businessName = 'Isla Nail Studio';
@@ -144,10 +159,12 @@ describe('OnboardingV1Integration rendered account-save flow', () => {
     mocks.userState.isLoaded = true;
     mocks.userState.user = null;
     mocks.clerk.session = null;
+    mocks.clerk.signOut.mockReset().mockResolvedValue(undefined);
     mocks.claim.mockReset();
     mocks.claimMedia.mockReset();
     mocks.cleanupMedia.mockReset();
     mocks.savePlan.mockReset();
+    mocks.status.mockReset().mockResolvedValue({ claim: null });
     mocks.signIn.create.mockReset();
     mocks.signUp.create.mockReset();
     seedAcceptedReview();
@@ -287,6 +304,183 @@ describe('OnboardingV1Integration rendered account-save flow', () => {
     expect(await screen.findByRole('heading', { level: 1, name: 'We couldn’t finish saving your site' })).toBeVisible();
     expect(screen.queryByRole('heading', { level: 1, name: 'Check your email' })).not.toBeInTheDocument();
     expect(user.primaryEmailAddress.prepareVerification).not.toHaveBeenCalled();
+    expect(mocks.claim).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(['loading', 'signed-out'])('never requests or displays existing salons while %s', async (state) => {
+    mocks.auth.isLoaded = state !== 'loading';
+    mocks.userState.isLoaded = state !== 'loading';
+    // Simulate stale hook data while the next auth state is being resolved.
+    mocks.userState.user = verifiedClerkUser();
+    saveOnboardingIntegrationFlow({ ...createOnboardingIntegrationFlow(), phase: 'conflict' });
+    render(<OnboardingV1Integration authProviders={ALL_PROVIDERS} locale="en" />);
+
+    expect(await screen.findByRole('heading', { level: 1, name: /Your site is coming together/u })).toBeVisible();
+    expect(screen.queryByRole('heading', { name: 'Where should we save this site?' })).not.toBeInTheDocument();
+    expect(screen.queryByText('My existing salon')).not.toBeInTheDocument();
+    expect(mocks.claim).not.toHaveBeenCalled();
+  });
+
+  it('identifies the signed-in account and clears its salon picker on sign-out', async () => {
+    mocks.auth.isSignedIn = true;
+    mocks.userState.user = verifiedClerkUser();
+    mocks.claim.mockResolvedValue(ownedBusinessConflict);
+    const { rerender } = render(<OnboardingV1Integration authProviders={ALL_PROVIDERS} locale="en" />);
+
+    expect(await screen.findByRole('heading', { name: 'Where should we save this site?' })).toBeVisible();
+    expect(screen.getByText('owner@example.com')).toBeVisible();
+    expect(screen.getByText('owner@example.com').parentElement).toHaveTextContent('Signed in as owner@example.com.');
+    expect(screen.getByText('My existing salon')).toBeVisible();
+
+    mocks.auth.isSignedIn = false;
+    mocks.userState.user = null;
+    rerender(<OnboardingV1Integration authProviders={ALL_PROVIDERS} locale="en" />);
+
+    expect(screen.queryByText('My existing salon')).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Where should we save this site?' })).not.toBeInTheDocument();
+    expect(mocks.claim).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(['signed-out', 'different-owner'])('discards a previous account response after %s', async (nextAccount) => {
+    mocks.auth.isSignedIn = true;
+    mocks.userState.user = verifiedClerkUser();
+    let completeClaim!: (value: typeof ownedBusinessConflict) => void;
+    mocks.claim.mockImplementationOnce(() => new Promise((resolve) => {
+      completeClaim = resolve;
+    }));
+    mocks.claim.mockResolvedValue({
+      ...ownedBusinessConflict,
+      conflict: { ...ownedBusinessConflict.conflict, businesses: [] },
+    });
+    const { rerender } = render(<OnboardingV1Integration authProviders={ALL_PROVIDERS} locale="en" />);
+    await waitFor(() => expect(mocks.claim).toHaveBeenCalledTimes(1));
+
+    mocks.auth.isSignedIn = nextAccount !== 'signed-out';
+    mocks.userState.user = nextAccount === 'signed-out'
+      ? null
+      : {
+          ...verifiedClerkUser(),
+          id: 'user-second-owner',
+        };
+    rerender(<OnboardingV1Integration authProviders={ALL_PROVIDERS} locale="en" />);
+    await act(async () => {
+      completeClaim(ownedBusinessConflict);
+    });
+
+    expect(screen.queryByText('My existing salon')).not.toBeInTheDocument();
+    expect(mocks.claim).toHaveBeenCalledTimes(nextAccount === 'signed-out' ? 1 : 2);
+    expect(mocks.claimMedia).not.toHaveBeenCalled();
+  });
+
+  it('offers account switching without deleting the anonymous draft', async () => {
+    mocks.auth.isSignedIn = true;
+    mocks.userState.user = verifiedClerkUser();
+    mocks.claim.mockResolvedValue(ownedBusinessConflict);
+    const draft = loadOnboardingState().state;
+    render(<OnboardingV1Integration authProviders={ALL_PROVIDERS} locale="en" />);
+    await userEvent.setup().click(await screen.findByRole('button', { name: 'Use a different account' }));
+
+    expect(mocks.clerk.signOut).toHaveBeenCalledWith({ redirectUrl: '/en/onboarding-v1?account=1&auth=sign-in' });
+    expect(loadOnboardingState().state.profile).toEqual(draft.profile);
+    expect(loadOnboardingState().state.recipe).toEqual(draft.recipe);
+    expect(loadOnboardingState().state.anonymousDraftId).toBe(draft.anonymousDraftId);
+    expect(screen.queryByText('My existing salon')).not.toBeInTheDocument();
+  });
+
+  it.each(['saved', 'plans'] as const)('verifies ownership before resuming a legacy %s screen', async (phase) => {
+    mocks.auth.isSignedIn = true;
+    mocks.userState.user = verifiedClerkUser();
+    saveOnboardingIntegrationFlow({ ...createOnboardingIntegrationFlow(), phase, savedSite });
+    let completeStatus!: (value: { claim: OnboardingClaimSuccess }) => void;
+    mocks.status.mockImplementationOnce(() => new Promise((resolve) => {
+      completeStatus = resolve;
+    }));
+    render(<OnboardingV1Integration authProviders={ALL_PROVIDERS} locale="en" />);
+
+    await waitFor(() => expect(mocks.status).toHaveBeenCalledTimes(1));
+
+    expect(screen.queryByTitle('Saved preview of Isla Nail Studio')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Continue free' })).not.toBeInTheDocument();
+
+    await act(async () => {
+      completeStatus({ claim: savedSite });
+    });
+
+    expect(await screen.findByRole('heading', {
+      name: phase === 'saved' ? 'Your Luster site is saved' : 'Choose how you want to start',
+    })).toBeVisible();
+    expect(mocks.claim).not.toHaveBeenCalled();
+  });
+
+  it('hides the saved site immediately when a different owner signs in', async () => {
+    const { OnboardingIntegrationRequestError } = await import('./client');
+    mocks.auth.isSignedIn = true;
+    mocks.userState.user = verifiedClerkUser();
+    saveOnboardingIntegrationFlow({ ...createOnboardingIntegrationFlow(), phase: 'plans', savedSite });
+    mocks.status.mockResolvedValueOnce({ claim: savedSite });
+    const { rerender } = render(<OnboardingV1Integration authProviders={ALL_PROVIDERS} locale="en" />);
+    await screen.findByRole('button', { name: 'Continue free' });
+
+    mocks.status.mockRejectedValue(new OnboardingIntegrationRequestError('This draft belongs to another account.', {
+      code: 'DRAFT_ALREADY_CLAIMED',
+      status: 403,
+    }));
+    mocks.userState.user = { ...verifiedClerkUser(), id: 'user-second-owner' };
+    rerender(<OnboardingV1Integration authProviders={ALL_PROVIDERS} locale="en" />);
+
+    expect(screen.queryByRole('button', { name: 'Continue free' })).not.toBeInTheDocument();
+    expect(screen.queryByTitle('Saved preview of Isla Nail Studio')).not.toBeInTheDocument();
+
+    await waitFor(() => expect(mocks.status).toHaveBeenCalledTimes(2));
+
+    expect(mocks.savePlan).not.toHaveBeenCalled();
+    expect(mocks.claim).not.toHaveBeenCalled();
+  });
+
+  it('ignores an interrupted-save status response after the account changes', async () => {
+    mocks.auth.isSignedIn = true;
+    mocks.userState.user = verifiedClerkUser();
+    saveOnboardingIntegrationFlow({ ...createOnboardingIntegrationFlow(), phase: 'saving' });
+    let completeStatus!: (value: { claim: OnboardingClaimSuccess }) => void;
+    mocks.status.mockImplementationOnce(() => new Promise((resolve) => {
+      completeStatus = resolve;
+    }));
+    const { rerender } = render(<OnboardingV1Integration authProviders={ALL_PROVIDERS} locale="en" />);
+    await waitFor(() => expect(mocks.status).toHaveBeenCalledTimes(1));
+
+    mocks.auth.isSignedIn = false;
+    mocks.userState.user = null;
+    rerender(<OnboardingV1Integration authProviders={ALL_PROVIDERS} locale="en" />);
+    await act(async () => {
+      completeStatus({ claim: savedSite });
+    });
+
+    expect(mocks.claimMedia).not.toHaveBeenCalled();
+    expect(loadOnboardingIntegrationFlow().savedSite).toBeNull();
+    expect(screen.queryByTitle('Saved preview of Isla Nail Studio')).not.toBeInTheDocument();
+  });
+
+  it('recovers a taken URL by returning to business details without losing the draft', async () => {
+    const { OnboardingIntegrationRequestError } = await import('./client');
+    mocks.auth.isSignedIn = true;
+    mocks.userState.user = verifiedClerkUser();
+    mocks.claim.mockRejectedValue(new OnboardingIntegrationRequestError('That Luster URL is no longer available.', {
+      code: 'SITE_SLUG_UNAVAILABLE',
+      status: 409,
+    }));
+    const draft = loadOnboardingState().state;
+    render(<OnboardingV1Integration authProviders={ALL_PROVIDERS} locale="en" />);
+
+    expect(await screen.findByRole('heading', { name: 'Choose a different website URL' })).toBeVisible();
+    expect(screen.getByRole('link', { name: 'Log in to edit my existing salon' })).toHaveAttribute('href', '/en/admin');
+    expect(screen.getByRole('link', { name: /Contact support/u })).toHaveAttribute('href', 'mailto:support@islanailsalon.com');
+
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Change my URL' }));
+
+    expect(loadOnboardingState().state.profile).toEqual(draft.profile);
+    expect(loadOnboardingState().state.anonymousDraftId).toBe(draft.anonymousDraftId);
+    expect(loadOnboardingState().state.progress.currentScreen).toBe('business');
+    expect(loadOnboardingIntegrationFlow().phase).toBe('onboarding');
     expect(mocks.claim).toHaveBeenCalledTimes(1);
   });
 

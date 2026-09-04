@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import { createDanielaFixtureState } from '../fixtures';
+import { locationForBusinessType } from '../model/business-identity';
 import {
   createDefaultOnboardingState,
   DEFAULT_PREVIEW_TIMESTAMP,
@@ -110,6 +111,37 @@ const createLegacySavedState = (
 };
 
 describe('onboarding browser-local storage', () => {
+  it('preserves older privacy and online-only preferences rather than applying fresh setup defaults', () => {
+    const state = createDefaultOnboardingState();
+    state.profile.bookingOnlyContact = true;
+    state.profile.location.addressVisibility = 'hidden';
+    delete state.profile.location.addressVisibilityDefaulted;
+
+    const loaded = parseOnboardingState(JSON.stringify(state));
+
+    expect(loaded.status).toBe('loaded');
+    expect(loaded.state.profile.bookingOnlyContact).toBe(true);
+    expect(locationForBusinessType(loaded.state.profile.location, 'salon_team').addressVisibility).toBe('hidden');
+  });
+
+  it('keeps fresh address defaults adaptable after reload without promoting legacy choices', () => {
+    const state = createDefaultOnboardingState();
+    const loaded = parseOnboardingState(JSON.stringify(state));
+
+    expect(locationForBusinessType(loaded.state.profile.location, 'home_based').addressVisibility).toBe('after_booking');
+
+    const legacy = createLegacySavedState();
+    const profile = legacy.profile as Record<string, unknown>;
+    const location = profile.location as Record<string, unknown>;
+    location.addressVisibility = 'after_booking';
+    delete location.addressVisibilityDefaulted;
+    const migrated = parseOnboardingState(JSON.stringify(legacy));
+
+    expect(migrated.status).toBe('loaded');
+    expect(migrated.state.profile.location.addressVisibilityDefaulted).toBe(false);
+    expect(locationForBusinessType(migrated.state.profile.location, 'salon_team').addressVisibility).toBe('after_booking');
+  });
+
   it('uses one namespaced key and round-trips the complete state', () => {
     const storage = createMemoryStorage({ unrelated: 'keep me' });
     const state = createDanielaFixtureState();
@@ -889,6 +921,7 @@ describe('onboarding browser-local storage', () => {
 
   it('keeps ambiguous schema v9 profile fields private during migration', () => {
     const legacyState = createDefaultOnboardingState();
+    legacyState.profile.bookingOnlyContact = true;
     legacyState.profile.ownerName = 'Private owner';
     legacyState.profile.about.shortBio = 'Stored for a future website design.';
     legacyState.profile.clientContact.primaryNumber = '647-555-0123';

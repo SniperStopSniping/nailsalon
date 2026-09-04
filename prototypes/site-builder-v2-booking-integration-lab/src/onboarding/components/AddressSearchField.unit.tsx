@@ -6,10 +6,10 @@ import { searchAddresses } from '../integrations/address-search';
 import { AddressSearchField } from './AddressSearchField';
 
 vi.mock('../integrations/address-search', () => ({ searchAddresses: vi.fn() }));
-const suggestion = { address: '100 Queen Street West, Toronto, Ontario M5H 2N2', city: 'Toronto', label: '100 Queen Street West, Toronto, Ontario M5H 2N2' };
+const suggestion = { address: '100 Queen Street West, Toronto, Ontario', city: 'Toronto', label: '100 Queen Street West, Toronto, Ontario' };
 
-function Harness({ onSelect }: { onSelect?: ReturnType<typeof vi.fn> }) {
-  const [value, setValue] = useState('');
+function Harness({ initialValue = '', onSelect }: { initialValue?: string; onSelect?: ReturnType<typeof vi.fn> }) {
+  const [value, setValue] = useState(initialValue);
   return (
     <AddressSearchField
       city="Toronto"
@@ -65,9 +65,30 @@ describe('AddressSearchField', () => {
 
     expect(searchAddresses).toHaveBeenCalledTimes(1);
 
-    fireEvent.change(input, { target: { value: `${suggestion.address}, Unit 4` } });
+    fireEvent.change(input, { target: { value: `${suggestion.address}, Unit 4, M5H 2N2` } });
+    fireEvent.blur(input);
 
-    expect(input).toHaveValue(`${suggestion.address}, Unit 4`);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1000);
+    });
+
+    expect(input).toHaveValue(`${suggestion.address}, Unit 4, M5H 2N2`);
+    expect(searchAddresses).toHaveBeenCalledTimes(1);
+    expect(screen.getByText(/Check the address and add your unit and postal code/)).toBeInTheDocument();
+  });
+
+  it('preserves an existing saved address and postal code without reapplying suggestions', async () => {
+    const savedAddress = '100 Queen Street West, Unit 4, Toronto, Ontario M5H 2N2';
+    render(<Harness initialValue={savedAddress} />);
+    const input = screen.getByRole('combobox', { name: 'Exact address' });
+    fireEvent.focus(input);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1000);
+    });
+
+    expect(input).toHaveValue(savedAddress);
+    expect(searchAddresses).not.toHaveBeenCalled();
   });
 
   it('supports arrows, Enter and Escape without trapping focus', async () => {

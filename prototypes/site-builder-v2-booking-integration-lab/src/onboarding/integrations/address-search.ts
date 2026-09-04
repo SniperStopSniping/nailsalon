@@ -24,10 +24,13 @@ export function parseAddressSuggestions(payload: unknown): AddressSuggestion[] {
     if (!street || !city || !houseNumber) {
       continue;
     }
+    // Photon postcodes can describe the surrounding area rather than this exact
+    // building/unit. Leave them out instead of saving an unverified postal code;
+    // the owner can append their correct code to the editable address.
     const address = [
       `${houseNumber} ${street}`,
       city,
-      [text(properties.state), text(properties.postcode)].filter(Boolean).join(' '),
+      text(properties.state),
     ].filter(Boolean).join(', ');
     suggestions.set(address, { address, city, label: address });
   }
