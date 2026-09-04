@@ -8,6 +8,36 @@
   gap: 12px;
 }
 
+.onboarding-address-search { min-width: 0; }
+.onboarding-address-search > ul {
+  display: grid;
+  margin: 8px 0;
+  padding: 0;
+  list-style: none;
+  overflow: hidden;
+  border: 1px solid var(--onboarding-line);
+  border-radius: 12px;
+}
+.onboarding-address-search [role="option"] {
+  width: 100%;
+  min-height: 48px;
+  padding: 12px;
+  border: 0;
+  border-radius: 0;
+  background: var(--onboarding-surface, white);
+  color: var(--onboarding-ink);
+  text-align: left;
+  overflow-wrap: anywhere;
+  font-size: 0.82rem;
+  line-height: 1.4;
+}
+.onboarding-address-search [role="option"][aria-selected="true"],
+.onboarding-address-search [role="option"]:hover {
+  background: var(--onboarding-accent-soft);
+  color: var(--onboarding-accent-dark);
+}
+.onboarding-address-search li + li { border-top: 1px solid var(--onboarding-line); }
+
 .onboarding-location-contact-v2 .onboarding-collapsible-card > div:not([hidden]) {
   display: grid;
   gap: 16px;

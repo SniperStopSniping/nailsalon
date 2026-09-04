@@ -65,13 +65,37 @@ test('Screen 7 keeps setup compact while preserving the canonical service librar
   await expect(library.getByText('ADD-ONS ARE OPTIONAL')).toBeVisible();
   await expect(library.getByText('4 add-ons added')).toBeVisible();
 
+  await library.getByRole('button', { name: 'Remove French', exact: true }).click();
+  await library.getByRole('tab', { name: 'Services', exact: true }).click();
+  await library.getByRole('searchbox', { name: 'Search services' }).fill('Shellac');
+  await library.getByRole('button', { name: 'Add Shellac / Gel Toes' }).click();
+
+  await expect(library.getByText('7 services selected')).toBeVisible();
+  await expect(library.getByText('3 add-ons added')).toBeVisible();
+
   await library.getByRole('button', { name: 'Done' }).click();
 
-  await page.getByRole('button', { name: 'Use these 6 services' }).click();
+  await expect(page.getByRole('button', { name: /Use these/ })).toHaveCount(0);
 
   await expect(page.locator('[data-booking-task="services"]')).toHaveClass(/is-complete/);
   await expect(page.locator('[data-booking-task="clients"]')
     .getByRole('button', { name: /Clients/ })).toHaveAttribute('aria-expanded', 'true');
+  await expect(page.locator('[data-booking-task="clients"]')
+    .getByRole('button', { name: /Clients/ })).toBeFocused();
+  await expect(page.getByLabel('Autosave status')).toHaveText('Saved');
+
+  await page.reload();
+
+  await expect(page.locator('[data-booking-task="services"]')).toHaveClass(/is-complete/);
+
+  const savedMenu = await page.evaluate((storageKey) => {
+    const state = JSON.parse(window.localStorage.getItem(storageKey) ?? '{}');
+    return state.profile.serviceMenu;
+  }, ONBOARDING_STORAGE_KEY);
+
+  expect(savedMenu.reviewed).toBe(true);
+  expect(savedMenu.selectedServiceIds).toContain('svc-template-shellac_gel_toes');
+  expect(savedMenu.selectedAddOnIds).not.toContain('addon-french');
 
   await page.getByRole('button', { name: /Booking notice/ }).click();
   await page.getByRole('combobox', {
@@ -84,7 +108,7 @@ test('Screen 7 keeps setup compact while preserving the canonical service librar
   await expect(ready.getByRole('heading', { name: 'Your booking setup is ready' })).toBeVisible();
   await expect(ready.getByText('Appointment only · Accepting new clients', { exact: true }))
     .toBeVisible();
-  await expect(ready.getByText('6 services · 4 add-ons', { exact: true })).toBeVisible();
+  await expect(ready.getByText('7 services · 3 add-ons', { exact: true })).toBeVisible();
   await expect(ready.getByText('2 hours', { exact: true })).toBeVisible();
   await expect(ready.getByText('No deposit', { exact: true })).toBeVisible();
   await expect(page.locator('[data-booking-task="deposits"]')

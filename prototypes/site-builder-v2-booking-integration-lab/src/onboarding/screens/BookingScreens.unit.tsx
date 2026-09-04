@@ -17,7 +17,7 @@ import {
 } from './BookingScreens';
 
 describe('BookingPreferencesScreen', () => {
-  it('shows a one-time, non-blocking service-menu celebration when the menu is confirmed', async () => {
+  it('completes services with Done and shows the non-blocking menu celebration', async () => {
     const user = userEvent.setup();
     function Harness() {
       const [profile, setProfile] = useState(createDefaultBusinessProfile);
@@ -37,10 +37,12 @@ describe('BookingPreferencesScreen', () => {
     }
 
     render(<FeedbackProvider testMode><Harness /></FeedbackProvider>);
-    const confirmation = screen.getByRole('button', {
-      name: 'Use these 6 services',
-    });
-    await user.click(confirmation);
+
+    expect(screen.queryByRole('button', { name: /Use these/ })).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Review services & add-ons' }));
+    await user.click(within(screen.getByRole('dialog', { name: 'Choose your services' }))
+      .getByRole('button', { name: 'Done' }));
 
     expect(document.querySelector('[data-booking-task="services"]')).toHaveClass(
       'is-celebrating',
@@ -50,7 +52,11 @@ describe('BookingPreferencesScreen', () => {
       .toHaveTextContent('Your service menu is ready. 6 services added.'));
 
     expect(document.querySelector('.onboarding-feedback')).toBeNull();
-    expect(confirmation).toBeEnabled();
+    expect(document.querySelector('[data-booking-task="services"]')).toHaveClass('is-complete');
+    expect(screen.queryByRole('dialog', { name: 'Choose your services' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Save and continue' })).toBeEnabled();
+
+    await waitFor(() => expect(screen.getByRole('button', { name: /Clients/ })).toHaveFocus());
   });
 
   it('presents four manageable tasks and validates the canonical Booking setup', async () => {
@@ -103,12 +109,14 @@ describe('BookingPreferencesScreen', () => {
 
     await user.click(screen.getByRole('button', { name: 'Save and continue' }));
 
-    expect(screen.getAllByText('Confirm the services you want to start with.').length)
+    expect(screen.getAllByText('Review your services and select Done.').length)
       .toBeGreaterThan(0);
     expect(screen.getAllByText('Choose how clients can visit you.').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Choose your new-client status.').length).toBeGreaterThan(0);
 
-    await user.click(screen.getByRole('button', { name: 'Use these 6 services' }));
+    await user.click(screen.getByRole('button', { name: 'Review services & add-ons' }));
+    await user.click(within(screen.getByRole('dialog', { name: 'Choose your services' }))
+      .getByRole('button', { name: 'Done' }));
     await user.click(screen.getByRole('radio', { name: 'Appointment only' }));
     await user.click(within(screen.getByRole('group', { name: 'Are you accepting new clients?' }))
       .getByRole('radio', { name: 'Yes' }));
@@ -168,6 +176,76 @@ describe('BookingPreferencesScreen', () => {
     expect(latest.policies.deposits.amountCents).toBe(2_500);
     expect(latest.bookingPreferences).toBe(originalBookingPreferences);
     expect(screen.queryByText(/depends on the service/i)).not.toBeInTheDocument();
+  });
+
+  it('keeps empty menus invalid and lets Done complete a service with no optional add-ons', async () => {
+    const user = userEvent.setup();
+    const onContinue = vi.fn();
+    const onBack = vi.fn();
+    let latest = createDefaultBusinessProfile();
+    latest.serviceMenu.selectedServiceIds = ['svc-manicure-russian'];
+    latest.serviceMenu.selectedAddOnIds = [];
+    latest.bookingPreferences.visitMode = 'appointment_only';
+    latest.bookingPreferences.newClientStatus = 'yes';
+
+    function Harness() {
+      const [profile, setProfile] = useState(latest);
+      return (
+        <BookingPreferencesScreen
+          profile={profile}
+          onBack={onBack}
+          onBookingPreferencesChange={vi.fn()}
+          onContinue={onContinue}
+          onDepositChange={vi.fn()}
+          onServiceMenuChange={serviceMenu => setProfile((current) => {
+            latest = { ...current, serviceMenu };
+            return latest;
+          })}
+        />
+      );
+    }
+
+    const rendered = render(<Harness />);
+    await user.click(screen.getByRole('button', { name: 'Review services & add-ons' }));
+    const library = screen.getByRole('dialog', { name: 'Choose your services' });
+    await user.click(within(library).getByRole('button', { name: 'Remove Russian Manicure' }));
+
+    expect(latest.serviceMenu.selectedServiceIds).toEqual([]);
+    expect(within(library).getByRole('button', { name: 'Done' })).toBeDisabled();
+    expect(within(library).getByRole('alert')).toHaveTextContent('Choose at least one service.');
+    expect(onContinue).not.toHaveBeenCalled();
+
+    await user.keyboard('{Escape}');
+    await user.click(screen.getByRole('button', { name: 'Save and continue' }));
+
+    expect(screen.getAllByText('Choose at least one service.').length).toBeGreaterThan(0);
+    expect(onContinue).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole('button', { name: 'Review services & add-ons' }));
+    const reopened = screen.getByRole('dialog', { name: 'Choose your services' });
+    await user.click(within(reopened).getByRole('button', { name: 'Add Russian Manicure' }));
+
+    expect(latest.serviceMenu.selectedServiceIds).toEqual(['svc-manicure-russian']);
+
+    await user.click(within(reopened).getByRole('tab', { name: 'Add-ons' }));
+    await user.click(within(reopened).getByRole('button', { name: 'Done' }));
+
+    expect(latest.serviceMenu.reviewed).toBe(true);
+    expect(latest.serviceMenu.selectedAddOnIds).toEqual([]);
+    expect(screen.getByRole('heading', { name: 'Your booking setup is ready' })).toBeVisible();
+
+    await user.click(screen.getByRole('button', { name: 'Save and continue' }));
+    await user.click(screen.getByRole('button', { name: 'Back' }));
+
+    expect(onContinue).toHaveBeenCalledOnce();
+    expect(onBack).toHaveBeenCalledOnce();
+
+    rendered.unmount();
+    render(<Harness />);
+
+    expect(document.querySelector('[data-booking-task="services"]')).toHaveClass('is-complete');
+    expect(latest.serviceMenu.selectedServiceIds).toEqual(['svc-manicure-russian']);
+    expect(latest.serviceMenu.selectedAddOnIds).toEqual([]);
   });
 
   it('removes and adds existing canonical services through the Library port', async () => {
@@ -268,7 +346,10 @@ describe('BookingPreferencesScreen', () => {
 
     expect(screen.queryByRole('dialog', { name: 'Choose your services' })).not.toBeInTheDocument();
     expect(latest.serviceMenu.selectedServiceIds).toContain('svc-template-shellac_gel_toes');
+    expect(latest.serviceMenu.reviewed).toBe(true);
+    expect(document.querySelector('[data-booking-task="services"]')).toHaveClass('is-complete');
 
+    await user.click(screen.getByRole('button', { name: /Services 7 services · 4 add-ons Complete/ }));
     await user.click(screen.getByRole('button', { name: 'Review services & add-ons' }));
     library = screen.getByRole('dialog', { name: 'Choose your services' });
 

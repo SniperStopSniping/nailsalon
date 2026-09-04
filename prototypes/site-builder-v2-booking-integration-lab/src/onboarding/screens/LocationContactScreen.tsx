@@ -3,6 +3,7 @@ import '../location-contact-screen.css';
 import { type FormEvent, useId, useRef, useState } from 'react';
 
 import { useMediaQuery } from '../../ui/StarterChooser';
+import { AddressSearchField } from '../components/AddressSearchField';
 import {
   ChoiceGroup,
   type ChoiceOption,
@@ -319,15 +320,18 @@ export function LocationContactScreen({
                   />
                 )
               : (
-                  <TextField
-                    autoComplete="street-address"
+                  <AddressSearchField
+                    city={profile.location.cityOrArea}
                     error={errors.exactAddress}
                     label={locationAddressLabel(profile)}
-                    required
                     value={profile.location.exactAddress}
-                    onChange={(event) => {
+                    onChange={(value) => {
                       setErrors(current => ({ ...current, exactAddress: '' }));
-                      updateLocation({ exactAddress: event.target.value });
+                      updateLocation({ exactAddress: value });
+                    }}
+                    onSelect={(suggestion) => {
+                      setErrors(current => ({ ...current, cityOrArea: '', exactAddress: '' }));
+                      updateLocation({ exactAddress: suggestion.address, cityOrArea: suggestion.city });
                     }}
                   />
                 )}

@@ -109,12 +109,12 @@ const REVOKED_SESSION_ID = 'session_preview_owner_revoked_does_not_exist';
 const FAR_FUTURE = new Date('2099-01-01T00:00:00.000Z');
 const PAST = new Date('2020-01-01T00:00:00.000Z');
 
-function draftSalon() {
-  return { id: SALON_ID, publicationStatus: 'draft', freeSoloEnabled: true };
+function draftSalon(freeSoloEnabled = true) {
+  return { id: SALON_ID, publicationStatus: 'draft', freeSoloEnabled };
 }
 
-function publishedSalon() {
-  return { id: SALON_ID, publicationStatus: 'published', freeSoloEnabled: true };
+function publishedSalon(freeSoloEnabled = true) {
+  return { id: SALON_ID, publicationStatus: 'published', freeSoloEnabled };
 }
 
 function impersonationCookieFor(salonId: string, salonSlug: string, adminId: string) {
@@ -346,7 +346,58 @@ describe('resolveDraftSalonAccess — draft salon rendering (the 404 gate)', () 
   });
 });
 
-describe('resolveDraftSalonAccess — draft config on an otherwise-published salon', () => {
+describe('resolveDraftSalonAccess — current onboarding drafts without Free Solo', () => {
+  beforeEach(() => {
+    clearCookies();
+    clerkAuth.mockReset();
+    clerkAuth.mockResolvedValue({ userId: null });
+  });
+
+  it('gives the Clerk owner the unpublished-salon status bypass, not just draft config', async () => {
+    setCookie('__session', 'opaque-clerk-session-cookie');
+    clerkAuth.mockResolvedValue({ userId: OWNER_CLERK_ID });
+
+    await expect(resolveDraftSalonAccess(draftSalon(false))).resolves.toEqual({
+      allowed: true,
+      isPreviewingDraftSalon: true,
+      isPreviewingDraftConfig: true,
+      actorType: 'owner',
+    });
+  });
+
+  it('gives matching impersonation the same unpublished-salon status bypass', async () => {
+    setCookie(ADMIN_SESSION_COOKIE, SUPER_ADMIN_SESSION_ID);
+    setCookie(IMPERSONATE_COOKIE, impersonationCookieFor(SALON_ID, 'target-salon', SUPER_ADMIN_ID));
+
+    await expect(resolveDraftSalonAccess(draftSalon(false))).resolves.toEqual({
+      allowed: true,
+      isPreviewingDraftSalon: true,
+      isPreviewingDraftConfig: true,
+      actorType: 'super_admin',
+    });
+  });
+
+  it.each([null, OTHER_OWNER_SESSION_ID, EXPIRED_OWNER_SESSION_ID, REVOKED_SESSION_ID, SUPER_ADMIN_SESSION_ID])(
+    'preserves publication-independent routes without giving session %s any preview bypass',
+    async (sessionId) => {
+      if (sessionId) {
+        setCookie(ADMIN_SESSION_COOKIE, sessionId);
+      }
+
+      // Legacy layout admission stays unchanged for capability/payment-return
+      // routes. Public booking still fails its status check: neither preview
+      // flag may bypass publication for an anonymous/wrong/expired actor.
+      await expect(resolveDraftSalonAccess(draftSalon(false))).resolves.toEqual({
+        allowed: true,
+        isPreviewingDraftSalon: false,
+        isPreviewingDraftConfig: false,
+        actorType: null,
+      });
+    },
+  );
+});
+
+describe.each([false, true])('resolveDraftSalonAccess — published salon (freeSoloEnabled=%s)', (freeSoloEnabled) => {
   beforeEach(() => {
     clearCookies();
     clerkAuth.mockReset();
@@ -354,7 +405,7 @@ describe('resolveDraftSalonAccess — draft config on an otherwise-published sal
   });
 
   it('1. anonymous still renders the page, on the LIVE config', async () => {
-    const result = await resolveDraftSalonAccess(publishedSalon());
+    const result = await resolveDraftSalonAccess(publishedSalon(freeSoloEnabled));
 
     expect(result).toEqual({
       allowed: true,
@@ -366,7 +417,7 @@ describe('resolveDraftSalonAccess — draft config on an otherwise-published sal
 
   it('2. wrong owner still renders the page, on the LIVE config', async () => {
     setCookie(ADMIN_SESSION_COOKIE, OTHER_OWNER_SESSION_ID);
-    const result = await resolveDraftSalonAccess(publishedSalon());
+    const result = await resolveDraftSalonAccess(publishedSalon(freeSoloEnabled));
 
     expect(result).toEqual({
       allowed: true,
@@ -378,7 +429,7 @@ describe('resolveDraftSalonAccess — draft config on an otherwise-published sal
 
   it('3. correct owner sees the DRAFT config', async () => {
     setCookie(ADMIN_SESSION_COOKIE, OWNER_SESSION_ID);
-    const result = await resolveDraftSalonAccess(publishedSalon());
+    const result = await resolveDraftSalonAccess(publishedSalon(freeSoloEnabled));
 
     expect(result).toEqual({
       allowed: true,
@@ -391,7 +442,7 @@ describe('resolveDraftSalonAccess — draft config on an otherwise-published sal
   it('4. authorized impersonating super admin sees the DRAFT config', async () => {
     setCookie(ADMIN_SESSION_COOKIE, SUPER_ADMIN_SESSION_ID);
     setCookie(IMPERSONATE_COOKIE, impersonationCookieFor(SALON_ID, 'target-salon', SUPER_ADMIN_ID));
-    const result = await resolveDraftSalonAccess(publishedSalon());
+    const result = await resolveDraftSalonAccess(publishedSalon(freeSoloEnabled));
 
     expect(result).toEqual({
       allowed: true,
@@ -403,7 +454,7 @@ describe('resolveDraftSalonAccess — draft config on an otherwise-published sal
 
   it('5. expired/revoked owner session sees the LIVE config, not draft', async () => {
     setCookie(ADMIN_SESSION_COOKIE, REVOKED_SESSION_ID);
-    const result = await resolveDraftSalonAccess(publishedSalon());
+    const result = await resolveDraftSalonAccess(publishedSalon(freeSoloEnabled));
 
     expect(result).toEqual({
       allowed: true,

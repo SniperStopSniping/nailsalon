@@ -50,6 +50,7 @@ import { useSalon } from '@/providers/SalonProvider';
 import { themeVars } from '@/theme';
 import { formatDuration } from '@/utils/Helpers';
 
+import { QuickBookLocationMap } from './QuickBookLocationMap';
 import type { QuickBookProfileView } from './quickBookProfile';
 import { QuickBookProfileHeader } from './QuickBookProfileHeader';
 
@@ -2709,6 +2710,9 @@ export function BookServiceClient({
                 presentation={sectionPresentation}
                 renderers={sectionRenderers}
               />
+              {compactQuickBookProfileEnabled
+                ? <QuickBookLocationMap location={resolvedQuickBookProfile.location} />
+                : null}
               {isEmbeddedBuilderPreview
                 ? (
                     <span

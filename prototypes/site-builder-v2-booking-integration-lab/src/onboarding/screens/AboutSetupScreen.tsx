@@ -207,11 +207,9 @@ export function AboutSetupScreen({
   const [listDraft, setListDraft] = useState('');
   const listDraftRef = useRef('');
   const fullBioInputRef = useRef<HTMLTextAreaElement>(null);
+  const shortBioInputRef = useRef<HTMLTextAreaElement>(null);
   const writingContextRef = useRef('');
-  const [writingStep, setWritingStep] = useState<{
-    phase: 'context' | 'suggestion';
-    suggestion: string;
-  } | null>(null);
+  const [writingHelperOpen, setWritingHelperOpen] = useState(false);
   const [suggestionApplied, setSuggestionApplied] = useState(false);
   const introductionComplete = Boolean(about.shortBio.trim());
   const specialtiesPopulated = about.specialties.length > 0 || Boolean(about.yearsOfExperience.trim());
@@ -266,7 +264,7 @@ export function AboutSetupScreen({
   };
 
   const openWritingHelper = () => {
-    setWritingStep({ phase: 'context', suggestion: '' });
+    setWritingHelperOpen(true);
     onWritingHelperOpenChange?.(true);
     onUpdate(current => recordOnboardingEvent(current, {
       action: 'opened',
@@ -275,7 +273,7 @@ export function AboutSetupScreen({
   };
 
   const closeWritingHelper = () => {
-    setWritingStep(null);
+    setWritingHelperOpen(false);
     onWritingHelperOpenChange?.(false);
   };
 
@@ -285,19 +283,13 @@ export function AboutSetupScreen({
     const suggestion = clampSuggestion(ownerContext
       ? `${knownFacts.split(/(?<=[.!?])\s/u)[0] ?? ''} ${ownerContext}`
       : knownFacts);
-    setWritingStep({ phase: 'suggestion', suggestion });
-  };
-
-  const useSuggestion = () => {
-    if (!writingStep?.suggestion) {
-      return;
-    }
     onUpdate(current => recordOnboardingEvent(
-      updateAbout(current, { shortBio: writingStep.suggestion }, 'bio'),
+      updateAbout(current, { shortBio: suggestion }, 'bio'),
       { action: 'used', type: 'about_wording_helper' },
     ));
     setSuggestionApplied(true);
     closeWritingHelper();
+    window.requestAnimationFrame(() => shortBioInputRef.current?.focus({ preventScroll: true }));
   };
 
   const openDetailEditor = (editor: Exclude<DetailEditor, null>) => {
@@ -390,6 +382,7 @@ export function AboutSetupScreen({
                     </button>
                   </div>
                   <textarea
+                    ref={shortBioInputRef}
                     id="screen-eight-short-intro"
                     maxLength={SHORT_INTRODUCTION_LIMIT}
                     placeholder="Example: Share what clients can expect at an appointment, what you specialize in, and what makes your approach yours."
@@ -412,7 +405,7 @@ export function AboutSetupScreen({
                   <Sparkles aria-hidden="true" size={18} />
                   <span>
                     <strong>Need help getting started?</strong>
-                    <small>Use AI to write a suggestion — you can edit it before saving.</small>
+                    <small>Get a suggested introduction — you can edit it before saving.</small>
                   </span>
                   <ChevronRight aria-hidden="true" size={18} />
                 </button>
@@ -580,48 +573,28 @@ export function AboutSetupScreen({
       />
 
       <Dialog
-        description={writingStep?.phase === 'suggestion'
-          ? 'Review this suggestion before adding it to your introduction.'
-          : 'Share a few facts and Luster will draft a short introduction you can edit.'}
+        description="Share a few facts or use your saved profile. Generate suggestion fills your introduction so you can edit it."
         onClose={closeWritingHelper}
-        open={writingStep !== null}
-        title={writingStep?.phase === 'suggestion'
-          ? 'Your suggested introduction'
-          : 'Tell us a little about yourself'}
+        open={writingHelperOpen}
+        title="Tell us a little about yourself"
       >
-        {writingStep?.phase === 'suggestion'
-          ? (
-              <div className="screen-eight-editor">
-                <div className="screen-eight-suggestion">
-                  <strong>Suggestion</strong>
-                  <p>{writingStep.suggestion}</p>
-                </div>
-                <div className="screen-eight-editor__actions">
-                  <button type="button" onClick={closeWritingHelper}>Cancel</button>
-                  <button type="button" onClick={generateSuggestion}>Try again</button>
-                  <button className="is-primary" type="button" onClick={useSuggestion}>Use suggestion</button>
-                </div>
-              </div>
-            )
-          : (
-              <div className="screen-eight-editor">
-                <label>
-                  <span>Tell us a little about yourself</span>
-                  <textarea
-                    placeholder="I specialize in structured manicures and natural nails. I like appointments to feel relaxed and never rushed."
-                    rows={5}
-                    defaultValue={writingContextRef.current}
-                    onChange={(event) => {
-                      writingContextRef.current = event.target.value;
-                    }}
-                  />
-                </label>
-                <div className="screen-eight-editor__actions">
-                  <button type="button" onClick={closeWritingHelper}>Cancel</button>
-                  <button className="is-primary" type="button" onClick={generateSuggestion}>Generate suggestion</button>
-                </div>
-              </div>
-            )}
+        <div className="screen-eight-editor">
+          <label>
+            <span>Tell us a little about yourself</span>
+            <textarea
+              placeholder="Example: Describe your specialties or what clients can expect at an appointment."
+              rows={5}
+              defaultValue={writingContextRef.current}
+              onChange={(event) => {
+                writingContextRef.current = event.target.value;
+              }}
+            />
+          </label>
+          <div className="screen-eight-editor__actions">
+            <button type="button" onClick={closeWritingHelper}>Cancel</button>
+            <button className="is-primary" type="button" onClick={generateSuggestion}>Generate suggestion</button>
+          </div>
+        </div>
       </Dialog>
 
       <Dialog

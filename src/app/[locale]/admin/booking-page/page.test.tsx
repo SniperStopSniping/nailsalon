@@ -1799,6 +1799,8 @@ describe('BookingPageOwnerSurface', () => {
       render(<BookingPageOwnerSurface />);
 
       const button = await screen.findByTestId('salon-publish-button');
+      const previousPreview = screen.getByTitle('Live booking page preview');
+      const previousSrc = previousPreview.getAttribute('src');
       fireEvent.click(button);
 
       await waitFor(() => {
@@ -1816,6 +1818,14 @@ describe('BookingPageOwnerSurface', () => {
       );
 
       expect(bookingPageActionCalls).toHaveLength(0);
+
+      const refreshedPreview = screen.getByTitle('Live booking page preview');
+
+      expect(refreshedPreview).not.toBe(previousPreview);
+      expect(refreshedPreview.getAttribute('src')).not.toBe(previousSrc);
+      expect(refreshedPreview).toHaveAttribute('src', expect.stringMatching(
+        /^\/admin\/booking-page\/preview\/salon-a\?builderPreview=\d+$/,
+      ));
     });
 
     it('shows an error and keeps the banner when the publish call fails', async () => {
@@ -1824,11 +1834,15 @@ describe('BookingPageOwnerSurface', () => {
       render(<BookingPageOwnerSurface />);
 
       const button = await screen.findByTestId('salon-publish-button');
+      const previousPreview = screen.getByTitle('Live booking page preview');
+      const previousSrc = previousPreview.getAttribute('src');
       fireEvent.click(button);
 
       await screen.findByRole('alert');
 
       expect(screen.getByTestId('salon-publish-banner')).toBeInTheDocument();
+      expect(screen.getByTitle('Live booking page preview')).toBe(previousPreview);
+      expect(previousPreview).toHaveAttribute('src', previousSrc);
     });
 
     it('does not regress published salon metadata when an older booking-page response arrives last', async () => {

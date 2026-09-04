@@ -1,6 +1,7 @@
 import { act, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { serviceMenuPort } from '../integrations/adapters/service-menu';
 import type { OnboardingStorage } from '../storage/storage';
 import { ONBOARDING_STORAGE_KEY } from '../storage/storage';
 import { useOnboardingState } from './useOnboardingState';
@@ -76,6 +77,35 @@ describe('useOnboardingState', () => {
     expect(JSON.parse(persisted ?? '{}').profile.businessName)
       .toBe('Immediate navigation studio');
     expect(storage.setItem).toHaveBeenCalledTimes(1);
+  });
+
+  it('restores immediately edited and Done-reviewed canonical services after Back and pagehide', () => {
+    const storage = createMemoryStorage();
+    const first = renderHook(() => useOnboardingState({ debounceMs: 5_000, storage }));
+    const original = first.result.current.state.profile.serviceMenu;
+    const retainedServiceId = original.selectedServiceIds[0]!;
+    const selection = serviceMenuPort.setServiceSelected({
+      ...original,
+      ownerOverridesByServiceId: { [retainedServiceId]: { durationMinutes: 75, priceCents: 6_700 } },
+      selectedAddOnIds: [],
+    }, 'svc-template-shellac_gel_toes', true);
+
+    act(() => first.result.current.updateProfile({ serviceMenu: selection }));
+
+    expect(first.result.current.state.profile.serviceMenu.selectedServiceIds)
+      .toContain('svc-template-shellac_gel_toes');
+
+    act(() => first.result.current.updateProfile({ serviceMenu: { ...selection, reviewed: true } }));
+    act(() => first.result.current.continueFlow());
+    act(() => first.result.current.back());
+    act(() => window.dispatchEvent(new Event('pagehide')));
+    first.unmount();
+    const restored = renderHook(() => useOnboardingState({ storage }));
+
+    expect(restored.result.current.state.profile.serviceMenu).toEqual({ ...selection, reviewed: true });
+    expect(restored.result.current.state.profile.serviceMenu.ownerOverridesByServiceId)
+      .toEqual({ [retainedServiceId]: { durationMinutes: 75, priceCents: 6_700 } });
+    expect(restored.result.current.state.profile.serviceMenu.selectedAddOnIds).toEqual([]);
   });
 
   it('flushes once when hidden and ignores later lifecycle events without new state', () => {

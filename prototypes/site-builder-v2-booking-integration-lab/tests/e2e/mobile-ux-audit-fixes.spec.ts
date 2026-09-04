@@ -206,7 +206,12 @@ for (const [width, height] of sizes) {
 
     await unobscured(library.getByRole('button', { name: 'Done', exact: true }));
     await library.getByRole('button', { name: 'Done', exact: true }).click();
-    await page.getByRole('button', { name: 'Use these 6 services', exact: true }).click();
+
+    await expect(page.locator('[data-booking-task="services"]')).toHaveClass(/is-complete/);
+    await expect(page.getByRole('button', { name: /Use these/ })).toHaveCount(0);
+    await expect(page.locator('[data-booking-task="clients"]')
+      .getByRole('button', { name: /Clients/ })).toBeFocused();
+
     await page.getByRole('button', { name: 'Save and continue', exact: true }).click();
 
     await expect(page.getByRole('heading', { name: 'Tell clients a little about you' })).toBeVisible();
@@ -215,6 +220,22 @@ for (const [width, height] of sizes) {
     const introduction = page.getByLabel('Short introduction', { exact: true });
 
     await expect(introduction).not.toHaveAttribute('placeholder', /Daniela|Isla/);
+
+    await page.getByRole('button', { name: 'Help me write', exact: true }).click();
+    await page.getByRole('dialog', { name: 'Tell us a little about yourself' })
+      .getByRole('button', { name: 'Generate suggestion', exact: true }).click();
+
+    await expect(introduction).toHaveValue(/Maya.*Maya Nail Atelier/);
+    await expect(introduction).not.toHaveValue(/Daniela|Isla|Example:/);
+    await expect(introduction).toBeEditable();
+    await expect(introduction).toBeFocused();
+    await expect(page.getByRole('button', { name: 'Use suggestion', exact: true })).toHaveCount(0);
+    await expect(page.getByLabel('Autosave status')).toHaveText('Saved');
+
+    const generatedIntroduction = await introduction.inputValue();
+    await page.reload();
+
+    await expect(introduction).toHaveValue(generatedIntroduction);
 
     await introduction.fill('I create thoughtful, detailed nail appointments in a calm studio.');
     await page.getByRole('button', { name: 'Save and continue', exact: true }).click();

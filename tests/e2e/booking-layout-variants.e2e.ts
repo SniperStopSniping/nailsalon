@@ -3002,6 +3002,245 @@ test('scriptless embedded and dialog previews remain visible across mobile and z
   }
 });
 
+test('unpublished non-free-solo owner previews survive separate layout and salon publication @owner-preview-webkit', async ({
+  baseURL,
+  browser,
+}, testInfo) => {
+  test.setTimeout(120_000);
+
+  assertLocalSyntheticTarget(baseURL);
+
+  const target = requireDisposableDatabaseTarget();
+  const expectedServer = resolveDisposableDatabaseServerExpectation(target);
+  const client = new Client({ connectionString: target.connectionString });
+  type PublicationFixture = SalonFixtureRow & {
+    free_solo_enabled: boolean;
+    publication_status: string;
+    published_at: string | null;
+    slug_locked_at: string | null;
+    updated_at: string;
+  };
+  let original: PublicationFixture | undefined;
+
+  await client.connect();
+  try {
+    await attestDisposableDatabaseSession(client, target, expectedServer);
+    const selected = await client.query<PublicationFixture>(
+      `SELECT id, name, settings, free_solo_enabled, publication_status,
+              published_at::text, slug_locked_at::text, updated_at::text
+       FROM salon WHERE id = $1 AND slug = $2`,
+      [SYNTHETIC_SALON_ID, SYNTHETIC_SALON_SLUG],
+    );
+
+    expect(selected.rows).toHaveLength(1);
+
+    original = selected.rows[0]!;
+    const fixtureSettings = buildFixtureSettings(
+      original.settings,
+      'quick_book',
+      new URL('/assets/images/nextjs-starter-banner.png', baseURL).toString(),
+    );
+    const bookingPage = fixtureSettings.bookingPage as { draft: Record<string, unknown>; live: Record<string, unknown> };
+    // Match onboarding's unpublished non-free-solo state, with an actual
+    // independent catalog edit for the layout-only Publish action to save.
+    bookingPage.draft = { ...bookingPage.draft, serviceMenuLayout: 'category_menu' };
+    bookingPage.live = { ...bookingPage.live, serviceMenuLayout: 'visual_grid' };
+    const changed = await client.query(
+      `UPDATE salon SET settings = $1::jsonb, free_solo_enabled = false,
+              publication_status = 'draft', published_at = NULL, slug_locked_at = NULL
+       WHERE id = $2 AND slug = $3`,
+      [JSON.stringify(fixtureSettings), SYNTHETIC_SALON_ID, SYNTHETIC_SALON_SLUG],
+    );
+
+    expect(changed.rowCount).toBe(1);
+
+    const ownerContext = await browser.newContext({
+      ...(testInfo.project.name === 'mobile-webkit' ? devices['iPhone 13'] : {}),
+      baseURL,
+      reducedMotion: 'reduce',
+      storageState: authStatePaths.superAdmin,
+      viewport: { width: 390, height: 844 },
+    });
+    const visitorContext = await browser.newContext({
+      baseURL,
+      reducedMotion: 'reduce',
+      viewport: { width: 390, height: 844 },
+    });
+    let impersonating = false;
+
+    try {
+      const impersonation = await ownerContext.request.post('/api/super-admin/impersonate', {
+        data: { salonId: SYNTHETIC_SALON_ID },
+      });
+
+      expect(impersonation.ok(), await impersonation.text()).toBe(true);
+
+      impersonating = true;
+      const builder = await ownerContext.newPage();
+      const fullPreview = await ownerContext.newPage();
+      const visitor = await visitorContext.newPage();
+      const publicPath = appPath(`/${SYNTHETIC_SALON_SLUG}/book/service`);
+      const privatePath = appPath(`/admin/booking-page/preview/${SYNTHETIC_SALON_SLUG}`);
+      const iframe = builder.locator('iframe[title="Live booking page preview"]');
+      const preview = builder.frameLocator('iframe[title="Live booking page preview"]');
+
+      async function expectOwnerPreview(phase: string) {
+        await expect(iframe).toHaveAttribute('sandbox', 'allow-same-origin');
+        await expect(iframe).toHaveAttribute('src');
+
+        const source = await iframe.getAttribute('src');
+
+        expect(new URL(source!, baseURL).origin).toBe(new URL(baseURL!).origin);
+        expect(new URL(source!, baseURL).pathname).toBe(privatePath);
+
+        await iframe.scrollIntoViewIfNeeded();
+        await expectPreviewDocumentMatchesFrameSource(iframe, preview, baseURL!);
+        await expectPreviewStartsAtTop(iframe, preview, 'booking-step-header', phase);
+
+        await expect(preview.getByTestId('service-menu-grouped-categories')).toBeVisible();
+        await expect(preview.getByTestId(`service-card-${e2eConfig.serviceId}`)).toContainText(e2eConfig.serviceName);
+
+        await expectNoHorizontalOverflow(builder);
+      }
+
+      async function expectPublicDenied() {
+        const response = await visitor.goto(publicPath, { waitUntil: 'domcontentloaded' });
+
+        expect(response?.status(), 'An unpublished non-free-solo salon must remain private.').toBe(404);
+        await expect(visitor.getByTestId(`service-card-${e2eConfig.serviceId}`)).toHaveCount(0);
+        await expect(visitor.getByTestId('owner-preview-banner')).toHaveCount(0);
+      }
+
+      async function readPublicationState() {
+        const result = await client.query<PublicationFixture>(
+          `SELECT free_solo_enabled, publication_status, published_at::text, slug_locked_at::text
+           FROM salon WHERE id = $1 AND slug = $2`,
+          [SYNTHETIC_SALON_ID, SYNTHETIC_SALON_SLUG],
+        );
+        return result.rows[0]!;
+      }
+
+      const response = await builder.goto(appPath('/admin/booking-page'), { waitUntil: 'domcontentloaded' });
+
+      expect(response?.status()).toBe(200);
+      await expect(builder.getByTestId('salon-publish-banner')).toBeVisible();
+
+      await expectOwnerPreview('Unpublished non-free-solo iframe');
+
+      const fullPreviewLink = builder.getByTestId('booking-page-preview-link');
+
+      await expect(fullPreviewLink).toHaveAttribute('href', privatePath);
+
+      const fullResponse = await fullPreview.goto(await fullPreviewLink.getAttribute('href') as string, {
+        waitUntil: 'domcontentloaded',
+      });
+
+      expect(fullResponse?.status()).toBe(200);
+      await expect(fullPreview.getByTestId('owner-preview-banner')).toHaveAttribute('data-preview-variant', 'draft-salon');
+      await expect(fullPreview.getByTestId(`service-card-${e2eConfig.serviceId}`)).toBeVisible();
+
+      await expectPublicDenied();
+
+      const beforeLayoutPublish = await fetchBuilderApiState(builder);
+
+      expect(beforeLayoutPublish.config.draft.serviceMenuLayout).toBe('category_menu');
+      expect(beforeLayoutPublish.config.live.serviceMenuLayout).toBe('visual_grid');
+
+      const [layoutPublish] = await Promise.all([
+        builder.waitForResponse(result => new URL(result.url()).pathname === '/api/admin/booking-page'
+          && result.request().method() === 'POST'),
+        builder.getByTestId('booking-page-publish').click(),
+      ]);
+
+      expect(layoutPublish.status()).toBe(200);
+      expect(layoutPublish.request().postDataJSON()).toEqual({ action: 'publish' });
+      await expect.poll(async () => (await fetchBuilderApiState(builder)).config.live)
+        .toEqual(beforeLayoutPublish.config.draft);
+      expect(await readPublicationState()).toEqual({
+        free_solo_enabled: false,
+        publication_status: 'draft',
+        published_at: null,
+        slug_locked_at: null,
+      });
+      await expect(builder.getByTestId('salon-publish-banner')).toBeVisible();
+
+      await expectPublicDenied();
+      await expectOwnerPreview('Layout-published but salon-private iframe');
+      await fullPreview.reload({ waitUntil: 'domcontentloaded' });
+
+      await expect(fullPreview.getByTestId('owner-preview-banner')).toHaveAttribute('data-preview-variant', 'draft-salon');
+      await expect(fullPreview.getByTestId(`service-card-${e2eConfig.serviceId}`)).toBeVisible();
+
+      const sourceBeforeSalonPublish = await iframe.getAttribute('src');
+      const [salonPublish] = await Promise.all([
+        builder.waitForResponse(result => new URL(result.url()).pathname === '/api/admin/salon/publish'
+          && result.request().method() === 'POST'),
+        builder.getByTestId('salon-publish-button').click(),
+      ]);
+
+      expect(salonPublish.status()).toBe(200);
+      expect(new URL(salonPublish.url()).searchParams.get('salonSlug')).toBe(SYNTHETIC_SALON_SLUG);
+      await expect(builder.getByTestId('salon-publish-banner')).toHaveCount(0);
+      await expect(iframe, 'Successful salon publication must invalidate the existing iframe revision.')
+        .not.toHaveAttribute('src', sourceBeforeSalonPublish!);
+
+      await expectOwnerPreview('Salon-published refreshed iframe');
+
+      const publication = await readPublicationState();
+
+      expect(publication.free_solo_enabled).toBe(false);
+      expect(publication.publication_status).toBe('published');
+      expect(publication.published_at).not.toBeNull();
+      expect(publication.slug_locked_at).not.toBeNull();
+
+      await fullPreview.reload({ waitUntil: 'domcontentloaded' });
+
+      await expect(fullPreview.getByTestId('owner-preview-banner')).toHaveAttribute('data-preview-variant', 'draft-config');
+      await expect(fullPreview.getByTestId(`service-card-${e2eConfig.serviceId}`)).toBeVisible();
+
+      await builder.reload({ waitUntil: 'domcontentloaded' });
+      await expectOwnerPreview('Reloaded published non-free-solo iframe');
+
+      const publicResponse = await visitor.goto(publicPath, { waitUntil: 'domcontentloaded' });
+
+      expect(publicResponse?.status()).toBe(200);
+      await expect(visitor.getByTestId('service-menu-grouped-categories')).toBeVisible();
+      await expect(visitor.getByTestId(`service-card-${e2eConfig.serviceId}`)).toBeEnabled();
+      await expect(visitor.getByTestId('owner-preview-banner')).toHaveCount(0);
+
+      await testInfo.attach('published-non-free-solo-owner-preview.png', {
+        body: await captureNonblankPreviewViewport(iframe, 'Published non-free-solo owner preview'),
+        contentType: 'image/png',
+      });
+    } finally {
+      try {
+        if (impersonating) {
+          const stopped = await ownerContext.request.delete('/api/super-admin/impersonate');
+
+          expect(stopped.ok(), await stopped.text()).toBe(true);
+        }
+      } finally {
+        await Promise.all([ownerContext.close(), visitorContext.close()]);
+      }
+    }
+  } finally {
+    try {
+      if (original) {
+        const restored = await client.query(
+          `UPDATE salon SET settings = $1::jsonb, free_solo_enabled = $2,
+                  publication_status = $3, published_at = $4, slug_locked_at = $5, updated_at = $6
+           WHERE id = $7 AND slug = $8`,
+          [original.settings === null ? null : JSON.stringify(original.settings), original.free_solo_enabled, original.publication_status, original.published_at, original.slug_locked_at, original.updated_at, SYNTHETIC_SALON_ID, SYNTHETIC_SALON_SLUG],
+        );
+
+        expect(restored.rowCount).toBe(1);
+      }
+    } finally {
+      await client.end();
+    }
+  }
+});
+
 test('owner preset draft, full-page preview, publish, and fresh public state stay synchronized @mobile-chrome', async ({
   baseURL,
   browser,

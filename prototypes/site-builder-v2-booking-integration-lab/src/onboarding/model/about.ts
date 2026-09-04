@@ -131,7 +131,9 @@ export const formatAboutListInput = (values: readonly string[]): string =>
 export const buildAboutWordingSuggestion = (
   profile: BusinessProfileDraft,
 ): string => {
-  const ownerName = cleanInlineValue(profile.ownerName);
+  const ownerName = profile.about.visibility.owner_name
+    ? cleanInlineValue(profile.ownerName)
+    : '';
   const businessName = cleanInlineValue(profile.businessName);
   const area = cleanInlineValue(profile.location.cityOrArea);
   const specialties = profile.about.specialties
