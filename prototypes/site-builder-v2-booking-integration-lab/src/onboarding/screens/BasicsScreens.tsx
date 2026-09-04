@@ -408,6 +408,7 @@ export function BrandBasicsScreen({
                   <div>
                     <h2>
                       Profile photo
+                      {' '}
                       <span>Optional</span>
                     </h2>
                     <p>Add a photo of yourself for your nail-tech profile.</p>
@@ -464,6 +465,7 @@ export function BrandBasicsScreen({
             <div>
               <h2>
                 Logo
+                {' '}
                 <span>Optional</span>
               </h2>
               <p>Your business logo appears in your site header.</p>
@@ -515,6 +517,7 @@ export function BrandBasicsScreen({
             <div>
               <h2>
                 Instagram
+                {' '}
                 <span>Optional</span>
               </h2>
               <p>Add your Instagram so clients can find your work.</p>
