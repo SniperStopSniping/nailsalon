@@ -461,16 +461,14 @@ function AdminDashboardContent() {
 
   // Check admin auth on mount and sync salon cookie
   useEffect(() => {
-    if (!clerkLoaded) {
-      return;
-    }
     let cancelled = false;
+    let serverAuthenticated = false;
     setAuthLoading(true);
     setAuthError(null);
     setAdminUser(null);
 
     function handleAuthFailure() {
-      if (cancelled) {
+      if (cancelled || !clerkLoaded) {
         return;
       }
       if (isSignedIn) {
@@ -486,8 +484,10 @@ function AdminDashboardContent() {
       try {
         // After signup, Safari can reach this page before Clerk's session cookie
         // has refreshed. Prepare the current session before the cookie-only API
-        // check. Signed-out Clerk users may still have a valid legacy session.
-        if (isSignedIn) {
+        // check. A successful server check also permits legacy/impersonation
+        // sessions even when Clerk's browser SDK has not loaded. An early 401
+        // waits for Clerk readiness instead of redirecting a signing-in owner.
+        if (clerkLoaded && isSignedIn) {
           const token = await getToken({ skipCache: true });
           if (cancelled) {
             return;
@@ -509,6 +509,7 @@ function AdminDashboardContent() {
           if (cancelled) {
             return;
           }
+          serverAuthenticated = true;
           setAdminUser(data.user);
 
           if (data.user.impersonation?.isActive) {
@@ -571,7 +572,7 @@ function AdminDashboardContent() {
         handleAuthFailure();
         return;
       } finally {
-        if (!cancelled) {
+        if (!cancelled && (clerkLoaded || serverAuthenticated)) {
           setAuthLoading(false);
         }
       }
@@ -1373,7 +1374,7 @@ function AdminDashboardContent() {
   };
 
   // 1) Auth check phase - never show dashboard UI here
-  if (!clerkLoaded || authLoading) {
+  if (authLoading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-[#F2F2F7]">
         <div className="size-8 animate-spin rounded-full border-2 border-gray-300 border-t-gray-600" />

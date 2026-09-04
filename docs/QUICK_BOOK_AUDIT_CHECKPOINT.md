@@ -26,6 +26,12 @@
 3. Finish the ordinary headed Chromium mobile lifecycle after fixing the OTP-preparation wait. WebKit's full Development-auth lifecycle is blocked by the development-only cookie issue below. No physical iPhone/VoiceOver success is claimed.
 4. Recheck PR review threads, merge only after all required gates and Preview pass, and verify production aliases against the merge SHA.
 
+## Latest verification and compatibility follow-up
+
+The normal headed Chromium 390×844 lifecycle PASSED on `5509771` (3/3, 2.4 minutes), including signup, same-site/media saves, dashboard, logout/fresh login, setup resume, publication and public booking start. Evidence is in `/tmp/luster-live-acceptance-GbRnaZbg/evidence/acceptance-e4373b53-183c-4b06-960e-f7e31a2b5aa5/`.
+
+CI then caught a compatibility regression: two existing mobile-WebKit appointment tests could not open server-authorized legacy/impersonation dashboards while Clerk remained unloaded. This follow-up permits an authoritative successful admin response to render independently of Clerk loading, while failed early requests still wait for loaded Clerk before token refresh/retry. All 18 dashboard unit tests pass, including the exact unloaded-legacy/impersonation states. Do not merge until the affected CI browser tests and all required gates pass on this follow-up SHA. Earlier CI failure: run `33928174207`; artifacts `/tmp/luster-ci-safari.owQmBT`.
+
 ## Safari finding and isolated test restart
 
 After successful signup/claim, the immediate cookie-only dashboard request could return 401 until Clerk refreshed its session token. The dashboard now awaits loaded auth and a fresh token; signed-in failures stay on Retry/Sign out instead of redirecting forever. SDK verification and tenant authorization remain mandatory. Both bare and instance-suffixed session cookies establish request context.

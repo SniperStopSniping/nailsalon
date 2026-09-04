@@ -20,10 +20,12 @@ Scope: improve the existing Quick Book flow, account-backed persistence, returni
 - Plan continuation cleared recovery state before the dashboard had opened. The verified site, selected plan, and retry key now remain recoverable until the dashboard confirms the matching owner/site/revision/plan. An interrupted navigation can no longer reset the owner to Services.
 - Owner request-context checks only recognized Clerk's bare session cookie. They now also recognize instance-suffixed cookies before invoking the same SDK verification and tenant authorization; a cookie name alone never authenticates a request.
 - Safari could reach the dashboard before its Clerk session cookie refreshed, causing a login redirect loop. The dashboard now waits for loaded authentication and a fresh token. Signed-in verification failures offer Retry/Sign out without exposing unverified dashboard content or redirecting indefinitely.
+- Existing server-authorized legacy/impersonation sessions remain usable even when Clerk's client has not loaded. Only an unsuccessful early session check waits for Clerk readiness; a successful authoritative server response is sufficient. CI caught this compatibility case, and both states now have regression coverage.
 
 ## Local check evidence
 
 - Real Development Clerk desktop journey passed signup, verification, same-site save, media, dashboard/reload, logout, fresh-browser login, publication, and public customer booking start.
+- The normal headed Chromium 390×844 lifecycle also passed all three checks on `5509771`, without diagnostic token helpers, after correcting the synthetic OTP-preparation race.
 - Screen 6 geometry and signup reachability passed at 320×568, 375×667, 390×844, and 430×932. Assertions check the actual visible footer, not just the inner scroll offset. The 430 case passed on an isolated rerun after a development hydration timeout.
 - Root TypeScript and shared-runtime TypeScript passed. Changed TypeScript/React source lint passed with warnings only. The two inherited prototype CSS files retain their existing 159 formatting errors, with no increase; unrelated formatting was left untouched.
 - Full root units: 6,806 passed, one obsolete frame-class assertion failed. Its updated AccountGate suite passed all 16 tests. PostgreSQL-only/optional gates retain their configured skips.

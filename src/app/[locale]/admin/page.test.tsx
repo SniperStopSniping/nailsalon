@@ -218,14 +218,14 @@ beforeEach(() => {
 });
 
 describe('AdminDashboardPage', () => {
-  it('waits for Clerk readiness and a refreshed token before loading the cookie-authenticated workspace', async () => {
+  it('waits after an early cookie 401 and refreshes Clerk before retrying the authenticated workspace', async () => {
     clerkAuth.isLoaded = false;
     searchParamGet.mockReturnValue(null);
     let finishRefresh!: (token: string) => void;
     clerkGetToken.mockImplementation(() => new Promise<string>((resolve) => {
       finishRefresh = resolve;
     }));
-    fetchMock.mockResolvedValue(new Response(JSON.stringify({
+    fetchMock.mockResolvedValueOnce(new Response('{}', { status: 401 })).mockResolvedValueOnce(new Response(JSON.stringify({
       user: {
         id: 'admin_1',
         name: 'Admin User',
@@ -238,22 +238,25 @@ describe('AdminDashboardPage', () => {
       },
     }), { status: 200 }));
     const view = render(<AdminDashboardPage />);
+    await act(async () => {});
 
-    expect(fetchMock).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(clerkGetToken).not.toHaveBeenCalled();
     expect(routerReplace).not.toHaveBeenCalled();
+    expect(screen.queryByText('Salon selector')).not.toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
 
     Object.assign(clerkAuth, { isLoaded: true, isSignedIn: true, sessionId: 'session_owner' });
     view.rerender(<AdminDashboardPage />);
 
     expect(clerkGetToken).toHaveBeenCalledTimes(1);
     expect(clerkGetToken).toHaveBeenCalledWith({ skipCache: true });
-    expect(fetchMock).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
 
     await act(async () => finishRefresh('current-session-token'));
     await screen.findByText('Salon selector');
 
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(fetchMock).toHaveBeenCalledWith('/api/admin/auth/me');
     expect(routerReplace).not.toHaveBeenCalled();
   });
@@ -267,6 +270,41 @@ describe('AdminDashboardPage', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(fetchMock).toHaveBeenCalledWith('/api/admin/auth/me?salonSlug=salon-b');
     expect(clerkGetToken).not.toHaveBeenCalled();
+  });
+
+  it('opens a server-authorized impersonation workspace even when Clerk never loads', async () => {
+    clerkAuth.isLoaded = false;
+    fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.startsWith('/api/admin/auth/me')) {
+        return new Response(JSON.stringify({
+          user: {
+            id: 'admin_1',
+            name: 'Admin User',
+            isSuperAdmin: false,
+            impersonation: { isActive: true, salonSlug: 'salon-b' },
+            salons: [{ id: 'sal_b', slug: 'salon-b', name: 'Salon B', status: 'active', role: 'owner' }],
+          },
+        }), { status: 200 });
+      }
+      if (url === '/api/admin/settings/modules?salonSlug=salon-b') {
+        return new Response(JSON.stringify({
+          data: { modules: {}, entitledModules: {}, moduleReasons: {} },
+        }), { status: 200 });
+      }
+      if (url === '/api/admin/fraud-signals') {
+        return new Response(JSON.stringify({ data: { signals: [], unresolvedCount: 0 } }), { status: 200 });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    render(<AdminDashboardPage />);
+
+    await screen.findByTestId('owner-today-workspace');
+
+    expect(clerkGetToken).not.toHaveBeenCalled();
+    expect(routerReplace).not.toHaveBeenCalled();
+    expect(fetchMock.mock.calls.filter(([url]) => String(url).startsWith('/api/admin/auth/me'))).toHaveLength(1);
+    expect(fetchMock.mock.calls.some(([url]) => url === '/api/admin/auth/set-active-salon')).toBe(false);
   });
 
   it.each(['rejected', 'missing'] as const)('does not loop or make an unready auth request when token refresh is %s', async (failure) => {
@@ -350,7 +388,8 @@ describe('AdminDashboardPage', () => {
     expect(routerReplace).not.toHaveBeenCalled();
   });
 
-  it('syncs salons without a hard reload and loads analytics only after its surface opens', async () => {
+  it.each([true, false])('loads the server-authorized legacy dashboard and syncs salons without a hard reload when Clerk loaded is %s', async (clerkLoaded) => {
+    clerkAuth.isLoaded = clerkLoaded;
     let requestedApp: string | null = null;
     searchParamGet.mockImplementation((key: string) => {
       if (key === 'salon') {
