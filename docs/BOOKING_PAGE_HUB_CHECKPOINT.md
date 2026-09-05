@@ -72,3 +72,11 @@ CI `33940457926` on `154513a` **failed**: all eight hub browser cases (4× Chrom
 
 - Re-claiming an onboarding draft (`existingSiteStrategy` continue/replace) still re-applies snapshot values through `syncQuickBookProfilePresentationDraft`; the hub never calls the claim route and "Review saved setup" stays gated to unpublished sites, so dashboard edits on a published site cannot be overwritten from the hub.
 - Customer confirmation email/SMS carry no address (pre-existing); the manage link in them leads to the capability-scoped page that now shows it.
+
+## Release (2026-09-05)
+
+- **Merged.** PR #159 (`codex/booking-page-hub`, head `8413d8e`) was merged into `main` as merge commit `7f0fe7a` at 12:51 UTC. All 14 CI checks were green on the head, there were no review threads, and the mergeable state was clean. The owner explicitly chose to merge on CI alone without a hosted Preview for `8413d8e` (the remote session had no Vercel credentials and the environment's egress policy blocked the production hosts, so no Preview was requested or verified).
+- **Released.** CI run `33967230036` on `main` passed (13:07 UTC); the Release workflow (`33967988247`) cut **v1.85.0** as `6b2c34b` (`chore(release): 1.85.0 [skip ci]`).
+- **Deployed.** Vercel recorded two Production deployments, both `success` ("Deployment has completed"): `7f0fe7a` at 12:56 UTC and `6b2c34b` at 13:14 UTC. Production therefore runs `6b2c34b`, which contains the merge.
+- **Not verified from the session.** The egress policy blocks `islanailsalon.com`, `lustergel.app` and `*.vercel.app`, so `/api/health` `gitSha` was not read from the session; the deployed-SHA evidence is Vercel's GitHub deployment status. The Checkly `deployment_status` workflow has not fired since 2026-07-16 and provided no signal for this release. To close the loop by hand: open `https://islanailsalon.com/api/health` and confirm `gitSha` is `6b2c34b`, then sign in and walk More → Booking Page → guided review on a phone.
+- No migration and no environment change shipped with this release.
