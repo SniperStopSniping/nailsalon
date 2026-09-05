@@ -131,9 +131,14 @@ export function DepositPanel({
 
   const load = useCallback(async (signal?: AbortSignal) => {
     if (!salonSlug) {
+      // An owner with one salon has no salon picker, so "Choose a salon" told
+      // them to perform an action that does not exist — and a red alert on a
+      // deposit panel reads as "something is wrong with this booking's money".
+      // The slug is supplied by the surface, not the owner: until it arrives
+      // the panel simply has nothing to report yet, and re-loads when it does.
       setData(null);
-      setError('Choose a salon to view deposit details.');
-      setLoading(false);
+      setError(null);
+      setLoading(true);
       return;
     }
 

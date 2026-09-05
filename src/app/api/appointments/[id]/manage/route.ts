@@ -1,6 +1,7 @@
 import { eq } from 'drizzle-orm';
 import { z } from 'zod';
 
+import { logAppointmentChange } from '@/libs/appointmentAudit';
 import {
   AppointmentManageError,
   getAppointmentManageDetail,
@@ -8,7 +9,7 @@ import {
 } from '@/libs/appointmentManage';
 import { db } from '@/libs/DB';
 import { requireAppointmentManagerAccess } from '@/libs/routeAccessGuards';
-import { salonSchema } from '@/models/Schema';
+import { type AppointmentAuditAction, type AuditPerformerRole, salonSchema } from '@/models/Schema';
 
 export const dynamic = 'force-dynamic';
 
@@ -41,6 +42,52 @@ const patchSchema = z.discriminatedUnion('operation', [
     technicianId: z.string().min(1),
   }).strict(),
 ]);
+
+type AuditActor = {
+  performedBy: string;
+  performedByRole: AuditPerformerRole;
+  performedByName: string | null;
+};
+
+/**
+ * The acting owner/staff member for the audit row. Mirrors
+ * `resolveCheckoutActor`, which cannot be imported here: it is a
+ * `server-only` module and this route's siblings are exercised from the
+ * jsdom test environment. Returns null only if the guard ever yields an
+ * identity-less actor, in which case the mutation still succeeds and the
+ * audit row is skipped rather than the write being failed.
+ */
+function resolveAuditActor(access: {
+  actorRole: string;
+  admin?: { id: string; name?: string | null } | null;
+  session?: { technicianId: string; technicianName?: string | null } | null;
+}): AuditActor | null {
+  if (access.actorRole === 'staff' && access.session?.technicianId) {
+    return {
+      performedBy: `staff:${access.session.technicianId}`,
+      performedByRole: 'staff',
+      performedByName: access.session.technicianName ?? null,
+    };
+  }
+  if (access.actorRole === 'admin' && access.admin?.id) {
+    return {
+      performedBy: access.admin.id,
+      performedByRole: 'admin',
+      performedByName: access.admin.name ?? null,
+    };
+  }
+  return null;
+}
+
+const MANAGE_AUDIT_ACTIONS: Record<
+  z.infer<typeof patchSchema>['operation'],
+  AppointmentAuditAction
+> = {
+  move: 'time_changed',
+  moveToNextAvailable: 'time_changed',
+  changeService: 'items_changed',
+  reassignTechnician: 'tech_reassigned',
+};
 
 async function getSalonSlug(salonId: string) {
   const [salon] = await db
@@ -166,6 +213,37 @@ export async function PATCH(request: Request, props: { params: Promise<{ id: str
       canReassignTechnician,
       notifyCustomerOnReschedule: true,
     });
+
+    // "Who moved this client, from when, and why" was unanswerable: this
+    // route wrote no appointment_audit_log row at all, while every other
+    // appointment mutation does. The row is written after the mutation
+    // committed, with the acting owner/staff member as performer.
+    // logAppointmentChange never throws, so a failed audit write cannot undo
+    // a successful move.
+    const previous = access.appointment;
+    const actor = resolveAuditActor(access);
+    if (actor) {
+      await logAppointmentChange({
+        appointmentId: params.id,
+        salonId: previous.salonId,
+        action: MANAGE_AUDIT_ACTIONS[parsed.data.operation],
+        performedBy: actor.performedBy,
+        performedByRole: actor.performedByRole,
+        performedByName: actor.performedByName ?? undefined,
+        previousValue: {
+          startTime: previous.startTime?.toISOString() ?? null,
+          endTime: previous.endTime?.toISOString() ?? null,
+          technicianId: previous.technicianId ?? null,
+        },
+        newValue: {
+          operation: parsed.data.operation,
+          startTime: result.detail.appointment.startTime ?? null,
+          endTime: result.detail.appointment.endTime ?? null,
+          technicianId: result.detail.appointment.technicianId ?? null,
+          baseServiceId: result.detail.appointment.baseServiceId ?? null,
+        },
+      });
+    }
 
     return Response.json({
       data: result,

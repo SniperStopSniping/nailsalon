@@ -18,15 +18,12 @@ import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'rea
 import { AdminImpersonationBanner } from '@/components/admin/AdminImpersonationBanner';
 import { AdminModalHost } from '@/components/admin/AdminModalHost';
 import type { TimePeriod } from '@/components/admin/AnalyticsWidgets';
-import { AppGrid, type AppId } from '@/components/admin/AppGrid';
+import { AppGrid, type AppId, APPS } from '@/components/admin/AppGrid';
 import { AdminDashboardNoticeStack } from '@/components/admin/dashboard/AdminDashboardNoticeStack';
 import { AdminDashboardSkeleton } from '@/components/admin/dashboard/AdminDashboardSkeleton';
 import { AdminSalonSelector } from '@/components/admin/dashboard/AdminSalonSelector';
-import {
-  type OnboardingHandoffResolution,
-  type OnboardingSiteHandoff,
-  OnboardingWorkspaceHandoff,
-} from '@/components/admin/onboarding/OnboardingWorkspaceHandoff';
+import { NewAppointmentModal } from '@/components/admin/NewAppointmentModal';
+import { OnboardingWorkspaceHandoff } from '@/components/admin/onboarding/OnboardingWorkspaceHandoff';
 import {
   WorkspaceQuickTour,
   type WorkspaceTourTarget,
@@ -275,6 +272,38 @@ function getEmptyDashboardData(): DashboardData {
   };
 }
 
+/**
+ * The auth phase must always end. Clerk's browser SDK can fail to load
+ * (blocked script, captive network, provider incident) and then `clerkLoaded`
+ * never flips, so nothing but this bound can clear the loading state.
+ */
+const AUTH_BOOTSTRAP_TIMEOUT_MS = 12_000;
+
+const AUTH_UNREACHABLE_MESSAGE
+  = 'We can’t reach the sign-in service right now. Check your connection and try again.';
+
+/** Modules that gate a deep-linkable app, for the "not on your plan" wording. */
+const GATED_APP_MODULES: Partial<Record<string, ModuleKey[]>> = {
+  'analytics': ['analyticsDashboard'],
+  'rewards': ['rewards'],
+  'staff': ['scheduleOverrides', 'staffEarnings'],
+  'staff-ops': ['scheduleOverrides', 'staffEarnings'],
+};
+
+/** Explain a deep link to an app this salon cannot open, in the owner's words. */
+function describeBlockedApp(
+  appId: string,
+  moduleReasons: Partial<Record<ModuleKey, ModuleReason>>,
+): string {
+  const appName = APPS.find(app => app.id === appId)?.name ?? 'That app';
+  const turnedOff = (GATED_APP_MODULES[appId] ?? []).some(
+    module => moduleReasons[module] === 'MODULE_DISABLED',
+  );
+  return turnedOff
+    ? `${appName} is turned off for this salon. Turn it back on in Settings to open it here.`
+    : `${appName} isn’t included in your plan yet.`;
+}
+
 function mapAnalyticsModuleStatus(
   reason: ModuleReason | undefined,
 ): AnalyticsModuleStatus {
@@ -351,14 +380,6 @@ function AdminDashboardContent() {
   const [workspaceTab, setWorkspaceTab] = useState<OwnerWorkspaceTab>(() => searchParams.get('tab') === 'more' ? 'more' : 'today');
   const [onboardingHandoffAvailable, setOnboardingHandoffAvailable]
     = useState(false);
-  const [onboardingSavedSite, setOnboardingSavedSite] = useState<{
-    previewUrl: string;
-    salonSlug: string;
-  } | null>(null);
-  const [onboardingHandoffResolution, setOnboardingHandoffResolution]
-    = useState<'pending' | OnboardingHandoffResolution>(
-      onboardingV1IntegrationEnabled ? 'pending' : 'absent',
-    );
   const [showOnboardingTour, setShowOnboardingTour] = useState(false);
 
   // Modal state
@@ -375,6 +396,12 @@ function AdminDashboardContent() {
   const [showFraudSignals, setShowFraudSignals] = useState(false);
   const [showScheduleCalendar, setShowScheduleCalendar] = useState(false);
   const [showWalkIn, setShowWalkIn] = useState(false);
+  // Set when "New Appt" is used, so the create form opens on that day directly.
+  const [newAppointmentDate, setNewAppointmentDate] = useState<Date | null>(
+    null,
+  );
+  // Explains a deep link to an app this salon cannot open (entitlement-gated).
+  const [blockedAppNotice, setBlockedAppNotice] = useState<string | null>(null);
   const activeDashboardSalonSlug
     = adminUser?.impersonation?.salonSlug
     ?? requestedSalonSlug
@@ -388,29 +415,9 @@ function AdminDashboardContent() {
   const activeDashboardSalonName = activeDashboardSalon?.name ?? null;
   const activeDashboardSalonStatus = activeDashboardSalon?.status ?? null;
   const isFreeSolo = activeDashboardSalon?.freeSoloEnabled === true;
-  const handleOnboardingHandoffChange = useCallback((handoff: OnboardingSiteHandoff | null) => {
-    setOnboardingSavedSite(handoff && activeDashboardSalonSlug
-      ? {
-          previewUrl: handoff.site.previewUrl,
-          salonSlug: activeDashboardSalonSlug,
-        }
-      : null);
-  }, [activeDashboardSalonSlug]);
-  const handleOnboardingHandoffResolution = useCallback((
-    resolution: OnboardingHandoffResolution,
-  ) => {
-    setOnboardingHandoffResolution(resolution);
-    if (resolution !== 'error') {
-      setNonBlockingMessage(null);
-    }
-  }, []);
-
   useEffect(() => {
     setOnboardingHandoffAvailable(false);
-    setOnboardingHandoffResolution(
-      onboardingV1IntegrationEnabled ? 'pending' : 'absent',
-    );
-    setOnboardingSavedSite(null);
+    setBlockedAppNotice(null);
     if (!onboardingV1IntegrationEnabled) {
       setShowOnboardingTour(false);
     }
@@ -462,13 +469,61 @@ function AdminDashboardContent() {
     [getTodayYMD],
   );
 
+  // Clerk's instance identity is not stable in every host, so keep the latest
+  // one in a ref instead of making the auth effect depend on it.
+  const clerkRef = useRef(clerk);
+  useEffect(() => {
+    clerkRef.current = clerk;
+  });
+
   // Check admin auth on mount and sync salon cookie
   useEffect(() => {
     let cancelled = false;
     let serverAuthenticated = false;
+    let settled = false;
     setAuthLoading(true);
     setAuthError(null);
     setAdminUser(null);
+
+    // Never leave the owner on a bare spinner: the auth phase ends either when
+    // it resolves, when Clerk reports it could not load, or on this bound.
+    let bootstrapTimer: number | undefined;
+    const settleAuthPhase = () => {
+      settled = true;
+      window.clearTimeout(bootstrapTimer);
+    };
+    const failUnreachable = () => {
+      if (cancelled || settled) {
+        return;
+      }
+      settleAuthPhase();
+      setAuthError(AUTH_UNREACHABLE_MESSAGE);
+      setAuthLoading(false);
+    };
+    bootstrapTimer = window.setTimeout(
+      failUnreachable,
+      AUTH_BOOTSTRAP_TIMEOUT_MS,
+    );
+
+    // Clerk publishes its own load failure (failed_to_load_clerk_js_timeout)
+    // as an 'error' status where the SDK supports the stream; treat it as
+    // terminal so the reconnect card appears without waiting out the bound.
+    const clerkStatusClient = clerkRef.current as unknown as {
+      status?: string;
+      on?: (event: string, handler: (status: string) => void) => void;
+      off?: (event: string, handler: (status: string) => void) => void;
+    } | null;
+    const handleClerkStatus = (status: string) => {
+      if (status === 'error') {
+        failUnreachable();
+      }
+    };
+    if (typeof clerkStatusClient?.on === 'function') {
+      clerkStatusClient.on('status', handleClerkStatus);
+    }
+    if (clerkStatusClient?.status === 'error') {
+      handleClerkStatus('error');
+    }
 
     function handleAuthFailure() {
       if (cancelled || !clerkLoaded) {
@@ -575,7 +630,8 @@ function AdminDashboardContent() {
         handleAuthFailure();
         return;
       } finally {
-        if (!cancelled && (clerkLoaded || serverAuthenticated)) {
+        if (!cancelled && !settled && (clerkLoaded || serverAuthenticated)) {
+          settleAuthPhase();
           setAuthLoading(false);
         }
       }
@@ -583,6 +639,10 @@ function AdminDashboardContent() {
     checkAuth();
     return () => {
       cancelled = true;
+      window.clearTimeout(bootstrapTimer);
+      if (typeof clerkStatusClient?.off === 'function') {
+        clerkStatusClient.off('status', handleClerkStatus);
+      }
     };
   }, [authAttempt, clerkLoaded, getToken, isSignedIn, router, locale, requestedSalonSlug, sessionId]);
 
@@ -1153,6 +1213,7 @@ function AdminDashboardContent() {
     }
     lastAppParamRef.current = appKey;
     if (isUrlAppId(appParam) && !urlBlockedAppIds.includes(appParam)) {
+      setBlockedAppNotice(null);
       urlOpenedAppRef.current = appParam;
       setInitialAppointmentId(
         appParam === 'bookings' ? appointmentParam : null,
@@ -1163,6 +1224,13 @@ function AdminDashboardContent() {
       setShowScheduleCalendar(false);
       setWorkspaceTab('more');
       setActiveModal(appParam);
+    } else if (isUrlAppId(appParam)) {
+      // A known app this salon is not entitled to. Explain it in the workspace
+      // instead of dropping the link silently, and stop the address bar
+      // advertising an app that is not open.
+      setBlockedAppNotice(describeBlockedApp(appParam, moduleReasons));
+      setWorkspaceTab('more');
+      router.replace(buildAdminUrl(null));
     } else if (!appParam) {
       // URL lost its app segment (browser Back, or a close that stripped it):
       // close the modal we opened from the URL. Capture the ref value before
@@ -1178,6 +1246,9 @@ function AdminDashboardContent() {
     authLoading,
     adminUser,
     analyticsModuleStatus,
+    buildAdminUrl,
+    moduleReasons,
+    router,
     urlBlockedAppIds,
   ]);
 
@@ -1188,30 +1259,14 @@ function AdminDashboardContent() {
         `/${locale}/admin/luster${activeDashboardSalonSlug ? `?salon=${encodeURIComponent(activeDashboardSalonSlug)}` : ''}`,
       );
     } else if (appId === 'booking-page') {
-      if (!onboardingV1IntegrationEnabled) {
-        router.push(
-          `/${locale}/admin/website${activeDashboardSalonSlug ? `?salon=${encodeURIComponent(activeDashboardSalonSlug)}` : ''}`,
-        );
-        return;
-      }
-      const accountBackedPreviewUrl = onboardingSavedSite?.salonSlug
-        === activeDashboardSalonSlug
-        ? onboardingSavedSite.previewUrl
-        : null;
-      // Account-backed onboarding sites always reopen their exact persisted
-      // revision. Until resolution completes (or if it fails), never fail open
-      // into the legacy placeholder editor.
-      if (onboardingHandoffResolution === 'available' && accountBackedPreviewUrl) {
-        router.push(`/${locale}/admin/website?salon=${encodeURIComponent(activeDashboardSalonSlug ?? '')}`);
-      } else if (onboardingHandoffResolution === 'absent') {
-        router.push(
-          `/${locale}/admin/website${activeDashboardSalonSlug ? `?salon=${encodeURIComponent(activeDashboardSalonSlug)}` : ''}`,
-        );
-      } else {
-        setNonBlockingMessage(onboardingHandoffResolution === 'error'
-          ? 'Your saved website could not be loaded yet. Try again before opening Booking Page.'
-          : 'Checking your saved website… Try Booking Page again in a moment.');
-      }
+      // Every resolution of the onboarding handoff opened the same hub, so the
+      // tile never needs to wait for it. The Booking Page hub resolves the
+      // saved site itself and gates what it shows; blocking here only stranded
+      // owners who entered the More tab directly (the handoff fetch lives in
+      // the Today subtree and never runs there).
+      router.push(
+        `/${locale}/admin/website${activeDashboardSalonSlug ? `?salon=${encodeURIComponent(activeDashboardSalonSlug)}` : ''}`,
+      );
     } else if (appId === 'workspace-tour') {
       if (onboardingV1IntegrationEnabled && onboardingHandoffAvailable) {
         setShowOnboardingTour(true);
@@ -1234,7 +1289,9 @@ function AdminDashboardContent() {
   const handleQuickAction = useCallback((actionId: string) => {
     switch (actionId) {
       case 'new-appointment':
-        setShowScheduleCalendar(true);
+        // The highest-intent action on Today creates, it does not browse:
+        // open the create form itself, on today's date.
+        setNewAppointmentDate(new Date());
         break;
       case 'walk-in':
         setShowWalkIn(true);
@@ -1380,7 +1437,14 @@ function AdminDashboardContent() {
   if (authLoading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-[#F2F2F7]">
-        <div className="size-8 animate-spin rounded-full border-2 border-gray-300 border-t-gray-600" />
+        <div
+          className="flex flex-col items-center gap-3"
+          data-testid="admin-auth-loading"
+          role="status"
+        >
+          <div className="size-8 animate-spin rounded-full border-2 border-gray-300 border-t-gray-600" />
+          <p className="text-sm text-gray-600">Checking your session…</p>
+        </div>
       </div>
     );
   }
@@ -1604,6 +1668,24 @@ function AdminDashboardContent() {
           </div>
         )}
 
+        {/* Deep link to an app this salon cannot open */}
+        {blockedAppNotice && (
+          <div
+            className="mx-4 mt-2 flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 p-3"
+            data-testid="blocked-app-notice"
+            role="status"
+          >
+            <p className="flex-1 text-sm text-amber-700">{blockedAppNotice}</p>
+            <button
+              type="button"
+              onClick={() => setBlockedAppNotice(null)}
+              className="shrink-0 rounded-lg px-2 py-1 text-sm font-medium text-amber-900 underline underline-offset-2"
+            >
+              Dismiss
+            </button>
+          </div>
+        )}
+
         {workspaceTab === 'more'
           ? (
               <div
@@ -1628,8 +1710,6 @@ function AdminDashboardContent() {
                         focusWelcome={searchParams.get('onboarding') === 'complete'}
                         locale={locale}
                         onAvailabilityChange={setOnboardingHandoffAvailable}
-                        onHandoffChange={handleOnboardingHandoffChange}
-                        onResolutionChange={handleOnboardingHandoffResolution}
                         onTakeTour={() => setShowOnboardingTour(true)}
                         salonSlug={activeDashboardSalonSlug}
                       />
@@ -1747,6 +1827,16 @@ function AdminDashboardContent() {
           setFraudSignals(prev => prev.filter(s => s.id !== signalId));
           setFraudSignalsTotalCount(prev => Math.max(0, prev - 1));
         }}
+      />
+
+      <NewAppointmentModal
+        isOpen={newAppointmentDate !== null}
+        onClose={() => setNewAppointmentDate(null)}
+        onSuccess={() => {
+          void fetchData();
+        }}
+        preselectedDate={newAppointmentDate ?? undefined}
+        salonSlug={activeDashboardSalonSlug}
       />
 
       {onboardingV1IntegrationEnabled

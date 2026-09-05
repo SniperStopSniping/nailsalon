@@ -150,7 +150,11 @@ export async function GET(request: Request): Promise<Response> {
       zipCode: salon.zipCode,
     })
       ? {
-          id: appointment.locationId ?? `salon_${salon.id}`,
+          // Never synthesise `salon_<id>`: it is not a `salon_location` primary
+          // key, so any caller that round-trips it back into a booking write is
+          // rejected with INVALID_LOCATION (the defect this route shared with
+          // `book/confirm`). When the appointment has no location, say so.
+          id: appointment.locationId ?? null,
           name: salon.name,
           address: salon.address,
           city: salon.city,

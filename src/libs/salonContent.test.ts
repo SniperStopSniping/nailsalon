@@ -6,6 +6,7 @@ import {
   EMPTY_SALON_CONTENT,
   hasConfirmedAppointmentStatus,
   isExactAddressPublic,
+  resolveAwaitingConfirmationAddressNotice,
   resolveConfirmedBookingLocationDisplayMode,
   resolveSalonContent,
   type ResolveSalonContentInput,
@@ -405,6 +406,32 @@ describe('after_booking — "Show my full address after they book"', () => {
     for (const status of ['awaiting_payment', 'pending', 'cancelled', 'no_show', 'unknown', null, undefined]) {
       expect(resolveConfirmedBookingLocationDisplayMode('after_booking', status)).toBe('after_booking');
       expect(hasConfirmedAppointmentStatus(status)).toBe(false);
+    }
+  });
+
+  it('tells an after_booking customer when the withheld address will appear, and only then', () => {
+    // The gap the resolver above leaves open is explained, not left silent.
+    for (const status of ['pending', 'awaiting_payment']) {
+      expect(resolveAwaitingConfirmationAddressNotice('after_booking', status))
+        .toBe('Exact address is shared once your request is confirmed.');
+    }
+
+    // Nothing to promise: the address is already shown once confirmed …
+    for (const status of ['confirmed', 'in_progress', 'completed']) {
+      expect(resolveAwaitingConfirmationAddressNotice('after_booking', status)).toBeNull();
+      expect(resolveConfirmedBookingLocationDisplayMode('after_booking', status)).toBe('full_address');
+    }
+
+    // … no arrival is coming for a terminal appointment …
+    for (const status of ['cancelled', 'no_show', 'unknown', null, undefined]) {
+      expect(resolveAwaitingConfirmationAddressNotice('after_booking', status)).toBeNull();
+    }
+
+    // … and the other two modes never make this promise at all: city_only
+    // never publishes the address, full_address already did.
+    for (const status of ['pending', 'awaiting_payment', 'confirmed']) {
+      expect(resolveAwaitingConfirmationAddressNotice('city_only', status)).toBeNull();
+      expect(resolveAwaitingConfirmationAddressNotice('full_address', status)).toBeNull();
     }
   });
 

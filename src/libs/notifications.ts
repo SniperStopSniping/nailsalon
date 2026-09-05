@@ -8,6 +8,7 @@
 import { nanoid } from 'nanoid';
 
 import { db } from '@/libs/DB';
+import { formatDateOnlyLabel } from '@/libs/timeOffDates';
 import {
   type NotificationRecipientRole,
   notificationSchema,
@@ -94,16 +95,20 @@ export async function createAdminNotification(
 
 /**
  * Build notification content for time-off request decisions.
+ *
+ * `time_off_request.start_date` / `end_date` are whole-day DATE columns, so the
+ * dates arrive as 'YYYY-MM-DD'. They are formatted in UTC: reading a calendar
+ * day in the server's zone shifts it to the previous day west of Greenwich.
  */
 export function buildTimeOffDecisionNotification(params: {
   status: 'APPROVED' | 'DENIED';
-  startDate: Date;
-  endDate: Date;
+  startDate: string | Date;
+  endDate: string | Date;
 }): { title: string; body: string } {
   const { status, startDate, endDate } = params;
 
-  const formatDate = (d: Date) =>
-    d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  const formatDate = (value: string | Date) =>
+    formatDateOnlyLabel(value) ?? String(value);
 
   const dateRange = `${formatDate(startDate)} – ${formatDate(endDate)}`;
 

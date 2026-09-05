@@ -86,8 +86,24 @@ export type SalonInformation = {
   addressPrivacy: { draft: LocationDisplayMode; live: LocationDisplayMode };
   contactPreferences: { bookingOnlyContact: boolean | null; callEnabled: boolean | null; textEnabled: boolean | null; textNumber: string | null };
   businessHours: BusinessHoursValue | null;
+  /**
+   * Weekdays at least one active staff member currently works. Opening a day
+   * in these hours does not create staff availability (staff schedules live in
+   * Staff and this editor never writes them), so the days missing from here
+   * are the ones that would go public with no bookable times.
+   */
+  staffedDays: Weekday[];
   timezone: string;
 };
+
+/** "Sunday", "Sunday and Monday", "Sunday, Monday and Tuesday". */
+function formatWeekdayList(days: readonly Weekday[]): string {
+  const labels = days.map(day => `${day[0]!.toUpperCase()}${day.slice(1)}`);
+  if (labels.length <= 1) {
+    return labels[0] ?? '';
+  }
+  return `${labels.slice(0, -1).join(', ')} and ${labels[labels.length - 1]}`;
+}
 
 type SectionStatus = 'idle' | 'dirty' | 'saving' | 'saved' | 'error';
 
@@ -341,6 +357,16 @@ export function BookingPageInformationEditor({
     }
     await patchInformation({ businessHours: values.businessHours });
   }, [info?.timezone, patchInformation, query]));
+
+  // Saved hours are the salon's PUBLIC promise; bookable times are the
+  // intersection of those hours and the staff schedules this editor never
+  // writes. A day opened here with nobody working it goes live reading
+  // "Opens Sunday 11:00 AM" while the booking calendar shows nothing, so the
+  // owner is told before the customer finds out. `info` is the response of the
+  // save itself, so both halves are the freshly-saved truth.
+  const openDaysWithoutStaff = info && hours.status === 'saved'
+    ? WEEKDAYS.filter(day => Boolean(info.businessHours?.[day]) && !info.staffedDays.includes(day))
+    : [];
 
   useEffect(() => {
     if (!info) {
@@ -724,7 +750,13 @@ export function BookingPageInformationEditor({
                     </select>
                   </label>
                   <button className={primaryButtonClass} data-testid="information-save-hours" disabled={disabled || hours.status === 'saving' || hours.status === 'idle' || hours.status === 'saved'} type="submit">Save hours</button>
-                  <StatusLine error={hours.error} savedText="Hours saved. Booking availability uses them immediately." status={hours.status} />
+                  <StatusLine error={hours.error} savedText="Hours saved. Bookable times still follow each staff member’s schedule." status={hours.status} />
+                  {openDaysWithoutStaff.length > 0 && (
+                    <p className="rounded-lg bg-amber-50 p-3 text-xs text-amber-900" data-testid="information-hours-staff-gap" role="status">
+                      {`No staff member works ${formatWeekdayList(openDaysWithoutStaff)} yet — add a shift or clients will see no times. `}
+                      <a className="font-semibold underline" href={`${workspace}&app=staff`}>Add a shift in Staff</a>
+                    </p>
+                  )}
                   {renderSwitches('Hours')}
                 </form>
               )

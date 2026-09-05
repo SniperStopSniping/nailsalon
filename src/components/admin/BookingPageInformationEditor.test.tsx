@@ -39,6 +39,7 @@ function information(overrides: Partial<SalonInformation> = {}): SalonInformatio
     addressPrivacy: { draft: 'full_address', live: 'full_address' },
     contactPreferences: { bookingOnlyContact: false, callEnabled: true, textEnabled: false, textNumber: null },
     businessHours: { monday: { open: '10:00', close: '19:00' }, tuesday: null, wednesday: null, thursday: null, friday: null, saturday: null, sunday: null },
+    staffedDays: ['monday'],
     timezone: 'America/Toronto',
     ...overrides,
   };
@@ -223,6 +224,46 @@ describe('BookingPageInformationEditor', () => {
     expect(writes[1]?.body).toEqual({ businessHours: { ...information().businessHours, tuesday: { open: '09:00', close: '17:30' } } });
     expect(JSON.stringify(writes)).not.toContain('weeklySchedule');
     expect(calls.some(call => call.url.includes('/api/admin/technicians'))).toBe(false);
+  });
+
+  // OP-010 / AG-w2-information-parity-01: hours are the salon's public promise,
+  // but bookable times are floored by the staff schedules this editor never
+  // writes, so opening an unstaffed day used to publish "Opens Sunday 11:00 AM"
+  // over an empty booking calendar under a toast that claimed otherwise.
+  it('warns after saving a day no staff member works, and links to Staff', async () => {
+    renderEditor();
+    await userEvent.click(await screen.findByText('Hours', { exact: true }));
+
+    expect(screen.queryByTestId('information-hours-staff-gap')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('information-hours-sunday-open-toggle'));
+    fireEvent.change(screen.getByTestId('information-hours-sunday-open'), { target: { value: '11:00' } });
+    fireEvent.change(screen.getByTestId('information-hours-sunday-close'), { target: { value: '16:00' } });
+    fireEvent.click(screen.getByTestId('information-save-hours'));
+
+    const notice = await screen.findByTestId('information-hours-staff-gap');
+
+    expect(notice).toHaveTextContent('No staff member works Sunday yet — add a shift or clients will see no times.');
+    expect(notice.querySelector('a')).toHaveAttribute('href', '/en/admin?salon=salon-a&app=staff');
+    // The toast must not promise availability the staff schedules cannot supply.
+    expect(screen.getByText('Hours saved. Bookable times still follow each staff member’s schedule.')).toBeInTheDocument();
+    expect(screen.queryByText(/Booking availability uses them immediately/)).not.toBeInTheDocument();
+  });
+
+  it('names every unstaffed open day and stays silent when the day is staffed', async () => {
+    current = information({ staffedDays: ['monday', 'sunday'] });
+    renderEditor();
+    await userEvent.click(await screen.findByText('Hours', { exact: true }));
+
+    fireEvent.click(screen.getByTestId('information-hours-sunday-open-toggle'));
+    fireEvent.click(screen.getByTestId('information-hours-tuesday-open-toggle'));
+    fireEvent.click(screen.getByTestId('information-hours-wednesday-open-toggle'));
+    fireEvent.click(screen.getByTestId('information-save-hours'));
+
+    const notice = await screen.findByTestId('information-hours-staff-gap');
+
+    expect(notice).toHaveTextContent('No staff member works Tuesday and Wednesday yet');
+    expect(notice).not.toHaveTextContent('Sunday');
   });
 
   it('rejects closing before opening locally and keeps the edit', async () => {

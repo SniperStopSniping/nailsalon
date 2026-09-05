@@ -149,6 +149,14 @@ type BookConfirmClientProps = {
    */
   depositFingerprint?: string;
   /**
+   * True when this salon reviews every booking by hand (the server writes the
+   * appointment as a `pending` REQUEST rather than a confirmed booking).
+   * Copy-only: it never decides the mode, it just stops the confirm step
+   * promising a reservation the salon has not made yet. Defaults to `false`,
+   * i.e. the instant-confirm copy that shipped before.
+   */
+  salonConfirmsManually?: boolean;
+  /**
    * Overridable for tests.
    *
    * MUST NOT be written as `window.location.href = url`: jsdom does not
@@ -1082,6 +1090,7 @@ const ConfirmContent = ({
   depositNoticeSuppressed,
   policyAcknowledged,
   onPolicyAcknowledgmentChange,
+  salonConfirmsManually,
 }: {
   services: ServiceSummary[];
   addOns: AddOnSummary[];
@@ -1124,6 +1133,13 @@ const ConfirmContent = ({
   depositNoticeSuppressed: boolean;
   policyAcknowledged: boolean;
   onPolicyAcknowledgmentChange: (value: boolean) => void;
+  /**
+   * True when this salon reviews bookings by hand, so tapping the button
+   * creates a REQUEST (`pending`) rather than a held booking. Drives the copy
+   * only — the mode itself is decided server-side when the appointment row is
+   * written.
+   */
+  salonConfirmsManually: boolean;
 }) => {
   // Focus and announcement management for the one nearby suggestion: both
   // actions unmount the banner (and the focused button with it), so focus
@@ -1157,6 +1173,33 @@ const ConfirmContent = ({
     onDismissSmartFitSuggestion();
     confirmActionRef.current?.focus();
   };
+
+  // What this button ACTUALLY does. A manual-confirmation salon stores a
+  // `pending` request the owner still has to accept — nothing is held, and
+  // promising "reserve this time" here is the promise the product then breaks.
+  // A deposit booking is excluded: that path holds the slot for the checkout
+  // window and has its own hold copy.
+  const estimatedDepositDueCents = bookingFinancialEstimate?.depositDueCents
+    ?? depositDisclosure?.amountCents
+    ?? 0;
+  const createsRequest = salonConfirmsManually
+    && !isReschedule
+    && estimatedDepositDueCents === 0;
+
+  // Explain only what is on screen. A booking with no deposit and no tax line
+  // was being told how deposit credit interacts with a taxable subtotal, which
+  // reads as a charge the customer cannot see and contradicts the salon's own
+  // "No deposit required" quick fact right above it.
+  const showsDepositLine = (bookingFinancialEstimate?.depositDueCents ?? 0) > 0;
+  const showsTaxLine = Boolean(bookingFinancialEstimate?.taxLabel);
+  const estimateExplainer = [
+    showsDepositLine ? 'The deposit is money already paid toward the appointment.' : null,
+    showsTaxLine
+      ? (showsDepositLine
+          ? 'Tax is estimated on the full taxable service subtotal before that payment credit.'
+          : 'Tax is estimated on the full taxable service subtotal.')
+      : null,
+  ].filter(Boolean).join(' ');
 
   return (
     <div className="min-h-screen bg-[var(--n5-bg-page)]" style={{ fontFamily: n5.fontBody }}>
@@ -1211,7 +1254,9 @@ const ConfirmContent = ({
           <p className="font-body mx-auto max-w-sm text-sm leading-relaxed text-[var(--n5-ink-muted)]">
             {isReschedule
               ? 'Your current appointment stays booked until you confirm this new time.'
-              : 'Nothing is booked yet. Confirm below to reserve this time.'}
+              : createsRequest
+                ? 'Nothing is booked yet. Send your request below and the salon will confirm it shortly.'
+                : 'Nothing is booked yet. Confirm below to reserve this time.'}
           </p>
         </motion.div>
 
@@ -1222,7 +1267,9 @@ const ConfirmContent = ({
             aria-live="polite"
             className="rounded-2xl border border-[var(--n5-border)] bg-[var(--n5-bg-card)] px-4 py-3 text-sm leading-6 text-[var(--n5-ink-main)]"
           >
-            Confirming your appointment. Your booking details remain below while we finish.
+            {createsRequest
+              ? 'Sending your request. Your booking details remain below while we finish.'
+              : 'Confirming your appointment. Your booking details remain below while we finish.'}
           </div>
         )}
 
@@ -1343,8 +1390,10 @@ const ConfirmContent = ({
           </SectionCard>
 
           <SectionCard
-            title="Before you confirm"
-            description="This will reserve the time above and block duplicate bookings using the same contact details."
+            title={createsRequest ? 'Before you send your request' : 'Before you confirm'}
+            description={createsRequest
+              ? 'This sends your request to the salon and blocks duplicate bookings using the same contact details. The time is not held until the salon confirms.'
+              : 'This will reserve the time above and block duplicate bookings using the same contact details.'}
             className="border-[var(--n5-border)] bg-[var(--n5-bg-card)]"
             contentClassName="grid gap-2 pt-0 sm:grid-cols-2"
           >
@@ -1475,7 +1524,7 @@ const ConfirmContent = ({
               className="font-body space-y-1.5 rounded-2xl border border-[var(--n5-border)] bg-[var(--n5-bg-card)] px-4 py-3 text-sm text-[var(--n5-ink-main)]"
             >
               <div className="flex justify-between gap-3">
-                <span>Services after discount</span>
+                <span>{discountAmount > 0 ? 'Services after discount' : 'Services'}</span>
                 <span>{formatMoney(bookingFinancialEstimate.serviceSubtotalCents, bookingFinancialEstimate.currency)}</span>
               </div>
               {bookingFinancialEstimate.taxLabel && (
@@ -1506,9 +1555,11 @@ const ConfirmContent = ({
                   </div>
                 </>
               )}
-              <p className="pt-1 text-xs leading-5 text-[var(--n5-ink-muted)]">
-                The deposit is money already paid toward the appointment. Tax is estimated on the full taxable service subtotal before that payment credit.
-              </p>
+              {estimateExplainer && (
+                <p className="pt-1 text-xs leading-5 text-[var(--n5-ink-muted)]">
+                  {estimateExplainer}
+                </p>
+              )}
             </div>
           )}
 
@@ -1583,14 +1634,16 @@ const ConfirmContent = ({
               ? (
                   <>
                     <RefreshCw className="size-5 animate-spin" />
-                    <span>Confirming appointment...</span>
+                    <span>{createsRequest ? 'Sending request...' : 'Confirming appointment...'}</span>
                   </>
                 )
               : (
                   <>
                     <Check className="size-5" />
                     <span>
-                      {`Confirm appointment · ${totalPriceDisplay}`}
+                      {createsRequest
+                        ? `Request this time · ${totalPriceDisplay}`
+                        : `Confirm appointment · ${totalPriceDisplay}`}
                     </span>
                   </>
                 )}
@@ -1948,6 +2001,7 @@ export function BookConfirmClient({
   depositDisclosure = null,
   depositNoticeSuppressed = false,
   depositFingerprint = DEPOSIT_FINGERPRINT_NONE,
+  salonConfirmsManually = false,
   navigateToCheckout = defaultNavigateToCheckout,
 }: BookConfirmClientProps) {
   const router = useRouter();
@@ -2797,6 +2851,7 @@ export function BookConfirmClient({
       depositNoticeSuppressed={depositNoticeSuppressed}
       policyAcknowledged={policyAcknowledged}
       onPolicyAcknowledgmentChange={setPolicyAcknowledged}
+      salonConfirmsManually={salonConfirmsManually}
     />
   );
 }

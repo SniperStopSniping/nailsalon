@@ -4,8 +4,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { type GoogleEventPrefill, NewAppointmentModal } from './NewAppointmentModal';
 
-const { fetchMock } = vi.hoisted(() => ({
+const { fetchMock, salonContext } = vi.hoisted(() => ({
   fetchMock: vi.fn(),
+  salonContext: { salonSlug: 'test-salon' },
 }));
 
 vi.mock('framer-motion', () => ({
@@ -16,7 +17,7 @@ vi.mock('framer-motion', () => ({
 }));
 
 vi.mock('@/providers/SalonProvider', () => ({
-  useSalon: () => ({ salonSlug: 'test-salon' }),
+  useSalon: () => salonContext,
 }));
 
 const initialEvent: GoogleEventPrefill = {
@@ -83,9 +84,44 @@ function postCalls() {
       && (init as RequestInit | undefined)?.method === 'POST');
 }
 
+describe('NewAppointmentModal salon resolution', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    salonContext.salonSlug = 'test-salon';
+    vi.stubGlobal('fetch', fetchMock);
+    installDefaultFetch();
+  });
+
+  it('explains the missing tenant instead of spinning forever when no salon resolves', async () => {
+    salonContext.salonSlug = '';
+    render(<NewAppointmentModal {...modalProps({ googleEventPrefill: null })} />);
+
+    const notice = await screen.findByTestId('new-appointment-error');
+
+    expect(notice).toHaveTextContent('Choose a salon to continue');
+    expect(notice).toHaveAttribute('role', 'alert');
+    expect(screen.queryByTestId('new-appointment-loading')).not.toBeInTheDocument();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('prefers the dashboard salon prop over the tenant-cookie context', async () => {
+    salonContext.salonSlug = '';
+    render(<NewAppointmentModal {...modalProps({ googleEventPrefill: null, salonSlug: 'salon-b' })} />);
+
+    await waitForForm();
+
+    const requested = fetchMock.mock.calls.map(([input]) => String(input));
+
+    expect(requested).toContain('/api/admin/technicians?salonSlug=salon-b&status=active');
+    expect(requested).toContain('/api/salon/services?salonSlug=salon-b');
+    expect(screen.queryByText('Choose a salon to continue')).not.toBeInTheDocument();
+  });
+});
+
 describe('NewAppointmentModal Google conversion session', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    salonContext.salonSlug = 'test-salon';
     vi.stubGlobal('fetch', fetchMock);
     installDefaultFetch();
   });

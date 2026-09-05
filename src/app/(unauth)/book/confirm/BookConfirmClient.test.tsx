@@ -2178,6 +2178,128 @@ describe('BookConfirmClient deposit disclosure', () => {
     });
   });
 
+  // A salon that has a tax configuration on file but switched OFF: the totals
+  // block still renders (this is the audited state), with no tax line.
+  const NO_TAX_CONFIG = {
+    enabled: false,
+    name: 'HST',
+    rateBps: 0,
+    pricesIncludeTax: false,
+    taxServicesByDefault: true,
+    taxAddOnsByDefault: true,
+    taxCustomByDefault: true,
+    configurationSource: 'base' as const,
+    configurationEffectiveFrom: null,
+    jurisdiction: 'Ontario',
+    country: 'CA',
+    region: 'ON',
+  };
+
+  it('promises a reservation only when the salon actually confirms instantly', () => {
+    const instant = renderClient();
+
+    expect(screen.getByRole('button', { name: 'Confirm appointment · $65' })).toBeInTheDocument();
+    expect(screen.getByText('Nothing is booked yet. Confirm below to reserve this time.')).toBeInTheDocument();
+
+    instant.unmount();
+
+    // Manual-confirmation salon: the tap stores a REQUEST the owner still has
+    // to accept, so nothing on this screen may claim the time is held.
+    renderClient({ salonConfirmsManually: true });
+
+    expect(screen.getByRole('button', { name: 'Request this time · $65' })).toBeInTheDocument();
+    expect(screen.getByText('Nothing is booked yet. Send your request below and the salon will confirm it shortly.')).toBeInTheDocument();
+    expect(screen.getByText('Before you send your request')).toBeInTheDocument();
+    expect(screen.getByText(/The time is not held until the salon confirms\./)).toBeInTheDocument();
+    expect(screen.queryByText(/Confirm below to reserve this time/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/This will reserve the time above/)).not.toBeInTheDocument();
+  });
+
+  it('keeps the reserve copy for a deposit booking, which really does hold the slot', () => {
+    renderClient({
+      salonConfirmsManually: true,
+      depositDisclosure: { label: 'A $25.00 deposit is required', amountCents: 2500 },
+    });
+
+    expect(screen.getByRole('button', { name: /^Confirm appointment · / })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^Request this time/ })).not.toBeInTheDocument();
+  });
+
+  it('explains nothing about deposits or tax on a booking that has neither', () => {
+    renderClient({ currency: 'CAD', taxConfig: NO_TAX_CONFIG });
+
+    const estimate = screen.getByTestId('booking-financial-estimate');
+
+    expect(estimate).toHaveTextContent('Services');
+    expect(estimate).toHaveTextContent('Estimated appointment total');
+    // The audited defect: a no-deposit, no-tax, no-discount booking was told
+    // how deposit credit interacts with a taxable subtotal.
+    expect(estimate).not.toHaveTextContent('after discount');
+    expect(estimate).not.toHaveTextContent('The deposit is money already paid');
+    expect(estimate).not.toHaveTextContent('taxable service subtotal');
+  });
+
+  it('labels the subtotal as discounted only when a discount was applied', () => {
+    renderClient({ discountAmount: 20, subtotalBeforeDiscount: 85, totalPrice: 65, currency: 'CAD', taxConfig: NO_TAX_CONFIG });
+
+    expect(screen.getByTestId('booking-financial-estimate')).toHaveTextContent('Services after discount');
+  });
+
+  it('brings back exactly the explanation the visible lines need', () => {
+    const taxOnly = renderClient({
+      services: [{ id: 'srv_1', name: 'Gel Manicure', price: 100, duration: 75 }],
+      subtotalBeforeDiscount: 100,
+      totalPrice: 100,
+      currency: 'CAD',
+      taxConfig: {
+        enabled: true,
+        name: 'HST',
+        rateBps: 1300,
+        pricesIncludeTax: false,
+        taxServicesByDefault: true,
+        taxAddOnsByDefault: true,
+        taxCustomByDefault: true,
+        configurationSource: 'base',
+        configurationEffectiveFrom: null,
+        jurisdiction: 'Ontario',
+        country: 'CA',
+        region: 'ON',
+      },
+    });
+
+    expect(screen.getByTestId('booking-financial-estimate'))
+      .toHaveTextContent('Tax is estimated on the full taxable service subtotal.');
+    expect(screen.getByTestId('booking-financial-estimate'))
+      .not.toHaveTextContent('The deposit is money already paid');
+
+    taxOnly.unmount();
+
+    renderClient({
+      services: [{ id: 'srv_1', name: 'Gel Manicure', price: 100, duration: 75 }],
+      subtotalBeforeDiscount: 100,
+      totalPrice: 100,
+      currency: 'CAD',
+      taxConfig: {
+        enabled: true,
+        name: 'HST',
+        rateBps: 1300,
+        pricesIncludeTax: false,
+        taxServicesByDefault: true,
+        taxAddOnsByDefault: true,
+        taxCustomByDefault: true,
+        configurationSource: 'base',
+        configurationEffectiveFrom: null,
+        jurisdiction: 'Ontario',
+        country: 'CA',
+        region: 'ON',
+      },
+      depositDisclosure: { label: 'A $25.00 deposit is required', amountCents: 2500 },
+    });
+
+    expect(screen.getByTestId('booking-financial-estimate'))
+      .toHaveTextContent('The deposit is money already paid toward the appointment. Tax is estimated on the full taxable service subtotal before that payment credit.');
+  });
+
   it('test 36 — chip suppression, BOTH directions, keyed on the system predicate', () => {
     Object.assign(bookingExperienceMock.quickFacts.depositNotice, {
       enabled: true,

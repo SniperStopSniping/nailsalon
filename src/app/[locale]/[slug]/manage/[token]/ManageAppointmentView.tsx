@@ -14,6 +14,7 @@ import { getRetentionSettingsForSalon } from '@/libs/retentionSettings.server';
 import {
   applyLocationDisplayMode,
   isExactAddressPublic,
+  resolveAwaitingConfirmationAddressNotice,
   resolveConfirmedBookingLocationDisplayMode,
 } from '@/libs/salonContent';
 import {
@@ -191,6 +192,15 @@ export async function ManageAppointmentView({
     && !/^primary location$/iu.test(visitLocation.name)
     ? visitLocation.name
     : null;
+  // `after_booking` promotes to the exact address only once the appointment is
+  // CONFIRMED. While the request is still unreviewed the customer sees the city
+  // and, without this line, no idea that an address is coming at all — so say
+  // when it appears instead of leaving a silent gap. Null under every mode that
+  // either already shows the address or never will.
+  const addressNotice = resolveAwaitingConfirmationAddressNotice(
+    confirmedDisplayMode,
+    appointment.status,
+  );
   const visitInstructions = resolvePublicLocationInstructions(sharedProfile, {
     addressIsPublic: isExactAddressPublic(confirmedDisplayMode),
     parkingInstructions: retentionSettings?.parkingInstructions ?? null,
@@ -240,7 +250,12 @@ export async function ManageAppointmentView({
     action: 'TEMPLATE',
     text: `${serviceName} at ${capability.salonName}`,
     dates: `${appointment.startTime.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z')}/${appointment.endTime.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z')}`,
-    details: `Booked through Luster with ${capability.salonName}.`,
+    details: [`Booked through Luster with ${capability.salonName}.`, addressNotice].filter(Boolean).join(' '),
+    // The Google button and the Apple/.ics button must hand over the SAME
+    // destination: both read `visitDestination`, built from the one
+    // capability-scoped `applyLocationDisplayMode` projection above, so
+    // neither can disclose more than the other.
+    ...(visitDestination ? { location: visitDestination } : {}),
   });
 
   return (
@@ -332,6 +347,9 @@ export async function ManageAppointmentView({
                 <div className="min-w-0">
                   {visitLocationName && <p className="font-medium text-stone-900">{visitLocationName}</p>}
                   <p className="break-words">{visitDestination}</p>
+                  {addressNotice && (
+                    <p className="mt-1 text-stone-600" data-testid="manage-address-notice">{addressNotice}</p>
+                  )}
                   {visitInstructions.map(line => (
                     <p className="mt-1 text-stone-600" key={line}>{line}</p>
                   ))}

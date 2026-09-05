@@ -159,6 +159,17 @@ function canonicalSalonEmail(snapshot: OnboardingPersistedSnapshot): string | nu
   return email || null;
 }
 
+/**
+ * The owner name is a personal-business field: "Salon / studio" owners are
+ * never asked for one, so the snapshot can carry ''. Canonical records that
+ * need a human-readable name (the owner account, the salon contact name, the
+ * owner's technician row) fall back to the business name instead of storing an
+ * empty string (OP-001). `businessName` is contract-guaranteed non-empty.
+ */
+function ownerDisplayName(snapshot: OnboardingPersistedSnapshot): string {
+  return snapshot.profile.ownerName.trim() || snapshot.profile.businessName.trim();
+}
+
 function identityPhone(
   identity: AuthenticatedOnboardingIdentity,
   snapshot: OnboardingPersistedSnapshot,
@@ -619,7 +630,7 @@ async function ensureIdentityAdmin(
       email: identity.email.trim().toLowerCase(),
       emailVerifiedAt: new Date(),
       id: crypto.randomUUID(),
-      name: identity.name?.trim() || snapshot.profile.ownerName,
+      name: identity.name?.trim() || ownerDisplayName(snapshot),
       // `admin_user.phone_e164` is a legacy authentication identifier. Never
       // promote an owner-entered salon/contact number into that identity
       // boundary; only Clerk-verified account data may populate it.
@@ -715,7 +726,7 @@ async function createBusiness(
     onlineBookingEnabled: true,
     ownerClerkUserId: identity.clerkUserId,
     ownerEmail: identity.email.trim().toLowerCase(),
-    ownerName: snapshot.profile.ownerName,
+    ownerName: ownerDisplayName(snapshot),
     ownerPhone,
     phone,
     publicationStatus: 'draft',
@@ -748,7 +759,7 @@ async function createBusiness(
     id: technicianId,
     isActive: true,
     languages: snapshot.profile.about.languages,
-    name: snapshot.profile.ownerName,
+    name: ownerDisplayName(snapshot),
     onboardingStatus: 'completed',
     phone: ownerPhone,
     primaryLocationId: locationId,
@@ -791,7 +802,7 @@ async function syncExistingBusinessProfile(input: {
     onlineBookingEnabled: true,
     ownerClerkUserId: identity.clerkUserId,
     ownerEmail: identity.email.trim().toLowerCase(),
-    ownerName: snapshot.profile.ownerName,
+    ownerName: ownerDisplayName(snapshot),
     ownerPhone,
     phone,
   }).where(eq(salonSchema.id, salonId));
@@ -848,7 +859,7 @@ async function syncExistingBusinessProfile(input: {
     email: identity.email.trim().toLowerCase(),
     isActive: true,
     languages: snapshot.profile.about.languages,
-    name: snapshot.profile.ownerName,
+    name: ownerDisplayName(snapshot),
     onboardingStatus: 'completed',
     phone: ownerPhone,
     primaryLocationId: locationId,

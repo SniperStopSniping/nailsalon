@@ -75,9 +75,11 @@ const privateSnapshotVisibility = () => {
 const request = (
   suffix: string,
   options: {
+    businessType?: 'home_based' | 'independent_salon' | 'mobile' | 'salon_team';
     idempotencyKey?: string;
     includeProfilePhoto?: boolean;
     localPhotoId?: string;
+    ownerName?: string;
     ownerOverridesByServiceId?: Record<string, { durationMinutes?: number; priceCents?: number }>;
     selectedAddOnIds?: string[];
     selectedServiceIds?: string[];
@@ -97,8 +99,11 @@ const request = (
   // Real onboarding saves the suggested URL before claiming. Use an explicit
   // unique fixture URL instead of relying on the retired collision suffixing.
   state.profile.siteSlug = suffix.replace(/_/g, '-');
-  state.profile.businessStructure = 'solo';
-  state.profile.ownerName = 'Daniela';
+  state.profile.businessStructure = options.businessType === 'salon_team' ? 'multi_tech' : 'solo';
+  if (options.businessType) {
+    state.profile.businessType = options.businessType;
+  }
+  state.profile.ownerName = options.ownerName ?? 'Daniela';
   state.profile.instagram = 'islanailstudio';
   state.profile.bookingOnlyContact = false;
   state.profile.clientContact.primaryNumber = '+14165550199';
@@ -247,6 +252,38 @@ describe.sequential('account-backed onboarding persistence', () => {
       { name: 'Neighbourhood Nail Studio', slug: 'neighbourhood-nails-east' },
       { name: 'Neighbourhood Nail Studio', slug: 'neighbourhood-nails-west' },
     ]);
+  });
+
+  it('saves a Salon/studio business whose owner name was never asked for', async () => {
+    // OP-001: "Salon / studio" (salon_team) hides the personal owner-name
+    // field, so the snapshot legitimately carries ''. The claim must succeed
+    // and every canonical name must fall back to the business name.
+    const owner = { ...identity('team_no_owner_name'), name: null };
+    const input = request('team_no_owner_name', {
+      businessType: 'salon_team',
+      ownerName: '',
+    });
+
+    expect(input.snapshot.profile.ownerName).toBe('');
+
+    const claim = await claimOnboardingDraft(owner, input, handle());
+    if (claim.kind !== 'success') {
+      throw new Error('Expected the Salon/studio claim to succeed.');
+    }
+    const [salon] = await database.select({
+      name: schema.salonSchema.name,
+      ownerName: schema.salonSchema.ownerName,
+    }).from(schema.salonSchema).where(eq(schema.salonSchema.id, claim.data.salonId));
+    const technicians = await database.select({ name: schema.technicianSchema.name })
+      .from(schema.technicianSchema)
+      .where(eq(schema.technicianSchema.salonId, claim.data.salonId));
+    const [admin] = await database.select({ name: schema.adminUserSchema.name })
+      .from(schema.adminUserSchema)
+      .where(eq(schema.adminUserSchema.clerkUserId, owner.clerkUserId));
+
+    expect(salon?.ownerName).toBe(salon?.name);
+    expect(technicians).toEqual([{ name: salon?.name }]);
+    expect(admin?.name).toBe(salon?.name);
   });
 
   it('claims the complete Product library into tenant-owned rows and rejects another owner', async () => {

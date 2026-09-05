@@ -368,6 +368,65 @@ describe('AppointmentQuickEditSheet', () => {
     });
   });
 
+  it('reports a refused save beside Save and restores the rejected time', async () => {
+    // AG-w2-calendar-writes-04: the 409 used to render a screen and a half
+    // above the Save button the owner had just pressed, with no role="alert"
+    // and the rejected time left in the field — so a refused move read as a
+    // successful one.
+    const conflict = {
+      code: 'APPOINTMENT_CONFLICT',
+      message: 'That time is not available for the selected technician.',
+    };
+
+    function RefusedSaveHarness() {
+      const [actionError, setActionError] = useState<string | null>(null);
+      return (
+        <AppointmentQuickEditSheet
+          isOpen
+          onClose={vi.fn()}
+          detail={baseDetail}
+          loading={false}
+          saving={false}
+          actionError={actionError}
+          attemptedTimeLabel="Wed, Sep 9, 1:00 PM"
+          onSaveEdits={async () => {
+            setActionError(conflict.message);
+            // The hook rethrows so the sheet can undo its optimistic field.
+            throw conflict;
+          }}
+          onMoveToNextAvailable={vi.fn(async () => {})}
+          onCancelAppointment={vi.fn(async () => {})}
+          onMarkCompleted={vi.fn(async () => {})}
+          onStartAppointment={vi.fn(async () => {})}
+        />
+      );
+    }
+
+    render(<RefusedSaveHarness />);
+
+    const startTimeInput = screen.getByTestId('appointment-sheet-start-time') as HTMLInputElement;
+    const storedValue = startTimeInput.value;
+
+    fireEvent.change(startTimeInput, { target: { value: '2026-09-09T13:00' } });
+
+    expect(startTimeInput.value).toBe('2026-09-09T13:00');
+
+    fireEvent.click(screen.getByTestId('appointment-sheet-save'));
+
+    const alert = await screen.findByRole('alert');
+
+    expect(alert).toHaveAttribute('data-testid', 'appointment-sheet-inline-error');
+    expect(alert).toHaveTextContent('That time is not available for the selected technician.');
+    expect(alert).toHaveTextContent('Wed, Sep 9, 1:00 PM');
+    // Visible where the owner acted: in the sticky footer with Save, never in
+    // the sheet's scroller where it can sit off-screen.
+    expect(screen.getByTestId('appointment-sheet-scroll-region')).not.toContainElement(alert);
+    expect(alert.parentElement).toContainElement(screen.getByTestId('appointment-sheet-save'));
+
+    await waitFor(() => expect(alert).toHaveFocus());
+    await waitFor(() => expect(startTimeInput.value).toBe(storedValue));
+  });
+
   it('cancels through a confirmation dialog with consequences, reason, and internal note', async () => {
     const onCancelAppointment = vi.fn(async () => {});
 

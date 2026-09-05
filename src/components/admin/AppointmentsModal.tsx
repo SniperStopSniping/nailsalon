@@ -288,6 +288,7 @@ export function AppointmentsModal({
 
       <NewAppointmentModal
         isOpen={showNewAppointmentModal}
+        salonSlug={salonSlug}
         onClose={() => {
           setShowNewAppointmentModal(false);
           setRebookPrefill(null);

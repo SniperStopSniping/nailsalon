@@ -60,6 +60,29 @@ function errorMessage(error: unknown, fallback: string) {
     : fallback;
 }
 
+function errorDetailString(error: unknown, key: string): string | null {
+  const details = typeof error === 'object' && error !== null && 'details' in error
+    ? (error as { details?: Record<string, unknown> | null }).details
+    : null;
+  const value = details && typeof details === 'object'
+    ? (details as Record<string, unknown>)[key]
+    : undefined;
+  return typeof value === 'string' ? value : null;
+}
+
+/**
+ * A refusal must name what blocks it. `CLIENT_ALREADY_HAS_ACTIVE_APPOINTMENT`
+ * carries the blocking booking's start time, so the owner is told which other
+ * appointment to resolve instead of only that this one "cannot" be updated.
+ */
+function describeMutationError(error: unknown, fallback: string): string {
+  const message = errorMessage(error, fallback);
+  const conflictingStartTime = errorDetailString(error, 'conflictingStartTime');
+  return conflictingStartTime
+    ? `${message} Conflicting booking: ${formatAttemptedTime(conflictingStartTime)}.`
+    : message;
+}
+
 function errorCode(error: unknown): string | null {
   return typeof error === 'object' && error !== null && 'code' in error
     ? String((error as { code?: unknown }).code)
@@ -170,7 +193,7 @@ export function useAppointmentActions(options: UseAppointmentActionsOptions = {}
 
       applyMutationResult(result.data);
     } catch (mutationError) {
-      setDetailError(errorMessage(mutationError, 'Unable to update appointment'));
+      setDetailError(describeMutationError(mutationError, 'Unable to update appointment'));
       const attemptedStartTime = typeof mutationError === 'object'
         && mutationError !== null
         && 'details' in mutationError
@@ -312,7 +335,7 @@ export function useAppointmentActions(options: UseAppointmentActionsOptions = {}
       notifyAppointmentDataChanged();
       await fetchDetail(selectedAppointmentId);
     } catch (statusError) {
-      setDetailError(errorMessage(statusError, 'Unable to update appointment'));
+      setDetailError(describeMutationError(statusError, 'Unable to update appointment'));
     } finally {
       setDetailSaving(false);
     }

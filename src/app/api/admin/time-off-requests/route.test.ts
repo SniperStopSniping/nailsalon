@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { requireActiveAdminSalon, db } = vi.hoisted(() => {
-  const limit = vi.fn(async () => []);
+const { requireActiveAdminSalon, db, limit } = vi.hoisted(() => {
+  const limit = vi.fn(async (): Promise<unknown[]> => []);
   const orderBy = vi.fn(() => ({ limit }));
   const where = vi.fn(() => ({ orderBy }));
   const innerJoin = vi.fn(() => ({ innerJoin, where }));
@@ -11,6 +11,7 @@ const { requireActiveAdminSalon, db } = vi.hoisted(() => {
   return {
     requireActiveAdminSalon: vi.fn(),
     db: { select },
+    limit,
   };
 });
 
@@ -22,7 +23,9 @@ vi.mock('@/libs/DB', () => ({
   db,
 }));
 
+/* eslint-disable import/first */
 import { GET } from './route';
+/* eslint-enable import/first */
 
 describe('GET /api/admin/time-off-requests', () => {
   beforeEach(() => {
@@ -60,5 +63,101 @@ describe('GET /api/admin/time-off-requests', () => {
 
     expect(response.status).toBe(200);
     expect(body).toEqual({ data: { requests: [] } });
+  });
+
+  it('lists a pending request with its whole-day dates', async () => {
+    // Shape of the audit fixture tor_audit_1 (Tiffany, 2026-09-17 -> 2026-09-18).
+    // start/end arrive from the DATE mapper as 'YYYY-MM-DD' strings; calling
+    // toISOString() on them used to throw RangeError and 500 the whole inbox.
+    requireActiveAdminSalon.mockResolvedValue({
+      error: null,
+      salon: { id: 'salon_b', name: 'Nail Salon No.5' },
+      admin: { id: 'admin_1' },
+    });
+    limit.mockResolvedValueOnce([
+      {
+        id: 'tor_audit_1',
+        salonId: 'salon_b',
+        salonName: 'Nail Salon No.5',
+        technicianId: 'tech_tiffany',
+        technicianName: 'Tiffany',
+        startDate: '2026-09-17',
+        endDate: '2026-09-18',
+        note: 'AUDIT-0905 family trip',
+        status: 'PENDING',
+        decidedAt: null,
+        createdAt: new Date('2026-09-01T12:00:00.000Z'),
+      },
+    ]);
+
+    const response = await GET(
+      new Request('http://localhost/api/admin/time-off-requests?status=PENDING'),
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.data.requests).toEqual([
+      {
+        id: 'tor_audit_1',
+        salonId: 'salon_b',
+        salonName: 'Nail Salon No.5',
+        technicianId: 'tech_tiffany',
+        technicianName: 'Tiffany',
+        startDate: '2026-09-17',
+        endDate: '2026-09-18',
+        note: 'AUDIT-0905 family trip',
+        status: 'PENDING',
+        decidedAt: null,
+        createdAt: '2026-09-01T12:00:00.000Z',
+      },
+    ]);
+  });
+
+  it('skips a row with an unreadable date instead of failing the list', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    requireActiveAdminSalon.mockResolvedValue({
+      error: null,
+      salon: { id: 'salon_b', name: 'Nail Salon No.5' },
+      admin: { id: 'admin_1' },
+    });
+    limit.mockResolvedValueOnce([
+      {
+        id: 'tor_broken',
+        salonId: 'salon_b',
+        salonName: 'Nail Salon No.5',
+        technicianId: 'tech_tiffany',
+        technicianName: 'Tiffany',
+        startDate: new Date('nonsense'),
+        endDate: '2026-09-18',
+        note: null,
+        status: 'PENDING',
+        decidedAt: null,
+        createdAt: new Date('2026-09-01T12:00:00.000Z'),
+      },
+      {
+        id: 'tor_audit_1',
+        salonId: 'salon_b',
+        salonName: 'Nail Salon No.5',
+        technicianId: 'tech_tiffany',
+        technicianName: 'Tiffany',
+        startDate: '2026-09-17',
+        endDate: '2026-09-18',
+        note: null,
+        status: 'PENDING',
+        decidedAt: null,
+        createdAt: new Date('2026-09-01T12:00:00.000Z'),
+      },
+    ]);
+
+    const response = await GET(
+      new Request('http://localhost/api/admin/time-off-requests'),
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.data.requests.map((r: { id: string }) => r.id)).toEqual(['tor_audit_1']);
+    expect(warn).toHaveBeenCalled();
+
+    warn.mockRestore();
   });
 });

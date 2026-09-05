@@ -206,6 +206,27 @@ describe('admin salon information route', () => {
       expect(data.technician).toBeNull();
       expect(data.technicianCount).toBe(2);
     });
+
+    // OP-010 / AG-w2-information-parity-01: the editor needs to know which
+    // days are actually staffed, because opening a day here never creates
+    // staff availability (this route deliberately never writes
+    // `technician.weekly_schedule`).
+    it('reports the weekdays some active staff member works, across both schedule shapes', async () => {
+      getTechniciansBySalonId.mockResolvedValue([
+        { id: 'tech_1', name: 'Daniela', weeklySchedule: { monday: { start: '10:00', end: '18:00' }, saturday: { start: '10:00', end: '17:00' } } },
+        { id: 'tech_2', name: 'Legacy', workDays: [2], startTime: '09:00', endTime: '17:00' },
+      ]);
+
+      const { data } = await (await GET(request('https://x.test/api/admin/salon/information?salonSlug=salon-a'))).json();
+
+      expect(data.staffedDays).toEqual(['monday', 'tuesday', 'saturday']);
+    });
+
+    it('reports no staffed days when nobody has a schedule', async () => {
+      const { data } = await (await GET(request('https://x.test/api/admin/salon/information?salonSlug=salon-a'))).json();
+
+      expect(data.staffedDays).toEqual([]);
+    });
   });
 
   describe('PATCH validation', () => {

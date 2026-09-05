@@ -2,7 +2,7 @@
 
 import { CalendarPlus, Clock3, Mail, MapPin, UserRound } from 'lucide-react';
 import Image from 'next/image';
-import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { UpcomingAppointmentActions } from '@/components/appointments/UpcomingAppointmentActions';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
@@ -116,19 +116,55 @@ export function AppointmentQuickEditSheet({
   const [internalNote, setInternalNote] = useState('');
   const [pendingConfirm, setPendingConfirm] = useState<'cancel' | 'no_show' | 'decline' | null>(null);
   const editSectionRef = useRef<HTMLDivElement>(null);
+  const actionErrorRef = useRef<HTMLDivElement>(null);
+
+  const resetEditFieldsFromDetail = useCallback(() => {
+    if (!detail) {
+      return;
+    }
+    setBaseServiceId(detail.appointment.baseServiceId ?? detail.serviceOptions[0]?.id ?? '');
+    setTechnicianId(detail.appointment.technicianId ?? null);
+    setStartTime(formatDateTimeValue(detail.appointment.startTime));
+  }, [detail]);
 
   useEffect(() => {
     if (!detail) {
       return;
     }
 
-    setBaseServiceId(detail.appointment.baseServiceId ?? detail.serviceOptions[0]?.id ?? '');
-    setTechnicianId(detail.appointment.technicianId ?? null);
-    setStartTime(formatDateTimeValue(detail.appointment.startTime));
+    resetEditFieldsFromDetail();
     if (initialPendingAction === 'cancel' && detail.permissions.canCancel) {
       setPendingConfirm('cancel');
     }
-  }, [detail, initialPendingAction]);
+  }, [detail, initialPendingAction, resetEditFieldsFromDetail]);
+
+  // A refusal has to be seen where the owner acted. The notice lives in the
+  // sticky footer next to "Save changes", is announced (role="alert"), and
+  // takes focus so a keyboard/screen-reader user lands on it instead of being
+  // returned to a form that looks like it saved.
+  useEffect(() => {
+    if (!actionError || !detail) {
+      return;
+    }
+    const node = actionErrorRef.current;
+    if (!node) {
+      return;
+    }
+    node.scrollIntoView?.({ behavior: 'smooth', block: 'nearest' });
+    node.focus?.({ preventScroll: true });
+  }, [actionError, attemptedTimeLabel, detail]);
+
+  const handleSaveEdits = useCallback(async () => {
+    try {
+      await onSaveEdits({ baseServiceId, technicianId, startTime });
+    } catch {
+      // The refusal is reported through `actionError`. The rejected value must
+      // NOT stay in the form: left there it reads as the appointment's stored
+      // time, which is exactly how an owner ends up telling a client the wrong
+      // time for a move that never happened.
+      resetEditFieldsFromDetail();
+    }
+  }, [baseServiceId, onSaveEdits, resetEditFieldsFromDetail, startTime, technicianId]);
 
   const currentBaseService = useMemo(
     () => detail?.serviceOptions.find(service => service.id === baseServiceId) ?? null,
@@ -434,22 +470,6 @@ export function AppointmentQuickEditSheet({
                         </div>
                       )}
 
-                      {actionError && (
-                        <div
-                          data-testid="appointment-sheet-inline-error"
-                          className="rounded-2xl border border-red-200 bg-red-50 p-3 text-sm text-red-700"
-                        >
-                          <div className="font-medium">Unable to update appointment</div>
-                          <div>{actionError}</div>
-                          {attemptedTimeLabel && (
-                            <div className="mt-1 text-red-600">
-                              Attempted time:
-                              {attemptedTimeLabel}
-                            </div>
-                          )}
-                        </div>
-                      )}
-
                       {warnings.length > 0 && (
                         <div
                           data-testid="appointment-sheet-warning"
@@ -749,6 +769,26 @@ export function AppointmentQuickEditSheet({
             className="shrink-0 border-t border-neutral-200 bg-white px-4 pt-3 sm:px-5"
             style={{ paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 0.75rem)' }}
           >
+            {actionError && (
+              <div
+                ref={actionErrorRef}
+                data-testid="appointment-sheet-inline-error"
+                role="alert"
+                tabIndex={-1}
+                className="mb-3 rounded-2xl border border-red-200 bg-red-50 p-3 text-sm text-red-700 outline-none"
+              >
+                <div className="font-medium">Unable to update appointment</div>
+                <div>{actionError}</div>
+                {attemptedTimeLabel && (
+                  <div className="mt-1 text-red-600">
+                    Attempted time:
+                    {' '}
+                    {attemptedTimeLabel}
+                  </div>
+                )}
+              </div>
+            )}
+
             <div className="flex gap-3">
               <button
                 type="button"
@@ -761,11 +801,7 @@ export function AppointmentQuickEditSheet({
               <button
                 type="button"
                 data-testid="appointment-sheet-save"
-                onClick={() => void onSaveEdits({
-                  baseServiceId,
-                  technicianId,
-                  startTime,
-                })}
+                onClick={() => void handleSaveEdits()}
                 disabled={saving || !isDirty}
                 className="flex-[1.4] rounded-2xl px-4 py-3 text-sm font-semibold text-white disabled:opacity-50"
                 style={{ backgroundColor: themeVars.primary }}

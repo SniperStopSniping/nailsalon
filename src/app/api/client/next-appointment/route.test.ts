@@ -341,8 +341,12 @@ describe('GET /api/client/next-appointment', () => {
     const body = await response.json();
 
     expect(response.status).toBe(200);
+    // Deliberate change (OP-010/AG-clients-02): this used to assert the
+    // synthesised `salon_salon_1`, which is not a `salon_location` id — a
+    // caller that fed it back into a booking write got INVALID_LOCATION. The
+    // salon-address fallback now reports no location id at all.
     expect(body.data.location).toEqual({
-      id: 'salon_salon_1',
+      id: null,
       name: 'Salon A',
       address: '123 Beauty Lane',
       city: 'Los Angeles',

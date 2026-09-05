@@ -34,13 +34,15 @@ import { db } from '@/libs/DB';
 import { buildSalonTenantPublicUrl } from '@/libs/publicUrl';
 import { getActiveLocationsBySalonId, getSalonBySlug, getTechniciansBySalonId } from '@/libs/queries';
 import { resolveSharedSalonProfile } from '@/libs/sharedSalonProfile';
+import { resolveWeeklySchedule } from '@/libs/weeklySchedule';
 import { type Salon, salonLocationSchema, salonSchema } from '@/models/Schema';
 
 import { resolveInstagramUsername } from '../../../../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/model/contact';
 
 export const dynamic = 'force-dynamic';
 
-type Weekday = 'monday' | 'tuesday' | 'wednesday' | 'thursday' | 'friday' | 'saturday' | 'sunday';
+const WEEKDAYS = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'] as const;
+type Weekday = (typeof WEEKDAYS)[number];
 type BusinessHours = Record<Weekday, { open: string; close: string } | null>;
 
 const timeOfDaySchema = z.string().regex(/^(?:[01]\d|2[0-3]):[0-5]\d$/u, 'Use 24-hour HH:MM times');
@@ -196,6 +198,14 @@ async function buildInformation(salon: Salon) {
   ]);
   const location = locations.find(item => item.isPrimary) ?? locations[0] ?? null;
   const soleTechnician = technicians.length === 1 ? technicians[0]! : null;
+  // Opening a day here does NOT make it bookable on its own: the availability
+  // engine floors every slot on the staff schedules, which this route
+  // deliberately never writes (see the header). Reporting which weekdays are
+  // actually staffed lets the editor warn the owner instead of promising the
+  // public a day nobody works.
+  const staffedDays = WEEKDAYS.filter(day =>
+    technicians.some(technician => Boolean(resolveWeeklySchedule(technician)?.[day])),
+  );
   const content = resolveBookingPageContent(salon.settings);
   const sharedProfile = resolveSharedSalonProfile(salon.settings);
 
@@ -238,6 +248,7 @@ async function buildInformation(salon: Salon) {
       textNumber: sharedProfile.textNumber,
     },
     businessHours: (location?.businessHours ?? salon.businessHours ?? null) as BusinessHours | null,
+    staffedDays,
     timezone: resolveBookingConfigFromSettings(salon.settings).timezone,
   };
 }

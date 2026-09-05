@@ -62,8 +62,13 @@ vi.mock('@/libs/DB', () => ({
   db,
 }));
 
-const START = new Date('2026-03-14T00:00:00.000Z');
-const END = new Date('2026-03-15T00:00:00.000Z');
+// `time_off_request.start_date` / `end_date` are DATE columns: the mapper
+// hands the route 'YYYY-MM-DD' strings, never Dates.
+const START = '2026-03-14';
+const END = '2026-03-15';
+// technician_time_off stores real timestamps; whole days go in at midnight UTC.
+const BLOCK_START = new Date('2026-03-14T00:00:00.000Z');
+const BLOCK_END = new Date('2026-03-15T00:00:00.000Z');
 
 function pendingRequest(overrides: Record<string, unknown> = {}) {
   return {
@@ -156,14 +161,38 @@ describe('/api/admin/time-off-requests/[id]', () => {
       expect.objectContaining({
         technicianId: 'tech_1',
         salonId: 'salon_active',
-        startDate: START,
-        endDate: END,
+        startDate: BLOCK_START,
+        endDate: BLOCK_END,
         notes: 'Approved staff request: Family trip',
       }),
     );
     expect(createStaffNotification).toHaveBeenCalledWith(
       expect.objectContaining({ technicianId: 'tech_1', type: 'TIME_OFF_DECISION' }),
     );
+    expect(buildTimeOffDecisionNotification).toHaveBeenCalledWith({
+      status: 'APPROVED',
+      startDate: START,
+      endDate: END,
+    });
+    await expect(response.json()).resolves.toMatchObject({
+      data: { request: { startDate: START, endDate: END } },
+    });
+  });
+
+  it('refuses to decide a request whose stored dates cannot be read', async () => {
+    // Regression: an unreadable date used to reach `.toISOString()` and 500.
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    selectLimit
+      .mockResolvedValueOnce([pendingRequest({ startDate: 'not-a-date' })])
+      .mockResolvedValue([{ name: 'Daniela' }]);
+
+    const response = await patchRequest('APPROVED');
+    const body = await response.json();
+
+    expect(response.status).toBe(422);
+    expect(body.error.code).toBe('INVALID_DATE_RANGE');
+    expect(db.transaction).not.toHaveBeenCalled();
+    expect(createStaffNotification).not.toHaveBeenCalled();
   });
 
   it('denying a request never writes a time-off block', async () => {

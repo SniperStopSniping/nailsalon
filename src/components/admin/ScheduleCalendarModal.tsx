@@ -73,6 +73,12 @@ type DaySummary = {
 
 type ScheduleCalendarModalProps = {
   onClose: () => void;
+  /**
+   * Active salon from the owner dashboard. It resolves its salon client-side,
+   * after the tenant cookie the SalonProvider reads has been set, so the prop
+   * is the reliable source and the provider is only the fallback.
+   */
+  salonSlug?: string | null;
 };
 
 // Helper functions
@@ -574,8 +580,9 @@ function DayDetailPanel({
 }
 
 // Main Component
-export function ScheduleCalendarModal({ onClose }: ScheduleCalendarModalProps) {
-  const { salonSlug } = useSalon();
+export function ScheduleCalendarModal({ onClose, salonSlug: salonSlugProp }: ScheduleCalendarModalProps) {
+  const { salonSlug: contextSalonSlug } = useSalon();
+  const salonSlug = salonSlugProp?.trim() || contextSalonSlug;
   const [viewMode, setViewMode] = useState<ViewMode>('monthly');
   const [scheduleFilter, setScheduleFilter] = useState<ScheduleFilter>('all');
   const [currentDate, setCurrentDate] = useState(new Date());
@@ -1168,6 +1175,7 @@ export function ScheduleCalendarModal({ onClose }: ScheduleCalendarModalProps) {
       {/* New Appointment Modal */}
       <NewAppointmentModal
         isOpen={showNewAppointmentModal}
+        salonSlug={salonSlug}
         onClose={() => {
           setShowNewAppointmentModal(false);
           setGoogleEventPrefill(null);

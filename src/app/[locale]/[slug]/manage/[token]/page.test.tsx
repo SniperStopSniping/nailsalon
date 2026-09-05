@@ -442,6 +442,88 @@ describe('appointment management page', () => {
       expect(screen.queryByRole('link', { name: /Get directions/ })).not.toBeInTheDocument();
     });
 
+    it('tells a still-pending request when the withheld address will appear', async () => {
+      verifyAppointmentAccessToken.mockResolvedValue(capability({
+        appointment: { status: 'pending' },
+        salonSettings: {
+          booking: { clientChangeCutoffHours: 0, timezone: 'America/Toronto' },
+          bookingPageContent: { version: 1, draft: {}, live: { locationDisplayMode: 'after_booking' } },
+          sharedProfile: { entranceInstructions: 'Buzz 4B at the side door' },
+        },
+      }));
+      getPrimaryLocation.mockResolvedValue(privateLocation);
+      selectResults.push([{ name: 'Russian Manicure' }], [], [{ name: 'Daniela' }], [], []);
+
+      await renderPage({ locale: 'en', slug: 'isla-nail-studio1', token: TOKEN });
+
+      const visit = screen.getByTestId('manage-visit-location');
+
+      expect(visit).toHaveTextContent('Toronto, ON');
+      expect(screen.getByTestId('manage-address-notice'))
+        .toHaveTextContent('Exact address is shared once your request is confirmed.');
+    });
+
+    it('drops the "shared once confirmed" promise the moment the address is shown, and never makes it under city_only', async () => {
+      for (const [mode, status] of [['after_booking', 'confirmed'], ['city_only', 'pending'], ['full_address', 'pending']] as const) {
+        vi.clearAllMocks();
+        selectResults.length = 0;
+        verifyAppointmentAccessToken.mockResolvedValue(capability({
+          appointment: { status },
+          salonSettings: {
+            booking: { clientChangeCutoffHours: 0, timezone: 'America/Toronto' },
+            bookingPageContent: { version: 1, draft: {}, live: { locationDisplayMode: mode } },
+          },
+        }));
+        getPrimaryLocation.mockResolvedValue(privateLocation);
+        loadBookingEmailFinancialSummary.mockResolvedValue(null);
+        selectResults.push([{ name: 'Russian Manicure' }], [], [{ name: 'Daniela' }], [], []);
+
+        const { container, unmount } = render(await ManageAppointmentView({ locale: 'en', slug: 'isla-nail-studio1', token: TOKEN }));
+
+        expect(container.innerHTML).not.toContain('Exact address is shared once');
+
+        unmount();
+      }
+    });
+
+    it('hands Google Calendar the same destination the .ics writes into LOCATION', async () => {
+      verifyAppointmentAccessToken.mockResolvedValue(capability({
+        salonSettings: {
+          booking: { clientChangeCutoffHours: 0, timezone: 'America/Toronto' },
+          bookingPageContent: { version: 1, draft: {}, live: { locationDisplayMode: 'after_booking' } },
+        },
+      }));
+      getPrimaryLocation.mockResolvedValue(privateLocation);
+      selectResults.push([{ name: 'Russian Manicure' }], [], [{ name: 'Daniela' }], [], []);
+
+      await renderPage({ locale: 'en', slug: 'isla-nail-studio1', token: TOKEN });
+
+      const href = screen.getByRole('link', { name: /Add to Google Calendar/ }).getAttribute('href') ?? '';
+      const location = new URL(href).searchParams.get('location');
+
+      // Same string `buildDirectionsDestination` gives the .ics LOCATION line.
+      expect(location).toBe('123 Private Street, Toronto, ON, M5V 1A1');
+    });
+
+    it('never widens the Google Calendar location beyond the city for an unconfirmed request', async () => {
+      verifyAppointmentAccessToken.mockResolvedValue(capability({
+        appointment: { status: 'pending' },
+        salonSettings: {
+          booking: { clientChangeCutoffHours: 0, timezone: 'America/Toronto' },
+          bookingPageContent: { version: 1, draft: {}, live: { locationDisplayMode: 'after_booking' } },
+        },
+      }));
+      getPrimaryLocation.mockResolvedValue(privateLocation);
+      selectResults.push([{ name: 'Russian Manicure' }], [], [{ name: 'Daniela' }], [], []);
+
+      await renderPage({ locale: 'en', slug: 'isla-nail-studio1', token: TOKEN });
+
+      const href = screen.getByRole('link', { name: /Add to Google Calendar/ }).getAttribute('href') ?? '';
+
+      expect(new URL(href).searchParams.get('location')).toBe('Toronto, ON');
+      expect(href).not.toContain('Private');
+    });
+
     it('does not let an unpublished draft choice widen what a booked customer sees', async () => {
       verifyAppointmentAccessToken.mockResolvedValue(capability({
         salonSettings: {

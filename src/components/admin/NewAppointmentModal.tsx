@@ -59,6 +59,13 @@ type NewAppointmentModalProps = {
   isOpen: boolean;
   onClose: () => void;
   onSuccess?: () => void;
+  /**
+   * Active salon from the surface that opened the modal. The owner dashboard
+   * resolves its salon client-side, after the tenant cookie the SalonProvider
+   * reads has been set, so the prop is the reliable source and the provider is
+   * only a fallback for surfaces that still rely on it.
+   */
+  salonSlug?: string | null;
   preselectedDate?: Date;
   googleEventPrefill?: GoogleEventPrefill | null;
   googleEventSourceStatus?: GoogleEventSourceStatus;
@@ -117,17 +124,22 @@ function generateTimeSlots(): string[] {
 
 const TIME_SLOTS = generateTimeSlots();
 
+/** Shown when no salon could be resolved, instead of an endless spinner. */
+const MISSING_SALON_MESSAGE = 'Choose a salon to continue';
+
 export function NewAppointmentModal({
   isOpen,
   onClose,
   onSuccess,
+  salonSlug: salonSlugProp,
   preselectedDate,
   googleEventPrefill,
   googleEventSourceStatus = 'available',
   onRefreshGoogleEvent,
   clientPrefill,
 }: NewAppointmentModalProps) {
-  const { salonSlug } = useSalon();
+  const { salonSlug: contextSalonSlug } = useSalon();
+  const salonSlug = salonSlugProp?.trim() || contextSalonSlug;
 
   // Form state
   const [selectedDate, setSelectedDate] = useState<string>(
@@ -256,6 +268,11 @@ export function NewAppointmentModal({
   // Fetch technicians and services
   const fetchData = useCallback(async () => {
     if (!salonSlug) {
+      // No tenant to load against: surface it instead of spinning forever.
+      setTechnicians([]);
+      setServices([]);
+      setError(MISSING_SALON_MESSAGE);
+      setLoading(false);
       return;
     }
 
@@ -610,7 +627,7 @@ export function NewAppointmentModal({
                 <div className="space-y-6">
                   {/* Error Message */}
                   {error && (
-                    <div className="rounded-lg border border-red-200 bg-red-50 p-3">
+                    <div className="rounded-lg border border-red-200 bg-red-50 p-3" role="alert" data-testid="new-appointment-error">
                       <p className="text-sm text-red-700">{error}</p>
                     </div>
                   )}

@@ -4,6 +4,7 @@ import { PgDialect } from 'drizzle-orm/pg-core';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const {
+  getAdminSession,
   requireAdminSalon,
   ClientLifecycleStabilizationError,
   getSalonClientHistoricalPhoneHints,
@@ -91,6 +92,7 @@ const {
 
   return {
     requireAdminSalon: vi.fn(),
+    getAdminSession: vi.fn(),
     ClientLifecycleStabilizationError: class ClientLifecycleStabilizationError extends Error {
       code: string;
 
@@ -151,6 +153,7 @@ const {
 });
 
 vi.mock('@/libs/adminAuth', () => ({
+  getAdminSession,
   requireAdminSalon,
 }));
 
@@ -568,6 +571,12 @@ describe('PATCH /api/admin/clients/[id]', () => {
       error: null,
       salon: { id: 'salon_1' },
     });
+    getAdminSession.mockResolvedValue({
+      id: 'admin_1',
+      name: 'Isla',
+      phoneE164: '+14165550100',
+      salons: [],
+    });
     lockTerminalSalonClientWithHandle.mockResolvedValue({
       id: 'client_primary',
       salonId: 'salon_1',
@@ -663,6 +672,11 @@ describe('PATCH /api/admin/clients/[id]', () => {
     expect(transactionInsertValues).toHaveBeenCalledWith(
       expect.objectContaining({
         entityId: 'client_primary',
+        // AG-clients-12 / AG-w2-clients-06: the edit audit row used to name
+        // no actor at all, while the archive path records one.
+        actorType: 'admin',
+        actorId: 'admin_1',
+        actorPhone: '+14165550100',
         metadata: {
           terminalClientId: 'client_primary',
           changedFields: ['notes'],

@@ -17,6 +17,12 @@ const {
   },
 }));
 
+const logAppointmentChange = vi.hoisted(() => vi.fn(async () => {}));
+
+vi.mock('@/libs/appointmentAudit', () => ({
+  logAppointmentChange,
+}));
+
 vi.mock('@/libs/routeAccessGuards', () => ({
   requireAppointmentManagerAccess,
 }));
@@ -170,5 +176,66 @@ describe('appointment manage route', () => {
         notifyCustomerOnReschedule: true,
       }));
     }
+  });
+
+  it('records who moved the appointment, from when, in the audit log', async () => {
+    // AG-w2-calendar-writes-06: this route wrote no appointment_audit_log row
+    // at all, so "who moved this client and why" was unanswerable for the
+    // most frequent staff mutation.
+    requireAppointmentManagerAccess.mockResolvedValue({
+      ok: true,
+      actorRole: 'admin',
+      admin: { id: 'admin_1', name: 'Isla' },
+      appointment: {
+        id: 'appt_1',
+        salonId: 'salon_1',
+        technicianId: 'tech_1',
+        startTime: new Date('2026-03-29T15:00:00.000Z'),
+        endTime: new Date('2026-03-29T16:00:00.000Z'),
+      },
+    });
+    runAppointmentManageMutation.mockResolvedValue({
+      detail: {
+        appointment: {
+          id: 'appt_1',
+          startTime: '2026-03-29T18:00:00.000Z',
+          endTime: '2026-03-29T19:00:00.000Z',
+          technicianId: 'tech_1',
+          baseServiceId: 'svc_1',
+        },
+      },
+      calendarEvent: { id: 'appt_1' },
+      warnings: [],
+    });
+
+    const response = await PATCH(
+      new Request('http://localhost/api/appointments/appt_1/manage', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          operation: 'move',
+          startTime: '2026-03-29T18:00:00.000Z',
+        }),
+      }),
+      { params: Promise.resolve({ id: 'appt_1' }) },
+    );
+
+    expect(response.status).toBe(200);
+    expect(logAppointmentChange).toHaveBeenCalledWith(expect.objectContaining({
+      appointmentId: 'appt_1',
+      salonId: 'salon_1',
+      action: 'time_changed',
+      performedBy: 'admin_1',
+      performedByRole: 'admin',
+      performedByName: 'Isla',
+      previousValue: expect.objectContaining({
+        startTime: '2026-03-29T15:00:00.000Z',
+        technicianId: 'tech_1',
+      }),
+      newValue: expect.objectContaining({
+        operation: 'move',
+        startTime: '2026-03-29T18:00:00.000Z',
+      }),
+    }));
   });
 });

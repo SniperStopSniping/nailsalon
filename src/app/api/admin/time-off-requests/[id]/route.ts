@@ -21,6 +21,11 @@ import {
   createStaffNotification,
 } from '@/libs/notifications';
 import {
+  dateOnlyToLocalDate,
+  dateOnlyToUtcDate,
+  toDateOnlyString,
+} from '@/libs/timeOffDates';
+import {
   adminUserSchema,
   appointmentSchema,
   technicianSchema,
@@ -126,6 +131,30 @@ export async function PATCH(
       );
     }
 
+    // 5b. Whole-day DATE columns: normalise once, up front. `technician_time_off`
+    // stores real timestamps, and the product's convention for a whole-day block
+    // is midnight UTC (ScheduleTab posts `new Date('YYYY-MM-DD').toISOString()`),
+    // so the approval write must use the same instants.
+    const startDateOnly = toDateOnlyString(existingRequest.startDate);
+    const endDateOnly = toDateOnlyString(existingRequest.endDate);
+    const blockStart = dateOnlyToUtcDate(startDateOnly);
+    const blockEnd = dateOnlyToUtcDate(endDateOnly);
+
+    if (!startDateOnly || !endDateOnly || !blockStart || !blockEnd) {
+      console.error(
+        `[TimeOffRequest] Request ${id} has an unreadable date range; refusing to decide it`,
+      );
+      return Response.json(
+        {
+          error: {
+            code: 'INVALID_DATE_RANGE',
+            message: 'This request has unreadable dates and cannot be decided.',
+          },
+        } satisfies ErrorResponse,
+        { status: 422 },
+      );
+    }
+
     // 6. Update the request. An APPROVED decision must also create the
     // technician_time_off row that the availability engine reads —
     // approving a request without it would leave the technician bookable.
@@ -151,8 +180,8 @@ export async function PATCH(
           .where(
             and(
               eq(technicianTimeOffSchema.technicianId, existingRequest.technicianId),
-              eq(technicianTimeOffSchema.startDate, existingRequest.startDate),
-              eq(technicianTimeOffSchema.endDate, existingRequest.endDate),
+              eq(technicianTimeOffSchema.startDate, blockStart),
+              eq(technicianTimeOffSchema.endDate, blockEnd),
             ),
           )
           .limit(1);
@@ -162,8 +191,8 @@ export async function PATCH(
             id: `timeoff_${nanoid()}`,
             technicianId: existingRequest.technicianId,
             salonId: existingRequest.salonId,
-            startDate: existingRequest.startDate,
-            endDate: existingRequest.endDate,
+            startDate: blockStart,
+            endDate: blockEnd,
             reason: null,
             notes: existingRequest.note
               ? `Approved staff request: ${existingRequest.note}`
@@ -189,8 +218,8 @@ export async function PATCH(
     // 8. Create notification for the staff member
     const { title, body: notifBody } = buildTimeOffDecisionNotification({
       status: status as 'APPROVED' | 'DENIED',
-      startDate: existingRequest.startDate,
-      endDate: existingRequest.endDate,
+      startDate: startDateOnly,
+      endDate: endDateOnly,
     });
 
     await createStaffNotification({
@@ -209,8 +238,8 @@ export async function PATCH(
       data: {
         request: {
           id: updatedRequest!.id,
-          startDate: updatedRequest!.startDate.toISOString().split('T')[0],
-          endDate: updatedRequest!.endDate.toISOString().split('T')[0],
+          startDate: toDateOnlyString(updatedRequest!.startDate) ?? startDateOnly,
+          endDate: toDateOnlyString(updatedRequest!.endDate) ?? endDateOnly,
           note: updatedRequest!.note,
           status: updatedRequest!.status,
           decidedAt: updatedRequest!.decidedAt?.toISOString() ?? null,
@@ -287,14 +316,34 @@ export async function GET(
       .where(eq(technicianSchema.id, existingRequest.technicianId))
       .limit(1);
 
+    // 4b. Whole-day DATE columns -> 'YYYY-MM-DD'. An unreadable range must not
+    // take the detail sheet down with it.
+    const startDateOnly = toDateOnlyString(existingRequest.startDate);
+    const endDateOnly = toDateOnlyString(existingRequest.endDate);
+    // Parsed as local midnight (not `new Date(dateOnly)`, which is midnight UTC
+    // and lands on the previous day west of Greenwich) because appointment
+    // start times are compared in the server's zone.
+    const rangeStart = dateOnlyToLocalDate(startDateOnly);
+    const rangeEndExclusive = dateOnlyToLocalDate(endDateOnly);
+
+    if (!startDateOnly || !endDateOnly || !rangeStart || !rangeEndExclusive) {
+      console.error(
+        `[TimeOffRequest] Request ${id} has an unreadable date range`,
+      );
+      return Response.json(
+        {
+          error: {
+            code: 'INVALID_DATE_RANGE',
+            message: 'This request has unreadable dates.',
+          },
+        } satisfies ErrorResponse,
+        { status: 422 },
+      );
+    }
+
     // 5. Count conflicting appointments (timestamp-safe date range)
     // Time-off dates are inclusive: startDate 00:00:00 to endDate+1 00:00:00
-    const rangeStart = new Date(existingRequest.startDate);
-    rangeStart.setHours(0, 0, 0, 0);
-
-    const rangeEnd = new Date(existingRequest.endDate);
-    rangeEnd.setDate(rangeEnd.getDate() + 1);
-    rangeEnd.setHours(0, 0, 0, 0);
+    rangeEndExclusive.setDate(rangeEndExclusive.getDate() + 1);
 
     const [conflictResult] = await db
       .select({ count: sql<number>`count(*)::int` })
@@ -307,7 +356,7 @@ export async function GET(
           // conflicts for a time-off window and must be counted here.
           inArray(appointmentSchema.status, ['pending', 'confirmed', 'awaiting_payment']),
           gte(appointmentSchema.startTime, rangeStart),
-          lt(appointmentSchema.startTime, rangeEnd),
+          lt(appointmentSchema.startTime, rangeEndExclusive),
         ),
       );
 
@@ -329,8 +378,8 @@ export async function GET(
           salonId: existingRequest.salonId,
           technicianId: existingRequest.technicianId,
           technicianName: technician?.name ?? null,
-          startDate: existingRequest.startDate.toISOString().split('T')[0],
-          endDate: existingRequest.endDate.toISOString().split('T')[0],
+          startDate: startDateOnly,
+          endDate: endDateOnly,
           note: existingRequest.note,
           status: existingRequest.status,
           decidedAt: existingRequest.decidedAt?.toISOString() ?? null,
@@ -340,8 +389,8 @@ export async function GET(
         conflicts: {
           appointmentCount: conflictResult?.count ?? 0,
           range: {
-            from: existingRequest.startDate.toISOString().split('T')[0],
-            to: existingRequest.endDate.toISOString().split('T')[0],
+            from: startDateOnly,
+            to: endDateOnly,
           },
         },
       },

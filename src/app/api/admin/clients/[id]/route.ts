@@ -11,7 +11,7 @@ import {
 } from 'drizzle-orm';
 import { z } from 'zod';
 
-import { requireAdminSalon } from '@/libs/adminAuth';
+import { getAdminSession, requireAdminSalon } from '@/libs/adminAuth';
 import { resolveAppointmentPaymentLedger } from '@/libs/appointmentPaymentLedger';
 import { resolveBookingConfigFromSettings } from '@/libs/bookingConfig';
 import { buildBookingEmailFinancialSummary } from '@/libs/bookingEmailFinancialSummary.server';
@@ -1293,6 +1293,11 @@ export async function PATCH(
       return withPrivateNoStore(error!);
     }
 
+    // The archive path already records WHO acted (clientDeletion.ts
+    // `actorAdminId`); this edit path wrote actor_id NULL, so the one client
+    // action an owner repeats every day was the one with no accountability.
+    const actorAdmin = await getAdminSession();
+
     if (updates.preferredTechnicianId) {
       const [tech] = await db
         .select({ id: technicianSchema.id })
@@ -1584,8 +1589,8 @@ export async function PATCH(
           id: `audit_${crypto.randomUUID()}`,
           salonId: salon.id,
           actorType: 'admin',
-          actorId: null,
-          actorPhone: null,
+          actorId: actorAdmin?.id ?? null,
+          actorPhone: actorAdmin?.phoneE164 ?? null,
           action: 'updated',
           entityType: 'salon_client',
           entityId: lockedClient.id,
