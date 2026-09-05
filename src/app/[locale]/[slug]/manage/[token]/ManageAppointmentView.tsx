@@ -1,14 +1,23 @@
 import { and, eq } from 'drizzle-orm';
-import { CalendarDays, Clock, Download, ExternalLink, Scissors, Sparkles, User } from 'lucide-react';
+import { CalendarDays, Clock, Download, ExternalLink, MapPin, Scissors, Sparkles, User } from 'lucide-react';
 
 import { describeAppointmentAccessFailure, verifyAppointmentAccessToken } from '@/libs/appointmentAccess';
 import { getClientChangePolicy, resolveBookingConfigFromSettings } from '@/libs/bookingConfig';
 import { loadBookingEmailFinancialSummary } from '@/libs/bookingEmailFinancialSummary.server';
 import { resolveBookingPageContent } from '@/libs/bookingPageContent';
 import { db } from '@/libs/DB';
+import { buildDirectionsDestination, buildGoogleMapsDirectionsUrl } from '@/libs/directions';
 import { formatMoney } from '@/libs/formatMoney';
 import { resolveManageDepositCheckout } from '@/libs/manageDepositCheckout';
+import { getLocationById, getPrimaryLocation } from '@/libs/queries';
+import { getRetentionSettingsForSalon } from '@/libs/retentionSettings.server';
 import {
+  applyLocationDisplayMode,
+  isExactAddressPublic,
+  resolveConfirmedBookingLocationDisplayMode,
+} from '@/libs/salonContent';
+import {
+  resolvePublicLocationInstructions,
   resolvePublicSalonPhone,
   resolveSharedSalonProfile,
 } from '@/libs/sharedSalonProfile';
@@ -104,7 +113,15 @@ export async function ManageAppointmentView({
     'no_show',
   ]
     .includes(appointment.status);
-  const [services, addOns, technician, financialSummary, depositForResumeRows] = await Promise.all([
+  // The customer reached this page with a verified appointment capability, so
+  // this is the ONE customer surface where "Show my full address after they
+  // book" resolves to the exact address. The projection still runs through
+  // `applyLocationDisplayMode`: a `city_only` owner never publishes the
+  // street address, not even here.
+  const liveContent = resolveBookingPageContent(capability.salonSettings).live;
+  const confirmedDisplayMode = resolveConfirmedBookingLocationDisplayMode(liveContent.locationDisplayMode, appointment.status);
+  const sharedProfile = resolveSharedSalonProfile(capability.salonSettings);
+  const [services, addOns, technician, financialSummary, depositForResumeRows, visitLocationRow, retentionSettings] = await Promise.all([
     db.select({ name: appointmentServicesSchema.nameSnapshot })
       .from(appointmentServicesSchema)
       .where(eq(appointmentServicesSchema.appointmentId, appointment.id)),
@@ -145,7 +162,39 @@ export async function ManageAppointmentView({
         ))
         .limit(1)
       : Promise.resolve([]),
+    appointment.locationId
+      ? getLocationById(appointment.locationId, appointment.salonId)
+      : getPrimaryLocation(appointment.salonId),
+    // Parking text is only ever shown together with a public/confirmed
+    // address (`resolvePublicLocationInstructions` gates it), so fetching it
+    // here cannot leak anything a browsing visitor would not already see.
+    isExactAddressPublic(confirmedDisplayMode)
+      ? getRetentionSettingsForSalon(appointment.salonId).catch(() => null)
+      : Promise.resolve(null),
   ]);
+
+  const visitLocation = visitLocationRow
+    ? applyLocationDisplayMode({
+      name: visitLocationRow.name,
+      address: visitLocationRow.address,
+      city: visitLocationRow.city,
+      state: visitLocationRow.state,
+      zipCode: visitLocationRow.zipCode,
+    }, confirmedDisplayMode)
+    : null;
+  const visitDestination = buildDirectionsDestination(visitLocation);
+  const visitDirectionsUrl = isExactAddressPublic(confirmedDisplayMode)
+    ? buildGoogleMapsDirectionsUrl(visitLocation)
+    : null;
+  const visitLocationName = visitLocation?.name
+    && visitLocation.name.localeCompare(capability.salonName, undefined, { sensitivity: 'accent' }) !== 0
+    && !/^primary location$/iu.test(visitLocation.name)
+    ? visitLocation.name
+    : null;
+  const visitInstructions = resolvePublicLocationInstructions(sharedProfile, {
+    addressIsPublic: isExactAddressPublic(confirmedDisplayMode),
+    parkingInstructions: retentionSettings?.parkingInstructions ?? null,
+  });
 
   const serviceName = services.map(service => service.name).filter(Boolean).join(', ') || 'Nail appointment';
   const technicianName = technician[0]?.name ?? 'Any available artist';
@@ -277,6 +326,29 @@ export async function ManageAppointmentView({
               <User className="size-5 shrink-0 text-rose-700" />
               <span>{technicianName}</span>
             </div>
+            {visitDestination && (
+              <div className="flex gap-3" data-testid="manage-visit-location">
+                <MapPin className="size-5 shrink-0 text-rose-700" />
+                <div className="min-w-0">
+                  {visitLocationName && <p className="font-medium text-stone-900">{visitLocationName}</p>}
+                  <p className="break-words">{visitDestination}</p>
+                  {visitInstructions.map(line => (
+                    <p className="mt-1 text-stone-600" key={line}>{line}</p>
+                  ))}
+                  {visitDirectionsUrl && (
+                    <a
+                      className="mt-1 inline-flex min-h-11 items-center gap-1 font-semibold text-rose-800"
+                      href={visitDirectionsUrl}
+                      rel="noreferrer"
+                      target="_blank"
+                    >
+                      Get directions
+                      <ExternalLink className="size-4" />
+                    </a>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
 
           <div className="mt-6 rounded-2xl bg-stone-50 p-4 text-sm">
@@ -438,9 +510,9 @@ export async function ManageAppointmentView({
               canChange={changePolicy.canChange}
               cutoffHours={bookingConfig.clientChangeCutoffHours}
               salonPhone={resolvePublicSalonPhone(
-                resolveSharedSalonProfile(capability.salonSettings),
+                sharedProfile,
                 capability.salonPhone,
-                resolveBookingPageContent(capability.salonSettings).live.locationDisplayMode,
+                confirmedDisplayMode,
               )}
             />
           </div>

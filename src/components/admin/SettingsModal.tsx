@@ -2249,6 +2249,7 @@ function percentStringToBps(value: string): number {
 }
 
 type SettingsModalProps = {
+  initialView?: string;
   onClose: () => void;
   salonSlug?: string | null;
   salonId?: string | null;
@@ -2262,6 +2263,7 @@ type SettingsModalProps = {
 };
 
 export function SettingsModal({
+  initialView,
   onClose,
   salonSlug: explicitSalonSlug,
   salonId = null,
@@ -2278,7 +2280,7 @@ export function SettingsModal({
   const locale = String(params?.locale || 'en');
 
   // View navigation state (index + focused editing views)
-  const [view, setView] = useState<SettingsView>('index');
+  const [view, setView] = useState<SettingsView>(() => initialView && ['location', 'booking', 'booking-policy', 'payments'].includes(initialView) ? initialView as SettingsView : 'index');
   const [confirmingLeave, setConfirmingLeave] = useState(false);
 
   // Per-view unsaved-edit tracking (explicit-save views only; autosave views
@@ -3816,6 +3818,12 @@ export function SettingsModal({
             />
 
             <Section title="Business">
+              <Row
+                icon={Palette}
+                iconColor="bg-rose-800"
+                label="Website layout & colours"
+                onClick={() => router.push(`/${locale}/admin/website${salonSlug ? `?salon=${encodeURIComponent(salonSlug)}` : ''}`)}
+              />
               <Row
                 icon={MapPin}
                 iconColor="bg-rose-800"

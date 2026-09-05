@@ -159,6 +159,36 @@ describe('BookingPageOwnerSurface', () => {
   let salonPublicationStatus: string;
   let salonPublishShouldFail: boolean;
 
+  it('reviews current published data without restarting onboarding and saves text before continuing', async () => {
+    searchParamsMock.value = new URLSearchParams('salon=salon-a&panel=text&guided=1');
+    render(<BookingPageOwnerSurface />);
+    const bio = await screen.findByTestId('content-bio');
+
+    expect(screen.queryByTestId('booking-page-publish')).not.toBeInTheDocument();
+
+    fireEvent.change(bio, { target: { value: 'Updated current owner biography' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save & next step' }));
+    await waitFor(() => expect(pushMock).toHaveBeenCalledWith('/en/admin/booking-page?salon=salon-a&panel=policies&guided=1'));
+
+    expect(content.draft.bio).toBe('Updated current owner biography');
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/api/onboarding'))).toBe(false);
+  });
+
+  it('stays in the current editor when saving before navigation fails', async () => {
+    searchParamsMock.value = new URLSearchParams('salon=salon-a&panel=text&guided=1');
+    const originalFetch = fetchMock.getMockImplementation()!;
+    fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => init?.method === 'PATCH'
+      ? Promise.resolve(new Response(JSON.stringify({ error: 'Unavailable' }), { status: 503 }))
+      : originalFetch(input, init));
+    render(<BookingPageOwnerSurface />);
+    fireEvent.change(await screen.findByTestId('content-bio'), { target: { value: 'Keep this edit' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save & next step' }));
+    await screen.findByText('Your changes could not be saved. Please retry before leaving this editor.');
+
+    expect(pushMock).not.toHaveBeenCalled();
+    expect(screen.getByTestId('content-bio')).toHaveValue('Keep this edit');
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
     searchParamsMock.value = new URLSearchParams('salon=salon-a');

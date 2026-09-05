@@ -1,6 +1,7 @@
 import type { QuickBookProfileVisibility } from '@/libs/bookingPageConfig';
+import type { LocationDisplayMode } from '@/libs/bookingPageContent';
 import type { BusinessHours } from '@/libs/bookingPolicy';
-import { applyLocationDisplayMode } from '@/libs/salonContent';
+import { applyLocationDisplayMode, isExactAddressPublic } from '@/libs/salonContent';
 import {
   resolvePublicLocationInstructions,
   type SharedSalonProfile,
@@ -60,7 +61,7 @@ type QuickBookProfileSource = {
   visibility?: Partial<QuickBookProfileVisibility> | null;
   /** Canonical shared salon bio selected on the active draft/live content side. */
   bio: string | null;
-  locationDisplayMode: 'full_address' | 'city_only';
+  locationDisplayMode: LocationDisplayMode;
   publicContactPreferences?: QuickBookPublicContactPreferences | null;
   timeZone: string;
   now?: Date;
@@ -516,7 +517,7 @@ export function resolvePublicQuickBookProfile(source: QuickBookProfileSource): Q
         localityLine,
         directionsUrl: `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(directionsQuery)}`,
         instructionLines: resolvePublicLocationInstructions(source.sharedProfile, {
-          addressIsPublic: locationDisplayMode === 'full_address',
+          addressIsPublic: isExactAddressPublic(locationDisplayMode),
           parkingInstructions: source.parkingInstructions,
         }),
       }

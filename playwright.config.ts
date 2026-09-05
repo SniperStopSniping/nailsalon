@@ -125,7 +125,7 @@ export default defineConfig({
     },
     {
       name: 'mobile-webkit',
-      testMatch: /(?:booking-layout-variants|mobile-(?:booking-footer|admin-appointment-sheet|staff-uiqi))\.e2e\.ts/,
+      testMatch: /(?:booking-page-hub|booking-layout-variants|mobile-(?:booking-footer|admin-appointment-sheet|staff-uiqi))\.e2e\.ts/,
       grep: /@(?:mobile-safari|owner-preview-webkit)/,
       use: { ...devices['iPhone 13'] },
       dependencies: ['setup'],

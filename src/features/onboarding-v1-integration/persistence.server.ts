@@ -470,7 +470,9 @@ async function syncQuickBookProfilePresentationDraft(input: {
       bio: snapshot.profile.about.shortBio.trim() || null,
       locationDisplayMode: snapshot.profile.location.addressVisibility === 'public'
         ? 'full_address'
-        : 'city_only',
+        : snapshot.profile.location.addressVisibility === 'after_booking'
+          ? 'after_booking'
+          : 'city_only',
     }),
   );
 }

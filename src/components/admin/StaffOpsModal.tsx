@@ -24,8 +24,8 @@ export function StaffOpsModal({ onClose }: StaffOpsModalProps) {
       {/* Header */}
       <div className="sticky top-0 z-20 bg-[#F2F2F7]/80 backdrop-blur-md">
         <ModalHeader
-          title="Staff Ops"
-          subtitle="Time Off Requests"
+          title="Time-off requests"
+          subtitle="Review your team’s requests"
           leftAction={<BackButton onClick={onClose} label="Back" />}
         />
       </div>

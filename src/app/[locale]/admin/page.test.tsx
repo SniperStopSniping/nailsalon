@@ -632,7 +632,7 @@ describe('AdminDashboardPage', () => {
 
     act(() => appGridProps.onAppTap?.('booking-page'));
 
-    expect(routerMock.push).toHaveBeenLastCalledWith('/en/admin/booking-page?salon=salon-b');
+    expect(routerMock.push).toHaveBeenLastCalledWith('/en/admin/website?salon=salon-b');
     expect(screen.queryByText(/Checking your saved website/i)).not.toBeInTheDocument();
 
     act(() => appGridProps.onAppTap?.('workspace-tour'));
@@ -690,7 +690,7 @@ describe('AdminDashboardPage', () => {
     };
     act(() => appGridProps.onAppTap?.('booking-page'));
 
-    expect(routerMock.push).not.toHaveBeenCalledWith('/en/admin/booking-page?salon=salon-b');
+    expect(routerMock.push).not.toHaveBeenCalledWith('/en/admin/website?salon=salon-b');
     expect(screen.getByText(/Checking your saved website/i)).toBeInTheDocument();
 
     fireEvent.click(screen.getByTestId('owner-nav-today'));
@@ -702,7 +702,7 @@ describe('AdminDashboardPage', () => {
     };
     act(() => appGridProps.onAppTap?.('booking-page'));
 
-    expect(routerMock.push).toHaveBeenLastCalledWith('/en/admin/booking-page?salon=salon-b');
+    expect(routerMock.push).toHaveBeenLastCalledWith('/en/admin/website?salon=salon-b');
 
     fireEvent.click(screen.getByTestId('owner-nav-today'));
     fireEvent.click(await screen.findByTestId('load-account-backed-site'));
@@ -717,7 +717,7 @@ describe('AdminDashboardPage', () => {
     });
     act(() => appGridProps.onAppTap?.('booking-page'));
 
-    expect(routerMock.push).toHaveBeenLastCalledWith('/en/admin/website/preview/site_1');
+    expect(routerMock.push).toHaveBeenLastCalledWith('/en/admin/website?salon=salon-b');
   });
 
   it('hides analytics and never requests it when the module is not entitled', async () => {

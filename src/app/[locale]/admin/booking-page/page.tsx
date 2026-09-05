@@ -22,7 +22,9 @@ import { ArrowLeft, ExternalLink } from 'lucide-react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
+import { BookingPageAppearance } from '@/components/admin/BookingPageAppearance';
 import { BookingPageBuilder } from '@/components/admin/BookingPageBuilder';
+import { ADDRESS_PRIVACY_OPTIONS, BookingPageInformationEditor } from '@/components/admin/BookingPageInformationEditor';
 import {
   BookingPagePresetPicker,
   type BookingPagePresetPickerStatus,
@@ -68,10 +70,8 @@ const BUSINESS_MODE_OPTIONS: Array<{ id: BusinessMode; label: string; descriptio
   { id: 'team', label: 'Team', description: 'Multiple techs on your calendar.' },
 ];
 
-const LOCATION_DISPLAY_MODE_OPTIONS: Array<{ id: LocationDisplayMode; label: string }> = [
-  { id: 'full_address', label: 'Full address' },
-  { id: 'city_only', label: 'City only' },
-];
+/** The same three owner choices as onboarding and the Your Information editor. */
+const LOCATION_DISPLAY_MODE_OPTIONS: Array<{ id: LocationDisplayMode; label: string }> = ADDRESS_PRIVACY_OPTIONS.map(option => ({ id: option.value, label: option.label }));
 
 // =============================================================================
 // Fetch helpers
@@ -88,6 +88,7 @@ type BookingPageApiResponse = {
    * `publicationStatus`, not the booking-page config draft/live pair.
    */
   salon: { publicationStatus: string };
+  savedDetails?: Record<string, string[]>;
 };
 
 const EDITABLE_CONTENT_FIELDS = ['bio', 'specialtyLine', 'heroImageUrl'] as const;
@@ -106,8 +107,8 @@ function contentDraftValue(
   return content.draft[field] ?? '';
 }
 
-async function fetchBookingPageState(salonSlug: string): Promise<BookingPageApiResponse> {
-  const response = await fetch(`/api/admin/booking-page?salonSlug=${encodeURIComponent(salonSlug)}`, {
+async function fetchBookingPageState(salonSlug: string, includeInformation = false): Promise<BookingPageApiResponse> {
+  const response = await fetch(`/api/admin/booking-page?salonSlug=${encodeURIComponent(salonSlug)}${includeInformation ? '&include=information' : ''}`, {
     cache: 'no-store',
   });
   if (!response.ok) {
@@ -261,11 +262,17 @@ export default function BookingPageOwnerSurface() {
   const router = useRouter();
   const params = useParams();
   const searchParams = useSearchParams();
+  const requestedPanel = searchParams.get('panel');
+  const panel = ['layouts', 'appearance', 'information', 'text', 'policies', 'publish'].includes(requestedPanel ?? '') ? requestedPanel : null;
+  const reviewPanels = ['information', 'text', 'policies', 'layouts', 'appearance', 'publish'];
+  const reviewIndex = searchParams.get('guided') === '1' && panel ? reviewPanels.indexOf(panel) : -1;
+  const show = (name: string) => !panel || panel === name;
   const locale = String(params?.locale || 'en');
   const [salonSlug, setSalonSlug] = useState(searchParams.get('salon') || '');
 
   const [config, setConfig] = useState<BookingPageConfig | null>(null);
   const [content, setContent] = useState<BookingPageContent | null>(null);
+  const [savedDetails, setSavedDetails] = useState<Record<string, string[]> | undefined>();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [saveStatus, setSaveStatusState]
@@ -302,6 +309,12 @@ export default function BookingPageOwnerSurface() {
   const pendingOrdinaryWritesRef = useRef(new Set<Promise<boolean>>());
   const ordinaryWriteTailRef = useRef<Promise<void>>(Promise.resolve());
   const bookingPageRequestGenerationRef = useRef(0);
+  // Your Information forms save explicitly; the guided review asks them to
+  // flush before leaving so an unsaved edit is never silently dropped.
+  const informationFlushRef = useRef<(() => Promise<boolean>) | null>(null);
+  const registerInformationFlush = useCallback((flush: (() => Promise<boolean>) | null) => {
+    informationFlushRef.current = flush;
+  }, []);
   const contentEditGenerationRef = useRef(0);
   const contentEditGenerationByFieldRef = useRef<Record<EditableContentField, number>>({
     bio: 0,
@@ -509,9 +522,10 @@ export default function BookingPageOwnerSurface() {
 
       try {
         const response = await requestBookingPageState(
-          () => fetchBookingPageState(slug),
+          () => fetchBookingPageState(slug, panel === 'information'),
         );
         if (!cancelled) {
+          setSavedDetails(response.state.savedDetails);
           adoptBookingPageState(response.state, response.identity, { refresh: false });
         }
       } catch {
@@ -529,7 +543,7 @@ export default function BookingPageOwnerSurface() {
       cancelled = true;
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [adoptBookingPageState, requestBookingPageState]);
+  }, [adoptBookingPageState, panel, requestBookingPageState]);
 
   const saveConfigPatch = useCallback(async (patch: Record<string, unknown>) => {
     if (!salonSlug || presentationWritePendingRef.current) {
@@ -565,6 +579,25 @@ export default function BookingPageOwnerSurface() {
       adoptBookingPageState(response.state, response.identity);
     });
   }, [adoptBookingPageState, requestBookingPageState, salonSlug, setTruthfulSaveStatus, trackOrdinaryWrite]);
+
+  async function navigateAfterSaving(destination: string) {
+    if (presentationWritePendingRef.current) {
+      return;
+    }
+    if (hasUnsavedContentTextEdits()) {
+      const values = { bio: bioDraft, specialtyLine: specialtyDraft, heroImageUrl: heroImageDraft };
+      const patch = Object.fromEntries(EDITABLE_CONTENT_FIELDS
+        .filter(field => contentEditGenerationByFieldRef.current[field] > savedContentEditGenerationByFieldRef.current[field])
+        .map(field => [field, values[field].trim() || null]));
+      await saveContentPatch(patch);
+    }
+    const informationSaved = informationFlushRef.current ? await informationFlushRef.current() : true;
+    if (!await settleOrdinaryWrites() || hasUnsavedContentTextEdits() || !informationSaved) {
+      setActionMessage('Your changes could not be saved. Please retry before leaving this editor.');
+      return;
+    }
+    router.push(destination);
+  }
 
   const handleStylePackSelect = (stylePack: StylePack) => {
     const option = STYLE_PACK_OPTIONS.find(p => p.id === stylePack);
@@ -835,18 +868,24 @@ export default function BookingPageOwnerSurface() {
       <div className="mx-auto max-w-3xl">
         <button
           type="button"
-          onClick={() => router.push(`/${locale}/admin${salonSlug ? `?salon=${encodeURIComponent(salonSlug)}` : ''}`)}
-          className="inline-flex items-center gap-2 text-sm text-stone-600"
+          onClick={() => void navigateAfterSaving(`/${locale}/admin/website${salonSlug ? `?salon=${encodeURIComponent(salonSlug)}` : ''}`)}
+          disabled={presentationPending}
+          className="inline-flex min-h-11 items-center gap-2 text-sm text-stone-600 disabled:opacity-50"
         >
           <ArrowLeft size={16} />
-          Dashboard
+          Booking Page
         </button>
 
         <div className="mt-6 flex flex-wrap items-start justify-between gap-4">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.25em] text-rose-700">Booking Page</p>
-            <h1 className="mt-2 text-3xl font-semibold">Layout, style and content</h1>
+            <h1 className="mt-2 text-3xl font-semibold">{({ layouts: 'Layouts', appearance: 'Style & Colours', information: 'Your Information', text: 'About & Website Text', policies: 'Policies & Booking Rules', publish: 'Review & Publish' } as Record<string, string>)[panel ?? ''] ?? 'Layout, style and content'}</h1>
             <p className="mt-2 text-stone-600">Changes here save to your draft. Nothing goes live until you publish.</p>
+            {reviewIndex >= 0 && (
+              <p className="mt-2 text-sm font-semibold text-rose-800">
+                {`Guided review · Step ${reviewIndex + 1} of ${reviewPanels.length} · Your current saved setup`}
+              </p>
+            )}
           </div>
           <div className="flex flex-col items-end gap-1">
             <a
@@ -866,7 +905,8 @@ export default function BookingPageOwnerSurface() {
           </div>
         </div>
 
-        {salonPublicationStatus !== null && salonPublicationStatus !== 'published' && (
+        {/* The irreversible salon-level publish is offered outside the guided review or on its final step only — never from step 1 of a "review" that promises nothing is reset. */}
+        {salonPublicationStatus !== null && salonPublicationStatus !== 'published' && (reviewIndex < 0 || panel === 'publish') && (
           <SalonPublishBanner status={salonPublishStatus} onPublish={() => void handlePublishSalon()} />
         )}
 
@@ -879,213 +919,271 @@ export default function BookingPageOwnerSurface() {
         </div>
 
         <div className="mt-6 space-y-6">
-          <SectionCard
-            title="Live preview"
-            description="This is your real draft booking page. Saved presentation changes refresh here before anything is published."
-          >
-            <div
-              data-booking-page-preview-scroll
-              className="h-[620px] overflow-hidden overscroll-contain rounded-2xl border border-stone-200 bg-white"
+          {!panel && (
+            <SectionCard
+              title="Live preview"
+              description="This is your real draft booking page. Saved presentation changes refresh here before anything is published."
             >
-              {previewFrameSrc
-                ? (
-                    <iframe
-                      key={previewRevision}
-                      title="Live booking page preview"
-                      src={previewFrameSrc}
-                      aria-hidden="true"
-                      inert
-                      sandbox="allow-same-origin"
-                      tabIndex={-1}
-                      onLoad={event => handlePreviewLoad(
-                        event.currentTarget,
-                        previewRevision,
-                        previewFrameSrc,
-                      )}
-                      className="pointer-events-none block size-full bg-white"
-                    />
-                  )
-                : (
-                    <p className="p-4 text-sm text-stone-500">Preview is unavailable until a salon is selected.</p>
-                  )}
-            </div>
-            <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
-              <p className="text-xs text-stone-500">
-                View-only preview using your real salon content and the same booking renderer clients see.
-                Use Open preview for the fully interactive page.
-              </p>
-              <button
-                type="button"
-                data-testid="booking-page-preview-refresh"
-                onClick={() => refreshPreview()}
-                className="min-h-11 rounded-full border border-stone-300 bg-white px-4 py-2 text-sm font-semibold text-stone-700 hover:bg-stone-50"
+              <div
+                data-booking-page-preview-scroll
+                className="h-[620px] overflow-hidden overscroll-contain rounded-2xl border border-stone-200 bg-white"
               >
-                Refresh preview
-              </button>
-            </div>
-          </SectionCard>
-
-          <QuickBookProfileVisibilityCard
-            disabled={presentationPending}
-            draft={draft}
-            onConfigPatch={patch => void saveConfigPatch(patch)}
-          />
-
-          <BookingPagePresetPicker
-            draft={{ ...draft, presetBase: config.draftPresetBase }}
-            pending={presentationPending}
-            status={presetStatus}
-            previewBaseUrl={previewFrameSrc}
-            onOperation={operation => void handleBuilderOperation(operation)}
-          />
-
-          <SectionCard title="Style pack" description="Only Default is available today.">
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-              {STYLE_PACK_OPTIONS.map(option => (
+                {previewFrameSrc
+                  ? (
+                      <iframe
+                        key={previewRevision}
+                        title="Live booking page preview"
+                        src={previewFrameSrc}
+                        aria-hidden="true"
+                        inert
+                        sandbox="allow-same-origin"
+                        tabIndex={-1}
+                        onLoad={event => handlePreviewLoad(
+                          event.currentTarget,
+                          previewRevision,
+                          previewFrameSrc,
+                        )}
+                        className="pointer-events-none block size-full bg-white"
+                      />
+                    )
+                  : (
+                      <p className="p-4 text-sm text-stone-500">Preview is unavailable until a salon is selected.</p>
+                    )}
+              </div>
+              <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
+                <p className="text-xs text-stone-500">
+                  View-only preview using your real salon content and the same booking renderer clients see.
+                  Use Open preview for the fully interactive page.
+                </p>
                 <button
-                  key={option.id}
                   type="button"
-                  disabled={!option.implemented || presentationPending}
-                  data-testid={`style-pack-option-${option.id}`}
-                  aria-pressed={draft.stylePack === option.id}
-                  onClick={() => handleStylePackSelect(option.id)}
-                  className={`rounded-2xl border p-3 text-left text-sm font-medium transition-colors ${
-                    draft.stylePack === option.id
-                      ? 'border-rose-600 bg-rose-50 text-rose-800'
-                      : 'border-stone-200 bg-white text-stone-700'
-                  } ${!option.implemented ? 'cursor-not-allowed opacity-50' : 'hover:border-rose-300'}`}
+                  data-testid="booking-page-preview-refresh"
+                  onClick={() => refreshPreview()}
+                  className="min-h-11 rounded-full border border-stone-300 bg-white px-4 py-2 text-sm font-semibold text-stone-700 hover:bg-stone-50"
                 >
-                  {option.label}
+                  Refresh preview
                 </button>
-              ))}
-              <span className="col-span-full text-[11px] text-stone-400">More style packs coming soon.</span>
-            </div>
-          </SectionCard>
+              </div>
+            </SectionCard>
+          )}
 
-          <SectionCard title="Business mode">
-            <div className="grid grid-cols-2 gap-2">
-              {BUSINESS_MODE_OPTIONS.map(option => (
-                <button
-                  key={option.id}
-                  type="button"
-                  disabled={presentationPending}
-                  data-testid={`business-mode-option-${option.id}`}
-                  aria-pressed={draft.businessMode === option.id}
-                  onClick={() => handleBusinessModeSelect(option.id)}
-                  className={`rounded-2xl border p-3 text-left text-sm font-medium transition-colors ${
-                    draft.businessMode === option.id
-                      ? 'border-rose-600 bg-rose-50 text-rose-800'
-                      : 'border-stone-200 bg-white text-stone-700 hover:border-rose-300'
-                  }`}
-                >
-                  {option.label}
-                  <span className="mt-1 block text-[11px] font-normal text-stone-400">{option.description}</span>
-                </button>
-              ))}
-            </div>
-          </SectionCard>
+          {!panel && (
+            <QuickBookProfileVisibilityCard
+              disabled={presentationPending}
+              draft={draft}
+              onConfigPatch={patch => void saveConfigPatch(patch)}
+            />
+          )}
 
-          <BookingPageBuilder
-            draft={draft}
-            completedMoveRevision={completedMoveRevision}
-            pending={presentationPending}
-            presetBase={config.draftPresetBase}
-            previewAdmissionRevision={previewAdmission?.revision ?? null}
-            previewRequestRevision={previewRevision}
-            previewedSectionIds={previewAdmission?.sectionIds ?? null}
-            previewedReorderableSectionOrder={previewAdmission?.reorderableSectionOrder ?? null}
-            onOperation={operation => void handleBuilderOperation(operation)}
-          />
+          {panel === 'information' && salonSlug && (
+            <BookingPageInformationEditor
+              addressPrivacy={content.draft.locationDisplayMode}
+              disabled={presentationPending}
+              draft={draft}
+              liveAddressPrivacy={content.live.locationDisplayMode}
+              locale={locale}
+              onAddressPrivacyChange={mode => void saveContentPatch({ locationDisplayMode: mode })}
+              onConfigPatch={patch => void saveConfigPatch(patch)}
+              registerFlush={registerInformationFlush}
+              salonSlug={salonSlug}
+              savedDetails={savedDetails}
+            />
+          )}
 
-          <SectionCard title="Content" description="Hero image, specialty line, bio and how your location is shown.">
-            <div className="space-y-4">
-              <label className="block">
-                <span className="text-sm font-medium text-stone-800">Hero / profile image URL</span>
-                <input
-                  type="url"
-                  data-testid="content-hero-image-url"
-                  disabled={presentationPending}
-                  value={heroImageDraft}
-                  onChange={event => updateContentTextDraft(
-                    'heroImageUrl',
-                    event.target.value,
-                    setHeroImageDraft,
-                  )}
-                  onBlur={() => void saveContentPatch({ heroImageUrl: heroImageDraft.trim() === '' ? null : heroImageDraft.trim() })}
-                  placeholder="https://…"
-                  className="mt-1 w-full rounded-xl border border-stone-200 px-3 py-2 text-sm"
-                />
-              </label>
+          {(panel === 'layouts' || panel === 'appearance') && <BookingPageAppearance disabled={presentationPending} draft={draft} mode={panel} onChange={patch => void saveConfigPatch(patch)} />}
 
-              <label className="block">
-                <span className="text-sm font-medium text-stone-800">Specialty line</span>
-                <input
-                  type="text"
-                  data-testid="content-specialty-line"
-                  disabled={presentationPending}
-                  value={specialtyDraft}
-                  onChange={event => updateContentTextDraft(
-                    'specialtyLine',
-                    event.target.value,
-                    setSpecialtyDraft,
-                  )}
-                  onBlur={() => void saveContentPatch({ specialtyLine: specialtyDraft.trim() === '' ? null : specialtyDraft })}
-                  placeholder="Russian manicure & BIAB · Toronto"
-                  className="mt-1 w-full rounded-xl border border-stone-200 px-3 py-2 text-sm"
-                />
-              </label>
+          {panel === 'policies' && (
+            <>
+              <SectionCard title="Customer-facing policies" description="Review the policy wording and acknowledgment clients see. Policy wording does not enable automatic charges.">
+                <a className="inline-flex min-h-11 items-center rounded-xl border border-stone-300 px-4" href={`/${locale}/admin?salon=${encodeURIComponent(salonSlug)}&app=settings&view=booking-policy`}>Edit booking policy</a>
+              </SectionCard>
+              <SectionCard title="Operational booking settings" description="These settings affect booking logic directly. Saving here is separate from publishing website appearance.">
+                <a className="inline-flex min-h-11 items-center rounded-xl border border-stone-300 px-4" href={`/${locale}/admin?salon=${encodeURIComponent(salonSlug)}&app=settings&view=booking`}>Booking rules & availability</a>
+                <a className="mt-3 flex min-h-11 items-center rounded-xl border border-stone-300 px-4" href={`/${locale}/admin?salon=${encodeURIComponent(salonSlug)}&app=settings&view=payments`}>Payments & deposits</a>
+              </SectionCard>
+            </>
+          )}
 
-              <label className="block">
-                <span className="text-sm font-medium text-stone-800">Bio</span>
-                <textarea
-                  data-testid="content-bio"
-                  disabled={presentationPending}
-                  value={bioDraft}
-                  onChange={event => updateContentTextDraft(
-                    'bio',
-                    event.target.value,
-                    setBioDraft,
-                  )}
-                  onBlur={() => void saveContentPatch({ bio: bioDraft.trim() === '' ? null : bioDraft })}
-                  rows={4}
-                  placeholder="Tell clients about your studio…"
-                  className="mt-1 w-full rounded-xl border border-stone-200 px-3 py-2 text-sm"
-                />
-              </label>
+          {!panel && (
+            <BookingPagePresetPicker
+              draft={{ ...draft, presetBase: config.draftPresetBase }}
+              pending={presentationPending}
+              status={presetStatus}
+              previewBaseUrl={previewFrameSrc}
+              onOperation={operation => void handleBuilderOperation(operation)}
+            />
+          )}
 
-              <div>
-                <span className="text-sm font-medium text-stone-800">Location shown as</span>
-                <div className="mt-1 grid grid-cols-2 gap-2">
-                  {LOCATION_DISPLAY_MODE_OPTIONS.map(option => (
-                    <button
-                      key={option.id}
-                      type="button"
+          {!panel && (
+            <SectionCard title="Style pack" description="Only Default is available today.">
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                {STYLE_PACK_OPTIONS.map(option => (
+                  <button
+                    key={option.id}
+                    type="button"
+                    disabled={!option.implemented || presentationPending}
+                    data-testid={`style-pack-option-${option.id}`}
+                    aria-pressed={draft.stylePack === option.id}
+                    onClick={() => handleStylePackSelect(option.id)}
+                    className={`rounded-2xl border p-3 text-left text-sm font-medium transition-colors ${
+                      draft.stylePack === option.id
+                        ? 'border-rose-600 bg-rose-50 text-rose-800'
+                        : 'border-stone-200 bg-white text-stone-700'
+                    } ${!option.implemented ? 'cursor-not-allowed opacity-50' : 'hover:border-rose-300'}`}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+                <span className="col-span-full text-[11px] text-stone-400">More style packs coming soon.</span>
+              </div>
+            </SectionCard>
+          )}
+
+          {!panel && (
+            <SectionCard title="Business mode">
+              <div className="grid grid-cols-2 gap-2">
+                {BUSINESS_MODE_OPTIONS.map(option => (
+                  <button
+                    key={option.id}
+                    type="button"
+                    disabled={presentationPending}
+                    data-testid={`business-mode-option-${option.id}`}
+                    aria-pressed={draft.businessMode === option.id}
+                    onClick={() => handleBusinessModeSelect(option.id)}
+                    className={`rounded-2xl border p-3 text-left text-sm font-medium transition-colors ${
+                      draft.businessMode === option.id
+                        ? 'border-rose-600 bg-rose-50 text-rose-800'
+                        : 'border-stone-200 bg-white text-stone-700 hover:border-rose-300'
+                    }`}
+                  >
+                    {option.label}
+                    <span className="mt-1 block text-[11px] font-normal text-stone-400">{option.description}</span>
+                  </button>
+                ))}
+              </div>
+            </SectionCard>
+          )}
+
+          {!panel && (
+            <BookingPageBuilder
+              draft={draft}
+              completedMoveRevision={completedMoveRevision}
+              pending={presentationPending}
+              presetBase={config.draftPresetBase}
+              previewAdmissionRevision={previewAdmission?.revision ?? null}
+              previewRequestRevision={previewRevision}
+              previewedSectionIds={previewAdmission?.sectionIds ?? null}
+              previewedReorderableSectionOrder={previewAdmission?.reorderableSectionOrder ?? null}
+              onOperation={operation => void handleBuilderOperation(operation)}
+            />
+          )}
+
+          {show('text') && (
+            <SectionCard title="About & Website Text" description="Edit the introduction and bio used by your customer site.">
+              <div className="space-y-4">
+                {!panel && (
+                  <label className="block">
+                    <span className="text-sm font-medium text-stone-800">Hero / profile image URL</span>
+                    <input
+                      type="url"
+                      data-testid="content-hero-image-url"
                       disabled={presentationPending}
-                      data-testid={`location-display-mode-${option.id}`}
-                      aria-pressed={content.draft.locationDisplayMode === option.id}
-                      onClick={() => handleLocationDisplayModeSelect(option.id)}
-                      className={`rounded-xl border px-3 py-2 text-left text-sm font-medium transition-colors ${
-                        content.draft.locationDisplayMode === option.id
-                          ? 'border-rose-600 bg-rose-50 text-rose-800'
-                          : 'border-stone-200 bg-white text-stone-700 hover:border-rose-300'
-                      }`}
-                    >
-                      {option.label}
-                    </button>
-                  ))}
-                </div>
-                {content.draft.locationDisplayMode === 'city_only' && (
-                  <p data-testid="location-display-mode-city-only-warning" className="mt-2 text-xs text-stone-500">
-                    "City only" hides your street address, postal code, and phone number. Your location's name is
-                    still shown — avoid putting an address in the location name if you're keeping it private.
-                  </p>
+                      value={heroImageDraft}
+                      onChange={event => updateContentTextDraft(
+                        'heroImageUrl',
+                        event.target.value,
+                        setHeroImageDraft,
+                      )}
+                      onBlur={() => void saveContentPatch({ heroImageUrl: heroImageDraft.trim() === '' ? null : heroImageDraft.trim() })}
+                      placeholder="https://…"
+                      className="mt-1 w-full rounded-xl border border-stone-200 px-3 py-2 text-sm"
+                    />
+                  </label>
+                )}
+
+                <label className="block">
+                  <span className="text-sm font-medium text-stone-800">Specialty line</span>
+                  <input
+                    type="text"
+                    data-testid="content-specialty-line"
+                    disabled={presentationPending}
+                    value={specialtyDraft}
+                    onChange={event => updateContentTextDraft(
+                      'specialtyLine',
+                      event.target.value,
+                      setSpecialtyDraft,
+                    )}
+                    onBlur={() => void saveContentPatch({ specialtyLine: specialtyDraft.trim() === '' ? null : specialtyDraft })}
+                    placeholder="Russian manicure & BIAB · Toronto"
+                    className="mt-1 w-full rounded-xl border border-stone-200 px-3 py-2 text-sm"
+                  />
+                </label>
+
+                <label className="block">
+                  <span className="text-sm font-medium text-stone-800">Bio</span>
+                  <textarea
+                    data-testid="content-bio"
+                    disabled={presentationPending}
+                    value={bioDraft}
+                    onChange={event => updateContentTextDraft(
+                      'bio',
+                      event.target.value,
+                      setBioDraft,
+                    )}
+                    onBlur={() => void saveContentPatch({ bio: bioDraft.trim() === '' ? null : bioDraft })}
+                    rows={4}
+                    placeholder="Tell clients about your studio…"
+                    className="mt-1 w-full rounded-xl border border-stone-200 px-3 py-2 text-sm"
+                  />
+                </label>
+
+                {!panel && (
+                  <div>
+                    <span className="text-sm font-medium text-stone-800">Location shown as</span>
+                    <div className="mt-1 grid grid-cols-1 gap-2 sm:grid-cols-3">
+                      {LOCATION_DISPLAY_MODE_OPTIONS.map(option => (
+                        <button
+                          key={option.id}
+                          type="button"
+                          disabled={presentationPending}
+                          data-testid={`location-display-mode-${option.id}`}
+                          aria-pressed={content.draft.locationDisplayMode === option.id}
+                          onClick={() => handleLocationDisplayModeSelect(option.id)}
+                          className={`rounded-xl border px-3 py-2 text-left text-sm font-medium transition-colors ${
+                            content.draft.locationDisplayMode === option.id
+                              ? 'border-rose-600 bg-rose-50 text-rose-800'
+                              : 'border-stone-200 bg-white text-stone-700 hover:border-rose-300'
+                          }`}
+                        >
+                          {option.label}
+                        </button>
+                      ))}
+                    </div>
+                    {content.draft.locationDisplayMode !== 'full_address' && (
+                      <p data-testid="location-display-mode-city-only-warning" className="mt-2 text-xs text-stone-500">
+                        {content.draft.locationDisplayMode === 'after_booking'
+                          ? 'While browsing, clients see only your city. Your street address, postal code and phone appear on their private appointment link once a booking is confirmed.'
+                          : '"Show only my city" hides your street address, postal code, and phone number.'}
+                        {' '}
+                        Your location's name is still shown — avoid putting an address in the location name if you're keeping it private.
+                      </p>
+                    )}
+                  </div>
                 )}
               </div>
-            </div>
-          </SectionCard>
+            </SectionCard>
+          )}
         </div>
 
         <div className="mt-8 rounded-3xl border border-stone-200 bg-white p-5 shadow-sm">
+          {reviewIndex >= 0 && (
+            <div className="mb-5 flex flex-wrap gap-3 border-b border-stone-200 pb-5">
+              {reviewIndex > 0 && (
+                <button type="button" disabled={presentationPending} className="min-h-11 rounded-xl border border-stone-300 px-4 py-3 text-sm font-semibold disabled:opacity-50" onClick={() => void navigateAfterSaving(`/${locale}/admin/booking-page?salon=${encodeURIComponent(salonSlug)}&panel=${reviewPanels[reviewIndex - 1]}&guided=1`)}>Previous step</button>
+              )}
+              <button type="button" disabled={presentationPending} className="min-h-11 rounded-xl bg-rose-800 px-4 py-3 text-sm font-semibold text-white disabled:opacity-50" onClick={() => void navigateAfterSaving(reviewIndex < reviewPanels.length - 1 ? `/${locale}/admin/booking-page?salon=${encodeURIComponent(salonSlug)}&panel=${reviewPanels[reviewIndex + 1]}&guided=1` : `/${locale}/admin/website?salon=${encodeURIComponent(salonSlug)}`)}>{reviewIndex < reviewPanels.length - 1 ? 'Save & next step' : 'Finish review'}</button>
+            </div>
+          )}
           {/*
             Phase A (draft/publish split) copy note: this row's "Publish"
             only pushes the booking-page layout/content draft onto what is
@@ -1094,30 +1192,32 @@ export default function BookingPageOwnerSurface() {
             specifically to keep it from being misread as the salon-level
             action in SalonPublishBanner above.
           */}
-          <p className="mb-3 text-xs text-stone-500">Publishes booking-page layout &amp; content changes only — not the same as publishing your salon above.</p>
-          <div className="flex flex-wrap items-center gap-3">
-            <button
-              type="button"
-              data-testid="booking-page-publish"
-              disabled={actionStatus !== 'idle' || presentationPending}
-              onClick={() => void handlePublish()}
-              className="rounded-full bg-rose-700 px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-rose-800 disabled:opacity-50"
-            >
-              {actionStatus === 'publishing' ? 'Publishing…' : 'Publish'}
-            </button>
-            <button
-              type="button"
-              data-testid="booking-page-revert"
-              disabled={actionStatus !== 'idle' || presentationPending}
-              onClick={() => void handleRevert()}
-              className="rounded-full border border-stone-300 bg-white px-5 py-2.5 text-sm font-semibold text-stone-700 transition-colors hover:bg-stone-50 disabled:opacity-50"
-            >
-              {actionStatus === 'reverting' ? 'Reverting…' : 'Revert draft to live'}
-            </button>
-            {actionMessage && (
-              <span role="status" className="text-sm text-stone-600">{actionMessage}</span>
-            )}
-          </div>
+          {(reviewIndex < 0 || panel === 'publish') && <p className="mb-3 text-xs text-stone-500">Publishes booking-page layout &amp; content changes only — not the same as publishing your salon above.</p>}
+          {(reviewIndex < 0 || panel === 'publish') && (
+            <div className="flex flex-wrap items-center gap-3">
+              <button
+                type="button"
+                data-testid="booking-page-publish"
+                disabled={actionStatus !== 'idle' || presentationPending}
+                onClick={() => void handlePublish()}
+                className="rounded-full bg-rose-700 px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-rose-800 disabled:opacity-50"
+              >
+                {actionStatus === 'publishing' ? 'Publishing…' : 'Publish'}
+              </button>
+              <button
+                type="button"
+                data-testid="booking-page-revert"
+                disabled={actionStatus !== 'idle' || presentationPending}
+                onClick={() => void handleRevert()}
+                className="rounded-full border border-stone-300 bg-white px-5 py-2.5 text-sm font-semibold text-stone-700 transition-colors hover:bg-stone-50 disabled:opacity-50"
+              >
+                {actionStatus === 'reverting' ? 'Reverting…' : 'Revert draft to live'}
+              </button>
+            </div>
+          )}
+          {actionMessage && (
+            <span role="status" className="text-sm text-stone-600">{actionMessage}</span>
+          )}
         </div>
       </div>
     </main>

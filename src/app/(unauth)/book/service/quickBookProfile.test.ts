@@ -387,6 +387,22 @@ describe('resolvePublicQuickBookProfile', () => {
     });
   });
 
+  it('treats "show my full address after they book" exactly like city-only while browsing', () => {
+    const source = buildSource({ ...HIDDEN, showLocation: true, showPhone: true });
+    source.locationDisplayMode = 'after_booking';
+    const profile = resolvePublicQuickBookProfile(source);
+
+    expect(profile.location).toMatchObject({
+      addressLine: null,
+      localityLine: 'Scarborough, ON',
+      instructionLines: [],
+    });
+    expect(profile.location?.directionsUrl).not.toContain('880');
+    expect(JSON.stringify(profile)).not.toContain('880 Ellesmere');
+    expect(JSON.stringify(profile)).not.toContain('M1P 2W8');
+    expect(JSON.stringify(profile)).toEqual(JSON.stringify(resolvePublicQuickBookProfile({ ...source, locationDisplayMode: 'city_only' })));
+  });
+
   it('never publishes the generic internal location name', () => {
     const source = buildSource({ ...HIDDEN, showLocation: true });
     source.locations = [{

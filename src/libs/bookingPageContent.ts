@@ -50,16 +50,25 @@ import { salonSchema } from '@/models/Schema';
 // =============================================================================
 
 /**
- * "Location presentation" (spec wording) is genuinely new — no existing
- * toggle governs how much of the address an owner wants shown on their
- * booking page. Conservative, documented interpretation: a two-value privacy
- * choice between the full street address (today's de-facto behaviour, since
- * `SalonContent.place.address` already surfaces the full address whenever one
- * exists) and city-only. `full_address` is the default so storing this field
- * with no owner edit yet is a no-op — "no visual change on merge" holds here
- * too, once a future PR wires a reader.
+ * "Location presentation" (spec wording): the owner's address-privacy choice,
+ * shared by onboarding and the dashboard Booking Page hub.
+ *
+ *   - `full_address`  — "Always show my full address". Today's de-facto
+ *     behaviour and the default, so storing this field with no owner edit is
+ *     a no-op.
+ *   - `after_booking` — "Show my full address after they book". Everyone
+ *     browsing sees exactly what `city_only` shows; the exact address (kept on
+ *     the canonical location row) is projected only into surfaces reached with
+ *     a verified appointment capability (`resolveConfirmedBookingLocationDisplayMode`
+ *     in `@/libs/salonContent`). Being signed in is never a confirmed booking.
+ *   - `city_only`     — "Show only my city". Street address, postal code and
+ *     the salon phone are stripped from every public projection.
+ *
+ * Onboarding's `addressVisibility` maps `public` → `full_address`,
+ * `after_booking` → `after_booking`, `hidden` → `city_only`
+ * (`@/features/onboarding-v1-integration/persistence.server`).
  */
-export const LOCATION_DISPLAY_MODES = ['full_address', 'city_only'] as const;
+export const LOCATION_DISPLAY_MODES = ['full_address', 'after_booking', 'city_only'] as const;
 export type LocationDisplayMode = (typeof LOCATION_DISPLAY_MODES)[number];
 const DEFAULT_LOCATION_DISPLAY_MODE: LocationDisplayMode = 'full_address';
 
@@ -162,10 +171,13 @@ function resolveContentSide(raw: unknown): BookingPageContentSide {
     heroImageUrl: resolveWithDefault(nullableUrlSchema, source.heroImageUrl, null),
     specialtyLine: resolveWithDefault(nullableTrimmedStringSchema, source.specialtyLine, null),
     bio: resolveWithDefault(nullableTrimmedStringSchema, source.bio, null),
+    // Missing → today's default. Present but unrecognised → fail CLOSED: a
+    // value this build does not understand (for example a newer privacy mode
+    // read by an older instance) must never widen to the full address.
     locationDisplayMode: resolveWithDefault(
       locationDisplayModeSchema,
       source.locationDisplayMode,
-      DEFAULT_LOCATION_DISPLAY_MODE,
+      source.locationDisplayMode === undefined ? DEFAULT_LOCATION_DISPLAY_MODE : 'city_only',
     ),
   };
 }

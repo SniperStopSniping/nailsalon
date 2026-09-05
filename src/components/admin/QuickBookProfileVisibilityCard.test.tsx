@@ -25,6 +25,32 @@ const draft = (layout: BookingPageConfigSide['layout']) => ({
 });
 
 describe('QuickBookProfileVisibilityCard', () => {
+  it('shows current owner values while hidden public switches remain off', async () => {
+    render(<QuickBookProfileVisibilityCard disabled={false} draft={draft('quick_book')} grouped savedDetails={{ Contact: ['+14165550111', 'owner@example.test'] }} onConfigPatch={vi.fn()} />);
+    await userEvent.click(screen.getByText('Contact', { exact: true }));
+
+    expect(screen.getByText('+14165550111')).toBeVisible();
+    expect(screen.getByText('owner@example.test')).toBeVisible();
+    expect(screen.getByRole('switch', { name: /Show phone/ })).not.toBeChecked();
+  });
+
+  it('groups visibility without duplicating switches or clearing saved values', async () => {
+    const onConfigPatch = vi.fn();
+    const { container } = render(<QuickBookProfileVisibilityCard disabled={false} draft={draft('quick_book')} grouped onConfigPatch={onConfigPatch} />);
+
+    expect(container.querySelectorAll('details')).toHaveLength(5);
+    expect(container.querySelectorAll('input[role="switch"]')).toHaveLength(11);
+
+    await userEvent.click(screen.getByText('Contact', { exact: true }));
+
+    expect(screen.getByRole('switch', { name: /Show email/ })).toBeChecked();
+
+    await userEvent.click(screen.getByRole('switch', { name: /Show phone/ }));
+
+    expect(onConfigPatch).toHaveBeenCalledWith({ quickBookProfile: { showPhone: true } });
+    expect(visibility.showEmail).toBe(true);
+  });
+
   it('renders eleven semantic, full-row Quick Book switches without copying salon content', async () => {
     const onConfigPatch = vi.fn();
     const { container } = render(

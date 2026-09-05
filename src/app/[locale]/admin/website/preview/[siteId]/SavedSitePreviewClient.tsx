@@ -43,7 +43,7 @@ export function SavedSitePreviewClient({
   showAuditRevision: boolean;
 }) {
   const [device, setDevice] = useState<OnboardingPreviewDevice>('phone');
-  const bookingPageUrl = `/${locale}/admin/booking-page?salon=${encodeURIComponent(salonSlug)}`;
+  const bookingPageUrl = `/${locale}/admin/website?salon=${encodeURIComponent(salonSlug)}`;
   const repository = useMemo(
     () => new SavedPreviewAssetRepository(model.media),
     [model.media],

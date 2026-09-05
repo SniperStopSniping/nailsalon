@@ -137,8 +137,8 @@ const APPS: AppItem[] = [
   },
   {
     id: 'staff-ops',
-    name: 'Staff Ops',
-    description: 'Approvals and requests',
+    name: 'Time-off requests',
+    description: 'Review team time off',
     icon: ClipboardList,
     gradient: 'from-rose-900 to-amber-500',
     shadowColor: '#881337',
@@ -214,6 +214,7 @@ function AppTile({ app, theme = 'apple', onTap }: AppTileProps) {
       <span
         className={`relative flex size-12 shrink-0 items-center justify-center rounded-[13px] bg-gradient-to-br ${app.gradient}`}
         style={{
+          backgroundColor: app.shadowColor,
           boxShadow:
             theme === 'apple' ? `0 8px 18px -6px ${app.shadowColor}60` : 'none',
         }}
@@ -223,7 +224,7 @@ function AppTile({ app, theme = 'apple', onTap }: AppTileProps) {
         )}
         <Icon
           className={`relative z-10 size-6 drop-shadow-md ${
-            theme === 'tesla' ? 'text-black' : 'text-white'
+            'text-white'
           }`}
           strokeWidth={2.5}
         />
@@ -273,7 +274,10 @@ const EMPTY_HIDDEN_IDS: string[] = [];
 
 export function AppGrid({ theme = 'apple', badges = EMPTY_BADGES, onAppTap, hiddenIds = EMPTY_HIDDEN_IDS }: AppGridProps) {
   // Merge badges into apps
-  const appsWithBadges = APPS.filter(app => !hiddenIds.includes(app.id)).map(app => ({
+  const appsWithBadges = APPS.filter(app => !hiddenIds.includes(app.id)).sort((a, b) => {
+    const priority = (id: string) => id === 'booking-page' ? -1 : id === 'luster' || id === 'workspace-tour' ? 1 : 0;
+    return priority(a.id) - priority(b.id);
+  }).map(app => ({
     ...app,
     badge: badges[app.id] || 0,
   }));
