@@ -1,7 +1,7 @@
 # Booking Page hub checkpoint
 
 Branch: `codex/booking-page-hub`. Base: protected main `044e8c3`.
-Worktree: `/Users/me/nailsalon-worktrees/booking-page-hub`.
+Worktree: `/Users/me/nailsalon-worktrees/booking-page-hub` (the 2026-09-05 continuation below was produced in a remote session on the same branch history; the original workspace was not touched).
 
 ## Working first stage
 
@@ -47,3 +47,28 @@ Worktree: `/Users/me/nailsalon-worktrees/booking-page-hub`.
 - The same WebKit project also requires `@owner-preview-webkit`; the hub cases now carry that tag. Verified with Playwright `--list`: **four Chromium and four mobile-WebKit cases** (plus shared setup/teardown). Listing proves admission only, not execution success.
 
 The user requested checkpoints because account usage is low. Preserve this branch and the original dirty workspace; do not consume reset credits without explicit authorization.
+
+## Continuation (2026-09-05, after `154513a`)
+
+CI `33940457926` on `154513a` **failed**: all eight hub browser cases (4× Chromium, 4× mobile-WebKit — so the WebKit admission itself worked) stopped on `Guided review · Step 2 of 6`. The JSX rendered `Step2 of6` because line breaks between text and expressions swallow the spaces. Fixed by rendering one template string. Every other job was green.
+
+### Implemented
+
+- **Three-mode address privacy.** `LOCATION_DISPLAY_MODES` is now `full_address | after_booking | city_only` (`src/libs/bookingPageContent.ts`), stored in the existing `settings.bookingPageContent.{draft,live}.locationDisplayMode` — no column, no migration. `applyLocationDisplayMode`/`applyPhoneDisplayMode` redact everything except `full_address`, so `after_booking` is byte-identical to `city_only` for anyone browsing (address, postal code, phone, directions URL, arrival instructions, serialized Quick Book profile and `SalonContent`). `resolveConfirmedBookingLocationDisplayMode` (`src/libs/salonContent.ts`) is the only place `after_booking` becomes `full_address`, and it is called only from surfaces reached with a verified appointment capability: the private manage page (`[locale]/[slug]/manage/[token]`, new "Where to go" row with directions + entrance/transit lines) and its `.ics` `LOCATION:` line. Signed-in customer sessions are never treated as a booking; `city_only` stays city-only even there. Onboarding now maps `public → full_address`, `after_booking → after_booking`, `hidden → city_only` (`persistence.server.ts`), so the onboarding choice is no longer collapsed.
+- **Your Information editing.** New owner-only route `PATCH/GET /api/admin/salon/information` (`getSalonBySlug` → `requireAdmin` → owner membership or super admin) writes business name, logo URL, phone, email, Instagram (username normalized with the onboarding resolver into `bookingExperience.socialLinks.instagram` via targeted `jsonb_set`), contact permissions (`settings.sharedProfile.*` per key) and weekly hours (salon row **and** primary location; technician schedules untouched). `src/components/admin/BookingPageInformationEditor.tsx` renders the four accordions with the actual saved values, explicit Save per section, retained edits on failure, and reuses the existing writers for everything else: `/api/admin/location` (street address), `PUT /api/admin/technicians/[id]` (nail-tech name), `POST /api/admin/technicians/[id]/avatar` (profile photo), `GET /api/admin/portfolio` (logo picker from the shared library), `/api/admin/salon/settings` `bookingConfig.timezone`, and the booking-page content draft for the three privacy radios. It never calls `/api/admin/profile` (the private account). Non-owner admins get the read-only summary plus visibility switches. The slug and public URL are read-only (locked after publish).
+- **Guided review.** The information editor registers a flush; "Save & next step" saves dirty sections first and stays put with the existing message on failure. The irreversible salon-level "Publish my salon" banner now appears only outside the guided sequence or on its final step.
+- **Hub fixes.** `?app=portfolio` is now an accepted dashboard URL app, so Photos & Gallery (and the More tile) actually open the shared Portfolio library; the hub public URL honours the hub locale; Staff Ops subtitle no longer duplicates the new "Time-off requests" title.
+- Legacy full editor: its "Location shown as" picker now offers the same three choices.
+
+### Verified locally (remote container, disposable PostgreSQL 16 on 127.0.0.1:55432, CI placeholder env, `CI=true`)
+
+- Vitest, every touched module (20 files): **327 passed**, plus the new/extended suites re-run after the status gate and fail-closed changes (salonContent 24, manage page 23, information route 24, information editor 11, bookingPageContent 11).
+- `tsc --noEmit` with the CI placeholder env: 0 errors (`npm run check-types` needs that env; without it `next typegen` stops at the runtime-environment guard, which is not a type error). `npm run build` passes.
+- ESLint on every changed file: 0 errors (fast-refresh and `<img>` warnings match the existing pattern).
+- Playwright, `tests/e2e/booking-page-hub.e2e.ts`, chromium project against the production build: **6 passed** (setup, teardown, 320/375/390/430px). The journey now edits Instagram and restores it, toggles address privacy, reloads, verifies persistence and the "not published" note, restores the original, and opens Photos & Gallery. The 320px run found and fixed a real horizontal overflow in the Hours rows.
+- Not verified here: the mobile-webkit project. WebKit cannot be downloaded in this container (`cdn.playwright.dev` is blocked by egress policy); CI's mobile-webkit job (already admitted for this file) is the WebKit evidence. No physical iPhone/VoiceOver check was performed.
+
+### Known residual risks (unchanged behaviour, documented)
+
+- Re-claiming an onboarding draft (`existingSiteStrategy` continue/replace) still re-applies snapshot values through `syncQuickBookProfilePresentationDraft`; the hub never calls the claim route and "Review saved setup" stays gated to unpublished sites, so dashboard edits on a published site cannot be overwritten from the hub.
+- Customer confirmation email/SMS carry no address (pre-existing); the manage link in them leads to the capability-scoped page that now shows it.
