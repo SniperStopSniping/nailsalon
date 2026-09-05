@@ -1278,7 +1278,7 @@ describe('AdminDashboardPage', () => {
       throw new Error(`Unhandled fetch: ${url}`);
     });
 
-    render(<AdminDashboardPage />);
+    const view = render(<AdminDashboardPage />);
     await screen.findByTestId('owner-today-workspace');
 
     const workspaceProps = ownerTodayWorkspaceSpy.mock.calls.at(-1)?.[0] as {
@@ -1306,10 +1306,171 @@ describe('AdminDashboardPage', () => {
       showScheduleCalendar: false,
     });
 
+    // The calendar is now addressable, so "Schedule" pushes ?app=schedule and
+    // the URL effect opens it (AG-today-calendar-03). It is no longer opened
+    // as pure state, which is what left it without a history entry.
     act(() => workspaceProps.onQuickAction?.('today-schedule'));
 
-    expect(adminModalHostSpy.mock.calls.at(-1)?.[0]).toMatchObject({
-      showScheduleCalendar: true,
+    expect(routerMock.push).toHaveBeenLastCalledWith('/en/admin?salon=salon-b&app=schedule');
+
+    searchParamGet.mockImplementation((key: string) => {
+      if (key === 'salon') {
+        return 'salon-b';
+      }
+      if (key === 'app') {
+        return 'schedule';
+      }
+      return null;
+    });
+    view.rerender(<AdminDashboardPage />);
+
+    await waitFor(() => {
+      expect(adminModalHostSpy.mock.calls.at(-1)?.[0]).toMatchObject({
+        showScheduleCalendar: true,
+      });
+    });
+  });
+
+  describe('workspace URL contract', () => {
+    function mockOwnerSession(salonSlug = 'salon-b') {
+      fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
+        const url = String(input);
+
+        if (url.startsWith('/api/admin/auth/me')) {
+          return new Response(JSON.stringify({
+            user: {
+              id: 'admin_1',
+              name: 'Admin User',
+              isSuperAdmin: false,
+              impersonation: null,
+              salons: [
+                { id: 'sal_b', slug: salonSlug, name: 'Salon B', status: 'active', role: 'owner' },
+              ],
+            },
+          }), { status: 200 });
+        }
+        if (url === '/api/admin/auth/set-active-salon') {
+          return new Response(JSON.stringify({ ok: true }), { status: 200 });
+        }
+        if (url === '/api/admin/fraud-signals') {
+          return new Response(JSON.stringify({ data: { signals: [], unresolvedCount: 0 } }), { status: 200 });
+        }
+        if (url === `/api/admin/settings/modules?salonSlug=${salonSlug}`) {
+          return new Response(JSON.stringify({
+            data: { modules: {}, entitledModules: {}, moduleReasons: {} },
+          }), { status: 200 });
+        }
+
+        throw new Error(`Unhandled fetch: ${url}`);
+      });
+    }
+
+    it('opens the calendar from ?app=schedule and closes it when the segment goes away', async () => {
+      searchParamGet.mockImplementation((key: string) => {
+        if (key === 'salon') {
+          return 'salon-b';
+        }
+        if (key === 'app') {
+          return 'schedule';
+        }
+        return null;
+      });
+      mockOwnerSession();
+
+      const view = render(<AdminDashboardPage />);
+
+      await waitFor(() => {
+        expect(adminModalHostSpy.mock.calls.at(-1)?.[0]).toMatchObject({
+          showScheduleCalendar: true,
+          activeModal: null,
+        });
+      });
+
+      // A deep link to the calendar is a destination, not a More app.
+      expect(screen.queryByTestId('owner-more-workspace')).not.toBeInTheDocument();
+
+      // Browser Back drops ?app= — the calendar closes and Today comes back.
+      searchParamGet.mockImplementation(
+        (key: string) => (key === 'salon' ? 'salon-b' : null),
+      );
+      view.rerender(<AdminDashboardPage />);
+
+      await waitFor(() => {
+        expect(adminModalHostSpy.mock.calls.at(-1)?.[0]).toMatchObject({
+          showScheduleCalendar: false,
+        });
+      });
+
+      expect(await screen.findByTestId('owner-today-workspace')).toBeInTheDocument();
+    });
+
+    it('closing the calendar strips ?app= and keeps the salon segment', async () => {
+      searchParamGet.mockImplementation((key: string) => {
+        if (key === 'salon') {
+          return 'salon-b';
+        }
+        if (key === 'app') {
+          return 'schedule';
+        }
+        return null;
+      });
+      mockOwnerSession();
+
+      render(<AdminDashboardPage />);
+
+      await waitFor(() => {
+        expect(adminModalHostSpy.mock.calls.at(-1)?.[0]).toMatchObject({
+          showScheduleCalendar: true,
+        });
+      });
+
+      const hostProps = adminModalHostSpy.mock.calls.at(-1)?.[0] as {
+        setShowScheduleCalendar: (value: boolean) => void;
+      };
+      act(() => hostProps.setShowScheduleCalendar(false));
+
+      expect(routerReplace).toHaveBeenLastCalledWith('/en/admin?salon=salon-b');
+    });
+
+    it('keeps ?salon= on every app link even when the shell was entered without one', async () => {
+      searchParamGet.mockImplementation(
+        (key: string) => (key === 'tab' ? 'more' : null),
+      );
+      mockOwnerSession();
+
+      const view = render(<AdminDashboardPage />);
+      await screen.findByTestId('owner-more-workspace');
+
+      const appGridProps = appGridSpy.mock.calls.at(-1)?.[0] as {
+        onAppTap?: (appId: string) => void;
+      };
+      act(() => appGridProps.onAppTap?.('marketing'));
+
+      // The post-sign-in landing is /admin with no ?salon=; the link an owner
+      // copies still has to name the salon they are looking at
+      // (AG-w2-more-tools-06).
+      expect(routerMock.push).toHaveBeenLastCalledWith('/en/admin?salon=salon-b&app=marketing');
+
+      searchParamGet.mockImplementation((key: string) => {
+        if (key === 'tab') {
+          return 'more';
+        }
+        return key === 'app' ? 'marketing' : null;
+      });
+      view.rerender(<AdminDashboardPage />);
+
+      await waitFor(() => {
+        expect(adminModalHostSpy.mock.calls.at(-1)?.[0]).toMatchObject({
+          activeModal: 'marketing',
+        });
+      });
+
+      const hostProps = adminModalHostSpy.mock.calls.at(-1)?.[0] as {
+        onCloseModal: () => void;
+      };
+      act(() => hostProps.onCloseModal());
+
+      expect(routerReplace).toHaveBeenLastCalledWith('/en/admin?salon=salon-b');
     });
   });
 });

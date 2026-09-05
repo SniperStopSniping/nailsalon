@@ -6,6 +6,13 @@
   --luster-motion-reveal: 680ms;
   --onboarding-feedback-footer-clearance: 124px;
   --onboarding-feedback-footer-gap: 16px;
+  /*
+   * Toasts hang below the sticky app chrome (header + progress rail), not over
+   * the form column. The provider measures the real chrome and overwrites this
+   * default; 118px is header (62) + rail (~48) + a small gap.
+   */
+  --onboarding-feedback-header-clearance: 118px;
+  --onboarding-feedback-header-gap: 10px;
 }
 
 .onboarding-app button,
@@ -22,20 +29,28 @@
   transform: scale(0.985);
 }
 
+/*
+ * OP-004: the toast used to float bottom-right, one thumb above the sticky
+ * action bar — which on a phone is exactly where the last question card sits,
+ * so "Your starting site is ready" covered the business-type options and
+ * "Contact complete" covered the entrance-instructions field. It now docks
+ * under the sticky chrome, in the title band every onboarding screen keeps
+ * free of controls, and clear of the action bar entirely.
+ */
 .onboarding-feedback {
   position: fixed;
   z-index: 1500;
-  right: max(16px, env(safe-area-inset-right));
-  bottom: max(
-    20px,
-    calc(
-      env(safe-area-inset-bottom)
-      + var(--onboarding-feedback-footer-clearance)
-      + var(--onboarding-feedback-footer-gap)
-    )
+  top: calc(
+    var(--onboarding-feedback-header-clearance)
+    + var(--onboarding-feedback-header-gap)
   );
+  right: max(12px, env(safe-area-inset-right));
+  bottom: auto;
+  left: max(12px, env(safe-area-inset-left));
   display: flex;
+  width: fit-content;
   max-width: min(360px, calc(100vw - 32px));
+  margin-inline: auto;
   min-height: 48px;
   align-items: center;
   gap: 10px;
@@ -85,7 +100,7 @@
 }
 
 @keyframes onboarding-feedback-in {
-  from { opacity: 0; transform: translateY(8px) scale(0.98); }
+  from { opacity: 0; transform: translateY(-8px) scale(0.98); }
   to { opacity: 1; transform: translateY(0) scale(1); }
 }
 
@@ -128,7 +143,8 @@
 @media (max-width: 479px) {
   .onboarding-feedback {
     right: max(10px, env(safe-area-inset-right));
-    max-width: min(240px, calc(100vw - 20px));
+    left: max(10px, env(safe-area-inset-left));
+    max-width: min(300px, calc(100vw - 20px));
     min-height: 44px;
     padding: 9px 11px;
     font-size: 0.76rem;

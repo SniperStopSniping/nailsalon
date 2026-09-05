@@ -1,15 +1,10 @@
-.onboarding-integration-loading,
-.onboarding-integration-owner {
-  --owner-accent: #8f3155;
-  --owner-accent-dark: #70213f;
-  --owner-blush: #f6e7ec;
-  --owner-focus: #6544b8;
-  --owner-ground: #f8f2ed;
-  --owner-ink: #30262a;
-  --owner-line: #dfd1d4;
-  --owner-muted: #706267;
-  --owner-surface: #fffdfb;
-}
+/*
+ * The --owner-* tokens these surfaces read are defined once, in
+ * src/styles/global.css (OWNER TOKEN LAYER), which lists these two class
+ * names alongside .owner-workspace-theme. This file previously redefined the
+ * same names with different values, so the workspace and the onboarding
+ * hand-off rendered as two visual products. Do not re-add them here.
+ */
 
 .onboarding-integration-loading,
 .onboarding-integration-owner {

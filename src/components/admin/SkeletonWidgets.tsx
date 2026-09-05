@@ -7,7 +7,8 @@
  * Features:
  * - Shimmer animation effect
  * - Matches exact layout of AnalyticsWidgets
- * - Smooth fade-in transition
+ * - Paints --owner-ground so the loading gate and the workspace it loads into
+ *   are the same colour temperature
  */
 
 import type { Transition } from 'framer-motion';
@@ -28,9 +29,11 @@ const shimmerAnimation = {
 /**
  * Skeleton Box with Shimmer
  */
+const EMPTY_SKELETON_STYLE: React.CSSProperties = {};
+
 function SkeletonBox({
   className = '',
-  style = {},
+  style = EMPTY_SKELETON_STYLE,
 }: {
   className?: string;
   style?: React.CSSProperties;
@@ -226,13 +229,10 @@ function StaffLeaderboardSkeleton() {
  */
 export function SkeletonWidgets() {
   return (
-    <div className="min-h-full w-full bg-[#F2F2F7] pb-10 font-sans text-black">
-      <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        transition={{ duration: 0.3 }}
-        className="mx-auto max-w-md space-y-6 px-5 pt-6"
-      >
+    <div className="min-h-full w-full bg-[var(--owner-ground)] pb-10 text-[var(--owner-ink)]">
+      {/* No opacity fade: the skeleton and the dashboard share --owner-ground,
+          so fading the skeleton in reads as a temperature flash, not a load. */}
+      <div className="mx-auto max-w-md space-y-6 px-5 pt-6">
         {/* Header & Date */}
         <div>
           <SkeletonBox className="mb-2 h-10 w-48" />
@@ -250,7 +250,7 @@ export function SkeletonWidgets() {
 
         {/* Staff Leaderboard */}
         <StaffLeaderboardSkeleton />
-      </motion.div>
+      </div>
     </div>
   );
 }

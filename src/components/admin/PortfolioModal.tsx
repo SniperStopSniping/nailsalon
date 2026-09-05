@@ -4,6 +4,7 @@ import { AlertTriangle, Check, ImagePlus, Loader2, Trash2 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { InlineFeedback } from '@/components/ui/inline-feedback';
 import {
   ASSIGNABLE_DISCOVER_NAIL_LENGTHS,
   ASSIGNABLE_DISCOVER_SERVICE_FAMILIES,
@@ -19,6 +20,27 @@ import { BackButton, ModalHeader } from './AppModal';
 type PortfolioModalProps = {
   onClose: () => void;
 };
+
+/**
+ * The server speaks in operator terms ("Portfolio image storage is not
+ * configured"). The owner needs to know what it means for them and what to do
+ * next, so the known codes get owner-facing copy here.
+ */
+const UPLOAD_ERROR_COPY: Record<string, string> = {
+  IMAGE_STORAGE_UNAVAILABLE:
+    'We can’t add photos right now — the photo service isn’t available for your salon yet. Nothing was uploaded. Try again later, or contact Luster support.',
+};
+
+function uploadErrorMessage(
+  code: string | undefined,
+  message: string | undefined,
+  fallback: string,
+): string {
+  if (code && UPLOAD_ERROR_COPY[code]) {
+    return UPLOAD_ERROR_COPY[code];
+  }
+  return message ?? fallback;
+}
 
 type PortfolioPhoto = {
   id: string;
@@ -82,7 +104,14 @@ export function PortfolioModal({ onClose }: PortfolioModalProps) {
   const { salonSlug } = useSalon();
   const [data, setData] = useState<PortfolioResponse | null>(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  // Two independent error lanes. One `error` variable served both the load and
+  // the write paths, so the reload that follows a failed upload wiped the
+  // reason before the owner could read it (AG-w2-more-tools-02). A refusal now
+  // survives every refresh and stays until it is dismissed or retried.
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<
+    { message: string; source: 'upload' | 'library' } | null
+  >(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
   const [photoPendingDeletion, setPhotoPendingDeletion] = useState<PortfolioPhoto | null>(null);
@@ -103,14 +132,14 @@ export function PortfolioModal({ onClose }: PortfolioModalProps) {
       const payload = (await response.json()) as PortfolioResponse;
 
       if (!response.ok) {
-        setError(payload.error?.message ?? 'Could not load your portfolio.');
+        setLoadError(payload.error?.message ?? 'Could not load your portfolio.');
         return;
       }
 
       setData(payload);
-      setError(null);
+      setLoadError(null);
     } catch {
-      setError('Could not load your portfolio.');
+      setLoadError('Could not load your portfolio.');
     } finally {
       setLoading(false);
     }
@@ -152,7 +181,10 @@ export function PortfolioModal({ onClose }: PortfolioModalProps) {
         if (!response.ok) {
           const payload = (await response.json()) as PortfolioResponse;
 
-          setError(payload.error?.message ?? 'Could not update those photos.');
+          setActionError({
+            message: payload.error?.message ?? 'Could not update those photos.',
+            source: 'library',
+          });
           return;
         }
 
@@ -209,7 +241,7 @@ export function PortfolioModal({ onClose }: PortfolioModalProps) {
       }
 
       setUploading(true);
-      setError(null);
+      setActionError(null);
 
       try {
         for (const file of Array.from(files)) {
@@ -226,11 +258,18 @@ export function PortfolioModal({ onClose }: PortfolioModalProps) {
 
           const presign = (await presignResponse.json()) as {
             upload?: Record<string, string | number | boolean>;
-            error?: { message?: string };
+            error?: { code?: string; message?: string };
           };
 
           if (!presignResponse.ok || !presign.upload) {
-            setError(presign.error?.message ?? 'That photo could not be uploaded.');
+            setActionError({
+              message: uploadErrorMessage(
+                presign.error?.code,
+                presign.error?.message,
+                'That photo could not be uploaded.',
+              ),
+              source: 'upload',
+            });
             break;
           }
 
@@ -254,7 +293,10 @@ export function PortfolioModal({ onClose }: PortfolioModalProps) {
           });
 
           if (!cloudinaryResponse.ok) {
-            setError('That photo could not be uploaded.');
+            setActionError({
+              message: 'That photo could not be uploaded. Check your connection and try again.',
+              source: 'upload',
+            });
             break;
           }
 
@@ -274,13 +316,24 @@ export function PortfolioModal({ onClose }: PortfolioModalProps) {
           });
 
           if (!finalizeResponse.ok) {
-            const payload = (await finalizeResponse.json()) as { error?: { message?: string } };
+            const payload = (await finalizeResponse.json()) as {
+              error?: { code?: string; message?: string };
+            };
 
-            setError(payload.error?.message ?? 'That photo could not be saved.');
+            setActionError({
+              message: uploadErrorMessage(
+                payload.error?.code,
+                payload.error?.message,
+                'That photo could not be saved.',
+              ),
+              source: 'upload',
+            });
             break;
           }
         }
 
+        // The refresh still runs (photos that did upload must appear), but it
+        // can no longer clear the failure: `load()` only owns `loadError`.
         await load();
       } finally {
         setUploading(false);
@@ -314,13 +367,23 @@ export function PortfolioModal({ onClose }: PortfolioModalProps) {
           </div>
         )}
 
-        {error && (
-          <div
-            role="alert"
-            className="mb-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-[15px] text-red-800"
-          >
-            {error}
-          </div>
+        {loadError && (
+          <InlineFeedback
+            tone="error"
+            message={loadError}
+            className="mb-4"
+            data-testid="portfolio-load-error"
+          />
+        )}
+
+        {actionError?.source === 'library' && (
+          <InlineFeedback
+            tone="error"
+            message={actionError.message}
+            className="mb-4"
+            data-testid="portfolio-action-error"
+            onDismiss={() => setActionError(null)}
+          />
         )}
 
         {data && !loading && (
@@ -406,6 +469,21 @@ export function PortfolioModal({ onClose }: PortfolioModalProps) {
                 <p className="mt-2 text-[13px] text-gray-500">
                   Confirm the permission above to add photos.
                 </p>
+              )}
+
+              {/*
+                The refusal lives inside the card the owner just used, and
+                stays there until they dismiss it — a reload of the library
+                cannot take it away.
+              */}
+              {actionError?.source === 'upload' && (
+                <InlineFeedback
+                  tone="error"
+                  message={actionError.message}
+                  className="mt-3"
+                  data-testid="portfolio-upload-error"
+                  onDismiss={() => setActionError(null)}
+                />
               )}
             </section>
 

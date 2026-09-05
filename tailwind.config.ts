@@ -40,11 +40,34 @@ const config = {
           DEFAULT: 'hsl(var(--card))',
           foreground: 'hsl(var(--card-foreground))',
         },
+        // Owner workspace token layer (src/styles/global.css). Resolves only
+        // inside .owner-workspace-theme / .owner-theme-scope.
+        owner: {
+          'ground': 'var(--owner-ground)',
+          'surface': 'var(--owner-surface)',
+          'blush': 'var(--owner-blush)',
+          'ink': 'var(--owner-ink)',
+          'muted': 'var(--owner-muted)',
+          'line': 'var(--owner-line)',
+          'line-strong': 'var(--owner-line-strong)',
+          'accent': 'var(--owner-accent)',
+          'accent-strong': 'var(--owner-accent-strong)',
+          'focus': 'var(--owner-focus)',
+        },
+      },
+      fontFamily: {
+        'owner': ['var(--owner-font-body)'],
+        'owner-display': ['var(--owner-font-display)'],
+      },
+      boxShadow: {
+        'owner-card': 'var(--owner-shadow-card)',
       },
       borderRadius: {
-        lg: 'var(--radius)',
-        md: 'calc(var(--radius) - 2px)',
-        sm: 'calc(var(--radius) - 4px)',
+        'lg': 'var(--radius)',
+        'md': 'calc(var(--radius) - 2px)',
+        'sm': 'calc(var(--radius) - 4px)',
+        'owner-card': 'var(--owner-radius-card)',
+        'owner-sheet': 'var(--owner-radius-sheet)',
       },
       keyframes: {
         'accordion-down': {

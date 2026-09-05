@@ -77,3 +77,62 @@ describe('PortfolioModal destructive confirmation', () => {
     );
   });
 });
+
+describe('PortfolioModal upload failure', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.stubGlobal('fetch', fetchMock);
+    Element.prototype.scrollIntoView = vi.fn();
+  });
+
+  it('keeps the refusal visible through the reload that follows it, until it is dismissed', async () => {
+    const user = userEvent.setup();
+    let listCalls = 0;
+
+    fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+
+      if (url.startsWith('/api/admin/portfolio/upload') && init?.method === 'POST') {
+        return Promise.resolve(new Response(JSON.stringify({
+          error: {
+            code: 'IMAGE_STORAGE_UNAVAILABLE',
+            message: 'Portfolio image storage is not configured',
+          },
+        }), { status: 503 }));
+      }
+
+      listCalls += 1;
+      return Promise.resolve(new Response(JSON.stringify(portfolioPayload), { status: 200 }));
+    });
+
+    render(<PortfolioModal onClose={vi.fn()} />);
+    await screen.findByRole('button', { name: 'Delete Cherry ombré manicure' });
+
+    const callsBeforeUpload = listCalls;
+
+    await user.click(screen.getByRole('checkbox', {
+      name: 'I confirm I have permission to publicly display this image.',
+    }));
+
+    const fileInput = document.querySelector<HTMLInputElement>('input[type="file"]')!;
+    await user.upload(
+      fileInput,
+      new File(['photo'], 'audit.png', { type: 'image/png' }),
+    );
+
+    const failure = await screen.findByTestId('portfolio-upload-error');
+
+    // The library reload runs (partial uploads must appear) and the refusal
+    // survives it — the defect was that load() cleared the same `error` state.
+    await waitFor(() => expect(listCalls).toBeGreaterThan(callsBeforeUpload));
+
+    expect(failure).toBeInTheDocument();
+    expect(failure).toHaveTextContent('We can’t add photos right now');
+    expect(failure).toHaveTextContent('Nothing was uploaded.');
+    expect(failure).toHaveAttribute('role', 'alert');
+
+    await user.click(screen.getByTestId('portfolio-upload-error-dismiss'));
+
+    expect(screen.queryByTestId('portfolio-upload-error')).not.toBeInTheDocument();
+  });
+});

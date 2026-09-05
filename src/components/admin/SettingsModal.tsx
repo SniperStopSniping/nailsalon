@@ -54,6 +54,7 @@ import {
 } from 'react';
 
 import { DialogShell } from '@/components/ui/dialog-shell';
+import { LockedFeatureRow } from '@/components/ui/locked-feature-row';
 import {
   BOOKING_EXPERIENCE_DEFAULTS,
   BOOKING_EXPERIENCE_LIMITS,
@@ -257,6 +258,55 @@ function Row({
     </div>
   );
 }
+
+/**
+ * Module catalogue for the Features view.
+ *
+ * Every module is listed here whether or not the salon is entitled to it: an
+ * entitled module renders as a toggle, a non-entitled one as a LockedFeatureRow
+ * naming the reason. Driving the view from one table is what makes an empty
+ * category heading impossible (AG-more-settings-01 /
+ * AG-w2-settings-integrations-05).
+ */
+const MODULE_GROUPS: ReadonlyArray<{
+  title: string;
+  modules: ReadonlyArray<{
+    key: ModuleKey;
+    label: string;
+    icon: LucideIcon;
+    iconColor: string;
+  }>;
+}> = [
+  {
+    title: 'Marketing',
+    modules: [
+      { key: 'smsReminders', label: 'SMS Reminders', icon: MessageSquare, iconColor: 'bg-green-500' },
+      { key: 'referrals', label: 'Referrals', icon: Users, iconColor: 'bg-blue-500' },
+      { key: 'rewards', label: 'Rewards', icon: Gift, iconColor: 'bg-purple-500' },
+    ],
+  },
+  {
+    title: 'Staff',
+    modules: [
+      { key: 'scheduleOverrides', label: 'Schedule Overrides', icon: User, iconColor: 'bg-orange-500' },
+      { key: 'staffEarnings', label: 'Staff Earnings', icon: BarChart3, iconColor: 'bg-teal-500' },
+    ],
+  },
+  {
+    title: 'Controls',
+    modules: [
+      { key: 'clientFlags', label: 'Client Flags', icon: Flag, iconColor: 'bg-amber-500' },
+      { key: 'clientBlocking', label: 'Client Blocking', icon: Shield, iconColor: 'bg-red-500' },
+    ],
+  },
+  {
+    title: 'Analytics',
+    modules: [
+      { key: 'analyticsDashboard', label: 'Analytics Dashboard', icon: BarChart3, iconColor: 'bg-indigo-500' },
+      { key: 'utilization', label: 'Utilization Reports', icon: BarChart3, iconColor: 'bg-cyan-500' },
+    ],
+  },
+];
 
 /**
  * Module Row (Step 16.3)
@@ -2232,6 +2282,11 @@ export function SettingsModal({
     analyticsDashboard: false,
     utilization: false,
   });
+  // Why each module is unavailable, straight from the modules API. The Features
+  // view shows this to the owner instead of discarding it.
+  const [moduleReasons, setModuleReasons] = useState<
+    Partial<Record<ModuleKey, string>>
+  >({});
 
   // Visibility settings state (Step 16.1)
   const [visibilityLoading, setVisibilityLoading] = useState(true);
@@ -2439,6 +2494,9 @@ export function SettingsModal({
         }
         if (data.data.entitledModules) {
           setEntitledModules(data.data.entitledModules);
+        }
+        if (data.data.moduleReasons) {
+          setModuleReasons(data.data.moduleReasons);
         }
       }
     } catch (error) {
@@ -5755,7 +5813,7 @@ export function SettingsModal({
             {/* Modules (Step 16.3) */}
             <Section
               title="Modules"
-              footer="Enable or disable features for your salon. Disabled modules won't be available to staff."
+              footer="Enable or disable features for your salon. Disabled modules won't be available to staff. Locked features are not included in your current plan yet."
             >
               {modulesLoading
                 ? (
@@ -5765,133 +5823,51 @@ export function SettingsModal({
                   )
                 : (
                     <>
-                      {/* Marketing Group */}
-                      <div className="border-b border-gray-100 px-4 py-2">
-                        <span className="text-xs font-semibold uppercase tracking-wide text-gray-400">
-                          Marketing
-                        </span>
-                      </div>
-                      {entitledModules.smsReminders && (
-                        <ModuleRow
-                          icon={MessageSquare}
-                          iconColor="bg-green-500"
-                          label="SMS Reminders"
-                          moduleKey="smsReminders"
-                          enabled={modules.smsReminders}
-                          entitled={entitledModules.smsReminders}
-                          onToggle={handleModuleToggle}
-                        />
-                      )}
-                      {entitledModules.referrals && (
-                        <ModuleRow
-                          icon={Users}
-                          iconColor="bg-blue-500"
-                          label="Referrals"
-                          moduleKey="referrals"
-                          enabled={modules.referrals}
-                          entitled={entitledModules.referrals}
-                          onToggle={handleModuleToggle}
-                        />
-                      )}
-                      {entitledModules.rewards && (
-                        <ModuleRow
-                          icon={Gift}
-                          iconColor="bg-purple-500"
-                          label="Rewards"
-                          moduleKey="rewards"
-                          enabled={modules.rewards}
-                          entitled={entitledModules.rewards}
-                          onToggle={handleModuleToggle}
-                        />
-                      )}
+                      {MODULE_GROUPS.map((group, groupIndex) => {
+                        const isLastGroup
+                          = groupIndex === MODULE_GROUPS.length - 1;
+                        return (
+                          <div key={group.title}>
+                            <div className="border-b border-gray-100 px-4 py-2">
+                              <span className="text-xs font-semibold uppercase tracking-wide text-gray-400">
+                                {group.title}
+                              </span>
+                            </div>
+                            {group.modules.map((module, moduleIndex) => {
+                              const isLastRow = isLastGroup
+                                && moduleIndex === group.modules.length - 1;
+                              const Icon = module.icon;
 
-                      {/* Staff Group */}
-                      <div className="border-b border-gray-100 px-4 py-2">
-                        <span className="text-xs font-semibold uppercase tracking-wide text-gray-400">
-                          Staff
-                        </span>
-                      </div>
-                      {entitledModules.scheduleOverrides && (
-                        <ModuleRow
-                          icon={User}
-                          iconColor="bg-orange-500"
-                          label="Schedule Overrides"
-                          moduleKey="scheduleOverrides"
-                          enabled={modules.scheduleOverrides}
-                          entitled={entitledModules.scheduleOverrides}
-                          onToggle={handleModuleToggle}
-                        />
-                      )}
-                      {entitledModules.staffEarnings && (
-                        <ModuleRow
-                          icon={BarChart3}
-                          iconColor="bg-teal-500"
-                          label="Staff Earnings"
-                          moduleKey="staffEarnings"
-                          enabled={modules.staffEarnings}
-                          entitled={entitledModules.staffEarnings}
-                          onToggle={handleModuleToggle}
-                        />
-                      )}
-
-                      {/* Controls Group */}
-                      <div className="border-b border-gray-100 px-4 py-2">
-                        <span className="text-xs font-semibold uppercase tracking-wide text-gray-400">
-                          Controls
-                        </span>
-                      </div>
-                      {entitledModules.clientFlags && (
-                        <ModuleRow
-                          icon={Flag}
-                          iconColor="bg-amber-500"
-                          label="Client Flags"
-                          moduleKey="clientFlags"
-                          enabled={modules.clientFlags}
-                          entitled={entitledModules.clientFlags}
-                          onToggle={handleModuleToggle}
-                        />
-                      )}
-                      {entitledModules.clientBlocking && (
-                        <ModuleRow
-                          icon={Shield}
-                          iconColor="bg-red-500"
-                          label="Client Blocking"
-                          moduleKey="clientBlocking"
-                          enabled={modules.clientBlocking}
-                          entitled={entitledModules.clientBlocking}
-                          onToggle={handleModuleToggle}
-                        />
-                      )}
-
-                      {/* Analytics Group */}
-                      <div className="border-b border-gray-100 px-4 py-2">
-                        <span className="text-xs font-semibold uppercase tracking-wide text-gray-400">
-                          Analytics
-                        </span>
-                      </div>
-                      {entitledModules.analyticsDashboard && (
-                        <ModuleRow
-                          icon={BarChart3}
-                          iconColor="bg-indigo-500"
-                          label="Analytics Dashboard"
-                          moduleKey="analyticsDashboard"
-                          enabled={modules.analyticsDashboard}
-                          entitled={entitledModules.analyticsDashboard}
-                          onToggle={handleModuleToggle}
-                        />
-                      )}
-                      {entitledModules.utilization && (
-                        <ModuleRow
-                          icon={BarChart3}
-                          iconColor="bg-cyan-500"
-                          label="Utilization Reports"
-                          moduleKey="utilization"
-                          enabled={modules.utilization}
-                          entitled={entitledModules.utilization}
-                          onToggle={handleModuleToggle}
-                          isLast
-                        />
-                      )}
+                              // Entitled -> a live toggle. Not entitled -> a
+                              // locked row naming the reason, so the category
+                              // never renders with nothing under it and the
+                              // owner can see what a higher plan unlocks.
+                              return entitledModules[module.key]
+                                ? (
+                                    <ModuleRow
+                                      key={module.key}
+                                      icon={Icon}
+                                      iconColor={module.iconColor}
+                                      label={module.label}
+                                      moduleKey={module.key}
+                                      enabled={modules[module.key]}
+                                      entitled
+                                      onToggle={handleModuleToggle}
+                                      isLast={isLastRow}
+                                    />
+                                  )
+                                : (
+                                    <LockedFeatureRow
+                                      key={module.key}
+                                      name={module.label}
+                                      reasonCode={moduleReasons[module.key]}
+                                      isLast={isLastRow}
+                                    />
+                                  );
+                            })}
+                          </div>
+                        );
+                      })}
 
                       {modulesSaving && (
                         <div className="flex items-center justify-center py-2 text-xs text-gray-500">

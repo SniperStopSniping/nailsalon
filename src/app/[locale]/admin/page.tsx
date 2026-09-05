@@ -11,6 +11,7 @@
  */
 
 import { useAuth, useClerk } from '@clerk/nextjs';
+import { MotionConfig } from 'framer-motion';
 import { Bell, Building2, LogOut, Sparkles } from 'lucide-react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -138,6 +139,9 @@ function shiftAnchor(ymd: string, period: TimePeriod, dir: -1 | 1): string {
  */
 const URL_APP_IDS = [
   'bookings',
+  // The Calendar is a workspace destination, not a transient overlay: it is
+  // addressable (?app=schedule), survives a reload, and Back closes it.
+  'schedule',
   'settings',
   'analytics',
   'clients',
@@ -153,7 +157,11 @@ const URL_APP_IDS = [
   'portfolio',
 ] as const;
 
-/** Bottom-nav destinations are hidden from the More grid but stay deep-linkable. */
+/**
+ * Bottom-nav destinations. They are hidden from the More grid, and each one is
+ * listed in URL_APP_IDS above, so a deep link to any of them always opens.
+ * Entitlement rules never block them: their bottom-nav tabs are always allowed.
+ */
 const NAV_ONLY_APP_IDS = ['schedule', 'bookings', 'clients', 'services'];
 
 function isUrlAppId(value: string | null): value is (typeof URL_APP_IDS)[number] {
@@ -1172,8 +1180,16 @@ function AdminDashboardContent() {
   const buildAdminUrl = useCallback(
     (app: string | null) => {
       const qs = new URLSearchParams();
-      if (requestedSalonSlug) {
-        qs.set('salon', requestedSalonSlug);
+      // Keep the workspace URL salon-specific however the shell was entered:
+      // the post-sign-in landing is /admin with no ?salon=, and dropping the
+      // segment made every copied/bookmarked app link resolve from the
+      // active-salon cookie instead of the salon the owner was looking at.
+      // While the salon selector is still pending there is no answer yet, so
+      // the param stays out rather than silently picking the first salon.
+      const salonSlug = requestedSalonSlug
+        ?? (showSalonSelector ? null : activeDashboardSalonSlug);
+      if (salonSlug) {
+        qs.set('salon', salonSlug);
       }
       if (app) {
         qs.set('app', app);
@@ -1181,7 +1197,7 @@ function AdminDashboardContent() {
       const query = qs.toString();
       return `/${locale}/admin${query ? `?${query}` : ''}`;
     },
-    [locale, requestedSalonSlug],
+    [locale, requestedSalonSlug, activeDashboardSalonSlug, showSalonSelector],
   );
 
   /** Open an app through the URL so it is deep-linkable and Back closes it. */
@@ -1221,6 +1237,14 @@ function AdminDashboardContent() {
       setInitialClientId(null);
       setInitialPromotionStage(null);
       setPromotionSettingsReturnClientId(null);
+      if (appParam === 'schedule') {
+        // The calendar is its own workspace destination, not a More app: it
+        // opens on the Calendar tab rather than behind the More grid.
+        setActiveModal(null);
+        setWorkspaceTab('calendar');
+        setShowScheduleCalendar(true);
+        return;
+      }
       setShowScheduleCalendar(false);
       setWorkspaceTab('more');
       setActiveModal(appParam);
@@ -1236,7 +1260,11 @@ function AdminDashboardContent() {
       // close the modal we opened from the URL. Capture the ref value before
       // clearing it — the state updater runs later, during render.
       const urlOpenedApp = urlOpenedAppRef.current;
-      if (urlOpenedApp) {
+      if (urlOpenedApp === 'schedule') {
+        urlOpenedAppRef.current = null;
+        setShowScheduleCalendar(false);
+        setWorkspaceTab('today');
+      } else if (urlOpenedApp) {
         urlOpenedAppRef.current = null;
         setActiveModal(current => (current === urlOpenedApp ? null : current));
       }
@@ -1272,7 +1300,7 @@ function AdminDashboardContent() {
         setShowOnboardingTour(true);
       }
     } else if (appId === 'schedule') {
-      setShowScheduleCalendar(true);
+      openAppViaUrl('schedule');
     } else {
       if (appId === 'clients') {
         setInitialClientId(null);
@@ -1302,7 +1330,7 @@ function AdminDashboardContent() {
         setActiveModal('marketing');
         break;
       case 'today-schedule':
-        setShowScheduleCalendar(true);
+        openAppViaUrl('schedule');
         break;
       case 'view-bookings':
         setActiveModal('bookings');
@@ -1310,7 +1338,7 @@ function AdminDashboardContent() {
       default:
         break;
     }
-  }, []);
+  }, [openAppViaUrl]);
 
   const handleRefreshAnalytics = useCallback(async () => {
     const nextStatus = await resolveAnalyticsModuleAvailability({
@@ -1326,7 +1354,15 @@ function AdminDashboardContent() {
     setActiveModal(null);
     setInitialPromotionStage(null);
     setPromotionSettingsReturnClientId(null);
-    if (urlOpenedAppRef.current) {
+    if (tab === 'calendar') {
+      // The Calendar tab is addressable like every other destination: opening
+      // it pushes ?app=schedule, so a reload keeps it open and system Back
+      // closes it instead of leaving the workspace.
+      if (urlOpenedAppRef.current !== 'schedule') {
+        urlOpenedAppRef.current = 'schedule';
+        router.push(buildAdminUrl('schedule'));
+      }
+    } else if (urlOpenedAppRef.current) {
       urlOpenedAppRef.current = null;
       router.replace(buildAdminUrl(null));
     }
@@ -1420,6 +1456,21 @@ function AdminDashboardContent() {
     }
   };
 
+  /**
+   * The calendar is opened through the URL, so closing it has to strip ?app=
+   * the same way handleCloseModal does for the More apps.
+   */
+  const handleScheduleCalendarVisibility = useCallback((value: boolean) => {
+    setShowScheduleCalendar(value);
+    if (value) {
+      return;
+    }
+    if (urlOpenedAppRef.current === 'schedule') {
+      urlOpenedAppRef.current = null;
+      router.replace(buildAdminUrl(null));
+    }
+  }, [router, buildAdminUrl]);
+
   const handleClosePromotionSettings = () => {
     const returnClientId = promotionSettingsReturnClientId;
     setInitialPromotionStage(null);
@@ -1436,7 +1487,7 @@ function AdminDashboardContent() {
   // 1) Auth check phase - never show dashboard UI here
   if (authLoading) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-[#F2F2F7]">
+      <div className="owner-workspace-theme flex min-h-screen items-center justify-center bg-[var(--owner-ground)]" data-theme-scope="owner">
         <div
           className="flex flex-col items-center gap-3"
           data-testid="admin-auth-loading"
@@ -1451,7 +1502,7 @@ function AdminDashboardContent() {
 
   if (authError) {
     return (
-      <main className="flex min-h-screen items-center justify-center bg-[#F2F2F7] p-5">
+      <main className="owner-workspace-theme flex min-h-screen items-center justify-center bg-[var(--owner-ground)] p-5" data-theme-scope="owner">
         <section className="w-full max-w-md rounded-2xl bg-white p-6 shadow-sm">
           <h1 className="text-xl font-semibold text-gray-900">Let’s reconnect your account</h1>
           <p role="alert" className="mt-3 text-gray-600">{authError}</p>
@@ -1622,9 +1673,14 @@ function AdminDashboardContent() {
                 <button
                   type="button"
                   onClick={() => setShowNotifications(true)}
+                  aria-label={
+                    notificationCount > 0
+                      ? `Notifications (${notificationCount} unread)`
+                      : 'Notifications'
+                  }
                   className="relative flex size-9 items-center justify-center rounded-full border border-rose-100 bg-white text-rose-800 shadow-sm transition-colors active:bg-rose-50"
                 >
-                  <Bell size={20} />
+                  <Bell size={20} aria-hidden="true" />
                   {notificationCount > 0 && (
                     <span className="absolute -right-0.5 -top-0.5 flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-[#FF3B30] px-1">
                       <span className="text-[11px] font-bold text-white">
@@ -1725,7 +1781,7 @@ function AdminDashboardContent() {
                   }
                   onQuickAction={handleQuickAction}
                   onOpenBookings={() => setActiveModal('bookings')}
-                  onOpenCalendar={() => setShowScheduleCalendar(true)}
+                  onOpenCalendar={() => openAppViaUrl('schedule')}
                   onOpenIntegrations={() => openAppViaUrl('integrations')}
                   onOpenAppointment={(appointmentId) => {
                     setInitialClientId(null);
@@ -1794,7 +1850,7 @@ function AdminDashboardContent() {
         showFraudSignals={showFraudSignals}
         setShowFraudSignals={setShowFraudSignals}
         showScheduleCalendar={showScheduleCalendar}
-        setShowScheduleCalendar={setShowScheduleCalendar}
+        setShowScheduleCalendar={handleScheduleCalendarVisibility}
         showWalkIn={showWalkIn}
         setShowWalkIn={setShowWalkIn}
         userName={userName}
@@ -1861,8 +1917,14 @@ function AdminDashboardLoading() {
 // Page Export - wrap in Suspense for useSearchParams
 export default function AdminDashboardPage() {
   return (
-    <Suspense fallback={<AdminDashboardLoading />}>
-      <AdminDashboardContent />
-    </Suspense>
+    // `reducedMotion="user"` makes every framer-motion animation in the owner
+    // shell (tiles, toggles, sheets, quick actions) honour the operating
+    // system's "reduce motion" setting. The CSS counterpart lives at the end of
+    // src/styles/global.css for the animations that are not framer-driven.
+    <MotionConfig reducedMotion="user">
+      <Suspense fallback={<AdminDashboardLoading />}>
+        <AdminDashboardContent />
+      </Suspense>
+    </MotionConfig>
   );
 }

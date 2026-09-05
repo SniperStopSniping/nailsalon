@@ -20,7 +20,7 @@ import {
   User,
   X,
 } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { DepositPanel } from '@/components/admin/DepositPanel';
 import { AppointmentQuickEditSheet } from '@/components/appointments/AppointmentQuickEditSheet';
@@ -597,6 +597,28 @@ export function ScheduleCalendarModal({ onClose, salonSlug: salonSlugProp }: Sch
     = useState<AppointmentSummary | null>(null);
   const [rebookPrefill, setRebookPrefill] = useState<RebookPrefill | null>(null);
 
+  // Source-filter chip row: five chips overflow 390 px, so the row scrolls and
+  // shows a fade cue until the owner has scrolled to the end.
+  const filterRowRef = useRef<HTMLDivElement | null>(null);
+  const [filterOverflow, setFilterOverflow] = useState(false);
+  const updateFilterOverflow = useCallback(() => {
+    const row = filterRowRef.current;
+    if (!row) {
+      return;
+    }
+    // 1px tolerance for sub-pixel scroll widths.
+    setFilterOverflow(row.scrollWidth - row.clientWidth - row.scrollLeft > 1);
+  }, []);
+
+  useEffect(() => {
+    updateFilterOverflow();
+    if (typeof window === 'undefined') {
+      return;
+    }
+    window.addEventListener('resize', updateFilterOverflow);
+    return () => window.removeEventListener('resize', updateFilterOverflow);
+  }, [updateFilterOverflow]);
+
   // Calculate date range based on view mode
   const dateRange = useMemo(() => {
     if (viewMode === 'weekly') {
@@ -977,25 +999,47 @@ export function ScheduleCalendarModal({ onClose, salonSlug: salonSlugProp }: Sch
 
       {/* Calendar Grid */}
       <div className="flex-1 overflow-y-auto bg-white px-3 pb-24">
-        <div className="flex gap-2 overflow-x-auto py-3">
-          {(
-            [
-              ['all', 'All'],
-              ['appointments', 'Appointments'],
-              ['google_busy', 'Google Busy'],
-              ['free', 'Free Events'],
-              ['needs_review', 'Needs Review'],
-            ] as Array<[ScheduleFilter, string]>
-          ).map(([id, label]) => (
-            <button
-              key={id}
-              type="button"
-              onClick={() => setScheduleFilter(id)}
-              className={`shrink-0 rounded-full px-3 py-1.5 text-xs font-semibold ${scheduleFilter === id ? 'bg-rose-800 text-white' : 'bg-stone-100 text-stone-600'}`}
-            >
-              {label}
-            </button>
-          ))}
+        {/*
+          Five chips do not fit at 390 px. The row scrolls horizontally and a
+          right-edge fade advertises the overflow; trailing padding keeps the
+          last chip from sitting flush against the clip (AG-today-calendar-10).
+        */}
+        <div className="relative py-3">
+          <div
+            ref={filterRowRef}
+            onScroll={updateFilterOverflow}
+            role="group"
+            aria-label="Calendar source filter"
+            data-testid="calendar-filter-row"
+            className="scrollbar-hide flex gap-2 overflow-x-auto pr-7"
+          >
+            {(
+              [
+                ['all', 'All'],
+                ['appointments', 'Appointments'],
+                ['google_busy', 'Google Busy'],
+                ['free', 'Free Events'],
+                ['needs_review', 'Needs Review'],
+              ] as Array<[ScheduleFilter, string]>
+            ).map(([id, label]) => (
+              <button
+                key={id}
+                type="button"
+                onClick={() => setScheduleFilter(id)}
+                aria-pressed={scheduleFilter === id}
+                className={`shrink-0 rounded-full px-3 py-1.5 text-xs font-semibold outline-none transition-colors focus-visible:ring-2 focus-visible:ring-[var(--owner-focus,#b85075)] focus-visible:ring-offset-1 ${scheduleFilter === id ? 'bg-[var(--owner-accent,#8b3151)] text-white' : 'bg-stone-100 text-stone-600'}`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          <div
+            aria-hidden="true"
+            data-testid="calendar-filter-overflow-cue"
+            className={`pointer-events-none absolute inset-y-3 right-0 w-8 bg-gradient-to-l from-white via-white/85 to-transparent transition-opacity duration-200 ${
+              filterOverflow ? 'opacity-100' : 'opacity-0'
+            }`}
+          />
         </div>
         {/* Day Names Header */}
         <div className="sticky top-0 z-10 grid grid-cols-7 gap-1 bg-white py-2">

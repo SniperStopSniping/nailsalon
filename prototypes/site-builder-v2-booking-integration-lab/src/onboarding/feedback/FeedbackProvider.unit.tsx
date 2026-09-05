@@ -300,23 +300,63 @@ describe('FeedbackProvider', () => {
     }
   });
 
-  it('uses shared footer clearance and hides shell visuals whenever a modal is active', () => {
+  it('docks the toast under the sticky chrome and hides shell visuals whenever a modal is active', () => {
     const css = readFileSync(
       join(process.cwd(), 'src/onboarding/feedback/feedback.css'),
       'utf8',
     );
 
-    expect(css).toMatch(/--onboarding-feedback-footer-clearance: 124px/u);
+    // Deliberately replaces the old bottom-right placement: above the sticky
+    // action bar is exactly where the last question card sits on a phone, so
+    // the toast covered controls (OP-004). It now hangs from the chrome.
+    expect(css).toMatch(/--onboarding-feedback-header-clearance: 118px/u);
     expect(css).toMatch(
-      /bottom: max\([\s\S]*var\(--onboarding-feedback-footer-clearance\)[\s\S]*var\(--onboarding-feedback-footer-gap\)/u,
+      /top: calc\([\s\S]*var\(--onboarding-feedback-header-clearance\)[\s\S]*var\(--onboarding-feedback-header-gap\)/u,
     );
+    expect(css).toMatch(/\.onboarding-feedback \{[\s\S]*bottom: auto;/u);
     expect(css).toMatch(
       /\.onboarding-modal-open \.onboarding-feedback \{\s*display: none;/u,
     );
     expect(css).toMatch(/\.luster-dialog-open \.onboarding-feedback,/u);
-    expect(css).toMatch(
-      /@media \(max-height: 400px\)[\s\S]*--onboarding-feedback-footer-clearance: 72px;/u,
-    );
+  });
+
+  it('measures the real chrome so the toast never sits over the header or rail', () => {
+    function Harness() {
+      const feedback = useFeedback();
+      return (
+        <button
+          onClick={() => feedback.send({ kind: 'stage_complete', message: 'Contact complete' })}
+          type="button"
+        >
+          Complete contact
+        </button>
+      );
+    }
+
+    const header = document.createElement('div');
+    header.className = 'onboarding-shell__header';
+    header.getBoundingClientRect = () => ({ bottom: 62, height: 62 }) as DOMRect;
+    const rail = document.createElement('div');
+    rail.className = 'onboarding-shell__progress';
+    rail.getBoundingClientRect = () => ({ bottom: 133, height: 71 }) as DOMRect;
+    document.body.append(header, rail);
+
+    try {
+      render(<FeedbackProvider testMode><Harness /></FeedbackProvider>);
+      fireEvent.click(screen.getByRole('button', { name: 'Complete contact' }));
+
+      expect(
+        document.documentElement.style.getPropertyValue(
+          '--onboarding-feedback-header-clearance',
+        ),
+      ).toBe('133px');
+    } finally {
+      header.remove();
+      rail.remove();
+      document.documentElement.style.removeProperty(
+        '--onboarding-feedback-header-clearance',
+      );
+    }
   });
 });
 
