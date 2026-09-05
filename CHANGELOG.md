@@ -1,3 +1,20 @@
+# [1.85.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.84.5...v1.85.0) (2026-09-05)
+
+
+### Bug Fixes
+
+* **booking-page:** keep guided publishing at the final step ([2878661](https://github.com/SniperStopSniping/nailsalon/commit/287866193898b7fc91739acac8e70775c88eca9f))
+* **booking-page:** preserve settings and group public information ([11fe456](https://github.com/SniperStopSniping/nailsalon/commit/11fe456f7901baf61bbbee30375855df565cc6e5))
+* **booking-page:** save current edits through guided review ([fbad40f](https://github.com/SniperStopSniping/nailsalon/commit/fbad40f753774bb2bcedd59b5a5b55a4d6159cc9))
+
+
+### Features
+
+* **booking-page:** add show-after-booking address privacy mode ([9054c59](https://github.com/SniperStopSniping/nailsalon/commit/9054c592d825e68fe7709f2715abf03337846630))
+* **booking-page:** connect focused owner editing hub ([5541b0a](https://github.com/SniperStopSniping/nailsalon/commit/5541b0aa1332b7db01e4faa9e904a43460796b6d))
+* **booking-page:** edit saved business information from the hub ([a496975](https://github.com/SniperStopSniping/nailsalon/commit/a496975c918ac02f3e64f2e9c295281ce2e6028c))
+* **booking-page:** show current owner information and canonical URL ([23c23f8](https://github.com/SniperStopSniping/nailsalon/commit/23c23f8013d7328bd398de0ff0dfd2add815ee52))
+
 ## [1.84.5](https://github.com/SniperStopSniping/nailsalon/compare/v1.84.4...v1.84.5) (2026-09-05)
 
 
