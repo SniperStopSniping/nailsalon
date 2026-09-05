@@ -1182,30 +1182,32 @@ export default function BookingPageOwnerSurface() {
             specifically to keep it from being misread as the salon-level
             action in SalonPublishBanner above.
           */}
-          <p className="mb-3 text-xs text-stone-500">Publishes booking-page layout &amp; content changes only — not the same as publishing your salon above.</p>
-          <div className="flex flex-wrap items-center gap-3">
-            <button
-              type="button"
-              data-testid="booking-page-publish"
-              disabled={actionStatus !== 'idle' || presentationPending}
-              onClick={() => void handlePublish()}
-              className="rounded-full bg-rose-700 px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-rose-800 disabled:opacity-50"
-            >
-              {actionStatus === 'publishing' ? 'Publishing…' : 'Publish'}
-            </button>
-            <button
-              type="button"
-              data-testid="booking-page-revert"
-              disabled={actionStatus !== 'idle' || presentationPending}
-              onClick={() => void handleRevert()}
-              className="rounded-full border border-stone-300 bg-white px-5 py-2.5 text-sm font-semibold text-stone-700 transition-colors hover:bg-stone-50 disabled:opacity-50"
-            >
-              {actionStatus === 'reverting' ? 'Reverting…' : 'Revert draft to live'}
-            </button>
-            {actionMessage && (
-              <span role="status" className="text-sm text-stone-600">{actionMessage}</span>
-            )}
-          </div>
+          {(reviewIndex < 0 || panel === 'publish') && <p className="mb-3 text-xs text-stone-500">Publishes booking-page layout &amp; content changes only — not the same as publishing your salon above.</p>}
+          {(reviewIndex < 0 || panel === 'publish') && (
+            <div className="flex flex-wrap items-center gap-3">
+              <button
+                type="button"
+                data-testid="booking-page-publish"
+                disabled={actionStatus !== 'idle' || presentationPending}
+                onClick={() => void handlePublish()}
+                className="rounded-full bg-rose-700 px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-rose-800 disabled:opacity-50"
+              >
+                {actionStatus === 'publishing' ? 'Publishing…' : 'Publish'}
+              </button>
+              <button
+                type="button"
+                data-testid="booking-page-revert"
+                disabled={actionStatus !== 'idle' || presentationPending}
+                onClick={() => void handleRevert()}
+                className="rounded-full border border-stone-300 bg-white px-5 py-2.5 text-sm font-semibold text-stone-700 transition-colors hover:bg-stone-50 disabled:opacity-50"
+              >
+                {actionStatus === 'reverting' ? 'Reverting…' : 'Revert draft to live'}
+              </button>
+            </div>
+          )}
+          {actionMessage && (
+            <span role="status" className="text-sm text-stone-600">{actionMessage}</span>
+          )}
         </div>
       </div>
     </main>

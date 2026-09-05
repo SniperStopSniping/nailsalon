@@ -126,7 +126,12 @@ export async function GET(request: Request): Promise<Response> {
       'Location': present([location?.city ?? salon.city, location?.address ?? salon.address, location?.state, location?.zipCode]),
       'Contact': present([salon.phone, salon.email, instagram]),
       'Hours': [
-        ...Object.entries(salon.businessHours ?? {}).map(([day, hours]) => `${day}: ${hours ? `${hours.open}–${hours.close}` : 'Closed'}`),
+        ...(['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'] as const)
+          .filter(day => salon.businessHours?.[day] !== undefined)
+          .map((day) => {
+            const hours = salon.businessHours?.[day];
+            return `${day[0]!.toUpperCase()}${day.slice(1)}: ${hours ? `${hours.open}–${hours.close}` : 'Closed'}`;
+          }),
         resolveBookingConfigFromSettings(salon.settings).timezone,
       ],
     };

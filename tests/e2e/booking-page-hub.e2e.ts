@@ -16,6 +16,18 @@ for (const viewport of [{ width: 320, height: 568 }, { width: 375, height: 667 }
     await expect(page.getByRole('navigation', { name: 'Booking Page editors' }).getByRole('link')).toHaveCount(6);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 
+    await page.goto(`${appPath('/admin/booking-page')}?salon=${encodeURIComponent(e2eConfig.salonSlug)}&panel=text&guided=1`);
+
+    await expect(page.getByText(/Guided review · Step 2 of 6/)).toBeVisible();
+    await expect(page.getByTestId('booking-page-publish')).toHaveCount(0);
+
+    await page.getByRole('button', { name: 'Save & next step' }).click();
+
+    await expect(page.getByRole('heading', { name: 'Policies & Booking Rules', exact: true })).toBeVisible();
+    await expect(page).toHaveURL(/panel=policies&guided=1/);
+
+    await page.goto(hubUrl);
+
     await page.getByRole('link', { name: /Style & Colours The look/ }).click();
 
     await expect(page.getByRole('heading', { name: 'Style & Colours', exact: true })).toBeVisible();

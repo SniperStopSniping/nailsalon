@@ -163,6 +163,9 @@ describe('BookingPageOwnerSurface', () => {
     searchParamsMock.value = new URLSearchParams('salon=salon-a&panel=text&guided=1');
     render(<BookingPageOwnerSurface />);
     const bio = await screen.findByTestId('content-bio');
+
+    expect(screen.queryByTestId('booking-page-publish')).not.toBeInTheDocument();
+
     fireEvent.change(bio, { target: { value: 'Updated current owner biography' } });
     fireEvent.click(screen.getByRole('button', { name: 'Save & next step' }));
     await waitFor(() => expect(pushMock).toHaveBeenCalledWith('/en/admin/booking-page?salon=salon-a&panel=policies&guided=1'));

@@ -224,7 +224,7 @@ describe('admin booking-page route', () => {
       expect(getTechniciansBySalonId).toHaveBeenCalledWith('salon_1');
       expect(body.savedDetails['Business identity']).toEqual(['Current Studio', 'Current tech']);
       expect(body.savedDetails.Location).toContain('Private saved address');
-      expect(body.savedDetails.Hours).toContain('monday: 10:00–19:00');
+      expect(body.savedDetails.Hours).toContain('Monday: 10:00–19:00');
     });
 
     it('does not read private business details for another tenant', async () => {
