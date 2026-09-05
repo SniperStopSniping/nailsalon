@@ -50,6 +50,7 @@ type AdminModalHostProps = {
   ) => void;
   onClosePromotionSettings?: () => void;
   integrationsInitialView?: IntegrationsView;
+  settingsInitialView?: string;
   integrationsNotice?: string | null;
   onOpenSettingsFromIntegrations?: () => void;
   showNotifications: boolean;
@@ -88,6 +89,7 @@ export function AdminModalHost({
   onOpenPromotionSettings,
   onClosePromotionSettings,
   integrationsInitialView,
+  settingsInitialView,
   integrationsNotice,
   onOpenSettingsFromIntegrations,
   showNotifications,
@@ -128,6 +130,7 @@ export function AdminModalHost({
         onClose={onCloseModal}
       >
         <SettingsModal
+          initialView={settingsInitialView}
           onClose={onCloseModal}
           salonSlug={activeSalonSlug}
           salonId={activeSalonId}

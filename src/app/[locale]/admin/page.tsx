@@ -345,7 +345,7 @@ function AdminDashboardContent() {
   } | null>(null);
 
   // Swipe page state
-  const [workspaceTab, setWorkspaceTab] = useState<OwnerWorkspaceTab>('today');
+  const [workspaceTab, setWorkspaceTab] = useState<OwnerWorkspaceTab>(() => searchParams.get('tab') === 'more' ? 'more' : 'today');
   const [onboardingHandoffAvailable, setOnboardingHandoffAvailable]
     = useState(false);
   const [onboardingSavedSite, setOnboardingSavedSite] = useState<{
@@ -1187,7 +1187,7 @@ function AdminDashboardContent() {
     } else if (appId === 'booking-page') {
       if (!onboardingV1IntegrationEnabled) {
         router.push(
-          `/${locale}/admin/booking-page${activeDashboardSalonSlug ? `?salon=${encodeURIComponent(activeDashboardSalonSlug)}` : ''}`,
+          `/${locale}/admin/website${activeDashboardSalonSlug ? `?salon=${encodeURIComponent(activeDashboardSalonSlug)}` : ''}`,
         );
         return;
       }
@@ -1199,10 +1199,10 @@ function AdminDashboardContent() {
       // revision. Until resolution completes (or if it fails), never fail open
       // into the legacy placeholder editor.
       if (onboardingHandoffResolution === 'available' && accountBackedPreviewUrl) {
-        router.push(accountBackedPreviewUrl);
+        router.push(`/${locale}/admin/website?salon=${encodeURIComponent(activeDashboardSalonSlug ?? '')}`);
       } else if (onboardingHandoffResolution === 'absent') {
         router.push(
-          `/${locale}/admin/booking-page${activeDashboardSalonSlug ? `?salon=${encodeURIComponent(activeDashboardSalonSlug)}` : ''}`,
+          `/${locale}/admin/website${activeDashboardSalonSlug ? `?salon=${encodeURIComponent(activeDashboardSalonSlug)}` : ''}`,
         );
       } else {
         setNonBlockingMessage(onboardingHandoffResolution === 'error'
@@ -1667,6 +1667,7 @@ function AdminDashboardContent() {
       </div>
 
       <AdminModalHost
+        settingsInitialView={searchParams.get('view') ?? undefined}
         activeModal={activeModal}
         activeSalonSlug={activeDashboardSalonSlug}
         activeSalonId={activeDashboardSalon?.id ?? null}

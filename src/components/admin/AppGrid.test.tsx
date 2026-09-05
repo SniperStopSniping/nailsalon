@@ -4,6 +4,16 @@ import { describe, expect, it, vi } from 'vitest';
 import { AppGrid } from './AppGrid';
 
 describe('AppGrid', () => {
+  it('puts Booking Page first and keeps education after the business tools', () => {
+    render(<AppGrid onAppTap={vi.fn()} />);
+    const buttons = screen.getAllByRole('button');
+
+    expect(buttons[0]).toHaveAttribute('data-testid', 'admin-app-tile-booking-page');
+    expect(buttons.findIndex(button => button.dataset.testid === 'admin-app-tile-luster'))
+      .toBeGreaterThan(buttons.findIndex(button => button.dataset.testid === 'admin-app-tile-portfolio'));
+    expect(screen.getByTestId('admin-app-tile-staff-ops')).toHaveTextContent('Time-off requests');
+  });
+
   it('shows the approved More apps, including the Integrations tile with its description', () => {
     render(
       <AppGrid

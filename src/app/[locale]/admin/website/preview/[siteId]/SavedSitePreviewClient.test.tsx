@@ -73,7 +73,7 @@ describe('SavedSitePreviewClient', () => {
     expect(screen.getByRole('link', { name: 'Change website setup' }))
       .toHaveAttribute('href', props.setupUrl);
     expect(screen.getByRole('link', { name: 'Manage & publish Booking Page' }))
-      .toHaveAttribute('href', '/en/admin/booking-page?salon=isla');
+      .toHaveAttribute('href', '/en/admin/website?salon=isla');
   });
 
   it('omits setup changes when the server says the saved site cannot be edited', async () => {
@@ -85,7 +85,7 @@ describe('SavedSitePreviewClient', () => {
 
     expect(screen.queryByRole('link', { name: 'Change website setup' })).not.toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Manage & publish Booking Page' }))
-      .toHaveAttribute('href', '/en/admin/booking-page?salon=isla');
+      .toHaveAttribute('href', '/en/admin/website?salon=isla');
   });
 
   it('uses the inert customer-only shell when embedded in the saved celebration', () => {
