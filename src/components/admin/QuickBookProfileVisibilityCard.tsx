@@ -12,6 +12,7 @@ export type QuickBookProfileConfigPatch = {
 };
 
 type QuickBookProfileVisibilityCardProps = {
+  grouped?: boolean;
   disabled: boolean;
   draft: Pick<BookingPageConfigSide, 'layout' | 'quickBookProfile'>;
   onConfigPatch: (patch: QuickBookProfileConfigPatch) => void;
@@ -80,6 +81,7 @@ const VISIBILITY_OPTIONS: ReadonlyArray<{
 ];
 
 export function QuickBookProfileVisibilityCard({
+  grouped = false,
   disabled,
   draft,
   onConfigPatch,
@@ -87,6 +89,29 @@ export function QuickBookProfileVisibilityCard({
   if (draft.layout !== 'quick_book') {
     return null;
   }
+
+  const renderOption = (option: typeof VISIBILITY_OPTIONS[number]) => (
+    <label key={option.key} className="flex min-h-11 cursor-pointer items-center justify-between gap-4 py-3 has-[:disabled]:opacity-60">
+      <span className="min-w-0">
+        <span className="block text-sm font-medium text-stone-800">{option.label}</span>
+        <span className="mt-0.5 block text-xs leading-5 text-stone-500">{option.description}</span>
+      </span>
+      <input
+        checked={draft.quickBookProfile[option.key]}
+        className="size-5 shrink-0 accent-rose-700"
+        onChange={event => onConfigPatch({ quickBookProfile: { [option.key]: event.currentTarget.checked } })}
+        role="switch"
+        type="checkbox"
+      />
+    </label>
+  );
+  const groups: Array<{ title: string; keys: QuickBookProfileVisibilityKey[] }> = [
+    { title: 'Business identity', keys: ['showTechName', 'showTechPhoto', 'showBio'] },
+    { title: 'Location', keys: ['showLocation'] },
+    { title: 'Contact', keys: ['showPhone', 'showEmail', 'showInstagram'] },
+    { title: 'Hours', keys: ['showHours'] },
+    { title: 'Other public content', keys: ['showBookingPolicy', 'showCancellationPolicy', 'showReviews'] },
+  ];
 
   return (
     <section
@@ -101,30 +126,14 @@ export function QuickBookProfileVisibilityCard({
 
       <fieldset disabled={disabled} className="mt-4 divide-y divide-stone-100">
         <legend className="sr-only">Quick Book public profile visibility</legend>
-        {VISIBILITY_OPTIONS.map(option => (
-          <label
-            key={option.key}
-            className="flex min-h-11 cursor-pointer items-center justify-between gap-4 py-3 first:pt-0 last:pb-0 has-[:disabled]:cursor-not-allowed has-[:disabled]:opacity-60"
-          >
-            <span className="min-w-0">
-              <span className="block text-sm font-medium text-stone-800">{option.label}</span>
-              <span className="mt-0.5 block text-xs leading-5 text-stone-500">
-                {option.description}
-              </span>
-            </span>
-            <input
-              type="checkbox"
-              role="switch"
-              checked={draft.quickBookProfile[option.key]}
-              onChange={event => onConfigPatch({
-                quickBookProfile: {
-                  [option.key]: event.currentTarget.checked,
-                },
-              })}
-              className="size-5 shrink-0 accent-rose-700"
-            />
-          </label>
-        ))}
+        {grouped
+          ? groups.map(group => (
+            <details className="py-2" key={group.title}>
+              <summary className="min-h-11 cursor-pointer py-3 font-semibold">{group.title}</summary>
+              {VISIBILITY_OPTIONS.filter(option => group.keys.includes(option.key)).map(renderOption)}
+            </details>
+          ))
+          : VISIBILITY_OPTIONS.map(renderOption)}
       </fieldset>
     </section>
   );

@@ -45,5 +45,6 @@ describe('Booking Page hub authorization', () => {
 
     expect(mocks.guard).toHaveBeenCalledWith('salon-1');
     expect(page.props).toMatchObject({ salonName: 'My Salon', salonSlug: 'my-salon', published: true, hasDraftChanges: false, setupUrl: null });
+    expect(mocks.handoff).not.toHaveBeenCalled();
   });
 });

@@ -25,6 +25,23 @@ const draft = (layout: BookingPageConfigSide['layout']) => ({
 });
 
 describe('QuickBookProfileVisibilityCard', () => {
+  it('groups visibility without duplicating switches or clearing saved values', async () => {
+    const onConfigPatch = vi.fn();
+    const { container } = render(<QuickBookProfileVisibilityCard disabled={false} draft={draft('quick_book')} grouped onConfigPatch={onConfigPatch} />);
+
+    expect(container.querySelectorAll('details')).toHaveLength(5);
+    expect(container.querySelectorAll('input[role="switch"]')).toHaveLength(11);
+
+    await userEvent.click(screen.getByText('Contact', { exact: true }));
+
+    expect(screen.getByRole('switch', { name: /Show email/ })).toBeChecked();
+
+    await userEvent.click(screen.getByRole('switch', { name: /Show phone/ }));
+
+    expect(onConfigPatch).toHaveBeenCalledWith({ quickBookProfile: { showPhone: true } });
+    expect(visibility.showEmail).toBe(true);
+  });
+
   it('renders eleven semantic, full-row Quick Book switches without copying salon content', async () => {
     const onConfigPatch = vi.fn();
     const { container } = render(

@@ -933,6 +933,7 @@ export default function BookingPageOwnerSurface() {
 
           {show('information') && (
             <QuickBookProfileVisibilityCard
+              grouped={panel === 'information'}
               disabled={presentationPending}
               draft={draft}
               onConfigPatch={patch => void saveConfigPatch(patch)}

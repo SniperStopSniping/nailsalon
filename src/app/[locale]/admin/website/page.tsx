@@ -34,9 +34,10 @@ export default async function WebsiteHubPage({ params, searchParams }: {
   }
   const config = resolveBookingPageConfig(salon.settings);
   const content = resolveBookingPageContent(salon.settings);
-  const handoff = isOnboardingV1IntegrationEnabled()
+  const canEditSetup = admin.salons.some(item => item.salonId === salon.id && item.role === 'owner');
+  const handoff = isOnboardingV1IntegrationEnabled() && canEditSetup && salon.publicationStatus === 'draft'
     ? await getOnboardingSiteHandoff({
-      canEditSetup: admin.salons.some(item => item.salonId === salon.id && item.role === 'owner'),
+      canEditSetup,
       locale,
       salon,
     })
