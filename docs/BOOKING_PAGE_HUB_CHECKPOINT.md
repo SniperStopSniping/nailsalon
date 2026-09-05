@@ -37,6 +37,8 @@ Worktree: `/Users/me/nailsalon-worktrees/booking-page-hub`.
 
 - CI 33937700419: full Vitest passed. E2E never started because adding a test to package.json violated the frozen dependency manifest pair. Restored the manifest exactly and added the test to the workflow's existing argument list instead; no gate or dependency protection was relaxed. An unrelated lifecycle PostgreSQL test timed out at 5 seconds; rerun required.
 - Guided current-data review and safe save-before-navigation: **54 tests passed** in the page/hub pair, including failure retention. Focused source lint passed.
+- Your Information now reads the current tenant's saved identity, primary address, contact, hours and timezone into its accordions (including values hidden publicly). The optional owner-only GET is authorized before reading locations/technicians; wrong-tenant coverage included. Editing still uses the existing settings destinations; no new general-profile writer or unsafe snapshot replay was introduced. The location shortcut no longer claims the old editor exposes three privacy modes—it does not yet.
+- Open live site / Copy link now use the canonical server URL helper, including custom domains. Focused route/hub/editor/visibility suite: **5 files, 88 tests passed**. This supersedes, not adds to, the smaller 54-test run.
 - Vercel CI/CD skill applied to the workflow change. Production release still requires all CI, mobile and immutable Preview gates.
 
 The user requested checkpoints because account usage is low. Preserve this branch and the original dirty workspace; do not consume reset credits without explicit authorization.

@@ -28,6 +28,8 @@ import { z } from 'zod';
 import type { AdminWithSalons } from '@/libs/adminAuth';
 import { requireAdmin } from '@/libs/adminAuth';
 import { logAuditEvent } from '@/libs/auditLog';
+import { resolveBookingConfigFromSettings } from '@/libs/bookingConfig';
+import { resolveBookingExperience } from '@/libs/bookingExperience';
 import { applyBookingPageBuilderOperation } from '@/libs/bookingPageBuilder';
 import {
   bookingPageBuilderOperationSchema,
@@ -46,7 +48,7 @@ import {
   synchronizeBookingPageLifecycle,
   updateBookingPageDraftState,
 } from '@/libs/bookingPageLifecycle';
-import { getSalonById, getSalonBySlug } from '@/libs/queries';
+import { getActiveLocationsBySalonId, getSalonById, getSalonBySlug, getTechniciansBySalonId } from '@/libs/queries';
 import type { Salon } from '@/models/Schema';
 
 export const dynamic = 'force-dynamic';
@@ -108,7 +110,30 @@ export async function GET(request: Request): Promise<Response> {
 
   const { salon } = resolved;
 
+  // Owner-only current values: never derive these from a historical onboarding
+  // snapshot, and never include this payload in a public customer renderer.
+  let savedDetails: Record<string, string[]> | undefined;
+  if (new URL(request.url).searchParams.get('include') === 'information') {
+    const [locations, technicians] = await Promise.all([
+      getActiveLocationsBySalonId(salon.id),
+      getTechniciansBySalonId(salon.id),
+    ]);
+    const location = locations.find(item => item.isPrimary) ?? locations[0];
+    const instagram = resolveBookingExperience(salon.settings).socialLinks.instagram;
+    const present = (values: Array<string | null | undefined>) => values.filter((value): value is string => Boolean(value));
+    savedDetails = {
+      'Business identity': present([salon.name, ...technicians.map(item => item.name), salon.logoUrl ? 'Logo saved' : null, technicians.some(item => item.avatarUrl) ? 'Profile photo saved' : null]),
+      'Location': present([location?.city ?? salon.city, location?.address ?? salon.address, location?.state, location?.zipCode]),
+      'Contact': present([salon.phone, salon.email, instagram]),
+      'Hours': [
+        ...Object.entries(salon.businessHours ?? {}).map(([day, hours]) => `${day}: ${hours ? `${hours.open}–${hours.close}` : 'Closed'}`),
+        resolveBookingConfigFromSettings(salon.settings).timezone,
+      ],
+    };
+  }
+
   return Response.json({
+    ...(savedDetails ? { savedDetails } : {}),
     config: resolveBookingPageConfig(salon.settings),
     content: resolveBookingPageContent(salon.settings),
     // Phase A (draft/publish split): lets the owner Booking Page surface

@@ -6,6 +6,7 @@ import { isOnboardingV1IntegrationEnabled } from '@/features/onboarding-v1-integ
 import { getAdminSession, requireAdmin } from '@/libs/adminAuth';
 import { resolveBookingPageConfig } from '@/libs/bookingPageConfig';
 import { resolveBookingPageContent } from '@/libs/bookingPageContent';
+import { buildSalonTenantPublicUrl } from '@/libs/publicUrl';
 import { getSalonBySlug } from '@/libs/queries';
 
 export const dynamic = 'force-dynamic';
@@ -48,6 +49,7 @@ export default async function WebsiteHubPage({ params, searchParams }: {
       hasDraftChanges={JSON.stringify(config.draft) !== JSON.stringify(config.live) || JSON.stringify(content.draft) !== JSON.stringify(content.live)}
       locale={locale}
       published={salon.publicationStatus === 'published'}
+      publicUrl={buildSalonTenantPublicUrl('/', { slug: salon.slug, customDomain: salon.customDomain })}
       salonName={salon.name}
       salonSlug={salon.slug}
       setupUrl={handoff?.site.setupAvailable ? handoff.site.setupUrl : null}

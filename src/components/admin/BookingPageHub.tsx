@@ -17,6 +17,7 @@ export function BookingPageHub({
   salonName,
   salonSlug,
   published,
+  publicUrl,
   hasDraftChanges,
   setupUrl,
 }: {
@@ -24,6 +25,7 @@ export function BookingPageHub({
   salonName: string;
   salonSlug: string;
   published: boolean;
+  publicUrl?: string;
   hasDraftChanges: boolean;
   setupUrl: string | null;
 }) {
@@ -32,11 +34,12 @@ export function BookingPageHub({
   const workspace = `/${locale}/admin?${query}`;
   const editor = `/${locale}/admin/booking-page?${query}`;
   const publicPath = `/${locale}/${encodeURIComponent(salonSlug)}`;
+  const liveUrl = publicUrl || publicPath;
   const actionClass = 'inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-stone-300 bg-white px-4 py-3 text-sm font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-700';
 
   async function copyLink() {
     try {
-      await navigator.clipboard.writeText(new URL(publicPath, window.location.origin).href);
+      await navigator.clipboard.writeText(new URL(liveUrl, window.location.origin).href);
       setCopyStatus('Link copied');
     } catch {
       setCopyStatus('Could not copy. Open your live site and copy its address.');
@@ -56,10 +59,10 @@ export function BookingPageHub({
           <p className="mt-2 text-sm text-stone-600">
             {!published ? 'Not published yet' : hasDraftChanges ? 'Live · Draft changes not published' : 'Live · All changes published'}
           </p>
-          <p className="mt-3 break-all text-sm text-stone-600">{salonSlug}</p>
+          <p className="mt-3 break-all text-sm text-stone-600">{liveUrl}</p>
           <div className="mt-4 flex flex-wrap gap-2">
             <a className={`${actionClass} border-rose-800 text-white`} style={{ backgroundColor: '#8b3151' }} href={`/${locale}/admin/booking-page/preview/${encodeURIComponent(salonSlug)}`}>Preview draft</a>
-            {published && <a className={actionClass} href={publicPath} rel="noreferrer" target="_blank">Open live site</a>}
+            {published && <a className={actionClass} href={liveUrl} rel="noreferrer" target="_blank">Open live site</a>}
             {published && (
               <button className={actionClass} onClick={() => void copyLink()} type="button">
                 <Copy aria-hidden="true" size={16} />

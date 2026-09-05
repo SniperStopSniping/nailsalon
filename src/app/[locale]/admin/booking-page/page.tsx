@@ -89,6 +89,7 @@ type BookingPageApiResponse = {
    * `publicationStatus`, not the booking-page config draft/live pair.
    */
   salon: { publicationStatus: string };
+  savedDetails?: Record<string, string[]>;
 };
 
 const EDITABLE_CONTENT_FIELDS = ['bio', 'specialtyLine', 'heroImageUrl'] as const;
@@ -107,8 +108,8 @@ function contentDraftValue(
   return content.draft[field] ?? '';
 }
 
-async function fetchBookingPageState(salonSlug: string): Promise<BookingPageApiResponse> {
-  const response = await fetch(`/api/admin/booking-page?salonSlug=${encodeURIComponent(salonSlug)}`, {
+async function fetchBookingPageState(salonSlug: string, includeInformation = false): Promise<BookingPageApiResponse> {
+  const response = await fetch(`/api/admin/booking-page?salonSlug=${encodeURIComponent(salonSlug)}${includeInformation ? '&include=information' : ''}`, {
     cache: 'no-store',
   });
   if (!response.ok) {
@@ -272,6 +273,7 @@ export default function BookingPageOwnerSurface() {
 
   const [config, setConfig] = useState<BookingPageConfig | null>(null);
   const [content, setContent] = useState<BookingPageContent | null>(null);
+  const [savedDetails, setSavedDetails] = useState<Record<string, string[]> | undefined>();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [saveStatus, setSaveStatusState]
@@ -515,9 +517,10 @@ export default function BookingPageOwnerSurface() {
 
       try {
         const response = await requestBookingPageState(
-          () => fetchBookingPageState(slug),
+          () => fetchBookingPageState(slug, panel === 'information'),
         );
         if (!cancelled) {
+          setSavedDetails(response.state.savedDetails);
           adoptBookingPageState(response.state, response.identity, { refresh: false });
         }
       } catch {
@@ -535,7 +538,7 @@ export default function BookingPageOwnerSurface() {
       cancelled = true;
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [adoptBookingPageState, requestBookingPageState]);
+  }, [adoptBookingPageState, panel, requestBookingPageState]);
 
   const saveConfigPatch = useCallback(async (patch: Record<string, unknown>) => {
     if (!salonSlug || presentationWritePendingRef.current) {
@@ -965,6 +968,7 @@ export default function BookingPageOwnerSurface() {
 
           {show('information') && (
             <QuickBookProfileVisibilityCard
+              savedDetails={savedDetails}
               grouped={panel === 'information'}
               disabled={presentationPending}
               draft={draft}
@@ -976,7 +980,7 @@ export default function BookingPageOwnerSurface() {
 
           {panel === 'information' && (
             <SectionCard title="Edit saved business information" description="Visibility above changes your website draft. Business settings below use the existing shared editors and may affect live bookings immediately.">
-              <a className="inline-flex min-h-11 items-center rounded-xl border border-stone-300 px-4" href={`/${locale}/admin?salon=${encodeURIComponent(salonSlug)}&app=settings&view=location`}>Location, address privacy & arrival details</a>
+              <a className="inline-flex min-h-11 items-center rounded-xl border border-stone-300 px-4" href={`/${locale}/admin?salon=${encodeURIComponent(salonSlug)}&app=settings&view=location`}>Edit saved address & parking details</a>
               <a className="mt-3 flex min-h-11 items-center rounded-xl border border-stone-300 px-4" href={`/${locale}/admin?salon=${encodeURIComponent(salonSlug)}&app=settings`}>Open business settings</a>
             </SectionCard>
           )}

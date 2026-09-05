@@ -12,6 +12,7 @@ export type QuickBookProfileConfigPatch = {
 };
 
 type QuickBookProfileVisibilityCardProps = {
+  savedDetails?: Record<string, string[]>;
   grouped?: boolean;
   disabled: boolean;
   draft: Pick<BookingPageConfigSide, 'layout' | 'quickBookProfile'>;
@@ -81,6 +82,7 @@ const VISIBILITY_OPTIONS: ReadonlyArray<{
 ];
 
 export function QuickBookProfileVisibilityCard({
+  savedDetails,
   grouped = false,
   disabled,
   draft,
@@ -130,6 +132,7 @@ export function QuickBookProfileVisibilityCard({
           ? groups.map(group => (
             <details className="py-2" key={group.title}>
               <summary className="min-h-11 cursor-pointer py-3 font-semibold">{group.title}</summary>
+              {[...new Set(savedDetails?.[group.title] ?? [])].map(detail => <p className="mb-2 break-words text-sm text-stone-700" key={detail}>{detail}</p>)}
               {VISIBILITY_OPTIONS.filter(option => group.keys.includes(option.key)).map(renderOption)}
             </details>
           ))

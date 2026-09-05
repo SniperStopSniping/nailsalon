@@ -6,6 +6,13 @@ import { BookingPageHub } from './BookingPageHub';
 const props = { locale: 'en', salonName: 'Another Nail Studio', salonSlug: 'another-studio', published: true, hasDraftChanges: false, setupUrl: null };
 
 describe('Booking Page hub', () => {
+  it('uses the canonical public URL including a configured custom domain', () => {
+    render(<BookingPageHub {...props} publicUrl="https://another-studio.example/" />);
+
+    expect(screen.getByText('https://another-studio.example/')).toBeVisible();
+    expect(screen.getByRole('link', { name: 'Open live site' })).toHaveAttribute('href', 'https://another-studio.example/');
+  });
+
   it('shows six focused editors, the actual owner and an authenticated draft preview', () => {
     render(<BookingPageHub {...props} />);
 

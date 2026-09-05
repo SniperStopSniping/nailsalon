@@ -6,6 +6,8 @@ const {
   requireAdmin,
   getSalonBySlug,
   getSalonById,
+  getActiveLocationsBySalonId,
+  getTechniciansBySalonId,
   logAuditEvent,
   updateBookingPageDraft,
   resolveBookingPageConfig,
@@ -100,6 +102,8 @@ const {
     requireAdmin: vi.fn(),
     getSalonBySlug: vi.fn(),
     getSalonById: vi.fn(),
+    getActiveLocationsBySalonId: vi.fn(),
+    getTechniciansBySalonId: vi.fn(),
     logAuditEvent: vi.fn(),
     updateBookingPageDraft: vi.fn(),
     resolveBookingPageConfig: vi.fn(),
@@ -128,6 +132,8 @@ vi.mock('@/libs/auditLog', () => ({
 }));
 
 vi.mock('@/libs/queries', () => ({
+  getActiveLocationsBySalonId,
+  getTechniciansBySalonId,
   getSalonBySlug,
   getSalonById,
 }));
@@ -207,6 +213,29 @@ describe('admin booking-page route', () => {
   });
 
   describe('GET', () => {
+    it('reads current saved business information only for the authorized tenant', async () => {
+      getSalonBySlug.mockResolvedValue({ ...SALON, name: 'Current Studio', phone: '+14165550111', city: 'Toronto', businessHours: { monday: { open: '10:00', close: '19:00' } } });
+      getActiveLocationsBySalonId.mockResolvedValue([{ isPrimary: true, address: 'Private saved address', city: 'Toronto' }]);
+      getTechniciansBySalonId.mockResolvedValue([{ name: 'Current tech', avatarUrl: null }]);
+      const response = await GET(request('https://x.test/api/admin/booking-page?salonSlug=salon-a&include=information'));
+      const body = await response.json();
+
+      expect(getActiveLocationsBySalonId).toHaveBeenCalledWith('salon_1');
+      expect(getTechniciansBySalonId).toHaveBeenCalledWith('salon_1');
+      expect(body.savedDetails['Business identity']).toEqual(['Current Studio', 'Current tech']);
+      expect(body.savedDetails.Location).toContain('Private saved address');
+      expect(body.savedDetails.Hours).toContain('monday: 10:00–19:00');
+    });
+
+    it('does not read private business details for another tenant', async () => {
+      requireAdmin.mockResolvedValue({ ok: false, response: new Response('Forbidden', { status: 403 }) });
+      const response = await GET(request('https://x.test/api/admin/booking-page?salonSlug=salon-a&include=information'));
+
+      expect(response.status).toBe(403);
+      expect(getActiveLocationsBySalonId).not.toHaveBeenCalled();
+      expect(getTechniciansBySalonId).not.toHaveBeenCalled();
+    });
+
     it('returns the resolved config and content for the authorized salon', async () => {
       const response = await GET(request('https://x.test/api/admin/booking-page?salonSlug=salon-a'));
       const body = await response.json();
