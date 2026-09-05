@@ -264,6 +264,8 @@ export default function BookingPageOwnerSurface() {
   const searchParams = useSearchParams();
   const requestedPanel = searchParams.get('panel');
   const panel = ['layouts', 'appearance', 'information', 'text', 'policies', 'publish'].includes(requestedPanel ?? '') ? requestedPanel : null;
+  const reviewPanels = ['information', 'text', 'policies', 'layouts', 'appearance', 'publish'];
+  const reviewIndex = searchParams.get('guided') === '1' && panel ? reviewPanels.indexOf(panel) : -1;
   const show = (name: string) => !panel || panel === name;
   const locale = String(params?.locale || 'en');
   const [salonSlug, setSalonSlug] = useState(searchParams.get('salon') || '');
@@ -570,6 +572,24 @@ export default function BookingPageOwnerSurface() {
     });
   }, [adoptBookingPageState, requestBookingPageState, salonSlug, setTruthfulSaveStatus, trackOrdinaryWrite]);
 
+  async function navigateAfterSaving(destination: string) {
+    if (presentationWritePendingRef.current) {
+      return;
+    }
+    if (hasUnsavedContentTextEdits()) {
+      const values = { bio: bioDraft, specialtyLine: specialtyDraft, heroImageUrl: heroImageDraft };
+      const patch = Object.fromEntries(EDITABLE_CONTENT_FIELDS
+        .filter(field => contentEditGenerationByFieldRef.current[field] > savedContentEditGenerationByFieldRef.current[field])
+        .map(field => [field, values[field].trim() || null]));
+      await saveContentPatch(patch);
+    }
+    if (!await settleOrdinaryWrites() || hasUnsavedContentTextEdits()) {
+      setActionMessage('Your changes could not be saved. Please retry before leaving this editor.');
+      return;
+    }
+    router.push(destination);
+  }
+
   const handleStylePackSelect = (stylePack: StylePack) => {
     const option = STYLE_PACK_OPTIONS.find(p => p.id === stylePack);
     if (!option?.implemented) {
@@ -839,8 +859,9 @@ export default function BookingPageOwnerSurface() {
       <div className="mx-auto max-w-3xl">
         <button
           type="button"
-          onClick={() => router.push(`/${locale}/admin/website${salonSlug ? `?salon=${encodeURIComponent(salonSlug)}` : ''}`)}
-          className="inline-flex items-center gap-2 text-sm text-stone-600"
+          onClick={() => void navigateAfterSaving(`/${locale}/admin/website${salonSlug ? `?salon=${encodeURIComponent(salonSlug)}` : ''}`)}
+          disabled={presentationPending}
+          className="inline-flex min-h-11 items-center gap-2 text-sm text-stone-600 disabled:opacity-50"
         >
           <ArrowLeft size={16} />
           Booking Page
@@ -851,6 +872,17 @@ export default function BookingPageOwnerSurface() {
             <p className="text-xs font-semibold uppercase tracking-[0.25em] text-rose-700">Booking Page</p>
             <h1 className="mt-2 text-3xl font-semibold">{({ layouts: 'Layouts', appearance: 'Style & Colours', information: 'Your Information', text: 'About & Website Text', policies: 'Policies & Booking Rules', publish: 'Review & Publish' } as Record<string, string>)[panel ?? ''] ?? 'Layout, style and content'}</h1>
             <p className="mt-2 text-stone-600">Changes here save to your draft. Nothing goes live until you publish.</p>
+            {reviewIndex >= 0 && (
+              <p className="mt-2 text-sm font-semibold text-rose-800">
+                Guided review · Step
+                {reviewIndex + 1}
+                {' '}
+                of
+                {reviewPanels.length}
+                {' '}
+                · Your current saved setup
+              </p>
+            )}
           </div>
           <div className="flex flex-col items-end gap-1">
             <a
@@ -1130,6 +1162,14 @@ export default function BookingPageOwnerSurface() {
         </div>
 
         <div className="mt-8 rounded-3xl border border-stone-200 bg-white p-5 shadow-sm">
+          {reviewIndex >= 0 && (
+            <div className="mb-5 flex flex-wrap gap-3 border-b border-stone-200 pb-5">
+              {reviewIndex > 0 && (
+                <button type="button" disabled={presentationPending} className="min-h-11 rounded-xl border border-stone-300 px-4 py-3 text-sm font-semibold disabled:opacity-50" onClick={() => void navigateAfterSaving(`/${locale}/admin/booking-page?salon=${encodeURIComponent(salonSlug)}&panel=${reviewPanels[reviewIndex - 1]}&guided=1`)}>Previous step</button>
+              )}
+              <button type="button" disabled={presentationPending} className="min-h-11 rounded-xl bg-rose-800 px-4 py-3 text-sm font-semibold text-white disabled:opacity-50" onClick={() => void navigateAfterSaving(reviewIndex < reviewPanels.length - 1 ? `/${locale}/admin/booking-page?salon=${encodeURIComponent(salonSlug)}&panel=${reviewPanels[reviewIndex + 1]}&guided=1` : `/${locale}/admin/website?salon=${encodeURIComponent(salonSlug)}`)}>{reviewIndex < reviewPanels.length - 1 ? 'Save & next step' : 'Finish review'}</button>
+            </div>
+          )}
           {/*
             Phase A (draft/publish split) copy note: this row's "Publish"
             only pushes the booking-page layout/content draft onto what is

@@ -32,6 +32,7 @@ describe('Booking Page hub', () => {
 
     expect(screen.getByText('Live · Draft changes not published')).toBeVisible();
     expect(screen.queryByRole('link', { name: 'Review saved setup' })).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Review current setup' })).toHaveAttribute('href', '/en/admin/booking-page?salon=another-studio&panel=information&guided=1');
     expect(screen.getByRole('link', { name: 'Services & Add-ons' })).toHaveAttribute('href', '/en/admin?salon=another-studio&app=services');
   });
 });

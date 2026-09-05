@@ -97,7 +97,12 @@ export function BookingPageHub({
                   Review saved setup
                 </a>
               )
-            : <p className="mt-3 text-sm text-stone-600">Use the editors above for your current website. Guided review is available for unpublished onboarding drafts.</p>}
+            : (
+                <a className={`${actionClass} mt-3`} href={`${editor}&panel=information&guided=1`}>
+                  <Check aria-hidden="true" size={16} />
+                  Review current setup
+                </a>
+              )}
         </section>
       </div>
     </main>
