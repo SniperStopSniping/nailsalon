@@ -28,6 +28,8 @@ vi.mock('@/libs/DB', () => ({
 import {
   BOOKING_PAGE_CONTENT_DEFAULTS,
   BOOKING_PAGE_CONTENT_SIDE_DEFAULTS,
+  bookingPageContentPatchSchema,
+  LOCATION_DISPLAY_MODES,
   publishBookingPageContent,
   resolveBookingPageContent,
   revertBookingPageContentDraft,
@@ -92,12 +94,25 @@ describe('resolveBookingPageContent defaults', () => {
     expect(resolved.draft.heroImageUrl).toBeNull();
   });
 
-  it('falls back an unknown locationDisplayMode to full_address', () => {
-    const resolved = resolveBookingPageContent({
-      bookingPageContent: { draft: { locationDisplayMode: 'satellite_view' } },
+  it('fails closed for an unrecognised locationDisplayMode while a missing one keeps the default', () => {
+    const unknown = resolveBookingPageContent({
+      bookingPageContent: { draft: { locationDisplayMode: 'satellite_view' }, live: { locationDisplayMode: null } },
     });
 
-    expect(resolved.draft.locationDisplayMode).toBe('full_address');
+    expect(unknown.draft.locationDisplayMode).toBe('city_only');
+    expect(unknown.live.locationDisplayMode).toBe('city_only');
+    expect(resolveBookingPageContent({ bookingPageContent: { draft: {} } }).draft.locationDisplayMode).toBe('full_address');
+  });
+
+  it('accepts all three owner choices, including "after they book"', () => {
+    expect(LOCATION_DISPLAY_MODES).toEqual(['full_address', 'after_booking', 'city_only']);
+
+    for (const mode of LOCATION_DISPLAY_MODES) {
+      expect(resolveBookingPageContent({
+        bookingPageContent: { draft: { locationDisplayMode: mode }, live: { locationDisplayMode: mode } },
+      })).toMatchObject({ draft: { locationDisplayMode: mode }, live: { locationDisplayMode: mode } });
+      expect(bookingPageContentPatchSchema.parse({ locationDisplayMode: mode })).toEqual({ locationDisplayMode: mode });
+    }
   });
 });
 

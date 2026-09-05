@@ -13,6 +13,8 @@ const {
   verifyAppointmentAccessToken,
   describeAppointmentAccessFailure,
   loadBookingEmailFinancialSummary,
+  getLocationById,
+  getPrimaryLocation,
   selectResults,
 } = vi.hoisted(() => {
   const selectResults: unknown[][] = [];
@@ -20,6 +22,8 @@ const {
     verifyAppointmentAccessToken: vi.fn(),
     describeAppointmentAccessFailure: vi.fn(),
     loadBookingEmailFinancialSummary: vi.fn(),
+    getLocationById: vi.fn(),
+    getPrimaryLocation: vi.fn(),
     selectResults,
   };
 });
@@ -33,6 +37,15 @@ vi.mock('@/libs/appointmentAccess', () => ({
 
 vi.mock('@/libs/bookingEmailFinancialSummary.server', () => ({
   loadBookingEmailFinancialSummary,
+}));
+
+vi.mock('@/libs/queries', () => ({
+  getLocationById,
+  getPrimaryLocation,
+}));
+
+vi.mock('@/libs/retentionSettings.server', () => ({
+  getRetentionSettingsForSalon: vi.fn(async () => ({ parkingInstructions: 'Use the rear lot' })),
 }));
 
 vi.mock('@/libs/DB', () => {
@@ -100,6 +113,8 @@ describe('appointment management page', () => {
     vi.clearAllMocks();
     selectResults.length = 0;
     describeAppointmentAccessFailure.mockResolvedValue('invalid');
+    getLocationById.mockResolvedValue(null);
+    getPrimaryLocation.mockResolvedValue(null);
     loadBookingEmailFinancialSummary.mockResolvedValue({
       currency: 'CAD',
       serviceInvoiceTotalCents: 4500,
@@ -332,6 +347,115 @@ describe('appointment management page', () => {
 
     expect(screen.getAllByText('Unavailable').length).toBeGreaterThan(0);
     expect(screen.queryByText(/\$45\.00/)).not.toBeInTheDocument();
+  });
+
+  describe('address privacy behind a confirmed booking', () => {
+    const privateLocation = {
+      id: 'loc_1',
+      name: 'Primary location',
+      address: '123 Private Street',
+      city: 'Toronto',
+      state: 'ON',
+      zipCode: 'M5V 1A1',
+    };
+
+    it('reveals the exact address and directions for "show my full address after they book"', async () => {
+      verifyAppointmentAccessToken.mockResolvedValue(capability({
+        salonSettings: {
+          booking: { clientChangeCutoffHours: 0, timezone: 'America/Toronto' },
+          bookingPageContent: { version: 1, draft: { locationDisplayMode: 'city_only' }, live: { locationDisplayMode: 'after_booking' } },
+          sharedProfile: { entranceInstructions: 'Buzz 4B at the side door' },
+        },
+      }));
+      getPrimaryLocation.mockResolvedValue(privateLocation);
+      selectResults.push([{ name: 'Russian Manicure' }], [], [{ name: 'Daniela' }]);
+
+      await renderPage({ locale: 'en', slug: 'isla-nail-studio1', token: TOKEN });
+
+      const visit = screen.getByTestId('manage-visit-location');
+
+      expect(visit).toHaveTextContent('123 Private Street, Toronto, ON, M5V 1A1');
+      expect(visit).toHaveTextContent('Buzz 4B at the side door');
+      expect(visit).toHaveTextContent('Parking: Use the rear lot');
+      expect(visit).not.toHaveTextContent('Primary location');
+      expect(screen.getByRole('link', { name: /Get directions/ }))
+        .toHaveAttribute('href', expect.stringContaining(encodeURIComponent('123 Private Street')));
+      expect(getPrimaryLocation).toHaveBeenCalledWith('salon_1');
+    });
+
+    it('uses the appointment\'s own location when one was booked', async () => {
+      verifyAppointmentAccessToken.mockResolvedValue(capability({
+        appointment: { locationId: 'loc_2' },
+        salonSettings: {
+          booking: { clientChangeCutoffHours: 0, timezone: 'America/Toronto' },
+          bookingPageContent: { version: 1, draft: {}, live: { locationDisplayMode: 'after_booking' } },
+        },
+      }));
+      getLocationById.mockResolvedValue({ ...privateLocation, id: 'loc_2', name: 'Uptown studio', address: '9 Uptown Ave' });
+      selectResults.push([{ name: 'Russian Manicure' }], [], [{ name: 'Daniela' }]);
+
+      await renderPage({ locale: 'en', slug: 'isla-nail-studio1', token: TOKEN });
+
+      expect(getLocationById).toHaveBeenCalledWith('loc_2', 'salon_1');
+      expect(getPrimaryLocation).not.toHaveBeenCalled();
+      expect(screen.getByTestId('manage-visit-location')).toHaveTextContent('Uptown studio');
+      expect(screen.getByTestId('manage-visit-location')).toHaveTextContent('9 Uptown Ave, Toronto, ON, M5V 1A1');
+    });
+
+    it('never reveals a city-only address or arrival instructions, even with a confirmed booking', async () => {
+      verifyAppointmentAccessToken.mockResolvedValue(capability({
+        salonSettings: {
+          booking: { clientChangeCutoffHours: 0, timezone: 'America/Toronto' },
+          bookingPageContent: { version: 1, draft: { locationDisplayMode: 'full_address' }, live: { locationDisplayMode: 'city_only' } },
+          sharedProfile: { entranceInstructions: 'Buzz 4B at the side door' },
+        },
+      }));
+      getPrimaryLocation.mockResolvedValue(privateLocation);
+      selectResults.push([{ name: 'Russian Manicure' }], [], [{ name: 'Daniela' }]);
+
+      const { container } = render(await ManageAppointmentView({ locale: 'en', slug: 'isla-nail-studio1', token: TOKEN }));
+
+      expect(screen.getByTestId('manage-visit-location')).toHaveTextContent('Toronto, ON');
+      expect(container.innerHTML).not.toContain('123 Private Street');
+      expect(container.innerHTML).not.toContain('M5V');
+      expect(container.innerHTML).not.toContain('Buzz 4B');
+      expect(container.innerHTML).not.toContain('rear lot');
+      expect(screen.queryByRole('link', { name: /Get directions/ })).not.toBeInTheDocument();
+    });
+
+    it.each(['awaiting_payment', 'pending', 'cancelled', 'no_show'])('keeps the address private under after_booking while the appointment is %s', async (status) => {
+      verifyAppointmentAccessToken.mockResolvedValue(capability({
+        appointment: { status },
+        salonSettings: {
+          booking: { clientChangeCutoffHours: 0, timezone: 'America/Toronto' },
+          bookingPageContent: { version: 1, draft: {}, live: { locationDisplayMode: 'after_booking' } },
+          sharedProfile: { entranceInstructions: 'Buzz 4B at the side door' },
+        },
+      }));
+      getPrimaryLocation.mockResolvedValue(privateLocation);
+      selectResults.push([{ name: 'Russian Manicure' }], [], [{ name: 'Daniela' }], [], []);
+
+      const { container } = render(await ManageAppointmentView({ locale: 'en', slug: 'isla-nail-studio1', token: TOKEN }));
+
+      expect(container.innerHTML).not.toContain('123 Private Street');
+      expect(container.innerHTML).not.toContain('Buzz 4B');
+      expect(screen.queryByRole('link', { name: /Get directions/ })).not.toBeInTheDocument();
+    });
+
+    it('does not let an unpublished draft choice widen what a booked customer sees', async () => {
+      verifyAppointmentAccessToken.mockResolvedValue(capability({
+        salonSettings: {
+          booking: { clientChangeCutoffHours: 0, timezone: 'America/Toronto' },
+          bookingPageContent: { version: 1, draft: { locationDisplayMode: 'after_booking' }, live: { locationDisplayMode: 'city_only' } },
+        },
+      }));
+      getPrimaryLocation.mockResolvedValue(privateLocation);
+      selectResults.push([{ name: 'Russian Manicure' }], [], [{ name: 'Daniela' }]);
+
+      const { container } = render(await ManageAppointmentView({ locale: 'en', slug: 'isla-nail-studio1', token: TOKEN }));
+
+      expect(container.innerHTML).not.toContain('123 Private Street');
+    });
   });
 
   it('shows a truthful error for an invalid token and never opens booking', async () => {

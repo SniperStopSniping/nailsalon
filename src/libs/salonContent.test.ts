@@ -4,6 +4,9 @@ import {
   applyLocationDisplayMode,
   applyPhoneDisplayMode,
   EMPTY_SALON_CONTENT,
+  hasConfirmedAppointmentStatus,
+  isExactAddressPublic,
+  resolveConfirmedBookingLocationDisplayMode,
   resolveSalonContent,
   type ResolveSalonContentInput,
 } from './salonContent';
@@ -355,6 +358,86 @@ describe('applyLocationDisplayMode', () => {
 
     expect(redacted).toEqual({ address: null, zipCode: null, city: 'Homeburg' });
     expect(Object.prototype.hasOwnProperty.call(redacted, 'phone')).toBe(false);
+  });
+});
+
+describe('after_booking — "Show my full address after they book"', () => {
+  it('redacts exactly like city_only for anyone browsing (address, postal code and phone)', () => {
+    const value = {
+      name: 'Private Home Studio',
+      address: PRIVATE_FULL_ADDRESS,
+      city: 'Homeburg',
+      state: 'ON',
+      zipCode: PRIVATE_POSTAL_CODE,
+      phone: PRIVATE_PHONE,
+    };
+
+    expect(applyLocationDisplayMode(value, 'after_booking')).toEqual(applyLocationDisplayMode(value, 'city_only'));
+    expect(applyLocationDisplayMode(value, 'after_booking')).toEqual({
+      name: 'Private Home Studio',
+      address: null,
+      city: 'Homeburg',
+      state: 'ON',
+      zipCode: null,
+      phone: null,
+    });
+    expect(applyPhoneDisplayMode(PRIVATE_PHONE, 'after_booking')).toBeNull();
+    expect(isExactAddressPublic('after_booking')).toBe(false);
+    expect(isExactAddressPublic('city_only')).toBe(false);
+    expect(isExactAddressPublic('full_address')).toBe(true);
+  });
+
+  it('resolves to full_address only through the confirmed-booking projection, and never widens city_only', () => {
+    for (const status of ['confirmed', 'in_progress', 'completed']) {
+      expect(resolveConfirmedBookingLocationDisplayMode('after_booking', status)).toBe('full_address');
+      expect(resolveConfirmedBookingLocationDisplayMode('city_only', status)).toBe('city_only');
+      expect(resolveConfirmedBookingLocationDisplayMode('full_address', status)).toBe('full_address');
+    }
+
+    const value = { address: PRIVATE_FULL_ADDRESS, zipCode: PRIVATE_POSTAL_CODE, phone: PRIVATE_PHONE };
+
+    expect(applyLocationDisplayMode(value, resolveConfirmedBookingLocationDisplayMode('after_booking', 'confirmed'))).toBe(value);
+    expect(applyLocationDisplayMode(value, resolveConfirmedBookingLocationDisplayMode('city_only', 'confirmed')))
+      .toEqual({ address: null, zipCode: null, phone: null });
+  });
+
+  it('keeps after_booking redacted while the appointment is not actually confirmed', () => {
+    for (const status of ['awaiting_payment', 'pending', 'cancelled', 'no_show', 'unknown', null, undefined]) {
+      expect(resolveConfirmedBookingLocationDisplayMode('after_booking', status)).toBe('after_booking');
+      expect(hasConfirmedAppointmentStatus(status)).toBe(false);
+    }
+  });
+
+  it('strips every public location surface of resolveSalonContent while browsing', () => {
+    const content = resolveSalonContent({
+      salon: {
+        name: 'Private Home Studio',
+        address: PRIVATE_FULL_ADDRESS,
+        city: 'Homeburg',
+        state: 'ON',
+        zipCode: PRIVATE_POSTAL_CODE,
+      },
+      technicians: [],
+      services: [],
+      locations: [{
+        id: 'loc_1',
+        name: 'Home studio',
+        address: PRIVATE_FULL_ADDRESS,
+        city: 'Homeburg',
+        state: 'ON',
+        zipCode: PRIVATE_POSTAL_CODE,
+        phone: PRIVATE_PHONE,
+        isPrimary: true,
+      }],
+      bookingExperience: BASE_BOOKING_EXPERIENCE,
+      content: { locationDisplayMode: 'after_booking' },
+    });
+    const serialized = JSON.stringify(content);
+
+    expect(serialized).not.toContain(PRIVATE_STREET_ADDRESS);
+    expect(serialized).not.toContain(PRIVATE_POSTAL_CODE);
+    expect(serialized).not.toContain(PRIVATE_PHONE);
+    expect(content.place.address?.city).toBe('Homeburg');
   });
 });
 

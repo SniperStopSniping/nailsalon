@@ -491,6 +491,10 @@ describe.sequential('account-backed onboarding persistence', () => {
     });
     expect(resolveBookingPageConfig(privateSalon?.settings).draft.quickBookProfile)
       .toEqual(QUICK_BOOK_PROFILE_VISIBILITY_DEFAULTS);
+    // "Show my full address after they book" survives as its own mode: the
+    // exact address stays on the location row, browsing surfaces redact it
+    // like city-only, and the dashboard can show the same three choices.
+    expect(resolveBookingPageContent(privateSalon?.settings).draft.locationDisplayMode).toBe('after_booking');
 
     const visibleInput = request('private_contact_visible', {
       target: {

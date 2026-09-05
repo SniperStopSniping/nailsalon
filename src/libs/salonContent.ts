@@ -292,7 +292,8 @@ export type ResolveSalonContentInput = {
      * `bookingPageContent` side and passes its `locationDisplayMode`
      * straight through). Defaults to `'full_address'` (today's behaviour,
      * unchanged) when the caller omits it. This is the server-side privacy
-     * projection point: `'city_only'` strips street address/unit and
+     * projection point: any mode other than `'full_address'` (`'city_only'`
+     * and `'after_booking'` alike) strips street address/unit and
      * postal/ZIP from `place.address`, and strips street address/unit,
      * postal/ZIP, AND phone from every entry of `place.locations` (each
      * carries its own `phone` — see `SalonContentLocation`), before this
@@ -348,7 +349,12 @@ export function applyLocationDisplayMode<T extends { address: string | null; zip
   value: T,
   mode: LocationDisplayMode,
 ): T {
-  if (mode !== 'city_only') {
+  // Only `full_address` publishes the exact address. `after_booking` is
+  // redacted here exactly like `city_only`: a browsing visitor (signed in or
+  // not) has no confirmed appointment. Callers that hold a verified
+  // appointment capability go through
+  // `resolveConfirmedBookingLocationDisplayMode` first.
+  if (mode === 'full_address') {
     return value;
   }
   const redacted = { ...value, address: null, zipCode: null };
@@ -370,6 +376,52 @@ export function applyLocationDisplayMode<T extends { address: string | null; zip
  */
 export function applyPhoneDisplayMode(phone: string | null, mode: LocationDisplayMode): string | null {
   return applyLocationDisplayMode({ address: null, zipCode: null, phone }, mode).phone ?? null;
+}
+
+/**
+ * Whether a display mode publishes the exact street address to anyone who is
+ * merely browsing. Only `full_address` does; `after_booking` and `city_only`
+ * both keep it private until a projection explicitly proves a confirmed
+ * booking (see below).
+ */
+export function isExactAddressPublic(mode: LocationDisplayMode): boolean {
+  return mode === 'full_address';
+}
+
+/**
+ * Appointment statuses that count as "they booked" for address privacy. A
+ * deposit hold (`awaiting_payment`), an owner-approval request (`pending`), a
+ * cancellation or a no-show is not a confirmed visit, and a manage link for
+ * one of those must not unlock a private address.
+ */
+export const CONFIRMED_APPOINTMENT_STATUSES = ['confirmed', 'in_progress', 'completed'] as const;
+
+export function hasConfirmedAppointmentStatus(status: string | null | undefined): boolean {
+  return (CONFIRMED_APPOINTMENT_STATUSES as readonly string[]).includes(status ?? '');
+}
+
+/**
+ * The ONE place `after_booking` turns into `full_address`.
+ *
+ * Call it only from surfaces a customer can reach solely through a verified,
+ * appointment-scoped capability — the private manage link
+ * (`[locale]/[slug]/manage/[token]`) and its calendar file. Those routes
+ * resolve the appointment and salon from the token server-side, so the
+ * projection is tied to an actual booking rather than to a session, and the
+ * appointment's own status must prove the booking is confirmed
+ * (`hasConfirmedAppointmentStatus`). Every browsing surface, the pre-submit
+ * confirm step, the signed-in customer session and `find-booking` keep passing
+ * the stored mode straight to `applyLocationDisplayMode`, which redacts
+ * `after_booking`. `city_only` stays `city_only` even after booking: that
+ * owner asked for the address to never be published.
+ */
+export function resolveConfirmedBookingLocationDisplayMode(
+  mode: LocationDisplayMode,
+  appointmentStatus: string | null | undefined,
+): LocationDisplayMode {
+  return mode === 'after_booking' && hasConfirmedAppointmentStatus(appointmentStatus)
+    ? 'full_address'
+    : mode;
 }
 
 /**
