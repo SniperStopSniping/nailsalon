@@ -5,7 +5,7 @@ import type {
   QuickBookProfileVisibilityPatch,
 } from '@/libs/bookingPageConfig';
 
-type QuickBookProfileVisibilityKey = keyof QuickBookProfileVisibilityPatch;
+export type QuickBookProfileVisibilityKey = keyof QuickBookProfileVisibilityPatch;
 
 export type QuickBookProfileConfigPatch = {
   quickBookProfile: QuickBookProfileVisibilityPatch;
@@ -19,13 +19,13 @@ type QuickBookProfileVisibilityCardProps = {
   onConfigPatch: (patch: QuickBookProfileConfigPatch) => void;
 };
 
-const VISIBILITY_OPTIONS: ReadonlyArray<{
+export const QUICK_BOOK_VISIBILITY_OPTIONS: ReadonlyArray<{
   description: string;
   key: QuickBookProfileVisibilityKey;
   label: string;
 }> = [
   {
-    description: 'Use the nail tech name saved in the shared salon profile.',
+    description: 'Use the name of your active nail tech (Staff), not your private account name.',
     key: 'showTechName',
     label: 'Show nail tech name',
   },
@@ -81,6 +81,45 @@ const VISIBILITY_OPTIONS: ReadonlyArray<{
   },
 ];
 
+export const QUICK_BOOK_VISIBILITY_GROUPS: ReadonlyArray<{ title: string; keys: QuickBookProfileVisibilityKey[] }> = [
+  { title: 'Business identity', keys: ['showTechName', 'showTechPhoto', 'showBio'] },
+  { title: 'Location', keys: ['showLocation'] },
+  { title: 'Contact', keys: ['showPhone', 'showEmail', 'showInstagram'] },
+  { title: 'Hours', keys: ['showHours'] },
+  { title: 'Other public content', keys: ['showBookingPolicy', 'showCancellationPolicy', 'showReviews'] },
+];
+
+/**
+ * One Quick Book visibility switch. Shared with the Your Information editor so
+ * "hide it publicly" and "edit the saved value" sit in the same accordion
+ * without a second copy of the switch semantics.
+ */
+export function QuickBookVisibilitySwitch({
+  option,
+  checked,
+  onConfigPatch,
+}: {
+  option: typeof QUICK_BOOK_VISIBILITY_OPTIONS[number];
+  checked: boolean;
+  onConfigPatch: (patch: QuickBookProfileConfigPatch) => void;
+}) {
+  return (
+    <label className="flex min-h-11 cursor-pointer items-center justify-between gap-4 py-3 has-[:disabled]:opacity-60">
+      <span className="min-w-0">
+        <span className="block text-sm font-medium text-stone-800">{option.label}</span>
+        <span className="mt-0.5 block text-xs leading-5 text-stone-500">{option.description}</span>
+      </span>
+      <input
+        checked={checked}
+        className="size-5 shrink-0 accent-rose-700"
+        onChange={event => onConfigPatch({ quickBookProfile: { [option.key]: event.currentTarget.checked } })}
+        role="switch"
+        type="checkbox"
+      />
+    </label>
+  );
+}
+
 export function QuickBookProfileVisibilityCard({
   savedDetails,
   grouped = false,
@@ -92,28 +131,15 @@ export function QuickBookProfileVisibilityCard({
     return null;
   }
 
-  const renderOption = (option: typeof VISIBILITY_OPTIONS[number]) => (
-    <label key={option.key} className="flex min-h-11 cursor-pointer items-center justify-between gap-4 py-3 has-[:disabled]:opacity-60">
-      <span className="min-w-0">
-        <span className="block text-sm font-medium text-stone-800">{option.label}</span>
-        <span className="mt-0.5 block text-xs leading-5 text-stone-500">{option.description}</span>
-      </span>
-      <input
-        checked={draft.quickBookProfile[option.key]}
-        className="size-5 shrink-0 accent-rose-700"
-        onChange={event => onConfigPatch({ quickBookProfile: { [option.key]: event.currentTarget.checked } })}
-        role="switch"
-        type="checkbox"
-      />
-    </label>
+  const renderOption = (option: typeof QUICK_BOOK_VISIBILITY_OPTIONS[number]) => (
+    <QuickBookVisibilitySwitch
+      checked={draft.quickBookProfile[option.key]}
+      key={option.key}
+      onConfigPatch={onConfigPatch}
+      option={option}
+    />
   );
-  const groups: Array<{ title: string; keys: QuickBookProfileVisibilityKey[] }> = [
-    { title: 'Business identity', keys: ['showTechName', 'showTechPhoto', 'showBio'] },
-    { title: 'Location', keys: ['showLocation'] },
-    { title: 'Contact', keys: ['showPhone', 'showEmail', 'showInstagram'] },
-    { title: 'Hours', keys: ['showHours'] },
-    { title: 'Other public content', keys: ['showBookingPolicy', 'showCancellationPolicy', 'showReviews'] },
-  ];
+  const groups = QUICK_BOOK_VISIBILITY_GROUPS;
 
   return (
     <section
@@ -133,10 +159,10 @@ export function QuickBookProfileVisibilityCard({
             <details className="py-2" key={group.title}>
               <summary className="min-h-11 cursor-pointer py-3 font-semibold">{group.title}</summary>
               {[...new Set(savedDetails?.[group.title] ?? [])].map(detail => <p className="mb-2 break-words text-sm text-stone-700" key={detail}>{detail}</p>)}
-              {VISIBILITY_OPTIONS.filter(option => group.keys.includes(option.key)).map(renderOption)}
+              {QUICK_BOOK_VISIBILITY_OPTIONS.filter(option => group.keys.includes(option.key)).map(renderOption)}
             </details>
           ))
-          : VISIBILITY_OPTIONS.map(renderOption)}
+          : QUICK_BOOK_VISIBILITY_OPTIONS.map(renderOption)}
       </fieldset>
     </section>
   );

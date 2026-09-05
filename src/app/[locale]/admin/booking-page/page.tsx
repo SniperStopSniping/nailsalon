@@ -24,6 +24,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { BookingPageAppearance } from '@/components/admin/BookingPageAppearance';
 import { BookingPageBuilder } from '@/components/admin/BookingPageBuilder';
+import { ADDRESS_PRIVACY_OPTIONS, BookingPageInformationEditor } from '@/components/admin/BookingPageInformationEditor';
 import {
   BookingPagePresetPicker,
   type BookingPagePresetPickerStatus,
@@ -69,10 +70,8 @@ const BUSINESS_MODE_OPTIONS: Array<{ id: BusinessMode; label: string; descriptio
   { id: 'team', label: 'Team', description: 'Multiple techs on your calendar.' },
 ];
 
-const LOCATION_DISPLAY_MODE_OPTIONS: Array<{ id: LocationDisplayMode; label: string }> = [
-  { id: 'full_address', label: 'Full address' },
-  { id: 'city_only', label: 'City only' },
-];
+/** The same three owner choices as onboarding and the Your Information editor. */
+const LOCATION_DISPLAY_MODE_OPTIONS: Array<{ id: LocationDisplayMode; label: string }> = ADDRESS_PRIVACY_OPTIONS.map(option => ({ id: option.value, label: option.label }));
 
 // =============================================================================
 // Fetch helpers
@@ -310,6 +309,12 @@ export default function BookingPageOwnerSurface() {
   const pendingOrdinaryWritesRef = useRef(new Set<Promise<boolean>>());
   const ordinaryWriteTailRef = useRef<Promise<void>>(Promise.resolve());
   const bookingPageRequestGenerationRef = useRef(0);
+  // Your Information forms save explicitly; the guided review asks them to
+  // flush before leaving so an unsaved edit is never silently dropped.
+  const informationFlushRef = useRef<(() => Promise<boolean>) | null>(null);
+  const registerInformationFlush = useCallback((flush: (() => Promise<boolean>) | null) => {
+    informationFlushRef.current = flush;
+  }, []);
   const contentEditGenerationRef = useRef(0);
   const contentEditGenerationByFieldRef = useRef<Record<EditableContentField, number>>({
     bio: 0,
@@ -586,7 +591,8 @@ export default function BookingPageOwnerSurface() {
         .map(field => [field, values[field].trim() || null]));
       await saveContentPatch(patch);
     }
-    if (!await settleOrdinaryWrites() || hasUnsavedContentTextEdits()) {
+    const informationSaved = informationFlushRef.current ? await informationFlushRef.current() : true;
+    if (!await settleOrdinaryWrites() || hasUnsavedContentTextEdits() || !informationSaved) {
       setActionMessage('Your changes could not be saved. Please retry before leaving this editor.');
       return;
     }
@@ -877,13 +883,7 @@ export default function BookingPageOwnerSurface() {
             <p className="mt-2 text-stone-600">Changes here save to your draft. Nothing goes live until you publish.</p>
             {reviewIndex >= 0 && (
               <p className="mt-2 text-sm font-semibold text-rose-800">
-                Guided review · Step
-                {reviewIndex + 1}
-                {' '}
-                of
-                {reviewPanels.length}
-                {' '}
-                · Your current saved setup
+                {`Guided review · Step ${reviewIndex + 1} of ${reviewPanels.length} · Your current saved setup`}
               </p>
             )}
           </div>
@@ -905,7 +905,8 @@ export default function BookingPageOwnerSurface() {
           </div>
         </div>
 
-        {salonPublicationStatus !== null && salonPublicationStatus !== 'published' && (
+        {/* The irreversible salon-level publish is offered outside the guided review or on its final step only — never from step 1 of a "review" that promises nothing is reset. */}
+        {salonPublicationStatus !== null && salonPublicationStatus !== 'published' && (reviewIndex < 0 || panel === 'publish') && (
           <SalonPublishBanner status={salonPublishStatus} onPublish={() => void handlePublishSalon()} />
         )}
 
@@ -966,24 +967,30 @@ export default function BookingPageOwnerSurface() {
             </SectionCard>
           )}
 
-          {show('information') && (
+          {!panel && (
             <QuickBookProfileVisibilityCard
-              savedDetails={savedDetails}
-              grouped={panel === 'information'}
               disabled={presentationPending}
               draft={draft}
               onConfigPatch={patch => void saveConfigPatch(patch)}
             />
           )}
 
-          {(panel === 'layouts' || panel === 'appearance') && <BookingPageAppearance disabled={presentationPending} draft={draft} mode={panel} onChange={patch => void saveConfigPatch(patch)} />}
-
-          {panel === 'information' && (
-            <SectionCard title="Edit saved business information" description="Visibility above changes your website draft. Business settings below use the existing shared editors and may affect live bookings immediately.">
-              <a className="inline-flex min-h-11 items-center rounded-xl border border-stone-300 px-4" href={`/${locale}/admin?salon=${encodeURIComponent(salonSlug)}&app=settings&view=location`}>Edit saved address & parking details</a>
-              <a className="mt-3 flex min-h-11 items-center rounded-xl border border-stone-300 px-4" href={`/${locale}/admin?salon=${encodeURIComponent(salonSlug)}&app=settings`}>Open business settings</a>
-            </SectionCard>
+          {panel === 'information' && salonSlug && (
+            <BookingPageInformationEditor
+              addressPrivacy={content.draft.locationDisplayMode}
+              disabled={presentationPending}
+              draft={draft}
+              liveAddressPrivacy={content.live.locationDisplayMode}
+              locale={locale}
+              onAddressPrivacyChange={mode => void saveContentPatch({ locationDisplayMode: mode })}
+              onConfigPatch={patch => void saveConfigPatch(patch)}
+              registerFlush={registerInformationFlush}
+              salonSlug={salonSlug}
+              savedDetails={savedDetails}
+            />
           )}
+
+          {(panel === 'layouts' || panel === 'appearance') && <BookingPageAppearance disabled={presentationPending} draft={draft} mode={panel} onChange={patch => void saveConfigPatch(patch)} />}
 
           {panel === 'policies' && (
             <>
@@ -1133,7 +1140,7 @@ export default function BookingPageOwnerSurface() {
                 {!panel && (
                   <div>
                     <span className="text-sm font-medium text-stone-800">Location shown as</span>
-                    <div className="mt-1 grid grid-cols-2 gap-2">
+                    <div className="mt-1 grid grid-cols-1 gap-2 sm:grid-cols-3">
                       {LOCATION_DISPLAY_MODE_OPTIONS.map(option => (
                         <button
                           key={option.id}
@@ -1152,10 +1159,13 @@ export default function BookingPageOwnerSurface() {
                         </button>
                       ))}
                     </div>
-                    {content.draft.locationDisplayMode === 'city_only' && (
+                    {content.draft.locationDisplayMode !== 'full_address' && (
                       <p data-testid="location-display-mode-city-only-warning" className="mt-2 text-xs text-stone-500">
-                        "City only" hides your street address, postal code, and phone number. Your location's name is
-                        still shown — avoid putting an address in the location name if you're keeping it private.
+                        {content.draft.locationDisplayMode === 'after_booking'
+                          ? 'While browsing, clients see only your city. Your street address, postal code and phone appear on their private appointment link once a booking is confirmed.'
+                          : '"Show only my city" hides your street address, postal code, and phone number.'}
+                        {' '}
+                        Your location's name is still shown — avoid putting an address in the location name if you're keeping it private.
                       </p>
                     )}
                   </div>

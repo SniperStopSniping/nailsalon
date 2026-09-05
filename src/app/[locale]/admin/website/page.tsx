@@ -49,7 +49,7 @@ export default async function WebsiteHubPage({ params, searchParams }: {
       hasDraftChanges={JSON.stringify(config.draft) !== JSON.stringify(config.live) || JSON.stringify(content.draft) !== JSON.stringify(content.live)}
       locale={locale}
       published={salon.publicationStatus === 'published'}
-      publicUrl={buildSalonTenantPublicUrl('/', { slug: salon.slug, customDomain: salon.customDomain })}
+      publicUrl={buildSalonTenantPublicUrl('/', { slug: salon.slug, customDomain: salon.customDomain }, locale)}
       salonName={salon.name}
       salonSlug={salon.slug}
       setupUrl={handoff?.site.setupAvailable ? handoff.site.setupUrl : null}
