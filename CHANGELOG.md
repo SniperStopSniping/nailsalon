@@ -1,3 +1,13 @@
+## [1.84.5](https://github.com/SniperStopSniping/nailsalon/compare/v1.84.4...v1.84.5) (2026-09-05)
+
+
+### Bug Fixes
+
+* **auth:** preserve server-verified legacy owner access ([83e591d](https://github.com/SniperStopSniping/nailsalon/commit/83e591dd5afff546021fe5aff058443f84556819))
+* **auth:** stabilize Safari owner dashboard sessions ([01fba2a](https://github.com/SniperStopSniping/nailsalon/commit/01fba2a0437d67df4a7d852808b8e370dc1c8b68))
+* **onboarding:** preserve returning-owner setup and mobile previews ([7f70ac2](https://github.com/SniperStopSniping/nailsalon/commit/7f70ac2ccfa7dacf3c51fecdb7de372ac9f7f541))
+* **onboarding:** retain recovery until dashboard confirms handoff ([13e47eb](https://github.com/SniperStopSniping/nailsalon/commit/13e47eb22393cd59a37e99bb770deeabad0ca794))
+
 ## [1.84.4](https://github.com/SniperStopSniping/nailsalon/compare/v1.84.3...v1.84.4) (2026-09-04)
 
 

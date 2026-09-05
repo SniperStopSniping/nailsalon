@@ -1,6 +1,6 @@
 {
   "name": "luster-booking-platform",
-  "version": "1.84.4",
+  "version": "1.84.5",
   "scripts": {
     "dev:spotlight": "spotlight-sidecar",
     "dev:next": "next dev",
