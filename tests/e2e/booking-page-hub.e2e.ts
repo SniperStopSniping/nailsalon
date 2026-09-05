@@ -6,7 +6,7 @@ import { appPath, authStatePaths, e2eConfig } from './support/config';
 test.use({ storageState: authStatePaths.superAdmin });
 
 for (const viewport of [{ width: 320, height: 568 }, { width: 375, height: 667 }, { width: 390, height: 844 }, { width: 430, height: 932 }]) {
-  test(`Booking Page hub opens focused editors at ${viewport.width}px`, async ({ page }) => {
+  test(`Booking Page hub opens focused editors at ${viewport.width}px @owner-preview-webkit`, async ({ page }) => {
     await page.setViewportSize(viewport);
     await impersonateSalonAsSuperAdmin(page);
     const hubUrl = `${appPath('/admin/website')}?salon=${encodeURIComponent(e2eConfig.salonSlug)}`;
