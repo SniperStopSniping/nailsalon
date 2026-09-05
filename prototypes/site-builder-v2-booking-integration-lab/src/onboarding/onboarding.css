@@ -2987,7 +2987,7 @@ body:has(.onboarding-app) {
   top: 0;
   left: 50%;
   width: var(--preview-target-width);
-  height: var(--preview-target-height);
+  height: var(--preview-frame-height, var(--preview-target-height));
   overflow: auto;
   border: 7px solid #302b2c;
   border-radius: 28px;
@@ -3022,7 +3022,7 @@ body:has(.onboarding-app) {
   top: 0;
   left: 50%;
   width: var(--preview-target-width);
-  height: var(--preview-target-height);
+  height: var(--preview-frame-height, var(--preview-target-height));
   overflow: hidden;
   border-radius: 28px;
   pointer-events: none;

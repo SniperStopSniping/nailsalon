@@ -345,11 +345,18 @@ class BlobStructuredCloneError extends Error {
   }
 }
 
-const isDataCloneError = (error: unknown): boolean =>
-  isObjectRecord(error) && error.name === 'DataCloneError';
+const isBlobSerializationError = (error: unknown): boolean =>
+  isObjectRecord(error)
+  && (error.name === 'DataCloneError'
+    // WebKit can fail asynchronously while preparing a Blob for IndexedDB,
+    // reporting UnknownError rather than the structured-clone error above.
+    // Do not retry unrelated UnknownErrors, quota failures, or permission errors.
+    || (error.name === 'UnknownError'
+      && typeof error.message === 'string'
+      && error.message.includes('Error preparing Blob/File data to be stored in object store')));
 
 const asBlobCloneError = (error: unknown): BlobStructuredCloneError | null =>
-  isDataCloneError(error) ? new BlobStructuredCloneError(error) : null;
+  isBlobSerializationError(error) ? new BlobStructuredCloneError(error) : null;
 
 const stageRecords = (
   database: IDBDatabase,

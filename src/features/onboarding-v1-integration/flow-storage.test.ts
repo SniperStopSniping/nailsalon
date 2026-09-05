@@ -10,6 +10,7 @@ import {
   canResumeVerifiedOnboardingSetup,
   clearOnboardingIntegrationBrowserState,
   clearOnboardingIntegrationFlow,
+  completeOnboardingDashboardHandoff,
   createOnboardingIntegrationFlow,
   loadOnboardingIntegrationFlow,
   loadOnboardingIntegrationRecoveryRecord,
@@ -45,6 +46,68 @@ describe('onboarding account-flow persistence', () => {
   beforeEach(() => {
     window.localStorage.clear();
     window.sessionStorage.clear();
+  });
+
+  it('retires only the exact account-backed plan flow confirmed by the dashboard', () => {
+    saveOnboardingIntegrationFlow({
+      ...createOnboardingIntegrationFlow(),
+      phase: 'plans',
+      savedSite,
+      savedSiteOwnerId: 'owner_1',
+    });
+
+    expect(completeOnboardingDashboardHandoff({
+      ownerId: 'owner_1',
+      planIntent: 'free',
+      revision: savedSite.revision,
+      salonSlug: savedSite.salonSlug,
+      siteId: savedSite.siteId,
+    })).toBe(true);
+    expect(window.localStorage.getItem(ONBOARDING_INTEGRATION_FLOW_STORAGE_KEY)).toBeNull();
+  });
+
+  it.each([
+    { ownerId: 'another_owner' },
+    { salonSlug: 'another_salon' },
+    { siteId: 'another_site' },
+    { revision: savedSite.revision + 1 },
+    { planIntent: 'founding_interest' as const },
+  ])('keeps a flow when the dashboard does not match it: %j', (overrides) => {
+    const flow = {
+      ...createOnboardingIntegrationFlow(),
+      phase: 'plans' as const,
+      savedSite,
+      savedSiteOwnerId: 'owner_1',
+    };
+    saveOnboardingIntegrationFlow(flow);
+
+    expect(completeOnboardingDashboardHandoff({
+      ownerId: 'owner_1',
+      planIntent: 'free',
+      revision: savedSite.revision,
+      salonSlug: savedSite.salonSlug,
+      siteId: savedSite.siteId,
+      ...overrides,
+    })).toBe(false);
+    expect(loadOnboardingIntegrationFlow()).toEqual(flow);
+  });
+
+  it('does not let an old dashboard tab clear a new or actively edited draft', () => {
+    const flow = {
+      ...createOnboardingIntegrationFlow(),
+      savedSite,
+      savedSiteOwnerId: 'owner_1',
+    };
+    saveOnboardingIntegrationFlow(flow);
+
+    expect(completeOnboardingDashboardHandoff({
+      ownerId: 'owner_1',
+      planIntent: 'free',
+      revision: savedSite.revision,
+      salonSlug: savedSite.salonSlug,
+      siteId: savedSite.siteId,
+    })).toBe(false);
+    expect(loadOnboardingIntegrationFlow()).toEqual(flow);
   });
 
   it('preserves an interrupted save for reload recovery with the same idempotency key', () => {
@@ -126,6 +189,11 @@ describe('onboarding account-flow persistence', () => {
       reauthResumePhase: 'saved',
       savedSite,
     })).toBe('plans');
+    expect(phaseAfterOnboardingReauthentication({
+      celebrationSeen: true,
+      reauthResumePhase: 'saved',
+      savedSite,
+    }, { earlySave: true })).toBe('saved');
     expect(phaseAfterOnboardingReauthentication({
       celebrationSeen: false,
       reauthResumePhase: 'saving',

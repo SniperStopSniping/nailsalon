@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { assertLocalAcceptanceEnvironment, runCleanupIsConfirmed, runScopedEmail, runScopedPostgresName } from './safety';
+import { assertLocalAcceptanceEnvironment, localAcceptanceBaseURL, runCleanupIsConfirmed, runScopedEmail, runScopedPostgresName } from './safety';
 
 const safe = {
   APP_ENV: 'development',
@@ -18,6 +18,14 @@ const safe = {
 
 test('accepts only an explicitly disposable loopback/test-provider scope', () => {
   assert.equal(assertLocalAcceptanceEnvironment(safe).baseURL, 'http://localhost:4211');
+});
+
+test('dedicated acceptance port can avoid an existing local server without allowing remote targets', () => {
+  assert.equal(localAcceptanceBaseURL(), 'http://localhost:4211');
+  assert.equal(localAcceptanceBaseURL('4212'), 'http://localhost:4212');
+  for (const value of ['', '443', '4201', 'https://islanailsalon.com', '4212/path']) {
+    assert.throws(() => localAcceptanceBaseURL(value));
+  }
 });
 
 test('rejects remote targets, provider leaks, live keys, and repository storage', () => {

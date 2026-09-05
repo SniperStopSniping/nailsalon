@@ -3,6 +3,13 @@ import path from 'node:path';
 
 type AcceptanceEnvironment = Record<string, string | undefined>;
 
+export function localAcceptanceBaseURL(port = '4211'): string {
+  if (!['4211', '4212'].includes(port)) {
+    throw new Error('Choose the dedicated loopback acceptance port 4211 or 4212.');
+  }
+  return `http://localhost:${port}`;
+}
+
 const FORBIDDEN_PROVIDER_KEYS = [
   'RESEND_API_KEY',
   'TWILIO_ACCOUNT_SID',

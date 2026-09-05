@@ -88,7 +88,9 @@ export function HoursScreen({
               <div className="onboarding-hours-card__content">
                 <NativeSwitch
                   checked={complete && profile.hours.showOnSite}
-                  description="Clients can see your regular business hours and whether you're currently open or closed."
+                  description={complete
+                    ? 'Clients can see your regular business hours and whether you\'re currently open or closed.'
+                    : 'Apply your regular hours below to show them on your site.'}
                   disabled={!complete}
                   label="Show business hours to clients"
                   onChange={showOnSite => onProfileChange({

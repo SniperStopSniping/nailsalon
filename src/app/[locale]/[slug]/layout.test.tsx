@@ -65,6 +65,7 @@ const cookieJar = vi.hoisted(() => new Map<string, { value: string }>());
 vi.mock('next/headers', () => ({
   cookies: async () => ({
     get: (name: string) => cookieJar.get(name),
+    getAll: () => [...cookieJar].map(([name, cookie]) => ({ name, value: cookie.value })),
     set: (name: string, value: string) => {
       cookieJar.set(name, { value });
     },

@@ -10,7 +10,7 @@
  * - iOS spring physics and animations
  */
 
-import { useClerk } from '@clerk/nextjs';
+import { useAuth, useClerk } from '@clerk/nextjs';
 import { Bell, Building2, LogOut, Sparkles } from 'lucide-react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -291,6 +291,7 @@ function mapAnalyticsModuleStatus(
 function AdminDashboardContent() {
   const { onboardingV1IntegrationEnabled } = useOwnerAdminFeatureFlags();
   const clerk = useClerk();
+  const { getToken, isLoaded: clerkLoaded, isSignedIn, sessionId } = useAuth();
   const router = useRouter();
   const params = useParams();
   const searchParams = useSearchParams();
@@ -301,6 +302,8 @@ function AdminDashboardContent() {
   // Admin auth state
   const [adminUser, setAdminUser] = useState<AdminUser | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
+  const [authError, setAuthError] = useState<string | null>(null);
+  const [authAttempt, setAuthAttempt] = useState(0);
   const [showSalonSelector, setShowSalonSelector] = useState(false);
 
   // Dashboard data state
@@ -425,8 +428,8 @@ function AdminDashboardContent() {
   // Notification count (in production, this would come from API)
   const notificationCount = data.badges.alerts + data.badges.reviews;
 
-  // Track if we've already synced to prevent infinite loops
-  const [hasSynced, setHasSynced] = useState(false);
+  // Sync each selected salon/session without retriggering the auth request.
+  const syncedSalonSessionRef = useRef<string | null>(null);
 
   // Performance period controls (API-driven)
   const [timePeriod, setTimePeriod] = useState<TimePeriod>('Weekly');
@@ -458,14 +461,55 @@ function AdminDashboardContent() {
 
   // Check admin auth on mount and sync salon cookie
   useEffect(() => {
+    let cancelled = false;
+    let serverAuthenticated = false;
+    setAuthLoading(true);
+    setAuthError(null);
+    setAdminUser(null);
+
+    function handleAuthFailure() {
+      if (cancelled || !clerkLoaded) {
+        return;
+      }
+      if (isSignedIn) {
+        // Redirecting an already signed-in owner back to sign-in can bounce
+        // straight here again. Keep a bounded retry instead of a redirect loop.
+        setAuthError('We couldn’t connect to your account yet. Try again, or sign out and sign back in.');
+      } else {
+        router.replace(`/${locale}/admin-login`);
+      }
+    }
+
     async function checkAuth() {
       try {
+        // After signup, Safari can reach this page before Clerk's session cookie
+        // has refreshed. Prepare the current session before the cookie-only API
+        // check. A successful server check also permits legacy/impersonation
+        // sessions even when Clerk's browser SDK has not loaded. An early 401
+        // waits for Clerk readiness instead of redirecting a signing-in owner.
+        if (clerkLoaded && isSignedIn) {
+          const token = await getToken({ skipCache: true });
+          if (cancelled) {
+            return;
+          }
+          if (!token) {
+            handleAuthFailure();
+            return;
+          }
+        }
         const adminMeUrl = requestedSalonSlug
           ? `/api/admin/auth/me?salonSlug=${encodeURIComponent(requestedSalonSlug)}`
           : '/api/admin/auth/me';
         const response = await fetch(adminMeUrl);
+        if (cancelled) {
+          return;
+        }
         if (response.ok) {
           const data = await response.json();
+          if (cancelled) {
+            return;
+          }
+          serverAuthenticated = true;
           setAdminUser(data.user);
 
           if (data.user.impersonation?.isActive) {
@@ -488,14 +532,14 @@ function AdminDashboardContent() {
             setShowSalonSelector(true);
           }
 
-          // Sync cookie with query param if different from current salon (only once).
+          // Sync cookie with the query param once per selected salon/session.
           // Do not hard reload; the dashboard can already render against the requested slug.
+          const salonSessionKey = `${sessionId ?? 'legacy'}:${requestedSalonSlug}`;
           if (
             !data.user.impersonation?.isActive
             && requestedSalonSlug
-            && !hasSynced
+            && syncedSalonSessionRef.current !== salonSessionKey
           ) {
-            setHasSynced(true);
             const syncResponse = await fetch(
               '/api/admin/auth/set-active-salon',
               {
@@ -504,29 +548,40 @@ function AdminDashboardContent() {
                 body: JSON.stringify({ salonSlug: requestedSalonSlug }),
               },
             );
+            if (cancelled) {
+              return;
+            }
             if (!syncResponse.ok) {
               const syncError = await syncResponse.json().catch(() => ({}));
+              if (cancelled) {
+                return;
+              }
               setNonBlockingMessage(
                 syncError.error
                 || 'The selected salon could not be synced yet for admin actions.',
               );
             } else {
+              syncedSalonSessionRef.current = salonSessionKey;
               router.refresh();
             }
           }
         } else {
-          // Not authenticated - redirect to login immediately
-          router.replace(`/${locale}/admin-login`);
+          handleAuthFailure();
         }
       } catch {
-        router.replace(`/${locale}/admin-login`);
+        handleAuthFailure();
         return;
       } finally {
-        setAuthLoading(false);
+        if (!cancelled && (clerkLoaded || serverAuthenticated)) {
+          setAuthLoading(false);
+        }
       }
     }
     checkAuth();
-  }, [router, locale, requestedSalonSlug, hasSynced]);
+    return () => {
+      cancelled = true;
+    };
+  }, [authAttempt, clerkLoaded, getToken, isSignedIn, router, locale, requestedSalonSlug, sessionId]);
 
   // Handle logout
   const handleLogout = async () => {
@@ -1324,6 +1379,33 @@ function AdminDashboardContent() {
       <div className="flex min-h-screen items-center justify-center bg-[#F2F2F7]">
         <div className="size-8 animate-spin rounded-full border-2 border-gray-300 border-t-gray-600" />
       </div>
+    );
+  }
+
+  if (authError) {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-[#F2F2F7] p-5">
+        <section className="w-full max-w-md rounded-2xl bg-white p-6 shadow-sm">
+          <h1 className="text-xl font-semibold text-gray-900">Let’s reconnect your account</h1>
+          <p role="alert" className="mt-3 text-gray-600">{authError}</p>
+          <div className="mt-6 flex flex-wrap gap-3">
+            <button
+              className="min-h-11 rounded-xl bg-gray-900 px-5 py-3 font-medium text-white"
+              onClick={() => setAuthAttempt(attempt => attempt + 1)}
+              type="button"
+            >
+              Try again
+            </button>
+            <button
+              className="min-h-11 rounded-xl border border-gray-300 px-5 py-3 font-medium text-gray-700"
+              onClick={handleLogout}
+              type="button"
+            >
+              Sign out
+            </button>
+          </div>
+        </section>
+      </main>
     );
   }
 

@@ -560,7 +560,9 @@ describe('OnboardingSitePreview shared profile composition', () => {
     const booking = within(preview).getByRole('region', { name: 'Booking' });
 
     expect(within(booking).getByRole('heading', { level: 2, name: 'Book an appointment' })).toBeVisible();
-    expect(within(booking).getByRole('heading', { level: 3, name: 'Services & Booking' })).toBeVisible();
+    expect(within(booking).queryByRole('heading', { name: 'Services & Booking' })).not.toBeInTheDocument();
+    expect(within(booking).queryByText('Find your next polished look.')).not.toBeInTheDocument();
+    expect(within(booking).getAllByText('Choose a service to see its details, options, price and duration.')).toHaveLength(1);
     expect(within(booking).queryByText('Cedar Tips')).not.toBeInTheDocument();
     expect(within(booking).queryByText('Ottawa, Ontario')).not.toBeInTheDocument();
     expect(within(booking).queryByText('Isla Nail Studio')).not.toBeInTheDocument();
@@ -2063,6 +2065,45 @@ describe('OnboardingSitePreview shared profile composition', () => {
       'data-preview-scale',
       originalPhoneScale.toFixed(4),
     ));
+  });
+
+  it.each([
+    { height: 132, width: 290 },
+    { height: 352, width: 356 },
+  ])('fits a scrollable reward frame into $width × $height without shrinking its text', async (available) => {
+    render(
+      <OnboardingSitePreview
+        document={initializeStarter('quick_book')}
+        fitAvailable
+        interactionMode="scrollable"
+        label="Scrollable reward"
+        state={createDanielaFixtureState()}
+      />,
+    );
+    const stage = screen.getByRole('region', { name: 'Scrollable reward' });
+    const measurementHost = stage.querySelector<HTMLElement>('[data-preview-measurement-host="true"]')!;
+    measurementHost.getBoundingClientRect = () => ({
+      bottom: available.height,
+      height: available.height,
+      left: 0,
+      right: available.width,
+      top: 0,
+      width: available.width,
+      x: 0,
+      y: 0,
+      toJSON: () => ({}),
+    });
+
+    act(() => window.dispatchEvent(new Event('resize')));
+
+    await waitFor(() => {
+      const scale = Number(stage.style.getPropertyValue('--preview-scale'));
+      const frameHeight = Number.parseFloat(stage.style.getPropertyValue('--preview-frame-height'));
+
+      expect(scale).toBeCloseTo(available.width / ONBOARDING_PREVIEW_VIEWPORTS.phone.width);
+      expect(frameHeight * scale).toBeCloseTo(available.height);
+      expect(scale).toBeGreaterThan(0.7);
+    });
   });
 
   it('positions and resets the internal preview frame without moving the outer page', () => {

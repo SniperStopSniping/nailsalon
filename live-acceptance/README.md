@@ -26,7 +26,10 @@ LIVE_RUNTIME_DIR=/absolute/printed/luster-live-acceptance-directory \
   node --import tsx live-acceptance/run-local.ts test
 ```
 
-The fixed target is `http://localhost:4211`. Each test run generates a new
+The default target is `http://localhost:4211`. If that port already serves another
+review, pass `LIVE_LOCAL_PORT=4212` to both server and test commands. Only these
+two dedicated loopback ports are accepted. Add `LIVE_HEADED=true` to the test
+command to watch the real browser journey. Each test run generates a new
 `acceptance-<UUID>` identity. Clerk's official testing token and `+clerk_test`
 address use the test verification code without sending verification email.
 Passwords are generated in memory. Auth traces are disabled because they can

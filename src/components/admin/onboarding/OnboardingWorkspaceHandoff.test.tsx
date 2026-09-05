@@ -1,16 +1,13 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+import { createOnboardingIntegrationFlow, loadOnboardingIntegrationFlow, saveOnboardingIntegrationFlow } from '@/features/onboarding-v1-integration/flow-storage';
 
 import { OnboardingWorkspaceHandoff } from './OnboardingWorkspaceHandoff';
 
+vi.mock('@clerk/nextjs', () => ({ useAuth: () => ({ userId: 'owner_1' }) }));
+
 const fetchMock = vi.fn();
-const resume = vi.hoisted(() => ({ allowed: true }));
-
-vi.mock('@/features/onboarding-v1-integration/flow-storage', () => ({
-  authorizeVerifiedOnboardingSetupResume: () => true,
-  canResumeVerifiedOnboardingSetup: () => resume.allowed,
-}));
-
 const handoff = {
   handoff: { planIntent: 'free', showWelcome: true, tourCompleted: false },
   setup: {
@@ -31,12 +28,47 @@ const handoff = {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  resume.allowed = true;
   window.localStorage.clear();
+  window.history.replaceState({}, '', '/en/admin');
   vi.stubGlobal('fetch', fetchMock);
 });
 
 describe('OnboardingWorkspaceHandoff', () => {
+  it.each([
+    { focusWelcome: true, retired: true, targetSite: 'site_1' },
+    { focusWelcome: false, retired: false, targetSite: 'site_1' },
+    { focusWelcome: true, retired: false, targetSite: 'another_site' },
+  ])('retires a matching plan only after its explicit dashboard handoff (%j)', async ({ focusWelcome, retired, targetSite }) => {
+    window.history.replaceState({}, '', `/en/admin?onboarding=complete&site=${targetSite}`);
+    const flow = {
+      ...createOnboardingIntegrationFlow(),
+      phase: 'plans' as const,
+      savedSite: {
+        claimId: 'claim_1',
+        created: true,
+        dashboardUrl: '/en/admin',
+        media: { failed: 0, pending: 0, ready: 0 },
+        ownerCreatedServiceIds: [],
+        payloadFingerprint: '0123456789abcdef',
+        revision: handoff.site.revision,
+        revisionId: 'revision_1',
+        salonId: 'salon_1',
+        salonSlug: 'isla',
+        serviceMappingIssues: [],
+        serviceMenuApplied: true,
+        siteId: handoff.site.id,
+      },
+      savedSiteOwnerId: 'owner_1',
+    };
+    saveOnboardingIntegrationFlow(flow);
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ data: handoff }), { status: 200 }));
+
+    render(<OnboardingWorkspaceHandoff focusWelcome={focusWelcome} locale="en" onTakeTour={vi.fn()} salonSlug="isla" />);
+    await screen.findByRole('link', { name: /Preview website/i });
+
+    expect(loadOnboardingIntegrationFlow().savedSite).toEqual(retired ? null : flow.savedSite);
+  });
+
   it('shows account-backed actions and derives checklist copy from returned statuses', async () => {
     fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ data: handoff }), { status: 200 }));
     const onTakeTour = vi.fn();
@@ -93,8 +125,7 @@ describe('OnboardingWorkspaceHandoff', () => {
     expect(onTakeTour).toHaveBeenCalledTimes(1);
   });
 
-  it('keeps real Booking Page management available while omitting the unsafe setup fallback', async () => {
-    resume.allowed = false;
+  it('opens server-backed setup on a new device with no local recovery record', async () => {
     fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({
       data: {
         ...handoff,
@@ -111,7 +142,7 @@ describe('OnboardingWorkspaceHandoff', () => {
     );
 
     expect(await screen.findByRole('link', { name: /Preview website/i })).toBeInTheDocument();
-    expect(screen.queryByRole('link', { name: /Change website setup/i })).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /Change website setup/i })).toHaveAttribute('href', handoff.site.setupUrl);
 
     const bookingPageLinks = screen.getAllByRole('link', {
       name: /Manage & publish Booking Page/i,
@@ -123,7 +154,39 @@ describe('OnboardingWorkspaceHandoff', () => {
       expect(link).toHaveAttribute('href', '/en/admin/booking-page?salon=isla');
     });
 
-    expect(screen.queryByRole('link', { name: /Booking page ready/i })).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /Booking page ready/i })).toHaveAttribute('href', handoff.site.setupUrl);
+  });
+
+  it('omits setup changes when the server says the saved site cannot be edited', async () => {
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({
+      data: { ...handoff, site: { ...handoff.site, setupAvailable: false } },
+    }), { status: 200 }));
+    render(<OnboardingWorkspaceHandoff locale="en" onTakeTour={vi.fn()} salonSlug="isla" />);
+
+    await screen.findByRole('link', { name: /Preview website/i });
+
+    expect(screen.queryByRole('link', { name: /Change website setup/i })).not.toBeInTheDocument();
+  });
+
+  it('hides the previous salon while the newly selected salon is loading', async () => {
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ data: handoff }), { status: 200 }));
+    let completeNext!: (response: Response) => void;
+    fetchMock.mockImplementationOnce(() => new Promise((resolve) => {
+      completeNext = resolve;
+    }));
+    const onTakeTour = vi.fn();
+    const { rerender } = render(<OnboardingWorkspaceHandoff locale="en" onTakeTour={onTakeTour} salonSlug="isla" />);
+
+    await screen.findByRole('link', { name: /Preview website/i });
+    rerender(<OnboardingWorkspaceHandoff locale="en" onTakeTour={onTakeTour} salonSlug="another-studio" />);
+
+    expect(screen.queryByRole('link', { name: /Preview website/i })).not.toBeInTheDocument();
+
+    await act(async () => completeNext(new Response(JSON.stringify({
+      data: { ...handoff, site: { ...handoff.site, id: 'site_2', previewUrl: '/en/admin/website/preview/site_2' } },
+    }), { status: 200 })));
+
+    expect(await screen.findByRole('link', { name: /Preview website/i })).toHaveAttribute('href', '/en/admin/website/preview/site_2');
   });
 
   it('shows paid interest only from the persisted handoff intent', async () => {

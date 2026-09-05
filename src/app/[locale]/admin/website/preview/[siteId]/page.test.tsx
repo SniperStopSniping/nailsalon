@@ -51,7 +51,10 @@ const siteId = '22222222-2222-4222-8222-222222222222';
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.enabled.mockReturnValue(true);
-  mocks.getAdmin.mockResolvedValue({ id: 'admin-1' });
+  mocks.getAdmin.mockResolvedValue({
+    id: 'admin-1',
+    salons: [{ role: 'owner', salonId: 'salon-1' }],
+  });
   mocks.compileParse.mockReturnValue({ data: { compiled: true }, success: true });
   mocks.snapshotParse.mockReturnValue({ data: { snapshot: true }, success: true });
   mocks.mediaRecords.mockReturnValue([{
@@ -88,8 +91,10 @@ beforeEach(() => {
     revision: { document: {}, revision: 4, snapshot: {} },
     site: {
       id: siteId,
+      salonId: 'salon-1',
       salonPublicationStatus: 'draft',
       salonSlug: 'isla-nails',
+      status: 'draft',
     },
   });
 });
@@ -134,6 +139,39 @@ describe('saved website Preview route', () => {
       embedded: true,
       showAuditRevision: true,
     });
+  });
+
+  it.each([
+    [{ role: 'admin', salonId: 'salon-1' }],
+    [{ role: 'owner', salonId: 'another-salon' }],
+  ])('keeps Preview accessible without advertising owner-only setup (%j)', async (membership) => {
+    mocks.getAdmin.mockResolvedValue({ id: 'admin-1', salons: [membership] });
+
+    const element = await SavedWebsitePreviewPage({
+      params: Promise.resolve({ locale: 'en', siteId }),
+      searchParams: Promise.resolve({}),
+    });
+
+    expect(element.props.setupAvailable).toBe(false);
+  });
+
+  it.each([
+    ['draft', 'published'],
+    ['published', 'draft'],
+    ['draft', 'superseded'],
+  ])('only offers setup for a draft salon and draft site (%s / %s)', async (salonPublicationStatus, status) => {
+    const claimed = await mocks.getClaimed();
+    mocks.getClaimed.mockResolvedValue({
+      ...claimed,
+      site: { ...claimed.site, salonPublicationStatus, status },
+    });
+
+    const element = await SavedWebsitePreviewPage({
+      params: Promise.resolve({ locale: 'en', siteId }),
+      searchParams: Promise.resolve({}),
+    });
+
+    expect(element.props.setupAvailable).toBe(false);
   });
 
   it('fails closed when the site is outside the signed-in membership', async () => {

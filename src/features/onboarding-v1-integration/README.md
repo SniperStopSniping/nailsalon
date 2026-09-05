@@ -75,6 +75,17 @@ logical media IDs. Existing server media is read through a tenant-authorized
 adapter while new edits continue to use the writable IndexedDB repository.
 Published sites and stale revisions fail closed.
 
+The setup action is available on any signed-in device when the server permits
+editing; it does not require the original browser's recovery record. After
+hydrating that authorized revision, the client verifies its current claim and
+retains the same site as the continuation target. If another session has saved
+a newer revision in the meantime, setup asks the owner to reopen the latest
+version instead of saving stale content. Reloading the early account-save
+celebration continues the remaining setup screens before plan selection.
+After plan acceptance, the local saved-site flow stays retryable until the
+dashboard confirms the same owner, salon, site revision and plan. Interrupted
+navigation therefore resumes the same plan handoff instead of restarting setup.
+
 ## Style isolation
 
 Customer style and palette values are scoped to the site renderer. Account,

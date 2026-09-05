@@ -1655,6 +1655,7 @@ function BookingSection({
         presentationSettings={placementAwareBookingSettings}
         previewViewport={device === 'phone' ? 'mobile' : device}
         session={effectiveSession}
+        showIntroduction={!quickBook}
         showSalonIdentity={false}
         summaryHost={summaryHost}
         tokenPreset="warm"
@@ -1782,6 +1783,7 @@ export function OnboardingSitePreview({
   const [heroActionVisible, setHeroActionVisible] = useState(true);
   const [overlayHost, setOverlayHost] = useState<HTMLDivElement | null>(null);
   const [previewScale, setPreviewScale] = useState(1);
+  const [previewHeight, setPreviewHeight] = useState(viewport.height);
   const { profile, recipe } = state;
   const roles = ONBOARDING_STYLE_ROLES[recipe.stylePreset];
   const palette = SITE_PALETTE_BY_ID[recipe.palettePreset];
@@ -2048,12 +2050,23 @@ export function OnboardingSitePreview({
     const updateScale = () => {
       measurementFrame = null;
       const bounds = measurementHost.getBoundingClientRect();
-      const nextScale = calculateOnboardingPreviewScale({
+      const available = {
         height: bounds.height || measurementHost.clientHeight || viewport.height,
         width: bounds.width || measurementHost.clientWidth || viewport.width,
-      }, viewport);
+      };
+      const scrollsAvailableHeight = fitAvailable && interactionMode === 'scrollable';
+      // A short reward viewport should show less of a readable customer site,
+      // while its real scroll boundary still reaches the visible bottom edge.
+      const nextScale = calculateOnboardingPreviewScale(
+        scrollsAvailableHeight ? { ...available, height: viewport.height } : available,
+        viewport,
+      );
+      const nextHeight = scrollsAvailableHeight ? available.height / nextScale : viewport.height;
       setPreviewScale(current => (
         Math.abs(current - nextScale) < 0.0001 ? current : nextScale
+      ));
+      setPreviewHeight(current => (
+        Math.abs(current - nextHeight) < 0.1 ? current : nextHeight
       ));
     };
     const scheduleScaleUpdate = () => {
@@ -2080,7 +2093,7 @@ export function OnboardingSitePreview({
       window.removeEventListener('orientationchange', scheduleScaleUpdate);
       visualViewport?.removeEventListener('resize', scheduleScaleUpdate);
     };
-  }, [fitAvailable, viewport]);
+  }, [fitAvailable, interactionMode, viewport]);
 
   useLayoutEffect(() => {
     if (frameRef.current) {
@@ -2104,7 +2117,8 @@ export function OnboardingSitePreview({
 
   const stageStyle = {
     '--preview-scale': String(previewScale),
-    '--preview-stage-height': `${Math.round(viewport.height * previewScale)}px`,
+    '--preview-stage-height': `${Math.round(previewHeight * previewScale)}px`,
+    '--preview-frame-height': `${previewHeight}px`,
     '--preview-target-height': `${viewport.height}px`,
     '--preview-target-width': `${viewport.width}px`,
   } as CSSProperties;

@@ -58,8 +58,8 @@ describe('middleware — public Onboarding V1', () => {
     },
   );
 
-  it('establishes Clerk context when an owner session already exists', async () => {
-    await middleware(request('/onboarding-v1', { __session: 'opaque-clerk-session' }), event);
+  it.each(['__session', '__session_XxiNjKcO'])('establishes Clerk context for an existing %s owner session', async (cookieName) => {
+    await middleware(request('/onboarding-v1', { [cookieName]: 'opaque-clerk-session' }), event);
 
     expect(clerkMiddlewareFactory).toHaveBeenCalledTimes(1);
     expect(intlMiddleware).toHaveBeenCalledTimes(1);

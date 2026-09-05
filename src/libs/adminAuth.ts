@@ -16,6 +16,7 @@ import {
 } from '@/libs/adminImpersonation';
 import { logAuditEvent } from '@/libs/auditLog';
 import { isClerkUserMissing } from '@/libs/clerkIdentity.server';
+import { hasClerkSessionCookie } from '@/libs/clerkSessionCookie';
 import { db } from '@/libs/DB';
 import { getSalonByFormerSlug, getSalonById, getSalonBySlug } from '@/libs/queries';
 import type { AdminInviteRole, AdminUser, Salon } from '@/models/Schema';
@@ -251,7 +252,7 @@ export async function getAdminSession(): Promise<AdminWithSalons | null> {
     if (!sessionId) {
       // Public guest APIs do not run Clerk middleware. Avoid calling auth()
       // unless the request actually carries a Clerk session.
-      if (!cookieStore.get('__session')?.value) {
+      if (!hasClerkSessionCookie(cookieStore.getAll())) {
         return null;
       }
 

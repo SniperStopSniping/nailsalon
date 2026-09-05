@@ -1,5 +1,6 @@
 'use client';
 
+import { useAuth } from '@clerk/nextjs';
 import {
   CalendarCheck,
   Check,
@@ -16,10 +17,7 @@ import {
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import {
-  authorizeVerifiedOnboardingSetupResume,
-  canResumeVerifiedOnboardingSetup,
-} from '@/features/onboarding-v1-integration/flow-storage';
+import { completeOnboardingDashboardHandoff } from '@/features/onboarding-v1-integration/flow-storage';
 
 export type HandoffSetupStatus = 'complete' | 'needs_attention' | 'not_started';
 export type OnboardingHandoffResolution = 'absent' | 'available' | 'error';
@@ -128,7 +126,9 @@ export function OnboardingWorkspaceHandoff({
   onTakeTour: () => void;
   salonSlug: string;
 }) {
+  const { userId } = useAuth();
   const [handoff, setHandoff] = useState<OnboardingSiteHandoff | null>(null);
+  const [handoffSalonSlug, setHandoffSalonSlug] = useState<string | null>(null);
   const [canChangeSetup, setCanChangeSetup] = useState(false);
   const [dismissStatus, setDismissStatus] = useState<'idle' | 'saving' | 'error'>('idle');
   const welcomeHeadingRef = useRef<HTMLHeadingElement>(null);
@@ -142,6 +142,9 @@ export function OnboardingWorkspaceHandoff({
       `/api/admin/onboarding-site?salonSlug=${encodeURIComponent(salonSlug)}&locale=${encodeURIComponent(locale)}`,
       { cache: 'no-store', signal },
     );
+    if (signal?.aborted) {
+      return;
+    }
     if (response.status === 404 || response.status === 403) {
       setHandoff(null);
       setCanChangeSetup(false);
@@ -154,6 +157,9 @@ export function OnboardingWorkspaceHandoff({
       throw new Error(`Failed to load onboarding site handoff (${response.status})`);
     }
     const payload = await response.json() as { data?: OnboardingSiteHandoff } & Partial<OnboardingSiteHandoff>;
+    if (signal?.aborted) {
+      return;
+    }
     const next = payload.data ?? (payload as OnboardingSiteHandoff);
     if (!next?.site?.id) {
       setHandoff(null);
@@ -164,19 +170,31 @@ export function OnboardingWorkspaceHandoff({
       return;
     }
     setHandoff(next);
-    setCanChangeSetup(next.site.setupAvailable && canResumeVerifiedOnboardingSetup({
-      siteId: next.site.id,
-      verifiedRevision: next.site.revision,
-    }));
+    setHandoffSalonSlug(salonSlug);
+    // Setup loads the authorized saved revision from the server, including
+    // when the owner signs in on a new device with no local draft.
+    setCanChangeSetup(next.site.setupAvailable);
+    if (focusWelcome && userId
+      && new URLSearchParams(window.location.search).get('site') === next.site.id) {
+      completeOnboardingDashboardHandoff({
+        ownerId: userId,
+        planIntent: next.handoff.planIntent,
+        revision: next.site.revision,
+        salonSlug,
+        siteId: next.site.id,
+      });
+    }
     onHandoffChange?.(next);
     onAvailabilityChange?.(true);
     onResolutionChange?.('available');
-  }, [locale, onAvailabilityChange, onHandoffChange, onResolutionChange, salonSlug]);
+  }, [focusWelcome, locale, onAvailabilityChange, onHandoffChange, onResolutionChange, salonSlug, userId]);
 
   useEffect(() => {
     const controller = new AbortController();
+    onHandoffChange?.(null);
+    onAvailabilityChange?.(false);
     void loadHandoff(controller.signal).catch((error: unknown) => {
-      if (error instanceof DOMException && error.name === 'AbortError') {
+      if (controller.signal.aborted || (error instanceof DOMException && error.name === 'AbortError')) {
         return;
       }
       setHandoff(null);
@@ -185,7 +203,7 @@ export function OnboardingWorkspaceHandoff({
       onResolutionChange?.('error');
     });
     return () => controller.abort();
-  }, [loadHandoff, onHandoffChange, onResolutionChange]);
+  }, [loadHandoff, onAvailabilityChange, onHandoffChange, onResolutionChange]);
 
   useEffect(() => {
     if (!focusWelcome || !handoff?.handoff.showWelcome) {
@@ -249,7 +267,7 @@ export function OnboardingWorkspaceHandoff({
     };
   }, [canChangeSetup, handoff, locale, salonSlug]);
 
-  if (!handoff) {
+  if (!handoff || handoffSalonSlug !== salonSlug) {
     return null;
   }
 
@@ -347,10 +365,6 @@ export function OnboardingWorkspaceHandoff({
                         <a
                           className="flex min-h-11 items-center justify-center gap-2 rounded-full border border-[var(--owner-line-strong)] bg-white px-5 text-sm font-semibold text-[var(--owner-ink)] transition-colors hover:bg-[var(--owner-ground)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)]"
                           href={handoff.site.setupUrl}
-                          onClick={() => authorizeVerifiedOnboardingSetupResume({
-                            siteId: handoff.site.id,
-                            verifiedRevision: handoff.site.revision,
-                          })}
                         >
                           <Settings2 aria-hidden="true" size={18} />
                           Change website setup

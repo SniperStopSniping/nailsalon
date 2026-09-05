@@ -292,15 +292,15 @@ describe('IndexedDbAssetRepository', () => {
     }
   });
 
-  it('retries a Blob DataCloneError once in a fresh transaction with ArrayBuffers', async () => {
+  it.each([
+    ['DataCloneError', 'BlobURLs are not yet supported'],
+    ['UnknownError', 'Error preparing Blob/File data to be stored in object store'],
+  ])('retries a Blob %s once in a fresh transaction with ArrayBuffers', async (name, message) => {
     const indexedDB = new IDBFactory();
     const dbName = 'array-buffer-fallback';
     const repository = new IndexedDbAssetRepository({ dbName, indexedDB });
     const probe = interceptBinaryWrites({
-      blobError: new DOMException(
-        'BlobURLs are not yet supported',
-        'DataCloneError',
-      ),
+      blobError: new DOMException(message, name),
     });
 
     try {

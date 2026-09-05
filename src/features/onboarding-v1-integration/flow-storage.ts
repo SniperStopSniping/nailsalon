@@ -2,10 +2,12 @@ import {
   parseSiteBuilderDocument,
   SITE_BUILDER_STORAGE_KEY,
 } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/model/validation';
+import { recordOnboardingEvent } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/events/journal';
 import { createSecureBrowserToken } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/model/defaults';
 import {
   loadOnboardingState,
   type OnboardingStorage,
+  saveOnboardingState,
 } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/storage/storage';
 import type {
   OnboardingClaimSuccess,
@@ -184,6 +186,33 @@ export const clearOnboardingIntegrationFlow = (): void => {
   } catch {
     // A successful server save remains authoritative when browser storage is unavailable.
   }
+};
+
+/** A server-confirmed dashboard handoff may retire only its matching local flow. */
+export const completeOnboardingDashboardHandoff = (input: {
+  ownerId: string;
+  planIntent: OnboardingPlanIntent | null;
+  revision: number;
+  salonSlug: string;
+  siteId: string;
+}): boolean => {
+  const flow = loadOnboardingIntegrationFlow();
+  if (flow.phase !== 'plans'
+    || !input.ownerId
+    || flow.savedSiteOwnerId !== input.ownerId
+    || flow.savedSite?.siteId !== input.siteId
+    || flow.savedSite.salonSlug !== input.salonSlug
+    || flow.savedSite.revision !== input.revision
+    || flow.selectedPlan !== input.planIntent) {
+    return false;
+  }
+  const draft = loadOnboardingState();
+  if (draft.status === 'loaded'
+    && !draft.state.eventJournal.some(event => event.type === 'dashboard_entered')) {
+    saveOnboardingState(recordOnboardingEvent(draft.state, { type: 'dashboard_entered' }));
+  }
+  clearOnboardingIntegrationFlow();
+  return true;
 };
 
 /** Clears only browser state owned by the account-integration handoff. */
@@ -381,11 +410,12 @@ export const shouldReturnInterruptedSaveToAccountGate = (input: {
 
 export const phaseAfterOnboardingReauthentication = (
   flow: Pick<OnboardingIntegrationFlow, 'celebrationSeen' | 'reauthResumePhase' | 'savedSite'>,
+  options: { earlySave?: boolean } = {},
 ): OnboardingIntegrationPhase | null => {
   if (!flow.reauthResumePhase) {
     return null;
   }
-  if (flow.reauthResumePhase === 'saved' && flow.celebrationSeen) {
+  if (flow.reauthResumePhase === 'saved' && flow.celebrationSeen && !options.earlySave) {
     return 'plans';
   }
   if (

@@ -40,6 +40,8 @@ describe('HoursScreen', () => {
       'true',
     );
     expect(screen.getByRole('button', { name: 'Save and continue' })).toBeDisabled();
+    expect(screen.getByRole('switch', { name: 'Show business hours to clients' })).toBeDisabled();
+    expect(screen.getByText('Apply your regular hours below to show them on your site.')).toBeVisible();
     expect(screen.getByRole('radio', { name: 'Monday–Saturday' })).toBeChecked();
   });
 
@@ -51,6 +53,7 @@ describe('HoursScreen', () => {
 
     expect(screen.getByRole('status')).toHaveTextContent('Regular hours applied to 6 days.');
     expect(screen.getByRole('switch', { name: 'Show business hours to clients' })).toBeChecked();
+    expect(screen.queryByText('Apply your regular hours below to show them on your site.')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Save and continue' })).toBeEnabled();
     expect(getLatest().hours.days.sunday.closed).toBe(true);
 

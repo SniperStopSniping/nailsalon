@@ -35,7 +35,7 @@ vi.mock('next/navigation', () => ({
 
 const queries = vi.hoisted(() => ({ getSalonBySlug: vi.fn() }));
 vi.mock('./queries', () => queries);
-vi.mock('next/headers', () => ({ cookies: async () => ({ get: () => undefined }) }));
+vi.mock('next/headers', () => ({ cookies: async () => ({ get: () => undefined, getAll: () => [] }) }));
 
 /* eslint-disable import/first */
 import { requirePublishedTenantSalon } from './tenant';

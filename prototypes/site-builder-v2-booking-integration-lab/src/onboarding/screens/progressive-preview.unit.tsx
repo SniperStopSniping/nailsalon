@@ -109,7 +109,7 @@ describe('progressive customer-site previews through Screen 6', () => {
     expect(stage).not.toHaveTextContent('880 Ellesmere Rd');
     expect(stage).toHaveTextContent(/Open now|Closed/u);
     expect(stage).toHaveTextContent('Online booking only');
-    expect(stage).toHaveTextContent('Services & Booking');
+    expect(stage).toHaveTextContent('Book an appointment');
     expect(stage).not.toHaveTextContent('About Daniela');
     expect(stage).not.toHaveTextContent('Before you book');
     expect(stage.querySelector('.customer-lib-visit')).toBeNull();

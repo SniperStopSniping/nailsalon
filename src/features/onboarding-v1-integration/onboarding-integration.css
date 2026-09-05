@@ -434,6 +434,14 @@
   width: 100%;
 }
 
+.onboarding-saved-preview-loading {
+  color: var(--owner-muted);
+  inset: 24px 20px auto;
+  margin: 0;
+  position: absolute;
+  text-align: center;
+}
+
 .onboarding-saved-preview > span {
   align-items: center;
   background: rgb(255 253 251 / 92%);
@@ -686,8 +694,7 @@
   }
 
   .onboarding-saved-preview {
-    min-height: 390px;
-    order: -1;
+    min-height: 320px;
   }
 
   .onboarding-saved-copy {

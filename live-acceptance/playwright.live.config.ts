@@ -14,7 +14,7 @@ export default defineConfig({
       dependencies: ['setup'],
       name: 'chromium-live',
       testMatch: /premium-gate\.live\.spec\.ts/,
-      use: { ...devices['Desktop Chrome'] },
+      use: { ...devices['Pixel 5'], viewport: { height: 844, width: 390 } },
     },
     {
       dependencies: ['setup'],

@@ -134,12 +134,12 @@ describe('PremiumAccountGate', () => {
     })).toHaveFocus();
   });
 
-  it('keeps the short-phone reward preview scaled to its width instead of shrinking it to its cropped height', () => {
+  it('fits the scrollable reward to its visible host using the shared width-scaled viewport', () => {
     renderGate();
 
     const preview = screen.getByRole('region', { name: 'Preview of Isla Nail Studio' });
 
-    expect(preview).not.toHaveClass('is-fit-available');
+    expect(preview).toHaveClass('is-fit-available');
     expect(preview).toHaveAttribute('data-preview-interaction', 'scrollable');
   });
 

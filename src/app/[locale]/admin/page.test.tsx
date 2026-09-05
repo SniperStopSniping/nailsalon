@@ -15,6 +15,8 @@ const {
   handoffComponentSpy,
   ownerTodayWorkspaceSpy,
   swipeablePagesSpy,
+  clerkAuth,
+  clerkGetToken,
   clerkSignOut,
   ownerAdminFeatureFlags,
 } = vi.hoisted(() => {
@@ -37,12 +39,15 @@ const {
     handoffComponentSpy: vi.fn(),
     ownerTodayWorkspaceSpy: vi.fn(),
     swipeablePagesSpy: vi.fn(),
+    clerkAuth: { isLoaded: true, isSignedIn: false, sessionId: null as string | null },
+    clerkGetToken: vi.fn(),
     clerkSignOut: vi.fn(),
     ownerAdminFeatureFlags: { onboardingV1IntegrationEnabled: true },
   };
 });
 
 vi.mock('@clerk/nextjs', () => ({
+  useAuth: () => ({ ...clerkAuth, getToken: clerkGetToken }),
   useClerk: () => ({ signOut: clerkSignOut }),
 }));
 
@@ -202,6 +207,8 @@ vi.mock('@/components/ui/workspace-page-header', () => ({
 
 beforeEach(() => {
   vi.clearAllMocks();
+  Object.assign(clerkAuth, { isLoaded: true, isSignedIn: false, sessionId: null });
+  clerkGetToken.mockReset();
   ownerAdminFeatureFlags.onboardingV1IntegrationEnabled = true;
   searchParamGet.mockImplementation(
     (key: string) => (key === 'salon' ? 'salon-b' : null),
@@ -211,7 +218,178 @@ beforeEach(() => {
 });
 
 describe('AdminDashboardPage', () => {
-  it('syncs salons without a hard reload and loads analytics only after its surface opens', async () => {
+  it('waits after an early cookie 401 and refreshes Clerk before retrying the authenticated workspace', async () => {
+    clerkAuth.isLoaded = false;
+    searchParamGet.mockReturnValue(null);
+    let finishRefresh!: (token: string) => void;
+    clerkGetToken.mockImplementation(() => new Promise<string>((resolve) => {
+      finishRefresh = resolve;
+    }));
+    fetchMock.mockResolvedValueOnce(new Response('{}', { status: 401 })).mockResolvedValueOnce(new Response(JSON.stringify({
+      user: {
+        id: 'admin_1',
+        name: 'Admin User',
+        isSuperAdmin: false,
+        impersonation: null,
+        salons: [
+          { id: 'sal_a', slug: 'salon-a', name: 'Salon A', status: 'active', role: 'owner' },
+          { id: 'sal_b', slug: 'salon-b', name: 'Salon B', status: 'active', role: 'owner' },
+        ],
+      },
+    }), { status: 200 }));
+    const view = render(<AdminDashboardPage />);
+    await act(async () => {});
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(clerkGetToken).not.toHaveBeenCalled();
+    expect(routerReplace).not.toHaveBeenCalled();
+    expect(screen.queryByText('Salon selector')).not.toBeInTheDocument();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+
+    Object.assign(clerkAuth, { isLoaded: true, isSignedIn: true, sessionId: 'session_owner' });
+    view.rerender(<AdminDashboardPage />);
+
+    expect(clerkGetToken).toHaveBeenCalledTimes(1);
+    expect(clerkGetToken).toHaveBeenCalledWith({ skipCache: true });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    await act(async () => finishRefresh('current-session-token'));
+    await screen.findByText('Salon selector');
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenCalledWith('/api/admin/auth/me');
+    expect(routerReplace).not.toHaveBeenCalled();
+  });
+
+  it('still checks the legacy cookie session when Clerk is loaded and signed out', async () => {
+    fetchMock.mockResolvedValue(new Response('{}', { status: 401 }));
+    render(<AdminDashboardPage />);
+
+    await waitFor(() => expect(routerReplace).toHaveBeenCalledWith('/en/admin-login'));
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledWith('/api/admin/auth/me?salonSlug=salon-b');
+    expect(clerkGetToken).not.toHaveBeenCalled();
+  });
+
+  it('opens a server-authorized impersonation workspace even when Clerk never loads', async () => {
+    clerkAuth.isLoaded = false;
+    fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.startsWith('/api/admin/auth/me')) {
+        return new Response(JSON.stringify({
+          user: {
+            id: 'admin_1',
+            name: 'Admin User',
+            isSuperAdmin: false,
+            impersonation: { isActive: true, salonSlug: 'salon-b' },
+            salons: [{ id: 'sal_b', slug: 'salon-b', name: 'Salon B', status: 'active', role: 'owner' }],
+          },
+        }), { status: 200 });
+      }
+      if (url === '/api/admin/settings/modules?salonSlug=salon-b') {
+        return new Response(JSON.stringify({
+          data: { modules: {}, entitledModules: {}, moduleReasons: {} },
+        }), { status: 200 });
+      }
+      if (url === '/api/admin/fraud-signals') {
+        return new Response(JSON.stringify({ data: { signals: [], unresolvedCount: 0 } }), { status: 200 });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+    render(<AdminDashboardPage />);
+
+    await screen.findByTestId('owner-today-workspace');
+
+    expect(clerkGetToken).not.toHaveBeenCalled();
+    expect(routerReplace).not.toHaveBeenCalled();
+    expect(fetchMock.mock.calls.filter(([url]) => String(url).startsWith('/api/admin/auth/me'))).toHaveLength(1);
+    expect(fetchMock.mock.calls.some(([url]) => url === '/api/admin/auth/set-active-salon')).toBe(false);
+  });
+
+  it.each(['rejected', 'missing'] as const)('does not loop or make an unready auth request when token refresh is %s', async (failure) => {
+    Object.assign(clerkAuth, { isSignedIn: true, sessionId: 'session_owner' });
+    if (failure === 'rejected') {
+      clerkGetToken.mockRejectedValue(new Error('Session refresh unavailable'));
+    } else {
+      clerkGetToken.mockResolvedValue(null);
+    }
+    const view = render(<AdminDashboardPage />);
+
+    await screen.findByRole('alert');
+    view.rerender(<AdminDashboardPage />);
+
+    expect(clerkGetToken).toHaveBeenCalledTimes(1);
+    expect(clerkGetToken).toHaveBeenCalledWith({ skipCache: true });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(routerReplace).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('owner-today-workspace')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
+    await screen.findByRole('alert');
+
+    expect(clerkGetToken).toHaveBeenCalledTimes(2);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(routerReplace).not.toHaveBeenCalled();
+  });
+
+  it.each([401, 500])('offers a bounded retry instead of redirecting a signed-in owner when admin/me returns %s', async (status) => {
+    Object.assign(clerkAuth, { isSignedIn: true, sessionId: 'session_owner' });
+    clerkGetToken.mockResolvedValue('current-session-token');
+    fetchMock.mockImplementation(async () => new Response('{}', { status }));
+    const view = render(<AdminDashboardPage />);
+
+    await screen.findByRole('alert');
+    view.rerender(<AdminDashboardPage />);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(routerReplace).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('owner-today-workspace')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
+    await screen.findByRole('alert');
+
+    expect(clerkGetToken).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(routerReplace).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Sign out' }));
+    await waitFor(() => expect(clerkSignOut).toHaveBeenCalledWith({ redirectUrl: '/owner' }));
+
+    expect(fetchMock).toHaveBeenCalledWith('/api/admin/auth/logout', { method: 'POST' });
+  });
+
+  it('ignores a token refresh from a session that was replaced while it was loading', async () => {
+    Object.assign(clerkAuth, { isSignedIn: true, sessionId: 'session_previous' });
+    let finishPrevious!: (token: string | null) => void;
+    let finishCurrent!: (token: string) => void;
+    clerkGetToken
+      .mockImplementationOnce(() => new Promise<string | null>((resolve) => {
+        finishPrevious = resolve;
+      }))
+      .mockImplementationOnce(() => new Promise<string>((resolve) => {
+        finishCurrent = resolve;
+      }));
+    fetchMock.mockResolvedValue(new Response('{}', { status: 401 }));
+    const view = render(<AdminDashboardPage />);
+    clerkAuth.sessionId = 'session_current';
+    view.rerender(<AdminDashboardPage />);
+
+    await act(async () => finishPrevious(null));
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(routerReplace).not.toHaveBeenCalled();
+
+    await act(async () => finishCurrent('current-session-token'));
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledWith('/api/admin/auth/me?salonSlug=salon-b');
+    expect(screen.getByRole('alert')).toBeInTheDocument();
+    expect(routerReplace).not.toHaveBeenCalled();
+  });
+
+  it.each([true, false])('loads the server-authorized legacy dashboard and syncs salons without a hard reload when Clerk loaded is %s', async (clerkLoaded) => {
+    clerkAuth.isLoaded = clerkLoaded;
     let requestedApp: string | null = null;
     searchParamGet.mockImplementation((key: string) => {
       if (key === 'salon') {

@@ -5,13 +5,6 @@ import type { SavedSitePreviewModel } from '@/features/onboarding-v1-integration
 
 import { SavedSitePreviewClient } from './SavedSitePreviewClient';
 
-const resume = vi.hoisted(() => ({ allowed: true }));
-
-vi.mock('@/features/onboarding-v1-integration/flow-storage', () => ({
-  authorizeVerifiedOnboardingSetupResume: () => true,
-  canResumeVerifiedOnboardingSetup: () => resume.allowed,
-}));
-
 vi.mock('../../../../../../../prototypes/site-builder-v2-booking-integration-lab/src/custom-design/integration/CustomDesignAssetProvider', () => ({
   CustomDesignAssetProvider: ({ children }: { children: React.ReactNode }) => children,
 }));
@@ -52,7 +45,6 @@ const props = {
 
 beforeEach(() => {
   window.localStorage.clear();
-  resume.allowed = true;
 });
 
 describe('SavedSitePreviewClient', () => {
@@ -71,7 +63,7 @@ describe('SavedSitePreviewClient', () => {
     expect(screen.getByTestId('saved-customer-site')).toHaveAttribute('data-device', 'desktop');
   });
 
-  it('offers the verified setup fallback without exposing the placeholder editor', async () => {
+  it('offers server-authorized setup after signing in on a new device', async () => {
     render(<SavedSitePreviewClient {...props} />);
 
     await waitFor(() => {
@@ -84,9 +76,8 @@ describe('SavedSitePreviewClient', () => {
       .toHaveAttribute('href', '/en/admin/booking-page?salon=isla');
   });
 
-  it('omits setup changes without matching local proof', async () => {
-    resume.allowed = false;
-    render(<SavedSitePreviewClient {...props} />);
+  it('omits setup changes when the server says the saved site cannot be edited', async () => {
+    render(<SavedSitePreviewClient {...props} setupAvailable={false} />);
 
     await waitFor(() => {
       expect(screen.getByRole('link', { name: 'Return to Workspace' })).toBeInTheDocument();

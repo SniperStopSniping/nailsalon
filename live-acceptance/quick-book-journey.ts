@@ -45,11 +45,19 @@ export async function runQuickBookJourney(
   session: QuickBookJourneySession,
 ) {
   page.setDefaultTimeout(30_000);
+  page.setDefaultNavigationTimeout(90_000);
   const startedAt = Date.now();
   const email = runScopedEmail(scope.runId, testInfo.project.name);
   const password = session.password;
+  const freshContextOptions = {
+    deviceScaleFactor: testInfo.project.use.deviceScaleFactor,
+    hasTouch: testInfo.project.use.hasTouch,
+    isMobile: testInfo.project.use.isMobile,
+    userAgent: testInfo.project.use.userAgent,
+    viewport: page.viewportSize(),
+  };
   session.pages.push(page);
-  const businessName = `Acceptance Studio ${scope.runId.slice(-8)}`;
+  const businessName = `Acceptance ${testInfo.project.name.split('-')[0]} Studio ${scope.runId.slice(-8)}`;
   const organizationIds = new Set<string>();
   const pendingResponses: Promise<void>[] = [];
   const pageErrors: string[] = [];
@@ -155,7 +163,18 @@ export async function runQuickBookJourney(
 
     process.stdout.write('Live acceptance: official-helper client reload ready; submitting Development signup.\n');
     await page.getByLabel('Password', { exact: true }).fill(password);
-    await page.getByRole('button', { name: 'Create account and continue', exact: true }).click();
+    // A real recipient cannot enter the code before Clerk prepares the email.
+    // Register before signup so the known test code cannot race that request.
+    await Promise.all([
+      page.waitForResponse((response) => {
+        const url = new URL(response.url());
+        return url.hostname === process.env.CLERK_FAPI
+          && url.pathname.endsWith('/prepare_verification')
+          && response.request().method() === 'POST'
+          && response.status() === 200;
+      }, { timeout: 120_000 }),
+      page.getByRole('button', { name: 'Create account and continue', exact: true }).click(),
+    ]);
 
     await expect(page.getByRole('heading', { name: 'Check your email', exact: true })).toBeVisible({ timeout: 120_000 });
 
@@ -174,6 +193,10 @@ export async function runQuickBookJourney(
     process.stdout.write('Live acceptance: verified identity and early draft claim succeeded.\n');
     userId = await page.evaluate(() => (window as any).Clerk.user.id as string);
     await recordCleanupTargets();
+
+    await expect(page.frameLocator('iframe[title^="Saved preview of "]').getByText(businessName).first())
+      .toBeVisible({ timeout: 90_000 });
+
     await page.screenshot({ path: testInfo.outputPath('early-save.png') });
     await page.getByRole('button', { name: 'Continue setting up', exact: true }).click();
 
@@ -184,7 +207,11 @@ export async function runQuickBookJourney(
     await expect(library).toBeVisible();
 
     await library.getByRole('button', { name: 'Done', exact: true }).click();
-    await page.getByRole('button', { name: /^Use these \d+ services$/ }).click();
+
+    await expect(library).not.toBeVisible();
+    await expect(page.locator('[data-booking-task="services"]')).toHaveClass(/\bis-complete\b/);
+    await expect(page.getByRole('button', { name: /^Use these \d+ services$/ })).toHaveCount(0);
+
     await expandPanel(page, 'booking-task-clients');
     await page.locator('label').filter({ has: page.getByRole('radio', { name: 'Appointment only', exact: true }) }).click();
     await page.locator('label').filter({ has: page.getByRole('radio', { name: 'Yes', exact: true }) }).click();
@@ -272,11 +299,20 @@ export async function runQuickBookJourney(
     await page.screenshot({ path: testInfo.outputPath('saved-preview.png') });
 
     await page.goto(dashboardURL);
-    await page.getByRole('button', { name: /log ?out|sign ?out/i }).first().click();
+    const signOut = page.getByRole('button', { name: /log ?out|sign ?out/i }).first();
+    if (!await signOut.isVisible()) {
+      await page.getByTestId('owner-nav-more').click();
+    }
+    const [signOutResponse] = await Promise.all([
+      page.waitForResponse(response => new URL(response.url()).pathname === '/api/admin/auth/logout' && response.request().method() === 'POST', { timeout: 90_000 }),
+      signOut.click(),
+    ]);
 
-    await expect(page).not.toHaveURL(/\/admin(?:[/?]|$)/);
+    expect(signOutResponse.status()).toBe(200);
 
-    const freshContext = await browser.newContext();
+    await page.waitForURL(url => !/\/admin(?:[/?]|$)/.test(url.pathname), { timeout: 90_000 });
+
+    const freshContext = await browser.newContext(freshContextOptions);
     try {
       const fresh = await freshContext.newPage();
       session.pages.push(fresh);
@@ -301,6 +337,32 @@ export async function runQuickBookJourney(
 
       await fresh.screenshot({ path: testInfo.outputPath('fresh-login-preview.png') });
 
+      await fresh.goto(`${scope.baseURL}${handoff.site.setupUrl}`);
+
+      await expect(fresh.locator('[data-screen="final_preview"]')).toBeVisible();
+      await expect(fresh.getByText(businessName).first()).toBeVisible();
+
+      await expectSavedPortrait(fresh);
+
+      await fresh.screenshot({ path: testInfo.outputPath('fresh-login-resumed-setup.png') });
+
+      const [resumedResponse] = await Promise.all([
+        fresh.waitForResponse(response => new URL(response.url()).pathname === '/api/onboarding/v1/claim' && response.request().method() === 'POST', { timeout: 90_000 }),
+        fresh.getByRole('button', { name: 'Finish setup', exact: true }).click(),
+      ]);
+
+      expect(resumedResponse.status()).toBe(200);
+
+      const resumedClaim = (await resumedResponse.json()).data as OnboardingClaimSuccess;
+
+      expect(resumedClaim.siteId).toBe(finalClaim.siteId);
+      expect(resumedClaim.salonSlug).toBe(finalClaim.salonSlug);
+      expect(resumedClaim.revision).toBeGreaterThanOrEqual(finalClaim.revision);
+
+      await expectHeading(fresh, 'Your Luster site is saved', 90_000);
+
+      process.stdout.write('Live acceptance: fresh-browser setup resumed and saved the same site and URL.\n');
+
       await fresh.goto(`${scope.baseURL}/en/admin/booking-page?salon=${encodeURIComponent(finalClaim.salonSlug)}`);
       const [layoutPublished] = await Promise.all([
         fresh.waitForResponse(response => new URL(response.url()).pathname === '/api/admin/booking-page' && response.request().method() === 'POST', { timeout: 90_000 }),
@@ -321,7 +383,7 @@ export async function runQuickBookJourney(
       expect(new URL(publicLinks.publicUrl).origin).toBe(scope.baseURL);
       expect(new URL(publicLinks.bookingUrl).origin).toBe(scope.baseURL);
 
-      const guestContext = await browser.newContext();
+      const guestContext = await browser.newContext(freshContextOptions);
       try {
         const guest = await guestContext.newPage();
         session.pages.push(guest);
@@ -330,6 +392,7 @@ export async function runQuickBookJourney(
 
         expect(publicPage?.status()).toBe(200);
         await expect(guest.getByText(businessName).first()).toBeVisible();
+        await expect(guest.getByText('100 Test Street', { exact: false })).toHaveCount(0);
 
         const bookingPage = await guest.goto(publicLinks.bookingUrl);
 

@@ -48,10 +48,12 @@ describe('middleware — private Owner booking-page preview', () => {
   });
 
   it.each([
-    '/admin/booking-page/preview/isla-nail-studio',
-    '/fr/admin/booking-page/preview/isla-nail-studio',
-  ])('establishes Clerk context for an Owner session on %s and marks the response private', async (path) => {
-    const response = await middleware(request(path, { __session: 'opaque-clerk-session' }), event);
+    ['/admin/booking-page/preview/isla-nail-studio', '__session'],
+    ['/fr/admin/booking-page/preview/isla-nail-studio', '__session'],
+    ['/admin/booking-page/preview/isla-nail-studio', '__session_XxiNjKcO'],
+    ['/fr/admin/booking-page/preview/isla-nail-studio', '__session_XxiNjKcO'],
+  ] as const)('establishes Clerk context for an Owner session on %s with %s and marks the response private', async (path, cookieName) => {
+    const response = await middleware(request(path, { [cookieName]: 'opaque-clerk-session' }), event);
 
     expect(clerkMiddlewareFactory).toHaveBeenCalledTimes(1);
     expect(intlMiddleware).toHaveBeenCalledTimes(1);

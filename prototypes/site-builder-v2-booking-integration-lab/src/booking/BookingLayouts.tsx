@@ -29,6 +29,7 @@ export type LayoutRenderProps = {
   onCategoryChange: (category: ServiceCategory | 'all') => void;
   onOpenDetails: (service: MockService) => void;
   readOnly: boolean;
+  showIntroduction?: boolean;
   showSalonIdentity: boolean;
 };
 
@@ -348,32 +349,34 @@ export function VisualGridLayout(props: LayoutProps) {
       data-density={layoutSettings.density}
       aria-label="Visual service grid"
     >
-      <header className="vg-hero">
-        <div>
-          {props.showSalonIdentity
-            ? (
-                <div className="vg-identity">
-                  <div className="salon-monogram" aria-hidden="true">
-                    {monogramFor(fixture.salon.name)}
+      <header className="vg-hero" data-introduction={props.showIntroduction === false ? 'hidden' : 'shown'}>
+        {props.showIntroduction !== false && (
+          <div>
+            {props.showSalonIdentity
+              ? (
+                  <div className="vg-identity">
+                    <div className="salon-monogram" aria-hidden="true">
+                      {monogramFor(fixture.salon.name)}
+                    </div>
+                    <div>
+                      <BookingPageHeading level={props.headingLevel}>{fixture.salon.name}</BookingPageHeading>
+                      <p>{fixture.salon.location}</p>
+                    </div>
                   </div>
-                  <div>
-                    <BookingPageHeading level={props.headingLevel}>{fixture.salon.name}</BookingPageHeading>
-                    <p>{fixture.salon.location}</p>
-                  </div>
-                </div>
-              )
-            : (
-                <BookingPageHeading level={props.headingLevel}>Services &amp; Booking</BookingPageHeading>
-              )}
-          <div className="vg-hero-copy">
-            <h2>Find your next polished look.</h2>
-            <p>
-              {props.showSalonIdentity
-                ? fixture.salon.tagline
-                : 'Choose a service to see its details, options, price and duration.'}
-            </p>
+                )
+              : (
+                  <BookingPageHeading level={props.headingLevel}>Services &amp; Booking</BookingPageHeading>
+                )}
+            <div className="vg-hero-copy">
+              <h2>Find your next polished look.</h2>
+              <p>
+                {props.showSalonIdentity
+                  ? fixture.salon.tagline
+                  : 'Choose a service to see its details, options, price and duration.'}
+              </p>
+            </div>
           </div>
-        </div>
+        )}
         <SearchField query={query} readOnly={props.readOnly} onQueryChange={props.onQueryChange} />
       </header>
 
@@ -492,19 +495,21 @@ export function CleanListLayout(props: LayoutProps) {
       aria-label="Clean service list"
     >
       <header className="clean-header">
-        <div className="clean-identity">
-          <div>
-            <BookingPageHeading level={props.headingLevel}>
-              {props.showSalonIdentity ? fixture.salon.name : 'Services & Booking'}
-            </BookingPageHeading>
-            <p>
-              {props.showSalonIdentity
-                ? fixture.salon.tagline
-                : 'Choose a service to see its details, options, price and duration.'}
-            </p>
+        {props.showIntroduction !== false && (
+          <div className="clean-identity">
+            <div>
+              <BookingPageHeading level={props.headingLevel}>
+                {props.showSalonIdentity ? fixture.salon.name : 'Services & Booking'}
+              </BookingPageHeading>
+              <p>
+                {props.showSalonIdentity
+                  ? fixture.salon.tagline
+                  : 'Choose a service to see its details, options, price and duration.'}
+              </p>
+            </div>
+            <span className="clean-service-count">{serviceCountLabel(filtered.length)}</span>
           </div>
-          <span className="clean-service-count">{serviceCountLabel(filtered.length)}</span>
-        </div>
+        )}
         <SearchField query={query} readOnly={props.readOnly} onQueryChange={props.onQueryChange} />
       </header>
 
@@ -599,24 +604,26 @@ export function EditorialCardsLayout(props: LayoutProps) {
       data-density={layoutSettings.density}
       aria-label="Editorial service stories"
     >
-      <header className="editorial-hero" data-has-image={hasHeroImage ? 'true' : 'false'}>
-        {heroService?.image && <ServiceMedia service={heroService} loading="eager" />}
-        <div className="editorial-hero-content">
-          <small>{props.showSalonIdentity ? `${fixture.salon.location} · Nail atelier` : 'Service menu'}</small>
-          <BookingPageHeading level={props.headingLevel}>
-            {props.showSalonIdentity ? fixture.salon.name : 'Services & Booking'}
-          </BookingPageHeading>
-          <p>
-            {props.showSalonIdentity
-              ? fixture.salon.tagline
-              : 'Choose a service to see its details, options, price and duration.'}
-          </p>
-        </div>
-      </header>
+      {props.showIntroduction !== false && (
+        <header className="editorial-hero" data-has-image={hasHeroImage ? 'true' : 'false'}>
+          {heroService?.image && <ServiceMedia service={heroService} loading="eager" />}
+          <div className="editorial-hero-content">
+            <small>{props.showSalonIdentity ? `${fixture.salon.location} · Nail atelier` : 'Service menu'}</small>
+            <BookingPageHeading level={props.headingLevel}>
+              {props.showSalonIdentity ? fixture.salon.name : 'Services & Booking'}
+            </BookingPageHeading>
+            <p>
+              {props.showSalonIdentity
+                ? fixture.salon.tagline
+                : 'Choose a service to see its details, options, price and duration.'}
+            </p>
+          </div>
+        </header>
+      )}
 
       <div className="editorial-intro">
         <div>
-          <h2>Made to become part of your story.</h2>
+          {props.showIntroduction !== false && <h2>Made to become part of your story.</h2>}
           <span>{serviceCountLabel(filtered.length)}</span>
         </div>
         {fixture.menuSize === 'stress_100' && (
@@ -782,7 +789,7 @@ export function CategoryMenuLayout(props: LayoutProps) {
       aria-label="Category service menu"
     >
       <header className="category-menu-header">
-        {props.showSalonIdentity
+        {props.showSalonIdentity && props.showIntroduction !== false
           ? (
               <div className="category-menu-brand">
                 <span>{fixture.salon.name}</span>
@@ -790,10 +797,12 @@ export function CategoryMenuLayout(props: LayoutProps) {
               </div>
             )
           : null}
-        <div>
-          <BookingPageHeading level={props.headingLevel}>Services</BookingPageHeading>
-          <p>Navigate the studio menu by category, then choose the service that fits.</p>
-        </div>
+        {props.showIntroduction !== false && (
+          <div>
+            <BookingPageHeading level={props.headingLevel}>Services</BookingPageHeading>
+            <p>Navigate the studio menu by category, then choose the service that fits.</p>
+          </div>
+        )}
         <SearchField query={query} readOnly={props.readOnly} onQueryChange={props.onQueryChange} />
       </header>
 
@@ -941,24 +950,26 @@ export function EditorialPriceListLayout(props: LayoutProps) {
       data-divider={layoutSettings.dividerStyle}
       aria-label="Editorial service price list"
     >
-      <header className="price-list-masthead">
-        {props.showSalonIdentity
-          ? (
-              <div className="price-list-seal" aria-hidden="true">
-                {monogramFor(fixture.salon.name)}
-              </div>
-            )
-          : null}
-        <small>{props.showSalonIdentity ? `${fixture.salon.location} · Service menu` : 'Service menu'}</small>
-        <BookingPageHeading level={props.headingLevel}>
-          {props.showSalonIdentity ? fixture.salon.name : 'Services & Booking'}
-        </BookingPageHeading>
-        <p>
+      {props.showIntroduction !== false && (
+        <header className="price-list-masthead">
           {props.showSalonIdentity
-            ? fixture.salon.tagline
-            : 'Choose a service to see its details, options, price and duration.'}
-        </p>
-      </header>
+            ? (
+                <div className="price-list-seal" aria-hidden="true">
+                  {monogramFor(fixture.salon.name)}
+                </div>
+              )
+            : null}
+          <small>{props.showSalonIdentity ? `${fixture.salon.location} · Service menu` : 'Service menu'}</small>
+          <BookingPageHeading level={props.headingLevel}>
+            {props.showSalonIdentity ? fixture.salon.name : 'Services & Booking'}
+          </BookingPageHeading>
+          <p>
+            {props.showSalonIdentity
+              ? fixture.salon.tagline
+              : 'Choose a service to see its details, options, price and duration.'}
+          </p>
+        </header>
+      )}
 
       {fixture.menuSize === 'stress_100' && (
         <div className="price-list-search">

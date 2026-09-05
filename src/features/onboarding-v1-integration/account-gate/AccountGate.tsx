@@ -581,6 +581,7 @@ export function PremiumAccountGate({
                 >
                   <OnboardingSitePreview
                     document={document}
+                    fitAvailable
                     interactionMode="scrollable"
                     label={`Preview of ${salonName}`}
                     quickBookPhase="business"

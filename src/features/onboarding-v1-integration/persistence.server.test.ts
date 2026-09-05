@@ -13,6 +13,7 @@ import {
 } from '@/libs/bookingPageConfig';
 import { resolveBookingPageContent } from '@/libs/bookingPageContent';
 import type { DatabaseSessionHandle } from '@/libs/DB';
+import { hashOpaqueToken } from '@/libs/lusterSecurity';
 import { SERVICE_TEMPLATES } from '@/libs/serviceTemplateCatalog';
 import { resolveSharedSalonProfile } from '@/libs/sharedSalonProfile';
 import * as schema from '@/models/Schema';
@@ -888,6 +889,45 @@ describe.sequential('account-backed onboarding persistence', () => {
     expect(claims).toHaveLength(1);
   });
 
+  it.each([false, true])('verifies the snapshot after another server wins the claim race (changed: %s)', async (changed) => {
+    const suffix = `server_race_${changed}`;
+    const owner = identity(suffix);
+    const input = request(suffix);
+    const winner = await claimOnboardingDraft(owner, input, handle());
+    if (winner.kind !== 'success') {
+      throw new Error('Expected the other server’s winning claim.');
+    }
+    const contender = structuredClone(input);
+    contender.anonymousDraftToken = opaque(`contender_${suffix}`);
+    if (changed) {
+      contender.snapshot.profile.businessName = 'Newer work from the other tab';
+    }
+    const racingDatabase = new Proxy(handle(), {
+      get(target, property, receiver) {
+        if (property === 'transaction') {
+          return async () => {
+            // The other runtime commits after our initial absent-token read.
+            await database.update(schema.onboardingDraftClaimSchema).set({
+              anonymousDraftTokenHash: hashOpaqueToken(contender.anonymousDraftToken),
+            }).where(eq(schema.onboardingDraftClaimSchema.id, winner.data.claimId));
+            throw Object.assign(new Error('Concurrent draft claim'), {
+              code: '23505',
+              constraint: 'onboarding_draft_claim_token_unique',
+            });
+          };
+        }
+        return Reflect.get(target, property, receiver);
+      },
+    });
+
+    const result = claimOnboardingDraft(owner, contender, racingDatabase);
+    if (changed) {
+      await expect(result).rejects.toMatchObject({ code: 'DRAFT_CONTENT_CHANGED_AFTER_CLAIM', status: 409 });
+    } else {
+      await expect(result).resolves.toMatchObject({ data: { claimId: winner.data.claimId, created: false }, kind: 'success' });
+    }
+  });
+
   it('rejects another Clerk owner attempting to reuse the claimed opaque token', async () => {
     const input = request('tenant_owner');
     await claimOnboardingDraft(identity('tenant_owner'), input, handle());
@@ -961,6 +1001,104 @@ describe.sequential('account-backed onboarding persistence', () => {
         code: 'BUSINESS_TARGET_REQUIRED',
       },
     });
+  });
+
+  it('saves an edited unpublished URL to the same site and restores it after a fresh sign-in', async () => {
+    const owner = identity('continued_url');
+    const initialInput = request('continued_url');
+    const initial = await claimOnboardingDraft(owner, initialInput, handle());
+    if (initial.kind !== 'success') {
+      throw new Error('Expected early account save.');
+    }
+    const continuedInput = structuredClone(initialInput);
+    continuedInput.anonymousDraftToken = opaque('continued_url_later');
+    continuedInput.target = {
+      continuationClaimId: initial.data.claimId,
+      existingSiteStrategy: 'continue_onboarding_draft',
+      expectedRevision: initial.data.revision,
+      expectedSiteId: initial.data.siteId,
+      mode: 'existing_business',
+      salonId: initial.data.salonId,
+    };
+    continuedInput.snapshot.profile.siteSlug = 'my-new-studio-url';
+    continuedInput.snapshot.profile.siteSlugCustomized = true;
+    const continued = await claimOnboardingDraft(owner, continuedInput, handle());
+
+    expect(continued).toMatchObject({
+      data: {
+        dashboardUrl: '/admin?salon=my-new-studio-url',
+        revision: initial.data.revision + 1,
+        salonId: initial.data.salonId,
+        salonSlug: 'my-new-studio-url',
+        siteId: initial.data.siteId,
+      },
+      kind: 'success',
+    });
+
+    const recovered = await getOnboardingDraftClaimStatus(
+      { ...owner },
+      opaque('fresh_browser_url'),
+      handle(),
+      initial.data.siteId,
+    );
+
+    expect(recovered).toMatchObject({ salonSlug: 'my-new-studio-url', siteId: initial.data.siteId });
+
+    const [revision] = await database.select().from(schema.onboardingSiteRevisionSchema)
+      .where(eq(schema.onboardingSiteRevisionSchema.id, recovered!.revisionId));
+
+    expect(revision?.snapshot).toEqual(continuedInput.snapshot);
+    await expect(getOnboardingSiteSlugAvailability('my-new-studio-url', handle()))
+      .resolves.toMatchObject({ available: false });
+    await expect(getOnboardingSiteSlugAvailability(initial.data.salonSlug, handle()))
+      .resolves.toMatchObject({ available: true });
+    await expect(claimOnboardingDraft(owner, continuedInput, handle()))
+      .resolves.toMatchObject({ data: { created: false, salonSlug: 'my-new-studio-url' }, kind: 'success' });
+  });
+
+  it.each(['occupied', 'reserved', 'locked'] as const)('rejects a %s URL edit without changing the saved draft', async (state) => {
+    const owner = identity(`continued_url_${state}`);
+    const initialInput = request(`continued_url_${state}`);
+    const initial = await claimOnboardingDraft(owner, initialInput, handle());
+    if (initial.kind !== 'success') {
+      throw new Error('Expected early account save.');
+    }
+    const nextSlug = state === 'reserved' ? 'admin' : `another-studio-${state}`;
+    if (state === 'occupied') {
+      await database.insert(schema.salonSchema).values({
+        id: crypto.randomUUID(),
+        name: 'Another owner’s salon',
+        slug: nextSlug,
+      });
+    } else if (state === 'locked') {
+      await database.update(schema.salonSchema).set({ slugLockedAt: new Date() })
+        .where(eq(schema.salonSchema.id, initial.data.salonId));
+    }
+    const continuedInput = structuredClone(initialInput);
+    continuedInput.anonymousDraftToken = opaque(`continued_url_${state}_later`);
+    continuedInput.target = {
+      continuationClaimId: initial.data.claimId,
+      existingSiteStrategy: 'continue_onboarding_draft',
+      expectedRevision: initial.data.revision,
+      expectedSiteId: initial.data.siteId,
+      mode: 'existing_business',
+      salonId: initial.data.salonId,
+    };
+    continuedInput.snapshot.profile.siteSlug = nextSlug;
+    continuedInput.snapshot.profile.businessName = 'Changed name must not be saved on failure';
+
+    await expect(claimOnboardingDraft(owner, continuedInput, handle())).rejects.toMatchObject({
+      code: state === 'occupied' ? 'SITE_SLUG_UNAVAILABLE' : state === 'reserved' ? 'SITE_SLUG_INVALID' : 'SITE_SLUG_LOCKED',
+    });
+
+    const recovered = await getOnboardingDraftClaimStatus(owner, initialInput.anonymousDraftToken, handle());
+
+    expect(recovered).toMatchObject({ revision: initial.data.revision, salonSlug: initial.data.salonSlug });
+
+    const [salon] = await database.select().from(schema.salonSchema)
+      .where(eq(schema.salonSchema.id, initial.data.salonId));
+
+    expect(salon).toMatchObject({ name: initialInput.snapshot.profile.businessName, slug: initial.data.salonSlug });
   });
 
   it('returns structured business/site conflicts and creates a revision-scoped replacement', async () => {
@@ -1570,6 +1708,37 @@ describe.sequential('account-backed onboarding persistence', () => {
 
     await expect(getOnboardingDraftClaimStatus(owner, opaque('rotated_deleted_status'), handle(), initial.data.siteId))
       .rejects.toMatchObject({ code: 'BUSINESS_ACCESS_DENIED', status: 403 });
+  });
+
+  it.each(['removed', 'downgraded', 'deleted'] as const)('rechecks current ownership when saved account access is %s', async (state) => {
+    const owner = identity(`saved_access_${state}`);
+    const input = request(`saved_access_${state}`);
+    const saved = await claimOnboardingDraft(owner, input, handle());
+    if (saved.kind !== 'success') {
+      throw new Error('Expected initial claim.');
+    }
+    if (state === 'removed') {
+      await database.delete(schema.adminSalonMembershipSchema)
+        .where(eq(schema.adminSalonMembershipSchema.salonId, saved.data.salonId));
+    } else if (state === 'downgraded') {
+      await database.update(schema.adminSalonMembershipSchema).set({ role: 'admin' })
+        .where(eq(schema.adminSalonMembershipSchema.salonId, saved.data.salonId));
+    } else {
+      await database.update(schema.salonSchema).set({ deletedAt: new Date() })
+        .where(eq(schema.salonSchema.id, saved.data.salonId));
+    }
+
+    await expect(getOnboardingDraftClaimStatus(owner, input.anonymousDraftToken, handle()))
+      .rejects.toMatchObject({ code: 'BUSINESS_ACCESS_DENIED', status: 403 });
+    await expect(getOnboardingDraftClaimStatus(owner, opaque(`rotated_${state}`), handle(), saved.data.siteId))
+      .rejects.toMatchObject({ code: 'BUSINESS_ACCESS_DENIED', status: 403 });
+    await expect(claimOnboardingDraft(owner, input, handle()))
+      .rejects.toMatchObject({ code: 'BUSINESS_ACCESS_DENIED', status: 403 });
+    await expect(saveOnboardingPlanIntent(owner, {
+      idempotencyKey: opaque(`plan_${state}`),
+      intent: 'free',
+      siteId: saved.data.siteId,
+    }, handle())).rejects.toMatchObject({ code: 'SITE_NOT_FOUND', status: 404 });
   });
 
   it('stores plan intent only, with stable idempotency and tenant-scoped loading', async () => {
