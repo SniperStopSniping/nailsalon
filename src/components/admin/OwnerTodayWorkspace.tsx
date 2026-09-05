@@ -10,6 +10,7 @@ import {
   ExternalLink,
   Gift,
   Link2,
+  Lock,
   MailWarning,
   RefreshCw,
   Settings2,
@@ -201,15 +202,23 @@ export function OwnerTodayWorkspace({
   const [financialSummaryLoading, setFinancialSummaryLoading] = useState(true);
   const [financialSummaryError, setFinancialSummaryError]
     = useState<string | null>(null);
+  // Revenue is owner-only on the server (403 OWNER_REQUIRED). A collaborator
+  // is not looking at a broken card, so remember which salon answered that way
+  // and say so in words instead of retrying every minute behind an error.
+  const [financialSummaryOwnerOnlySlug, setFinancialSummaryOwnerOnlySlug]
+    = useState<string | null>(null);
   const financialSummaryCacheRef = useRef<
     Record<string, OwnerFinancialSummary>
   >({});
   const latestFinancialRequestRef = useRef(0);
+  const financialSummaryOwnerOnlyRef = useRef<string | null>(null);
 
   const financialSummary
     = financialSummaryState?.salonSlug === salonSlug
       ? financialSummaryState.data
       : null;
+  const financialSummaryOwnerOnly
+    = Boolean(salonSlug) && financialSummaryOwnerOnlySlug === salonSlug;
 
   const loadToday = useCallback(async () => {
     if (!salonSlug) {
@@ -291,6 +300,12 @@ export function OwnerTodayWorkspace({
       return;
     }
 
+    // Already told this salon is owner-only: nothing to poll for.
+    if (financialSummaryOwnerOnlyRef.current === salonSlug) {
+      setFinancialSummaryLoading(false);
+      return;
+    }
+
     const cached = financialSummaryCacheRef.current[salonSlug];
     setFinancialSummaryState(current =>
       current?.salonSlug === salonSlug
@@ -309,8 +324,24 @@ export function OwnerTodayWorkspace({
       );
       const payload = await response.json().catch(() => null) as {
         data?: OwnerFinancialSummary;
-        error?: { message?: string } | string;
+        error?: { code?: string; message?: string } | string;
       } | null;
+
+      if (
+        response.status === 403
+        && typeof payload?.error === 'object'
+        && payload.error?.code === 'OWNER_REQUIRED'
+      ) {
+        if (latestFinancialRequestRef.current !== requestId) {
+          return;
+        }
+        delete financialSummaryCacheRef.current[salonSlug];
+        financialSummaryOwnerOnlyRef.current = salonSlug;
+        setFinancialSummaryOwnerOnlySlug(salonSlug);
+        setFinancialSummaryState(null);
+        setFinancialSummaryError(null);
+        return;
+      }
 
       if (!response.ok || !payload?.data) {
         const message
@@ -635,7 +666,9 @@ export function OwnerTodayWorkspace({
             <div className="min-w-0">
               <h2 className="font-semibold text-stone-950">Revenue</h2>
               <p className="mt-0.5 text-xs text-stone-500">
-                Completed appointments · tax and tips separate
+                {financialSummaryOwnerOnly
+                  ? 'Owner only'
+                  : 'Completed appointments · tax and tips separate'}
               </p>
             </div>
           </div>
@@ -655,374 +688,387 @@ export function OwnerTodayWorkspace({
           )}
         </div>
 
-        {financialSummaryLoading && !financialSummary
+        {financialSummaryOwnerOnly
           ? (
               <div
-                className="space-y-3 p-4"
-                data-testid="owner-revenue-summary-loading"
+                className="m-4 flex items-start gap-3 rounded-2xl border border-stone-200 bg-stone-50 p-4 text-sm text-stone-700"
+                data-testid="owner-revenue-summary-owner-only"
               >
-                <div className="h-28 animate-pulse rounded-2xl bg-stone-100" />
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="h-20 animate-pulse rounded-2xl bg-stone-100" />
-                  <div className="h-20 animate-pulse rounded-2xl bg-stone-100" />
-                </div>
-                <div className="grid grid-cols-2 gap-3 pt-1">
-                  {Array.from({ length: 5 }, (_, index) => (
-                    <div
-                      key={index}
-                      className="h-12 animate-pulse rounded-xl bg-stone-100"
-                    />
-                  ))}
-                </div>
+                <Lock aria-hidden="true" size={18} className="mt-0.5 shrink-0 text-stone-500" />
+                <p className="min-w-0 flex-1">
+                  Revenue is visible to the salon owner. Your appointments,
+                  clients and services are unchanged.
+                </p>
               </div>
             )
-          : !financialSummary
-              ? (
-                  <div
-                    role="alert"
-                    className="m-4 flex items-center gap-3 rounded-2xl border border-red-100 bg-red-50 p-4 text-sm text-red-800"
-                  >
-                    <AlertCircle size={18} className="shrink-0" />
-                    <span className="min-w-0 flex-1">
-                      Revenue summary is temporarily unavailable.
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => void loadFinancialSummary()}
-                      className="shrink-0 rounded-full bg-white px-3 py-1.5 text-xs font-semibold text-red-800 shadow-sm"
-                    >
-                      Try again
-                    </button>
+          : financialSummaryLoading && !financialSummary
+            ? (
+                <div
+                  className="space-y-3 p-4"
+                  data-testid="owner-revenue-summary-loading"
+                >
+                  <div className="h-28 animate-pulse rounded-2xl bg-stone-100" />
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="h-20 animate-pulse rounded-2xl bg-stone-100" />
+                    <div className="h-20 animate-pulse rounded-2xl bg-stone-100" />
                   </div>
-                )
-              : (() => {
-                  const todayPeriod = financialSummary.currentPeriods.today;
-                  const forfeitureGrossCents
+                  <div className="grid grid-cols-2 gap-3 pt-1">
+                    {Array.from({ length: 5 }, (_, index) => (
+                      <div
+                        key={index}
+                        className="h-12 animate-pulse rounded-xl bg-stone-100"
+                      />
+                    ))}
+                  </div>
+                </div>
+              )
+            : !financialSummary
+                ? (
+                    <div
+                      role="alert"
+                      className="m-4 flex items-center gap-3 rounded-2xl border border-red-100 bg-red-50 p-4 text-sm text-red-800"
+                    >
+                      <AlertCircle size={18} className="shrink-0" />
+                      <span className="min-w-0 flex-1">
+                        Revenue summary is temporarily unavailable.
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => void loadFinancialSummary()}
+                        className="shrink-0 rounded-full bg-white px-3 py-1.5 text-xs font-semibold text-red-800 shadow-sm"
+                      >
+                        Try again
+                      </button>
+                    </div>
+                  )
+                : (() => {
+                    const todayPeriod = financialSummary.currentPeriods.today;
+                    const forfeitureGrossCents
                     = todayPeriod.depositForfeitedCents ?? 0;
-                  const forfeitureRefundReversalCents
+                    const forfeitureRefundReversalCents
                     = todayPeriod.depositForfeitureRefundReversalCents ?? 0;
-                  const secondaryMetrics = [
-                    ['Collected today', todayPeriod.cashCollectedCents],
-                    [
-                      'Remaining-balance payments',
-                      todayPeriod.remainingBalancePaymentsCollectedCents
-                      ?? todayPeriod.appointmentPaymentsCollectedCents
-                      ?? 0,
-                    ],
-                    ['Deposits collected', todayPeriod.depositCollectedCents ?? 0],
-                    ['Deposit refunds', todayPeriod.depositRefundedCents ?? 0],
-                    ['Deposits applied', todayPeriod.depositAppliedCents ?? 0],
-                    ...(forfeitureGrossCents > 0
-                      ? [
-                          ['Deposits forfeited (gross)', forfeitureGrossCents],
-                          [
-                            'Forfeiture tax estimate',
-                            todayPeriod.depositForfeitureEstimatedTaxCents ?? 0,
-                          ],
-                          [
-                            'Forfeiture net estimate',
-                            todayPeriod.depositForfeitureEstimatedNetCents ?? 0,
-                          ],
-                        ] as const
-                      : []),
-                    ...(forfeitureRefundReversalCents > 0
-                      ? [
-                          ['Forfeiture refund reversals', forfeitureRefundReversalCents],
-                          [
-                            'Forfeiture tax reversals',
-                            todayPeriod.depositForfeitureTaxReversalCents ?? 0,
-                          ],
-                          [
-                            'Forfeiture net reversals',
-                            todayPeriod.depositForfeitureNetReversalCents ?? 0,
-                          ],
-                        ] as const
-                      : []),
-                    [
-                      'Completed outstanding',
-                      financialSummary.balances.completedOutstandingCents,
-                    ],
-                    ['Tips today', todayPeriod.tipsCents],
-                    ['Tax today', todayPeriod.taxCents],
-                    ['Taxable subtotal today', todayPeriod.taxableSubtotalCents ?? 0],
-                    ['Discounts today', todayPeriod.discountsCents],
-                  ] as const;
-                  const allDisplayedValues = [
-                    todayPeriod.completedAppointmentRevenueCents,
-                    financialSummary.currentPeriods.weekToDate
-                      .completedAppointmentRevenueCents,
-                    financialSummary.currentPeriods.monthToDate
-                      .completedAppointmentRevenueCents,
-                    ...secondaryMetrics.map(([, cents]) => cents),
-                  ];
-                  const isEmpty = allDisplayedValues.every(cents => cents === 0);
-                  const historyNotice
+                    const secondaryMetrics = [
+                      ['Collected today', todayPeriod.cashCollectedCents],
+                      [
+                        'Remaining-balance payments',
+                        todayPeriod.remainingBalancePaymentsCollectedCents
+                        ?? todayPeriod.appointmentPaymentsCollectedCents
+                        ?? 0,
+                      ],
+                      ['Deposits collected', todayPeriod.depositCollectedCents ?? 0],
+                      ['Deposit refunds', todayPeriod.depositRefundedCents ?? 0],
+                      ['Deposits applied', todayPeriod.depositAppliedCents ?? 0],
+                      ...(forfeitureGrossCents > 0
+                        ? [
+                            ['Deposits forfeited (gross)', forfeitureGrossCents],
+                            [
+                              'Forfeiture tax estimate',
+                              todayPeriod.depositForfeitureEstimatedTaxCents ?? 0,
+                            ],
+                            [
+                              'Forfeiture net estimate',
+                              todayPeriod.depositForfeitureEstimatedNetCents ?? 0,
+                            ],
+                          ] as const
+                        : []),
+                      ...(forfeitureRefundReversalCents > 0
+                        ? [
+                            ['Forfeiture refund reversals', forfeitureRefundReversalCents],
+                            [
+                              'Forfeiture tax reversals',
+                              todayPeriod.depositForfeitureTaxReversalCents ?? 0,
+                            ],
+                            [
+                              'Forfeiture net reversals',
+                              todayPeriod.depositForfeitureNetReversalCents ?? 0,
+                            ],
+                          ] as const
+                        : []),
+                      [
+                        'Completed outstanding',
+                        financialSummary.balances.completedOutstandingCents,
+                      ],
+                      ['Tips today', todayPeriod.tipsCents],
+                      ['Tax today', todayPeriod.taxCents],
+                      ['Taxable subtotal today', todayPeriod.taxableSubtotalCents ?? 0],
+                      ['Discounts today', todayPeriod.discountsCents],
+                    ] as const;
+                    const allDisplayedValues = [
+                      todayPeriod.completedAppointmentRevenueCents,
+                      financialSummary.currentPeriods.weekToDate
+                        .completedAppointmentRevenueCents,
+                      financialSummary.currentPeriods.monthToDate
+                        .completedAppointmentRevenueCents,
+                      ...secondaryMetrics.map(([, cents]) => cents),
+                    ];
+                    const isEmpty = allDisplayedValues.every(cents => cents === 0);
+                    const historyNotice
                     = getFinancialHistoryNotice(financialSummary);
-                  const depositReportingIncomplete = (
-                    (todayPeriod.unattributedPaymentEventCount ?? 0)
-                    + (todayPeriod.unattributedDepositEventCount ?? 0)
-                    + (todayPeriod.unresolvedDepositEventCount ?? 0)
-                    + (todayPeriod.unresolvedDepositApplicationCount ?? 0)
-                  ) > 0;
-                  const currencyReportingIncomplete = (
-                    (todayPeriod.unknownCurrencyAppointmentCount ?? 0)
-                    + (todayPeriod.excludedForeignCurrencyAppointmentCount ?? 0)
-                    + (todayPeriod.unknownCurrencyPaymentEventCount ?? 0)
-                    + (todayPeriod.excludedForeignCurrencyPaymentEventCount ?? 0)
-                    + (todayPeriod.unknownCurrencyDepositEventCount ?? 0)
-                    + (todayPeriod.excludedForeignCurrencyDepositEventCount ?? 0)
-                    + (financialSummary.balances.unknownCurrencyAppointmentCount ?? 0)
-                    + (financialSummary.balances.excludedForeignCurrencyAppointmentCount ?? 0)
-                  ) > 0;
-                  const forfeitureTaxBuckets
+                    const depositReportingIncomplete = (
+                      (todayPeriod.unattributedPaymentEventCount ?? 0)
+                      + (todayPeriod.unattributedDepositEventCount ?? 0)
+                      + (todayPeriod.unresolvedDepositEventCount ?? 0)
+                      + (todayPeriod.unresolvedDepositApplicationCount ?? 0)
+                    ) > 0;
+                    const currencyReportingIncomplete = (
+                      (todayPeriod.unknownCurrencyAppointmentCount ?? 0)
+                      + (todayPeriod.excludedForeignCurrencyAppointmentCount ?? 0)
+                      + (todayPeriod.unknownCurrencyPaymentEventCount ?? 0)
+                      + (todayPeriod.excludedForeignCurrencyPaymentEventCount ?? 0)
+                      + (todayPeriod.unknownCurrencyDepositEventCount ?? 0)
+                      + (todayPeriod.excludedForeignCurrencyDepositEventCount ?? 0)
+                      + (financialSummary.balances.unknownCurrencyAppointmentCount ?? 0)
+                      + (financialSummary.balances.excludedForeignCurrencyAppointmentCount ?? 0)
+                    ) > 0;
+                    const forfeitureTaxBuckets
                     = todayPeriod.forfeitureTaxIdentityBuckets ?? [];
-                  const actualTaxBuckets
+                    const actualTaxBuckets
                     = todayPeriod.actualTaxIdentityBuckets ?? [];
 
-                  return (
-                    <div className="space-y-3 p-4">
-                      <div className="rounded-2xl bg-gradient-to-br from-[#4C1D2E] to-[#8B1538] p-4 text-white">
-                        <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-rose-100">
-                          Revenue today
-                        </p>
-                        <p className="mt-1 text-3xl font-bold tabular-nums">
-                          {formatMoney(
-                            todayPeriod.completedAppointmentRevenueCents,
-                            financialSummary.currency,
-                          )}
-                        </p>
-                        <p className="mt-1 text-xs text-rose-100">
-                          Completed appointment revenue
-                        </p>
-                      </div>
-                      {forfeitureTaxBuckets.length > 0 && (
-                        <div
-                          className="space-y-2 rounded-2xl border border-stone-100 bg-stone-50 p-3 text-xs text-stone-700"
-                          data-testid="owner-forfeiture-tax-identities"
-                        >
-                          <p className="font-semibold text-stone-900">
-                            Forfeiture tax estimate identities
+                    return (
+                      <div className="space-y-3 p-4">
+                        <div className="rounded-2xl bg-gradient-to-br from-[#4C1D2E] to-[#8B1538] p-4 text-white">
+                          <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-rose-100">
+                            Revenue today
                           </p>
-                          {forfeitureTaxBuckets.map(bucket => (
-                            <div
-                              key={[
-                                bucket.schemaVersion,
-                                bucket.classification,
-                                bucket.label ?? 'none',
-                                bucket.rateBps,
-                                bucket.mode,
-                                bucket.configurationEffectiveFrom ?? 'none',
-                                bucket.configurationSource,
-                                bucket.taxEstimateApplied,
-                              ].join(':')}
-                              className="rounded-xl bg-white px-3 py-2"
-                            >
-                              <p className="font-medium text-stone-900">
-                                {`${bucket.label ?? 'No tax label'} · ${(bucket.rateBps / 100).toFixed(2)}% · ${bucket.mode}`}
-                              </p>
-                              <p className="mt-0.5 text-stone-500">
-                                Schema
-                                {' '}
-                                {bucket.schemaVersion}
-                                {' '}
-                                ·
-                                {' '}
-                                {bucket.classification}
-                                {' '}
-                                ·
-                                {' '}
-                                {bucket.configurationSource}
-                                {bucket.configurationEffectiveFrom
-                                  ? ` · effective ${bucket.configurationEffectiveFrom}`
-                                  : ''}
-                              </p>
-                              <p className="mt-1 tabular-nums">
-                                Gross
-                                {' '}
-                                {formatMoney(bucket.grossForfeitedCents, financialSummary.currency)}
-                                {' '}
-                                · tax estimate
-                                {' '}
-                                {formatMoney(bucket.estimatedTaxIncludedCents, financialSummary.currency)}
-                                {' '}
-                                · net estimate
-                                {' '}
-                                {formatMoney(bucket.estimatedNetCents, financialSummary.currency)}
-                              </p>
-                              {bucket.refundReversalCount > 0 && (
-                                <p className="mt-1 tabular-nums text-amber-800">
-                                  Later refund reversal
-                                  {' '}
-                                  {formatMoney(bucket.refundReversalCents, financialSummary.currency)}
+                          <p className="mt-1 text-3xl font-bold tabular-nums">
+                            {formatMoney(
+                              todayPeriod.completedAppointmentRevenueCents,
+                              financialSummary.currency,
+                            )}
+                          </p>
+                          <p className="mt-1 text-xs text-rose-100">
+                            Completed appointment revenue
+                          </p>
+                        </div>
+                        {forfeitureTaxBuckets.length > 0 && (
+                          <div
+                            className="space-y-2 rounded-2xl border border-stone-100 bg-stone-50 p-3 text-xs text-stone-700"
+                            data-testid="owner-forfeiture-tax-identities"
+                          >
+                            <p className="font-semibold text-stone-900">
+                              Forfeiture tax estimate identities
+                            </p>
+                            {forfeitureTaxBuckets.map(bucket => (
+                              <div
+                                key={[
+                                  bucket.schemaVersion,
+                                  bucket.classification,
+                                  bucket.label ?? 'none',
+                                  bucket.rateBps,
+                                  bucket.mode,
+                                  bucket.configurationEffectiveFrom ?? 'none',
+                                  bucket.configurationSource,
+                                  bucket.taxEstimateApplied,
+                                ].join(':')}
+                                className="rounded-xl bg-white px-3 py-2"
+                              >
+                                <p className="font-medium text-stone-900">
+                                  {`${bucket.label ?? 'No tax label'} · ${(bucket.rateBps / 100).toFixed(2)}% · ${bucket.mode}`}
                                 </p>
-                              )}
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                      {actualTaxBuckets.length > 0 && (
-                        <div
-                          className="space-y-2 rounded-2xl border border-stone-100 bg-stone-50 p-3 text-xs text-stone-700"
-                          data-testid="owner-actual-tax-identities"
-                        >
-                          <p className="font-semibold text-stone-900">
-                            Completed actual tax identities
-                          </p>
-                          {actualTaxBuckets.map(bucket => (
-                            <div
-                              key={[
-                                bucket.schemaVersion,
-                                bucket.classification,
-                                bucket.label ?? 'none',
-                                bucket.rateBps,
-                                bucket.mode,
-                                bucket.configurationEffectiveFrom ?? 'none',
-                                bucket.configurationSource,
-                                bucket.taxApplied,
-                                bucket.taxExempt,
-                              ].join(':')}
-                              className="rounded-xl bg-white px-3 py-2"
-                            >
-                              <p className="font-medium text-stone-900">
-                                {`${bucket.label ?? 'No tax label'} · ${(bucket.rateBps / 100).toFixed(2)}% · ${bucket.mode}`}
-                              </p>
-                              <p className="mt-0.5 text-stone-500">
-                                Schema
-                                {' '}
-                                {bucket.schemaVersion}
-                                {' '}
-                                ·
-                                {' '}
-                                {bucket.classification}
-                                {' '}
-                                ·
-                                {' '}
-                                {bucket.configurationSource}
-                                {bucket.configurationEffectiveFrom
-                                  ? ` · effective ${bucket.configurationEffectiveFrom}`
-                                  : ''}
-                                {bucket.taxExempt ? ' · exempt' : ''}
-                              </p>
-                              <p className="mt-1 tabular-nums">
-                                Taxable
-                                {' '}
-                                {formatMoney(bucket.taxableSubtotalCents, financialSummary.currency)}
-                                {' '}
-                                · tax
-                                {' '}
-                                {formatMoney(bucket.taxCents, financialSummary.currency)}
-                              </p>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                      <div className="grid grid-cols-2 gap-3">
-                        {[
-                          [
-                            'Revenue this week',
-                            financialSummary.currentPeriods.weekToDate,
-                          ],
-                          [
-                            'Revenue this month',
-                            financialSummary.currentPeriods.monthToDate,
-                          ],
-                        ].map(([label, period]) => {
-                          const summary = period as typeof todayPeriod;
-                          return (
-                            <div
-                              key={label as string}
-                              className="rounded-2xl border border-rose-100 bg-rose-50/50 p-3"
-                            >
-                              <p className="text-[11px] font-bold uppercase tracking-widest text-rose-700">
-                                {label as string}
-                              </p>
-                              <p className="mt-1 text-xl font-bold tabular-nums text-stone-950">
-                                {formatMoney(
-                                  summary.completedAppointmentRevenueCents,
-                                  financialSummary.currency,
+                                <p className="mt-0.5 text-stone-500">
+                                  Schema
+                                  {' '}
+                                  {bucket.schemaVersion}
+                                  {' '}
+                                  ·
+                                  {' '}
+                                  {bucket.classification}
+                                  {' '}
+                                  ·
+                                  {' '}
+                                  {bucket.configurationSource}
+                                  {bucket.configurationEffectiveFrom
+                                    ? ` · effective ${bucket.configurationEffectiveFrom}`
+                                    : ''}
+                                </p>
+                                <p className="mt-1 tabular-nums">
+                                  Gross
+                                  {' '}
+                                  {formatMoney(bucket.grossForfeitedCents, financialSummary.currency)}
+                                  {' '}
+                                  · tax estimate
+                                  {' '}
+                                  {formatMoney(bucket.estimatedTaxIncludedCents, financialSummary.currency)}
+                                  {' '}
+                                  · net estimate
+                                  {' '}
+                                  {formatMoney(bucket.estimatedNetCents, financialSummary.currency)}
+                                </p>
+                                {bucket.refundReversalCount > 0 && (
+                                  <p className="mt-1 tabular-nums text-amber-800">
+                                    Later refund reversal
+                                    {' '}
+                                    {formatMoney(bucket.refundReversalCents, financialSummary.currency)}
+                                  </p>
                                 )}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        {actualTaxBuckets.length > 0 && (
+                          <div
+                            className="space-y-2 rounded-2xl border border-stone-100 bg-stone-50 p-3 text-xs text-stone-700"
+                            data-testid="owner-actual-tax-identities"
+                          >
+                            <p className="font-semibold text-stone-900">
+                              Completed actual tax identities
+                            </p>
+                            {actualTaxBuckets.map(bucket => (
+                              <div
+                                key={[
+                                  bucket.schemaVersion,
+                                  bucket.classification,
+                                  bucket.label ?? 'none',
+                                  bucket.rateBps,
+                                  bucket.mode,
+                                  bucket.configurationEffectiveFrom ?? 'none',
+                                  bucket.configurationSource,
+                                  bucket.taxApplied,
+                                  bucket.taxExempt,
+                                ].join(':')}
+                                className="rounded-xl bg-white px-3 py-2"
+                              >
+                                <p className="font-medium text-stone-900">
+                                  {`${bucket.label ?? 'No tax label'} · ${(bucket.rateBps / 100).toFixed(2)}% · ${bucket.mode}`}
+                                </p>
+                                <p className="mt-0.5 text-stone-500">
+                                  Schema
+                                  {' '}
+                                  {bucket.schemaVersion}
+                                  {' '}
+                                  ·
+                                  {' '}
+                                  {bucket.classification}
+                                  {' '}
+                                  ·
+                                  {' '}
+                                  {bucket.configurationSource}
+                                  {bucket.configurationEffectiveFrom
+                                    ? ` · effective ${bucket.configurationEffectiveFrom}`
+                                    : ''}
+                                  {bucket.taxExempt ? ' · exempt' : ''}
+                                </p>
+                                <p className="mt-1 tabular-nums">
+                                  Taxable
+                                  {' '}
+                                  {formatMoney(bucket.taxableSubtotalCents, financialSummary.currency)}
+                                  {' '}
+                                  · tax
+                                  {' '}
+                                  {formatMoney(bucket.taxCents, financialSummary.currency)}
+                                </p>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        <div className="grid grid-cols-2 gap-3">
+                          {[
+                            [
+                              'Revenue this week',
+                              financialSummary.currentPeriods.weekToDate,
+                            ],
+                            [
+                              'Revenue this month',
+                              financialSummary.currentPeriods.monthToDate,
+                            ],
+                          ].map(([label, period]) => {
+                            const summary = period as typeof todayPeriod;
+                            return (
+                              <div
+                                key={label as string}
+                                className="rounded-2xl border border-rose-100 bg-rose-50/50 p-3"
+                              >
+                                <p className="text-[11px] font-bold uppercase tracking-widest text-rose-700">
+                                  {label as string}
+                                </p>
+                                <p className="mt-1 text-xl font-bold tabular-nums text-stone-950">
+                                  {formatMoney(
+                                    summary.completedAppointmentRevenueCents,
+                                    financialSummary.currency,
+                                  )}
+                                </p>
+                              </div>
+                            );
+                          })}
+                        </div>
+                        {isEmpty && (
+                          <div
+                            className="rounded-2xl border border-stone-100 bg-stone-50 px-3 py-2.5 text-xs text-stone-600"
+                            data-testid="owner-revenue-summary-empty"
+                          >
+                            No completed financial activity yet.
+                          </div>
+                        )}
+                        <div className="grid grid-cols-2 gap-x-4 gap-y-3 border-t border-stone-100 pt-4 text-sm">
+                          {secondaryMetrics.map(([label, cents]) => (
+                            <div key={label}>
+                              <p className="text-xs text-stone-500">{label}</p>
+                              <p className="mt-0.5 font-semibold tabular-nums text-stone-900">
+                                {formatMoney(cents, financialSummary.currency)}
                               </p>
                             </div>
-                          );
-                        })}
-                      </div>
-                      {isEmpty && (
-                        <div
-                          className="rounded-2xl border border-stone-100 bg-stone-50 px-3 py-2.5 text-xs text-stone-600"
-                          data-testid="owner-revenue-summary-empty"
-                        >
-                          No completed financial activity yet.
+                          ))}
                         </div>
-                      )}
-                      <div className="grid grid-cols-2 gap-x-4 gap-y-3 border-t border-stone-100 pt-4 text-sm">
-                        {secondaryMetrics.map(([label, cents]) => (
-                          <div key={label}>
-                            <p className="text-xs text-stone-500">{label}</p>
-                            <p className="mt-0.5 font-semibold tabular-nums text-stone-900">
-                              {formatMoney(cents, financialSummary.currency)}
+                        {historyNotice && (
+                          <div className="rounded-2xl border border-amber-100 bg-amber-50 px-3 py-2.5 text-xs leading-relaxed text-amber-950">
+                            <p className="font-semibold">
+                              {historyNotice.label}
+                            </p>
+                            <p className="mt-0.5">
+                              {historyNotice.explanation}
                             </p>
                           </div>
-                        ))}
-                      </div>
-                      {historyNotice && (
-                        <div className="rounded-2xl border border-amber-100 bg-amber-50 px-3 py-2.5 text-xs leading-relaxed text-amber-950">
-                          <p className="font-semibold">
-                            {historyNotice.label}
-                          </p>
-                          <p className="mt-0.5">
-                            {historyNotice.explanation}
-                          </p>
-                        </div>
-                      )}
-                      {depositReportingIncomplete && (
-                        <p
-                          className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900"
-                          data-testid="owner-deposit-reporting-incomplete"
-                        >
-                          Some payment or deposit activity is excluded because its tenant, event date, currency, or resolution is unknown.
-                        </p>
-                      )}
-                      {currencyReportingIncomplete && (
-                        <p
-                          className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900"
-                          data-testid="owner-currency-reporting-incomplete"
-                        >
-                          Financial activity with unknown or non-
-                          {financialSummary.currency}
-                          {' '}
-                          currency is excluded from these totals.
-                        </p>
-                      )}
-                      {(todayPeriod.unresolvedActualTaxIdentityCount ?? 0) > 0 && (
-                        <p
-                          className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900"
-                          data-testid="owner-tax-reporting-incomplete"
-                        >
-                          Some completed tax activity is excluded from tax identity details because its frozen final snapshot is unavailable or invalid.
-                        </p>
-                      )}
-                      {financialSummaryError && (
-                        <div
-                          role="alert"
-                          className="flex items-center gap-3 rounded-2xl border border-amber-100 bg-amber-50 p-3 text-xs text-amber-950"
-                        >
-                          <AlertCircle size={16} className="shrink-0" />
-                          <span className="min-w-0 flex-1">
-                            Showing the last available revenue summary. Try
-                            again in a moment.
-                          </span>
-                          <button
-                            type="button"
-                            onClick={() => void loadFinancialSummary()}
-                            className="shrink-0 rounded-full bg-white px-3 py-1.5 font-semibold text-amber-950 shadow-sm"
+                        )}
+                        {depositReportingIncomplete && (
+                          <p
+                            className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900"
+                            data-testid="owner-deposit-reporting-incomplete"
                           >
-                            Try again
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  );
-                })()}
+                            Some payment or deposit activity is excluded because its tenant, event date, currency, or resolution is unknown.
+                          </p>
+                        )}
+                        {currencyReportingIncomplete && (
+                          <p
+                            className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900"
+                            data-testid="owner-currency-reporting-incomplete"
+                          >
+                            Financial activity with unknown or non-
+                            {financialSummary.currency}
+                            {' '}
+                            currency is excluded from these totals.
+                          </p>
+                        )}
+                        {(todayPeriod.unresolvedActualTaxIdentityCount ?? 0) > 0 && (
+                          <p
+                            className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900"
+                            data-testid="owner-tax-reporting-incomplete"
+                          >
+                            Some completed tax activity is excluded from tax identity details because its frozen final snapshot is unavailable or invalid.
+                          </p>
+                        )}
+                        {financialSummaryError && (
+                          <div
+                            role="alert"
+                            className="flex items-center gap-3 rounded-2xl border border-amber-100 bg-amber-50 p-3 text-xs text-amber-950"
+                          >
+                            <AlertCircle size={16} className="shrink-0" />
+                            <span className="min-w-0 flex-1">
+                              Showing the last available revenue summary. Try
+                              again in a moment.
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => void loadFinancialSummary()}
+                              className="shrink-0 rounded-full bg-white px-3 py-1.5 font-semibold text-amber-950 shadow-sm"
+                            >
+                              Try again
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
       </section>
 
       {retentionLoading

@@ -229,8 +229,10 @@ function errorMessage(code: string | undefined): string {
       return 'This client changed while you were editing. Refresh the client profile and try again. Your entries are still here.';
     case 'CONTACT_IDENTITY_CONFLICT':
       return 'That phone number or email belongs to another client at this salon. Review the contact details and try again.';
+    case 'CLIENT_ACCOUNT_LINK_CONTACT_LOCKED':
+      return 'This client signed in with their own account, and that account owns their phone and email. Ask them to update it from their account, or unlink the account first. You can still edit the name, birthday, or notes here.';
     case 'UNSUPPORTED_CLIENT_IDENTITY':
-      return 'Phone and email cannot be changed safely for this client. You can still edit the name, birthday, or notes.';
+      return 'This phone number or email is already tied to another record here, so it cannot be reassigned from this screen. Correct that record first, or contact support. You can still edit the name, birthday, or notes.';
     case 'CLIENT_NOT_FOUND':
       return 'This client is no longer available. Close this form and refresh the client list.';
     case 'VALIDATION_ERROR':

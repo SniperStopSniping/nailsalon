@@ -1428,7 +1428,11 @@ function ConflictScreen({
           .
         </p>
         <button className="onboarding-integration-text-action" type="button" onClick={onChangeAccount}>Use a different account</button>
-        <p>Choose how to keep both versions. A published website is never replaced here.</p>
+        <p>
+          Choose how to keep both versions. A published website is never replaced here, and
+          anything you have changed in your dashboard since — prices, hours, contact details,
+          your booking page style — is kept whichever option you pick.
+        </p>
         <div className="onboarding-conflict-options" role="group" aria-label="Website save choice">
           <button
             type="button"
@@ -1454,7 +1458,7 @@ function ConflictScreen({
                   })}
                 >
                   <strong>Replace the existing draft</strong>
-                  <span>The current unpublished draft will be replaced</span>
+                  <span>Replaces the unpublished setup draft. Your dashboard edits are kept.</span>
                 </button>
               )
             : null}
@@ -1516,6 +1520,13 @@ function SavedCelebration({
             ? (
                 <p className="onboarding-saved-media-note">
                   Your website details are saved. The photos listed earlier remain only on this device until you retry them.
+                </p>
+              )
+            : null}
+          {savedSite.preservedDashboardEdits && savedSite.preservedDashboardEdits.length > 0
+            ? (
+                <p className="onboarding-saved-media-note" role="status" data-testid="onboarding-preserved-edits">
+                  {`We kept the changes you already made in your dashboard: ${savedSite.preservedDashboardEdits.join(', ')}. This setup did not overwrite them.`}
                 </p>
               )
             : null}

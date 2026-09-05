@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { GET, PATCH } from './route';
 
 const {
-  requireActiveAdminSalon,
+  requireAdminSalonFromRequest,
   buildTimeOffDecisionNotification,
   createStaffNotification,
   db,
@@ -37,7 +37,7 @@ const {
   };
 
   return {
-    requireActiveAdminSalon: vi.fn(),
+    requireAdminSalonFromRequest: vi.fn(),
     buildTimeOffDecisionNotification: vi.fn(() => ({ title: 'Decision', body: 'Body' })),
     createStaffNotification: vi.fn(),
     db,
@@ -50,7 +50,7 @@ const {
 });
 
 vi.mock('@/libs/adminAuth', () => ({
-  requireActiveAdminSalon,
+  requireAdminSalonFromRequest,
 }));
 
 vi.mock('@/libs/notifications', () => ({
@@ -114,7 +114,7 @@ describe('/api/admin/time-off-requests/[id]', () => {
     vi.clearAllMocks();
     // The route logs each decision via console.warn; that log is expected.
     vi.spyOn(console, 'warn').mockImplementation(() => {});
-    requireActiveAdminSalon.mockResolvedValue({
+    requireAdminSalonFromRequest.mockResolvedValue({
       error: null,
       salon: { id: 'salon_active', name: 'Active Salon' },
       admin: { id: 'admin_1', name: 'Admin' },

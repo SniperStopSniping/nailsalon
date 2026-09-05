@@ -59,6 +59,8 @@ type Props = {
   initialSalonPolicy: SalonPolicy;
   superAdminPolicy: SuperAdminPolicy;
   salonName: string;
+  /** The salon this page resolved from the URL; every write carries it. */
+  salonSlug: string;
   metaStatus: MetaStatus;
   latestFailure: AutopostFailure | null;
   locale: string;
@@ -72,6 +74,7 @@ export function SalonPoliciesClient({
   initialSalonPolicy,
   superAdminPolicy,
   salonName,
+  salonSlug,
   metaStatus,
   latestFailure,
   locale,
@@ -79,11 +82,16 @@ export function SalonPoliciesClient({
   const router = useRouter();
 
   const handleSave = async (policy: SalonPolicy) => {
-    const response = await fetch('/api/admin/policies', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(policy),
-    });
+    // The page may be showing a salon the active-salon cookie does not name,
+    // so the write repeats the slug the page resolved instead of trusting it.
+    const response = await fetch(
+      `/api/admin/policies?salonSlug=${encodeURIComponent(salonSlug)}`,
+      {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(policy),
+      },
+    );
 
     if (!response.ok) {
       const data = await response.json();
@@ -99,7 +107,10 @@ export function SalonPoliciesClient({
           <div className="flex items-center gap-3">
             <button
               type="button"
-              onClick={() => router.push(`/${locale}/admin`)}
+              onClick={() =>
+                router.push(
+                  `/${locale}/admin?salon=${encodeURIComponent(salonSlug)}`,
+                )}
               className="-ml-2 rounded-lg p-2 transition-colors hover:bg-gray-100"
             >
               <ArrowLeft className="size-5 text-gray-600" />

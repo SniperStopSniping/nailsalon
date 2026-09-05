@@ -43,12 +43,13 @@ import {
   Users,
   X,
 } from 'lucide-react';
-import { useParams, useRouter } from 'next/navigation';
+import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import {
   type ReactNode,
   useCallback,
   useEffect,
   useId,
+  useRef,
   useState,
 } from 'react';
 
@@ -68,6 +69,12 @@ import {
   formatDepositCentsForInput,
   parseDepositDollarsToCents,
 } from '@/libs/depositPolicy';
+import {
+  INSTAGRAM_FIELD_HELPER,
+  INSTAGRAM_FIELD_LABEL,
+  resolveInstagramInput,
+  toInstagramHandle,
+} from '@/libs/instagramHandle';
 import type { ResolvedLoyaltyPoints } from '@/libs/loyalty';
 import { hasReviewedForfeitureTaxTreatment } from '@/libs/taxConfig';
 import { getDateKeyInTimeZone } from '@/libs/timeZone';
@@ -378,312 +385,14 @@ function ProfileCard({
   );
 }
 
-type DirectionsLocationFormState = {
-  id: string | null;
-  name: string;
-  address: string;
-  city: string;
-  state: string;
-  zipCode: string;
-};
-
-function DirectionsLocationSection({
-  salonSlug,
-  onDirtyChange,
-}: {
-  salonSlug: string;
-  onDirtyChange?: (dirty: boolean) => void;
-}) {
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [saved, setSaved] = useState(false);
-  const [dirty, setDirty] = useState(false);
-  const [locationCount, setLocationCount] = useState(0);
-  const [isPrimaryFallback, setIsPrimaryFallback] = useState(false);
-  const [form, setForm] = useState<DirectionsLocationFormState>({
-    id: null,
-    name: '',
-    address: '',
-    city: '',
-    state: '',
-    zipCode: '',
-  });
-
-  const markDirty = useCallback(
-    (value: boolean) => {
-      setDirty(value);
-      onDirtyChange?.(value);
-    },
-    [onDirtyChange],
-  );
-
-  const fetchLocation = useCallback(async () => {
-    if (!salonSlug) {
-      return;
-    }
-
-    setLoading(true);
-    setError(null);
-
-    try {
-      const response = await fetch(
-        `/api/admin/location?salonSlug=${encodeURIComponent(salonSlug)}`,
-      );
-      const body = await response.json().catch(() => null);
-
-      if (!response.ok) {
-        throw new Error(
-          body?.error?.message || 'Failed to load location settings',
-        );
-      }
-
-      const location = body?.data?.location;
-      const salonName = body?.data?.salon?.name || '';
-
-      setLocationCount(body?.data?.salon?.locationCount || 0);
-      setIsPrimaryFallback(Boolean(body?.data?.isPrimaryFallback));
-      setForm({
-        id: location?.id ?? null,
-        name: location?.name ?? salonName,
-        address: location?.address ?? '',
-        city: location?.city ?? '',
-        state: location?.state ?? '',
-        zipCode: location?.zipCode ?? '',
-      });
-      markDirty(false);
-    } catch (fetchError) {
-      setError(
-        fetchError instanceof Error
-          ? fetchError.message
-          : 'Failed to load location settings',
-      );
-    } finally {
-      setLoading(false);
-    }
-  }, [salonSlug, markDirty]);
-
-  useEffect(() => {
-    fetchLocation();
-  }, [fetchLocation]);
-
-  useEffect(() => {
-    if (!saved) {
-      return undefined;
-    }
-
-    const timer = window.setTimeout(() => setSaved(false), 2500);
-    return () => window.clearTimeout(timer);
-  }, [saved]);
-
-  const handleChange = (
-    field: keyof DirectionsLocationFormState,
-    value: string,
-  ) => {
-    setForm(prev => ({ ...prev, [field]: value }));
-    setSaved(false);
-    markDirty(true);
-  };
-
-  const handleSave = async () => {
-    if (!form.name.trim() || saving) {
-      return;
-    }
-
-    setSaving(true);
-    setError(null);
-
-    try {
-      const response = await fetch(
-        `/api/admin/location?salonSlug=${encodeURIComponent(salonSlug)}`,
-        {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            name: form.name,
-            address: form.address,
-            city: form.city,
-            state: form.state,
-            zipCode: form.zipCode,
-          }),
-        },
-      );
-
-      const body = await response.json().catch(() => null);
-      if (!response.ok) {
-        throw new Error(
-          body?.error?.message || 'Failed to save location settings',
-        );
-      }
-
-      const location = body?.data?.location;
-      setLocationCount(body?.data?.locationCount || locationCount);
-      setIsPrimaryFallback(false);
-      setForm(prev => ({
-        ...prev,
-        id: location?.id ?? prev.id,
-        name: location?.name ?? prev.name,
-        address: location?.address ?? '',
-        city: location?.city ?? '',
-        state: location?.state ?? '',
-        zipCode: location?.zipCode ?? '',
-      }));
-      setSaved(true);
-      markDirty(false);
-    } catch (saveError) {
-      setError(
-        saveError instanceof Error
-          ? saveError.message
-          : 'Failed to save location settings',
-      );
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  return (
-    <Section
-      title="Directions Location"
-      footer={
-        locationCount > 1
-          ? 'This edits the primary location used as the default customer directions target. Other locations remain unchanged.'
-          : 'This address is used for customer directions and the default booking location when a visit does not specify another location.'
-      }
-    >
-      {loading
-        ? (
-            <div className="flex items-center justify-center py-8">
-              <div className="size-6 animate-spin rounded-full border-2 border-rose-800 border-t-transparent" />
-            </div>
-          )
-        : (
-            <div className="space-y-4 p-4">
-              {isPrimaryFallback && (
-                <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-relaxed text-amber-800">
-                  No primary location was set. Saving here will promote the current
-                  default location for customer directions.
-                </div>
-              )}
-
-              {error && (
-                <div className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-                  <AlertCircle className="mt-0.5 size-4 shrink-0" />
-                  <span>{error}</span>
-                </div>
-              )}
-
-              <div className="grid gap-3 sm:grid-cols-2">
-                <label className="flex flex-col gap-1 sm:col-span-2">
-                  <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
-                    Location name
-                  </span>
-                  <input
-                    type="text"
-                    value={form.name}
-                    onChange={event => handleChange('name', event.target.value)}
-                    className="h-11 rounded-[10px] border border-gray-200 px-3 text-[15px] text-black outline-none transition-colors focus:border-[#007AFF]"
-                    placeholder="Main salon"
-                  />
-                </label>
-
-                <label className="flex flex-col gap-1 sm:col-span-2">
-                  <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
-                    Street address
-                  </span>
-                  <input
-                    type="text"
-                    value={form.address}
-                    onChange={event =>
-                      handleChange('address', event.target.value)}
-                    className="h-11 rounded-[10px] border border-gray-200 px-3 text-[15px] text-black outline-none transition-colors focus:border-[#007AFF]"
-                    placeholder="123 Main St"
-                  />
-                </label>
-
-                <label className="flex flex-col gap-1">
-                  <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
-                    City
-                  </span>
-                  <input
-                    type="text"
-                    value={form.city}
-                    onChange={event => handleChange('city', event.target.value)}
-                    className="h-11 rounded-[10px] border border-gray-200 px-3 text-[15px] text-black outline-none transition-colors focus:border-[#007AFF]"
-                    placeholder="Toronto"
-                  />
-                </label>
-
-                <div className="grid grid-cols-2 gap-3">
-                  <label className="flex flex-col gap-1">
-                    <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
-                      State
-                    </span>
-                    <input
-                      type="text"
-                      value={form.state}
-                      onChange={event =>
-                        handleChange('state', event.target.value)}
-                      className="h-11 rounded-[10px] border border-gray-200 px-3 text-[15px] text-black outline-none transition-colors focus:border-[#007AFF]"
-                      placeholder="ON"
-                    />
-                  </label>
-
-                  <label className="flex flex-col gap-1">
-                    <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
-                      ZIP / postal
-                    </span>
-                    <input
-                      type="text"
-                      value={form.zipCode}
-                      onChange={event =>
-                        handleChange('zipCode', event.target.value)}
-                      onBlur={(event) => {
-                        // Readable Canadian format on edit; never rewrites an
-                        // untouched stored value.
-                        const formatted = formatCanadianPostalCode(
-                          event.target.value,
-                        );
-                        if (formatted !== event.target.value) {
-                          handleChange('zipCode', formatted);
-                        }
-                      }}
-                      className="h-11 rounded-[10px] border border-gray-200 px-3 text-[15px] text-black outline-none transition-colors focus:border-[#007AFF]"
-                      placeholder="M5H 2M9"
-                    />
-                  </label>
-                </div>
-              </div>
-
-              <div className="flex items-center justify-between gap-3 border-t border-gray-100 pt-3">
-                <div className="flex items-center gap-2 text-xs text-gray-500">
-                  <MapPin className="size-4 text-rose-800" />
-                  <span>
-                    {form.id
-                      ? 'Editing current default location'
-                      : 'Create the first customer-facing location'}
-                  </span>
-                </div>
-                <button
-                  type="button"
-                  onClick={handleSave}
-                  disabled={!form.name.trim() || saving || !dirty}
-                  className="inline-flex items-center gap-2 rounded-[10px] bg-rose-800 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-rose-900 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  <Save className="size-4" />
-                  <span>{saving ? 'Saving...' : 'Save location'}</span>
-                </button>
-              </div>
-
-              {saved && !error && (
-                <div className="text-right text-xs font-medium text-green-600">
-                  Location saved.
-                </div>
-              )}
-            </div>
-          )}
-    </Section>
-  );
-}
+/*
+ * `DirectionsLocationSection` lived here: a second five-field address form
+ * writing the same `PATCH /api/admin/location` as Booking Page → Your
+ * Information → Location (source map §C1 row 1). It was removed rather than
+ * hidden so there is exactly one address editor; Settings → Locations &
+ * directions now hands off to that editor and keeps only the parking &
+ * entry instructions, which live nowhere else.
+ */
 
 /**
  * Parking & entry instructions — the single editing surface for the
@@ -864,6 +573,13 @@ type BookingConfigFormState = {
   introPriceDefaultLabel: string;
   firstVisitDiscountEnabled: boolean;
   clientChangeCutoffHours: number;
+  /**
+   * How far ahead a client must book. Enforced by
+   * `GET /api/appointments/availability` and `POST /api/appointments`
+   * (`TOO_SOON`) and written by onboarding — until now with no owner editor at
+   * all (AG-w2-settings-integrations-01).
+   */
+  minimumNoticeMinutes: number;
 };
 
 type BookingExperienceFormState = BookingExperience;
@@ -1040,6 +756,8 @@ type BookingExperienceEditorProps = {
   ) => void;
   onReset: () => void;
   onSave: () => void;
+  /** Booking Page → Style & Colours, the single colour authority. */
+  appearanceHref?: string;
 };
 
 function BookingExperienceEditor({
@@ -1052,6 +770,7 @@ function BookingExperienceEditor({
   onChange,
   onReset,
   onSave,
+  appearanceHref,
 }: BookingExperienceEditorProps) {
   if (loading) {
     return (
@@ -1077,10 +796,15 @@ function BookingExperienceEditor({
       '--booking-brand-state-border'
     ] ?? previewColor
     : previewColor;
+  // One Instagram normaliser, shared with Your Information → Contact: the
+  // owner types a handle, `@handle` or a link and we store the same canonical
+  // profile URL either editor would store (source map §C1 row 6).
+  const instagramResolution = resolveInstagramInput(draft.socialLinks.instagram);
+  const instagramFieldValue = toInstagramHandle(draft.socialLinks.instagram);
   const configuredSocials = [
     {
       key: 'instagram',
-      label: 'Instagram',
+      label: INSTAGRAM_FIELD_LABEL,
       value: draft.socialLinks.instagram,
       icon: Instagram,
     },
@@ -1115,52 +839,33 @@ function BookingExperienceEditor({
       )}
 
       <div className="grid gap-4 sm:grid-cols-2">
-        <label className="flex flex-col gap-1 sm:col-span-2">
+        {/*
+          One colour authority. The drafted palette in Booking Page → Style &
+          Colours is what customers see; this screen used to edit a SECOND,
+          live-immediate colour (`bookingExperience.primaryColor`) three rows
+          away from it (source map §C1, AG-more-settings-06). The stored field
+          is kept and still saved untouched — nothing here writes it any more.
+        */}
+        <div
+          className="flex flex-col gap-1 rounded-[10px] border border-gray-200 bg-gray-50 p-3 sm:col-span-2"
+          data-testid="branding-colour-authority"
+        >
           <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
-            Primary brand colour
+            Website colours
           </span>
-          <div className="flex items-center gap-2">
-            <input
-              type="color"
-              aria-label="Choose primary brand colour"
-              value={hasValidPreviewColor ? previewColor : '#9F1239'}
-              onChange={event =>
-                onChange(current => ({
-                  ...current,
-                  primaryColor: event.target.value.toUpperCase(),
-                }))}
-              className="size-11 cursor-pointer rounded-[10px] border border-gray-200 bg-white p-1"
-            />
-            <input
-              type="text"
-              aria-label="Primary brand colour"
-              value={draft.primaryColor ?? ''}
-              onChange={event =>
-                onChange(current => ({
-                  ...current,
-                  primaryColor: event.target.value
-                    ? event.target.value.toUpperCase()
-                    : null,
-                }))}
-              maxLength={7}
-              pattern="#[0-9A-Fa-f]{6}"
-              placeholder="Theme default"
-              className="h-11 min-w-0 flex-1 rounded-[10px] border border-gray-200 px-3 font-mono text-[15px] uppercase text-black outline-none transition-colors focus:border-[#007AFF]"
-            />
-            <button
-              type="button"
-              onClick={() =>
-                onChange(current => ({ ...current, primaryColor: null }))}
-              className="h-11 rounded-[10px] border border-gray-200 px-3 text-xs font-semibold text-gray-700 transition-colors hover:bg-gray-50"
+          <p className="text-sm text-gray-700">
+            Website colours are set in Booking Page → Style &amp; Colours, where
+            they stay in your draft until you publish.
+          </p>
+          {appearanceHref && (
+            <a
+              href={appearanceHref}
+              className="inline-flex min-h-11 items-center gap-1 text-sm font-semibold text-rose-800 underline"
             >
-              Use theme
-            </button>
-          </div>
-          <span className="text-xs text-gray-500">
-            Buttons, selected states, borders, and accents only. Enter a six-digit
-            hex colour.
-          </span>
-        </label>
+              Open Style &amp; Colours
+            </a>
+          )}
+        </div>
 
         <label className="flex flex-col gap-1 sm:col-span-2">
           <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
@@ -1196,6 +901,7 @@ function BookingExperienceEditor({
           </div>
           {configuredSocials.map((social) => {
             const SocialIcon = social.icon;
+            const isInstagram = social.key === 'instagram';
             return (
               <label key={social.key} className="flex flex-col gap-1">
                 <span className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-gray-500">
@@ -1203,20 +909,49 @@ function BookingExperienceEditor({
                   {social.label}
                 </span>
                 <input
-                  type="url"
-                  value={social.value ?? ''}
+                  type={isInstagram ? 'text' : 'url'}
+                  // The helper below lives inside the <label>, so it would
+                  // otherwise be concatenated into the accessible name.
+                  aria-label={social.label}
+                  aria-describedby={isInstagram ? 'branding-instagram-helper' : undefined}
+                  data-testid={isInstagram ? 'branding-instagram' : undefined}
+                  value={isInstagram ? instagramFieldValue : social.value ?? ''}
                   onChange={event =>
-                    onChange(current => ({
-                      ...current,
-                      socialLinks: {
-                        ...current.socialLinks,
-                        [social.key]: event.target.value || null,
-                      },
-                    }))}
-                  maxLength={500}
-                  placeholder={`https://${social.label.toLowerCase()}.com/your-profile`}
+                    onChange((current) => {
+                      const typed = event.target.value;
+                      if (!isInstagram) {
+                        return {
+                          ...current,
+                          socialLinks: { ...current.socialLinks, [social.key]: typed || null },
+                        };
+                      }
+                      const resolution = resolveInstagramInput(typed);
+                      return {
+                        ...current,
+                        socialLinks: {
+                          ...current.socialLinks,
+                          // A resolvable handle/link is stored canonically; an
+                          // in-progress or invalid value is kept verbatim so the
+                          // owner keeps what they typed and sees the hint below.
+                          instagram: resolution.status === 'resolved' ? resolution.url : typed || null,
+                        },
+                      };
+                    })}
+                  maxLength={isInstagram ? 200 : 500}
+                  placeholder={isInstagram ? 'yourstudio' : `https://${social.label.toLowerCase()}.com/your-profile`}
                   className="h-11 rounded-[10px] border border-gray-200 px-3 text-[15px] text-black outline-none transition-colors focus:border-[#007AFF]"
                 />
+                {isInstagram && (
+                  <span
+                    className={`text-xs ${instagramResolution.status === 'invalid' ? 'text-red-700' : 'text-gray-500'}`}
+                    data-testid="branding-instagram-helper"
+                    id="branding-instagram-helper"
+                  >
+                    {instagramResolution.status === 'invalid'
+                      ? instagramResolution.error
+                      : `${INSTAGRAM_FIELD_HELPER}${instagramResolution.status === 'resolved' ? ` — clients see @${instagramResolution.username}` : ''}`}
+                  </span>
+                )}
               </label>
             );
           })}
@@ -1365,7 +1100,18 @@ function BookingExperienceEditor({
   );
 }
 
-type BookingPolicyEditorProps = BookingExperienceEditorProps;
+const BOOKING_POLICY_UNREADABLE_MESSAGE
+  = 'We could not read your saved booking policy, so it is not shown here. Nothing has changed.';
+
+type BookingPolicyEditorProps = BookingExperienceEditorProps & {
+  /**
+   * AG-04: false until the saved policy has actually been read back. The form
+   * must never be interactive while it is showing the OFF defaults for a salon
+   * whose policy is live.
+   */
+  hydrated: boolean;
+  onRetryLoad: () => void;
+};
 
 function BookingPolicyEditor({
   draft,
@@ -1374,8 +1120,10 @@ function BookingPolicyEditor({
   saved,
   dirty,
   error,
+  hydrated,
   onChange,
   onReset,
+  onRetryLoad,
   onSave,
 }: BookingPolicyEditorProps) {
   const [previewAcknowledged, setPreviewAcknowledged] = useState(false);
@@ -1419,6 +1167,33 @@ function BookingPolicyEditor({
       >
         <div className="size-6 animate-spin rounded-full border-2 border-rose-800 border-t-transparent" />
         <span className="sr-only">Loading booking policy settings</span>
+      </div>
+    );
+  }
+
+  // The load settled without giving us the saved policy. Showing the defaults
+  // here would tell the owner the policy is OFF for a policy that may be live,
+  // and any toggle they touched would be applied to that wrong baseline.
+  if (!hydrated) {
+    return (
+      <div className="space-y-3 p-4" data-testid="booking-policy-unavailable">
+        <div
+          className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950"
+          role="alert"
+        >
+          <AlertCircle className="mt-0.5 size-4 shrink-0" />
+          <span>
+            {error ?? BOOKING_POLICY_UNREADABLE_MESSAGE}
+          </span>
+        </div>
+        <button
+          type="button"
+          onClick={onRetryLoad}
+          className="inline-flex items-center gap-2 rounded-[10px] border border-gray-200 px-4 py-2.5 text-sm font-semibold text-gray-800 transition-colors hover:bg-gray-50"
+        >
+          <RotateCcw className="size-4" />
+          Try again
+        </button>
       </div>
     );
   }
@@ -1488,23 +1263,40 @@ function BookingPolicyEditor({
           </div>
           <input
             aria-label="Enable booking policy"
+            aria-describedby={
+              acknowledgmentRequired
+                ? 'booking-policy-enabled-help'
+                : undefined
+            }
             type="checkbox"
             checked={draft.policy.enabled}
-            disabled={acknowledgmentRequired}
-            onChange={event =>
+            onChange={(event) => {
+              const enabled = event.target.checked;
               onChange(current => ({
                 ...current,
                 policy: {
                   ...current.policy,
-                  enabled: event.target.checked,
+                  enabled,
+                  // AG-03: this is the master switch. Turning the policy off
+                  // withdraws the acknowledgment gate with it instead of
+                  // leaving a required acknowledgment on a policy that is off
+                  // (which the server would silently re-enable).
+                  acknowledgment: enabled
+                    ? current.policy.acknowledgment
+                    : {
+                        required: false,
+                        text: current.policy.acknowledgment?.text ?? null,
+                      },
                 },
-              }))}
+              }));
+            }}
             className="mt-1 size-4 rounded border-gray-300 text-rose-800 focus:ring-rose-700"
           />
         </label>
         {acknowledgmentRequired && (
-          <p className="text-xs text-gray-600">
-            The policy stays enabled while acknowledgment is required.
+          <p id="booking-policy-enabled-help" className="text-xs text-gray-600">
+            Acknowledgment is required, so this policy is live. Turning it off
+            here also stops asking customers to acknowledge it.
           </p>
         )}
 
@@ -1576,6 +1368,11 @@ function BookingPolicyEditor({
               <input
                 type="checkbox"
                 aria-label={label}
+                aria-describedby={
+                  key === 'showBeforeConfirmation' && acknowledgmentRequired
+                    ? 'booking-policy-preconfirm-help'
+                    : undefined
+                }
                 checked={draft.policy[key]}
                 disabled={
                   key === 'showBeforeConfirmation'
@@ -1596,8 +1393,12 @@ function BookingPolicyEditor({
           ))}
         </div>
         {acknowledgmentRequired && (
-          <p className="text-xs text-gray-600">
-            The policy must appear before confirmation while acknowledgment is required.
+          <p
+            id="booking-policy-preconfirm-help"
+            className="text-xs text-gray-600"
+          >
+            The policy must appear before confirmation while acknowledgment is
+            required. Turn off Require acknowledgment to change this.
           </p>
         )}
       </div>
@@ -1866,14 +1667,21 @@ function BookingPolicyEditor({
       </div>
 
       <div className="flex flex-wrap items-center justify-between gap-3 border-t border-gray-100 pt-4">
-        <button
-          type="button"
-          onClick={onReset}
-          className="inline-flex items-center gap-2 rounded-[10px] border border-gray-200 px-4 py-2.5 text-sm font-semibold text-gray-700 transition-colors hover:bg-gray-50"
-        >
-          <RotateCcw className="size-4" />
-          Reset policy
-        </button>
+        <div className="space-y-1">
+          <button
+            type="button"
+            data-testid="booking-policy-reset"
+            onClick={onReset}
+            className="inline-flex items-center gap-2 rounded-[10px] border border-gray-200 px-4 py-2.5 text-sm font-semibold text-gray-700 transition-colors hover:bg-gray-50"
+          >
+            <RotateCcw className="size-4" />
+            Reset policy
+          </button>
+          <p className="max-w-xs text-xs leading-5 text-gray-500">
+            Clears the wording and turns the policy and its acknowledgment off.
+            Save to withdraw it from your booking page.
+          </p>
+        </div>
         <div className="flex items-center gap-3">
           {saved && !error && (
             <span className="text-xs font-medium text-green-600" role="status">
@@ -1968,8 +1776,10 @@ const SALON_NOTIFICATION_RECIPIENT_SOURCE_LABEL: Record<
   string
 > = {
   configured: 'the address above',
-  owner: 'your owner email',
-  salon_account: 'your salon account email',
+  // AG-13: this is a salon property, not the signed-in admin's address. On a
+  // salon with more than one admin "your owner email" was simply wrong.
+  owner: 'the salon’s owner email',
+  salon_account: 'the salon’s account email',
 };
 
 function isValidNotificationEmail(value: string): boolean {
@@ -1984,6 +1794,39 @@ const CURRENCY_OPTIONS: Array<BookingConfigFormState['currency']> = [
   'CAD',
   'USD',
 ];
+/**
+ * The same choices onboarding offers for "How much notice do you need before
+ * an appointment?", so an owner who set it during setup recognises it here.
+ * Any other stored value (a custom one from onboarding, or a legacy value)
+ * still shows and saves through the Custom row.
+ */
+const MINIMUM_NOTICE_OPTIONS: Array<{ minutes: number; label: string }> = [
+  { minutes: 0, label: 'Same day — no minimum notice' },
+  { minutes: 120, label: '2 hours' },
+  { minutes: 240, label: '4 hours' },
+  { minutes: 480, label: '8 hours' },
+  { minutes: 720, label: '12 hours' },
+  { minutes: 1_440, label: '1 day' },
+  { minutes: 2_880, label: '2 days' },
+  { minutes: 4_320, label: '3 days' },
+];
+
+/** Plain-language summary of a stored notice value, for the Settings row. */
+export function formatMinimumNotice(minutes: number): string {
+  const preset = MINIMUM_NOTICE_OPTIONS.find(option => option.minutes === minutes);
+  if (preset) {
+    return preset.minutes === 0 ? 'Same day' : preset.label;
+  }
+  if (minutes % 1_440 === 0) {
+    const days = minutes / 1_440;
+    return `${days} ${days === 1 ? 'day' : 'days'}`;
+  }
+  if (minutes % 60 === 0) {
+    const hours = minutes / 60;
+    return `${hours} ${hours === 1 ? 'hour' : 'hours'}`;
+  }
+  return `${minutes} ${minutes === 1 ? 'minute' : 'minutes'}`;
+}
 const BOOKING_NOTIFICATION_CHANNEL_OPTIONS: Array<{
   value: BookingNotificationChannel;
   label: string;
@@ -2120,6 +1963,33 @@ type SettingsView
   | 'features'
   | 'visibility';
 
+/**
+ * AG-10: settings sub-views live in the URL as `?app=settings&view=<id>` so the
+ * system Back gesture walks the same path the on-screen back control does —
+ * sub-view → Settings index → More. Every id below is addressable.
+ */
+const SETTINGS_VIEW_IDS: readonly SettingsView[] = [
+  'index',
+  'account',
+  'location',
+  'branding',
+  'booking',
+  'booking-policy',
+  'booking-flow',
+  'smart-fit',
+  'payments',
+  'notifications',
+  'communications',
+  'features',
+  'visibility',
+];
+
+function normalizeSettingsView(value: string | null | undefined): SettingsView {
+  return SETTINGS_VIEW_IDS.includes(value as SettingsView)
+    ? (value as SettingsView)
+    : 'index';
+}
+
 const VIEW_TITLES: Record<SettingsView, string> = {
   'index': 'Settings',
   'account': 'Account',
@@ -2132,7 +2002,7 @@ const VIEW_TITLES: Record<SettingsView, string> = {
   'payments': 'Payments & taxes',
   'notifications': 'Notifications',
   'communications': 'Client communications',
-  'features': 'Features',
+  'features': 'Features & plan',
   'visibility': 'Staff visibility',
 };
 
@@ -2277,15 +2147,27 @@ export function SettingsModal({
   const salonSlug = explicitSalonSlug ?? providerSalonSlug ?? null;
   const router = useRouter();
   const params = useParams();
+  const searchParams = useSearchParams();
   const locale = String(params?.locale || 'en');
+  /**
+   * The Booking Page hub owns website appearance and the business record.
+   * Settings links there instead of keeping a second editor for either
+   * (source map §C1; AG-more-settings-06, AG-w2-information-parity-03).
+   */
+  const bookingPageHubHref = salonSlug
+    ? `/${locale}/admin/booking-page?salon=${encodeURIComponent(salonSlug)}`
+    : null;
+  const appearanceHubHref = bookingPageHubHref ? `${bookingPageHubHref}&panel=appearance` : undefined;
+  const informationHubHref = bookingPageHubHref ? `${bookingPageHubHref}&panel=information` : undefined;
 
   // View navigation state (index + focused editing views)
-  const [view, setView] = useState<SettingsView>(() => initialView && ['location', 'booking', 'booking-policy', 'payments'].includes(initialView) ? initialView as SettingsView : 'index');
+  const [view, setView] = useState<SettingsView>(
+    () => normalizeSettingsView(initialView),
+  );
   const [confirmingLeave, setConfirmingLeave] = useState(false);
 
   // Per-view unsaved-edit tracking (explicit-save views only; autosave views
   // never hold unsaved state)
-  const [locationDirty, setLocationDirty] = useState(false);
   const [parkingDirty, setParkingDirty] = useState(false);
   const [bookingConfigDirty, setBookingConfigDirty] = useState(false);
   const [notificationsDirty, setNotificationsDirty] = useState(false);
@@ -2365,6 +2247,11 @@ export function SettingsModal({
   // Owner profile state (Account view)
   const [profileName, setProfileName] = useState(userName);
   const [profileEmail, setProfileEmail] = useState('');
+  // AG-08/AG-09: the address is loaded so the owner can see it, and it is
+  // locked once the account has one — /api/admin/profile has no verification
+  // step, so a silent rewrite would redirect owner alerts.
+  const [profileEmailLocked, setProfileEmailLocked] = useState(true);
+  const [profileLoading, setProfileLoading] = useState(true);
   const [profileSaving, setProfileSaving] = useState(false);
   const [profileSaved, setProfileSaved] = useState(false);
   const [profileError, setProfileError] = useState<string | null>(null);
@@ -2390,6 +2277,9 @@ export function SettingsModal({
   const [bookingConfigSaving, setBookingConfigSaving] = useState(false);
   const [bookingConfigSaved, setBookingConfigSaved] = useState(false);
   const [bookingExperienceLoading, setBookingExperienceLoading] = useState(true);
+  // AG-04: only true once the saved booking experience has been read back.
+  const [bookingExperienceHydrated, setBookingExperienceHydrated]
+    = useState(false);
   const [bookingExperienceSaving, setBookingExperienceSaving] = useState(false);
   const [bookingExperienceSaved, setBookingExperienceSaved] = useState(false);
   const [bookingExperienceError, setBookingExperienceError]
@@ -2413,6 +2303,7 @@ export function SettingsModal({
       introPriceDefaultLabel: '',
       firstVisitDiscountEnabled: false,
       clientChangeCutoffHours: 24,
+      minimumNoticeMinutes: 120,
     });
   const [featureLusterManicure, setFeatureLusterManicure] = useState(true);
   const [showServiceImages, setShowServiceImages] = useState(true);
@@ -2486,6 +2377,8 @@ export function SettingsModal({
   });
 
   /** Field edits mark the booking view dirty so Back can warn about them. */
+  /** Sticky "Custom" selection: a typed 180 must not snap back to a preset. */
+  const [minimumNoticeCustom, setMinimumNoticeCustom] = useState(false);
   const updateBookingConfigForm = (
     updater: (prev: BookingConfigFormState) => BookingConfigFormState,
   ) => {
@@ -2493,6 +2386,10 @@ export function SettingsModal({
     setBookingConfigDirty(true);
     setBookingConfigSaved(false);
   };
+  const showCustomMinimumNotice = minimumNoticeCustom
+    || !MINIMUM_NOTICE_OPTIONS.some(
+      option => option.minutes === bookingConfigForm.minimumNoticeMinutes,
+    );
 
   const updateBookingExperienceDraft = (
     updater: (
@@ -2615,6 +2512,7 @@ export function SettingsModal({
         setBookingExperienceDraft(
           copyBookingExperience(loadedBookingExperience),
         );
+        setBookingExperienceHydrated(true);
         setBookingExperienceDirty(false);
         setBookingPolicyDirty(false);
         setBookingExperienceSaved(false);
@@ -2638,6 +2536,8 @@ export function SettingsModal({
             data.bookingConfig?.firstVisitDiscountEnabled ?? false,
           clientChangeCutoffHours:
             data.bookingConfig?.clientChangeCutoffHours ?? 24,
+          minimumNoticeMinutes:
+            data.bookingConfig?.minimumNoticeMinutes ?? 120,
         });
         setFeatureLusterManicure(
           data.merchandising?.featureLusterManicure ?? true,
@@ -2746,6 +2646,7 @@ export function SettingsModal({
         setDepositAmountDirty(false);
         setDepositPolicy(data.depositPolicy ?? null);
       } else {
+        setBookingExperienceHydrated(false);
         const body = await response.json().catch(() => null);
         setBookingExperienceError(
           body?.message
@@ -2762,6 +2663,7 @@ export function SettingsModal({
       }
     } catch (error) {
       console.error('Failed to fetch programs settings:', error);
+      setBookingExperienceHydrated(false);
       setBookingExperienceError(
         error instanceof Error
           ? error.message
@@ -2834,6 +2736,8 @@ export function SettingsModal({
                 bookingConfigForm.firstVisitDiscountEnabled,
               clientChangeCutoffHours:
                 bookingConfigForm.clientChangeCutoffHours,
+              minimumNoticeMinutes:
+                bookingConfigForm.minimumNoticeMinutes,
             },
             merchandising: {
               featureLusterManicure,
@@ -2864,6 +2768,9 @@ export function SettingsModal({
         clientChangeCutoffHours:
           data.bookingConfig?.clientChangeCutoffHours
           ?? bookingConfigForm.clientChangeCutoffHours,
+        minimumNoticeMinutes:
+          data.bookingConfig?.minimumNoticeMinutes
+          ?? bookingConfigForm.minimumNoticeMinutes,
       });
       setFeatureLusterManicure(
         data.merchandising?.featureLusterManicure ?? featureLusterManicure,
@@ -3504,6 +3411,45 @@ export function SettingsModal({
     fetchPrograms();
   }, [fetchBookingFlow, fetchVisibility, fetchModules, fetchPrograms]);
 
+  // AG-09: the Account view used to open with an empty email field under a
+  // rule that refused to save without one, so a name-only edit meant retyping
+  // an address from memory. Load the stored profile instead.
+  useEffect(() => {
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const response = await fetch('/api/admin/profile');
+        if (!response.ok) {
+          return;
+        }
+        const body = await response.json().catch(() => null);
+        const user = body?.user;
+        if (cancelled || !user) {
+          return;
+        }
+        const storedEmail
+          = typeof user.email === 'string' ? user.email : '';
+        setProfileName(current =>
+          current === userName && typeof user.name === 'string' && user.name
+            ? user.name
+            : current);
+        setProfileEmail(storedEmail);
+        setProfileEmailLocked(storedEmail.trim().length > 0);
+      } catch {
+        // Leave the fields as they are; the save path reports its own errors.
+      } finally {
+        if (!cancelled) {
+          setProfileLoading(false);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [userName]);
+
   useEffect(() => {
     if (!bookingConfigSaved) {
       return undefined;
@@ -3567,10 +3513,18 @@ export function SettingsModal({
       const response = await fetch('/api/admin/profile', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: profileName.trim(),
-          email: profileEmail.trim(),
-        }),
+        body: JSON.stringify(
+          // A locked address is never submitted: the route treats a submitted
+          // address as a change request and refuses one it cannot verify.
+          profileEmailLocked
+            ? { name: profileName.trim() }
+            : {
+                name: profileName.trim(),
+                ...(profileEmail.trim()
+                  ? { email: profileEmail.trim() }
+                  : {}),
+              },
+        ),
       });
       const body = await response.json().catch(() => null);
       if (!response.ok) {
@@ -3681,7 +3635,7 @@ export function SettingsModal({
   }, [salonSlug, communicationsSaving, communicationsForm]);
 
   const viewDirty: Partial<Record<SettingsView, boolean>> = {
-    'location': locationDirty || parkingDirty,
+    'location': parkingDirty,
     'branding': bookingExperienceDirty,
     'booking-policy': bookingPolicyDirty,
     'booking': bookingConfigDirty,
@@ -3693,9 +3647,37 @@ export function SettingsModal({
   };
   const currentViewDirty = viewDirty[view] === true;
 
-  const goToIndex = () => {
-    setConfirmingLeave(false);
-    if (view === 'branding') {
+  /**
+   * The settings URL for a view. `?salon=` is carried through so the workspace
+   * keeps naming the salon it is showing, and the index drops `view` entirely
+   * so it is the same URL the More grid opened.
+   */
+  const buildSettingsHref = useCallback(
+    (next: SettingsView) => {
+      const query = new URLSearchParams();
+      const salonParam = searchParams?.get('salon') ?? salonSlug;
+      if (salonParam) {
+        query.set('salon', salonParam);
+      }
+      query.set('app', 'settings');
+      if (next !== 'index') {
+        query.set('view', next);
+      }
+      return `/${locale}/admin?${query.toString()}`;
+    },
+    [locale, salonSlug, searchParams],
+  );
+
+  const urlView = normalizeSettingsView(searchParams?.get('view'));
+  // Counts the history entries this component pushed, so leaving a sub-view
+  // pops the entry it added instead of adding a second one.
+  const pushedViewDepthRef = useRef(0);
+  const viewRef = useRef<SettingsView>(view);
+  viewRef.current = view;
+
+  /** Drop the unsaved draft a focused view was holding. */
+  const revertViewDrafts = (from: SettingsView) => {
+    if (from === 'branding') {
       setBookingExperienceDraft(current => ({
         ...current,
         primaryColor: savedBookingExperience.primaryColor,
@@ -3707,7 +3689,7 @@ export function SettingsModal({
       setBookingExperienceError(null);
       setBookingExperienceSaved(false);
     }
-    if (view === 'booking-policy') {
+    if (from === 'booking-policy') {
       setBookingExperienceDraft(current => ({
         ...current,
         policy: { ...savedBookingExperience.policy },
@@ -3727,10 +3709,22 @@ export function SettingsModal({
       setBookingPolicyError(null);
       setBookingPolicySaved(false);
     }
-    setLocationDirty(false);
     setParkingDirty(false);
     setSmartFitDirty(false);
+  };
+
+  const goToIndex = () => {
+    setConfirmingLeave(false);
+    revertViewDrafts(view);
     setView('index');
+    if (pushedViewDepthRef.current > 0) {
+      pushedViewDepthRef.current -= 1;
+      router.back();
+    } else if (urlView !== 'index') {
+      // Deep-linked straight into a sub-view: there is no entry of ours to
+      // pop, so the URL is replaced rather than the history grown.
+      router.replace(buildSettingsHref('index'), { scroll: false });
+    }
   };
 
   /** Back from a focused view; warns when the view holds unsaved edits. */
@@ -3746,10 +3740,51 @@ export function SettingsModal({
     goToIndex();
   };
 
+  /**
+   * AG-10: opening a sub-view pushes `?app=settings&view=<id>` so the system
+   * Back gesture returns to the Settings index instead of closing the sheet
+   * and discarding the owner's place in a long list.
+   */
   const openView = (next: SettingsView) => {
     setConfirmingLeave(false);
     setView(next);
+    if (next !== 'index' && next !== urlView) {
+      pushedViewDepthRef.current += 1;
+      router.push(buildSettingsHref(next), { scroll: false });
+    }
   };
+
+  /**
+   * AG-06: a Settings row that opens another workspace app leaves Settings
+   * first, so the sheet is not left holding a sub-view of an app that is no
+   * longer on screen and the `?app=` push is the only navigation in flight.
+   */
+  const openWorkspaceApp = (appId: string) => {
+    if (!onOpenApp) {
+      return;
+    }
+    setConfirmingLeave(false);
+    revertViewDrafts(view);
+    setView('index');
+    pushedViewDepthRef.current = 0;
+    onOpenApp(appId);
+  };
+
+  // The system Back/Forward gesture moves the URL without going through the
+  // handlers above; follow it so the sheet shows the level the URL names.
+  useEffect(() => {
+    if (urlView === viewRef.current) {
+      return;
+    }
+    setConfirmingLeave(false);
+    if (urlView === 'index') {
+      revertViewDrafts(viewRef.current);
+      pushedViewDepthRef.current = 0;
+    }
+    setView(urlView);
+    // `revertViewDrafts` is re-created every render; the URL is the trigger.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [urlView]);
 
   return (
     <div
@@ -3818,10 +3853,18 @@ export function SettingsModal({
             />
 
             <Section title="Business">
+              {/*
+                The two rows used to be "Website layout & colours" and
+                "Branding & appearance" — near-synonyms, three rows apart, one
+                of which silently leaves Settings while the other edited a
+                second, live-immediate colour (AG-more-settings-06). Each now
+                says what it is and where it goes.
+              */}
               <Row
                 icon={Palette}
                 iconColor="bg-rose-800"
                 label="Website layout & colours"
+                value="Opens Booking Page"
                 onClick={() => router.push(`/${locale}/admin/website${salonSlug ? `?salon=${encodeURIComponent(salonSlug)}` : ''}`)}
               />
               <Row
@@ -3833,7 +3876,8 @@ export function SettingsModal({
               <Row
                 icon={Palette}
                 iconColor="bg-pink-500"
-                label="Branding & appearance"
+                label="Branding"
+                value="Logo, page themes & social"
                 onClick={() => openView('branding')}
                 isLast
               />
@@ -3847,7 +3891,7 @@ export function SettingsModal({
                 value={
                   bookingConfigLoading
                     ? undefined
-                    : `${bookingConfigForm.slotIntervalMinutes} min · ${bookingConfigForm.currency}`
+                    : `${bookingConfigForm.slotIntervalMinutes} min · ${formatMinimumNotice(bookingConfigForm.minimumNoticeMinutes)} notice`
                 }
                 onClick={() => openView('booking')}
               />
@@ -3905,7 +3949,7 @@ export function SettingsModal({
                     icon={Users}
                     iconColor="bg-stone-600"
                     label="Staff & schedules"
-                    onClick={() => onOpenApp('staff')}
+                    onClick={() => openWorkspaceApp('staff')}
                     isLast={!(hasEntitledModules && visibilityEntitled)}
                   />
                 )}
@@ -3946,7 +3990,7 @@ export function SettingsModal({
                 <Row
                   icon={Boxes}
                   iconColor="bg-purple-500"
-                  label="Modules & programs"
+                  label="Features & plan"
                   onClick={() => openView('features')}
                   isLast
                 />
@@ -3963,7 +4007,7 @@ export function SettingsModal({
                   iconColor="bg-rose-700"
                   label="Manage integrations"
                   value="Calendar, text, email"
-                  onClick={() => onOpenApp('integrations')}
+                  onClick={() => openWorkspaceApp('integrations')}
                   isLast
                 />
               </Section>
@@ -3987,10 +4031,37 @@ export function SettingsModal({
 
         {view === 'location' && salonSlug && (
           <>
-            <DirectionsLocationSection
-              salonSlug={salonSlug}
-              onDirtyChange={setLocationDirty}
-            />
+            {/*
+              One address editor. This screen used to carry a second copy of
+              the same five location fields writing the same
+              `PATCH /api/admin/location` as Booking Page → Your Information →
+              Location (source map §C1 row 1), with no address-privacy control
+              beside it. The row stays; the editing goes to the canonical one.
+            */}
+            <Section
+              title="Address & directions"
+              footer="Your address, city and how much of it clients can see are all edited in one place, together with your business name, contact details and hours."
+            >
+              <div className="space-y-3 p-4" data-testid="settings-location-handoff">
+                <p className="text-sm text-gray-700">
+                  Your salon address is part of your business details in Booking
+                  Page → Your Information.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (informationHubHref) {
+                      router.push(informationHubHref);
+                    }
+                  }}
+                  disabled={!informationHubHref}
+                  className="inline-flex min-h-11 items-center gap-2 rounded-[10px] bg-rose-800 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-rose-900 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <MapPin className="size-4" />
+                  <span>Edit address &amp; privacy</span>
+                </button>
+              </div>
+            </Section>
             <ParkingInstructionsCard
               salonSlug={salonSlug}
               onDirtyChange={setParkingDirty}
@@ -4000,7 +4071,10 @@ export function SettingsModal({
 
         {view === 'branding' && (
           <>
-            <Section title="Branding & appearance">
+            <Section
+              title="Page themes"
+              footer="Per-page themes for the client-facing pages. Your website's layout and colours live in Booking Page → Style & Colours."
+            >
               <PageThemesSettings className="overflow-visible rounded-[10px] bg-white" />
             </Section>
             <Section
@@ -4008,6 +4082,7 @@ export function SettingsModal({
               footer="These bounded controls customize booking and confirmation content without changing the site theme or email template."
             >
               <BookingExperienceEditor
+                appearanceHref={appearanceHubHref}
                 draft={bookingExperienceDraft}
                 loading={bookingExperienceLoading}
                 saving={bookingExperienceSaving}
@@ -4021,7 +4096,9 @@ export function SettingsModal({
                   );
                   const next = {
                     ...bookingExperienceDraft,
-                    primaryColor: defaults.primaryColor,
+                    // `primaryColor` is deliberately preserved: this screen no
+                    // longer authors website colour, so Reset must not write it.
+                    primaryColor: bookingExperienceDraft.primaryColor,
                     bookingMessage: defaults.bookingMessage,
                     socialLinks: { ...defaults.socialLinks },
                     confirmationMessage: defaults.confirmationMessage,
@@ -4050,18 +4127,28 @@ export function SettingsModal({
             <BookingPolicyEditor
               draft={bookingExperienceDraft}
               loading={bookingExperienceLoading}
+              hydrated={bookingExperienceHydrated}
               saving={bookingPolicySaving}
               saved={bookingPolicySaved}
               dirty={bookingPolicyDirty}
               error={bookingPolicyError}
               onChange={updateBookingPolicyDraft}
+              onRetryLoad={() => void fetchPrograms()}
               onReset={() => {
                 const defaults = copyBookingExperience(
                   BOOKING_EXPERIENCE_DEFAULTS,
                 );
                 const next = {
                   ...bookingExperienceDraft,
-                  policy: { ...defaults.policy },
+                  policy: {
+                    ...defaults.policy,
+                    // AG-02: Reset is a deliberate owner action, so it states
+                    // the acknowledgment explicitly. Leaving it out made the
+                    // server treat the save as a stale tab and merge the
+                    // stored `required: true` back in, which re-enabled the
+                    // very policy the owner was withdrawing.
+                    acknowledgment: { required: false, text: null },
+                  },
                   quickFacts: {
                     appointmentOnly: {
                       ...defaults.quickFacts.appointmentOnly,
@@ -4205,6 +4292,66 @@ export function SettingsModal({
                         <span className="text-xs text-gray-500">
                           Clients contact you inside this window. Use 0 to allow
                           changes anytime.
+                        </span>
+                      </label>
+
+                      <label className="flex flex-col gap-1">
+                        <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                          Minimum notice
+                        </span>
+                        <select
+                          data-testid="minimum-notice-select"
+                          value={showCustomMinimumNotice ? 'custom' : String(bookingConfigForm.minimumNoticeMinutes)}
+                          onChange={(event) => {
+                            if (event.target.value === 'custom') {
+                              setMinimumNoticeCustom(true);
+                              return;
+                            }
+                            setMinimumNoticeCustom(false);
+                            updateBookingConfigForm(prev => ({
+                              ...prev,
+                              minimumNoticeMinutes: Number.parseInt(event.target.value, 10),
+                            }));
+                          }}
+                          className="h-11 rounded-[10px] border border-gray-200 bg-white px-3 text-[15px] text-black outline-none transition-colors focus:border-[#007AFF]"
+                        >
+                          {MINIMUM_NOTICE_OPTIONS.map(option => (
+                            <option key={option.minutes} value={option.minutes}>
+                              {option.label}
+                            </option>
+                          ))}
+                          <option value="custom">Custom</option>
+                        </select>
+                        {showCustomMinimumNotice && (
+                          <div className="relative">
+                            <input
+                              type="number"
+                              min={0}
+                              max={525_600}
+                              step={15}
+                              aria-label="Minimum notice in minutes"
+                              data-testid="minimum-notice-custom"
+                              value={bookingConfigForm.minimumNoticeMinutes}
+                              onChange={event =>
+                                updateBookingConfigForm(prev => ({
+                                  ...prev,
+                                  minimumNoticeMinutes: Math.max(
+                                    0,
+                                    Math.min(
+                                      525_600,
+                                      Number.parseInt(event.target.value || '0', 10) || 0,
+                                    ),
+                                  ),
+                                }))}
+                              className="h-11 w-full rounded-[10px] border border-gray-200 px-3 pr-20 text-[15px] text-black outline-none transition-colors focus:border-[#007AFF]"
+                            />
+                            <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-xs font-medium text-gray-500">
+                              minutes
+                            </span>
+                          </div>
+                        )}
+                        <span className="text-xs text-gray-500" data-testid="minimum-notice-current">
+                          {`Now: ${formatMinimumNotice(bookingConfigForm.minimumNoticeMinutes)}. Clients cannot book a time closer than this — your public times start after it.`}
                         </span>
                       </label>
 
@@ -4818,30 +4965,6 @@ export function SettingsModal({
                         </div>
                       )}
 
-                      <div className="flex items-center justify-between gap-3 border-t border-gray-100 pt-3">
-                        <div className="text-xs text-gray-500">
-                          Applies to new checkouts only — completed appointments are
-                          never recalculated.
-                        </div>
-                        <button
-                          type="button"
-                          data-testid="payments-save"
-                          onClick={() => void savePayments()}
-                          disabled={paymentsSaving || !paymentsDirty}
-                          className="inline-flex items-center gap-2 rounded-[10px] bg-rose-800 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-rose-900 disabled:cursor-not-allowed disabled:opacity-50"
-                        >
-                          <Save className="size-4" />
-                          <span>
-                            {paymentsSaving ? 'Saving...' : 'Save payments & taxes'}
-                          </span>
-                        </button>
-                      </div>
-
-                      {paymentsSaved && (
-                        <div className="text-right text-xs font-medium text-green-600">
-                          Payments & taxes saved.
-                        </div>
-                      )}
                     </div>
                   )}
             </Section>
@@ -4980,6 +5103,45 @@ export function SettingsModal({
                     </div>
                   )}
             </Section>
+
+            {/*
+              AG-more-settings-03: this save commits the Sales tax and Interac
+              e-Transfer cards together, so it belongs to the view, not to
+              either card. It used to sit inside the e-Transfer card, where it
+              read as the e-Transfer save and its label wrapped to three lines
+              at 390 px. Deposits keep their own save, and the copy says so.
+            */}
+            {!programsLoading && (
+              <div className="space-y-2 px-4 pb-8 pt-2">
+                <div className="flex flex-wrap items-center justify-end gap-3">
+                  {paymentsSaved && (
+                    <span
+                      className="text-xs font-medium text-green-600"
+                      role="status"
+                    >
+                      Tax and e-Transfer saved.
+                    </span>
+                  )}
+                  <button
+                    type="button"
+                    data-testid="payments-save"
+                    onClick={() => void savePayments()}
+                    disabled={paymentsSaving || !paymentsDirty}
+                    className="inline-flex items-center gap-2 rounded-[10px] bg-rose-800 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-rose-900 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <Save className="size-4" />
+                    <span className="whitespace-nowrap">
+                      {paymentsSaving ? 'Saving…' : 'Save tax & e-Transfer'}
+                    </span>
+                  </button>
+                </div>
+                <p className="text-xs leading-5 text-gray-500">
+                  Saves the Sales tax and Interac e-Transfer cards. Deposits
+                  save on their own button. Applies to new checkouts only —
+                  completed appointments are never recalculated.
+                </p>
+              </div>
+            )}
           </>
         )}
 
@@ -5557,7 +5719,7 @@ export function SettingsModal({
                         <div className="text-xs text-gray-500">
                           {salonEmailNotificationsSaved
                             ? 'Appointment notifications saved.'
-                            : 'Leave the address blank to use your owner email.'}
+                            : 'Leave the address blank to use the salon’s owner email.'}
                         </div>
                         <button
                           type="button"
@@ -5909,7 +6071,7 @@ export function SettingsModal({
           <>
             <Section
               title="Owner profile"
-              footer="Your name appears in the workspace header and on decision logs. Email is used for account matching and owner alerts."
+              footer="Your name appears in the workspace header and on decision logs. Your email signs you in and receives owner alerts, so it is changed by support rather than here."
             >
               <div className="space-y-3 p-4">
                 {profileError && (
@@ -5941,16 +6103,33 @@ export function SettingsModal({
                   <input
                     type="email"
                     value={profileEmail}
+                    readOnly={profileEmailLocked}
+                    aria-readonly={profileEmailLocked}
+                    aria-describedby="owner-profile-email-help"
                     onChange={(event) => {
+                      if (profileEmailLocked) {
+                        return;
+                      }
                       setProfileEmail(event.target.value);
                       setProfileDirty(true);
                       setProfileSaved(false);
                     }}
-                    className="h-11 rounded-[10px] border border-gray-200 px-3 text-[15px] text-black outline-none transition-colors focus:border-[#007AFF]"
-                    placeholder="you@example.com"
+                    className={`h-11 rounded-[10px] border border-gray-200 px-3 text-[15px] outline-none transition-colors focus:border-[#007AFF] ${
+                      profileEmailLocked
+                        ? 'bg-gray-50 text-gray-600'
+                        : 'text-black'
+                    }`}
+                    placeholder={
+                      profileLoading ? 'Loading…' : 'you@example.com'
+                    }
                   />
-                  <span className="text-xs text-gray-500">
-                    Both fields save together. Email must be entered to save.
+                  <span
+                    id="owner-profile-email-help"
+                    className="text-xs text-gray-500"
+                  >
+                    {profileEmailLocked
+                      ? 'Your sign-in email is managed by your account — contact support to change it. Your name saves on its own.'
+                      : 'This address signs you in and receives owner alerts. Once saved it can only be changed by contacting support.'}
                   </span>
                 </label>
                 <div className="flex items-center justify-end gap-3">
@@ -5966,7 +6145,7 @@ export function SettingsModal({
                       profileSaving
                       || !profileDirty
                       || !profileName.trim()
-                      || !profileEmail.includes('@')
+                      || (!profileEmailLocked && !profileEmail.includes('@'))
                     }
                     className="inline-flex items-center gap-2 rounded-[10px] bg-rose-800 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-rose-900 disabled:cursor-not-allowed disabled:opacity-50"
                   >
@@ -6071,4 +6250,4 @@ export function SettingsModal({
 }
 
 // Export sub-components for reuse
-export { DirectionsLocationSection, ParkingInstructionsCard, ProfileCard, Row, Section };
+export { ParkingInstructionsCard, ProfileCard, Row, Section };

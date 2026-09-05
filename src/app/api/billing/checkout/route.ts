@@ -38,7 +38,7 @@ import { eq } from 'drizzle-orm';
 import { type NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 
-import { requireAdmin } from '@/libs/adminAuth';
+import { requireAdminOwner } from '@/libs/adminAuth';
 import { getBillingOffer } from '@/libs/billing/billingOffers';
 import { classifySubscriptionEligibility } from '@/libs/billing/billingSubscriptionProjection';
 import { resolveOrCreateBusinessIdentity } from '@/libs/billing/businessIdentity';
@@ -105,7 +105,9 @@ export async function POST(request: NextRequest) {
     }
     const { salonId, billingOfferKey, promotionKey } = parsed.data;
 
-    const authResult = await requireAdmin(salonId);
+    // Subscribing spends the salon's money on a recurring plan: owner only
+    // (a role 'admin' collaborator gets 403 OWNER_REQUIRED).
+    const authResult = await requireAdminOwner(salonId, 'Only the salon owner can manage billing.');
     if (!authResult.ok) {
       return authResult.response;
     }

@@ -18,6 +18,7 @@ import { buildBookingEmailFinancialSummary } from '@/libs/bookingEmailFinancialS
 import {
   ClientLifecycleStabilizationError,
   getSalonClientHistoricalPhoneHints,
+  getSalonClientLineageIdentityWithHandle,
   hasUnsafeSalonClientExternalIdentityWithHandle,
   isClientLifecycleTransactionTimeoutError,
   type LifecycleSqlHandle,
@@ -277,6 +278,18 @@ class ClientEditConflictError extends Error {
   constructor() {
     super('Client profile changed after this edit was loaded.');
     this.name = 'ClientEditConflictError';
+  }
+}
+
+/**
+ * The edited client has a linked customer account, which owns their contact
+ * details. This is a narrower, explainable case than UNSUPPORTED_CLIENT_IDENTITY
+ * so the owner can be told which link blocks the change and what to do next.
+ */
+class AccountLinkedContactLockedError extends Error {
+  constructor() {
+    super('Client contact details are owned by their linked account.');
+    this.name = 'AccountLinkedContactLockedError';
   }
 }
 
@@ -1468,6 +1481,36 @@ export async function PATCH(
             );
           }
 
+          // A collision with another client at THIS salon is the specific,
+          // actionable cause, so it is decided first. Running the broader
+          // external-identity gate ahead of it made every collision report
+          // itself as "cannot be changed safely" and left the duplicate copy
+          // unreachable (AG-clients-04 / AG-w2-clients-01).
+          for (const key of lockedKeys) {
+            let identity;
+            try {
+              identity = await resolveCanonicalSalonClientIdentityWithHandle(
+                handle,
+                {
+                  salonId: salon.id,
+                  [key.kind]: key.normalizedValue,
+                  allowArchived: true,
+                },
+              );
+            } catch (error) {
+              if (
+                error instanceof ClientLifecycleStabilizationError
+                || error instanceof TypeError
+              ) {
+                throw new ContactIdentityConflictError();
+              }
+              throw error;
+            }
+            if (identity && identity.terminal.id !== lockedClient.id) {
+              throw new ContactIdentityConflictError();
+            }
+          }
+
           let hasUnsafeExternalIdentity: boolean;
           try {
             hasUnsafeExternalIdentity
@@ -1495,35 +1538,33 @@ export async function PATCH(
             );
           }
           if (hasUnsafeExternalIdentity) {
+            // The client's own account is the canonical writer of their
+            // contact details, so the salon book must not overwrite it. Name
+            // the account link and the next step instead of the generic
+            // refusal (AG-clients-03).
+            let accountLinked = false;
+            try {
+              const lineage = await getSalonClientLineageIdentityWithHandle(
+                handle,
+                {
+                  salonId: salon.id,
+                  terminalClientId: lockedClient.id,
+                  allowArchived: true,
+                },
+              );
+              accountLinked = Boolean(lineage?.externalClientId);
+            } catch {
+              // The refusal stands either way; only its wording depends on
+              // being able to read the lineage.
+              accountLinked = false;
+            }
+            if (accountLinked) {
+              throw new AccountLinkedContactLockedError();
+            }
             throw new ClientLifecycleStabilizationError(
               'UNSUPPORTED_CLIENT_IDENTITY',
               'This contact change cannot be completed safely.',
             );
-          }
-
-          for (const key of lockedKeys) {
-            let identity;
-            try {
-              identity = await resolveCanonicalSalonClientIdentityWithHandle(
-                handle,
-                {
-                  salonId: salon.id,
-                  [key.kind]: key.normalizedValue,
-                  allowArchived: true,
-                },
-              );
-            } catch (error) {
-              if (
-                error instanceof ClientLifecycleStabilizationError
-                || error instanceof TypeError
-              ) {
-                throw new ContactIdentityConflictError();
-              }
-              throw error;
-            }
-            if (identity && identity.terminal.id !== lockedClient.id) {
-              throw new ContactIdentityConflictError();
-            }
           }
         }
 
@@ -1629,6 +1670,18 @@ export async function PATCH(
           error: {
             code: 'CONTACT_IDENTITY_CONFLICT',
             message: 'Client contact information conflicts with another profile',
+          },
+        } satisfies ErrorResponse,
+        { status: 409 },
+      );
+    }
+    if (error instanceof AccountLinkedContactLockedError) {
+      return privateJson(
+        {
+          error: {
+            code: 'CLIENT_ACCOUNT_LINK_CONTACT_LOCKED',
+            message:
+              'This client signed in with their own account, and that account owns their phone and email. Ask them to update it from their account, or unlink the account first. Name, birthday and notes can still be edited here.',
           },
         } satisfies ErrorResponse,
         { status: 409 },

@@ -801,3 +801,53 @@ describe('OwnerTodayWorkspace client follow-ups', () => {
     });
   });
 });
+
+// AG-security-tenancy-02: revenue is owner-only on the server. A collaborator
+// is not looking at a broken card, and must not be told to "Try again".
+describe('OwnerTodayWorkspace revenue for a collaborator', () => {
+  it('says Owner only instead of an error, and stops polling revenue', async () => {
+    let financialSummaryRequests = 0;
+    fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      const supporting = supportingWorkspaceResponse(url);
+      if (supporting) {
+        return supporting;
+      }
+      if (url.startsWith('/api/admin/financial-summary?')) {
+        financialSummaryRequests += 1;
+        return new Response(
+          JSON.stringify({
+            error: {
+              code: 'OWNER_REQUIRED',
+              message: 'Only the salon owner can see revenue.',
+            },
+          }),
+          { status: 403 },
+        );
+      }
+      throw new Error(`Unhandled fetch: ${url}`);
+    });
+
+    renderWorkspace();
+
+    const revenue = await screen.findByTestId('owner-revenue-summary');
+    await screen.findByTestId('owner-revenue-summary-owner-only');
+
+    expect(revenue).toHaveTextContent('Owner only');
+    expect(revenue).toHaveTextContent(
+      'Revenue is visible to the salon owner. Your appointments, clients and services are unchanged.',
+    );
+    expect(revenue).not.toHaveTextContent('Revenue summary is temporarily unavailable.');
+    expect(screen.queryByRole('button', { name: 'Try again' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Refresh revenue summary' })).not.toBeInTheDocument();
+    expect(revenue).not.toHaveTextContent('$');
+
+    // A refused card must not become a per-minute retry loop.
+    await act(async () => {
+      window.dispatchEvent(new Event(APPOINTMENT_DATA_CHANGED_EVENT));
+    });
+    await waitFor(() => {
+      expect(financialSummaryRequests).toBe(1);
+    });
+  });
+});

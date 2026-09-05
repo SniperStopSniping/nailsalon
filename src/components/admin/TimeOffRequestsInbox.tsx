@@ -458,7 +458,11 @@ function RequestDetailPanel({
 // MAIN COMPONENT
 // =============================================================================
 
-export function TimeOffRequestsInbox() {
+export function TimeOffRequestsInbox({ salonSlug = null }: { salonSlug?: string | null } = {}) {
+  // Scope every request to the workspace's active salon explicitly (the API
+  // honours ?salonSlug= after a membership check and falls back to the active
+  // selection when absent).
+  const salonQuery = salonSlug ? `salonSlug=${encodeURIComponent(salonSlug)}` : '';
   // State
   const [requests, setRequests] = useState<TimeOffRequest[]>([]);
   const [loading, setLoading] = useState(true);
@@ -477,7 +481,7 @@ export function TimeOffRequestsInbox() {
       const statusParam
         = statusFilter === 'ALL' ? '' : `&status=${statusFilter}`;
       const response = await fetch(
-        `/api/admin/time-off-requests?${statusParam}`,
+        `/api/admin/time-off-requests?${salonQuery}${statusParam}`,
       );
 
       if (!response.ok) {
@@ -492,7 +496,7 @@ export function TimeOffRequestsInbox() {
     } finally {
       setLoading(false);
     }
-  }, [statusFilter]);
+  }, [statusFilter, salonQuery]);
 
   useEffect(() => {
     fetchRequests();
@@ -501,7 +505,7 @@ export function TimeOffRequestsInbox() {
   // Fetch single request detail with conflicts
   const fetchRequestDetail = useCallback(async (id: string) => {
     try {
-      const response = await fetch(`/api/admin/time-off-requests/${id}`);
+      const response = await fetch(`/api/admin/time-off-requests/${id}${salonQuery ? `?${salonQuery}` : ''}`);
       if (!response.ok) {
         throw new Error('Failed to fetch request details');
       }
@@ -513,7 +517,7 @@ export function TimeOffRequestsInbox() {
     } catch (err) {
       console.error('Error fetching request detail:', err);
     }
-  }, []);
+  }, [salonQuery]);
 
   // Handle decision
   const handleDecision = useCallback(
@@ -525,7 +529,7 @@ export function TimeOffRequestsInbox() {
       setIsSubmitting(true);
       try {
         const response = await fetch(
-          `/api/admin/time-off-requests/${selectedRequest.id}`,
+          `/api/admin/time-off-requests/${selectedRequest.id}${salonQuery ? `?${salonQuery}` : ''}`,
           {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
@@ -550,7 +554,7 @@ export function TimeOffRequestsInbox() {
         setIsSubmitting(false);
       }
     },
-    [selectedRequest, fetchRequests],
+    [selectedRequest, fetchRequests, salonQuery],
   );
 
   // Filter requests by search query (client-side)

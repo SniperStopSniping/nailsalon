@@ -457,6 +457,57 @@ export async function requireAdmin(salonId: string): Promise<AdminGuardResult> {
 }
 
 /**
+ * Is this admin the OWNER of the salon (as opposed to a collaborator)?
+ *
+ * Membership roles are `'owner' | 'admin'` (`Schema.ts` admin_salon_membership).
+ * A super admin — including one acting through a locked impersonation of this
+ * salon, where `requireAdmin` has already verified the target — counts as the
+ * owner for authorization purposes, exactly as `/api/admin/salon/information`
+ * treats them.
+ */
+export function isSalonOwner(admin: AdminWithSalons, salonId: string): boolean {
+  return admin.isSuperAdmin
+    || admin.salons.some(membership => membership.salonId === salonId && membership.role === 'owner');
+}
+
+/**
+ * Require OWNER access for a specific salon.
+ *
+ * `requireAdmin` admits every membership role, collaborators (`role: 'admin'`)
+ * included, which is right for daily work — appointments, clients, services,
+ * the portfolio, settings reads. The irreversible and financial actions are
+ * not daily work: publishing the booking page permanently locks the slug, and
+ * revenue, deposit money and subscription billing are the owner's books. Those
+ * resolve through this guard instead and answer `403 OWNER_REQUIRED` to a
+ * collaborator.
+ *
+ * Same discriminated union and the same super-admin/impersonation semantics as
+ * `requireAdmin`; the only extra step is the explicit membership-role check
+ * that `/api/admin/salon/information` already performs inline.
+ */
+export async function requireAdminOwner(
+  salonId: string,
+  message = 'Only the salon owner can do this.',
+): Promise<AdminGuardResult> {
+  const guard = await requireAdmin(salonId);
+  if (!guard.ok) {
+    return guard;
+  }
+
+  if (!isSalonOwner(guard.admin, salonId)) {
+    return {
+      ok: false,
+      response: new Response(
+        JSON.stringify({ error: { code: 'OWNER_REQUIRED', message } }),
+        { status: 403, headers: { 'Content-Type': 'application/json' } },
+      ),
+    };
+  }
+
+  return guard;
+}
+
+/**
  * Require super admin access
  * Returns discriminated union: { ok: true, admin } or { ok: false, response }
  */
@@ -822,6 +873,147 @@ export async function requireActiveAdminSalon(): Promise<{
     admin: null,
     impersonation: null,
   };
+}
+
+/**
+ * The query parameters a dashboard URL uses to name the salon it is showing.
+ * `salon` is what the workspace shell puts in the address bar; `salonSlug` is
+ * what the fetch-based admin APIs use. Both mean the same thing.
+ */
+const ADMIN_SALON_QUERY_PARAMS = ['salonSlug', 'salon'] as const;
+
+/** The salon a request/URL explicitly names, if any. */
+export function readRequestedAdminSalonSlug(
+  url: string | URL,
+): string | null {
+  let searchParams: URLSearchParams;
+  try {
+    searchParams = (typeof url === 'string' ? new URL(url) : url).searchParams;
+  } catch {
+    return null;
+  }
+
+  for (const key of ADMIN_SALON_QUERY_PARAMS) {
+    const value = searchParams.get(key)?.trim();
+    if (value) {
+      return value;
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Resolve the salon an admin surface should act on when the URL names one.
+ *
+ * AG-security-tenancy-03 / AG-w2-settings-integrations-07: the active-salon
+ * cookie used to win silently, so a URL naming salon A could read and write
+ * salon B. The URL is the owner's explicit choice, so it wins — but only after
+ * the caller's membership is re-checked, and the shell cookie is then moved
+ * into lockstep so the rest of the workspace agrees.
+ *
+ * With no slug in the URL this is exactly `requireActiveAdminSalon()`.
+ */
+export async function requireAdminSalonForSlug(
+  requestedSlug: string | null | undefined,
+  options: { persistActiveSalon?: boolean } = {},
+): Promise<{
+    error: Response | null;
+    salon: Salon | null;
+    admin: AdminWithSalons | null;
+    impersonation: AdminImpersonationSession | null;
+  }> {
+  const active = await requireActiveAdminSalon();
+  const normalizedSlug = requestedSlug?.trim() ?? '';
+
+  if (!normalizedSlug || active.error || !active.salon) {
+    return active;
+  }
+
+  if (active.salon.slug.toLowerCase() === normalizedSlug.toLowerCase()) {
+    return active;
+  }
+
+  // An impersonation session is pinned to one salon by design. Answering for a
+  // different one would be a scope escape, so it is refused rather than
+  // silently redirected.
+  if (active.impersonation) {
+    return {
+      error: new Response(
+        JSON.stringify({
+          error: {
+            code: 'SALON_SCOPE_MISMATCH',
+            message: 'This session is pinned to a different salon.',
+          },
+        }),
+        { status: 403, headers: { 'Content-Type': 'application/json' } },
+      ),
+      salon: null,
+      admin: active.admin,
+      impersonation: active.impersonation,
+    };
+  }
+
+  const requestedSalon = await getSalonBySlug(normalizedSlug)
+    ?? await getSalonByFormerSlug(normalizedSlug);
+
+  if (!requestedSalon) {
+    return {
+      error: new Response(
+        JSON.stringify({
+          error: { code: 'SALON_NOT_FOUND', message: 'Salon not found' },
+        }),
+        { status: 404, headers: { 'Content-Type': 'application/json' } },
+      ),
+      salon: null,
+      admin: active.admin,
+      impersonation: null,
+    };
+  }
+
+  const guard = await requireAdmin(requestedSalon.id);
+  if (!guard.ok) {
+    return {
+      error: guard.response,
+      salon: null,
+      admin: active.admin,
+      impersonation: null,
+    };
+  }
+
+  if (options.persistActiveSalon !== false) {
+    // Best effort: cookies are writable from route handlers, not from the
+    // render of a server component. A read-only store must not fail the read.
+    try {
+      const cookieStore = await cookies();
+      cookieStore.set(ACTIVE_SALON_COOKIE, requestedSalon.slug, {
+        ...COOKIE_OPTIONS,
+        maxAge: 60 * 60 * 24 * 30,
+      });
+    } catch {
+      // The surface simply keeps using the URL for this request.
+    }
+  }
+
+  return {
+    error: null,
+    salon: requestedSalon,
+    admin: active.admin,
+    impersonation: null,
+  };
+}
+
+/**
+ * `requireActiveAdminSalon()` for route handlers, honouring `?salonSlug=` /
+ * `?salon=` when the caller names one.
+ */
+export async function requireAdminSalonFromRequest(request: Request): Promise<{
+  error: Response | null;
+  salon: Salon | null;
+  admin: AdminWithSalons | null;
+  impersonation: AdminImpersonationSession | null;
+}> {
+  return requireAdminSalonForSlug(readRequestedAdminSalonSlug(request.url));
 }
 
 export async function getAdminImpersonationForAdmin(

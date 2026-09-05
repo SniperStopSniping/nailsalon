@@ -34,6 +34,26 @@ describe('Booking Page hub', () => {
     expect(screen.getByRole('link', { name: 'Review saved setup' })).toHaveAttribute('href', expect.stringContaining('site=existing&revision=4'));
   });
 
+  // AG-security-tenancy-02: publishing locks the public address for good, so a
+  // collaborator is told rather than walked into a 403.
+  it('replaces the publish CTA with an owner-only note for a collaborator', () => {
+    render(<BookingPageHub {...props} canPublish={false} published={false} />);
+
+    expect(screen.queryByRole('link', { name: 'Publish website' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Review & publish changes' })).not.toBeInTheDocument();
+    expect(screen.getByText('Publishing is owner only')).toBeVisible();
+    // Everything else the collaborator legitimately uses stays put.
+    expect(screen.getByRole('link', { name: 'Preview draft' })).toBeVisible();
+    expect(screen.getByRole('navigation', { name: 'Booking Page editors' }).querySelectorAll('a')).toHaveLength(6);
+  });
+
+  it('keeps the publish CTA for the owner', () => {
+    render(<BookingPageHub {...props} canPublish published={false} />);
+
+    expect(screen.getByRole('link', { name: 'Publish website' })).toHaveAttribute('href', '/en/admin/booking-page?salon=another-studio&panel=publish');
+    expect(screen.queryByText('Publishing is owner only')).not.toBeInTheDocument();
+  });
+
   it('distinguishes unpublished edits and does not fabricate guided review availability', () => {
     render(<BookingPageHub {...props} hasDraftChanges />);
 

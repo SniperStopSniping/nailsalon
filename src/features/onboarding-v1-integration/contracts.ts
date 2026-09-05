@@ -766,6 +766,15 @@ export type OnboardingClaimSuccess = {
   media: { failed: number; pending: number; ready: number };
   ownerCreatedServiceIds: string[];
   payloadFingerprint: string;
+  /**
+   * Resume guard (implementation plan Batch 2, "Resume overwrite risk"). Set
+   * only when a re-claim (`continue_onboarding_draft` / `replace_draft`) found
+   * canonical records the dashboard had edited since the revision it
+   * continues, and therefore left them alone. Owner-readable phrases, e.g.
+   * "your service prices, durations and visibility". Absent on a first claim
+   * and on any re-claim that overwrote nothing.
+   */
+  preservedDashboardEdits?: string[];
   revision: number;
   revisionId: string;
   salonId: string;

@@ -10,11 +10,13 @@ import {
 } from '@/libs/bookingExperience';
 import {
   type BookingPageConfigTransaction,
+  resolveBookingPageConfig,
   updateBookingPageDraftInTransaction,
 } from '@/libs/bookingPageConfig';
 import {
   bookingPageContentPatchSchema,
   type BookingPageContentTransaction,
+  resolveBookingPageContent,
   updateBookingPageContentDraftInTransaction,
 } from '@/libs/bookingPageContent';
 import { type DatabaseSessionHandle, db } from '@/libs/DB';
@@ -300,8 +302,11 @@ async function syncSharedSalonProfileContent(input: {
   database: QueryDatabase;
   salonId: string;
   snapshot: OnboardingPersistedSnapshot;
+  /** Resume guard — canonical groups the dashboard owns; see `resolveDashboardOwnedFields`. */
+  preserve?: ReadonlySet<DashboardOwnedField>;
 }): Promise<void> {
   const { database, salonId, snapshot } = input;
+  const preserve = input.preserve ?? new Set<DashboardOwnedField>();
   const [salon] = await database
     .select({ settings: salonSchema.settings })
     .from(salonSchema)
@@ -330,38 +335,45 @@ async function syncSharedSalonProfileContent(input: {
     && snapshot.profile.policies.copy.cancellations.visible
     ? cancellationNoticeLabel(snapshot)
     : null;
-  const instagram = normalizedInstagram(snapshot.profile.instagram);
+  const instagram = preserve.has('contact')
+    ? currentBookingExperience.socialLinks.instagram ?? null
+    : normalizedInstagram(snapshot.profile.instagram);
   const policyChanged = policyText !== currentBookingExperience.policy.text;
+  const preservePolicies = preserve.has('policies');
   const candidate = bookingExperienceUpdateSchema.parse({
     bookingMessage: currentBookingExperience.bookingMessage,
     confirmationMessage: currentBookingExperience.confirmationMessage,
-    policy: {
-      acknowledgment: policyChanged
-        ? { required: false, text: null }
-        : currentBookingExperience.policy.acknowledgment,
-      enabled: policyText !== null,
-      showAfterConfirmation: currentBookingExperience.policy.showAfterConfirmation,
-      showBeforeConfirmation: currentBookingExperience.policy.showBeforeConfirmation,
-      showInConfirmationEmail: currentBookingExperience.policy.showInConfirmationEmail,
-      showOnServicePage: true,
-      text: policyText,
-      title: policyText ? 'Deposits & cancellations' : null,
-    },
+    policy: preservePolicies
+      ? currentBookingExperience.policy
+      : {
+          acknowledgment: policyChanged
+            ? { required: false, text: null }
+            : currentBookingExperience.policy.acknowledgment,
+          enabled: policyText !== null,
+          showAfterConfirmation: currentBookingExperience.policy.showAfterConfirmation,
+          showBeforeConfirmation: currentBookingExperience.policy.showBeforeConfirmation,
+          showInConfirmationEmail: currentBookingExperience.policy.showInConfirmationEmail,
+          showOnServicePage: true,
+          text: policyText,
+          title: policyText ? 'Deposits & cancellations' : null,
+        },
     primaryColor: currentBookingExperience.primaryColor,
-    quickFacts: {
-      appointmentOnly: {
-        enabled: appointmentLabel !== null,
-        label: appointmentLabel,
-      },
-      cancellationNotice: {
-        enabled: cancellationLabel !== null,
-        label: cancellationLabel,
-      },
-      depositNotice: {
-        enabled: resolvedDepositLabel !== null,
-        label: resolvedDepositLabel,
-      },
-    },
+    quickFacts: preservePolicies
+      ? currentBookingExperience.quickFacts
+      : {
+          appointmentOnly: {
+            enabled: appointmentLabel !== null,
+            label: appointmentLabel,
+          },
+          cancellationNotice: {
+            enabled: cancellationLabel !== null,
+            label: cancellationLabel,
+          },
+          depositNotice: {
+            enabled: resolvedDepositLabel !== null,
+            label: resolvedDepositLabel,
+          },
+        },
     socialLinks: {
       ...currentBookingExperience.socialLinks,
       instagram,
@@ -400,11 +412,13 @@ async function syncSharedSalonProfileContent(input: {
   await database.update(salonSchema).set({
     settings: {
       ...currentSettings,
-      booking: {
-        ...rawBooking,
-        minimumNoticeMinutes: snapshot.profile.bookingPreferences.minimumNoticeMinutes,
-        timezone: snapshot.profile.timeZone,
-      },
+      booking: preservePolicies
+        ? rawBooking
+        : {
+            ...rawBooking,
+            minimumNoticeMinutes: snapshot.profile.bookingPreferences.minimumNoticeMinutes,
+            timezone: snapshot.profile.timeZone,
+          },
       bookingExperience: {
         ...rawBookingExperience,
         ...candidate,
@@ -782,8 +796,11 @@ async function syncExistingBusinessProfile(input: {
   identity: AuthenticatedOnboardingIdentity;
   salonId: string;
   snapshot: OnboardingPersistedSnapshot;
+  /** Resume guard — canonical groups the dashboard owns; see `resolveDashboardOwnedFields`. */
+  preserve?: ReadonlySet<DashboardOwnedField>;
 }): Promise<string | null> {
   const { database, identity, salonId, snapshot } = input;
+  const preserve = input.preserve ?? new Set<DashboardOwnedField>();
   const phone = canonicalSalonPhone(snapshot);
   const email = canonicalSalonEmail(snapshot);
   const hours = businessHours(snapshot);
@@ -793,18 +810,18 @@ async function syncExistingBusinessProfile(input: {
     : null;
   const ownerPhone = identityPhone(identity, snapshot);
   await database.update(salonSchema).set({
-    address: publicAddress,
-    businessHours: hours,
-    city: snapshot.profile.location.cityOrArea || null,
-    email,
-    name: snapshot.profile.businessName,
+    ...(preserve.has('location')
+      ? {}
+      : { address: publicAddress, city: snapshot.profile.location.cityOrArea || null }),
+    ...(preserve.has('hours') ? {} : { businessHours: hours }),
+    ...(preserve.has('contact') ? {} : { email, phone }),
+    ...(preserve.has('business_name') ? {} : { name: snapshot.profile.businessName }),
     onboardingCompletedAt: new Date(),
     onlineBookingEnabled: true,
     ownerClerkUserId: identity.clerkUserId,
     ownerEmail: identity.email.trim().toLowerCase(),
     ownerName: ownerDisplayName(snapshot),
     ownerPhone,
-    phone,
   }).where(eq(salonSchema.id, salonId));
 
   const [primaryLocation] = await database.select({ id: salonLocationSchema.id })
@@ -817,12 +834,12 @@ async function syncExistingBusinessProfile(input: {
   const locationId = primaryLocation?.id ?? crypto.randomUUID();
   if (primaryLocation) {
     await database.update(salonLocationSchema).set({
-      address: exactAddress,
-      businessHours: hours,
-      city: snapshot.profile.location.cityOrArea || null,
-      email,
+      ...(preserve.has('location')
+        ? {}
+        : { address: exactAddress, city: snapshot.profile.location.cityOrArea || null }),
+      ...(preserve.has('hours') ? {} : { businessHours: hours }),
+      ...(preserve.has('contact') ? {} : { email, phone }),
       isActive: true,
-      phone,
     }).where(and(
       eq(salonLocationSchema.id, primaryLocation.id),
       eq(salonLocationSchema.salonId, salonId),
@@ -864,7 +881,7 @@ async function syncExistingBusinessProfile(input: {
     phone: ownerPhone,
     primaryLocationId: locationId,
     specialties: snapshot.profile.about.specialties,
-    weeklySchedule: technicianHours(snapshot),
+    ...(preserve.has('hours') ? {} : { weeklySchedule: technicianHours(snapshot) }),
   };
   if (activeTechnicians.length === 0) {
     await database.insert(technicianSchema).values({
@@ -1193,18 +1210,16 @@ async function markSeededOnboardingMenuRows(input: {
  * Exact draft-only reconciliation for records that onboarding itself owns.
  * Unrelated Product services/add-ons are deliberately outside this set.
  */
-async function reconcileOnboardingOwnedMenu(input: {
-  database: QueryDatabase;
-  salonId: string;
-  snapshot: OnboardingPersistedSnapshot;
-  technicianId: string | null;
-}): Promise<void> {
-  const selectedServiceIds = new Set(
-    input.snapshot.profile.serviceMenu.selectedServiceIds,
-  );
-  const selectedAddOnIds = new Set(
-    input.snapshot.profile.serviceMenu.selectedAddOnIds,
-  );
+/**
+ * The exact values a claim would write onto the onboarding-owned menu rows,
+ * derived from one snapshot. Extracted so `reconcileOnboardingOwnedMenu` (the
+ * writer) and `resolveDashboardOwnedFields` (the resume guard, which needs to
+ * know whether the dashboard has since moved a row away from what the last
+ * claim wrote) can never disagree about what "unchanged" means.
+ */
+function onboardingOwnedMenuTargets(snapshot: OnboardingPersistedSnapshot) {
+  const selectedServiceIds = new Set(snapshot.profile.serviceMenu.selectedServiceIds);
+  const selectedAddOnIds = new Set(snapshot.profile.serviceMenu.selectedAddOnIds);
   const canonicalServiceById = new Map(
     CANONICAL_SERVICES.map(service => [service.id, service]),
   );
@@ -1236,6 +1251,54 @@ async function reconcileOnboardingOwnedMenu(input: {
     ?? null
   );
 
+  return {
+    forAddOn(sourceId: string, templateKey: string | null): { isActive: boolean } {
+      const mapping = selectedAddOnMapping(sourceId, templateKey);
+      const canonical = mapping ? canonicalAddOnById.get(mapping.labServiceId) : null;
+      return { isActive: Boolean(mapping && canonical) };
+    },
+    forService(sourceId: string, templateKey: string | null): {
+      isActive: boolean;
+      pricing: { durationMinutes: number; price: number; priceDisplayText: string | null } | null;
+    } {
+      const mapping = selectedServiceMapping(sourceId, templateKey);
+      const canonical = mapping ? canonicalServiceById.get(mapping.labServiceId) : null;
+      const selected = Boolean(mapping && canonical);
+      const override = mapping
+        ? snapshot.profile.serviceMenu.ownerOverridesByServiceId[mapping.labServiceId]
+        : undefined;
+      const price = canonical ? onboardingServicePrice(canonical) : null;
+      return {
+        isActive: selected,
+        pricing: selected && canonical && price
+          ? {
+              durationMinutes: override?.durationMinutes ?? canonical.durationMinutes,
+              price: override?.priceCents ?? price.price,
+              priceDisplayText: override?.priceCents === undefined ? price.priceDisplayText : null,
+            }
+          : null,
+      };
+    },
+  };
+}
+
+async function reconcileOnboardingOwnedMenu(input: {
+  database: QueryDatabase;
+  salonId: string;
+  snapshot: OnboardingPersistedSnapshot;
+  technicianId: string | null;
+  /**
+   * Resume guard (implementation plan Batch 2, "Resume overwrite risk"): when
+   * the dashboard has edited the onboarding-owned menu since the revision this
+   * claim continues, the dashboard wins — the rows keep their price, display
+   * text, duration and visibility, and only the technician assignment (purely
+   * additive) is still ensured.
+   */
+  preserveDashboardMenuEdits?: boolean;
+}): Promise<void> {
+  const targets = onboardingOwnedMenuTargets(input.snapshot);
+  const preserve = input.preserveDashboardMenuEdits === true;
+
   const services = await input.database.select({
     id: serviceSchema.id,
     onboardingSourceServiceId: serviceSchema.onboardingSourceServiceId,
@@ -1248,26 +1311,17 @@ async function reconcileOnboardingOwnedMenu(input: {
     if (!row.onboardingSourceServiceId) {
       continue;
     }
-    const mapping = selectedServiceMapping(row.onboardingSourceServiceId, row.templateKey);
-    const canonical = mapping ? canonicalServiceById.get(mapping.labServiceId) : null;
-    const selected = Boolean(mapping && canonical);
-    const override = mapping
-      ? input.snapshot.profile.serviceMenu.ownerOverridesByServiceId[mapping.labServiceId]
-      : undefined;
-    const price = canonical ? onboardingServicePrice(canonical) : null;
-    await input.database.update(serviceSchema).set({
-      ...(selected && canonical && price
-        ? {
-            durationMinutes: override?.durationMinutes ?? canonical.durationMinutes,
-            price: override?.priceCents ?? price.price,
-            priceDisplayText: override?.priceCents === undefined ? price.priceDisplayText : null,
-          }
-        : {}),
-      isActive: selected,
-    }).where(and(
-      eq(serviceSchema.id, row.id),
-      eq(serviceSchema.salonId, input.salonId),
-    ));
+    const target = targets.forService(row.onboardingSourceServiceId, row.templateKey);
+    const selected = target.isActive;
+    if (!preserve) {
+      await input.database.update(serviceSchema).set({
+        ...(target.pricing ?? {}),
+        isActive: selected,
+      }).where(and(
+        eq(serviceSchema.id, row.id),
+        eq(serviceSchema.salonId, input.salonId),
+      ));
+    }
     if (selected && input.technicianId) {
       const [assignment] = await input.database.select({
         serviceId: technicianServicesSchema.serviceId,
@@ -1298,16 +1352,245 @@ async function reconcileOnboardingOwnedMenu(input: {
     if (!row.onboardingSourceAddOnId) {
       continue;
     }
-    const mapping = selectedAddOnMapping(row.onboardingSourceAddOnId, row.templateKey);
-    const canonical = mapping ? canonicalAddOnById.get(mapping.labServiceId) : null;
-    const selected = Boolean(mapping && canonical);
+    if (preserve) {
+      continue;
+    }
     await input.database.update(addOnSchema).set({
-      isActive: selected,
+      isActive: targets.forAddOn(row.onboardingSourceAddOnId, row.templateKey).isActive,
     }).where(and(
       eq(addOnSchema.id, row.id),
       eq(addOnSchema.salonId, input.salonId),
     ));
   }
+}
+
+// =============================================================================
+// Resume guard — one canonical writer per record.
+//
+// Implementation plan Batch 2, "Resume overwrite risk". A re-claim
+// (`continue_onboarding_draft` / `replace_draft`) replays a snapshot the owner
+// captured in the onboarding flow. Between that capture and the replay the
+// owner may have edited the same records in the dashboard — Your Information,
+// Settings, the Services editor, the Booking Page appearance panel. Replaying
+// unconditionally silently reverts those edits, with no diff and no
+// confirmation.
+//
+// The rule this implements: the dashboard wins by default. For each canonical
+// group we compare what the *baseline* revision (the exact revision this claim
+// continues or replaces) wrote against what the record holds now. A record
+// that no longer matches its baseline has been edited outside onboarding, so
+// the claim leaves that group alone and says so in the claim response
+// (`preservedDashboardEdits`). Groups the dashboard has not touched are
+// re-applied exactly as before, and a first claim — no baseline revision —
+// keeps its existing behaviour untouched.
+//
+// Deliberately conservative in both directions: a group is preserved whenever
+// it *may* carry a dashboard edit, and a preserved group is reported rather
+// than silently dropped, so the client can offer the owner the explicit
+// "replace my dashboard edits" choice instead of guessing for them.
+// =============================================================================
+
+const DASHBOARD_OWNED_FIELD_LABELS = {
+  booking_page_presentation: 'your booking page style, palette and layout',
+  business_name: 'your business name',
+  contact: 'your phone, email and Instagram',
+  hours: 'your opening hours',
+  location: 'your address and city',
+  policies: 'your policies and booking rules',
+  services: 'your service prices, durations and visibility',
+} as const;
+
+type DashboardOwnedField = keyof typeof DASHBOARD_OWNED_FIELD_LABELS;
+
+function sameHours(
+  stored: unknown,
+  expected: ReturnType<typeof businessHours>,
+): boolean {
+  const current = isRecord(stored) ? stored : null;
+  if (!current) {
+    // No stored hours at all cannot be a dashboard edit away from a baseline.
+    return true;
+  }
+  return WEEKDAYS.every((day) => {
+    const expectedDay = expected[day];
+    const storedDay = isRecord(current[day]) ? current[day] as Record<string, unknown> : null;
+    if (!expectedDay) {
+      return current[day] === null || current[day] === undefined;
+    }
+    return Boolean(storedDay)
+      && storedDay!.open === expectedDay.open
+      && storedDay!.close === expectedDay.close;
+  });
+}
+
+async function resolveDashboardOwnedFields(input: {
+  database: QueryDatabase;
+  salonId: string;
+  baseline: OnboardingPersistedSnapshot;
+}): Promise<Set<DashboardOwnedField>> {
+  const { database, salonId, baseline } = input;
+  const owned = new Set<DashboardOwnedField>();
+
+  const [salon] = await database.select({
+    address: salonSchema.address,
+    businessHours: salonSchema.businessHours,
+    city: salonSchema.city,
+    email: salonSchema.email,
+    name: salonSchema.name,
+    phone: salonSchema.phone,
+    settings: salonSchema.settings,
+  }).from(salonSchema).where(eq(salonSchema.id, salonId)).limit(1);
+  if (!salon) {
+    return owned;
+  }
+
+  if (salon.name !== baseline.profile.businessName) {
+    owned.add('business_name');
+  }
+
+  const expectedHours = businessHours(baseline);
+  if (!sameHours(salon.businessHours, expectedHours)) {
+    owned.add('hours');
+  }
+
+  const expectedExactAddress = baseline.profile.location.exactAddress || null;
+  const expectedPublicAddress = baseline.profile.location.addressVisibility === 'public'
+    ? expectedExactAddress
+    : null;
+  const expectedCity = baseline.profile.location.cityOrArea || null;
+  if (salon.address !== expectedPublicAddress || salon.city !== expectedCity) {
+    owned.add('location');
+  }
+
+  const [primaryLocation] = await database.select({
+    address: salonLocationSchema.address,
+    businessHours: salonLocationSchema.businessHours,
+    city: salonLocationSchema.city,
+    email: salonLocationSchema.email,
+    phone: salonLocationSchema.phone,
+  }).from(salonLocationSchema).where(and(
+    eq(salonLocationSchema.salonId, salonId),
+    eq(salonLocationSchema.isPrimary, true),
+  )).limit(1);
+  if (primaryLocation) {
+    if (primaryLocation.address !== expectedExactAddress || primaryLocation.city !== expectedCity) {
+      owned.add('location');
+    }
+    if (!sameHours(primaryLocation.businessHours, expectedHours)) {
+      owned.add('hours');
+    }
+  }
+
+  const expectedPhone = canonicalSalonPhone(baseline);
+  const expectedEmail = canonicalSalonEmail(baseline);
+  const bookingExperience = resolveBookingExperience(salon.settings);
+  if (
+    salon.phone !== expectedPhone
+    || salon.email !== expectedEmail
+    || (primaryLocation && (primaryLocation.phone !== expectedPhone || primaryLocation.email !== expectedEmail))
+    || (bookingExperience.socialLinks.instagram ?? null)
+    !== normalizedInstagram(baseline.profile.instagram)
+  ) {
+    owned.add('contact');
+  }
+
+  const settings = isRecord(salon.settings) ? salon.settings : {};
+  const booking = isRecord(settings.booking) ? settings.booking : {};
+  if (
+    (bookingExperience.policy.text ?? null) !== onboardingPolicyText(baseline)
+    || booking.minimumNoticeMinutes !== baseline.profile.bookingPreferences.minimumNoticeMinutes
+    || booking.timezone !== baseline.profile.timeZone
+  ) {
+    owned.add('policies');
+  }
+
+  const targets = onboardingOwnedMenuTargets(baseline);
+  const services = await database.select({
+    durationMinutes: serviceSchema.durationMinutes,
+    isActive: serviceSchema.isActive,
+    onboardingSourceServiceId: serviceSchema.onboardingSourceServiceId,
+    price: serviceSchema.price,
+    priceDisplayText: serviceSchema.priceDisplayText,
+    templateKey: serviceSchema.templateKey,
+  }).from(serviceSchema).where(and(
+    eq(serviceSchema.salonId, salonId),
+    isNotNull(serviceSchema.onboardingSourceServiceId),
+  ));
+  for (const row of services) {
+    if (!row.onboardingSourceServiceId) {
+      continue;
+    }
+    const target = targets.forService(row.onboardingSourceServiceId, row.templateKey);
+    if (row.isActive !== target.isActive) {
+      owned.add('services');
+      break;
+    }
+    if (
+      target.pricing
+      && (
+        row.price !== target.pricing.price
+        || row.durationMinutes !== target.pricing.durationMinutes
+        || (row.priceDisplayText ?? null) !== target.pricing.priceDisplayText
+      )
+    ) {
+      owned.add('services');
+      break;
+    }
+  }
+  if (!owned.has('services')) {
+    const addOns = await database.select({
+      isActive: addOnSchema.isActive,
+      onboardingSourceAddOnId: addOnSchema.onboardingSourceAddOnId,
+      templateKey: addOnSchema.templateKey,
+    }).from(addOnSchema).where(and(
+      eq(addOnSchema.salonId, salonId),
+      isNotNull(addOnSchema.onboardingSourceAddOnId),
+    ));
+    for (const row of addOns) {
+      if (!row.onboardingSourceAddOnId) {
+        continue;
+      }
+      if (row.isActive !== targets.forAddOn(row.onboardingSourceAddOnId, row.templateKey).isActive) {
+        owned.add('services');
+        break;
+      }
+    }
+  }
+
+  const draftConfig = resolveBookingPageConfig(salon.settings).draft;
+  const draftContent = resolveBookingPageContent(salon.settings).draft;
+  const baselineBookingSection = baseline.site.builderDocument?.pages
+    .flatMap(page => page.sections)
+    .find(section => section.sectionType === 'booking');
+  const baselineServiceMenuLayout = baselineBookingSection?.sectionType === 'booking'
+    ? baselineBookingSection.settings.layout
+    : null;
+  const baselineLocationDisplayMode = baseline.profile.location.addressVisibility === 'public'
+    ? 'full_address'
+    : baseline.profile.location.addressVisibility === 'after_booking'
+      ? 'after_booking'
+      : 'city_only';
+  if (
+    draftConfig.siteStylePreset !== baseline.site.stylePresetId
+    || draftConfig.sitePalettePreset !== baseline.site.palettePresetId
+    || draftConfig.quickBookLayout !== baseline.site.quickBookLayout
+    || (baselineServiceMenuLayout !== null && draftConfig.serviceMenuLayout !== baselineServiceMenuLayout)
+    || (draftContent.bio ?? null) !== (baseline.profile.about.shortBio.trim() || null)
+    || draftContent.locationDisplayMode !== baselineLocationDisplayMode
+  ) {
+    owned.add('booking_page_presentation');
+  }
+
+  return owned;
+}
+
+/** Owner-readable list of the groups a re-claim left alone. */
+function describePreservedDashboardEdits(
+  owned: ReadonlySet<DashboardOwnedField>,
+): string[] {
+  return (Object.keys(DASHBOARD_OWNED_FIELD_LABELS) as DashboardOwnedField[])
+    .filter(field => owned.has(field))
+    .map(field => DASHBOARD_OWNED_FIELD_LABELS[field]);
 }
 
 async function existingClaimForToken(
@@ -1479,6 +1762,9 @@ async function claimOnboardingDraftUnlocked(
     let technicianId: string | null = null;
     let currentSite: typeof onboardingSiteSchema.$inferSelect | null = null;
     let preserveExistingProductData = false;
+    // Resume guard (implementation plan Batch 2). Empty for a first claim, so
+    // creating a business behaves exactly as before.
+    let dashboardOwned: ReadonlySet<DashboardOwnedField> = new Set<DashboardOwnedField>();
 
     const target = input.target;
     if (target?.mode === 'existing_business') {
@@ -1589,6 +1875,27 @@ async function claimOnboardingDraftUnlocked(
         continuingOnboardingDraft
         && membership.publicationStatus === 'published'
       );
+
+      // Resume guard: compare the record as it stands now against the exact
+      // revision this claim continues/replaces. Anything that no longer
+      // matches its baseline was edited in the dashboard after that revision
+      // was saved, and the dashboard wins.
+      if (continuingOnboardingDraft || target.existingSiteStrategy === 'replace_draft') {
+        const [baselineRevision] = await tx.select({
+          snapshot: onboardingSiteRevisionSchema.snapshot,
+        }).from(onboardingSiteRevisionSchema).where(and(
+          eq(onboardingSiteRevisionSchema.salonId, salonId),
+          eq(onboardingSiteRevisionSchema.siteId, target.expectedSiteId!),
+          eq(onboardingSiteRevisionSchema.revision, target.expectedRevision!),
+        )).limit(1);
+        if (baselineRevision) {
+          dashboardOwned = await resolveDashboardOwnedFields({
+            baseline: baselineRevision.snapshot,
+            database: tx as QueryDatabase,
+            salonId,
+          });
+        }
+      }
       if (continuingOnboardingDraft && !preserveExistingProductData) {
         const requestedSlug = normalizeSalonSlug(input.snapshot.profile.siteSlug)
           ?? (input.snapshot.profile.siteSlugCustomized ? '' : membership.slug);
@@ -1628,6 +1935,7 @@ async function claimOnboardingDraftUnlocked(
         technicianId = await syncExistingBusinessProfile({
           database: tx as QueryDatabase,
           identity,
+          preserve: dashboardOwned,
           salonId,
           snapshot: input.snapshot,
         });
@@ -1643,6 +1951,7 @@ async function claimOnboardingDraftUnlocked(
     if (!preserveExistingProductData) {
       await syncSharedSalonProfileContent({
         database: tx as QueryDatabase,
+        preserve: dashboardOwned,
         salonId,
         snapshot: input.snapshot,
       });
@@ -1669,16 +1978,32 @@ async function claimOnboardingDraftUnlocked(
       });
       await reconcileOnboardingOwnedMenu({
         database: tx as QueryDatabase,
+        preserveDashboardMenuEdits: dashboardOwned.has('services'),
         salonId,
         snapshot: input.snapshot,
         technicianId,
       });
     }
-    await syncQuickBookProfilePresentationDraft({
-      database: tx as QueryDatabase,
-      salonId,
-      snapshot: input.snapshot,
-    });
+    // Runs for every claim, including `new_draft` against a published salon —
+    // the one write this guard has to reach even when
+    // `preserveExistingProductData` is already true.
+    if (!dashboardOwned.has('booking_page_presentation')) {
+      await syncQuickBookProfilePresentationDraft({
+        database: tx as QueryDatabase,
+        salonId,
+        snapshot: input.snapshot,
+      });
+    }
+
+    // AG-w2-information-parity-05: these two columns mirror the resulting
+    // booking-page draft rather than the snapshot, so the saved-site preview
+    // and "Review saved setup" can never replay a pair the customer site does
+    // not render.
+    const [presetSource] = await tx.select({ settings: salonSchema.settings })
+      .from(salonSchema).where(eq(salonSchema.id, salonId)).limit(1);
+    const mirroredDraft = resolveBookingPageConfig(presetSource?.settings ?? null).draft;
+    const stylePresetId = mirroredDraft.siteStylePreset ?? input.snapshot.site.stylePresetId;
+    const palettePresetId = mirroredDraft.sitePalettePreset ?? input.snapshot.site.palettePresetId;
 
     const replaceTarget = target?.mode === 'existing_business'
       && (
@@ -1714,18 +2039,18 @@ async function claimOnboardingDraftUnlocked(
         currentRevision: revision,
         id: siteId,
         isCurrent: true,
-        palettePresetId: input.snapshot.site.palettePresetId,
+        palettePresetId,
         salonId,
         serviceMenuApplied: !preserveExistingProductData,
         status: 'draft',
-        stylePresetId: input.snapshot.site.stylePresetId,
+        stylePresetId,
       });
     } else {
       const [updatedSite] = await tx.update(onboardingSiteSchema).set({
         currentRevision: revision,
-        palettePresetId: input.snapshot.site.palettePresetId,
+        palettePresetId,
         serviceMenuApplied: !preserveExistingProductData,
-        stylePresetId: input.snapshot.site.stylePresetId,
+        stylePresetId,
         updatedAt: new Date(),
       }).where(and(
         eq(onboardingSiteSchema.id, siteId),
@@ -1864,20 +2189,31 @@ async function claimOnboardingDraftUnlocked(
     if (!claim) {
       throw new OnboardingPersistenceError('CLAIM_CREATE_FAILED', 'The site claim could not be recorded.', 500);
     }
-    return { kind: 'created' as const, claim, salonSlug };
+    return {
+      claim,
+      kind: 'created' as const,
+      preservedDashboardEdits: describePreservedDashboardEdits(dashboardOwned),
+      salonSlug,
+    };
   });
 
   if (result.kind === 'conflict') {
     return { kind: 'conflict', conflict: result.conflict };
   }
+  const data = await claimSuccessForSnapshot(
+    database,
+    result.claim,
+    result.kind === 'created',
+    input.snapshot,
+  );
+  const preservedDashboardEdits = result.kind === 'created'
+    ? result.preservedDashboardEdits
+    : [];
   return {
     kind: 'success',
-    data: await claimSuccessForSnapshot(
-      database,
-      result.claim,
-      result.kind === 'created',
-      input.snapshot,
-    ),
+    data: preservedDashboardEdits.length > 0
+      ? { ...data, preservedDashboardEdits }
+      : data,
   };
 }
 

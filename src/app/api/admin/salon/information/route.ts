@@ -31,13 +31,12 @@ import { resolveBookingConfigFromSettings } from '@/libs/bookingConfig';
 import { bookingExperienceAppearanceUpdateSchema, resolveBookingExperience } from '@/libs/bookingExperience';
 import { resolveBookingPageContent } from '@/libs/bookingPageContent';
 import { db } from '@/libs/DB';
+import { resolveInstagramInput, toInstagramHandle } from '@/libs/instagramHandle';
 import { buildSalonTenantPublicUrl } from '@/libs/publicUrl';
 import { getActiveLocationsBySalonId, getSalonBySlug, getTechniciansBySalonId } from '@/libs/queries';
 import { resolveSharedSalonProfile } from '@/libs/sharedSalonProfile';
 import { resolveWeeklySchedule } from '@/libs/weeklySchedule';
 import { type Salon, salonLocationSchema, salonSchema } from '@/models/Schema';
-
-import { resolveInstagramUsername } from '../../../../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/model/contact';
 
 export const dynamic = 'force-dynamic';
 
@@ -105,12 +104,18 @@ const emailSchema = optionalText(320).transform((value, context) => {
 
 const instagramUrlSchema = bookingExperienceAppearanceUpdateSchema.shape.socialLinks.shape.instagram;
 
-/** Accepts a username, `@username` or a profile URL; stores the canonical profile URL. */
+/**
+ * Accepts a username, `@username` or a profile URL; stores the canonical
+ * profile URL. `@/libs/instagramHandle` is the single normaliser — Settings →
+ * Branding sends the same canonical URL through
+ * `PATCH /api/admin/salon/settings`, so both owner editors agree on the stored
+ * form and both display the bare handle.
+ */
 const instagramSchema = optionalText(200).transform((value, context) => {
   if (value === null) {
     return null;
   }
-  const resolution = resolveInstagramUsername(value);
+  const resolution = resolveInstagramInput(value);
   if (resolution.status === 'empty') {
     return null;
   }
@@ -118,7 +123,7 @@ const instagramSchema = optionalText(200).transform((value, context) => {
     context.addIssue({ code: z.ZodIssueCode.custom, message: resolution.error });
     return z.NEVER;
   }
-  const parsed = instagramUrlSchema.safeParse(`https://www.instagram.com/${resolution.username}/`);
+  const parsed = instagramUrlSchema.safeParse(resolution.url);
   if (!parsed.success) {
     context.addIssue({ code: z.ZodIssueCode.custom, message: 'Enter only your Instagram username.' });
     return z.NEVER;
@@ -208,6 +213,7 @@ async function buildInformation(salon: Salon) {
   );
   const content = resolveBookingPageContent(salon.settings);
   const sharedProfile = resolveSharedSalonProfile(salon.settings);
+  const instagramUrl = resolveBookingExperience(salon.settings).socialLinks.instagram;
 
   return {
     salon: {
@@ -226,7 +232,13 @@ async function buildInformation(salon: Salon) {
       ? { id: soleTechnician.id, name: soleTechnician.name, avatarUrl: soleTechnician.avatarUrl ?? null }
       : null,
     technicianCount: technicians.length,
-    instagram: resolveBookingExperience(salon.settings).socialLinks.instagram,
+    instagram: instagramUrl,
+    /**
+     * The bare handle the editor pre-fills with. The stored URL stays in
+     * `instagram` for anything that links out; the owner never has to read or
+     * retype `https://www.instagram.com/…/`.
+     */
+    instagramHandle: toInstagramHandle(instagramUrl) || null,
     location: location
       ? {
           id: location.id,

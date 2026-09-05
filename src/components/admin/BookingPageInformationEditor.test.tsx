@@ -2,6 +2,8 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { resolveInstagramInput } from '@/libs/instagramHandle';
+
 import { BookingPageInformationEditor, type SalonInformation } from './BookingPageInformationEditor';
 
 const QUICK_BOOK_VISIBILITY = {
@@ -35,6 +37,7 @@ function information(overrides: Partial<SalonInformation> = {}): SalonInformatio
     technician: { id: 'tech_1', name: 'Current tech', avatarUrl: null },
     technicianCount: 1,
     instagram: 'https://www.instagram.com/currentstudio/',
+    instagramHandle: 'currentstudio',
     location: { id: 'loc_1', name: 'Primary location', address: '123 Private Street', city: 'Toronto', state: 'ON', zipCode: 'M5V 1A1' },
     addressPrivacy: { draft: 'full_address', live: 'full_address' },
     contactPreferences: { bookingOnlyContact: false, callEnabled: true, textEnabled: false, textNumber: null },
@@ -52,12 +55,14 @@ describe('BookingPageInformationEditor', () => {
   let current: SalonInformation;
   let failPatch: boolean;
   let ownerForbidden: boolean;
+  let emptyPortfolio: boolean;
 
   beforeEach(() => {
     calls = [];
     current = information();
     failPatch = false;
     ownerForbidden = false;
+    emptyPortfolio = false;
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       const method = init?.method ?? 'GET';
@@ -78,7 +83,16 @@ describe('BookingPageInformationEditor', () => {
             ...current,
             salon: { ...current.salon, ...(body.name ? { name: body.name } : {}), ...(body.phone !== undefined ? { phone: body.phone } : {}), ...(body.logoUrl !== undefined ? { logoUrl: body.logoUrl } : {}) },
             ...(body.businessHours ? { businessHours: body.businessHours } : {}),
-            ...(body.instagram !== undefined ? { instagram: `https://www.instagram.com/${body.instagram}/` } : {}),
+            // Mirror the server: one normaliser, canonical URL stored, handle
+            // reported back for the field.
+            ...(body.instagram !== undefined
+              ? (() => {
+                  const resolution = resolveInstagramInput(body.instagram);
+                  return resolution.status === 'resolved'
+                    ? { instagram: resolution.url, instagramHandle: resolution.username }
+                    : { instagram: null, instagramHandle: null };
+                })()
+              : {}),
           };
         }
         return new Response(JSON.stringify({ data: current }), { status: 200 });
@@ -96,7 +110,7 @@ describe('BookingPageInformationEditor', () => {
         return new Response(JSON.stringify({ data: {} }), { status: 200 });
       }
       if (url.startsWith('/api/admin/portfolio')) {
-        return new Response(JSON.stringify({ photos: [{ id: 'photo_1', imageUrl: 'https://cdn.example/photo-1.jpg', altText: 'Chrome set' }] }), { status: 200 });
+        return new Response(JSON.stringify({ photos: emptyPortfolio ? [] : [{ id: 'photo_1', imageUrl: 'https://cdn.example/photo-1.jpg', altText: 'Chrome set' }] }), { status: 200 });
       }
       return new Response('not found', { status: 404 });
     }));
@@ -131,7 +145,10 @@ describe('BookingPageInformationEditor', () => {
     expect(screen.getByTestId('information-public-url')).toHaveTextContent('https://example.test/en/salon-a');
     expect(screen.getByTestId('information-address-street')).toHaveValue('123 Private Street');
     expect(screen.getByTestId('information-phone')).toHaveValue('+14165550100');
-    expect(screen.getByTestId('information-instagram')).toHaveValue('https://www.instagram.com/currentstudio/');
+    // The field is called "Instagram" and shows the handle, never the stored
+    // URL (AG-w2-information-parity-02).
+    expect(screen.getByTestId('information-instagram')).toHaveValue('currentstudio');
+    expect(screen.getByTestId('information-instagram-helper')).toHaveTextContent('Username or link — clients see @currentstudio');
     expect(screen.getByTestId('information-hours-monday-open')).toHaveValue('10:00');
     expect(screen.getByTestId('information-hours-tuesday-open-toggle')).not.toBeChecked();
     expect(screen.getByTestId('information-timezone')).toHaveValue('America/Toronto');
@@ -296,14 +313,15 @@ describe('BookingPageInformationEditor', () => {
       contactPreferences: { bookingOnlyContact: true, callEnabled: true, textEnabled: false, textNumber: '' },
     });
 
-    await waitFor(() => expect(screen.getByTestId('information-instagram')).toHaveValue('https://www.instagram.com/@isla.nails/'));
+    // Round-trip: the saved value comes back as the handle, not a URL.
+    await waitFor(() => expect(screen.getByTestId('information-instagram')).toHaveValue('isla.nails'));
   });
 
   it('assigns a logo from the existing portfolio and uploads the tech photo through the Staff route, never swapping the two', async () => {
     renderEditor();
     await screen.findByTestId('information-business-name');
 
-    await userEvent.click(screen.getByRole('button', { name: 'Choose from Portfolio' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Choose a logo' }));
     await userEvent.click(await screen.findByRole('button', { name: 'Chrome set' }));
 
     await waitFor(() => expect(screen.getByAltText('Current business logo')).toHaveAttribute('src', 'https://cdn.example/photo-1.jpg'));
@@ -356,5 +374,50 @@ describe('BookingPageInformationEditor', () => {
 
     expect(flushed).toBe(true);
     expect(calls.filter(call => call.method === 'PATCH').map(call => call.body)).toEqual([{ name: 'Unsaved name' }, { name: 'Unsaved name' }]);
+  });
+
+  it('offers the salon\u2019s own logo in the picker instead of an empty library', async () => {
+    // An onboarding-built salon has its logo in a store the Portfolio picker
+    // cannot see; the picker must still show something to pick
+    // (AG-w2-information-parity-04).
+    emptyPortfolio = true;
+    current = information({ salon: { ...information().salon, logoUrl: 'https://cdn.example/onboarding-logo.webp' } });
+    renderEditor();
+    await screen.findByTestId('information-business-name');
+
+    await userEvent.click(screen.getByTestId('information-logo-choose'));
+
+    expect(await screen.findByTestId('information-logo-option-current')).toBeInTheDocument();
+    expect(screen.queryByText(/no images to choose from yet/i)).not.toBeInTheDocument();
+  });
+
+  it('makes removing the logo reversible instead of a one-way door', async () => {
+    current = information({ salon: { ...information().salon, logoUrl: 'https://cdn.example/onboarding-logo.webp' } });
+    renderEditor();
+    await screen.findByTestId('information-business-name');
+
+    await userEvent.click(screen.getByTestId('information-logo-remove'));
+
+    const undo = await screen.findByTestId('information-logo-undo');
+    await userEvent.click(undo);
+
+    await waitFor(() => expect(screen.getByAltText('Current business logo')).toHaveAttribute('src', 'https://cdn.example/onboarding-logo.webp'));
+
+    expect(calls.filter(call => call.method === 'PATCH').map(call => call.body)).toEqual([
+      { logoUrl: null },
+      { logoUrl: 'https://cdn.example/onboarding-logo.webp' },
+    ]);
+  });
+
+  it('says which accordions are live and which one is drafted', async () => {
+    renderEditor();
+    await screen.findByTestId('information-business-name');
+
+    // AG-w2-information-parity-06: the panel used to claim nothing goes live.
+    expect(screen.getByTestId('information-publish-summary')).toHaveTextContent('go public as soon as you save them');
+    expect(screen.getByTestId('information-identity-publish-badge')).toHaveTextContent('Live');
+    expect(screen.getByTestId('information-contact-publish-badge')).toHaveTextContent('Live');
+    expect(screen.getByTestId('information-hours-publish-badge')).toHaveTextContent('Live');
+    expect(screen.getByTestId('information-location-publish-badge')).toHaveTextContent('Live \u00B7 1 drafted setting');
   });
 });

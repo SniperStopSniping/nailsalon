@@ -14,7 +14,7 @@ import { and, eq, gte, inArray, lt, sql } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import { z } from 'zod';
 
-import { requireActiveAdminSalon } from '@/libs/adminAuth';
+import { requireAdminSalonFromRequest } from '@/libs/adminAuth';
 import { db } from '@/libs/DB';
 import {
   buildTimeOffDecisionNotification,
@@ -66,7 +66,7 @@ export async function PATCH(
   try {
     const { id } = await params;
 
-    const { salon, admin, error } = await requireActiveAdminSalon();
+    const { salon, admin, error } = await requireAdminSalonFromRequest(request); // honours ?salonSlug= (membership-checked): a decision lands on the salon whose inbox is on screen
     if (error || !salon || !admin) {
       return error!;
     }
@@ -266,13 +266,13 @@ export async function PATCH(
 // =============================================================================
 
 export async function GET(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ id: string }> },
 ): Promise<Response> {
   try {
     const { id } = await params;
 
-    const { salon, error } = await requireActiveAdminSalon();
+    const { salon, error } = await requireAdminSalonFromRequest(request);
     if (error || !salon) {
       return error!;
     }

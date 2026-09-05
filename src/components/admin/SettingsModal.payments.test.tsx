@@ -13,9 +13,13 @@ const { fetchMock, refreshMock, pushMock } = vi.hoisted(() => ({
 vi.mock('next/navigation', () => ({
   useRouter: () => ({
     push: pushMock,
+    replace: vi.fn(),
+    back: vi.fn(),
     refresh: refreshMock,
   }),
   useParams: () => ({ locale: 'en' }),
+  // Settings sub-views are URL-backed (AG-w2-settings-integrations-10).
+  useSearchParams: () => new URLSearchParams(),
 }));
 
 vi.mock('@/providers/SalonProvider', () => ({
@@ -204,7 +208,7 @@ describe('SettingsModal Payments & taxes', () => {
     fireEvent.click(screen.getByTestId('payments-save'));
 
     await waitFor(() => {
-      expect(screen.getByText('Payments & taxes saved.')).toBeInTheDocument();
+      expect(screen.getByText('Tax and e-Transfer saved.')).toBeInTheDocument();
     });
 
     const patchCall = fetchMock.mock.calls.find(
@@ -269,7 +273,7 @@ describe('SettingsModal Payments & taxes', () => {
     fireEvent.click(screen.getByTestId('payments-save'));
 
     await waitFor(() => {
-      expect(screen.getByText('Payments & taxes saved.')).toBeInTheDocument();
+      expect(screen.getByText('Tax and e-Transfer saved.')).toBeInTheDocument();
     });
 
     const patchCall = fetchMock.mock.calls.find(
@@ -294,7 +298,7 @@ describe('SettingsModal Payments & taxes', () => {
     fireEvent.click(screen.getByTestId('payments-save'));
 
     await waitFor(() => {
-      expect(screen.getByText('Payments & taxes saved.')).toBeInTheDocument();
+      expect(screen.getByText('Tax and e-Transfer saved.')).toBeInTheDocument();
     });
     const patchCall = fetchMock.mock.calls.find(
       ([, init]) => (init as RequestInit | undefined)?.method === 'PATCH',

@@ -1,6 +1,6 @@
 'use client';
 
-import { ArrowLeft, Check, Copy, Images, LayoutTemplate, Palette, Scissors, ShieldCheck, Type, UserRound } from 'lucide-react';
+import { ArrowLeft, Check, Copy, Images, LayoutTemplate, Lock, Palette, Scissors, ShieldCheck, Type, UserRound } from 'lucide-react';
 import { useState } from 'react';
 
 const EDITORS = [
@@ -20,6 +20,7 @@ export function BookingPageHub({
   publicUrl,
   hasDraftChanges,
   setupUrl,
+  canPublish = true,
 }: {
   locale: string;
   salonName: string;
@@ -28,6 +29,13 @@ export function BookingPageHub({
   publicUrl?: string;
   hasDraftChanges: boolean;
   setupUrl: string | null;
+  /**
+   * Publishing locks the public address for good, so it is the owner's call:
+   * `POST /api/admin/salon/publish` answers a collaborator 403 OWNER_REQUIRED
+   * and this hides the control that would walk them into it. The server is the
+   * authority; this is the explanation.
+   */
+  canPublish?: boolean;
 }) {
   const [copyStatus, setCopyStatus] = useState('');
   const query = `salon=${encodeURIComponent(salonSlug)}`;
@@ -69,7 +77,14 @@ export function BookingPageHub({
                 Copy link
               </button>
             )}
-            <a className={actionClass} href={`${editor}&panel=publish`}>{published ? 'Review & publish changes' : 'Publish website'}</a>
+            {canPublish
+              ? <a className={actionClass} href={`${editor}&panel=publish`}>{published ? 'Review & publish changes' : 'Publish website'}</a>
+              : (
+                  <p className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-stone-200 bg-stone-100 px-4 py-3 text-sm font-semibold text-stone-600">
+                    <Lock aria-hidden="true" size={16} />
+                    Publishing is owner only
+                  </p>
+                )}
           </div>
           <p aria-live="polite" className="mt-2 text-sm text-stone-600">{copyStatus}</p>
         </header>

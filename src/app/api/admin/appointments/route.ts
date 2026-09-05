@@ -4,14 +4,15 @@
  * GET /api/admin/appointments
  * Returns appointments for the authenticated admin's active salon.
  *
- * salonId is ALWAYS derived from the active admin salon selection.
- * NEVER accepts salonId from query params.
+ * salonId is ALWAYS derived from a membership-checked salon: the slug the URL
+ * names (`?salonSlug=` / `?salon=`) when it names one, otherwise the active
+ * admin salon selection. NEVER accepts a salonId from query params.
  */
 
 import { and, asc, desc, eq, gte, inArray, isNull, lt, ne } from 'drizzle-orm';
 import { z } from 'zod';
 
-import { requireActiveAdminSalon } from '@/libs/adminAuth';
+import { requireAdminSalonFromRequest } from '@/libs/adminAuth';
 import { getBookingConfigForSalon } from '@/libs/bookingConfig';
 import { db } from '@/libs/DB';
 import { getTechniciansBySalonId } from '@/libs/queries';
@@ -52,7 +53,7 @@ function parseStatuses(statusParam: string | undefined): string[] | null {
 
 export async function GET(request: Request): Promise<Response> {
   try {
-    const { salon, error } = await requireActiveAdminSalon();
+    const { salon, error } = await requireAdminSalonFromRequest(request);
     if (error || !salon) {
       return error!;
     }

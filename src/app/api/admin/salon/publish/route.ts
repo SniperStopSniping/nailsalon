@@ -12,7 +12,9 @@
  * Auth follows the same tenant-scoped pattern as every other admin salon
  * route (see `@/app/api/admin/salon/settings/route.ts`,
  * `@/app/api/admin/booking-page/route.ts`): resolve the salon by slug, then
- * `requireAdmin(salon.id)`. `requireAdmin` already accepts the Clerk session
+ * a guard on `salon.id` — here `requireAdminOwner`, because publication locks
+ * the slug permanently and is the owner's call alone (a collaborator gets
+ * `403 OWNER_REQUIRED`). `requireAdmin` beneath it already accepts the Clerk session
  * onboarding signs owners in with — `getAdminSession()` falls back to Clerk
  * auth (`@/libs/adminAuth.ts`) when no legacy admin-session cookie is
  * present — so no new auth mechanism is introduced here.
@@ -24,7 +26,7 @@
  */
 import { and, eq, ne } from 'drizzle-orm';
 
-import { requireAdmin } from '@/libs/adminAuth';
+import { requireAdminOwner } from '@/libs/adminAuth';
 import { logAuditEvent } from '@/libs/auditLog';
 import { db } from '@/libs/DB';
 import { buildSalonTenantPublicUrl } from '@/libs/publicUrl';
@@ -73,7 +75,13 @@ export async function POST(request: Request) {
     );
   }
 
-  const guard = await requireAdmin(salon.id);
+  // Publishing is irreversible in the way that matters: it stamps
+  // publishedAt AND slugLockedAt, so the public address can never be changed
+  // again. That belongs to the owner, not to a collaborator (role 'admin'),
+  // hence requireAdminOwner rather than requireAdmin. Super admins keep the
+  // access requireAdmin already gave them (impersonation stays locked to this
+  // salon).
+  const guard = await requireAdminOwner(salon.id, 'Only the salon owner can publish this website.');
   if (!guard.ok) {
     return guard.response;
   }

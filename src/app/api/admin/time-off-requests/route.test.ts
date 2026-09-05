@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { requireActiveAdminSalon, db, limit } = vi.hoisted(() => {
+const { requireAdminSalonFromRequest, db, limit } = vi.hoisted(() => {
   const limit = vi.fn(async (): Promise<unknown[]> => []);
   const orderBy = vi.fn(() => ({ limit }));
   const where = vi.fn(() => ({ orderBy }));
@@ -9,14 +9,14 @@ const { requireActiveAdminSalon, db, limit } = vi.hoisted(() => {
   const select = vi.fn(() => ({ from }));
 
   return {
-    requireActiveAdminSalon: vi.fn(),
+    requireAdminSalonFromRequest: vi.fn(),
     db: { select },
     limit,
   };
 });
 
 vi.mock('@/libs/adminAuth', () => ({
-  requireActiveAdminSalon,
+  requireAdminSalonFromRequest,
 }));
 
 vi.mock('@/libs/DB', () => ({
@@ -33,7 +33,7 @@ describe('GET /api/admin/time-off-requests', () => {
   });
 
   it('rejects unauthorized admins', async () => {
-    requireActiveAdminSalon.mockResolvedValue({
+    requireAdminSalonFromRequest.mockResolvedValue({
       error: new Response(JSON.stringify({ error: 'Unauthorized' }), {
         status: 401,
         headers: { 'Content-Type': 'application/json' },
@@ -50,7 +50,7 @@ describe('GET /api/admin/time-off-requests', () => {
   });
 
   it('lists requests for the active salon selection', async () => {
-    requireActiveAdminSalon.mockResolvedValue({
+    requireAdminSalonFromRequest.mockResolvedValue({
       error: null,
       salon: { id: 'salon_active', name: 'Active Salon' },
       admin: { id: 'admin_1' },
@@ -65,11 +65,29 @@ describe('GET /api/admin/time-off-requests', () => {
     expect(body).toEqual({ data: { requests: [] } });
   });
 
+  // AG-security-tenancy-03: the URL's salon must reach the guard so a link
+  // naming salon A cannot be answered from the active-salon cookie's salon.
+  it('scopes the listing to the salon the URL names', async () => {
+    requireAdminSalonFromRequest.mockResolvedValue({
+      error: null,
+      salon: { id: 'salon_requested', name: 'Requested Salon' },
+      admin: { id: 'admin_1' },
+    });
+
+    const request = new Request(
+      'http://localhost/api/admin/time-off-requests?salonSlug=requested-salon',
+    );
+    const response = await GET(request);
+
+    expect(response.status).toBe(200);
+    expect(requireAdminSalonFromRequest).toHaveBeenCalledWith(request);
+  });
+
   it('lists a pending request with its whole-day dates', async () => {
     // Shape of the audit fixture tor_audit_1 (Tiffany, 2026-09-17 -> 2026-09-18).
     // start/end arrive from the DATE mapper as 'YYYY-MM-DD' strings; calling
     // toISOString() on them used to throw RangeError and 500 the whole inbox.
-    requireActiveAdminSalon.mockResolvedValue({
+    requireAdminSalonFromRequest.mockResolvedValue({
       error: null,
       salon: { id: 'salon_b', name: 'Nail Salon No.5' },
       admin: { id: 'admin_1' },
@@ -115,7 +133,7 @@ describe('GET /api/admin/time-off-requests', () => {
 
   it('skips a row with an unreadable date instead of failing the list', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    requireActiveAdminSalon.mockResolvedValue({
+    requireAdminSalonFromRequest.mockResolvedValue({
       error: null,
       salon: { id: 'salon_b', name: 'Nail Salon No.5' },
       admin: { id: 'admin_1' },

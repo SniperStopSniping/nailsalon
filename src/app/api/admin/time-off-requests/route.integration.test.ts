@@ -30,10 +30,14 @@ vi.mock('@/libs/DB', () => ({
   },
 }));
 
-const requireActiveAdminSalon = vi.hoisted(() => vi.fn());
+const requireAdminSalonFromRequest = vi.hoisted(() => vi.fn());
 
+// The list route resolves the salon from the request (so `?salonSlug=` is
+// honoured); the decision route still resolves it from the active selection.
+// Both resolve to the same salon here.
 vi.mock('@/libs/adminAuth', () => ({
-  requireActiveAdminSalon,
+  requireAdminSalonFromRequest,
+  requireActiveAdminSalon: requireAdminSalonFromRequest,
 }));
 
 /* eslint-disable import/first */
@@ -93,7 +97,7 @@ beforeEach(async () => {
     status: 'PENDING',
   });
 
-  requireActiveAdminSalon.mockResolvedValue({
+  requireAdminSalonFromRequest.mockResolvedValue({
     error: null,
     salon: { id: SALON_ID, name: 'Nail Salon No.5' },
     admin: { id: ADMIN_ID, name: 'Audit Owner' },

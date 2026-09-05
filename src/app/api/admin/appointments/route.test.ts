@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { requireActiveAdminSalon, db, getBookingConfigForSalon, getTechniciansBySalonId } = vi.hoisted(() => {
+import { GET } from './route';
+
+const { requireAdminSalonFromRequest, db, getBookingConfigForSalon, getTechniciansBySalonId } = vi.hoisted(() => {
   const limit = vi.fn(async () => []);
   const orderBy = vi.fn(() => ({ limit }));
   const where = vi.fn(() => ({ orderBy }));
@@ -9,7 +11,7 @@ const { requireActiveAdminSalon, db, getBookingConfigForSalon, getTechniciansByS
   const select = vi.fn(() => ({ from }));
 
   return {
-    requireActiveAdminSalon: vi.fn(),
+    requireAdminSalonFromRequest: vi.fn(),
     getBookingConfigForSalon: vi.fn(async () => ({ slotIntervalMinutes: 15 })),
     getTechniciansBySalonId: vi.fn(async () => []),
     db: { select },
@@ -17,7 +19,7 @@ const { requireActiveAdminSalon, db, getBookingConfigForSalon, getTechniciansByS
 });
 
 vi.mock('@/libs/adminAuth', () => ({
-  requireActiveAdminSalon,
+  requireAdminSalonFromRequest,
 }));
 
 vi.mock('@/libs/bookingConfig', () => ({
@@ -32,15 +34,13 @@ vi.mock('@/libs/DB', () => ({
   db,
 }));
 
-import { GET } from './route';
-
 describe('GET /api/admin/appointments', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
   it('rejects unauthorized admins', async () => {
-    requireActiveAdminSalon.mockResolvedValue({
+    requireAdminSalonFromRequest.mockResolvedValue({
       error: new Response(JSON.stringify({ error: 'Unauthorized' }), {
         status: 401,
         headers: { 'Content-Type': 'application/json' },
@@ -57,7 +57,7 @@ describe('GET /api/admin/appointments', () => {
   });
 
   it('lists appointments for the active salon only', async () => {
-    requireActiveAdminSalon.mockResolvedValue({
+    requireAdminSalonFromRequest.mockResolvedValue({
       error: null,
       salon: { id: 'salon_active', name: 'Active Salon' },
       admin: { id: 'admin_1' },
@@ -78,5 +78,24 @@ describe('GET /api/admin/appointments', () => {
         slotIntervalMinutes: 15,
       },
     });
+  });
+
+  // AG-security-tenancy-03: `?salon=`/`?salonSlug=` must reach the guard, so a
+  // deep link naming one salon is never answered from another one's cookie.
+  it('scopes the listing to the salon the URL names', async () => {
+    requireAdminSalonFromRequest.mockResolvedValue({
+      error: null,
+      salon: { id: 'salon_requested', name: 'Requested Salon' },
+      admin: { id: 'admin_1' },
+    });
+
+    const request = new Request(
+      'http://localhost/api/admin/appointments?date=2026-03-14&salon=requested-salon',
+    );
+    const response = await GET(request);
+
+    expect(response.status).toBe(200);
+    expect(requireAdminSalonFromRequest).toHaveBeenCalledWith(request);
+    expect(getBookingConfigForSalon).toHaveBeenCalledWith('salon_requested');
   });
 });

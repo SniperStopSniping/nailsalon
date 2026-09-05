@@ -2,16 +2,22 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const {
   getCurrentFinancialReportingSummaries,
+  getSalonBySlug,
   guardModuleOr403,
-  requireAdminSalon,
+  requireAdminOwner,
 } = vi.hoisted(() => ({
   getCurrentFinancialReportingSummaries: vi.fn(),
+  getSalonBySlug: vi.fn(),
   guardModuleOr403: vi.fn(),
-  requireAdminSalon: vi.fn(),
+  requireAdminOwner: vi.fn(),
 }));
 
 vi.mock('@/libs/adminAuth', () => ({
-  requireAdminSalon,
+  requireAdminOwner,
+}));
+
+vi.mock('@/libs/queries', () => ({
+  getSalonBySlug,
 }));
 
 vi.mock('@/libs/featureGating', () => ({
@@ -96,25 +102,23 @@ const CURRENT_SUMMARIES = {
 describe('GET /api/admin/financial-summary', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    requireAdminSalon.mockResolvedValue({
-      error: null,
-      salon: {
-        id: 'salon_owned',
-        slug: 'owned-salon',
-        settings: {
-          booking: {
-            currency: 'USD',
-            timezone: 'America/Vancouver',
-          },
+    getSalonBySlug.mockResolvedValue({
+      id: 'salon_owned',
+      slug: 'owned-salon',
+      settings: {
+        booking: {
+          currency: 'USD',
+          timezone: 'America/Vancouver',
         },
-        // Core financials must remain available even when Analytics is off.
-        features: {
-          analytics: {
-            dashboard: false,
-          },
+      },
+      // Core financials must remain available even when Analytics is off.
+      features: {
+        analytics: {
+          dashboard: false,
         },
       },
     });
+    requireAdminOwner.mockResolvedValue({ ok: true, admin: { id: 'admin_1' } });
     getCurrentFinancialReportingSummaries.mockResolvedValue(CURRENT_SUMMARIES);
   });
 
@@ -129,17 +133,18 @@ describe('GET /api/admin/financial-summary', () => {
     expect(response.headers.get('Cache-Control')).toBe(
       'private, no-store, max-age=0',
     );
-    expect(requireAdminSalon).not.toHaveBeenCalled();
+    expect(getSalonBySlug).not.toHaveBeenCalled();
+    expect(requireAdminOwner).not.toHaveBeenCalled();
     expect(getCurrentFinancialReportingSummaries).not.toHaveBeenCalled();
   });
 
   it('propagates unauthenticated responses without querying financial data', async () => {
-    requireAdminSalon.mockResolvedValue({
-      error: Response.json(
+    requireAdminOwner.mockResolvedValue({
+      ok: false,
+      response: Response.json(
         { error: { code: 'UNAUTHORIZED', message: 'Not authenticated' } },
         { status: 401 },
       ),
-      salon: null,
     });
 
     const response = await GET(
@@ -156,12 +161,12 @@ describe('GET /api/admin/financial-summary', () => {
   });
 
   it('propagates a wrong-tenant rejection without querying financial data', async () => {
-    requireAdminSalon.mockResolvedValue({
-      error: Response.json(
+    requireAdminOwner.mockResolvedValue({
+      ok: false,
+      response: Response.json(
         { error: { code: 'FORBIDDEN', message: 'Forbidden' } },
         { status: 403 },
       ),
-      salon: null,
     });
 
     const response = await GET(
@@ -177,6 +182,53 @@ describe('GET /api/admin/financial-summary', () => {
     expect(getCurrentFinancialReportingSummaries).not.toHaveBeenCalled();
   });
 
+  // AG-security-tenancy-02: revenue is the owner's books, not a collaborator's
+  // daily work.
+  it('refuses a collaborator (membership role admin) with 403 OWNER_REQUIRED and reads no money', async () => {
+    requireAdminOwner.mockResolvedValue({
+      ok: false,
+      response: Response.json(
+        { error: { code: 'OWNER_REQUIRED', message: 'Only the salon owner can see revenue.' } },
+        { status: 403 },
+      ),
+    });
+
+    const response = await GET(
+      new Request(
+        'http://localhost/api/admin/financial-summary?salonSlug=owned-salon',
+      ),
+    );
+
+    expect(response.status).toBe(403);
+    expect(response.headers.get('Cache-Control')).toBe(
+      'private, no-store, max-age=0',
+    );
+    await expect(response.json()).resolves.toEqual({
+      error: {
+        code: 'OWNER_REQUIRED',
+        message: 'Only the salon owner can see revenue.',
+      },
+    });
+    expect(getCurrentFinancialReportingSummaries).not.toHaveBeenCalled();
+  });
+
+  it('404s an unknown salon before authenticating', async () => {
+    getSalonBySlug.mockResolvedValue(null);
+
+    const response = await GET(
+      new Request(
+        'http://localhost/api/admin/financial-summary?salonSlug=nope',
+      ),
+    );
+
+    expect(response.status).toBe(404);
+    expect(response.headers.get('Cache-Control')).toBe(
+      'private, no-store, max-age=0',
+    );
+    expect(requireAdminOwner).not.toHaveBeenCalled();
+    expect(getCurrentFinancialReportingSummaries).not.toHaveBeenCalled();
+  });
+
   it('returns owned-salon core financials without the Analytics module gate', async () => {
     const response = await GET(
       new Request(
@@ -189,7 +241,8 @@ describe('GET /api/admin/financial-summary', () => {
     expect(response.headers.get('Cache-Control')).toBe(
       'private, no-store, max-age=0',
     );
-    expect(requireAdminSalon).toHaveBeenCalledWith('owned-salon');
+    expect(getSalonBySlug).toHaveBeenCalledWith('owned-salon');
+    expect(requireAdminOwner).toHaveBeenCalledWith('salon_owned', expect.any(String));
     expect(guardModuleOr403).not.toHaveBeenCalled();
     expect(getCurrentFinancialReportingSummaries).toHaveBeenCalledWith({
       salonId: 'salon_owned',

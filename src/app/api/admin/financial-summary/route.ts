@@ -1,9 +1,10 @@
 import { z } from 'zod';
 
-import { requireAdminSalon } from '@/libs/adminAuth';
+import { requireAdminOwner } from '@/libs/adminAuth';
 import { resolveBookingConfigFromSettings } from '@/libs/bookingConfig';
 import { serializeOwnerFinancialSummary } from '@/libs/financialReportingSerializer';
 import { getCurrentFinancialReportingSummaries } from '@/libs/financialReportingServer';
+import { getSalonBySlug } from '@/libs/queries';
 import type { OwnerFinancialSummaryResponse } from '@/types/ownerFinancialSummary';
 
 export const dynamic = 'force-dynamic';
@@ -59,14 +60,29 @@ export async function GET(request: Request): Promise<Response> {
       );
     }
 
-    const { salon, error } = await requireAdminSalon(parsed.data.salonSlug);
-    if (error || !salon) {
-      return withPrivateNoStore(error!);
+    // Same resolution order as the rest of the admin salon routes (slug ->
+    // salon -> guard on salon.id). The guard is the OWNER one: revenue, cash
+    // collected and deposit money are the owner's books, not a collaborator's
+    // daily work, so a role 'admin' member gets 403 OWNER_REQUIRED here while
+    // keeping every operational route (today, appointments, clients).
+    const salon = await getSalonBySlug(parsed.data.salonSlug);
+    if (!salon) {
+      return privateJson(
+        { error: { code: 'SALON_NOT_FOUND', message: 'Salon not found' } },
+        { status: 404 },
+      );
+    }
+    const guard = await requireAdminOwner(
+      salon.id,
+      'Only the salon owner can see revenue.',
+    );
+    if (!guard.ok) {
+      return withPrivateNoStore(guard.response);
     }
 
     // Core owner financials are intentionally not gated by the optional
     // Analytics module. Authentication and tenant ownership are still enforced
-    // by requireAdminSalon, and every reporting query receives the owned ID.
+    // by the guard above, and every reporting query receives the owned ID.
     const bookingConfig = resolveBookingConfigFromSettings(
       (salon.settings as Parameters<
         typeof resolveBookingConfigFromSettings

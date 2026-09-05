@@ -11,6 +11,7 @@ import {
   ShieldAlert,
   Trash2,
   User,
+  UserPlus,
 } from 'lucide-react';
 import {
   type ReactNode,
@@ -25,6 +26,10 @@ import { AdminDetailCard } from '@/components/admin/AdminDetailCard';
 import { AdminSearchField } from '@/components/admin/AdminSearchField';
 import { ClientCommunicationActions } from '@/components/admin/ClientCommunicationActions';
 import { ClientInsightsPanel } from '@/components/admin/ClientHubPanel';
+import {
+  AddClientDialog,
+  type AddClientResult,
+} from '@/components/admin/clients/AddClientDialog';
 import { DepositPanel } from '@/components/admin/DepositPanel';
 import {
   EditClientDialog,
@@ -67,7 +72,9 @@ type ClientSummary = {
     name: string;
     avatarUrl: string | null;
   } | null;
-  notes: string | null;
+  // The directory projection deliberately omits staff notes; only the detail
+  // endpoint returns them (AG-clients-05 / AG-w2-clients-04).
+  notes?: string | null;
 };
 
 type ClientProfile = {
@@ -380,11 +387,11 @@ function archiveErrorMessage(code: string | null): string {
     case 'CLIENT_ARCHIVE_CONFLICT':
       return 'This client changed elsewhere. Close and reopen the client, then try again.';
     case 'CLIENT_HAS_ACTIVE_APPOINTMENT':
-      return 'This client has an active or future appointment. Update that appointment before deleting the client.';
+      return 'This client has an active or future appointment. Update that appointment before archiving the client.';
     case 'UNSUPPORTED_CLIENT_IDENTITY':
-      return 'This client can’t be deleted right now. Refresh the client and try again.';
+      return 'This client can’t be archived right now. Refresh the client and try again.';
     default:
-      return 'We couldn’t delete this client. Check your connection and try again.';
+      return 'We couldn’t archive this client. Check your connection and try again.';
   }
 }
 
@@ -409,6 +416,7 @@ function ClientArchiveControls({
   expectedUpdatedAt: string;
   onSuccess: (result: ClientArchiveSuccess) => void;
 }) {
+  const [moreActionsOpen, setMoreActionsOpen] = useState(false);
   const [archiveOpen, setArchiveOpen] = useState(false);
   const [pending, setPending] = useState(false);
   const [archiveError, setArchiveError] = useState<string | null>(null);
@@ -482,31 +490,45 @@ function ClientArchiveControls({
 
   return (
     <>
-      <AdminDetailCard
-        className="mb-4 border border-red-100"
-        contentClassName="space-y-4"
-      >
-        <div>
-          <h2 className="text-[15px] font-semibold text-stone-900">
-            Delete client
-          </h2>
-          <p className="mt-1 text-sm leading-5 text-stone-500">
-            Remove this client from your active list while keeping their
-            appointments, payments and history.
-          </p>
-        </div>
-
-        <Button
+      {/*
+        One destructive control per screen, behind a closed disclosure, and
+        named for what the endpoint does: archive keeps every appointment,
+        payment and note (AG-clients-08).
+      */}
+      <AdminDetailCard className="mb-4" contentClassName="space-y-3">
+        <button
           type="button"
-          variant="destructive"
-          size="lg"
-          data-testid="client-delete-action"
-          onClick={openArchive}
-          className="min-h-11 w-full"
+          data-testid="client-more-actions-toggle"
+          aria-expanded={moreActionsOpen}
+          aria-controls="client-more-actions-panel"
+          onClick={() => setMoreActionsOpen(open => !open)}
+          className="flex min-h-11 w-full items-center justify-between gap-3 text-left text-[15px] font-semibold text-stone-900"
         >
-          <Trash2 className="mr-2 size-4" />
-          Delete client
-        </Button>
+          More actions
+          <ChevronRight
+            className={`size-4 text-stone-400 transition-transform ${moreActionsOpen ? 'rotate-90' : ''}`}
+          />
+        </button>
+
+        {moreActionsOpen && (
+          <div id="client-more-actions-panel" className="space-y-3">
+            <p className="text-sm leading-5 text-stone-500">
+              Archiving removes this client from your active list. Their
+              appointments, payments and history are kept.
+            </p>
+            <Button
+              type="button"
+              variant="destructive"
+              size="lg"
+              data-testid="client-archive-action"
+              onClick={openArchive}
+              className="min-h-11 w-full"
+            >
+              <Trash2 className="mr-2 size-4" />
+              Archive client
+            </Button>
+          </div>
+        )}
       </AdminDetailCard>
 
       <DialogShell
@@ -534,7 +556,7 @@ function ClientArchiveControls({
               id="archive-client-title"
               className="mt-4 text-xl font-semibold text-stone-950"
             >
-              Delete client?
+              Archive client?
             </h2>
             <p
               id="archive-client-description"
@@ -574,10 +596,10 @@ function ClientArchiveControls({
                 ? (
                     <>
                       <Loader2 className="mr-2 size-4 animate-spin" />
-                      Deleting…
+                      Archiving…
                     </>
                   )
-                : 'Delete client'}
+                : 'Archive client'}
             </Button>
           </div>
         </div>
@@ -599,6 +621,21 @@ function formatPhone(phone: string): string {
 
 function formatCurrency(cents: number, currency = 'CAD'): string {
   return formatMoney(cents, currency);
+}
+
+/**
+ * ONE phrase for "we cannot total this client's money yet", shared by the list
+ * row and the detail tiles. Never rendered in money-green and never beside a
+ * dollar figure, so a $0.00 is always a real zero (AG-clients-06 /
+ * AG-w2-clients-07).
+ */
+const SPEND_UNDER_REVIEW_LABEL = 'Under review';
+
+function spendUnderReview(provenance?: FinancialProvenance | null): boolean {
+  return Boolean(
+    provenance
+    && (provenance.isEstimated || provenance.unresolvedAppointmentCount > 0),
+  );
 }
 
 function formatDate(dateString: string | null, includeWeekday = false): string {
@@ -695,15 +732,35 @@ function SectionHeader({ letter }: { letter: string }) {
   );
 }
 
-function EmptyState({ searchQuery }: { searchQuery: string }) {
+function EmptyState({
+  searchQuery,
+  onAddClient,
+}: {
+  searchQuery: string;
+  onAddClient?: () => void;
+}) {
   return (
     <AsyncStatePanel
       icon={<User className="mx-auto size-8 text-[#8E8E93]" />}
       title={searchQuery ? 'No Results' : 'No Clients Yet'}
       description={searchQuery
         ? `No clients match "${searchQuery}"`
-        : 'Clients will appear here after their first booking.'}
+        : 'Add the client in front of you, or share your booking link — clients also appear here after their first booking.'}
       className="mx-4 my-8"
+      action={!searchQuery && onAddClient
+        ? (
+            <Button
+              type="button"
+              variant="brand"
+              size="pillSm"
+              data-testid="clients-empty-add"
+              onClick={onAddClient}
+            >
+              <UserPlus className="mr-2 size-4" />
+              Add your first client
+            </Button>
+          )
+        : undefined}
     />
   );
 }
@@ -758,13 +815,22 @@ function ClientRow({
               visit
               {client.totalVisits !== 1 ? 's' : ''}
             </div>
-            <div className="text-[12px] font-medium text-[#34C759]">
-              {client.spendState === 'under_review'
-                ? 'Under review'
-                : client.spendCurrency
-                  ? formatCurrency(client.totalSpent, client.spendCurrency)
-                  : 'Unavailable'}
-            </div>
+            {client.spendState === 'under_review'
+              ? (
+                  <span
+                    data-testid="client-spend-under-review"
+                    className="mt-0.5 inline-block rounded-full bg-[#F2F2F7] px-2 py-0.5 text-[11px] font-semibold text-[#6B6B70]"
+                  >
+                    {SPEND_UNDER_REVIEW_LABEL}
+                  </span>
+                )
+              : (
+                  <div className="text-[12px] font-medium text-[#34C759]">
+                    {client.spendCurrency
+                      ? formatCurrency(client.totalSpent, client.spendCurrency)
+                      : SPEND_UNDER_REVIEW_LABEL}
+                  </div>
+                )}
           </div>
           <ChevronRight className="size-4 text-[#C7C7CC]" />
         </div>
@@ -814,11 +880,13 @@ function StatCard({
   value,
   accent,
   icon,
+  loading = false,
 }: {
   label: string;
   value: string;
   accent?: string;
   icon?: ReactNode;
+  loading?: boolean;
 }) {
   return (
     <AdminDetailCard>
@@ -826,9 +894,19 @@ function StatCard({
         {icon}
         {label}
       </div>
-      <div className={`mt-1 text-[24px] font-bold ${accent ?? 'text-[#1C1C1E]'}`}>
-        {value}
-      </div>
+      {loading
+        ? (
+            <div
+              role="status"
+              aria-label={`${label} loading`}
+              className="mt-2 h-6 w-20 animate-pulse rounded-full bg-stone-200"
+            />
+          )
+        : (
+            <div className={`mt-1 text-[24px] font-bold ${accent ?? 'text-[#1C1C1E]'}`}>
+              {value}
+            </div>
+          )}
     </AdminDetailCard>
   );
 }
@@ -1151,6 +1229,9 @@ function ClientDetail({
   const [photos, setPhotos] = useState<ClientPhoto[]>(initialCachedDetail?.photos ?? []);
   const [detailLoading, setDetailLoading] = useState(!initialCachedDetail?.profile);
   const [detailError, setDetailError] = useState<string | null>(null);
+  // Until the resolved financial source arrives there is nothing honest to
+  // print in a money tile, so the tiles wait rather than guessing.
+  const moneyPending = !summary && detailLoading;
   const [detailRefreshWarning, setDetailRefreshWarning] = useState<string | null>(
     null,
   );
@@ -1699,32 +1780,55 @@ function ClientDetail({
         {activeSection === 'overview' && (
           <div className="my-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
             <StatCard label="Completed visits" value={String(summary?.completedVisits ?? statsSource.totalVisits)} />
+            {/*
+              Money tiles wait for the resolved source instead of mixing an
+              authoritative-looking $0.00 with 'Unavailable' in the same paint,
+              and unresolved history says so in the list's exact words with no
+              dollar figure attached (AG-clients-06 / AG-w2-clients-07).
+            */}
             <div>
               <StatCard
                 label="Lifetime spend"
-                value={formatCurrency(
-                  summary?.lifetimeSpendCents ?? statsSource.totalSpent,
-                  summary?.currency,
-                )}
-                accent="text-emerald-700"
+                loading={moneyPending}
+                value={spendUnderReview(summary?.provenance.lifetimeSpend)
+                  ? SPEND_UNDER_REVIEW_LABEL
+                  : summary
+                    ? formatCurrency(summary.lifetimeSpendCents, summary.currency)
+                    : 'Unavailable'}
+                accent={spendUnderReview(summary?.provenance.lifetimeSpend)
+                  ? 'text-stone-500'
+                  : 'text-emerald-700'}
               />
               <HistoryQualityBadge provenance={summary?.provenance.lifetimeSpend} />
             </div>
             <div>
               <StatCard
                 label="Spend this month"
-                value={summary
-                  ? formatCurrency(summary.spendThisMonthCents, summary.currency)
-                  : 'Unavailable'}
+                loading={moneyPending}
+                value={spendUnderReview(summary?.provenance.spendThisMonth)
+                  ? SPEND_UNDER_REVIEW_LABEL
+                  : summary
+                    ? formatCurrency(summary.spendThisMonthCents, summary.currency)
+                    : 'Unavailable'}
+                accent={spendUnderReview(summary?.provenance.spendThisMonth)
+                  ? 'text-stone-500'
+                  : undefined}
               />
               <HistoryQualityBadge provenance={summary?.provenance.spendThisMonth} />
             </div>
             <StatCard
               label="Completed outstanding"
-              value={summary
-                ? formatCurrency(summary.completedOutstandingCents, summary.currency)
-                : 'Unavailable'}
-              accent={summary?.completedOutstandingCents ? 'text-amber-700' : undefined}
+              loading={moneyPending}
+              value={spendUnderReview(summary?.provenance.completedOutstanding)
+                ? SPEND_UNDER_REVIEW_LABEL
+                : summary
+                  ? formatCurrency(summary.completedOutstandingCents, summary.currency)
+                  : 'Unavailable'}
+              accent={spendUnderReview(summary?.provenance.completedOutstanding)
+                ? 'text-stone-500'
+                : summary?.completedOutstandingCents
+                  ? 'text-amber-700'
+                  : undefined}
             />
           </div>
         )}
@@ -2459,6 +2563,7 @@ export function ClientsModal({
   const [insightsRefreshKey, setInsightsRefreshKey] = useState(0);
   const [initialClientError, setInitialClientError] = useState<string | null>(null);
   const [lifecycleNotice, setLifecycleNotice] = useState<string | null>(null);
+  const [showAddClient, setShowAddClient] = useState(false);
 
   const [moduleAvailability, setModuleAvailability] = useState<ModuleAvailability>({
     loaded: false,
@@ -2535,11 +2640,41 @@ export function ClientsModal({
         params.set('segment', activeSegment);
       }
 
-      const response = await fetch(`/api/admin/clients?${params}`, {
-        signal: controller.signal,
-      });
-      if (!response.ok) {
-        throw new Error('Failed to fetch clients');
+      // One silent retry: a single aborted or 5xx first fetch used to paint a
+      // bare "Failed to load clients" on a screen that recovers by itself
+      // (AG-w2-clients-03). Client errors are not retried.
+      let response: Response | null = null;
+      let requestFailure: unknown = null;
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        try {
+          const attemptResponse = await fetch(`/api/admin/clients?${params}`, {
+            signal: controller.signal,
+          });
+          if (attemptResponse.ok) {
+            response = attemptResponse;
+            requestFailure = null;
+            break;
+          }
+          requestFailure = new Error(
+            `Client directory request failed (${attemptResponse.status})`,
+          );
+          if (attemptResponse.status < 500) {
+            break;
+          }
+        } catch (attemptError) {
+          if (controller.signal.aborted) {
+            throw attemptError;
+          }
+          requestFailure = attemptError;
+        }
+        if (attempt === 0) {
+          await new Promise((resolve) => {
+            setTimeout(resolve, 400);
+          });
+        }
+      }
+      if (!response) {
+        throw requestFailure ?? new Error('Failed to fetch clients');
       }
 
       const result = await response.json();
@@ -2565,7 +2700,9 @@ export function ClientsModal({
         return;
       }
       console.error('Failed to fetch clients:', fetchError);
-      setError('Failed to load clients');
+      setError(
+        'The client directory did not answer. Check your connection, then try again.',
+      );
     } finally {
       if (isCurrentRequest()) {
         setLoading(false);
@@ -2761,6 +2898,17 @@ export function ClientsModal({
     sortBy === 'name' ? groupClientsByLetter(clients) : null
   ), [clients, sortBy]);
 
+  const spendUnderReviewCount = useMemo(
+    () => clients.filter(client => client.spendState === 'under_review').length,
+    [clients],
+  );
+
+  // A search box and four sort chips over an empty book can only ever return
+  // nothing, so the zero state offers actions instead (AG-clients-11).
+  const showDirectoryControls = clients.length > 0
+    || Boolean(searchQuery)
+    || Boolean(activeSegment);
+
   const loadMore = () => {
     if (!hasMore || loading) {
       return;
@@ -2859,6 +3007,38 @@ export function ClientsModal({
     });
   }, []);
 
+  /**
+   * The POST resolves identity the way the booking path does, so "added" and
+   * "already in your book" are both successes. Either way the directory is
+   * refreshed and the resulting client is opened.
+   */
+  const handleClientAdded = useCallback((result: AddClientResult) => {
+    setShowAddClient(false);
+    setLifecycleNotice(result.message);
+    setActiveSegment(null);
+    setSearchQuery('');
+    setDebouncedSearchQuery('');
+    setPage(1);
+    lastFetchedPageRef.current = 1;
+    savedDirectoryStateRef.current = null;
+    skipNextDirectoryFetchRef.current = false;
+    setSelectedClient({
+      id: result.client.id,
+      phone: result.client.phone,
+      fullName: result.client.fullName,
+      email: result.client.email ?? null,
+      preferredTechnician: null,
+      lastVisitAt: null,
+      totalVisits: 0,
+      totalSpent: 0,
+      spendCurrency: null,
+      spendState: 'canonical_settled',
+      noShowCount: 0,
+      loyaltyPoints: 0,
+    });
+    void fetchClients(1, true);
+  }, [fetchClients]);
+
   const handleClientLifecycleSuccess = useCallback((
     result: ClientArchiveSuccess,
   ) => {
@@ -2891,7 +3071,7 @@ export function ClientsModal({
     setSelectedClient(null);
     setShowHub(false);
     setLifecycleNotice(
-      'Client deleted from the active list. Their history was kept.',
+      'Client archived. They are off your active list and their history was kept.',
     );
     setInsightsRefreshKey(current => current + 1);
     setPage(1);
@@ -2908,6 +3088,19 @@ export function ClientsModal({
           title={showHub ? 'Client Insights' : 'Clients'}
           subtitle={showHub ? 'Client health and follow-up' : `${totalClients} total`}
           leftAction={<BackButton onClick={onClose} label="Back" />}
+          rightAction={showHub
+            ? undefined
+            : (
+                <button
+                  type="button"
+                  data-testid="clients-add-action"
+                  onClick={() => setShowAddClient(true)}
+                  className="flex min-h-11 items-center gap-1 rounded-full px-2 text-[15px] font-semibold text-[#6f1d3b]"
+                >
+                  <UserPlus className="size-4" />
+                  Add
+                </button>
+              )}
         />
         <div className="space-y-3 px-4 pb-3">
           <div className="flex rounded-[10px] bg-[#7676801f] p-0.5" role="tablist" aria-label="Clients or Client Insights">
@@ -2953,7 +3146,7 @@ export function ClientsModal({
               </button>
             ))}
           </div>
-          {!showHub && (
+          {!showHub && showDirectoryControls && (
             <>
               <AdminSearchField
                 value={searchQuery}
@@ -2962,6 +3155,16 @@ export function ClientsModal({
                 inputClassName="rounded-[10px] bg-[#767680]/12 py-2 text-[16px] shadow-none focus:ring-1 focus:ring-[#007AFF]/30"
               />
               <SortPills sortBy={sortBy} onChange={handleSortChange} />
+              {sortBy === 'spent' && spendUnderReviewCount > 0 && (
+                <p
+                  data-testid="clients-spend-review-note"
+                  className="text-[12px] leading-4 text-[#6B6B70]"
+                >
+                  {`Spend under review — ${spendUnderReviewCount} client${spendUnderReviewCount === 1 ? '' : 's'}. `}
+                  They sit with your paying clients and are ordered by visits
+                  until their history settles.
+                </p>
+              )}
               {activeSegment && (
                 <div
                   className="flex items-center justify-between gap-3 rounded-2xl border border-rose-200 bg-rose-50 px-3 py-2"
@@ -3059,7 +3262,7 @@ export function ClientsModal({
                   ? (
                       <AsyncStatePanel
                         tone="error"
-                        title="Unable to load clients"
+                        title="Couldn’t load your client list"
                         description={error}
                         className="mx-4 my-8"
                         action={(
@@ -3087,7 +3290,10 @@ export function ClientsModal({
                           </div>
                         )
                       : (
-                          <EmptyState searchQuery={searchQuery} />
+                          <EmptyState
+                            searchQuery={searchQuery}
+                            onAddClient={() => setShowAddClient(true)}
+                          />
                         )
                     : (
                         <>
@@ -3162,6 +3368,13 @@ export function ClientsModal({
           />
         )}
       </AnimatePresence>
+
+      <AddClientDialog
+        isOpen={showAddClient}
+        salonSlug={salonSlug}
+        onClose={() => setShowAddClient(false)}
+        onSuccess={handleClientAdded}
+      />
 
       <NewAppointmentModal
         isOpen={Boolean(insightsBookingClient)}

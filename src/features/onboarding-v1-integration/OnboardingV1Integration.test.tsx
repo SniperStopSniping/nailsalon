@@ -327,6 +327,26 @@ describe('OnboardingV1Integration rendered account-save flow', () => {
     expect(mocks.claimMedia).toHaveBeenCalledTimes(1);
   });
 
+  it('tells the owner which dashboard edits a resumed setup preserved', async () => {
+    mocks.auth.isSignedIn = true;
+    mocks.userState.user = verifiedClerkUser();
+    mocks.claim.mockResolvedValue({
+      status: 'saved',
+      value: { ...savedSite, preservedDashboardEdits: ['opening hours', 'service prices'] },
+    });
+    mocks.claimMedia.mockResolvedValue({ failures: [], verifiedRevision: 1 });
+    mocks.cleanupMedia.mockResolvedValue({ removedAssetIds: [] });
+
+    render(<OnboardingV1Integration authProviders={ALL_PROVIDERS} locale="en" />);
+
+    expect(await screen.findByRole('heading', { level: 1, name: 'Your Luster site is saved' })).toBeVisible();
+
+    const notice = screen.getByTestId('onboarding-preserved-edits');
+
+    expect(notice).toHaveAttribute('role', 'status');
+    expect(notice).toHaveTextContent('We kept the changes you already made in your dashboard: opening hours, service prices.');
+  });
+
   it('explains an incomplete snapshot in words and routes to the screen that owns the field', async () => {
     // OP-001: the account gate used to render the raw ZodError issue JSON and
     // send "Return to Review" back to Style & colours, where nothing about the

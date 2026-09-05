@@ -191,6 +191,9 @@ describe('admin salon information route', () => {
       expect(data.technician).toEqual({ id: 'tech_1', name: 'Daniela', avatarUrl: null });
       expect(data.technicianCount).toBe(1);
       expect(data.instagram).toBe('https://www.instagram.com/salona/');
+      // The editor pre-fills from the handle so a field called "Instagram"
+      // never shows a URL (AG-w2-information-parity-02).
+      expect(data.instagramHandle).toBe('salona');
       expect(data.location).toMatchObject({ id: 'loc_1', address: PRIVATE_ADDRESS, city: 'Toronto' });
       expect(data.addressPrivacy).toEqual({ draft: 'after_booking', live: 'city_only' });
       expect(data.contactPreferences).toEqual({ bookingOnlyContact: false, callEnabled: true, textEnabled: false, textNumber: null });
@@ -278,6 +281,25 @@ describe('admin salon information route', () => {
       await PATCH(patchRequest({ phone: '', email: null }));
 
       expect(updateSet.mock.calls[0]![0]).toMatchObject({ phone: null, email: null });
+    });
+
+    it.each([
+      ['a bare handle', 'isla.nails'],
+      ['an @ handle', '@isla.nails'],
+      ['a profile URL', 'https://www.instagram.com/isla.nails/'],
+      ['a profile URL without www', 'https://instagram.com/isla.nails'],
+    ])('stores the same canonical Instagram URL for %s', async (_label, input) => {
+      const response = await PATCH(patchRequest({ instagram: input }));
+
+      expect(response.status).toBe(200);
+      expect(flattenSql(updateSet.mock.calls[0]![0].settings)).toContain('https://www.instagram.com/isla.nails/');
+    });
+
+    it('reports the saved value back as a handle', async () => {
+      const response = await PATCH(patchRequest({ instagram: 'https://www.instagram.com/salona/' }));
+      const { data } = await response.json();
+
+      expect(data.instagramHandle).toBe('salona');
     });
 
     it('normalizes an Instagram username into the canonical social link and keeps other settings keys', async () => {

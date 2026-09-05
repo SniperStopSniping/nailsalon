@@ -258,7 +258,7 @@ export function AdminModalHost({
         isOpen={activeModal === 'staff-ops'}
         onClose={onCloseModal}
       >
-        <StaffOpsModal onClose={onCloseModal} />
+        <StaffOpsModal onClose={onCloseModal} salonSlug={activeSalonSlug} />
       </AppModal>
 
       <AppModal

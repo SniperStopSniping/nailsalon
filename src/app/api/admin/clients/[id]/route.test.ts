@@ -8,6 +8,7 @@ const {
   requireAdminSalon,
   ClientLifecycleStabilizationError,
   getSalonClientHistoricalPhoneHints,
+  getSalonClientLineageIdentityWithHandle,
   hasUnsafeSalonClientExternalIdentityWithHandle,
   isClientLifecycleTransactionTimeoutError,
   lockGlobalClientIdentityTablesWithHandle,
@@ -102,6 +103,7 @@ const {
       }
     },
     getSalonClientHistoricalPhoneHints: vi.fn(),
+    getSalonClientLineageIdentityWithHandle: vi.fn(),
     hasUnsafeSalonClientExternalIdentityWithHandle: vi.fn(),
     isClientLifecycleTransactionTimeoutError: vi.fn(),
     lockGlobalClientIdentityTablesWithHandle: vi.fn(),
@@ -160,6 +162,7 @@ vi.mock('@/libs/adminAuth', () => ({
 vi.mock('@/libs/clientLifecycleStabilization', () => ({
   ClientLifecycleStabilizationError,
   getSalonClientHistoricalPhoneHints,
+  getSalonClientLineageIdentityWithHandle,
   hasUnsafeSalonClientExternalIdentityWithHandle,
   isClientLifecycleTransactionTimeoutError,
   lockGlobalClientIdentityTablesWithHandle,
@@ -606,6 +609,11 @@ describe('PATCH /api/admin/clients/[id]', () => {
       },
     ]);
     hasUnsafeSalonClientExternalIdentityWithHandle.mockResolvedValue(false);
+    // Default lineage: no customer account of its own, so an unsafe verdict
+    // means some other global identity matched, not this client’s own link.
+    getSalonClientLineageIdentityWithHandle.mockResolvedValue({
+      externalClientId: null,
+    });
     isClientLifecycleTransactionTimeoutError.mockReturnValue(false);
     setClientContactEditTransactionTimeoutsWithHandle
       .mockResolvedValue(undefined);
@@ -1083,6 +1091,73 @@ describe('PATCH /api/admin/clients/[id]', () => {
     expect(serialized).not.toContain('foreign@example.com');
     expect(transactionUpdate).not.toHaveBeenCalled();
     expect(transactionInsert).not.toHaveBeenCalled();
+  });
+
+  it('reports a same-salon collision as a collision even when the external identity gate would also fire', async () => {
+    // AG-clients-04 / AG-w2-clients-01: the unsafe-identity gate used to run
+    // first, so every duplicate answered "cannot be changed safely" and the
+    // duplicate copy was unreachable.
+    hasUnsafeSalonClientExternalIdentityWithHandle.mockResolvedValue(true);
+    lockSalonClientIdentityKeySetWithHandle.mockResolvedValue([{
+      salonId: 'salon_1',
+      kind: 'phone',
+      normalizedValue: '4165550203',
+      advisoryKey: 'cleo-phone',
+    }]);
+    resolveCanonicalSalonClientIdentityWithHandle.mockResolvedValue({
+      terminal: {
+        id: 'client_cleo',
+        salonId: 'salon_1',
+        archivedAt: null,
+        redirectedFromClientId: null,
+        lineagePath: ['client_cleo'],
+        phone: '4165550203',
+        email: null,
+      },
+      clientIds: ['client_cleo'],
+      phones: ['4165550203'],
+      emails: [],
+      externalClientId: 'global_cleo',
+      matchedBy: [{ kind: 'phone', value: '4165550203' }],
+    });
+
+    const response = await editRequest({ phone: '(416) 555-0203' });
+    const body = await response.json();
+
+    expect(response.status).toBe(409);
+    expect(body.error.code).toBe('CONTACT_IDENTITY_CONFLICT');
+    expect(hasUnsafeSalonClientExternalIdentityWithHandle)
+      .not.toHaveBeenCalled();
+    expect(transactionUpdate).not.toHaveBeenCalled();
+  });
+
+  it('names the account link when the edited client owns one', async () => {
+    // AG-clients-03: the generic refusal gave the owner no next step.
+    hasUnsafeSalonClientExternalIdentityWithHandle.mockResolvedValue(true);
+    getSalonClientLineageIdentityWithHandle.mockResolvedValue({
+      terminal: {
+        id: 'client_primary',
+        salonId: 'salon_1',
+        archivedAt: null,
+        redirectedFromClientId: null,
+        lineagePath: ['client_primary'],
+        phone: '1111111111',
+        email: 'ava@example.com',
+      },
+      clientIds: ['client_primary'],
+      phones: ['1111111111'],
+      emails: ['ava@example.com'],
+      externalClientId: 'global_ava',
+    });
+
+    const response = await editRequest({ phone: '(416) 555-0298' });
+    const body = await response.json();
+
+    expect(response.status).toBe(409);
+    expect(body.error.code).toBe('CLIENT_ACCOUNT_LINK_CONTACT_LOCKED');
+    expect(body.error.message).toContain('their own account');
+    expect(body.error.message).toContain('unlink');
+    expect(transactionUpdate).not.toHaveBeenCalled();
   });
 
   it('fails only actual contact changes for an unsafe customer-login identity', async () => {

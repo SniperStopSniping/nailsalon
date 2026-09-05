@@ -34,6 +34,7 @@ import {
   normalizeBookingPagePreviewFrame,
 } from '@/components/admin/bookingPagePreviewFrame';
 import { QuickBookProfileVisibilityCard } from '@/components/admin/QuickBookProfileVisibilityCard';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import type { BookingPageBuilderOperation } from '@/libs/bookingPageBuilder';
 import type {
   BookingPageConfig,
@@ -89,6 +90,23 @@ type BookingPageApiResponse = {
    */
   salon: { publicationStatus: string };
   savedDetails?: Record<string, string[]>;
+};
+
+/**
+ * AG-hub-publish-03 — the draft promise belongs only on the panels whose
+ * writes really are staged in `settings.bookingPage.draft` /
+ * `bookingPageContent.draft`. `panel=information` writes the canonical salon
+ * record through `PATCH /api/admin/salon/information` (name, phone, email,
+ * hours, Instagram are public the moment they save), and `panel=policies`
+ * only links out to Settings editors that are equally live-immediate. Saying
+ * "nothing goes live until you publish" on either one is false, and it sat
+ * directly above body copy that said the opposite.
+ */
+const DRAFT_PANEL_SUBTITLE = 'Changes here save to your draft. Nothing goes live until you publish.';
+
+const PANEL_SUBTITLES: Record<string, string> = {
+  information: 'Saved changes apply immediately. This is the business record your live site and bookings already use.',
+  policies: 'These links open settings that save immediately. Nothing here waits for a publish.',
 };
 
 const EDITABLE_CONTENT_FIELDS = ['bio', 'specialtyLine', 'heroImageUrl'] as const;
@@ -296,6 +314,22 @@ export default function BookingPageOwnerSurface() {
   // banner never flashes on before the real value is in.
   const [salonPublicationStatus, setSalonPublicationStatus] = useState<string | null>(null);
   const [salonPublishStatus, setSalonPublishStatus] = useState<'idle' | 'publishing' | 'error'>('idle');
+
+  // AG-hub-publish-02: both consequential actions on this screen ask first, in
+  // the product's own dialog. `publish-salon` is irreversible (the public URL
+  // is locked for good); `revert-draft` throws away unpublished draft edits.
+  // The revert used to raise a native `window.confirm` ("localhost says…"),
+  // which put the reversible action behind a scarier-looking gate than the
+  // permanent one.
+  const [pendingConfirmation, setPendingConfirmation]
+    = useState<null | 'publish-salon' | 'revert-draft'>(null);
+  // Read by `handlePublish` when its request resolves: the salon may have been
+  // published (by the banner above) while that request was in flight, and the
+  // success wording has to describe the state the owner is actually in.
+  const salonPublicationStatusRef = useRef<string | null>(null);
+  useEffect(() => {
+    salonPublicationStatusRef.current = salonPublicationStatus;
+  }, [salonPublicationStatus]);
 
   // Bio/specialty/heroImage text fields save on blur, not on every keystroke.
   const [bioDraft, setBioDraft] = useState('');
@@ -761,7 +795,15 @@ export default function BookingPageOwnerSurface() {
       );
       if (adoptBookingPageState(response.state, response.identity)) {
         setTruthfulSaveStatus('saved');
-        setActionMessage('Published. Your live booking page now matches your draft.');
+        // AG-hub-publish-06: this action only moves the booking-page draft onto
+        // the published side of the same salon. While the salon itself is still
+        // a private draft there is no public page yet, so saying "live" here
+        // contradicts the banner directly above it.
+        setActionMessage(
+          salonPublicationStatusRef.current === 'published'
+            ? 'Published. Your live booking page now matches your draft.'
+            : 'Saved to your draft site — publish your salon to make it public.',
+        );
       }
     } catch {
       setActionMessage('Publish failed. Please try again.');
@@ -776,11 +818,15 @@ export default function BookingPageOwnerSurface() {
     if (!salonSlug || presentationWritePendingRef.current) {
       return;
     }
+    setPendingConfirmation('revert-draft');
+  };
 
-    const confirmed = window.confirm('Discard unpublished changes and reset the draft to match what is live?');
-    if (!confirmed) {
+  const confirmRevert = async () => {
+    if (!salonSlug || presentationWritePendingRef.current) {
+      setPendingConfirmation(null);
       return;
     }
+    setPendingConfirmation(null);
     presentationWritePendingRef.current = true;
     setPresentationPending(true);
     setPresetStatus('idle');
@@ -819,10 +865,19 @@ export default function BookingPageOwnerSurface() {
    * own status/error state so a booking-page config save in flight never
    * disables this button (and vice versa).
    */
-  const handlePublishSalon = async () => {
+  const handlePublishSalon = () => {
     if (!salonSlug) {
       return;
     }
+    setPendingConfirmation('publish-salon');
+  };
+
+  const confirmPublishSalon = async () => {
+    if (!salonSlug) {
+      setPendingConfirmation(null);
+      return;
+    }
+    setPendingConfirmation(null);
     setSalonPublishStatus('publishing');
     try {
       const data = await publishSalon(salonSlug);
@@ -862,6 +917,16 @@ export default function BookingPageOwnerSurface() {
   const previewFrameSrc = previewPath
     ? `${previewPath}?builderPreview=${previewRevision}`
     : null;
+  // The address the salon publish locks for good. Shown in the confirmation so
+  // the owner reads the exact string before it becomes permanent.
+  const publicSalonPath = salonSlug
+    ? getI18nPath(`/${encodeURIComponent(salonSlug)}`, locale)
+    : '';
+  const publicSalonUrlLabel = publicSalonPath
+    ? (typeof window === 'undefined'
+        ? publicSalonPath
+        : new URL(publicSalonPath, window.location.origin).href)
+    : 'your booking page address';
 
   return (
     <main className="min-h-screen bg-[#F8F3F0] px-4 pb-16 pt-8 text-stone-900">
@@ -880,7 +945,7 @@ export default function BookingPageOwnerSurface() {
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.25em] text-rose-700">Booking Page</p>
             <h1 className="mt-2 text-3xl font-semibold">{({ layouts: 'Layouts', appearance: 'Style & Colours', information: 'Your Information', text: 'About & Website Text', policies: 'Policies & Booking Rules', publish: 'Review & Publish' } as Record<string, string>)[panel ?? ''] ?? 'Layout, style and content'}</h1>
-            <p className="mt-2 text-stone-600">Changes here save to your draft. Nothing goes live until you publish.</p>
+            <p className="mt-2 text-stone-600" data-testid="booking-page-panel-subtitle">{PANEL_SUBTITLES[panel ?? ''] ?? DRAFT_PANEL_SUBTITLE}</p>
             {reviewIndex >= 0 && (
               <p className="mt-2 text-sm font-semibold text-rose-800">
                 {`Guided review · Step ${reviewIndex + 1} of ${reviewPanels.length} · Your current saved setup`}
@@ -907,7 +972,7 @@ export default function BookingPageOwnerSurface() {
 
         {/* The irreversible salon-level publish is offered outside the guided review or on its final step only — never from step 1 of a "review" that promises nothing is reset. */}
         {salonPublicationStatus !== null && salonPublicationStatus !== 'published' && (reviewIndex < 0 || panel === 'publish') && (
-          <SalonPublishBanner status={salonPublishStatus} onPublish={() => void handlePublishSalon()} />
+          <SalonPublishBanner status={salonPublishStatus} onPublish={handlePublishSalon} />
         )}
 
         <div className="mt-3 h-5 text-xs text-stone-500" role="status" aria-live="polite">
@@ -1159,6 +1224,18 @@ export default function BookingPageOwnerSurface() {
                         </button>
                       ))}
                     </div>
+                    {/*
+                      One record, two controls: this one must carry the same
+                      live-vs-draft warning as the Your Information radiogroup
+                      or an owner changing address privacy here is told nothing
+                      about what their live site still shows
+                      (AG-w2-information-parity-03).
+                    */}
+                    {content.live.locationDisplayMode !== content.draft.locationDisplayMode && (
+                      <p data-testid="location-display-mode-unpublished" className="mt-2 text-xs text-amber-800">
+                        {`Your live site still uses “${ADDRESS_PRIVACY_OPTIONS.find(option => option.value === content.live.locationDisplayMode)?.label}” until you publish.`}
+                      </p>
+                    )}
                     {content.draft.locationDisplayMode !== 'full_address' && (
                       <p data-testid="location-display-mode-city-only-warning" className="mt-2 text-xs text-stone-500">
                         {content.draft.locationDisplayMode === 'after_booking'
@@ -1220,6 +1297,39 @@ export default function BookingPageOwnerSurface() {
           )}
         </div>
       </div>
+
+      {/*
+        AG-hub-publish-02 — one dialog component for both consequential
+        actions, so the permanent one is never the easier tap. The salon
+        publish names the exact address that gets locked; the revert names
+        what is discarded.
+      */}
+      <ConfirmDialog
+        isOpen={pendingConfirmation === 'publish-salon'}
+        title="Publish your salon?"
+        tone="danger"
+        confirmLabel="Publish my salon"
+        cancelLabel="Not yet"
+        onClose={() => setPendingConfirmation(null)}
+        onConfirm={() => void confirmPublishSalon()}
+        description={(
+          <>
+            <p>Your link becomes permanent and your site goes live. Anyone with the address can book.</p>
+            <p className="mt-2 break-all font-medium text-neutral-900" data-testid="salon-publish-confirm-url">{publicSalonUrlLabel}</p>
+            <p className="mt-2">This address can't be changed afterwards.</p>
+          </>
+        )}
+      />
+
+      <ConfirmDialog
+        isOpen={pendingConfirmation === 'revert-draft'}
+        title="Discard your unpublished changes?"
+        confirmLabel="Discard changes"
+        cancelLabel="Keep editing"
+        onClose={() => setPendingConfirmation(null)}
+        onConfirm={() => void confirmRevert()}
+        description="Your draft goes back to matching what is already live. Anything you changed since your last publish is lost."
+      />
     </main>
   );
 }
