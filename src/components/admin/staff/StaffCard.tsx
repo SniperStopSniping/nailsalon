@@ -154,14 +154,23 @@ export const StaffCard = forwardRef<HTMLDivElement, StaffCardProps>((
           {...dragHandleProps}
           className="cursor-grab touch-none py-4 pl-2 pr-1 active:cursor-grabbing"
         >
-          <GripVertical className="size-5 text-[#C7C7CC]" />
+          <GripVertical className="size-5 text-[var(--owner-muted,#706267)]" aria-hidden="true" />
         </div>
       )}
 
       {/* Clickable Content */}
       <div
-        className={`flex flex-1 cursor-pointer items-center active:bg-gray-50 ${isDraggable ? 'pl-1' : 'pl-4'}`}
+        role="button"
+        tabIndex={0}
+        aria-label={`Open ${staff.name}`}
+        className={`flex flex-1 cursor-pointer items-center rounded-owner-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--owner-focus,#b85075)] active:bg-[var(--owner-blush,#f6e7ec)] ${isDraggable ? 'pl-1' : 'pl-4'}`}
         onClick={onClick}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            onClick?.();
+          }
+        }}
       >
         {/* Avatar */}
         <div className="relative shrink-0">
