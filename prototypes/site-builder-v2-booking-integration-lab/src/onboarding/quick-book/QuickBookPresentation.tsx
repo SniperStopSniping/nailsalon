@@ -174,6 +174,9 @@ function Identity({
   align,
   /** Panel compositions place the real heading inside the panel instead. */
   nameInPanel = false,
+  /** A layout that heads its own person card with the tech's name must not
+   * print that name in the branding row as well. */
+  showPerson = true,
 }: {
   profile: QuickBookPresentationProfile;
   headingId: string;
@@ -182,6 +185,7 @@ function Identity({
   showSpecialties: boolean;
   align?: 'center';
   nameInPanel?: boolean;
+  showPerson?: boolean;
 }) {
   const { identity, presentation } = profile;
   return (
@@ -191,7 +195,7 @@ function Identity({
         {nameInPanel
           ? null
           : <h1 {...headingProps} className="qb-name" id={headingId}>{identity.salonName}</h1>}
-        {identity.technicianName
+        {showPerson && identity.technicianName
           ? <p className="qb-person" data-testid="quick-book-technician-name">{identity.technicianName}</p>
           : null}
         {showSpecialties && presentation.specialties.length > 0
@@ -659,7 +663,7 @@ export function QuickBookPresentation({
     case 'concierge_panel':
       body = (
         <>
-          <Identity {...identityProps} showLogo={showLogo} showSpecialties={false} />
+          <Identity {...identityProps} showLogo={showLogo} showPerson={false} showSpecialties={false} />
           <div className="qb-panel" data-qb-block="person-card">
             {portrait}
             <div className="qb-panel__copy">

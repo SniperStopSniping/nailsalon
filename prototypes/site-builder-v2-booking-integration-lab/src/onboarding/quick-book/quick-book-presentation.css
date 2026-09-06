@@ -728,7 +728,10 @@ details[open] > summary > .qb-fact__chevron {
 
 .qb-presentation[data-qb-layout="side_portrait"] .qb-portrait--circle,
 .qb-presentation[data-qb-layout="editorial_split"] .qb-portrait--circle {
-  width: clamp(110px, 34cqw, 140px);
+  /* Both layouts drop the logo and the cover, so this is the only image in
+     the header and the whole reason to pick them. At 34cqw it rendered about
+     a quarter of the card and read as a small avatar rather than the subject. */
+  width: clamp(128px, 40cqw, 158px);
 }
 
 .qb-presentation[data-qb-layout="clean_card_pro"] .qb-portrait--circle,
@@ -817,7 +820,10 @@ details[open] > summary > .qb-fact__chevron {
 .qb-panel {
   display: grid;
   grid-template-columns: clamp(96px, 32cqw, 130px) minmax(0, 1fr);
-  align-items: center;
+  /* The copy column runs to a name, a role, three specialties and a bio, so a
+     vertically centred portrait sat in the middle of roughly 90px of empty
+     tint above and below. Top-align it with the name it belongs to. */
+  align-items: start;
   gap: 14px;
   padding: 14px;
   border-radius: calc(var(--qb-radius, 16px) * 1.05);

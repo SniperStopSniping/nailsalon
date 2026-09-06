@@ -409,6 +409,16 @@ export function QuickBookProfileHeader({
                                 </div>
                               )
                             : null}
+                          {/* Ultra Minimal keeps no About surface of its own,
+                              so its bio rides here rather than disappearing
+                              from the page. */}
+                          {activeLayout === 'ultra_minimal' && profile.bio
+                            ? (
+                                <p className="whitespace-pre-line break-words px-1 py-2 text-sm leading-5 text-neutral-700">
+                                  {profile.bio}
+                                </p>
+                              )
+                            : null}
                         </div>
                       </details>
                     )
@@ -504,7 +514,13 @@ export function QuickBookProfileHeader({
                     )
                   : null}
 
-                {profile.bio
+                {/* Ultra Minimal's whole promise is "the least before
+                    booking", and it already collapses the address, hours,
+                    contact and policies. Printing the full prose bio there
+                    contradicted its own recipe, so the one layout that keeps
+                    no About surface keeps no bio either. Nothing is removed
+                    from the salon record. */}
+                {profile.bio && recipe.actions !== 'policies'
                   ? (
                       <p
                         data-testid="quick-book-bio"
