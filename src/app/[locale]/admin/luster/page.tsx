@@ -70,6 +70,20 @@ export default function LusterOwnerPage() {
   const [salonSlug, setSalonSlug] = useState(searchParams.get('salon') || '');
   const [marketingConsent, setMarketingConsent] = useState(false);
 
+  /*
+    Back goes to the More grid the Luster tile was tapped from, not to Today.
+    The workspace reads ?tab=more on mount, so this restores the same screen
+    whether the owner arrived by tap or by a bookmarked Luster URL.
+  */
+  const buildMoreTabUrl = (slug: string) => {
+    const qs = new URLSearchParams();
+    if (slug) {
+      qs.set('salon', slug);
+    }
+    qs.set('tab', 'more');
+    return `/${locale}/admin?${qs.toString()}`;
+  };
+
   const buildIntegrationsUrl = (slug: string) => {
     const qs = new URLSearchParams();
     if (slug) {
@@ -130,39 +144,42 @@ export default function LusterOwnerPage() {
 
   if (hasLegacyIntegrationParams) {
     return (
-      <main className="flex min-h-screen items-center justify-center bg-[#F8F3F0]">
-        <div className="size-8 animate-spin rounded-full border-2 border-rose-200 border-t-rose-700" />
+      <main className="owner-workspace-theme flex min-h-screen items-center justify-center bg-[var(--owner-ground)]" data-theme-scope="owner">
+        <div aria-label="Opening Integrations" className="size-8 animate-spin rounded-full border-2 border-[var(--owner-line)] border-t-[var(--owner-accent)]" role="status" />
       </main>
     );
   }
 
-  const card = 'rounded-3xl border border-stone-200 bg-white p-6 shadow-sm';
-  const pill = 'inline-flex items-center rounded-full border border-rose-200 bg-rose-50 px-4 py-2 text-sm font-semibold text-rose-700 transition-colors active:bg-rose-100';
+  const card = 'rounded-owner-card border border-[var(--owner-line)] bg-[var(--owner-surface)] p-6 shadow-owner-card';
+  const pill = 'inline-flex min-h-11 items-center rounded-full border border-[var(--owner-line-strong)] bg-[var(--owner-blush)] px-4 py-2 text-sm font-semibold text-[var(--owner-accent-strong)] outline-none transition-colors focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)] active:bg-[var(--owner-line)]';
   const pillCta = 'inline-flex items-center gap-1';
+  // LusterExternalLink defaults its call-to-action to text-rose-700; the owner
+  // workspace paints links from the token layer instead.
+  const cardCta = 'mt-4 inline-flex items-center gap-1 text-sm font-semibold text-[var(--owner-accent)]';
 
   return (
-    <main className="min-h-screen bg-[#F8F3F0] px-4 py-8 text-stone-900">
+    <main className="owner-workspace-theme min-h-screen bg-[var(--owner-ground)] px-4 py-8 text-[var(--owner-ink)]" data-theme-scope="owner">
       <div className="mx-auto max-w-5xl">
-        <button type="button" onClick={() => router.push(`/${locale}/admin${salonSlug ? `?salon=${encodeURIComponent(salonSlug)}` : ''}`)} className="inline-flex items-center gap-2 text-sm text-stone-600">
-          <ArrowLeft size={16} />
+        <button type="button" onClick={() => router.push(buildMoreTabUrl(salonSlug))} className="-ml-1 inline-flex min-h-11 items-center gap-2 rounded-full px-1 text-sm font-semibold text-[var(--owner-accent)] outline-none focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)]">
+          <ArrowLeft aria-hidden="true" size={16} />
           {' '}
-          Dashboard
+          More apps
         </button>
         <div className="mt-6">
-          <p className="text-xs font-semibold uppercase tracking-[0.25em] text-rose-700">Luster Studio</p>
+          <p className="text-xs font-semibold uppercase tracking-[0.25em] text-[var(--owner-accent)]">Luster Studio</p>
           <h1 className="mt-2 text-3xl font-semibold">Luster for Nail Artists</h1>
-          <p className="mt-2 text-stone-600">Discover professional products, artist offers and practical education from Luster Studio.</p>
+          <p className="mt-2 text-[var(--owner-muted)]">Discover professional products, artist offers and practical education from Luster Studio.</p>
         </div>
 
         <section className="mt-8" aria-label="Promotions">
           <h2 className="text-2xl font-semibold">Promotions</h2>
-          <p className="mt-1 text-sm text-stone-600">Current offers and campaigns from Luster Studio.</p>
+          <p className="mt-1 text-sm text-[var(--owner-muted)]">Current offers and campaigns from Luster Studio.</p>
           {/* Honest empty state: there is no live promotion feed, so nothing is
               claimed here beyond where to look on the Luster Studio site. */}
           <div className={`mt-4 ${card}`}>
-            <Tag className="text-rose-700" />
+            <Tag aria-hidden="true" className="text-[var(--owner-accent)]" />
             <p className="mt-4 font-semibold">New Luster offers will appear here.</p>
-            <p className="mt-2 text-sm text-stone-600">Nothing is running right now. The Luster Studio site always has the latest.</p>
+            <p className="mt-2 text-sm text-[var(--owner-muted)]">Nothing is running right now. The Luster Studio site always has the latest.</p>
             <div className="mt-4 flex flex-wrap gap-3">
               <LusterExternalLink
                 path="/promotions"
@@ -184,7 +201,7 @@ export default function LusterOwnerPage() {
 
         <section className="mt-8" aria-label="Shop">
           <h2 className="text-2xl font-semibold">Shop</h2>
-          <p className="mt-1 text-sm text-stone-600">Products, wholesale, and artist opportunities.</p>
+          <p className="mt-1 text-sm text-[var(--owner-muted)]">Products, wholesale, and artist opportunities.</p>
           <div className="mt-4 grid gap-4 md:grid-cols-2">
             {SHOP_ACTIONS.map((action) => {
               const Icon = action.icon;
@@ -195,11 +212,12 @@ export default function LusterOwnerPage() {
                   path={action.path}
                   cta={action.cta}
                   className={card}
+                  ctaClassName={cardCta}
                   onNavigate={() => trackResource(action.id, `https://lusterstudio.ca${action.path}`)}
                 >
-                  <Icon className="text-rose-700" />
+                  <Icon aria-hidden="true" className="text-[var(--owner-accent)]" />
                   <h3 className="mt-4 font-semibold">{action.title}</h3>
-                  <p className="mt-2 text-sm text-stone-600">{action.description}</p>
+                  <p className="mt-2 text-sm text-[var(--owner-muted)]">{action.description}</p>
                 </LusterExternalLink>
               );
             })}
@@ -208,37 +226,38 @@ export default function LusterOwnerPage() {
 
         <section className="mt-8" aria-label="Learn">
           <h2 className="text-2xl font-semibold">Learn</h2>
-          <p className="mt-1 text-sm text-stone-600">Practical education from Luster Studio.</p>
+          <p className="mt-1 text-sm text-[var(--owner-muted)]">Practical education from Luster Studio.</p>
           <LusterExternalLink
             path="/learn"
             cta="Browse learning"
             className={`mt-4 block ${card}`}
+            ctaClassName={cardCta}
             onNavigate={() => trackResource('learn-overview', 'https://lusterstudio.ca/learn')}
           >
-            <BookOpen className="text-rose-700" />
+            <BookOpen aria-hidden="true" className="text-[var(--owner-accent)]" />
             <h3 className="mt-4 font-semibold">Learn overview</h3>
-            <p className="mt-2 text-sm text-stone-600">Every Luster Studio guide in one place.</p>
+            <p className="mt-2 text-sm text-[var(--owner-muted)]">Every Luster Studio guide in one place.</p>
           </LusterExternalLink>
-          <ul className="mt-4 divide-y divide-stone-200 overflow-hidden rounded-3xl border border-stone-200 bg-white shadow-sm">
+          <ul className="mt-4 divide-y divide-[var(--owner-line)] overflow-hidden rounded-owner-card border border-[var(--owner-line)] bg-[var(--owner-surface)] shadow-owner-card">
             {LEARN_GUIDES.map(guide => (
               <li key={guide.id}>
                 <LusterExternalLink
                   path={guide.path}
                   cta="View guide"
-                  className="flex items-center justify-between gap-3 p-4 outline-none transition-colors focus-visible:ring-2 focus-visible:ring-rose-400 active:bg-stone-50"
-                  ctaClassName="inline-flex shrink-0 items-center gap-1 text-sm font-semibold text-rose-700"
+                  className="flex min-h-11 items-center justify-between gap-3 p-4 outline-none transition-colors focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)] active:bg-[var(--owner-ground)]"
+                  ctaClassName="inline-flex shrink-0 items-center gap-1 text-sm font-semibold text-[var(--owner-accent)]"
                   onNavigate={() => trackResource(guide.id, `https://lusterstudio.ca${guide.path}`)}
                 >
-                  <span className="min-w-0 break-words text-sm font-medium text-stone-900">{guide.title}</span>
+                  <span className="min-w-0 break-words text-sm font-medium text-[var(--owner-ink)]">{guide.title}</span>
                 </LusterExternalLink>
               </li>
             ))}
           </ul>
         </section>
 
-        <hr className="mt-10 border-stone-200" />
+        <hr className="mt-10 border-[var(--owner-line)]" />
 
-        <label className="mt-6 flex items-start gap-3 rounded-2xl border border-stone-200 bg-white p-4 text-sm text-stone-600">
+        <label className="mt-6 flex items-start gap-3 rounded-2xl border border-[var(--owner-line)] bg-[var(--owner-surface)] p-4 text-sm text-[var(--owner-muted)]">
           <input type="checkbox" checked={marketingConsent} onChange={event => void updateMarketingConsent(event.target.checked)} className="mt-1" />
           <span>Email me Luster education, product updates, and wholesale offers. This owner consent is separate from every customer’s appointment consent.</span>
         </label>

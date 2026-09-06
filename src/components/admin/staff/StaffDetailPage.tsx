@@ -13,6 +13,7 @@ import { OverviewTab } from './tabs/OverviewTab';
 import { ScheduleTab } from './tabs/ScheduleTab';
 import { ServicesTab } from './tabs/ServicesTab';
 import { SettingsTab } from './tabs/SettingsTab';
+import { useTechnicianReviews } from './useTechnicianReviews';
 
 // =============================================================================
 // Types
@@ -101,6 +102,9 @@ const TABS: { id: TabId; label: string }[] = [
 
 export function StaffDetailPage({ staffId, salonSlug, onBack, onUpdate }: StaffDetailPageProps) {
   const [activeTab, setActiveTab] = useState<TabId>('overview');
+  // Same source as the Reviews app; no reviews → no rating shown.
+  const { byTechnician: reviewsByTechnician } = useTechnicianReviews(salonSlug);
+  const reviewSummary = reviewsByTechnician[staffId] ?? null;
   const [technician, setTechnician] = useState<TechnicianDetail | null>(null);
   const [stats, setStats] = useState<TechnicianStats | null>(null);
   const [_services, setServices] = useState<{ serviceId: string; enabled: boolean; priority: number }[]>([]);
@@ -364,17 +368,20 @@ export function StaffDetailPage({ staffId, salonSlug, onBack, onUpdate }: StaffD
                   </span>
                 )}
               </p>
-              {technician.rating !== null && technician.reviewCount > 0 && (
+              {/* Only real reviews are shown — the hand-entered
+                  technician.rating column contradicted the Reviews app
+                  (AG-w2-more-tools-04). */}
+              {reviewSummary && reviewSummary.count > 0 && (
                 <div className="mt-1 flex items-center gap-1">
                   <Star className="size-4 fill-[#FFD60A] text-[#FFD60A]" />
                   <span className="text-[14px] font-medium text-[#1C1C1E]">
-                    {technician.rating.toFixed(1)}
+                    {reviewSummary.average.toFixed(1)}
                   </span>
                   <span className="text-[13px] text-[#8E8E93]">
                     (
-                    {technician.reviewCount}
-                    {' '}
-                    reviews)
+                    {reviewSummary.count}
+                    {reviewSummary.count === 1 ? ' review' : ' reviews'}
+                    )
                   </span>
                 </div>
               )}

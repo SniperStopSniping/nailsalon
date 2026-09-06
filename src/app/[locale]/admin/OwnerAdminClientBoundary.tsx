@@ -13,13 +13,15 @@ export function OwnerAdminClientBoundary(props: {
   children: React.ReactNode;
   locale: string;
   onboardingV1IntegrationEnabled: boolean;
+  sectionLibraryV1Enabled: boolean;
 }) {
   const localePrefix = props.locale === AppConfig.defaultLocale
     ? ''
     : `/${props.locale}`;
   const featureFlags = useMemo(() => ({
     onboardingV1IntegrationEnabled: props.onboardingV1IntegrationEnabled,
-  }), [props.onboardingV1IntegrationEnabled]);
+    sectionLibraryV1Enabled: props.sectionLibraryV1Enabled,
+  }), [props.onboardingV1IntegrationEnabled, props.sectionLibraryV1Enabled]);
 
   return (
     <ClerkProvider

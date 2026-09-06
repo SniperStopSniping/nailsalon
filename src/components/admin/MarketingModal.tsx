@@ -9,6 +9,7 @@ import {
   Save,
   Star,
 } from 'lucide-react';
+import { useSearchParams } from 'next/navigation';
 import {
   type Ref,
   useCallback,
@@ -460,12 +461,18 @@ function PromotionEditor({
 
 type MarketingView = 'home' | 'followups' | 'campaigns' | 'results' | 'reviews';
 
+const MARKETING_VIEWS: MarketingView[] = ['home', 'followups', 'campaigns', 'results', 'reviews'];
+
+function isMarketingView(value: string | null): value is MarketingView {
+  return value !== null && (MARKETING_VIEWS as string[]).includes(value);
+}
+
 const VIEW_TITLES: Record<MarketingView, string> = {
   home: 'Marketing',
   followups: 'Follow-ups',
   campaigns: 'Campaigns',
   results: 'Results',
-  reviews: 'Reviews',
+  reviews: 'Review settings',
 };
 
 type FollowupItem = {
@@ -538,10 +545,19 @@ export function MarketingModal({
   onOpenNativeUrl,
 }: MarketingModalProps) {
   const { salonSlug } = useSalon();
+  const searchParams = useSearchParams();
+  // A one-tap hop from the Review rewards app lands here: ?app=marketing&view=reviews.
+  // Null in unit tests / outside an App Router tree — a missing param is just 'home'.
+  const requestedView = searchParams?.get('view') ?? null;
   const sixWeekPromotionRef = useRef<HTMLElement>(null);
   const eightWeekPromotionRef = useRef<HTMLElement>(null);
   const focusedPromotionStageRef = useRef<MarketingModalProps['initialPromotionStage']>(null);
-  const [view, setView] = useState<MarketingView>(initialPromotionStage ? 'campaigns' : 'home');
+  const [view, setView] = useState<MarketingView>(() => {
+    if (initialPromotionStage) {
+      return 'campaigns';
+    }
+    return isMarketingView(requestedView) ? requestedView : 'home';
+  });
   const [settings, setSettings] = useState<RetentionSettings | null>(null);
   const [savedSettings, setSavedSettings] = useState<RetentionSettings | null>(null);
   const [services, setServices] = useState<AvailableService[]>([]);
@@ -1024,8 +1040,8 @@ export function MarketingModal({
                         })}
                         {homeRow({
                           testId: 'marketing-home-reviews',
-                          title: 'Reviews',
-                          detail: 'Google review link and manual requests.',
+                          title: 'Review settings',
+                          detail: 'Your Google review link, and asking clients for a review.',
                           status: settings.googleReviewUrl ? 'Link set' : 'Add link',
                           onClick: () => setView('reviews'),
                         })}
@@ -1384,7 +1400,7 @@ export function MarketingModal({
                         <section className={card}>
                           <div className="mb-4 flex items-center gap-2">
                             <Star className="size-5 text-[#FF9500]" />
-                            <h2 className="text-[18px] font-semibold text-[#1C1C1E]">Reviews</h2>
+                            <h2 className="text-[18px] font-semibold text-[#1C1C1E]">Review settings</h2>
                           </div>
                           <div className="space-y-5">
                             <label htmlFor="google-review-url" className="block">

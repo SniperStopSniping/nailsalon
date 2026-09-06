@@ -379,6 +379,16 @@ function createdClientResponse(client: {
 export async function POST(request: Request): Promise<Response> {
   try {
     const body = await request.json().catch(() => null);
+    // Authenticate BEFORE validating the payload so an anonymous caller is
+    // refused (401/404) rather than told which fields were wrong.
+    const requestedSlug = typeof (body as { salonSlug?: unknown } | null)?.salonSlug === 'string'
+      ? (body as { salonSlug: string }).salonSlug
+      : '';
+    const { error: authError, salon: authSalon } = await requireAdminSalon(requestedSlug);
+    if (authError || !authSalon) {
+      authError!.headers.set('Cache-Control', PRIVATE_HEADERS['Cache-Control']);
+      return authError!;
+    }
     const validated = createBodySchema.safeParse(body);
     if (!validated.success) {
       return Response.json(
@@ -393,13 +403,8 @@ export async function POST(request: Request): Promise<Response> {
       );
     }
 
-    const { salonSlug, firstName, lastName, phone, email, notes }
-      = validated.data;
-    const { error, salon } = await requireAdminSalon(salonSlug);
-    if (error || !salon) {
-      error!.headers.set('Cache-Control', PRIVATE_HEADERS['Cache-Control']);
-      return error!;
-    }
+    const { firstName, lastName, phone, email, notes } = validated.data;
+    const salon = authSalon;
 
     // The booking path's identity rules are the canonical ones. Reusing them
     // keeps ONE writer per client record: an owner typing a number that is

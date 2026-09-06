@@ -22,6 +22,7 @@ import {
   Bell,
   Boxes,
   CalendarClock,
+  Camera,
   Check,
   ChevronRight,
   CreditCard,
@@ -30,6 +31,7 @@ import {
   Flag,
   Gift,
   Instagram,
+  LayoutTemplate,
   ListOrdered,
   MapPin,
   MessageSquare,
@@ -53,6 +55,7 @@ import {
   useState,
 } from 'react';
 
+import { useOwnerAdminFeatureFlags } from '@/app/[locale]/admin/OwnerAdminFeatureFlags';
 import { DialogShell } from '@/components/ui/dialog-shell';
 import { LockedFeatureRow } from '@/components/ui/locked-feature-row';
 import {
@@ -230,10 +233,10 @@ function Row({
         <span className="text-[16px] tracking-tight text-black">{label}</span>
 
         <div className="flex items-center gap-2">
-          {value && <span className="text-[16px] text-[#8E8E93]">{value}</span>}
+          {value && <span className="text-[16px] text-[var(--owner-muted,#706267)]">{value}</span>}
 
           {type === 'link' && (
-            <ChevronRight className="size-4 text-[#C7C7CC]" />
+            <ChevronRight className="size-4 text-[var(--owner-line-strong,#d8c1c8)]" />
           )}
 
           {type === 'toggle' && (
@@ -427,10 +430,10 @@ function ProfileCard({
         </div>
       </div>
       <div className="flex-1">
-        <div className="text-[20px] font-normal text-[#1C1C1E]">{name}</div>
+        <div className="text-[20px] font-normal text-[var(--owner-ink,#30262a)]">{name}</div>
         <div className="text-[13px] text-gray-500">{subtitle}</div>
       </div>
-      <ChevronRight className="size-5 text-[#C7C7CC]" />
+      <ChevronRight className="size-5 text-[var(--owner-line-strong,#d8c1c8)]" />
     </button>
   );
 }
@@ -580,7 +583,7 @@ function ParkingInstructionsCard({
                   }}
                   rows={3}
                   maxLength={2000}
-                  className="mt-2 w-full resize-y rounded-[10px] border border-gray-200 p-3 text-[15px] leading-relaxed text-black outline-none transition-colors focus:border-[#007AFF]"
+                  className="mt-2 w-full resize-y rounded-[10px] border border-gray-200 p-3 text-[15px] leading-relaxed text-black outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
                   placeholder="Free parking behind the salon. Enter from Queen Street."
                 />
               </label>
@@ -932,7 +935,7 @@ function BookingExperienceEditor({
             rows={2}
             maxLength={160}
             placeholder="A short welcome shown near the top of booking."
-            className="w-full resize-y rounded-[10px] border border-gray-200 p-3 text-[15px] leading-relaxed text-black outline-none transition-colors focus:border-[#007AFF]"
+            className="w-full resize-y rounded-[10px] border border-gray-200 p-3 text-[15px] leading-relaxed text-black outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
           />
           <span className="text-right text-xs text-gray-500">
             {(draft.bookingMessage ?? '').length}
@@ -989,7 +992,7 @@ function BookingExperienceEditor({
                     })}
                   maxLength={isInstagram ? 200 : 500}
                   placeholder={isInstagram ? 'yourstudio' : `https://${social.label.toLowerCase()}.com/your-profile`}
-                  className="h-11 rounded-[10px] border border-gray-200 px-3 text-[15px] text-black outline-none transition-colors focus:border-[#007AFF]"
+                  className="h-11 rounded-[10px] border border-gray-200 px-3 text-[15px] text-black outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
                 />
                 {isInstagram && (
                   <span
@@ -1022,7 +1025,7 @@ function BookingExperienceEditor({
             rows={3}
             maxLength={500}
             placeholder="Shown below appointment details and in the confirmation email."
-            className="w-full resize-y rounded-[10px] border border-gray-200 p-3 text-[15px] leading-relaxed text-black outline-none transition-colors focus:border-[#007AFF]"
+            className="w-full resize-y rounded-[10px] border border-gray-200 p-3 text-[15px] leading-relaxed text-black outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
           />
           <span className="text-right text-xs text-gray-500">
             {(draft.confirmationMessage ?? '').length}
@@ -1368,7 +1371,7 @@ function BookingPolicyEditor({
               }))}
             maxLength={60}
             placeholder="Booking policy"
-            className="h-11 rounded-[10px] border border-gray-200 px-3 text-[15px] text-black outline-none transition-colors focus:border-[#007AFF]"
+            className="h-11 rounded-[10px] border border-gray-200 px-3 text-[15px] text-black outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
           />
           <span className="text-right text-xs text-gray-500">
             {(draft.policy.title ?? '').length}
@@ -1396,7 +1399,7 @@ function BookingPolicyEditor({
             maxLength={1500}
             required={draft.policy.enabled}
             placeholder="Explain cancellation, no-show, and deposit expectations."
-            className="w-full resize-y rounded-[10px] border border-gray-200 p-3 text-[15px] leading-relaxed text-black outline-none transition-colors focus:border-[#007AFF]"
+            className="w-full resize-y rounded-[10px] border border-gray-200 p-3 text-[15px] leading-relaxed text-black outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
           />
           <span className="text-right text-xs text-gray-500">
             {(draft.policy.text ?? '').length}
@@ -1515,7 +1518,7 @@ function BookingPolicyEditor({
             rows={4}
             required={acknowledgmentRequired}
             placeholder={DEFAULT_BOOKING_POLICY_ACKNOWLEDGMENT_TEXT}
-            className="w-full resize-y rounded-[10px] border border-gray-200 p-3 text-[15px] leading-relaxed text-black outline-none transition-colors focus:border-[#007AFF]"
+            className="w-full resize-y rounded-[10px] border border-gray-200 p-3 text-[15px] leading-relaxed text-black outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
           />
           <div className="flex flex-wrap items-start justify-between gap-2">
             <p
@@ -1638,7 +1641,7 @@ function BookingPolicyEditor({
                     }))}
                   maxLength={40}
                   placeholder={field.description.replace('Example: ', '')}
-                  className="h-10 rounded-[9px] border border-gray-200 px-3 text-sm text-black outline-none transition-colors focus:border-[#007AFF]"
+                  className="h-10 rounded-[9px] border border-gray-200 px-3 text-sm text-black outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
                 />
                 <span className="text-right text-xs text-gray-500">
                   {(fact.label ?? '').length}
@@ -2199,6 +2202,7 @@ export function SettingsModal({
   const params = useParams();
   const searchParams = useSearchParams();
   const locale = String(params?.locale || 'en');
+  const { sectionLibraryV1Enabled } = useOwnerAdminFeatureFlags();
   /**
    * The Booking Page hub owns website appearance and the business record.
    * Settings links there instead of keeping a second editor for either
@@ -3864,7 +3868,7 @@ export function SettingsModal({
 
         {/* Large Title */}
         <div className="px-4 pb-2">
-          <h1 className="text-[34px] font-bold text-[#1C1C1E]">
+          <h1 className="owner-title text-[34px] font-bold text-[var(--owner-ink,#30262a)]">
             {VIEW_TITLES[view]}
           </h1>
         </div>
@@ -3937,8 +3941,39 @@ export function SettingsModal({
                 label="Branding"
                 value="Logo, page themes & social"
                 onClick={() => openView('branding')}
-                isLast
               />
+              {/*
+                AG-w2-settings-integrations-15: /admin/policies had no entry
+                point anywhere in the workspace, so the only way to reach a
+                live write surface was a bookmark or a support instruction.
+                It is a Settings screen; it now has a Settings row.
+              */}
+              <Row
+                icon={Camera}
+                iconColor="bg-rose-800"
+                label="Photo & auto-post rules"
+                value="Before & after photos, social posts"
+                onClick={() =>
+                  router.push(
+                    `/${locale}/admin/policies${salonSlug ? `?salon=${encodeURIComponent(salonSlug)}` : ''}`,
+                  )}
+                isLast={!sectionLibraryV1Enabled}
+              />
+              {/*
+                The Section Gallery is a dark-launched lab surface. It is only
+                offered when its flag is on, and it says so, so nobody lands
+                there from a stray URL expecting a finished feature.
+              */}
+              {sectionLibraryV1Enabled && (
+                <Row
+                  icon={LayoutTemplate}
+                  iconColor="bg-stone-600"
+                  label="Section gallery (preview)"
+                  value="Early look at new page sections"
+                  onClick={() => router.push(`/${locale}/admin/site-builder/section-gallery`)}
+                  isLast
+                />
+              )}
             </Section>
 
             <Section title="Booking">
@@ -4266,7 +4301,7 @@ export function SettingsModal({
                                 ),
                               ),
                             }))}
-                          className="h-11 rounded-[10px] border border-gray-200 px-3 text-[15px] text-black outline-none transition-colors focus:border-[#007AFF]"
+                          className="h-11 rounded-[10px] border border-gray-200 px-3 text-[15px] text-black outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
                         />
                       </label>
 
@@ -4284,7 +4319,7 @@ export function SettingsModal({
                                 10,
                               ) as BookingConfigFormState['slotIntervalMinutes'],
                             }))}
-                          className="h-11 rounded-[10px] border border-gray-200 px-3 text-[15px] text-black outline-none transition-colors focus:border-[#007AFF]"
+                          className="h-11 rounded-[10px] border border-gray-200 px-3 text-[15px] text-black outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
                         >
                           {SLOT_INTERVAL_OPTIONS.map(option => (
                             <option key={option} value={option}>
@@ -4308,7 +4343,7 @@ export function SettingsModal({
                               currency: event.target
                                 .value as BookingConfigFormState['currency'],
                             }))}
-                          className="h-11 rounded-[10px] border border-gray-200 px-3 text-[15px] text-black outline-none transition-colors focus:border-[#007AFF]"
+                          className="h-11 rounded-[10px] border border-gray-200 px-3 text-[15px] text-black outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
                         >
                           {CURRENCY_OPTIONS.map(option => (
                             <option key={option} value={option}>
@@ -4341,7 +4376,7 @@ export function SettingsModal({
                                   ),
                                 ),
                               }))}
-                            className="h-11 w-full rounded-[10px] border border-gray-200 px-3 pr-16 text-[15px] text-black outline-none transition-colors focus:border-[#007AFF]"
+                            className="h-11 w-full rounded-[10px] border border-gray-200 px-3 pr-16 text-[15px] text-black outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
                           />
                           <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-xs font-medium text-gray-500">
                             hours
@@ -4371,7 +4406,7 @@ export function SettingsModal({
                               minimumNoticeMinutes: Number.parseInt(event.target.value, 10),
                             }));
                           }}
-                          className="h-11 rounded-[10px] border border-gray-200 bg-white px-3 text-[15px] text-black outline-none transition-colors focus:border-[#007AFF]"
+                          className="h-11 rounded-[10px] border border-gray-200 bg-white px-3 text-[15px] text-black outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
                         >
                           {MINIMUM_NOTICE_OPTIONS.map(option => (
                             <option key={option.minutes} value={option.minutes}>
@@ -4401,7 +4436,7 @@ export function SettingsModal({
                                     ),
                                   ),
                                 }))}
-                              className="h-11 w-full rounded-[10px] border border-gray-200 px-3 pr-20 text-[15px] text-black outline-none transition-colors focus:border-[#007AFF]"
+                              className="h-11 w-full rounded-[10px] border border-gray-200 px-3 pr-20 text-[15px] text-black outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
                             />
                             <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-xs font-medium text-gray-500">
                               minutes
@@ -4426,7 +4461,7 @@ export function SettingsModal({
                               ...prev,
                               timezone: event.target.value,
                             }))}
-                          className="h-11 rounded-[10px] border border-gray-200 bg-white px-3 text-[15px] text-black outline-none transition-colors focus:border-[#007AFF]"
+                          className="h-11 rounded-[10px] border border-gray-200 bg-white px-3 text-[15px] text-black outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
                         >
                           {getTimeZoneOptions(bookingConfigForm.timezone).map(zone => (
                             <option key={zone} value={zone}>{zone.replace(/_/g, ' ')}</option>
@@ -4446,7 +4481,7 @@ export function SettingsModal({
                               ...prev,
                               introPriceDefaultLabel: event.target.value,
                             }))}
-                          className="h-11 rounded-[10px] border border-gray-200 px-3 text-[15px] text-black outline-none transition-colors focus:border-[#007AFF]"
+                          className="h-11 rounded-[10px] border border-gray-200 px-3 text-[15px] text-black outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
                           placeholder="Founding Client Price"
                         />
                       </label>
@@ -4533,14 +4568,14 @@ export function SettingsModal({
                       >
                         <Save className="size-4" />
                         <span>
-                          {bookingConfigSaving ? 'Saving...' : 'Save booking config'}
+                          {bookingConfigSaving ? 'Saving...' : 'Save booking rules'}
                         </span>
                       </button>
                     </div>
 
                     {bookingConfigSaved && (
                       <div className="text-right text-xs font-medium text-green-600">
-                        Booking configuration saved.
+                        Booking rules saved.
                       </div>
                     )}
                   </div>
@@ -4637,7 +4672,7 @@ export function SettingsModal({
                                 }))}
                               placeholder="HST"
                               maxLength={40}
-                              className="h-11 rounded-[10px] border border-gray-200 px-3 text-[15px] text-black outline-none transition-colors focus:border-[#007AFF]"
+                              className="h-11 rounded-[10px] border border-gray-200 px-3 text-[15px] text-black outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
                             />
                           </label>
 
@@ -4657,7 +4692,7 @@ export function SettingsModal({
                                     taxRatePercent: event.target.value.replace(/[^0-9.]/g, ''),
                                   }))}
                                 placeholder="13"
-                                className="h-11 w-full rounded-[10px] border border-gray-200 px-3 pr-10 text-[15px] text-black outline-none transition-colors focus:border-[#007AFF]"
+                                className="h-11 w-full rounded-[10px] border border-gray-200 px-3 pr-10 text-[15px] text-black outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
                               />
                               <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-xs font-medium text-gray-500">
                                 %
@@ -4683,7 +4718,7 @@ export function SettingsModal({
                                     }))}
                                   placeholder="Ontario HST"
                                   maxLength={120}
-                                  className="h-11 rounded-[10px] border border-gray-200 px-3 text-[15px] text-black outline-none transition-colors focus:border-[#007AFF]"
+                                  className="h-11 rounded-[10px] border border-gray-200 px-3 text-[15px] text-black outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
                                 />
                               </label>
                               <label className="flex flex-col gap-1">
@@ -4699,7 +4734,7 @@ export function SettingsModal({
                                     }))}
                                   placeholder="CA"
                                   maxLength={120}
-                                  className="h-11 rounded-[10px] border border-gray-200 px-3 text-[15px] uppercase text-black outline-none transition-colors focus:border-[#007AFF]"
+                                  className="h-11 rounded-[10px] border border-gray-200 px-3 text-[15px] uppercase text-black outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
                                 />
                               </label>
                               <label className="flex flex-col gap-1">
@@ -4715,7 +4750,7 @@ export function SettingsModal({
                                     }))}
                                   placeholder="ON"
                                   maxLength={120}
-                                  className="h-11 rounded-[10px] border border-gray-200 px-3 text-[15px] uppercase text-black outline-none transition-colors focus:border-[#007AFF]"
+                                  className="h-11 rounded-[10px] border border-gray-200 px-3 text-[15px] uppercase text-black outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
                                 />
                               </label>
                             </div>
@@ -4830,7 +4865,7 @@ export function SettingsModal({
                                         scheduledRatePercent: event.target.value.replace(/[^0-9.]/g, ''),
                                       }))}
                                     placeholder="15"
-                                    className="h-11 w-full rounded-[10px] border border-gray-200 px-3 pr-10 text-[15px] text-black outline-none transition-colors focus:border-[#007AFF]"
+                                    className="h-11 w-full rounded-[10px] border border-gray-200 px-3 pr-10 text-[15px] text-black outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
                                   />
                                   <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-xs font-medium text-gray-500">
                                     %
@@ -4848,7 +4883,7 @@ export function SettingsModal({
                                       ...prev,
                                       scheduledEffectiveFrom: event.target.value,
                                     }))}
-                                  className="h-11 rounded-[10px] border border-gray-200 px-3 text-[15px] text-black outline-none transition-colors focus:border-[#007AFF]"
+                                  className="h-11 rounded-[10px] border border-gray-200 px-3 text-[15px] text-black outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
                                 />
                               </label>
                             </div>
@@ -4915,7 +4950,7 @@ export function SettingsModal({
                                 }))}
                               placeholder="pay@yoursalon.ca"
                               maxLength={200}
-                              className="h-11 rounded-[10px] border border-gray-200 px-3 text-[15px] text-black outline-none transition-colors focus:border-[#007AFF]"
+                              className="h-11 rounded-[10px] border border-gray-200 px-3 text-[15px] text-black outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
                             />
                           </label>
 
@@ -4933,7 +4968,7 @@ export function SettingsModal({
                                 }))}
                               placeholder="Your salon name"
                               maxLength={120}
-                              className="h-11 rounded-[10px] border border-gray-200 px-3 text-[15px] text-black outline-none transition-colors focus:border-[#007AFF]"
+                              className="h-11 rounded-[10px] border border-gray-200 px-3 text-[15px] text-black outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
                             />
                           </label>
 
@@ -4973,7 +5008,7 @@ export function SettingsModal({
                               rows={3}
                               maxLength={1000}
                               placeholder="Please include the appointment reference in the message field."
-                              className="rounded-[10px] border border-gray-200 px-3 py-2 text-[15px] text-black outline-none transition-colors focus:border-[#007AFF]"
+                              className="rounded-[10px] border border-gray-200 px-3 py-2 text-[15px] text-black outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
                             />
                           </label>
 
@@ -5051,15 +5086,51 @@ export function SettingsModal({
                         {depositPolicy === null
                           ? 'Checking your deposit setup...'
                           : depositPolicy.collectionLive === false
-                            ? 'Deposit payments are not switched on yet.'
+                            ? 'Deposits are not collected on Luster yet. Nothing here charges a client.'
                             : !depositPolicy.entitled
-                                ? 'Deposits are not enabled for your salon yet.'
+                                ? 'Deposits are not part of your plan yet, so nothing here charges a client.'
                                 : depositPolicy.active
                                   ? 'Deposits are being collected on new bookings.'
                                   : (depositPolicy.reason
                                     && DEPOSIT_REASON_COPY[depositPolicy.reason])
                                     || 'Deposits are not being collected yet.'}
                       </p>
+
+                      {/*
+                        AG-more-settings-02: the card used to describe the
+                        prerequisite only as "switched on for your salon", and
+                        the API's reason was never surfaced. Name both gates,
+                        say who acts on each, and say plainly that a saved
+                        choice is not a collected deposit.
+                      */}
+                      {depositPolicy !== null && !depositPolicy.active && (
+                        <div
+                          data-testid="deposits-prerequisites"
+                          className="space-y-2 rounded-[10px] border border-[var(--owner-line,#dfd1d4)] bg-[var(--owner-blush,#f6e7ec)] p-3 text-sm leading-6 text-[var(--owner-ink,#30262a)]"
+                        >
+                          <p className="font-semibold">
+                            Two things have to be in place first
+                          </p>
+                          <ol className="list-decimal space-y-1 pl-5">
+                            <li>
+                              Deposits have to be enabled for your salon. Only
+                              Luster can do that &mdash; ask support to turn
+                              deposits on for your salon.
+                            </li>
+                            <li>
+                              Your own payment account has to be connected, so
+                              the deposit can be charged and paid out to you.
+                              When deposits are enabled, that appears as
+                              &ldquo;Payments&rdquo; in the Integrations app.
+                            </li>
+                          </ol>
+                          <p>
+                            Until both are done, what you set here is stored
+                            and waits. No client is asked for a deposit and no
+                            card is charged.
+                          </p>
+                        </div>
+                      )}
 
                       {depositPolicy?.readinessStale && (
                         <p
@@ -5078,8 +5149,9 @@ export function SettingsModal({
                             Require a deposit
                           </span>
                           <p className="text-sm text-gray-700">
-                            Saved. Deposits will be collected once deposit payments are
-                            switched on for your salon.
+                            {depositPolicy?.active
+                              ? 'Clients are asked for this deposit as they book.'
+                              : 'Records that you want a deposit. Clients are only asked for one once the steps above are done.'}
                           </p>
                         </div>
                         <input
@@ -5225,7 +5297,12 @@ export function SettingsModal({
                   <span className="text-[15px] text-black">
                     Text messages to clients
                     {!bookingNotificationCapabilities.smsChannelAvailable && (
-                      <span className="ml-1 text-[13px] text-[#8E8E93]">(Unavailable)</span>
+                      <>
+                        {' '}
+                        <span className="text-[13px] text-[var(--owner-muted,#706267)]">
+                          (Unavailable)
+                        </span>
+                      </>
                     )}
                   </span>
                   <input
@@ -5239,7 +5316,7 @@ export function SettingsModal({
                     }}
                   />
                 </label>
-                <p className="text-[13px] leading-snug text-[#8E8E93]">
+                <p className="text-[13px] leading-snug text-[var(--owner-muted,#706267)]">
                   Email confirmations and reminders are included with every plan.
                   Text messages use your SMS credits once texting is available for
                   your salon.
@@ -5251,7 +5328,7 @@ export function SettingsModal({
             <Section title="Appointment reminders">
               <div className="space-y-3 p-4">
                 {communicationsForm.rules.length === 0 && (
-                  <p className="text-[14px] text-[#8E8E93]">
+                  <p className="text-[14px] text-[var(--owner-muted,#706267)]">
                     No reminders configured. Clients only receive their booking
                     confirmation.
                   </p>
@@ -5412,7 +5489,7 @@ export function SettingsModal({
                     </label>
                   </div>
                 )}
-                <p className="text-[13px] leading-snug text-[#8E8E93]">
+                <p className="text-[13px] leading-snug text-[var(--owner-muted,#706267)]">
                   Scheduled reminders wait until quiet hours end. Booking
                   confirmations still send right away.
                 </p>
@@ -5429,7 +5506,7 @@ export function SettingsModal({
               >
                 {communicationsSaving ? 'Saving…' : 'Save communication settings'}
               </button>
-              <span role="status" aria-live="polite" className="text-[13px] text-[#8E8E93]">
+              <span role="status" aria-live="polite" className="text-[13px] text-[var(--owner-muted,#706267)]">
                 {communicationsSaved ? 'Saved' : ''}
                 {communicationsError ?? ''}
               </span>
@@ -5479,7 +5556,7 @@ export function SettingsModal({
                           className="space-y-3 rounded-[14px] border border-gray-200 bg-gray-50/70 p-3"
                         >
                           <div className="space-y-1 px-1">
-                            <div className="text-sm font-semibold text-[#1C1C1E]">
+                            <div className="text-sm font-semibold text-[var(--owner-ink,#30262a)]">
                               {notificationEvent.title}
                             </div>
                             <p className="text-xs text-gray-500">
@@ -5492,7 +5569,7 @@ export function SettingsModal({
                               <div className="space-y-1">
                                 <div className="flex items-center gap-2">
                                   <Bell className="size-4 text-[#FF3B30]" />
-                                  <span className="text-sm font-semibold text-[#1C1C1E]">
+                                  <span className="text-sm font-semibold text-[var(--owner-ink,#30262a)]">
                                     Notify assigned technician
                                   </span>
                                 </div>
@@ -5530,7 +5607,7 @@ export function SettingsModal({
                                     },
                                   )}
                                 disabled={!eventForm.technicianEnabled}
-                                className="h-11 rounded-[10px] border border-gray-200 px-3 text-[15px] text-black outline-none transition-colors focus:border-[#007AFF] disabled:cursor-not-allowed disabled:bg-gray-50 disabled:text-gray-400"
+                                className="h-11 rounded-[10px] border border-gray-200 px-3 text-[15px] text-black outline-none transition-colors focus:border-[var(--owner-focus,#b85075)] disabled:cursor-not-allowed disabled:bg-gray-50 disabled:text-gray-400"
                                 aria-label={`Technician notification channel for ${notificationEvent.title.toLowerCase()}`}
                               >
                                 {BOOKING_NOTIFICATION_CHANNEL_OPTIONS.map(
@@ -5574,7 +5651,7 @@ export function SettingsModal({
                               <div className="space-y-1">
                                 <div className="flex items-center gap-2">
                                   <User className="size-4 text-rose-800" />
-                                  <span className="text-sm font-semibold text-[#1C1C1E]">
+                                  <span className="text-sm font-semibold text-[var(--owner-ink,#30262a)]">
                                     Notify salon owner
                                   </span>
                                 </div>
@@ -5612,7 +5689,7 @@ export function SettingsModal({
                                     },
                                   )}
                                 disabled={!eventForm.ownerEnabled}
-                                className="h-11 rounded-[10px] border border-gray-200 px-3 text-[15px] text-black outline-none transition-colors focus:border-[#007AFF] disabled:cursor-not-allowed disabled:bg-gray-50 disabled:text-gray-400"
+                                className="h-11 rounded-[10px] border border-gray-200 px-3 text-[15px] text-black outline-none transition-colors focus:border-[var(--owner-focus,#b85075)] disabled:cursor-not-allowed disabled:bg-gray-50 disabled:text-gray-400"
                                 aria-label={`Owner notification channel for ${notificationEvent.title.toLowerCase()}`}
                               >
                                 {OWNER_NOTIFICATION_CHANNEL_OPTIONS.map((option) => {
@@ -5690,7 +5767,7 @@ export function SettingsModal({
 
                     <div className="space-y-3 rounded-[14px] border border-gray-200 bg-gray-50/70 p-3">
                       <div className="space-y-1 px-1">
-                        <div className="text-sm font-semibold text-[#1C1C1E]">
+                        <div className="text-sm font-semibold text-[var(--owner-ink,#30262a)]">
                           Appointment notifications
                         </div>
                         <p className="text-xs text-gray-500">
@@ -5707,7 +5784,7 @@ export function SettingsModal({
                             className="flex items-start justify-between gap-3"
                           >
                             <div className="space-y-0.5">
-                              <span className="text-sm font-semibold text-[#1C1C1E]">
+                              <span className="text-sm font-semibold text-[var(--owner-ink,#30262a)]">
                                 {option.label}
                               </span>
                               <p className="text-sm text-gray-600">
@@ -5741,7 +5818,7 @@ export function SettingsModal({
                               updateSalonEmailNotifications({
                                 recipientEmail: event.target.value,
                               })}
-                            className="h-11 rounded-[10px] border border-gray-200 px-3 text-[15px] text-black outline-none transition-colors focus:border-[#007AFF]"
+                            className="h-11 rounded-[10px] border border-gray-200 px-3 text-[15px] text-black outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
                             aria-label="Salon notification email address"
                           />
                         </label>
@@ -6069,7 +6146,7 @@ export function SettingsModal({
                       setProfileDirty(true);
                       setProfileSaved(false);
                     }}
-                    className="h-11 rounded-[10px] border border-gray-200 px-3 text-[15px] text-black outline-none transition-colors focus:border-[#007AFF]"
+                    className="h-11 rounded-[10px] border border-gray-200 px-3 text-[15px] text-black outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
                   />
                 </label>
                 <label className="flex flex-col gap-1">
@@ -6090,7 +6167,7 @@ export function SettingsModal({
                       setProfileDirty(true);
                       setProfileSaved(false);
                     }}
-                    className={`h-11 rounded-[10px] border border-gray-200 px-3 text-[15px] outline-none transition-colors focus:border-[#007AFF] ${
+                    className={`h-11 rounded-[10px] border border-gray-200 px-3 text-[15px] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)] ${
                       profileEmailLocked
                         ? 'bg-gray-50 text-gray-600'
                         : 'text-black'

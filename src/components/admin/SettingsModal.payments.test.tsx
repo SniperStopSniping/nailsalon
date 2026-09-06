@@ -384,7 +384,7 @@ describe('SettingsModal Deposits card', () => {
     await openDeposits();
 
     expect(screen.getByTestId('deposits-status'))
-      .toHaveTextContent('Deposit payments are not switched on yet.');
+      .toHaveTextContent('Deposits are not collected on Luster yet. Nothing here charges a client.');
   });
 
   it('renders the entitlement gate once collection is live', async () => {
@@ -400,7 +400,7 @@ describe('SettingsModal Deposits card', () => {
     });
 
     expect(screen.getByTestId('deposits-status'))
-      .toHaveTextContent('Deposits are not enabled for your salon yet.');
+      .toHaveTextContent('Deposits are not part of your plan yet, so nothing here charges a client.');
   });
 
   it('renders the DIAGNOSTIC reason in plain language when both gates are open', async () => {
@@ -490,5 +490,69 @@ describe('SettingsModal Deposits card', () => {
 
     expect(await screen.findByTestId('deposits-error'))
       .toHaveTextContent('The payment account cannot accept charges yet.');
+  });
+
+  /*
+    AG-more-settings-02. The card opened with the word "Saved." under REQUIRE A
+    DEPOSIT — a save confirmation for a save that had not happened — and told
+    the owner only that deposits get "switched on for your salon", never by
+    whom or what was needed.
+  */
+  describe('deposits: prerequisites, not a save that never happened', () => {
+    it('shows no save confirmation at rest, and only after a real save', async () => {
+      await openDeposits({ payments: { deposit: { enabled: false, amountCents: 2500 } } });
+
+      expect(screen.queryByText(/^Saved\./)).not.toBeInTheDocument();
+      expect(screen.queryByText('Deposits saved.')).not.toBeInTheDocument();
+      expect(screen.getByTestId('deposits-prerequisites'))
+        .not.toHaveTextContent(/saved/i);
+
+      fireEvent.click(screen.getByTestId('deposits-enabled'));
+
+      // Still nothing claimed while the owner has only touched the control.
+      expect(screen.queryByText('Deposits saved.')).not.toBeInTheDocument();
+
+      fireEvent.click(screen.getByTestId('deposits-save'));
+
+      expect(await screen.findByText('Deposits saved.')).toBeInTheDocument();
+    });
+
+    it('names both prerequisites, who acts on each, and that nothing is charged meanwhile', async () => {
+      await openDeposits({
+        depositPolicy: {
+          collectionLive: true,
+          entitled: false,
+          active: false,
+          reason: 'not_configured',
+          readinessStale: false,
+          readinessAgeMs: null,
+        },
+      });
+
+      const prerequisites = screen.getByTestId('deposits-prerequisites');
+
+      expect(prerequisites).toHaveTextContent(/Deposits have to be enabled for your salon/i);
+      expect(prerequisites).toHaveTextContent(/Only\s+Luster can do that/i);
+      expect(prerequisites).toHaveTextContent(/payment account has to be connected/i);
+      expect(prerequisites).toHaveTextContent(/Integrations/i);
+      expect(prerequisites).toHaveTextContent(/no card is charged/i);
+    });
+
+    it('drops the prerequisites once deposits are actually being collected', async () => {
+      await openDeposits({
+        depositPolicy: {
+          collectionLive: true,
+          entitled: true,
+          active: true,
+          reason: null,
+          readinessStale: false,
+          readinessAgeMs: null,
+        },
+      });
+
+      expect(screen.queryByTestId('deposits-prerequisites')).not.toBeInTheDocument();
+      expect(screen.getByTestId('deposits-status'))
+        .toHaveTextContent('Deposits are being collected on new bookings.');
+    });
   });
 });

@@ -18,13 +18,14 @@ import {
   Check,
   ChevronRight,
   Clock,
-  ExternalLink,
   Search,
   X,
 } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { DialogShell } from '@/components/ui/dialog-shell';
+import { InlineFeedback } from '@/components/ui/inline-feedback';
 
 // =============================================================================
 // TYPES
@@ -193,13 +194,14 @@ function RequestRow({
   const badge = getStatusBadge(request.status);
 
   return (
-    <motion.div
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="time-off-request-details-title"
+    // A row is a control that opens the request, not a dialog: it used to
+    // carry role="dialog" aria-modal, so every row in the list announced
+    // itself as a modal named "Request Details".
+    <motion.button
+      type="button"
       initial={{ opacity: 0, x: -10 }}
       animate={{ opacity: 1, x: 0 }}
-      className="flex min-h-[72px] cursor-pointer items-center pl-4 transition-colors active:bg-gray-50"
+      className="flex min-h-[72px] w-full items-center pl-4 text-left transition-colors active:bg-gray-50"
       onClick={onClick}
     >
       {/* Avatar */}
@@ -232,7 +234,7 @@ function RequestRow({
           <ChevronRight className="size-4 text-[#C7C7CC]" />
         </div>
       </div>
-    </motion.div>
+    </motion.button>
   );
 }
 
@@ -271,6 +273,14 @@ function EmptyState({
         {searchQuery ? 'No Results' : 'All Clear'}
       </h3>
       <p className="text-center text-[15px] text-[#8E8E93]">{getMessage()}</p>
+      {!searchQuery && (
+        // An empty inbox should still say where requests come from and what the
+        // owner can do instead of waiting for one.
+        <p className="mt-2 max-w-xs text-center text-[13px] leading-5 text-[#8E8E93]">
+          Requests land here when a technician asks for time off. To block days
+          yourself, open Staff, choose the technician and use their Schedule tab.
+        </p>
+      )}
     </div>
   );
 }
@@ -283,11 +293,15 @@ function RequestDetailPanel({
   onClose,
   onDecision,
   isSubmitting,
+  decisionError,
+  onDismissDecisionError,
 }: {
   request: RequestDetail;
   onClose: () => void;
   onDecision: (status: 'APPROVED' | 'DENIED') => void;
   isSubmitting: boolean;
+  decisionError: string | null;
+  onDismissDecisionError: () => void;
 }) {
   const name = request.technicianName || 'Unknown';
   const badge = getStatusBadge(request.status);
@@ -373,19 +387,10 @@ function RequestDetailPanel({
                   affected
                 </div>
                 <div className="mt-0.5 text-[13px] text-amber-700">
-                  There are appointments scheduled during this time-off period.
+                  These bookings stay in the calendar if you approve — approving
+                  blocks new bookings for those days but never cancels the ones
+                  already made. Reschedule them from Calendar.
                 </div>
-                <button
-                  type="button"
-                  className="mt-2 flex items-center gap-1 text-[14px] font-medium text-[#007AFF]"
-                  onClick={() => {
-                    // Navigate to bookings - for MVP, just close and let admin use main nav
-                    onClose();
-                  }}
-                >
-                  View schedule
-                  <ExternalLink className="size-3.5" />
-                </button>
               </div>
             </div>
           </div>
@@ -429,25 +434,38 @@ function RequestDetailPanel({
 
       {/* Action Buttons (only for PENDING) */}
       {request.status === 'PENDING' && (
-        <div className="flex gap-3 border-t border-gray-100 bg-[#F2F2F7] p-4">
-          <button
-            type="button"
-            disabled={isSubmitting}
-            onClick={() => onDecision('DENIED')}
-            className="flex h-[50px] flex-1 items-center justify-center gap-2 rounded-xl border border-gray-200 bg-white text-[17px] font-semibold text-[#FF3B30] transition-colors active:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            <X className="size-5" />
-            Deny
-          </button>
-          <button
-            type="button"
-            disabled={isSubmitting}
-            onClick={() => onDecision('APPROVED')}
-            className="flex h-[50px] flex-1 items-center justify-center gap-2 rounded-xl bg-[#34C759] text-[17px] font-semibold text-white transition-colors active:bg-green-600 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            <Check className="size-5" />
-            Approve
-          </button>
+        <div className="flex flex-col gap-3 border-t border-gray-100 bg-[#F2F2F7] p-4">
+          {/* A refused decision reports itself beside the buttons that were
+              pressed, and stays until it is dismissed (it used to be an
+              alert() the owner could not re-read). */}
+          {decisionError && (
+            <InlineFeedback
+              tone="error"
+              message={decisionError}
+              data-testid="time-off-decision-error"
+              onDismiss={onDismissDecisionError}
+            />
+          )}
+          <div className="flex gap-3">
+            <button
+              type="button"
+              disabled={isSubmitting}
+              onClick={() => onDecision('DENIED')}
+              className="flex h-[50px] flex-1 items-center justify-center gap-2 rounded-xl border border-gray-200 bg-white text-[17px] font-semibold text-[#FF3B30] transition-colors active:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <X className="size-5" />
+              Deny
+            </button>
+            <button
+              type="button"
+              disabled={isSubmitting}
+              onClick={() => onDecision('APPROVED')}
+              className="flex h-[50px] flex-1 items-center justify-center gap-2 rounded-xl bg-[#34C759] text-[17px] font-semibold text-white transition-colors active:bg-green-600 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <Check className="size-5" />
+              Approve
+            </button>
+          </div>
         </div>
       )}
     </motion.div>
@@ -473,6 +491,16 @@ export function TimeOffRequestsInbox({ salonSlug = null }: { salonSlug?: string 
     null,
   );
   const [isSubmitting, setIsSubmitting] = useState(false);
+  // The decision the owner has asked for but not yet confirmed.
+  const [pendingDecision, setPendingDecision] = useState<
+    'APPROVED' | 'DENIED' | null
+  >(null);
+  const [decisionError, setDecisionError] = useState<string | null>(null);
+  // What the last action actually did, said in calendar terms (or why it did
+  // not happen). Rendered above the list, where the owner ends up.
+  const [notice, setNotice] = useState<
+    { tone: 'success' | 'error'; message: string } | null
+  >(null);
 
   // Fetch requests
   const fetchRequests = useCallback(async () => {
@@ -492,7 +520,9 @@ export function TimeOffRequestsInbox({ salonSlug = null }: { salonSlug?: string 
       setRequests(data.data?.requests ?? []);
     } catch (err) {
       console.error('Error fetching time-off requests:', err);
-      setError('Failed to load requests. Please try again.');
+      setError(
+        'We couldn’t load your team’s time-off requests. Nothing has changed — try again.',
+      );
     } finally {
       setLoading(false);
     }
@@ -510,16 +540,22 @@ export function TimeOffRequestsInbox({ salonSlug = null }: { salonSlug?: string 
         throw new Error('Failed to fetch request details');
       }
       const data = await response.json();
+      setDecisionError(null);
       setSelectedRequest({
         ...data.data.request,
         conflicts: data.data.conflicts,
       });
     } catch (err) {
       console.error('Error fetching request detail:', err);
+      // Opening a request is an action too: never leave the tap looking ignored.
+      setNotice({
+        tone: 'error',
+        message: 'We couldn’t open that request. Nothing has changed — try again.',
+      });
     }
   }, [salonQuery]);
 
-  // Handle decision
+  // Handle decision — only ever called from the confirmation dialog.
   const handleDecision = useCallback(
     async (status: 'APPROVED' | 'DENIED') => {
       if (!selectedRequest) {
@@ -527,6 +563,7 @@ export function TimeOffRequestsInbox({ salonSlug = null }: { salonSlug?: string 
       }
 
       setIsSubmitting(true);
+      setDecisionError(null);
       try {
         const response = await fetch(
           `/api/admin/time-off-requests/${selectedRequest.id}${salonQuery ? `?${salonQuery}` : ''}`,
@@ -542,13 +579,29 @@ export function TimeOffRequestsInbox({ salonSlug = null }: { salonSlug?: string 
           throw new Error(errData.error?.message || 'Failed to update request');
         }
 
-        // Refresh list and close panel
+        // Only after the server has agreed: say what changed on the calendar,
+        // refresh the list and close the panel.
+        const name = selectedRequest.technicianName || 'This technician';
+        const range = formatDateRange(
+          selectedRequest.startDate,
+          selectedRequest.endDate,
+        );
+        setNotice({
+          tone: 'success',
+          message: status === 'APPROVED'
+            ? `Approved. ${range} is now blocked on ${name}’s calendar, so those days can’t be booked. Appointments already booked stay put.`
+            : `Denied. ${name} has been notified. Nothing changed on the calendar.`,
+        });
+        setPendingDecision(null);
         await fetchRequests();
         setSelectedRequest(null);
       } catch (err) {
         console.error('Error updating request:', err);
-        alert(
-          err instanceof Error ? err.message : 'Failed to update request',
+        setPendingDecision(null);
+        setDecisionError(
+          err instanceof Error && err.message
+            ? err.message
+            : 'We couldn’t record that decision. The request is unchanged — try again.',
         );
       } finally {
         setIsSubmitting(false);
@@ -621,6 +674,15 @@ export function TimeOffRequestsInbox({ salonSlug = null }: { salonSlug?: string 
 
       {/* List */}
       <div className="flex-1 overflow-y-auto">
+        {notice && (
+          <InlineFeedback
+            tone={notice.tone}
+            message={notice.message}
+            className="mx-4 mt-4"
+            data-testid="time-off-notice"
+            onDismiss={() => setNotice(null)}
+          />
+        )}
         {filteredRequests.length === 0
           ? (
               <EmptyState filter={statusFilter} searchQuery={searchQuery} />
@@ -653,11 +715,62 @@ export function TimeOffRequestsInbox({ salonSlug = null }: { salonSlug?: string 
           <RequestDetailPanel
             request={selectedRequest}
             onClose={() => setSelectedRequest(null)}
-            onDecision={handleDecision}
+            onDecision={setPendingDecision}
             isSubmitting={isSubmitting}
+            decisionError={decisionError}
+            onDismissDecisionError={() => setDecisionError(null)}
           />
         )}
       </DialogShell>
+
+      {/*
+        Approving writes a real block on a technician's calendar and denying
+        sends them a notification: both are confirmed first, in the owner's
+        words, with the calendar consequence spelled out.
+      */}
+      <ConfirmDialog
+        isOpen={pendingDecision !== null && selectedRequest !== null}
+        title={pendingDecision === 'DENIED'
+          ? 'Deny this time-off request?'
+          : 'Approve this time off?'}
+        description={selectedRequest
+          ? (
+              <div className="space-y-2">
+                <p>
+                  {selectedRequest.technicianName || 'This technician'}
+                  {' · '}
+                  {formatDateRange(selectedRequest.startDate, selectedRequest.endDate)}
+                </p>
+                <p>
+                  {pendingDecision === 'DENIED'
+                    ? 'They are notified that the request was denied. Their calendar is unchanged and those days stay bookable.'
+                    : 'Those days are blocked on their calendar, so new bookings can’t be made for them. They are notified of your decision.'}
+                </p>
+                {pendingDecision === 'APPROVED'
+                && selectedRequest.conflicts.appointmentCount > 0 && (
+                  <p>
+                    {selectedRequest.conflicts.appointmentCount}
+                    {selectedRequest.conflicts.appointmentCount === 1
+                      ? ' appointment is'
+                      : ' appointments are'}
+                    {' '}
+                    already booked in that range. Approving does not cancel
+                    them — reschedule them from Calendar.
+                  </p>
+                )}
+              </div>
+            )
+          : undefined}
+        confirmLabel={pendingDecision === 'DENIED' ? 'Deny request' : 'Approve time off'}
+        tone={pendingDecision === 'DENIED' ? 'danger' : 'default'}
+        busy={isSubmitting}
+        onConfirm={() => {
+          if (pendingDecision) {
+            void handleDecision(pendingDecision);
+          }
+        }}
+        onClose={() => setPendingDecision(null)}
+      />
     </div>
   );
 }

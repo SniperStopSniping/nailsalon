@@ -32,6 +32,7 @@ import {
 } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { isNativeSmsCapableDevice, resolveAutomaticTextStatus } from '@/libs/textingStatus';
 
 type GoogleReadiness
@@ -205,6 +206,12 @@ export function IntegrationsModal({
 
   const [smsCapableDevice, setSmsCapableDevice] = useState(true);
   const [paymentsBusy, setPaymentsBusy] = useState(false);
+  /**
+   * Buying a phone number puts a recurring charge on the owner's own Twilio
+   * account. It never happens on a single tap: the price is fetched first and
+   * then named again in a confirmation the owner has to accept.
+   */
+  const [confirmingTwilioPurchase, setConfirmingTwilioPurchase] = useState(false);
 
   useEffect(() => {
     setSmsCapableDevice(isNativeSmsCapableDevice(navigator.userAgent));
@@ -312,6 +319,7 @@ export function IntegrationsModal({
 
   async function provisionTwilio() {
     setWorking('twilio-provision');
+    setConfirmingTwilioPurchase(false);
     const response = await fetch('/api/integrations/twilio/provision', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -341,6 +349,13 @@ export function IntegrationsModal({
     : 'not_connected';
   const automaticText = resolveAutomaticTextStatus(health, smsModuleReason);
   const emailReady = health?.availability.email === true;
+  /**
+   * PROVIDER ABSENCE IS NOT A DISCONNECTION. When Luster has no Google
+   * credentials at all there is nothing for the owner to connect, so saying
+   * "Not connected" invites them to look for a Connect button that cannot
+   * exist. Report it as a prerequisite Luster owes them instead.
+   */
+  const googleUnavailable = health !== null && health.availability.google === false;
 
   const card = 'rounded-2xl border border-stone-200 bg-white p-4 shadow-sm';
 
@@ -390,9 +405,13 @@ export function IntegrationsModal({
       icon: CalendarDays,
       iconClass: 'bg-rose-100 text-rose-800',
       name: 'Google Calendar',
-      status: health ? GOOGLE_READINESS_LABELS[googleReadiness] : 'Loading…',
-      tone: health ? googleStatusTone(googleReadiness) : 'muted',
-      explanation: 'Appointments sync both ways and busy events block bookings.',
+      status: health
+        ? (googleUnavailable ? 'Not available yet' : GOOGLE_READINESS_LABELS[googleReadiness])
+        : 'Loading…',
+      tone: health ? (googleUnavailable ? 'muted' : googleStatusTone(googleReadiness)) : 'muted',
+      explanation: googleUnavailable
+        ? 'Calendar sync is not switched on for your Luster account yet.'
+        : 'Appointments sync both ways and busy events block bookings.',
     },
     {
       id: 'texting',
@@ -415,7 +434,9 @@ export function IntegrationsModal({
       name: 'Email',
       status: health ? (emailReady ? 'Ready' : 'Not available yet') : 'Loading…',
       tone: health ? (emailReady ? 'good' : 'muted') : 'muted',
-      explanation: 'Booking confirmations, reminders, and owner alerts.',
+      explanation: health && !emailReady
+        ? 'No confirmation or reminder emails are being sent.'
+        : 'Booking confirmations, reminders, and owner alerts.',
     },
   ];
 
@@ -627,16 +648,36 @@ export function IntegrationsModal({
                   moved, resized, or deleted.
                 </p>
                 <StatusPill
-                  label={health ? GOOGLE_READINESS_LABELS[googleReadiness] : 'Loading…'}
-                  tone={health ? googleStatusTone(googleReadiness) : 'muted'}
+                  label={health
+                    ? (googleUnavailable ? 'Not available yet' : GOOGLE_READINESS_LABELS[googleReadiness])
+                    : 'Loading…'}
+                  tone={health ? (googleUnavailable ? 'muted' : googleStatusTone(googleReadiness)) : 'muted'}
                 />
               </div>
 
-              {health?.availability.google === false
+              {googleUnavailable
                 ? (
-                    <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
-                      Google Calendar is temporarily unavailable. Your Luster booking page and email confirmations
-                      still work normally.
+                    <div
+                      data-testid="google-unavailable"
+                      className="mt-4 space-y-2 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-900"
+                    >
+                      <p className="font-semibold">
+                        Calendar sync is not switched on for your Luster account yet
+                      </p>
+                      <p>
+                        Connecting a Google account needs Luster&rsquo;s calendar
+                        integration enabled first, so there is nothing here for
+                        you to connect or fix. Ask Luster support to turn on
+                        Google Calendar for your salon and this page will show a
+                        Connect button.
+                      </p>
+                      <p>
+                        Nothing is broken in the meantime: your booking page,
+                        confirmations and every appointment keep working. Only
+                        two-way syncing with Google is missing, so Luster cannot
+                        see events you create in Google Calendar &mdash; keep
+                        blocking that time in your Luster calendar.
+                      </p>
                     </div>
                   )
                 : health?.google.status === 'active'
@@ -845,14 +886,18 @@ export function IntegrationsModal({
                         </label>
                         <button
                           type="button"
+                          data-testid="twilio-preview"
                           onClick={previewTwilio}
                           disabled={working !== '' || areaCode.length !== 3}
-                          className="rounded-full border border-stone-300 px-5 py-2.5 text-sm font-semibold outline-none focus-visible:ring-2 focus-visible:ring-rose-400 disabled:opacity-50"
+                          className="min-h-11 rounded-full border border-stone-300 px-5 py-2.5 text-sm font-semibold outline-none focus-visible:ring-2 focus-visible:ring-rose-400 disabled:opacity-50"
                         >
-                          Check number and charge
+                          Find a number and its price
                         </button>
                         {twilioPreview && (
-                          <div className="rounded-2xl bg-amber-50 p-4 text-sm">
+                          <div
+                            className="rounded-2xl bg-amber-50 p-4 text-sm"
+                            data-testid="twilio-preview-panel"
+                          >
                             <p>
                               Available:
                               {' '}
@@ -868,13 +913,19 @@ export function IntegrationsModal({
                               </strong>
                               , plus message usage.
                             </p>
+                            <p className="mt-1 text-[13px] leading-6 text-stone-600">
+                              Twilio bills this to your own Twilio account, not
+                              to Luster. Keeping the number keeps the monthly
+                              charge; releasing it in Twilio stops it.
+                            </p>
                             <button
                               type="button"
-                              onClick={provisionTwilio}
+                              data-testid="twilio-provision"
+                              onClick={() => setConfirmingTwilioPurchase(true)}
                               disabled={working !== ''}
-                              className="mt-3 rounded-full bg-red-600 px-5 py-2.5 font-semibold text-white outline-none focus-visible:ring-2 focus-visible:ring-red-400 disabled:opacity-50"
+                              className="mt-3 min-h-11 rounded-full bg-red-600 px-5 py-2.5 font-semibold text-white outline-none focus-visible:ring-2 focus-visible:ring-red-400 disabled:opacity-50"
                             >
-                              Confirm and provision
+                              Buy this number
                             </button>
                           </div>
                         )}
@@ -923,9 +974,22 @@ export function IntegrationsModal({
                 />
               </div>
               <p className="mt-1 text-sm text-stone-600">
-                Luster automatically emails booking confirmations and appointment reminders to clients who share an
-                email address. No setup needed.
+                Luster emails booking confirmations and appointment reminders to clients who share an email address.
+                There is nothing for you to set up or connect.
               </p>
+              {health && !emailReady && (
+                <p
+                  data-testid="email-unavailable"
+                  className="mt-3 rounded-xl bg-amber-50 p-3 text-[13px] leading-6 text-amber-900"
+                >
+                  Right now no confirmation or reminder emails are going out:
+                  Luster&rsquo;s email sending is not switched on for this
+                  account yet. That is ours to enable, not yours to configure
+                  &mdash; ask support to turn it on. Until then, confirm
+                  bookings with a text from Clients or Marketing so nobody is
+                  left without a confirmation.
+                </p>
+              )}
             </div>
 
             <div className={card}>
@@ -939,6 +1003,14 @@ export function IntegrationsModal({
               <p className="mt-1 text-sm text-stone-600">
                 New-booking and cancellation alerts for you and your technicians, by text or email.
               </p>
+              {health && !emailReady && (
+                <p className="mt-3 text-[13px] leading-6 text-stone-500">
+                  Email alerts stay off until Luster&rsquo;s email sending is
+                  enabled; text alerts need automatic texting, which is set up
+                  under Text messaging. Your choice of channels is saved either
+                  way and starts working the moment one of them is available.
+                </p>
+              )}
               {onOpenSettings && (
                 <button
                   type="button"
@@ -963,12 +1035,70 @@ export function IntegrationsModal({
           </div>
         )}
         {health && view === 'home' && (
-          <div className="mt-4 flex items-center gap-1.5 px-1 text-[12px] text-stone-400">
-            <CheckCircle2 size={13} />
-            Status updates automatically when you connect or disconnect an integration.
+          <div className="mt-4 space-y-2 px-1">
+            <div className="flex items-center gap-1.5 text-[12px] text-stone-400">
+              <CheckCircle2 size={13} />
+              Status updates automatically when you connect or disconnect an integration.
+            </div>
+            {/*
+              CONNECTION HEALTH vs PREFERENCES. This app answers "is the
+              channel working"; Settings answers "when does it send". Saying so
+              here stops an owner hunting for reminder timing among connection
+              cards, and vice versa.
+            */}
+            <p className="text-[12px] leading-5 text-stone-500" data-testid="integrations-scope-note">
+              This app shows whether each channel is connected and working.
+              What gets sent and when — reminders, confirmations, alert
+              channels — is set in Settings.
+            </p>
+            {onOpenSettings && (
+              <button
+                type="button"
+                data-testid="integrations-open-settings"
+                onClick={onOpenSettings}
+                className="min-h-11 text-[13px] font-semibold text-rose-800 underline-offset-2 outline-none hover:underline focus-visible:ring-2 focus-visible:ring-rose-400"
+              >
+                Open reminder and alert settings
+              </button>
+            )}
           </div>
         )}
       </div>
+
+      {/*
+        A phone number is a purchase on the owner's own Twilio account, so it
+        gets an explicit confirmation that names the recurring charge. Nothing
+        is bought on a single tap.
+      */}
+      <ConfirmDialog
+        isOpen={confirmingTwilioPurchase}
+        title="Buy this phone number?"
+        tone="danger"
+        confirmLabel="Buy the number"
+        cancelLabel="Not now"
+        busy={working === 'twilio-provision'}
+        onClose={() => setConfirmingTwilioPurchase(false)}
+        onConfirm={() => void provisionTwilio()}
+        description={(
+          <div className="space-y-2">
+            <p>
+              {twilioPreview
+                ? `Twilio will reserve ${twilioPreview.number.phone_number} for this salon.`
+                : 'Twilio will reserve a number for this salon.'}
+            </p>
+            <p>
+              {twilioPreview?.monthlyPrice
+                ? `That starts a recurring charge of ${twilioPreview.monthlyPrice} ${twilioPreview.currency} per month, plus per-message usage.`
+                : 'That starts a recurring monthly charge, plus per-message usage, at the price shown in your Twilio account.'}
+            </p>
+            <p>
+              It is billed by Twilio to your own Twilio account — Luster does
+              not charge you for it and cannot cancel it for you. To stop the
+              charge later, release the number in Twilio.
+            </p>
+          </div>
+        )}
+      />
     </div>
   );
 }

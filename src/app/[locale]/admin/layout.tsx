@@ -1,6 +1,7 @@
 import { Inter, Newsreader } from 'next/font/google';
 
 import { isOnboardingV1IntegrationEnabled } from '@/features/onboarding-v1-integration/config.server';
+import { isSectionLibraryV1Enabled } from '@/features/section-library-v1/config.server';
 
 import { OwnerAdminClientBoundary } from './OwnerAdminClientBoundary';
 
@@ -45,6 +46,7 @@ export default async function OwnerAdminLayout(
         <OwnerAdminClientBoundary
           locale={(await props.params).locale}
           onboardingV1IntegrationEnabled={isOnboardingV1IntegrationEnabled()}
+          sectionLibraryV1Enabled={isSectionLibraryV1Enabled()}
         >
           {props.children}
         </OwnerAdminClientBoundary>

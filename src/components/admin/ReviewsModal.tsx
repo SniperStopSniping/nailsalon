@@ -1,7 +1,8 @@
 'use client';
 
 import { motion } from 'framer-motion';
-import { ExternalLink, RefreshCw, Star } from 'lucide-react';
+import { ChevronRight, ExternalLink, RefreshCw, Star } from 'lucide-react';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { useSalon } from '@/providers/SalonProvider';
@@ -76,6 +77,9 @@ function StarRating({ rating }: { rating: number }) {
 
 export function ReviewsModal({ onClose }: ReviewsModalProps) {
   const { salonSlug } = useSalon();
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const [reviews, setReviews] = useState<ReviewRowData[]>([]);
   const [averageRating, setAverageRating] = useState(0);
   const [totalReviews, setTotalReviews] = useState(0);
@@ -120,6 +124,20 @@ export function ReviewsModal({ onClose }: ReviewsModalProps) {
     void fetchReviews();
   }, [fetchReviews]);
 
+  // AG-w2-more-tools-05: this app is the rewards half of Reviews; the Google
+  // review link it depends on lives in Marketing → Review settings, and there
+  // used to be no way across. One tap, salon preserved.
+  const openReviewSettings = useCallback(() => {
+    const params = new URLSearchParams();
+    const salonParam = searchParams?.get('salon') ?? null;
+    if (salonParam) {
+      params.set('salon', salonParam);
+    }
+    params.set('app', 'marketing');
+    params.set('view', 'reviews');
+    router.push(`${pathname ?? ''}?${params.toString()}`);
+  }, [router, pathname, searchParams]);
+
   const grantableCount = useMemo(
     () => reviews.filter(review => !review.googleReviewRewardGranted).length,
     [reviews],
@@ -160,8 +178,8 @@ export function ReviewsModal({ onClose }: ReviewsModalProps) {
     <div className="flex min-h-full w-full flex-col bg-[#F2F2F7] font-sans text-black">
       <div className="sticky top-0 z-20 bg-[#F2F2F7]/80 backdrop-blur-md">
         <ModalHeader
-          title="Reviews"
-          subtitle="Manual Google review rewards"
+          title="Review rewards"
+          subtitle="Thank clients who left a Google review"
           leftAction={<BackButton onClick={onClose} label="Back" />}
         />
       </div>
@@ -177,6 +195,7 @@ export function ReviewsModal({ onClose }: ReviewsModalProps) {
               <h2 className="text-[20px] font-semibold text-[#1C1C1E]">Review rewards</h2>
               <p className="mt-1 text-[14px] leading-relaxed text-[#8E8E93]">
                 After you verify a Google review manually, grant a one-time $10 reward to that client.
+                Your review link and request settings live in Review settings.
               </p>
             </div>
             <button
@@ -204,15 +223,26 @@ export function ReviewsModal({ onClose }: ReviewsModalProps) {
             </div>
           </div>
 
-          <a
-            href="https://business.google.com"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="mt-4 inline-flex items-center gap-2 text-[14px] font-medium text-[#007AFF]"
-          >
-            <span>Open Google Business</span>
-            <ExternalLink className="size-4" />
-          </a>
+          <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-3">
+            <a
+              href="https://business.google.com"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-2 text-[14px] font-medium text-[var(--owner-accent,#8b3151)]"
+            >
+              <span>Open Google Business</span>
+              <ExternalLink className="size-4" aria-hidden="true" />
+            </a>
+            <button
+              type="button"
+              onClick={openReviewSettings}
+              data-testid="reviews-open-review-settings"
+              className="inline-flex items-center gap-1 text-[14px] font-medium text-[var(--owner-accent,#8b3151)]"
+            >
+              <span>Review settings</span>
+              <ChevronRight className="size-4" aria-hidden="true" />
+            </button>
+          </div>
         </motion.div>
 
         {error && (
@@ -229,8 +259,26 @@ export function ReviewsModal({ onClose }: ReviewsModalProps) {
             )
           : reviews.length === 0
             ? (
-                <div className="mt-4 rounded-[22px] bg-white p-6 text-center text-[14px] text-[#8E8E93] shadow-[0_4px_20px_rgba(0,0,0,0.03)]">
-                  No reviews yet for this salon.
+                <div
+                  data-testid="reviews-empty"
+                  className="mt-4 rounded-[22px] bg-white p-6 text-center shadow-[0_4px_20px_rgba(0,0,0,0.03)]"
+                >
+                  <p className="text-[15px] font-medium text-[#1C1C1E]">
+                    No reviews yet for this salon.
+                  </p>
+                  <p className="mx-auto mt-1 max-w-xs text-[13px] leading-5 text-[#8E8E93]">
+                    Reviews clients leave in Luster show up here, and you grant the
+                    reward yourself. To ask for Google reviews, add your review link
+                    in Review settings first.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={openReviewSettings}
+                    className="mt-3 inline-flex min-h-11 items-center gap-1 rounded-full bg-[var(--owner-blush,#f9e9ed)] px-4 text-[14px] font-semibold text-[var(--owner-accent,#8b3151)]"
+                  >
+                    Open Review settings
+                    <ChevronRight className="size-4" aria-hidden="true" />
+                  </button>
                 </div>
               )
             : (

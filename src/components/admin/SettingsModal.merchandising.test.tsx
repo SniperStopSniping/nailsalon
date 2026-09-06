@@ -225,7 +225,7 @@ describe('SettingsModal merchandising toggles', () => {
 
     fireEvent.click(lusterToggle);
     fireEvent.click(serviceImagesToggle);
-    fireEvent.click(screen.getByRole('button', { name: /save booking config/i }));
+    fireEvent.click(screen.getByRole('button', { name: /save booking rules/i }));
 
     await waitFor(() => {
       const patchCall = fetchMock.mock.calls.find(([input, init]) =>
@@ -243,7 +243,7 @@ describe('SettingsModal merchandising toggles', () => {
       expect(body.bookingConfig).toBeTruthy();
     });
 
-    expect(await screen.findByText('Booking configuration saved.')).toBeInTheDocument();
+    expect(await screen.findByText('Booking rules saved.')).toBeInTheDocument();
     expect(screen.getByTestId('feature-luster-manicure-toggle')).not.toBeChecked();
     expect(screen.getByTestId('show-service-images-toggle')).not.toBeChecked();
   });

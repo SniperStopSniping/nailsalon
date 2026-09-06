@@ -5,7 +5,7 @@ vi.mock('server-only', () => ({}));
 
 const mocks = vi.hoisted(() => ({
   enabled: vi.fn(() => true),
-  getAdmin: vi.fn(),
+  requireSalon: vi.fn(),
   notFound: vi.fn(() => {
     throw new Error('NOT_FOUND');
   }),
@@ -22,7 +22,7 @@ vi.mock('@/features/section-library-v1/config.server', () => ({
   isSectionLibraryV1Enabled: mocks.enabled,
 }));
 vi.mock('@/libs/adminAuth', () => ({
-  getAdminSession: mocks.getAdmin,
+  requireAdminSalonForSlug: mocks.requireSalon,
 }));
 vi.mock('./SectionGalleryClient', () => ({
   SectionGalleryClient: () => null,
@@ -33,7 +33,10 @@ import SectionGalleryPage from './page';
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.enabled.mockReturnValue(true);
-  mocks.getAdmin.mockResolvedValue({ id: 'admin-1' });
+  mocks.requireSalon.mockResolvedValue({
+    salon: { id: 'salon_1', slug: 'salon-a', name: 'Salon A' },
+    error: null,
+  });
 });
 
 describe('SectionGalleryPage gating', () => {
@@ -44,18 +47,19 @@ describe('SectionGalleryPage gating', () => {
       .rejects.toThrow('NOT_FOUND');
 
     expect(mocks.notFound).toHaveBeenCalledTimes(1);
-    expect(mocks.getAdmin).not.toHaveBeenCalled();
+    expect(mocks.requireSalon).not.toHaveBeenCalled();
   });
 
   it('redirects anonymous visitors to owner sign-in with a safe locale', async () => {
-    mocks.getAdmin.mockResolvedValue(null);
+    mocks.requireSalon.mockResolvedValue({
+      salon: null,
+      error: { status: 401 },
+    });
 
     await expect(SectionGalleryPage({ params: Promise.resolve({ locale: 'fr' }) }))
       .rejects.toThrow('REDIRECT');
 
     expect(mocks.redirect).toHaveBeenCalledWith('/fr/owner-sign-in');
-
-    mocks.getAdmin.mockResolvedValue(null);
 
     await expect(SectionGalleryPage({ params: Promise.resolve({ locale: '../evil' }) }))
       .rejects.toThrow('REDIRECT');
@@ -63,7 +67,35 @@ describe('SectionGalleryPage gating', () => {
     expect(mocks.redirect).toHaveBeenLastCalledWith('/en/owner-sign-in');
   });
 
-  it('renders the gallery for an authenticated owner when enabled', async () => {
+  /*
+    AG-w2-settings-integrations-15: an authenticated admin session was the only
+    gate, so a signed-in admin who manages no salon — or who names a salon they
+    do not manage — still reached a salon-shaped preview surface.
+  */
+  it('is not found for an admin who does not manage the requested salon', async () => {
+    mocks.requireSalon.mockResolvedValue({
+      salon: null,
+      error: { status: 403 },
+    });
+
+    await expect(SectionGalleryPage({
+      params: Promise.resolve({ locale: 'en' }),
+      searchParams: Promise.resolve({ salon: 'someone-elses-salon' }),
+    })).rejects.toThrow('NOT_FOUND');
+
+    expect(mocks.requireSalon).toHaveBeenCalledWith('someone-elses-salon', {
+      persistActiveSalon: false,
+    });
+  });
+
+  it('is not found for an admin with no salon at all', async () => {
+    mocks.requireSalon.mockResolvedValue({ salon: null, error: null });
+
+    await expect(SectionGalleryPage({ params: Promise.resolve({ locale: 'en' }) }))
+      .rejects.toThrow('NOT_FOUND');
+  });
+
+  it('renders the gallery for an owner of a salon when enabled', async () => {
     const element = await SectionGalleryPage({ params: Promise.resolve({ locale: 'en' }) });
 
     expect(element).toBeTruthy();

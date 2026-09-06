@@ -4,6 +4,7 @@ import { motion } from 'framer-motion';
 import { Check } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 
+import { InlineFeedback } from '@/components/ui/inline-feedback';
 import { BOOKING_CATEGORY_META, resolveVisibleBookingCategory } from '@/libs/bookingCategory';
 import type { BookingCategory } from '@/models/Schema';
 
@@ -38,6 +39,11 @@ export function ServicesTab({ salonSlug, technicianId, onUpdate }: ServicesTabPr
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [hasChanges, setHasChanges] = useState(false);
+  // Saving eligibility decides who can be booked for what: a refusal has to be
+  // visible, and the success only after the server agreed.
+  const [feedback, setFeedback] = useState<
+    { tone: 'success' | 'error'; message: string } | null
+  >(null);
 
   // Fetch services
   const fetchServices = useCallback(async () => {
@@ -57,8 +63,13 @@ export function ServicesTab({ salonSlug, technicianId, onUpdate }: ServicesTabPr
 
       const result = await response.json();
       setServices(result.data?.services ?? []);
+      setFeedback(null);
     } catch (err) {
       console.error('Error fetching services:', err);
+      setFeedback({
+        tone: 'error',
+        message: 'We couldn’t load this technician’s services. Nothing has changed — try again.',
+      });
     } finally {
       setLoading(false);
     }
@@ -85,6 +96,7 @@ export function ServicesTab({ salonSlug, technicianId, onUpdate }: ServicesTabPr
     }
 
     setSaving(true);
+    setFeedback(null);
     try {
       const enabledServices = services
         .filter(s => s.enabled)
@@ -111,9 +123,17 @@ export function ServicesTab({ salonSlug, technicianId, onUpdate }: ServicesTabPr
       }
 
       setHasChanges(false);
+      setFeedback({
+        tone: 'success',
+        message: 'Service list saved. Booking now offers exactly these services for this technician.',
+      });
       onUpdate();
     } catch (err) {
       console.error('Error saving services:', err);
+      setFeedback({
+        tone: 'error',
+        message: 'We couldn’t save these services. Your changes are still here — try again.',
+      });
     } finally {
       setSaving(false);
     }
@@ -166,6 +186,30 @@ export function ServicesTab({ salonSlug, technicianId, onUpdate }: ServicesTabPr
       <p className="px-1 text-[13px] text-[#8E8E93]">
         Select the services this staff member can perform. They will only appear in booking for enabled services.
       </p>
+
+      {feedback && (
+        <InlineFeedback
+          tone={feedback.tone}
+          message={feedback.message}
+          data-testid="staff-services-feedback"
+          onDismiss={() => setFeedback(null)}
+        />
+      )}
+
+      {/* No services yet: say where services come from instead of an empty page. */}
+      {services.length === 0 && (
+        <div
+          data-testid="staff-services-empty"
+          className="rounded-[12px] bg-white p-5 text-center"
+        >
+          <p className="text-[15px] font-medium text-[#1C1C1E]">No services to assign yet</p>
+          <p className="mx-auto mt-1 max-w-xs text-[13px] leading-5 text-[#8E8E93]">
+            Your menu is empty, so there is nothing this technician can be booked
+            for. Add services in the Services tab of your workspace, then come
+            back and tick the ones they perform.
+          </p>
+        </div>
+      )}
 
       {Object.entries(groupedServices).map(([category, categoryServices]) => (
         <div key={category}>

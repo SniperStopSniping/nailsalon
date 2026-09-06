@@ -3,6 +3,8 @@
 import { ChevronRight, GripVertical, Star } from 'lucide-react';
 import { forwardRef } from 'react';
 
+import type { TechnicianReviewSummary } from './useTechnicianReviews';
+
 // =============================================================================
 // Types
 // =============================================================================
@@ -28,6 +30,14 @@ export type StaffCardData = {
 
 type StaffCardProps = {
   staff: StaffCardData;
+  /**
+   * Reviews this technician actually has, derived from the same rows the
+   * Reviews app counts. Undefined/null means there are none to show — the card
+   * then shows no rating at all rather than the hand-entered
+   * `technician.rating` the workspace used to contradict itself with
+   * (AG-w2-more-tools-04).
+   */
+  reviews?: TechnicianReviewSummary | null;
   isLast: boolean;
   onClick: () => void;
   isDraggable?: boolean;
@@ -108,7 +118,15 @@ function getSkillBadge(skillLevel: string | null): { label: string; className: s
 // =============================================================================
 
 export const StaffCard = forwardRef<HTMLDivElement, StaffCardProps>((
-  { staff, isLast, onClick, isDraggable = false, dragHandleProps, isDragging = false },
+  {
+    staff,
+    reviews = null,
+    isLast,
+    onClick,
+    isDraggable = false,
+    dragHandleProps,
+    isDragging = false,
+  },
   ref,
 ) => {
   const initials = staff.name
@@ -202,16 +220,17 @@ export const StaffCard = forwardRef<HTMLDivElement, StaffCardProps>((
               )}
             </div>
 
-            {/* Rating if exists */}
-            {staff.rating !== null && staff.reviewCount > 0 && (
+            {/* Rating — only from real reviews, never the manual column */}
+            {reviews && reviews.count > 0 && (
               <div className="mt-1 flex items-center gap-1">
                 <Star className="size-3 fill-[#FFD60A] text-[#FFD60A]" />
                 <span className="text-[11px] font-medium text-[#1C1C1E]">
-                  {staff.rating.toFixed(1)}
+                  {reviews.average.toFixed(1)}
                 </span>
                 <span className="text-[10px] text-[#8E8E93]">
                   (
-                  {staff.reviewCount}
+                  {reviews.count}
+                  {reviews.count === 1 ? ' review' : ' reviews'}
                   )
                 </span>
               </div>

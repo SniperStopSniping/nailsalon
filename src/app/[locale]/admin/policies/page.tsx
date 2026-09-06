@@ -52,7 +52,10 @@ export default async function SalonPoliciesPage({
 
   if (error || !salon) {
     return (
-      <div className="min-h-screen bg-[#F2F2F7]">
+      <div
+        className="owner-workspace-theme min-h-screen bg-[var(--owner-ground)] font-sans text-[var(--owner-ink)]"
+        data-theme-scope="owner"
+      >
         <div className="mx-auto max-w-2xl px-4 py-10">
           <div
             className="rounded-[14px] border border-amber-200 bg-amber-50 p-5 text-amber-950"

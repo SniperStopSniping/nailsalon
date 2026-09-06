@@ -1336,4 +1336,39 @@ describe('SettingsModal index', () => {
       );
     });
   });
+
+  /*
+    AG-w2-settings-integrations-15: /admin/policies is a live write surface
+    with no entry point anywhere in the workspace — reachable only by bookmark
+    or a support instruction. It is a Settings screen, so it has a Settings row.
+  */
+  it('offers the photo & auto-post rules and carries the salon to them', async () => {
+    render(
+      <SettingsModal
+        onClose={vi.fn()}
+        salonSlug="salon-a"
+        userName="Daniela"
+        onOpenApp={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(await screen.findByText('Photo & auto-post rules'));
+
+    expect(pushMock).toHaveBeenCalledWith('/en/admin/policies?salon=salon-a');
+  });
+
+  it('keeps the dark Section Gallery out of Settings while its flag is off', async () => {
+    render(
+      <SettingsModal
+        onClose={vi.fn()}
+        salonSlug="salon-a"
+        userName="Daniela"
+        onOpenApp={vi.fn()}
+      />,
+    );
+
+    await screen.findByText('Photo & auto-post rules');
+
+    expect(screen.queryByText(/section gallery/i)).not.toBeInTheDocument();
+  });
 });

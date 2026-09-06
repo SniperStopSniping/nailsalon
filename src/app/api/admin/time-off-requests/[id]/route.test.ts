@@ -4,6 +4,7 @@ import { GET, PATCH } from './route';
 
 const {
   requireAdminSalonFromRequest,
+  logAuditEvent,
   buildTimeOffDecisionNotification,
   createStaffNotification,
   db,
@@ -38,6 +39,7 @@ const {
 
   return {
     requireAdminSalonFromRequest: vi.fn(),
+    logAuditEvent: vi.fn(async () => undefined),
     buildTimeOffDecisionNotification: vi.fn(() => ({ title: 'Decision', body: 'Body' })),
     createStaffNotification: vi.fn(),
     db,
@@ -51,6 +53,10 @@ const {
 
 vi.mock('@/libs/adminAuth', () => ({
   requireAdminSalonFromRequest,
+}));
+
+vi.mock('@/libs/auditLog', () => ({
+  logAuditEvent,
 }));
 
 vi.mock('@/libs/notifications', () => ({
@@ -112,7 +118,6 @@ function patchRequest(status: 'APPROVED' | 'DENIED') {
 describe('/api/admin/time-off-requests/[id]', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    // The route logs each decision via console.warn; that log is expected.
     vi.spyOn(console, 'warn').mockImplementation(() => {});
     requireAdminSalonFromRequest.mockResolvedValue({
       error: null,
@@ -177,6 +182,51 @@ describe('/api/admin/time-off-requests/[id]', () => {
     await expect(response.json()).resolves.toMatchObject({
       data: { request: { startDate: START, endDate: END } },
     });
+  });
+
+  it('writes an audit entry naming the decision, the request and the block', async () => {
+    selectLimit
+      .mockResolvedValueOnce([pendingRequest({ note: 'Family trip' })])
+      .mockResolvedValue([{ name: 'Daniela' }]);
+    txUpdateReturning.mockResolvedValueOnce([decidedRow('APPROVED')]);
+
+    const response = await patchRequest('APPROVED');
+
+    expect(response.status).toBe(200);
+    // Approving writes a real calendar block: the decision has to be
+    // reconstructable later, not just a line in a server log.
+    expect(logAuditEvent).toHaveBeenCalledWith({
+      salonId: 'salon_active',
+      actorType: 'admin',
+      actorId: 'admin_1',
+      action: 'time_off_request_decided',
+      entityType: 'time_off_request',
+      entityId: 'req_1',
+      metadata: {
+        status: 'APPROVED',
+        technicianId: 'tech_1',
+        startDate: START,
+        endDate: END,
+        blockCreated: true,
+      },
+    });
+  });
+
+  it('records a denial in the audit log with no block created', async () => {
+    selectLimit
+      .mockResolvedValueOnce([pendingRequest()])
+      .mockResolvedValue([{ name: 'Daniela' }]);
+    txUpdateReturning.mockResolvedValueOnce([decidedRow('DENIED')]);
+
+    const response = await patchRequest('DENIED');
+
+    expect(response.status).toBe(200);
+    expect(logAuditEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'time_off_request_decided',
+        metadata: expect.objectContaining({ status: 'DENIED', blockCreated: false }),
+      }),
+    );
   });
 
   it('refuses to decide a request whose stored dates cannot be read', async () => {

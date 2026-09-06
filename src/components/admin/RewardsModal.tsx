@@ -278,10 +278,16 @@ function EmptyState({ type }: { type: 'rewards' | 'referrals' }) {
         {' '}
         Yet
       </h3>
-      <p className="text-center text-[15px] text-[#8E8E93]">
+      <p className="max-w-xs text-center text-[15px] text-[#8E8E93]">
         {type === 'rewards'
-          ? 'Rewards will appear here when clients earn them'
-          : 'Referrals will appear here when clients share their links'}
+          ? 'Rewards appear here when a client earns one.'
+          : 'Referrals appear here when a client shares their link and the friend books.'}
+      </p>
+      {/* An empty list still owes the owner a next step. */}
+      <p className="mt-2 max-w-xs text-center text-[13px] leading-5 text-[#8E8E93]">
+        {type === 'rewards'
+          ? 'You can grant one yourself: open Review rewards after you have checked a client’s Google review.'
+          : 'Nothing to set up — this list fills itself in as clients refer each other.'}
       </p>
     </div>
   );

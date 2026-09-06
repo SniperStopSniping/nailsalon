@@ -3318,6 +3318,9 @@ export const AUDIT_LOG_ACTIONS = [
   'portfolio_photos_reordered',
   'portfolio_photo_crop_updated',
   'discover_participation_changed',
+  // Staff time-off decisions. An approval writes a real calendar block, so the
+  // decision needs a durable record. Appended, never reordered.
+  'time_off_request_decided',
 ] as const;
 export type AuditLogAction = (typeof AUDIT_LOG_ACTIONS)[number];
 

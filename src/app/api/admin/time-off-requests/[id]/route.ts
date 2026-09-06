@@ -15,6 +15,7 @@ import { nanoid } from 'nanoid';
 import { z } from 'zod';
 
 import { requireAdminSalonFromRequest } from '@/libs/adminAuth';
+import { logAuditEvent } from '@/libs/auditLog';
 import { db } from '@/libs/DB';
 import {
   buildTimeOffDecisionNotification,
@@ -204,16 +205,26 @@ export async function PATCH(
       return updated;
     });
 
-    // 7. Get technician info for logging
-    const [technician] = await db
-      .select({ name: technicianSchema.name })
-      .from(technicianSchema)
-      .where(eq(technicianSchema.id, existingRequest.technicianId))
-      .limit(1);
-
-    console.warn(
-      `[TimeOffRequest] Admin ${admin.name || admin.id} ${status.toLowerCase()} request ${id} for ${technician?.name ?? existingRequest.technicianId}`,
-    );
+    // 7. Record the decision where it can be reconstructed later. A staff
+    // member's approved days become a real block on the calendar, so who
+    // decided what, and when, has to outlive a server log line (this used to
+    // be a console.warn that named the admin and the technician in plain
+    // text). IDs only, per the audit-log PII rule.
+    await logAuditEvent({
+      salonId: existingRequest.salonId,
+      actorType: 'admin',
+      actorId: admin.id,
+      action: 'time_off_request_decided',
+      entityType: 'time_off_request',
+      entityId: id,
+      metadata: {
+        status,
+        technicianId: existingRequest.technicianId,
+        startDate: startDateOnly,
+        endDate: endDateOnly,
+        blockCreated: status === 'APPROVED',
+      },
+    });
 
     // 8. Create notification for the staff member
     const { title, body: notifBody } = buildTimeOffDecisionNotification({

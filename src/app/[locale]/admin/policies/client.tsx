@@ -13,6 +13,7 @@ import { useRouter } from 'next/navigation';
 import { AdminImpersonationBanner } from '@/components/admin/AdminImpersonationBanner';
 import { MetaStatusPanel } from '@/components/admin/MetaStatusPanel';
 import { SalonPolicyForm } from '@/components/admin/PolicyForm';
+import { WorkspacePageHeader } from '@/components/ui/workspace-page-header';
 
 // =============================================================================
 // TYPES
@@ -100,26 +101,45 @@ export function SalonPoliciesClient({
   };
 
   return (
-    <div className="min-h-screen bg-[#F2F2F7]">
+    /*
+      AG-w2-settings-integrations-15: this page used to render in a different
+      visual language from the workspace it belongs to — iOS grey ground, a
+      generic "Policy Settings" title and no sign of which salon was being
+      edited beyond a grey subtitle. It now wears the same chrome as every
+      other owner screen: the workspace ground and faces, the shared page
+      header, the "Managing <salon>" line, and a Back control that says where
+      it goes.
+    */
+    <div
+      className="owner-workspace-theme min-h-screen bg-[var(--owner-ground)] font-sans text-[var(--owner-ink)]"
+      data-theme-scope="owner"
+      data-testid="admin-policies-page"
+    >
       {/* Header */}
-      <div className="border-b border-gray-200 bg-white">
+      <div
+        className="border-b border-[var(--owner-line)] bg-[var(--owner-surface)]"
+        style={{ paddingTop: 'env(safe-area-inset-top, 0px)' }}
+      >
         <div className="mx-auto max-w-2xl p-4">
-          <div className="flex items-center gap-3">
-            <button
-              type="button"
-              onClick={() =>
-                router.push(
-                  `/${locale}/admin?salon=${encodeURIComponent(salonSlug)}`,
-                )}
-              className="-ml-2 rounded-lg p-2 transition-colors hover:bg-gray-100"
-            >
-              <ArrowLeft className="size-5 text-gray-600" />
-            </button>
-            <div>
-              <h1 className="text-xl font-semibold text-gray-900">Policy Settings</h1>
-              <p className="text-sm text-gray-500">{salonName}</p>
-            </div>
-          </div>
+          <WorkspacePageHeader
+            title="Photo & auto-post rules"
+            subtitle={`Managing ${salonName}`}
+            titleClassName="owner-title text-[22px] font-semibold tracking-tight text-[var(--owner-ink)]"
+            subtitleClassName="text-[14px] text-[var(--owner-muted)]"
+            leading={(
+              <button
+                type="button"
+                onClick={() =>
+                  router.push(
+                    `/${locale}/admin?salon=${encodeURIComponent(salonSlug)}`,
+                  )}
+                aria-label="Back to your workspace"
+                className="-ml-1 flex size-11 shrink-0 items-center justify-center rounded-full text-[var(--owner-accent)] outline-none transition-colors hover:bg-[var(--owner-blush)] focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)]"
+              >
+                <ArrowLeft className="size-5" />
+              </button>
+            )}
+          />
         </div>
       </div>
 

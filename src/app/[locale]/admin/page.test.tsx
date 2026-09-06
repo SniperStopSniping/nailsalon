@@ -663,7 +663,13 @@ describe('AdminDashboardPage', () => {
       onAppTap?: (appId: string) => void;
     };
 
-    expect(appGridProps.hiddenIds).toContain('workspace-tour');
+    // Deliberately reversed from the old assertion: the Workspace tour used to
+    // be hidden and inert whenever the onboarding integration was off, which
+    // left an established owner with no way to replay it. The tour only walks
+    // tabs the workspace already has, so it no longer depends on the flag or
+    // on an onboarding-site hand-off. Everything else about the legacy path —
+    // no hand-off card, no "Checking your saved website" — is unchanged.
+    expect(appGridProps.hiddenIds).not.toContain('workspace-tour');
 
     act(() => appGridProps.onAppTap?.('booking-page'));
 
@@ -672,7 +678,7 @@ describe('AdminDashboardPage', () => {
 
     act(() => appGridProps.onAppTap?.('workspace-tour'));
 
-    expect(screen.queryByTestId('workspace-quick-tour')).not.toBeInTheDocument();
+    expect(screen.getByTestId('workspace-quick-tour')).toBeInTheDocument();
     expect(handoffComponentSpy).not.toHaveBeenCalled();
   });
 

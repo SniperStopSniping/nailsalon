@@ -8,6 +8,19 @@ const mocks = vi.hoisted(() => ({
   enabled: vi.fn(() => false),
 }));
 
+// next/font/google resolves font files at build time; under Vitest it never
+// settles, so stub the two faces the admin layout publishes as CSS variables.
+vi.mock('next/font/google', () => ({
+  Inter: () => ({ variable: '--font-owner-sans', className: 'font-owner-sans', style: { fontFamily: 'Inter' } }),
+  Newsreader: () => ({ variable: '--font-owner-display', className: 'font-owner-display', style: { fontFamily: 'Newsreader' } }),
+}));
+
+// The dark Section Gallery flag is read server-side (server-only + Env); keep
+// the layout test hermetic by mocking it like the onboarding flag.
+vi.mock('@/features/section-library-v1/config.server', () => ({
+  isSectionLibraryV1Enabled: () => false,
+}));
+
 vi.mock('@/features/onboarding-v1-integration/config.server', () => ({
   isOnboardingV1IntegrationEnabled: mocks.enabled,
 }));

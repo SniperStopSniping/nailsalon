@@ -12,7 +12,7 @@
 
 import { useAuth, useClerk } from '@clerk/nextjs';
 import { MotionConfig } from 'framer-motion';
-import { Bell, Building2, LogOut, Sparkles } from 'lucide-react';
+import { Bell, Building2, Sparkles } from 'lucide-react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
@@ -1338,9 +1338,11 @@ function AdminDashboardContent() {
         `/${locale}/admin/website${activeDashboardSalonSlug ? `?salon=${encodeURIComponent(activeDashboardSalonSlug)}` : ''}`,
       );
     } else if (appId === 'workspace-tour') {
-      if (onboardingV1IntegrationEnabled && onboardingHandoffAvailable) {
-        setShowOnboardingTour(true);
-      }
+      // The tour walks the workspace an owner already has; it never needed an
+      // onboarding site. Gating it on the handoff meant an established owner
+      // could not replay it, and the tile it lives on was hidden by the same
+      // unresolved flag.
+      setShowOnboardingTour(true);
     } else if (appId === 'schedule') {
       openAppViaUrl('schedule');
     } else {
@@ -1452,10 +1454,15 @@ function AdminDashboardContent() {
         break;
       case 'website':
         handleWorkspaceTab('more');
-        window.requestAnimationFrame(() => {
+        // handleWorkspaceTab resets the viewport across the next two animation
+        // frames (so a tab change can never reopen a workspace mid-scroll). A
+        // scroll queued inside those frames is cancelled by that reset, which
+        // left the final tour step at the top of More instead of on the tile
+        // it is describing. Wait for the resets to finish first.
+        window.setTimeout(() => {
           document.querySelector<HTMLElement>('[data-testid="admin-app-tile-booking-page"]')
             ?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        });
+        }, 120);
         break;
       default:
         break;
@@ -1470,7 +1477,14 @@ function AdminDashboardContent() {
   const completeWorkspaceTour = useCallback(() => {
     setShowOnboardingTour(false);
     handleWorkspaceTab('today');
-    if (!activeDashboardSalonSlug) {
+    // The completion flag belongs to the onboarding hand-off record. An owner
+    // replaying the tour without one has nothing to mark, so don't send a
+    // write that can only 404 — the tour is a replayable tile either way.
+    if (
+      !activeDashboardSalonSlug
+      || !onboardingV1IntegrationEnabled
+      || !onboardingHandoffAvailable
+    ) {
       return;
     }
     void fetch(
@@ -1481,7 +1495,12 @@ function AdminDashboardContent() {
         method: 'PATCH',
       },
     );
-  }, [activeDashboardSalonSlug, handleWorkspaceTab]);
+  }, [
+    activeDashboardSalonSlug,
+    handleWorkspaceTab,
+    onboardingHandoffAvailable,
+    onboardingV1IntegrationEnabled,
+  ]);
 
   // Close modal
   const handleCloseModal = () => {
@@ -1731,14 +1750,14 @@ function AdminDashboardContent() {
                     </span>
                   )}
                 </button>
-                <button
-                  type="button"
-                  onClick={handleLogout}
-                  className="flex items-center gap-1.5 rounded-full bg-red-50 px-3 py-1.5 text-sm font-medium text-red-600 transition-colors hover:bg-red-100 active:bg-red-200"
-                >
-                  <LogOut size={16} />
-                  <span>Log Out</span>
-                </button>
+                {/*
+                  AG-w2-settings-integrations-12: Log Out used to be a 32 px
+                  red pill here — the loudest control on every dashboard
+                  screen, in the left-thumb path, signing the owner out on a
+                  single tap. The header keeps identity and the bell; ending
+                  the session lives under More → Account, behind a
+                  confirmation.
+                */}
                 <div
                   className="flex size-9 items-center justify-center rounded-full bg-gradient-to-br from-rose-800 to-amber-500 text-[15px] font-semibold text-white shadow-sm"
                   title="Luster owner account"
@@ -1803,9 +1822,28 @@ function AdminDashboardContent() {
                   theme="apple"
                   badges={appBadges}
                   onAppTap={handleAppTap}
-                  hiddenIds={onboardingV1IntegrationEnabled && onboardingHandoffAvailable
-                    ? hiddenAppIds
-                    : [...hiddenAppIds, 'workspace-tour']}
+                  /*
+                    The Workspace tour tile used to be hidden unless the
+                    onboarding integration flag was on AND an onboarding-site
+                    hand-off had resolved — so an established owner could never
+                    replay it, and on the More tab (where the hand-off fetch
+                    never runs) it was invisible to everyone. The tour walks
+                    tabs the owner already has, so it needs neither.
+                  */
+                  hiddenIds={hiddenAppIds}
+                  /*
+                    AG-w2-settings-integrations-12: the session-ending control
+                    lives here, in the Account row AppGrid renders under the
+                    tiles, with its own named confirmation — not as a one-tap
+                    red pill in the header of every screen.
+                  */
+                  account={{
+                    name: userName,
+                    salonName: activeDashboardSalonName,
+                    onLogOut: () => {
+                      void handleLogout();
+                    },
+                  }}
                 />
               </div>
             )
@@ -1946,16 +1984,17 @@ function AdminDashboardContent() {
         salonSlug={activeDashboardSalonSlug}
       />
 
-      {onboardingV1IntegrationEnabled
-        ? (
-            <WorkspaceQuickTour
-              onClose={closeWorkspaceTour}
-              onComplete={completeWorkspaceTour}
-              onTargetChange={handleWorkspaceTourTarget}
-              open={showOnboardingTour}
-            />
-          )
-        : null}
+      {/*
+        Mounted for every owner, not only the ones who arrived through
+        onboarding: the tour is a replayable guide to tabs that already exist.
+        It renders nothing while `open` is false.
+      */}
+      <WorkspaceQuickTour
+        onClose={closeWorkspaceTour}
+        onComplete={completeWorkspaceTour}
+        onTargetChange={handleWorkspaceTourTarget}
+        open={showOnboardingTour}
+      />
     </div>
   );
 }

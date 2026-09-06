@@ -437,7 +437,7 @@ export function SettingsTab({ salonSlug, technician, onUpdate, onDelete }: Setti
       {/* Public Reputation */}
       <div>
         <h3 className="mb-2 px-1 text-[13px] font-semibold uppercase text-[#8E8E93]">
-          Public Reputation
+          Imported rating (public booking page)
         </h3>
         <div className="rounded-[12px] bg-white p-4">
           <div className="grid grid-cols-2 gap-3">
@@ -470,7 +470,10 @@ export function SettingsTab({ salonSlug, technician, onUpdate, onDelete }: Setti
             </div>
           </div>
           <p className="mt-2 text-[12px] text-[#8E8E93]">
-            Rating is only shown publicly when review count is greater than zero.
+            These two numbers are typed in by you — they are not Luster reviews
+            and nothing checks them. They appear on your public booking page
+            when the review count is above zero. Inside the Workspace, staff
+            ratings come only from real reviews, which you read in Reviews.
           </p>
         </div>
       </div>
