@@ -6,7 +6,7 @@ import { appPath, authStatePaths, e2eConfig } from './support/config';
 test.use({ storageState: authStatePaths.superAdmin });
 
 for (const viewport of [{ width: 320, height: 568 }, { width: 375, height: 667 }, { width: 390, height: 844 }, { width: 430, height: 932 }]) {
-  test(`Booking Page hub opens focused editors at ${viewport.width}px @owner-preview-webkit`, async ({ page }) => {
+  test(`Booking Page hub opens focused editors at ${viewport.width}px @owner-preview-webkit`, async ({ browserName, page }) => {
     await page.setViewportSize(viewport);
     await impersonateSalonAsSuperAdmin(page);
     const hubUrl = `${appPath('/admin/website')}?salon=${encodeURIComponent(e2eConfig.salonSlug)}`;
@@ -55,22 +55,26 @@ for (const viewport of [{ width: 320, height: 568 }, { width: 375, height: 667 }
     await expect(page.getByTestId('information-phone')).not.toHaveValue('');
 
     // Edit → save → the canonical value comes back from the same salon record.
-    // The shared fixture is restored in `finally` so a failure mid-journey
-    // cannot leave the other viewport/project cases with a changed salon.
+    // All eight viewport/project cases share ONE fixture salon and run in
+    // parallel, so only one case performs the write round-trip; the others
+    // would otherwise read each other's saves and restores.
     const instagram = page.getByTestId('information-instagram');
-    const originalInstagram = await instagram.inputValue();
-    try {
-      await instagram.fill('luster.e2e.fixture');
-      await page.getByTestId('information-save-contact').click();
+    await expect(instagram).toBeVisible();
+    if (viewport.width === 390 && browserName === 'chromium') {
+      const originalInstagram = await instagram.inputValue();
+      try {
+        await instagram.fill('luster.e2e.fixture');
+        await page.getByTestId('information-save-contact').click();
 
-      // One normaliser stores the canonical URL and shows the bare handle (CP2).
-      await expect(instagram).toHaveValue('luster.e2e.fixture');
-    } finally {
-      await instagram.fill(originalInstagram);
-      await page.getByTestId('information-save-contact').click();
+        // One normaliser stores the canonical URL and shows the bare handle (CP2).
+        await expect(instagram).toHaveValue('luster.e2e.fixture');
+      } finally {
+        await instagram.fill(originalInstagram);
+        await page.getByTestId('information-save-contact').click();
 
-      await expect(page.getByTestId('information-contact').getByRole('status')).toContainText('Contact saved');
-      await expect(instagram).toHaveValue(originalInstagram);
+        await expect(page.getByTestId('information-contact').getByRole('status')).toContainText('Contact saved');
+        await expect(instagram).toHaveValue(originalInstagram);
+      }
     }
 
     await page.getByText('Location', { exact: true }).click();
