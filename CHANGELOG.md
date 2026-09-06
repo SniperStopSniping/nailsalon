@@ -1,3 +1,17 @@
+# [1.87.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.86.0...v1.87.0) (2026-09-06)
+
+
+### Bug Fixes
+
+* **onboarding:** make the services step optional and show the add-ons list in full ([9553b8a](https://github.com/SniperStopSniping/nailsalon/commit/9553b8a944afebe398cd6a5fa5fa196808a563d7))
+
+
+### Features
+
+* **onboarding:** let a saved owner go back or start over from the saved screen ([cb09623](https://github.com/SniperStopSniping/nailsalon/commit/cb0962383e4f99c57cc48dfb0567cc7a00b6dec2))
+* **onboarding:** prefill the introduction from known facts on Help me write ([15f797e](https://github.com/SniperStopSniping/nailsalon/commit/15f797ea97c73e979a9f43d1178c9ea69400de02))
+* **onboarding:** show each style card's name in that style's own typefaces ([a9d1783](https://github.com/SniperStopSniping/nailsalon/commit/a9d17834b49227a08b556632858226da7432e9d8))
+
 # [1.86.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.85.0...v1.86.0) (2026-09-06)
 
 
