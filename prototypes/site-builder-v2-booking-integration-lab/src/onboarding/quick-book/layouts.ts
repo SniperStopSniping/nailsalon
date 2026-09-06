@@ -24,6 +24,31 @@ export type QuickBookLayoutFamily = (typeof QUICK_BOOK_LAYOUT_FAMILIES)[number];
 
 export type QuickBookPortraitTreatment = 'none' | 'optional' | 'essential';
 
+/**
+ * How the business logo participates in a composition.
+ *
+ * `omitted` is a deliberate design decision, not a missing feature: a
+ * portrait-led or typography-led hero can be stronger without a second brand
+ * mark competing for the same row. The owner's logo is never deleted — it
+ * stays on the salon record and every other layout still uses it.
+ */
+export type QuickBookLogoTreatment = 'shown' | 'optional' | 'omitted';
+
+/** How the practical facts are arranged above booking, if at all. */
+export type QuickBookFactsTreatment = 'grid' | 'tiles' | 'rows' | 'compact' | 'none';
+
+/** Whether tap-to-call/email sit in the header or behind Salon details. */
+export type QuickBookContactTreatment = 'shown' | 'disclosure';
+
+/** Which secondary actions sit above booking. */
+export type QuickBookActionsTreatment = 'full' | 'policies' | 'none';
+
+/**
+ * The business-name range a composition is built for. This is guidance, never
+ * a gate: an owner may pick any layout with any name.
+ */
+export type QuickBookNameFit = 'short' | 'short_medium' | 'flexible';
+
 export type QuickBookLayoutDefinition = {
   id: string;
   label: string;
@@ -43,6 +68,17 @@ export type QuickBookLayoutDefinition = {
   gallery: boolean;
   /** Shows saved specialties as chips or a line. */
   specialties: boolean;
+  // ---- Content recipe -----------------------------------------------------
+  // Each layout curates the owner's saved information rather than printing
+  // every field. Anything a layout leaves out of its header stays reachable
+  // through Salon details, About, Before you book, or the booking flow.
+  logo: QuickBookLogoTreatment;
+  facts: QuickBookFactsTreatment;
+  contact: QuickBookContactTreatment;
+  actions: QuickBookActionsTreatment;
+  nameFit: QuickBookNameFit;
+  /** One short, positive owner-facing suitability line. */
+  guidance?: string;
   /** Identifier of the layout this one is a discoverable variation of. */
   variationOf?: string;
   /** Recommended starting option for its family. */
@@ -50,32 +86,44 @@ export type QuickBookLayoutDefinition = {
 };
 
 export const QUICK_BOOK_LAYOUTS = [
-  // ---- Simple (the six original layouts + booking-first variations) --------
+  // ---- Simple: business details first ------------------------------------
   {
     id: 'compact_dropdown',
     label: 'Compact Dropdown',
     description: 'The shortest complete, booking-first profile.',
     family: 'simple',
-    portrait: 'optional',
-    portraitShape: 'circle',
+    portrait: 'none',
+    portraitShape: 'none',
     cover: false,
     coverText: false,
     story: false,
     gallery: false,
     specialties: false,
+    logo: 'shown',
+    facts: 'compact',
+    contact: 'disclosure',
+    actions: 'full',
+    nameFit: 'flexible',
+    guidance: 'Fast and booking-first',
   },
   {
     id: 'clean_card',
     label: 'Clean Card',
-    description: 'Soft details in one easy-to-scan card.',
+    description: 'Soft details in one calm, centred card.',
     family: 'simple',
-    portrait: 'optional',
-    portraitShape: 'circle',
+    portrait: 'none',
+    portraitShape: 'none',
     cover: false,
     coverText: false,
     story: false,
     gallery: false,
     specialties: false,
+    logo: 'shown',
+    facts: 'rows',
+    contact: 'shown',
+    actions: 'full',
+    nameFit: 'flexible',
+    guidance: 'Calm and composed',
     recommended: true,
   },
   {
@@ -83,26 +131,38 @@ export const QUICK_BOOK_LAYOUTS = [
     label: 'Editorial',
     description: 'Elegant typography with crisp, refined facts.',
     family: 'simple',
-    portrait: 'optional',
-    portraitShape: 'circle',
+    portrait: 'none',
+    portraitShape: 'none',
     cover: false,
     coverText: false,
     story: false,
     gallery: false,
     specialties: false,
+    logo: 'optional',
+    facts: 'rows',
+    contact: 'shown',
+    actions: 'full',
+    nameFit: 'flexible',
+    guidance: 'Typography first',
   },
   {
     id: 'hub_menu',
     label: 'Hub Menu',
-    description: 'Simple icon links that keep details tucked away.',
+    description: 'Simple tiles that lead to your details.',
     family: 'simple',
-    portrait: 'optional',
-    portraitShape: 'circle',
+    portrait: 'none',
+    portraitShape: 'none',
     cover: false,
     coverText: false,
     story: false,
     gallery: false,
     specialties: false,
+    logo: 'shown',
+    facts: 'tiles',
+    contact: 'shown',
+    actions: 'full',
+    nameFit: 'flexible',
+    guidance: 'Clear links to your details',
   },
   {
     id: 'profile_story',
@@ -116,19 +176,31 @@ export const QUICK_BOOK_LAYOUTS = [
     story: true,
     gallery: false,
     specialties: false,
+    logo: 'omitted',
+    facts: 'rows',
+    contact: 'shown',
+    actions: 'full',
+    nameFit: 'short_medium',
+    guidance: 'Great with a profile photo',
   },
   {
     id: 'ultra_minimal',
     label: 'Ultra Minimal',
     description: 'Only the essentials before clients choose a service.',
     family: 'simple',
-    portrait: 'optional',
-    portraitShape: 'circle',
+    portrait: 'none',
+    portraitShape: 'none',
     cover: false,
     coverText: false,
     story: false,
     gallery: false,
     specialties: false,
+    logo: 'optional',
+    facts: 'compact',
+    contact: 'disclosure',
+    actions: 'policies',
+    nameFit: 'flexible',
+    guidance: 'The least before booking',
   },
   {
     id: 'clean_card_pro',
@@ -142,6 +214,12 @@ export const QUICK_BOOK_LAYOUTS = [
     story: false,
     gallery: false,
     specialties: true,
+    logo: 'shown',
+    facts: 'tiles',
+    contact: 'shown',
+    actions: 'full',
+    nameFit: 'short_medium',
+    guidance: 'Best for short and medium names',
     variationOf: 'clean_card',
   },
   {
@@ -156,13 +234,19 @@ export const QUICK_BOOK_LAYOUTS = [
     story: false,
     gallery: false,
     specialties: true,
+    logo: 'shown',
+    facts: 'rows',
+    contact: 'shown',
+    actions: 'full',
+    nameFit: 'short_medium',
+    guidance: 'Details without the bulk',
     variationOf: 'compact_dropdown',
   },
-  // ---- Profile-led --------------------------------------------------------
+  // ---- Profile-led: the person is the hero --------------------------------
   {
     id: 'side_portrait',
     label: 'Side Portrait',
-    description: 'A larger profile photo beside your name for a personal welcome.',
+    description: 'A large profile photo beside your name.',
     family: 'profile',
     portrait: 'essential',
     portraitShape: 'circle',
@@ -171,12 +255,18 @@ export const QUICK_BOOK_LAYOUTS = [
     story: false,
     gallery: false,
     specialties: true,
+    logo: 'omitted',
+    facts: 'grid',
+    contact: 'disclosure',
+    actions: 'full',
+    nameFit: 'short_medium',
+    guidance: 'Best with a profile photo',
     recommended: true,
   },
   {
     id: 'editorial_split',
     label: 'Editorial Split',
-    description: 'Bold business typography paired with a prominent portrait.',
+    description: 'Bold typography paired with a prominent portrait.',
     family: 'profile',
     portrait: 'essential',
     portraitShape: 'circle',
@@ -185,11 +275,17 @@ export const QUICK_BOOK_LAYOUTS = [
     story: false,
     gallery: false,
     specialties: true,
+    logo: 'omitted',
+    facts: 'compact',
+    contact: 'disclosure',
+    actions: 'policies',
+    nameFit: 'short',
+    guidance: 'Best for short names',
   },
   {
     id: 'portrait_rail',
     label: 'Portrait Rail',
-    description: 'A tall portrait panel on one side, your details beside it.',
+    description: 'A tall portrait panel beside your details.',
     family: 'profile',
     portrait: 'essential',
     portraitShape: 'tall',
@@ -198,11 +294,17 @@ export const QUICK_BOOK_LAYOUTS = [
     story: false,
     gallery: false,
     specialties: true,
+    logo: 'omitted',
+    facts: 'grid',
+    contact: 'disclosure',
+    actions: 'full',
+    nameFit: 'short_medium',
+    guidance: 'Best with a profile photo',
   },
   {
     id: 'floating_profile',
     label: 'Floating Profile',
-    description: 'A large portrait floating in a soft shape above your details.',
+    description: 'A large portrait floating in a soft shape.',
     family: 'profile',
     portrait: 'essential',
     portraitShape: 'circle',
@@ -211,11 +313,17 @@ export const QUICK_BOOK_LAYOUTS = [
     story: false,
     gallery: false,
     specialties: true,
+    logo: 'optional',
+    facts: 'compact',
+    contact: 'disclosure',
+    actions: 'full',
+    nameFit: 'short_medium',
+    guidance: 'Your photo, front and centre',
   },
   {
     id: 'signature_stack',
     label: 'Signature Stack',
-    description: 'Your brand, portrait and a short introduction, layered.',
+    description: 'Your brand, portrait and a short introduction.',
     family: 'profile',
     portrait: 'essential',
     portraitShape: 'circle',
@@ -224,11 +332,17 @@ export const QUICK_BOOK_LAYOUTS = [
     story: true,
     gallery: false,
     specialties: true,
+    logo: 'optional',
+    facts: 'grid',
+    contact: 'disclosure',
+    actions: 'policies',
+    nameFit: 'short_medium',
+    guidance: 'Story-led',
   },
   {
     id: 'concierge_panel',
     label: 'Concierge Panel',
-    description: 'A branding row, then a larger personal introduction card.',
+    description: 'A branding row, then a personal introduction card.',
     family: 'profile',
     portrait: 'essential',
     portraitShape: 'circle',
@@ -237,26 +351,38 @@ export const QUICK_BOOK_LAYOUTS = [
     story: true,
     gallery: false,
     specialties: true,
+    logo: 'shown',
+    facts: 'tiles',
+    contact: 'shown',
+    actions: 'policies',
+    nameFit: 'short_medium',
+    guidance: 'Personal service feel',
   },
-  // ---- Cover photo --------------------------------------------------------
+  // ---- Cover photo: the work is the hero ----------------------------------
   {
     id: 'hero_banner',
     label: 'Hero Banner',
     description: 'A large cover photo above a clear identity row.',
     family: 'cover',
-    portrait: 'optional',
-    portraitShape: 'circle',
+    portrait: 'none',
+    portraitShape: 'none',
     cover: true,
     coverText: true,
     story: false,
     gallery: false,
     specialties: true,
+    logo: 'shown',
+    facts: 'grid',
+    contact: 'disclosure',
+    actions: 'full',
+    nameFit: 'short_medium',
+    guidance: 'Designed around your cover photo',
     recommended: true,
   },
   {
     id: 'profile_overlay',
     label: 'Profile Overlay',
-    description: 'A centred portrait overlapping the cover photo.',
+    description: 'A centred portrait overlapping your cover photo.',
     family: 'cover',
     portrait: 'essential',
     portraitShape: 'circle',
@@ -265,37 +391,55 @@ export const QUICK_BOOK_LAYOUTS = [
     story: false,
     gallery: false,
     specialties: true,
+    logo: 'shown',
+    facts: 'compact',
+    contact: 'disclosure',
+    actions: 'policies',
+    nameFit: 'short_medium',
+    guidance: 'Cover plus your photo',
   },
   {
     id: 'story_intro',
     label: 'Story Intro',
-    description: 'A cover photo, your identity and a short introduction.',
+    description: 'A cover photo and a short personal introduction.',
     family: 'cover',
-    portrait: 'optional',
-    portraitShape: 'circle',
+    portrait: 'none',
+    portraitShape: 'none',
     cover: true,
     coverText: true,
     story: true,
     gallery: false,
     specialties: true,
+    logo: 'shown',
+    facts: 'grid',
+    contact: 'disclosure',
+    actions: 'policies',
+    nameFit: 'short_medium',
+    guidance: 'Cover plus a short intro',
   },
   {
     id: 'premium_split',
     label: 'Premium Split',
-    description: 'A colour panel beside a cover photo for a refined split header.',
+    description: 'A colour panel beside a cover photo.',
     family: 'cover',
-    portrait: 'optional',
-    portraitShape: 'circle',
+    portrait: 'none',
+    portraitShape: 'none',
     cover: true,
     coverText: true,
     story: false,
     gallery: false,
     specialties: true,
+    logo: 'shown',
+    facts: 'tiles',
+    contact: 'disclosure',
+    actions: 'policies',
+    nameFit: 'short',
+    guidance: 'Best for short names',
   },
   {
     id: 'hero_ribbon',
     label: 'Hero Ribbon',
-    description: 'A cover photo with a curved edge and a side-anchored portrait.',
+    description: 'A cover photo with a curved edge and a side portrait.',
     family: 'cover',
     portrait: 'essential',
     portraitShape: 'circle',
@@ -304,12 +448,18 @@ export const QUICK_BOOK_LAYOUTS = [
     story: false,
     gallery: false,
     specialties: true,
+    logo: 'shown',
+    facts: 'grid',
+    contact: 'disclosure',
+    actions: 'full',
+    nameFit: 'short_medium',
+    guidance: 'Cover with a curved edge',
     variationOf: 'hero_banner',
   },
   {
     id: 'story_banner',
     label: 'Story Banner',
-    description: 'Cover photo, centred portrait and a warm welcome note.',
+    description: 'Cover, centred portrait and a warm welcome note.',
     family: 'cover',
     portrait: 'essential',
     portraitShape: 'circle',
@@ -318,25 +468,37 @@ export const QUICK_BOOK_LAYOUTS = [
     story: true,
     gallery: false,
     specialties: true,
+    logo: 'shown',
+    facts: 'compact',
+    contact: 'disclosure',
+    actions: 'policies',
+    nameFit: 'short_medium',
+    guidance: 'Warm welcome above booking',
     variationOf: 'profile_overlay',
   },
   {
     id: 'gallery_header',
     label: 'Gallery Header',
-    description: 'A cover photo followed by a strip of your portfolio.',
+    description: 'A cover photo followed by a strip of your work.',
     family: 'cover',
-    portrait: 'optional',
-    portraitShape: 'circle',
+    portrait: 'none',
+    portraitShape: 'none',
     cover: true,
     coverText: true,
     story: false,
     gallery: true,
     specialties: true,
+    logo: 'shown',
+    facts: 'compact',
+    contact: 'disclosure',
+    actions: 'full',
+    nameFit: 'short_medium',
+    guidance: 'Best for portfolios',
   },
   {
     id: 'asymmetric_luxe',
     label: 'Asymmetric Luxe',
-    description: 'An offset cover, colour panel and portrait for an art-directed look.',
+    description: 'An offset cover and colour panel, art-directed.',
     family: 'cover',
     portrait: 'essential',
     portraitShape: 'circle',
@@ -345,6 +507,12 @@ export const QUICK_BOOK_LAYOUTS = [
     story: false,
     gallery: false,
     specialties: true,
+    logo: 'shown',
+    facts: 'grid',
+    contact: 'disclosure',
+    actions: 'policies',
+    nameFit: 'short',
+    guidance: 'Art-directed and opinionated',
   },
 ] as const satisfies readonly QuickBookLayoutDefinition[];
 
@@ -402,25 +570,50 @@ export const getQuickBookLayoutsByFamily = (
   family: QuickBookLayoutFamily,
 ): QuickBookLayoutDefinition[] => QUICK_BOOK_LAYOUTS.filter(layout => layout.family === family);
 
-/** Short owner-facing capability labels shown beside a layout name. */
+/**
+ * At most two short, positive labels for a layout card. The preview is the
+ * primary signal; these exist to prevent a poor choice, not to replace it.
+ */
 export const describeQuickBookLayoutCapabilities = (
   layout: QuickBookLayoutDefinition,
 ): string[] => {
   const labels: string[] = [];
-  if (layout.portrait === 'essential') {
-    labels.push('Features your profile');
+  if (layout.guidance) {
+    labels.push(layout.guidance);
   }
-  if (layout.cover) {
-    labels.push('Uses a cover photo');
-  }
-  if (layout.gallery) {
-    labels.push('Shows your gallery');
-  }
-  if (layout.story) {
-    labels.push('Includes your introduction');
-  }
-  if (layout.portrait === 'essential' || layout.cover) {
+  if (layout.cover || layout.portrait === 'essential') {
     labels.push('Default image included');
   }
-  return labels;
+  return labels.slice(0, 2);
 };
+
+/**
+ * Owner-only advisory when the saved business name is longer than the
+ * composition is built for. It is a recommendation: selection is never
+ * blocked, and nothing here reaches the customer's page.
+ */
+export const describeQuickBookNameAdvisory = (
+  layout: QuickBookLayoutDefinition,
+  businessName: string,
+): string | null => {
+  const length = businessName.trim().length;
+  if (layout.nameFit === 'flexible') {
+    return null;
+  }
+  const limit = layout.nameFit === 'short' ? 18 : 26;
+  if (length <= limit) {
+    return null;
+  }
+  return layout.nameFit === 'short'
+    ? 'This design is built around a short business name. Yours will wrap onto several lines.'
+    : 'Your business name is on the long side for this design and may wrap heavily.';
+};
+
+/** Which image roles this composition actually uses, for owner-side copy. */
+export const describeQuickBookImageRoles = (
+  layout: QuickBookLayoutDefinition,
+): { cover: boolean; logo: boolean; portrait: boolean } => ({
+  cover: layout.cover,
+  logo: layout.logo !== 'omitted',
+  portrait: layout.portrait !== 'none',
+});

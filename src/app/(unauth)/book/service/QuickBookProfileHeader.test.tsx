@@ -1,7 +1,11 @@
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 
-import { QUICK_BOOK_SITE_LAYOUTS } from '@/libs/quickBookSiteLayout';
+import {
+  getQuickBookLayout,
+  QUICK_BOOK_SITE_LAYOUTS,
+  type QuickBookSiteLayout,
+} from '@/libs/quickBookSiteLayout';
 
 import type { QuickBookProfileView } from './quickBookProfile';
 import { QuickBookProfileHeader } from './QuickBookProfileHeader';
@@ -96,17 +100,62 @@ describe('QuickBookProfileHeader', () => {
       expect(profile).toHaveAttribute('data-layout-presentation', layout);
       expect(profile).toHaveAttribute('data-public-surface', 'salonProfile');
 
+      // Which blocks a layout puts above booking IS its content recipe, so the
+      // inventory belongs in the fingerprint: two layouts that show the same
+      // blocks in the same arrangement would not be two designs.
+      const blocks = [...profile.querySelectorAll('[data-qb-block]')]
+        .map(node => node.getAttribute('data-qb-block'))
+        .join(',');
+
       fingerprints.add([
         profile.className,
         identity.className,
         details.className,
-        screen.getByTestId('quick-book-bio').className,
+        blocks,
         structure(profile),
       ].join('|'));
       view.unmount();
     }
 
     expect(fingerprints).toHaveLength(QUICK_BOOK_SITE_LAYOUTS.length);
+    expect(FULL_PROFILE).toEqual(sourceBefore);
+  });
+
+  it('lets each layout curate which image roles it shows, without changing the data', () => {
+    const sourceBefore = structuredClone(FULL_PROFILE);
+    const shown = (layout: QuickBookSiteLayout) => {
+      const view = render(
+        <QuickBookProfileHeader
+          profile={FULL_PROFILE}
+          bookingFlow={['service', 'tech', 'time', 'confirm']}
+          layout={layout}
+          mounted
+        />,
+      );
+      const result = {
+        logo: screen.queryByAltText(/logo$/u) !== null,
+        portrait: screen.queryByAltText('Daniela') !== null
+          || screen.queryByTestId('quick-book-portrait-image') !== null,
+      };
+      view.unmount();
+      return result;
+    };
+
+    for (const layout of QUICK_BOOK_SITE_LAYOUTS) {
+      const definition = getQuickBookLayout(layout);
+      const rendered = shown(layout);
+
+      expect(
+        { layout, ...rendered },
+        `${layout} must follow its own content recipe`,
+      ).toEqual({
+        layout,
+        logo: definition.logo !== 'omitted',
+        portrait: definition.portrait !== 'none',
+      });
+    }
+
+    // Curating a header never edits the salon.
     expect(FULL_PROFILE).toEqual(sourceBefore);
   });
 
@@ -137,8 +186,12 @@ describe('QuickBookProfileHeader', () => {
       />,
     );
 
+    // Clean Card's recipe keeps the logo and omits the portrait: two centred
+    // image blobs either side of the name is the composition this layout is
+    // meant to avoid. The photo itself is untouched on the salon record and
+    // every portrait-led layout still uses it.
     expect(screen.getByAltText('Isla Nail Studio With A Deliberately Long Name logo')).toBeInTheDocument();
-    expect(screen.getByAltText('Daniela')).toBeInTheDocument();
+    expect(screen.queryByAltText('Daniela')).not.toBeInTheDocument();
     expect(screen.getByTestId('quick-book-location')).toHaveAttribute('href', expect.stringContaining('google.com/maps'));
     expect(screen.getByTestId('quick-book-location')).toHaveTextContent('Inside TB Nails · Back of building');
     expect(screen.getByTestId('quick-book-location')).toHaveTextContent('Parking: Use the rear lot');

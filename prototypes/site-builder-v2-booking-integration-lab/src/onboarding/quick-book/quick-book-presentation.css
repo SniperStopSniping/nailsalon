@@ -260,6 +260,57 @@
   display: none;
 }
 
+/* `compact`: one quiet strip of orientation facts. Everything else this
+   layout chose not to print sits in Salon details below. */
+.qb-facts[data-qb-variant="compact"] {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 18px;
+  border-top: 1px solid var(--qb-line, var(--qb-line-fallback));
+}
+
+.qb-facts[data-qb-variant="compact"] .qb-fact {
+  flex: 1 1 auto;
+  min-width: 140px;
+  padding: 6px 0;
+}
+
+.qb-facts[data-qb-variant="compact"] .qb-fact__label {
+  display: none;
+}
+
+.qb-facts[data-qb-variant="compact"] .qb-fact__value {
+  font-size: 0.88rem;
+}
+
+.qb-detail-line {
+  margin: 0 0 6px;
+}
+
+.qb-detail-line strong {
+  color: var(--qb-muted, var(--qb-muted-fallback));
+  font-weight: 650;
+}
+
+.qb-detail-block {
+  margin: 0 0 8px;
+}
+
+.qb-detail-block strong {
+  display: block;
+  margin-bottom: 2px;
+  color: var(--qb-muted, var(--qb-muted-fallback));
+}
+
+.qb-detail-block p {
+  margin: 0 0 3px;
+}
+
+.qb-disclosure__body .qb-contact {
+  margin-top: 8px;
+}
+
+
 .qb-fact__copy {
   display: grid;
   min-width: 0;
@@ -605,7 +656,11 @@ details[open] > summary > .qb-fact__chevron {
   flex: 1 1 auto;
 }
 
+/* Same stacking rule as `.qb-overlap`: this band lifts its portrait over the
+   cover's lower edge, so it must be positioned to paint above it. */
 .qb-band--overlap {
+  position: relative;
+  z-index: 1;
   align-items: flex-end;
 }
 
@@ -802,7 +857,15 @@ details[open] > summary > .qb-fact__chevron {
 
 /* Overlap (profile overlay / story banner) */
 
+/*
+ * The cover is `position: relative`, so it paints above any STATIC sibling
+ * that follows it. An overlapping portrait pulled up with a negative margin
+ * was therefore drawn behind the cover and lost its top third. Anything that
+ * is meant to sit on top of the cover has to be positioned too.
+ */
 .qb-overlap {
+  position: relative;
+  z-index: 1;
   display: flex;
   justify-content: center;
   margin-top: calc(-1 * clamp(56px, 18cqw, 72px));

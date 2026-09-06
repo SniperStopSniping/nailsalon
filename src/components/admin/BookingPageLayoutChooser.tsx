@@ -27,6 +27,7 @@ import { getCustomerSitePresentationCssVariables } from '@/libs/customerSitePres
 import type { QuickBookFocalPoint } from '@/libs/quickBookPresentation';
 import {
   describeQuickBookLayoutCapabilities,
+  describeQuickBookNameAdvisory,
   getQuickBookLayout,
   getQuickBookLayoutsByFamily,
   QUICK_BOOK_LAYOUT_FAMILIES,
@@ -165,6 +166,9 @@ function LayoutCard({
   onSelect: () => void;
 }) {
   const capabilities = describeQuickBookLayoutCapabilities(layout);
+  // A recommendation, never a gate: the owner can pick any layout with any
+  // name, and nothing here reaches the customer's page.
+  const advisory = describeQuickBookNameAdvisory(layout, preview?.salonName ?? '');
   const variationOf = layout.variationOf ? getQuickBookLayout(layout.variationOf as QuickBookSiteLayout) : null;
   return (
     <button
@@ -199,6 +203,11 @@ function LayoutCard({
         </span>
       )}
       {variationOf && <span className="mt-1 block text-[11px] font-normal text-[var(--owner-muted)]">{`A variation of ${variationOf.label}`}</span>}
+      {advisory && (
+        <span className="mt-1.5 block rounded-lg bg-[var(--owner-ground)] px-2 py-1 text-[11px] font-normal text-[var(--owner-muted)]" data-testid={`quick-book-layout-advisory-${layout.id}`}>
+          {advisory}
+        </span>
+      )}
       {selected && <span className="mt-1 block text-xs">✓ Selected</span>}
     </button>
   );
@@ -284,23 +293,40 @@ export function BookingPageLayoutChooser({
         {/* Logo: never invented. */}
         <div className="mt-4 border-t border-[var(--owner-line)] pt-3" data-testid="quick-book-layout-logo">
           <p className="text-sm font-semibold">Business logo</p>
-          {preview?.logoUrl
-            ? <p className="text-sm text-[var(--owner-muted)]">Your logo is shown on this layout.</p>
-            : (
-                <p className="text-sm text-[var(--owner-muted)]">
-                  No logo saved, so your business name is shown on its own.
-                  {informationHref && (
-                    <>
-                      {' '}
-                      <a className={linkClass} href={informationHref}>Add a logo in Your Information</a>
-                      .
-                    </>
-                  )}
+          {selected.logo === 'omitted'
+            ? (
+                <p className="text-sm text-[var(--owner-muted)]" data-testid="quick-book-logo-omitted-note">
+                  This design leads with your name and photo, so it does not show a logo.
+                  Your logo is still saved and every other layout can use it.
                 </p>
-              )}
+              )
+            : preview?.logoUrl
+              ? <p className="text-sm text-[var(--owner-muted)]">Your logo is shown on this layout.</p>
+              : (
+                  <p className="text-sm text-[var(--owner-muted)]">
+                    No logo saved, so your business name is shown on its own.
+                    {informationHref && (
+                      <>
+                        {' '}
+                        <a className={linkClass} href={informationHref}>Add a logo in Your Information</a>
+                        .
+                      </>
+                    )}
+                  </p>
+                )}
         </div>
 
         {/* Profile photo */}
+        {selected.portrait === 'none' && preview?.technicianPhotoUrl && (
+          <div className="mt-4 border-t border-[var(--owner-line)] pt-3" data-testid="quick-book-portrait-unused">
+            <p className="text-sm font-semibold">Profile photo</p>
+            <p className="text-sm text-[var(--owner-muted)]">
+              This design does not show a profile photo. Yours is saved and appears on the
+              profile-led layouts.
+            </p>
+          </div>
+        )}
+
         {selected.portrait !== 'none' && (
           <div className="mt-4 border-t border-[var(--owner-line)] pt-3" data-testid="quick-book-layout-portrait">
             <p className="text-sm font-semibold">Profile photo · optional</p>

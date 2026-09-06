@@ -6221,6 +6221,15 @@ body:has(.onboarding-app) {
   line-height: 1.45;
 }
 
+.onboarding-quick-book-layout-card__advisory {
+  padding: 5px 7px;
+  border-radius: 8px;
+  background: var(--onboarding-ground);
+  color: var(--onboarding-muted);
+  font-size: 0.6rem;
+  line-height: 1.35;
+}
+
 .onboarding-quick-book-layout-default-note {
   margin: 12px 0 0;
   padding: 10px 12px;

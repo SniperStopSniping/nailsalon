@@ -77,6 +77,7 @@ import {
 } from '../preview/OnboardingSitePreview';
 import {
   describeQuickBookLayoutCapabilities,
+  describeQuickBookNameAdvisory,
   getQuickBookLayoutsByFamily,
   QUICK_BOOK_LAYOUT_FAMILIES,
   QUICK_BOOK_LAYOUT_FAMILY_LABELS,
@@ -1031,6 +1032,11 @@ export function QuickBookLayoutScreen({
                 {getQuickBookLayoutsByFamily(family).map((layout) => {
                   const selected = state.recipe.quickBookLayout === layout.id;
                   const capabilities = describeQuickBookLayoutCapabilities(layout);
+                  // Guidance, not a gate: any layout stays selectable.
+                  const advisory = describeQuickBookNameAdvisory(
+                    layout,
+                    state.profile.businessName,
+                  );
                   return (
                     <button
                       aria-pressed={selected}
@@ -1058,6 +1064,13 @@ export function QuickBookLayoutScreen({
                               <span className="onboarding-quick-book-layout-card__badges">
                                 {capabilities.map(capability => <i key={capability}>{capability}</i>)}
                               </span>
+                            )
+                          : null}
+                        {advisory
+                          ? (
+                              <small className="onboarding-quick-book-layout-card__advisory">
+                                {advisory}
+                              </small>
                             )
                           : null}
                         {selected

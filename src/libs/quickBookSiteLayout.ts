@@ -8,7 +8,9 @@
  * every existing caller uses.
  */
 import {
+  describeQuickBookImageRoles,
   describeQuickBookLayoutCapabilities,
+  describeQuickBookNameAdvisory,
   getQuickBookLayout,
   getQuickBookLayoutsByFamily,
   isLegacyQuickBookLayoutId,
@@ -21,11 +23,14 @@ import {
   type QuickBookLayoutDefinition,
   type QuickBookLayoutFamily,
   type QuickBookLayoutId,
+  type QuickBookNameFit,
   type QuickBookPortraitTreatment,
 } from '../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/quick-book/layouts';
 
 export {
+  describeQuickBookImageRoles,
   describeQuickBookLayoutCapabilities,
+  describeQuickBookNameAdvisory,
   getQuickBookLayout,
   getQuickBookLayoutsByFamily,
   isLegacyQuickBookLayoutId,
@@ -36,6 +41,7 @@ export {
   QUICK_BOOK_LAYOUT_FAMILY_LABELS,
   type QuickBookLayoutDefinition,
   type QuickBookLayoutFamily,
+  type QuickBookNameFit,
   type QuickBookPortraitTreatment,
 };
 

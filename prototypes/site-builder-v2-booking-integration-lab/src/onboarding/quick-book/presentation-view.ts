@@ -165,8 +165,17 @@ export const resolveQuickBookSpecialties = (input: {
   if (!getQuickBookLayout(input.layout).specialties) {
     return [];
   }
+  // Specialties come from an optional JSONB column, so a legacy row can hold
+  // something that is not a list at all. An unusable value means "no
+  // specialties" — it must never break the public page.
+  if (!Array.isArray(input.specialties)) {
+    return [];
+  }
   const unique = new Set<string>();
-  for (const value of input.specialties ?? []) {
+  for (const value of input.specialties) {
+    if (typeof value !== 'string') {
+      continue;
+    }
     const trimmed = value.trim();
     if (trimmed) {
       unique.add(trimmed);

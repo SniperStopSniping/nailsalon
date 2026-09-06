@@ -114,6 +114,13 @@ export function QuickBookProfileHeader({
     : profile.presentation?.layoutId === activeLayout
       ? profile.presentation
       : deriveQuickBookPresentation(profile, activeLayout);
+  // The six original layouts follow the same content recipe as the newer
+  // ones: each curates the owner's saved information instead of printing
+  // every field. A role a layout omits is still on the salon record and
+  // still used by every layout that wants it.
+  const recipe = getQuickBookLayout(activeLayout);
+  const showsLogo = recipe.logo !== 'omitted' && Boolean(profile.identity.logoUrl);
+  const showsPortrait = recipe.portrait !== 'none' && Boolean(profile.identity.technicianPhotoUrl);
   const hasSecondaryActions = profile.policies.length > 0 || profile.reviews || profile.instagram;
   const contactCount = Number(Boolean(profile.contact?.phone))
     + Number(Boolean(profile.contact?.email));
@@ -187,29 +194,29 @@ export function QuickBookProfileHeader({
                   }`}
                 >
                   {activeLayout === 'editorial'
-                    ? profile.identity.logoUrl || profile.identity.technicianPhotoUrl
+                    ? showsLogo || showsPortrait
                       ? (
                           <div className="flex items-center justify-center gap-3">
-                            {profile.identity.logoUrl
-                              ? <ProfileLogo name={profile.identity.salonName} src={profile.identity.logoUrl} />
+                            {showsLogo
+                              ? <ProfileLogo name={profile.identity.salonName} src={profile.identity.logoUrl!} />
                               : null}
-                            {profile.identity.technicianPhotoUrl
+                            {showsPortrait
                               ? (
                                   <TechnicianPhoto
                                     name={profile.identity.technicianName ?? profile.identity.salonName}
-                                    src={profile.identity.technicianPhotoUrl}
+                                    src={profile.identity.technicianPhotoUrl!}
                                   />
                                 )
                               : null}
                           </div>
                         )
                       : null
-                    : profile.identity.logoUrl
+                    : showsLogo
                       ? (
                           <ProfileLogo
                             compact={activeLayout === 'profile_story'}
                             name={profile.identity.salonName}
-                            src={profile.identity.logoUrl}
+                            src={profile.identity.logoUrl!}
                           />
                         )
                       : null}
@@ -237,16 +244,33 @@ export function QuickBookProfileHeader({
                       : null}
                   </div>
 
-                  {profile.identity.technicianPhotoUrl && activeLayout !== 'editorial'
+                  {showsPortrait && activeLayout !== 'editorial'
                     ? (
                         <TechnicianPhoto
                           compact={activeLayout === 'profile_story'}
                           name={profile.identity.technicianName ?? profile.identity.salonName}
-                          src={profile.identity.technicianPhotoUrl}
+                          src={profile.identity.technicianPhotoUrl!}
                         />
                       )
                     : null}
                 </div>
+
+                {/* Editorial deliberately runs a long, typographic introduction,
+                    which pushed the first booking affordance below the fold.
+                    A quiet editorial link restores an early route without
+                    putting a heavy button into a layout built on restraint.
+                    It targets the SAME booking entry as every other CTA. */}
+                {activeLayout === 'editorial'
+                  ? (
+                      <a
+                        className="mt-4 inline-flex min-h-11 items-center justify-center gap-2 self-center border-y border-neutral-200 px-4 py-2 text-center font-serif text-sm uppercase tracking-[0.18em] text-neutral-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
+                        data-testid="quick-book-editorial-cta"
+                        href={`#${BOOKING_ENTRY_ANCHOR_ID}`}
+                      >
+                        Book an appointment
+                      </a>
+                    )
+                  : null}
 
                 {profile.location || profile.hours || profile.contact
                   ? (
