@@ -59,6 +59,18 @@ function renderWorkspace(overrides?: {
   );
 }
 
+/**
+ * Revenue detail is a disclosure now (OP-009 / AG-cohesion-05): the card opens
+ * on the headline figures and the owner asks for the rest. Every assertion
+ * about a detail row therefore opens it first — the assertions themselves are
+ * unchanged.
+ */
+async function openRevenueBreakdown() {
+  await userEvent.click(
+    await screen.findByTestId('owner-revenue-breakdown-toggle'),
+  );
+}
+
 const EMPTY_PROVENANCE: ReportingProvenance = {
   mode: 'empty',
   finalizedAppointmentCount: 0,
@@ -265,6 +277,7 @@ describe('OwnerTodayWorkspace client follow-ups', () => {
 
     const revenue = await screen.findByTestId('owner-revenue-summary');
     await screen.findByText('$100.00');
+    await openRevenueBreakdown();
 
     expect(revenue).toHaveTextContent('Revenue today');
     expect(revenue).toHaveTextContent('Revenue this week');
@@ -348,7 +361,22 @@ describe('OwnerTodayWorkspace client follow-ups', () => {
     expect(emptyState).toHaveTextContent(
       'No completed financial activity yet.',
     );
-    expect(within(revenue).getAllByText('$0.00')).toHaveLength(13);
+    // DELIBERATE CHANGE (OP-009 / AG-cohesion-05): the card used to paint 13
+    // $0.00 tiles on arrival. It now opens on the three headline figures and
+    // the rest is a disclosure.
+    expect(within(revenue).getAllByText('$0.00')).toHaveLength(3);
+    expect(revenue).not.toHaveTextContent('Collected today');
+
+    await openRevenueBreakdown();
+
+    // Opened, the breakdown still omits the deposit and tax families: this
+    // salon takes no deposits and charges no tax, so those rows are not facts
+    // about today.
+    expect(revenue).toHaveTextContent('Collected today');
+    expect(revenue).toHaveTextContent('Completed outstanding');
+    expect(revenue).not.toHaveTextContent('Deposits collected');
+    expect(revenue).not.toHaveTextContent('Tax today');
+    expect(within(revenue).getAllByText('$0.00')).toHaveLength(8);
     expect(revenue).not.toHaveTextContent(/Estimated history|Incomplete history/);
   });
 
@@ -370,6 +398,9 @@ describe('OwnerTodayWorkspace client follow-ups', () => {
     });
 
     renderWorkspace();
+
+    await screen.findByTestId('owner-revenue-summary');
+    await openRevenueBreakdown();
 
     expect(await screen.findAllByText('$1.00')).toHaveLength(2);
     expect(
@@ -404,6 +435,7 @@ describe('OwnerTodayWorkspace client follow-ups', () => {
 
     // Same timing contract as the forfeiture test below: the card mounts
     // before the financial summary's state update renders the deposit lines.
+    await openRevenueBreakdown();
     await waitFor(() => expect(revenue).toHaveTextContent('Deposits collected$25.00'));
 
     expect(revenue).toHaveTextContent('Deposit refunds$5.00');
@@ -460,6 +492,7 @@ describe('OwnerTodayWorkspace client follow-ups', () => {
     // The card mounts before the financial summary's later state update
     // renders the forfeiture lines; wait for that content like the
     // 'Incomplete history' test below does.
+    await openRevenueBreakdown();
     await waitFor(() => expect(revenue).toHaveTextContent('Forfeiture tax estimate$2.88'));
 
     expect(revenue).toHaveTextContent('Forfeiture net estimate$22.12');
@@ -497,10 +530,13 @@ describe('OwnerTodayWorkspace client follow-ups', () => {
         return supportingResponse;
       }
       if (url.startsWith('/api/admin/financial-summary?')) {
+        // Both caveats are true of the REVENUE periods here, and the
+        // unresolved one must win. (The balance projection is deliberately
+        // the quiet one — it has its own test below.)
         return financialSummaryResponse(buildFinancialSummary({
           todayRevenueCents: 5000,
-          periodProvenance: legacyProvenance,
-          balanceProvenance: unresolvedProvenance,
+          periodProvenance: unresolvedProvenance,
+          balanceProvenance: legacyProvenance,
         }));
       }
       throw new Error(`Unhandled fetch: ${url}`);
@@ -519,6 +555,75 @@ describe('OwnerTodayWorkspace client follow-ups', () => {
     expect(revenue).not.toHaveTextContent(
       'Some historical totals use booked values because finalized checkout details are unavailable.',
     );
+    expect(screen.getByTestId('owner-revenue-under-review-chip')).toBeInTheDocument();
+  });
+
+  /**
+   * AG-w2-appointments-02: exact revenue must never be described as
+   * incomplete. Salon B's five completed appointments are finalized revenue
+   * ($90.00 in the current week) while their balances stay unresolved for want
+   * of a payment record; the card answered that with "Incomplete history —
+   * Some historical appointments could not be included", over figures that
+   * were complete.
+   */
+  it('does not call exact revenue incomplete when only the balances are unresolved', async () => {
+    const finalizedProvenance: ReportingProvenance = {
+      mode: 'finalized',
+      finalizedAppointmentCount: 1,
+      legacyAppointmentCount: 0,
+      unresolvedAppointmentCount: 0,
+      finalizedAmountCents: 9000,
+      legacyFallbackAmountCents: 0,
+      isEstimated: false,
+    };
+    const unresolvedBalanceProvenance: ReportingProvenance = {
+      mode: 'empty',
+      finalizedAppointmentCount: 0,
+      legacyAppointmentCount: 0,
+      unresolvedAppointmentCount: 5,
+      finalizedAmountCents: 0,
+      legacyFallbackAmountCents: 0,
+      isEstimated: true,
+    };
+
+    fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      const supportingResponse = supportingWorkspaceResponse(url);
+      if (supportingResponse) {
+        return supportingResponse;
+      }
+      if (url.startsWith('/api/admin/financial-summary?')) {
+        return financialSummaryResponse(buildFinancialSummary({
+          todayRevenueCents: 0,
+          weekRevenueCents: 9000,
+          monthRevenueCents: 9000,
+          periodProvenance: finalizedProvenance,
+          balanceProvenance: unresolvedBalanceProvenance,
+        }));
+      }
+      throw new Error(`Unhandled fetch: ${url}`);
+    });
+
+    renderWorkspace();
+
+    const revenue = await screen.findByTestId('owner-revenue-summary');
+
+    await waitFor(() => expect(revenue).toHaveTextContent('Balances under review'));
+
+    expect(revenue).toHaveTextContent(
+      '5 completed appointments could not be reconciled against their payment records, so they are left out of Completed outstanding.',
+    );
+    expect(revenue).toHaveTextContent(
+      'Every completed appointment is counted in the revenue totals.',
+    );
+    expect(revenue).not.toHaveTextContent('Incomplete history');
+    expect(revenue).not.toHaveTextContent(
+      'Some historical appointments could not be included because their financial details are unavailable.',
+    );
+    // The Revenue headline is exact, so it carries no "Under review" chip.
+    expect(
+      screen.queryByTestId('owner-revenue-under-review-chip'),
+    ).not.toBeInTheDocument();
   });
 
   it('shows a retryable first-load error and recovers', async () => {
@@ -799,5 +904,277 @@ describe('OwnerTodayWorkspace client follow-ups', () => {
       expect(todayRequests).toBe(2);
       expect(financialSummaryRequests).toBe(2);
     });
+  });
+});
+
+// AG-security-tenancy-02: revenue is owner-only on the server. A collaborator
+// is not looking at a broken card, and must not be told to "Try again".
+describe('OwnerTodayWorkspace revenue for a collaborator', () => {
+  it('says Owner only instead of an error, and stops polling revenue', async () => {
+    let financialSummaryRequests = 0;
+    fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      const supporting = supportingWorkspaceResponse(url);
+      if (supporting) {
+        return supporting;
+      }
+      if (url.startsWith('/api/admin/financial-summary?')) {
+        financialSummaryRequests += 1;
+        return new Response(
+          JSON.stringify({
+            error: {
+              code: 'OWNER_REQUIRED',
+              message: 'Only the salon owner can see revenue.',
+            },
+          }),
+          { status: 403 },
+        );
+      }
+      throw new Error(`Unhandled fetch: ${url}`);
+    });
+
+    renderWorkspace();
+
+    const revenue = await screen.findByTestId('owner-revenue-summary');
+    await screen.findByTestId('owner-revenue-summary-owner-only');
+
+    expect(revenue).toHaveTextContent('Owner only');
+    expect(revenue).toHaveTextContent(
+      'Revenue is visible to the salon owner. Your appointments, clients and services are unchanged.',
+    );
+    expect(revenue).not.toHaveTextContent('Revenue summary is temporarily unavailable.');
+    expect(screen.queryByRole('button', { name: 'Try again' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Refresh revenue summary' })).not.toBeInTheDocument();
+    expect(revenue).not.toHaveTextContent('$');
+
+    // A refused card must not become a per-minute retry loop.
+    await act(async () => {
+      window.dispatchEvent(new Event(APPOINTMENT_DATA_CHANGED_EVENT));
+    });
+    await waitFor(() => {
+      expect(financialSummaryRequests).toBe(1);
+    });
+  });
+});
+
+describe('OwnerTodayWorkspace first fold', () => {
+  // Relative to the real clock: "still to come" is a fact about now, and a
+  // hard-coded date would quietly stop testing it.
+  const IN_AN_HOUR = new Date(Date.now() + 3_600_000).toISOString();
+  const IN_TWO_HOURS = new Date(Date.now() + 7_200_000).toISOString();
+
+  function todayWith(
+    appointmentOverrides: Array<Partial<{
+      id: string;
+      clientName: string | null;
+      startTime: string;
+      endTime: string;
+      status: string;
+    }>>,
+    integrationOverrides?: Record<string, unknown>,
+  ) {
+    return {
+      data: {
+        ...todayPayload.data,
+        appointments: appointmentOverrides.map((appointment, index) => ({
+          id: appointment.id ?? `appt_${index}`,
+          clientName: appointment.clientName ?? `Client ${index}`,
+          startTime: appointment.startTime ?? IN_AN_HOUR,
+          endTime: appointment.endTime ?? IN_TWO_HOURS,
+          status: appointment.status ?? 'confirmed',
+          totalPrice: 8000,
+          totalDurationMinutes: 60,
+          technicianName: 'Daniela',
+          services: ['Gel manicure'],
+          clientSensitivities: null,
+        })),
+        integrationHealth: {
+          ...todayPayload.data.integrationHealth,
+          ...(integrationOverrides ?? {}),
+        },
+      },
+    };
+  }
+
+  function mockWorkspace(today: ReturnType<typeof todayWith>) {
+    fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.startsWith('/api/admin/today?')) {
+        return new Response(JSON.stringify(today), { status: 200 });
+      }
+      if (url.startsWith('/api/admin/retention?')) {
+        return new Response(JSON.stringify({
+          data: { retention: [], appointmentReminders: [], history: [] },
+        }), { status: 200 });
+      }
+      if (url.startsWith('/api/admin/financial-summary?')) {
+        return financialSummaryResponse();
+      }
+      throw new Error(`Unhandled fetch: ${url}`);
+    });
+  }
+
+  it('surfaces a booking still waiting for an answer, and confirming it opens that appointment', async () => {
+    mockWorkspace(todayWith([
+      { id: 'appt_confirmed', status: 'confirmed' },
+      {
+        id: 'appt_audit_a11',
+        clientName: 'AUDIT Client Dev',
+        status: 'pending',
+      },
+    ]));
+    const onOpenAppointment = vi.fn();
+
+    renderWorkspace({ onOpenAppointment });
+
+    const attention = await screen.findByTestId('owner-needs-attention');
+
+    expect(
+      screen.getByTestId('owner-needs-attention-pending-count'),
+    ).toHaveTextContent('1 booking needs confirming');
+    expect(attention).toHaveTextContent('AUDIT Client Dev');
+
+    await userEvent.click(
+      within(attention).getByRole('button', { name: /^Confirm AUDIT Client Dev at/ }),
+    );
+
+    expect(onOpenAppointment).toHaveBeenCalledWith('appt_audit_a11');
+  });
+
+  it('puts what needs attention above the schedule', async () => {
+    mockWorkspace(todayWith([{ id: 'appt_pending', status: 'pending' }]));
+
+    renderWorkspace();
+
+    const attention = await screen.findByTestId('owner-needs-attention');
+    const agenda = screen.getByTestId('owner-today-agenda');
+
+    expect(
+      attention.compareDocumentPosition(agenda)
+      & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
+  it('says nothing about attention when every booking today is settled', async () => {
+    mockWorkspace(todayWith([
+      { id: 'a', status: 'confirmed' },
+      { id: 'b', status: 'completed' },
+    ]));
+
+    renderWorkspace();
+
+    await screen.findByTestId('owner-today-agenda');
+
+    expect(screen.queryByTestId('owner-needs-attention')).not.toBeInTheDocument();
+  });
+
+  it('states the day once, as a total and what is left of it', async () => {
+    mockWorkspace(todayWith([
+      { id: 'a', status: 'confirmed' },
+      { id: 'b', status: 'confirmed' },
+      { id: 'c', status: 'confirmed' },
+      { id: 'd', status: 'pending' },
+    ]));
+
+    renderWorkspace();
+
+    const tile = await screen.findByTestId('owner-today-count-tile');
+
+    await waitFor(() => expect(tile).toHaveTextContent('4 appointments today'));
+
+    expect(tile).toHaveTextContent('4 still to come');
+    // The redundant second tile is gone (AG-today-calendar-07).
+    expect(screen.queryByText('Upcoming today')).not.toBeInTheDocument();
+    expect(screen.queryByText('Appointments today')).not.toBeInTheDocument();
+  });
+
+  it('opens the revenue card on its headline figures, with the detail behind a disclosure', async () => {
+    mockWorkspace(todayWith([]));
+
+    renderWorkspace();
+
+    const revenue = await screen.findByTestId('owner-revenue-summary');
+    const toggle = await screen.findByTestId('owner-revenue-breakdown-toggle');
+
+    expect(toggle).toHaveTextContent('View breakdown');
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    expect(revenue).not.toHaveTextContent('Collected today');
+    // One line about the money, never a "nothing yet" that argues with an
+    // "incomplete history" banner (AG-today-calendar-08).
+    expect(
+      within(revenue).getAllByTestId(/owner-revenue-summary-empty|owner-revenue-history-notice/),
+    ).toHaveLength(1);
+
+    await userEvent.click(toggle);
+
+    expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    expect(toggle).toHaveTextContent('Hide breakdown');
+    expect(revenue).toHaveTextContent('Collected today');
+  });
+
+  it('offers to connect Google Calendar instead of describing a sync that does not exist', async () => {
+    mockWorkspace(todayWith([], {
+      google: { status: 'disconnected', readiness: 'not_connected' },
+    }));
+
+    renderWorkspace();
+
+    const card = await screen.findByTestId('owner-google-calendar-card');
+
+    await waitFor(() =>
+      expect(card).toHaveTextContent('Connect Google Calendar'));
+
+    expect(card).not.toHaveTextContent('two-way sync');
+    expect(card).toHaveTextContent('Not connected yet.');
+  });
+
+  it('keeps the connected calendar copy when the integration is ready', async () => {
+    mockWorkspace(todayWith([], {
+      google: { status: 'connected', readiness: 'ready' },
+    }));
+
+    renderWorkspace();
+
+    const card = await screen.findByTestId('owner-google-calendar-card');
+
+    await waitFor(() => expect(card).toHaveTextContent('two-way sync'));
+
+    expect(card).toHaveTextContent('Google Calendar & reminders');
+  });
+
+  it('gives every schedule row the same background', async () => {
+    mockWorkspace(todayWith([
+      { id: 'a', status: 'confirmed' },
+      { id: 'b', status: 'confirmed' },
+      { id: 'c', status: 'pending' },
+    ]));
+
+    renderWorkspace();
+
+    const agenda = await screen.findByTestId('owner-today-agenda');
+
+    await waitFor(() =>
+      expect(within(agenda).getAllByText(/Client [012]/)).toHaveLength(3));
+
+    const rows = within(agenda)
+      .getAllByRole('button')
+      .filter(button => button.className.includes('py-4'));
+
+    expect(rows).toHaveLength(3);
+
+    // r27 cohesion sweep: the shared ground moved from the literal `bg-white`
+    // onto the owner surface token, so Today, the calendar and the sheets all
+    // paint from one layer. The rule under test is unchanged — every row has
+    // the SAME ground, and "next" is never carried by an amber wash.
+    const grounds = new Set(
+      rows.map(row =>
+        (row.className.match(/bg-\[var\(--owner-surface[^\]]*\]|bg-white/) ?? [''])[0]),
+    );
+
+    expect(grounds).toEqual(new Set(['bg-[var(--owner-surface,#fffdfb)]']));
+
+    for (const row of rows) {
+      expect(row.className).not.toContain('bg-amber-50');
+    }
   });
 });

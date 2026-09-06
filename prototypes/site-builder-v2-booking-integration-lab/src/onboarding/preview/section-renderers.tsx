@@ -860,13 +860,17 @@ function VisitUs({ planSection, section, shared }: LibraryPreviewSectionProps) {
           ? [{ action, contentKey }]
           : [];
       });
+  // Keyed by the arrival detail each note came from, not by its text. Two of
+  // these fields can legitimately hold the same sentence (an owner who typed
+  // the same note into Parking and Entrance), and a text key then produced
+  // duplicate React keys on every preview render (OP-006).
   const practicalNotes = ownsArrivalDetails
     && profile.location.addressVisibility === 'public'
-    ? [
-        settings.showParking ? profile.location.parking.trim() : '',
-        settings.showEntrance ? profile.location.entranceInstructions.trim() : '',
-        settings.showTransit ? profile.location.transitInformation.trim() : '',
-      ].filter(Boolean)
+    ? ([
+        ['parking', settings.showParking ? profile.location.parking.trim() : ''],
+        ['entrance', settings.showEntrance ? profile.location.entranceInstructions.trim() : ''],
+        ['transit', settings.showTransit ? profile.location.transitInformation.trim() : ''],
+      ] as const).filter(([, note]) => note !== '')
     : [];
   const showBookingOnlyContact = settings.contactSummary !== 'hide'
     && profile.bookingOnlyContact;
@@ -939,7 +943,7 @@ function VisitUs({ planSection, section, shared }: LibraryPreviewSectionProps) {
                   {...contentAttributes(shared, 'arrival_details', planSection.id)}
                   className="customer-lib-visit-notes"
                 >
-                  {practicalNotes.map(note => <li key={note}>{note}</li>)}
+                  {practicalNotes.map(([detail, note]) => <li key={detail}>{note}</li>)}
                 </ul>
               )
             : null}

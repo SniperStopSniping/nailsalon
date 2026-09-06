@@ -3,7 +3,7 @@ import 'server-only';
 import { and, desc, eq, sql } from 'drizzle-orm';
 
 import type { AdminWithSalons } from '@/libs/adminAuth';
-import { getAdminImpersonationForAdmin, requireAdmin } from '@/libs/adminAuth';
+import { getAdminImpersonationForAdmin, requireAdminOwner } from '@/libs/adminAuth';
 import type { AdminImpersonationSession } from '@/libs/adminImpersonation';
 import { logAuditEvent } from '@/libs/auditLog';
 import { db } from '@/libs/DB';
@@ -105,7 +105,16 @@ async function requireSalonAdmin(args: SalonScopedReadArgs): Promise<DepositAdmi
     };
   }
 
-  const access = await requireAdmin(salon.id);
+  // Deposit records ARE money: what a client paid, what was refunded, waived,
+  // released or forfeited. Every route behind this helper — the salon list,
+  // the per-appointment read and the five money mutations — is therefore
+  // owner-only (role 'admin' collaborators get 403 OWNER_REQUIRED), while
+  // their daily appointment and client work is untouched. Super admins still
+  // have to impersonate this salon (checked immediately below).
+  const access = await requireAdminOwner(
+    salon.id,
+    'Only the salon owner can access deposit records.',
+  );
   if (!access.ok) {
     return access;
   }

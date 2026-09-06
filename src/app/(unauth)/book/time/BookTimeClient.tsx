@@ -61,9 +61,17 @@ type BookTimeClientProps = {
   bookingFlow: BookingStep[];
   minimumNoticeMinutes?: number;
   salonTimeZone?: string;
+  /**
+   * Weekdays (0 = Sunday … 6 = Saturday) the salon is closed, resolved from
+   * the same opening-hours ceiling the availability API enforces. Empty when
+   * the salon publishes no hours anywhere — then no day is marked closed and
+   * the calendar behaves exactly as it did before.
+   */
+  closedWeekdays?: number[];
 };
 
 const EMPTY_ADD_ONS: AddOnSummary[] = [];
+const EMPTY_CLOSED_WEEKDAYS: number[] = [];
 
 type DisplayTimeSlot = {
   time: string;
@@ -166,6 +174,31 @@ const getSalonToday = (timeZone: string) => {
   return salonNow;
 };
 
+// The salon is shut on this weekday, so it can never hold a bookable slot.
+// `closedWeekdays` is empty for salons that publish no opening hours; every
+// day then stays open exactly as before.
+const isClosedDay = (date: Date, closedWeekdays: ReadonlySet<number>) =>
+  closedWeekdays.has(date.getDay());
+
+// First day from `start` (inclusive) the salon is actually open. Never runs
+// past a full week — if the owner marked all seven days closed there is no
+// open day to move to and the caller keeps the day it asked for, so the
+// "no bookable times" recovery card stays the honest answer.
+const findFirstOpenDay = (start: Date, closedWeekdays: ReadonlySet<number>): Date => {
+  const candidate = new Date(start);
+  candidate.setHours(0, 0, 0, 0);
+  if (closedWeekdays.size === 0 || closedWeekdays.size >= 7) {
+    return candidate;
+  }
+  for (let offset = 0; offset < 7; offset += 1) {
+    if (!isClosedDay(candidate, closedWeekdays)) {
+      return candidate;
+    }
+    candidate.setDate(candidate.getDate() + 1);
+  }
+  return candidate;
+};
+
 // Restore a previously selected calendar date from the URL (set on date
 // selection below) so returning to this step — browser back, slot-taken
 // recovery, or the stale-Smart-Fit flow — keeps the client's date instead of
@@ -243,6 +276,7 @@ export function BookTimeClient({
   bookingFlow,
   minimumNoticeMinutes,
   salonTimeZone = DEFAULT_SALON_TIMEZONE,
+  closedWeekdays = EMPTY_CLOSED_WEEKDAYS,
 }: BookTimeClientProps) {
   const router = useRouter();
   const params = useParams();
@@ -287,11 +321,19 @@ export function BookTimeClient({
 
   // "Today" is defined by the salon's timezone, not the visitor's device.
   const today = getSalonToday(salonTimeZone);
+  const closedWeekdaySet = useMemo(
+    () => new Set(closedWeekdays.filter(day => Number.isInteger(day) && day >= 0 && day <= 6)),
+    [closedWeekdays],
+  );
   const restoredCalendarDate = resolveRestoredCalendarDate(
     searchParams.get('date') || '',
     salonTimeZone,
   );
-  const initialCalendarDate = restoredCalendarDate ?? today;
+  // Arriving with no date of their own (service → artist → time), the client
+  // must not land on a day the salon is shut: that day can never answer with
+  // a slot, so the first thing they see is a dead end. Open on today when the
+  // salon trades today, otherwise on the next day it does.
+  const initialCalendarDate = restoredCalendarDate ?? findFirstOpenDay(today, closedWeekdaySet);
 
   const [mounted, setMounted] = useState(false);
   const [currentMonth, setCurrentMonth] = useState(initialCalendarDate.getMonth());
@@ -301,6 +343,10 @@ export function BookTimeClient({
   const [bookedSlots, setBookedSlots] = useState<string[]>([]);
   const [availabilityBufferMinutes, setAvailabilityBufferMinutes] = useState(0);
   const [loadingSlots, setLoadingSlots] = useState(false);
+  // Date key whose availability response has actually landed. Empty state
+  // alone is not evidence a day is unbookable — before this matches the
+  // selected day, nothing may conclude the day is empty.
+  const [loadedAvailabilityDateKey, setLoadedAvailabilityDateKey] = useState<string | null>(null);
   const [availabilityError, setAvailabilityError] = useState<AvailabilityError | null>(null);
   const [findingNextAvailable, setFindingNextAvailable] = useState(false);
   const [nextAvailableMessage, setNextAvailableMessage] = useState<string | null>(null);
@@ -460,6 +506,7 @@ export function BookTimeClient({
     } finally {
       if (availabilityRequestIdRef.current === requestId) {
         setLoadingSlots(false);
+        setLoadedAvailabilityDateKey(getDateKey(date));
       }
     }
   }, [buildAvailabilityUrl, campaignToken, salonSlug, totalDuration]);
@@ -488,6 +535,11 @@ export function BookTimeClient({
       for (let dayOffset = 1; dayOffset <= 30; dayOffset += 1) {
         const candidate = new Date(selectedDate);
         candidate.setDate(candidate.getDate() + dayOffset);
+        // A closed weekday can never answer with a slot — don't spend a
+        // request (and don't let it look like a checked, empty day).
+        if (isClosedDay(candidate, closedWeekdaySet)) {
+          continue;
+        }
         const response = await fetch(buildAvailabilityUrl(candidate), { cache: 'no-store' }).catch(() => null);
         if (!response?.ok) {
           continue;
@@ -514,7 +566,7 @@ export function BookTimeClient({
     } finally {
       setFindingNextAvailable(false);
     }
-  }, [buildAvailabilityUrl, findingNextAvailable, selectedDate, syncSelectedDateToUrl]);
+  }, [buildAvailabilityUrl, closedWeekdaySet, findingNextAvailable, selectedDate, syncSelectedDateToUrl]);
 
   // Check if there are any available slots for a given date (unused for now)
   // const getAvailableSlotsForDate = useCallback((date: Date, booked: string[] = []) => {
@@ -572,6 +624,13 @@ export function BookTimeClient({
       return;
     }
 
+    // Decide only on evidence. `visibleSlots` is empty on the very first
+    // render too, and acting on that emptiness is what moved every client off
+    // a today that still had bookable times.
+    if (loadedAvailabilityDateKey !== getDateKey(selectedDate)) {
+      return;
+    }
+
     if (filterPastTimeSlots(visibleSlots.map(slot => slot.time), selectedDate, salonTimeZone).length > 0) {
       return;
     }
@@ -579,11 +638,28 @@ export function BookTimeClient({
     autoAdvancedTodayRef.current = true;
     const tomorrow = new Date(todayMidnight);
     tomorrow.setDate(tomorrow.getDate() + 1);
-    setSelectedDate(tomorrow);
-    setCurrentMonth(tomorrow.getMonth());
-    setCurrentYear(tomorrow.getFullYear());
-    syncSelectedDateToUrl(getDateKey(tomorrow));
-  }, [availabilityError, loadingSlots, mounted, salonTimeZone, selectedDate, syncSelectedDateToUrl, visibleSlots]);
+    // Skip past any closed weekday: advancing blindly to "tomorrow" is what
+    // dropped clients onto a shut Sunday with nothing to choose.
+    const nextOpenDay = findFirstOpenDay(tomorrow, closedWeekdaySet);
+    setSelectedDate(nextOpenDay);
+    setCurrentMonth(nextOpenDay.getMonth());
+    setCurrentYear(nextOpenDay.getFullYear());
+    syncSelectedDateToUrl(getDateKey(nextOpenDay));
+  }, [availabilityError, closedWeekdaySet, loadedAvailabilityDateKey, loadingSlots, mounted, salonTimeZone, selectedDate, syncSelectedDateToUrl, visibleSlots]);
+
+  // A date the client never chose but that the closed-day resolution above
+  // moved off today must reach the URL too, so browser-back and the
+  // slot-taken/stale-Smart-Fit recoveries restore the day actually shown.
+  useEffect(() => {
+    if (!mounted || !selectedDate || restoredCalendarDate !== null) {
+      return;
+    }
+    if (selectedDate.toDateString() === today.toDateString()) {
+      return;
+    }
+    syncSelectedDateToUrl(getDateKey(selectedDate));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mounted]);
 
   // Scroll to time slots when loading completes and we have a pending scroll request
   useEffect(() => {
@@ -704,6 +780,12 @@ export function BookTimeClient({
     { key: 'saturday', label: 'S' },
   ];
 
+  const closedWeekdayNames = dayNames
+    .map((day, index) => (closedWeekdaySet.has(index)
+      ? `${day.key.charAt(0).toUpperCase()}${day.key.slice(1)}s`
+      : null))
+    .filter((name): name is string => name !== null);
+
   const handlePrevMonth = () => {
     if (currentMonth === 0) {
       setCurrentMonth(11);
@@ -733,7 +815,7 @@ export function BookTimeClient({
 
     if (
       dateAtMidnight < todayAtMidnight
-      || loadingSlots
+      || isClosedDay(dateAtMidnight, closedWeekdaySet)
       || selectedDateKey === nextDateKey
     ) {
       return;
@@ -964,41 +1046,51 @@ export function BookTimeClient({
               const isSelected = selectedDate && date.toDateString() === selectedDate.toDateString();
               const isToday = date.toDateString() === today.toDateString();
               const isPast = date < today && !isToday;
+              const isClosed = isClosedDay(date, closedWeekdaySet);
+              const isUnselectable = Boolean(isPast || isClosed);
 
               return (
                 <button
                   key={date.toISOString()}
                   type="button"
                   data-testid={`calendar-day-${getDateKey(date)}`}
+                  data-closed={isClosed ? 'true' : undefined}
                   onClick={() => handleDateSelect(date)}
-                  disabled={Boolean(isPast || loadingSlots || isSelected)}
+                  disabled={Boolean(isUnselectable || isSelected)}
+                  aria-label={isClosed
+                    ? `${monthNames[date.getMonth()]} ${date.getDate()} — closed`
+                    : undefined}
+                  title={isClosed ? 'The salon is closed on this day' : undefined}
                   className="h-11 min-w-11 rounded-xl text-sm font-semibold transition-all duration-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 motion-reduce:transition-none"
                   style={{
                     transform: isSelected ? 'scale(1.1)' : undefined,
                     zIndex: isSelected ? 10 : undefined,
                     background: isSelected
                       ? `linear-gradient(to bottom right, ${themeVars.primary}, ${themeVars.primaryDark})`
-                      : isToday
+                      : isToday && !isClosed
                         ? themeVars.accent
                         : undefined,
                     color: isPast
                       ? '#d4d4d4'
                       : isSelected
                         ? '#171717'
-                        : isToday
-                          ? 'white'
-                          : '#404040',
+                        : isClosed
+                          ? '#a3a3a3'
+                          : isToday
+                            ? 'white'
+                            : '#404040',
+                    textDecoration: isClosed && !isPast ? 'line-through' : undefined,
                     boxShadow: isSelected ? '0 10px 15px -3px rgb(0 0 0 / 0.1)' : undefined,
-                    cursor: isPast ? 'not-allowed' : 'pointer',
+                    cursor: isUnselectable ? 'not-allowed' : 'pointer',
                     opacity: loadingSlots && !isSelected ? 0.6 : undefined,
                   }}
                   onMouseEnter={(e) => {
-                    if (!isPast && !isSelected && !isToday) {
+                    if (!isUnselectable && !isSelected && !isToday) {
                       e.currentTarget.style.backgroundColor = themeVars.background;
                     }
                   }}
                   onMouseLeave={(e) => {
-                    if (!isPast && !isSelected && !isToday) {
+                    if (!isUnselectable && !isSelected && !isToday) {
                       e.currentTarget.style.backgroundColor = '';
                     }
                   }}
@@ -1008,6 +1100,20 @@ export function BookTimeClient({
               );
             })}
           </div>
+
+          {closedWeekdaySet.size > 0 && closedWeekdaySet.size < 7
+            ? (
+                <p
+                  data-testid="calendar-closed-legend"
+                  className="border-t border-neutral-100 px-5 py-2.5 text-center text-xs font-medium text-neutral-500"
+                >
+                  <span className="mr-1.5 align-middle text-neutral-400 line-through">00</span>
+                  Closed —
+                  {' '}
+                  {closedWeekdayNames.join(', ')}
+                </p>
+              )
+            : null}
         </div>
 
         {/* No slots available message */}

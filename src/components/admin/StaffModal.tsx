@@ -54,7 +54,7 @@ export function StaffModal({ onClose, salonSlug }: StaffModalProps) {
   }, []);
 
   return (
-    <div className="relative flex h-full min-h-0 w-full flex-col overflow-hidden bg-[#F2F2F7] font-sans text-black">
+    <div className="relative flex size-full min-h-0 flex-col overflow-hidden bg-[#F2F2F7] font-sans text-black">
       {/* Header */}
       <div className="sticky top-0 z-20 bg-[#F2F2F7]/80 backdrop-blur-md">
         <ModalHeader
@@ -65,7 +65,7 @@ export function StaffModal({ onClose, salonSlug }: StaffModalProps) {
               type="button"
               onClick={handleAddStaff}
               disabled={!salonSlug}
-              className="text-[17px] font-medium text-[#007AFF] transition-opacity active:opacity-50 disabled:text-[#8E8E93] disabled:opacity-60"
+              className="min-h-11 px-2 text-[17px] font-medium text-[var(--owner-accent,#8f3155)] transition-opacity active:opacity-50 disabled:text-[var(--owner-muted,#706267)] disabled:opacity-60"
             >
               Add
             </button>

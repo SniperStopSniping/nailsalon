@@ -618,9 +618,20 @@ export function PremiumAccountGate({
                   Free to create
                 </li>
               </ul>
+              {/* OP-002: the card kept sign-up wording after the owner chose
+                  "Log in", telling a returning owner to create the account
+                  they already have. */}
               <div className="onboarding-gate__account-heading">
-                <h2>Create your free account</h2>
-                <p>No payment required. You can change everything later.</p>
+                <h2>
+                  {intent === 'sign-up'
+                    ? 'Create your free account'
+                    : 'Log in to your Luster account'}
+                </h2>
+                <p>
+                  {intent === 'sign-up'
+                    ? 'No payment required. You can change everything later.'
+                    : 'Use the account you already have. Your site saves to it as soon as you log in.'}
+                </p>
               </div>
               {formError
                 ? <p className="onboarding-gate__error" role="alert">{formError}</p>
@@ -699,7 +710,11 @@ export function PremiumAccountGate({
               </p>
               <p className="onboarding-gate__reassure" data-entrance="5">
                 <LockKeyhole aria-hidden="true" size={15} />
-                <span>Free to create · No payment required</span>
+                <span>
+                  {intent === 'sign-up'
+                    ? 'Free to create · No payment required'
+                    : 'Secure log in · Nothing you built is changed'}
+                </span>
               </p>
               <p className="onboarding-gate__reassure is-secondary" data-entrance="5">
                 Your work stays safe on this device until saving is complete.

@@ -104,6 +104,43 @@ describe('AppModal', () => {
     await waitFor(() => expect(opener).toHaveFocus());
   });
 
+  it('dismisses from the backdrop and leaves a thumb-sized strip of it exposed', async () => {
+    const user = userEvent.setup();
+
+    function Harness() {
+      const [open, setOpen] = useState(false);
+      return (
+        <>
+          <button type="button" onClick={() => setOpen(true)}>Open owner app</button>
+          <AppModal isOpen={open} onClose={() => setOpen(false)} title="Owner app" allowDragToDismiss={false}>
+            <button type="button">Inside action</button>
+          </AppModal>
+        </>
+      );
+    }
+
+    render(<Harness />);
+    const opener = screen.getByRole('button', { name: 'Open owner app' });
+    await user.click(opener);
+
+    const panel = await screen.findByTestId('app-modal-panel');
+
+    // The exposed backdrop band is whatever the sheet's top inset leaves; a
+    // 12 px strip is not a tap target on a phone (AG-w2-settings-integrations-11).
+    expect(panel).toHaveStyle({
+      top: 'max(calc(env(safe-area-inset-top, 0px) + 12px), 44px)',
+    });
+
+    const backdrop = screen.getByTestId('app-modal-backdrop');
+
+    expect(backdrop).toHaveAttribute('aria-hidden', 'true');
+
+    fireEvent.click(backdrop);
+
+    await waitFor(() => expect(screen.queryByTestId('app-modal-panel')).not.toBeInTheDocument());
+    await waitFor(() => expect(opener).toHaveFocus());
+  });
+
   it('gives a nested DialogShell sole topmost ownership', async () => {
     const user = userEvent.setup();
     const outerClose = vi.fn();

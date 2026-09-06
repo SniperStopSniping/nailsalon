@@ -1,4 +1,4 @@
-import { and, eq, sql } from 'drizzle-orm';
+import { and, eq, inArray, sql } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import { z } from 'zod';
 
@@ -79,6 +79,21 @@ const createServiceSchema = z.object({
   isIntroPrice: z.boolean().optional().default(false),
   introPriceLabel: optionalTextField,
   technicianIds: z.array(z.string().min(1)).optional(),
+});
+
+/**
+ * Collection-level reorder (AG-services-03). The owner sends the menu in the
+ * order they want it; `sort_order` is rewritten to 1..n in one transaction.
+ * Both the admin list and the public booking menu already ORDER BY sort_order
+ * (`getServicesBySalonIdIncludingInactive` / `getServicesBySalonId`), so the
+ * client menu follows without any other change.
+ */
+const reorderServicesSchema = z.object({
+  salonSlug: z.string().min(1, 'Salon slug is required'),
+  orderedIds: z
+    .array(z.string().min(1))
+    .min(1, 'Send the services in their new order')
+    .max(300, 'Too many services to reorder in one request'),
 });
 
 // =============================================================================
@@ -279,7 +294,14 @@ export async function POST(request: Request): Promise<Response> {
 
           return Response.json({
             data: {
-              service: buildServicePayload(revivedService),
+              service: {
+                ...buildServicePayload(revivedService),
+                // The owner UI decides whether to warn "not visible in
+                // booking" from this number. Omitting it from the write
+                // response made a brand-new service read as fine
+                // (AG-w2-services-01).
+                assignedTechnicianCount: revivedAssignments.assignedTechnicianIds.length,
+              },
               assignment: revivedAssignments,
             },
           });
@@ -357,7 +379,13 @@ export async function POST(request: Request): Promise<Response> {
     return Response.json(
       {
         data: {
-          service: buildServicePayload(createdService),
+          service: {
+            ...buildServicePayload(createdService),
+            // See the revive branch above: the create response has to carry
+            // the assignment count or the owner UI cannot tell "assigned" from
+            // "unknown" (AG-w2-services-01).
+            assignedTechnicianCount: result.assignments.assignedTechnicianIds.length,
+          },
           assignment: result.assignments,
         },
       },
@@ -395,6 +423,111 @@ export async function POST(request: Request): Promise<Response> {
         error: {
           code: 'INTERNAL_ERROR',
           message: 'Failed to create service',
+        },
+      } satisfies ErrorResponse,
+      { status: 500 },
+    );
+  }
+}
+
+// =============================================================================
+// PATCH /api/salon/services - Reorder the salon's menu (sort_order)
+// =============================================================================
+
+export async function PATCH(request: Request): Promise<Response> {
+  try {
+    const validated = reorderServicesSchema.safeParse(
+      await request.json().catch(() => null),
+    );
+
+    if (!validated.success) {
+      return Response.json(
+        {
+          error: {
+            code: 'VALIDATION_ERROR',
+            message:
+              validated.error.issues[0]?.message ?? 'Invalid request body',
+            details: validated.error.flatten(),
+          },
+        } satisfies ErrorResponse,
+        { status: 400 },
+      );
+    }
+
+    const { salonSlug, orderedIds } = validated.data;
+
+    if (new Set(orderedIds).size !== orderedIds.length) {
+      return Response.json(
+        {
+          error: {
+            code: 'DUPLICATE_SERVICE_ID',
+            message: 'The same service appeared twice in the requested order.',
+          },
+        } satisfies ErrorResponse,
+        { status: 400 },
+      );
+    }
+
+    const { error, salon } = await requireAdminSalon(salonSlug);
+    if (error || !salon) {
+      return error!;
+    }
+
+    // Tenant scoping is not optional here: an id from another salon must never
+    // reach the UPDATE, and a partially-applied order is worse than none, so
+    // the whole request is rejected before anything is written.
+    const ownedServices = await db
+      .select({ id: serviceSchema.id })
+      .from(serviceSchema)
+      .where(
+        and(
+          eq(serviceSchema.salonId, salon.id),
+          inArray(serviceSchema.id, orderedIds),
+        ),
+      );
+
+    if (ownedServices.length !== orderedIds.length) {
+      return Response.json(
+        {
+          error: {
+            code: 'SERVICE_NOT_FOUND',
+            message: 'One or more services are not on this salon’s menu.',
+          },
+        } satisfies ErrorResponse,
+        { status: 404 },
+      );
+    }
+
+    const updatedAt = new Date();
+    await db.transaction(async (tx) => {
+      for (const [index, serviceId] of orderedIds.entries()) {
+        await tx
+          .update(serviceSchema)
+          .set({ sortOrder: index + 1, updatedAt })
+          .where(
+            and(
+              eq(serviceSchema.id, serviceId),
+              eq(serviceSchema.salonId, salon.id),
+            ),
+          );
+      }
+    });
+
+    return Response.json({
+      data: {
+        order: orderedIds.map((serviceId, index) => ({
+          id: serviceId,
+          sortOrder: index + 1,
+        })),
+      },
+    });
+  } catch (error) {
+    console.error('Error reordering services:', error);
+    return Response.json(
+      {
+        error: {
+          code: 'INTERNAL_ERROR',
+          message: 'Failed to reorder services',
         },
       } satisfies ErrorResponse,
       { status: 500 },

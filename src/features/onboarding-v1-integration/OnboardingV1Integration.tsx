@@ -18,6 +18,7 @@ import {
   useRef,
   useState,
 } from 'react';
+import { ZodError } from 'zod';
 
 import {
   CustomDesignAssetProvider,
@@ -32,6 +33,7 @@ import { goBack, goToScreen } from '../../../prototypes/site-builder-v2-booking-
 import type {
   OnboardingEventInput,
   OnboardingLabState,
+  OnboardingScreenId,
   PlanIntent,
 } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/model/types';
 import {
@@ -117,6 +119,52 @@ const PLAN_ACTIONS: Record<OnboardingPlanIntent, string> = {
   founding_interest: 'Reserve founding offer',
   free: 'Continue free',
   monthly_interest: 'I’m interested in monthly',
+};
+
+/**
+ * Owner-readable names for the persisted snapshot fields, with the setup screen
+ * that owns each one. A snapshot the account gate cannot save is a missing
+ * detail, not a stack trace: owners must never be shown the raw `ZodError`
+ * issue JSON, and the recovery button must lead to the screen that can fix it
+ * rather than to whichever screen the gate happened to interrupt (OP-001).
+ */
+const SNAPSHOT_FIELD_GUIDANCE: ReadonlyArray<{
+  label: string;
+  path: string;
+  screen: OnboardingScreenId;
+}> = [
+  { label: 'your business name', path: 'profile.businessName', screen: 'business' },
+  { label: 'the name clients should see', path: 'profile.ownerName', screen: 'business' },
+  { label: 'your website address', path: 'profile.siteSlug', screen: 'business' },
+  { label: 'your location details', path: 'profile.location', screen: 'location_contact' },
+  { label: 'how clients can reach you', path: 'profile.clientContact', screen: 'location_contact' },
+  { label: 'your time zone', path: 'profile.timeZone', screen: 'location_contact' },
+  { label: 'your opening hours', path: 'profile.hours', screen: 'hours' },
+  { label: 'your booking preferences', path: 'profile.bookingPreferences', screen: 'booking_preferences' },
+  { label: 'your about details', path: 'profile.about', screen: 'about' },
+  { label: 'your policies', path: 'profile.policies', screen: 'policies' },
+];
+
+const SNAPSHOT_INCOMPLETE_ERROR_CODE = 'SNAPSHOT_INCOMPLETE';
+
+const describeSnapshotValidationFailure = (error: unknown): {
+  message: string;
+  screen: OnboardingScreenId | null;
+} | null => {
+  if (!(error instanceof ZodError)) {
+    return null;
+  }
+  const issuePath = (error.issues[0]?.path ?? [])
+    .filter((segment): segment is string => typeof segment === 'string')
+    .join('.');
+  const guidance = SNAPSHOT_FIELD_GUIDANCE.find(entry =>
+    issuePath === entry.path || issuePath.startsWith(`${entry.path}.`));
+  return {
+    message: guidance
+      ? `We need one more detail before saving: ${guidance.label}. Add it and we’ll finish saving your site.`
+      : 'We need one more detail before saving. Go back through your setup and complete the highlighted step.',
+    screen: guidance?.screen ?? null,
+  };
 };
 
 const getPayloadFromBrowser = (
@@ -320,6 +368,9 @@ function OnboardingIntegrationController({
     ? verificationFailure
     : null;
   const [payload, setPayload] = useState<OnboardingSavePayload | null>(null);
+  // Set when the persisted snapshot is missing a detail: the screen that owns
+  // the field, so the failure card can send the owner somewhere useful.
+  const [snapshotFixScreen, setSnapshotFixScreen] = useState<OnboardingScreenId | null>(null);
   const [conflict, setConflict] = useState<{ ownerId: string; value: OnboardingClaimConflict } | null>(null);
   const currentConflict = accountId && conflict?.ownerId === accountId ? conflict.value : null;
   useEffect(() => {
@@ -520,6 +571,7 @@ function OnboardingIntegrationController({
     const idempotencyKey = explicitIdempotencyKey
       ?? latestFlowRef.current.claimIdempotencyKey;
     setSavingStep('core');
+    setSnapshotFixScreen(null);
     setFlow(current => ({
       ...current,
       claimIdempotencyKey: idempotencyKey,
@@ -534,13 +586,32 @@ function OnboardingIntegrationController({
         currentPayload.document,
         currentPayload.state.canva.customDesignSectionId,
       );
-      const persisted = createPersistableOnboardingDraft(
-        currentPayload.state,
-        currentPayload.state.recipe.palettePreset,
-        customDesignSettings,
-        currentPayload.document,
-        existingCustomMediaByLogicalId,
-      );
+      let persisted: ReturnType<typeof createPersistableOnboardingDraft>;
+      try {
+        persisted = createPersistableOnboardingDraft(
+          currentPayload.state,
+          currentPayload.state.recipe.palettePreset,
+          customDesignSettings,
+          currentPayload.document,
+          existingCustomMediaByLogicalId,
+        );
+      } catch (snapshotError) {
+        const incomplete = describeSnapshotValidationFailure(snapshotError);
+        if (!incomplete) {
+          throw snapshotError;
+        }
+        // The contract, not the network, refused this save. Owners get the
+        // missing detail in a sentence and a route to the screen that owns it.
+        recordIntegrationEvent({ type: 'draft_claim_failed' });
+        setSnapshotFixScreen(incomplete.screen);
+        setFlow(current => ({
+          ...current,
+          errorCode: SNAPSHOT_INCOMPLETE_ERROR_CODE,
+          errorMessage: incomplete.message,
+          phase: 'failure',
+        }));
+        return;
+      }
       const resolvedTarget = target
         ?? continuationTargetForSavedSite(latestFlowRef.current.savedSite);
       const result = await claimOnboardingDraft({
@@ -588,12 +659,22 @@ function OnboardingIntegrationController({
         }));
         return;
       }
+      const incomplete = describeSnapshotValidationFailure(error);
+      if (incomplete) {
+        setSnapshotFixScreen(incomplete.screen);
+      }
       setFlow(current => ({
         ...current,
-        errorCode: error instanceof OnboardingIntegrationRequestError ? error.code : null,
-        errorMessage: error instanceof Error && error.message.trim()
-          ? error.message
-          : 'We couldn’t finish saving your site. Your work is still safe on this device.',
+        errorCode: incomplete
+          ? SNAPSHOT_INCOMPLETE_ERROR_CODE
+          : error instanceof OnboardingIntegrationRequestError ? error.code : null,
+        // A validation failure carries machine-readable issue JSON in
+        // `error.message`; never render that to an owner.
+        errorMessage: incomplete
+          ? incomplete.message
+          : error instanceof Error && error.message.trim()
+            ? error.message
+            : 'We couldn’t finish saving your site. Your work is still safe on this device.',
         mediaComplete: coreSavedSite ? false : current.mediaComplete,
         phase: coreSavedSite ? 'media_failure' : 'failure',
         savedSite: coreSavedSite ?? current.savedSite,
@@ -727,9 +808,10 @@ function OnboardingIntegrationController({
         }
         setFlow(current => ({
           ...current,
-          errorMessage: error instanceof Error && error.message.trim()
-            ? error.message
-            : 'We couldn’t confirm the saved website yet. Your work is still safe on this device.',
+          errorMessage: describeSnapshotValidationFailure(error)?.message
+            ?? (error instanceof Error && error.message.trim()
+              ? error.message
+              : 'We couldn’t confirm the saved website yet. Your work is still safe on this device.'),
           phase: 'failure',
         }));
       } finally {
@@ -814,12 +896,21 @@ function OnboardingIntegrationController({
   const returnToReview = useCallback(() => {
     setConflict(null);
     const loaded = loadOnboardingState();
-    if (loaded.state.progress.currentScreen === 'save_progress') {
+    if (snapshotFixScreen) {
+      // Stepping back one screen lands on whatever preceded the gate (Style &
+      // colours in Quick Book), which cannot fix a missing detail. Go to the
+      // screen that owns the field instead, and drop the rejected payload so
+      // the corrected setup is recompiled on the next save.
+      saveOnboardingState(goToScreen(loaded.state, snapshotFixScreen));
+      setSnapshotFixScreen(null);
+      payloadRef.current = null;
+      setPayload(null);
+    } else if (loaded.state.progress.currentScreen === 'save_progress') {
       saveOnboardingState(goBack(loaded.state));
     }
-    setFlow(current => ({ ...current, errorMessage: null, phase: 'onboarding' }));
+    setFlow(current => ({ ...current, errorCode: null, errorMessage: null, phase: 'onboarding' }));
     window.history.replaceState({}, '', getOnboardingIntegrationRoute(locale));
-  }, [locale, setFlow]);
+  }, [locale, setFlow, snapshotFixScreen]);
 
   const continueAfterEarlySave = useCallback(() => {
     const loaded = loadOnboardingState();
@@ -876,9 +967,10 @@ function OnboardingIntegrationController({
       recordIntegrationEvent({ type: 'media_claim_failed' });
       setFlow(current => ({
         ...current,
-        errorMessage: error instanceof Error
-          ? error.message
-          : 'Those photos still could not be saved. Your local copies are safe.',
+        errorMessage: describeSnapshotValidationFailure(error)?.message
+          ?? (error instanceof Error && error.message.trim()
+            ? error.message
+            : 'Those photos still could not be saved. Your local copies are safe.'),
         phase: 'media_failure',
       }));
     } finally {
@@ -1054,6 +1146,20 @@ function OnboardingIntegrationController({
           </OwnerSurface>
         );
       }
+      if (flow.errorCode === SNAPSHOT_INCOMPLETE_ERROR_CODE) {
+        // Retrying the identical setup would fail identically, so the primary
+        // action leads to the screen that owns the missing detail; retry stays
+        // available in the secondary slot.
+        return (
+          <IntegrationFailure
+            message={flow.errorMessage ?? 'We need one more detail before saving.'}
+            onReturn={retryCoreSave}
+            onRetry={returnToReview}
+            returnLabel="Try saving again"
+            retryLabel={snapshotFixScreen ? 'Add this detail' : 'Return to my setup'}
+          />
+        );
+      }
       return (
         <IntegrationFailure
           message={flow.errorMessage ?? 'We couldn’t finish saving your site. Your work is still safe on this device.'}
@@ -1190,10 +1296,14 @@ function IntegrationFailure({
   message,
   onReturn,
   onRetry,
+  returnLabel = 'Return to Review',
+  retryLabel = 'Try again',
 }: {
   message: string;
   onReturn: () => void;
   onRetry: () => void;
+  returnLabel?: string;
+  retryLabel?: string;
 }) {
   return (
     <OwnerSurface modifier="is-centred">
@@ -1206,10 +1316,10 @@ function IntegrationFailure({
         <p>{message}</p>
         <div className="onboarding-integration-action-stack">
           <button className="onboarding-integration-primary" type="button" onClick={onRetry}>
-            Try again
+            {retryLabel}
           </button>
           <button className="onboarding-integration-secondary" type="button" onClick={onReturn}>
-            Return to Review
+            {returnLabel}
           </button>
         </div>
       </section>
@@ -1318,7 +1428,11 @@ function ConflictScreen({
           .
         </p>
         <button className="onboarding-integration-text-action" type="button" onClick={onChangeAccount}>Use a different account</button>
-        <p>Choose how to keep both versions. A published website is never replaced here.</p>
+        <p>
+          Choose how to keep both versions. A published website is never replaced here, and
+          anything you have changed in your dashboard since — prices, hours, contact details,
+          your booking page style — is kept whichever option you pick.
+        </p>
         <div className="onboarding-conflict-options" role="group" aria-label="Website save choice">
           <button
             type="button"
@@ -1344,7 +1458,7 @@ function ConflictScreen({
                   })}
                 >
                   <strong>Replace the existing draft</strong>
-                  <span>The current unpublished draft will be replaced</span>
+                  <span>Replaces the unpublished setup draft. Your dashboard edits are kept.</span>
                 </button>
               )
             : null}
@@ -1406,6 +1520,13 @@ function SavedCelebration({
             ? (
                 <p className="onboarding-saved-media-note">
                   Your website details are saved. The photos listed earlier remain only on this device until you retry them.
+                </p>
+              )
+            : null}
+          {savedSite.preservedDashboardEdits && savedSite.preservedDashboardEdits.length > 0
+            ? (
+                <p className="onboarding-saved-media-note" role="status" data-testid="onboarding-preserved-edits">
+                  {`We kept the changes you already made in your dashboard: ${savedSite.preservedDashboardEdits.join(', ')}. This setup did not overwrite them.`}
                 </p>
               )
             : null}

@@ -2,6 +2,8 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 
+import { SalonProvider } from '@/providers/SalonProvider';
+
 import { AdminModalHost } from './AdminModalHost';
 
 vi.mock('./AppModal', () => ({
@@ -20,29 +22,38 @@ vi.mock('./AppointmentsModal', () => ({
   }) => <p>{`${initialAppointmentId}:${salonSlug}`}</p>,
 }));
 
-vi.mock('./ClientsModal', () => ({
-  ClientsModal: ({
-    initialClientId,
-    onOpenPromotionSettings,
-  }: {
-    initialClientId?: string | null;
-    onOpenPromotionSettings?: (
-      stage: 'promo_6w' | 'promo_8w',
-      clientId: string,
-    ) => void;
-  }) => (
-    <div>
-      <p>{`client:${initialClientId}`}</p>
-      <button
-        type="button"
-        onClick={() =>
-          onOpenPromotionSettings?.('promo_6w', initialClientId || 'client_1')}
-      >
-        Open promotion settings
-      </button>
-    </div>
-  ),
-}));
+vi.mock('./ClientsModal', async () => {
+  // Reads the salon context the way the real modal does, so the tests below
+  // can prove the host re-provides the workspace's active salon (OP-011).
+  const { useSalon } = await import('@/providers/SalonProvider');
+  return {
+    ClientsModal: ({
+      initialClientId,
+      onOpenPromotionSettings,
+    }: {
+      initialClientId?: string | null;
+      onOpenPromotionSettings?: (
+        stage: 'promo_6w' | 'promo_8w',
+        clientId: string,
+      ) => void;
+    }) => {
+      const { salonSlug: contextSalonSlug } = useSalon();
+      return (
+        <div>
+          <p>{`client:${initialClientId}`}</p>
+          <p data-testid="context-salon-slug">{contextSalonSlug}</p>
+          <button
+            type="button"
+            onClick={() =>
+              onOpenPromotionSettings?.('promo_6w', initialClientId || 'client_1')}
+          >
+            Open promotion settings
+          </button>
+        </div>
+      );
+    },
+  };
+});
 
 vi.mock('./WalkInModal', () => ({
   WalkInModal: () => null,
@@ -207,5 +218,99 @@ describe('AdminModalHost', () => {
         'integrations:isla-nail-studio:google:Google Calendar connected. Choose which calendars Luster should use.',
       ),
     ).toBeInTheDocument();
+  });
+
+  // OP-011: the root layout's SalonProvider is filled from a cookie the owner
+  // workspace never sets, so modals reading `useSalon()` saw an empty salon.
+  it('re-provides the workspace\'s active salon to modals that read the salon context', () => {
+    render(
+      <SalonProvider salonSlug="cookie-salon" salonName="Cookie Salon">
+        <AdminModalHost
+          activeModal="clients"
+          activeSalonSlug="nail-salon-no5"
+          activeSalonId="salon_nail-salon-no5"
+          activeSalonName="Nail Salon No.5"
+          isFreeSolo
+          onCloseModal={vi.fn()}
+          showNotifications={false}
+          setShowNotifications={vi.fn()}
+          showFraudSignals={false}
+          setShowFraudSignals={vi.fn()}
+          showScheduleCalendar={false}
+          setShowScheduleCalendar={vi.fn()}
+          showWalkIn={false}
+          setShowWalkIn={vi.fn()}
+          userName="Daniela"
+          userInitial="D"
+          analyticsProps={{
+            revenue: 0,
+            revenueTrend: 0,
+            staffData: [],
+            utilization: [],
+            services: [],
+            timePeriod: 'Daily',
+            onTimePeriodChange: vi.fn(),
+            anchorDate: '2026-07-17',
+            onPrev: vi.fn(),
+            onNext: vi.fn(),
+            onToday: vi.fn(),
+            onAnchorChange: vi.fn(),
+          }}
+          fraudSignals={[]}
+          fraudSignalsTotalCount={0}
+          fraudSignalsLoading={false}
+          fraudSignalsError={null}
+          fetchFraudSignals={vi.fn()}
+          onFraudSignalResolved={vi.fn()}
+        />
+      </SalonProvider>,
+    );
+
+    expect(screen.getByTestId('context-salon-slug')).toHaveTextContent('nail-salon-no5');
+  });
+
+  it('inherits the outer salon context when the workspace has not resolved a salon yet', () => {
+    render(
+      <SalonProvider salonSlug="cookie-salon" salonName="Cookie Salon">
+        <AdminModalHost
+          activeModal="clients"
+          activeSalonSlug={null}
+          isFreeSolo
+          onCloseModal={vi.fn()}
+          showNotifications={false}
+          setShowNotifications={vi.fn()}
+          showFraudSignals={false}
+          setShowFraudSignals={vi.fn()}
+          showScheduleCalendar={false}
+          setShowScheduleCalendar={vi.fn()}
+          showWalkIn={false}
+          setShowWalkIn={vi.fn()}
+          userName="Daniela"
+          userInitial="D"
+          analyticsProps={{
+            revenue: 0,
+            revenueTrend: 0,
+            staffData: [],
+            utilization: [],
+            services: [],
+            timePeriod: 'Daily',
+            onTimePeriodChange: vi.fn(),
+            anchorDate: '2026-07-17',
+            onPrev: vi.fn(),
+            onNext: vi.fn(),
+            onToday: vi.fn(),
+            onAnchorChange: vi.fn(),
+          }}
+          fraudSignals={[]}
+          fraudSignalsTotalCount={0}
+          fraudSignalsLoading={false}
+          fraudSignalsError={null}
+          fetchFraudSignals={vi.fn()}
+          onFraudSignalResolved={vi.fn()}
+        />
+      </SalonProvider>,
+    );
+
+    expect(screen.getByTestId('context-salon-slug')).toHaveTextContent('cookie-salon');
   });
 });

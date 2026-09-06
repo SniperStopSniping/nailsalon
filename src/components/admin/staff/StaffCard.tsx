@@ -3,6 +3,8 @@
 import { ChevronRight, GripVertical, Star } from 'lucide-react';
 import { forwardRef } from 'react';
 
+import type { TechnicianReviewSummary } from './useTechnicianReviews';
+
 // =============================================================================
 // Types
 // =============================================================================
@@ -28,6 +30,14 @@ export type StaffCardData = {
 
 type StaffCardProps = {
   staff: StaffCardData;
+  /**
+   * Reviews this technician actually has, derived from the same rows the
+   * Reviews app counts. Undefined/null means there are none to show — the card
+   * then shows no rating at all rather than the hand-entered
+   * `technician.rating` the workspace used to contradict itself with
+   * (AG-w2-more-tools-04).
+   */
+  reviews?: TechnicianReviewSummary | null;
   isLast: boolean;
   onClick: () => void;
   isDraggable?: boolean;
@@ -108,7 +118,15 @@ function getSkillBadge(skillLevel: string | null): { label: string; className: s
 // =============================================================================
 
 export const StaffCard = forwardRef<HTMLDivElement, StaffCardProps>((
-  { staff, isLast, onClick, isDraggable = false, dragHandleProps, isDragging = false },
+  {
+    staff,
+    reviews = null,
+    isLast,
+    onClick,
+    isDraggable = false,
+    dragHandleProps,
+    isDragging = false,
+  },
   ref,
 ) => {
   const initials = staff.name
@@ -136,14 +154,23 @@ export const StaffCard = forwardRef<HTMLDivElement, StaffCardProps>((
           {...dragHandleProps}
           className="cursor-grab touch-none py-4 pl-2 pr-1 active:cursor-grabbing"
         >
-          <GripVertical className="size-5 text-[#C7C7CC]" />
+          <GripVertical className="size-5 text-[var(--owner-muted,#706267)]" aria-hidden="true" />
         </div>
       )}
 
       {/* Clickable Content */}
       <div
-        className={`flex flex-1 cursor-pointer items-center active:bg-gray-50 ${isDraggable ? 'pl-1' : 'pl-4'}`}
+        role="button"
+        tabIndex={0}
+        aria-label={`Open ${staff.name}`}
+        className={`flex flex-1 cursor-pointer items-center rounded-owner-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--owner-focus,#b85075)] active:bg-[var(--owner-blush,#f6e7ec)] ${isDraggable ? 'pl-1' : 'pl-4'}`}
         onClick={onClick}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            onClick?.();
+          }
+        }}
       >
         {/* Avatar */}
         <div className="relative shrink-0">
@@ -202,16 +229,17 @@ export const StaffCard = forwardRef<HTMLDivElement, StaffCardProps>((
               )}
             </div>
 
-            {/* Rating if exists */}
-            {staff.rating !== null && staff.reviewCount > 0 && (
+            {/* Rating — only from real reviews, never the manual column */}
+            {reviews && reviews.count > 0 && (
               <div className="mt-1 flex items-center gap-1">
                 <Star className="size-3 fill-[#FFD60A] text-[#FFD60A]" />
                 <span className="text-[11px] font-medium text-[#1C1C1E]">
-                  {staff.rating.toFixed(1)}
+                  {reviews.average.toFixed(1)}
                 </span>
                 <span className="text-[10px] text-[#8E8E93]">
                   (
-                  {staff.reviewCount}
+                  {reviews.count}
+                  {reviews.count === 1 ? ' review' : ' reviews'}
                   )
                 </span>
               </div>

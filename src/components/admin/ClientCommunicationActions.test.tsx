@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ClientCommunicationActions } from './ClientCommunicationActions';
@@ -134,11 +134,17 @@ describe('ClientCommunicationActions', () => {
     });
   });
 
-  it('keeps Book, Text, and Call primary while preserving lower-frequency actions', async () => {
-    renderActions();
+  it('keeps Book, Text, Call and Email primary while preserving lower-frequency actions', async () => {
+    renderActions({
+      client: {
+        id: 'client_1',
+        fullName: 'Ava Nguyen',
+        phone: '4165551234',
+        email: 'ava@example.com',
+      },
+    });
 
     for (const label of [
-      'Call',
       'Text',
       'Rebooking text',
       'Send reminder',
@@ -151,9 +157,60 @@ describe('ClientCommunicationActions', () => {
       expect(screen.getByRole('button', { name: label })).toBeInTheDocument();
     }
 
+    // Call and Email hand off to the device, so they are real links now.
+    expect(screen.getByRole('link', { name: 'Call' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Email' })).toBeInTheDocument();
+
     await waitFor(() => {
       expect(screen.getByRole('button', { name: 'Google review' })).toBeEnabled();
     });
+  });
+
+  it('gives Call a tel: target and Email a mailto: target', async () => {
+    renderActions({
+      client: {
+        id: 'client_contact',
+        fullName: 'Ada Fixture',
+        phone: '+1 (416) 555-0201',
+        email: 'ada@example.com',
+      },
+    });
+
+    expect(screen.getByRole('link', { name: 'Call' }))
+      .toHaveAttribute('href', 'tel:4165550201');
+    expect(screen.getByRole('link', { name: 'Email' }))
+      .toHaveAttribute('href', 'mailto:ada@example.com');
+  });
+
+  it('explains, rather than hides, a contact action with nothing to target', async () => {
+    renderActions({
+      client: {
+        id: 'client_no_contact',
+        fullName: 'Walk In',
+        phone: '',
+        email: null,
+      },
+    });
+
+    const email = screen.getByTestId('client-email-action');
+
+    expect(email).toBeDisabled();
+    expect(email).toHaveAccessibleName(
+      'Email — No email on file — add one from Edit client',
+    );
+
+    const call = screen.getByTestId('client-call-action');
+
+    expect(call).toBeDisabled();
+    expect(call).toHaveAccessibleName('Call — No phone number on file');
+
+    const text = screen.getByTestId('client-text-action');
+
+    expect(text).toBeDisabled();
+    expect(text).toHaveAttribute(
+      'title',
+      'This client needs a valid mobile number before a text can be prepared',
+    );
   });
 
   it('sends the canonical tax-inclusive appointment total after deposit credit, not the raw booked subtotal', async () => {
@@ -253,8 +310,10 @@ describe('ClientCommunicationActions', () => {
     expect(screen.queryByRole('dialog', { name: 'Confirm text status' })).not.toBeInTheDocument();
   });
 
-  it('normalizes the synthetic Call target without recording communication history', async () => {
-    const { onOpenNativeUrl } = renderActions({
+  it('normalizes the Call target without recording communication history', async () => {
+    // Call is a link now, so the normalization is asserted on the href rather
+    // than on a synthetic navigation callback.
+    renderActions({
       client: {
         id: 'client_fixture_call',
         fullName: 'Jordan Fixture',
@@ -263,10 +322,8 @@ describe('ClientCommunicationActions', () => {
     });
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(4));
 
-    fireEvent.click(screen.getByRole('button', { name: 'Call' }));
-
-    expect(onOpenNativeUrl).toHaveBeenCalledOnce();
-    expect(onOpenNativeUrl).toHaveBeenCalledWith('tel:6475550198');
+    expect(screen.getByRole('link', { name: 'Call' }))
+      .toHaveAttribute('href', 'tel:6475550198');
     expect(fetchMock.mock.calls.filter(([url, init]) => (
       url === '/api/admin/retention' && init?.method === 'POST'
     ))).toHaveLength(0);
@@ -580,5 +637,67 @@ describe('ClientCommunicationActions', () => {
     expect(
       screen.queryByText('Configure and enable this offer in Promotion Settings first.'),
     ).not.toBeInTheDocument();
+  });
+
+  it('names the degraded capability when the background settings check fails', async () => {
+    // AG-clients-09: the strip beside Book / Text / Call used to read a bare
+    // "Failed to fetch" with an unlabelled "Try again".
+    const defaultImplementation = fetchMock.getMockImplementation();
+    let settingsAttempts = 0;
+    fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).startsWith('/api/admin/retention/settings')) {
+        settingsAttempts += 1;
+        if (settingsAttempts === 1) {
+          return Promise.reject(new TypeError('Failed to fetch'));
+        }
+      }
+      return defaultImplementation!(input, init);
+    });
+
+    renderActions();
+
+    const notice = await screen.findByTestId('client-support-failure');
+
+    expect(notice).toHaveTextContent(
+      'Couldn’t load your message templates and review link',
+    );
+    expect(notice).toHaveTextContent(/Book, Call, Email and a plain text still work/);
+    // The transport string never reaches the owner.
+    expect(screen.queryByText('Failed to fetch')).not.toBeInTheDocument();
+    // Polite, not an alert: nothing the owner did failed.
+    expect(notice).toHaveAttribute('role', 'status');
+    // The retry lives inside the notice, not in the primary action strip.
+    expect(within(notice).getByRole('button', { name: 'Try again' })).toBeInTheDocument();
+
+    fireEvent.click(within(notice).getByRole('button', { name: 'Try again' }));
+
+    await waitFor(() => {
+      expect(screen.queryByTestId('client-support-failure')).not.toBeInTheDocument();
+    });
+  });
+
+  it('lets the owner dismiss the degraded-capability notice', async () => {
+    const defaultImplementation = fetchMock.getMockImplementation();
+    fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).startsWith('/api/admin/retention/settings')) {
+        return Promise.resolve(jsonResponse({ error: { message: 'Retention settings are unavailable.' } }, 503));
+      }
+      return defaultImplementation!(input, init);
+    });
+
+    renderActions();
+
+    const notice = await screen.findByTestId('client-support-failure');
+
+    // A message the server wrote is worth repeating; a transport string is not.
+    expect(notice).toHaveTextContent('Retention settings are unavailable.');
+
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Dismiss message template notice' }),
+    );
+
+    await waitFor(() => {
+      expect(screen.queryByTestId('client-support-failure')).not.toBeInTheDocument();
+    });
   });
 });

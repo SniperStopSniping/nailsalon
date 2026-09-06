@@ -48,6 +48,7 @@ import {
   getTorontoDateString,
   loadBookingPolicy,
   type LoadedBookingPolicy,
+  resolveBookingHoursCeiling,
   resolveTechnicianCapabilityMode,
 } from '@/libs/bookingPolicy';
 import {
@@ -1843,6 +1844,15 @@ export async function POST(request: Request): Promise<Response> {
       validatedLocation = primaryLocation;
     }
 
+    // Opening hours bound every booking, including one for a salon that has no
+    // `salon_location` row at all (seeded/imported salons): the owner's hours
+    // then live only on the `salon` row, and reading just
+    // `validatedLocation.businessHours` left those bookings unbounded.
+    const bookingHoursCeiling = resolveBookingHoursCeiling({
+      location: validatedLocation,
+      salonBusinessHours: salon.businessHours ?? null,
+    });
+
     // 4b. Check for existing active appointment (duplicate booking prevention)
     // Skip this check if this is a reschedule (originalAppointmentId provided)
     // Use normalizedPhone for DB lookups (same as will be stored)
@@ -2341,7 +2351,7 @@ export async function POST(request: Request): Promise<Response> {
       blockedSlots: args.policy.blockedSlotsByTechnician.get(args.tech.id) ?? [],
       googleBusyWindows: smartFitGoogleBusyWindows ?? [],
       locationId: validatedLocationId,
-      locationBusinessHours: validatedLocation?.businessHours ?? null,
+      locationBusinessHours: bookingHoursCeiling.businessHours,
       date: bookingDate,
       timeZone: bookingConfig.timezone,
       slotIntervalMinutes: bookingConfig.slotIntervalMinutes,
@@ -2374,7 +2384,7 @@ export async function POST(request: Request): Promise<Response> {
           specialties: tech.specialties ?? [],
           locationId: validatedLocationId,
           primaryLocationId: tech.primaryLocationId ?? null,
-          locationBusinessHours: validatedLocation?.businessHours ?? null,
+          locationBusinessHours: bookingHoursCeiling.businessHours,
           existingAppointments: policy.appointmentsByTechnician.get(tech.id) ?? [],
           excludedAppointmentId: normalizedOriginalApptId,
           bufferMinutes: 0,
@@ -2425,7 +2435,7 @@ export async function POST(request: Request): Promise<Response> {
           specialties: technician.specialties ?? [],
           locationId: validatedLocationId,
           primaryLocationId: technician.primaryLocationId ?? null,
-          locationBusinessHours: validatedLocation?.businessHours ?? null,
+          locationBusinessHours: bookingHoursCeiling.businessHours,
           existingAppointments: initialPolicy.appointmentsByTechnician.get(technician.id) ?? [],
           excludedAppointmentId: normalizedOriginalApptId,
           bufferMinutes: 0,
@@ -2609,7 +2619,7 @@ export async function POST(request: Request): Promise<Response> {
         specialties: technician.specialties ?? [],
         locationId: validatedLocationId,
         primaryLocationId: technician.primaryLocationId ?? null,
-        locationBusinessHours: validatedLocation?.businessHours ?? null,
+        locationBusinessHours: bookingHoursCeiling.businessHours,
         existingAppointments: finalPolicy.appointmentsByTechnician.get(technician.id) ?? [],
         excludedAppointmentId: normalizedOriginalApptId,
         bufferMinutes: 0,
@@ -2679,13 +2689,13 @@ export async function POST(request: Request): Promise<Response> {
         specialties: technician.specialties ?? [],
         locationId: validatedLocationId,
         primaryLocationId: technician.primaryLocationId ?? null,
-        locationBusinessHours: validatedLocation?.businessHours ?? null,
+        locationBusinessHours: bookingHoursCeiling.businessHours,
         existingAppointments: finalPolicy.appointmentsByTechnician.get(technician.id) ?? [],
         excludedAppointmentId: normalizedOriginalApptId,
         bufferMinutes: 0,
         now,
         timeZone: bookingConfig.timezone,
-        locationBusinessHoursForReview: validatedLocation?.businessHours ?? null,
+        locationBusinessHoursForReview: bookingHoursCeiling.businessHours,
       });
 
       if (!activation.activates) {

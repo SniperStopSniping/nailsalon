@@ -160,3 +160,44 @@ export const buildAboutWordingSuggestion = (
     locationSentence,
   ].filter(Boolean).join(' ');
 };
+
+const SENTENCE_END = /[.!?…]$/u;
+
+const asSentence = (value: string): string => {
+  const clean = cleanInlineValue(value);
+  if (!clean) {
+    return '';
+  }
+  const capitalised = clean.charAt(0).toLocaleUpperCase() + clean.slice(1);
+  return SENTENCE_END.test(capitalised) ? capitalised : `${capitalised}.`;
+};
+
+/**
+ * OP-005 — "Generate suggestion" used to paste the owner's raw notes straight
+ * after the identity sentence, so "structured gel, clean cuticle work,
+ * Toronto, gentle removal" landed lower-case and unpunctuated in the middle
+ * of their introduction. Notes that already read as prose are only sentence-
+ * cased and closed; a bare comma list becomes a sentence of its own.
+ *
+ * Still deterministic and local: no network or AI request is made.
+ */
+export const buildAboutIntroFromOwnerNotes = (
+  profile: BusinessProfileDraft,
+  ownerNotes: string,
+): string => {
+  const knownFacts = buildAboutWordingSuggestion(profile);
+  const notes = cleanInlineValue(ownerNotes);
+  if (!notes) {
+    return knownFacts;
+  }
+
+  const identity = knownFacts.split(/(?<=[.!?])\s/u)[0] ?? '';
+  // Prose the owner wrote themselves: keep their words, only close the
+  // sentence. A run of comma-separated fragments is not prose.
+  const fragments = parseAboutListInput(notes);
+  const notesSentence = /[.!?]/u.test(notes) || fragments.length < 2
+    ? asSentence(notes)
+    : `I focus on ${humanList(fragments)}.`;
+
+  return [identity, notesSentence].filter(Boolean).join(' ');
+};

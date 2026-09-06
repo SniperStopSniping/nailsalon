@@ -19,7 +19,7 @@ import { StickyOnboardingActions } from '../components/StickyOnboardingActions';
 import { recordOnboardingEvent } from '../events/journal';
 import { useFeedback } from '../feedback/useFeedback';
 import { resolveOnboardingImage } from '../integrations/adapters/media';
-import { buildAboutWordingSuggestion } from '../model/about';
+import { buildAboutIntroFromOwnerNotes } from '../model/about';
 import type {
   AboutElementId,
   BusinessProfileDraft,
@@ -278,11 +278,10 @@ export function AboutSetupScreen({
   };
 
   const generateSuggestion = () => {
-    const knownFacts = buildAboutWordingSuggestion(state.profile);
-    const ownerContext = cleanListValue(writingContextRef.current);
-    const suggestion = clampSuggestion(ownerContext
-      ? `${knownFacts.split(/(?<=[.!?])\s/u)[0] ?? ''} ${ownerContext}`
-      : knownFacts);
+    const suggestion = clampSuggestion(buildAboutIntroFromOwnerNotes(
+      state.profile,
+      cleanListValue(writingContextRef.current),
+    ));
     onUpdate(current => recordOnboardingEvent(
       updateAbout(current, { shortBio: suggestion }, 'bio'),
       { action: 'used', type: 'about_wording_helper' },

@@ -1,16 +1,17 @@
 import { describe, expect, it, vi } from 'vitest';
 
+import {
+  canTechnicianTakeAppointment,
+  hasBufferedConflict,
+  resolveBookingHoursCeiling,
+  resolveTechnicianCapabilityMode,
+  technicianCanPerformServices,
+} from './bookingPolicy';
+
 vi.mock('server-only', () => ({}));
 vi.mock('@/libs/DB', () => ({
   db: {},
 }));
-
-import {
-  canTechnicianTakeAppointment,
-  hasBufferedConflict,
-  resolveTechnicianCapabilityMode,
-  technicianCanPerformServices,
-} from './bookingPolicy';
 
 describe('bookingPolicy', () => {
   it('treats cleanup time as a conflict in both directions', () => {
@@ -171,6 +172,51 @@ describe('bookingPolicy', () => {
     expect(decision).toEqual({
       available: false,
       reason: 'location_unavailable',
+    });
+  });
+
+  // OP-010: opening hours must bind every salon, including one whose hours
+  // exist only on the `salon` row because it has no `salon_location`.
+  describe('resolveBookingHoursCeiling', () => {
+    const locationHours = { sunday: null, monday: { open: '11:00', close: '16:00' } };
+    const salonHours = { sunday: null, monday: { open: '10:00', close: '18:00' } };
+
+    it('prefers the resolved location hours and reports the location id', () => {
+      expect(resolveBookingHoursCeiling({
+        location: { id: 'loc_1', businessHours: locationHours },
+        salonBusinessHours: salonHours,
+      })).toEqual({ locationId: 'loc_1', businessHours: locationHours, source: 'location' });
+    });
+
+    it('falls back to salon hours when the salon has no location row', () => {
+      expect(resolveBookingHoursCeiling({ location: null, salonBusinessHours: salonHours }))
+        .toEqual({ locationId: null, businessHours: salonHours, source: 'salon' });
+    });
+
+    it('falls back to salon hours when the location carries none', () => {
+      expect(resolveBookingHoursCeiling({
+        location: { id: 'loc_1', businessHours: null },
+        salonBusinessHours: salonHours,
+      })).toEqual({ locationId: 'loc_1', businessHours: salonHours, source: 'salon' });
+    });
+
+    it('reports no ceiling only when neither record has hours', () => {
+      expect(resolveBookingHoursCeiling({})).toEqual({ locationId: null, businessHours: null, source: 'none' });
+    });
+
+    it('closes a day the salon hours mark closed, with no location at all', () => {
+      const ceiling = resolveBookingHoursCeiling({ salonBusinessHours: salonHours });
+      const decision = canTechnicianTakeAppointment({
+        // Sunday 2026-03-15 15:00 UTC — inside the technician schedule.
+        startTime: new Date('2026-03-15T15:00:00.000Z'),
+        endTime: new Date('2026-03-15T16:00:00.000Z'),
+        weeklySchedule: { sunday: { start: '09:00', end: '21:00' } },
+        locationId: ceiling.locationId,
+        locationBusinessHours: ceiling.businessHours,
+        existingAppointments: [],
+      });
+
+      expect(decision).toEqual({ available: false, reason: 'location_unavailable' });
     });
   });
 });

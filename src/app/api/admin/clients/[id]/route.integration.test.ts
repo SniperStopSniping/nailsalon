@@ -22,8 +22,13 @@ vi.mock('@/libs/DB', () => ({
   },
 }));
 
+const ACTOR_ADMIN = { id: 'admin_client_profile_actor', phoneE164: '+16475550999' };
+
 vi.mock('@/libs/adminAuth', () => ({
   requireAdminSalon,
+  // The PATCH audit row now records who acted (CP1 repair): return a fixed
+  // actor so the row can be asserted below.
+  getAdminSession: vi.fn(async () => ACTOR_ADMIN),
 }));
 
 const NOW = new Date('2026-07-23T16:00:00.000Z');
@@ -555,6 +560,8 @@ describe('PATCH /api/admin/clients/[id] snapshot-safe contact updates', () => {
     expect(audits).toHaveLength(1);
     expect(audits[0]).toMatchObject({
       actorType: 'admin',
+      actorId: ACTOR_ADMIN.id,
+      actorPhone: ACTOR_ADMIN.phoneE164,
       action: 'updated',
       entityType: 'salon_client',
       entityId: CLIENT_ID,

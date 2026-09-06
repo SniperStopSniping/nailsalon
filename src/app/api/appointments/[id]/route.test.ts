@@ -50,6 +50,7 @@ const {
       clientEmail: string | null;
       status: string;
       cancelReason: string | null;
+      requestExpiresAt: Date | null;
       notes: string | null;
       totalPrice: number;
       discountType: string | null;
@@ -365,6 +366,7 @@ describe('appointment detail route auth', () => {
       clientEmail: 'historical@example.test',
       status: 'confirmed',
       cancelReason: null,
+      requestExpiresAt: null,
       notes: null,
       totalPrice: 5000,
       discountType: null,
@@ -704,6 +706,84 @@ describe('appointment detail route auth', () => {
     ).toBeLessThan(transitionReturning.mock.invocationCallOrder[0]!);
   });
 
+  it('confirms a pending request even when the client holds another active appointment', async () => {
+    // AG-w2-appointments-01. The one-active-appointment-per-lineage invariant
+    // counts occupying rows; a pending row is already one of them, so
+    // pending -> confirmed cannot create the double-active state the booking
+    // gate refuses. Re-asserting it here only made every repeat client's
+    // booking request permanently unacceptable.
+    const pendingAppointment = Object.freeze({
+      id: 'appt_1',
+      salonId: 'salon_1',
+      salonClientId: 'merged_source',
+      technicianId: 'tech_1',
+      status: 'pending',
+      cancelReason: null,
+      clientPhone: '4165550100',
+      clientEmail: 'historical@example.test',
+      clientName: 'Ava',
+      startTime: new Date('2099-03-13T15:00:00.000Z'),
+      endTime: new Date('2099-03-13T16:00:00.000Z'),
+      notes: null,
+    });
+    requireAppointmentAccess.mockResolvedValue({
+      ok: true,
+      actorRole: 'admin',
+      appointment: pendingAppointment,
+    });
+    mockDbState.lockedAppointmentRows[0] = {
+      ...mockDbState.lockedAppointmentRows[0]!,
+      salonClientId: 'merged_source',
+      technicianId: 'tech_1',
+      status: 'pending',
+      cancelReason: null,
+    };
+    mockDbState.appointmentRows = [{
+      ...mockDbState.lockedAppointmentRows[0]!,
+    }];
+    // The client's other upcoming booking — the ordinary repeat-client case.
+    getActiveAppointmentsForCanonicalClientWithHandle.mockResolvedValue([{
+      id: 'appt_other',
+      salonId: 'salon_1',
+      salonClientId: 'primary_client',
+      clientPhone: '4165550198',
+      clientEmail: null,
+      status: 'confirmed',
+      startTime: new Date('2099-04-01T15:00:00.000Z'),
+      endTime: new Date('2099-04-01T16:00:00.000Z'),
+    }]);
+
+    const response = await PATCH(
+      new Request('http://localhost/api/appointments/appt_1', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'confirmed' }),
+      }),
+      { params: Promise.resolve({ id: 'appt_1' }) },
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.data.appointment).toMatchObject({
+      id: 'appt_1',
+      status: 'confirmed',
+    });
+    // The guard is skipped outright for a non-terminal source status.
+    expect(getActiveAppointmentsForCanonicalClientWithHandle).not.toHaveBeenCalled();
+    // The technician's slot is still re-validated under the lock.
+    expect(lockTechnicianAndAssertSlotFree).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        salonId: 'salon_1',
+        technicianId: 'tech_1',
+        excludedAppointmentId: 'appt_1',
+      }),
+    );
+    expect(updateSet).toHaveBeenCalledWith(expect.objectContaining({
+      status: 'confirmed',
+    }));
+  });
+
   it('blocks no-show reactivation while immutable deposit forfeiture evidence exists', async () => {
     const noShowAppointment = Object.freeze({
       id: 'appt_1',
@@ -1015,7 +1095,17 @@ describe('appointment detail route auth', () => {
     const body = await response.json();
 
     expect(response.status).toBe(409);
-    expect(body.error.code).toBe('INVALID_STATE');
+    // Deliberately updated: the refusal used to collapse into the generic
+    // "cannot be reactivated safely" INVALID_STATE fallback, which named an
+    // operation the owner never attempted and identified nothing to act on.
+    // The guard itself is unchanged for this case (source status 'cancelled'
+    // is a genuine reactivation) — only the error it reports.
+    expect(body.error.code).toBe('CLIENT_ALREADY_HAS_ACTIVE_APPOINTMENT');
+    expect(body.error.details).toMatchObject({
+      conflictingAppointmentId: 'appt_other',
+      conflictingStartTime: '2099-04-01T15:00:00.000Z',
+      conflictingStatus: 'confirmed',
+    });
     expect(transitionReturning).not.toHaveBeenCalled();
     expect(updateAppointmentStatus).not.toHaveBeenCalled();
     expect(enqueueGoogleCalendarDelete).not.toHaveBeenCalled();

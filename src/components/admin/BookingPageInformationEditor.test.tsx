@@ -2,6 +2,8 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { resolveInstagramInput } from '@/libs/instagramHandle';
+
 import { BookingPageInformationEditor, type SalonInformation } from './BookingPageInformationEditor';
 
 const QUICK_BOOK_VISIBILITY = {
@@ -35,10 +37,12 @@ function information(overrides: Partial<SalonInformation> = {}): SalonInformatio
     technician: { id: 'tech_1', name: 'Current tech', avatarUrl: null },
     technicianCount: 1,
     instagram: 'https://www.instagram.com/currentstudio/',
+    instagramHandle: 'currentstudio',
     location: { id: 'loc_1', name: 'Primary location', address: '123 Private Street', city: 'Toronto', state: 'ON', zipCode: 'M5V 1A1' },
     addressPrivacy: { draft: 'full_address', live: 'full_address' },
     contactPreferences: { bookingOnlyContact: false, callEnabled: true, textEnabled: false, textNumber: null },
     businessHours: { monday: { open: '10:00', close: '19:00' }, tuesday: null, wednesday: null, thursday: null, friday: null, saturday: null, sunday: null },
+    staffedDays: ['monday'],
     timezone: 'America/Toronto',
     ...overrides,
   };
@@ -51,12 +55,14 @@ describe('BookingPageInformationEditor', () => {
   let current: SalonInformation;
   let failPatch: boolean;
   let ownerForbidden: boolean;
+  let emptyPortfolio: boolean;
 
   beforeEach(() => {
     calls = [];
     current = information();
     failPatch = false;
     ownerForbidden = false;
+    emptyPortfolio = false;
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       const method = init?.method ?? 'GET';
@@ -77,7 +83,16 @@ describe('BookingPageInformationEditor', () => {
             ...current,
             salon: { ...current.salon, ...(body.name ? { name: body.name } : {}), ...(body.phone !== undefined ? { phone: body.phone } : {}), ...(body.logoUrl !== undefined ? { logoUrl: body.logoUrl } : {}) },
             ...(body.businessHours ? { businessHours: body.businessHours } : {}),
-            ...(body.instagram !== undefined ? { instagram: `https://www.instagram.com/${body.instagram}/` } : {}),
+            // Mirror the server: one normaliser, canonical URL stored, handle
+            // reported back for the field.
+            ...(body.instagram !== undefined
+              ? (() => {
+                  const resolution = resolveInstagramInput(body.instagram);
+                  return resolution.status === 'resolved'
+                    ? { instagram: resolution.url, instagramHandle: resolution.username }
+                    : { instagram: null, instagramHandle: null };
+                })()
+              : {}),
           };
         }
         return new Response(JSON.stringify({ data: current }), { status: 200 });
@@ -95,7 +110,7 @@ describe('BookingPageInformationEditor', () => {
         return new Response(JSON.stringify({ data: {} }), { status: 200 });
       }
       if (url.startsWith('/api/admin/portfolio')) {
-        return new Response(JSON.stringify({ photos: [{ id: 'photo_1', imageUrl: 'https://cdn.example/photo-1.jpg', altText: 'Chrome set' }] }), { status: 200 });
+        return new Response(JSON.stringify({ photos: emptyPortfolio ? [] : [{ id: 'photo_1', imageUrl: 'https://cdn.example/photo-1.jpg', altText: 'Chrome set' }] }), { status: 200 });
       }
       return new Response('not found', { status: 404 });
     }));
@@ -130,7 +145,10 @@ describe('BookingPageInformationEditor', () => {
     expect(screen.getByTestId('information-public-url')).toHaveTextContent('https://example.test/en/salon-a');
     expect(screen.getByTestId('information-address-street')).toHaveValue('123 Private Street');
     expect(screen.getByTestId('information-phone')).toHaveValue('+14165550100');
-    expect(screen.getByTestId('information-instagram')).toHaveValue('https://www.instagram.com/currentstudio/');
+    // The field is called "Instagram" and shows the handle, never the stored
+    // URL (AG-w2-information-parity-02).
+    expect(screen.getByTestId('information-instagram')).toHaveValue('currentstudio');
+    expect(screen.getByTestId('information-instagram-helper')).toHaveTextContent('Username or link — clients see @currentstudio');
     expect(screen.getByTestId('information-hours-monday-open')).toHaveValue('10:00');
     expect(screen.getByTestId('information-hours-tuesday-open-toggle')).not.toBeChecked();
     expect(screen.getByTestId('information-timezone')).toHaveValue('America/Toronto');
@@ -225,6 +243,46 @@ describe('BookingPageInformationEditor', () => {
     expect(calls.some(call => call.url.includes('/api/admin/technicians'))).toBe(false);
   });
 
+  // OP-010 / AG-w2-information-parity-01: hours are the salon's public promise,
+  // but bookable times are floored by the staff schedules this editor never
+  // writes, so opening an unstaffed day used to publish "Opens Sunday 11:00 AM"
+  // over an empty booking calendar under a toast that claimed otherwise.
+  it('warns after saving a day no staff member works, and links to Staff', async () => {
+    renderEditor();
+    await userEvent.click(await screen.findByText('Hours', { exact: true }));
+
+    expect(screen.queryByTestId('information-hours-staff-gap')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('information-hours-sunday-open-toggle'));
+    fireEvent.change(screen.getByTestId('information-hours-sunday-open'), { target: { value: '11:00' } });
+    fireEvent.change(screen.getByTestId('information-hours-sunday-close'), { target: { value: '16:00' } });
+    fireEvent.click(screen.getByTestId('information-save-hours'));
+
+    const notice = await screen.findByTestId('information-hours-staff-gap');
+
+    expect(notice).toHaveTextContent('No staff member works Sunday yet — add a shift or clients will see no times.');
+    expect(notice.querySelector('a')).toHaveAttribute('href', '/en/admin?salon=salon-a&app=staff');
+    // The toast must not promise availability the staff schedules cannot supply.
+    expect(screen.getByText('Hours saved. Bookable times still follow each staff member’s schedule.')).toBeInTheDocument();
+    expect(screen.queryByText(/Booking availability uses them immediately/)).not.toBeInTheDocument();
+  });
+
+  it('names every unstaffed open day and stays silent when the day is staffed', async () => {
+    current = information({ staffedDays: ['monday', 'sunday'] });
+    renderEditor();
+    await userEvent.click(await screen.findByText('Hours', { exact: true }));
+
+    fireEvent.click(screen.getByTestId('information-hours-sunday-open-toggle'));
+    fireEvent.click(screen.getByTestId('information-hours-tuesday-open-toggle'));
+    fireEvent.click(screen.getByTestId('information-hours-wednesday-open-toggle'));
+    fireEvent.click(screen.getByTestId('information-save-hours'));
+
+    const notice = await screen.findByTestId('information-hours-staff-gap');
+
+    expect(notice).toHaveTextContent('No staff member works Tuesday and Wednesday yet');
+    expect(notice).not.toHaveTextContent('Sunday');
+  });
+
   it('rejects closing before opening locally and keeps the edit', async () => {
     renderEditor();
     await userEvent.click(await screen.findByText('Hours', { exact: true }));
@@ -255,14 +313,15 @@ describe('BookingPageInformationEditor', () => {
       contactPreferences: { bookingOnlyContact: true, callEnabled: true, textEnabled: false, textNumber: '' },
     });
 
-    await waitFor(() => expect(screen.getByTestId('information-instagram')).toHaveValue('https://www.instagram.com/@isla.nails/'));
+    // Round-trip: the saved value comes back as the handle, not a URL.
+    await waitFor(() => expect(screen.getByTestId('information-instagram')).toHaveValue('isla.nails'));
   });
 
   it('assigns a logo from the existing portfolio and uploads the tech photo through the Staff route, never swapping the two', async () => {
     renderEditor();
     await screen.findByTestId('information-business-name');
 
-    await userEvent.click(screen.getByRole('button', { name: 'Choose from Portfolio' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Choose a logo' }));
     await userEvent.click(await screen.findByRole('button', { name: 'Chrome set' }));
 
     await waitFor(() => expect(screen.getByAltText('Current business logo')).toHaveAttribute('src', 'https://cdn.example/photo-1.jpg'));
@@ -315,5 +374,50 @@ describe('BookingPageInformationEditor', () => {
 
     expect(flushed).toBe(true);
     expect(calls.filter(call => call.method === 'PATCH').map(call => call.body)).toEqual([{ name: 'Unsaved name' }, { name: 'Unsaved name' }]);
+  });
+
+  it('offers the salon\u2019s own logo in the picker instead of an empty library', async () => {
+    // An onboarding-built salon has its logo in a store the Portfolio picker
+    // cannot see; the picker must still show something to pick
+    // (AG-w2-information-parity-04).
+    emptyPortfolio = true;
+    current = information({ salon: { ...information().salon, logoUrl: 'https://cdn.example/onboarding-logo.webp' } });
+    renderEditor();
+    await screen.findByTestId('information-business-name');
+
+    await userEvent.click(screen.getByTestId('information-logo-choose'));
+
+    expect(await screen.findByTestId('information-logo-option-current')).toBeInTheDocument();
+    expect(screen.queryByText(/no images to choose from yet/i)).not.toBeInTheDocument();
+  });
+
+  it('makes removing the logo reversible instead of a one-way door', async () => {
+    current = information({ salon: { ...information().salon, logoUrl: 'https://cdn.example/onboarding-logo.webp' } });
+    renderEditor();
+    await screen.findByTestId('information-business-name');
+
+    await userEvent.click(screen.getByTestId('information-logo-remove'));
+
+    const undo = await screen.findByTestId('information-logo-undo');
+    await userEvent.click(undo);
+
+    await waitFor(() => expect(screen.getByAltText('Current business logo')).toHaveAttribute('src', 'https://cdn.example/onboarding-logo.webp'));
+
+    expect(calls.filter(call => call.method === 'PATCH').map(call => call.body)).toEqual([
+      { logoUrl: null },
+      { logoUrl: 'https://cdn.example/onboarding-logo.webp' },
+    ]);
+  });
+
+  it('says which accordions are live and which one is drafted', async () => {
+    renderEditor();
+    await screen.findByTestId('information-business-name');
+
+    // AG-w2-information-parity-06: the panel used to claim nothing goes live.
+    expect(screen.getByTestId('information-publish-summary')).toHaveTextContent('go public as soon as you save them');
+    expect(screen.getByTestId('information-identity-publish-badge')).toHaveTextContent('Live');
+    expect(screen.getByTestId('information-contact-publish-badge')).toHaveTextContent('Live');
+    expect(screen.getByTestId('information-hours-publish-badge')).toHaveTextContent('Live');
+    expect(screen.getByTestId('information-location-publish-badge')).toHaveTextContent('Live \u00B7 1 drafted setting');
   });
 });

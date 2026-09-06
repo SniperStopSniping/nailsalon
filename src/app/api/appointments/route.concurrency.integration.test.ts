@@ -117,6 +117,8 @@ vi.mock('@/libs/DB', () => ({
 vi.mock('@/libs/email', () => ({ sendTransactionalEmail, sendTransactionalEmailDetailed }));
 vi.mock('@/libs/staffAuth', () => ({ requireStaffSession }));
 vi.mock('@/libs/adminAuth', () => ({
+  // The client PATCH records the acting admin on its audit row (CP1 repair).
+  getAdminSession: vi.fn(async () => ({ id: 'admin_concurrency', phoneE164: null })),
   requireAdmin,
   requireAdminSalon,
 }));
@@ -1942,7 +1944,10 @@ suite('POST /api/appointments — genuine concurrency', () => {
       };
 
       expect(response.status).toBe(409);
-      expect(body.error?.code).toBe('UNSUPPORTED_CLIENT_IDENTITY');
+      // Still fails closed once the writer has linked the account, but the
+      // refusal now names the account link (AG-clients-03) instead of the
+      // generic identity code.
+      expect(body.error?.code).toBe('CLIENT_ACCOUNT_LINK_CONTACT_LOCKED');
       expect(body.error?.message).not.toMatch(
         /customer login|session|foreign|global/i,
       );

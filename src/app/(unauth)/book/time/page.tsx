@@ -5,6 +5,7 @@ import type { PreviewBannerVariant } from '@/components/PreviewBanner';
 import { PublicSalonPageShell } from '@/components/PublicSalonPageShell';
 import { getBookingConfigForSalon } from '@/libs/bookingConfig';
 import { type BookingStep, normalizeBookingFlow } from '@/libs/bookingFlow';
+import { resolveBookingHoursCeiling } from '@/libs/bookingHoursCeiling';
 import { resolveBookingPageConfig } from '@/libs/bookingPageConfig';
 import { buildBookingUrl, parseSelectedAddOnsParam, repairBookingUrl, shouldRepairBookingUrl } from '@/libs/bookingParams';
 import { getClientSession } from '@/libs/clientAuth';
@@ -19,6 +20,17 @@ import { getPublicPageContext } from '@/libs/tenant';
 import type { SalonOwnerPreviewState } from '@/providers/SalonProvider';
 
 import { BookTimeClient } from './BookTimeClient';
+
+// Ordered so the index is the JS weekday number the calendar uses (0 = Sunday).
+const WEEKDAY_KEYS = [
+  'sunday',
+  'monday',
+  'tuesday',
+  'wednesday',
+  'thursday',
+  'friday',
+  'saturday',
+] as const;
 
 /**
  * Time Selection Page (Server Component)
@@ -262,6 +274,25 @@ export default async function BookTimePage(
 
   const bookingConfig = await getBookingConfigForSalon(salon.id);
 
+  // Days the salon is shut, from the SAME hours ceiling the availability API
+  // enforces (`/api/appointments/availability` → resolveBookingHoursCeiling),
+  // so the calendar can never invite a client onto a day the API will answer
+  // with an empty slot list.
+  const hoursCeiling = resolveBookingHoursCeiling({
+    location: resolvedLocation
+      ? { id: resolvedLocation.id, businessHours: resolvedLocation.businessHours ?? null }
+      : null,
+    salonBusinessHours: salon.businessHours ?? null,
+  });
+  const closedWeekdays = hoursCeiling.businessHours
+    ? WEEKDAY_KEYS.reduce<number[]>((closed, key, index) => {
+      if (!hoursCeiling.businessHours?.[key]) {
+        closed.push(index);
+      }
+      return closed;
+    }, [])
+    : [];
+
   const services = resolvedTechnicianContext.resolvedSelection.services.map(service => ({
     id: service.id,
     name: service.name,
@@ -300,6 +331,7 @@ export default async function BookTimePage(
           bookingFlow={effectiveBookingFlow}
           minimumNoticeMinutes={bookingConfig.minimumNoticeMinutes}
           salonTimeZone={bookingConfig.timezone}
+          closedWeekdays={closedWeekdays}
         />
       </Suspense>
     </PublicSalonPageShell>

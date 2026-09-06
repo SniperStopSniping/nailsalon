@@ -28,6 +28,12 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 import type { BookingPageConfigSide } from '@/libs/bookingPageConfig';
 import type { LocationDisplayMode } from '@/libs/bookingPageContent';
+import {
+  formatInstagramHandle,
+  INSTAGRAM_FIELD_HELPER,
+  INSTAGRAM_FIELD_LABEL,
+  toInstagramHandle,
+} from '@/libs/instagramHandle';
 
 import {
   QUICK_BOOK_VISIBILITY_GROUPS,
@@ -81,13 +87,32 @@ export type SalonInformation = {
   };
   technician: { id: string; name: string; avatarUrl: string | null } | null;
   technicianCount: number;
+  /** Canonical stored profile URL. */
   instagram: string | null;
+  /** The same value as the bare handle — what this editor shows and sends. */
+  instagramHandle?: string | null;
   location: { id: string; name: string; address: string | null; city: string | null; state: string | null; zipCode: string | null } | null;
   addressPrivacy: { draft: LocationDisplayMode; live: LocationDisplayMode };
   contactPreferences: { bookingOnlyContact: boolean | null; callEnabled: boolean | null; textEnabled: boolean | null; textNumber: string | null };
   businessHours: BusinessHoursValue | null;
+  /**
+   * Weekdays at least one active staff member currently works. Opening a day
+   * in these hours does not create staff availability (staff schedules live in
+   * Staff and this editor never writes them), so the days missing from here
+   * are the ones that would go public with no bookable times.
+   */
+  staffedDays: Weekday[];
   timezone: string;
 };
+
+/** "Sunday", "Sunday and Monday", "Sunday, Monday and Tuesday". */
+function formatWeekdayList(days: readonly Weekday[]): string {
+  const labels = days.map(day => `${day[0]!.toUpperCase()}${day.slice(1)}`);
+  if (labels.length <= 1) {
+    return labels[0] ?? '';
+  }
+  return `${labels.slice(0, -1).join(', ')} and ${labels[labels.length - 1]}`;
+}
 
 type SectionStatus = 'idle' | 'dirty' | 'saving' | 'saved' | 'error';
 
@@ -125,26 +150,46 @@ function emptyHours(): BusinessHoursValue {
   return { monday: null, tuesday: null, wednesday: null, thursday: null, friday: null, saturday: null, sunday: null };
 }
 
-const fieldClass = 'mt-1 w-full min-h-11 rounded-xl border border-stone-300 px-3 py-2 text-base text-stone-900';
-const labelClass = 'block text-sm font-medium text-stone-800';
-const primaryButtonClass = 'inline-flex min-h-11 items-center justify-center rounded-xl bg-rose-800 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50';
-const secondaryButtonClass = 'inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-stone-300 bg-white px-4 py-2 text-sm font-semibold text-stone-800 disabled:opacity-50';
+const fieldClass = 'mt-1 w-full min-h-11 rounded-xl border border-[var(--owner-line-strong)] px-3 py-2 text-base text-[var(--owner-ink)]';
+const labelClass = 'block text-sm font-medium text-[var(--owner-ink)]';
+const primaryButtonClass = 'inline-flex min-h-11 items-center justify-center rounded-xl bg-[var(--owner-accent)] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50';
+const secondaryButtonClass = 'inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-[var(--owner-line-strong)] bg-[var(--owner-surface)] px-4 py-2 text-sm font-semibold text-[var(--owner-ink)] disabled:opacity-50';
 
-function Accordion({ title, testId, subtitle, defaultOpen = false, children }: {
+/**
+ * Publish semantics per accordion. Three of the four write the canonical
+ * business record and are public the moment they save; address privacy is the
+ * single drafted field on this panel. The badge says which, because the panel
+ * header alone used to claim everything was drafted (AG-w2-information-parity-06).
+ */
+const PUBLISH_BADGES = {
+  'live': { label: 'Live', title: 'Saves here are public immediately.' },
+  'live-with-draft': { label: 'Live · 1 drafted setting', title: 'Saves here are public immediately, except Address privacy, which waits for you to publish.' },
+} as const;
+
+function Accordion({ title, testId, subtitle, publishes, defaultOpen = false, children }: {
   title: string;
   testId: string;
   subtitle: string;
+  publishes?: keyof typeof PUBLISH_BADGES;
   defaultOpen?: boolean;
   children: React.ReactNode;
 }) {
+  const badge = publishes ? PUBLISH_BADGES[publishes] : null;
   return (
     <details className="group py-2" data-testid={testId} open={defaultOpen}>
       <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 py-3">
         <span className="min-w-0">
           <span className="block font-semibold">{title}</span>
-          <span className="block text-xs text-stone-500">{subtitle}</span>
+          <span className="block text-xs text-[var(--owner-muted)]">{subtitle}</span>
         </span>
-        <span aria-hidden="true" className="text-stone-400 transition-transform group-open:rotate-180">⌄</span>
+        <span className="flex shrink-0 items-center gap-2">
+          {badge && (
+            <span className="rounded-full bg-[var(--owner-ground)] px-2 py-0.5 text-[11px] font-semibold text-[var(--owner-muted)]" data-testid={`${testId}-publish-badge`} title={badge.title}>
+              {badge.label}
+            </span>
+          )}
+          <span aria-hidden="true" className="text-[var(--owner-line-strong)] transition-transform group-open:rotate-180">⌄</span>
+        </span>
       </summary>
       <div className="pb-4">{children}</div>
     </details>
@@ -153,7 +198,7 @@ function Accordion({ title, testId, subtitle, defaultOpen = false, children }: {
 
 function StatusLine({ status, error, savedText = 'Saved' }: { status: SectionStatus; error: string | null; savedText?: string }) {
   return (
-    <p aria-live="polite" className="mt-2 min-h-5 text-xs text-stone-600" role="status">
+    <p aria-live="polite" className="mt-2 min-h-5 text-xs text-[var(--owner-muted)]" role="status">
       {status === 'saving' && 'Saving…'}
       {status === 'dirty' && 'Unsaved changes'}
       {status === 'saved' && savedText}
@@ -243,6 +288,13 @@ export function BookingPageInformationEditor({
   const [loadState, setLoadState] = useState<'loading' | 'ready' | 'forbidden' | 'error'>('loading');
   const [logoPicker, setLogoPicker] = useState<{ open: boolean; photos: Array<{ id: string; imageUrl: string; altText: string | null }>; loading: boolean; error: string | null }>({ open: false, photos: [], loading: false, error: null });
   const [mediaStatus, setMediaStatus] = useState<{ status: SectionStatus; error: string | null }>({ status: 'idle', error: null });
+  /**
+   * The logo an onboarding-built salon arrives with lives in the onboarding
+   * media store, which the Portfolio picker cannot see
+   * (AG-w2-information-parity-04). Keeping the removed URL here makes "Remove
+   * logo" reversible instead of a one-way door out of that asset.
+   */
+  const [removedLogoUrl, setRemovedLogoUrl] = useState<string | null>(null);
   // Optimistic selection: the radio reflects the tap at once while the draft
   // save is in flight, then follows the canonical draft value when it lands.
   const [selectedAddressPrivacy, setSelectedAddressPrivacy] = useState<LocationDisplayMode>(addressPrivacy);
@@ -342,6 +394,16 @@ export function BookingPageInformationEditor({
     await patchInformation({ businessHours: values.businessHours });
   }, [info?.timezone, patchInformation, query]));
 
+  // Saved hours are the salon's PUBLIC promise; bookable times are the
+  // intersection of those hours and the staff schedules this editor never
+  // writes. A day opened here with nobody working it goes live reading
+  // "Opens Sunday 11:00 AM" while the booking calendar shows nothing, so the
+  // owner is told before the customer finds out. `info` is the response of the
+  // save itself, so both halves are the freshly-saved truth.
+  const openDaysWithoutStaff = info && hours.status === 'saved'
+    ? WEEKDAYS.filter(day => Boolean(info.businessHours?.[day]) && !info.staffedDays.includes(day))
+    : [];
+
   useEffect(() => {
     if (!info) {
       return;
@@ -357,7 +419,7 @@ export function BookingPageInformationEditor({
     contact.reset({
       phone: info.salon.phone ?? '',
       email: info.salon.email ?? '',
-      instagram: info.instagram ?? '',
+      instagram: toInstagramHandle(info.instagramHandle ?? info.instagram),
       bookingOnlyContact: info.contactPreferences.bookingOnlyContact ?? false,
       callEnabled: info.contactPreferences.callEnabled ?? true,
       textEnabled: info.contactPreferences.textEnabled ?? false,
@@ -386,15 +448,19 @@ export function BookingPageInformationEditor({
       const payload = await requestJson<{ photos: Array<{ id: string; imageUrl: string; altText: string | null }> }>(`/api/admin/portfolio?${query}`);
       setLogoPicker({ open: true, photos: payload.photos, loading: false, error: null });
     } catch (pickerError) {
+      // A failed portfolio read must not hide the images the owner already
+      // has (the current and just-removed logo are added by the renderer).
       setLogoPicker({ open: true, photos: [], loading: false, error: pickerError instanceof Error ? pickerError.message : 'Could not load your portfolio.' });
     }
   };
 
   const saveLogo = async (logoUrl: string | null) => {
+    const previousLogoUrl = info?.salon.logoUrl ?? null;
     setMediaStatus({ status: 'saving', error: null });
     try {
       await patchInformation({ logoUrl });
       setLogoPicker(current => ({ ...current, open: false }));
+      setRemovedLogoUrl(logoUrl === null ? previousLogoUrl : null);
       setMediaStatus({ status: 'saved', error: null });
     } catch (saveError) {
       setMediaStatus({ status: 'error', error: saveError instanceof Error ? saveError.message : 'Could not save the logo.' });
@@ -428,8 +494,8 @@ export function BookingPageInformationEditor({
       return null;
     }
     return (
-      <fieldset className="mt-4 divide-y divide-stone-100 border-t border-stone-200" disabled={disabled}>
-        <legend className="pt-3 text-xs font-semibold uppercase tracking-wide text-stone-500">Public visibility on Quick Book</legend>
+      <fieldset className="mt-4 divide-y divide-stone-100 border-t border-[var(--owner-line)]" disabled={disabled}>
+        <legend className="pt-3 text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">Public visibility on Quick Book · saved to your draft</legend>
         {QUICK_BOOK_VISIBILITY_OPTIONS.filter(option => group.keys.includes(option.key)).map(option => (
           <QuickBookVisibilitySwitch checked={draft.quickBookProfile[option.key]} key={option.key} onConfigPatch={onConfigPatch} option={option} />
         ))}
@@ -439,25 +505,50 @@ export function BookingPageInformationEditor({
 
   const renderFallback = (groupTitle: string) => (
     <>
-      {[...new Set(savedDetails?.[groupTitle] ?? [])].map(detail => <p className="mb-2 break-words text-sm text-stone-700" key={detail}>{detail}</p>)}
-      {loadState === 'forbidden' && <p className="text-sm text-stone-600">Only the salon owner can change these details.</p>}
+      {[...new Set(savedDetails?.[groupTitle] ?? [])].map(detail => <p className="mb-2 break-words text-sm text-[var(--owner-muted)]" key={detail}>{detail}</p>)}
+      {loadState === 'forbidden' && <p className="text-sm text-[var(--owner-muted)]">Only the salon owner can change these details.</p>}
       {loadState === 'error' && <p className="text-sm text-red-700">Current details could not be loaded. Reload to try again.</p>}
-      {loadState === 'loading' && <p className="text-sm text-stone-500">Loading current details…</p>}
+      {loadState === 'loading' && <p className="text-sm text-[var(--owner-muted)]">Loading current details…</p>}
     </>
   );
 
   const editable = loadState === 'ready' && info !== null;
   const draftPrivacyLabel = ADDRESS_PRIVACY_OPTIONS.find(option => option.value === liveAddressPrivacy)?.label;
+  // The public page renders `@handle`; showing it beside the field is how the
+  // owner sees what customers see without the stored URL leaking into the input.
+  const instagramPreview = formatInstagramHandle(contact.values?.instagram ?? null);
+  /**
+   * The picker must never be an empty library: an onboarding-built salon keeps
+   * its logo in a store Portfolio cannot see, so the currently saved logo (and
+   * the one just removed) are always offered alongside the portfolio photos.
+   */
+  const logoChoices: Array<{ id: string; imageUrl: string; altText: string }> = (() => {
+    const seen = new Set<string>();
+    const choices: Array<{ id: string; imageUrl: string; altText: string }> = [];
+    const push = (id: string, imageUrl: string | null, altText: string) => {
+      if (!imageUrl || seen.has(imageUrl)) {
+        return;
+      }
+      seen.add(imageUrl);
+      choices.push({ id, imageUrl, altText });
+    };
+    push('current', info?.salon.logoUrl ?? null, 'Current business logo');
+    push('previous', info?.salon.logoUrl ? null : removedLogoUrl, 'Logo you just removed');
+    for (const photo of logoPicker.photos) {
+      push(photo.id, photo.imageUrl, photo.altText ?? 'Portfolio photo');
+    }
+    return choices;
+  })();
 
   return (
-    <section className="rounded-3xl border border-stone-200 bg-white p-5 shadow-sm" data-testid="booking-page-information-editor">
-      <h2 className="text-lg font-semibold text-stone-950">Your Information</h2>
-      <p className="mt-1 text-sm text-stone-500">
-        These are the details you saved during setup. Editing changes the same business record your live site and bookings use; hiding a detail keeps it saved.
+    <section className="rounded-3xl border border-[var(--owner-line)] bg-[var(--owner-surface)] p-5 shadow-sm" data-testid="booking-page-information-editor">
+      <h2 className="text-lg font-semibold text-[var(--owner-ink)]">Your Information</h2>
+      <p className="mt-1 text-sm text-[var(--owner-muted)]" data-testid="information-publish-summary">
+        These are the details you saved during setup. Editing changes the same business record your live site and bookings use, so name, contact and hours go public as soon as you save them. Address privacy is the one setting here that waits in your draft until you publish; hiding a detail keeps it saved.
       </p>
 
       <div className="mt-4 divide-y divide-stone-200">
-        <Accordion defaultOpen subtitle="Name, website address, nail tech, logo and photo" testId="information-identity" title="Business identity">
+        <Accordion defaultOpen publishes="live" subtitle="Name, website address, nail tech, logo and photo" testId="information-identity" title="Business identity">
           {editable && identity.values
             ? (
                 <form
@@ -473,8 +564,8 @@ export function BookingPageInformationEditor({
                   </label>
                   <div>
                     <span className={labelClass}>Website address</span>
-                    <p className="mt-1 break-all text-sm text-stone-700" data-testid="information-public-url">{info.salon.publicUrl}</p>
-                    <p className="text-xs text-stone-500">
+                    <p className="mt-1 break-all text-sm text-[var(--owner-muted)]" data-testid="information-public-url">{info.salon.publicUrl}</p>
+                    <p className="text-xs text-[var(--owner-muted)]">
                       {info.salon.slugLocked
                         ? 'Your link is locked now that your site is published, so bookmarks and printed links keep working.'
                         : 'Your link is set when you publish. Use “Review saved setup” on the Booking Page screen to change it before then.'}
@@ -485,13 +576,13 @@ export function BookingPageInformationEditor({
                         <label className={labelClass}>
                           Nail tech name (shown to clients)
                           <input className={fieldClass} data-testid="information-tech-name" disabled={disabled} onChange={event => identity.update({ technicianName: event.target.value })} type="text" value={identity.values.technicianName} />
-                          <span className="mt-1 block text-xs font-normal text-stone-500">This is your public Staff profile, not your private account name.</span>
+                          <span className="mt-1 block text-xs font-normal text-[var(--owner-muted)]">This is your public Staff profile, not your private account name.</span>
                         </label>
                       )
                     : (
-                        <p className="text-sm text-stone-600">
+                        <p className="text-sm text-[var(--owner-muted)]">
                           {info.technicianCount > 1 ? `Your team has ${info.technicianCount} nail techs. ` : 'No active nail tech yet. '}
-                          <a className="font-semibold text-rose-800 underline" href={`${workspace}&app=staff`}>Manage names and photos in Staff</a>
+                          <a className="font-semibold text-[var(--owner-accent)] underline" href={`${workspace}&app=staff`}>Manage names and photos in Staff</a>
                         </p>
                       )}
                   <div className="flex flex-wrap items-center gap-3">
@@ -499,26 +590,36 @@ export function BookingPageInformationEditor({
                   </div>
                   <StatusLine error={identity.error} status={identity.status} />
 
-                  <div className="grid gap-4 border-t border-stone-200 pt-4 sm:grid-cols-2">
+                  <div className="grid gap-4 border-t border-[var(--owner-line)] pt-4 sm:grid-cols-2">
                     <div>
                       <span className={labelClass}>Business logo</span>
                       {info.salon.logoUrl
-                        ? <img alt="Current business logo" className="mt-2 size-20 rounded-xl border border-stone-200 object-contain" src={info.salon.logoUrl} />
-                        : <p className="mt-1 text-sm text-stone-500">No logo saved.</p>}
+                        ? <img alt="Current business logo" className="mt-2 size-20 rounded-xl border border-[var(--owner-line)] object-contain" src={info.salon.logoUrl} />
+                        : <p className="mt-1 text-sm text-[var(--owner-muted)]">No logo saved.</p>}
                       <div className="mt-2 flex flex-wrap gap-2">
-                        <button className={secondaryButtonClass} disabled={disabled} onClick={() => void openLogoPicker()} type="button">Choose from Portfolio</button>
-                        {info.salon.logoUrl && <button className={secondaryButtonClass} disabled={disabled} onClick={() => void saveLogo(null)} type="button">Remove logo</button>}
+                        <button className={secondaryButtonClass} data-testid="information-logo-choose" disabled={disabled} onClick={() => void openLogoPicker()} type="button">Choose a logo</button>
+                        {info.salon.logoUrl && <button className={secondaryButtonClass} data-testid="information-logo-remove" disabled={disabled} onClick={() => void saveLogo(null)} type="button">Remove logo</button>}
+                        {!info.salon.logoUrl && removedLogoUrl && (
+                          <button className={secondaryButtonClass} data-testid="information-logo-undo" disabled={disabled} onClick={() => void saveLogo(removedLogoUrl)} type="button">Undo remove</button>
+                        )}
                       </div>
-                      <p className="mt-1 text-xs text-stone-500">Upload new images in Photos &amp; Gallery, then pick one here. The logo is never swapped with the nail tech photo.</p>
+                      <p className="mt-1 text-xs text-[var(--owner-muted)]">Your setup logo stays available here. To use a different image, add it in Photos &amp; Gallery first, then pick it. The logo is never swapped with the nail tech photo.</p>
                       {logoPicker.open && (
-                        <div className="mt-2 rounded-xl border border-stone-200 p-2" role="group" aria-label="Choose a logo from your portfolio">
-                          {logoPicker.loading && <p className="text-sm text-stone-500">Loading portfolio…</p>}
+                        <div className="mt-2 rounded-xl border border-[var(--owner-line)] p-2" role="group" aria-label="Choose a logo">
+                          {logoPicker.loading && <p className="text-sm text-[var(--owner-muted)]">Loading your images…</p>}
                           {logoPicker.error && <p className="text-sm text-red-700">{logoPicker.error}</p>}
-                          {!logoPicker.loading && !logoPicker.error && logoPicker.photos.length === 0 && <p className="text-sm text-stone-500">Your portfolio has no photos yet.</p>}
+                          {!logoPicker.loading && logoChoices.length === 0 && (
+                            <p className="text-sm text-[var(--owner-muted)]">
+                              No images to choose from yet.
+                              {' '}
+                              <a className="font-semibold text-[var(--owner-accent)] underline" href={`${workspace}&app=portfolio`}>Add one in Photos &amp; Gallery</a>
+                              , then come back here.
+                            </p>
+                          )}
                           <div className="grid grid-cols-3 gap-2">
-                            {logoPicker.photos.map(photo => (
-                              <button className="aspect-square min-h-11 overflow-hidden rounded-lg border border-stone-200" key={photo.id} onClick={() => void saveLogo(photo.imageUrl)} type="button">
-                                <img alt={photo.altText ?? 'Portfolio photo'} className="size-full object-cover" src={photo.imageUrl} />
+                            {logoChoices.map(choice => (
+                              <button className={`aspect-square min-h-11 overflow-hidden rounded-lg border ${choice.imageUrl === info.salon.logoUrl ? 'border-[var(--owner-accent)]' : 'border-[var(--owner-line)]'}`} data-testid={`information-logo-option-${choice.id}`} key={choice.id} onClick={() => void saveLogo(choice.imageUrl)} type="button">
+                                <img alt={choice.altText} className="size-full object-cover" src={choice.imageUrl} />
                               </button>
                             ))}
                           </div>
@@ -529,15 +630,15 @@ export function BookingPageInformationEditor({
                     <div>
                       <span className={labelClass}>Nail tech photo</span>
                       {info.technician?.avatarUrl
-                        ? <img alt="Current nail tech" className="mt-2 size-20 rounded-full border border-stone-200 object-cover" src={info.technician.avatarUrl} />
-                        : <p className="mt-1 text-sm text-stone-500">{info.technician ? 'No photo saved.' : 'Managed per nail tech in Staff.'}</p>}
+                        ? <img alt="Current nail tech" className="mt-2 size-20 rounded-full border border-[var(--owner-line)] object-cover" src={info.technician.avatarUrl} />
+                        : <p className="mt-1 text-sm text-[var(--owner-muted)]">{info.technician ? 'No photo saved.' : 'Managed per nail tech in Staff.'}</p>}
                       {info.technician && (
                         <label className={`${secondaryButtonClass} mt-2 cursor-pointer`}>
                           Upload photo
                           <input accept="image/jpeg,image/png,image/webp" className="sr-only" data-testid="information-tech-photo" disabled={disabled} onChange={event => void uploadProfilePhoto(event.target.files?.[0] ?? null)} type="file" />
                         </label>
                       )}
-                      <p className="mt-1 text-xs text-stone-500">Uses the same Staff photo upload. It is never used as the logo.</p>
+                      <p className="mt-1 text-xs text-[var(--owner-muted)]">Uses the same Staff photo upload. It is never used as the logo.</p>
                     </div>
                   </div>
                   <StatusLine error={mediaStatus.error} savedText="Image saved" status={mediaStatus.status} />
@@ -552,7 +653,7 @@ export function BookingPageInformationEditor({
               )}
         </Accordion>
 
-        <Accordion subtitle="Address, city and how much of it clients can see" testId="information-location" title="Location">
+        <Accordion publishes="live-with-draft" subtitle="Address, city and how much of it clients can see" testId="information-location" title="Location">
           <>
             {editable && location.values
               ? (
@@ -587,22 +688,22 @@ export function BookingPageInformationEditor({
                     </div>
                     <div className="flex flex-wrap items-center gap-3">
                       <button className={primaryButtonClass} data-testid="information-save-location" disabled={disabled || location.status === 'saving' || location.status === 'idle' || location.status === 'saved'} type="submit">Save address</button>
-                      <a className="text-sm font-semibold text-rose-800 underline" href={`${workspace}&app=settings&view=location`}>Parking &amp; arrival instructions</a>
+                      <a className="text-sm font-semibold text-[var(--owner-accent)] underline" href={`${workspace}&app=settings&view=location`}>Parking &amp; arrival instructions</a>
                     </div>
                     <StatusLine error={location.error} savedText="Address saved. It affects directions and bookings immediately." status={location.status} />
                   </form>
                 )
               : renderFallback('Location')}
 
-            <fieldset className="mt-4 border-t border-stone-200 pt-3" disabled={disabled}>
-              <legend className="text-sm font-semibold text-stone-900">Address privacy</legend>
-              <p className="mb-2 text-xs text-stone-500">Your exact address stays saved for bookings and directions either way. This choice applies to your website draft until you publish.</p>
+            <fieldset className="mt-4 border-t border-[var(--owner-line)] pt-3" disabled={disabled}>
+              <legend className="text-sm font-semibold text-[var(--owner-ink)]">Address privacy</legend>
+              <p className="mb-2 text-xs text-[var(--owner-muted)]">Your exact address stays saved for bookings and directions either way. This choice applies to your website draft until you publish.</p>
               <div role="radiogroup" aria-label="Address privacy">
                 {ADDRESS_PRIVACY_OPTIONS.map(option => (
-                  <label className={`mb-2 flex min-h-11 cursor-pointer items-start gap-3 rounded-xl border p-3 ${selectedAddressPrivacy === option.value ? 'border-rose-800 bg-rose-50' : 'border-stone-200'}`} key={option.value}>
+                  <label className={`mb-2 flex min-h-11 cursor-pointer items-start gap-3 rounded-xl border p-3 ${selectedAddressPrivacy === option.value ? 'border-[var(--owner-accent)] bg-[var(--owner-blush)]' : 'border-[var(--owner-line)]'}`} key={option.value}>
                     <input
                       checked={selectedAddressPrivacy === option.value}
-                      className="mt-1 size-5 shrink-0 accent-rose-700"
+                      className="mt-1 size-5 shrink-0 accent-[var(--owner-accent)]"
                       data-testid={`address-privacy-${option.value}`}
                       name="address-privacy"
                       onChange={() => {
@@ -613,9 +714,9 @@ export function BookingPageInformationEditor({
                       value={option.value}
                     />
                     <span className="min-w-0">
-                      <span className="block text-sm font-semibold text-stone-900">{option.label}</span>
-                      <span className="block text-xs text-stone-600">{option.description}</span>
-                      <span className="mt-1 block text-[11px] uppercase tracking-wide text-stone-400">{option.note}</span>
+                      <span className="block text-sm font-semibold text-[var(--owner-ink)]">{option.label}</span>
+                      <span className="block text-xs text-[var(--owner-muted)]">{option.description}</span>
+                      <span className="mt-1 block text-[11px] uppercase tracking-wide text-[var(--owner-line-strong)]">{option.note}</span>
                     </span>
                   </label>
                 ))}
@@ -630,7 +731,7 @@ export function BookingPageInformationEditor({
           </>
         </Accordion>
 
-        <Accordion subtitle="Phone, email, Instagram and how clients may reach you" testId="information-contact" title="Contact">
+        <Accordion publishes="live" subtitle="Phone, email, Instagram and how clients may reach you" testId="information-contact" title="Contact">
           {editable && contact.values
             ? (
                 <form
@@ -649,21 +750,26 @@ export function BookingPageInformationEditor({
                     <input autoComplete="email" className={fieldClass} data-testid="information-email" disabled={disabled} inputMode="email" onChange={event => contact.update({ email: event.target.value })} type="email" value={contact.values.email} />
                   </label>
                   <label className={labelClass}>
-                    Instagram username
-                    <input className={fieldClass} data-testid="information-instagram" disabled={disabled} onChange={event => contact.update({ instagram: event.target.value })} placeholder="yourstudio" type="text" value={contact.values.instagram} />
+                    {INSTAGRAM_FIELD_LABEL}
+                    {/* The helper sits inside the label, so name the field explicitly. */}
+                    <input aria-describedby="information-instagram-helper" aria-label={INSTAGRAM_FIELD_LABEL} className={fieldClass} data-testid="information-instagram" disabled={disabled} onChange={event => contact.update({ instagram: event.target.value })} placeholder="yourstudio" type="text" value={contact.values.instagram} />
+                    <span className="mt-1 block text-xs font-normal text-[var(--owner-muted)]" data-testid="information-instagram-helper" id="information-instagram-helper">
+                      {INSTAGRAM_FIELD_HELPER}
+                      {instagramPreview ? ` — clients see ${instagramPreview}` : ''}
+                    </span>
                   </label>
                   <fieldset className="space-y-1" disabled={disabled}>
-                    <legend className="text-sm font-medium text-stone-800">How clients may contact you</legend>
-                    <label className="flex min-h-11 items-center gap-3 text-sm text-stone-800">
-                      <input checked={contact.values.bookingOnlyContact} className="size-5 accent-rose-700" data-testid="information-booking-only-contact" onChange={event => contact.update({ bookingOnlyContact: event.target.checked })} type="checkbox" />
+                    <legend className="text-sm font-medium text-[var(--owner-ink)]">How clients may contact you</legend>
+                    <label className="flex min-h-11 items-center gap-3 text-sm text-[var(--owner-ink)]">
+                      <input checked={contact.values.bookingOnlyContact} className="size-5 accent-[var(--owner-accent)]" data-testid="information-booking-only-contact" onChange={event => contact.update({ bookingOnlyContact: event.target.checked })} type="checkbox" />
                       Only through bookings (never publish my phone)
                     </label>
-                    <label className="flex min-h-11 items-center gap-3 text-sm text-stone-800">
-                      <input checked={contact.values.callEnabled} className="size-5 accent-rose-700" onChange={event => contact.update({ callEnabled: event.target.checked })} type="checkbox" />
+                    <label className="flex min-h-11 items-center gap-3 text-sm text-[var(--owner-ink)]">
+                      <input checked={contact.values.callEnabled} className="size-5 accent-[var(--owner-accent)]" onChange={event => contact.update({ callEnabled: event.target.checked })} type="checkbox" />
                       Clients can call
                     </label>
-                    <label className="flex min-h-11 items-center gap-3 text-sm text-stone-800">
-                      <input checked={contact.values.textEnabled} className="size-5 accent-rose-700" onChange={event => contact.update({ textEnabled: event.target.checked })} type="checkbox" />
+                    <label className="flex min-h-11 items-center gap-3 text-sm text-[var(--owner-ink)]">
+                      <input checked={contact.values.textEnabled} className="size-5 accent-[var(--owner-accent)]" onChange={event => contact.update({ textEnabled: event.target.checked })} type="checkbox" />
                       Clients can text
                     </label>
                     <label className={labelClass}>
@@ -684,7 +790,7 @@ export function BookingPageInformationEditor({
               )}
         </Accordion>
 
-        <Accordion subtitle="Weekly public hours and timezone" testId="information-hours" title="Hours">
+        <Accordion publishes="live" subtitle="Weekly public hours and timezone" testId="information-hours" title="Hours">
           {editable && hours.values
             ? (
                 <form
@@ -694,17 +800,17 @@ export function BookingPageInformationEditor({
                     void hours.submit();
                   }}
                 >
-                  <p className="text-xs text-stone-500">These are your public hours and your primary location’s booking hours. They take effect immediately. Individual staff schedules are managed in Staff and are not changed here.</p>
+                  <p className="text-xs text-[var(--owner-muted)]">These are your public hours and your primary location’s booking hours. They take effect immediately. Individual staff schedules are managed in Staff and are not changed here.</p>
                   <div className="space-y-2">
                     {WEEKDAYS.map((day) => {
                       const value = hours.values!.businessHours[day];
                       const label = `${day[0]!.toUpperCase()}${day.slice(1)}`;
                       return (
                         <div className="grid grid-cols-2 gap-2 sm:grid-cols-[minmax(0,1fr)_auto_auto] sm:items-center" key={day}>
-                          <label className="col-span-2 flex min-h-11 items-center gap-2 text-sm text-stone-800 sm:col-span-1">
+                          <label className="col-span-2 flex min-h-11 items-center gap-2 text-sm text-[var(--owner-ink)] sm:col-span-1">
                             <input
                               checked={value !== null}
-                              className="size-5 accent-rose-700"
+                              className="size-5 accent-[var(--owner-accent)]"
                               data-testid={`information-hours-${day}-open-toggle`}
                               onChange={event => hours.update({ businessHours: { ...hours.values!.businessHours, [day]: event.target.checked ? { open: value?.open || '10:00', close: value?.close || '18:00' } : null } })}
                               type="checkbox"
@@ -724,7 +830,13 @@ export function BookingPageInformationEditor({
                     </select>
                   </label>
                   <button className={primaryButtonClass} data-testid="information-save-hours" disabled={disabled || hours.status === 'saving' || hours.status === 'idle' || hours.status === 'saved'} type="submit">Save hours</button>
-                  <StatusLine error={hours.error} savedText="Hours saved. Booking availability uses them immediately." status={hours.status} />
+                  <StatusLine error={hours.error} savedText="Hours saved. Bookable times still follow each staff member’s schedule." status={hours.status} />
+                  {openDaysWithoutStaff.length > 0 && (
+                    <p className="rounded-lg bg-amber-50 p-3 text-xs text-amber-900" data-testid="information-hours-staff-gap" role="status">
+                      {`No staff member works ${formatWeekdayList(openDaysWithoutStaff)} yet — add a shift or clients will see no times. `}
+                      <a className="font-semibold underline" href={`${workspace}&app=staff`}>Add a shift in Staff</a>
+                    </p>
+                  )}
                   {renderSwitches('Hours')}
                 </form>
               )
@@ -742,8 +854,8 @@ export function BookingPageInformationEditor({
           </Accordion>
         )}
       </div>
-      <p className="mt-3 text-xs text-stone-500">
-        <a className="inline-flex min-h-11 items-center gap-1 font-semibold text-rose-800 underline" href={`${workspace}&app=settings`}>
+      <p className="mt-3 text-xs text-[var(--owner-muted)]">
+        <a className="inline-flex min-h-11 items-center gap-1 font-semibold text-[var(--owner-accent)] underline" href={`${workspace}&app=settings`}>
           Open all business settings
           <ExternalLink aria-hidden="true" size={14} />
         </a>

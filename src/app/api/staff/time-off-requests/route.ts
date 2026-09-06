@@ -15,6 +15,7 @@ import { z } from 'zod';
 
 import { db } from '@/libs/DB';
 import { requireStaffApiSession } from '@/libs/staffApiGuards';
+import { toDateOnlyString } from '@/libs/timeOffDates';
 import { technicianSchema, timeOffRequestSchema } from '@/models/Schema';
 
 // Force dynamic rendering for this API route
@@ -77,17 +78,33 @@ export async function GET(): Promise<Response> {
       .orderBy(desc(timeOffRequestSchema.createdAt))
       .limit(50);
 
+    // start/end are whole-day DATE columns; skip a row we cannot read rather
+    // than failing the technician's whole list.
+    const serialised = requests.flatMap((r) => {
+      const startDate = toDateOnlyString(r.startDate);
+      const endDate = toDateOnlyString(r.endDate);
+
+      if (!startDate || !endDate) {
+        console.warn(
+          `[TimeOffRequest] Skipping request ${r.id}: unreadable date range`,
+        );
+        return [];
+      }
+
+      return [{
+        id: r.id,
+        startDate,
+        endDate,
+        note: r.note,
+        status: r.status,
+        decidedAt: r.decidedAt?.toISOString() ?? null,
+        createdAt: r.createdAt.toISOString(),
+      }];
+    });
+
     return Response.json({
       data: {
-        requests: requests.map(r => ({
-          id: r.id,
-          startDate: r.startDate.toISOString().split('T')[0],
-          endDate: r.endDate.toISOString().split('T')[0],
-          note: r.note,
-          status: r.status,
-          decidedAt: r.decidedAt?.toISOString() ?? null,
-          createdAt: r.createdAt.toISOString(),
-        })),
+        requests: serialised,
       },
     });
   } catch (error) {
@@ -203,8 +220,11 @@ export async function POST(request: Request): Promise<Response> {
         id: requestId,
         salonId,
         technicianId,
-        startDate: start,
-        endDate: end,
+        // Whole-day DATE columns: store the calendar days as given. Writing a
+        // Date here used to round-trip through the server's zone and could
+        // shift the stored day.
+        startDate,
+        endDate,
         note: note || null,
         status: 'PENDING',
       })
@@ -219,8 +239,8 @@ export async function POST(request: Request): Promise<Response> {
         data: {
           request: {
             id: newRequest!.id,
-            startDate: newRequest!.startDate.toISOString().split('T')[0],
-            endDate: newRequest!.endDate.toISOString().split('T')[0],
+            startDate: toDateOnlyString(newRequest!.startDate) ?? startDate,
+            endDate: toDateOnlyString(newRequest!.endDate) ?? endDate,
             note: newRequest!.note,
             status: newRequest!.status,
             createdAt: newRequest!.createdAt.toISOString(),

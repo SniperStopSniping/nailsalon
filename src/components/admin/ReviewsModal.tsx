@@ -1,7 +1,8 @@
 'use client';
 
 import { motion } from 'framer-motion';
-import { ExternalLink, RefreshCw, Star } from 'lucide-react';
+import { ChevronRight, ExternalLink, RefreshCw, Star } from 'lucide-react';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { useSalon } from '@/providers/SalonProvider';
@@ -66,7 +67,7 @@ function StarRating({ rating }: { rating: number }) {
       {[1, 2, 3, 4, 5].map(star => (
         <Star
           key={star}
-          className={`${star <= rating ? 'fill-[#FFD60A] text-[#FFD60A]' : 'text-gray-200'}`}
+          className={`${star <= rating ? 'fill-amber-400 text-amber-400' : 'text-gray-200'}`}
           style={{ width: 15, height: 15 }}
         />
       ))}
@@ -76,6 +77,9 @@ function StarRating({ rating }: { rating: number }) {
 
 export function ReviewsModal({ onClose }: ReviewsModalProps) {
   const { salonSlug } = useSalon();
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const [reviews, setReviews] = useState<ReviewRowData[]>([]);
   const [averageRating, setAverageRating] = useState(0);
   const [totalReviews, setTotalReviews] = useState(0);
@@ -120,6 +124,20 @@ export function ReviewsModal({ onClose }: ReviewsModalProps) {
     void fetchReviews();
   }, [fetchReviews]);
 
+  // AG-w2-more-tools-05: this app is the rewards half of Reviews; the Google
+  // review link it depends on lives in Marketing → Review settings, and there
+  // used to be no way across. One tap, salon preserved.
+  const openReviewSettings = useCallback(() => {
+    const params = new URLSearchParams();
+    const salonParam = searchParams?.get('salon') ?? null;
+    if (salonParam) {
+      params.set('salon', salonParam);
+    }
+    params.set('app', 'marketing');
+    params.set('view', 'reviews');
+    router.push(`${pathname ?? ''}?${params.toString()}`);
+  }, [router, pathname, searchParams]);
+
   const grantableCount = useMemo(
     () => reviews.filter(review => !review.googleReviewRewardGranted).length,
     [reviews],
@@ -157,11 +175,11 @@ export function ReviewsModal({ onClose }: ReviewsModalProps) {
   }, [grantingReviewId, salonSlug]);
 
   return (
-    <div className="flex min-h-full w-full flex-col bg-[#F2F2F7] font-sans text-black">
-      <div className="sticky top-0 z-20 bg-[#F2F2F7]/80 backdrop-blur-md">
+    <div className="flex min-h-full w-full flex-col bg-[var(--owner-ground)] font-sans text-[var(--owner-ink)]">
+      <div className="sticky top-0 z-20 bg-[var(--owner-ground)] backdrop-blur-md">
         <ModalHeader
-          title="Reviews"
-          subtitle="Manual Google review rewards"
+          title="Review rewards"
+          subtitle="Thank clients who left a Google review"
           leftAction={<BackButton onClick={onClose} label="Back" />}
         />
       </div>
@@ -170,19 +188,20 @@ export function ReviewsModal({ onClose }: ReviewsModalProps) {
         <motion.div
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
-          className="rounded-[22px] bg-white p-5 shadow-[0_4px_20px_rgba(0,0,0,0.03)]"
+          className="rounded-[22px] bg-[var(--owner-surface)] p-5 shadow-[0_4px_20px_rgba(0,0,0,0.03)]"
         >
           <div className="flex items-start justify-between gap-4">
             <div>
-              <h2 className="text-[20px] font-semibold text-[#1C1C1E]">Review rewards</h2>
-              <p className="mt-1 text-[14px] leading-relaxed text-[#8E8E93]">
+              <h2 className="text-[20px] font-semibold text-[var(--owner-ink)]">Review rewards</h2>
+              <p className="mt-1 text-[14px] leading-relaxed text-[var(--owner-muted)]">
                 After you verify a Google review manually, grant a one-time $10 reward to that client.
+                Your review link and request settings live in Review settings.
               </p>
             </div>
             <button
               type="button"
               onClick={handleRefresh}
-              className="flex size-10 items-center justify-center rounded-full bg-[#F2F2F7] text-[#636366] transition-colors hover:bg-[#E5E5EA]"
+              className="flex size-10 items-center justify-center rounded-full bg-[var(--owner-ground)] text-[var(--owner-muted)] transition-colors hover:bg-[var(--owner-line)]"
               aria-label="Refresh reviews"
             >
               <RefreshCw className={`size-4 ${refreshing ? 'animate-spin' : ''}`} />
@@ -190,29 +209,40 @@ export function ReviewsModal({ onClose }: ReviewsModalProps) {
           </div>
 
           <div className="mt-5 grid grid-cols-3 gap-3">
-            <div className="rounded-[16px] bg-[#F2F2F7] p-3 text-center">
-              <div className="text-[24px] font-semibold text-[#1C1C1E]">{totalReviews}</div>
-              <div className="text-[12px] text-[#8E8E93]">Reviews</div>
+            <div className="rounded-[16px] bg-[var(--owner-ground)] p-3 text-center">
+              <div className="text-[24px] font-semibold text-[var(--owner-ink)]">{totalReviews}</div>
+              <div className="text-[12px] text-[var(--owner-muted)]">Reviews</div>
             </div>
-            <div className="rounded-[16px] bg-[#F2F2F7] p-3 text-center">
-              <div className="text-[24px] font-semibold text-[#1C1C1E]">{averageRating.toFixed(1)}</div>
-              <div className="text-[12px] text-[#8E8E93]">Average</div>
+            <div className="rounded-[16px] bg-[var(--owner-ground)] p-3 text-center">
+              <div className="text-[24px] font-semibold text-[var(--owner-ink)]">{averageRating.toFixed(1)}</div>
+              <div className="text-[12px] text-[var(--owner-muted)]">Average</div>
             </div>
-            <div className="rounded-[16px] bg-[#F2F2F7] p-3 text-center">
-              <div className="text-[24px] font-semibold text-[#1C1C1E]">{grantableCount}</div>
-              <div className="text-[12px] text-[#8E8E93]">Grantable</div>
+            <div className="rounded-[16px] bg-[var(--owner-ground)] p-3 text-center">
+              <div className="text-[24px] font-semibold text-[var(--owner-ink)]">{grantableCount}</div>
+              <div className="text-[12px] text-[var(--owner-muted)]">Grantable</div>
             </div>
           </div>
 
-          <a
-            href="https://business.google.com"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="mt-4 inline-flex items-center gap-2 text-[14px] font-medium text-[#007AFF]"
-          >
-            <span>Open Google Business</span>
-            <ExternalLink className="size-4" />
-          </a>
+          <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-3">
+            <a
+              href="https://business.google.com"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-2 text-[14px] font-medium text-[var(--owner-accent,var(--owner-accent))]"
+            >
+              <span>Open Google Business</span>
+              <ExternalLink className="size-4" aria-hidden="true" />
+            </a>
+            <button
+              type="button"
+              onClick={openReviewSettings}
+              data-testid="reviews-open-review-settings"
+              className="inline-flex items-center gap-1 text-[14px] font-medium text-[var(--owner-accent,var(--owner-accent))]"
+            >
+              <span>Review settings</span>
+              <ChevronRight className="size-4" aria-hidden="true" />
+            </button>
+          </div>
         </motion.div>
 
         {error && (
@@ -223,14 +253,32 @@ export function ReviewsModal({ onClose }: ReviewsModalProps) {
 
         {loading
           ? (
-              <div className="mt-4 rounded-[22px] bg-white p-6 text-center text-[14px] text-[#8E8E93] shadow-[0_4px_20px_rgba(0,0,0,0.03)]">
+              <div className="mt-4 rounded-[22px] bg-[var(--owner-surface)] p-6 text-center text-[14px] text-[var(--owner-muted)] shadow-[0_4px_20px_rgba(0,0,0,0.03)]">
                 Loading reviews...
               </div>
             )
           : reviews.length === 0
             ? (
-                <div className="mt-4 rounded-[22px] bg-white p-6 text-center text-[14px] text-[#8E8E93] shadow-[0_4px_20px_rgba(0,0,0,0.03)]">
-                  No reviews yet for this salon.
+                <div
+                  data-testid="reviews-empty"
+                  className="mt-4 rounded-[22px] bg-[var(--owner-surface)] p-6 text-center shadow-[0_4px_20px_rgba(0,0,0,0.03)]"
+                >
+                  <p className="text-[15px] font-medium text-[var(--owner-ink)]">
+                    No reviews yet for this salon.
+                  </p>
+                  <p className="mx-auto mt-1 max-w-xs text-[13px] leading-5 text-[var(--owner-muted)]">
+                    Reviews clients leave in Luster show up here, and you grant the
+                    reward yourself. To ask for Google reviews, add your review link
+                    in Review settings first.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={openReviewSettings}
+                    className="mt-3 inline-flex min-h-11 items-center gap-1 rounded-full bg-[var(--owner-blush,var(--owner-blush))] px-4 text-[14px] font-semibold text-[var(--owner-accent,var(--owner-accent))]"
+                  >
+                    Open Review settings
+                    <ChevronRight className="size-4" aria-hidden="true" />
+                  </button>
                 </div>
               )
             : (
@@ -240,14 +288,14 @@ export function ReviewsModal({ onClose }: ReviewsModalProps) {
                       key={review.id}
                       initial={{ opacity: 0, y: 8 }}
                       animate={{ opacity: 1, y: 0 }}
-                      className="rounded-[20px] bg-white p-4 shadow-[0_4px_20px_rgba(0,0,0,0.03)]"
+                      className="rounded-[20px] bg-[var(--owner-surface)] p-4 shadow-[0_4px_20px_rgba(0,0,0,0.03)]"
                     >
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0 flex-1">
-                          <div className="text-[15px] font-semibold text-[#1C1C1E]">
+                          <div className="text-[15px] font-semibold text-[var(--owner-ink)]">
                             {review.clientName || 'Guest client'}
                           </div>
-                          <div className="mt-0.5 text-[13px] text-[#8E8E93]">
+                          <div className="mt-0.5 text-[13px] text-[var(--owner-muted)]">
                             {formatPhone(review.clientPhone)}
                             {review.technicianName ? ` · ${review.technicianName}` : ''}
                           </div>
@@ -255,9 +303,9 @@ export function ReviewsModal({ onClose }: ReviewsModalProps) {
                             <StarRating rating={review.rating} />
                           </div>
                           {review.comment && (
-                            <p className="mt-3 text-[14px] leading-relaxed text-[#3A3A3C]">{review.comment}</p>
+                            <p className="mt-3 text-[14px] leading-relaxed text-[var(--owner-ink)]">{review.comment}</p>
                           )}
-                          <div className="mt-3 text-[12px] text-[#8E8E93]">{formatDate(review.createdAt)}</div>
+                          <div className="mt-3 text-[12px] text-[var(--owner-muted)]">{formatDate(review.createdAt)}</div>
                         </div>
 
                         <div className="shrink-0 text-right">
@@ -274,7 +322,7 @@ export function ReviewsModal({ onClose }: ReviewsModalProps) {
                                     void handleGrant(review.id);
                                   }}
                                   disabled={grantingReviewId === review.id}
-                                  className="rounded-full bg-[#1C1C1E] px-3 py-1.5 text-[12px] font-medium text-white disabled:opacity-50"
+                                  className="rounded-full bg-[var(--owner-ink)] px-3 py-1.5 text-[12px] font-medium text-white disabled:opacity-50"
                                 >
                                   {grantingReviewId === review.id ? 'Granting...' : 'Grant $10'}
                                 </button>

@@ -177,8 +177,14 @@ describe('EditClientDialog', () => {
 
   it.each([
     [
+      // AG-clients-03: the account-link refusal now names the link and the
+      // next step instead of the generic "cannot be changed safely".
+      'CLIENT_ACCOUNT_LINK_CONTACT_LOCKED',
+      'signed in with their own account',
+    ],
+    [
       'UNSUPPORTED_CLIENT_IDENTITY',
-      'Phone and email cannot be changed safely',
+      'already tied to another record here',
     ],
     [
       'CONTACT_IDENTITY_CONFLICT',

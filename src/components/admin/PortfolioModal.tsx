@@ -4,6 +4,7 @@ import { AlertTriangle, Check, ImagePlus, Loader2, Trash2 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { InlineFeedback } from '@/components/ui/inline-feedback';
 import {
   ASSIGNABLE_DISCOVER_NAIL_LENGTHS,
   ASSIGNABLE_DISCOVER_SERVICE_FAMILIES,
@@ -19,6 +20,27 @@ import { BackButton, ModalHeader } from './AppModal';
 type PortfolioModalProps = {
   onClose: () => void;
 };
+
+/**
+ * The server speaks in operator terms ("Portfolio image storage is not
+ * configured"). The owner needs to know what it means for them and what to do
+ * next, so the known codes get owner-facing copy here.
+ */
+const UPLOAD_ERROR_COPY: Record<string, string> = {
+  IMAGE_STORAGE_UNAVAILABLE:
+    'We can’t add photos right now — the photo service isn’t available for your salon yet. Nothing was uploaded. Try again later, or contact Luster support.',
+};
+
+function uploadErrorMessage(
+  code: string | undefined,
+  message: string | undefined,
+  fallback: string,
+): string {
+  if (code && UPLOAD_ERROR_COPY[code]) {
+    return UPLOAD_ERROR_COPY[code];
+  }
+  return message ?? fallback;
+}
 
 type PortfolioPhoto = {
   id: string;
@@ -82,7 +104,14 @@ export function PortfolioModal({ onClose }: PortfolioModalProps) {
   const { salonSlug } = useSalon();
   const [data, setData] = useState<PortfolioResponse | null>(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  // Two independent error lanes. One `error` variable served both the load and
+  // the write paths, so the reload that follows a failed upload wiped the
+  // reason before the owner could read it (AG-w2-more-tools-02). A refusal now
+  // survives every refresh and stays until it is dismissed or retried.
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<
+    { message: string; source: 'upload' | 'library' } | null
+  >(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
   const [photoPendingDeletion, setPhotoPendingDeletion] = useState<PortfolioPhoto | null>(null);
@@ -103,14 +132,14 @@ export function PortfolioModal({ onClose }: PortfolioModalProps) {
       const payload = (await response.json()) as PortfolioResponse;
 
       if (!response.ok) {
-        setError(payload.error?.message ?? 'Could not load your portfolio.');
+        setLoadError(payload.error?.message ?? 'Could not load your portfolio.');
         return;
       }
 
       setData(payload);
-      setError(null);
+      setLoadError(null);
     } catch {
-      setError('Could not load your portfolio.');
+      setLoadError('Could not load your portfolio.');
     } finally {
       setLoading(false);
     }
@@ -152,7 +181,10 @@ export function PortfolioModal({ onClose }: PortfolioModalProps) {
         if (!response.ok) {
           const payload = (await response.json()) as PortfolioResponse;
 
-          setError(payload.error?.message ?? 'Could not update those photos.');
+          setActionError({
+            message: payload.error?.message ?? 'Could not update those photos.',
+            source: 'library',
+          });
           return;
         }
 
@@ -209,7 +241,7 @@ export function PortfolioModal({ onClose }: PortfolioModalProps) {
       }
 
       setUploading(true);
-      setError(null);
+      setActionError(null);
 
       try {
         for (const file of Array.from(files)) {
@@ -226,11 +258,18 @@ export function PortfolioModal({ onClose }: PortfolioModalProps) {
 
           const presign = (await presignResponse.json()) as {
             upload?: Record<string, string | number | boolean>;
-            error?: { message?: string };
+            error?: { code?: string; message?: string };
           };
 
           if (!presignResponse.ok || !presign.upload) {
-            setError(presign.error?.message ?? 'That photo could not be uploaded.');
+            setActionError({
+              message: uploadErrorMessage(
+                presign.error?.code,
+                presign.error?.message,
+                'That photo could not be uploaded.',
+              ),
+              source: 'upload',
+            });
             break;
           }
 
@@ -254,7 +293,10 @@ export function PortfolioModal({ onClose }: PortfolioModalProps) {
           });
 
           if (!cloudinaryResponse.ok) {
-            setError('That photo could not be uploaded.');
+            setActionError({
+              message: 'That photo could not be uploaded. Check your connection and try again.',
+              source: 'upload',
+            });
             break;
           }
 
@@ -274,13 +316,24 @@ export function PortfolioModal({ onClose }: PortfolioModalProps) {
           });
 
           if (!finalizeResponse.ok) {
-            const payload = (await finalizeResponse.json()) as { error?: { message?: string } };
+            const payload = (await finalizeResponse.json()) as {
+              error?: { code?: string; message?: string };
+            };
 
-            setError(payload.error?.message ?? 'That photo could not be saved.');
+            setActionError({
+              message: uploadErrorMessage(
+                payload.error?.code,
+                payload.error?.message,
+                'That photo could not be saved.',
+              ),
+              source: 'upload',
+            });
             break;
           }
         }
 
+        // The refresh still runs (photos that did upload must appear), but it
+        // can no longer clear the failure: `load()` only owns `loadError`.
         await load();
       } finally {
         setUploading(false);
@@ -299,7 +352,7 @@ export function PortfolioModal({ onClose }: PortfolioModalProps) {
   );
 
   return (
-    <div className="flex h-full flex-col bg-[#F2F2F7]">
+    <div className="flex h-full flex-col bg-[var(--owner-ground)]">
       <ModalHeader
         title="Portfolio"
         subtitle={data ? usageLabel(data.usage) : undefined}
@@ -308,19 +361,29 @@ export function PortfolioModal({ onClose }: PortfolioModalProps) {
 
       <div className="flex-1 overflow-y-auto px-4 pb-24 pt-4">
         {loading && (
-          <div className="flex items-center justify-center py-16 text-gray-500">
+          <div className="flex items-center justify-center py-16 text-[var(--owner-muted)]">
             <Loader2 className="size-5 animate-spin" aria-hidden="true" />
             <span className="ml-2 text-[15px]">Loading your portfolio…</span>
           </div>
         )}
 
-        {error && (
-          <div
-            role="alert"
-            className="mb-4 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-[15px] text-red-800"
-          >
-            {error}
-          </div>
+        {loadError && (
+          <InlineFeedback
+            tone="error"
+            message={loadError}
+            className="mb-4"
+            data-testid="portfolio-load-error"
+          />
+        )}
+
+        {actionError?.source === 'library' && (
+          <InlineFeedback
+            tone="error"
+            message={actionError.message}
+            className="mb-4"
+            data-testid="portfolio-action-error"
+            onDismiss={() => setActionError(null)}
+          />
         )}
 
         {data && !loading && (
@@ -350,7 +413,7 @@ export function PortfolioModal({ onClose }: PortfolioModalProps) {
             {atLimit && !data.usage.overAllowance && (
               <div
                 role="status"
-                className="mb-4 rounded-2xl border border-gray-200 bg-white px-4 py-3 text-[15px] text-gray-700"
+                className="mb-4 rounded-2xl border border-[var(--owner-line)] bg-[var(--owner-surface)] px-4 py-3 text-[15px] text-[var(--owner-muted)]"
               >
                 You&rsquo;ve used all
                 {' '}
@@ -360,8 +423,8 @@ export function PortfolioModal({ onClose }: PortfolioModalProps) {
               </div>
             )}
 
-            <section className="mb-4 rounded-2xl border border-gray-200 bg-white p-4">
-              <h3 className="text-[13px] font-semibold uppercase tracking-wide text-gray-500">
+            <section className="mb-4 rounded-2xl border border-[var(--owner-line)] bg-[var(--owner-surface)] p-4">
+              <h3 className="text-[13px] font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
                 Add photos
               </h3>
 
@@ -403,24 +466,39 @@ export function PortfolioModal({ onClose }: PortfolioModalProps) {
               </button>
 
               {!rightsConfirmed && (
-                <p className="mt-2 text-[13px] text-gray-500">
+                <p className="mt-2 text-[13px] text-[var(--owner-muted)]">
                   Confirm the permission above to add photos.
                 </p>
               )}
+
+              {/*
+                The refusal lives inside the card the owner just used, and
+                stays there until they dismiss it — a reload of the library
+                cannot take it away.
+              */}
+              {actionError?.source === 'upload' && (
+                <InlineFeedback
+                  tone="error"
+                  message={actionError.message}
+                  className="mt-3"
+                  data-testid="portfolio-upload-error"
+                  onDismiss={() => setActionError(null)}
+                />
+              )}
             </section>
 
-            <section className="mb-4 rounded-2xl border border-gray-200 bg-white p-4">
-              <h3 className="text-[13px] font-semibold uppercase tracking-wide text-gray-500">
+            <section className="mb-4 rounded-2xl border border-[var(--owner-line)] bg-[var(--owner-surface)] p-4">
+              <h3 className="text-[13px] font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
                 Discover readiness
               </h3>
-              <p className="mt-2 text-[15px] text-gray-900">
+              <p className="mt-2 text-[15px] text-[var(--owner-ink)]">
                 {data.readiness.discoverEligiblePhotos}
                 {' '}
                 {data.readiness.discoverEligiblePhotos === 1 ? 'photo is' : 'photos are'}
                 {' '}
                 ready for Discover.
               </p>
-              <ul className="mt-2 space-y-1 text-[13px] text-gray-600">
+              <ul className="mt-2 space-y-1 text-[13px] text-[var(--owner-muted)]">
                 {data.readiness.missingServiceFamily > 0 && (
                   <li>
                     {data.readiness.missingServiceFamily}
@@ -455,9 +533,9 @@ export function PortfolioModal({ onClose }: PortfolioModalProps) {
             {selected.size > 0 && (
               <section
                 aria-label="Batch tagging"
-                className="mb-4 rounded-2xl border border-gray-200 bg-white p-4"
+                className="mb-4 rounded-2xl border border-[var(--owner-line)] bg-[var(--owner-surface)] p-4"
               >
-                <p className="text-[15px] font-medium text-gray-900">
+                <p className="text-[15px] font-medium text-[var(--owner-ink)]">
                   {selected.size}
                   {' '}
                   selected
@@ -514,12 +592,12 @@ export function PortfolioModal({ onClose }: PortfolioModalProps) {
 
             {data.photos.length === 0
               ? (
-                  <div className="rounded-2xl border border-dashed border-gray-300 bg-white px-6 py-12 text-center">
-                    <ImagePlus className="mx-auto size-8 text-gray-400" aria-hidden="true" />
-                    <p className="mt-3 text-[17px] font-medium text-gray-900">
+                  <div className="rounded-2xl border border-dashed border-gray-300 bg-[var(--owner-surface)] px-6 py-12 text-center">
+                    <ImagePlus className="mx-auto size-8 text-[var(--owner-muted)]" aria-hidden="true" />
+                    <p className="mt-3 text-[17px] font-medium text-[var(--owner-ink)]">
                       Add your first photos
                     </p>
-                    <p className="mt-1 text-[15px] text-gray-600">
+                    <p className="mt-1 text-[15px] text-[var(--owner-muted)]">
                       Upload your best nail work once, and it powers your profile
                       and Luster Discover.
                     </p>
@@ -538,7 +616,7 @@ export function PortfolioModal({ onClose }: PortfolioModalProps) {
                             aria-label={photo.altText ?? 'Portfolio photo'}
                             onClick={() => toggleSelected(photo.id)}
                             className={`
-                              block w-full overflow-hidden rounded-2xl border-2 bg-white
+                              block w-full overflow-hidden rounded-2xl border-2 bg-[var(--owner-surface)]
                               ${isSelected ? 'border-gray-900' : 'border-transparent'}
                             `}
                           >
@@ -568,7 +646,7 @@ export function PortfolioModal({ onClose }: PortfolioModalProps) {
                           )}
 
                           <div className="mt-1 flex items-center justify-between px-1">
-                            <span className="text-[12px] text-gray-600">
+                            <span className="text-[12px] text-[var(--owner-muted)]">
                               {discoverServiceFamilyLabel(photo.serviceFamily)}
                             </span>
                             <button
@@ -576,7 +654,7 @@ export function PortfolioModal({ onClose }: PortfolioModalProps) {
                               aria-label={`Delete ${photo.altText || 'portfolio photo'}`}
                               disabled={busy}
                               onClick={() => setPhotoPendingDeletion(photo)}
-                              className="flex size-11 items-center justify-center rounded-lg text-gray-400 hover:bg-red-50 hover:text-red-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-600 disabled:opacity-40"
+                              className="flex size-11 items-center justify-center rounded-lg text-[var(--owner-muted)] hover:bg-red-50 hover:text-red-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-600 disabled:opacity-40"
                             >
                               <Trash2 className="size-4" aria-hidden="true" />
                             </button>

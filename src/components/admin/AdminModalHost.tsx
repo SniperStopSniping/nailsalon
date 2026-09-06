@@ -19,6 +19,7 @@ import { SettingsModal } from '@/components/admin/SettingsModal';
 import { StaffModal } from '@/components/admin/StaffModal';
 import { StaffOpsModal } from '@/components/admin/StaffOpsModal';
 import { WalkInModal } from '@/components/admin/WalkInModal';
+import { SalonProvider, useSalon } from '@/providers/SalonProvider';
 import type { RetentionStage } from '@/types/retention';
 
 type PromotionSettingsStage = Extract<
@@ -111,8 +112,31 @@ export function AdminModalHost({
   fetchFraudSignals,
   onFraudSignalResolved,
 }: AdminModalHostProps) {
+  // OP-011 root cause: the root layout's SalonProvider is filled from the
+  // `__active_salon_slug` cookie, which the owner workspace does not set, so
+  // every modal that read `useSalon()` saw the EMPTY salon and never loaded.
+  // Re-provide the context here from the workspace's own active salon (the
+  // one the URL / auth payload resolved) so all `?app=` modals share the
+  // dashboard's authority. Everything the dashboard does not know is
+  // inherited from the outer context unchanged.
+  const outerSalon = useSalon();
+  const salonSlugForModals = activeSalonSlug || outerSalon.salonSlug || undefined;
+  const salonIdForModals = (activeSalonSlug && activeSalonId) || outerSalon.salonId || undefined;
+  const salonNameForModals = (activeSalonSlug && activeSalonName) || outerSalon.salonName || undefined;
+
   return (
-    <>
+    <SalonProvider
+      salonId={salonIdForModals}
+      salonName={salonNameForModals}
+      salonSlug={salonSlugForModals}
+      themeKey={outerSalon.themeKey}
+      status={outerSalon.status}
+      bookingExperience={outerSalon.bookingExperience}
+      bookingTimeZone={outerSalon.bookingTimeZone}
+      bookingPage={outerSalon.bookingPage}
+      ownerPreview={outerSalon.ownerPreview}
+      salonContent={outerSalon.salonContent}
+    >
       <AppModal
         isOpen={activeModal === 'bookings'}
         onClose={onCloseModal}
@@ -234,7 +258,7 @@ export function AdminModalHost({
         isOpen={activeModal === 'staff-ops'}
         onClose={onCloseModal}
       >
-        <StaffOpsModal onClose={onCloseModal} />
+        <StaffOpsModal onClose={onCloseModal} salonSlug={activeSalonSlug} />
       </AppModal>
 
       <AppModal
@@ -263,14 +287,18 @@ export function AdminModalHost({
         isOpen={showScheduleCalendar}
         onClose={() => setShowScheduleCalendar(false)}
       >
-        <ScheduleCalendarModal onClose={() => setShowScheduleCalendar(false)} />
+        <ScheduleCalendarModal
+          onClose={() => setShowScheduleCalendar(false)}
+          salonSlug={activeSalonSlug}
+        />
       </AppModal>
 
       <WalkInModal
         isOpen={showWalkIn}
         onClose={() => setShowWalkIn(false)}
         onSuccess={() => {}}
+        salonSlug={activeSalonSlug}
       />
-    </>
+    </SalonProvider>
   );
 }

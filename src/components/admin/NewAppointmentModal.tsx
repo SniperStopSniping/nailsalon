@@ -13,13 +13,18 @@
  */
 
 import { Calendar, Check, ChevronDown, Clock, Loader2, Phone, Plus, Search, User, X } from 'lucide-react';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { DialogShell } from '@/components/ui/dialog-shell';
 import { BOOKING_CATEGORY_META, resolveVisibleBookingCategory } from '@/libs/bookingCategory';
+import {
+  buildTimePickerSlots,
+  type CalendarSchedule,
+  EMPTY_CALENDAR_SCHEDULE,
+} from '@/libs/calendarSchedule';
 import { notifyAppointmentDataChanged } from '@/libs/dashboardEvents';
 import { parseGoogleEventTitle } from '@/libs/googleEventAutofill';
-import type { BookingCategory } from '@/models/Schema';
+import type { BookingCategory, WeeklySchedule } from '@/models/Schema';
 import { useSalon } from '@/providers/SalonProvider';
 import { formatDuration } from '@/utils/Helpers';
 
@@ -28,6 +33,8 @@ type Technician = {
   id: string;
   name: string;
   avatarUrl: string | null;
+  /** Used to bound the time picker to the hours this technician works. */
+  weeklySchedule?: WeeklySchedule | null;
 };
 
 type Service = {
@@ -59,6 +66,13 @@ type NewAppointmentModalProps = {
   isOpen: boolean;
   onClose: () => void;
   onSuccess?: () => void;
+  /**
+   * Active salon from the surface that opened the modal. The owner dashboard
+   * resolves its salon client-side, after the tenant cookie the SalonProvider
+   * reads has been set, so the prop is the reliable source and the provider is
+   * only a fallback for surfaces that still rely on it.
+   */
+  salonSlug?: string | null;
   preselectedDate?: Date;
   googleEventPrefill?: GoogleEventPrefill | null;
   googleEventSourceStatus?: GoogleEventSourceStatus;
@@ -103,31 +117,34 @@ function createIdempotencyKey(): string {
     ?? `appointment-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
-// Generate time slots from 8 AM to 8 PM in 30-minute increments
-function generateTimeSlots(): string[] {
-  const slots: string[] = [];
-  for (let hour = 8; hour <= 20; hour++) {
-    slots.push(`${String(hour).padStart(2, '0')}:00`);
-    if (hour < 20) {
-      slots.push(`${String(hour).padStart(2, '0')}:30`);
-    }
-  }
-  return slots;
-}
+/**
+ * Start times the picker offers.
+ *
+ * The range comes from the selected technician's own weekly schedule for the
+ * chosen day (the union of the team's when none is selected), intersected with
+ * the salon's opening hours — the same authorities the booking engine enforces.
+ * The old fixed 08:00–20:00 list could not reach the last bookable hour of a
+ * technician working to 21:00 and offered 08:00 starts nobody works
+ * (AG-w2-calendar-writes-09).
+ */
+const FALLBACK_TIME_BOUNDS = { startHour: 8, endHour: 20 };
 
-const TIME_SLOTS = generateTimeSlots();
+/** Shown when no salon could be resolved, instead of an endless spinner. */
+const MISSING_SALON_MESSAGE = 'Choose a salon to continue';
 
 export function NewAppointmentModal({
   isOpen,
   onClose,
   onSuccess,
+  salonSlug: salonSlugProp,
   preselectedDate,
   googleEventPrefill,
   googleEventSourceStatus = 'available',
   onRefreshGoogleEvent,
   clientPrefill,
 }: NewAppointmentModalProps) {
-  const { salonSlug } = useSalon();
+  const { salonSlug: contextSalonSlug } = useSalon();
+  const salonSlug = salonSlugProp?.trim() || contextSalonSlug;
 
   // Form state
   const [selectedDate, setSelectedDate] = useState<string>(
@@ -256,6 +273,11 @@ export function NewAppointmentModal({
   // Fetch technicians and services
   const fetchData = useCallback(async () => {
     if (!salonSlug) {
+      // No tenant to load against: surface it instead of spinning forever.
+      setTechnicians([]);
+      setServices([]);
+      setError(MISSING_SALON_MESSAGE);
+      setLoading(false);
       return;
     }
 
@@ -549,6 +571,27 @@ export function NewAppointmentModal({
   };
 
   const selectedTechnician = technicians.find(t => t.id === selectedTechnicianId);
+
+  const timeSlotSchedule = useMemo<CalendarSchedule>(() => ({
+    ...EMPTY_CALENDAR_SCHEDULE,
+    technicians: technicians.map(technician => ({
+      id: technician.id,
+      name: technician.name,
+      weeklySchedule: technician.weeklySchedule ?? null,
+    })),
+  }), [technicians]);
+
+  const timeSlots = useMemo(() => buildTimePickerSlots({
+    schedule: timeSlotSchedule,
+    dateKey: selectedDate,
+    technicianId: selectedTechnicianId,
+    stepMinutes: 30,
+    // A prefilled or already-chosen time stays selectable even when it falls
+    // outside the schedule, so converting a Google event never silently
+    // rewrites the time the owner is looking at.
+    alwaysInclude: selectedTime,
+    fallback: FALLBACK_TIME_BOUNDS,
+  }), [selectedDate, selectedTechnicianId, selectedTime, timeSlotSchedule]);
   const effectiveSourceStatus = submissionSourceStatus ?? googleEventSourceStatus;
 
   if (!isOpen) {
@@ -610,7 +653,7 @@ export function NewAppointmentModal({
                 <div className="space-y-6">
                   {/* Error Message */}
                   {error && (
-                    <div className="rounded-lg border border-red-200 bg-red-50 p-3">
+                    <div className="rounded-lg border border-red-200 bg-red-50 p-3" role="alert" data-testid="new-appointment-error">
                       <p className="text-sm text-red-700">{error}</p>
                     </div>
                   )}
@@ -688,7 +731,7 @@ export function NewAppointmentModal({
 
                       {showTimeDropdown && (
                         <div className="absolute inset-x-0 top-full z-20 mt-1 max-h-48 overflow-y-auto rounded-lg border border-gray-200 bg-white shadow-lg">
-                          {TIME_SLOTS.map(time => (
+                          {timeSlots.map(time => (
                             <button
                               key={time}
                               type="button"

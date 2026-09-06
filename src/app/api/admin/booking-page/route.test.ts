@@ -1,8 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+// `@/libs/DB` (reached through the preset mirror below) is `import
+// 'server-only'`; this route test runs outside a Server Component.
+vi.mock('server-only', () => ({}));
+
+/* eslint-disable import/first */
 import { GET, PATCH, POST } from './route';
+/* eslint-enable import/first */
 
 const {
+  mirrorUpdateSet,
+  mirrorUpdateWhere,
   requireAdmin,
   getSalonBySlug,
   getSalonById,
@@ -99,6 +107,8 @@ const {
   }
 
   return {
+    mirrorUpdateSet: vi.fn(),
+    mirrorUpdateWhere: vi.fn(),
     requireAdmin: vi.fn(),
     getSalonBySlug: vi.fn(),
     getSalonById: vi.fn(),
@@ -125,6 +135,22 @@ const {
 
 vi.mock('@/libs/adminAuth', () => ({
   requireAdmin,
+}));
+
+// AG-w2-information-parity-05: the route mirrors the resulting draft presets
+// onto `onboarding_site`. Only the values reaching the UPDATE matter here.
+vi.mock('@/libs/DB', () => ({
+  db: {
+    update: () => ({
+      set: (values: Record<string, unknown>) => {
+        mirrorUpdateSet(values);
+        return { where: (condition: unknown) => {
+          mirrorUpdateWhere(condition);
+          return Promise.resolve(undefined);
+        } };
+      },
+    }),
+  },
 }));
 
 vi.mock('@/libs/auditLog', () => ({
@@ -603,6 +629,84 @@ describe('admin booking-page route', () => {
       expect(response.status).toBe(409);
       expect(logAuditEvent).not.toHaveBeenCalled();
       expect(getSalonById).not.toHaveBeenCalled();
+    });
+  });
+
+  // AG-w2-information-parity-05 — `settings.bookingPage.draft` is the single
+  // authority for the style/palette pair; `onboarding_site.style_preset_id` /
+  // `.palette_preset_id` are a mirror this route refreshes on the same request
+  // that changed the draft, so the saved-site preview and "Review saved setup"
+  // can no longer replay a stale pair the customer site never renders.
+  describe('onboarding_site preset mirror', () => {
+    it('mirrors the resulting draft presets after a PATCH', async () => {
+      resolveBookingPageConfig.mockReturnValue({
+        version: 1,
+        draft: { layout: 'quick_book', siteStylePreset: 'luxury', sitePalettePreset: 'navy_ivory' },
+        live: { layout: 'quick_book', siteStylePreset: 'editorial', sitePalettePreset: 'sage_stone' },
+      });
+
+      const response = await PATCH(request('https://x.test/api/admin/booking-page?salonSlug=salon-a', {
+        method: 'PATCH',
+        body: JSON.stringify({ config: { layout: 'quick_book' } }),
+      }));
+
+      expect(response.status).toBe(200);
+      expect(mirrorUpdateSet).toHaveBeenCalledTimes(1);
+      expect(mirrorUpdateSet.mock.calls[0]?.[0]).toMatchObject({
+        stylePresetId: 'luxury',
+        palettePresetId: 'navy_ivory',
+      });
+    });
+
+    it('mirrors the reverted draft presets after a POST revert', async () => {
+      resolveBookingPageConfig.mockReturnValue({
+        version: 1,
+        draft: { layout: 'quick_book', siteStylePreset: 'editorial', sitePalettePreset: 'sage_stone' },
+        live: { layout: 'quick_book', siteStylePreset: 'editorial', sitePalettePreset: 'sage_stone' },
+      });
+
+      const response = await POST(request('https://x.test/api/admin/booking-page?salonSlug=salon-a', {
+        method: 'POST',
+        body: JSON.stringify({ action: 'revert' }),
+      }));
+
+      expect(response.status).toBe(200);
+      expect(mirrorUpdateSet.mock.calls[0]?.[0]).toMatchObject({
+        stylePresetId: 'editorial',
+        palettePresetId: 'sage_stone',
+      });
+    });
+
+    it('writes nothing when the draft carries no preset pair', async () => {
+      const response = await PATCH(request('https://x.test/api/admin/booking-page?salonSlug=salon-a', {
+        method: 'PATCH',
+        body: JSON.stringify({ config: { layout: 'quick_book' } }),
+      }));
+
+      expect(response.status).toBe(200);
+      expect(mirrorUpdateSet).not.toHaveBeenCalled();
+    });
+
+    it('still answers 200 when the mirror write fails — the booking-page write already succeeded', async () => {
+      const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+      resolveBookingPageConfig.mockReturnValue({
+        version: 1,
+        draft: { layout: 'quick_book', siteStylePreset: 'bold', sitePalettePreset: 'monochrome' },
+        live: { layout: 'quick_book' },
+      });
+      mirrorUpdateWhere.mockImplementation(() => {
+        throw new Error('mirror unavailable');
+      });
+
+      const response = await PATCH(request('https://x.test/api/admin/booking-page?salonSlug=salon-a', {
+        method: 'PATCH',
+        body: JSON.stringify({ config: { layout: 'quick_book' } }),
+      }));
+
+      expect(response.status).toBe(200);
+      expect(consoleError).toHaveBeenCalled();
+
+      consoleError.mockRestore();
     });
   });
 });

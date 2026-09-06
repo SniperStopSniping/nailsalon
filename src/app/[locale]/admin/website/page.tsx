@@ -46,6 +46,7 @@ export default async function WebsiteHubPage({ params, searchParams }: {
 
   return (
     <BookingPageHub
+      canPublish={canEditSetup || admin.isSuperAdmin}
       hasDraftChanges={JSON.stringify(config.draft) !== JSON.stringify(config.live) || JSON.stringify(content.draft) !== JSON.stringify(content.live)}
       locale={locale}
       published={salon.publicationStatus === 'published'}

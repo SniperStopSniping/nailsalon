@@ -314,6 +314,101 @@ describe('useAppointmentActions', () => {
     expect(onOptimisticStatus).toHaveBeenCalledWith('appt_1', 'confirmed');
   });
 
+  // Double-submit protection. `detailSaving` only disables the button after a
+  // re-render, so two taps inside one tick both reach the handler. A terminal
+  // transition (cancel / no-show) must not be sent twice.
+  it('sends only one cancel request when the confirm action is fired twice in the same tick', async () => {
+    const onCancelled = vi.fn();
+    const { result } = await renderOpenHook({ onCancelled });
+    fetchMock.mockClear();
+
+    let releaseCancel: (() => void) | null = null;
+    fetchMock.mockImplementationOnce(async () => {
+      await new Promise<void>((resolve) => {
+        releaseCancel = resolve;
+      });
+      return jsonResponse({ data: { ok: true } });
+    });
+
+    await act(async () => {
+      const first = result.current.cancelAppointment({ reason: 'client_request' });
+      const second = result.current.cancelAppointment({ reason: 'client_request' });
+      await waitFor(() => expect(releaseCancel).not.toBeNull());
+      releaseCancel!();
+      await Promise.all([first, second]);
+    });
+
+    expect(fetchMock.mock.calls.filter(([url]) => String(url).endsWith('/cancel'))).toHaveLength(1);
+    expect(onCancelled).toHaveBeenCalledTimes(1);
+  });
+
+  it('sends only one no-show request when the destructive action is double-tapped', async () => {
+    const onCancelled = vi.fn();
+    const { result } = await renderOpenHook({ onCancelled });
+    fetchMock.mockClear();
+
+    let releaseNoShow: (() => void) | null = null;
+    fetchMock.mockImplementationOnce(async () => {
+      await new Promise<void>((resolve) => {
+        releaseNoShow = resolve;
+      });
+      return jsonResponse({ data: { ok: true } });
+    });
+
+    await act(async () => {
+      const first = result.current.markNoShow();
+      const second = result.current.markNoShow();
+      await waitFor(() => expect(releaseNoShow).not.toBeNull());
+      releaseNoShow!();
+      await Promise.all([first, second]);
+    });
+
+    expect(fetchMock.mock.calls.filter(([url]) => String(url).endsWith('/cancel'))).toHaveLength(1);
+    expect(onCancelled).toHaveBeenCalledWith('appt_1', 'no_show');
+    expect(onCancelled).toHaveBeenCalledTimes(1);
+  });
+
+  it('sends only one confirm request when the quick action is double-tapped', async () => {
+    const onOptimisticStatus = vi.fn();
+    const { result } = await renderOpenHook({ onOptimisticStatus });
+    fetchMock.mockClear();
+
+    let releaseConfirm: (() => void) | null = null;
+    fetchMock.mockImplementationOnce(async () => {
+      await new Promise<void>((resolve) => {
+        releaseConfirm = resolve;
+      });
+      return jsonResponse({ data: { ok: true } });
+    });
+    queueDetailFetch();
+
+    await act(async () => {
+      const first = result.current.confirmAppointment();
+      const second = result.current.confirmAppointment();
+      await waitFor(() => expect(releaseConfirm).not.toBeNull());
+      releaseConfirm!();
+      await Promise.all([first, second]);
+    });
+
+    expect(
+      fetchMock.mock.calls.filter(([, init]) => init?.method === 'PATCH'),
+    ).toHaveLength(1);
+    expect(onOptimisticStatus).toHaveBeenCalledTimes(1);
+  });
+
+  // Offline: a transport failure must read as "nothing changed", not as the
+  // browser's own "Failed to fetch".
+  it('reports a dropped connection in plain language instead of the fetch error', async () => {
+    const { result } = await renderOpenHook();
+    fetchMock.mockRejectedValueOnce(new TypeError('Failed to fetch'));
+
+    await act(async () => result.current.confirmAppointment());
+
+    expect(result.current.detailError).toBe(
+      'No connection — nothing was changed. Reconnect and try again.',
+    );
+  });
+
   it('builds a rebook prefill from the loaded detail', async () => {
     const { result } = await renderOpenHook();
 

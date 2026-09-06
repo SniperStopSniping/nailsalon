@@ -11,22 +11,20 @@
  */
 
 import { useAuth, useClerk } from '@clerk/nextjs';
-import { Bell, Building2, LogOut, Sparkles } from 'lucide-react';
+import { MotionConfig } from 'framer-motion';
+import { Bell, Building2, Sparkles } from 'lucide-react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { AdminImpersonationBanner } from '@/components/admin/AdminImpersonationBanner';
 import { AdminModalHost } from '@/components/admin/AdminModalHost';
 import type { TimePeriod } from '@/components/admin/AnalyticsWidgets';
-import { AppGrid, type AppId } from '@/components/admin/AppGrid';
+import { AppGrid, type AppId, APPS } from '@/components/admin/AppGrid';
 import { AdminDashboardNoticeStack } from '@/components/admin/dashboard/AdminDashboardNoticeStack';
 import { AdminDashboardSkeleton } from '@/components/admin/dashboard/AdminDashboardSkeleton';
 import { AdminSalonSelector } from '@/components/admin/dashboard/AdminSalonSelector';
-import {
-  type OnboardingHandoffResolution,
-  type OnboardingSiteHandoff,
-  OnboardingWorkspaceHandoff,
-} from '@/components/admin/onboarding/OnboardingWorkspaceHandoff';
+import { NewAppointmentModal } from '@/components/admin/NewAppointmentModal';
+import { OnboardingWorkspaceHandoff } from '@/components/admin/onboarding/OnboardingWorkspaceHandoff';
 import {
   WorkspaceQuickTour,
   type WorkspaceTourTarget,
@@ -36,6 +34,7 @@ import {
   OwnerWorkspaceNav,
   type OwnerWorkspaceTab,
 } from '@/components/admin/OwnerWorkspaceNav';
+import { buttonVariants } from '@/components/ui/buttonVariants';
 import { WorkspacePageHeader } from '@/components/ui/workspace-page-header';
 import { formatMoney } from '@/libs/formatMoney';
 // =============================================================================
@@ -45,6 +44,7 @@ import { formatMoney } from '@/libs/formatMoney';
 import type { AnalyticsResponse } from '@/types/admin';
 import type { RetentionStage } from '@/types/retention';
 import type { ModuleKey } from '@/types/salonPolicy';
+import { cn } from '@/utils/Helpers';
 
 import { useOwnerAdminFeatureFlags } from './OwnerAdminFeatureFlags';
 
@@ -141,6 +141,9 @@ function shiftAnchor(ymd: string, period: TimePeriod, dir: -1 | 1): string {
  */
 const URL_APP_IDS = [
   'bookings',
+  // The Calendar is a workspace destination, not a transient overlay: it is
+  // addressable (?app=schedule), survives a reload, and Back closes it.
+  'schedule',
   'settings',
   'analytics',
   'clients',
@@ -156,7 +159,11 @@ const URL_APP_IDS = [
   'portfolio',
 ] as const;
 
-/** Bottom-nav destinations are hidden from the More grid but stay deep-linkable. */
+/**
+ * Bottom-nav destinations. They are hidden from the More grid, and each one is
+ * listed in URL_APP_IDS above, so a deep link to any of them always opens.
+ * Entitlement rules never block them: their bottom-nav tabs are always allowed.
+ */
 const NAV_ONLY_APP_IDS = ['schedule', 'bookings', 'clients', 'services'];
 
 function isUrlAppId(value: string | null): value is (typeof URL_APP_IDS)[number] {
@@ -275,6 +282,38 @@ function getEmptyDashboardData(): DashboardData {
   };
 }
 
+/**
+ * The auth phase must always end. Clerk's browser SDK can fail to load
+ * (blocked script, captive network, provider incident) and then `clerkLoaded`
+ * never flips, so nothing but this bound can clear the loading state.
+ */
+const AUTH_BOOTSTRAP_TIMEOUT_MS = 12_000;
+
+const AUTH_UNREACHABLE_MESSAGE
+  = 'We can’t reach the sign-in service right now. Check your connection and try again.';
+
+/** Modules that gate a deep-linkable app, for the "not on your plan" wording. */
+const GATED_APP_MODULES: Partial<Record<string, ModuleKey[]>> = {
+  'analytics': ['analyticsDashboard'],
+  'rewards': ['rewards'],
+  'staff': ['scheduleOverrides', 'staffEarnings'],
+  'staff-ops': ['scheduleOverrides', 'staffEarnings'],
+};
+
+/** Explain a deep link to an app this salon cannot open, in the owner's words. */
+function describeBlockedApp(
+  appId: string,
+  moduleReasons: Partial<Record<ModuleKey, ModuleReason>>,
+): string {
+  const appName = APPS.find(app => app.id === appId)?.name ?? 'That app';
+  const turnedOff = (GATED_APP_MODULES[appId] ?? []).some(
+    module => moduleReasons[module] === 'MODULE_DISABLED',
+  );
+  return turnedOff
+    ? `${appName} is turned off for this salon. Turn it back on in Settings to open it here.`
+    : `${appName} isn’t included in your plan yet.`;
+}
+
 function mapAnalyticsModuleStatus(
   reason: ModuleReason | undefined,
 ): AnalyticsModuleStatus {
@@ -351,14 +390,6 @@ function AdminDashboardContent() {
   const [workspaceTab, setWorkspaceTab] = useState<OwnerWorkspaceTab>(() => searchParams.get('tab') === 'more' ? 'more' : 'today');
   const [onboardingHandoffAvailable, setOnboardingHandoffAvailable]
     = useState(false);
-  const [onboardingSavedSite, setOnboardingSavedSite] = useState<{
-    previewUrl: string;
-    salonSlug: string;
-  } | null>(null);
-  const [onboardingHandoffResolution, setOnboardingHandoffResolution]
-    = useState<'pending' | OnboardingHandoffResolution>(
-      onboardingV1IntegrationEnabled ? 'pending' : 'absent',
-    );
   const [showOnboardingTour, setShowOnboardingTour] = useState(false);
 
   // Modal state
@@ -375,6 +406,12 @@ function AdminDashboardContent() {
   const [showFraudSignals, setShowFraudSignals] = useState(false);
   const [showScheduleCalendar, setShowScheduleCalendar] = useState(false);
   const [showWalkIn, setShowWalkIn] = useState(false);
+  // Set when "New Appt" is used, so the create form opens on that day directly.
+  const [newAppointmentDate, setNewAppointmentDate] = useState<Date | null>(
+    null,
+  );
+  // Explains a deep link to an app this salon cannot open (entitlement-gated).
+  const [blockedAppNotice, setBlockedAppNotice] = useState<string | null>(null);
   const activeDashboardSalonSlug
     = adminUser?.impersonation?.salonSlug
     ?? requestedSalonSlug
@@ -388,29 +425,9 @@ function AdminDashboardContent() {
   const activeDashboardSalonName = activeDashboardSalon?.name ?? null;
   const activeDashboardSalonStatus = activeDashboardSalon?.status ?? null;
   const isFreeSolo = activeDashboardSalon?.freeSoloEnabled === true;
-  const handleOnboardingHandoffChange = useCallback((handoff: OnboardingSiteHandoff | null) => {
-    setOnboardingSavedSite(handoff && activeDashboardSalonSlug
-      ? {
-          previewUrl: handoff.site.previewUrl,
-          salonSlug: activeDashboardSalonSlug,
-        }
-      : null);
-  }, [activeDashboardSalonSlug]);
-  const handleOnboardingHandoffResolution = useCallback((
-    resolution: OnboardingHandoffResolution,
-  ) => {
-    setOnboardingHandoffResolution(resolution);
-    if (resolution !== 'error') {
-      setNonBlockingMessage(null);
-    }
-  }, []);
-
   useEffect(() => {
     setOnboardingHandoffAvailable(false);
-    setOnboardingHandoffResolution(
-      onboardingV1IntegrationEnabled ? 'pending' : 'absent',
-    );
-    setOnboardingSavedSite(null);
+    setBlockedAppNotice(null);
     if (!onboardingV1IntegrationEnabled) {
       setShowOnboardingTour(false);
     }
@@ -462,13 +479,61 @@ function AdminDashboardContent() {
     [getTodayYMD],
   );
 
+  // Clerk's instance identity is not stable in every host, so keep the latest
+  // one in a ref instead of making the auth effect depend on it.
+  const clerkRef = useRef(clerk);
+  useEffect(() => {
+    clerkRef.current = clerk;
+  });
+
   // Check admin auth on mount and sync salon cookie
   useEffect(() => {
     let cancelled = false;
     let serverAuthenticated = false;
+    let settled = false;
     setAuthLoading(true);
     setAuthError(null);
     setAdminUser(null);
+
+    // Never leave the owner on a bare spinner: the auth phase ends either when
+    // it resolves, when Clerk reports it could not load, or on this bound.
+    let bootstrapTimer: number | undefined;
+    const settleAuthPhase = () => {
+      settled = true;
+      window.clearTimeout(bootstrapTimer);
+    };
+    const failUnreachable = () => {
+      if (cancelled || settled) {
+        return;
+      }
+      settleAuthPhase();
+      setAuthError(AUTH_UNREACHABLE_MESSAGE);
+      setAuthLoading(false);
+    };
+    bootstrapTimer = window.setTimeout(
+      failUnreachable,
+      AUTH_BOOTSTRAP_TIMEOUT_MS,
+    );
+
+    // Clerk publishes its own load failure (failed_to_load_clerk_js_timeout)
+    // as an 'error' status where the SDK supports the stream; treat it as
+    // terminal so the reconnect card appears without waiting out the bound.
+    const clerkStatusClient = clerkRef.current as unknown as {
+      status?: string;
+      on?: (event: string, handler: (status: string) => void) => void;
+      off?: (event: string, handler: (status: string) => void) => void;
+    } | null;
+    const handleClerkStatus = (status: string) => {
+      if (status === 'error') {
+        failUnreachable();
+      }
+    };
+    if (typeof clerkStatusClient?.on === 'function') {
+      clerkStatusClient.on('status', handleClerkStatus);
+    }
+    if (clerkStatusClient?.status === 'error') {
+      handleClerkStatus('error');
+    }
 
     function handleAuthFailure() {
       if (cancelled || !clerkLoaded) {
@@ -503,9 +568,51 @@ function AdminDashboardContent() {
         const adminMeUrl = requestedSalonSlug
           ? `/api/admin/auth/me?salonSlug=${encodeURIComponent(requestedSalonSlug)}`
           : '/api/admin/auth/me';
-        const response = await fetch(adminMeUrl);
+        let response = await fetch(adminMeUrl);
         if (cancelled) {
           return;
+        }
+        // A `?salon=` deep link (an email alert, a shared appointment URL) asks
+        // for a salon-SCOPED session check. That check can refuse before the
+        // active salon has been set for this session, and a refusal there means
+        // "not this salon yet", NOT "signed out" — bouncing the owner to
+        // sign-in loses the link they followed (audit AG-w2-appointments-03).
+        // So: re-probe the session without the salon scope, and if the session
+        // is in fact valid, set the active salon from the URL and ask again.
+        if (!response.ok && requestedSalonSlug && (response.status === 401 || response.status === 403)) {
+          const unscoped = await fetch('/api/admin/auth/me');
+          if (cancelled) {
+            return;
+          }
+          if (unscoped.ok) {
+            const syncResponse = await fetch('/api/admin/auth/set-active-salon', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ salonSlug: requestedSalonSlug }),
+            });
+            if (cancelled) {
+              return;
+            }
+            if (syncResponse.ok) {
+              syncedSalonSessionRef.current = `${sessionId ?? 'legacy'}:${requestedSalonSlug}`;
+              response = await fetch(adminMeUrl);
+              if (cancelled) {
+                return;
+              }
+            }
+            if (!response.ok) {
+              // The session is genuinely signed in; it just cannot open this
+              // salon. Keep the owner in the workspace on the salon they can
+              // reach and say why, instead of sending them to sign-in.
+              response = unscoped;
+              setNonBlockingMessage(
+                'That link points to a salon this account cannot open. Showing your own workspace instead.',
+              );
+              // Drop the unreachable slug so every scoped request below resolves
+              // against a salon this session actually has.
+              router.replace(`/${locale}/admin`);
+            }
+          }
         }
         if (response.ok) {
           const data = await response.json();
@@ -575,7 +682,8 @@ function AdminDashboardContent() {
         handleAuthFailure();
         return;
       } finally {
-        if (!cancelled && (clerkLoaded || serverAuthenticated)) {
+        if (!cancelled && !settled && (clerkLoaded || serverAuthenticated)) {
+          settleAuthPhase();
           setAuthLoading(false);
         }
       }
@@ -583,6 +691,10 @@ function AdminDashboardContent() {
     checkAuth();
     return () => {
       cancelled = true;
+      window.clearTimeout(bootstrapTimer);
+      if (typeof clerkStatusClient?.off === 'function') {
+        clerkStatusClient.off('status', handleClerkStatus);
+      }
     };
   }, [authAttempt, clerkLoaded, getToken, isSignedIn, router, locale, requestedSalonSlug, sessionId]);
 
@@ -1112,8 +1224,16 @@ function AdminDashboardContent() {
   const buildAdminUrl = useCallback(
     (app: string | null) => {
       const qs = new URLSearchParams();
-      if (requestedSalonSlug) {
-        qs.set('salon', requestedSalonSlug);
+      // Keep the workspace URL salon-specific however the shell was entered:
+      // the post-sign-in landing is /admin with no ?salon=, and dropping the
+      // segment made every copied/bookmarked app link resolve from the
+      // active-salon cookie instead of the salon the owner was looking at.
+      // While the salon selector is still pending there is no answer yet, so
+      // the param stays out rather than silently picking the first salon.
+      const salonSlug = requestedSalonSlug
+        ?? (showSalonSelector ? null : activeDashboardSalonSlug);
+      if (salonSlug) {
+        qs.set('salon', salonSlug);
       }
       if (app) {
         qs.set('app', app);
@@ -1121,7 +1241,7 @@ function AdminDashboardContent() {
       const query = qs.toString();
       return `/${locale}/admin${query ? `?${query}` : ''}`;
     },
-    [locale, requestedSalonSlug],
+    [locale, requestedSalonSlug, activeDashboardSalonSlug, showSalonSelector],
   );
 
   /** Open an app through the URL so it is deep-linkable and Back closes it. */
@@ -1153,6 +1273,7 @@ function AdminDashboardContent() {
     }
     lastAppParamRef.current = appKey;
     if (isUrlAppId(appParam) && !urlBlockedAppIds.includes(appParam)) {
+      setBlockedAppNotice(null);
       urlOpenedAppRef.current = appParam;
       setInitialAppointmentId(
         appParam === 'bookings' ? appointmentParam : null,
@@ -1160,15 +1281,34 @@ function AdminDashboardContent() {
       setInitialClientId(null);
       setInitialPromotionStage(null);
       setPromotionSettingsReturnClientId(null);
+      if (appParam === 'schedule') {
+        // The calendar is its own workspace destination, not a More app: it
+        // opens on the Calendar tab rather than behind the More grid.
+        setActiveModal(null);
+        setWorkspaceTab('calendar');
+        setShowScheduleCalendar(true);
+        return;
+      }
       setShowScheduleCalendar(false);
       setWorkspaceTab('more');
       setActiveModal(appParam);
+    } else if (isUrlAppId(appParam)) {
+      // A known app this salon is not entitled to. Explain it in the workspace
+      // instead of dropping the link silently, and stop the address bar
+      // advertising an app that is not open.
+      setBlockedAppNotice(describeBlockedApp(appParam, moduleReasons));
+      setWorkspaceTab('more');
+      router.replace(buildAdminUrl(null));
     } else if (!appParam) {
       // URL lost its app segment (browser Back, or a close that stripped it):
       // close the modal we opened from the URL. Capture the ref value before
       // clearing it — the state updater runs later, during render.
       const urlOpenedApp = urlOpenedAppRef.current;
-      if (urlOpenedApp) {
+      if (urlOpenedApp === 'schedule') {
+        urlOpenedAppRef.current = null;
+        setShowScheduleCalendar(false);
+        setWorkspaceTab('today');
+      } else if (urlOpenedApp) {
         urlOpenedAppRef.current = null;
         setActiveModal(current => (current === urlOpenedApp ? null : current));
       }
@@ -1178,6 +1318,9 @@ function AdminDashboardContent() {
     authLoading,
     adminUser,
     analyticsModuleStatus,
+    buildAdminUrl,
+    moduleReasons,
+    router,
     urlBlockedAppIds,
   ]);
 
@@ -1188,36 +1331,22 @@ function AdminDashboardContent() {
         `/${locale}/admin/luster${activeDashboardSalonSlug ? `?salon=${encodeURIComponent(activeDashboardSalonSlug)}` : ''}`,
       );
     } else if (appId === 'booking-page') {
-      if (!onboardingV1IntegrationEnabled) {
-        router.push(
-          `/${locale}/admin/website${activeDashboardSalonSlug ? `?salon=${encodeURIComponent(activeDashboardSalonSlug)}` : ''}`,
-        );
-        return;
-      }
-      const accountBackedPreviewUrl = onboardingSavedSite?.salonSlug
-        === activeDashboardSalonSlug
-        ? onboardingSavedSite.previewUrl
-        : null;
-      // Account-backed onboarding sites always reopen their exact persisted
-      // revision. Until resolution completes (or if it fails), never fail open
-      // into the legacy placeholder editor.
-      if (onboardingHandoffResolution === 'available' && accountBackedPreviewUrl) {
-        router.push(`/${locale}/admin/website?salon=${encodeURIComponent(activeDashboardSalonSlug ?? '')}`);
-      } else if (onboardingHandoffResolution === 'absent') {
-        router.push(
-          `/${locale}/admin/website${activeDashboardSalonSlug ? `?salon=${encodeURIComponent(activeDashboardSalonSlug)}` : ''}`,
-        );
-      } else {
-        setNonBlockingMessage(onboardingHandoffResolution === 'error'
-          ? 'Your saved website could not be loaded yet. Try again before opening Booking Page.'
-          : 'Checking your saved website… Try Booking Page again in a moment.');
-      }
+      // Every resolution of the onboarding handoff opened the same hub, so the
+      // tile never needs to wait for it. The Booking Page hub resolves the
+      // saved site itself and gates what it shows; blocking here only stranded
+      // owners who entered the More tab directly (the handoff fetch lives in
+      // the Today subtree and never runs there).
+      router.push(
+        `/${locale}/admin/website${activeDashboardSalonSlug ? `?salon=${encodeURIComponent(activeDashboardSalonSlug)}` : ''}`,
+      );
     } else if (appId === 'workspace-tour') {
-      if (onboardingV1IntegrationEnabled && onboardingHandoffAvailable) {
-        setShowOnboardingTour(true);
-      }
+      // The tour walks the workspace an owner already has; it never needed an
+      // onboarding site. Gating it on the handoff meant an established owner
+      // could not replay it, and the tile it lives on was hidden by the same
+      // unresolved flag.
+      setShowOnboardingTour(true);
     } else if (appId === 'schedule') {
-      setShowScheduleCalendar(true);
+      openAppViaUrl('schedule');
     } else {
       if (appId === 'clients') {
         setInitialClientId(null);
@@ -1234,7 +1363,9 @@ function AdminDashboardContent() {
   const handleQuickAction = useCallback((actionId: string) => {
     switch (actionId) {
       case 'new-appointment':
-        setShowScheduleCalendar(true);
+        // The highest-intent action on Today creates, it does not browse:
+        // open the create form itself, on today's date.
+        setNewAppointmentDate(new Date());
         break;
       case 'walk-in':
         setShowWalkIn(true);
@@ -1245,7 +1376,7 @@ function AdminDashboardContent() {
         setActiveModal('marketing');
         break;
       case 'today-schedule':
-        setShowScheduleCalendar(true);
+        openAppViaUrl('schedule');
         break;
       case 'view-bookings':
         setActiveModal('bookings');
@@ -1253,7 +1384,7 @@ function AdminDashboardContent() {
       default:
         break;
     }
-  }, []);
+  }, [openAppViaUrl]);
 
   const handleRefreshAnalytics = useCallback(async () => {
     const nextStatus = await resolveAnalyticsModuleAvailability({
@@ -1269,7 +1400,15 @@ function AdminDashboardContent() {
     setActiveModal(null);
     setInitialPromotionStage(null);
     setPromotionSettingsReturnClientId(null);
-    if (urlOpenedAppRef.current) {
+    if (tab === 'calendar') {
+      // The Calendar tab is addressable like every other destination: opening
+      // it pushes ?app=schedule, so a reload keeps it open and system Back
+      // closes it instead of leaving the workspace.
+      if (urlOpenedAppRef.current !== 'schedule') {
+        urlOpenedAppRef.current = 'schedule';
+        router.push(buildAdminUrl('schedule'));
+      }
+    } else if (urlOpenedAppRef.current) {
       urlOpenedAppRef.current = null;
       router.replace(buildAdminUrl(null));
     }
@@ -1317,10 +1456,15 @@ function AdminDashboardContent() {
         break;
       case 'website':
         handleWorkspaceTab('more');
-        window.requestAnimationFrame(() => {
+        // handleWorkspaceTab resets the viewport across the next two animation
+        // frames (so a tab change can never reopen a workspace mid-scroll). A
+        // scroll queued inside those frames is cancelled by that reset, which
+        // left the final tour step at the top of More instead of on the tile
+        // it is describing. Wait for the resets to finish first.
+        window.setTimeout(() => {
           document.querySelector<HTMLElement>('[data-testid="admin-app-tile-booking-page"]')
             ?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        });
+        }, 120);
         break;
       default:
         break;
@@ -1335,7 +1479,14 @@ function AdminDashboardContent() {
   const completeWorkspaceTour = useCallback(() => {
     setShowOnboardingTour(false);
     handleWorkspaceTab('today');
-    if (!activeDashboardSalonSlug) {
+    // The completion flag belongs to the onboarding hand-off record. An owner
+    // replaying the tour without one has nothing to mark, so don't send a
+    // write that can only 404 — the tour is a replayable tile either way.
+    if (
+      !activeDashboardSalonSlug
+      || !onboardingV1IntegrationEnabled
+      || !onboardingHandoffAvailable
+    ) {
       return;
     }
     void fetch(
@@ -1346,7 +1497,12 @@ function AdminDashboardContent() {
         method: 'PATCH',
       },
     );
-  }, [activeDashboardSalonSlug, handleWorkspaceTab]);
+  }, [
+    activeDashboardSalonSlug,
+    handleWorkspaceTab,
+    onboardingHandoffAvailable,
+    onboardingV1IntegrationEnabled,
+  ]);
 
   // Close modal
   const handleCloseModal = () => {
@@ -1362,6 +1518,21 @@ function AdminDashboardContent() {
       router.replace(buildAdminUrl(null));
     }
   };
+
+  /**
+   * The calendar is opened through the URL, so closing it has to strip ?app=
+   * the same way handleCloseModal does for the More apps.
+   */
+  const handleScheduleCalendarVisibility = useCallback((value: boolean) => {
+    setShowScheduleCalendar(value);
+    if (value) {
+      return;
+    }
+    if (urlOpenedAppRef.current === 'schedule') {
+      urlOpenedAppRef.current = null;
+      router.replace(buildAdminUrl(null));
+    }
+  }, [router, buildAdminUrl]);
 
   const handleClosePromotionSettings = () => {
     const returnClientId = promotionSettingsReturnClientId;
@@ -1379,28 +1550,35 @@ function AdminDashboardContent() {
   // 1) Auth check phase - never show dashboard UI here
   if (authLoading) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-[#F2F2F7]">
-        <div className="size-8 animate-spin rounded-full border-2 border-gray-300 border-t-gray-600" />
+      <div className="owner-workspace-theme flex min-h-screen items-center justify-center bg-[var(--owner-ground)]" data-theme-scope="owner">
+        <div
+          className="flex flex-col items-center gap-3"
+          data-testid="admin-auth-loading"
+          role="status"
+        >
+          <div className="size-8 animate-spin rounded-full border-2 border-[var(--owner-line)] border-t-[var(--owner-accent)]" />
+          <p className="text-[13px] text-[var(--owner-muted)]">Checking your session…</p>
+        </div>
       </div>
     );
   }
 
   if (authError) {
     return (
-      <main className="flex min-h-screen items-center justify-center bg-[#F2F2F7] p-5">
-        <section className="w-full max-w-md rounded-2xl bg-white p-6 shadow-sm">
-          <h1 className="text-xl font-semibold text-gray-900">Let’s reconnect your account</h1>
-          <p role="alert" className="mt-3 text-gray-600">{authError}</p>
+      <main className="owner-workspace-theme flex min-h-screen items-center justify-center bg-[var(--owner-ground)] p-5" data-theme-scope="owner">
+        <section className="w-full max-w-md rounded-owner-card border border-[var(--owner-line)] bg-[var(--owner-surface)] p-6 shadow-owner-card">
+          <h1 className="owner-title text-[22px] font-semibold text-[var(--owner-ink)]">Let’s reconnect your account</h1>
+          <p role="alert" className="mt-3 text-[15px] leading-6 text-[var(--owner-muted)]">{authError}</p>
           <div className="mt-6 flex flex-wrap gap-3">
             <button
-              className="min-h-11 rounded-xl bg-gray-900 px-5 py-3 font-medium text-white"
+              className={cn(buttonVariants({ variant: 'ownerPrimary', size: 'pillSm' }), 'min-h-11 px-5')}
               onClick={() => setAuthAttempt(attempt => attempt + 1)}
               type="button"
             >
               Try again
             </button>
             <button
-              className="min-h-11 rounded-xl border border-gray-300 px-5 py-3 font-medium text-gray-700"
+              className={cn(buttonVariants({ variant: 'ownerSecondary', size: 'pillSm' }), 'min-h-11 px-5')}
               onClick={handleLogout}
               type="button"
             >
@@ -1435,7 +1613,7 @@ function AdminDashboardContent() {
           <button
             type="button"
             onClick={handleLogout}
-            className="mt-6 text-sm text-[#8E8E93] hover:text-[#1C1C1E]"
+            className="mt-6 min-h-11 text-[13px] text-[var(--owner-muted)] transition-colors hover:text-[var(--owner-accent)]"
           >
             Log out
           </button>
@@ -1540,8 +1718,8 @@ function AdminDashboardContent() {
                 ? `Managing ${activeDashboardSalonName}`
                 : 'Salon owner workspace'
             }
-            titleClassName="text-[28px] font-bold tracking-tight text-stone-950"
-            subtitleClassName="text-[15px] text-stone-500"
+            titleClassName="owner-title text-[28px] font-semibold tracking-tight text-[var(--owner-ink)]"
+            subtitleClassName="text-[15px] text-[var(--owner-muted)]"
             actions={(
               <>
                 {!adminUser.impersonation?.isActive
@@ -1550,7 +1728,7 @@ function AdminDashboardContent() {
                     type="button"
                     onClick={() => setShowSalonSelector(true)}
                     aria-label="Switch salon"
-                    className="flex size-9 items-center justify-center rounded-full border border-rose-100 bg-white text-rose-800 shadow-sm transition-colors active:bg-rose-50"
+                    className="flex size-11 items-center justify-center rounded-full border border-[var(--owner-line)] bg-[var(--owner-surface)] text-[var(--owner-accent)] shadow-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)] focus-visible:ring-offset-2 active:bg-[var(--owner-blush)]"
                   >
                     <Building2 size={19} />
                   </button>
@@ -1558,27 +1736,32 @@ function AdminDashboardContent() {
                 <button
                   type="button"
                   onClick={() => setShowNotifications(true)}
-                  className="relative flex size-9 items-center justify-center rounded-full border border-rose-100 bg-white text-rose-800 shadow-sm transition-colors active:bg-rose-50"
+                  aria-label={
+                    notificationCount > 0
+                      ? `Notifications (${notificationCount} unread)`
+                      : 'Notifications'
+                  }
+                  className="relative flex size-11 items-center justify-center rounded-full border border-[var(--owner-line)] bg-[var(--owner-surface)] text-[var(--owner-accent)] shadow-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)] focus-visible:ring-offset-2 active:bg-[var(--owner-blush)]"
                 >
-                  <Bell size={20} />
+                  <Bell size={20} aria-hidden="true" />
                   {notificationCount > 0 && (
-                    <span className="absolute -right-0.5 -top-0.5 flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-[#FF3B30] px-1">
+                    <span className="absolute -right-0.5 -top-0.5 flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-[var(--owner-accent-strong)] px-1">
                       <span className="text-[11px] font-bold text-white">
                         {notificationCount > 9 ? '9+' : notificationCount}
                       </span>
                     </span>
                   )}
                 </button>
-                <button
-                  type="button"
-                  onClick={handleLogout}
-                  className="flex items-center gap-1.5 rounded-full bg-red-50 px-3 py-1.5 text-sm font-medium text-red-600 transition-colors hover:bg-red-100 active:bg-red-200"
-                >
-                  <LogOut size={16} />
-                  <span>Log Out</span>
-                </button>
+                {/*
+                  AG-w2-settings-integrations-12: Log Out used to be a 32 px
+                  red pill here — the loudest control on every dashboard
+                  screen, in the left-thumb path, signing the owner out on a
+                  single tap. The header keeps identity and the bell; ending
+                  the session lives under More → Account, behind a
+                  confirmation.
+                */}
                 <div
-                  className="flex size-9 items-center justify-center rounded-full bg-gradient-to-br from-rose-800 to-amber-500 text-[15px] font-semibold text-white shadow-sm"
+                  className="flex size-11 items-center justify-center rounded-full bg-gradient-to-br from-[var(--owner-accent-strong)] to-[var(--owner-accent)] text-[15px] font-semibold text-white shadow-sm"
                   title="Luster owner account"
                 >
                   {userInitial || <Sparkles size={16} />}
@@ -1588,7 +1771,16 @@ function AdminDashboardContent() {
           />
         </div>
 
-        <AdminImpersonationBanner />
+        {/*
+          The banner probes /api/super-admin/impersonate on mount. For an
+          ordinary owner that request can only ever answer 403, which the
+          browser logs as an error and which buries the console noise that
+          actually matters (OP-007). The session already knows whether the
+          answer could be yes, so only ask then.
+        */}
+        {(adminUser.isSuperAdmin || adminUser.impersonation?.isActive) && (
+          <AdminImpersonationBanner />
+        )}
 
         {/* Critical Error Banner */}
         {error && (
@@ -1604,6 +1796,24 @@ function AdminDashboardContent() {
           </div>
         )}
 
+        {/* Deep link to an app this salon cannot open */}
+        {blockedAppNotice && (
+          <div
+            className="mx-4 mt-2 flex items-start gap-3 rounded-lg border border-amber-200 bg-amber-50 p-3"
+            data-testid="blocked-app-notice"
+            role="status"
+          >
+            <p className="flex-1 text-sm text-amber-700">{blockedAppNotice}</p>
+            <button
+              type="button"
+              onClick={() => setBlockedAppNotice(null)}
+              className="shrink-0 rounded-lg px-2 py-1 text-sm font-medium text-amber-900 underline underline-offset-2"
+            >
+              Dismiss
+            </button>
+          </div>
+        )}
+
         {workspaceTab === 'more'
           ? (
               <div
@@ -1614,9 +1824,28 @@ function AdminDashboardContent() {
                   theme="apple"
                   badges={appBadges}
                   onAppTap={handleAppTap}
-                  hiddenIds={onboardingV1IntegrationEnabled && onboardingHandoffAvailable
-                    ? hiddenAppIds
-                    : [...hiddenAppIds, 'workspace-tour']}
+                  /*
+                    The Workspace tour tile used to be hidden unless the
+                    onboarding integration flag was on AND an onboarding-site
+                    hand-off had resolved — so an established owner could never
+                    replay it, and on the More tab (where the hand-off fetch
+                    never runs) it was invisible to everyone. The tour walks
+                    tabs the owner already has, so it needs neither.
+                  */
+                  hiddenIds={hiddenAppIds}
+                  /*
+                    AG-w2-settings-integrations-12: the session-ending control
+                    lives here, in the Account row AppGrid renders under the
+                    tiles, with its own named confirmation — not as a one-tap
+                    red pill in the header of every screen.
+                  */
+                  account={{
+                    name: userName,
+                    salonName: activeDashboardSalonName,
+                    onLogOut: () => {
+                      void handleLogout();
+                    },
+                  }}
                 />
               </div>
             )
@@ -1628,8 +1857,6 @@ function AdminDashboardContent() {
                         focusWelcome={searchParams.get('onboarding') === 'complete'}
                         locale={locale}
                         onAvailabilityChange={setOnboardingHandoffAvailable}
-                        onHandoffChange={handleOnboardingHandoffChange}
-                        onResolutionChange={handleOnboardingHandoffResolution}
                         onTakeTour={() => setShowOnboardingTour(true)}
                         salonSlug={activeDashboardSalonSlug}
                       />
@@ -1645,7 +1872,7 @@ function AdminDashboardContent() {
                   }
                   onQuickAction={handleQuickAction}
                   onOpenBookings={() => setActiveModal('bookings')}
-                  onOpenCalendar={() => setShowScheduleCalendar(true)}
+                  onOpenCalendar={() => openAppViaUrl('schedule')}
                   onOpenIntegrations={() => openAppViaUrl('integrations')}
                   onOpenAppointment={(appointmentId) => {
                     setInitialClientId(null);
@@ -1714,7 +1941,7 @@ function AdminDashboardContent() {
         showFraudSignals={showFraudSignals}
         setShowFraudSignals={setShowFraudSignals}
         showScheduleCalendar={showScheduleCalendar}
-        setShowScheduleCalendar={setShowScheduleCalendar}
+        setShowScheduleCalendar={handleScheduleCalendarVisibility}
         showWalkIn={showWalkIn}
         setShowWalkIn={setShowWalkIn}
         userName={userName}
@@ -1749,16 +1976,27 @@ function AdminDashboardContent() {
         }}
       />
 
-      {onboardingV1IntegrationEnabled
-        ? (
-            <WorkspaceQuickTour
-              onClose={closeWorkspaceTour}
-              onComplete={completeWorkspaceTour}
-              onTargetChange={handleWorkspaceTourTarget}
-              open={showOnboardingTour}
-            />
-          )
-        : null}
+      <NewAppointmentModal
+        isOpen={newAppointmentDate !== null}
+        onClose={() => setNewAppointmentDate(null)}
+        onSuccess={() => {
+          void fetchData();
+        }}
+        preselectedDate={newAppointmentDate ?? undefined}
+        salonSlug={activeDashboardSalonSlug}
+      />
+
+      {/*
+        Mounted for every owner, not only the ones who arrived through
+        onboarding: the tour is a replayable guide to tabs that already exist.
+        It renders nothing while `open` is false.
+      */}
+      <WorkspaceQuickTour
+        onClose={closeWorkspaceTour}
+        onComplete={completeWorkspaceTour}
+        onTargetChange={handleWorkspaceTourTarget}
+        open={showOnboardingTour}
+      />
     </div>
   );
 }
@@ -1771,8 +2009,14 @@ function AdminDashboardLoading() {
 // Page Export - wrap in Suspense for useSearchParams
 export default function AdminDashboardPage() {
   return (
-    <Suspense fallback={<AdminDashboardLoading />}>
-      <AdminDashboardContent />
-    </Suspense>
+    // `reducedMotion="user"` makes every framer-motion animation in the owner
+    // shell (tiles, toggles, sheets, quick actions) honour the operating
+    // system's "reduce motion" setting. The CSS counterpart lives at the end of
+    // src/styles/global.css for the animations that are not framer-driven.
+    <MotionConfig reducedMotion="user">
+      <Suspense fallback={<AdminDashboardLoading />}>
+        <AdminDashboardContent />
+      </Suspense>
+    </MotionConfig>
   );
 }

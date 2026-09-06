@@ -2,7 +2,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const {
-  requireAdmin,
+  requireAdminOwner,
   getSalonBySlug,
   getSalonById,
   logAuditEvent,
@@ -17,7 +17,7 @@ const {
   const updateSet = vi.fn(() => ({ where: updateWhere }));
   const update = vi.fn(() => ({ set: updateSet }));
   return {
-    requireAdmin: vi.fn(),
+    requireAdminOwner: vi.fn(),
     getSalonBySlug: vi.fn(),
     getSalonById: vi.fn(),
     logAuditEvent: vi.fn(),
@@ -29,7 +29,7 @@ const {
   };
 });
 
-vi.mock('@/libs/adminAuth', () => ({ requireAdmin }));
+vi.mock('@/libs/adminAuth', () => ({ requireAdminOwner }));
 vi.mock('@/libs/auditLog', () => ({ logAuditEvent }));
 vi.mock('@/libs/queries', () => ({ getSalonBySlug, getSalonById }));
 vi.mock('@/libs/publicUrl', () => ({ buildSalonTenantPublicUrl }));
@@ -62,7 +62,7 @@ describe('POST /api/admin/salon/publish', () => {
     vi.clearAllMocks();
     getSalonBySlug.mockResolvedValue(DRAFT_SALON);
     getSalonById.mockResolvedValue(DRAFT_SALON);
-    requireAdmin.mockResolvedValue({ ok: true, admin: { id: 'admin_1' } });
+    requireAdminOwner.mockResolvedValue({ ok: true, admin: { id: 'admin_1' } });
     updateReturning.mockResolvedValue([PUBLISHED_ROW]);
   });
 
@@ -79,12 +79,12 @@ describe('POST /api/admin/salon/publish', () => {
       const response = await POST(request('https://x.test/api/admin/salon/publish?salonSlug=nope'));
 
       expect(response.status).toBe(404);
-      expect(requireAdmin).not.toHaveBeenCalled();
+      expect(requireAdminOwner).not.toHaveBeenCalled();
     });
 
-    it('propagates the requireAdmin failure response unchanged when unauthenticated', async () => {
+    it('propagates the requireAdminOwner failure response unchanged when unauthenticated', async () => {
       const denied = new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401 });
-      requireAdmin.mockResolvedValue({ ok: false, response: denied });
+      requireAdminOwner.mockResolvedValue({ ok: false, response: denied });
 
       const response = await POST(request('https://x.test/api/admin/salon/publish?salonSlug=salon-a'));
 
@@ -94,7 +94,7 @@ describe('POST /api/admin/salon/publish', () => {
 
     it('propagates a 403 when the requesting admin is not a member of this salon (cross-tenant)', async () => {
       const forbidden = new Response(JSON.stringify({ error: 'Forbidden' }), { status: 403 });
-      requireAdmin.mockResolvedValue({ ok: false, response: forbidden });
+      requireAdminOwner.mockResolvedValue({ ok: false, response: forbidden });
 
       const response = await POST(request('https://x.test/api/admin/salon/publish?salonSlug=salon-a'));
 
@@ -106,7 +106,31 @@ describe('POST /api/admin/salon/publish', () => {
       await POST(request('https://x.test/api/admin/salon/publish?salonSlug=salon-a'));
 
       expect(getSalonBySlug).toHaveBeenCalledWith('salon-a');
-      expect(requireAdmin).toHaveBeenCalledWith('salon_1');
+      expect(requireAdminOwner).toHaveBeenCalledWith('salon_1', expect.any(String));
+    });
+
+    // AG-security-tenancy-02: publishing stamps slugLockedAt for good, so a
+    // collaborator (membership role 'admin') must not reach the UPDATE.
+    it('refuses a collaborator with 403 OWNER_REQUIRED and never publishes', async () => {
+      requireAdminOwner.mockResolvedValue({
+        ok: false,
+        response: new Response(
+          JSON.stringify({ error: { code: 'OWNER_REQUIRED', message: 'Only the salon owner can publish this website.' } }),
+          { status: 403, headers: { 'Content-Type': 'application/json' } },
+        ),
+      });
+
+      const response = await POST(request('https://x.test/api/admin/salon/publish?salonSlug=salon-a'));
+
+      expect(response.status).toBe(403);
+      await expect(response.json()).resolves.toEqual({
+        error: {
+          code: 'OWNER_REQUIRED',
+          message: 'Only the salon owner can publish this website.',
+        },
+      });
+      expect(db.update).not.toHaveBeenCalled();
+      expect(logAuditEvent).not.toHaveBeenCalled();
     });
   });
 

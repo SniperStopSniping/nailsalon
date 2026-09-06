@@ -4,8 +4,9 @@
  * GET - Get current salon policy (for admin's salon)
  * PUT - Update salon policy (for admin's salon)
  *
- * Protected by requireActiveAdminSalon(). Derives salonId from the active
- * admin salon selection, not from the client.
+ * Protected by requireAdminSalonFromRequest(). The salon is the one the URL
+ * names (`?salonSlug=` / `?salon=`, membership-checked) when it names one, and
+ * the active admin salon selection otherwise. It is never taken as a raw id.
  */
 
 import {
@@ -18,7 +19,7 @@ import {
   normalizeSalonPolicyInput,
   SalonPolicyInputSchema,
 } from '@/core/appointments/policySchemas';
-import { requireActiveAdminSalon } from '@/libs/adminAuth';
+import { requireAdminSalonFromRequest } from '@/libs/adminAuth';
 
 // Force dynamic rendering
 export const dynamic = 'force-dynamic';
@@ -39,8 +40,8 @@ type ErrorResponse = {
 // GET /api/admin/policies
 // =============================================================================
 
-export async function GET(): Promise<Response> {
-  const { error, salon } = await requireActiveAdminSalon();
+export async function GET(request: Request): Promise<Response> {
+  const { error, salon } = await requireAdminSalonFromRequest(request);
   if (error || !salon) {
     return error!;
   }
@@ -130,7 +131,7 @@ export async function GET(): Promise<Response> {
 // =============================================================================
 
 export async function PUT(request: Request): Promise<Response> {
-  const { error, salon } = await requireActiveAdminSalon();
+  const { error, salon } = await requireAdminSalonFromRequest(request);
   if (error || !salon) {
     return error!;
   }

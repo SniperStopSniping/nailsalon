@@ -15,13 +15,25 @@ import { useMemo } from 'react';
 
 import { AsyncStatePanel } from '@/components/ui/async-state-panel';
 import { Button } from '@/components/ui/button';
+import {
+  type CalendarSchedule,
+  formatMinutesLabel,
+  getDayAvailability,
+  resolveDayGridBounds,
+} from '@/libs/calendarSchedule';
 
 const HOUR_HEIGHT = 96;
-const START_HOUR = 8;
-const END_HOUR = 20;
+/**
+ * Fallback bounds only. The real grid spans the earliest technician start to
+ * the latest end for the day (and always covers every appointment already on
+ * it) — a fixed 08:00–20:00 clipped a 21:00 finish off the bottom and drew an
+ * early booking above the grid (source-map I-019 / AG-today-calendar-04).
+ */
+const FALLBACK_START_HOUR = 8;
+const FALLBACK_END_HOUR = 20;
 
 const STATUS_COLORS: Record<string, string> = {
-  confirmed: 'bg-blue-50 text-blue-700 border-blue-500',
+  confirmed: 'bg-[var(--owner-blush,#f6e7ec)] text-[var(--owner-accent-strong,#70213f)] border-[var(--owner-accent,#8f3155)]',
   pending: 'bg-yellow-50 text-yellow-700 border-yellow-500',
   in_progress: 'bg-green-50 text-green-700 border-green-500',
   completed: 'bg-gray-50 text-gray-600 border-gray-400',
@@ -69,6 +81,12 @@ type AppointmentsDayViewProps = {
   allowDrag?: boolean;
   resourceLabel?: string;
   includeUnassignedResource?: boolean;
+  /**
+   * The availability authorities for the salon (opening hours, weekly
+   * schedules, time off, blocked slots). Optional: without it the grid keeps
+   * its previous behaviour apart from covering out-of-range appointments.
+   */
+  schedule?: CalendarSchedule | null;
 };
 
 function startOfWeek(date: Date): Date {
@@ -109,9 +127,14 @@ function formatDateKey(date: Date) {
   return `${year}-${month}-${day}`;
 }
 
-function getAppointmentTop(iso: string) {
+function getAppointmentTop(iso: string, startHour: number) {
   const date = new Date(iso);
-  return (date.getHours() - START_HOUR + date.getMinutes() / 60) * HOUR_HEIGHT;
+  return (date.getHours() - startHour + date.getMinutes() / 60) * HOUR_HEIGHT;
+}
+
+function getMinutesOfDay(iso: string) {
+  const date = new Date(iso);
+  return date.getHours() * 60 + date.getMinutes();
 }
 
 function getAppointmentHeight(startIso: string, endIso: string) {
@@ -172,11 +195,11 @@ function computeOverlapLayout(appointments: CalendarAppointment[]): Map<string, 
   return layout;
 }
 
-function buildSlots(slotIntervalMinutes: number) {
+function buildSlots(slotIntervalMinutes: number, startHour: number, endHour: number) {
   const slots: string[] = [];
-  for (let hour = START_HOUR; hour <= END_HOUR; hour++) {
+  for (let hour = startHour; hour <= endHour; hour++) {
     for (let minute = 0; minute < 60; minute += slotIntervalMinutes) {
-      if (hour === END_HOUR && minute > 0) {
+      if (hour === endHour && minute > 0) {
         continue;
       }
       slots.push(`${hour}:${minute.toString().padStart(2, '0')}`);
@@ -225,7 +248,7 @@ function DroppableSlot({
     <div
       ref={setNodeRef}
       data-testid={testId}
-      className={`border-b border-dashed border-gray-100 bg-white transition-colors ${isOver ? 'bg-blue-50/80' : ''}`}
+      className={`border-b border-dashed border-[var(--owner-line,#dfd1d4)] bg-[var(--owner-surface,#fffdfb)] transition-colors ${isOver ? 'bg-[var(--owner-blush,#f6e7ec)]' : ''}`}
       style={{ height }}
     />
   );
@@ -237,12 +260,14 @@ function DraggableAppointment({
   onOpen,
   allowDrag,
   overlapLayout,
+  startHour,
 }: {
   appointment: CalendarAppointment;
   resourceId: string;
   onOpen: () => void;
   allowDrag: boolean;
   overlapLayout?: OverlapLayout;
+  startHour: number;
 }) {
   const {
     attributes,
@@ -270,7 +295,7 @@ function DraggableAppointment({
       data-start-time={appointment.startTime}
       data-end-time={appointment.endTime}
       style={{
-        top: getAppointmentTop(appointment.startTime),
+        top: getAppointmentTop(appointment.startTime, startHour),
         height: getAppointmentHeight(appointment.startTime, appointment.endTime),
         left: overlapLayout ? `calc(${overlapLayout.leftPct}% + 4px)` : undefined,
         width: overlapLayout ? `calc(${overlapLayout.widthPct}% - 8px)` : undefined,
@@ -284,7 +309,7 @@ function DraggableAppointment({
           <div className="truncate text-xs opacity-80">
             {appointment.clientName || 'Guest'}
           </div>
-          <div className="mt-1 text-[11px] opacity-70">
+          <div className="mt-1 text-[12px] opacity-70">
             {formatShortTime(appointment.startTime)}
             {' '}
             -
@@ -329,13 +354,69 @@ export function AppointmentsDayView({
   allowDrag = true,
   resourceLabel = 'Team',
   includeUnassignedResource = true,
+  schedule = null,
 }: AppointmentsDayViewProps) {
   const weekDates = useMemo(() => getWeekDates(selectedDate), [selectedDate]);
   const dayAppointments = useMemo(() => appointments.filter((appointment) => {
     const start = new Date(appointment.startTime);
     return isSameDay(start, selectedDate);
   }), [appointments, selectedDate]);
-  const slots = useMemo(() => buildSlots(slotIntervalMinutes), [slotIntervalMinutes]);
+  const dateKey = formatDateKey(selectedDate);
+
+  const availability = useMemo(
+    () => (schedule ? getDayAvailability(schedule, dateKey) : null),
+    [schedule, dateKey],
+  );
+
+  const { startHour, endHour } = useMemo(() => resolveDayGridBounds({
+    schedule,
+    dateKey,
+    appointmentWindows: dayAppointments.map(appointment => ({
+      startMinutes: getMinutesOfDay(appointment.startTime),
+      endMinutes: getMinutesOfDay(appointment.endTime),
+    })),
+    fallback: { startHour: FALLBACK_START_HOUR, endHour: FALLBACK_END_HOUR },
+  }), [schedule, dateKey, dayAppointments]);
+
+  /** Non-bookable bands per column: the technician's own off day and blocks. */
+  const overlaysByResource = useMemo(() => {
+    const overlays = new Map<string, {
+      offLabel: string | null;
+      blocks: Array<{ id: string; top: number; height: number; label: string }>;
+    }>();
+    if (!availability) {
+      return overlays;
+    }
+    const offById = new Map(availability.techniciansOff.map(entry => [entry.id, entry]));
+    const notWorking = new Set(availability.technicianIdsNotWorking);
+    const toOffset = (minutes: number) => ((minutes / 60) - startHour) * HOUR_HEIGHT;
+
+    for (const resource of resources) {
+      const off = offById.get(resource.id);
+      const offLabel = off
+        ? `Time off${off.reason ? ` · ${off.reason}` : ''}`
+        : notWorking.has(resource.id)
+          ? 'Not scheduled'
+          : null;
+      const blocks = availability.blockedWindows
+        .filter(window => window.technicianId === resource.id)
+        .map(window => ({
+          id: window.id,
+          top: toOffset(window.startMinutes),
+          height: Math.max(((window.endMinutes - window.startMinutes) / 60) * HOUR_HEIGHT, 24),
+          label: `${window.label || 'Blocked'} · ${formatMinutesLabel(window.startMinutes)} – ${formatMinutesLabel(window.endMinutes)}`,
+        }));
+      if (offLabel || blocks.length > 0) {
+        overlays.set(resource.id, { offLabel, blocks });
+      }
+    }
+    return overlays;
+  }, [availability, resources, startHour]);
+
+  const slots = useMemo(
+    () => buildSlots(slotIntervalMinutes, startHour, endHour),
+    [slotIntervalMinutes, startHour, endHour],
+  );
 
   const resourcesToRender = useMemo(() => {
     const list = resources.length > 0 ? [...resources] : [];
@@ -356,8 +437,8 @@ export function AppointmentsDayView({
       return null;
     }
     const now = new Date();
-    return (now.getHours() - START_HOUR + now.getMinutes() / 60) * HOUR_HEIGHT;
-  }, [selectedDate]);
+    return (now.getHours() - startHour + now.getMinutes() / 60) * HOUR_HEIGHT;
+  }, [selectedDate, startHour]);
 
   const appointmentsByResource = useMemo(() => {
     const grouped = new Map<string, CalendarAppointment[]>();
@@ -408,14 +489,14 @@ export function AppointmentsDayView({
   };
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col bg-white">
-      <div className="border-b border-gray-100 px-4 py-3">
+    <div className="flex min-h-0 flex-1 flex-col bg-[var(--owner-surface,#fffdfb)]">
+      <div className="border-b border-[var(--owner-line,#dfd1d4)] px-4 py-3">
         <div className="mb-3 flex items-center justify-between">
           <div>
-            <div className="text-sm font-semibold text-gray-900">
+            <div className="text-sm font-semibold text-[var(--owner-ink,#30262a)]">
               {selectedDate.toLocaleDateString('en-US', { weekday: 'long' })}
             </div>
-            <div className="text-xs text-gray-500">
+            <div className="text-xs text-[var(--owner-muted,#706267)]">
               {selectedDate.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
             </div>
           </div>
@@ -467,9 +548,9 @@ export function AppointmentsDayView({
                 data-testid={`calendar-day-${dateKey}`}
                 data-selected={isSelected ? 'true' : 'false'}
                 aria-pressed={isSelected}
-                className={`flex h-12 min-w-11 flex-col items-center justify-center rounded-full px-2 text-[13px] font-medium transition-colors ${isSelected ? 'bg-black text-white' : isToday ? 'bg-blue-100 text-blue-600' : 'text-gray-500 hover:bg-gray-100'}`}
+                className={`flex h-12 min-w-11 flex-col items-center justify-center rounded-full px-2 text-[13px] font-medium outline-none transition-colors focus-visible:ring-2 focus-visible:ring-[var(--owner-focus,#b85075)] ${isSelected ? 'bg-[var(--owner-accent,#8f3155)] text-white' : isToday ? 'bg-[var(--owner-blush,#f6e7ec)] text-[var(--owner-accent-strong,#70213f)]' : 'text-[var(--owner-muted,#706267)] hover:bg-[var(--owner-blush,#f6e7ec)]'}`}
               >
-                <span className="text-[10px]">
+                <span className="text-[11px]">
                   {date.toLocaleDateString('en-US', { weekday: 'narrow' })}
                 </span>
                 <span>{date.getDate()}</span>
@@ -507,6 +588,18 @@ export function AppointmentsDayView({
           : (
               <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
                 <div className="min-h-0 flex-1 overflow-auto">
+                  {availability?.closed && (
+                    <div className="px-4 pt-3">
+                      <p
+                        role="status"
+                        data-testid="calendar-day-closed-banner"
+                        className="rounded-xl border border-dashed border-stone-300 bg-stone-50 px-4 py-2.5 text-center text-xs font-semibold text-stone-600"
+                      >
+                        Salon closed this day — bookings made here will be refused.
+                      </p>
+                    </div>
+                  )}
+
                   {dayAppointments.length === 0 && (
                     <div className="px-4 pt-3">
                       <p className="rounded-xl bg-gray-50 px-4 py-2.5 text-center text-xs text-gray-500">
@@ -537,10 +630,10 @@ export function AppointmentsDayView({
                       ))}
 
                       <div className="relative">
-                        {Array.from({ length: END_HOUR - START_HOUR + 1 }).map((_, index) => {
-                          const hour = START_HOUR + index;
+                        {Array.from({ length: endHour - startHour + 1 }).map((_, index) => {
+                          const hour = startHour + index;
                           return (
-                            <div key={hour} className="h-24 pr-3 text-right text-[11px] font-medium text-gray-400">
+                            <div key={hour} className="h-24 pr-3 text-right text-[12px] font-medium text-[var(--owner-muted,#706267)]">
                               {formatHour(hour)}
                             </div>
                           );
@@ -550,7 +643,7 @@ export function AppointmentsDayView({
                       {resourcesToRender.map(resource => (
                         <div key={resource.id} className="relative rounded-2xl border border-gray-100 bg-white">
                           <div className="relative">
-                            {Array.from({ length: END_HOUR - START_HOUR + 1 }).map((_, index) => (
+                            {Array.from({ length: endHour - startHour + 1 }).map((_, index) => (
                               <div key={index} className="h-24 border-t border-gray-100 first:border-t-0">
                                 <div className="h-12 border-b border-dashed border-gray-50" />
                               </div>
@@ -567,7 +660,38 @@ export function AppointmentsDayView({
                               ))}
                             </div>
 
-                            {typeof currentTimeTop === 'number' && currentTimeTop >= 0 && currentTimeTop <= ((END_HOUR - START_HOUR) * HOUR_HEIGHT) && (
+                            {/*
+                              Non-bookable bands sit above the drop targets but
+                              below the appointments: the owner can still see
+                              what is already booked there, and a drop into a
+                              band is visibly a mistake before the API refuses
+                              it.
+                            */}
+                            {(availability?.closed || overlaysByResource.get(resource.id)?.offLabel) && (
+                              <div
+                                data-testid={`calendar-column-unavailable-${resource.id}`}
+                                className="pointer-events-none absolute inset-0 z-[5] flex items-start justify-center bg-stone-100/70 bg-[repeating-linear-gradient(45deg,transparent,transparent_5px,rgba(120,113,108,0.10)_5px,rgba(120,113,108,0.10)_10px)] pt-3"
+                              >
+                                <span className="rounded-full border border-[var(--owner-line-strong,#d8c1c8)] bg-[var(--owner-surface,#fffdfb)] px-2 py-0.5 text-[11px] font-semibold text-[var(--owner-muted,#706267)]">
+                                  {availability?.closed
+                                    ? 'Closed'
+                                    : overlaysByResource.get(resource.id)?.offLabel}
+                                </span>
+                              </div>
+                            )}
+
+                            {(overlaysByResource.get(resource.id)?.blocks ?? []).map(block => (
+                              <div
+                                key={block.id}
+                                data-testid={`calendar-blocked-band-${block.id}`}
+                                className="pointer-events-none absolute inset-x-1 z-[6] overflow-hidden rounded-lg border border-slate-300 bg-slate-100/85 px-2 py-1"
+                                style={{ top: block.top, height: block.height }}
+                              >
+                                <span className="text-[11px] font-semibold text-slate-600">{block.label}</span>
+                              </div>
+                            ))}
+
+                            {typeof currentTimeTop === 'number' && currentTimeTop >= 0 && currentTimeTop <= ((endHour - startHour) * HOUR_HEIGHT) && (
                               <div
                                 className="pointer-events-none absolute inset-x-0 z-30"
                                 style={{ top: currentTimeTop }}
@@ -587,6 +711,7 @@ export function AppointmentsDayView({
                                   allowDrag={allowDrag && !appointment.isLocked && !['completed', 'cancelled', 'no_show'].includes(appointment.status)}
                                   onOpen={() => onAppointmentSelect(appointment.id)}
                                   overlapLayout={overlapLayouts.get(resource.id)?.get(appointment.id)}
+                                  startHour={startHour}
                                 />
                               ))}
                             </div>

@@ -3175,7 +3175,12 @@ test('unpublished non-free-solo owner previews survive separate layout and salon
       const [salonPublish] = await Promise.all([
         builder.waitForResponse(result => new URL(result.url()).pathname === '/api/admin/salon/publish'
           && result.request().method() === 'POST'),
-        builder.getByTestId('salon-publish-button').click(),
+        // Salon publish now confirms in the product dialog (irreversible: it
+        // locks the link) instead of window.confirm — CP2 repair.
+        builder.getByTestId('salon-publish-button').click().then(() => builder
+          .getByRole('alertdialog', { name: 'Publish your salon?' })
+          .getByRole('button', { name: 'Publish my salon' })
+          .click()),
       ]);
 
       expect(salonPublish.status()).toBe(200);

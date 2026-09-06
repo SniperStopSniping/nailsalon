@@ -72,6 +72,19 @@ describe('/api/admin/onboarding-site', () => {
     expect(requireAdminSalonMock).not.toHaveBeenCalled();
   });
 
+  it('answers "no onboarding site" with 200 and a null payload, not a 404', async () => {
+    // OP-007 addendum: a 404 for an ordinary absence made every owner
+    // dashboard log a console error on arrival.
+    getHandoffMock.mockResolvedValue(null);
+
+    const response = await GET(new Request(
+      'http://localhost/api/admin/onboarding-site?salonSlug=isla&locale=en',
+    ));
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ data: null });
+  });
+
   it('returns only the signed-in member salon handoff without caching', async () => {
     const response = await GET(new Request(
       'http://localhost/api/admin/onboarding-site?salonSlug=isla&locale=en',

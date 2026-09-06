@@ -103,10 +103,25 @@ type ReactivationTransition = {
   conflictStatus: string | null;
 };
 
+type ActiveAppointmentConflictDetail = {
+  appointmentId: string;
+  startTime: string;
+  status: string;
+};
+
 class ActiveAppointmentConflictError extends Error {
-  constructor() {
+  /**
+   * The other active appointment that blocks this reactivation, when the
+   * conflict was detected by the lineage-active selector. Null for the
+   * identity failures (unresolvable / relinked canonical client) that reuse
+   * this error, because no single row is to blame there.
+   */
+  readonly conflict: ActiveAppointmentConflictDetail | null;
+
+  constructor(conflict: ActiveAppointmentConflictDetail | null = null) {
     super('CLIENT_ALREADY_HAS_ACTIVE_APPOINTMENT');
     this.name = 'ActiveAppointmentConflictError';
+    this.conflict = conflict;
   }
 }
 
@@ -132,6 +147,52 @@ function depositForfeitureBlockedResponse(error: DepositForfeitureBlockedError):
           depositIds: error.depositIds,
           reason: error.detail,
         },
+      },
+    } satisfies ErrorResponse,
+    { status: 409 },
+  );
+}
+
+/**
+ * A reactivation refused because the client already holds another active
+ * booking must SAY SO. Routing it through `reactivationConflictResponse()`
+ * with no status collapsed it into the generic "cannot be reactivated safely"
+ * fallback, which named an operation the owner never attempted and identified
+ * nothing to act on. The blocking row is returned in `details` so the caller
+ * can name it and link to it.
+ */
+function activeAppointmentConflictResponse(
+  error: ActiveAppointmentConflictError,
+): Response {
+  const conflict = error.conflict;
+  return Response.json(
+    {
+      error: {
+        code: 'CLIENT_ALREADY_HAS_ACTIVE_APPOINTMENT',
+        message: conflict
+          ? 'This client already has another active appointment. Cancel or complete that booking before reactivating this one.'
+          : 'This client record could not be resolved to a single active booking. Refresh the client and try again.',
+        ...(conflict
+          ? {
+              details: {
+                conflictingAppointmentId: conflict.appointmentId,
+                conflictingStartTime: conflict.startTime,
+                conflictingStatus: conflict.status,
+              },
+            }
+          : {}),
+      },
+    } satisfies ErrorResponse,
+    { status: 409 },
+  );
+}
+
+function slotConflictResponse(): Response {
+  return Response.json(
+    {
+      error: {
+        code: 'APPOINTMENT_CONFLICT',
+        message: 'That time is no longer free for the selected technician. Pick another time.',
       },
     } satisfies ErrorResponse,
     { status: 409 },
@@ -1008,16 +1069,43 @@ export async function PATCH(request: Request, props: { params: Promise<{ id: str
             };
           }
 
-          const activeAppointments
-            = await getActiveAppointmentsForCanonicalClientWithHandle(tx, {
-              salonId: existingAppointment.salonId,
-              terminalClientId: terminalClient.id,
-              horizon: 'lineage-active',
-              excludeAppointmentId: appointmentId,
-              allowArchived: true,
-            });
-          if (activeAppointments.length > 0) {
-            throw new ActiveAppointmentConflictError();
+          // ONE ACTIVE APPOINTMENT PER CLIENT LINEAGE — asserted only where
+          // this write could actually break it.
+          //
+          // The invariant counts rows in SLOT_OCCUPYING_CLIENT_STATUSES. A
+          // terminal source row (cancelled / no_show / completed) is NOT one
+          // of them, so reactivating it ADDS an occupying row and must be
+          // refused while another one exists — that is the genuine
+          // reactivation this branch was written for.
+          //
+          // A source row that is already active (pending / confirmed /
+          // in_progress) is ALREADY counted. Confirming a pending request, or
+          // starting a confirmed one, moves a row inside the occupying set
+          // and leaves the count unchanged; it cannot create the double-active
+          // state the booking gate refuses. Asserting the invariant here only
+          // trapped the owner: the second row already existed, refusing the
+          // confirm did not remove it, and the request could never be accepted.
+          const reactivatingFromTerminalStatus = TERMINAL_APPOINTMENT_STATUSES
+            .includes(
+              lockedAppointment.status as (typeof TERMINAL_APPOINTMENT_STATUSES)[number],
+            );
+          if (reactivatingFromTerminalStatus) {
+            const activeAppointments
+              = await getActiveAppointmentsForCanonicalClientWithHandle(tx, {
+                salonId: existingAppointment.salonId,
+                terminalClientId: terminalClient.id,
+                horizon: 'lineage-active',
+                excludeAppointmentId: appointmentId,
+                allowArchived: true,
+              });
+            const [blockingAppointment] = activeAppointments;
+            if (blockingAppointment) {
+              throw new ActiveAppointmentConflictError({
+                appointmentId: blockingAppointment.id,
+                startTime: blockingAppointment.startTime.toISOString(),
+                status: blockingAppointment.status,
+              });
+            }
           }
 
           if (lockedAppointment.technicianId) {
@@ -1206,11 +1294,16 @@ export async function PATCH(request: Request, props: { params: Promise<{ id: str
     if (error instanceof DepositForfeitureBlockedError) {
       return depositForfeitureBlockedResponse(error);
     }
-    if (
-      error instanceof ActiveAppointmentConflictError
-      || error instanceof SlotConflictError
-      || error instanceof ClientLifecycleStabilizationError
-    ) {
+    // Three unrelated causes used to funnel into the same "cannot be
+    // reactivated safely" copy. Each one now answers with its own code and
+    // its own remedy.
+    if (error instanceof ActiveAppointmentConflictError) {
+      return activeAppointmentConflictResponse(error);
+    }
+    if (error instanceof SlotConflictError) {
+      return slotConflictResponse();
+    }
+    if (error instanceof ClientLifecycleStabilizationError) {
       return reactivationConflictResponse();
     }
     console.error('Error updating appointment:', error);

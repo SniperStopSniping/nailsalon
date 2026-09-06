@@ -21,6 +21,20 @@ export default function AuthLayout(props: {
     clerkLocale = frFR;
   }
 
+  // Clerk's default sign-in title is "Sign in to {{applicationName}}", and the
+  // instance still carries the placeholder name "My Application". The product
+  // is Luster, so the card names Luster.
+  const clerkLocalization = {
+    ...clerkLocale,
+    signIn: {
+      ...clerkLocale.signIn,
+      start: {
+        ...clerkLocale.signIn?.start,
+        title: params.locale === 'fr' ? 'Connectez-vous à Luster' : 'Sign in to Luster',
+      },
+    },
+  };
+
   if (params.locale !== AppConfig.defaultLocale) {
     signInUrl = `/${params.locale}${signInUrl}`;
     signUpUrl = `/${params.locale}${signUpUrl}`;
@@ -31,7 +45,7 @@ export default function AuthLayout(props: {
   return (
     <ClerkProvider
       // PRO: Dark mode support for Clerk
-      localization={clerkLocale}
+      localization={clerkLocalization}
       signInUrl={signInUrl}
       signUpUrl={signUpUrl}
       signInFallbackRedirectUrl={dashboardUrl}

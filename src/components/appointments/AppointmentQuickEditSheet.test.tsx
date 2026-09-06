@@ -183,12 +183,51 @@ describe('AppointmentQuickEditSheet', () => {
     expect(summary).not.toHaveTextContent('$45.00');
   });
 
-  it('shows a money-free review state for unresolved refunds or missing currency', () => {
+  // Deliberate behaviour change (audit AG-appointments-01, product-side
+  // sub-observation): an unresolved tax/tender chain used to leave the owner
+  // with NO amount at all. The server now carries the booked subtotal through
+  // the `under_review` state, and the sheet shows it as an explicit estimate —
+  // it is still never presented as an invoice total.
+  it('falls back to the booked total with an estimate caveat when the invoice chain is unresolved', () => {
     render(
       <AppointmentQuickEditSheet
         isOpen
         onClose={vi.fn()}
-        detail={{ ...baseDetail, financial: { state: 'under_review' } }}
+        detail={{
+          ...baseDetail,
+          financial: { state: 'under_review', bookedTotalCents: 7000, currency: 'CAD' },
+        }}
+        loading={false}
+        saving={false}
+        actionError={null}
+        onSaveEdits={vi.fn(async () => {})}
+        onMoveToNextAvailable={vi.fn(async () => {})}
+        onCancelAppointment={vi.fn(async () => {})}
+        onMarkCompleted={vi.fn(async () => {})}
+        onStartAppointment={vi.fn(async () => {})}
+      />,
+    );
+
+    const summary = screen.getByTestId('appointment-sheet-financial-summary');
+
+    expect(summary).toHaveTextContent('Booked total');
+    expect(screen.getByTestId('appointment-sheet-booked-total')).toHaveTextContent('$70.00');
+    expect(screen.getByTestId('appointment-sheet-financial-estimate-caveat')).toHaveTextContent(
+      /Estimate/,
+    );
+    // The estimate is never dressed up as a settled invoice.
+    expect(summary).not.toHaveTextContent('Invoice total');
+    expect(summary).not.toHaveTextContent('Balance');
+  });
+
+  it('shows a money-free review state when the server sends no financial DTO at all', () => {
+    const { financial: _omitted, ...detailWithoutFinancial } = baseDetail;
+
+    render(
+      <AppointmentQuickEditSheet
+        isOpen
+        onClose={vi.fn()}
+        detail={detailWithoutFinancial as typeof baseDetail}
         loading={false}
         saving={false}
         actionError={null}
@@ -205,6 +244,35 @@ describe('AppointmentQuickEditSheet', () => {
     );
     expect(screen.getByTestId('appointment-sheet-projected-price')).toHaveTextContent('Under review');
     expect(screen.queryByText('$45.00')).not.toBeInTheDocument();
+  });
+
+  // AG-appointments-03: the header close control was a 32px icon whose ring sat
+  // flush with the sheet's rounded, overflow-hidden edge. It must be a full
+  // 44px target, named, and drawn inside the header's own padding.
+  it('gives the header close control a named 44px target inside the sheet padding', () => {
+    render(
+      <AppointmentQuickEditSheet
+        isOpen
+        onClose={vi.fn()}
+        detail={baseDetail}
+        loading={false}
+        saving={false}
+        actionError={null}
+        onSaveEdits={vi.fn(async () => {})}
+        onMoveToNextAvailable={vi.fn(async () => {})}
+        onCancelAppointment={vi.fn(async () => {})}
+        onMarkCompleted={vi.fn(async () => {})}
+        onStartAppointment={vi.fn(async () => {})}
+      />,
+    );
+
+    const close = screen.getByTestId('appointment-sheet-header-close');
+
+    expect(close).toHaveAccessibleName('Close appointment details');
+    expect(close).toHaveClass('size-11', 'shrink-0');
+    // No negative margin: the ring cannot escape the header's px-4 padding.
+    expect(close.className).not.toMatch(/-m[rxy]?-/);
+    expect(close.parentElement).toHaveClass('px-4');
   });
 
   it('does not expose D6 deposit controls on the default staff surface', () => {
@@ -366,6 +434,65 @@ describe('AppointmentQuickEditSheet', () => {
         baseServiceId: 'svc_2',
       }));
     });
+  });
+
+  it('reports a refused save beside Save and restores the rejected time', async () => {
+    // AG-w2-calendar-writes-04: the 409 used to render a screen and a half
+    // above the Save button the owner had just pressed, with no role="alert"
+    // and the rejected time left in the field — so a refused move read as a
+    // successful one.
+    const conflict = {
+      code: 'APPOINTMENT_CONFLICT',
+      message: 'That time is not available for the selected technician.',
+    };
+
+    function RefusedSaveHarness() {
+      const [actionError, setActionError] = useState<string | null>(null);
+      return (
+        <AppointmentQuickEditSheet
+          isOpen
+          onClose={vi.fn()}
+          detail={baseDetail}
+          loading={false}
+          saving={false}
+          actionError={actionError}
+          attemptedTimeLabel="Wed, Sep 9, 1:00 PM"
+          onSaveEdits={async () => {
+            setActionError(conflict.message);
+            // The hook rethrows so the sheet can undo its optimistic field.
+            throw conflict;
+          }}
+          onMoveToNextAvailable={vi.fn(async () => {})}
+          onCancelAppointment={vi.fn(async () => {})}
+          onMarkCompleted={vi.fn(async () => {})}
+          onStartAppointment={vi.fn(async () => {})}
+        />
+      );
+    }
+
+    render(<RefusedSaveHarness />);
+
+    const startTimeInput = screen.getByTestId('appointment-sheet-start-time') as HTMLInputElement;
+    const storedValue = startTimeInput.value;
+
+    fireEvent.change(startTimeInput, { target: { value: '2026-09-09T13:00' } });
+
+    expect(startTimeInput.value).toBe('2026-09-09T13:00');
+
+    fireEvent.click(screen.getByTestId('appointment-sheet-save'));
+
+    const alert = await screen.findByRole('alert');
+
+    expect(alert).toHaveAttribute('data-testid', 'appointment-sheet-inline-error');
+    expect(alert).toHaveTextContent('That time is not available for the selected technician.');
+    expect(alert).toHaveTextContent('Wed, Sep 9, 1:00 PM');
+    // Visible where the owner acted: in the sticky footer with Save, never in
+    // the sheet's scroller where it can sit off-screen.
+    expect(screen.getByTestId('appointment-sheet-scroll-region')).not.toContainElement(alert);
+    expect(alert.parentElement).toContainElement(screen.getByTestId('appointment-sheet-save'));
+
+    await waitFor(() => expect(alert).toHaveFocus());
+    await waitFor(() => expect(startTimeInput.value).toBe(storedValue));
   });
 
   it('cancels through a confirmation dialog with consequences, reason, and internal note', async () => {

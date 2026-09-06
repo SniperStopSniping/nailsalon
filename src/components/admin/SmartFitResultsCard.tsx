@@ -157,7 +157,7 @@ export function SmartFitResultsCard({
               <button
                 type="button"
                 onClick={onOpenSettings}
-                className="flex items-center gap-1 rounded-lg bg-[#007AFF]/10 px-2 py-1 text-[12px] font-semibold text-[#007AFF] transition-colors hover:bg-[#007AFF]/20"
+                className="flex items-center gap-1 rounded-lg bg-[var(--owner-blush,#f6e7ec)] px-2 py-1 text-[12px] font-semibold text-[var(--owner-accent-strong,#70213f)] transition-colors hover:bg-[var(--owner-line,#dfd1d4)]"
               >
                 <Settings2 className="size-3.5" aria-hidden="true" />
                 Settings

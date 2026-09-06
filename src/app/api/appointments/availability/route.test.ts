@@ -6,6 +6,7 @@ const {
   getSalonById,
   getServicesByIds,
   getLocationById,
+  getPrimaryLocation,
   getTechnicianById,
   getTechniciansBySalonId,
   getAppointmentById,
@@ -62,6 +63,7 @@ const {
     getSalonById: vi.fn(),
     getServicesByIds: vi.fn(),
     getLocationById: vi.fn(),
+    getPrimaryLocation: vi.fn(),
     getTechnicianById: vi.fn(),
     getTechniciansBySalonId: vi.fn(),
     getAppointmentById: vi.fn(),
@@ -92,6 +94,7 @@ vi.mock('@/libs/queries', () => ({
   getSalonById,
   getServicesByIds,
   getLocationById,
+  getPrimaryLocation,
   getTechnicianById,
   getTechniciansBySalonId,
   getAppointmentById,
@@ -154,6 +157,7 @@ describe('GET /api/appointments/availability', () => {
     });
     getServicesByIds.mockResolvedValue([]);
     getLocationById.mockResolvedValue(null);
+    getPrimaryLocation.mockResolvedValue(null);
     getTechnicianById.mockResolvedValue({
       id: 'tech_1',
       weeklySchedule: {
@@ -692,6 +696,120 @@ describe('GET /api/appointments/availability', () => {
     expect(body.visibleSlots).not.toContain('10:30');
     expect(body.visibleSlots).toContain('11:00');
     expect(body.visibleSlots).not.toContain('16:00');
+  });
+
+  // OP-010 / AG-today-calendar-05: opening hours used to bind ONLY a request
+  // that carried `locationId`, so any deep link or integration that omitted it
+  // was offered times on days the owner had marked closed — while
+  // `POST /api/appointments` (which resolves the primary location itself) then
+  // refused the very slot the customer picked.
+  describe('opening hours without a locationId in the request', () => {
+    const OPEN_ALL_WEEK = {
+      sunday: { start: '09:00', end: '21:00' },
+      saturday: { start: '09:00', end: '21:00' },
+    };
+    const CLOSED_SUNDAY = {
+      saturday: { open: '10:00', close: '17:00' },
+      sunday: null,
+    };
+
+    beforeEach(() => {
+      getTechnicianById.mockResolvedValue({
+        id: 'tech_1',
+        weeklySchedule: OPEN_ALL_WEEK,
+        enabledServiceIds: [],
+        serviceIds: [],
+        specialties: [],
+        primaryLocationId: null,
+      });
+    });
+
+    it('closes a Sunday from the salon primary location when the caller omits locationId', async () => {
+      getPrimaryLocation.mockResolvedValue({ id: 'loc_1', businessHours: CLOSED_SUNDAY });
+      selectResults.push([], [], [], []);
+
+      const response = await GET(
+        new Request('http://localhost/api/appointments/availability?date=2026-03-15&salonSlug=salon-a&technicianId=tech_1&durationMinutes=75'),
+      );
+      const body = await response.json();
+
+      expect(response.status).toBe(200);
+      expect(getPrimaryLocation).toHaveBeenCalledWith('salon_1');
+      expect(body.visibleSlots).toEqual([]);
+    });
+
+    it('enforces salon.business_hours when the salon has no location row at all', async () => {
+      getPrimaryLocation.mockResolvedValue(null);
+      getSalonBySlug.mockResolvedValue({ id: 'salon_1', slug: 'salon-a', businessHours: CLOSED_SUNDAY });
+      selectResults.push([], [], [], []);
+
+      const response = await GET(
+        new Request('http://localhost/api/appointments/availability?date=2026-03-15&salonSlug=salon-a&technicianId=tech_1&durationMinutes=75'),
+      );
+      const body = await response.json();
+
+      expect(response.status).toBe(200);
+      expect(body.visibleSlots).toEqual([]);
+    });
+
+    it('stops Saturday starts early enough to finish by closing time, with no location row', async () => {
+      getPrimaryLocation.mockResolvedValue(null);
+      getSalonBySlug.mockResolvedValue({ id: 'salon_1', slug: 'salon-a', businessHours: CLOSED_SUNDAY });
+      selectResults.push([], [], [], []);
+
+      const response = await GET(
+        new Request('http://localhost/api/appointments/availability?date=2026-03-14&salonSlug=salon-a&technicianId=tech_1&durationMinutes=75'),
+      );
+      const body = await response.json();
+
+      expect(response.status).toBe(200);
+      expect(body.visibleSlots[0]).toBe('10:00');
+      // 75 min + 10 min buffer from 15:30 ends 16:55; 15:45 would run past 17:00.
+      expect(body.visibleSlots.at(-1)).toBe('15:30');
+      expect(body.visibleSlots).not.toContain('9:45');
+    });
+
+    it('leaves the technician schedule as the only bound when no hours exist anywhere', async () => {
+      getPrimaryLocation.mockResolvedValue(null);
+      selectResults.push([], [], [], []);
+
+      const response = await GET(
+        new Request('http://localhost/api/appointments/availability?date=2026-03-15&salonSlug=salon-a&technicianId=tech_1&durationMinutes=75'),
+      );
+      const body = await response.json();
+
+      expect(response.status).toBe(200);
+      expect(body.visibleSlots).toContain('9:00');
+    });
+
+    it('falls back to salon hours when the primary location carries none', async () => {
+      getPrimaryLocation.mockResolvedValue({ id: 'loc_1', businessHours: null });
+      getSalonBySlug.mockResolvedValue({ id: 'salon_1', slug: 'salon-a', businessHours: CLOSED_SUNDAY });
+      selectResults.push([], [], [], []);
+
+      const response = await GET(
+        new Request('http://localhost/api/appointments/availability?date=2026-03-15&salonSlug=salon-a&technicianId=tech_1&durationMinutes=75'),
+      );
+      const body = await response.json();
+
+      expect(response.status).toBe(200);
+      expect(body.visibleSlots).toEqual([]);
+    });
+
+    it('never resolves a primary location for a request that named one', async () => {
+      getLocationById.mockResolvedValue({ id: 'loc_2', businessHours: { sunday: { open: '11:00', close: '16:00' } } });
+      selectResults.push([], [], [], []);
+
+      const response = await GET(
+        new Request('http://localhost/api/appointments/availability?date=2026-03-15&salonSlug=salon-a&technicianId=tech_1&locationId=loc_2&durationMinutes=75'),
+      );
+      const body = await response.json();
+
+      expect(response.status).toBe(200);
+      expect(getPrimaryLocation).not.toHaveBeenCalled();
+      expect(body.visibleSlots).toContain('11:00');
+      expect(body.visibleSlots).not.toContain('10:45');
+    });
   });
 
   it('does not throw for a single-service any-technician request when one technician has a legacy-shaped schedule', async () => {

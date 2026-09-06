@@ -70,7 +70,17 @@ type WalkInModalProps = {
   isOpen: boolean;
   onClose: () => void;
   onSuccess?: () => void;
+  /**
+   * Active salon from the surface that opened the modal. The owner dashboard
+   * resolves its salon client-side, after the tenant cookie the SalonProvider
+   * reads has been set, so the prop is the reliable source and the provider is
+   * only a fallback for surfaces that still rely on it.
+   */
+  salonSlug?: string | null;
 };
+
+/** Shown when no salon could be resolved, instead of an endless spinner. */
+const MISSING_SALON_MESSAGE = 'Choose a salon to continue';
 
 // Helper functions
 function formatCurrency(cents: number): string {
@@ -278,8 +288,9 @@ function generateTimeSlots(
   return slots;
 }
 
-export function WalkInModal({ isOpen, onClose, onSuccess }: WalkInModalProps) {
-  const { salonSlug } = useSalon();
+export function WalkInModal({ isOpen, onClose, onSuccess, salonSlug: salonSlugProp }: WalkInModalProps) {
+  const { salonSlug: contextSalonSlug } = useSalon();
+  const salonSlug = salonSlugProp?.trim() || contextSalonSlug;
 
   // Step tracking: services -> tech -> time -> confirm
   const [step, setStep] = useState<'services' | 'tech' | 'time' | 'confirm'>('services');
@@ -305,6 +316,12 @@ export function WalkInModal({ isOpen, onClose, onSuccess }: WalkInModalProps) {
   // Fetch initial data
   const fetchData = useCallback(async () => {
     if (!salonSlug) {
+      // No tenant to load against: surface it instead of spinning forever.
+      setTechnicians([]);
+      setServices([]);
+      setExistingAppointments([]);
+      setError(MISSING_SALON_MESSAGE);
+      setLoading(false);
       return;
     }
 
@@ -586,7 +603,7 @@ export function WalkInModal({ isOpen, onClose, onSuccess }: WalkInModalProps) {
                 <>
                   {/* Error Message */}
                   {error && (
-                    <div className="mb-4 rounded-lg border border-red-200 bg-red-50 p-3">
+                    <div className="mb-4 rounded-lg border border-red-200 bg-red-50 p-3" role="alert" data-testid="walk-in-error">
                       <p className="text-sm text-red-700">{error}</p>
                     </div>
                   )}

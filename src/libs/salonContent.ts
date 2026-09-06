@@ -425,6 +425,38 @@ export function resolveConfirmedBookingLocationDisplayMode(
 }
 
 /**
+ * The customer-facing explanation for the gap `resolveConfirmedBookingLocationDisplayMode`
+ * deliberately leaves open.
+ *
+ * Under `after_booking` the owner promised the exact address "after they
+ * book", but the projection above only promotes it once the appointment is
+ * actually CONFIRMED — an unreviewed request or a deposit hold is not a
+ * confirmed visit, and quietly disclosing a private home address for a booking
+ * the salon may still decline would break that owner's setting. The gap is
+ * correct; staying silent about it was not: the customer saw a city with no
+ * explanation and no idea when (or whether) the address would appear.
+ *
+ * Returns the sentence to render alongside the city-only destination — on the
+ * manage page and in the .ics DESCRIPTION, the two capability-scoped surfaces
+ * that call the resolver above — or `null` when there is nothing to promise:
+ *   - the address is already shown (`full_address`, or `after_booking` promoted),
+ *   - the owner chose `city_only`, so the address is never published, or
+ *   - the appointment is cancelled/no-show, where no arrival is coming.
+ */
+const AWAITING_CONFIRMATION_ADDRESS_STATUSES = ['pending', 'awaiting_payment'] as const;
+
+export function resolveAwaitingConfirmationAddressNotice(
+  mode: LocationDisplayMode,
+  appointmentStatus: string | null | undefined,
+): string | null {
+  const isAwaitingConfirmation = (AWAITING_CONFIRMATION_ADDRESS_STATUSES as readonly string[])
+    .includes(appointmentStatus ?? '');
+  return mode === 'after_booking' && isAwaitingConfirmation
+    ? 'Exact address is shared once your request is confirmed.'
+    : null;
+}
+
+/**
  * S6b (Stage 1) — the only salon identity this STATUS PAGE COMPONENT renders.
  *
  * Scope note, so the next reader does not over-trust this: it is not the whole

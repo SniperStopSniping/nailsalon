@@ -23,6 +23,7 @@
  * `bookingPageConfig.ts` rather than restated here so it cannot drift again.
  */
 
+import { and, eq, or, sql } from 'drizzle-orm';
 import { z } from 'zod';
 
 import type { AdminWithSalons } from '@/libs/adminAuth';
@@ -48,8 +49,10 @@ import {
   synchronizeBookingPageLifecycle,
   updateBookingPageDraftState,
 } from '@/libs/bookingPageLifecycle';
+import { db } from '@/libs/DB';
 import { getActiveLocationsBySalonId, getSalonById, getSalonBySlug, getTechniciansBySalonId } from '@/libs/queries';
 import type { Salon } from '@/models/Schema';
+import { onboardingSiteSchema } from '@/models/Schema';
 
 export const dynamic = 'force-dynamic';
 
@@ -96,6 +99,60 @@ async function resolveAuthorizedSalon(request: Request): Promise<AuthorizedSalon
   }
 
   return { ok: true, salon, admin: guard.admin };
+}
+
+// =============================================================================
+// AG-w2-information-parity-05 — one authority for style and palette.
+//
+// `onboarding_site.style_preset_id` / `.palette_preset_id` (migration 0074)
+// and `settings.bookingPage.draft.siteStylePreset` / `.sitePalettePreset`
+// stored the same two owner choices in two places, and on live data they had
+// already diverged: the customer site rendered the bookingPage pair while the
+// saved-site preview and "Review saved setup" replayed the onboarding
+// columns. `settings.bookingPage.draft` is the authority; the columns are a
+// read-only mirror kept in step here, on the same request that changes the
+// draft. They share the exact same enums (`CUSTOMER_SITE_STYLE_PRESETS` /
+// `CUSTOMER_SITE_PALETTE_PRESETS` vs the 0074 CHECK constraints), so the
+// mirror can never write a value the columns reject.
+//
+// Best-effort by design: a salon that never went through onboarding v1 has no
+// current site row and the UPDATE simply matches nothing. The booking-page
+// write has already succeeded and must not be reported as failed because the
+// mirror could not be refreshed.
+// =============================================================================
+
+async function mirrorOnboardingSitePresets(
+  salonId: string,
+  draft: { siteStylePreset?: string; sitePalettePreset?: string },
+): Promise<void> {
+  const stylePresetId = draft.siteStylePreset;
+  const palettePresetId = draft.sitePalettePreset;
+  if (!stylePresetId && !palettePresetId) {
+    return;
+  }
+
+  try {
+    await db.update(onboardingSiteSchema)
+      .set({
+        ...(stylePresetId ? { stylePresetId } : {}),
+        ...(palettePresetId ? { palettePresetId } : {}),
+        updatedAt: new Date(),
+      })
+      .where(and(
+        eq(onboardingSiteSchema.salonId, salonId),
+        eq(onboardingSiteSchema.isCurrent, true),
+        or(
+          stylePresetId
+            ? sql`${onboardingSiteSchema.stylePresetId} IS DISTINCT FROM ${stylePresetId}`
+            : sql`false`,
+          palettePresetId
+            ? sql`${onboardingSiteSchema.palettePresetId} IS DISTINCT FROM ${palettePresetId}`
+            : sql`false`,
+        ),
+      ));
+  } catch (error) {
+    console.error('Failed to mirror booking page presets onto the onboarding site row', error);
+  }
 }
 
 // =============================================================================
@@ -254,6 +311,8 @@ export async function PATCH(request: Request): Promise<Response> {
   // and both may have been patched in the same request.
   const freshState = await resolveFreshState(salon.id);
 
+  await mirrorOnboardingSitePresets(salon.id, freshState.config.draft);
+
   return Response.json(freshState);
 }
 
@@ -304,8 +363,12 @@ export async function POST(request: Request): Promise<Response> {
     metadata: { bookingPageAction: action },
   });
 
+  const config = resolveBookingPageConfig(synchronizedSettings);
+
+  await mirrorOnboardingSitePresets(salon.id, config.draft);
+
   return Response.json({
-    config: resolveBookingPageConfig(synchronizedSettings),
+    config,
     content: resolveBookingPageContent(synchronizedSettings),
     salon: { publicationStatus: salon.publicationStatus },
   });

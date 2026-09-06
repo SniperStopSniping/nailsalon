@@ -1,19 +1,21 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { GET, PUT } from './route';
+
 const {
-  requireActiveAdminSalon,
+  requireAdminSalonFromRequest,
   getSalonPolicy,
   getSuperAdminPolicy,
   upsertSalonPolicy,
 } = vi.hoisted(() => ({
-  requireActiveAdminSalon: vi.fn(),
+  requireAdminSalonFromRequest: vi.fn(),
   getSalonPolicy: vi.fn(),
   getSuperAdminPolicy: vi.fn(),
   upsertSalonPolicy: vi.fn(),
 }));
 
 vi.mock('@/libs/adminAuth', () => ({
-  requireActiveAdminSalon,
+  requireAdminSalonFromRequest,
 }));
 
 vi.mock('@/core/appointments/policyRepo', () => ({
@@ -35,8 +37,6 @@ vi.mock('@/core/appointments/policyResolver', () => ({
     autoPostAIcaptionEnabled: salon.autoPostAIcaptionEnabled,
   })),
 }));
-
-import { GET, PUT } from './route';
 
 const salonPolicy = {
   requireBeforePhotoToStart: 'required',
@@ -60,6 +60,9 @@ const superAdminPolicy = {
   autoPostAiCaptionEnabled: true,
 };
 
+const policiesRequest = (search = '') =>
+  new Request(`http://localhost/api/admin/policies${search}`);
+
 describe('admin policies active salon guard', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -69,7 +72,7 @@ describe('admin policies active salon guard', () => {
   });
 
   it('rejects unauthorized admins', async () => {
-    requireActiveAdminSalon.mockResolvedValue({
+    requireAdminSalonFromRequest.mockResolvedValue({
       error: new Response(JSON.stringify({ error: 'Unauthorized' }), {
         status: 401,
         headers: { 'Content-Type': 'application/json' },
@@ -78,19 +81,19 @@ describe('admin policies active salon guard', () => {
       admin: null,
     });
 
-    const response = await GET();
+    const response = await GET(policiesRequest());
 
     expect(response.status).toBe(401);
   });
 
   it('reads policy for the active salon selection', async () => {
-    requireActiveAdminSalon.mockResolvedValue({
+    requireAdminSalonFromRequest.mockResolvedValue({
       error: null,
       salon: { id: 'salon_active', name: 'Active Salon' },
       admin: { id: 'admin_1' },
     });
 
-    const response = await GET();
+    const response = await GET(policiesRequest());
     const body = await response.json();
 
     expect(response.status).toBe(200);
@@ -100,7 +103,7 @@ describe('admin policies active salon guard', () => {
   });
 
   it('updates policy for the active salon selection', async () => {
-    requireActiveAdminSalon.mockResolvedValue({
+    requireAdminSalonFromRequest.mockResolvedValue({
       error: null,
       salon: { id: 'salon_active', name: 'Active Salon' },
       admin: { id: 'admin_1' },
@@ -126,5 +129,57 @@ describe('admin policies active salon guard', () => {
 
     expect(response.status).toBe(200);
     expect(upsertSalonPolicy).toHaveBeenCalledWith(undefined, 'salon_active', expect.any(Object));
+  });
+
+  // AG-security-tenancy-03 / AG-w2-settings-integrations-07: the URL's salon
+  // must reach the guard, so a link naming salon A cannot read or write the
+  // salon the active-salon cookie happens to hold.
+  it('passes the requested salon slug to the guard on read', async () => {
+    requireAdminSalonFromRequest.mockResolvedValue({
+      error: null,
+      salon: { id: 'salon_requested', name: 'Requested Salon' },
+      admin: { id: 'admin_1' },
+    });
+
+    const request = policiesRequest('?salonSlug=requested-salon');
+    const response = await GET(request);
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(requireAdminSalonFromRequest).toHaveBeenCalledWith(request);
+    expect(getSalonPolicy).toHaveBeenCalledWith(undefined, 'salon_requested');
+    expect(body.data.salonId).toBe('salon_requested');
+  });
+
+  it('refuses a requested salon the caller may not edit', async () => {
+    requireAdminSalonFromRequest.mockResolvedValue({
+      error: new Response(
+        JSON.stringify({ error: { code: 'FORBIDDEN', message: 'Forbidden' } }),
+        { status: 403, headers: { 'Content-Type': 'application/json' } },
+      ),
+      salon: null,
+      admin: { id: 'admin_1' },
+    });
+
+    const response = await PUT(
+      new Request('http://localhost/api/admin/policies?salon=someone-else', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          requireBeforePhotoToStart: 'required',
+          requireAfterPhotoToFinish: 'required',
+          requireAfterPhotoToPay: 'optional',
+          autoPostEnabled: false,
+          autoPostPlatforms: ['instagram'],
+          autoPostIncludePrice: false,
+          autoPostIncludeColor: true,
+          autoPostIncludeBrand: false,
+          autoPostAiCaptionEnabled: true,
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(403);
+    expect(upsertSalonPolicy).not.toHaveBeenCalled();
   });
 });

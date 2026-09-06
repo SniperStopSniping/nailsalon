@@ -7,6 +7,7 @@ import type { RequestedService } from '@/libs/bookingPolicy';
 import {
   canTechnicianTakeAppointment,
   loadBookingPolicy,
+  resolveBookingHoursCeiling,
   resolveTechnicianCapabilityMode,
 } from '@/libs/bookingPolicy';
 import {
@@ -30,6 +31,7 @@ import { technicianSupportsPublicLocation } from '@/libs/publicTechnicianCompati
 import {
   getAppointmentById,
   getLocationById,
+  getPrimaryLocation,
   getSalonBySlug,
   getServicesByIds,
   getTechnicianById,
@@ -158,11 +160,11 @@ export async function GET(request: Request): Promise<Response> {
     const selectedDate = startOfDay;
     const allSlots = getAllSlots(bookingConfig.slotIntervalMinutes);
 
-    const location = locationId
+    const requestedLocation = locationId
       ? await getLocationById(locationId, salon.id)
       : null;
 
-    if (locationId && !location) {
+    if (locationId && !requestedLocation) {
       return Response.json(
         {
           error: {
@@ -173,6 +175,19 @@ export async function GET(request: Request): Promise<Response> {
         { status: 400 },
       );
     }
+
+    // A caller that omits `locationId` is not asking for an unbounded day: it
+    // is asking for this salon's default location, which is exactly what
+    // `POST /api/appointments` books against (`getPrimaryLocation` there). The
+    // two paths agreed on nothing before, so availability advertised times the
+    // booking POST then refused, and a salon whose hours live only on the
+    // `salon` row was bookable around the clock.
+    const location = requestedLocation ?? (locationId ? null : await getPrimaryLocation(salon.id));
+    const hoursCeiling = resolveBookingHoursCeiling({
+      location,
+      salonBusinessHours: salon.businessHours ?? null,
+    });
+    const effectiveLocationId = hoursCeiling.locationId;
 
     let requestedServices: RequestedService[] = [];
     // Same records with pricing, for the automatic-discount resolution below.
@@ -208,7 +223,7 @@ export async function GET(request: Request): Promise<Response> {
         const canReselectTechnician = technicians.some(technician =>
           technician.id !== technicianId
           && technician.enabledServiceIds?.includes(baseServiceId)
-          && technicianSupportsPublicLocation({ technician, locationId }),
+          && technicianSupportsPublicLocation({ technician, locationId: effectiveLocationId }),
         );
         const publicError = buildPublicAvailabilityError({ error, canReselectTechnician });
 
@@ -465,8 +480,8 @@ export async function GET(request: Request): Promise<Response> {
           appointments: bookingPolicy.appointmentsByTechnician.get(tech.id) ?? [],
           blockedSlots: bookingPolicy.blockedSlotsByTechnician.get(tech.id) ?? [],
           googleBusyWindows,
-          locationId: location?.id ?? null,
-          locationBusinessHours: location?.businessHours ?? null,
+          locationId: effectiveLocationId,
+          locationBusinessHours: hoursCeiling.businessHours,
           date,
           timeZone: bookingConfig.timezone,
           slotIntervalMinutes: bookingConfig.slotIntervalMinutes,
@@ -507,9 +522,9 @@ export async function GET(request: Request): Promise<Response> {
           capabilityMode,
           enabledServiceIds: tech.enabledServiceIds ?? [],
           specialties: tech.specialties ?? [],
-          locationId: location?.id ?? null,
+          locationId: effectiveLocationId,
           primaryLocationId: tech.primaryLocationId ?? null,
-          locationBusinessHours: location?.businessHours ?? null,
+          locationBusinessHours: hoursCeiling.businessHours,
           existingAppointments: [],
           excludedAppointmentId,
           bufferMinutes: 0,
@@ -546,9 +561,9 @@ export async function GET(request: Request): Promise<Response> {
           capabilityMode,
           enabledServiceIds: tech.enabledServiceIds ?? [],
           specialties: tech.specialties ?? [],
-          locationId: location?.id ?? null,
+          locationId: effectiveLocationId,
           primaryLocationId: tech.primaryLocationId ?? null,
-          locationBusinessHours: location?.businessHours ?? null,
+          locationBusinessHours: hoursCeiling.businessHours,
           existingAppointments: bookingPolicy.appointmentsByTechnician.get(tech.id) ?? [],
           excludedAppointmentId,
           bufferMinutes: 0,
@@ -581,7 +596,7 @@ export async function GET(request: Request): Promise<Response> {
               bufferMinutes,
               serviceId: requestedServiceIds[0]!,
               technicianId: smartFitRequestedTechnicianId,
-              locationId: location?.id ?? null,
+              locationId: effectiveLocationId,
               clientKeys: smartFitCandidateClientKeys,
               excludeAppointmentId: excludedAppointmentId,
             },

@@ -173,7 +173,11 @@ export async function requireStaffOrAdminSalonAccess(
     };
   }
 
-  if (staffAuth.response.status !== 401) {
+  // 401 = no staff session; 410 = the legacy staff sign-in is switched off
+  // (LEGACY_OTP_DISABLED). Neither says anything about the caller, so keep
+  // resolving admin/client sessions and let an anonymous caller end up with a
+  // plain 401 instead of a config-revealing 410.
+  if (staffAuth.response.status !== 401 && staffAuth.response.status !== 410) {
     authFailure = staffAuth.response;
   }
 
@@ -278,7 +282,11 @@ async function requireAppointmentAccessInternal(
     };
   }
 
-  if (staffAuth.response.status !== 401) {
+  // 401 = no staff session; 410 = the legacy staff sign-in is switched off
+  // (LEGACY_OTP_DISABLED). Neither says anything about the caller, so keep
+  // resolving admin/client sessions and let an anonymous caller end up with a
+  // plain 401 instead of a config-revealing 410.
+  if (staffAuth.response.status !== 401 && staffAuth.response.status !== 410) {
     authFailure = staffAuth.response;
   }
 

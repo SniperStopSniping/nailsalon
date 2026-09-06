@@ -188,4 +188,45 @@ describe('QuickBookProfileHeader', () => {
     expect(screen.getByTestId('quick-book-profile-actions')).toHaveClass('grid-cols-1');
     expect(screen.getByTestId('quick-book-profile-actions')).not.toHaveClass('sm:grid-cols-3');
   });
+
+  // AG-w2-public-quick-book-07: hub_menu lays details out in two columns, so
+  // a lone contact cell kept half the width and the email broke mid-word.
+  it('gives the hub_menu contact and lone social cells the whole row', () => {
+    render(
+      <QuickBookProfileHeader
+        profile={{
+          ...MINIMAL_PROFILE,
+          contact: {
+            phone: null,
+            email: {
+              display: 'hello.audit0905@example.com',
+              href: 'mailto:hello.audit0905@example.com',
+            },
+          },
+          instagram: {
+            label: '@audit0905lacquerlab',
+            href: 'https://www.instagram.com/audit0905lacquerlab/',
+          },
+        }}
+        bookingFlow={['service', 'tech', 'time', 'confirm']}
+        layout="hub_menu"
+        mounted
+      />,
+    );
+
+    expect(screen.getByTestId('quick-book-contact')).toHaveClass('col-span-full');
+
+    const email = screen.getByRole('link', { name: /hello\.audit0905@example\.com/ });
+    const emailLabel = email.querySelector('span');
+
+    // break-all shattered the address mid-token; break-words keeps whole
+    // segments together and only breaks a run that truly cannot fit.
+    expect(emailLabel).toHaveClass('break-words');
+    expect(emailLabel).not.toHaveClass('break-all');
+
+    const instagram = screen.getByRole('link', { name: '@audit0905lacquerlab' });
+
+    expect(instagram).toHaveClass('col-span-full');
+    expect(instagram.querySelector('span')).not.toHaveClass('truncate');
+  });
 });
