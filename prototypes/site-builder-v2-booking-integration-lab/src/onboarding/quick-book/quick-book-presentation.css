@@ -668,6 +668,13 @@ details[open] > summary > .qb-fact__chevron {
   margin-top: -44px;
 }
 
+/* The gallery strip makes this identity block tall, so a vertically centred
+   logo dropped below the name and left an empty notch above it. Top-align
+   the mark with the first line of the name instead. */
+.qb-presentation[data-qb-layout="gallery_header"] .qb-band {
+  align-items: flex-start;
+}
+
 .qb-band--editorial {
   align-items: center;
 }

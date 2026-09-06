@@ -340,14 +340,14 @@ export function QuickBookProfileHeader({
 
                           {profile.hours
                             ? (
-                                <details data-testid="quick-book-hours" className="group py-1">
+                                <details data-testid="quick-book-hours" className="group/hours py-1">
                                   <summary className="flex min-h-14 cursor-pointer list-none items-center gap-3 rounded-xl py-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 [&::-webkit-details-marker]:hidden">
                                     <Clock3 aria-hidden="true" className="size-5 shrink-0" style={{ color: themeVars.accent }} />
                                     <span className="min-w-0 flex-1 text-sm">
                                       <strong className="block text-neutral-900">{profile.hours.statusLabel}</strong>
                                       <span className="block text-neutral-500">{profile.hours.todayLabel ?? 'See weekly hours'}</span>
                                     </span>
-                                    <ChevronDown aria-hidden="true" className="size-5 shrink-0 text-neutral-400 transition-transform group-open:rotate-180 motion-reduce:transition-none" />
+                                    <ChevronDown aria-hidden="true" className="size-5 shrink-0 text-neutral-400 transition-transform group-open/hours:rotate-180 motion-reduce:transition-none" />
                                   </summary>
                                   <dl className="mb-3 ml-8 grid grid-cols-[minmax(0,1fr)_auto] gap-x-4 gap-y-1 rounded-xl bg-neutral-50 px-3 py-2.5 text-xs leading-5 text-neutral-600">
                                     {profile.hours.weekly.map(row => (
@@ -378,7 +378,7 @@ export function QuickBookProfileHeader({
                                     ? (
                                         <a
                                           href={profile.contact.phone.href}
-                                          className="flex min-h-11 min-w-0 items-center gap-2 rounded-xl border border-neutral-100 bg-neutral-50 px-2.5 text-sm font-medium text-neutral-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
+                                          className={`flex min-h-11 min-w-0 items-center gap-2 rounded-xl bg-neutral-50 px-2.5 text-sm font-medium text-neutral-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 ${activeLayout === 'hub_menu' ? '' : 'border border-neutral-100'}`}
                                         >
                                           <Phone aria-hidden="true" className="size-4 shrink-0" style={{ color: themeVars.accent }} />
                                           <span className="min-w-0">
@@ -394,7 +394,7 @@ export function QuickBookProfileHeader({
                                     ? (
                                         <a
                                           href={profile.contact.email.href}
-                                          className="flex min-h-11 min-w-0 items-center gap-2 rounded-xl border border-neutral-100 bg-neutral-50 px-2.5 text-sm font-medium text-neutral-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
+                                          className={`flex min-h-11 min-w-0 items-center gap-2 rounded-xl bg-neutral-50 px-2.5 text-sm font-medium text-neutral-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 ${activeLayout === 'hub_menu' ? '' : 'border border-neutral-100'}`}
                                         >
                                           <Mail aria-hidden="true" className="size-4 shrink-0" style={{ color: themeVars.accent }} />
                                           {/* break-all split the address mid-token
