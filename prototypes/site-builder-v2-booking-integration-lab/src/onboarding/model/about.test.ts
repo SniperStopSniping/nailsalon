@@ -35,7 +35,7 @@ describe('About profile editing helpers', () => {
     const second = buildAboutWordingSuggestion(structuredClone(profile));
 
     expect(second).toBe(first);
-    expect(first).toMatch(/^I’m Daniela,/u);
+    expect(first).toMatch(/^Hi, my name is Daniela\. I’m /u);
     expect(first).toContain('Isla Nail Studio');
     expect(first).toContain('Russian Manicure');
     expect(first).toContain('Scarborough, Ontario');
@@ -54,8 +54,8 @@ describe('About profile editing helpers', () => {
     expect(suggestion).not.toContain('Private Owner Maya');
     expect(suggestion).not.toMatch(/Daniela|Isla/u);
     expect(suggestion).toContain(businessName
-      ? `I’m the nail artist behind ${businessName}.`
-      : 'I’m an independent nail artist.');
+      ? `I’m an independent nail tech behind ${businessName}.`
+      : 'I’m an independent nail tech.');
     expect(profile).toEqual(original);
   });
 
@@ -131,7 +131,7 @@ describe('About preset capability contract', () => {
       );
 
       expect(intro).toBe(
-        'I’m Audit Owner One, the nail artist behind Lacquer Lab Studio. '
+        'Hi, my name is Audit Owner One. I’m an independent nail tech behind Lacquer Lab Studio. '
         + 'I focus on structured gel, clean cuticle work, Toronto, and gentle removal.',
       );
       expect(intro).not.toMatch(/\. structured gel/u);

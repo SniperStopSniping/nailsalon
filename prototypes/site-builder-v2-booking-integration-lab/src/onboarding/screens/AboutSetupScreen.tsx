@@ -19,7 +19,7 @@ import { StickyOnboardingActions } from '../components/StickyOnboardingActions';
 import { recordOnboardingEvent } from '../events/journal';
 import { useFeedback } from '../feedback/useFeedback';
 import { resolveOnboardingImage } from '../integrations/adapters/media';
-import { buildAboutIntroFromOwnerNotes } from '../model/about';
+import { buildAboutIntroFromOwnerNotes, buildAboutWordingSuggestion } from '../model/about';
 import type {
   AboutElementId,
   BusinessProfileDraft,
@@ -201,7 +201,11 @@ export function AboutSetupScreen({
   const { about } = state.profile;
   const feedback = useFeedback();
   const listInputId = useId();
-  const [openTask, setOpenTask] = useState<AboutTaskId | null>('introduction');
+  // Specialties come first so "Help me write" can use them; an owner who already
+  // has an introduction lands on it directly.
+  const [openTask, setOpenTask] = useState<AboutTaskId | null>(
+    state.profile.about.shortBio.trim() ? 'introduction' : 'specialties',
+  );
   const [detailEditor, setDetailEditor] = useState<DetailEditor>(null);
   const [customSpecialty, setCustomSpecialty] = useState('');
   const [listDraft, setListDraft] = useState('');
@@ -277,6 +281,20 @@ export function AboutSetupScreen({
     onWritingHelperOpenChange?.(false);
   };
 
+  // "Help me write" fills the introduction straight away from what the owner
+  // has already told us (name, business type, specialties, area). They can
+  // erase or edit it; the notes helper stays available from the prompt below.
+  const prefillFromKnownFacts = () => {
+    const suggestion = clampSuggestion(buildAboutWordingSuggestion(state.profile));
+    onUpdate(current => recordOnboardingEvent(
+      updateAbout(current, { shortBio: suggestion }, 'bio'),
+      { action: 'used', type: 'about_wording_helper' },
+    ));
+    setSuggestionApplied(true);
+    setOpenTask('introduction');
+    window.requestAnimationFrame(() => shortBioInputRef.current?.focus({ preventScroll: true }));
+  };
+
   const generateSuggestion = () => {
     const suggestion = clampSuggestion(buildAboutIntroFromOwnerNotes(
       state.profile,
@@ -287,6 +305,7 @@ export function AboutSetupScreen({
       { action: 'used', type: 'about_wording_helper' },
     ));
     setSuggestionApplied(true);
+    setOpenTask('introduction');
     closeWritingHelper();
     window.requestAnimationFrame(() => shortBioInputRef.current?.focus({ preventScroll: true }));
   };
@@ -361,60 +380,10 @@ export function AboutSetupScreen({
         : (
             <div className="screen-eight-about__tasks">
               <AboutTaskCard
-                complete={introductionComplete}
-                id="introduction"
-                number={1}
-                onToggle={id => setOpenTask(current => current === id ? null : id)}
-                open={openTask === 'introduction'}
-                summary={introductionComplete && openTask !== 'introduction' ? 'Short introduction added' : undefined}
-                supportingText="A quick intro clients can read at a glance."
-                title="Introduction"
-              >
-                <SavedIdentity onEditProfile={onEditProfile} profile={state.profile} />
-                <div className={`screen-eight-short-intro${suggestionApplied ? ' is-highlighted' : ''}`}>
-                  <div className="screen-eight-field-label">
-                    <label htmlFor="screen-eight-short-intro">Short introduction</label>
-                    <button type="button" onClick={openWritingHelper}>
-                      <Sparkles aria-hidden="true" size={14} />
-                      {' '}
-                      Help me write
-                    </button>
-                  </div>
-                  <textarea
-                    ref={shortBioInputRef}
-                    id="screen-eight-short-intro"
-                    maxLength={SHORT_INTRODUCTION_LIMIT}
-                    placeholder="Example: Share what clients can expect at an appointment, what you specialize in, and what makes your approach yours."
-                    rows={5}
-                    value={about.shortBio}
-                    onChange={(event) => {
-                      setSuggestionApplied(false);
-                      onUpdate(current => updateAbout(current, { shortBio: event.target.value }, 'bio'));
-                    }}
-                  />
-                  <span className="screen-eight-character-count">
-                    {about.shortBio.length}
-                    {' '}
-                    /
-                    {' '}
-                    {SHORT_INTRODUCTION_LIMIT}
-                  </span>
-                </div>
-                <button className="screen-eight-writing-prompt" type="button" onClick={openWritingHelper}>
-                  <Sparkles aria-hidden="true" size={18} />
-                  <span>
-                    <strong>Need help getting started?</strong>
-                    <small>Get a suggested introduction — you can edit it before saving.</small>
-                  </span>
-                  <ChevronRight aria-hidden="true" size={18} />
-                </button>
-              </AboutTaskCard>
-
-              <AboutTaskCard
                 badge="Optional"
                 complete={specialtiesPopulated}
                 id="specialties"
-                number={2}
+                number={1}
                 onToggle={id => setOpenTask(current => current === id ? null : id)}
                 open={openTask === 'specialties'}
                 summary={specialtiesPopulated && openTask !== 'specialties' ? specialtiesSummary : undefined}
@@ -487,6 +456,56 @@ export function AboutSetupScreen({
                   />
                   <small>We’ll only use this if you choose to add it.</small>
                 </label>
+              </AboutTaskCard>
+
+              <AboutTaskCard
+                complete={introductionComplete}
+                id="introduction"
+                number={2}
+                onToggle={id => setOpenTask(current => current === id ? null : id)}
+                open={openTask === 'introduction'}
+                summary={introductionComplete && openTask !== 'introduction' ? 'Short introduction added' : undefined}
+                supportingText="A quick intro clients can read at a glance."
+                title="Introduction"
+              >
+                <SavedIdentity onEditProfile={onEditProfile} profile={state.profile} />
+                <div className={`screen-eight-short-intro${suggestionApplied ? ' is-highlighted' : ''}`}>
+                  <div className="screen-eight-field-label">
+                    <label htmlFor="screen-eight-short-intro">Short introduction</label>
+                    <button type="button" onClick={prefillFromKnownFacts}>
+                      <Sparkles aria-hidden="true" size={14} />
+                      {' '}
+                      Help me write
+                    </button>
+                  </div>
+                  <textarea
+                    ref={shortBioInputRef}
+                    id="screen-eight-short-intro"
+                    maxLength={SHORT_INTRODUCTION_LIMIT}
+                    placeholder="Example: Share what clients can expect at an appointment, what you specialize in, and what makes your approach yours."
+                    rows={5}
+                    value={about.shortBio}
+                    onChange={(event) => {
+                      setSuggestionApplied(false);
+                      onUpdate(current => updateAbout(current, { shortBio: event.target.value }, 'bio'));
+                    }}
+                  />
+                  <span className="screen-eight-character-count">
+                    {about.shortBio.length}
+                    {' '}
+                    /
+                    {' '}
+                    {SHORT_INTRODUCTION_LIMIT}
+                  </span>
+                </div>
+                <button className="screen-eight-writing-prompt" type="button" onClick={openWritingHelper}>
+                  <Sparkles aria-hidden="true" size={18} />
+                  <span>
+                    <strong>Need help getting started?</strong>
+                    <small>Get a suggested introduction — you can edit it before saving.</small>
+                  </span>
+                  <ChevronRight aria-hidden="true" size={18} />
+                </button>
               </AboutTaskCard>
 
               <AboutTaskCard

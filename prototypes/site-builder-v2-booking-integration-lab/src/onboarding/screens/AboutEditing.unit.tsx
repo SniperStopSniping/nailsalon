@@ -336,7 +336,7 @@ describe('About prototype writing helper', () => {
     expect(within(firstReview).getByText('Current bio')).toBeVisible();
     expect(within(firstReview).getByText('Suggested bio')).toBeVisible();
 
-    const firstSuggestion = within(firstReview).getByText(/^I’m Daniela,/).textContent ?? '';
+    const firstSuggestion = within(firstReview).getByText(/^Hi, my name is Daniela\./).textContent ?? '';
 
     expect(firstSuggestion).toContain('Isla Nail Studio');
     expect(latest.profile.about.shortBio).toBe(exactOriginalBio);
@@ -357,7 +357,7 @@ describe('About prototype writing helper', () => {
 
     await user.click(helper);
     const secondReview = screen.getByRole('dialog', { name: 'Use this suggested bio?' });
-    const secondSuggestion = within(secondReview).getByText(/^I’m Daniela,/).textContent ?? '';
+    const secondSuggestion = within(secondReview).getByText(/^Hi, my name is Daniela\./).textContent ?? '';
 
     expect(secondSuggestion).toBe(firstSuggestion);
 
@@ -419,7 +419,7 @@ describe('About prototype writing helper', () => {
 
     await user.click(screen.getByRole('button', { name: /Help me with wording/ }));
     const review = screen.getByRole('dialog', { name: 'Use this suggested bio?' });
-    const suggestion = within(review).getByText(/^I’m Daniela,/).textContent ?? '';
+    const suggestion = within(review).getByText(/^Hi, my name is Daniela\./).textContent ?? '';
     await user.click(within(review).getByRole('button', { name: 'Use suggestion' }));
 
     expect(screen.getByRole('button', { name: 'Undo suggestion' })).toBeVisible();

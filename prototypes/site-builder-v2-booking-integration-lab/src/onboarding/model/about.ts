@@ -128,37 +128,43 @@ export const formatAboutListInput = (values: readonly string[]): string =>
   values.join(', ');
 
 /** Deterministic Lab-only wording; no network or AI request is made. */
-export const buildAboutWordingSuggestion = (
-  profile: BusinessProfileDraft,
-): string => {
+const buildAboutIdentity = (profile: BusinessProfileDraft): string => {
   const ownerName = profile.about.visibility.owner_name
     ? cleanInlineValue(profile.ownerName)
     : '';
   const businessName = cleanInlineValue(profile.businessName);
+  // Only facts the owner gave us: name (when shown), how they work, what
+  // they specialise in and where. No invented adjectives.
+  const role = profile.businessType === 'home_based'
+    ? 'a home-based nail tech'
+    : profile.businessType === 'mobile'
+      ? 'a mobile nail tech'
+      : profile.businessType === 'salon_team'
+        ? (businessName ? `part of the team at ${businessName}` : 'part of a salon team')
+        : 'an independent nail tech';
+  const roleWithBusiness = businessName && profile.businessType !== 'salon_team'
+    ? `${role} behind ${businessName}`
+    : role;
+  return ownerName
+    ? `Hi, my name is ${ownerName}. I’m ${roleWithBusiness}.`
+    : `I’m ${roleWithBusiness}.`;
+};
+
+export const buildAboutWordingSuggestion = (
+  profile: BusinessProfileDraft,
+): string => {
   const area = cleanInlineValue(profile.location.cityOrArea);
   const specialties = profile.about.specialties
     .map(cleanInlineValue)
     .filter(Boolean)
     .slice(0, 4);
-
-  const identity = ownerName && businessName
-    ? `I’m ${ownerName}, the nail artist behind ${businessName}.`
-    : ownerName
-      ? `I’m ${ownerName}, an independent nail artist.`
-      : businessName
-        ? `I’m the nail artist behind ${businessName}.`
-        : 'I’m an independent nail artist.';
+  const identity = buildAboutIdentity(profile);
   const specialtySentence = specialties.length > 0
-    ? `My specialties include ${humanList(specialties)}.`
-    : 'I focus on thoughtful, long-lasting nail care.';
+    ? `I specialize in ${humanList(specialties)}.`
+    : '';
   const locationSentence = area ? `I welcome clients in ${area}.` : '';
 
-  return [
-    identity,
-    'I create calm, detail-focused appointments shaped around each client.',
-    specialtySentence,
-    locationSentence,
-  ].filter(Boolean).join(' ');
+  return [identity, specialtySentence, locationSentence].filter(Boolean).join(' ');
 };
 
 const SENTENCE_END = /[.!?…]$/u;
@@ -191,7 +197,9 @@ export const buildAboutIntroFromOwnerNotes = (
     return knownFacts;
   }
 
-  const identity = knownFacts.split(/(?<=[.!?])\s/u)[0] ?? '';
+  // The identity may be two sentences ("Hi, my name is …. I’m …."); keep
+  // everything before the specialties/location sentences.
+  const identity = buildAboutIdentity(profile);
   // Prose the owner wrote themselves: keep their words, only close the
   // sentence. A run of comma-separated fragments is not prose.
   const fragments = parseAboutListInput(notes);

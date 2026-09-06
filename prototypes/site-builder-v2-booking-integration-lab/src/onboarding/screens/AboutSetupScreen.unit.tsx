@@ -54,6 +54,13 @@ const createState = (): OnboardingLabState => {
   return state;
 };
 
+const openIntroduction = () => {
+  const header = screen.getByRole('button', { name: /Introduction/u });
+  if (header.getAttribute('aria-expanded') !== 'true') {
+    fireEvent.click(header);
+  }
+};
+
 describe('Screen 8 About', () => {
   it('starts as three manageable tasks using the saved identity and no customer preview', () => {
     render(<AboutHarness initial={createState()} />);
@@ -61,13 +68,19 @@ describe('Screen 8 About', () => {
     expect(screen.getByRole('heading', { name: 'Tell clients a little about you' })).toBeVisible();
     expect(screen.getByText('KEEP IT SIMPLE')).toBeVisible();
     expect(screen.getByRole('switch', { name: 'Show an About section' })).toBeChecked();
+    // Specialties open first (they feed "Help me write"); the introduction is
+    // task 2 and opens on demand with the saved identity inside it.
+    expect(screen.getByRole('button', { name: /Specialties & experience/ })).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByRole('button', { name: /Introduction/ })).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.getByRole('button', { name: /Add more details/ })).toHaveAttribute('aria-expanded', 'false');
+
+    openIntroduction();
+
     expect(screen.getByText('Daniela')).toBeVisible();
     expect(screen.getByText('Isla Nail Studio')).toBeVisible();
     expect(screen.getByRole('button', { name: 'Edit profile' })).toBeVisible();
     expect(screen.getByRole('textbox', { name: 'Short introduction' })).toHaveAttribute('maxlength', '180');
     expect(screen.getByRole('button', { name: /Introduction/ })).toHaveAttribute('aria-expanded', 'true');
-    expect(screen.getByRole('button', { name: /Specialties & experience/ })).toHaveAttribute('aria-expanded', 'false');
-    expect(screen.getByRole('button', { name: /Add more details/ })).toHaveAttribute('aria-expanded', 'false');
     expect(screen.queryByText('Preview your About section')).not.toBeInTheDocument();
     expect(screen.queryByRole('textbox', { name: /Instagram/i })).not.toBeInTheDocument();
     expect(screen.queryByText(/clients appreciate/i)).not.toBeInTheDocument();
@@ -79,6 +92,7 @@ describe('Screen 8 About', () => {
     state.profile.businessName = 'Polished Studio';
 
     render(<AboutHarness initial={state} />);
+    openIntroduction();
 
     const introduction = screen.getByRole('textbox', { name: 'Short introduction' });
     const placeholder = introduction.getAttribute('placeholder') ?? '';
@@ -103,6 +117,7 @@ describe('Screen 8 About', () => {
         }}
       />,
     );
+    openIntroduction();
 
     await user.click(screen.getByRole('switch', { name: 'Show an About section' }));
 
@@ -127,6 +142,7 @@ describe('Screen 8 About', () => {
         }}
       />,
     );
+    openIntroduction();
 
     const introduction = screen.getByRole('textbox', { name: 'Short introduction' });
     await user.type(introduction, 'Two sentences are enough to introduce my calm nail studio.');
@@ -148,7 +164,9 @@ describe('Screen 8 About', () => {
       />,
     );
 
-    await user.click(screen.getByRole('button', { name: /Specialties & experience/ }));
+    // Specialties is the open task by default now.
+    expect(screen.getByRole('button', { name: /Specialties & experience/ })).toHaveAttribute('aria-expanded', 'true');
+
     await user.click(screen.getByRole('checkbox', { name: 'BIAB' }));
     await user.type(screen.getByLabelText('Add your own'), 'Bridal nails');
     await user.click(screen.getByRole('button', { name: 'Add specialty' }));
@@ -197,8 +215,9 @@ describe('Screen 8 About', () => {
         }}
       />,
     );
+    openIntroduction();
 
-    await user.click(screen.getByRole('button', { name: 'Help me write' }));
+    await user.click(screen.getByRole('button', { name: /Need help getting started/u }));
     const contextDialog = screen.getByRole('dialog', { name: 'Tell us a little about yourself' });
     fireEvent.change(within(contextDialog).getByRole('textbox'), {
       target: { value: 'I specialize in natural nails and relaxed appointments. '.repeat(8) },
@@ -221,6 +240,37 @@ describe('Screen 8 About', () => {
     expect(latest.profile.about.shortBio).toBe('My edited introduction.');
   });
 
+  it('prefills the introduction from the saved name, business type and specialties on Help me write', async () => {
+    const user = userEvent.setup();
+    let latest = createState();
+    latest.profile.ownerName = 'Daniela';
+    latest.profile.businessName = 'Isla Nail Studio';
+    latest.profile.businessType = 'home_based';
+    latest.profile.about.specialties = ['Russian manicure', 'BIAB'];
+    render(
+      <AboutHarness
+        initial={latest}
+        onState={(state) => {
+          latest = state;
+        }}
+      />,
+    );
+
+    // Specialties are asked first so the helper has something to say.
+    const taskButtons = screen.getAllByRole('button', { name: /Specialties & experience|Introduction/u });
+
+    expect(taskButtons[0]).toHaveAccessibleName(expect.stringMatching(/Specialties & experience/u));
+
+    await user.click(screen.getByRole('button', { name: /Introduction/u }));
+    await user.click(screen.getByRole('button', { name: 'Help me write' }));
+
+    expect(screen.queryByRole('dialog', { name: 'Tell us a little about yourself' })).not.toBeInTheDocument();
+    expect(latest.profile.about.shortBio).toBe(
+      'Hi, my name is Daniela. I’m a home-based nail tech behind Isla Nail Studio. I specialize in Russian manicure and BIAB. I welcome clients in Scarborough, Ontario.',
+    );
+    expect(screen.getByRole('textbox', { name: 'Short introduction' })).toHaveValue(latest.profile.about.shortBio);
+  });
+
   it('generates from this owner’s saved identity without promoting placeholder examples or adding credentials', async () => {
     const user = userEvent.setup();
     let latest = createState();
@@ -235,8 +285,9 @@ describe('Screen 8 About', () => {
         }}
       />,
     );
+    openIntroduction();
 
-    await user.click(screen.getByRole('button', { name: 'Help me write' }));
+    await user.click(screen.getByRole('button', { name: /Need help getting started/u }));
     const contextDialog = screen.getByRole('dialog', { name: 'Tell us a little about yourself' });
 
     expect(within(contextDialog).getByRole('textbox')).toHaveValue('');
@@ -245,7 +296,7 @@ describe('Screen 8 About', () => {
     await user.click(within(contextDialog).getByRole('button', { name: 'Generate suggestion' }));
 
     expect(screen.getByRole('textbox', { name: 'Short introduction' })).toHaveValue(latest.profile.about.shortBio);
-    expect(latest.profile.about.shortBio).toContain('I’m Maya');
+    expect(latest.profile.about.shortBio).toContain('Hi, my name is Maya.');
     expect(latest.profile.about.shortBio).toContain('Polished Studio');
     expect(latest.profile.about.shortBio).not.toMatch(/Daniela|Isla|Example:|certif|years of experience/iu);
     expect(latest.profile.about.certifications).toEqual([]);
@@ -267,13 +318,14 @@ describe('Screen 8 About', () => {
         }}
       />,
     );
+    openIntroduction();
 
-    await user.click(screen.getByRole('button', { name: 'Help me write' }));
+    await user.click(screen.getByRole('button', { name: /Need help getting started/u }));
     const contextDialog = screen.getByRole('dialog', { name: 'Tell us a little about yourself' });
     fireEvent.change(within(contextDialog).getByRole('textbox'), { target: { value: context } });
     await user.click(within(contextDialog).getByRole('button', { name: 'Generate suggestion' }));
 
-    expect(latest.profile.about.shortBio).toContain('I’m the nail artist behind Polished Studio.');
+    expect(latest.profile.about.shortBio).toMatch(/^I’m a home-based nail tech behind Polished Studio\./u);
     expect(latest.profile.about.shortBio).not.toMatch(/Private Owner Maya|Daniela|Isla/u);
     expect(screen.getByRole('textbox', { name: 'Short introduction' })).toHaveValue(latest.profile.about.shortBio);
     expect(latest.profile.ownerName).toBe('Private Owner Maya');
@@ -292,8 +344,9 @@ describe('Screen 8 About', () => {
         }}
       />,
     );
+    openIntroduction();
 
-    await user.click(screen.getByRole('button', { name: 'Help me write' }));
+    await user.click(screen.getByRole('button', { name: /Need help getting started/u }));
     const contextDialog = screen.getByRole('dialog', { name: 'Tell us a little about yourself' });
     await user.type(within(contextDialog).getByRole('textbox'), 'Unused wording.');
     await user.click(within(contextDialog).getByRole('button', { name: 'Cancel' }));
