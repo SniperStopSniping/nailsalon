@@ -309,6 +309,20 @@ function ServiceLibraryDialog({
             ))}
           </div>
         </div>
+        {/* Compact and ABOVE the list, so the add-on rows get the remaining
+            height and scroll like the services list does. */}
+        {activeTab === 'add_ons'
+          ? (
+              <aside className="onboarding-service-library__tip" aria-label="Add-ons are optional">
+                <Info aria-hidden="true" size={16} />
+                <p>
+                  <strong>Add-ons are optional.</strong>
+                  {' '}
+                  You can skip them for now and add them anytime from your dashboard.
+                </p>
+              </aside>
+            )
+          : null}
         <ul
           ref={resultsListRef}
           aria-label={activeTab === 'services' ? 'Library services' : 'Library add-ons'}
@@ -376,17 +390,6 @@ function ServiceLibraryDialog({
                 {activeTab === 'services' ? 'services' : 'add-ons'}
                 .
               </p>
-            )
-          : null}
-        {activeTab === 'add_ons'
-          ? (
-              <aside className="onboarding-service-library__tip" aria-label="Add-ons are optional">
-                <Info aria-hidden="true" size={18} />
-                <div>
-                  <strong>ADD-ONS ARE OPTIONAL</strong>
-                  <p>Add-ons help clients customize their service, but you can skip them for now and add them anytime from your dashboard.</p>
-                </div>
-              </aside>
             )
           : null}
         <footer className="onboarding-service-library__footer">
@@ -535,7 +538,9 @@ export function BookingPreferencesScreen({
     ? 'custom'
     : storedDepositAmountChoice;
   const minimumNoticeCopy = getMinimumNoticeCopy(preferences.minimumNoticeMinutes);
-  const servicesComplete = selectedServices.length > 0 && profile.serviceMenu.reviewed === true;
+  // The starter menu counts as an answer on its own: reviewing it in the
+  // library is optional (Done just records that the owner looked).
+  const servicesComplete = selectedServices.length > 0;
   const clientsComplete = preferences.visitMode !== null && preferences.newClientStatus !== null;
   const noticeComplete = Number.isFinite(preferences.minimumNoticeMinutes)
     && preferences.minimumNoticeMinutes >= 0;
@@ -586,9 +591,6 @@ export function BookingPreferencesScreen({
     const nextErrors: Record<string, string> = {};
     if (selectedServices.length === 0) {
       nextErrors.services = 'Choose at least one service.';
-    }
-    if (selectedServices.length > 0 && !profile.serviceMenu.reviewed) {
-      nextErrors.services = 'Review your services and select Done.';
     }
     if (!preferences.visitMode) {
       nextErrors.visitMode = 'Choose how clients can visit you.';

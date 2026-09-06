@@ -250,6 +250,17 @@ describe('SiteStyleScreen', () => {
     expect(css).not.toContain('scroll-snap-type: inline mandatory');
   });
 
+  it('sets each style card name and description in that style\'s own typefaces', () => {
+    const css = readFileSync(join(process.cwd(), 'src/onboarding/onboarding.css'), 'utf8');
+
+    expect(css).toMatch(
+      /\.onboarding-style-card > strong \{[^}]*font-family: var\(--swatch-heading-font, inherit\);/u,
+    );
+    expect(css).toMatch(
+      /\.onboarding-style-card > small \{[^}]*font-family: var\(--swatch-body-font, inherit\);/u,
+    );
+  });
+
   it('keeps physical-phone About spacing distinct between actions, facts, and major groups', () => {
     const css = readFileSync(
       join(process.cwd(), 'src/onboarding/daniela-about-style.css'),

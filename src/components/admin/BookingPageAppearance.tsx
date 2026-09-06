@@ -143,7 +143,15 @@ export function BookingPageAppearance({ draft, disabled, mode, onChange }: {
                   type="button"
                 >
                   {tokens && <PresetSpecimen tokens={tokens} value={value} />}
-                  {names[value] ?? `${value[0]?.toUpperCase()}${value.slice(1)}`}
+                  {/* A style card shows its look: the name is set in that style's own display face. */}
+                  <span
+                    data-testid={`appearance-option-label-${value}`}
+                    style={group.key === 'siteStylePreset' && tokens
+                      ? { fontFamily: tokens['--customer-site-heading-font'] }
+                      : undefined}
+                  >
+                    {names[value] ?? `${value[0]?.toUpperCase()}${value.slice(1)}`}
+                  </span>
                   {group.selected === value && <span className="mt-1 block text-xs">✓ Selected</span>}
                 </button>
               );

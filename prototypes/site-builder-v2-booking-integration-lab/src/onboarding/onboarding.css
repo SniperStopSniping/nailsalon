@@ -2599,6 +2599,18 @@ body:has(.onboarding-app) {
   line-height: 1.38;
 }
 
+/* A style card should show its look, not only describe it: the name is set
+   in that style's display face and the description in its body face — the
+   same variables the swatch's "Aa" and "Book now" already use. */
+.onboarding-style-card > strong {
+  font-family: var(--swatch-heading-font, inherit);
+  font-weight: 700;
+}
+
+.onboarding-style-card > small {
+  font-family: var(--swatch-body-font, inherit);
+}
+
 .onboarding-about-poster {
   display: grid;
   height: 82px;

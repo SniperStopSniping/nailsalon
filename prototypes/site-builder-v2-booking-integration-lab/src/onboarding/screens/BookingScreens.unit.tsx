@@ -109,11 +109,15 @@ describe('BookingPreferencesScreen', () => {
 
     await user.click(screen.getByRole('button', { name: 'Save and continue' }));
 
-    expect(screen.getAllByText('Review your services and select Done.').length)
-      .toBeGreaterThan(0);
+    // The starter menu already answers the services question; only the two
+    // real choices are still missing.
+    expect(screen.queryByText('Review your services and select Done.')).not.toBeInTheDocument();
     expect(screen.getAllByText('Choose how clients can visit you.').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Choose your new-client status.').length).toBeGreaterThan(0);
 
+    // Services already counts as complete (starter menu), so its card starts
+    // collapsed; reviewing is still available once it is opened.
+    await user.click(screen.getByRole('button', { name: /^Services/u, expanded: false }));
     await user.click(screen.getByRole('button', { name: 'Review services & add-ons' }));
     await user.click(within(screen.getByRole('dialog', { name: 'Choose your services' }))
       .getByRole('button', { name: 'Done' }));
