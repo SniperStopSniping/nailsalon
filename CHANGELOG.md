@@ -1,3 +1,15 @@
+# [1.86.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.85.0...v1.86.0) (2026-09-06)
+
+
+### Bug Fixes
+
+* **owner:** make reduced-motion transitions instant in the owner surfaces ([7f5ce4a](https://github.com/SniperStopSniping/nailsalon/commit/7f5ce4ae96cfff057b9a3a54f96eeba4c9cc6811))
+
+
+### Features
+
+* **owner:** repair pass from the 2026-09-05 owner product audit ([ca486d9](https://github.com/SniperStopSniping/nailsalon/commit/ca486d9de2a86c776780b1c6b3c5cf4825094ff4))
+
 # [1.85.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.84.5...v1.85.0) (2026-09-05)
 
 
