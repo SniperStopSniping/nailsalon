@@ -379,7 +379,10 @@
 
 .qb-fact__chevron {
   flex: 0 0 auto;
-  margin-top: 4px;
+  /* Pinned to the top of the summary, the caret lined up with the small-caps
+     eyebrow rather than the value it opens, and floated high beside a
+     three-line cell. Centre it against the whole row instead. */
+  align-self: center;
   color: var(--qb-muted, var(--qb-muted-fallback));
   transition: transform 160ms ease;
 }

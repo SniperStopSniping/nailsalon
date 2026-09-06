@@ -508,7 +508,12 @@ export function QuickBookProfileHeader({
                   ? (
                       <p
                         data-testid="quick-book-bio"
-                        className={`mt-3 whitespace-pre-line break-words bg-[color-mix(in_srgb,var(--theme-primary)_8%,white)] px-3.5 py-3 text-sm leading-5 text-neutral-700 ${
+                        // Tinting the note against pure white turned a navy
+                        // brand colour into a cool blue-grey panel on a warm
+                        // ivory card — the only cold surface in the header.
+                        // Mix into the card's own ground so the tint stays in
+                        // the salon's temperature whatever the preset.
+                        className={`mt-3 whitespace-pre-line break-words bg-[color-mix(in_srgb,var(--theme-primary)_8%,var(--theme-card-background,#ffffff))] px-3.5 py-3 text-sm leading-5 text-neutral-700 ${
                           activeLayout === 'profile_story'
                             ? 'order-1 mb-3 rounded-2xl border-l-4 font-medium'
                             : activeLayout === 'editorial'
