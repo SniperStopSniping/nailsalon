@@ -363,7 +363,19 @@
 }
 
 .onboarding-service-library__tip {
-  margin: 10px 0 calc(var(--onboarding-service-footer-height, 78px) + 8px);
+  flex: 0 0 auto;
+  align-items: start;
+  margin: 0 0 4px;
+  padding: 9px 12px;
+}
+
+.onboarding-service-library__tip p {
+  margin: 0;
+}
+
+.onboarding-service-library__tip p strong {
+  font-size: inherit;
+  letter-spacing: normal;
 }
 
 @keyframes onboarding-booking-ready-in {
