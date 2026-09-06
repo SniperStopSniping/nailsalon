@@ -378,7 +378,7 @@ export function QuickBookProfileHeader({
                                     ? (
                                         <a
                                           href={profile.contact.phone.href}
-                                          className={`flex min-h-11 min-w-0 items-center gap-2 rounded-xl bg-neutral-50 px-2.5 text-sm font-medium text-neutral-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 ${activeLayout === 'hub_menu' ? '' : 'border border-neutral-100'}`}
+                                          className={`flex min-h-11 min-w-0 items-center gap-2 rounded-xl px-3 text-sm font-medium text-neutral-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 ${activeLayout === 'hub_menu' ? 'px-0' : 'border border-neutral-200'}`}
                                         >
                                           <Phone aria-hidden="true" className="size-4 shrink-0" style={{ color: themeVars.accent }} />
                                           <span className="min-w-0">
@@ -394,7 +394,7 @@ export function QuickBookProfileHeader({
                                     ? (
                                         <a
                                           href={profile.contact.email.href}
-                                          className={`flex min-h-11 min-w-0 items-center gap-2 rounded-xl bg-neutral-50 px-2.5 text-sm font-medium text-neutral-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 ${activeLayout === 'hub_menu' ? '' : 'border border-neutral-100'}`}
+                                          className={`flex min-h-11 min-w-0 items-center gap-2 rounded-xl px-3 text-sm font-medium text-neutral-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 ${activeLayout === 'hub_menu' ? 'px-0' : 'border border-neutral-200'}`}
                                         >
                                           <Mail aria-hidden="true" className="size-4 shrink-0" style={{ color: themeVars.accent }} />
                                           {/* break-all split the address mid-token

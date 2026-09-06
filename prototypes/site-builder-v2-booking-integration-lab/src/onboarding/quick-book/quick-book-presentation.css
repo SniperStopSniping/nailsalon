@@ -433,7 +433,12 @@ details[open] > summary > .qb-fact__chevron {
   gap: 10px;
   padding: 8px 14px;
   border-radius: calc(var(--qb-radius, 16px) * 0.8);
-  background: color-mix(in srgb, var(--qb-accent, var(--qb-accent-fallback)) 9%, var(--qb-surface, var(--qb-surface-fallback)));
+  /* Contact rows sit directly beside the About / policy / Instagram rows and
+     are the same size and shape, so a tinted fill made one of four identical
+     controls look permanently selected. Match the outlined treatment those
+     rows already use. */
+  border: 1px solid var(--qb-line, var(--qb-line-fallback));
+  background: var(--qb-surface, var(--qb-surface-fallback));
   color: inherit;
   text-decoration: none;
 }
