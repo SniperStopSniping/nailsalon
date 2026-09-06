@@ -9,6 +9,7 @@ const {
   updateSet,
   updateReturning,
   ensureServiceAssignments,
+  update,
   db,
 } = vi.hoisted(() => {
   const selectWhere = vi.fn();
@@ -34,12 +35,14 @@ const {
     insertValues,
     updateSet,
     updateReturning,
+    update,
     ensureServiceAssignments: vi.fn(),
     db: {
       select,
       insert,
       update,
-      transaction: vi.fn(async (callback: (tx: unknown) => Promise<unknown>) => callback({ select, insert })),
+      transaction: vi.fn(async (callback: (tx: unknown) => Promise<unknown>) =>
+        callback({ select, insert, update })),
     },
   };
 });
@@ -65,7 +68,7 @@ vi.mock('@/libs/serviceAssignments', () => ({
   InvalidTechnicianAssignmentError: class InvalidTechnicianAssignmentError extends Error {},
 }));
 
-import { GET, POST } from './route';
+import { GET, PATCH, POST } from './route';
 
 describe('salon services route', () => {
   beforeEach(() => {
@@ -310,5 +313,108 @@ describe('salon services route', () => {
     expect(body.data.services[0].assignedTechnicianCount).toBe(1);
     expect(body.data.services[1].assignedTechnicianCount).toBe(0);
     expect(body.data.activeTechnicianCount).toBe(1);
+  });
+
+  it('reports the technician assignment count on the create response', async () => {
+    ensureServiceAssignments.mockResolvedValue({
+      assignedTechnicianIds: ['tech_1', 'tech_2', 'tech_3'],
+      assignmentRequired: false,
+    });
+
+    const response = await POST(new Request('http://localhost/api/salon/services', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        salonSlug: 'isla-nail-studio',
+        name: 'AUDIT-0905 Polish Change',
+        price: 2500,
+        durationMinutes: 30,
+        category: 'manicure',
+      }),
+    }));
+    const body = await response.json();
+
+    expect(response.status).toBe(201);
+    // Without this the owner UI cannot tell "assigned" from "unknown", which
+    // is how a just-created unbookable service read as Active with no caveat
+    // (AG-w2-services-01).
+    expect(body.data.service.assignedTechnicianCount).toBe(3);
+    expect(body.data.assignment.assignedTechnicianIds).toHaveLength(3);
+  });
+
+  describe('PATCH (menu reorder)', () => {
+    function reorderRequest(body: unknown) {
+      return new Request('http://localhost/api/salon/services', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+    }
+
+    it('rewrites sort_order to the requested sequence', async () => {
+      selectWhere.mockResolvedValueOnce([
+        { id: 'svc_a' },
+        { id: 'svc_b' },
+        { id: 'svc_c' },
+      ]);
+
+      const response = await PATCH(reorderRequest({
+        salonSlug: 'isla-nail-studio',
+        orderedIds: ['svc_c', 'svc_a', 'svc_b'],
+      }));
+      const body = await response.json();
+
+      expect(response.status).toBe(200);
+      expect(body.data.order).toEqual([
+        { id: 'svc_c', sortOrder: 1 },
+        { id: 'svc_a', sortOrder: 2 },
+        { id: 'svc_b', sortOrder: 3 },
+      ]);
+      expect(updateSet).toHaveBeenNthCalledWith(1, expect.objectContaining({ sortOrder: 1 }));
+      expect(updateSet).toHaveBeenNthCalledWith(2, expect.objectContaining({ sortOrder: 2 }));
+      expect(updateSet).toHaveBeenNthCalledWith(3, expect.objectContaining({ sortOrder: 3 }));
+    });
+
+    it('refuses an id that is not on this salon’s menu and writes nothing', async () => {
+      selectWhere.mockResolvedValueOnce([{ id: 'svc_a' }]);
+
+      const response = await PATCH(reorderRequest({
+        salonSlug: 'isla-nail-studio',
+        orderedIds: ['svc_a', 'svc_from_another_salon'],
+      }));
+      const body = await response.json();
+
+      expect(response.status).toBe(404);
+      expect(body.error.code).toBe('SERVICE_NOT_FOUND');
+      expect(update).not.toHaveBeenCalled();
+    });
+
+    it('refuses a duplicated id before touching the database', async () => {
+      const response = await PATCH(reorderRequest({
+        salonSlug: 'isla-nail-studio',
+        orderedIds: ['svc_a', 'svc_a'],
+      }));
+      const body = await response.json();
+
+      expect(response.status).toBe(400);
+      expect(body.error.code).toBe('DUPLICATE_SERVICE_ID');
+      expect(requireAdminSalon).not.toHaveBeenCalled();
+      expect(update).not.toHaveBeenCalled();
+    });
+
+    it('refuses an unauthenticated caller', async () => {
+      requireAdminSalon.mockResolvedValue({
+        salon: null,
+        error: Response.json({ error: { code: 'UNAUTHORIZED' } }, { status: 401 }),
+      });
+
+      const response = await PATCH(reorderRequest({
+        salonSlug: 'isla-nail-studio',
+        orderedIds: ['svc_a'],
+      }));
+
+      expect(response.status).toBe(401);
+      expect(update).not.toHaveBeenCalled();
+    });
   });
 });

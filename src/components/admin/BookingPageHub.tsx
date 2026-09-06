@@ -1,7 +1,15 @@
 'use client';
 
 import { ArrowLeft, Check, Copy, Images, LayoutTemplate, Lock, Palette, Scissors, ShieldCheck, Type, UserRound } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+
+/**
+ * AG-hub-publish-08 — the owner draft preview's "Back to editor" control
+ * returns here with this fragment. Focus has to land back on the control the
+ * owner left from rather than at the top of a rebuilt document, and a bare
+ * fragment does not move focus in every browser, so the hub places it.
+ */
+const PREVIEW_RETURN_HASH = '#preview-draft';
 
 const EDITORS = [
   { id: 'layouts', title: 'Layouts', description: 'Site layout and booking menu', icon: LayoutTemplate },
@@ -38,6 +46,12 @@ export function BookingPageHub({
   canPublish?: boolean;
 }) {
   const [copyStatus, setCopyStatus] = useState('');
+  const previewLinkRef = useRef<HTMLAnchorElement>(null);
+  useEffect(() => {
+    if (window.location.hash === PREVIEW_RETURN_HASH) {
+      previewLinkRef.current?.focus();
+    }
+  }, []);
   const query = `salon=${encodeURIComponent(salonSlug)}`;
   const workspace = `/${locale}/admin?${query}`;
   const editor = `/${locale}/admin/booking-page?${query}`;
@@ -69,7 +83,7 @@ export function BookingPageHub({
           </p>
           <p className="mt-3 break-all text-sm text-stone-600">{liveUrl}</p>
           <div className="mt-4 flex flex-wrap gap-2">
-            <a className={`${actionClass} border-rose-800 text-white`} style={{ backgroundColor: '#8b3151' }} href={`/${locale}/admin/booking-page/preview/${encodeURIComponent(salonSlug)}`}>Preview draft</a>
+            <a className={`${actionClass} border-rose-800 text-white`} id="preview-draft" ref={previewLinkRef} style={{ backgroundColor: '#8b3151' }} href={`/${locale}/admin/booking-page/preview/${encodeURIComponent(salonSlug)}`}>Preview draft</a>
             {published && <a className={actionClass} href={liveUrl} rel="noreferrer" target="_blank">Open live site</a>}
             {published && (
               <button className={actionClass} onClick={() => void copyLink()} type="button">
@@ -105,22 +119,49 @@ export function BookingPageHub({
           <Scissors aria-hidden="true" size={18} />
           Services & Add-ons
         </a>
+        {/*
+          The step-by-step setup flow only exists for a salon that has not gone
+          live: `WebsiteHubPage` asks for the handoff exclusively while
+          `publicationStatus === 'draft'`, so `setupUrl` is null for every
+          published salon. Saying "Review saved setup" and then not offering it
+          reads as a broken promise, so a published salon is told why and sent
+          to the editors above, which hold the same choices in the same order.
+        */}
         <section className="mt-6 rounded-2xl border border-stone-200 p-4">
           <h2 className="font-semibold">Review setup step by step</h2>
-          <p className="mt-1 text-sm text-stone-600">Review your existing setup using the guided flow. Nothing is reset.</p>
           {setupUrl
             ? (
-                <a className={`${actionClass} mt-3`} href={setupUrl}>
-                  <Check aria-hidden="true" size={16} />
-                  Review saved setup
-                </a>
+                <>
+                  <p className="mt-1 text-sm text-stone-600">Review your existing setup using the guided flow. Nothing is reset.</p>
+                  <a className={`${actionClass} mt-3`} href={setupUrl}>
+                    <Check aria-hidden="true" size={16} />
+                    Review saved setup
+                  </a>
+                </>
               )
-            : (
-                <a className={`${actionClass} mt-3`} href={`${editor}&panel=information&guided=1`}>
-                  <Check aria-hidden="true" size={16} />
-                  Review current setup
-                </a>
-              )}
+            : published
+              ? (
+                  <>
+                    <p className="mt-1 text-sm text-stone-600" data-testid="hub-setup-published-note">
+                      Your site is live, so the setup flow that builds a new site is closed. Every choice it
+                      made is in the editors above — this walks you through them in the same order, and
+                      nothing is reset.
+                    </p>
+                    <a className={`${actionClass} mt-3`} href={`${editor}&panel=information&guided=1`}>
+                      <Check aria-hidden="true" size={16} />
+                      Review setup in the editors
+                    </a>
+                  </>
+                )
+              : (
+                  <>
+                    <p className="mt-1 text-sm text-stone-600">Review your existing setup using the guided flow. Nothing is reset.</p>
+                    <a className={`${actionClass} mt-3`} href={`${editor}&panel=information&guided=1`}>
+                      <Check aria-hidden="true" size={16} />
+                      Review current setup
+                    </a>
+                  </>
+                )}
         </section>
       </div>
     </main>

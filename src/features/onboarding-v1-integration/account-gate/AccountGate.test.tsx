@@ -205,6 +205,29 @@ describe('PremiumAccountGate', () => {
     })).toBeVisible();
     expect(screen.getByRole('button', { name: 'Continue with email' })).toBeVisible();
     expect(screen.getByRole('button', { name: 'Create your free account' })).toBeVisible();
+    // OP-002: the card kept sign-up wording in log-in mode, telling a
+    // returning owner to create the account they already have.
+    expect(screen.getByRole('heading', {
+      level: 2,
+      name: 'Log in to your Luster account',
+    })).toBeVisible();
+    expect(screen.queryByRole('heading', {
+      level: 2,
+      name: 'Create your free account',
+    })).not.toBeInTheDocument();
+    expect(screen.queryByText('No payment required. You can change everything later.')).not.toBeInTheDocument();
+    expect(screen.queryByText('Free to create · No payment required')).not.toBeInTheDocument();
+    expect(screen.getByText('Secure log in · Nothing you built is changed')).toBeVisible();
+  });
+
+  it('keeps the sign-up wording in sign-up mode', () => {
+    renderGate();
+
+    expect(screen.getByRole('heading', {
+      level: 2,
+      name: 'Create your free account',
+    })).toBeVisible();
+    expect(screen.getByText('Free to create · No payment required')).toBeVisible();
   });
 
   it('routes a known email to the existing-user password step', async () => {

@@ -5,6 +5,7 @@ import {
   ABOUT_ELEMENT_IDS,
   ABOUT_PRESET_CAPABILITIES,
   aboutPresetSupportsElement,
+  buildAboutIntroFromOwnerNotes,
   buildAboutWordingSuggestion,
   formatAboutListInput,
   parseAboutListInput,
@@ -111,5 +112,53 @@ describe('About preset capability contract', () => {
         expect(aboutPresetSupportsElement(preset, element)).toBe(true);
       }
     }
+  });
+
+  // OP-005 — the helper used to paste the owner's raw notes straight after
+  // the identity sentence, lower-case and unpunctuated.
+  describe('buildAboutIntroFromOwnerNotes', () => {
+    const ownerProfile = () => {
+      const profile = createDefaultBusinessProfile();
+      profile.ownerName = 'Audit Owner One';
+      profile.businessName = 'Lacquer Lab Studio';
+      return profile;
+    };
+
+    it('turns a bare comma list into a sentence', () => {
+      const intro = buildAboutIntroFromOwnerNotes(
+        ownerProfile(),
+        'structured gel, clean cuticle work, Toronto, gentle removal',
+      );
+
+      expect(intro).toBe(
+        'I’m Audit Owner One, the nail artist behind Lacquer Lab Studio. '
+        + 'I focus on structured gel, clean cuticle work, Toronto, and gentle removal.',
+      );
+      expect(intro).not.toMatch(/\. structured gel/u);
+    });
+
+    it('keeps prose the owner wrote and only closes the sentence', () => {
+      const intro = buildAboutIntroFromOwnerNotes(ownerProfile(), 'i specialise in structured gel');
+
+      expect(intro).toContain('I specialise in structured gel.');
+    });
+
+    it('leaves an already-punctuated sentence untouched', () => {
+      const intro = buildAboutIntroFromOwnerNotes(
+        ownerProfile(),
+        'I specialize in natural nails and relaxed appointments.',
+      );
+
+      expect(intro).toContain('I specialize in natural nails and relaxed appointments.');
+      expect(intro).not.toContain('appointments..');
+    });
+
+    it('falls back to the known-facts suggestion when the owner adds no notes', () => {
+      const profile = ownerProfile();
+
+      expect(buildAboutIntroFromOwnerNotes(profile, '   ')).toBe(
+        buildAboutWordingSuggestion(profile),
+      );
+    });
   });
 });

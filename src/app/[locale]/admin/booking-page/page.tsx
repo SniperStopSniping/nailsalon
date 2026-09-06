@@ -40,7 +40,6 @@ import type {
   BookingPageConfig,
   BusinessMode,
   SectionId,
-  StylePack,
 } from '@/libs/bookingPageConfig';
 import type {
   BookingPageContent,
@@ -61,14 +60,31 @@ import { getI18nPath } from '@/utils/Helpers';
 // equivalent same-shape duplicates of the server enums.
 // =============================================================================
 
-/** Mirrors `REGISTERED_STYLE_PACKS`. Only `default` is implemented today (Rev 3 plan PR 20 adds the rest). */
-const STYLE_PACK_OPTIONS: Array<{ id: StylePack; label: string; implemented: boolean }> = [
-  { id: 'default', label: 'Default', implemented: true },
-];
-
+/*
+ * The legacy no-panel mode of this route predates the Booking Page hub and
+ * still carries every control the hub since gave a home. Two of them were
+ * retired here rather than left to contradict a panel:
+ *
+ *  - "Style pack" offered exactly one option, `Default`, with every other
+ *    `REGISTERED_STYLE_PACKS` entry unimplemented (Rev 3 plan PR 20). A
+ *    picker with one choice that is already selected teaches nothing and
+ *    competes with the hub's Style & Colours panel for the same words.
+ *    `stylePack` keeps its config field, its default and its server
+ *    validation; only the dead control is gone.
+ *  - "Location shown as" duplicated the Your Information panel's Address
+ *    privacy radiogroup over the same `locationDisplayMode` record. It stays
+ *    editable here (with the live-vs-draft warning it gained for
+ *    AG-w2-information-parity-03) but under the canonical name, and it links
+ *    to the panel that owns the rest of the address.
+ *
+ * The remaining legacy-only controls (business type, profile photo) have no
+ * panel to defer to, so they were relabelled in onboarding's vocabulary
+ * instead of removed — deleting the only editor for a saved field is an
+ * owner decision, not a cohesion fix.
+ */
 const BUSINESS_MODE_OPTIONS: Array<{ id: BusinessMode; label: string; description: string }> = [
-  { id: 'solo', label: 'Solo', description: 'One tech — you.' },
-  { id: 'team', label: 'Team', description: 'Multiple techs on your calendar.' },
+  { id: 'solo', label: 'Independent nail tech', description: 'I work on my own — one calendar.' },
+  { id: 'team', label: 'Salon / studio', description: 'We have multiple nail techs or staff.' },
 ];
 
 /** The same three owner choices as onboarding and the Your Information editor. */
@@ -307,6 +323,8 @@ export default function BookingPageOwnerSurface() {
   const [completedMoveRevision, setCompletedMoveRevision] = useState<number | null>(null);
   const [actionStatus, setActionStatus] = useState<'idle' | 'publishing' | 'reverting'>('idle');
   const [actionMessage, setActionMessage] = useState<string | null>(null);
+  // AG-hub-publish-07: true from the tap until the destination takes over.
+  const [navigationPending, setNavigationPending] = useState(false);
 
   // Phase A (draft/publish split): the salon's OWN publicationStatus — not
   // the booking-page config draft/live pair above. Drives whether
@@ -614,10 +632,31 @@ export default function BookingPageOwnerSurface() {
     });
   }, [adoptBookingPageState, requestBookingPageState, salonSlug, setTruthfulSaveStatus, trackOrdinaryWrite]);
 
+  /**
+   * AG-hub-publish-07 — every guided-review move drains the queued ordinary
+   * writes before it routes, which is correct (an unsaved edit is never
+   * silently dropped) but can take seconds. The button used to say nothing
+   * while that happened: same label, merely disabled, so the last action of a
+   * six-step flow looked broken and invited a second tap.
+   *
+   * `navigationPending` stays true through `router.push` on purpose — the
+   * pending label must survive until the destination replaces this screen —
+   * and is only cleared when the navigation does NOT happen.
+   */
   async function navigateAfterSaving(destination: string) {
-    if (presentationWritePendingRef.current) {
+    if (presentationWritePendingRef.current || navigationPending) {
       return;
     }
+    setNavigationPending(true);
+    try {
+      await runNavigation(destination);
+    } catch (navigationError) {
+      setNavigationPending(false);
+      throw navigationError;
+    }
+  }
+
+  async function runNavigation(destination: string) {
     if (hasUnsavedContentTextEdits()) {
       const values = { bio: bioDraft, specialtyLine: specialtyDraft, heroImageUrl: heroImageDraft };
       const patch = Object.fromEntries(EDITABLE_CONTENT_FIELDS
@@ -628,18 +667,11 @@ export default function BookingPageOwnerSurface() {
     const informationSaved = informationFlushRef.current ? await informationFlushRef.current() : true;
     if (!await settleOrdinaryWrites() || hasUnsavedContentTextEdits() || !informationSaved) {
       setActionMessage('Your changes could not be saved. Please retry before leaving this editor.');
+      setNavigationPending(false);
       return;
     }
     router.push(destination);
   }
-
-  const handleStylePackSelect = (stylePack: StylePack) => {
-    const option = STYLE_PACK_OPTIONS.find(p => p.id === stylePack);
-    if (!option?.implemented) {
-      return;
-    }
-    void saveConfigPatch({ stylePack });
-  };
 
   const handleBusinessModeSelect = (businessMode: BusinessMode) => {
     void saveConfigPatch({ businessMode });
@@ -934,11 +966,12 @@ export default function BookingPageOwnerSurface() {
         <button
           type="button"
           onClick={() => void navigateAfterSaving(`/${locale}/admin/website${salonSlug ? `?salon=${encodeURIComponent(salonSlug)}` : ''}`)}
-          disabled={presentationPending}
+          aria-busy={navigationPending}
+          disabled={presentationPending || navigationPending}
           className="inline-flex min-h-11 items-center gap-2 text-sm text-stone-600 disabled:opacity-50"
         >
           <ArrowLeft size={16} />
-          Booking Page
+          {navigationPending ? 'Saving…' : 'Booking Page'}
         </button>
 
         <div className="mt-6 flex flex-wrap items-start justify-between gap-4">
@@ -1080,32 +1113,10 @@ export default function BookingPageOwnerSurface() {
           )}
 
           {!panel && (
-            <SectionCard title="Style pack" description="Only Default is available today.">
-              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-                {STYLE_PACK_OPTIONS.map(option => (
-                  <button
-                    key={option.id}
-                    type="button"
-                    disabled={!option.implemented || presentationPending}
-                    data-testid={`style-pack-option-${option.id}`}
-                    aria-pressed={draft.stylePack === option.id}
-                    onClick={() => handleStylePackSelect(option.id)}
-                    className={`rounded-2xl border p-3 text-left text-sm font-medium transition-colors ${
-                      draft.stylePack === option.id
-                        ? 'border-rose-600 bg-rose-50 text-rose-800'
-                        : 'border-stone-200 bg-white text-stone-700'
-                    } ${!option.implemented ? 'cursor-not-allowed opacity-50' : 'hover:border-rose-300'}`}
-                  >
-                    {option.label}
-                  </button>
-                ))}
-                <span className="col-span-full text-[11px] text-stone-400">More style packs coming soon.</span>
-              </div>
-            </SectionCard>
-          )}
-
-          {!panel && (
-            <SectionCard title="Business mode">
+            <SectionCard
+              title="Business type"
+              description="Chosen during setup. It decides whether your booking page and calendar show one nail tech or several."
+            >
               <div className="grid grid-cols-2 gap-2">
                 {BUSINESS_MODE_OPTIONS.map(option => (
                   <button
@@ -1147,23 +1158,27 @@ export default function BookingPageOwnerSurface() {
             <SectionCard title="About & Website Text" description="Edit the introduction and bio used by your customer site.">
               <div className="space-y-4">
                 {!panel && (
-                  <label className="block">
-                    <span className="text-sm font-medium text-stone-800">Hero / profile image URL</span>
-                    <input
-                      type="url"
-                      data-testid="content-hero-image-url"
-                      disabled={presentationPending}
-                      value={heroImageDraft}
-                      onChange={event => updateContentTextDraft(
-                        'heroImageUrl',
-                        event.target.value,
-                        setHeroImageDraft,
-                      )}
-                      onBlur={() => void saveContentPatch({ heroImageUrl: heroImageDraft.trim() === '' ? null : heroImageDraft.trim() })}
-                      placeholder="https://…"
-                      className="mt-1 w-full rounded-xl border border-stone-200 px-3 py-2 text-sm"
-                    />
-                  </label>
+                  <div>
+                    <label className="block">
+                      <span className="text-sm font-medium text-stone-800">Profile photo link</span>
+                      <span className="mt-0.5 block text-xs text-stone-500">The photo at the top of your booking page — the one setup called your profile photo. Paste the address of a photo you have already uploaded.</span>
+                      <input
+                        type="url"
+                        data-testid="content-hero-image-url"
+                        disabled={presentationPending}
+                        value={heroImageDraft}
+                        onChange={event => updateContentTextDraft(
+                          'heroImageUrl',
+                          event.target.value,
+                          setHeroImageDraft,
+                        )}
+                        onBlur={() => void saveContentPatch({ heroImageUrl: heroImageDraft.trim() === '' ? null : heroImageDraft.trim() })}
+                        placeholder="https://…"
+                        className="mt-1 w-full rounded-xl border border-stone-200 px-3 py-2 text-sm"
+                      />
+                    </label>
+                    <a className="mt-2 inline-flex text-sm font-semibold text-rose-800 underline" href={`/${locale}/admin?salon=${encodeURIComponent(salonSlug)}&app=portfolio`}>Photos &amp; Gallery</a>
+                  </div>
                 )}
 
                 <label className="block">
@@ -1204,7 +1219,20 @@ export default function BookingPageOwnerSurface() {
 
                 {!panel && (
                   <div>
-                    <span className="text-sm font-medium text-stone-800">Location shown as</span>
+                    {/*
+                      Same record, same name as the panel that owns it: this
+                      used to be called "Location shown as" while Your
+                      Information called the identical choice "Address
+                      privacy", so an owner could not tell they were the same
+                      setting.
+                    */}
+                    <span className="text-sm font-medium text-stone-800">Address privacy</span>
+                    <span className="mt-0.5 block text-xs text-stone-500">
+                      The same choice as
+                      {' '}
+                      <a className="font-semibold text-rose-800 underline" data-testid="location-display-mode-canonical-link" href={`/${locale}/admin/booking-page?salon=${encodeURIComponent(salonSlug)}&panel=information`}>Your Information</a>
+                      , where your address, hours and contact details live.
+                    </span>
                     <div className="mt-1 grid grid-cols-1 gap-2 sm:grid-cols-3">
                       {LOCATION_DISPLAY_MODE_OPTIONS.map(option => (
                         <button
@@ -1254,11 +1282,25 @@ export default function BookingPageOwnerSurface() {
 
         <div className="mt-8 rounded-3xl border border-stone-200 bg-white p-5 shadow-sm">
           {reviewIndex >= 0 && (
-            <div className="mb-5 flex flex-wrap gap-3 border-b border-stone-200 pb-5">
-              {reviewIndex > 0 && (
-                <button type="button" disabled={presentationPending} className="min-h-11 rounded-xl border border-stone-300 px-4 py-3 text-sm font-semibold disabled:opacity-50" onClick={() => void navigateAfterSaving(`/${locale}/admin/booking-page?salon=${encodeURIComponent(salonSlug)}&panel=${reviewPanels[reviewIndex - 1]}&guided=1`)}>Previous step</button>
-              )}
-              <button type="button" disabled={presentationPending} className="min-h-11 rounded-xl bg-rose-800 px-4 py-3 text-sm font-semibold text-white disabled:opacity-50" onClick={() => void navigateAfterSaving(reviewIndex < reviewPanels.length - 1 ? `/${locale}/admin/booking-page?salon=${encodeURIComponent(salonSlug)}&panel=${reviewPanels[reviewIndex + 1]}&guided=1` : `/${locale}/admin/website?salon=${encodeURIComponent(salonSlug)}`)}>{reviewIndex < reviewPanels.length - 1 ? 'Save & next step' : 'Finish review'}</button>
+            <div className="mb-5 border-b border-stone-200 pb-5">
+              <div className="flex flex-wrap gap-3">
+                {reviewIndex > 0 && (
+                  <button type="button" aria-busy={navigationPending} data-testid="guided-review-previous" disabled={presentationPending || navigationPending} className="min-h-11 rounded-xl border border-stone-300 px-4 py-3 text-sm font-semibold disabled:opacity-50" onClick={() => void navigateAfterSaving(`/${locale}/admin/booking-page?salon=${encodeURIComponent(salonSlug)}&panel=${reviewPanels[reviewIndex - 1]}&guided=1`)}>Previous step</button>
+                )}
+                {/* AG-hub-publish-07 — the label, not just the disabled state, says a save is draining. */}
+                <button type="button" aria-busy={navigationPending} data-testid="guided-review-next" disabled={presentationPending || navigationPending} className="min-h-11 rounded-xl bg-rose-800 px-4 py-3 text-sm font-semibold text-white disabled:opacity-50" onClick={() => void navigateAfterSaving(reviewIndex < reviewPanels.length - 1 ? `/${locale}/admin/booking-page?salon=${encodeURIComponent(salonSlug)}&panel=${reviewPanels[reviewIndex + 1]}&guided=1` : `/${locale}/admin/website?salon=${encodeURIComponent(salonSlug)}`)}>
+                  {reviewIndex < reviewPanels.length - 1
+                    ? (navigationPending ? 'Saving…' : 'Save & next step')
+                    : (navigationPending ? 'Finishing review…' : 'Finish review')}
+                </button>
+              </div>
+              <p className="mt-2 h-4 text-xs text-stone-500" role="status">
+                {navigationPending
+                  ? (reviewIndex < reviewPanels.length - 1
+                      ? 'Saving your changes before the next step…'
+                      : 'Saving your changes and returning to Booking Page…')
+                  : ''}
+              </p>
             </div>
           )}
           {/*

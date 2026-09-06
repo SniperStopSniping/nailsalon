@@ -14,12 +14,15 @@
 
 import { motion } from 'framer-motion';
 import {
+  ChevronDown,
   ChevronRight,
+  ChevronUp,
   Clock,
   DollarSign,
   ImagePlus,
   Loader2,
   Scissors,
+  Search,
   Sparkles,
   Trash2,
 } from 'lucide-react';
@@ -30,12 +33,14 @@ import { CatalogConfigTab } from '@/components/admin/catalogConfig/CatalogConfig
 import { AsyncStatePanel } from '@/components/ui/async-state-panel';
 import { Button } from '@/components/ui/button';
 import { DialogShell } from '@/components/ui/dialog-shell';
+import { InlineFeedback } from '@/components/ui/inline-feedback';
 import { ListSurface } from '@/components/ui/list-surface';
 import { BOOKING_CATEGORY_META, deriveBookingCategory, resolveVisibleBookingCategory } from '@/libs/bookingCategory';
 import { LUSTER_MANICURE_TEMPLATE_KEY } from '@/libs/bookingMerchandising';
 import { formatMoney } from '@/libs/formatMoney';
 import {
   isPublicServiceCustomImageUrl,
+  isUnusablePublicServiceImageUrl,
   resolveServiceCardImage,
 } from '@/libs/serviceImage';
 import {
@@ -50,6 +55,8 @@ import { getTemplateByKey, type ServiceTemplate } from '@/libs/serviceTemplateCa
 import { formatDuration } from '@/utils/Helpers';
 
 import { BackButton, ModalHeader } from './AppModal';
+import { ADD_ON_CATEGORY_LABELS } from './serviceLibrary/addOnCategories';
+import { AddOnCreateDialog } from './serviceLibrary/AddOnCreateDialog';
 import { ServiceLibraryTab } from './serviceLibrary/ServiceLibraryTab';
 
 // Types
@@ -70,12 +77,94 @@ type ServiceData = {
   templateKey?: string | null;
   featuredOrder?: number | null;
   imageUrl: string | null;
+  /** Menu position. Both the owner list and the public menu ORDER BY it. */
+  sortOrder?: number | null;
   isActive: boolean;
   isIntroPrice?: boolean | null;
   introPriceLabel?: string | null;
-  /** Enabled links to ACTIVE technicians; 0 ⇒ hidden from public booking. */
+  /**
+   * Enabled links to ACTIVE technicians; 0 ⇒ hidden from public booking.
+   * `undefined` means "not reported by this response" and must never be read
+   * as either state — see `isHiddenFromBooking` (AG-w2-services-01).
+   */
   assignedTechnicianCount?: number;
 };
+
+/**
+ * The single truth test behind the "Not visible in booking" row pill and the
+ * detail notice. It answers only when the server actually told us the count:
+ * the old `?? 1` made a missing number read as "assigned, all good", which is
+ * exactly how a freshly-created unbookable service looked Active with no
+ * caveat (AG-w2-services-01).
+ */
+function isHiddenFromBooking(service: ServiceData): boolean {
+  return service.isActive && service.assignedTechnicianCount === 0;
+}
+
+/**
+ * My Menu text filter (AG-services-01). Owners were the only people looking at
+ * this menu without a search box — their clients have one on the public copy,
+ * and the Library tab has one too. Matches the fields an owner would type:
+ * the name, the category labels they can see, and the description they wrote.
+ */
+function matchesServiceQuery(service: ServiceData, query: string): boolean {
+  const needle = query.trim().toLowerCase();
+  if (!needle) {
+    return true;
+  }
+  const haystack = [
+    service.name,
+    service.description ?? '',
+    ...(service.descriptionItems ?? []),
+    service.category,
+    service.bookingCategory,
+    BOOKING_CATEGORY_META[resolveVisibleBookingCategory(service)].label,
+    service.priceDisplayText ?? '',
+  ]
+    .join(' ')
+    .toLowerCase();
+
+  return needle
+    .split(/\s+/)
+    .every(token => haystack.includes(token));
+}
+
+/**
+ * Moves one service one step up or down **relative to the rows the owner can
+ * currently see**, and returns the salon's complete id order to persist
+ * (AG-services-03). Working on the full order rather than the filtered slice
+ * is what keeps a reorder done under a category chip or a search from
+ * scrambling the services that were filtered out. Returns null when the move
+ * is a no-op (already first/last visible row).
+ */
+function moveServiceOrder(
+  allIds: string[],
+  visibleIds: string[],
+  serviceId: string,
+  direction: 'up' | 'down',
+): string[] | null {
+  const visibleIndex = visibleIds.indexOf(serviceId);
+  if (visibleIndex < 0) {
+    return null;
+  }
+  const targetId = direction === 'up'
+    ? visibleIds[visibleIndex - 1]
+    : visibleIds[visibleIndex + 1];
+  if (!targetId) {
+    return null;
+  }
+  const fromIndex = allIds.indexOf(serviceId);
+  if (fromIndex < 0 || !allIds.includes(targetId)) {
+    return null;
+  }
+  const next = allIds.slice();
+  next.splice(fromIndex, 1);
+  const targetIndex = next.indexOf(targetId);
+
+  next.splice(direction === 'up' ? targetIndex : targetIndex + 1, 0, serviceId);
+
+  return next;
+}
 
 type ServicePrefill = {
   name: string;
@@ -132,17 +221,11 @@ type AddOnData = {
   compatibleServiceIds?: string[];
 };
 
-/**
- * Add-on category labels. The library's TEMPLATE_TYPE_LABELS is keyed by
- * ServiceTemplateCategory, which is a different vocabulary — these are the
- * four values of the add_on_category enum.
+/*
+ * Add-on category labels now live beside the Service Library
+ * (./serviceLibrary/addOnCategories) so the Add-ons tab, the add-on editors
+ * and the library shelf all name a category the same way.
  */
-const ADD_ON_CATEGORY_LABELS: Record<string, string> = {
-  nail_art: 'Nail art',
-  repair: 'Repair',
-  removal: 'Removal',
-  pedicure_addon: 'Pedicure add-on',
-};
 
 type ServicesModalProps = {
   onClose: () => void;
@@ -256,14 +339,31 @@ function ServiceRow({
   service,
   isLast,
   showNotBookable,
+  canMoveUp,
+  canMoveDown,
+  reorderBusy,
+  onMoveUp,
+  onMoveDown,
   onClick,
 }: {
   service: ServiceData;
   isLast: boolean;
   /** Active service with no eligible technician — hidden from booking. */
   showNotBookable: boolean;
+  canMoveUp: boolean;
+  canMoveDown: boolean;
+  reorderBusy: boolean;
+  onMoveUp: () => void;
+  onMoveDown: () => void;
   onClick: () => void;
 }) {
+  // The row's own photo, never a stock stand-in: a service WITHOUT a picture
+  // has to look different from one with a picture, or the owner cannot audit
+  // their photography from the menu (AG-services-02). `resolveServiceCardImage`
+  // is deliberately not used here for that reason.
+  const hasOwnImage = !isUnusablePublicServiceImageUrl(service.imageUrl);
+  const displayPrice = formatCurrency(service.price);
+
   return (
     <motion.div
       initial={{ opacity: 0, x: -10 }}
@@ -272,33 +372,51 @@ function ServiceRow({
       className="flex min-h-[72px] cursor-pointer items-center pl-4 transition-colors active:bg-gray-50"
       onClick={onClick}
     >
-      {/* Icon */}
-      <div
-        className={`size-12 rounded-[12px] bg-gradient-to-br ${getCategoryGradient(service.category)} mr-3 flex items-center justify-center shadow-sm`}
-      >
-        <Scissors className="size-6 text-white" />
-      </div>
+      {/* Thumbnail */}
+      {hasOwnImage
+        ? (
+            <div className="mr-3 size-12 shrink-0 overflow-hidden rounded-[12px] bg-gray-100 shadow-sm">
+              {/* Service artwork can be a local /uploads path in development, which
+                  next/image is not configured to optimize inside this modal. */}
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={service.imageUrl ?? ''}
+                alt=""
+                loading="lazy"
+                data-testid={`service-row-image-${service.id}`}
+                className="size-full object-cover"
+              />
+            </div>
+          )
+        : (
+            <div
+              data-testid={`service-row-image-fallback-${service.id}`}
+              className={`size-12 shrink-0 rounded-[12px] bg-gradient-to-br ${getCategoryGradient(service.category)} mr-3 flex items-center justify-center shadow-sm`}
+            >
+              <Scissors className="size-6 text-white" />
+            </div>
+          )}
 
       {/* Content */}
       <div
-        className={`flex flex-1 items-center justify-between py-3 pr-4 ${!isLast ? 'border-b border-gray-100' : ''}`}
+        className={`flex flex-1 items-center justify-between gap-2 py-3 pr-2 ${!isLast ? 'border-b border-gray-100' : ''}`}
       >
         <div className="min-w-0 flex-1">
           <div className="truncate text-[17px] font-semibold text-[#1C1C1E]">
             {service.name}
           </div>
-          <div className="mt-0.5 flex items-center gap-3 text-[13px] text-[#8E8E93]">
-            <span className="flex items-center gap-1">
+          <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[13px] text-[#8E8E93]">
+            <span className="flex shrink-0 items-center gap-1 whitespace-nowrap">
               <Clock className="size-3" />
               {formatDuration(service.durationMinutes)}
             </span>
-            <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[12px]">
+            <span className="shrink-0 whitespace-nowrap rounded-full bg-gray-100 px-2 py-0.5 text-[12px]">
               {BOOKING_CATEGORY_META[resolveVisibleBookingCategory(service)].label}
             </span>
             {!service.isActive && (
               <span
                 data-testid={`service-row-inactive-${service.id}`}
-                className="rounded-full bg-gray-200 px-2 py-0.5 text-[12px] text-gray-600"
+                className="shrink-0 rounded-full bg-gray-200 px-2 py-0.5 text-[12px] text-gray-600"
               >
                 Inactive
               </span>
@@ -306,7 +424,7 @@ function ServiceRow({
             {showNotBookable && (
               <span
                 data-testid={`service-row-not-bookable-${service.id}`}
-                className="rounded-full bg-amber-100 px-2 py-0.5 text-[12px] text-amber-700"
+                className="shrink-0 rounded-full bg-amber-100 px-2 py-0.5 text-[12px] text-amber-700"
               >
                 Not bookable
               </span>
@@ -314,12 +432,61 @@ function ServiceRow({
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
-          <div className="text-[17px] font-semibold text-emerald-700">
-            {service.priceDisplayText || formatCurrency(service.price)}
+        {/* Price column. Capped and shrinkable so a long "price display text"
+            can never win the flex negotiation against the service name
+            (AG-w2-services-02), and the real amount stays the headline even
+            when a display string exists (AG-w2-services-03). */}
+        <div className="flex min-w-0 max-w-[104px] shrink flex-col items-end">
+          <div
+            data-testid={`service-row-price-${service.id}`}
+            className="max-w-full truncate text-[17px] font-semibold text-emerald-700"
+          >
+            {displayPrice}
           </div>
-          <ChevronRight className="size-4 text-[#C7C7CC]" />
+          {service.priceDisplayText && (
+            <div
+              data-testid={`service-row-price-display-${service.id}`}
+              title={service.priceDisplayText}
+              className="max-w-full truncate text-[11px] leading-4 text-[#8E8E93]"
+            >
+              {service.priceDisplayText}
+            </div>
+          )}
         </div>
+
+        {/* Reorder (AG-services-03). Buttons rather than a drag handle: they
+            work with a screen reader, with a keyboard and with one thumb on a
+            390 px phone, which HTML5 drag-and-drop does not. */}
+        <div className="flex shrink-0 flex-col items-center">
+          <button
+            type="button"
+            data-testid={`service-row-move-up-${service.id}`}
+            aria-label={`Move ${service.name} up`}
+            disabled={!canMoveUp || reorderBusy}
+            onClick={(event) => {
+              event.stopPropagation();
+              onMoveUp();
+            }}
+            className="flex size-7 items-center justify-center rounded-md text-[#8E8E93] transition-colors hover:bg-gray-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-700 disabled:opacity-30"
+          >
+            <ChevronUp className="size-4" />
+          </button>
+          <button
+            type="button"
+            data-testid={`service-row-move-down-${service.id}`}
+            aria-label={`Move ${service.name} down`}
+            disabled={!canMoveDown || reorderBusy}
+            onClick={(event) => {
+              event.stopPropagation();
+              onMoveDown();
+            }}
+            className="flex size-7 items-center justify-center rounded-md text-[#8E8E93] transition-colors hover:bg-gray-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-700 disabled:opacity-30"
+          >
+            <ChevronDown className="size-4" />
+          </button>
+        </div>
+
+        <ChevronRight className="size-4 shrink-0 text-[#C7C7CC]" />
       </div>
     </motion.div>
   );
@@ -889,6 +1056,18 @@ function AddServiceDialog({
             ...savedResponse,
             imageUrl: service?.imageUrl ?? null,
           };
+      // The technician count only comes back on CREATE. An edit (PATCH) and
+      // the image endpoints do not report it, so carry the count we already
+      // knew rather than dropping it — a dropped count would make an ordinary
+      // edit look like "not visible in booking" (AG-w2-services-01).
+      const carryAssignmentCount = (next: ServiceData): ServiceData => ({
+        ...next,
+        assignedTechnicianCount:
+          next.assignedTechnicianCount
+          ?? savedService?.assignedTechnicianCount
+          ?? service?.assignedTechnicianCount,
+      });
+      savedService = carryAssignmentCount(savedService);
 
       const expectedImageUrl = imageOperationExpectedUrlRef.current;
       let finalService = savedService;
@@ -910,7 +1089,7 @@ function AddServiceDialog({
         return;
       }
 
-      onSaved(finalService);
+      onSaved(carryAssignmentCount(finalService));
     } catch (saveError) {
       setError(
         saveError instanceof Error
@@ -1170,6 +1349,7 @@ function AddServiceDialog({
             Category
           </span>
           <select
+            data-testid="service-category"
             value={category}
             disabled={saving}
             onChange={(event) => {
@@ -1189,9 +1369,18 @@ function AddServiceDialog({
             <option value="hands">Hands</option>
             <option value="feet">Feet</option>
           </select>
+          {/* The old copy claimed hands/feet services are hidden from the
+              booking page. They are not: public visibility is decided by the
+              Booking page section below plus technician assignment, and
+              category-'hands' services sit on live menus today
+              (AG-w2-services-06). */}
           {['hands', 'feet'].includes(category) && (
-            <span className="mt-1.5 block text-xs font-medium text-amber-700">
-              Heads up: services in this category don’t show on your public booking page.
+            <span
+              data-testid="service-category-internal-note"
+              className="mt-1.5 block text-xs text-[#6B7280]"
+            >
+              Clients never see this label. Choose where they find the service
+              under “Booking page section” below.
             </span>
           )}
         </label>
@@ -1401,7 +1590,7 @@ function LusterPromoCard({
   return (
     <div
       data-testid="luster-promo-card"
-      className="mx-4 mb-3 rounded-[18px] border border-rose-100 bg-white p-4 shadow-sm"
+      className="mx-4 mt-3 rounded-[18px] border border-rose-100 bg-white p-4 shadow-sm"
     >
       <div className="flex items-start justify-between gap-3">
         <div>
@@ -1525,7 +1714,7 @@ function ServiceDetail({
         </AdminDetailCard>
 
         {/* Truthful public-visibility explanation */}
-        {service.isActive && (service.assignedTechnicianCount ?? 1) === 0 && (
+        {isHiddenFromBooking(service) && (
           <AdminDetailCard className="mb-4">
             <div
               data-testid="service-detail-visibility-warning"
@@ -1555,9 +1744,26 @@ function ServiceDetail({
               <DollarSign className="size-4" />
               Price
             </div>
-            <div className="mt-1 text-[32px] font-bold text-emerald-700">
-              {service.priceDisplayText || formatCurrency(service.price)}
+            {/* The amount clients are actually charged is the headline; the
+                marketing string is shown as well, never instead of it
+                (AG-w2-services-03). `break-words` keeps a long display string
+                inside the card at 390 px. */}
+            <div
+              data-testid="service-detail-price"
+              className="mt-1 text-[32px] font-bold leading-tight text-emerald-700"
+            >
+              {formatCurrency(service.price)}
             </div>
+            {service.priceDisplayText && (
+              <div
+                data-testid="service-detail-price-display"
+                className="mt-1 break-words text-[13px] leading-5 text-[#6B7280]"
+              >
+                Shown to clients as “
+                {service.priceDisplayText}
+                ”
+              </div>
+            )}
           </AdminDetailCard>
           <AdminDetailCard>
             <div className="flex items-center gap-2 text-[13px] font-medium uppercase text-[#8E8E93]">
@@ -1934,6 +2140,9 @@ export function ServicesModal({ onClose, salonSlug, onOpenStaff }: ServicesModal
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeCategory, setActiveCategory] = useState('all');
+  const [menuQuery, setMenuQuery] = useState('');
+  const [reorderBusy, setReorderBusy] = useState(false);
+  const [reorderError, setReorderError] = useState<string | null>(null);
   const [selectedService, setSelectedService] = useState<ServiceData | null>(
     null,
   );
@@ -1959,6 +2168,8 @@ export function ServicesModal({ onClose, salonSlug, onOpenStaff }: ServicesModal
   const [addOnsLoading, setAddOnsLoading] = useState(true);
   const [addOnsError, setAddOnsError] = useState<string | null>(null);
   const [editingAddOn, setEditingAddOn] = useState<AddOnData | null>(null);
+  const [showAddOnCreate, setShowAddOnCreate] = useState(false);
+  const [addOnNotice, setAddOnNotice] = useState<string | null>(null);
   const [operationNotice, setOperationNotice] = useState<{
     tone: 'warning' | 'error';
     message: string;
@@ -2006,6 +2217,7 @@ export function ServicesModal({ onClose, salonSlug, onOpenStaff }: ServicesModal
           templateKey?: string | null;
           featuredOrder?: number | null;
           imageUrl: string | null;
+          sortOrder?: number | null;
           isActive: boolean;
           isIntroPrice?: boolean | null;
           introPriceLabel?: string | null;
@@ -2026,6 +2238,7 @@ export function ServicesModal({ onClose, salonSlug, onOpenStaff }: ServicesModal
           templateKey: service.templateKey ?? null,
           featuredOrder: service.featuredOrder ?? null,
           imageUrl: service.imageUrl,
+          sortOrder: service.sortOrder ?? null,
           isActive: service.isActive,
           isIntroPrice: service.isIntroPrice ?? false,
           introPriceLabel: service.introPriceLabel ?? null,
@@ -2276,7 +2489,21 @@ export function ServicesModal({ onClose, salonSlug, onOpenStaff }: ServicesModal
       if (!updatedService) {
         throw new Error('Updated service was missing from the response');
       }
-      setSelectedService(updatedService);
+      // PATCH does not report technician assignment; keep the count we already
+      // had so a deactivate/reactivate never invents a visibility warning
+      // (AG-w2-services-01).
+      const mergedService: ServiceData = {
+        ...service,
+        ...updatedService,
+        assignedTechnicianCount:
+          updatedService.assignedTechnicianCount ?? service.assignedTechnicianCount,
+      };
+      setSelectedService(mergedService);
+      // Keep the list (and the counts/pills it feeds) in step immediately
+      // rather than only after the refetch lands (AG-w2-services-04).
+      setServices(current =>
+        current.map(item => (item.id === mergedService.id ? mergedService : item)),
+      );
       void fetchServices();
     } catch (toggleError) {
       setToggleActiveError(
@@ -2288,6 +2515,61 @@ export function ServicesModal({ onClose, salonSlug, onOpenStaff }: ServicesModal
       setToggleActiveBusy(false);
     }
   }, [salonSlug, selectedService, toggleActiveBusy, fetchServices]);
+
+  /**
+   * Menu reordering (AG-services-03). Optimistic: the list moves under the
+   * owner's thumb immediately and the whole order is persisted in one
+   * request; a refusal puts the previous order back and says so, rather than
+   * leaving the screen disagreeing with the database.
+   */
+  const handleReorder = useCallback(
+    async (serviceId: string, direction: 'up' | 'down', visibleIds: string[]) => {
+      if (!salonSlug || reorderBusy) {
+        return;
+      }
+      const previousOrder = services;
+      const nextIds = moveServiceOrder(
+        previousOrder.map(service => service.id),
+        visibleIds,
+        serviceId,
+        direction,
+      );
+      if (!nextIds) {
+        return;
+      }
+      const byId = new Map(previousOrder.map(service => [service.id, service]));
+      const nextOrder = nextIds
+        .map(id => byId.get(id))
+        .filter((service): service is ServiceData => Boolean(service));
+
+      setReorderBusy(true);
+      setReorderError(null);
+      setServices(nextOrder);
+      try {
+        const response = await fetch('/api/salon/services', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ salonSlug, orderedIds: nextIds }),
+        });
+        if (!response.ok) {
+          const result = await response.json().catch(() => null);
+          throw new Error(
+            result?.error?.message ?? 'The new menu order could not be saved.',
+          );
+        }
+      } catch (error) {
+        setServices(previousOrder);
+        setReorderError(
+          error instanceof Error
+            ? error.message
+            : 'The new menu order could not be saved.',
+        );
+      } finally {
+        setReorderBusy(false);
+      }
+    },
+    [salonSlug, services, reorderBusy],
+  );
 
   const handleAddTemplate = useCallback(async (template: ServiceTemplate) => {
     if (template.serviceType === 'addon') {
@@ -2406,11 +2688,16 @@ export function ServicesModal({ onClose, salonSlug, onOpenStaff }: ServicesModal
     0,
   ) + 1;
 
-  // Filter services by category
-  const filteredServices
-    = activeCategory === 'all'
-      ? services
-      : services.filter(s => resolveVisibleBookingCategory(s) === activeCategory);
+  // Filter services by category, then by the owner's search text.
+  const filteredServices = services.filter((service) => {
+    const matchesCategory
+      = activeCategory === 'all'
+      || resolveVisibleBookingCategory(service) === activeCategory;
+
+    return matchesCategory && matchesServiceQuery(service, menuQuery);
+  });
+  const filteredServiceIds = filteredServices.map(service => service.id);
+  const hasMenuQuery = menuQuery.trim().length > 0;
 
   // Count per visible category (base services + combos only — add-ons are a
   // separate record type and never inflate these counts).
@@ -2551,13 +2838,47 @@ export function ServicesModal({ onClose, salonSlug, onOpenStaff }: ServicesModal
           </span>
         </div>
         {activeTab === 'menu' && (
-          <CategoryTabs
-            active={activeCategory}
-            onChange={setActiveCategory}
-            counts={categoryCounts}
-          />
+          <>
+            {/* Owner search (AG-services-01). The client's copy of this menu and
+                the Library tab both have one; the owner's did not. */}
+            <div className="px-4 pb-2">
+              <label htmlFor="services-menu-search" className="sr-only">
+                Search your services
+              </label>
+              <div className="relative">
+                <Search
+                  aria-hidden="true"
+                  className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-[#8E8E93]"
+                />
+                <input
+                  id="services-menu-search"
+                  type="search"
+                  value={menuQuery}
+                  onChange={event => setMenuQuery(event.target.value)}
+                  placeholder="Search services…"
+                  data-testid="services-menu-search"
+                  className="h-10 w-full rounded-full border border-gray-200 bg-white pl-9 pr-3 text-[15px] text-[#1C1C1E] outline-none transition placeholder:text-[#8E8E93] focus:border-rose-700"
+                />
+              </div>
+            </div>
+            <CategoryTabs
+              active={activeCategory}
+              onChange={setActiveCategory}
+              counts={categoryCounts}
+            />
+          </>
         )}
       </div>
+
+      {reorderError && (
+        <div
+          role="alert"
+          data-testid="services-reorder-error"
+          className="mx-4 mt-3 rounded-2xl border border-red-200 bg-red-50 p-3 text-[13px] leading-relaxed text-red-800"
+        >
+          {reorderError}
+        </div>
+      )}
 
       {operationNotice && (
         <div
@@ -2586,10 +2907,35 @@ export function ServicesModal({ onClose, salonSlug, onOpenStaff }: ServicesModal
       <div className={`flex-1 overflow-y-auto pb-10 ${selectedService ? 'hidden' : ''}`}>
         {activeTab === 'addons' && (
           <div className="px-4 pb-4" data-testid="addons-tab-panel">
-            <p className="mb-3 text-[13px] leading-relaxed text-[#6B7280]">
-              Add-ons appear for clients after they pick a compatible base
-              service — they are never listed as standalone services.
-            </p>
+            <div className="mb-3 flex items-start justify-between gap-3">
+              <p className="text-[13px] leading-relaxed text-[#6B7280]">
+                Add-ons appear for clients after they pick a compatible base
+                service — they are never listed as standalone services.
+              </p>
+              <Button
+                type="button"
+                variant="ownerPrimary"
+                size="pillSm"
+                className="shrink-0"
+                data-testid="addons-create-open"
+                disabled={!salonSlug}
+                onClick={() => {
+                  setAddOnNotice(null);
+                  setShowAddOnCreate(true);
+                }}
+              >
+                New add-on
+              </Button>
+            </div>
+            {addOnNotice && (
+              <InlineFeedback
+                tone="success"
+                className="mb-3"
+                message={addOnNotice}
+                data-testid="addons-create-notice"
+                onDismiss={() => setAddOnNotice(null)}
+              />
+            )}
             {addOnsLoading
               ? (
                   <AsyncStatePanel
@@ -2620,8 +2966,38 @@ export function ServicesModal({ onClose, salonSlug, onOpenStaff }: ServicesModal
                   )
                 : addOns.length === 0
                   ? (
-                      <div className="rounded-[18px] border border-gray-200 bg-white p-4 text-[14px] text-[#8E8E93]">
-                        No add-ons yet. Add them from the Library tab.
+                      <div
+                        data-testid="addons-empty"
+                        className="rounded-[18px] border border-gray-200 bg-white p-4 text-[14px] text-[#8E8E93]"
+                      >
+                        <p>
+                          No add-ons yet. Create your own, or add one from the
+                          Service Library.
+                        </p>
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          <Button
+                            type="button"
+                            variant="ownerPrimary"
+                            size="pillSm"
+                            data-testid="addons-empty-create"
+                            disabled={!salonSlug}
+                            onClick={() => {
+                              setAddOnNotice(null);
+                              setShowAddOnCreate(true);
+                            }}
+                          >
+                            Create add-on
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="ownerSecondary"
+                            size="pillSm"
+                            data-testid="addons-empty-library"
+                            onClick={() => setActiveTab('library')}
+                          >
+                            Browse Library
+                          </Button>
+                        </div>
                       </div>
                     )
                   : (
@@ -2688,21 +3064,106 @@ export function ServicesModal({ onClose, salonSlug, onOpenStaff }: ServicesModal
           <ServiceLibraryTab
             ownedTemplateKeys={ownedTemplateKeys}
             bulkAddBusy={bulkAddBusy}
-            onAddTemplate={template => void handleAddTemplate(template)}
+            menuServiceCount={services.length}
+            menuAddOnCount={addOns.length}
+            onAddTemplate={handleAddTemplate}
             onBulkAdd={handleBulkAdd}
             onCreateCustom={() => {
               setAddDialogPrefill(null);
               setShowAddDialog(true);
             }}
+            onDone={() => setActiveTab('menu')}
           />
         )}
         {activeTab === 'catalog' && (
           <CatalogConfigTab salonSlug={salonSlug} />
         )}
-        {activeTab === 'menu' && !loading && !error && libraryIntroDismissed === false && (
+        {activeTab === 'menu' && (loading
+          ? (
+              <div className="p-4">
+                <AsyncStatePanel
+                  loading
+                  title="Loading services"
+                  description="Fetching your live service catalog."
+                />
+              </div>
+            )
+          : error
+            ? (
+                <AsyncStatePanel
+                  tone="error"
+                  title="Unable to load services"
+                  description={error}
+                  className="mx-4 my-8"
+                  action={(
+                    <Button
+                      type="button"
+                      variant="brandSoft"
+                      size="pillSm"
+                      onClick={fetchServices}
+                    >
+                      Try again
+                    </Button>
+                  )}
+                />
+              )
+            : filteredServices.length === 0
+              ? hasMenuQuery
+                ? (
+                    <AsyncStatePanel
+                      icon={<Search className="mx-auto size-8 text-[#8E8E93]" />}
+                      title="No matching services"
+                      description={`Nothing on your menu matches “${menuQuery.trim()}”.`}
+                      className="mx-4 my-8"
+                      action={(
+                        <Button
+                          type="button"
+                          variant="brandSoft"
+                          size="pillSm"
+                          data-testid="services-menu-search-clear"
+                          onClick={() => setMenuQuery('')}
+                        >
+                          Clear search
+                        </Button>
+                      )}
+                    />
+                  )
+                : (
+                    <EmptyState
+                      category={activeCategory}
+                      onAddService={() => setShowAddDialog(true)}
+                    />
+                  )
+              : (
+                  <ListSurface className="mx-4 rounded-[10px]">
+                    {filteredServices.map((service, index) => (
+                      <ServiceRow
+                        key={service.id}
+                        service={service}
+                        isLast={index === filteredServices.length - 1}
+                        showNotBookable={isHiddenFromBooking(service)}
+                        canMoveUp={index > 0}
+                        canMoveDown={index < filteredServices.length - 1}
+                        reorderBusy={reorderBusy}
+                        onMoveUp={() => void handleReorder(service.id, 'up', filteredServiceIds)}
+                        onMoveDown={() => void handleReorder(service.id, 'down', filteredServiceIds)}
+                        onClick={() => {
+                          setSelectedService(service);
+                          setToggleActiveError(null);
+                        }}
+                      />
+                    ))}
+                  </ListSurface>
+                ))}
+        {/* Promotional nudges sit BELOW the menu (AG-services-05): stacked above
+            it they filled the whole first screen of a 390x844 phone, so the
+            screen called "My Menu" opened on no menu at all. They are also
+            hidden while a search is active — a filtered list is a question
+            being answered, not a place to advertise. */}
+        {activeTab === 'menu' && !hasMenuQuery && !loading && !error && libraryIntroDismissed === false && (
           <div
             data-testid="library-intro-card"
-            className="mx-4 mb-3 flex items-center justify-between gap-3 rounded-[18px] border border-rose-100 bg-white p-4 shadow-sm"
+            className="mx-4 mt-3 flex items-center justify-between gap-3 rounded-[18px] border border-rose-100 bg-white p-4 shadow-sm"
           >
             <div>
               <div className="text-[15px] font-semibold text-[#1C1C1E]">
@@ -2736,7 +3197,7 @@ export function ServicesModal({ onClose, salonSlug, onOpenStaff }: ServicesModal
             </div>
           </div>
         )}
-        {activeTab === 'menu' && showLusterPromo && (
+        {activeTab === 'menu' && !hasMenuQuery && showLusterPromo && (
           <LusterPromoCard
             onSetUp={() => {
               setAddDialogPrefill(LUSTER_PREFILL);
@@ -2745,59 +3206,6 @@ export function ServicesModal({ onClose, salonSlug, onOpenStaff }: ServicesModal
             onDismiss={() => void dismissLusterPromo()}
           />
         )}
-        {activeTab === 'menu' && (loading
-          ? (
-              <div className="p-4">
-                <AsyncStatePanel
-                  loading
-                  title="Loading services"
-                  description="Fetching your live service catalog."
-                />
-              </div>
-            )
-          : error
-            ? (
-                <AsyncStatePanel
-                  tone="error"
-                  title="Unable to load services"
-                  description={error}
-                  className="mx-4 my-8"
-                  action={(
-                    <Button
-                      type="button"
-                      variant="brandSoft"
-                      size="pillSm"
-                      onClick={fetchServices}
-                    >
-                      Try again
-                    </Button>
-                  )}
-                />
-              )
-            : filteredServices.length === 0
-              ? (
-                  <EmptyState
-                    category={activeCategory}
-                    onAddService={() => setShowAddDialog(true)}
-                  />
-                )
-              : (
-                  <ListSurface className="mx-4 rounded-[10px]">
-                    {filteredServices.map((service, index) => (
-                      <ServiceRow
-                        key={service.id}
-                        service={service}
-                        isLast={index === filteredServices.length - 1}
-                        showNotBookable={service.isActive
-                        && (service.assignedTechnicianCount ?? 1) === 0}
-                        onClick={() => {
-                          setSelectedService(service);
-                          setToggleActiveError(null);
-                        }}
-                      />
-                    ))}
-                  </ListSurface>
-                ))}
       </div>
 
       {/* Service Detail — in flow below the sticky chrome */}
@@ -2816,6 +3224,22 @@ export function ServicesModal({ onClose, salonSlug, onOpenStaff }: ServicesModal
           toggleActiveError={toggleActiveError}
         />
       )}
+
+      <AddOnCreateDialog
+        isOpen={showAddOnCreate}
+        salonSlug={salonSlug}
+        services={services.map(service => ({
+          id: service.id,
+          name: service.name,
+          isActive: service.isActive,
+        }))}
+        onClose={() => setShowAddOnCreate(false)}
+        onCreated={(created) => {
+          setShowAddOnCreate(false);
+          setAddOnNotice(`“${created.name}” is on your add-on list.`);
+          void fetchAddOns();
+        }}
+      />
 
       <AddOnEditDialog
         addOn={editingAddOn}
@@ -2845,7 +3269,30 @@ export function ServicesModal({ onClose, salonSlug, onOpenStaff }: ServicesModal
           setAddDialogPrefill(null);
           setSelectedService(savedService);
           setActiveTab('menu');
-          setActiveCategory(savedService.category);
+          // The header count and the category chips read from `services`.
+          // Waiting for the refetch left them saying "8 services" on the very
+          // screen the owner uses to confirm the save landed
+          // (AG-w2-services-04), so merge the saved record straight in — the
+          // refetch below still reconciles anything the server changed.
+          setServices((current) => {
+            const index = current.findIndex(item => item.id === savedService.id);
+            if (index < 0) {
+              return [...current, savedService];
+            }
+            const next = current.slice();
+            next[index] = { ...current[index], ...savedService };
+            return next;
+          });
+          // Only move the chips when the saved service would otherwise be
+          // filtered out of view — and then to a category that actually exists
+          // on the chip row (the storage category does not).
+          setActiveCategory((current) => {
+            const visibleCategory = resolveVisibleBookingCategory(savedService);
+            return current === 'all' || current === visibleCategory
+              ? current
+              : visibleCategory;
+          });
+          setMenuQuery('');
           if (options?.imageOperationError) {
             setOperationNotice({
               tone: 'warning',

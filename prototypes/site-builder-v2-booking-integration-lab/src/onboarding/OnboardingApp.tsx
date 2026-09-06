@@ -1660,6 +1660,7 @@ export function OnboardingApp({
               <OnboardingShell
                 autosaveState={onboarding.saveStatus}
                 completedStages={completedStages}
+                currentScreen={screen}
                 currentStage={getScreenStage(screen)}
                 essentialsRemaining={essentialsRemaining}
                 onLabOptions={auditMode ? () => setLabOptionsOpen(true) : undefined}

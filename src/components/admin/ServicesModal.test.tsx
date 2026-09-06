@@ -58,6 +58,8 @@ type MockRoutes = {
   templateAddResult?: Record<string, unknown>;
   /** Non-2xx forces the service PATCH to fail with this status/message. */
   patchFailure?: { status: number; message: string };
+  /** Non-2xx forces the collection reorder PATCH to fail. */
+  reorderFailure?: { status: number; message: string };
   /** Non-2xx forces the add-on LIST fetch to fail — e.g. the production 401. */
   addOnsFailure?: { status: number };
   /** Add-ons returned by the second and later list fetches (refresh checks). */
@@ -75,7 +77,7 @@ type MockRoutes = {
   imageDeleteFailure?: { status: number; message: string };
 };
 
-function mockRoutes({ services = [], merchandising = {}, settingsGetStatus = 200, settingsPatch, createdService, patchedService, servicesAfterRefresh, ownedTemplateKeys = [], addOns = [], activeTechnicianCount = 0, templateAddResult, patchFailure, addOnsFailure, addOnsAfterRefresh, imageStrategy = 'local', imageResultService, imageFailureAt, imageFailure, imageDeleteFailure }: MockRoutes) {
+function mockRoutes({ services = [], merchandising = {}, settingsGetStatus = 200, settingsPatch, createdService, patchedService, servicesAfterRefresh, ownedTemplateKeys = [], addOns = [], activeTechnicianCount = 0, templateAddResult, patchFailure, reorderFailure, addOnsFailure, addOnsAfterRefresh, imageStrategy = 'local', imageResultService, imageFailureAt, imageFailure, imageDeleteFailure }: MockRoutes) {
   let addOnListCalls = 0;
   let serviceListCalls = 0;
   fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -198,6 +200,23 @@ function mockRoutes({ services = [], merchandising = {}, settingsGetStatus = 200
         const payload = addOnsAfterRefresh && addOnListCalls > 1 ? addOnsAfterRefresh : addOns;
         return new Response(JSON.stringify({ data: { addOns: payload } }), { status: 200 });
       }
+      if (init?.method === 'POST') {
+        const submitted = JSON.parse(String(init.body)) as Record<string, unknown>;
+        const { salonSlug: _slug, serviceIds = [], ...fields } = submitted;
+        return new Response(
+          JSON.stringify({
+            data: {
+              addOn: {
+                id: 'addon_created',
+                pricingType: 'fixed',
+                compatibleServiceIds: serviceIds,
+                ...fields,
+              },
+            },
+          }),
+          { status: 201 },
+        );
+      }
       if (init?.method === 'PATCH') {
         const submitted = JSON.parse(String(init.body)) as Record<string, unknown>;
         const { salonSlug: _slug, ...fields } = submitted;
@@ -242,6 +261,24 @@ function mockRoutes({ services = [], merchandising = {}, settingsGetStatus = 200
         }), { status: 200 });
       }
       return new Response(JSON.stringify({ data: { ownedTemplateKeys } }), { status: 200 });
+    }
+    if (url === '/api/salon/services' && init?.method === 'PATCH') {
+      if (reorderFailure) {
+        return new Response(
+          JSON.stringify({ error: { code: 'UPDATE_FAILED', message: reorderFailure.message } }),
+          { status: reorderFailure.status },
+        );
+      }
+      const submitted = JSON.parse(String(init.body)) as { orderedIds: string[] };
+
+      return new Response(
+        JSON.stringify({
+          data: {
+            order: submitted.orderedIds.map((id, index) => ({ id, sortOrder: index + 1 })),
+          },
+        }),
+        { status: 200 },
+      );
     }
     if (url.startsWith('/api/salon/services/') && init?.method === 'PATCH') {
       if (patchFailure) {
@@ -727,7 +764,7 @@ describe('ServicesModal', () => {
     expect(screen.queryByTestId('luster-promo-card')).not.toBeInTheDocument();
   });
 
-  it('shows the numeric price with the intro badge on the detail view, and only a set display text overrides the shown price', async () => {
+  it('always shows the real price, with a display text as an extra line rather than a replacement', async () => {
     mockRoutes({
       services: [
         {
@@ -749,7 +786,8 @@ describe('ServicesModal', () => {
           isActive: true,
         },
         {
-          // A display-text service: the override replaces the shown price.
+          // A display-text service: the marketing string is shown NEXT TO the
+          // real amount, never instead of it (AG-w2-services-03).
           id: 'svc_display',
           name: 'Gel Pedicure',
           description: null,
@@ -772,19 +810,40 @@ describe('ServicesModal', () => {
 
     render(<ServicesModal onClose={() => {}} salonSlug="isla-nail-studio" />);
 
-    // List rows: numeric price when no display text; override when set.
+    // List rows: the charged amount is the headline on BOTH rows; the display
+    // string is a secondary line on the row that has one.
     expect(await screen.findByText('Luster Manicure')).toBeInTheDocument();
-    expect(screen.getByText('$55.00')).toBeInTheDocument();
-    expect(screen.getByText('$55+')).toBeInTheDocument();
+    expect(screen.getByTestId('service-row-price-svc_luster')).toHaveTextContent('$55.00');
+    expect(
+      screen.queryByTestId('service-row-price-display-svc_luster'),
+    ).not.toBeInTheDocument();
+    expect(screen.getByTestId('service-row-price-svc_display')).toHaveTextContent('$55.00');
+    expect(screen.getByTestId('service-row-price-display-svc_display')).toHaveTextContent('$55+');
 
     fireEvent.click(screen.getByText('Luster Manicure'));
 
     // Detail view: PRICE card shows the bookable $55 and the badge is the
     // intro label — never a second price.
     expect(await screen.findByText('Price')).toBeInTheDocument();
-    expect(screen.getAllByText('$55.00').length).toBeGreaterThan(0);
+    expect(screen.getByTestId('service-detail-price')).toHaveTextContent('$55.00');
+    expect(screen.queryByTestId('service-detail-price-display')).not.toBeInTheDocument();
     expect(screen.getByText('Intro price')).toBeInTheDocument();
     expect(screen.queryByText('$75+')).not.toBeInTheDocument();
+
+    // The display-text service's detail keeps the authoritative amount AND
+    // says what clients are shown — the owner no longer has to open the edit
+    // form to find out what they charge (AG-w2-services-03).
+    fireEvent.click(screen.getByRole('button', { name: 'Services' }));
+    fireEvent.click(await screen.findByText('Gel Pedicure'));
+
+    expect(await screen.findByTestId('service-detail-price')).toHaveTextContent('$55.00');
+    expect(screen.getByTestId('service-detail-price-display')).toHaveTextContent(
+      'Shown to clients as “$55+”',
+    );
+
+    // Drain this sheet's in-flight fetches: an unresolved one lands as an
+    // un-acted state update inside whichever test runs next.
+    await act(async () => {});
   });
 
   it('hides the Luster setup card once dismissed and persists the dismissal', async () => {
@@ -1302,7 +1361,7 @@ describe('ServicesModal — service detail owner actions', () => {
       fireEvent.click(screen.getByTestId('services-tab-addons'));
 
       expect(await screen.findByTestId('addons-load-error')).toHaveTextContent('Unable to load add-ons');
-      expect(screen.queryByText('No add-ons yet. Add them from the Library tab.')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('addons-empty')).not.toBeInTheDocument();
       expect(screen.getByRole('button', { name: 'Try again' })).toBeInTheDocument();
 
       consoleError.mockRestore();
@@ -1320,16 +1379,78 @@ describe('ServicesModal — service detail owner actions', () => {
 
       fireEvent.click(await screen.findByTestId('services-tab-addons'));
 
-      expect(await screen.findByText('No add-ons yet. Add them from the Library tab.')).toBeInTheDocument();
+      expect(await screen.findByTestId('addons-empty')).toHaveTextContent(
+        'No add-ons yet. Create your own, or add one from the Service Library.',
+      );
 
       fireEvent.click(screen.getByTestId('services-tab-library'));
-      fireEvent.click(await screen.findByTestId('library-chip-addon'));
+      // Add-ons are a segment of the library now, not one shelf among the
+      // service shelves.
+      fireEvent.click(await screen.findByTestId('library-segment-addons'));
       fireEvent.click(await screen.findByTestId('library-add-chrome'));
 
       fireEvent.click(screen.getByTestId('services-tab-addons'));
 
       // No remount: the same mounted component now shows the new add-on.
       expect(await screen.findByTestId('addon-row-addon_chrome')).toHaveTextContent('Chrome');
+      expect(screen.getByText('1 services · 1 add-ons')).toBeInTheDocument();
+    });
+
+    it('creates an add-on from the tab and offers it under a chosen service', async () => {
+      // The audit found the only route into an empty Add-ons tab was the
+      // Library ("Add them from the Library tab"), so an extra the template
+      // catalogue does not carry had no owner-side route at all.
+      mockRoutes({
+        services: [lusterService],
+        addOns: [],
+        addOnsAfterRefresh: [{
+          id: 'addon_created',
+          name: 'AUDIT-0905 Add-on',
+          priceCents: 1000,
+          priceDisplayText: null,
+          durationMinutes: 10,
+          category: 'nail_art',
+          pricingType: 'fixed',
+          unitLabel: null,
+          maxQuantity: null,
+          isActive: true,
+          compatibleServiceIds: ['svc_luster'],
+        }],
+        merchandising: { lusterPromoDismissed: true },
+      });
+
+      render(<ServicesModal onClose={() => {}} salonSlug="isla-nail-studio" />);
+
+      fireEvent.click(await screen.findByTestId('services-tab-addons'));
+      fireEvent.click(await screen.findByTestId('addons-empty-create'));
+
+      fireEvent.change(await screen.findByTestId('addon-create-name'), {
+        target: { value: 'AUDIT-0905 Add-on' },
+      });
+      fireEvent.change(screen.getByTestId('addon-create-price'), { target: { value: '10' } });
+      fireEvent.change(screen.getByTestId('addon-create-duration'), { target: { value: '10' } });
+      fireEvent.click(screen.getByTestId('addon-create-service-svc_luster'));
+      fireEvent.click(screen.getByTestId('addon-create-submit'));
+
+      await waitFor(() => {
+        const call = findCall((url, init) => url === '/api/salon/add-ons' && init?.method === 'POST');
+
+        expect(call).toBeTruthy();
+
+        const body = JSON.parse(String((call![1] as RequestInit).body));
+
+        expect(body.priceCents).toBe(1000);
+        expect(body.durationMinutes).toBe(10);
+        expect(body.serviceIds).toEqual(['svc_luster']);
+      });
+
+      // Confirmation lands on the tab the owner acted on, and the list is real.
+      expect(await screen.findByTestId('addons-create-notice')).toHaveTextContent(
+        'is on your add-on list',
+      );
+      expect(await screen.findByTestId('addon-row-addon_created')).toHaveTextContent(
+        'Offered with 1 service',
+      );
       expect(screen.getByText('1 services · 1 add-ons')).toBeInTheDocument();
     });
 
@@ -2140,5 +2261,388 @@ describe('ServicesModal — service image controls', () => {
 
       expect(detailCreates).toHaveLength(1);
     });
+  });
+});
+
+/**
+ * My Menu: search, ordering, row layout and the truth a just-created service
+ * tells about itself. Covers AG-services-01/-02/-03/-05 and
+ * AG-w2-services-01/-02/-03/-04.
+ */
+describe('ServicesModal — My Menu search, ordering and creation truth', () => {
+  function service(overrides: Record<string, unknown>) {
+    return {
+      description: null,
+      descriptionItems: null,
+      price: 6500,
+      priceDisplayText: null,
+      isIntroPrice: false,
+      introPriceLabel: null,
+      durationMinutes: 60,
+      preparationBufferMinutes: 0,
+      cleanupBufferMinutes: 0,
+      category: 'hands',
+      bookingCategory: 'manicure',
+      templateKey: null,
+      featuredOrder: null,
+      imageUrl: null,
+      isActive: true,
+      assignedTechnicianCount: 3,
+      ...overrides,
+    };
+  }
+
+  const biabShort = service({ id: 'svc_biab_short', name: 'BIAB Short', sortOrder: 1 });
+  const biabFrench = service({ id: 'svc_biab_french', name: 'BIAB French', sortOrder: 2 });
+  const gelPedicure = service({
+    id: 'svc_gel_pedi',
+    name: 'Gel Pedicure',
+    category: 'feet',
+    bookingCategory: 'pedicure',
+    sortOrder: 3,
+  });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    fetchMock.mockReset();
+    vi.stubGlobal('fetch', fetchMock);
+  });
+
+  it('filters My Menu by a text search over name and category, and offers a way back', async () => {
+    mockRoutes({
+      services: [biabShort, biabFrench, gelPedicure],
+      merchandising: { lusterPromoDismissed: true },
+      activeTechnicianCount: 3,
+    });
+
+    render(<ServicesModal onClose={() => {}} salonSlug="nail-salon-no5" />);
+
+    expect(await screen.findByText('BIAB Short')).toBeInTheDocument();
+
+    const search = screen.getByTestId('services-menu-search');
+
+    fireEvent.change(search, { target: { value: 'biab' } });
+
+    expect(screen.getByText('BIAB Short')).toBeInTheDocument();
+    expect(screen.getByText('BIAB French')).toBeInTheDocument();
+    expect(screen.queryByText('Gel Pedicure')).not.toBeInTheDocument();
+
+    // Category words the owner can see are searchable too.
+    fireEvent.change(search, { target: { value: 'pedicure' } });
+
+    expect(screen.getByText('Gel Pedicure')).toBeInTheDocument();
+    expect(screen.queryByText('BIAB Short')).not.toBeInTheDocument();
+
+    // A search that matches nothing says so and can be undone in one tap —
+    // it never looks like an empty menu.
+    fireEvent.change(search, { target: { value: 'zzz nothing' } });
+
+    expect(await screen.findByText('No matching services')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('services-menu-search-clear'));
+
+    expect(screen.getByText('BIAB Short')).toBeInTheDocument();
+    expect(screen.getByText('Gel Pedicure')).toBeInTheDocument();
+
+    await act(async () => {});
+  });
+
+  it('keeps the category chip selection while searching', async () => {
+    mockRoutes({
+      services: [biabShort, biabFrench, gelPedicure],
+      merchandising: { lusterPromoDismissed: true },
+      activeTechnicianCount: 3,
+    });
+
+    render(<ServicesModal onClose={() => {}} salonSlug="nail-salon-no5" />);
+
+    expect(await screen.findByText('BIAB Short')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /^Pedicure/ }));
+    fireEvent.change(screen.getByTestId('services-menu-search'), {
+      target: { value: 'biab' },
+    });
+
+    // Pedicure ∩ "biab" is empty, and clearing the text restores the chip's
+    // own result set rather than the whole menu.
+    expect(await screen.findByText('No matching services')).toBeInTheDocument();
+
+    fireEvent.change(screen.getByTestId('services-menu-search'), { target: { value: '' } });
+
+    expect(screen.getByText('Gel Pedicure')).toBeInTheDocument();
+    expect(screen.queryByText('BIAB Short')).not.toBeInTheDocument();
+
+    await act(async () => {});
+  });
+
+  it('reorders the menu with the row controls and persists the whole order', async () => {
+    mockRoutes({
+      services: [biabShort, biabFrench, gelPedicure],
+      merchandising: { lusterPromoDismissed: true },
+      activeTechnicianCount: 3,
+    });
+
+    render(<ServicesModal onClose={() => {}} salonSlug="nail-salon-no5" />);
+
+    expect(await screen.findByText('BIAB French')).toBeInTheDocument();
+
+    // The first row cannot move up and the last cannot move down.
+    expect(screen.getByTestId('service-row-move-up-svc_biab_short')).toBeDisabled();
+    expect(screen.getByTestId('service-row-move-down-svc_gel_pedi')).toBeDisabled();
+
+    fireEvent.click(screen.getByTestId('service-row-move-up-svc_biab_french'));
+
+    await waitFor(() => {
+      const call = findCall((url, init) =>
+        url === '/api/salon/services' && init?.method === 'PATCH');
+
+      expect(call).toBeTruthy();
+      expect(JSON.parse(String((call![1] as RequestInit).body))).toEqual({
+        salonSlug: 'nail-salon-no5',
+        orderedIds: ['svc_biab_french', 'svc_biab_short', 'svc_gel_pedi'],
+      });
+    });
+
+    // The list moved under the owner's thumb, not only in the database.
+    const rows = screen.getAllByTestId(/^service-row-svc_/);
+
+    expect(rows.map(row => row.getAttribute('data-testid'))).toEqual([
+      'service-row-svc_biab_french',
+      'service-row-svc_biab_short',
+      'service-row-svc_gel_pedi',
+    ]);
+
+    await act(async () => {});
+  });
+
+  it('moves relative to the visible rows and still sends the salon-wide order', async () => {
+    mockRoutes({
+      services: [biabShort, gelPedicure, biabFrench],
+      merchandising: { lusterPromoDismissed: true },
+      activeTechnicianCount: 3,
+    });
+
+    render(<ServicesModal onClose={() => {}} salonSlug="nail-salon-no5" />);
+
+    expect(await screen.findByText('BIAB French')).toBeInTheDocument();
+
+    fireEvent.change(screen.getByTestId('services-menu-search'), { target: { value: 'biab' } });
+    fireEvent.click(screen.getByTestId('service-row-move-up-svc_biab_french'));
+
+    // BIAB French jumps above BIAB Short (the row above it on screen) while
+    // the filtered-out pedicure keeps its place in the salon's order.
+    await waitFor(() => {
+      const call = findCall((url, init) =>
+        url === '/api/salon/services' && init?.method === 'PATCH');
+
+      expect(call).toBeTruthy();
+      expect(JSON.parse(String((call![1] as RequestInit).body)).orderedIds).toEqual([
+        'svc_biab_french',
+        'svc_biab_short',
+        'svc_gel_pedi',
+      ]);
+    });
+
+    await act(async () => {});
+  });
+
+  it('puts the previous order back and says so when the reorder is refused', async () => {
+    mockRoutes({
+      services: [biabShort, biabFrench, gelPedicure],
+      merchandising: { lusterPromoDismissed: true },
+      activeTechnicianCount: 3,
+      reorderFailure: { status: 409, message: 'The new menu order could not be saved.' },
+    });
+
+    render(<ServicesModal onClose={() => {}} salonSlug="nail-salon-no5" />);
+
+    expect(await screen.findByText('BIAB French')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('service-row-move-up-svc_biab_french'));
+
+    expect(await screen.findByTestId('services-reorder-error')).toHaveTextContent(
+      'The new menu order could not be saved.',
+    );
+
+    const rows = screen.getAllByTestId(/^service-row-svc_/);
+
+    expect(rows.map(row => row.getAttribute('data-testid'))).toEqual([
+      'service-row-svc_biab_short',
+      'service-row-svc_biab_french',
+      'service-row-svc_gel_pedi',
+    ]);
+
+    await act(async () => {});
+  });
+
+  it('shows each row its own photo and falls back to the placeholder without one', async () => {
+    mockRoutes({
+      services: [
+        { ...biabShort, imageUrl: '/assets/images/biab-short.webp' },
+        biabFrench,
+      ],
+      merchandising: { lusterPromoDismissed: true },
+      activeTechnicianCount: 3,
+    });
+
+    render(<ServicesModal onClose={() => {}} salonSlug="nail-salon-no5" />);
+
+    const photo = await screen.findByTestId('service-row-image-svc_biab_short');
+
+    expect(photo).toHaveAttribute('src', '/assets/images/biab-short.webp');
+    // A service with no picture is visibly different, so missing photography
+    // is auditable from the menu.
+    expect(screen.getByTestId('service-row-image-fallback-svc_biab_french')).toBeInTheDocument();
+    expect(screen.queryByTestId('service-row-image-svc_biab_french')).not.toBeInTheDocument();
+
+    await act(async () => {});
+  });
+
+  it('keeps the service name readable next to a long price display text', async () => {
+    mockRoutes({
+      services: [{ ...biabShort, price: 7200, priceDisplayText: 'from $72 (AUDIT-0905)' }],
+      merchandising: { lusterPromoDismissed: true },
+      activeTechnicianCount: 3,
+    });
+
+    render(<ServicesModal onClose={() => {}} salonSlug="nail-salon-no5" />);
+
+    // Full name, not "BIA…": the price column is capped and shrinkable, the
+    // name column takes the rest.
+    expect(await screen.findByText('BIAB Short')).toBeInTheDocument();
+
+    const price = screen.getByTestId('service-row-price-svc_biab_short');
+
+    expect(price).toHaveTextContent('$72.00');
+    expect(price.parentElement?.className).toContain('max-w-[104px]');
+    expect(price.parentElement?.className).toContain('shrink');
+    expect(screen.getByTestId('service-row-price-display-svc_biab_short')).toHaveTextContent(
+      'from $72 (AUDIT-0905)',
+    );
+
+    await act(async () => {});
+  });
+
+  it('opens on the menu itself, with the promotional cards below the service rows', async () => {
+    mockRoutes({
+      services: [biabShort, biabFrench],
+      merchandising: { lusterPromoDismissed: false, serviceLibraryIntroDismissed: false },
+      activeTechnicianCount: 3,
+    });
+
+    render(<ServicesModal onClose={() => {}} salonSlug="nail-salon-no5" />);
+
+    const firstRow = await screen.findByTestId('service-row-svc_biab_short');
+    const libraryCard = await screen.findByTestId('library-intro-card');
+    const lusterCard = screen.getByTestId('luster-promo-card');
+
+    // Both nudges are still offered — after the menu they interrupt.
+    expect(
+      firstRow.compareDocumentPosition(libraryCard) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(
+      firstRow.compareDocumentPosition(lusterCard) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+
+    await act(async () => {});
+  });
+
+  it('warns that a service nobody offers is invisible, straight after it is created', async () => {
+    mockRoutes({
+      services: [biabShort],
+      merchandising: { lusterPromoDismissed: true },
+      activeTechnicianCount: 3,
+      // The salon has technicians but this record ended up with none.
+      createdService: service({
+        id: 'svc_new',
+        name: 'AUDIT-0905 Polish Change',
+        category: 'manicure',
+        assignedTechnicianCount: 0,
+      }),
+      servicesAfterRefresh: [biabShort, service({
+        id: 'svc_new',
+        name: 'AUDIT-0905 Polish Change',
+        category: 'manicure',
+        assignedTechnicianCount: 0,
+      })],
+    });
+
+    render(
+      <ServicesModal onClose={() => {}} salonSlug="nail-salon-no5" onOpenStaff={() => {}} />,
+    );
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Add' }));
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'AUDIT-0905 Polish Change' } });
+    fireEvent.change(screen.getByLabelText('Price'), { target: { value: '25' } });
+    fireEvent.change(screen.getByLabelText('Duration'), { target: { value: '30' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save Service' }));
+
+    // The detail the owner lands on says it outright, with the way to fix it —
+    // no "Active" with no caveat (AG-w2-services-01).
+    expect(await screen.findByTestId('service-detail-visibility-warning')).toHaveTextContent(
+      'Not visible in booking',
+    );
+    expect(screen.getByTestId('service-detail-open-staff')).toBeInTheDocument();
+
+    await act(async () => {});
+  });
+
+  it('counts the new service in the header and chips as soon as it is saved', async () => {
+    const created = service({
+      id: 'svc_new',
+      name: 'AUDIT-0905 Polish Change',
+      category: 'manicure',
+      bookingCategory: 'manicure',
+      assignedTechnicianCount: 3,
+    });
+
+    mockRoutes({
+      services: [biabShort, biabFrench, gelPedicure],
+      merchandising: { lusterPromoDismissed: true },
+      activeTechnicianCount: 3,
+      createdService: created,
+      servicesAfterRefresh: [biabShort, biabFrench, gelPedicure, created],
+    });
+
+    render(<ServicesModal onClose={() => {}} salonSlug="nail-salon-no5" />);
+
+    expect(await screen.findByText('3 services · 0 add-ons')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add' }));
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'AUDIT-0905 Polish Change' } });
+    fireEvent.change(screen.getByLabelText('Price'), { target: { value: '25' } });
+    fireEvent.change(screen.getByLabelText('Duration'), { target: { value: '30' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save Service' }));
+
+    // The header is right immediately, not after the next open of the sheet,
+    // and the chip filter is not silently switched to a storage category.
+    expect(await screen.findByText('4 services · 0 add-ons')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^All/ })).toHaveTextContent('4');
+    expect(screen.getByRole('button', { name: /^Manicure/ })).toHaveTextContent('3');
+
+    await act(async () => {});
+  });
+
+  it('no longer claims a hands or feet service is hidden from the booking page', async () => {
+    mockRoutes({
+      services: [biabShort],
+      merchandising: { lusterPromoDismissed: true },
+      activeTechnicianCount: 3,
+    });
+
+    render(<ServicesModal onClose={() => {}} salonSlug="nail-salon-no5" />);
+
+    fireEvent.click(await screen.findByText('BIAB Short'));
+    fireEvent.click(await screen.findByTestId('service-detail-edit'));
+
+    expect(await screen.findByTestId('service-category')).toHaveValue('hands');
+    expect(
+      screen.queryByText(/don’t show on your public booking page/),
+    ).not.toBeInTheDocument();
+    expect(screen.getByTestId('service-category-internal-note')).toHaveTextContent(
+      'Clients never see this label',
+    );
+
+    await act(async () => {});
   });
 });

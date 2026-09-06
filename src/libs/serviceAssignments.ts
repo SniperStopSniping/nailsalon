@@ -21,8 +21,17 @@ export class InvalidTechnicianAssignmentError extends Error {
 
 /**
  * Keeps service creation and technician assignment on one shared code path.
- * A single-technician salon is safe to auto-assign. Multi-technician salons
- * must explicitly provide the technicians who offer the service.
+ *
+ * Default = every ACTIVE technician (AG-w2-services-01). The previous rule
+ * only auto-assigned a single-technician salon, so a multi-technician salon
+ * that created a service through a form with no technician picker got zero
+ * `technician_services` rows and a service that read "Active" in the owner UI
+ * while being invisible on the public booking page forever. Assigning
+ * everyone matches what an owner means by "I now offer this"; narrowing it is
+ * an explicit, reversible action in Team -> technician -> Services.
+ *
+ * An explicit `technicianIds` list still wins, and is still validated against
+ * the salon's active technicians.
  */
 export async function ensureServiceAssignments(
   database: AssignmentDatabase,
@@ -56,9 +65,7 @@ export async function ensureServiceAssignments(
 
   const assignedTechnicianIds = explicitTechnicianIds.length > 0
     ? explicitTechnicianIds
-    : activeTechnicians.length === 1
-      ? [activeTechnicians[0]!.id]
-      : [];
+    : activeTechnicians.map(technician => technician.id);
 
   if (assignedTechnicianIds.length > 0) {
     await database
@@ -77,7 +84,13 @@ export async function ensureServiceAssignments(
 
   return {
     assignedTechnicianIds,
-    assignmentRequired: activeTechnicians.length > 1 && assignedTechnicianIds.length === 0,
+    // True only when the salon HAS active technicians and none of them ended
+    // up offering the service — i.e. the owner must go and pick someone. With
+    // the everyone-by-default rule above that can no longer happen through
+    // creation; it stays in the contract for callers that pass an explicit
+    // (possibly empty) list.
+    assignmentRequired:
+      activeTechnicians.length > 0 && assignedTechnicianIds.length === 0,
   };
 }
 

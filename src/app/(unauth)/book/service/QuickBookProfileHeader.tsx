@@ -234,7 +234,14 @@ export function QuickBookProfileHeader({
                       ? (
                           <div
                             data-testid="quick-book-contact"
-                            className={`grid gap-2 py-3 ${contactCount === 2 ? 'sm:grid-cols-2' : 'grid-cols-1'}`}
+                            className={`grid gap-2 py-3 ${contactCount === 2 ? 'sm:grid-cols-2' : 'grid-cols-1'} ${
+                              // hub_menu lays its details out in two columns.
+                              // Contact details are the longest strings on the
+                              // card — an email in half a column shattered
+                              // mid-word beside an empty cell — so they take
+                              // the whole row.
+                              activeLayout === 'hub_menu' ? 'col-span-full' : ''
+                            }`}
                           >
                             {profile.contact.phone
                               ? (
@@ -259,7 +266,12 @@ export function QuickBookProfileHeader({
                                     className="flex min-h-11 min-w-0 items-center gap-2 rounded-xl bg-neutral-50 px-3 text-sm font-medium text-neutral-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
                                   >
                                     <Mail aria-hidden="true" className="size-4 shrink-0" style={{ color: themeVars.accent }} />
-                                    <span className="min-w-0 break-all">{profile.contact.email.display}</span>
+                                    {/* break-all split the address mid-token
+                                        ("hello.audit0 / 905@examp / le.com");
+                                        wrap at word/punctuation boundaries and
+                                        only break inside a token when a single
+                                        run really cannot fit. */}
+                                    <span className="min-w-0 break-words [overflow-wrap:anywhere]">{profile.contact.email.display}</span>
                                   </a>
                                 )
                               : null}
@@ -285,7 +297,7 @@ export function QuickBookProfileHeader({
                 >
                   {profile.policies.length > 0
                     ? (
-                        <details data-testid="quick-book-policies" className="group sm:col-span-full">
+                        <details data-testid="quick-book-policies" className="group col-span-full">
                           <summary className="flex min-h-11 cursor-pointer list-none items-center gap-2 rounded-xl border border-neutral-200 px-3 text-sm font-semibold text-neutral-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 [&::-webkit-details-marker]:hidden">
                             <ShieldCheck aria-hidden="true" className="size-4 shrink-0" style={{ color: themeVars.accent }} />
                             <span className="flex-1">Policies</span>
@@ -311,7 +323,7 @@ export function QuickBookProfileHeader({
                             href={profile.reviews.href}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="flex min-h-11 items-center gap-2 rounded-xl border border-neutral-200 px-3 text-sm font-medium text-neutral-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
+                            className={`flex min-h-11 items-center gap-2 rounded-xl border border-neutral-200 px-3 text-sm font-medium text-neutral-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 ${secondaryLinkCount === 1 ? 'col-span-full' : ''}`}
                           >
                             <Star aria-hidden="true" className="size-4 shrink-0" style={{ color: themeVars.accent }} />
                             <span className="min-w-0">
@@ -326,7 +338,7 @@ export function QuickBookProfileHeader({
                           </a>
                         )
                       : (
-                          <div data-testid="quick-book-reviews" className="flex min-h-11 items-center gap-2 rounded-xl border border-neutral-200 px-3 text-sm font-medium text-neutral-800">
+                          <div data-testid="quick-book-reviews" className={`flex min-h-11 items-center gap-2 rounded-xl border border-neutral-200 px-3 text-sm font-medium text-neutral-800 ${secondaryLinkCount === 1 ? 'col-span-full' : ''}`}>
                             <Star aria-hidden="true" className="size-4 shrink-0" style={{ color: themeVars.accent }} />
                             <span className="min-w-0">
                               <strong className="block">Reviews</strong>
@@ -348,10 +360,12 @@ export function QuickBookProfileHeader({
                           href={profile.instagram.href}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="flex min-h-11 min-w-0 items-center gap-2 rounded-xl border border-neutral-200 px-3 text-sm font-medium text-neutral-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
+                          className={`flex min-h-11 min-w-0 items-center gap-2 rounded-xl border border-neutral-200 px-3 text-sm font-medium text-neutral-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 ${secondaryLinkCount === 1 ? 'col-span-full' : ''}`}
                         >
                           <Instagram aria-hidden="true" className="size-4 shrink-0" style={{ color: themeVars.accent }} />
-                          <span className="min-w-0 truncate">{profile.instagram.label}</span>
+                          {/* A handle was ellipsised beside ~270px of empty
+                              space; wrap it instead of hiding it. */}
+                          <span className="min-w-0 break-words [overflow-wrap:anywhere]">{profile.instagram.label}</span>
                         </a>
                       )
                     : null}

@@ -31,6 +31,74 @@ const names: Record<string, string> = {
   editorial_price_list: 'Editorial Price List',
 };
 
+/**
+ * AG-hub-publish-04 — a presentation chooser has to show what it is choosing.
+ *
+ * Both groups render the same miniature card through the SAME resolver the
+ * customer site uses (`getCustomerSitePresentationCssVariables`), so a
+ * specimen can never drift from what publishing actually produces:
+ *
+ *   - "Choose your style" holds the owner's current palette constant and
+ *     varies the style, so the heading typeface, card corner radius and
+ *     button shape are the only things that differ between cards.
+ *   - "Choose your colours" holds the style constant and varies the palette,
+ *     painting THREE stops (page ground, primary button, secondary accent)
+ *     instead of the single `--booking-brand-primary` bar that used to hide
+ *     the second half of every paired palette name — "Navy & Ivory" showed
+ *     navy only, "Black & Champagne" champagne only.
+ *
+ * The specimen is `aria-hidden` throughout, so each card's accessible name
+ * stays the style/palette name on its own.
+ */
+function PresetSpecimen({ tokens, value }: { tokens: Record<string, string>; value: string }) {
+  return (
+    <span
+      aria-hidden="true"
+      className="mb-2 block overflow-hidden border p-1.5"
+      data-testid={`appearance-specimen-${value}`}
+      style={{
+        backgroundColor: tokens['--theme-background'],
+        borderColor: tokens['--theme-card-border'],
+        borderRadius: tokens['--customer-site-card-radius'],
+      }}
+    >
+      <span
+        className="flex items-center gap-1.5 border px-1.5 py-1"
+        data-specimen-role="surface"
+        style={{
+          backgroundColor: tokens['--theme-card-background'],
+          borderColor: tokens['--theme-card-border'],
+          borderRadius: tokens['--customer-site-card-radius'],
+        }}
+      >
+        <span
+          className="text-sm font-semibold leading-none"
+          data-specimen-role="heading"
+          style={{
+            color: tokens['--customer-site-ink'],
+            fontFamily: tokens['--customer-site-heading-font'],
+          }}
+        >
+          Aa
+        </span>
+        <span
+          className="h-3.5 w-8"
+          data-specimen-role="primary"
+          style={{
+            backgroundColor: tokens['--theme-primary'],
+            borderRadius: tokens['--customer-site-button-radius'],
+          }}
+        />
+        <span
+          className="size-3.5 rounded-full"
+          data-specimen-role="secondary"
+          style={{ backgroundColor: tokens['--theme-primary-light'] }}
+        />
+      </span>
+    </span>
+  );
+}
+
 export function BookingPageAppearance({ draft, disabled, mode, onChange }: {
   draft: BookingPageConfigSide;
   disabled: boolean;
@@ -53,9 +121,19 @@ export function BookingPageAppearance({ draft, disabled, mode, onChange }: {
       {groups.map(group => (
         <fieldset className="rounded-2xl border border-stone-200 bg-white p-4" disabled={disabled} key={group.key}>
           <legend className="px-2 text-xl font-semibold">{group.title}</legend>
+          {group.key === 'siteStylePreset' && (
+            <p className="mb-3 text-xs text-stone-500">Every sample uses your chosen colours, so only the lettering, corners and button shape change.</p>
+          )}
+          {group.key === 'sitePalettePreset' && (
+            <p className="mb-3 text-xs text-stone-500">Every sample shows that palette's page background, button colour and accent colour.</p>
+          )}
           <div className="grid grid-cols-2 gap-3">
             {group.values.map((value) => {
-              const palette = group.key === 'sitePalettePreset' ? getCustomerSitePresentationCssVariables({ palettePreset: value, stylePreset: draft.siteStylePreset }) : null;
+              const tokens = group.key === 'siteStylePreset'
+                ? getCustomerSitePresentationCssVariables({ palettePreset: draft.sitePalettePreset, stylePreset: value })
+                : group.key === 'sitePalettePreset'
+                  ? getCustomerSitePresentationCssVariables({ palettePreset: value, stylePreset: draft.siteStylePreset })
+                  : null;
               return (
                 <button
                   aria-pressed={group.selected === value}
@@ -64,7 +142,7 @@ export function BookingPageAppearance({ draft, disabled, mode, onChange }: {
                   onClick={() => onChange({ [group.key]: value } as BookingPageDraftPatch)}
                   type="button"
                 >
-                  {palette && <span aria-hidden="true" className="mb-2 block h-5 rounded border border-stone-200" style={{ backgroundColor: palette['--booking-brand-primary'] }} />}
+                  {tokens && <PresetSpecimen tokens={tokens} value={value} />}
                   {names[value] ?? `${value[0]?.toUpperCase()}${value.slice(1)}`}
                   {group.selected === value && <span className="mt-1 block text-xs">✓ Selected</span>}
                 </button>

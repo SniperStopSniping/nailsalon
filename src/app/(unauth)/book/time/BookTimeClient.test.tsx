@@ -478,11 +478,11 @@ describe('BookTimeClient', () => {
     });
 
     it('honours a standing dismissal for the same booking context', async () => {
-      // The component auto-advances an empty "today" to tomorrow before the
-      // first availability response lands, so the effective date is the 15th.
+      // Today's availability answers with slots, so the step stays on the
+      // 14th: it no longer advances off today before the response lands.
       dismissSmartFitSuggestion(buildSmartFitSuggestionContextKey({
         salonSlug: 'salon-a',
-        dateKey: '2026-03-15',
+        dateKey: '2026-03-14',
         techId: 'tech_1',
         locationId: null,
         baseServiceId: null,
@@ -652,8 +652,8 @@ describe('BookTimeClient', () => {
       renderStep();
 
       const chosenDay = await screen.findByTestId('calendar-day-2026-03-20');
-      // The calendar renders before availability settles, but its controls
-      // intentionally stay disabled until that request completes.
+      // Open future dates stay selectable while availability loads; only
+      // past days, closed days and the current selection are disabled.
       await waitFor(() => expect(chosenDay).toBeEnabled());
       replaceSpy.mockClear();
       fireEvent.click(chosenDay);
@@ -741,6 +741,156 @@ describe('BookTimeClient', () => {
       await waitFor(() => {
         expect(sessionStorage.getItem('luster_smart_fit_refresh')).toBeNull();
       });
+    });
+  });
+
+  // AG-w2-clients-02 / AG-w2-services-05 / AG-w2-public-quick-book-04.
+  // System time is Saturday 2026-03-14 07:00 EDT, so "tomorrow" is Sunday.
+  describe('closed days', () => {
+    const renderWithClosedDays = (closedWeekdays: number[]) => render(
+      <BookTimeClient
+        services={[{ id: 'srv_1', name: 'Gel', price: 65, duration: 60 }]}
+        totalPrice={65}
+        totalDuration={60}
+        technician={{ id: 'tech_1', name: 'Taylor', imageUrl: '/tech.jpg' }}
+        bookingFlow={['service', 'tech', 'time', 'confirm']}
+        closedWeekdays={closedWeekdays}
+      />,
+    );
+
+    const mockEmptyDay = () => {
+      fetchMock.mockImplementation(() => Promise.resolve(new Response(JSON.stringify({
+        slots: [],
+        visibleSlots: [],
+        bookedSlots: [],
+      }), { status: 200 })));
+    };
+
+    const mockOpenDay = () => {
+      fetchMock.mockImplementation(() => Promise.resolve(new Response(JSON.stringify({
+        slots: [{ time: '10:00', startTime: null, availability: 'available' }],
+        visibleSlots: ['10:00'],
+        bookedSlots: [],
+      }), { status: 200 })));
+    };
+
+    beforeEach(() => {
+      sessionStorage.clear();
+    });
+
+    it('stays on today when the salon trades today and a slot remains', async () => {
+      mockOpenDay();
+
+      renderWithClosedDays([0]);
+
+      await waitFor(() => {
+        expect(fetchMock).toHaveBeenCalled();
+      });
+
+      const dates = fetchMock.mock.calls.map(call => String(call[0]));
+
+      expect(dates.every(url => url.includes('date=2026-03-14'))).toBe(true);
+    });
+
+    it('opens on the next open day when the salon is closed today', async () => {
+      // Saturday and Sunday closed: the first day worth loading is Monday.
+      mockOpenDay();
+
+      renderWithClosedDays([0, 6]);
+
+      await waitFor(() => {
+        expect(fetchMock).toHaveBeenCalled();
+      });
+
+      expect(String(fetchMock.mock.calls[0]?.[0])).toContain('date=2026-03-16');
+    });
+
+    it('skips a closed Sunday when today runs out of times', async () => {
+      mockEmptyDay();
+
+      renderWithClosedDays([0]);
+
+      await waitFor(() => {
+        const dates = fetchMock.mock.calls.map(call => String(call[0]));
+
+        expect(dates.some(url => url.includes('date=2026-03-16'))).toBe(true);
+      });
+
+      const dates = fetchMock.mock.calls.map(call => String(call[0]));
+
+      // Never the closed Sunday — that landing is the reported dead end.
+      expect(dates.some(url => url.includes('date=2026-03-15'))).toBe(false);
+    });
+
+    it('mirrors a closed-today resolution into the URL', async () => {
+      const replaceSpy = vi.spyOn(window.history, 'replaceState');
+      mockOpenDay();
+
+      renderWithClosedDays([6]);
+
+      await waitFor(() => {
+        expect(replaceSpy).toHaveBeenCalledWith(
+          null,
+          '',
+          expect.stringContaining('date=2026-03-15'),
+        );
+      });
+    });
+
+    it('renders closed days disabled and labelled, and open days selectable', async () => {
+      mockOpenDay();
+
+      renderWithClosedDays([0]);
+
+      await screen.findByRole('button', { name: '10:00 AM' });
+
+      const closedSunday = screen.getByTestId('calendar-day-2026-03-15');
+
+      expect(closedSunday).toBeDisabled();
+      expect(closedSunday).toHaveAttribute('aria-label', 'March 15 — closed');
+      expect(closedSunday).toHaveAttribute('data-closed', 'true');
+
+      const openMonday = screen.getByTestId('calendar-day-2026-03-16');
+
+      expect(openMonday).toBeEnabled();
+      expect(openMonday).not.toHaveAttribute('data-closed');
+      expect(screen.getByTestId('calendar-closed-legend')).toHaveTextContent('Closed — Sundays');
+    });
+
+    it('leaves open dates selectable while availability is still loading', async () => {
+      // The all-dates-disabled render in AG-w2-services-05: a pending
+      // availability request must never freeze the whole month.
+      let releaseFetch = () => {};
+      fetchMock.mockImplementation(() => new Promise<Response>((resolve) => {
+        releaseFetch = () => resolve(new Response(JSON.stringify({
+          slots: [],
+          visibleSlots: [],
+          bookedSlots: [],
+        }), { status: 200 }));
+      }));
+
+      renderWithClosedDays([0]);
+
+      await waitFor(() => {
+        expect(fetchMock).toHaveBeenCalled();
+      });
+
+      expect(screen.getByTestId('calendar-day-2026-03-16')).toBeEnabled();
+
+      await act(async () => {
+        releaseFetch();
+      });
+    });
+
+    it('never marks any day closed when the salon publishes no hours', async () => {
+      mockOpenDay();
+
+      renderWithClosedDays([]);
+
+      await screen.findByRole('button', { name: '10:00 AM' });
+
+      expect(screen.getByTestId('calendar-day-2026-03-15')).toBeEnabled();
+      expect(screen.queryByTestId('calendar-closed-legend')).not.toBeInTheDocument();
     });
   });
 });

@@ -189,6 +189,87 @@ describe('BookingPageOwnerSurface', () => {
     expect(screen.getByTestId('content-bio')).toHaveValue('Keep this edit');
   });
 
+  // AG-hub-publish-07 — the last action of a six-step review used to keep its
+  // label and merely go disabled while the queued writes drained, for 10-15 s.
+  it('shows a pending state on the guided review while it drains queued writes', async () => {
+    searchParamsMock.value = new URLSearchParams('salon=salon-a&panel=publish&guided=1');
+    render(<BookingPageOwnerSurface />);
+    const finish = await screen.findByTestId('guided-review-next');
+
+    expect(finish).toHaveTextContent('Finish review');
+    expect(finish).toHaveAttribute('aria-busy', 'false');
+
+    fireEvent.click(finish);
+
+    expect(finish).toHaveTextContent('Finishing review…');
+    expect(finish).toHaveAttribute('aria-busy', 'true');
+    expect(finish).toBeDisabled();
+    expect(screen.getByText('Saving your changes and returning to Booking Page…')).toBeVisible();
+
+    await waitFor(() => expect(pushMock).toHaveBeenCalledWith('/en/admin/website?salon=salon-a'));
+  });
+
+  it('names the step being saved and releases the pending state when the save fails', async () => {
+    searchParamsMock.value = new URLSearchParams('salon=salon-a&panel=text&guided=1');
+    const originalFetch = fetchMock.getMockImplementation()!;
+    fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => init?.method === 'PATCH'
+      ? Promise.resolve(new Response(JSON.stringify({ error: 'Unavailable' }), { status: 503 }))
+      : originalFetch(input, init));
+    render(<BookingPageOwnerSurface />);
+    fireEvent.change(await screen.findByTestId('content-bio'), { target: { value: 'Keep this edit' } });
+    const next = screen.getByTestId('guided-review-next');
+
+    fireEvent.click(next);
+
+    expect(next).toHaveTextContent('Saving…');
+
+    await screen.findByText('Your changes could not be saved. Please retry before leaving this editor.');
+
+    // A failed hand-off must give the button back, not strand it mid-flight.
+    expect(next).toHaveTextContent('Save & next step');
+    expect(next).toBeEnabled();
+    expect(next).toHaveAttribute('aria-busy', 'false');
+  });
+
+  /*
+   * Legacy no-panel editor retirement. The hub gave these controls a home, so
+   * the ones that now duplicate a panel are gone or renamed to that panel's
+   * own words, and the ones with nowhere else to live speak onboarding's
+   * language instead of the config field's.
+   */
+  it('retires the dead style-pack picker from the legacy editor', async () => {
+    render(<BookingPageOwnerSurface />);
+    await screen.findByTestId('content-bio');
+
+    expect(screen.queryByTestId('style-pack-option-default')).not.toBeInTheDocument();
+    expect(screen.queryByText('Style pack')).not.toBeInTheDocument();
+    expect(screen.queryByText('More style packs coming soon.')).not.toBeInTheDocument();
+    // The saved field itself is untouched — only the one-option control went.
+    expect(config.draft.stylePack).toBe('default');
+  });
+
+  it('speaks onboarding vocabulary for the legacy-only controls', async () => {
+    render(<BookingPageOwnerSurface />);
+    await screen.findByTestId('content-bio');
+
+    expect(screen.getByText('Business type')).toBeVisible();
+    expect(screen.getByTestId('business-mode-option-solo')).toHaveTextContent('Independent nail tech');
+    expect(screen.getByTestId('business-mode-option-team')).toHaveTextContent('Salon / studio');
+    expect(screen.queryByText('Business mode')).not.toBeInTheDocument();
+    expect(screen.getByText('Profile photo link')).toBeVisible();
+    expect(screen.queryByText('Hero / profile image URL')).not.toBeInTheDocument();
+  });
+
+  it('calls the duplicated address control what Your Information calls it, and links there', async () => {
+    render(<BookingPageOwnerSurface />);
+    await screen.findByTestId('location-display-mode-city_only');
+
+    expect(screen.getByText('Address privacy')).toBeVisible();
+    expect(screen.queryByText('Location shown as')).not.toBeInTheDocument();
+    expect(screen.getByTestId('location-display-mode-canonical-link'))
+      .toHaveAttribute('href', '/en/admin/booking-page?salon=salon-a&panel=information');
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
     searchParamsMock.value = new URLSearchParams('salon=salon-a');
