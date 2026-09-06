@@ -394,3 +394,72 @@ describe('NewAppointmentModal Google conversion session', () => {
     expect(secondKey).not.toBe(firstKey);
   });
 });
+
+// AG-w2-calendar-writes-09: the picker used a fixed 08:00–20:00 range, so the
+// last bookable hour of a technician working to 21:00 was unreachable while
+// 08:00 starts nobody works were offered.
+describe('NewAppointmentModal time picker range', () => {
+  const ALL_DAY = { start: '09:00', end: '21:00' };
+  const DANIELA_SCHEDULE = {
+    sunday: ALL_DAY,
+    monday: ALL_DAY,
+    tuesday: ALL_DAY,
+    wednesday: ALL_DAY,
+    thursday: ALL_DAY,
+    friday: ALL_DAY,
+    saturday: ALL_DAY,
+  };
+
+  function installScheduleFetch() {
+    fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input), 'http://localhost');
+      if (url.pathname === '/api/admin/technicians') {
+        return jsonResponse({
+          data: {
+            technicians: [
+              { id: 'tech_daniela', name: 'Daniela', avatarUrl: null, weeklySchedule: DANIELA_SCHEDULE },
+            ],
+          },
+        });
+      }
+      if (url.pathname === '/api/salon/services') {
+        return jsonResponse({ data: { services: [] } });
+      }
+      throw new Error(`Unexpected fetch: ${url.pathname}`);
+    });
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    salonContext.salonSlug = 'nail-salon-no5';
+    vi.stubGlobal('fetch', fetchMock);
+    installScheduleFetch();
+  });
+
+  async function openTimeDropdown() {
+    render(
+      <NewAppointmentModal
+        {...modalProps({ googleEventPrefill: null, preselectedDate: new Date(2026, 8, 16, 12, 0, 0) })}
+      />,
+    );
+    await waitForForm();
+    fireEvent.click(await screen.findByLabelText('Appointment time'));
+  }
+
+  it('spans the technician schedule, reaching 21:00 and dropping 08:00', async () => {
+    await openTimeDropdown();
+
+    expect(screen.getByRole('button', { name: '21:00' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '20:30' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '09:00' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '08:00' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '08:30' })).not.toBeInTheDocument();
+  });
+
+  it('keeps the currently selected time selectable', async () => {
+    await openTimeDropdown();
+
+    // The default 10:00 is inside the schedule and stays offered.
+    expect(screen.getByRole('button', { name: '10:00' })).toBeInTheDocument();
+  });
+});

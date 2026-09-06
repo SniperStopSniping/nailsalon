@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import type { CalendarAppointment } from '@/components/appointments/AppointmentsDayView';
 import type { AppointmentManageDetail, ManageWarning } from '@/libs/appointmentManage';
@@ -54,7 +54,28 @@ function formatAttemptedTime(iso: string) {
   });
 }
 
+/**
+ * A dropped connection must not surface as "Failed to fetch". `fetch` rejects
+ * with a TypeError when the request never reached the server, which is exactly
+ * the case where the owner needs to know that NOTHING was changed.
+ */
+const OFFLINE_MESSAGE
+  = 'No connection — nothing was changed. Reconnect and try again.';
+
+function isConnectionError(error: unknown): boolean {
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+    return true;
+  }
+  // A server refusal is a plain object carrying `code`; only a thrown
+  // TypeError (or a DOMException from an aborted request) is transport failure.
+  return error instanceof TypeError
+    || (error instanceof DOMException && error.name === 'AbortError');
+}
+
 function errorMessage(error: unknown, fallback: string) {
+  if (isConnectionError(error)) {
+    return OFFLINE_MESSAGE;
+  }
   return typeof error === 'object' && error !== null && 'message' in error
     ? String((error as { message?: unknown }).message)
     : fallback;
@@ -77,6 +98,9 @@ function errorDetailString(error: unknown, key: string): string | null {
  */
 function describeMutationError(error: unknown, fallback: string): string {
   const message = errorMessage(error, fallback);
+  if (isConnectionError(error)) {
+    return message;
+  }
   const conflictingStartTime = errorDetailString(error, 'conflictingStartTime');
   return conflictingStartTime
     ? `${message} Conflicting booking: ${formatAttemptedTime(conflictingStartTime)}.`
@@ -113,6 +137,28 @@ export function useAppointmentActions(options: UseAppointmentActionsOptions = {}
   // "Mark completed" opens the dedicated checkout flow instead of finalizing.
   const [checkoutOpen, setCheckoutOpen] = useState(false);
   const [checkoutInitialView, setCheckoutInitialView] = useState<'edit' | 'receipt'>('edit');
+
+  /**
+   * Double-submit guard. `detailSaving` disables the buttons, but only after
+   * React has re-rendered — a double tap (or a second Enter on a confirm
+   * dialog, which unmounts asynchronously too) fires both handlers inside the
+   * same tick and sends the mutation twice. Cancel and no-show are terminal
+   * transitions, so a duplicate is not merely wasteful: the second request
+   * races the first over the same row. A ref flips synchronously and closes
+   * that window for every mutating action in this hook.
+   */
+  const mutationInFlightRef = useRef(false);
+  const runExclusive = useCallback(async <T>(run: () => Promise<T>): Promise<T | undefined> => {
+    if (mutationInFlightRef.current) {
+      return undefined;
+    }
+    mutationInFlightRef.current = true;
+    try {
+      return await run();
+    } finally {
+      mutationInFlightRef.current = false;
+    }
+  }, []);
 
   const fetchDetail = useCallback(async (appointmentId: string) => {
     try {
@@ -175,7 +221,7 @@ export function useAppointmentActions(options: UseAppointmentActionsOptions = {}
   const runManageMutation = useCallback(async (
     appointmentId: string,
     payload: Record<string, unknown>,
-  ) => {
+  ) => runExclusive(async () => {
     setDetailSaving(true);
     setDetailError(null);
 
@@ -205,7 +251,7 @@ export function useAppointmentActions(options: UseAppointmentActionsOptions = {}
     } finally {
       setDetailSaving(false);
     }
-  }, [apiPath, applyMutationResult]);
+  }), [apiPath, applyMutationResult, runExclusive]);
 
   const saveEdits = useCallback(async (args: {
     baseServiceId: string;
@@ -258,26 +304,28 @@ export function useAppointmentActions(options: UseAppointmentActionsOptions = {}
       return;
     }
 
-    setDetailSaving(true);
-    setDetailError(null);
-    try {
-      const response = await fetch(apiPath(`/api/appointments/${selectedAppointmentId}/complete`), {
-        method: 'POST',
-      });
-      const result = await response.json();
-      if (!response.ok) {
-        throw result.error ?? new Error('Unable to start appointment');
-      }
+    await runExclusive(async () => {
+      setDetailSaving(true);
+      setDetailError(null);
+      try {
+        const response = await fetch(apiPath(`/api/appointments/${selectedAppointmentId}/complete`), {
+          method: 'POST',
+        });
+        const result = await response.json();
+        if (!response.ok) {
+          throw result.error ?? new Error('Unable to start appointment');
+        }
 
-      onOptimisticStatus?.(selectedAppointmentId, 'in_progress');
-      notifyAppointmentDataChanged();
-      await fetchDetail(selectedAppointmentId);
-    } catch (startError) {
-      setDetailError(errorMessage(startError, 'Unable to start appointment'));
-    } finally {
-      setDetailSaving(false);
-    }
-  }, [apiPath, fetchDetail, onOptimisticStatus, selectedAppointmentId]);
+        onOptimisticStatus?.(selectedAppointmentId, 'in_progress');
+        notifyAppointmentDataChanged();
+        await fetchDetail(selectedAppointmentId);
+      } catch (startError) {
+        setDetailError(errorMessage(startError, 'Unable to start appointment'));
+      } finally {
+        setDetailSaving(false);
+      }
+    });
+  }, [apiPath, fetchDetail, onOptimisticStatus, runExclusive, selectedAppointmentId]);
 
   /**
    * "Mark completed" no longer finalizes anything — it opens the dedicated
@@ -319,27 +367,29 @@ export function useAppointmentActions(options: UseAppointmentActionsOptions = {}
     if (!selectedAppointmentId) {
       return;
     }
-    setDetailSaving(true);
-    setDetailError(null);
-    try {
-      const response = await fetch(apiPath(`/api/appointments/${selectedAppointmentId}`), {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: 'confirmed' }),
-      });
-      const result = await response.json();
-      if (!response.ok) {
-        throw result.error ?? new Error('Unable to update appointment');
+    await runExclusive(async () => {
+      setDetailSaving(true);
+      setDetailError(null);
+      try {
+        const response = await fetch(apiPath(`/api/appointments/${selectedAppointmentId}`), {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ status: 'confirmed' }),
+        });
+        const result = await response.json();
+        if (!response.ok) {
+          throw result.error ?? new Error('Unable to update appointment');
+        }
+        onOptimisticStatus?.(selectedAppointmentId, 'confirmed');
+        notifyAppointmentDataChanged();
+        await fetchDetail(selectedAppointmentId);
+      } catch (statusError) {
+        setDetailError(describeMutationError(statusError, 'Unable to update appointment'));
+      } finally {
+        setDetailSaving(false);
       }
-      onOptimisticStatus?.(selectedAppointmentId, 'confirmed');
-      notifyAppointmentDataChanged();
-      await fetchDetail(selectedAppointmentId);
-    } catch (statusError) {
-      setDetailError(describeMutationError(statusError, 'Unable to update appointment'));
-    } finally {
-      setDetailSaving(false);
-    }
-  }, [apiPath, fetchDetail, onOptimisticStatus, selectedAppointmentId]);
+    });
+  }, [apiPath, fetchDetail, onOptimisticStatus, runExclusive, selectedAppointmentId]);
 
   const cancelAppointment = useCallback(async (args: CancelArgs) => {
     if (!selectedAppointmentId) {
@@ -354,39 +404,41 @@ export function useAppointmentActions(options: UseAppointmentActionsOptions = {}
       ? `${existingNotes ? `${existingNotes}\n` : ''}[Cancellation note] ${args.internalNote.trim()}`
       : undefined;
 
-    setDetailSaving(true);
-    setDetailError(null);
-    try {
-      const response = await fetch(apiPath(`/api/appointments/${selectedAppointmentId}/cancel`), {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          cancelReason: args.reason,
-          ...(notes ? { notes } : {}),
-        }),
-      });
-      const result = await response.json();
-      if (!response.ok) {
-        // Repeated cancellation is idempotent from the technician's view: if
-        // the appointment is already terminal, treat it as done.
-        if (errorCode(result?.error) === 'INVALID_STATE') {
-          onCancelled?.(selectedAppointmentId, targetStatus);
-          notifyAppointmentDataChanged();
-          setSelectedAppointmentId(null);
-          return;
+    await runExclusive(async () => {
+      setDetailSaving(true);
+      setDetailError(null);
+      try {
+        const response = await fetch(apiPath(`/api/appointments/${selectedAppointmentId}/cancel`), {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            cancelReason: args.reason,
+            ...(notes ? { notes } : {}),
+          }),
+        });
+        const result = await response.json();
+        if (!response.ok) {
+          // Repeated cancellation is idempotent from the technician's view: if
+          // the appointment is already terminal, treat it as done.
+          if (errorCode(result?.error) === 'INVALID_STATE') {
+            onCancelled?.(selectedAppointmentId, targetStatus);
+            notifyAppointmentDataChanged();
+            setSelectedAppointmentId(null);
+            return;
+          }
+          throw result.error ?? new Error('Unable to cancel appointment');
         }
-        throw result.error ?? new Error('Unable to cancel appointment');
-      }
 
-      onCancelled?.(selectedAppointmentId, targetStatus);
-      notifyAppointmentDataChanged();
-      setSelectedAppointmentId(null);
-    } catch (cancelError) {
-      setDetailError(errorMessage(cancelError, 'Unable to cancel appointment'));
-    } finally {
-      setDetailSaving(false);
-    }
-  }, [apiPath, detail, onCancelled, selectedAppointmentId]);
+        onCancelled?.(selectedAppointmentId, targetStatus);
+        notifyAppointmentDataChanged();
+        setSelectedAppointmentId(null);
+      } catch (cancelError) {
+        setDetailError(errorMessage(cancelError, 'Unable to cancel appointment'));
+      } finally {
+        setDetailSaving(false);
+      }
+    });
+  }, [apiPath, detail, onCancelled, runExclusive, selectedAppointmentId]);
 
   const markNoShow = useCallback(async () => {
     await cancelAppointment({ reason: 'no_show' });
@@ -401,21 +453,23 @@ export function useAppointmentActions(options: UseAppointmentActionsOptions = {}
     if (!selectedAppointmentId) {
       return;
     }
-    setDetailSaving(true);
-    setDetailError(null);
-    try {
-      const response = await fetch(apiPath(`/api/appointments/${selectedAppointmentId}/resend-confirmation`), { method: 'POST' });
-      const payload = await response.json();
-      if (!response.ok) {
-        throw payload.error ?? new Error('Confirmation email could not be sent');
+    await runExclusive(async () => {
+      setDetailSaving(true);
+      setDetailError(null);
+      try {
+        const response = await fetch(apiPath(`/api/appointments/${selectedAppointmentId}/resend-confirmation`), { method: 'POST' });
+        const payload = await response.json();
+        if (!response.ok) {
+          throw payload.error ?? new Error('Confirmation email could not be sent');
+        }
+        await fetchDetail(selectedAppointmentId);
+      } catch (emailError) {
+        setDetailError(errorMessage(emailError, 'Confirmation email could not be sent'));
+      } finally {
+        setDetailSaving(false);
       }
-      await fetchDetail(selectedAppointmentId);
-    } catch (emailError) {
-      setDetailError(errorMessage(emailError, 'Confirmation email could not be sent'));
-    } finally {
-      setDetailSaving(false);
-    }
-  }, [apiPath, fetchDetail, selectedAppointmentId]);
+    });
+  }, [apiPath, fetchDetail, runExclusive, selectedAppointmentId]);
 
   const buildRebookPrefill = useCallback((): RebookPrefill | null => {
     if (!detail) {

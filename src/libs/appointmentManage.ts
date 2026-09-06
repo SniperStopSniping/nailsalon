@@ -107,8 +107,31 @@ export type AppointmentManageFinancialDetail
     balanceCents: number;
   }
   | {
-    /** No amount is exposed when currency, tax, refund, tender, or deposit provenance is unresolved. */
+    /**
+     * No INVOICE figure is exposed when currency, tax, refund, tender, or
+     * deposit provenance is unresolved — the invoice total, the tax, the
+     * deposit credit and the balance all stay hidden.
+     *
+     * What is still exposed is the booked service subtotal: the price the
+     * client agreed to at booking, read straight off the appointment row. The
+     * audit found that suppressing this too left the owner with no amount at
+     * all on the most consequential sheet in the product, unable to tell the
+     * client what they are paying. It is only ever an estimate — it carries no
+     * tax, discount, tip, deposit credit or payment — and every surface that
+     * renders it must say so.
+     *
+     * `currency` is the appointment's own invoice currency when the row has
+     * one, else the salon's configured booking currency.
+     *
+     * The estimate is withheld (both fields absent) whenever a deposit record
+     * exists for the appointment: deposit money that is pending, refunding or
+     * historical makes even the booked subtotal misleading, and a historical
+     * appointment must never be shown in a currency guessed from today's
+     * settings (see appointmentManage.integration.test.ts).
+     */
     state: 'under_review';
+    bookedTotalCents?: number;
+    currency?: string;
   };
 
 type AppointmentServiceSnapshot = {
@@ -1157,6 +1180,7 @@ export async function getAppointmentManageDetail(args: {
     salonClient,
     retentionSettings,
     financialSummary,
+    depositRows,
   ] = await Promise.all([
     db.select({
       channel: notificationDeliverySchema.channel,
@@ -1193,7 +1217,20 @@ export async function getAppointmentManageDetail(args: {
       : Promise.resolve(null),
     getRetentionSettingsForSalon(args.salonId),
     loadManagedFinancialSummary(loaded),
+    loadAppointmentDepositCreditRows({
+      salonId: args.salonId,
+      appointmentId: args.appointmentId,
+    }),
   ]);
+  // Booked-subtotal estimate for an unresolved invoice chain — only when no
+  // deposit record is attached (see the `under_review` contract).
+  const bookedEstimate = depositRows.length === 0
+    ? {
+        bookedTotalCents: loaded.appointment.totalPrice,
+        currency: loaded.appointment.invoiceCurrency?.trim().toUpperCase()
+          || resolveBookingConfigFromSettings(loaded.salonSettings).currency,
+      }
+    : null;
   const confirmationDelivery = deliveryRows.find(delivery => delivery.channel === 'email' && delivery.purpose.includes('booking_confirmation'))
     ?? deliveryRows.find(delivery => delivery.channel === 'email');
 
@@ -1284,7 +1321,13 @@ export async function getAppointmentManageDetail(args: {
           amountAlreadyPaidCents: financialSummary.amountAlreadyPaidCents,
           balanceCents: financialSummary.balanceCents,
         }
-      : { state: 'under_review' },
+      : {
+          state: 'under_review',
+          // The booked subtotal survives an unresolved tax/tender chain: it is
+          // the appointment's own agreed price, not a derived invoice figure —
+          // withheld when a deposit record exists.
+          ...(bookedEstimate ?? {}),
+        },
     permissions,
     warnings: [],
     confirmationDelivery: confirmationDelivery

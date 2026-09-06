@@ -209,7 +209,12 @@ describe('UpcomingAppointmentActions', () => {
 
   it('omits money from appointment details while refund or currency evidence is under review', async () => {
     const { onOpenNativeUrl } = renderActions({
-      detail: { ...baseDetail, financial: { state: 'under_review' } },
+      detail: {
+        ...baseDetail,
+        // The unresolved-chain fallback carries a booked estimate for the OWNER.
+        // It must never reach the client-facing message.
+        financial: { state: 'under_review', bookedTotalCents: 4500, currency: 'CAD' },
+      },
     });
 
     fireEvent.click(screen.getByRole('button', { name: 'Send details' }));

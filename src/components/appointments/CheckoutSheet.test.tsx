@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { CheckoutSheet } from './CheckoutSheet';
@@ -671,6 +671,58 @@ describe('CheckoutSheet', () => {
     fireEvent.click(screen.getByTestId('checkout-success-view-receipt'));
 
     expect(await screen.findByTestId('checkout-receipt')).toBeInTheDocument();
+  });
+
+  // Double-submit protection. `submitting` disables the button only after React
+  // has re-rendered; two clicks dispatched inside one batch both reach the
+  // handler. Completing twice is a duplicate money write, so the guard has to be
+  // synchronous (a ref), not state.
+  it('sends the completion once when Complete appointment is double-tapped in one tick', async () => {
+    const context = buildContext({
+      photos: [{ id: 'p1', imageUrl: 'https://img/1.jpg', thumbnailUrl: null, photoType: 'after' }],
+    });
+    const completeCalls: string[] = [];
+    let releaseComplete: (() => void) | null = null;
+
+    fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input.toString();
+      if (url.includes('/checkout')) {
+        return Promise.resolve(new Response(JSON.stringify({ data: context }), { status: 200 }));
+      }
+      if (url.includes('/complete') && init?.method === 'PATCH') {
+        completeCalls.push(url);
+        return new Promise<Response>((resolve) => {
+          releaseComplete = () => resolve(new Response(JSON.stringify({
+            data: {
+              appointment: { id: 'appt_1', status: 'completed', paymentStatus: 'paid', completedAt: new Date().toISOString() },
+              showReviewPrompt: false,
+            },
+          }), { status: 200 }));
+        });
+      }
+      return Promise.reject(new Error(`Unhandled fetch: ${url}`));
+    });
+
+    render(<CheckoutSheet isOpen appointmentId="appt_1" onClose={vi.fn()} />);
+    await screen.findByTestId('checkout-items-section');
+    fireEvent.click(screen.getByTestId('checkout-review-button'));
+    const completeButton = await screen.findByTestId('checkout-complete-button');
+
+    // Both clicks land inside one React batch, so the second one sees a button
+    // that has not been disabled yet — the real double-tap.
+    await act(async () => {
+      completeButton.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      completeButton.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+
+    expect(completeCalls).toHaveLength(1);
+
+    await act(async () => {
+      releaseComplete?.();
+      await Promise.resolve();
+    });
+
+    expect(completeCalls).toHaveLength(1);
   });
 
   it('reuses the standalone-payment idempotency key when the same failed submission is retried', async () => {

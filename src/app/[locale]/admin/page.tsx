@@ -566,9 +566,51 @@ function AdminDashboardContent() {
         const adminMeUrl = requestedSalonSlug
           ? `/api/admin/auth/me?salonSlug=${encodeURIComponent(requestedSalonSlug)}`
           : '/api/admin/auth/me';
-        const response = await fetch(adminMeUrl);
+        let response = await fetch(adminMeUrl);
         if (cancelled) {
           return;
+        }
+        // A `?salon=` deep link (an email alert, a shared appointment URL) asks
+        // for a salon-SCOPED session check. That check can refuse before the
+        // active salon has been set for this session, and a refusal there means
+        // "not this salon yet", NOT "signed out" — bouncing the owner to
+        // sign-in loses the link they followed (audit AG-w2-appointments-03).
+        // So: re-probe the session without the salon scope, and if the session
+        // is in fact valid, set the active salon from the URL and ask again.
+        if (!response.ok && requestedSalonSlug && (response.status === 401 || response.status === 403)) {
+          const unscoped = await fetch('/api/admin/auth/me');
+          if (cancelled) {
+            return;
+          }
+          if (unscoped.ok) {
+            const syncResponse = await fetch('/api/admin/auth/set-active-salon', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ salonSlug: requestedSalonSlug }),
+            });
+            if (cancelled) {
+              return;
+            }
+            if (syncResponse.ok) {
+              syncedSalonSessionRef.current = `${sessionId ?? 'legacy'}:${requestedSalonSlug}`;
+              response = await fetch(adminMeUrl);
+              if (cancelled) {
+                return;
+              }
+            }
+            if (!response.ok) {
+              // The session is genuinely signed in; it just cannot open this
+              // salon. Keep the owner in the workspace on the salon they can
+              // reach and say why, instead of sending them to sign-in.
+              response = unscoped;
+              setNonBlockingMessage(
+                'That link points to a salon this account cannot open. Showing your own workspace instead.',
+              );
+              // Drop the unreachable slug so every scoped request below resolves
+              // against a salon this session actually has.
+              router.replace(`/${locale}/admin`);
+            }
+          }
         }
         if (response.ok) {
           const data = await response.json();
@@ -1708,7 +1750,16 @@ function AdminDashboardContent() {
           />
         </div>
 
-        <AdminImpersonationBanner />
+        {/*
+          The banner probes /api/super-admin/impersonate on mount. For an
+          ordinary owner that request can only ever answer 403, which the
+          browser logs as an error and which buries the console noise that
+          actually matters (OP-007). The session already knows whether the
+          answer could be yes, so only ask then.
+        */}
+        {(adminUser.isSuperAdmin || adminUser.impersonation?.isActive) && (
+          <AdminImpersonationBanner />
+        )}
 
         {/* Critical Error Banner */}
         {error && (

@@ -881,12 +881,14 @@ function StatCard({
   accent,
   icon,
   loading = false,
+  testId,
 }: {
   label: string;
   value: string;
   accent?: string;
   icon?: ReactNode;
   loading?: boolean;
+  testId?: string;
 }) {
   return (
     <AdminDetailCard>
@@ -899,11 +901,15 @@ function StatCard({
             <div
               role="status"
               aria-label={`${label} loading`}
+              data-testid={testId ? `${testId}-loading` : undefined}
               className="mt-2 h-6 w-20 animate-pulse rounded-full bg-stone-200"
             />
           )
         : (
-            <div className={`mt-1 text-[24px] font-bold ${accent ?? 'text-[#1C1C1E]'}`}>
+            <div
+              data-testid={testId}
+              className={`mt-1 text-[24px] font-bold ${accent ?? 'text-[#1C1C1E]'}`}
+            >
               {value}
             </div>
           )}
@@ -930,6 +936,53 @@ function HistoryQualityBadge({ provenance }: { provenance?: FinancialProvenance 
   );
 }
 
+const DESKTOP_PROFILE_SECTIONS: Array<{ id: ProfileSection; label: string }> = [
+  { id: 'overview', label: 'Overview' },
+  { id: 'activity', label: 'Activity' },
+  { id: 'appointments', label: 'Appointments' },
+  { id: 'preferences', label: 'Preferences' },
+  { id: 'payments', label: 'Payments' },
+  { id: 'notes', label: 'Notes & Photos' },
+];
+
+const MOBILE_PROFILE_SECTIONS: Array<{ id: ProfileSection; label: string }> = [
+  { id: 'overview', label: 'Overview' },
+  { id: 'activity', label: 'Activity' },
+  { id: 'details', label: 'Details' },
+];
+
+/**
+ * The two lanes show the same content at different granularity: the mobile
+ * "Activity" tab renders what desktop splits into Appointments + Payments, and
+ * mobile "Details" renders desktop's Preferences + Notes. Without this mapping
+ * a section chosen in one lane leaves the other lane with no tab marked
+ * current — which is what an owner sees the moment they rotate a tablet or the
+ * salon's iPad hits the lg breakpoint (desktop adaptation).
+ */
+function sectionForLane(
+  section: ProfileSection,
+  lane: 'mobile' | 'desktop',
+): ProfileSection {
+  if (lane === 'mobile') {
+    if (section === 'appointments' || section === 'payments') {
+      return 'activity';
+    }
+    if (section === 'preferences' || section === 'notes') {
+      return 'details';
+    }
+    return section;
+  }
+  return section === 'details' ? 'preferences' : section;
+}
+
+function prefersReducedMotion(): boolean {
+  return (
+    typeof window !== 'undefined'
+    && typeof window.matchMedia === 'function'
+    && window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  );
+}
+
 function ProfileNavigation({
   activeSection,
   onChange,
@@ -937,24 +990,14 @@ function ProfileNavigation({
   activeSection: ProfileSection;
   onChange: (section: ProfileSection) => void;
 }) {
-  const desktopSections: Array<{ id: ProfileSection; label: string }> = [
-    { id: 'overview', label: 'Overview' },
-    { id: 'activity', label: 'Activity' },
-    { id: 'appointments', label: 'Appointments' },
-    { id: 'preferences', label: 'Preferences' },
-    { id: 'payments', label: 'Payments' },
-    { id: 'notes', label: 'Notes & Photos' },
-  ];
-  const mobileSections: Array<{ id: ProfileSection; label: string }> = [
-    { id: 'overview', label: 'Overview' },
-    { id: 'activity', label: 'Activity' },
-    { id: 'details', label: 'Details' },
-  ];
-  const renderButton = ({ id, label }: { id: ProfileSection; label: string }) => {
-    const active = activeSection === id;
+  const renderButton = (
+    { id, label }: { id: ProfileSection; label: string },
+    lane: 'mobile' | 'desktop',
+  ) => {
+    const active = sectionForLane(activeSection, lane) === id;
     return (
       <button
-        key={id}
+        key={`${lane}-${id}`}
         type="button"
         aria-current={active ? 'page' : undefined}
         onClick={() => onChange(id)}
@@ -971,10 +1014,10 @@ function ProfileNavigation({
   return (
     <nav aria-label="Client profile sections" className="sticky top-[3.75rem] z-30 -mx-4 mb-4 border-y border-rose-100 bg-[#fffaf5]/95 px-4 py-2 backdrop-blur">
       <div className="grid grid-cols-3 gap-2 lg:hidden">
-        {mobileSections.map(renderButton)}
+        {MOBILE_PROFILE_SECTIONS.map(section => renderButton(section, 'mobile'))}
       </div>
       <div className="hidden gap-2 overflow-x-auto lg:flex">
-        {desktopSections.map(renderButton)}
+        {DESKTOP_PROFILE_SECTIONS.map(section => renderButton(section, 'desktop'))}
       </div>
     </nav>
   );
@@ -1232,6 +1275,10 @@ function ClientDetail({
   // Until the resolved financial source arrives there is nothing honest to
   // print in a money tile, so the tiles wait rather than guessing.
   const moneyPending = !summary && detailLoading;
+  // The visit count has the same problem as the money tiles: the list row and
+  // the server summary can disagree, so nothing is printed until the detail
+  // request has decided (AG-clients-10).
+  const visitsPending = !summary && detailLoading;
   const [detailRefreshWarning, setDetailRefreshWarning] = useState<string | null>(
     null,
   );
@@ -1242,6 +1289,7 @@ function ClientDetail({
   const [showEditDialog, setShowEditDialog] = useState(false);
   const [bookingPrefill, setBookingPrefill] = useState<RebookPrefill | null>(null);
   const [activeSection, setActiveSection] = useState<ProfileSection>('overview');
+  const detailScrollRef = useRef<HTMLDivElement>(null);
 
   const [flagsState, setFlagsState] = useState<ClientFlagsState | null>(initialCachedDetail?.flagsState ?? null);
   const [flagsError, setFlagsError] = useState<string | null>(null);
@@ -1537,6 +1585,28 @@ function ClientDetail({
     setShowBookingModal(true);
   }, [profile?.preferredTechnician?.id, statsSource.email, statsSource.fullName, statsSource.phone]);
 
+  /**
+   * Switching section used to leave the profile scrolled wherever the previous
+   * section ended, so "Details" could open halfway down a page whose top the
+   * owner never saw. A tab switch now returns the profile to the top of the
+   * new section, and honours reduced motion.
+   */
+  const handleSectionChange = useCallback((section: ProfileSection) => {
+    setActiveSection(section);
+    const node = detailScrollRef.current;
+    if (!node) {
+      return;
+    }
+    if (typeof node.scrollTo === 'function') {
+      node.scrollTo({
+        top: 0,
+        behavior: prefersReducedMotion() ? 'auto' : 'smooth',
+      });
+      return;
+    }
+    node.scrollTop = 0;
+  }, []);
+
   const profileDirty
     = notesDraft !== (profile?.notes ?? '')
     || preferredTechnicianIdDraft !== (profile?.preferredTechnician?.id ?? '')
@@ -1667,10 +1737,12 @@ function ClientDetail({
 
   return (
     <motion.div
+      ref={detailScrollRef}
       initial={{ x: '100%' }}
       animate={{ x: 0 }}
       exit={{ x: '100%' }}
       transition={{ type: 'spring', stiffness: 300, damping: 30 }}
+      data-testid="client-detail-scroll"
       className="fixed inset-0 top-12 z-50 overflow-y-auto overflow-x-hidden rounded-t-[20px] bg-[#fbf5ed]"
     >
       <ModalHeader
@@ -1745,7 +1817,7 @@ function ClientDetail({
           </div>
         )}
 
-        <ProfileNavigation activeSection={activeSection} onChange={setActiveSection} />
+        <ProfileNavigation activeSection={activeSection} onChange={handleSectionChange} />
 
         <ClientCommunicationActions
           salonSlug={salonSlug}
@@ -1754,6 +1826,7 @@ function ClientDetail({
             id: statsSource.id,
             fullName: statsSource.fullName,
             phone: statsSource.phone,
+            email: profile?.email ?? clientSummary.email ?? null,
           }}
           upcomingAppointment={upcomingAppointments[0] ?? null}
           lastCompletedAppointment={pastAppointments[0] ?? null}
@@ -1779,7 +1852,19 @@ function ClientDetail({
 
         {activeSection === 'overview' && (
           <div className="my-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
-            <StatCard label="Completed visits" value={String(summary?.completedVisits ?? statsSource.totalVisits)} />
+            {/*
+              AG-clients-10: the tile used to paint a directory-derived count
+              (or, for a just-added client, a stub 0) and then swap to the
+              server's completed-visit count seconds later. It now waits on a
+              skeleton exactly like the money tiles, so the first number the
+              owner reads is the only number they read.
+            */}
+            <StatCard
+              label="Completed visits"
+              loading={visitsPending}
+              testId="client-visits-tile"
+              value={String(summary?.completedVisits ?? statsSource.totalVisits)}
+            />
             {/*
               Money tiles wait for the resolved source instead of mixing an
               authoritative-looking $0.00 with 'Unavailable' in the same paint,

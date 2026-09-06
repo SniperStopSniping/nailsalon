@@ -295,8 +295,11 @@ describe('AdminDashboardPage', () => {
 
     await waitFor(() => expect(routerReplace).toHaveBeenCalledWith('/en/admin-login'));
 
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(fetchMock).toHaveBeenCalledWith('/api/admin/auth/me?salonSlug=salon-b');
+    // A salon-scoped 401 is re-probed without the scope before the session is
+    // declared lost (AG-w2-appointments-03); both refusals → sign-in.
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenNthCalledWith(1, '/api/admin/auth/me?salonSlug=salon-b');
+    expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/admin/auth/me');
     expect(clerkGetToken).not.toHaveBeenCalled();
   });
 
@@ -370,7 +373,8 @@ describe('AdminDashboardPage', () => {
     await screen.findByRole('alert');
     view.rerender(<AdminDashboardPage />);
 
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    // 401 on a salon-scoped check is re-probed unscoped once; 500 is not.
+    expect(fetchMock).toHaveBeenCalledTimes(status === 401 ? 2 : 1);
     expect(routerReplace).not.toHaveBeenCalled();
     expect(screen.queryByTestId('owner-today-workspace')).not.toBeInTheDocument();
 
@@ -378,7 +382,7 @@ describe('AdminDashboardPage', () => {
     await screen.findByRole('alert');
 
     expect(clerkGetToken).toHaveBeenCalledTimes(2);
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenCalledTimes(status === 401 ? 4 : 2);
     expect(routerReplace).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByRole('button', { name: 'Sign out' }));
@@ -410,8 +414,11 @@ describe('AdminDashboardPage', () => {
 
     await act(async () => finishCurrent('current-session-token'));
 
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(fetchMock).toHaveBeenCalledWith('/api/admin/auth/me?salonSlug=salon-b');
+    // Scoped check + the unscoped re-probe (both 401) — still exactly one
+    // session's worth of requests, none from the replaced session.
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenNthCalledWith(1, '/api/admin/auth/me?salonSlug=salon-b');
+    expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/admin/auth/me');
     expect(screen.getByRole('alert')).toBeInTheDocument();
     expect(routerReplace).not.toHaveBeenCalled();
   });

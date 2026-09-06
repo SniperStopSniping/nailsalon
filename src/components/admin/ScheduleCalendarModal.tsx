@@ -28,6 +28,14 @@ import { CheckoutSheet } from '@/components/appointments/CheckoutSheet';
 import { DialogShell } from '@/components/ui/dialog-shell';
 import { type CancelArgs, type RebookPrefill, useAppointmentActions } from '@/hooks/useAppointmentActions';
 import { formatAppointmentStatus } from '@/libs/appointmentStatusDisplay';
+import {
+  type CalendarDayAvailability,
+  type CalendarSchedule,
+  EMPTY_CALENDAR_SCHEDULE,
+  formatMinutesLabel,
+  getDayAvailability,
+} from '@/libs/calendarSchedule';
+import { APPOINTMENT_DATA_CHANGED_EVENT } from '@/libs/dashboardEvents';
 import { useSalon } from '@/providers/SalonProvider';
 
 import { BackButton, ModalHeader } from './AppModal';
@@ -49,6 +57,7 @@ type AppointmentSummary = {
   endTime: string;
   services: string[];
   technician: string | null;
+  technicianId: string | null;
   status: string;
   source: 'luster' | 'google';
   transparency?: 'busy' | 'free';
@@ -258,6 +267,29 @@ const STATUS_COLORS: Record<
   },
 };
 
+/**
+ * Spoken summary of the availability facts a day cell shows visually, so the
+ * closed / off / blocked marks are never colour- or glyph-only.
+ */
+function describeAvailability(availability: CalendarDayAvailability | null): string {
+  if (!availability) {
+    return '';
+  }
+  const parts: string[] = [];
+  if (availability.closed) {
+    parts.push('Salon closed.');
+  }
+  if (availability.techniciansOff.length > 0) {
+    parts.push(`${availability.techniciansOff.map(entry => entry.name).join(', ')} off.`);
+  }
+  if (availability.blockedWindows.length > 0) {
+    parts.push(
+      `${availability.blockedWindows.length} blocked ${availability.blockedWindows.length === 1 ? 'window' : 'windows'}.`,
+    );
+  }
+  return parts.join(' ');
+}
+
 // Day Cell Component
 type DayCellProps = {
   date: Date;
@@ -268,6 +300,7 @@ type DayCellProps = {
   isSelected: boolean;
   onClick: () => void;
   viewMode: ViewMode;
+  availability: CalendarDayAvailability | null;
 };
 
 function DayCell({
@@ -279,6 +312,7 @@ function DayCell({
   isSelected,
   onClick,
   viewMode,
+  availability,
 }: DayCellProps) {
   const today = isToday(date);
   const dayLabel = date.toLocaleDateString('en-CA', {
@@ -287,49 +321,84 @@ function DayCell({
     day: 'numeric',
     year: 'numeric',
   });
+  const closed = availability?.closed ?? false;
+  const offCount = availability?.techniciansOff.length ?? 0;
+  const blockedCount = availability?.blockedWindows.length ?? 0;
 
   return (
     <motion.button
       type="button"
-      aria-label={`${dayLabel}. ${appointmentCount} Luster ${appointmentCount === 1 ? 'appointment' : 'appointments'}. ${googleBusyCount} Google busy ${googleBusyCount === 1 ? 'event' : 'events'}.`}
+      aria-label={`${dayLabel}. ${appointmentCount} Luster ${appointmentCount === 1 ? 'appointment' : 'appointments'}. ${googleBusyCount} Google busy ${googleBusyCount === 1 ? 'event' : 'events'}. ${describeAvailability(availability)}`.trim()}
       aria-pressed={isSelected}
       data-testid={`calendar-day-${formatDateKey(date)}`}
       data-selected={isSelected ? 'true' : 'false'}
+      data-closed={closed ? 'true' : 'false'}
+      data-off-count={offCount}
+      data-blocked-count={blockedCount}
       onClick={onClick}
       whileTap={{ scale: 0.95 }}
       className={`
-        relative flex flex-col items-center justify-center rounded-xl transition-all
-        ${viewMode === 'weekly' ? 'aspect-[1/1.2] min-h-[80px]' : 'aspect-square min-h-[44px]'}
+        relative flex min-w-0 flex-col items-center justify-center overflow-hidden rounded-xl transition-all
+        ${viewMode === 'weekly' ? 'min-h-[72px] py-1.5' : 'aspect-square min-h-[44px]'}
         ${
     isSelected
       ? 'bg-rose-800 text-white shadow-lg shadow-rose-900/20'
-      : today
-        ? 'bg-rose-50 text-rose-700'
-        : isCurrentMonth
-          ? 'bg-white text-gray-900 hover:bg-gray-50'
-          : 'bg-gray-50/50 text-gray-400'
+      : closed
+        ? 'border border-dashed border-stone-300 bg-stone-100/80 bg-[repeating-linear-gradient(45deg,transparent,transparent_3px,rgba(120,113,108,0.10)_3px,rgba(120,113,108,0.10)_6px)] text-stone-500'
+        : today
+          ? 'bg-rose-50 text-rose-700'
+          : isCurrentMonth
+            ? 'bg-white text-gray-900 hover:bg-gray-50'
+            : 'bg-gray-50/50 text-gray-400'
     }
-        ${count > 0 && !isSelected ? 'ring-1 ring-rose-200' : ''}
+        ${count > 0 && !isSelected && !closed ? 'ring-1 ring-rose-200' : ''}
       `}
     >
-      <span
-        className={`text-sm font-semibold ${viewMode === 'weekly' ? 'text-lg' : ''}`}
-      >
+      <span className="text-sm font-semibold">
         {date.getDate()}
       </span>
 
-      {count > 0 && (
+      {closed && (
         <span
-          className={`
-            mt-0.5 text-[10px] font-bold
-            ${viewMode === 'weekly' ? 'text-xs' : ''}
-            ${isSelected ? 'text-white/90' : 'text-rose-800'}
-          `}
+          className={`mt-0.5 text-[9px] font-semibold uppercase tracking-wide ${isSelected ? 'text-white/90' : 'text-stone-500'}`}
         >
-          {appointmentCount > 0
-          && `${appointmentCount} ${appointmentCount === 1 ? 'appt' : 'appts'}`}
-          {appointmentCount > 0 && googleBusyCount > 0 && ' · '}
-          {googleBusyCount > 0 && `${googleBusyCount} busy`}
+          Closed
+        </span>
+      )}
+
+      {/*
+        One metadata line under the date: the count and the availability marks
+        share it so a busy day that is also an off day still fits a 44 px cell
+        without clipping either.
+      */}
+      {!closed && (count > 0 || offCount > 0 || blockedCount > 0) && (
+        <span className="mt-px flex max-w-full items-center justify-center gap-1 leading-none">
+          {count > 0 && (
+            <span
+              className={`truncate text-[10px] font-bold ${isSelected ? 'text-white/90' : 'text-rose-800'}`}
+            >
+              {appointmentCount > 0
+              && `${appointmentCount} ${appointmentCount === 1 ? 'appt' : 'appts'}`}
+              {appointmentCount > 0 && googleBusyCount > 0 && ' · '}
+              {googleBusyCount > 0 && `${googleBusyCount} busy`}
+            </span>
+          )}
+          {offCount > 0 && (
+            <span
+              aria-hidden="true"
+              data-testid={`calendar-day-off-${formatDateKey(date)}`}
+              className={`inline-flex h-3 shrink-0 items-center rounded-full px-1 text-[9px] font-bold leading-none ${isSelected ? 'bg-white/25 text-white' : 'bg-amber-100 text-amber-800'}`}
+            >
+              {offCount > 1 ? `${offCount} off` : 'off'}
+            </span>
+          )}
+          {blockedCount > 0 && (
+            <span
+              aria-hidden="true"
+              data-testid={`calendar-day-blocked-${formatDateKey(date)}`}
+              className={`size-1.5 shrink-0 rounded-full ${isSelected ? 'bg-white/70' : 'bg-slate-400'}`}
+            />
+          )}
         </span>
       )}
 
@@ -340,10 +409,74 @@ function DayCell({
   );
 }
 
+/**
+ * The non-bookable facts for a day, in words: the salon being closed, who is
+ * off, and every blocked window — the three authorities the booking engine
+ * enforces and the calendar used to hide (AG-today-calendar-04).
+ */
+function DayAvailabilityNotes({
+  availability,
+  compact = false,
+}: {
+  availability: CalendarDayAvailability | null;
+  compact?: boolean;
+}) {
+  if (!availability) {
+    return null;
+  }
+
+  const { closed, techniciansOff, blockedWindows } = availability;
+  if (!closed && techniciansOff.length === 0 && blockedWindows.length === 0) {
+    return null;
+  }
+
+  return (
+    <div
+      data-testid="calendar-day-availability"
+      className={`flex flex-wrap items-center gap-1.5 ${compact ? '' : 'mt-2'}`}
+    >
+      {closed && (
+        <span
+          data-testid="calendar-day-availability-closed"
+          className="inline-flex items-center rounded-full border border-stone-300 bg-stone-100 px-2 py-0.5 text-[11px] font-semibold text-stone-700"
+        >
+          Closed — salon hours
+        </span>
+      )}
+      {techniciansOff.map(entry => (
+        <span
+          key={entry.id}
+          data-testid={`calendar-day-availability-off-${entry.id}`}
+          className="inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-800"
+        >
+          {entry.name}
+          {' off'}
+          {entry.reason ? ` · ${entry.reason}` : ''}
+        </span>
+      ))}
+      {blockedWindows.map(window => (
+        <span
+          key={window.id}
+          data-testid={`calendar-day-availability-blocked-${window.id}`}
+          className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] font-semibold text-slate-700"
+        >
+          {window.technicianName ? `${window.technicianName} · ` : ''}
+          {formatMinutesLabel(window.startMinutes)}
+          {' – '}
+          {formatMinutesLabel(window.endMinutes)}
+          {' · '}
+          {window.label || 'Blocked'}
+        </span>
+      ))}
+    </div>
+  );
+}
+
 // Day Detail Panel
 type DayDetailPanelProps = {
   date: Date;
   appointments: AppointmentSummary[];
+  availability: CalendarDayAvailability | null;
   onClose: () => void;
   onConvertGoogleEvent: (appointment: AppointmentSummary) => void;
   onSelectAppointment: (appointmentId: string) => void;
@@ -352,6 +485,7 @@ type DayDetailPanelProps = {
 function DayDetailPanel({
   date,
   appointments,
+  availability,
   onClose,
   onConvertGoogleEvent,
   onSelectAppointment,
@@ -422,7 +556,19 @@ function DayDetailPanel({
             {' '}
             {appointmentCountLabel}
           </span>
+          {availability?.openMinutes != null && availability.closeMinutes != null && (
+            <span className="text-xs text-gray-500">
+              ·
+              {' '}
+              Open
+              {' '}
+              {formatMinutesLabel(availability.openMinutes)}
+              {' – '}
+              {formatMinutesLabel(availability.closeMinutes)}
+            </span>
+          )}
         </div>
+        <DayAvailabilityNotes availability={availability} />
       </div>
 
       {/* Content */}
@@ -590,6 +736,11 @@ export function ScheduleCalendarModal({ onClose, salonSlug: salonSlugProp }: Sch
   const [appointmentData, setAppointmentData] = useState<
     Map<string, DaySummary>
   >(new Map());
+  const [schedule, setSchedule] = useState<CalendarSchedule>(EMPTY_CALENDAR_SCHEDULE);
+  // 'all' or a technician id: filters the grid counts, the weekly agenda and
+  // the day panel together, so one owner question ("what is Tiffany's week?")
+  // has one answer everywhere (AG-today-calendar-04).
+  const [technicianFilter, setTechnicianFilter] = useState<string>('all');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showNewAppointmentModal, setShowNewAppointmentModal] = useState(false);
@@ -695,6 +846,11 @@ export function ScheduleCalendarModal({ onClose, salonSlug: salonSlugProp }: Sch
       const result = await response.json();
       const rawAppointments = result.data?.appointments || [];
       const salonTimeZone = result.meta?.timeZone || 'America/Toronto';
+      setSchedule(
+        result.data?.schedule
+          ? { ...EMPTY_CALENDAR_SCHEDULE, ...result.data.schedule } as CalendarSchedule
+          : EMPTY_CALENDAR_SCHEDULE,
+      );
       const googlePayload = googleResponse?.ok
         ? await googleResponse.json()
         : null;
@@ -717,6 +873,7 @@ export function ScheduleCalendarModal({ onClose, salonSlug: salonSlugProp }: Sch
           endTime: appt.endTime,
           services: appt.services?.map((s: { name: string }) => s.name) || [],
           technician: appt.technician?.name || null,
+          technicianId: appt.technician?.id || null,
           status: appt.status,
           source: 'luster',
           timeZone: salonTimeZone,
@@ -760,6 +917,7 @@ export function ScheduleCalendarModal({ onClose, salonSlug: salonSlugProp }: Sch
                 : 'Busy time',
           ],
           technician: null,
+          technicianId: null,
           status:
             event.reviewStatus === 'needs_review'
               ? 'needs_details'
@@ -831,19 +989,52 @@ export function ScheduleCalendarModal({ onClose, salonSlug: salonSlugProp }: Sch
     fetchAppointments();
   }, [fetchAppointments]);
 
+  /*
+    A create, move, cancel or status change made anywhere in the workspace
+    (Today, the walk-in sheet, a client profile, the staff app in another tab)
+    announces itself on APPOINTMENT_DATA_CHANGED_EVENT. The calendar refetches
+    on it so an open calendar is never stale, coalesced on a short timer
+    because one mutation fires the event and the action callback below.
+  */
+  const refreshTimerRef = useRef<number | null>(null);
+  const fetchAppointmentsRef = useRef(fetchAppointments);
+  fetchAppointmentsRef.current = fetchAppointments;
+
+  const scheduleRefresh = useCallback(() => {
+    if (typeof window === 'undefined') {
+      void fetchAppointmentsRef.current();
+      return;
+    }
+    if (refreshTimerRef.current !== null) {
+      window.clearTimeout(refreshTimerRef.current);
+    }
+    refreshTimerRef.current = window.setTimeout(() => {
+      refreshTimerRef.current = null;
+      void fetchAppointmentsRef.current();
+    }, 60);
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+    window.addEventListener(APPOINTMENT_DATA_CHANGED_EVENT, scheduleRefresh);
+    return () => {
+      window.removeEventListener(APPOINTMENT_DATA_CHANGED_EVENT, scheduleRefresh);
+      if (refreshTimerRef.current !== null) {
+        window.clearTimeout(refreshTimerRef.current);
+        refreshTimerRef.current = null;
+      }
+    };
+  }, [scheduleRefresh]);
+
   // Shared appointment-management actions: any change refreshes the visible
   // range so day counts and the day panel stay consistent.
   const actions = useAppointmentActions({
     salonSlug,
-    onMutationApplied: () => {
-      fetchAppointments();
-    },
-    onCancelled: () => {
-      fetchAppointments();
-    },
-    onOptimisticStatus: () => {
-      fetchAppointments();
-    },
+    onMutationApplied: scheduleRefresh,
+    onCancelled: scheduleRefresh,
+    onOptimisticStatus: scheduleRefresh,
   });
 
   // Navigation handlers
@@ -882,11 +1073,17 @@ export function ScheduleCalendarModal({ onClose, salonSlug: salonSlugProp }: Sch
     setSelectedDate(date);
   };
 
-  const selectedDateData = selectedDate
-    ? appointmentData.get(formatDateKey(selectedDate))
-    : null;
-  const selectedAppointments = (selectedDateData?.appointments || []).filter(
-    (appointment) => {
+  /*
+    One predicate for both filters, applied to the day-cell counts as well as
+    the day panel: a chip that changes the panel but not the count it came from
+    reads as a bug (source-map I-032), and a technician filter that left the
+    counts alone would answer the wrong question entirely.
+  */
+  const matchesFilters = useCallback(
+    (appointment: AppointmentSummary) => {
+      if (technicianFilter !== 'all' && appointment.technicianId !== technicianFilter) {
+        return false;
+      }
       if (scheduleFilter === 'appointments') {
         return appointment.source === 'luster';
       }
@@ -908,7 +1105,49 @@ export function ScheduleCalendarModal({ onClose, salonSlug: salonSlugProp }: Sch
       }
       return true;
     },
+    [scheduleFilter, technicianFilter],
   );
+
+  const visibleData = useMemo(() => {
+    const next = new Map<string, DaySummary>();
+    for (const [dateKey, summary] of appointmentData) {
+      const appointments = summary.appointments.filter(matchesFilters);
+      next.set(dateKey, {
+        date: dateKey,
+        count: appointments.length,
+        appointmentCount: appointments.filter(item => item.source === 'luster').length,
+        googleBusyCount: appointments.filter(
+          item => item.source === 'google' && item.transparency !== 'free',
+        ).length,
+        googleFreeCount: appointments.filter(
+          item => item.source === 'google' && item.transparency === 'free',
+        ).length,
+        appointments,
+      });
+    }
+    return next;
+  }, [appointmentData, matchesFilters]);
+
+  const availabilityByDate = useMemo(() => {
+    const next = new Map<string, CalendarDayAvailability>();
+    const technicianId = technicianFilter === 'all' ? null : technicianFilter;
+    for (const date of displayDays) {
+      const dateKey = formatDateKey(date);
+      next.set(dateKey, getDayAvailability(schedule, dateKey, { technicianId }));
+    }
+    return next;
+  }, [displayDays, schedule, technicianFilter]);
+
+  const selectedDateKey = selectedDate ? formatDateKey(selectedDate) : null;
+  const selectedAppointments = selectedDateKey
+    ? visibleData.get(selectedDateKey)?.appointments ?? []
+    : [];
+  const selectedAvailability = selectedDateKey
+    ? availabilityByDate.get(selectedDateKey)
+    ?? getDayAvailability(schedule, selectedDateKey, {
+      technicianId: technicianFilter === 'all' ? null : technicianFilter,
+    })
+    : null;
 
   const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
@@ -1041,6 +1280,32 @@ export function ScheduleCalendarModal({ onClose, salonSlug: salonSlugProp }: Sch
             }`}
           />
         </div>
+
+        {schedule.technicians.length > 0 && (
+          <div
+            role="group"
+            aria-label="Filter calendar by technician"
+            data-testid="calendar-technician-filter"
+            className="scrollbar-hide -mt-1 mb-2 flex gap-2 overflow-x-auto pb-1"
+          >
+            {[{ id: 'all', name: 'All team' }, ...schedule.technicians].map(technician => (
+              <button
+                key={technician.id}
+                type="button"
+                onClick={() => setTechnicianFilter(technician.id)}
+                aria-pressed={technicianFilter === technician.id}
+                data-testid={`calendar-technician-chip-${technician.id}`}
+                className={`shrink-0 rounded-full border px-3 py-1.5 text-xs font-semibold outline-none transition-colors focus-visible:ring-2 focus-visible:ring-[var(--owner-focus,#b85075)] focus-visible:ring-offset-1 ${
+                  technicianFilter === technician.id
+                    ? 'border-transparent bg-stone-900 text-white'
+                    : 'border-stone-200 bg-white text-stone-600'
+                }`}
+              >
+                {technician.name}
+              </button>
+            ))}
+          </div>
+        )}
         {/* Day Names Header */}
         <div className="sticky top-0 z-10 grid grid-cols-7 gap-1 bg-white py-2">
           {dayNames.map(day => (
@@ -1085,8 +1350,10 @@ export function ScheduleCalendarModal({ onClose, salonSlug: salonSlugProp }: Sch
         >
           {displayDays.map((date) => {
             const dateKey = formatDateKey(date);
-            const daySummary = appointmentData.get(dateKey);
-            const isCurrentMonth = date.getMonth() === currentDate.getMonth();
+            const daySummary = visibleData.get(dateKey);
+            const isCurrentMonth = viewMode === 'weekly'
+              ? true
+              : date.getMonth() === currentDate.getMonth();
             const isSelected = selectedDate
               ? isSameDay(date, selectedDate)
               : false;
@@ -1102,10 +1369,86 @@ export function ScheduleCalendarModal({ onClose, salonSlug: salonSlugProp }: Sch
                 isSelected={isSelected}
                 onClick={() => handleDayClick(date)}
                 viewMode={viewMode}
+                availability={availabilityByDate.get(dateKey) ?? null}
               />
             );
           })}
         </div>
+
+        {viewMode === 'weekly' && (
+          <div className="mt-4 space-y-3" data-testid="calendar-week-agenda">
+            {displayDays.map((date) => {
+              const dateKey = formatDateKey(date);
+              const daySummary = visibleData.get(dateKey);
+              const dayAppointments = [...(daySummary?.appointments ?? [])].sort(
+                (a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime(),
+              );
+              const availability = availabilityByDate.get(dateKey) ?? null;
+
+              return (
+                <section
+                  key={`agenda-${dateKey}`}
+                  data-testid={`calendar-week-agenda-${dateKey}`}
+                  className={`rounded-2xl border p-3 ${isToday(date) ? 'border-rose-200 bg-rose-50/40' : 'border-stone-200 bg-white'}`}
+                >
+                  <div className="flex items-baseline justify-between gap-2">
+                    <button
+                      type="button"
+                      onClick={() => handleDayClick(date)}
+                      className="text-left text-sm font-semibold text-stone-900 underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--owner-focus,#b85075)]"
+                    >
+                      {date.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}
+                    </button>
+                    <span className="shrink-0 text-[11px] font-medium text-stone-500">
+                      {dayAppointments.length === 0
+                        ? 'Nothing booked'
+                        : `${dayAppointments.length} ${dayAppointments.length === 1 ? 'entry' : 'entries'}`}
+                    </span>
+                  </div>
+
+                  <DayAvailabilityNotes availability={availability} />
+
+                  {dayAppointments.length > 0 && (
+                    <ul className="mt-2 space-y-1.5">
+                      {dayAppointments.map((appointment) => {
+                        const statusColors = STATUS_COLORS[appointment.status] ?? STATUS_COLORS.confirmed!;
+                        const isCrmAppointment = appointment.source !== 'google';
+                        return (
+                          <li key={appointment.id}>
+                            <button
+                              type="button"
+                              disabled={!isCrmAppointment}
+                              onClick={isCrmAppointment ? () => actions.openAppointment(appointment.id) : undefined}
+                              data-testid={`calendar-week-entry-${appointment.id}`}
+                              className={`flex w-full items-center gap-2 rounded-xl border px-2.5 py-2 text-left ${statusColors.bg} ${statusColors.border} ${isCrmAppointment ? 'transition-transform active:scale-[0.99]' : 'cursor-default'}`}
+                            >
+                              <span className={`w-[68px] shrink-0 text-xs font-semibold ${statusColors.text}`}>
+                                {formatTime(appointment.startTime, appointment.timeZone)}
+                              </span>
+                              <span className="min-w-0 flex-1">
+                                <span className="block truncate text-sm font-medium text-stone-900">
+                                  {appointment.clientName || 'Guest'}
+                                </span>
+                                <span className="block truncate text-[11px] text-stone-500">
+                                  {[appointment.services.join(', ') || 'Service', appointment.technician]
+                                    .filter(Boolean)
+                                    .join(' · ')}
+                                </span>
+                              </span>
+                              <span className={`shrink-0 text-[10px] font-bold uppercase tracking-wide ${statusColors.text}`}>
+                                {formatAppointmentStatus(appointment.status)}
+                              </span>
+                            </button>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  )}
+                </section>
+              );
+            })}
+          </div>
+        )}
 
         {/* Legend */}
         <div className="mt-6 flex flex-wrap items-center justify-center gap-4 text-xs text-gray-500">
@@ -1151,6 +1494,7 @@ export function ScheduleCalendarModal({ onClose, salonSlug: salonSlugProp }: Sch
             <DayDetailPanel
               date={selectedDate}
               appointments={selectedAppointments}
+              availability={selectedAvailability}
               onClose={() => setSelectedDate(null)}
               onConvertGoogleEvent={(appointment) => {
                 setGoogleEventPrefill(appointment);

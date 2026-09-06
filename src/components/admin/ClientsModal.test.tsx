@@ -2053,4 +2053,144 @@ describe('ClientsModal', () => {
       }));
     });
   });
+
+  describe('client detail contact actions and section switching', () => {
+    function mockDetailRoutes(
+      detailResponder: () => Response | Promise<Response>,
+      listClient = buildListClient(),
+    ) {
+      fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.startsWith('/api/admin/settings/modules?')) {
+          return new Response(JSON.stringify({
+            data: {
+              moduleReasons: {
+                clientFlags: 'MODULE_DISABLED',
+                clientBlocking: 'MODULE_DISABLED',
+              },
+            },
+          }), { status: 200 });
+        }
+        if (url.startsWith('/api/admin/clients?')) {
+          return new Response(
+            JSON.stringify(buildListResponse([listClient])),
+            { status: 200 },
+          );
+        }
+        if (url === '/api/admin/clients/client_1?salonSlug=isla-nail-studio') {
+          return detailResponder();
+        }
+        // Communication support endpoints and technicians answer empty; the
+        // detail screen must stand up without them.
+        return new Response(JSON.stringify({ data: {} }), { status: 200 });
+      });
+    }
+
+    it('holds the visit count on a skeleton instead of flashing the list number', async () => {
+      // AG-clients-10: the tile read the directory count (or a 0 stub) and then
+      // swapped to the server's completed-visit count seconds later.
+      const detail = deferredResponse();
+      mockDetailRoutes(
+        () => detail.promise,
+        buildListClient({ totalVisits: 2 }),
+      );
+
+      render(<ClientsModal onClose={() => {}} />);
+
+      fireEvent.click(await screen.findByRole('button', { name: /ava thompson/i }));
+
+      expect(
+        await screen.findByTestId('client-visits-tile-loading'),
+      ).toBeInTheDocument();
+      // The contradictory list-derived number is never painted.
+      expect(screen.queryByTestId('client-visits-tile')).not.toBeInTheDocument();
+
+      detail.resolve(new Response(
+        JSON.stringify(buildDetailResponse({
+          summary: {
+            currency: 'CAD',
+            timeZone: 'America/Toronto',
+            lifetimeSpendCents: 45500,
+            spendThisMonthCents: 10000,
+            completedOutstandingCents: 0,
+            financialState: 'resolved',
+            completedVisits: 5,
+            mostBookedService: null,
+            rebooking: { status: 'due', dueAt: null },
+            provenance: {
+              lifetimeSpend: { mode: 'finalized', unresolvedAppointmentCount: 0, isEstimated: false },
+              spendThisMonth: { mode: 'finalized', unresolvedAppointmentCount: 0, isEstimated: false },
+              completedOutstanding: { mode: 'finalized', unresolvedAppointmentCount: 0, isEstimated: false },
+            },
+          },
+        })),
+        { status: 200 },
+      ));
+
+      expect(await screen.findByTestId('client-visits-tile')).toHaveTextContent('5');
+    });
+
+    it('gives Call and Email real device targets from the loaded profile', async () => {
+      mockDetailRoutes(() => new Response(
+        JSON.stringify(buildDetailResponse()),
+        { status: 200 },
+      ));
+
+      render(<ClientsModal onClose={() => {}} />);
+
+      fireEvent.click(await screen.findByRole('button', { name: /ava thompson/i }));
+
+      expect(await screen.findByTestId('client-call-action'))
+        .toHaveAttribute('href', 'tel:1111111111');
+      expect(screen.getByTestId('client-email-action'))
+        .toHaveAttribute('href', 'mailto:ava@example.com');
+    });
+
+    it('returns the profile to the top when the owner switches section', async () => {
+      mockDetailRoutes(() => new Response(
+        JSON.stringify(buildDetailResponse()),
+        { status: 200 },
+      ));
+
+      render(<ClientsModal onClose={() => {}} />);
+
+      fireEvent.click(await screen.findByRole('button', { name: /ava thompson/i }));
+
+      const scroller = await screen.findByTestId('client-detail-scroll');
+      const scrollTo = vi.fn();
+      scroller.scrollTo = scrollTo as unknown as Element['scrollTo'];
+
+      fireEvent.click(screen.getByRole('button', { name: 'Details' }));
+
+      expect(scrollTo).toHaveBeenCalledWith(
+        expect.objectContaining({ top: 0 }),
+      );
+    });
+
+    it('keeps a current tab in both the mobile and the desktop lane', async () => {
+      // The lanes render the same content at different granularity, so a
+      // desktop-only section must still light a mobile tab and vice versa.
+      mockDetailRoutes(() => new Response(
+        JSON.stringify(buildDetailResponse()),
+        { status: 200 },
+      ));
+
+      render(<ClientsModal onClose={() => {}} />);
+
+      fireEvent.click(await screen.findByRole('button', { name: /ava thompson/i }));
+      await screen.findByTestId('client-detail-scroll');
+
+      // "Payments" only exists in the desktop lane; mobile shows it under
+      // "Activity", which must be the tab marked current.
+      fireEvent.click(screen.getByRole('button', { name: 'Payments' }));
+
+      const nav = screen.getByRole('navigation', { name: 'Client profile sections' });
+      const current = within(nav)
+        .getAllByRole('button')
+        .filter(button => button.getAttribute('aria-current') === 'page')
+        .map(button => button.textContent);
+
+      expect(current).toEqual(['Activity', 'Payments']);
+    });
+  });
 });

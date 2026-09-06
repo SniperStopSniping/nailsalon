@@ -160,6 +160,17 @@ export function OnboardingWorkspaceHandoff({
     if (signal?.aborted) {
       return;
     }
+    // An explicit `data: null` is the server saying "no onboarding site for
+    // this salon" — the same absence the 404 used to mean, without the console
+    // error (OP-007 addendum).
+    if (payload?.data === null) {
+      setHandoff(null);
+      setCanChangeSetup(false);
+      onAvailabilityChange?.(false);
+      onHandoffChange?.(null);
+      onResolutionChange?.('absent');
+      return;
+    }
     const next = payload.data ?? (payload as OnboardingSiteHandoff);
     if (!next?.site?.id) {
       setHandoff(null);

@@ -1,12 +1,13 @@
 'use client';
 
-import { CalendarPlus, Clock3, Mail, MapPin, UserRound } from 'lucide-react';
+import { CalendarPlus, Clock3, Mail, MapPin, UserRound, X } from 'lucide-react';
 import Image from 'next/image';
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { UpcomingAppointmentActions } from '@/components/appointments/UpcomingAppointmentActions';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { DialogShell } from '@/components/ui/dialog-shell';
+import { InlineFeedback } from '@/components/ui/inline-feedback';
 import type { AppointmentManageDetail, ManageWarning } from '@/libs/appointmentManage';
 import { formatAppointmentStatus } from '@/libs/appointmentStatusDisplay';
 import { formatMoney } from '@/libs/formatMoney';
@@ -116,7 +117,6 @@ export function AppointmentQuickEditSheet({
   const [internalNote, setInternalNote] = useState('');
   const [pendingConfirm, setPendingConfirm] = useState<'cancel' | 'no_show' | 'decline' | null>(null);
   const editSectionRef = useRef<HTMLDivElement>(null);
-  const actionErrorRef = useRef<HTMLDivElement>(null);
 
   const resetEditFieldsFromDetail = useCallback(() => {
     if (!detail) {
@@ -139,20 +139,23 @@ export function AppointmentQuickEditSheet({
   }, [detail, initialPendingAction, resetEditFieldsFromDetail]);
 
   // A refusal has to be seen where the owner acted. The notice lives in the
-  // sticky footer next to "Save changes", is announced (role="alert"), and
-  // takes focus so a keyboard/screen-reader user lands on it instead of being
-  // returned to a form that looks like it saved.
-  useEffect(() => {
-    if (!actionError || !detail) {
-      return;
-    }
-    const node = actionErrorRef.current;
-    if (!node) {
-      return;
-    }
-    node.scrollIntoView?.({ behavior: 'smooth', block: 'nearest' });
-    node.focus?.({ preventScroll: true });
-  }, [actionError, attemptedTimeLabel, detail]);
+  // sticky footer next to "Save changes"; InlineFeedback (the shared primitive)
+  // announces it as role="alert", scrolls it into view and takes focus, so a
+  // keyboard/screen-reader user lands on the reason instead of on a form that
+  // looks like it saved. Memoised so that focus/scroll effect runs when the
+  // message changes, not on every render.
+  const actionErrorDetail = useMemo(() => (
+    <>
+      <div>{actionError}</div>
+      {attemptedTimeLabel && (
+        <div className="mt-1">
+          Attempted time:
+          {' '}
+          {attemptedTimeLabel}
+        </div>
+      )}
+    </>
+  ), [actionError, attemptedTimeLabel]);
 
   const handleSaveEdits = useCallback(async () => {
     try {
@@ -197,11 +200,22 @@ export function AppointmentQuickEditSheet({
     ? currentBaseService.durationMinutes + currentAddOnDuration
     : detail?.appointment.totalDurationMinutes ?? 0;
   // Fail closed for stale cached/client fixtures that predate the financial
-  // DTO: absence is never permission to revive the raw booked total.
-  const financial = detail?.financial ?? { state: 'under_review' as const };
-  const financialCurrency = financial.state === 'resolved'
-    ? financial.currency
-    : null;
+  // DTO: absence is never permission to revive the raw booked total. Only the
+  // server may say "the invoice is unresolved, here is the booked estimate".
+  const financial = detail?.financial ?? null;
+  const resolvedFinancial = financial?.state === 'resolved' ? financial : null;
+  // The unresolved-chain fallback (AG-appointments-01 sub-observation): the
+  // owner still sees the booked subtotal, always labelled as an estimate.
+  const estimatedFinancial
+    = financial?.state === 'under_review'
+    && typeof financial.bookedTotalCents === 'number'
+    && typeof financial.currency === 'string'
+      ? { bookedTotalCents: financial.bookedTotalCents, currency: financial.currency }
+      : null;
+  // Line-item amounts (add-ons, service options, projected subtotal) are booked
+  // snapshot prices, not invoice figures, so they may be shown in the currency
+  // either state provides. With neither, nothing numeric is rendered.
+  const financialCurrency = resolvedFinancial?.currency ?? estimatedFinancial?.currency ?? null;
 
   const isDirty = Boolean(
     detail
@@ -225,17 +239,22 @@ export function AppointmentQuickEditSheet({
       contentClassName="flex h-[92vh] max-h-[92vh] min-h-0 flex-col overflow-hidden rounded-t-3xl bg-white shadow-2xl supports-[height:100dvh]:h-[92dvh] supports-[height:100dvh]:max-h-[92dvh] sm:ml-auto sm:h-full sm:max-h-none sm:rounded-none sm:rounded-l-3xl sm:supports-[height:100dvh]:h-full sm:supports-[height:100dvh]:max-h-none"
     >
       <div data-testid="appointment-quick-edit-sheet" className="flex min-h-0 flex-1 flex-col">
-        <div className="flex shrink-0 items-center justify-between border-b border-neutral-100 px-4 pb-3 pt-4 sm:px-5">
-          <div>
+        <div className="flex shrink-0 items-center justify-between gap-3 border-b border-neutral-100 px-4 pb-3 pt-4 sm:px-5">
+          <div className="min-w-0">
             <div className="text-lg font-semibold text-neutral-900">Appointment</div>
             <div className="text-sm text-neutral-500">Quick edit</div>
           </div>
+          {/* A full 44px target that stays inside the sheet at 320px: the ring
+              is drawn on the button's own box (no negative margin), so it can
+              never be clipped by the sheet's rounded overflow. */}
           <button
             type="button"
+            data-testid="appointment-sheet-header-close"
+            aria-label="Close appointment details"
             onClick={onClose}
-            className="rounded-full p-2 text-neutral-400 transition-colors hover:bg-neutral-100 hover:text-neutral-700"
+            className="flex size-11 shrink-0 items-center justify-center rounded-full text-neutral-400 transition-colors hover:bg-neutral-100 hover:text-neutral-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-400 focus-visible:ring-offset-2"
           >
-            ×
+            <X aria-hidden="true" className="size-5" />
           </button>
         </div>
 
@@ -308,46 +327,68 @@ export function AppointmentQuickEditSheet({
                               {formatAppointmentStatus(detail.appointment.status)}
                             </div>
                           </div>
-                          <div className="text-right" data-testid="appointment-sheet-financial-summary">
-                            {financial.state === 'resolved'
+                          <div className="max-w-[58%] text-right" data-testid="appointment-sheet-financial-summary">
+                            {resolvedFinancial
                               ? (
                                   <>
                                     <div className="text-xs uppercase tracking-[0.08em] text-neutral-400">
-                                      {financial.classification === 'actual'
+                                      {resolvedFinancial.classification === 'actual'
                                         ? 'Invoice total'
                                         : 'Estimated total'}
                                     </div>
                                     <div className="text-lg font-semibold" style={{ color: themeVars.primary }}>
                                       {formatMoney(
-                                        financial.invoiceTotalCents,
-                                        financial.currency,
+                                        resolvedFinancial.invoiceTotalCents,
+                                        resolvedFinancial.currency,
                                       )}
                                     </div>
-                                    {financial.depositCreditAppliedCents > 0 && (
+                                    {resolvedFinancial.depositCreditAppliedCents > 0 && (
                                       <div className="mt-1 text-xs text-neutral-500">
                                         Deposit credit
                                         {' '}
                                         {formatMoney(
-                                          financial.depositCreditAppliedCents,
-                                          financial.currency,
+                                          resolvedFinancial.depositCreditAppliedCents,
+                                          resolvedFinancial.currency,
                                         )}
                                         {' · '}
                                         Balance
                                         {' '}
                                         {formatMoney(
-                                          financial.balanceCents,
-                                          financial.currency,
+                                          resolvedFinancial.balanceCents,
+                                          resolvedFinancial.currency,
                                         )}
                                       </div>
                                     )}
                                   </>
                                 )
-                              : (
-                                  <>
-                                    <div className="text-xs uppercase tracking-[0.08em] text-neutral-400">Financial details</div>
-                                    <div className="text-sm font-semibold text-amber-700">Under review</div>
-                                  </>
-                                )}
+                              : estimatedFinancial
+                                ? (
+                                    <>
+                                      <div className="text-xs uppercase tracking-[0.08em] text-neutral-400">Booked total</div>
+                                      <div
+                                        data-testid="appointment-sheet-booked-total"
+                                        className="text-lg font-semibold"
+                                        style={{ color: themeVars.primary }}
+                                      >
+                                        {formatMoney(
+                                          estimatedFinancial.bookedTotalCents,
+                                          estimatedFinancial.currency,
+                                        )}
+                                      </div>
+                                      <div
+                                        data-testid="appointment-sheet-financial-estimate-caveat"
+                                        className="mt-1 text-xs font-medium text-amber-700"
+                                      >
+                                        Estimate — tax, deposits and payments aren’t confirmed yet.
+                                      </div>
+                                    </>
+                                  )
+                                : (
+                                    <>
+                                      <div className="text-xs uppercase tracking-[0.08em] text-neutral-400">Financial details</div>
+                                      <div className="text-sm font-semibold text-amber-700">Under review</div>
+                                    </>
+                                  )}
                           </div>
                         </div>
                       </div>
@@ -770,23 +811,13 @@ export function AppointmentQuickEditSheet({
             style={{ paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 0.75rem)' }}
           >
             {actionError && (
-              <div
-                ref={actionErrorRef}
+              <InlineFeedback
+                tone="error"
                 data-testid="appointment-sheet-inline-error"
-                role="alert"
-                tabIndex={-1}
-                className="mb-3 rounded-2xl border border-red-200 bg-red-50 p-3 text-sm text-red-700 outline-none"
-              >
-                <div className="font-medium">Unable to update appointment</div>
-                <div>{actionError}</div>
-                {attemptedTimeLabel && (
-                  <div className="mt-1 text-red-600">
-                    Attempted time:
-                    {' '}
-                    {attemptedTimeLabel}
-                  </div>
-                )}
-              </div>
+                className="mb-3"
+                message="Unable to update appointment"
+                detail={actionErrorDetail}
+              />
             )}
 
             <div className="flex gap-3">

@@ -3,7 +3,9 @@
 import {
   AlertCircle,
   BellRing,
+  CalendarCheck,
   CalendarDays,
+  ChevronDown,
   ChevronRight,
   CircleDollarSign,
   Clock3,
@@ -17,7 +19,6 @@ import {
   Sparkles,
   TriangleAlert,
   UserRound,
-  Users,
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
@@ -105,6 +106,35 @@ const RETENTION_STAGE_PRIORITY: Record<RetentionStage, number> = {
   promo_8w: 3,
 };
 
+/**
+ * One money vocabulary across the Workspace: when an amount cannot be resolved
+ * from the finalized record it is "Under review", in neutral grey, never a
+ * money colour and never a fabricated $0.00. Mirrors
+ * `SPEND_UNDER_REVIEW_LABEL` in ClientsModal.tsx — same words, same meaning.
+ */
+const UNDER_REVIEW_LABEL = 'Under review';
+
+/**
+ * Detail rows that only exist for a salon that actually takes deposits or
+ * charges tax. When the whole family is zero it is not a fact about today, it
+ * is a feature the salon does not use, so it is not shown (OP-009).
+ */
+const DEPOSIT_METRIC_LABELS = new Set<string>([
+  'Deposits collected',
+  'Deposit refunds',
+  'Deposits applied',
+  'Deposits forfeited (gross)',
+  'Forfeiture tax estimate',
+  'Forfeiture net estimate',
+  'Forfeiture refund reversals',
+  'Forfeiture tax reversals',
+  'Forfeiture net reversals',
+]);
+const TAX_METRIC_LABELS = new Set<string>([
+  'Tax today',
+  'Taxable subtotal today',
+]);
+
 const INCOMPLETE_HISTORY_EXPLANATION
   = 'Some historical appointments could not be included because their financial details are unavailable.';
 const ESTIMATED_HISTORY_EXPLANATION
@@ -135,6 +165,35 @@ function getFinancialHistoryNotice(summary: OwnerFinancialSummary): {
     };
   }
 
+  return null;
+}
+
+/**
+ * ONE honest line about the state of the money, never two that argue.
+ *
+ * The audit found "No completed financial activity yet." rendered directly
+ * above "Incomplete history — Some historical appointments could not be
+ * included…", which reads as a contradiction (AG-today-calendar-08). There is
+ * exactly one sentence now: an empty day that also has unresolved history says
+ * both facts in one breath; a day with figures keeps the precise provenance
+ * wording.
+ */
+function revenueStatusLine(
+  isEmpty: boolean,
+  historyNotice: ReturnType<typeof getFinancialHistoryNotice>,
+): string | null {
+  if (isEmpty) {
+    if (historyNotice?.label === 'Incomplete history') {
+      return 'No completed revenue yet today, and some earlier appointments are under review — those are not counted here.';
+    }
+    if (historyNotice?.label === 'Estimated history') {
+      return 'No completed revenue yet today, and some earlier totals are estimated from booked values.';
+    }
+    return 'No completed financial activity yet.';
+  }
+  if (historyNotice) {
+    return `${historyNotice.label} — ${historyNotice.explanation}`;
+  }
   return null;
 }
 
@@ -207,6 +266,9 @@ export function OwnerTodayWorkspace({
   // and say so in words instead of retrying every minute behind an error.
   const [financialSummaryOwnerOnlySlug, setFinancialSummaryOwnerOnlySlug]
     = useState<string | null>(null);
+  // Revenue detail is a disclosure, closed on arrival: the owner's first fold
+  // belongs to what needs a decision, not to a wall of $0.00 (OP-009).
+  const [revenueBreakdownOpen, setRevenueBreakdownOpen] = useState(false);
   const financialSummaryCacheRef = useRef<
     Record<string, OwnerFinancialSummary>
   >({});
@@ -445,12 +507,41 @@ export function OwnerTodayWorkspace({
       )?.id ?? null,
     [today],
   );
+  /**
+   * The bookings the owner still has to answer. `/api/admin/today` already
+   * scopes to the salon day, so every 'pending' row here starts today. This is
+   * the one thing on Today that cannot wait, so it leads the attention list
+   * (AG-today-calendar-02).
+   */
+  const pendingAppointments = useMemo(
+    () =>
+      (today?.appointments ?? []).filter(
+        appointment => appointment.status === 'pending',
+      ),
+    [today],
+  );
+
   const integrationNeedsAttention = Boolean(
     today?.integrationHealth.google.reconnectRequired
     || today?.integrationHealth.google.readiness === 'setup_incomplete'
     || today?.integrationHealth.google.inboundSyncError
     || today?.integrationHealth.calendarOutbox.failed,
   );
+  /**
+   * Only claim "not connected" once Today has answered; before that we do not
+   * know, and offering a connect flow for a calendar that is already syncing
+   * would be a lie in the other direction (AG-today-calendar-06).
+   */
+  const googleNotConnected = Boolean(
+    today
+    && (today.integrationHealth.google.readiness === 'not_connected'
+      || today.integrationHealth.google.status === 'disconnected'),
+  );
+
+  const revenueHistoryNotice = financialSummary
+    ? getFinancialHistoryNotice(financialSummary)
+    : null;
+
   const todayTotal = today?.appointments.length ?? appointments.total;
   const todayUpcoming
     = today?.appointments.filter(
@@ -458,6 +549,15 @@ export function OwnerTodayWorkspace({
         ['pending', 'confirmed', 'in_progress', 'awaiting_payment'].includes(appointment.status)
         && new Date(appointment.endTime).getTime() >= Date.now(),
     ).length ?? appointments.upcoming;
+
+  const todayCountHeadline = todayTotal === 1
+    ? '1 appointment today'
+    : `${todayTotal} appointments today`;
+  const todayCountDetail = todayTotal === 0
+    ? 'Your schedule is clear'
+    : todayUpcoming === 0
+      ? 'All done for today'
+      : `${todayUpcoming} still to come`;
 
   const formatTime = (value: string) =>
     new Intl.DateTimeFormat('en-CA', {
@@ -497,6 +597,148 @@ export function OwnerTodayWorkspace({
     await navigator.clipboard?.writeText(url).catch(() => undefined);
   };
 
+  /**
+   * "Needs attention" is the first card on Today, above the schedule, and a
+   * booking still waiting for an answer is its first row. Before this the only
+   * trace of an unconfirmed booking was a grey chip inside an agenda row
+   * (AG-today-calendar-02), and the section itself sat below Revenue (OP-009).
+   */
+  const attentionSection
+    = pendingAppointments.length
+    || today?.failedConfirmations.length
+    || legacyDueClients.length
+    || today?.googleEventsNeedingReview
+    || integrationNeedsAttention
+      ? (
+          <section
+            className="rounded-3xl border border-amber-100 bg-white p-4 shadow-[0_10px_30px_rgba(76,29,46,0.05)]"
+            data-testid="owner-needs-attention"
+          >
+            <div className="flex items-center gap-2">
+              <AlertCircle size={18} className="text-amber-600" />
+              <h2 className="text-[15px] font-semibold text-stone-950">
+                Needs attention
+              </h2>
+            </div>
+            <div className="mt-3 space-y-2">
+              {pendingAppointments.length > 0 && (
+                <p
+                  className="text-sm font-semibold text-stone-900"
+                  data-testid="owner-needs-attention-pending-count"
+                >
+                  {pendingAppointments.length === 1
+                    ? '1 booking needs confirming'
+                    : `${pendingAppointments.length} bookings need confirming`}
+                </p>
+              )}
+              {pendingAppointments.slice(0, 3).map(appointment => (
+                <button
+                  key={appointment.id}
+                  type="button"
+                  onClick={() => onOpenAppointment(appointment.id)}
+                  data-testid="owner-needs-attention-pending"
+                  aria-label={`Confirm ${appointment.clientName || 'guest'} at ${formatTime(appointment.startTime)}`}
+                  className="flex w-full items-center gap-3 rounded-2xl bg-amber-50 p-3 text-left text-sm text-amber-950"
+                >
+                  <CalendarCheck size={18} className="shrink-0" />
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate font-medium">
+                      {appointment.clientName || 'Guest client'}
+                    </span>
+                    <span className="mt-0.5 block text-xs opacity-80">
+                      {formatTime(appointment.startTime)}
+                    </span>
+                  </span>
+                  <span className="shrink-0 text-xs font-bold">Confirm</span>
+                  <ChevronRight size={15} className="shrink-0" />
+                </button>
+              ))}
+              {pendingAppointments.length > 3 && (
+                <button
+                  type="button"
+                  onClick={onOpenBookings}
+                  className="flex w-full items-center justify-between rounded-2xl px-3 py-2 text-left text-xs font-semibold text-rose-800"
+                >
+                  {`View all ${pendingAppointments.length} unconfirmed bookings`}
+                  <ChevronRight size={14} />
+                </button>
+              )}
+              {Boolean(today?.failedConfirmations.length) && (
+                <button
+                  type="button"
+                  onClick={() =>
+                    today?.failedConfirmations[0]?.appointmentId
+                    && onOpenAppointment(today.failedConfirmations[0].appointmentId)}
+                  className="flex w-full items-center gap-3 rounded-2xl bg-red-50 p-3 text-left text-sm text-red-900"
+                >
+                  <MailWarning size={18} />
+                  <span className="flex-1">
+                    {today!.failedConfirmations.length}
+                    {' '}
+                    confirmation email
+                    {today!.failedConfirmations.length === 1 ? '' : 's'}
+                    {' '}
+                    need
+                    resending
+                  </span>
+                  <ChevronRight size={15} />
+                </button>
+              )}
+              {legacyDueClients.map(client => (
+                <button
+                  key={client.id}
+                  type="button"
+                  onClick={() => onOpenClient(client.id)}
+                  className="flex w-full items-center gap-3 rounded-2xl bg-amber-50 p-3 text-left text-sm text-amber-900"
+                >
+                  <UserRound size={18} />
+                  <span className="flex-1">
+                    {client.fullName || 'Client'}
+                    {' '}
+                    is due for rebooking
+                  </span>
+                  <ChevronRight size={15} />
+                </button>
+              ))}
+              {Boolean(today?.googleEventsNeedingReview) && (
+                <button
+                  type="button"
+                  onClick={onOpenCalendar}
+                  className="flex w-full items-center gap-3 rounded-2xl bg-blue-50 p-3 text-left text-sm text-blue-900"
+                >
+                  <Clock3 size={18} />
+                  <span className="flex-1">
+                    {today!.googleEventsNeedingReview}
+                    {' '}
+                    Google event
+                    {today!.googleEventsNeedingReview === 1 ? '' : 's'}
+                    {' '}
+                    need
+                    review
+                  </span>
+                  <ChevronRight size={15} />
+                </button>
+              )}
+              {integrationNeedsAttention && (
+                <button
+                  type="button"
+                  onClick={onOpenIntegrations}
+                  className="flex w-full items-center gap-3 rounded-2xl bg-stone-100 p-3 text-left text-sm text-stone-800"
+                >
+                  <Settings2 size={18} />
+                  <span className="flex-1">
+                    {today?.integrationHealth.google.readiness === 'setup_incomplete'
+                      ? 'Finish Google Calendar setup — pick your blocking calendars'
+                      : 'Google Calendar needs attention'}
+                  </span>
+                  <ChevronRight size={15} />
+                </button>
+              )}
+            </div>
+          </section>
+        )
+      : null;
+
   return (
     <main
       className="mx-auto max-w-2xl space-y-4 px-5 pb-28 pt-3"
@@ -509,28 +751,34 @@ export function OwnerTodayWorkspace({
           Luster · Your day, polished
         </p>
       </section>
-      <section className="grid grid-cols-2 gap-3">
+      {/*
+        ONE count tile, not two showing the same number under near-identical
+        labels (AG-today-calendar-07). The total and what is left of it are one
+        fact about the day, read in one line.
+      */}
+      <section>
         <button
           type="button"
           onClick={onOpenCalendar}
-          className="rounded-3xl border border-rose-100/80 bg-white p-4 text-left shadow-[0_10px_30px_rgba(76,29,46,0.05)]"
+          data-testid="owner-today-count-tile"
+          className="flex w-full items-center gap-3.5 rounded-3xl border border-rose-100/80 bg-white px-4 py-3.5 text-left shadow-[0_10px_30px_rgba(76,29,46,0.05)] transition-colors hover:bg-[var(--owner-blush,#f6e7ec)]"
         >
-          <CalendarDays className="text-rose-700" size={23} />
-          <p className="mt-3 text-3xl font-bold text-stone-950">
-            {todayUpcoming}
-          </p>
-          <p className="text-sm text-stone-500">Upcoming today</p>
-        </button>
-        <button
-          type="button"
-          onClick={onOpenBookings}
-          className="rounded-3xl border border-amber-100 bg-white p-4 text-left shadow-[0_10px_30px_rgba(76,29,46,0.05)]"
-        >
-          <Users className="text-amber-600" size={23} />
-          <p className="mt-3 text-3xl font-bold text-stone-950">{todayTotal}</p>
-          <p className="text-sm text-stone-500">Appointments today</p>
+          <span className="flex size-11 shrink-0 items-center justify-center rounded-2xl bg-rose-50 text-rose-800">
+            <CalendarDays size={21} />
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block text-lg font-bold leading-tight text-stone-950">
+              {todayCountHeadline}
+            </span>
+            <span className="mt-0.5 block text-sm text-stone-500">
+              {todayCountDetail}
+            </span>
+          </span>
+          <ChevronRight size={17} className="shrink-0 text-stone-300" />
         </button>
       </section>
+
+      {attentionSection}
 
       <section
         className="overflow-hidden rounded-3xl border border-rose-100/80 bg-white shadow-[0_10px_30px_rgba(76,29,46,0.05)]"
@@ -589,7 +837,14 @@ export function OwnerTodayWorkspace({
                         key={appointment.id}
                         type="button"
                         onClick={() => onOpenAppointment(appointment.id)}
-                        className={`flex w-full items-center gap-3 px-5 py-4 text-left transition-colors hover:bg-rose-50/50 ${appointment.id === nextAppointmentId ? 'bg-amber-50/60' : ''} ${['completed', 'cancelled', 'no_show'].includes(appointment.status) ? 'opacity-55' : ''}`}
+                        /*
+                          ONE row background. "Next" is carried by its label
+                          chip, not by an amber wash that the owner would
+                          otherwise learn to read as a status and be wrong
+                          (AG-cohesion-08). Finished rows are dimmed, which is
+                          a real state and is also said in words by the chip.
+                        */
+                        className={`flex w-full items-center gap-3 bg-white px-5 py-4 text-left transition-colors hover:bg-[var(--owner-blush,#f6e7ec)] ${['completed', 'cancelled', 'no_show'].includes(appointment.status) ? 'opacity-55' : ''}`}
                       >
                         <div className="w-16 shrink-0">
                           <p className="text-sm font-semibold text-rose-900">
@@ -664,7 +919,23 @@ export function OwnerTodayWorkspace({
               <CircleDollarSign size={20} />
             </span>
             <div className="min-w-0">
-              <h2 className="font-semibold text-stone-950">Revenue</h2>
+              <div className="flex flex-wrap items-center gap-2">
+                <h2 className="font-semibold text-stone-950">Revenue</h2>
+                {/*
+                  The caveats used to be two amber banners at the bottom of the
+                  card. One neutral chip beside the headline says the same
+                  thing in the Workspace's shared money vocabulary, and the
+                  sentence underneath explains it (AG-cohesion-05).
+                */}
+                {revenueHistoryNotice && (
+                  <span
+                    className="rounded-full border border-stone-200 bg-stone-100 px-2 py-0.5 text-[10px] font-semibold text-stone-600"
+                    data-testid="owner-revenue-under-review-chip"
+                  >
+                    {UNDER_REVIEW_LABEL}
+                  </span>
+                )}
+              </div>
               <p className="mt-0.5 text-xs text-stone-500">
                 {financialSummaryOwnerOnly
                   ? 'Owner only'
@@ -804,6 +1075,23 @@ export function OwnerTodayWorkspace({
                     const isEmpty = allDisplayedValues.every(cents => cents === 0);
                     const historyNotice
                     = getFinancialHistoryNotice(financialSummary);
+                    const statusLine = revenueStatusLine(isEmpty, historyNotice);
+                    // A salon that takes no deposits and charges no tax should
+                    // not read nine $0.00 rows about deposits and tax
+                    // (OP-009). A family appears the moment it carries a
+                    // number; it is never hidden while it has one.
+                    const depositsInUse = secondaryMetrics.some(
+                      ([label, cents]) =>
+                        DEPOSIT_METRIC_LABELS.has(label) && cents !== 0,
+                    );
+                    const taxInUse = secondaryMetrics.some(
+                      ([label, cents]) => TAX_METRIC_LABELS.has(label) && cents !== 0,
+                    );
+                    const visibleSecondaryMetrics = secondaryMetrics.filter(
+                      ([label]) =>
+                        (DEPOSIT_METRIC_LABELS.has(label) ? depositsInUse : true)
+                        && (TAX_METRIC_LABELS.has(label) ? taxInUse : true),
+                    );
                     const depositReportingIncomplete = (
                       (todayPeriod.unattributedPaymentEventCount ?? 0)
                       + (todayPeriod.unattributedDepositEventCount ?? 0)
@@ -841,127 +1129,6 @@ export function OwnerTodayWorkspace({
                             Completed appointment revenue
                           </p>
                         </div>
-                        {forfeitureTaxBuckets.length > 0 && (
-                          <div
-                            className="space-y-2 rounded-2xl border border-stone-100 bg-stone-50 p-3 text-xs text-stone-700"
-                            data-testid="owner-forfeiture-tax-identities"
-                          >
-                            <p className="font-semibold text-stone-900">
-                              Forfeiture tax estimate identities
-                            </p>
-                            {forfeitureTaxBuckets.map(bucket => (
-                              <div
-                                key={[
-                                  bucket.schemaVersion,
-                                  bucket.classification,
-                                  bucket.label ?? 'none',
-                                  bucket.rateBps,
-                                  bucket.mode,
-                                  bucket.configurationEffectiveFrom ?? 'none',
-                                  bucket.configurationSource,
-                                  bucket.taxEstimateApplied,
-                                ].join(':')}
-                                className="rounded-xl bg-white px-3 py-2"
-                              >
-                                <p className="font-medium text-stone-900">
-                                  {`${bucket.label ?? 'No tax label'} · ${(bucket.rateBps / 100).toFixed(2)}% · ${bucket.mode}`}
-                                </p>
-                                <p className="mt-0.5 text-stone-500">
-                                  Schema
-                                  {' '}
-                                  {bucket.schemaVersion}
-                                  {' '}
-                                  ·
-                                  {' '}
-                                  {bucket.classification}
-                                  {' '}
-                                  ·
-                                  {' '}
-                                  {bucket.configurationSource}
-                                  {bucket.configurationEffectiveFrom
-                                    ? ` · effective ${bucket.configurationEffectiveFrom}`
-                                    : ''}
-                                </p>
-                                <p className="mt-1 tabular-nums">
-                                  Gross
-                                  {' '}
-                                  {formatMoney(bucket.grossForfeitedCents, financialSummary.currency)}
-                                  {' '}
-                                  · tax estimate
-                                  {' '}
-                                  {formatMoney(bucket.estimatedTaxIncludedCents, financialSummary.currency)}
-                                  {' '}
-                                  · net estimate
-                                  {' '}
-                                  {formatMoney(bucket.estimatedNetCents, financialSummary.currency)}
-                                </p>
-                                {bucket.refundReversalCount > 0 && (
-                                  <p className="mt-1 tabular-nums text-amber-800">
-                                    Later refund reversal
-                                    {' '}
-                                    {formatMoney(bucket.refundReversalCents, financialSummary.currency)}
-                                  </p>
-                                )}
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                        {actualTaxBuckets.length > 0 && (
-                          <div
-                            className="space-y-2 rounded-2xl border border-stone-100 bg-stone-50 p-3 text-xs text-stone-700"
-                            data-testid="owner-actual-tax-identities"
-                          >
-                            <p className="font-semibold text-stone-900">
-                              Completed actual tax identities
-                            </p>
-                            {actualTaxBuckets.map(bucket => (
-                              <div
-                                key={[
-                                  bucket.schemaVersion,
-                                  bucket.classification,
-                                  bucket.label ?? 'none',
-                                  bucket.rateBps,
-                                  bucket.mode,
-                                  bucket.configurationEffectiveFrom ?? 'none',
-                                  bucket.configurationSource,
-                                  bucket.taxApplied,
-                                  bucket.taxExempt,
-                                ].join(':')}
-                                className="rounded-xl bg-white px-3 py-2"
-                              >
-                                <p className="font-medium text-stone-900">
-                                  {`${bucket.label ?? 'No tax label'} · ${(bucket.rateBps / 100).toFixed(2)}% · ${bucket.mode}`}
-                                </p>
-                                <p className="mt-0.5 text-stone-500">
-                                  Schema
-                                  {' '}
-                                  {bucket.schemaVersion}
-                                  {' '}
-                                  ·
-                                  {' '}
-                                  {bucket.classification}
-                                  {' '}
-                                  ·
-                                  {' '}
-                                  {bucket.configurationSource}
-                                  {bucket.configurationEffectiveFrom
-                                    ? ` · effective ${bucket.configurationEffectiveFrom}`
-                                    : ''}
-                                  {bucket.taxExempt ? ' · exempt' : ''}
-                                </p>
-                                <p className="mt-1 tabular-nums">
-                                  Taxable
-                                  {' '}
-                                  {formatMoney(bucket.taxableSubtotalCents, financialSummary.currency)}
-                                  {' '}
-                                  · tax
-                                  {' '}
-                                  {formatMoney(bucket.taxCents, financialSummary.currency)}
-                                </p>
-                              </div>
-                            ))}
-                          </div>
-                        )}
                         <div className="grid grid-cols-2 gap-3">
                           {[
                             [
@@ -992,60 +1159,189 @@ export function OwnerTodayWorkspace({
                             );
                           })}
                         </div>
-                        {isEmpty && (
-                          <div
-                            className="rounded-2xl border border-stone-100 bg-stone-50 px-3 py-2.5 text-xs text-stone-600"
-                            data-testid="owner-revenue-summary-empty"
+                        {statusLine && (
+                          <p
+                            className="rounded-2xl border border-stone-100 bg-stone-50 px-3 py-2.5 text-xs leading-relaxed text-stone-600"
+                            data-testid={isEmpty ? 'owner-revenue-summary-empty' : 'owner-revenue-history-notice'}
                           >
-                            No completed financial activity yet.
-                          </div>
+                            {statusLine}
+                          </p>
                         )}
-                        <div className="grid grid-cols-2 gap-x-4 gap-y-3 border-t border-stone-100 pt-4 text-sm">
-                          {secondaryMetrics.map(([label, cents]) => (
-                            <div key={label}>
-                              <p className="text-xs text-stone-500">{label}</p>
-                              <p className="mt-0.5 font-semibold tabular-nums text-stone-900">
-                                {formatMoney(cents, financialSummary.currency)}
-                              </p>
+                        <button
+                          type="button"
+                          onClick={() => setRevenueBreakdownOpen(open => !open)}
+                          aria-expanded={revenueBreakdownOpen}
+                          aria-controls="owner-revenue-breakdown"
+                          data-testid="owner-revenue-breakdown-toggle"
+                          className="flex w-full items-center justify-between rounded-2xl border border-stone-200 px-3 py-2.5 text-sm font-semibold text-stone-800 transition-colors hover:bg-stone-50"
+                        >
+                          {revenueBreakdownOpen ? 'Hide breakdown' : 'View breakdown'}
+                          <ChevronDown
+                            size={16}
+                            className={`shrink-0 text-stone-400 transition-transform ${revenueBreakdownOpen ? 'rotate-180' : ''}`}
+                          />
+                        </button>
+                        {revenueBreakdownOpen && (
+                          <div className="space-y-3" id="owner-revenue-breakdown">
+                            <div className="grid grid-cols-2 gap-x-4 gap-y-3 border-t border-stone-100 pt-4 text-sm">
+                              {visibleSecondaryMetrics.map(([label, cents]) => (
+                                <div key={label}>
+                                  <p className="text-xs text-stone-500">{label}</p>
+                                  <p className="mt-0.5 font-semibold tabular-nums text-stone-900">
+                                    {formatMoney(cents, financialSummary.currency)}
+                                  </p>
+                                </div>
+                              ))}
                             </div>
-                          ))}
-                        </div>
-                        {historyNotice && (
-                          <div className="rounded-2xl border border-amber-100 bg-amber-50 px-3 py-2.5 text-xs leading-relaxed text-amber-950">
-                            <p className="font-semibold">
-                              {historyNotice.label}
-                            </p>
-                            <p className="mt-0.5">
-                              {historyNotice.explanation}
-                            </p>
+                            {forfeitureTaxBuckets.length > 0 && (
+                              <div
+                                className="space-y-2 rounded-2xl border border-stone-100 bg-stone-50 p-3 text-xs text-stone-700"
+                                data-testid="owner-forfeiture-tax-identities"
+                              >
+                                <p className="font-semibold text-stone-900">
+                                  Forfeiture tax estimate identities
+                                </p>
+                                {forfeitureTaxBuckets.map(bucket => (
+                                  <div
+                                    key={[
+                                      bucket.schemaVersion,
+                                      bucket.classification,
+                                      bucket.label ?? 'none',
+                                      bucket.rateBps,
+                                      bucket.mode,
+                                      bucket.configurationEffectiveFrom ?? 'none',
+                                      bucket.configurationSource,
+                                      bucket.taxEstimateApplied,
+                                    ].join(':')}
+                                    className="rounded-xl bg-white px-3 py-2"
+                                  >
+                                    <p className="font-medium text-stone-900">
+                                      {`${bucket.label ?? 'No tax label'} · ${(bucket.rateBps / 100).toFixed(2)}% · ${bucket.mode}`}
+                                    </p>
+                                    <p className="mt-0.5 text-stone-500">
+                                      Schema
+                                      {' '}
+                                      {bucket.schemaVersion}
+                                      {' '}
+                                      ·
+                                      {' '}
+                                      {bucket.classification}
+                                      {' '}
+                                      ·
+                                      {' '}
+                                      {bucket.configurationSource}
+                                      {bucket.configurationEffectiveFrom
+                                        ? ` · effective ${bucket.configurationEffectiveFrom}`
+                                        : ''}
+                                    </p>
+                                    <p className="mt-1 tabular-nums">
+                                      Gross
+                                      {' '}
+                                      {formatMoney(bucket.grossForfeitedCents, financialSummary.currency)}
+                                      {' '}
+                                      · tax estimate
+                                      {' '}
+                                      {formatMoney(bucket.estimatedTaxIncludedCents, financialSummary.currency)}
+                                      {' '}
+                                      · net estimate
+                                      {' '}
+                                      {formatMoney(bucket.estimatedNetCents, financialSummary.currency)}
+                                    </p>
+                                    {bucket.refundReversalCount > 0 && (
+                                      <p className="mt-1 tabular-nums text-amber-800">
+                                        Later refund reversal
+                                        {' '}
+                                        {formatMoney(bucket.refundReversalCents, financialSummary.currency)}
+                                      </p>
+                                    )}
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                            {actualTaxBuckets.length > 0 && (
+                              <div
+                                className="space-y-2 rounded-2xl border border-stone-100 bg-stone-50 p-3 text-xs text-stone-700"
+                                data-testid="owner-actual-tax-identities"
+                              >
+                                <p className="font-semibold text-stone-900">
+                                  Completed actual tax identities
+                                </p>
+                                {actualTaxBuckets.map(bucket => (
+                                  <div
+                                    key={[
+                                      bucket.schemaVersion,
+                                      bucket.classification,
+                                      bucket.label ?? 'none',
+                                      bucket.rateBps,
+                                      bucket.mode,
+                                      bucket.configurationEffectiveFrom ?? 'none',
+                                      bucket.configurationSource,
+                                      bucket.taxApplied,
+                                      bucket.taxExempt,
+                                    ].join(':')}
+                                    className="rounded-xl bg-white px-3 py-2"
+                                  >
+                                    <p className="font-medium text-stone-900">
+                                      {`${bucket.label ?? 'No tax label'} · ${(bucket.rateBps / 100).toFixed(2)}% · ${bucket.mode}`}
+                                    </p>
+                                    <p className="mt-0.5 text-stone-500">
+                                      Schema
+                                      {' '}
+                                      {bucket.schemaVersion}
+                                      {' '}
+                                      ·
+                                      {' '}
+                                      {bucket.classification}
+                                      {' '}
+                                      ·
+                                      {' '}
+                                      {bucket.configurationSource}
+                                      {bucket.configurationEffectiveFrom
+                                        ? ` · effective ${bucket.configurationEffectiveFrom}`
+                                        : ''}
+                                      {bucket.taxExempt ? ' · exempt' : ''}
+                                    </p>
+                                    <p className="mt-1 tabular-nums">
+                                      Taxable
+                                      {' '}
+                                      {formatMoney(bucket.taxableSubtotalCents, financialSummary.currency)}
+                                      {' '}
+                                      · tax
+                                      {' '}
+                                      {formatMoney(bucket.taxCents, financialSummary.currency)}
+                                    </p>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                            {depositReportingIncomplete && (
+                              <p
+                                className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900"
+                                data-testid="owner-deposit-reporting-incomplete"
+                              >
+                                Some payment or deposit activity is excluded because its tenant, event date, currency, or resolution is unknown.
+                              </p>
+                            )}
+                            {currencyReportingIncomplete && (
+                              <p
+                                className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900"
+                                data-testid="owner-currency-reporting-incomplete"
+                              >
+                                Financial activity with unknown or non-
+                                {financialSummary.currency}
+                                {' '}
+                                currency is excluded from these totals.
+                              </p>
+                            )}
+                            {(todayPeriod.unresolvedActualTaxIdentityCount ?? 0) > 0 && (
+                              <p
+                                className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900"
+                                data-testid="owner-tax-reporting-incomplete"
+                              >
+                                Some completed tax activity is excluded from tax identity details because its frozen final snapshot is unavailable or invalid.
+                              </p>
+                            )}
                           </div>
-                        )}
-                        {depositReportingIncomplete && (
-                          <p
-                            className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900"
-                            data-testid="owner-deposit-reporting-incomplete"
-                          >
-                            Some payment or deposit activity is excluded because its tenant, event date, currency, or resolution is unknown.
-                          </p>
-                        )}
-                        {currencyReportingIncomplete && (
-                          <p
-                            className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900"
-                            data-testid="owner-currency-reporting-incomplete"
-                          >
-                            Financial activity with unknown or non-
-                            {financialSummary.currency}
-                            {' '}
-                            currency is excluded from these totals.
-                          </p>
-                        )}
-                        {(todayPeriod.unresolvedActualTaxIdentityCount ?? 0) > 0 && (
-                          <p
-                            className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900"
-                            data-testid="owner-tax-reporting-incomplete"
-                          >
-                            Some completed tax activity is excluded from tax identity details because its frozen final snapshot is unavailable or invalid.
-                          </p>
                         )}
                         {financialSummaryError && (
                           <div
@@ -1200,96 +1496,6 @@ export function OwnerTodayWorkspace({
           )
         : null}
 
-      {today?.failedConfirmations.length
-      || legacyDueClients.length
-      || today?.googleEventsNeedingReview
-      || integrationNeedsAttention
-        ? (
-            <section
-              className="rounded-3xl border border-amber-100 bg-white p-5 shadow-[0_10px_30px_rgba(76,29,46,0.05)]"
-              data-testid="owner-needs-attention"
-            >
-              <div className="flex items-center gap-2">
-                <AlertCircle size={19} className="text-amber-600" />
-                <h2 className="font-semibold text-stone-950">Needs attention</h2>
-              </div>
-              <div className="mt-4 space-y-2">
-                {Boolean(today?.failedConfirmations.length) && (
-                  <button
-                    type="button"
-                    onClick={() =>
-                      today?.failedConfirmations[0]?.appointmentId
-                      && onOpenAppointment(today.failedConfirmations[0].appointmentId)}
-                    className="flex w-full items-center gap-3 rounded-2xl bg-red-50 p-3 text-left text-sm text-red-900"
-                  >
-                    <MailWarning size={18} />
-                    <span className="flex-1">
-                      {today!.failedConfirmations.length}
-                      {' '}
-                      confirmation email
-                      {today!.failedConfirmations.length === 1 ? '' : 's'}
-                      {' '}
-                      need
-                      resending
-                    </span>
-                    <ChevronRight size={15} />
-                  </button>
-                )}
-                {legacyDueClients.map(client => (
-                  <button
-                    key={client.id}
-                    type="button"
-                    onClick={() => onOpenClient(client.id)}
-                    className="flex w-full items-center gap-3 rounded-2xl bg-amber-50 p-3 text-left text-sm text-amber-900"
-                  >
-                    <UserRound size={18} />
-                    <span className="flex-1">
-                      {client.fullName || 'Client'}
-                      {' '}
-                      is due for rebooking
-                    </span>
-                    <ChevronRight size={15} />
-                  </button>
-                ))}
-                {Boolean(today?.googleEventsNeedingReview) && (
-                  <button
-                    type="button"
-                    onClick={onOpenCalendar}
-                    className="flex w-full items-center gap-3 rounded-2xl bg-blue-50 p-3 text-left text-sm text-blue-900"
-                  >
-                    <Clock3 size={18} />
-                    <span className="flex-1">
-                      {today!.googleEventsNeedingReview}
-                      {' '}
-                      Google event
-                      {today!.googleEventsNeedingReview === 1 ? '' : 's'}
-                      {' '}
-                      need
-                      review
-                    </span>
-                    <ChevronRight size={15} />
-                  </button>
-                )}
-                {integrationNeedsAttention && (
-                  <button
-                    type="button"
-                    onClick={onOpenIntegrations}
-                    className="flex w-full items-center gap-3 rounded-2xl bg-stone-100 p-3 text-left text-sm text-stone-800"
-                  >
-                    <Settings2 size={18} />
-                    <span className="flex-1">
-                      {today?.integrationHealth.google.readiness === 'setup_incomplete'
-                        ? 'Finish Google Calendar setup — pick your blocking calendars'
-                        : 'Google Calendar needs attention'}
-                    </span>
-                    <ChevronRight size={15} />
-                  </button>
-                )}
-              </div>
-            </section>
-          )
-        : null}
-
       <QuickActionsWidget onAction={onQuickAction} />
 
       <GoogleEventReviewQueue salonSlug={salonSlug} />
@@ -1345,12 +1551,21 @@ export function OwnerTodayWorkspace({
         onClick={onOpenIntegrations}
         className="flex w-full items-center justify-between rounded-3xl border border-rose-100/80 bg-white p-5 text-left shadow-[0_10px_30px_rgba(76,29,46,0.05)]"
       >
-        <div>
+        {/*
+          Not connected is said plainly and offers the one next step. The
+          two-way-sync / busy-event vocabulary describes a connection this
+          salon does not have yet (AG-today-calendar-06).
+        */}
+        <div data-testid="owner-google-calendar-card">
           <h2 className="font-semibold text-stone-950">
-            Google Calendar & reminders
+            {googleNotConnected
+              ? 'Connect Google Calendar'
+              : 'Google Calendar & reminders'}
           </h2>
           <p className="mt-1 text-sm text-stone-500">
-            Connect calendars, check two-way sync, and manage optional texting.
+            {googleNotConnected
+              ? 'Not connected yet. Connect it to keep your salon schedule and your own calendar in step.'
+              : 'Connect calendars, check two-way sync, and manage optional texting.'}
           </p>
         </div>
         <Settings2 className="shrink-0 text-rose-700" />

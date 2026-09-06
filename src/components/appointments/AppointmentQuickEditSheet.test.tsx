@@ -183,12 +183,51 @@ describe('AppointmentQuickEditSheet', () => {
     expect(summary).not.toHaveTextContent('$45.00');
   });
 
-  it('shows a money-free review state for unresolved refunds or missing currency', () => {
+  // Deliberate behaviour change (audit AG-appointments-01, product-side
+  // sub-observation): an unresolved tax/tender chain used to leave the owner
+  // with NO amount at all. The server now carries the booked subtotal through
+  // the `under_review` state, and the sheet shows it as an explicit estimate —
+  // it is still never presented as an invoice total.
+  it('falls back to the booked total with an estimate caveat when the invoice chain is unresolved', () => {
     render(
       <AppointmentQuickEditSheet
         isOpen
         onClose={vi.fn()}
-        detail={{ ...baseDetail, financial: { state: 'under_review' } }}
+        detail={{
+          ...baseDetail,
+          financial: { state: 'under_review', bookedTotalCents: 7000, currency: 'CAD' },
+        }}
+        loading={false}
+        saving={false}
+        actionError={null}
+        onSaveEdits={vi.fn(async () => {})}
+        onMoveToNextAvailable={vi.fn(async () => {})}
+        onCancelAppointment={vi.fn(async () => {})}
+        onMarkCompleted={vi.fn(async () => {})}
+        onStartAppointment={vi.fn(async () => {})}
+      />,
+    );
+
+    const summary = screen.getByTestId('appointment-sheet-financial-summary');
+
+    expect(summary).toHaveTextContent('Booked total');
+    expect(screen.getByTestId('appointment-sheet-booked-total')).toHaveTextContent('$70.00');
+    expect(screen.getByTestId('appointment-sheet-financial-estimate-caveat')).toHaveTextContent(
+      /Estimate/,
+    );
+    // The estimate is never dressed up as a settled invoice.
+    expect(summary).not.toHaveTextContent('Invoice total');
+    expect(summary).not.toHaveTextContent('Balance');
+  });
+
+  it('shows a money-free review state when the server sends no financial DTO at all', () => {
+    const { financial: _omitted, ...detailWithoutFinancial } = baseDetail;
+
+    render(
+      <AppointmentQuickEditSheet
+        isOpen
+        onClose={vi.fn()}
+        detail={detailWithoutFinancial as typeof baseDetail}
         loading={false}
         saving={false}
         actionError={null}
@@ -205,6 +244,35 @@ describe('AppointmentQuickEditSheet', () => {
     );
     expect(screen.getByTestId('appointment-sheet-projected-price')).toHaveTextContent('Under review');
     expect(screen.queryByText('$45.00')).not.toBeInTheDocument();
+  });
+
+  // AG-appointments-03: the header close control was a 32px icon whose ring sat
+  // flush with the sheet's rounded, overflow-hidden edge. It must be a full
+  // 44px target, named, and drawn inside the header's own padding.
+  it('gives the header close control a named 44px target inside the sheet padding', () => {
+    render(
+      <AppointmentQuickEditSheet
+        isOpen
+        onClose={vi.fn()}
+        detail={baseDetail}
+        loading={false}
+        saving={false}
+        actionError={null}
+        onSaveEdits={vi.fn(async () => {})}
+        onMoveToNextAvailable={vi.fn(async () => {})}
+        onCancelAppointment={vi.fn(async () => {})}
+        onMarkCompleted={vi.fn(async () => {})}
+        onStartAppointment={vi.fn(async () => {})}
+      />,
+    );
+
+    const close = screen.getByTestId('appointment-sheet-header-close');
+
+    expect(close).toHaveAccessibleName('Close appointment details');
+    expect(close).toHaveClass('size-11', 'shrink-0');
+    // No negative margin: the ring cannot escape the header's px-4 padding.
+    expect(close.className).not.toMatch(/-m[rxy]?-/);
+    expect(close.parentElement).toHaveClass('px-4');
   });
 
   it('does not expose D6 deposit controls on the default staff surface', () => {

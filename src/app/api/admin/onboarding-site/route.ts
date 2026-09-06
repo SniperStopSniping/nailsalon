@@ -59,10 +59,11 @@ export async function GET(request: Request) {
     locale: authorization.locale,
     salon,
   });
-  if (!data) {
-    return notFound();
-  }
-  return Response.json({ data }, {
+  // "This salon has no onboarding site" is an ANSWER, not a failure: most
+  // salons never had one. Answering 404 made every owner dashboard log a
+  // console error on arrival and buried the noise that matters (OP-007
+  // addendum). A refusal (flag off, not a member) still 404s above.
+  return Response.json({ data: data ?? null }, {
     headers: { 'Cache-Control': 'private, no-store' },
   });
 }
