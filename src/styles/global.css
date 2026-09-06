@@ -380,7 +380,12 @@
   .owner-surface *::after {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
+    /* Truly instant, not 0.01ms: `transition-property` defaults to `all`, so a
+       near-zero duration still starts a transition, and WebKit then reports
+       the pre-change computed value (e.g. opacity) for a frame. Nothing in
+       the owner surfaces listens for transitionend. */
+    transition-duration: 0s !important;
+    transition-delay: 0s !important;
     scroll-behavior: auto !important;
   }
 
