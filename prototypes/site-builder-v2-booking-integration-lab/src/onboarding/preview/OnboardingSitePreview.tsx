@@ -1,3 +1,5 @@
+import '../quick-book/quick-book-presentation.css';
+
 import {
   CalendarDays,
   ChevronRight,
@@ -96,6 +98,10 @@ import type {
   QuickBookLayoutId,
   SiteStylePresetId,
 } from '../model/types';
+import { buildLabQuickBookPresentationProfile } from '../quick-book/lab-presentation';
+import { isLegacyQuickBookLayoutId } from '../quick-book/layouts';
+import type { QuickBookGalleryItem } from '../quick-book/presentation-view';
+import { QuickBookPresentation } from '../quick-book/QuickBookPresentation';
 import { labelForNewClients, labelForVisitMode } from './customer-facts';
 import { OnboardingCustomDesignSections } from './OnboardingCustomDesignSections';
 import { sectionAnchorId } from './section-anchors';
@@ -730,6 +736,23 @@ function QuickBookPolicyDisclosure({
   );
 }
 
+/** Maps the preview's `--customer-*` theme onto the shared `--qb-*` tokens. */
+const QUICK_BOOK_PRESENTATION_TOKENS = {
+  '--qb-accent': 'var(--customer-accent)',
+  '--qb-secondary': 'var(--customer-secondary-accent)',
+  '--qb-button': 'var(--customer-button, var(--customer-accent))',
+  '--qb-button-text': 'var(--customer-button-text, var(--customer-surface))',
+  '--qb-ground': 'var(--customer-ground)',
+  '--qb-surface': 'var(--customer-surface)',
+  '--qb-ink': 'var(--customer-ink)',
+  '--qb-muted': 'var(--customer-muted)',
+  '--qb-line': 'var(--customer-line)',
+  '--qb-heading-font': 'var(--customer-heading-font)',
+  '--qb-body-font': 'var(--customer-body-font)',
+  '--qb-radius': 'var(--customer-radius)',
+  '--qb-button-radius': 'var(--customer-button-radius)',
+} as CSSProperties;
+
 function QuickBookProfileHeader({
   phase,
   profile,
@@ -758,6 +781,44 @@ function QuickBookProfileHeader({
   }), [profile, state.reviewOptions.previewTimestamp, visibility]);
   const title = profile.businessName.trim() || 'Your nail studio';
   const layout = phase === 'identity' ? 'compact_dropdown' : state.recipe.quickBookLayout;
+  const sharedLayout = !isLegacyQuickBookLayoutId(layout);
+  // Design-system layouts mount the SAME renderer the public page uses, fed
+  // by this draft through one adapter, so the Design step never previews a
+  // composition the published page cannot produce.
+  const identityAssetIds = useMemo(() => [
+    profile.logo?.storageId,
+    profile.profilePhoto?.storageId,
+    ...(state.recipe.galleryEnabled ? state.gallery.images.slice(0, 5).map(image => image.storageId) : []),
+  ].filter((assetId): assetId is string => Boolean(assetId)), [
+    profile.logo?.storageId,
+    profile.profilePhoto?.storageId,
+    state.gallery.images,
+    state.recipe.galleryEnabled,
+  ]);
+  const identityAssets = useCustomDesignAssetMap(identityAssetIds);
+  const sharedProfile = useMemo(() => {
+    if (!sharedLayout) {
+      return null;
+    }
+    const gallery: QuickBookGalleryItem[] = state.recipe.galleryEnabled
+      ? state.gallery.images.slice(0, 5).flatMap((image) => {
+        const url = resolveOnboardingImageUrl(image, identityAssets);
+        return url
+          ? [{ id: image.id, url, alt: image.altText?.trim() || `${title} nail work`, width: image.width ?? null, height: image.height ?? null }]
+          : [];
+      })
+      : [];
+    return buildLabQuickBookPresentationProfile({
+      layout,
+      profile,
+      view,
+      logoUrl: resolveOnboardingImageUrl(profile.logo, identityAssets),
+      profilePhotoUrl: resolveOnboardingImageUrl(profile.profilePhoto, identityAssets),
+      coverUrl: null,
+      gallery,
+      websiteCopy: null,
+    });
+  }, [identityAssets, layout, profile, sharedLayout, state.gallery.images, state.recipe.galleryEnabled, title, view]);
   const visitMode = final ? labelForVisitMode(profile) : null;
   const newClients = final ? labelForNewClients(profile) : null;
   const facts: QuickBookFact[] = business
@@ -859,6 +920,32 @@ function QuickBookProfileHeader({
         </div>
       )
     : null;
+
+  if (sharedProfile) {
+    return (
+      <section
+        aria-labelledby={`${sectionId}-title`}
+        className="onboarding-quick-book-profile is-shared-presentation"
+        data-preview-phase={phase}
+        data-quick-book-layout={layout}
+        data-section-id={sectionId}
+        id={sectionAnchorId(sectionId, 'hero')}
+        style={QUICK_BOOK_PRESENTATION_TOKENS}
+      >
+        <QuickBookPresentation
+          bookingHref="#booking"
+          headingId={`${sectionId}-title`}
+          headingProps={{
+            'data-business-identity': 'quick_book_profile',
+            'data-preview-page-heading': 'true',
+            'role': suppressPageHeadingSemantics ? 'presentation' : undefined,
+            'tabIndex': -1,
+          }}
+          profile={sharedProfile}
+        />
+      </section>
+    );
+  }
 
   return (
     <section

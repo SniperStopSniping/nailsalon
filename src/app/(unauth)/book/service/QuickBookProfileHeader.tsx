@@ -1,3 +1,5 @@
+import '../../../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/quick-book/quick-book-presentation.css';
+
 import {
   ChevronDown,
   Clock3,
@@ -9,17 +11,46 @@ import {
   Star,
 } from 'lucide-react';
 import Image from 'next/image';
-import type { ReactNode } from 'react';
+import type { CSSProperties, ReactNode } from 'react';
 
+import { QuickBookPresentation } from '@/components/customer-site/QuickBookPresentation';
 import type { BookingStep } from '@/libs/bookingFlow';
 import { getStepLabel } from '@/libs/bookingFlow';
+import { deriveQuickBookPresentation } from '@/libs/quickBookPresentation';
 import {
+  getQuickBookLayout,
+  isLegacyQuickBookLayoutId,
   type QuickBookSiteLayout,
   resolveQuickBookSiteLayout,
 } from '@/libs/quickBookSiteLayout';
 import { themeVars } from '@/theme';
 
 import type { QuickBookProfileView } from './quickBookProfile';
+
+/**
+ * Maps the tenant theme / customer-site tokens onto the `--qb-*` variables
+ * the shared presentation stylesheet reads. Salons without a customer-site
+ * preset only define the `--theme-*` half, so every customer-site token has
+ * a neutral fallback here rather than in the shared stylesheet.
+ */
+const PRESENTATION_TOKEN_STYLE = {
+  '--qb-accent': 'var(--theme-primary-dark, var(--theme-primary))',
+  '--qb-secondary': 'var(--theme-primary-light, var(--theme-primary))',
+  '--qb-button': 'var(--theme-primary)',
+  '--qb-button-text': 'var(--booking-brand-foreground, #171717)',
+  '--qb-ground': 'var(--theme-background, #faf7f5)',
+  '--qb-surface': 'var(--theme-card-background, #ffffff)',
+  '--qb-ink': 'var(--customer-site-ink, #171717)',
+  '--qb-muted': 'var(--customer-site-muted, #6b6b6b)',
+  '--qb-line': 'var(--theme-card-border, #e5e5e5)',
+  '--qb-heading-font': 'var(--customer-site-heading-font, inherit)',
+  '--qb-body-font': 'var(--customer-site-body-font, inherit)',
+  '--qb-radius': 'var(--customer-site-card-radius, 16px)',
+  '--qb-button-radius': 'var(--customer-site-button-radius, 14px)',
+} as CSSProperties;
+
+/** The booking engine's own heading, rendered directly below this header. */
+const BOOKING_ENTRY_ANCHOR_ID = 'quick-book-booking';
 
 type QuickBookProfileHeaderProps = {
   profile: QuickBookProfileView;
@@ -66,7 +97,15 @@ export function QuickBookProfileHeader({
   mounted,
   announcement,
 }: QuickBookProfileHeaderProps) {
-  const activeLayout = resolveQuickBookSiteLayout(layout);
+  // The server-resolved presentation is authoritative when it describes the
+  // active layout. A caller without one (identity-only fallback, older
+  // fixture) still gets the real composition, derived from the same rules.
+  const activeLayout = resolveQuickBookSiteLayout(layout ?? profile.presentation?.layoutId);
+  const presentation = isLegacyQuickBookLayoutId(activeLayout)
+    ? null
+    : profile.presentation?.layoutId === activeLayout
+      ? profile.presentation
+      : deriveQuickBookPresentation(profile, activeLayout);
   const hasSecondaryActions = profile.policies.length > 0 || profile.reviews || profile.instagram;
   const contactCount = Number(Boolean(profile.contact?.phone))
     + Number(Boolean(profile.contact?.email));
@@ -104,292 +143,308 @@ export function QuickBookProfileHeader({
         }`}
         style={{ borderColor: themeVars.cardBorder }}
       >
-        <div className={`flex flex-col ${activeLayout === 'ultra_minimal' ? 'p-3 sm:p-4' : 'p-4 sm:p-5'}`}>
-          <div
-            data-testid="quick-book-identity"
-            className={`flex min-w-0 gap-3 sm:gap-4 ${
-              activeLayout === 'editorial'
-                ? 'items-center justify-center text-center'
-                : activeLayout === 'clean_card'
-                  ? 'flex-col items-center text-center sm:flex-row sm:text-left'
-                  : activeLayout === 'profile_story'
-                    ? 'items-start'
-                    : 'items-center'
-            }`}
-          >
-            {profile.identity.logoUrl
-              ? <ProfileLogo name={profile.identity.salonName} src={profile.identity.logoUrl} />
-              : null}
-
-            <div className={activeLayout === 'editorial' ? 'max-w-sm' : 'min-w-0 flex-1'}>
-              <h1
-                id="quick-book-profile-name"
-                data-testid="booking-salon-name"
-                className={`break-words font-bold leading-tight text-neutral-950 ${
-                  activeLayout === 'editorial'
-                    ? 'font-serif text-3xl uppercase tracking-[0.08em] sm:text-4xl'
-                    : activeLayout === 'profile_story'
-                      ? 'font-serif text-2xl tracking-tight sm:text-3xl'
-                      : 'text-xl tracking-tight sm:text-2xl'
-                }`}
+        {presentation
+          ? (
+              <div
+                className={getQuickBookLayout(activeLayout).family === 'cover' ? 'p-3 pb-4 sm:p-4' : 'p-4 sm:p-5'}
+                style={PRESENTATION_TOKEN_STYLE}
               >
-                {profile.identity.salonName}
-              </h1>
-              {profile.identity.technicianName
-                ? (
-                    <p data-testid="quick-book-technician-name" className="mt-1 break-words text-sm font-medium text-neutral-600 sm:text-base">
-                      {profile.identity.technicianName}
-                    </p>
-                  )
-                : null}
-            </div>
-
-            {profile.identity.technicianPhotoUrl
-              ? (
-                  <TechnicianPhoto
-                    name={profile.identity.technicianName ?? profile.identity.salonName}
-                    src={profile.identity.technicianPhotoUrl}
-                  />
-                )
-              : null}
-          </div>
-
-          {profile.location || profile.hours || profile.contact
-            ? (
-                <details
-                  className={`group mt-4 border-t border-neutral-100 ${activeLayout === 'profile_story' ? 'order-2' : ''}`}
-                  data-testid="quick-book-business-details-disclosure"
-                  open={!collapseBusinessDetails}
+                <QuickBookPresentation
+                  bookingHref={`#${BOOKING_ENTRY_ANCHOR_ID}`}
+                  headingId="quick-book-profile-name"
+                  headingProps={{ 'data-testid': 'booking-salon-name' }}
+                  profile={{ ...profile, presentation }}
+                />
+              </div>
+            )
+          : (
+              <div className={`flex flex-col ${activeLayout === 'ultra_minimal' ? 'p-3 sm:p-4' : 'p-4 sm:p-5'}`}>
+                <div
+                  data-testid="quick-book-identity"
+                  className={`flex min-w-0 gap-3 sm:gap-4 ${
+                    activeLayout === 'editorial'
+                      ? 'items-center justify-center text-center'
+                      : activeLayout === 'clean_card'
+                        ? 'flex-col items-center text-center sm:flex-row sm:text-left'
+                        : activeLayout === 'profile_story'
+                          ? 'items-start'
+                          : 'items-center'
+                  }`}
                 >
-                  <summary
-                    className={collapseBusinessDetails
-                      ? 'flex min-h-11 cursor-pointer list-none items-center gap-2 py-2 text-sm font-semibold text-neutral-800 focus-visible:rounded-xl focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 [&::-webkit-details-marker]:hidden'
-                      : 'hidden'}
-                  >
-                    <MapPin aria-hidden="true" className="size-4" style={{ color: themeVars.accent }} />
-                    <span className="flex-1">
-                      {activeLayout === 'ultra_minimal' ? 'More details' : 'Salon details'}
-                    </span>
-                    <ChevronDown aria-hidden="true" className="size-4 text-neutral-400 transition-transform group-open:rotate-180 motion-reduce:transition-none" />
-                  </summary>
-                  <div
-                    data-testid="quick-book-business-details"
-                    className={`${
-                      activeLayout === 'hub_menu'
-                        ? 'grid grid-cols-2 gap-2 pt-3 [&>*]:rounded-2xl [&>*]:border [&>*]:border-neutral-100 [&>*]:px-3'
-                        : activeLayout === 'editorial'
-                          ? 'grid gap-x-4 divide-y divide-neutral-100 sm:grid-cols-2 sm:divide-y-0'
-                          : activeLayout === 'compact_dropdown' || activeLayout === 'ultra_minimal'
-                            ? 'divide-y divide-neutral-100 text-sm'
-                            : 'divide-y divide-neutral-100'
-                    }`}
-                  >
-                    {profile.location
+                  {profile.identity.logoUrl
+                    ? <ProfileLogo name={profile.identity.salonName} src={profile.identity.logoUrl} />
+                    : null}
+
+                  <div className={activeLayout === 'editorial' ? 'max-w-sm' : 'min-w-0 flex-1'}>
+                    <h1
+                      id="quick-book-profile-name"
+                      data-testid="booking-salon-name"
+                      className={`break-words font-bold leading-tight text-neutral-950 ${
+                        activeLayout === 'editorial'
+                          ? 'font-serif text-3xl uppercase tracking-[0.08em] sm:text-4xl'
+                          : activeLayout === 'profile_story'
+                            ? 'font-serif text-2xl tracking-tight sm:text-3xl'
+                            : 'text-xl tracking-tight sm:text-2xl'
+                      }`}
+                    >
+                      {profile.identity.salonName}
+                    </h1>
+                    {profile.identity.technicianName
                       ? (
-                          <a
-                            data-testid="quick-book-location"
-                            href={profile.location.directionsUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="flex min-h-14 items-start gap-3 py-3 text-left focus-visible:rounded-xl focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
-                          >
-                            <MapPin aria-hidden="true" className="mt-0.5 size-5 shrink-0" style={{ color: themeVars.accent }} />
-                            <span className="min-w-0 flex-1 text-sm leading-5 text-neutral-700">
-                              {profile.location.name ? <strong className="block break-words text-neutral-900">{profile.location.name}</strong> : null}
-                              {profile.location.addressLine ? <span className="block break-words">{profile.location.addressLine}</span> : null}
-                              {profile.location.localityLine ? <span className="block break-words text-neutral-500">{profile.location.localityLine}</span> : null}
-                              {profile.location.instructionLines.map(line => (
-                                <span key={line} className="block break-words text-neutral-500">{line}</span>
-                              ))}
-                            </span>
-                            <span aria-hidden="true" className="mt-1 text-xl leading-none text-neutral-400">›</span>
-                          </a>
+                          <p data-testid="quick-book-technician-name" className="mt-1 break-words text-sm font-medium text-neutral-600 sm:text-base">
+                            {profile.identity.technicianName}
+                          </p>
                         )
                       : null}
+                  </div>
 
-                    {profile.hours
-                      ? (
-                          <details data-testid="quick-book-hours" className="group py-1">
-                            <summary className="flex min-h-14 cursor-pointer list-none items-center gap-3 rounded-xl py-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 [&::-webkit-details-marker]:hidden">
-                              <Clock3 aria-hidden="true" className="size-5 shrink-0" style={{ color: themeVars.accent }} />
-                              <span className="min-w-0 flex-1 text-sm">
-                                <strong className="block text-neutral-900">{profile.hours.statusLabel}</strong>
-                                <span className="block text-neutral-500">{profile.hours.todayLabel ?? 'See weekly hours'}</span>
-                              </span>
-                              <ChevronDown aria-hidden="true" className="size-5 shrink-0 text-neutral-400 transition-transform group-open:rotate-180 motion-reduce:transition-none" />
-                            </summary>
-                            <dl className="mb-3 ml-8 grid grid-cols-[minmax(0,1fr)_auto] gap-x-4 gap-y-1 rounded-xl bg-neutral-50 px-3 py-2.5 text-xs leading-5 text-neutral-600">
-                              {profile.hours.weekly.map(row => (
-                                <div key={row.day} className="contents">
-                                  <dt>{row.day}</dt>
-                                  <dd className="text-right font-medium text-neutral-800">{row.value}</dd>
-                                </div>
-                              ))}
-                            </dl>
-                          </details>
-                        )
-                      : null}
+                  {profile.identity.technicianPhotoUrl
+                    ? (
+                        <TechnicianPhoto
+                          name={profile.identity.technicianName ?? profile.identity.salonName}
+                          src={profile.identity.technicianPhotoUrl}
+                        />
+                      )
+                    : null}
+                </div>
 
-                    {profile.contact
-                      ? (
-                          <div
-                            data-testid="quick-book-contact"
-                            className={`grid gap-2 py-3 ${contactCount === 2 ? 'sm:grid-cols-2' : 'grid-cols-1'} ${
-                              // hub_menu lays its details out in two columns.
-                              // Contact details are the longest strings on the
-                              // card — an email in half a column shattered
-                              // mid-word beside an empty cell — so they take
-                              // the whole row.
-                              activeLayout === 'hub_menu' ? 'col-span-full' : ''
-                            }`}
-                          >
-                            {profile.contact.phone
-                              ? (
-                                  <a
-                                    href={profile.contact.phone.href}
-                                    className="flex min-h-11 min-w-0 items-center gap-2 rounded-xl bg-neutral-50 px-3 text-sm font-medium text-neutral-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
-                                  >
-                                    <Phone aria-hidden="true" className="size-4 shrink-0" style={{ color: themeVars.accent }} />
-                                    <span className="min-w-0">
-                                      <span className="block break-words">{profile.contact.phone.display}</span>
-                                      <span className="block text-xs font-normal text-neutral-500">
-                                        {profile.contact.phone.actionLabel}
-                                      </span>
+                {profile.location || profile.hours || profile.contact
+                  ? (
+                      <details
+                        className={`group mt-4 border-t border-neutral-100 ${activeLayout === 'profile_story' ? 'order-2' : ''}`}
+                        data-testid="quick-book-business-details-disclosure"
+                        open={!collapseBusinessDetails}
+                      >
+                        <summary
+                          className={collapseBusinessDetails
+                            ? 'flex min-h-11 cursor-pointer list-none items-center gap-2 py-2 text-sm font-semibold text-neutral-800 focus-visible:rounded-xl focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 [&::-webkit-details-marker]:hidden'
+                            : 'hidden'}
+                        >
+                          <MapPin aria-hidden="true" className="size-4" style={{ color: themeVars.accent }} />
+                          <span className="flex-1">
+                            {activeLayout === 'ultra_minimal' ? 'More details' : 'Salon details'}
+                          </span>
+                          <ChevronDown aria-hidden="true" className="size-4 text-neutral-400 transition-transform group-open:rotate-180 motion-reduce:transition-none" />
+                        </summary>
+                        <div
+                          data-testid="quick-book-business-details"
+                          className={`${
+                            activeLayout === 'hub_menu'
+                              ? 'grid grid-cols-2 gap-2 pt-3 [&>*]:rounded-2xl [&>*]:border [&>*]:border-neutral-100 [&>*]:px-3'
+                              : activeLayout === 'editorial'
+                                ? 'grid gap-x-4 divide-y divide-neutral-100 sm:grid-cols-2 sm:divide-y-0'
+                                : activeLayout === 'compact_dropdown' || activeLayout === 'ultra_minimal'
+                                  ? 'divide-y divide-neutral-100 text-sm'
+                                  : 'divide-y divide-neutral-100'
+                          }`}
+                        >
+                          {profile.location
+                            ? (
+                                <a
+                                  data-testid="quick-book-location"
+                                  href={profile.location.directionsUrl}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="flex min-h-14 items-start gap-3 py-3 text-left focus-visible:rounded-xl focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
+                                >
+                                  <MapPin aria-hidden="true" className="mt-0.5 size-5 shrink-0" style={{ color: themeVars.accent }} />
+                                  <span className="min-w-0 flex-1 text-sm leading-5 text-neutral-700">
+                                    {profile.location.name ? <strong className="block break-words text-neutral-900">{profile.location.name}</strong> : null}
+                                    {profile.location.addressLine ? <span className="block break-words">{profile.location.addressLine}</span> : null}
+                                    {profile.location.localityLine ? <span className="block break-words text-neutral-500">{profile.location.localityLine}</span> : null}
+                                    {profile.location.instructionLines.map(line => (
+                                      <span key={line} className="block break-words text-neutral-500">{line}</span>
+                                    ))}
+                                  </span>
+                                  <span aria-hidden="true" className="mt-1 text-xl leading-none text-neutral-400">›</span>
+                                </a>
+                              )
+                            : null}
+
+                          {profile.hours
+                            ? (
+                                <details data-testid="quick-book-hours" className="group py-1">
+                                  <summary className="flex min-h-14 cursor-pointer list-none items-center gap-3 rounded-xl py-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 [&::-webkit-details-marker]:hidden">
+                                    <Clock3 aria-hidden="true" className="size-5 shrink-0" style={{ color: themeVars.accent }} />
+                                    <span className="min-w-0 flex-1 text-sm">
+                                      <strong className="block text-neutral-900">{profile.hours.statusLabel}</strong>
+                                      <span className="block text-neutral-500">{profile.hours.todayLabel ?? 'See weekly hours'}</span>
                                     </span>
-                                  </a>
-                                )
-                              : null}
-                            {profile.contact.email
-                              ? (
-                                  <a
-                                    href={profile.contact.email.href}
-                                    className="flex min-h-11 min-w-0 items-center gap-2 rounded-xl bg-neutral-50 px-3 text-sm font-medium text-neutral-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
-                                  >
-                                    <Mail aria-hidden="true" className="size-4 shrink-0" style={{ color: themeVars.accent }} />
-                                    {/* break-all split the address mid-token
+                                    <ChevronDown aria-hidden="true" className="size-5 shrink-0 text-neutral-400 transition-transform group-open:rotate-180 motion-reduce:transition-none" />
+                                  </summary>
+                                  <dl className="mb-3 ml-8 grid grid-cols-[minmax(0,1fr)_auto] gap-x-4 gap-y-1 rounded-xl bg-neutral-50 px-3 py-2.5 text-xs leading-5 text-neutral-600">
+                                    {profile.hours.weekly.map(row => (
+                                      <div key={row.day} className="contents">
+                                        <dt>{row.day}</dt>
+                                        <dd className="text-right font-medium text-neutral-800">{row.value}</dd>
+                                      </div>
+                                    ))}
+                                  </dl>
+                                </details>
+                              )
+                            : null}
+
+                          {profile.contact
+                            ? (
+                                <div
+                                  data-testid="quick-book-contact"
+                                  className={`grid gap-2 py-3 ${contactCount === 2 ? 'sm:grid-cols-2' : 'grid-cols-1'} ${
+                                    // hub_menu lays its details out in two columns.
+                                    // Contact details are the longest strings on the
+                                    // card — an email in half a column shattered
+                                    // mid-word beside an empty cell — so they take
+                                    // the whole row.
+                                    activeLayout === 'hub_menu' ? 'col-span-full' : ''
+                                  }`}
+                                >
+                                  {profile.contact.phone
+                                    ? (
+                                        <a
+                                          href={profile.contact.phone.href}
+                                          className="flex min-h-11 min-w-0 items-center gap-2 rounded-xl bg-neutral-50 px-3 text-sm font-medium text-neutral-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
+                                        >
+                                          <Phone aria-hidden="true" className="size-4 shrink-0" style={{ color: themeVars.accent }} />
+                                          <span className="min-w-0">
+                                            <span className="block break-words">{profile.contact.phone.display}</span>
+                                            <span className="block text-xs font-normal text-neutral-500">
+                                              {profile.contact.phone.actionLabel}
+                                            </span>
+                                          </span>
+                                        </a>
+                                      )
+                                    : null}
+                                  {profile.contact.email
+                                    ? (
+                                        <a
+                                          href={profile.contact.email.href}
+                                          className="flex min-h-11 min-w-0 items-center gap-2 rounded-xl bg-neutral-50 px-3 text-sm font-medium text-neutral-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
+                                        >
+                                          <Mail aria-hidden="true" className="size-4 shrink-0" style={{ color: themeVars.accent }} />
+                                          {/* break-all split the address mid-token
                                         ("hello.audit0 / 905@examp / le.com");
                                         wrap at word/punctuation boundaries and
                                         only break inside a token when a single
                                         run really cannot fit. */}
-                                    <span className="min-w-0 break-words [overflow-wrap:anywhere]">{profile.contact.email.display}</span>
-                                  </a>
-                                )
-                              : null}
-                          </div>
-                        )
-                      : null}
-                  </div>
-                </details>
-              )
-            : null}
+                                          <span className="min-w-0 break-words [overflow-wrap:anywhere]">{profile.contact.email.display}</span>
+                                        </a>
+                                      )
+                                    : null}
+                                </div>
+                              )
+                            : null}
+                        </div>
+                      </details>
+                    )
+                  : null}
 
-          {hasSecondaryActions
-            ? (
-                <div
-                  data-testid="quick-book-profile-actions"
-                  className={`mt-3 grid gap-2 border-t border-neutral-100 pt-3 ${activeLayout === 'profile_story' ? 'order-3' : ''} ${
-                    activeLayout === 'hub_menu'
-                      ? 'grid-cols-2'
-                      : secondaryLinkCount === 2
-                        ? 'sm:grid-cols-2'
-                        : 'grid-cols-1'
-                  }`}
-                >
-                  {profile.policies.length > 0
-                    ? (
-                        <details data-testid="quick-book-policies" className="group col-span-full">
-                          <summary className="flex min-h-11 cursor-pointer list-none items-center gap-2 rounded-xl border border-neutral-200 px-3 text-sm font-semibold text-neutral-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 [&::-webkit-details-marker]:hidden">
-                            <ShieldCheck aria-hidden="true" className="size-4 shrink-0" style={{ color: themeVars.accent }} />
-                            <span className="flex-1">Policies</span>
-                            <ChevronDown aria-hidden="true" className="size-4 text-neutral-400 transition-transform group-open:rotate-180 motion-reduce:transition-none" />
-                          </summary>
-                          <div className="mt-2 space-y-2 rounded-xl bg-neutral-50 p-3 text-sm leading-5 text-neutral-700">
-                            {profile.policies.map(policy => (
-                              <div key={`${policy.label}-${policy.text}`}>
-                                <strong className="block text-neutral-900">{policy.label}</strong>
-                                <p className="whitespace-pre-line break-words">{policy.text}</p>
-                              </div>
-                            ))}
-                          </div>
-                        </details>
-                      )
-                    : null}
+                {hasSecondaryActions
+                  ? (
+                      <div
+                        data-testid="quick-book-profile-actions"
+                        className={`mt-3 grid gap-2 border-t border-neutral-100 pt-3 ${activeLayout === 'profile_story' ? 'order-3' : ''} ${
+                          activeLayout === 'hub_menu'
+                            ? 'grid-cols-2'
+                            : secondaryLinkCount === 2
+                              ? 'sm:grid-cols-2'
+                              : 'grid-cols-1'
+                        }`}
+                      >
+                        {profile.policies.length > 0
+                          ? (
+                              <details data-testid="quick-book-policies" className="group col-span-full">
+                                <summary className="flex min-h-11 cursor-pointer list-none items-center gap-2 rounded-xl border border-neutral-200 px-3 text-sm font-semibold text-neutral-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 [&::-webkit-details-marker]:hidden">
+                                  <ShieldCheck aria-hidden="true" className="size-4 shrink-0" style={{ color: themeVars.accent }} />
+                                  <span className="flex-1">Policies</span>
+                                  <ChevronDown aria-hidden="true" className="size-4 text-neutral-400 transition-transform group-open:rotate-180 motion-reduce:transition-none" />
+                                </summary>
+                                <div className="mt-2 space-y-2 rounded-xl bg-neutral-50 p-3 text-sm leading-5 text-neutral-700">
+                                  {profile.policies.map(policy => (
+                                    <div key={`${policy.label}-${policy.text}`}>
+                                      <strong className="block text-neutral-900">{policy.label}</strong>
+                                      <p className="whitespace-pre-line break-words">{policy.text}</p>
+                                    </div>
+                                  ))}
+                                </div>
+                              </details>
+                            )
+                          : null}
 
-                  {profile.reviews
-                    ? profile.reviews.href
-                      ? (
-                          <a
-                            data-testid="quick-book-reviews"
-                            href={profile.reviews.href}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className={`flex min-h-11 items-center gap-2 rounded-xl border border-neutral-200 px-3 text-sm font-medium text-neutral-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 ${secondaryLinkCount === 1 ? 'col-span-full' : ''}`}
-                          >
-                            <Star aria-hidden="true" className="size-4 shrink-0" style={{ color: themeVars.accent }} />
-                            <span className="min-w-0">
-                              <strong className="block">Reviews</strong>
-                              <span className="block text-xs font-normal text-neutral-500">
-                                {profile.reviews.ratingText}
-                                {' ★ ('}
-                                {profile.reviews.reviewCountText}
-                                )
-                              </span>
-                            </span>
-                          </a>
-                        )
-                      : (
-                          <div data-testid="quick-book-reviews" className={`flex min-h-11 items-center gap-2 rounded-xl border border-neutral-200 px-3 text-sm font-medium text-neutral-800 ${secondaryLinkCount === 1 ? 'col-span-full' : ''}`}>
-                            <Star aria-hidden="true" className="size-4 shrink-0" style={{ color: themeVars.accent }} />
-                            <span className="min-w-0">
-                              <strong className="block">Reviews</strong>
-                              <span className="block text-xs font-normal text-neutral-500">
-                                {profile.reviews.ratingText}
-                                {' ★ ('}
-                                {profile.reviews.reviewCountText}
-                                )
-                              </span>
-                            </span>
-                          </div>
-                        )
-                    : null}
+                        {profile.reviews
+                          ? profile.reviews.href
+                            ? (
+                                <a
+                                  data-testid="quick-book-reviews"
+                                  href={profile.reviews.href}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className={`flex min-h-11 items-center gap-2 rounded-xl border border-neutral-200 px-3 text-sm font-medium text-neutral-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 ${secondaryLinkCount === 1 ? 'col-span-full' : ''}`}
+                                >
+                                  <Star aria-hidden="true" className="size-4 shrink-0" style={{ color: themeVars.accent }} />
+                                  <span className="min-w-0">
+                                    <strong className="block">Reviews</strong>
+                                    <span className="block text-xs font-normal text-neutral-500">
+                                      {profile.reviews.ratingText}
+                                      {' ★ ('}
+                                      {profile.reviews.reviewCountText}
+                                      )
+                                    </span>
+                                  </span>
+                                </a>
+                              )
+                            : (
+                                <div data-testid="quick-book-reviews" className={`flex min-h-11 items-center gap-2 rounded-xl border border-neutral-200 px-3 text-sm font-medium text-neutral-800 ${secondaryLinkCount === 1 ? 'col-span-full' : ''}`}>
+                                  <Star aria-hidden="true" className="size-4 shrink-0" style={{ color: themeVars.accent }} />
+                                  <span className="min-w-0">
+                                    <strong className="block">Reviews</strong>
+                                    <span className="block text-xs font-normal text-neutral-500">
+                                      {profile.reviews.ratingText}
+                                      {' ★ ('}
+                                      {profile.reviews.reviewCountText}
+                                      )
+                                    </span>
+                                  </span>
+                                </div>
+                              )
+                          : null}
 
-                  {profile.instagram
-                    ? (
-                        <a
-                          data-testid="quick-book-instagram"
-                          href={profile.instagram.href}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className={`flex min-h-11 min-w-0 items-center gap-2 rounded-xl border border-neutral-200 px-3 text-sm font-medium text-neutral-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 ${secondaryLinkCount === 1 ? 'col-span-full' : ''}`}
-                        >
-                          <Instagram aria-hidden="true" className="size-4 shrink-0" style={{ color: themeVars.accent }} />
-                          {/* A handle was ellipsised beside ~270px of empty
+                        {profile.instagram
+                          ? (
+                              <a
+                                data-testid="quick-book-instagram"
+                                href={profile.instagram.href}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className={`flex min-h-11 min-w-0 items-center gap-2 rounded-xl border border-neutral-200 px-3 text-sm font-medium text-neutral-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 ${secondaryLinkCount === 1 ? 'col-span-full' : ''}`}
+                              >
+                                <Instagram aria-hidden="true" className="size-4 shrink-0" style={{ color: themeVars.accent }} />
+                                {/* A handle was ellipsised beside ~270px of empty
                               space; wrap it instead of hiding it. */}
-                          <span className="min-w-0 break-words [overflow-wrap:anywhere]">{profile.instagram.label}</span>
-                        </a>
-                      )
-                    : null}
-                </div>
-              )
-            : null}
+                                <span className="min-w-0 break-words [overflow-wrap:anywhere]">{profile.instagram.label}</span>
+                              </a>
+                            )
+                          : null}
+                      </div>
+                    )
+                  : null}
 
-          {profile.bio
-            ? (
-                <p
-                  data-testid="quick-book-bio"
-                  className={`mt-3 whitespace-pre-line break-words bg-[color-mix(in_srgb,var(--theme-primary)_8%,white)] px-3.5 py-3 text-sm leading-5 text-neutral-700 ${
-                    activeLayout === 'profile_story'
-                      ? 'order-1 mb-3 rounded-2xl border-l-4 font-medium'
-                      : activeLayout === 'editorial'
-                        ? 'rounded-none border-y border-neutral-100 bg-transparent text-center font-serif text-base'
-                        : 'rounded-2xl'
-                  }`}
-                >
-                  {profile.bio}
-                </p>
-              )
-            : null}
-        </div>
+                {profile.bio
+                  ? (
+                      <p
+                        data-testid="quick-book-bio"
+                        className={`mt-3 whitespace-pre-line break-words bg-[color-mix(in_srgb,var(--theme-primary)_8%,white)] px-3.5 py-3 text-sm leading-5 text-neutral-700 ${
+                          activeLayout === 'profile_story'
+                            ? 'order-1 mb-3 rounded-2xl border-l-4 font-medium'
+                            : activeLayout === 'editorial'
+                              ? 'rounded-none border-y border-neutral-100 bg-transparent text-center font-serif text-base'
+                              : 'rounded-2xl'
+                        }`}
+                      >
+                        {profile.bio}
+                      </p>
+                    )
+                  : null}
+              </div>
+            )}
       </section>
 
       {announcement
@@ -422,7 +477,7 @@ export function QuickBookProfileHeader({
         ))}
       </div>
 
-      <div className="mb-4 text-center">
+      <div className="mb-4 scroll-mt-4 text-center" id={BOOKING_ENTRY_ANCHOR_ID}>
         <h2 className="text-[1.7rem] font-bold tracking-tight text-neutral-900 sm:text-2xl">Book an appointment</h2>
         <p className="mt-0.5 text-[13px] leading-[1.35] text-neutral-500 sm:text-sm">
           Choose a service, then add any extras.

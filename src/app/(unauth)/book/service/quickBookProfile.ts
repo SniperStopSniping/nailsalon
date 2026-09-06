@@ -1,6 +1,18 @@
 import type { QuickBookProfileVisibility } from '@/libs/bookingPageConfig';
 import type { LocationDisplayMode } from '@/libs/bookingPageContent';
 import type { BusinessHours } from '@/libs/bookingPolicy';
+import {
+  type QuickBookCoverTextMode,
+  type QuickBookFocalPoint,
+  type QuickBookGalleryItem,
+  type QuickBookPresentation,
+  resolveQuickBookCoverSlot,
+  resolveQuickBookCoverText,
+  resolveQuickBookGallery,
+  resolveQuickBookPortraitSlot,
+  resolveQuickBookSpecialties,
+} from '@/libs/quickBookPresentation';
+import { resolveQuickBookSiteLayout } from '@/libs/quickBookSiteLayout';
 import { applyLocationDisplayMode, isExactAddressPublic } from '@/libs/salonContent';
 import {
   resolvePublicLocationInstructions,
@@ -65,6 +77,32 @@ type QuickBookProfileSource = {
   publicContactPreferences?: QuickBookPublicContactPreferences | null;
   timeZone: string;
   now?: Date;
+  /**
+   * Inputs for the design-system compositions. Absent for callers that only
+   * render the six legacy layouts; the view then carries a presentation
+   * resolved for the default layout with no cover and no gallery.
+   */
+  presentation?: QuickBookPresentationSource | null;
+};
+
+export type QuickBookPresentationSource = {
+  /** The active draft/live `quickBookLayout`; unknown values fall back safely. */
+  layout: unknown;
+  content: {
+    heroImageUrl: string | null;
+    specialtyLine: string | null;
+    coverFocalPoint: QuickBookFocalPoint | null;
+    portraitFocalPoint: QuickBookFocalPoint | null;
+    coverTextMode: QuickBookCoverTextMode;
+    coverText: string | null;
+  };
+  /** Already ownership- and visibility-filtered, in the owner's saved order. */
+  gallery: readonly QuickBookGalleryItem[];
+  /** The sole public technician's own facts; null for team salons. */
+  technician: {
+    specialties: readonly string[] | null;
+    acceptingNewClients: boolean | null;
+  } | null;
 };
 
 export type QuickBookProfileView = {
@@ -105,6 +143,12 @@ export type QuickBookProfileView = {
     href: string;
   } | null;
   bio: string | null;
+  /**
+   * Layout-aware image and detail states for the design-system layouts.
+   * Always produced by `resolvePublicQuickBookProfile`; optional only so the
+   * client's identity-only fallback and older fixtures stay valid.
+   */
+  presentation?: QuickBookPresentation;
 };
 
 const DAY_KEYS = [
@@ -545,17 +589,62 @@ export function resolvePublicQuickBookProfile(source: QuickBookProfileSource): Q
     })
     : null;
   const reviewHref = safeHttpsUrl(source.reviewUrl);
+  const salonName = trimmed(source.salon.name) ?? '';
+  const technicianName = visibility.showTechName ? trimmed(soleTechnician?.name) : null;
+  // A shared URL is evidence of a historic role cross-fallback. Prefer the
+  // canonical logo in the brand slot and omit the duplicate portrait.
+  const publicPortraitUrl = technicianPhotoUrl && technicianPhotoUrl !== logoUrl
+    ? technicianPhotoUrl
+    : null;
+
+  const presentationSource = source.presentation ?? null;
+  const layout = resolveQuickBookSiteLayout(presentationSource?.layout);
+  const content = presentationSource?.content;
+  const appointmentOnly = source.bookingExperience.quickFacts.appointmentOnly;
+  const acceptingNewClients = soleTechnician
+    ? presentationSource?.technician?.acceptingNewClients ?? null
+    : null;
+  const presentation: QuickBookPresentation = {
+    layoutId: layout,
+    specialties: resolveQuickBookSpecialties({
+      layout,
+      specialties: soleTechnician ? presentationSource?.technician?.specialties ?? null : null,
+    }),
+    bookingMethod: appointmentOnly.enabled ? trimmed(appointmentOnly.label) : null,
+    newClients: acceptingNewClients === null
+      ? null
+      : acceptingNewClients
+        ? 'Accepting new clients'
+        : 'Not accepting new clients',
+    coverText: resolveQuickBookCoverText({
+      layout,
+      mode: content?.coverTextMode ?? 'website_copy',
+      customText: content?.coverText ?? null,
+      websiteCopy: content?.specialtyLine ?? null,
+    }),
+    // `visible` is the owner's decision; a hidden real photo never reaches
+    // this projection, so an essential slot can only ever show the default.
+    portrait: resolveQuickBookPortraitSlot({
+      layout,
+      url: publicPortraitUrl,
+      alt: technicianName ?? salonName,
+      focal: content?.portraitFocalPoint ?? null,
+      visible: visibility.showTechPhoto,
+    }),
+    cover: resolveQuickBookCoverSlot({
+      layout,
+      url: safeImageUrl(content?.heroImageUrl),
+      focal: content?.coverFocalPoint ?? null,
+    }),
+    gallery: resolveQuickBookGallery({ layout, items: presentationSource?.gallery ?? [] }),
+  };
 
   return {
     identity: {
-      salonName: trimmed(source.salon.name) ?? '',
+      salonName,
       logoUrl,
-      technicianName: visibility.showTechName ? trimmed(soleTechnician?.name) : null,
-      // A shared URL is evidence of a historic role cross-fallback. Prefer the
-      // canonical logo in the brand slot and omit the duplicate portrait.
-      technicianPhotoUrl: technicianPhotoUrl && technicianPhotoUrl !== logoUrl
-        ? technicianPhotoUrl
-        : null,
+      technicianName,
+      technicianPhotoUrl: publicPortraitUrl,
     },
     location,
     hours,
@@ -574,5 +663,6 @@ export function resolvePublicQuickBookProfile(source: QuickBookProfileSource): Q
     bio: visibility.showBio
       ? truncateBio(source.bio)
       : null,
+    presentation,
   };
 }

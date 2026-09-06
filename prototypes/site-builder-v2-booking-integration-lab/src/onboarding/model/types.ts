@@ -1,5 +1,8 @@
 import type { DepositDraft } from '../integrations/contracts/booking-preferences';
 import type { ServiceMenuSelectionDraft } from '../integrations/contracts/service-menu';
+import type { QuickBookLayoutId } from '../quick-book/layouts';
+
+export type { QuickBookLayoutId };
 
 export const ONBOARDING_SCHEMA_VERSION = 13 as const;
 
@@ -277,14 +280,6 @@ export type SitePalettePresetId =
   | 'navy_ivory'
   | 'monochrome'
   | 'black_champagne';
-
-export type QuickBookLayoutId =
-  | 'compact_dropdown'
-  | 'clean_card'
-  | 'editorial'
-  | 'hub_menu'
-  | 'profile_story'
-  | 'ultra_minimal';
 
 export type StarterId = 'quick_book' | 'one_page' | 'multi_page';
 

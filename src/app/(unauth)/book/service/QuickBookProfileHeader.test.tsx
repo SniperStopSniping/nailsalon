@@ -68,9 +68,15 @@ const FULL_PROFILE: QuickBookProfileView = {
 };
 
 describe('QuickBookProfileHeader', () => {
-  it('renders six distinct presentations without changing canonical profile data', () => {
+  it('renders every registered layout as a distinct presentation without changing canonical profile data', () => {
     const sourceBefore = structuredClone(FULL_PROFILE);
     const fingerprints = new Set<string>();
+    // The design-system layouts share one class vocabulary and differ by
+    // composition, so the fingerprint also captures their block structure
+    // with text, media and the layout identifier itself stripped out.
+    const structure = (root: HTMLElement) => (root.querySelector('.qb-presentation')?.outerHTML ?? '')
+      .replace(/>[^<]+</g, '><')
+      .replace(/ (?:id|alt|src|href|style|aria-[a-z-]+|data-qb-layout|data-qb-family)="[^"]*"/g, '');
 
     for (const layout of QUICK_BOOK_SITE_LAYOUTS) {
       const view = render(
@@ -95,6 +101,7 @@ describe('QuickBookProfileHeader', () => {
         identity.className,
         details.className,
         screen.getByTestId('quick-book-bio').className,
+        structure(profile),
       ].join('|'));
       view.unmount();
     }

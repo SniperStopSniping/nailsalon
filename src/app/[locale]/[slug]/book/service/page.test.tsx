@@ -178,6 +178,10 @@ vi.mock('@/libs/firstVisitDiscount', () => ({
   isClientEligibleForFirstVisitDiscount,
 }));
 
+vi.mock('@/libs/portfolioMedia.server', () => ({
+  listPublicPortfolioPhotosByIds: vi.fn(async () => []),
+}));
+
 vi.mock('@/libs/queries', () => ({
   getActiveAddOnsBySalonId,
   getActiveLocationsBySalonId,

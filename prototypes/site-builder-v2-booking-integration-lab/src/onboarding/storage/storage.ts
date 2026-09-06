@@ -33,13 +33,13 @@ import {
   type OnboardingScreenId,
   type OnboardingSessionStatus,
   type PlanIntent,
-  type QuickBookLayoutId,
   type QuickBookProfileVisibilityDraft,
   type SetupChecklistFixtureStatus,
   type SitePalettePresetId,
   type Weekday,
   type WeeklyHoursDraft,
 } from '../model/types';
+import { isQuickBookLayoutId } from '../quick-book/layouts';
 
 export const ONBOARDING_STORAGE_KEY = 'luster:onboarding-v1-lab';
 
@@ -150,14 +150,6 @@ const isOnboardingBusinessType = (
   || value === 'home_based'
   || value === 'mobile'
   || value === 'salon_team';
-
-const isQuickBookLayoutId = (value: unknown): value is QuickBookLayoutId =>
-  value === 'compact_dropdown'
-  || value === 'clean_card'
-  || value === 'editorial'
-  || value === 'hub_menu'
-  || value === 'profile_story'
-  || value === 'ultra_minimal';
 
 const isNullableBoolean = (value: unknown): value is boolean | null =>
   value === null || typeof value === 'boolean';

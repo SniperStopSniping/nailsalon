@@ -10,6 +10,7 @@ import type { SiteBuilderDocument } from '../../../prototypes/site-builder-v2-bo
 import { validateImportedDocumentValue } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/model/validation';
 import { isPersonalBusinessType } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/model/business-identity';
 import { DEFAULT_QUICK_BOOK_PROFILE_VISIBILITY } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/model/types';
+import { QUICK_BOOK_LAYOUT_IDS } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/quick-book/layouts';
 
 export const ONBOARDING_SITE_SNAPSHOT_VERSION = 1 as const;
 export const ONBOARDING_SITE_DOCUMENT_VERSION = 1 as const;
@@ -308,14 +309,7 @@ const siteRecipeSchema = z.object({
   galleryEnabled: z.boolean(),
   palettePresetId: z.enum(ONBOARDING_PALETTE_PRESET_IDS),
   policiesEnabled: z.boolean(),
-  quickBookLayout: z.enum([
-    'compact_dropdown',
-    'clean_card',
-    'editorial',
-    'hub_menu',
-    'profile_story',
-    'ultra_minimal',
-  ]).default('compact_dropdown'),
+  quickBookLayout: z.enum(QUICK_BOOK_LAYOUT_IDS).default('compact_dropdown'),
   quickBookProfile: z.object({
     showBio: z.boolean(),
     showBookingPolicy: z.boolean(),

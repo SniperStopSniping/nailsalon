@@ -1,13 +1,19 @@
 'use client';
 
 import type { BookingPageConfigSide, BookingPageDraftPatch } from '@/libs/bookingPageConfig';
+import type { BookingPageContentPatch, BookingPageContentSide } from '@/libs/bookingPageContent';
 import {
   CUSTOMER_SITE_PALETTE_PRESETS,
   CUSTOMER_SITE_STYLE_PRESETS,
   getCustomerSitePresentationCssVariables,
 } from '@/libs/customerSitePresentation';
-import { QUICK_BOOK_SITE_LAYOUTS } from '@/libs/quickBookSiteLayout';
 import { SERVICE_MENU_LAYOUTS } from '@/libs/serviceMenuLayout';
+
+import {
+  BookingPageLayoutChooser,
+  type BookingPagePresentationPreview,
+  type CoverUploadState,
+} from './BookingPageLayoutChooser';
 
 const names: Record<string, string> = {
   luster_berry: 'Luster Berry',
@@ -18,12 +24,6 @@ const names: Record<string, string> = {
   navy_ivory: 'Navy & Ivory',
   monochrome: 'Monochrome',
   black_champagne: 'Black & Champagne',
-  compact_dropdown: 'Compact Dropdown',
-  clean_card: 'Clean Card',
-  editorial: 'Editorial',
-  hub_menu: 'Hub Menu',
-  profile_story: 'Profile Story',
-  ultra_minimal: 'Ultra Minimal',
   visual_grid: 'Visual Grid',
   clean_list: 'Clean List',
   editorial_cards: 'Editorial Cards',
@@ -99,15 +99,38 @@ function PresetSpecimen({ tokens, value }: { tokens: Record<string, string>; val
   );
 }
 
-export function BookingPageAppearance({ draft, disabled, mode, onChange }: {
+const IDLE_COVER_UPLOAD: CoverUploadState = { status: 'idle', error: null, note: null };
+
+export function BookingPageAppearance({
+  draft,
+  disabled,
+  mode,
+  onChange,
+  content = null,
+  presentationPreview = null,
+  onContentChange,
+  onUploadCover,
+  coverUpload = IDLE_COVER_UPLOAD,
+  informationHref = null,
+  textHref = null,
+  portfolioHref = null,
+}: {
   draft: BookingPageConfigSide;
   disabled: boolean;
   mode: 'layouts' | 'appearance';
   onChange: (patch: BookingPageDraftPatch) => void;
+  /** Draft content (cover, focal points, cover writing, gallery) for the Layouts chooser. */
+  content?: BookingPageContentSide | null;
+  presentationPreview?: BookingPagePresentationPreview | null;
+  onContentChange?: (patch: BookingPageContentPatch) => void;
+  onUploadCover?: (file: File) => void;
+  coverUpload?: CoverUploadState;
+  informationHref?: string | null;
+  textHref?: string | null;
+  portfolioHref?: string | null;
 }) {
   const groups = mode === 'layouts'
     ? [
-        ...(draft.layout === 'quick_book' ? [{ key: 'quickBookLayout' as const, title: 'Site layout', values: QUICK_BOOK_SITE_LAYOUTS, selected: draft.quickBookLayout ?? 'clean_card' }] : []),
         { key: 'serviceMenuLayout' as const, title: 'Booking menu layout', values: SERVICE_MENU_LAYOUTS, selected: draft.serviceMenuLayout },
       ]
     : [
@@ -118,6 +141,21 @@ export function BookingPageAppearance({ draft, disabled, mode, onChange }: {
   return (
     <div className="space-y-6">
       <p className="text-sm text-[var(--owner-muted)]">These choices change presentation only. Your business details and services stay the same. Preview your draft before publishing.</p>
+      {mode === 'layouts' && draft.layout === 'quick_book' && (
+        <BookingPageLayoutChooser
+          content={content}
+          coverUpload={coverUpload}
+          disabled={disabled}
+          draft={draft}
+          informationHref={informationHref}
+          onConfigPatch={onChange}
+          onContentPatch={patch => onContentChange?.(patch)}
+          onUploadCover={file => onUploadCover?.(file)}
+          portfolioHref={portfolioHref}
+          preview={presentationPreview}
+          textHref={textHref}
+        />
+      )}
       {groups.map(group => (
         <fieldset className="rounded-2xl border border-[var(--owner-line)] bg-[var(--owner-surface)] p-4" disabled={disabled} key={group.key}>
           <legend className="px-2 text-xl font-semibold">{group.title}</legend>

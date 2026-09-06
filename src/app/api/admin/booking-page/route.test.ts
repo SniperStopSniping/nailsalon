@@ -153,6 +153,10 @@ vi.mock('@/libs/DB', () => ({
   },
 }));
 
+vi.mock('@/libs/portfolioMedia.server', () => ({
+  listPortfolioPhotos: vi.fn(async () => []),
+}));
+
 vi.mock('@/libs/auditLog', () => ({
   logAuditEvent,
 }));
@@ -200,6 +204,7 @@ describe('admin booking-page route', () => {
     getSalonBySlug.mockResolvedValue(SALON);
     getSalonById.mockResolvedValue(SALON);
     requireAdmin.mockResolvedValue({ ok: true, admin: { id: 'admin_1' } });
+    getTechniciansBySalonId.mockResolvedValue([]);
     resolveBookingPageConfig.mockReturnValue({ version: 1, draft: { layout: 'quick_book' }, live: { layout: 'quick_book' } });
     resolveBookingPageContent.mockReturnValue({ version: 1, draft: { bio: null }, live: { bio: null } });
     synchronizeBookingPageLifecycle.mockResolvedValue(SALON.settings);

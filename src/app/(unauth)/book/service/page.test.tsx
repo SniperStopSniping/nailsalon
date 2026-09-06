@@ -118,8 +118,8 @@ vi.mock('@/libs/bookingPageConfig', () => ({
 vi.mock('@/libs/bookingPageContent', () => ({
   resolveBookingPageContent: vi.fn(() => ({
     version: 1,
-    draft: { heroImageUrl: null, specialtyLine: null, bio: null, locationDisplayMode: 'full_address' },
-    live: { heroImageUrl: null, specialtyLine: null, bio: null, locationDisplayMode: 'full_address' },
+    draft: { heroImageUrl: null, specialtyLine: null, bio: null, locationDisplayMode: 'full_address', coverFocalPoint: null, portraitFocalPoint: null, coverTextMode: 'website_copy' as const, coverText: null, galleryPhotoIds: [] },
+    live: { heroImageUrl: null, specialtyLine: null, bio: null, locationDisplayMode: 'full_address', coverFocalPoint: null, portraitFocalPoint: null, coverTextMode: 'website_copy' as const, coverText: null, galleryPhotoIds: [] },
   })),
 }));
 
@@ -152,6 +152,10 @@ vi.mock('@/libs/retentionSettings.server', () => ({
 // normalization is deliberately NOT exercised by this page test. The real
 // projector's exact output shape is pinned in
 // `src/libs/stage1.technicianProjections.test.ts`.
+vi.mock('@/libs/portfolioMedia.server', () => ({
+  listPublicPortfolioPhotosByIds: vi.fn(async () => []),
+}));
+
 vi.mock('@/libs/publicBookingTechnicians', () => ({
   mapPublicTechnician: (technician: Record<string, any>) => ({
     id: technician.id,
@@ -710,12 +714,22 @@ describe('BookServicePage owner-preview wiring', () => {
         specialtyLine: 'Draft Quick Book specialty',
         bio: 'Draft Quick Book bio',
         locationDisplayMode: 'city_only',
+        coverFocalPoint: null,
+        portraitFocalPoint: null,
+        coverTextMode: 'website_copy',
+        coverText: null,
+        galleryPhotoIds: [],
       },
       live: {
         heroImageUrl: 'https://images.example.invalid/live-signature.jpg',
         specialtyLine: 'Live Signature specialty',
         bio: 'Live Signature bio',
         locationDisplayMode: 'full_address',
+        coverFocalPoint: null,
+        portraitFocalPoint: null,
+        coverTextMode: 'website_copy',
+        coverText: null,
+        galleryPhotoIds: [],
       },
     };
 
@@ -1202,8 +1216,8 @@ describe('BookServicePage location privacy (locationDisplayMode)', () => {
     // keeps each test's starting state independent of run order.
     vi.mocked(resolveBookingPageContent).mockReturnValue({
       version: 1,
-      draft: { heroImageUrl: null, specialtyLine: null, bio: null, locationDisplayMode: 'full_address' },
-      live: { heroImageUrl: null, specialtyLine: null, bio: null, locationDisplayMode: 'full_address' },
+      draft: { heroImageUrl: null, specialtyLine: null, bio: null, locationDisplayMode: 'full_address', coverFocalPoint: null, portraitFocalPoint: null, coverTextMode: 'website_copy' as const, coverText: null, galleryPhotoIds: [] },
+      live: { heroImageUrl: null, specialtyLine: null, bio: null, locationDisplayMode: 'full_address', coverFocalPoint: null, portraitFocalPoint: null, coverTextMode: 'website_copy' as const, coverText: null, galleryPhotoIds: [] },
     });
   });
 
@@ -1267,8 +1281,8 @@ describe('BookServicePage location privacy (locationDisplayMode)', () => {
   it('city_only strips address/zipCode/phone from the locations prop passed to the location picker, keeping city/name', async () => {
     vi.mocked(resolveBookingPageContent).mockReturnValue({
       version: 1,
-      draft: { heroImageUrl: null, specialtyLine: null, bio: null, locationDisplayMode: 'city_only' },
-      live: { heroImageUrl: null, specialtyLine: null, bio: null, locationDisplayMode: 'city_only' },
+      draft: { heroImageUrl: null, specialtyLine: null, bio: null, locationDisplayMode: 'city_only', coverFocalPoint: null, portraitFocalPoint: null, coverTextMode: 'website_copy' as const, coverText: null, galleryPhotoIds: [] },
+      live: { heroImageUrl: null, specialtyLine: null, bio: null, locationDisplayMode: 'city_only', coverFocalPoint: null, portraitFocalPoint: null, coverTextMode: 'website_copy' as const, coverText: null, galleryPhotoIds: [] },
     });
 
     const element = await BookServicePage({
