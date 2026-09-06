@@ -59,7 +59,9 @@ for (const viewport of [{ width: 320, height: 568 }, { width: 375, height: 667 }
     // parallel, so only one case performs the write round-trip; the others
     // would otherwise read each other's saves and restores.
     const instagram = page.getByTestId('information-instagram');
+
     await expect(instagram).toBeVisible();
+
     if (viewport.width === 390 && browserName === 'chromium') {
       const originalInstagram = await instagram.inputValue();
       try {
