@@ -303,7 +303,7 @@ test('iPhone Safari keeps archive confirmation safe and refreshes after success 
     await expect(page.getByTestId('client-archive-action')).toBeHidden();
     await expect(page.getByTestId('clients-directory-scroll')).toBeVisible();
     await expect(page.getByTestId('client-lifecycle-success')).toHaveText(
-      'Client deleted from the active list. Their history was kept.',
+      'Client archived. They are off your active list and their history was kept.',
     );
 
     expect(archiveBody).toEqual({
