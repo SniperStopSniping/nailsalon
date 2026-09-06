@@ -2,6 +2,7 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
 import { resolveBookingPageConfig } from '@/libs/bookingPageConfig';
+import { getCustomerSitePresentationCssVariables } from '@/libs/customerSitePresentation';
 
 import { BookingPageAppearance } from './BookingPageAppearance';
 
@@ -87,6 +88,30 @@ describe('Booking Page appearance', () => {
   });
 
   // The specimen must not leak into the control's accessible name.
+  it('sets each style card name in that style\'s own display face, palette cards untouched', () => {
+    const draft = resolveBookingPageConfig({}).draft;
+    render(<BookingPageAppearance disabled={false} draft={draft} mode="appearance" onChange={vi.fn()} />);
+
+    const editorialTokens = getCustomerSitePresentationCssVariables({
+      palettePreset: draft.sitePalettePreset,
+      stylePreset: 'editorial',
+    });
+    const editorialLabel = screen.getByTestId('appearance-option-label-editorial');
+
+    expect(editorialLabel.style.fontFamily).toBe(editorialTokens['--customer-site-heading-font']);
+    expect(editorialTokens['--customer-site-heading-font']).toBeTruthy();
+
+    const styleIds = new Set(['modern', 'editorial', 'soft', 'minimal', 'bold', 'luxury']);
+    const paletteLabels = screen.getAllByTestId(/^appearance-option-label-/)
+      .filter(label => !styleIds.has(label.getAttribute('data-testid')!.replace('appearance-option-label-', '')));
+
+    expect(paletteLabels.length).toBeGreaterThan(0);
+
+    for (const paletteLabel of paletteLabels) {
+      expect(paletteLabel).not.toHaveAttribute('style');
+    }
+  });
+
   it('keeps the accessible name of each card the preset name alone', () => {
     const draft = resolveBookingPageConfig({}).draft;
     render(<BookingPageAppearance disabled={false} draft={draft} mode="appearance" onChange={vi.fn()} />);
