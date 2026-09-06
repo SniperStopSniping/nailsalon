@@ -36,8 +36,7 @@ const envHolder = vi.hoisted(() => ({
 vi.mock('@/libs/Env', () => ({ Env: envHolder }));
 
 vi.mock('@/libs/adminAuth', () => ({
-  // Owner-only: buying SMS credit spends the salon's money.
-  requireAdminOwner: vi.fn(async () => ({ ok: true, admin: { clerkUserId: 'user_topup' } })),
+  requireAdmin: vi.fn(async () => ({ ok: true, admin: { clerkUserId: 'user_topup' } })),
 }));
 vi.mock('@/libs/rateLimit', () => ({
   checkEndpointRateLimit: () => ({ allowed: true }),

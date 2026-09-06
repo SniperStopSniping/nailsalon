@@ -19,7 +19,7 @@ import { eq } from 'drizzle-orm';
 import { type NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 
-import { requireAdminOwner } from '@/libs/adminAuth';
+import { requireAdmin } from '@/libs/adminAuth';
 import { beginCheckoutAttempt, failAttempt, markAttemptCheckoutCreated } from '@/libs/billing/checkoutAttempts';
 import { resolveTopupAudienceForLegacyPlan } from '@/libs/billing/legacyPlanAdapter';
 import { BillingCatalogError, resolveStripePriceIdForTopup } from '@/libs/billing/stripePriceMap';
@@ -58,8 +58,7 @@ export async function POST(request: NextRequest) {
       return errorJson(400, 'INVALID_INPUT', 'salonId and topupOfferKey are required; amounts and Stripe identifiers are never accepted.');
     }
     const { salonId, topupOfferKey } = parsed.data;
-    // Buying SMS credit spends the salon's money: owner only.
-    const authResult = await requireAdminOwner(salonId, 'Only the salon owner can manage billing.');
+    const authResult = await requireAdmin(salonId);
     if (!authResult.ok) {
       return authResult.response;
     }

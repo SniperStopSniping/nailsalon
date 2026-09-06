@@ -117,6 +117,8 @@ vi.mock('@/libs/DB', () => ({
 vi.mock('@/libs/email', () => ({ sendTransactionalEmail, sendTransactionalEmailDetailed }));
 vi.mock('@/libs/staffAuth', () => ({ requireStaffSession }));
 vi.mock('@/libs/adminAuth', () => ({
+  // The client PATCH records the acting admin on its audit row (CP1 repair).
+  getAdminSession: vi.fn(async () => ({ id: 'admin_concurrency', phoneE164: null })),
   requireAdmin,
   requireAdminSalon,
 }));

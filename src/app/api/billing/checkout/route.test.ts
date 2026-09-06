@@ -43,8 +43,7 @@ vi.mock('@/libs/Env', () => ({ Env: envHolder }));
 // correct behavior, pinned separately below).
 const adminHolder = vi.hoisted(() => ({ clerkUserId: 'user_default' }));
 vi.mock('@/libs/adminAuth', () => ({
-  // Owner-only: subscribing spends the salon's money (AG-security-tenancy-02).
-  requireAdminOwner: vi.fn(async () => ({ ok: true, admin: { clerkUserId: adminHolder.clerkUserId } })),
+  requireAdmin: vi.fn(async () => ({ ok: true, admin: { clerkUserId: adminHolder.clerkUserId } })),
 }));
 
 vi.mock('@/libs/rateLimit', () => ({

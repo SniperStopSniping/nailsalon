@@ -14,7 +14,7 @@ import * as Sentry from '@sentry/nextjs';
 import { eq } from 'drizzle-orm';
 import { type NextRequest, NextResponse } from 'next/server';
 
-import { requireAdminOwner } from '@/libs/adminAuth';
+import { requireAdmin } from '@/libs/adminAuth';
 import { db } from '@/libs/DB';
 import { Env } from '@/libs/Env';
 import { checkEndpointRateLimit, getClientIp, rateLimitResponse } from '@/libs/rateLimit';
@@ -49,9 +49,7 @@ export async function POST(request: NextRequest) {
     }
 
     // 2. Require admin access for this salon
-    // The Stripe portal exposes invoices, the card on file and cancellation:
-    // owner only.
-    const authResult = await requireAdminOwner(salonId, 'Only the salon owner can manage billing.');
+    const authResult = await requireAdmin(salonId);
     if (!authResult.ok) {
       return authResult.response;
     }
