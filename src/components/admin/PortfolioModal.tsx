@@ -352,7 +352,7 @@ export function PortfolioModal({ onClose }: PortfolioModalProps) {
   );
 
   return (
-    <div className="flex h-full flex-col bg-[#F2F2F7]">
+    <div className="flex h-full flex-col bg-[var(--owner-ground)]">
       <ModalHeader
         title="Portfolio"
         subtitle={data ? usageLabel(data.usage) : undefined}
@@ -361,7 +361,7 @@ export function PortfolioModal({ onClose }: PortfolioModalProps) {
 
       <div className="flex-1 overflow-y-auto px-4 pb-24 pt-4">
         {loading && (
-          <div className="flex items-center justify-center py-16 text-gray-500">
+          <div className="flex items-center justify-center py-16 text-[var(--owner-muted)]">
             <Loader2 className="size-5 animate-spin" aria-hidden="true" />
             <span className="ml-2 text-[15px]">Loading your portfolio…</span>
           </div>
@@ -413,7 +413,7 @@ export function PortfolioModal({ onClose }: PortfolioModalProps) {
             {atLimit && !data.usage.overAllowance && (
               <div
                 role="status"
-                className="mb-4 rounded-2xl border border-gray-200 bg-white px-4 py-3 text-[15px] text-gray-700"
+                className="mb-4 rounded-2xl border border-[var(--owner-line)] bg-[var(--owner-surface)] px-4 py-3 text-[15px] text-[var(--owner-muted)]"
               >
                 You&rsquo;ve used all
                 {' '}
@@ -423,8 +423,8 @@ export function PortfolioModal({ onClose }: PortfolioModalProps) {
               </div>
             )}
 
-            <section className="mb-4 rounded-2xl border border-gray-200 bg-white p-4">
-              <h3 className="text-[13px] font-semibold uppercase tracking-wide text-gray-500">
+            <section className="mb-4 rounded-2xl border border-[var(--owner-line)] bg-[var(--owner-surface)] p-4">
+              <h3 className="text-[13px] font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
                 Add photos
               </h3>
 
@@ -466,7 +466,7 @@ export function PortfolioModal({ onClose }: PortfolioModalProps) {
               </button>
 
               {!rightsConfirmed && (
-                <p className="mt-2 text-[13px] text-gray-500">
+                <p className="mt-2 text-[13px] text-[var(--owner-muted)]">
                   Confirm the permission above to add photos.
                 </p>
               )}
@@ -487,18 +487,18 @@ export function PortfolioModal({ onClose }: PortfolioModalProps) {
               )}
             </section>
 
-            <section className="mb-4 rounded-2xl border border-gray-200 bg-white p-4">
-              <h3 className="text-[13px] font-semibold uppercase tracking-wide text-gray-500">
+            <section className="mb-4 rounded-2xl border border-[var(--owner-line)] bg-[var(--owner-surface)] p-4">
+              <h3 className="text-[13px] font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
                 Discover readiness
               </h3>
-              <p className="mt-2 text-[15px] text-gray-900">
+              <p className="mt-2 text-[15px] text-[var(--owner-ink)]">
                 {data.readiness.discoverEligiblePhotos}
                 {' '}
                 {data.readiness.discoverEligiblePhotos === 1 ? 'photo is' : 'photos are'}
                 {' '}
                 ready for Discover.
               </p>
-              <ul className="mt-2 space-y-1 text-[13px] text-gray-600">
+              <ul className="mt-2 space-y-1 text-[13px] text-[var(--owner-muted)]">
                 {data.readiness.missingServiceFamily > 0 && (
                   <li>
                     {data.readiness.missingServiceFamily}
@@ -533,9 +533,9 @@ export function PortfolioModal({ onClose }: PortfolioModalProps) {
             {selected.size > 0 && (
               <section
                 aria-label="Batch tagging"
-                className="mb-4 rounded-2xl border border-gray-200 bg-white p-4"
+                className="mb-4 rounded-2xl border border-[var(--owner-line)] bg-[var(--owner-surface)] p-4"
               >
-                <p className="text-[15px] font-medium text-gray-900">
+                <p className="text-[15px] font-medium text-[var(--owner-ink)]">
                   {selected.size}
                   {' '}
                   selected
@@ -592,12 +592,12 @@ export function PortfolioModal({ onClose }: PortfolioModalProps) {
 
             {data.photos.length === 0
               ? (
-                  <div className="rounded-2xl border border-dashed border-gray-300 bg-white px-6 py-12 text-center">
-                    <ImagePlus className="mx-auto size-8 text-gray-400" aria-hidden="true" />
-                    <p className="mt-3 text-[17px] font-medium text-gray-900">
+                  <div className="rounded-2xl border border-dashed border-gray-300 bg-[var(--owner-surface)] px-6 py-12 text-center">
+                    <ImagePlus className="mx-auto size-8 text-[var(--owner-muted)]" aria-hidden="true" />
+                    <p className="mt-3 text-[17px] font-medium text-[var(--owner-ink)]">
                       Add your first photos
                     </p>
-                    <p className="mt-1 text-[15px] text-gray-600">
+                    <p className="mt-1 text-[15px] text-[var(--owner-muted)]">
                       Upload your best nail work once, and it powers your profile
                       and Luster Discover.
                     </p>
@@ -616,7 +616,7 @@ export function PortfolioModal({ onClose }: PortfolioModalProps) {
                             aria-label={photo.altText ?? 'Portfolio photo'}
                             onClick={() => toggleSelected(photo.id)}
                             className={`
-                              block w-full overflow-hidden rounded-2xl border-2 bg-white
+                              block w-full overflow-hidden rounded-2xl border-2 bg-[var(--owner-surface)]
                               ${isSelected ? 'border-gray-900' : 'border-transparent'}
                             `}
                           >
@@ -646,7 +646,7 @@ export function PortfolioModal({ onClose }: PortfolioModalProps) {
                           )}
 
                           <div className="mt-1 flex items-center justify-between px-1">
-                            <span className="text-[12px] text-gray-600">
+                            <span className="text-[12px] text-[var(--owner-muted)]">
                               {discoverServiceFamilyLabel(photo.serviceFamily)}
                             </span>
                             <button
@@ -654,7 +654,7 @@ export function PortfolioModal({ onClose }: PortfolioModalProps) {
                               aria-label={`Delete ${photo.altText || 'portfolio photo'}`}
                               disabled={busy}
                               onClick={() => setPhotoPendingDeletion(photo)}
-                              className="flex size-11 items-center justify-center rounded-lg text-gray-400 hover:bg-red-50 hover:text-red-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-600 disabled:opacity-40"
+                              className="flex size-11 items-center justify-center rounded-lg text-[var(--owner-muted)] hover:bg-red-50 hover:text-red-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-600 disabled:opacity-40"
                             >
                               <Trash2 className="size-4" aria-hidden="true" />
                             </button>

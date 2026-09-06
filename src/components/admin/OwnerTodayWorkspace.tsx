@@ -140,28 +140,67 @@ const INCOMPLETE_HISTORY_EXPLANATION
 const ESTIMATED_HISTORY_EXPLANATION
   = 'Some historical totals use booked values because finalized checkout details are unavailable.';
 
-function getFinancialHistoryNotice(summary: OwnerFinancialSummary): {
-  label: 'Incomplete history' | 'Estimated history';
+function outstandingBalanceExplanation(count: number): string {
+  return count === 1
+    ? 'One completed appointment could not be reconciled against its payment records, so it is left out of Completed outstanding. Every completed appointment is counted in the revenue totals.'
+    : `${count} completed appointments could not be reconciled against their payment records, so they are left out of Completed outstanding. Every completed appointment is counted in the revenue totals.`;
+}
+
+type FinancialHistoryNotice = {
+  label: 'Incomplete history' | 'Estimated history' | 'Balances under review';
   explanation: string;
-} | null {
-  const provenances: ReportingProvenance[] = [
+  /**
+   * Which figures the caveat is actually about. Only a `revenue` caveat may
+   * put "Under review" beside the Revenue headline.
+   */
+  scope: 'revenue' | 'balances';
+};
+
+/**
+ * Say which numbers are uncertain, and never blame the ones that are exact.
+ *
+ * Revenue and outstanding balances are two projections of the same
+ * appointments and they can disagree: a completed, fully finalized appointment
+ * is exact revenue, yet its balance stays unresolved while no payment record
+ * reconciles against it. The card used to fold `balances.completed` into the
+ * same test as the three revenue periods, so a balance-only gap printed
+ * "Incomplete history — Some historical appointments could not be included"
+ * over revenue figures that were complete and exact — the owner could not tell
+ * whether the salon earned nothing or the total was broken
+ * (AG-w2-appointments-02). The revenue periods are judged on their own now,
+ * and a balance-only gap says so, with the number of appointments involved.
+ */
+function getFinancialHistoryNotice(
+  summary: OwnerFinancialSummary,
+): FinancialHistoryNotice | null {
+  const revenueProvenances: ReportingProvenance[] = [
     summary.currentPeriods.today.provenance,
     summary.currentPeriods.weekToDate.provenance,
     summary.currentPeriods.monthToDate.provenance,
-    summary.balances.completed,
   ];
 
-  if (provenances.some(item => item.unresolvedAppointmentCount > 0)) {
+  if (revenueProvenances.some(item => item.unresolvedAppointmentCount > 0)) {
     return {
       label: 'Incomplete history',
       explanation: INCOMPLETE_HISTORY_EXPLANATION,
+      scope: 'revenue',
     };
   }
 
-  if (provenances.some(item => item.legacyAppointmentCount > 0)) {
+  if (revenueProvenances.some(item => item.legacyAppointmentCount > 0)) {
     return {
       label: 'Estimated history',
       explanation: ESTIMATED_HISTORY_EXPLANATION,
+      scope: 'revenue',
+    };
+  }
+
+  const unresolvedBalances = summary.balances.completed.unresolvedAppointmentCount;
+  if (unresolvedBalances > 0) {
+    return {
+      label: 'Balances under review',
+      explanation: outstandingBalanceExplanation(unresolvedBalances),
+      scope: 'balances',
     };
   }
 
@@ -188,6 +227,9 @@ function revenueStatusLine(
     }
     if (historyNotice?.label === 'Estimated history') {
       return 'No completed revenue yet today, and some earlier totals are estimated from booked values.';
+    }
+    if (historyNotice?.label === 'Balances under review') {
+      return `No completed financial activity yet. ${historyNotice.explanation}`;
     }
     return 'No completed financial activity yet.';
   }
@@ -781,7 +823,7 @@ export function OwnerTodayWorkspace({
       {attentionSection}
 
       <section
-        className="overflow-hidden rounded-3xl border border-rose-100/80 bg-white shadow-[0_10px_30px_rgba(76,29,46,0.05)]"
+        className="overflow-hidden rounded-owner-card border border-[var(--owner-line,#dfd1d4)] bg-[var(--owner-surface,#fffdfb)] shadow-owner-card"
         data-testid="owner-today-agenda"
       >
         <div className="flex items-center justify-between border-b border-stone-100 px-5 py-4">
@@ -804,7 +846,7 @@ export function OwnerTodayWorkspace({
               todayLoading || retentionLoading || financialSummaryLoading
             }
             aria-label="Refresh dashboard"
-            className="rounded-full p-2 text-rose-800 transition-colors hover:bg-rose-50 disabled:opacity-40"
+            className="flex size-11 items-center justify-center rounded-full text-[var(--owner-accent,#8f3155)] outline-none transition-colors hover:bg-[var(--owner-blush,#f6e7ec)] focus-visible:ring-2 focus-visible:ring-[var(--owner-focus,#b85075)] disabled:opacity-40"
           >
             <RefreshCw
               size={17}
@@ -844,13 +886,13 @@ export function OwnerTodayWorkspace({
                           (AG-cohesion-08). Finished rows are dimmed, which is
                           a real state and is also said in words by the chip.
                         */
-                        className={`flex w-full items-center gap-3 bg-white px-5 py-4 text-left transition-colors hover:bg-[var(--owner-blush,#f6e7ec)] ${['completed', 'cancelled', 'no_show'].includes(appointment.status) ? 'opacity-55' : ''}`}
+                        className={`flex min-h-[64px] w-full items-center gap-3 bg-[var(--owner-surface,#fffdfb)] px-5 py-4 text-left outline-none transition-colors hover:bg-[var(--owner-blush,#f6e7ec)] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--owner-focus,#b85075)] ${['completed', 'cancelled', 'no_show'].includes(appointment.status) ? 'opacity-55' : ''}`}
                       >
                         <div className="w-16 shrink-0">
-                          <p className="text-sm font-semibold text-rose-900">
+                          <p className="text-sm font-semibold text-[var(--owner-accent-strong,#70213f)]">
                             {formatTime(appointment.startTime)}
                           </p>
-                          <p className="text-[11px] text-stone-400">
+                          <p className="text-[12px] text-[var(--owner-muted,#706267)]">
                             {appointment.totalDurationMinutes}
                             {' '}
                             min
@@ -860,7 +902,7 @@ export function OwnerTodayWorkspace({
                           <p className="truncate text-sm font-semibold text-stone-950">
                             {appointment.clientName || 'Guest client'}
                             {appointment.id === nextAppointmentId && (
-                              <span className="ml-2 rounded-full bg-amber-500 px-1.5 py-0.5 align-middle text-[9px] font-bold uppercase tracking-wide text-white">
+                              <span className="ml-2 rounded-full bg-amber-500 px-1.5 py-0.5 align-middle text-[11px] font-bold uppercase tracking-wide text-white">
                                 Next
                               </span>
                             )}
@@ -880,7 +922,7 @@ export function OwnerTodayWorkspace({
                             </p>
                           )}
                         </div>
-                        <span className={`rounded-full border px-2 py-1 text-[10px] font-semibold ${appointmentStatusChipClasses(appointment.status)}`}>
+                        <span className={`rounded-full border px-2 py-1 text-[11px] font-semibold ${appointmentStatusChipClasses(appointment.status)}`}>
                           {formatAppointmentStatus(appointment.status)}
                         </span>
                         <ChevronRight size={16} className="shrink-0 text-stone-300" />
@@ -902,7 +944,7 @@ export function OwnerTodayWorkspace({
         <button
           type="button"
           onClick={onOpenBookings}
-          className="flex w-full items-center justify-center gap-2 border-t border-stone-100 px-4 py-3 text-sm font-semibold text-rose-800"
+          className="flex min-h-11 w-full items-center justify-center gap-2 border-t border-[var(--owner-line,#dfd1d4)] px-4 py-3 text-sm font-semibold text-[var(--owner-accent,#8f3155)] outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--owner-focus,#b85075)]"
         >
           Open appointment calendar
           <ChevronRight size={15} />
@@ -910,12 +952,12 @@ export function OwnerTodayWorkspace({
       </section>
 
       <section
-        className="overflow-hidden rounded-3xl border border-rose-100/80 bg-white shadow-[0_10px_30px_rgba(76,29,46,0.05)]"
+        className="overflow-hidden rounded-owner-card border border-[var(--owner-line,#dfd1d4)] bg-[var(--owner-surface,#fffdfb)] shadow-owner-card"
         data-testid="owner-revenue-summary"
       >
         <div className="flex items-center justify-between gap-3 border-b border-stone-100 px-5 py-4">
           <div className="flex min-w-0 items-center gap-3">
-            <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-rose-50 text-rose-800">
+            <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-[var(--owner-blush,#f6e7ec)] text-[var(--owner-accent,#8f3155)]">
               <CircleDollarSign size={20} />
             </span>
             <div className="min-w-0">
@@ -927,9 +969,9 @@ export function OwnerTodayWorkspace({
                   thing in the Workspace's shared money vocabulary, and the
                   sentence underneath explains it (AG-cohesion-05).
                 */}
-                {revenueHistoryNotice && (
+                {revenueHistoryNotice?.scope === 'revenue' && (
                   <span
-                    className="rounded-full border border-stone-200 bg-stone-100 px-2 py-0.5 text-[10px] font-semibold text-stone-600"
+                    className="rounded-full border border-[var(--owner-line,#dfd1d4)] bg-[var(--owner-blush,#f6e7ec)] px-2 py-0.5 text-[11px] font-semibold text-[var(--owner-accent-strong,#70213f)]"
                     data-testid="owner-revenue-under-review-chip"
                   >
                     {UNDER_REVIEW_LABEL}
@@ -949,7 +991,7 @@ export function OwnerTodayWorkspace({
               onClick={() => void loadFinancialSummary()}
               disabled={financialSummaryLoading}
               aria-label="Refresh revenue summary"
-              className="shrink-0 rounded-full p-2 text-rose-800 transition-colors hover:bg-rose-50 disabled:opacity-40"
+              className="flex size-11 shrink-0 items-center justify-center rounded-full text-[var(--owner-accent,#8f3155)] outline-none transition-colors hover:bg-[var(--owner-blush,#f6e7ec)] focus-visible:ring-2 focus-visible:ring-[var(--owner-focus,#b85075)] disabled:opacity-40"
             >
               <RefreshCw
                 size={17}
@@ -1116,7 +1158,7 @@ export function OwnerTodayWorkspace({
                     return (
                       <div className="space-y-3 p-4">
                         <div className="rounded-2xl bg-gradient-to-br from-[#4C1D2E] to-[#8B1538] p-4 text-white">
-                          <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-rose-100">
+                          <p className="text-[12px] font-bold uppercase tracking-[0.14em] text-rose-100">
                             Revenue today
                           </p>
                           <p className="mt-1 text-3xl font-bold tabular-nums">
@@ -1146,7 +1188,7 @@ export function OwnerTodayWorkspace({
                                 key={label as string}
                                 className="rounded-2xl border border-rose-100 bg-rose-50/50 p-3"
                               >
-                                <p className="text-[11px] font-bold uppercase tracking-widest text-rose-700">
+                                <p className="text-[12px] font-bold uppercase tracking-widest text-[var(--owner-accent,#8f3155)]">
                                   {label as string}
                                 </p>
                                 <p className="mt-1 text-xl font-bold tabular-nums text-stone-950">
@@ -1173,12 +1215,12 @@ export function OwnerTodayWorkspace({
                           aria-expanded={revenueBreakdownOpen}
                           aria-controls="owner-revenue-breakdown"
                           data-testid="owner-revenue-breakdown-toggle"
-                          className="flex w-full items-center justify-between rounded-2xl border border-stone-200 px-3 py-2.5 text-sm font-semibold text-stone-800 transition-colors hover:bg-stone-50"
+                          className="flex min-h-11 w-full items-center justify-between rounded-2xl border border-[var(--owner-line,#dfd1d4)] px-3 py-2.5 text-sm font-semibold text-[var(--owner-ink,#30262a)] outline-none transition-colors hover:bg-[var(--owner-blush,#f6e7ec)] focus-visible:ring-2 focus-visible:ring-[var(--owner-focus,#b85075)]"
                         >
                           {revenueBreakdownOpen ? 'Hide breakdown' : 'View breakdown'}
                           <ChevronDown
                             size={16}
-                            className={`shrink-0 text-stone-400 transition-transform ${revenueBreakdownOpen ? 'rotate-180' : ''}`}
+                            className={`shrink-0 text-[var(--owner-muted,#706267)] transition-transform ${revenueBreakdownOpen ? 'rotate-180' : ''}`}
                           />
                         </button>
                         {revenueBreakdownOpen && (
@@ -1373,7 +1415,7 @@ export function OwnerTodayWorkspace({
       || appointmentReminders.length
         ? (
             <section
-              className="overflow-hidden rounded-3xl border border-rose-100/80 bg-white shadow-[0_10px_30px_rgba(76,29,46,0.05)]"
+              className="overflow-hidden rounded-owner-card border border-[var(--owner-line,#dfd1d4)] bg-[var(--owner-surface,#fffdfb)] shadow-owner-card"
               data-testid="owner-client-followups"
             >
               <div className="flex items-center justify-between border-b border-stone-100 px-5 py-4">
@@ -1388,7 +1430,7 @@ export function OwnerTodayWorkspace({
                   onClick={() => void loadRetention()}
                   disabled={retentionLoading}
                   aria-label="Refresh client follow-ups"
-                  className="rounded-full p-2 text-rose-800 transition-colors hover:bg-rose-50 disabled:opacity-40"
+                  className="flex size-11 items-center justify-center rounded-full text-[var(--owner-accent,#8f3155)] outline-none transition-colors hover:bg-[var(--owner-blush,#f6e7ec)] focus-visible:ring-2 focus-visible:ring-[var(--owner-focus,#b85075)] disabled:opacity-40"
                 >
                   <RefreshCw
                     size={17}
@@ -1440,7 +1482,7 @@ export function OwnerTodayWorkspace({
                                 : <Gift size={19} />}
                             </span>
                             <span className="min-w-0 flex-1">
-                              <span className="block text-[11px] font-bold uppercase tracking-[0.12em] opacity-70">
+                              <span className="block text-[12px] font-bold uppercase tracking-[0.12em] opacity-70">
                                 {presentation.title}
                               </span>
                               <span className="mt-0.5 block truncate text-sm font-semibold">
@@ -1468,26 +1510,26 @@ export function OwnerTodayWorkspace({
                           type="button"
                           onClick={() => onOpenClient(reminder.clientId)}
                           aria-label={`Send reminder to ${reminder.clientName || 'client'}`}
-                          className="flex w-full items-center gap-3 rounded-2xl border border-blue-100 bg-blue-50 p-3 text-left text-blue-950 transition-transform active:scale-[0.99]"
+                          className="flex w-full items-center gap-3 rounded-2xl border border-[var(--owner-line,#dfd1d4)] bg-[var(--owner-blush,#f6e7ec)] p-3 text-left text-[var(--owner-ink,#30262a)] outline-none transition-transform focus-visible:ring-2 focus-visible:ring-[var(--owner-focus,#b85075)] active:scale-[0.99]"
                         >
-                          <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-blue-100 text-blue-700">
+                          <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-[var(--owner-surface,#fffdfb)] text-[var(--owner-accent,#8f3155)]">
                             <BellRing size={19} />
                           </span>
                           <span className="min-w-0 flex-1">
-                            <span className="block text-[11px] font-bold uppercase tracking-[0.12em] text-blue-700">
+                            <span className="block text-[12px] font-bold uppercase tracking-[0.12em] text-[var(--owner-accent,#8f3155)]">
                               Appointment reminder
                             </span>
                             <span className="mt-0.5 block truncate text-sm font-semibold">
                               {reminder.clientName || 'Client'}
                             </span>
-                            <span className="mt-0.5 block text-xs text-blue-700">
+                            <span className="mt-0.5 block text-xs text-[var(--owner-muted,#706267)]">
                               {formatReminderTime(reminder.startTime)}
                             </span>
                           </span>
-                          <span className="shrink-0 text-xs font-bold text-blue-800">
+                          <span className="shrink-0 text-xs font-bold text-[var(--owner-accent-strong,#70213f)]">
                             Send reminder
                           </span>
-                          <ChevronRight size={15} className="shrink-0 text-blue-400" />
+                          <ChevronRight size={15} className="shrink-0 text-[var(--owner-accent,#8f3155)] opacity-60" />
                         </button>
                       ))}
                     </div>

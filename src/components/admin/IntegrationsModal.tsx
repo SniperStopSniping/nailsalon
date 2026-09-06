@@ -143,7 +143,7 @@ function StatusPill({ label, tone }: { label: string; tone: StatusTone }) {
         ? 'bg-amber-100 text-amber-900'
         : tone === 'error'
           ? 'bg-red-100 text-red-800'
-          : 'bg-stone-100 text-stone-600';
+          : 'bg-[var(--owner-ground)] text-[var(--owner-muted)]';
   return (
     <span className={`shrink-0 rounded-full px-3 py-1 text-xs font-medium ${toneClass}`}>
       {label}
@@ -357,7 +357,7 @@ export function IntegrationsModal({
    */
   const googleUnavailable = health !== null && health.availability.google === false;
 
-  const card = 'rounded-2xl border border-stone-200 bg-white p-4 shadow-sm';
+  const card = 'rounded-2xl border border-[var(--owner-line)] bg-[var(--owner-surface)] p-4 shadow-sm';
 
   const connect = health?.stripeConnect ?? null;
   const showPaymentsCard = connect?.visible === true;
@@ -403,7 +403,7 @@ export function IntegrationsModal({
     {
       id: 'google',
       icon: CalendarDays,
-      iconClass: 'bg-rose-100 text-rose-800',
+      iconClass: 'bg-[var(--owner-blush)] text-[var(--owner-accent)]',
       name: 'Google Calendar',
       status: health
         ? (googleUnavailable ? 'Not available yet' : GOOGLE_READINESS_LABELS[googleReadiness])
@@ -430,7 +430,7 @@ export function IntegrationsModal({
     {
       id: 'email',
       icon: Mail,
-      iconClass: 'bg-stone-100 text-stone-700',
+      iconClass: 'bg-[var(--owner-ground)] text-[var(--owner-muted)]',
       name: 'Email',
       status: health ? (emailReady ? 'Ready' : 'Not available yet') : 'Loading…',
       tone: health ? (emailReady ? 'good' : 'muted') : 'muted',
@@ -441,7 +441,7 @@ export function IntegrationsModal({
   ];
 
   const header = (title: string, showBack: boolean) => (
-    <div className="sticky top-0 z-10 flex items-center justify-between border-b border-stone-100 bg-white/95 px-4 py-3 backdrop-blur">
+    <div className="sticky top-0 z-10 flex items-center justify-between border-b border-[var(--owner-line)] bg-[var(--owner-surface)] px-4 py-3 backdrop-blur">
       <div className="flex items-center gap-2">
         {showBack && (
           <button
@@ -451,18 +451,18 @@ export function IntegrationsModal({
               setConfirmingDisconnect(false);
             }}
             aria-label="Back to integrations"
-            className="flex size-9 items-center justify-center rounded-full text-stone-600 outline-none transition-colors focus-visible:ring-2 focus-visible:ring-rose-400 active:bg-stone-100"
+            className="flex size-9 items-center justify-center rounded-full text-[var(--owner-muted)] outline-none transition-colors focus-visible:ring-2 focus-visible:ring-rose-400 active:bg-[var(--owner-ground)]"
           >
             <ArrowLeft size={20} />
           </button>
         )}
-        <h2 className="text-[19px] font-bold tracking-tight text-stone-950">{title}</h2>
+        <h2 className="text-[19px] font-bold tracking-tight text-[var(--owner-ink)]">{title}</h2>
       </div>
       <button
         type="button"
         onClick={onClose}
         aria-label="Close integrations"
-        className="flex size-9 items-center justify-center rounded-full bg-stone-100 text-stone-600 outline-none transition-colors focus-visible:ring-2 focus-visible:ring-rose-400 active:bg-stone-200"
+        className="flex size-9 items-center justify-center rounded-full bg-[var(--owner-ground)] text-[var(--owner-muted)] outline-none transition-colors focus-visible:ring-2 focus-visible:ring-rose-400 active:bg-stone-200"
       >
         <X size={18} />
       </button>
@@ -471,7 +471,7 @@ export function IntegrationsModal({
 
   return (
     <div
-      className="flex min-h-full flex-col bg-[#F8F3F0]"
+      className="flex min-h-full flex-col bg-[var(--owner-ground)]"
       data-testid="integrations-modal"
       style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}
     >
@@ -483,7 +483,7 @@ export function IntegrationsModal({
       <div className="mx-auto w-full max-w-2xl grow px-4 pb-10 pt-4">
         {message && (
           <div
-            className="mb-4 rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm font-medium text-rose-950"
+            className="mb-4 rounded-2xl border border-[var(--owner-line-strong)] bg-[var(--owner-blush)] p-4 text-sm font-medium text-rose-950"
             role="status"
           >
             {message}
@@ -505,19 +505,19 @@ export function IntegrationsModal({
                   type="button"
                   data-testid={`integration-row-${row.id}`}
                   onClick={() => setView(row.id)}
-                  className={`${card} flex w-full items-center gap-3 text-left outline-none transition-transform focus-visible:ring-2 focus-visible:ring-rose-400 active:scale-[0.99] active:bg-stone-50`}
+                  className={`${card} flex w-full items-center gap-3 text-left outline-none transition-transform focus-visible:ring-2 focus-visible:ring-rose-400 active:scale-[0.99] active:bg-[var(--owner-ground)]`}
                 >
                   <span className={`flex size-11 shrink-0 items-center justify-center rounded-xl ${row.iconClass}`}>
                     <Icon size={22} />
                   </span>
                   <span className="min-w-0 grow">
                     <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                      <span className="text-[15px] font-semibold text-stone-950">{row.name}</span>
+                      <span className="text-[15px] font-semibold text-[var(--owner-ink)]">{row.name}</span>
                       <StatusPill label={row.status} tone={row.tone} />
                     </span>
-                    <span className="mt-0.5 block text-[13px] text-stone-500">{row.explanation}</span>
+                    <span className="mt-0.5 block text-[13px] text-[var(--owner-muted)]">{row.explanation}</span>
                   </span>
-                  <ChevronRight size={18} className="shrink-0 text-stone-400" />
+                  <ChevronRight size={18} className="shrink-0 text-[var(--owner-line-strong)]" />
                 </button>
               );
             })}
@@ -529,13 +529,13 @@ export function IntegrationsModal({
                   </span>
                   <span className="min-w-0 grow">
                     <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                      <span className="text-[15px] font-semibold text-stone-950">Payments</span>
+                      <span className="text-[15px] font-semibold text-[var(--owner-ink)]">Payments</span>
                       <StatusPill
                         label={CONNECT_STATUS_LABELS[connect.status]}
                         tone={connectStatusTone(connect.status)}
                       />
                     </span>
-                    <span className="mt-0.5 block text-[13px] text-stone-500">
+                    <span className="mt-0.5 block text-[13px] text-[var(--owner-muted)]">
                       Connect your own Stripe account so you can take deposits later.
                     </span>
                   </span>
@@ -551,7 +551,7 @@ export function IntegrationsModal({
                 {(connect.status === 'restricted'
                   || connect.status === 'action_needed_soon'
                   || connect.status === 'onboarding_incomplete') && (
-                  <ul className="mt-3 list-disc space-y-1 pl-5 text-[13px] text-stone-600">
+                  <ul className="mt-3 list-disc space-y-1 pl-5 text-[13px] text-[var(--owner-muted)]">
                     {(connect.requirements?.pastDue ?? [])
                       .concat(connect.requirements?.currentlyDue ?? [])
                       .slice(0, 5)
@@ -595,7 +595,7 @@ export function IntegrationsModal({
                 )}
 
                 {connect.lastSyncedAt === null && connect.hasBindingHistory && (
-                  <p className="mt-2 text-[12px] text-stone-400">
+                  <p className="mt-2 text-[12px] text-[var(--owner-line-strong)]">
                     Status not confirmed yet.
                   </p>
                 )}
@@ -603,7 +603,7 @@ export function IntegrationsModal({
             )}
 
             {!showPaymentsCard && (
-              <p className="px-1 pt-2 text-[12px] text-stone-400">
+              <p className="px-1 pt-2 text-[12px] text-[var(--owner-line-strong)]">
                 Clients pay you in person (cash, card, or e-Transfer). Luster does not process client payments.
               </p>
             )}
@@ -643,7 +643,7 @@ export function IntegrationsModal({
             )}
             <div className={card}>
               <div className="flex items-start justify-between gap-3">
-                <p className="text-sm text-stone-600">
+                <p className="text-sm text-[var(--owner-muted)]">
                   Busy events block availability. Luster appointments sync both ways when their Google event is
                   moved, resized, or deleted.
                 </p>
@@ -684,10 +684,10 @@ export function IntegrationsModal({
                   ? (
                       <div className="mt-4 space-y-4">
                         {health.google.email && (
-                          <p className="text-sm text-stone-600">
+                          <p className="text-sm text-[var(--owner-muted)]">
                             Connected account:
                             {' '}
-                            <span className="font-medium text-stone-900">{health.google.email}</span>
+                            <span className="font-medium text-[var(--owner-ink)]">{health.google.email}</span>
                           </p>
                         )}
                         {googleReadiness === 'setup_incomplete' && (
@@ -703,7 +703,7 @@ export function IntegrationsModal({
                         <label className="block text-sm">
                           Appointment calendar
                           <select
-                            className="mt-1 w-full rounded-xl border border-stone-300 px-3 py-2"
+                            className="mt-1 w-full rounded-xl border border-[var(--owner-line-strong)] px-3 py-2"
                             value={destinationCalendarId}
                             onChange={(event) => {
                               setDestinationCalendarId(event.target.value);
@@ -743,11 +743,11 @@ export function IntegrationsModal({
                           type="button"
                           disabled={working === 'calendar' || !busyCalendarIds.length || !calendarDirty}
                           onClick={saveCalendars}
-                          className="rounded-full bg-rose-800 px-5 py-2.5 text-sm font-semibold text-white outline-none focus-visible:ring-2 focus-visible:ring-rose-400 disabled:opacity-50"
+                          className="rounded-full bg-[var(--owner-accent)] px-5 py-2.5 text-sm font-semibold text-white outline-none focus-visible:ring-2 focus-visible:ring-rose-400 disabled:opacity-50"
                         >
                           {working === 'calendar' ? 'Saving…' : calendarDirty ? 'Save blocking calendars' : 'Calendars saved'}
                         </button>
-                        <div className="rounded-2xl bg-rose-50 p-4 text-sm text-rose-950">
+                        <div className="rounded-2xl bg-[var(--owner-blush)] p-4 text-sm text-rose-950">
                           <p className="font-semibold">
                             Two-way appointment sync is
                             {' '}
@@ -769,7 +769,7 @@ export function IntegrationsModal({
                     )
                   : (
                       <a
-                        className="mt-4 inline-flex rounded-full bg-rose-800 px-5 py-2.5 text-sm font-semibold text-white shadow-sm outline-none transition-colors hover:bg-rose-900 focus-visible:ring-2 focus-visible:ring-rose-400"
+                        className="mt-4 inline-flex rounded-full bg-[var(--owner-accent)] px-5 py-2.5 text-sm font-semibold text-white shadow-sm outline-none transition-colors hover:bg-[var(--owner-accent-strong)] focus-visible:ring-2 focus-visible:ring-rose-400"
                         href={`/api/integrations/google/connect?salonSlug=${encodeURIComponent(salonSlug ?? '')}`}
                       >
                         Connect Google Calendar
@@ -793,8 +793,8 @@ export function IntegrationsModal({
 
             {health?.google.status === 'active' && (
               <div className={card}>
-                <p className="text-sm font-semibold text-stone-900">Disconnect</p>
-                <p className="mt-1 text-sm text-stone-600">
+                <p className="text-sm font-semibold text-[var(--owner-ink)]">Disconnect</p>
+                <p className="mt-1 text-sm text-[var(--owner-muted)]">
                   Stops two-way sync and removes Google busy-time blocking. Existing Luster appointments are not
                   deleted.
                 </p>
@@ -813,7 +813,7 @@ export function IntegrationsModal({
                         <button
                           type="button"
                           onClick={() => setConfirmingDisconnect(false)}
-                          className="rounded-full border border-stone-300 px-4 py-2 text-sm font-semibold text-stone-700 outline-none focus-visible:ring-2 focus-visible:ring-rose-400"
+                          className="rounded-full border border-[var(--owner-line-strong)] px-4 py-2 text-sm font-semibold text-[var(--owner-muted)] outline-none focus-visible:ring-2 focus-visible:ring-rose-400"
                         >
                           Keep connected
                         </button>
@@ -838,19 +838,19 @@ export function IntegrationsModal({
           <div className="space-y-4">
             <div className={card} data-testid="manual-texting-section">
               <div className="flex items-start justify-between gap-3">
-                <p className="text-[15px] font-semibold text-stone-950">Manual texting</p>
+                <p className="text-[15px] font-semibold text-[var(--owner-ink)]">Manual texting</p>
                 <StatusPill
                   label={smsCapableDevice ? 'Ready' : 'Unsupported on this device'}
                   tone={smsCapableDevice ? 'good' : 'muted'}
                 />
               </div>
-              <p className="mt-1 text-sm text-stone-600">
+              <p className="mt-1 text-sm text-[var(--owner-muted)]">
                 Opens your phone’s Messages app with the client’s number and a prewritten message you can edit.
                 Nothing sends until you hit send, and Luster cannot confirm delivery. Works without any setup —
                 no Twilio needed.
               </p>
               {!smsCapableDevice && (
-                <p className="mt-2 text-xs text-stone-500">
+                <p className="mt-2 text-xs text-[var(--owner-muted)]">
                   This browser can’t open a Messages app. Open Luster on your phone to text clients.
                 </p>
               )}
@@ -858,15 +858,15 @@ export function IntegrationsModal({
 
             <div className={card} data-testid="automatic-texting-section">
               <div className="flex items-start justify-between gap-3">
-                <p className="text-[15px] font-semibold text-stone-950">Automatic texting</p>
+                <p className="text-[15px] font-semibold text-[var(--owner-ink)]">Automatic texting</p>
                 <StatusPill label={automaticText.label} tone={automaticText.tone} />
               </div>
-              <p className="mt-1 text-sm text-stone-600">
+              <p className="mt-1 text-sm text-[var(--owner-muted)]">
                 Optional. Sends booking confirmations and appointment reminders automatically from a dedicated
                 number in your own Twilio account. Bookings still work if texting is off.
               </p>
               {automaticText.detail && (
-                <p className={`mt-2 text-sm ${automaticText.tone === 'error' ? 'text-red-700' : 'text-stone-600'}`}>
+                <p className={`mt-2 text-sm ${automaticText.tone === 'error' ? 'text-red-700' : 'text-[var(--owner-muted)]'}`}>
                   {automaticText.detail}
                 </p>
               )}
@@ -878,7 +878,7 @@ export function IntegrationsModal({
                         <label className="block text-sm">
                           Canadian area code
                           <input
-                            className="mt-1 w-full rounded-xl border border-stone-300 px-3 py-2"
+                            className="mt-1 w-full rounded-xl border border-[var(--owner-line-strong)] px-3 py-2"
                             maxLength={3}
                             value={areaCode}
                             onChange={event => setAreaCode(event.target.value.replace(/\D/g, ''))}
@@ -889,7 +889,7 @@ export function IntegrationsModal({
                           data-testid="twilio-preview"
                           onClick={previewTwilio}
                           disabled={working !== '' || areaCode.length !== 3}
-                          className="min-h-11 rounded-full border border-stone-300 px-5 py-2.5 text-sm font-semibold outline-none focus-visible:ring-2 focus-visible:ring-rose-400 disabled:opacity-50"
+                          className="min-h-11 rounded-full border border-[var(--owner-line-strong)] px-5 py-2.5 text-sm font-semibold outline-none focus-visible:ring-2 focus-visible:ring-rose-400 disabled:opacity-50"
                         >
                           Find a number and its price
                         </button>
@@ -913,7 +913,7 @@ export function IntegrationsModal({
                               </strong>
                               , plus message usage.
                             </p>
-                            <p className="mt-1 text-[13px] leading-6 text-stone-600">
+                            <p className="mt-1 text-[13px] leading-6 text-[var(--owner-muted)]">
                               Twilio bills this to your own Twilio account, not
                               to Luster. Keeping the number keeps the monthly
                               charge; releasing it in Twilio stops it.
@@ -933,7 +933,7 @@ export function IntegrationsModal({
                     )
                   : (
                       <a
-                        className="mt-4 inline-flex rounded-full bg-rose-800 px-5 py-2.5 text-sm font-semibold text-white outline-none transition-colors hover:bg-rose-900 focus-visible:ring-2 focus-visible:ring-rose-400"
+                        className="mt-4 inline-flex rounded-full bg-[var(--owner-accent)] px-5 py-2.5 text-sm font-semibold text-white outline-none transition-colors hover:bg-[var(--owner-accent-strong)] focus-visible:ring-2 focus-visible:ring-rose-400"
                         href={`/api/integrations/twilio/connect?salonSlug=${encodeURIComponent(salonSlug ?? '')}`}
                       >
                         Authorize Twilio
@@ -945,7 +945,7 @@ export function IntegrationsModal({
                 <button
                   type="button"
                   onClick={onOpenSettings}
-                  className="mt-3 text-sm font-semibold text-rose-800 underline-offset-2 outline-none hover:underline focus-visible:ring-2 focus-visible:ring-rose-400"
+                  className="mt-3 text-sm font-semibold text-[var(--owner-accent)] underline-offset-2 outline-none hover:underline focus-visible:ring-2 focus-visible:ring-rose-400"
                 >
                   Turn on SMS reminders in Settings
                 </button>
@@ -967,13 +967,13 @@ export function IntegrationsModal({
           <div className="space-y-4">
             <div className={card}>
               <div className="flex items-start justify-between gap-3">
-                <p className="text-[15px] font-semibold text-stone-950">Booking &amp; reminder emails</p>
+                <p className="text-[15px] font-semibold text-[var(--owner-ink)]">Booking &amp; reminder emails</p>
                 <StatusPill
                   label={health ? (emailReady ? 'Ready' : 'Not available yet') : 'Loading…'}
                   tone={health ? (emailReady ? 'good' : 'muted') : 'muted'}
                 />
               </div>
-              <p className="mt-1 text-sm text-stone-600">
+              <p className="mt-1 text-sm text-[var(--owner-muted)]">
                 Luster emails booking confirmations and appointment reminders to clients who share an email address.
                 There is nothing for you to set up or connect.
               </p>
@@ -994,17 +994,17 @@ export function IntegrationsModal({
 
             <div className={card}>
               <div className="flex items-start justify-between gap-3">
-                <p className="text-[15px] font-semibold text-stone-950">Owner &amp; staff alerts</p>
+                <p className="text-[15px] font-semibold text-[var(--owner-ink)]">Owner &amp; staff alerts</p>
                 <StatusPill
                   label={health ? (emailReady ? 'Ready' : 'Not available yet') : 'Loading…'}
                   tone={health ? (emailReady ? 'good' : 'muted') : 'muted'}
                 />
               </div>
-              <p className="mt-1 text-sm text-stone-600">
+              <p className="mt-1 text-sm text-[var(--owner-muted)]">
                 New-booking and cancellation alerts for you and your technicians, by text or email.
               </p>
               {health && !emailReady && (
-                <p className="mt-3 text-[13px] leading-6 text-stone-500">
+                <p className="mt-3 text-[13px] leading-6 text-[var(--owner-muted)]">
                   Email alerts stay off until Luster&rsquo;s email sending is
                   enabled; text alerts need automatic texting, which is set up
                   under Text messaging. Your choice of channels is saved either
@@ -1015,7 +1015,7 @@ export function IntegrationsModal({
                 <button
                   type="button"
                   onClick={onOpenSettings}
-                  className="mt-3 text-sm font-semibold text-rose-800 underline-offset-2 outline-none hover:underline focus-visible:ring-2 focus-visible:ring-rose-400"
+                  className="mt-3 text-sm font-semibold text-[var(--owner-accent)] underline-offset-2 outline-none hover:underline focus-visible:ring-2 focus-visible:ring-rose-400"
                 >
                   Choose alert channels in Settings
                 </button>
@@ -1024,10 +1024,10 @@ export function IntegrationsModal({
 
             <div className={card} data-testid="marketing-email-row">
               <div className="flex items-start justify-between gap-3">
-                <p className="text-[15px] font-semibold text-stone-950">Marketing email</p>
+                <p className="text-[15px] font-semibold text-[var(--owner-ink)]">Marketing email</p>
                 <StatusPill label="Not available yet" tone="muted" />
               </div>
-              <p className="mt-1 text-sm text-stone-600">
+              <p className="mt-1 text-sm text-[var(--owner-muted)]">
                 Email campaigns to clients are a separate capability that Luster doesn’t offer yet. Promotions and
                 win-back offers are sent as texts you review and send yourself, from Marketing.
               </p>
@@ -1036,7 +1036,7 @@ export function IntegrationsModal({
         )}
         {health && view === 'home' && (
           <div className="mt-4 space-y-2 px-1">
-            <div className="flex items-center gap-1.5 text-[12px] text-stone-400">
+            <div className="flex items-center gap-1.5 text-[12px] text-[var(--owner-line-strong)]">
               <CheckCircle2 size={13} />
               Status updates automatically when you connect or disconnect an integration.
             </div>
@@ -1046,7 +1046,7 @@ export function IntegrationsModal({
               here stops an owner hunting for reminder timing among connection
               cards, and vice versa.
             */}
-            <p className="text-[12px] leading-5 text-stone-500" data-testid="integrations-scope-note">
+            <p className="text-[12px] leading-5 text-[var(--owner-muted)]" data-testid="integrations-scope-note">
               This app shows whether each channel is connected and working.
               What gets sent and when — reminders, confirmations, alert
               channels — is set in Settings.
@@ -1056,7 +1056,7 @@ export function IntegrationsModal({
                 type="button"
                 data-testid="integrations-open-settings"
                 onClick={onOpenSettings}
-                className="min-h-11 text-[13px] font-semibold text-rose-800 underline-offset-2 outline-none hover:underline focus-visible:ring-2 focus-visible:ring-rose-400"
+                className="min-h-11 text-[13px] font-semibold text-[var(--owner-accent)] underline-offset-2 outline-none hover:underline focus-visible:ring-2 focus-visible:ring-rose-400"
               >
                 Open reminder and alert settings
               </button>

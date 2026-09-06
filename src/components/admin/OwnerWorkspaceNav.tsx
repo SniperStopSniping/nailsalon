@@ -66,10 +66,10 @@ export function OwnerWorkspaceNav({
                   .querySelector<HTMLButtonElement>(`[data-testid="owner-nav-${next.id}"]`)
                   ?.focus();
               }}
-              className={`flex min-h-14 flex-col items-center justify-center gap-1 rounded-xl text-[11px] font-medium outline-none transition-colors focus-visible:ring-2 focus-visible:ring-[var(--owner-focus,#b85075)] focus-visible:ring-offset-1 ${
+              className={`flex min-h-14 flex-col items-center justify-center gap-1 rounded-xl px-0.5 text-[12px] font-medium leading-tight outline-none transition-colors focus-visible:ring-2 focus-visible:ring-[var(--owner-focus,#b85075)] focus-visible:ring-offset-1 ${
                 selected
-                  ? 'bg-[var(--owner-blush,#f9e9ed)] text-[var(--owner-accent,#8b3151)]'
-                  : 'text-stone-400'
+                  ? 'bg-[var(--owner-blush,#f6e7ec)] text-[var(--owner-accent,#8f3155)]'
+                  : 'text-[var(--owner-muted,#706267)]'
               }`}
             >
               <Icon size={21} strokeWidth={selected ? 2.6 : 2} />

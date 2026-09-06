@@ -392,3 +392,11 @@
     animation-iteration-count: infinite !important;
   }
 }
+
+/* Owner scopes: Tailwind's `font-sans` utility must resolve to the owner body
+   face, not the browser's ui-sans-serif stack, so sheets and settings views
+   share one typeface with the workspace shell. */
+.owner-workspace-theme .font-sans,
+.owner-theme-scope .font-sans {
+  font-family: var(--owner-font-body);
+}

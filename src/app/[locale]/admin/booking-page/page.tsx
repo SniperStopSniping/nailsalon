@@ -227,9 +227,9 @@ async function publishSalon(salonSlug: string): Promise<{ publicationStatus: str
 
 function SectionCard({ title, description, children }: { title: string; description?: string; children: React.ReactNode }) {
   return (
-    <section className="rounded-3xl border border-stone-200 bg-white p-5 shadow-sm">
-      <h2 className="text-lg font-semibold text-stone-950">{title}</h2>
-      {description && <p className="mt-1 text-sm text-stone-500">{description}</p>}
+    <section className="rounded-3xl border border-[var(--owner-line)] bg-[var(--owner-surface)] p-5 shadow-sm">
+      <h2 className="text-lg font-semibold text-[var(--owner-ink)]">{title}</h2>
+      {description && <p className="mt-1 text-sm text-[var(--owner-muted)]">{description}</p>}
       <div className="mt-4">{children}</div>
     </section>
   );
@@ -923,16 +923,16 @@ export default function BookingPageOwnerSurface() {
 
   if (loading) {
     return (
-      <main className="flex min-h-screen items-center justify-center bg-[#F8F3F0]">
-        <div className="size-8 animate-spin rounded-full border-2 border-rose-200 border-t-rose-700" />
+      <main className="owner-workspace-theme flex min-h-screen items-center justify-center bg-[var(--owner-ground)]" data-theme-scope="owner">
+        <div className="size-8 animate-spin rounded-full border-2 border-[var(--owner-line-strong)] border-t-[var(--owner-accent)]" />
       </main>
     );
   }
 
   if (error || !config || !content) {
     return (
-      <main className="flex min-h-screen items-center justify-center bg-[#F8F3F0] px-6 text-center">
-        <p className="text-sm text-stone-600">{error ?? 'Something went wrong.'}</p>
+      <main className="owner-workspace-theme flex min-h-screen items-center justify-center bg-[var(--owner-ground)] px-6 text-center" data-theme-scope="owner">
+        <p className="text-sm text-[var(--owner-muted)]">{error ?? 'Something went wrong.'}</p>
       </main>
     );
   }
@@ -961,14 +961,14 @@ export default function BookingPageOwnerSurface() {
     : 'your booking page address';
 
   return (
-    <main className="min-h-screen bg-[#F8F3F0] px-4 pb-16 pt-8 text-stone-900">
+    <main className="owner-workspace-theme min-h-screen bg-[var(--owner-ground)] px-4 pb-16 pt-8 text-[var(--owner-ink)]" data-theme-scope="owner">
       <div className="mx-auto max-w-3xl">
         <button
           type="button"
           onClick={() => void navigateAfterSaving(`/${locale}/admin/website${salonSlug ? `?salon=${encodeURIComponent(salonSlug)}` : ''}`)}
           aria-busy={navigationPending}
           disabled={presentationPending || navigationPending}
-          className="inline-flex min-h-11 items-center gap-2 text-sm text-stone-600 disabled:opacity-50"
+          className="inline-flex min-h-11 items-center gap-2 text-sm text-[var(--owner-muted)] disabled:opacity-50"
         >
           <ArrowLeft size={16} />
           {navigationPending ? 'Saving…' : 'Booking Page'}
@@ -976,11 +976,11 @@ export default function BookingPageOwnerSurface() {
 
         <div className="mt-6 flex flex-wrap items-start justify-between gap-4">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.25em] text-rose-700">Booking Page</p>
+            <p className="text-xs font-semibold uppercase tracking-[0.25em] text-[var(--owner-accent)]">Booking Page</p>
             <h1 className="mt-2 text-3xl font-semibold">{({ layouts: 'Layouts', appearance: 'Style & Colours', information: 'Your Information', text: 'About & Website Text', policies: 'Policies & Booking Rules', publish: 'Review & Publish' } as Record<string, string>)[panel ?? ''] ?? 'Layout, style and content'}</h1>
-            <p className="mt-2 text-stone-600" data-testid="booking-page-panel-subtitle">{PANEL_SUBTITLES[panel ?? ''] ?? DRAFT_PANEL_SUBTITLE}</p>
+            <p className="mt-2 text-[var(--owner-muted)]" data-testid="booking-page-panel-subtitle">{PANEL_SUBTITLES[panel ?? ''] ?? DRAFT_PANEL_SUBTITLE}</p>
             {reviewIndex >= 0 && (
-              <p className="mt-2 text-sm font-semibold text-rose-800">
+              <p className="mt-2 text-sm font-semibold text-[var(--owner-accent)]">
                 {`Guided review · Step ${reviewIndex + 1} of ${reviewPanels.length} · Your current saved setup`}
               </p>
             )}
@@ -992,14 +992,14 @@ export default function BookingPageOwnerSurface() {
               rel="noreferrer"
               aria-disabled={!previewPath}
               data-testid="booking-page-preview-link"
-              className={`inline-flex items-center gap-1.5 rounded-full border border-rose-200 bg-rose-50 px-4 py-2 text-sm font-semibold text-rose-700 transition-colors ${
-                previewPath ? 'hover:bg-rose-100' : 'pointer-events-none opacity-50'
+              className={`inline-flex items-center gap-1.5 rounded-full border border-[var(--owner-line-strong)] bg-[var(--owner-blush)] px-4 py-2 text-sm font-semibold text-[var(--owner-accent)] transition-colors ${
+                previewPath ? 'hover:bg-[var(--owner-blush)]' : 'pointer-events-none opacity-50'
               }`}
             >
               Preview
               <ExternalLink size={14} />
             </a>
-            <span className="text-[11px] text-stone-400">Shows your draft — only you can see it</span>
+            <span className="text-[11px] text-[var(--owner-line-strong)]">Shows your draft — only you can see it</span>
           </div>
         </div>
 
@@ -1008,7 +1008,7 @@ export default function BookingPageOwnerSurface() {
           <SalonPublishBanner status={salonPublishStatus} onPublish={handlePublishSalon} />
         )}
 
-        <div className="mt-3 h-5 text-xs text-stone-500" role="status" aria-live="polite">
+        <div className="mt-3 h-5 text-xs text-[var(--owner-muted)]" role="status" aria-live="polite">
           {saveStatus === 'saving' && 'Saving…'}
           {saveStatus === 'dirty' && 'Unsaved changes'}
           {saveStatus === 'saved' && 'Saved'}
@@ -1024,7 +1024,7 @@ export default function BookingPageOwnerSurface() {
             >
               <div
                 data-booking-page-preview-scroll
-                className="h-[620px] overflow-hidden overscroll-contain rounded-2xl border border-stone-200 bg-white"
+                className="h-[620px] overflow-hidden overscroll-contain rounded-2xl border border-[var(--owner-line)] bg-[var(--owner-surface)]"
               >
                 {previewFrameSrc
                   ? (
@@ -1041,15 +1041,15 @@ export default function BookingPageOwnerSurface() {
                           previewRevision,
                           previewFrameSrc,
                         )}
-                        className="pointer-events-none block size-full bg-white"
+                        className="pointer-events-none block size-full bg-[var(--owner-surface)]"
                       />
                     )
                   : (
-                      <p className="p-4 text-sm text-stone-500">Preview is unavailable until a salon is selected.</p>
+                      <p className="p-4 text-sm text-[var(--owner-muted)]">Preview is unavailable until a salon is selected.</p>
                     )}
               </div>
               <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
-                <p className="text-xs text-stone-500">
+                <p className="text-xs text-[var(--owner-muted)]">
                   View-only preview using your real salon content and the same booking renderer clients see.
                   Use Open preview for the fully interactive page.
                 </p>
@@ -1057,7 +1057,7 @@ export default function BookingPageOwnerSurface() {
                   type="button"
                   data-testid="booking-page-preview-refresh"
                   onClick={() => refreshPreview()}
-                  className="min-h-11 rounded-full border border-stone-300 bg-white px-4 py-2 text-sm font-semibold text-stone-700 hover:bg-stone-50"
+                  className="min-h-11 rounded-full border border-[var(--owner-line-strong)] bg-[var(--owner-surface)] px-4 py-2 text-sm font-semibold text-[var(--owner-muted)] hover:bg-[var(--owner-ground)]"
                 >
                   Refresh preview
                 </button>
@@ -1093,11 +1093,11 @@ export default function BookingPageOwnerSurface() {
           {panel === 'policies' && (
             <>
               <SectionCard title="Customer-facing policies" description="Review the policy wording and acknowledgment clients see. Policy wording does not enable automatic charges.">
-                <a className="inline-flex min-h-11 items-center rounded-xl border border-stone-300 px-4" href={`/${locale}/admin?salon=${encodeURIComponent(salonSlug)}&app=settings&view=booking-policy`}>Edit booking policy</a>
+                <a className="inline-flex min-h-11 items-center rounded-xl border border-[var(--owner-line-strong)] px-4" href={`/${locale}/admin?salon=${encodeURIComponent(salonSlug)}&app=settings&view=booking-policy`}>Edit booking policy</a>
               </SectionCard>
               <SectionCard title="Operational booking settings" description="These settings affect booking logic directly. Saving here is separate from publishing website appearance.">
-                <a className="inline-flex min-h-11 items-center rounded-xl border border-stone-300 px-4" href={`/${locale}/admin?salon=${encodeURIComponent(salonSlug)}&app=settings&view=booking`}>Booking rules & availability</a>
-                <a className="mt-3 flex min-h-11 items-center rounded-xl border border-stone-300 px-4" href={`/${locale}/admin?salon=${encodeURIComponent(salonSlug)}&app=settings&view=payments`}>Payments & deposits</a>
+                <a className="inline-flex min-h-11 items-center rounded-xl border border-[var(--owner-line-strong)] px-4" href={`/${locale}/admin?salon=${encodeURIComponent(salonSlug)}&app=settings&view=booking`}>Booking rules & availability</a>
+                <a className="mt-3 flex min-h-11 items-center rounded-xl border border-[var(--owner-line-strong)] px-4" href={`/${locale}/admin?salon=${encodeURIComponent(salonSlug)}&app=settings&view=payments`}>Payments & deposits</a>
               </SectionCard>
             </>
           )}
@@ -1128,12 +1128,12 @@ export default function BookingPageOwnerSurface() {
                     onClick={() => handleBusinessModeSelect(option.id)}
                     className={`rounded-2xl border p-3 text-left text-sm font-medium transition-colors ${
                       draft.businessMode === option.id
-                        ? 'border-rose-600 bg-rose-50 text-rose-800'
-                        : 'border-stone-200 bg-white text-stone-700 hover:border-rose-300'
+                        ? 'border-rose-600 bg-[var(--owner-blush)] text-[var(--owner-accent)]'
+                        : 'border-[var(--owner-line)] bg-[var(--owner-surface)] text-[var(--owner-muted)] hover:border-rose-300'
                     }`}
                   >
                     {option.label}
-                    <span className="mt-1 block text-[11px] font-normal text-stone-400">{option.description}</span>
+                    <span className="mt-1 block text-[11px] font-normal text-[var(--owner-line-strong)]">{option.description}</span>
                   </button>
                 ))}
               </div>
@@ -1160,8 +1160,8 @@ export default function BookingPageOwnerSurface() {
                 {!panel && (
                   <div>
                     <label className="block">
-                      <span className="text-sm font-medium text-stone-800">Profile photo link</span>
-                      <span className="mt-0.5 block text-xs text-stone-500">The photo at the top of your booking page — the one setup called your profile photo. Paste the address of a photo you have already uploaded.</span>
+                      <span className="text-sm font-medium text-[var(--owner-ink)]">Profile photo link</span>
+                      <span className="mt-0.5 block text-xs text-[var(--owner-muted)]">The photo at the top of your booking page — the one setup called your profile photo. Paste the address of a photo you have already uploaded.</span>
                       <input
                         type="url"
                         data-testid="content-hero-image-url"
@@ -1174,15 +1174,15 @@ export default function BookingPageOwnerSurface() {
                         )}
                         onBlur={() => void saveContentPatch({ heroImageUrl: heroImageDraft.trim() === '' ? null : heroImageDraft.trim() })}
                         placeholder="https://…"
-                        className="mt-1 w-full rounded-xl border border-stone-200 px-3 py-2 text-sm"
+                        className="mt-1 w-full rounded-xl border border-[var(--owner-line)] px-3 py-2 text-sm"
                       />
                     </label>
-                    <a className="mt-2 inline-flex text-sm font-semibold text-rose-800 underline" href={`/${locale}/admin?salon=${encodeURIComponent(salonSlug)}&app=portfolio`}>Photos &amp; Gallery</a>
+                    <a className="mt-2 inline-flex text-sm font-semibold text-[var(--owner-accent)] underline" href={`/${locale}/admin?salon=${encodeURIComponent(salonSlug)}&app=portfolio`}>Photos &amp; Gallery</a>
                   </div>
                 )}
 
                 <label className="block">
-                  <span className="text-sm font-medium text-stone-800">Specialty line</span>
+                  <span className="text-sm font-medium text-[var(--owner-ink)]">Specialty line</span>
                   <input
                     type="text"
                     data-testid="content-specialty-line"
@@ -1195,12 +1195,12 @@ export default function BookingPageOwnerSurface() {
                     )}
                     onBlur={() => void saveContentPatch({ specialtyLine: specialtyDraft.trim() === '' ? null : specialtyDraft })}
                     placeholder="Russian manicure & BIAB · Toronto"
-                    className="mt-1 w-full rounded-xl border border-stone-200 px-3 py-2 text-sm"
+                    className="mt-1 w-full rounded-xl border border-[var(--owner-line)] px-3 py-2 text-sm"
                   />
                 </label>
 
                 <label className="block">
-                  <span className="text-sm font-medium text-stone-800">Bio</span>
+                  <span className="text-sm font-medium text-[var(--owner-ink)]">Bio</span>
                   <textarea
                     data-testid="content-bio"
                     disabled={presentationPending}
@@ -1213,7 +1213,7 @@ export default function BookingPageOwnerSurface() {
                     onBlur={() => void saveContentPatch({ bio: bioDraft.trim() === '' ? null : bioDraft })}
                     rows={4}
                     placeholder="Tell clients about your studio…"
-                    className="mt-1 w-full rounded-xl border border-stone-200 px-3 py-2 text-sm"
+                    className="mt-1 w-full rounded-xl border border-[var(--owner-line)] px-3 py-2 text-sm"
                   />
                 </label>
 
@@ -1226,11 +1226,11 @@ export default function BookingPageOwnerSurface() {
                       privacy", so an owner could not tell they were the same
                       setting.
                     */}
-                    <span className="text-sm font-medium text-stone-800">Address privacy</span>
-                    <span className="mt-0.5 block text-xs text-stone-500">
+                    <span className="text-sm font-medium text-[var(--owner-ink)]">Address privacy</span>
+                    <span className="mt-0.5 block text-xs text-[var(--owner-muted)]">
                       The same choice as
                       {' '}
-                      <a className="font-semibold text-rose-800 underline" data-testid="location-display-mode-canonical-link" href={`/${locale}/admin/booking-page?salon=${encodeURIComponent(salonSlug)}&panel=information`}>Your Information</a>
+                      <a className="font-semibold text-[var(--owner-accent)] underline" data-testid="location-display-mode-canonical-link" href={`/${locale}/admin/booking-page?salon=${encodeURIComponent(salonSlug)}&panel=information`}>Your Information</a>
                       , where your address, hours and contact details live.
                     </span>
                     <div className="mt-1 grid grid-cols-1 gap-2 sm:grid-cols-3">
@@ -1244,8 +1244,8 @@ export default function BookingPageOwnerSurface() {
                           onClick={() => handleLocationDisplayModeSelect(option.id)}
                           className={`rounded-xl border px-3 py-2 text-left text-sm font-medium transition-colors ${
                             content.draft.locationDisplayMode === option.id
-                              ? 'border-rose-600 bg-rose-50 text-rose-800'
-                              : 'border-stone-200 bg-white text-stone-700 hover:border-rose-300'
+                              ? 'border-rose-600 bg-[var(--owner-blush)] text-[var(--owner-accent)]'
+                              : 'border-[var(--owner-line)] bg-[var(--owner-surface)] text-[var(--owner-muted)] hover:border-rose-300'
                           }`}
                         >
                           {option.label}
@@ -1265,7 +1265,7 @@ export default function BookingPageOwnerSurface() {
                       </p>
                     )}
                     {content.draft.locationDisplayMode !== 'full_address' && (
-                      <p data-testid="location-display-mode-city-only-warning" className="mt-2 text-xs text-stone-500">
+                      <p data-testid="location-display-mode-city-only-warning" className="mt-2 text-xs text-[var(--owner-muted)]">
                         {content.draft.locationDisplayMode === 'after_booking'
                           ? 'While browsing, clients see only your city. Your street address, postal code and phone appear on their private appointment link once a booking is confirmed.'
                           : '"Show only my city" hides your street address, postal code, and phone number.'}
@@ -1280,21 +1280,21 @@ export default function BookingPageOwnerSurface() {
           )}
         </div>
 
-        <div className="mt-8 rounded-3xl border border-stone-200 bg-white p-5 shadow-sm">
+        <div className="mt-8 rounded-3xl border border-[var(--owner-line)] bg-[var(--owner-surface)] p-5 shadow-sm">
           {reviewIndex >= 0 && (
-            <div className="mb-5 border-b border-stone-200 pb-5">
+            <div className="mb-5 border-b border-[var(--owner-line)] pb-5">
               <div className="flex flex-wrap gap-3">
                 {reviewIndex > 0 && (
-                  <button type="button" aria-busy={navigationPending} data-testid="guided-review-previous" disabled={presentationPending || navigationPending} className="min-h-11 rounded-xl border border-stone-300 px-4 py-3 text-sm font-semibold disabled:opacity-50" onClick={() => void navigateAfterSaving(`/${locale}/admin/booking-page?salon=${encodeURIComponent(salonSlug)}&panel=${reviewPanels[reviewIndex - 1]}&guided=1`)}>Previous step</button>
+                  <button type="button" aria-busy={navigationPending} data-testid="guided-review-previous" disabled={presentationPending || navigationPending} className="min-h-11 rounded-xl border border-[var(--owner-line-strong)] px-4 py-3 text-sm font-semibold disabled:opacity-50" onClick={() => void navigateAfterSaving(`/${locale}/admin/booking-page?salon=${encodeURIComponent(salonSlug)}&panel=${reviewPanels[reviewIndex - 1]}&guided=1`)}>Previous step</button>
                 )}
                 {/* AG-hub-publish-07 — the label, not just the disabled state, says a save is draining. */}
-                <button type="button" aria-busy={navigationPending} data-testid="guided-review-next" disabled={presentationPending || navigationPending} className="min-h-11 rounded-xl bg-rose-800 px-4 py-3 text-sm font-semibold text-white disabled:opacity-50" onClick={() => void navigateAfterSaving(reviewIndex < reviewPanels.length - 1 ? `/${locale}/admin/booking-page?salon=${encodeURIComponent(salonSlug)}&panel=${reviewPanels[reviewIndex + 1]}&guided=1` : `/${locale}/admin/website?salon=${encodeURIComponent(salonSlug)}`)}>
+                <button type="button" aria-busy={navigationPending} data-testid="guided-review-next" disabled={presentationPending || navigationPending} className="min-h-11 rounded-xl bg-[var(--owner-accent)] px-4 py-3 text-sm font-semibold text-white disabled:opacity-50" onClick={() => void navigateAfterSaving(reviewIndex < reviewPanels.length - 1 ? `/${locale}/admin/booking-page?salon=${encodeURIComponent(salonSlug)}&panel=${reviewPanels[reviewIndex + 1]}&guided=1` : `/${locale}/admin/website?salon=${encodeURIComponent(salonSlug)}`)}>
                   {reviewIndex < reviewPanels.length - 1
                     ? (navigationPending ? 'Saving…' : 'Save & next step')
                     : (navigationPending ? 'Finishing review…' : 'Finish review')}
                 </button>
               </div>
-              <p className="mt-2 h-4 text-xs text-stone-500" role="status">
+              <p className="mt-2 h-4 text-xs text-[var(--owner-muted)]" role="status">
                 {navigationPending
                   ? (reviewIndex < reviewPanels.length - 1
                       ? 'Saving your changes before the next step…'
@@ -1311,7 +1311,7 @@ export default function BookingPageOwnerSurface() {
             specifically to keep it from being misread as the salon-level
             action in SalonPublishBanner above.
           */}
-          {(reviewIndex < 0 || panel === 'publish') && <p className="mb-3 text-xs text-stone-500">Publishes booking-page layout &amp; content changes only — not the same as publishing your salon above.</p>}
+          {(reviewIndex < 0 || panel === 'publish') && <p className="mb-3 text-xs text-[var(--owner-muted)]">Publishes booking-page layout &amp; content changes only — not the same as publishing your salon above.</p>}
           {(reviewIndex < 0 || panel === 'publish') && (
             <div className="flex flex-wrap items-center gap-3">
               <button
@@ -1319,7 +1319,7 @@ export default function BookingPageOwnerSurface() {
                 data-testid="booking-page-publish"
                 disabled={actionStatus !== 'idle' || presentationPending}
                 onClick={() => void handlePublish()}
-                className="rounded-full bg-rose-700 px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-rose-800 disabled:opacity-50"
+                className="inline-flex min-h-11 items-center justify-center rounded-full bg-[var(--owner-accent)] px-5 text-sm font-semibold text-white outline-none transition-colors hover:bg-[var(--owner-accent-strong)] focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)] disabled:opacity-50"
               >
                 {actionStatus === 'publishing' ? 'Publishing…' : 'Publish'}
               </button>
@@ -1328,14 +1328,14 @@ export default function BookingPageOwnerSurface() {
                 data-testid="booking-page-revert"
                 disabled={actionStatus !== 'idle' || presentationPending}
                 onClick={() => void handleRevert()}
-                className="rounded-full border border-stone-300 bg-white px-5 py-2.5 text-sm font-semibold text-stone-700 transition-colors hover:bg-stone-50 disabled:opacity-50"
+                className="inline-flex min-h-11 items-center justify-center rounded-full border border-[var(--owner-line-strong)] bg-[var(--owner-surface)] px-5 text-sm font-semibold text-[var(--owner-muted)] outline-none transition-colors hover:bg-[var(--owner-ground)] focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)] disabled:opacity-50"
               >
                 {actionStatus === 'reverting' ? 'Reverting…' : 'Revert draft to live'}
               </button>
             </div>
           )}
           {actionMessage && (
-            <span role="status" className="text-sm text-stone-600">{actionMessage}</span>
+            <span role="status" className="text-sm text-[var(--owner-muted)]">{actionMessage}</span>
           )}
         </div>
       </div>

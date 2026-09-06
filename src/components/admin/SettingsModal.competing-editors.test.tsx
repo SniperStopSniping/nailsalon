@@ -313,7 +313,7 @@ describe('SettingsModal — one writer per record', () => {
   describe('address (source map §C1 row 1)', () => {
     it('keeps the row but hands the five address fields to Your Information', async () => {
       open();
-      fireEvent.click(await screen.findByText('Locations & directions'));
+      fireEvent.click(await screen.findByText('Location'));
 
       expect(await screen.findByTestId('settings-location-handoff')).toBeInTheDocument();
       // The competing form is gone: no second copy of the address fields.

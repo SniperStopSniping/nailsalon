@@ -5,13 +5,14 @@ import Image from 'next/image';
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { UpcomingAppointmentActions } from '@/components/appointments/UpcomingAppointmentActions';
+import { buttonVariants } from '@/components/ui/buttonVariants';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { DialogShell } from '@/components/ui/dialog-shell';
 import { InlineFeedback } from '@/components/ui/inline-feedback';
 import type { AppointmentManageDetail, ManageWarning } from '@/libs/appointmentManage';
 import { formatAppointmentStatus } from '@/libs/appointmentStatusDisplay';
 import { formatMoney } from '@/libs/formatMoney';
-import { themeVars } from '@/theme';
+import { cn } from '@/utils/Helpers';
 
 type AppointmentQuickEditSheetProps = {
   isOpen: boolean;
@@ -336,7 +337,7 @@ export function AppointmentQuickEditSheet({
                                         ? 'Invoice total'
                                         : 'Estimated total'}
                                     </div>
-                                    <div className="text-lg font-semibold" style={{ color: themeVars.primary }}>
+                                    <div className="text-lg font-semibold text-[var(--owner-accent,#8f3155)]">
                                       {formatMoney(
                                         resolvedFinancial.invoiceTotalCents,
                                         resolvedFinancial.currency,
@@ -367,8 +368,7 @@ export function AppointmentQuickEditSheet({
                                       <div className="text-xs uppercase tracking-[0.08em] text-neutral-400">Booked total</div>
                                       <div
                                         data-testid="appointment-sheet-booked-total"
-                                        className="text-lg font-semibold"
-                                        style={{ color: themeVars.primary }}
+                                        className="text-lg font-semibold text-[var(--owner-accent,#8f3155)]"
                                       >
                                         {formatMoney(
                                           estimatedFinancial.bookedTotalCents,
@@ -825,7 +825,10 @@ export function AppointmentQuickEditSheet({
                 type="button"
                 onClick={onClose}
                 data-testid="appointment-sheet-close"
-                className="flex-1 rounded-2xl border border-neutral-200 px-4 py-3 text-sm font-medium text-neutral-700"
+                className={cn(
+                  buttonVariants({ variant: 'ownerSecondary' }),
+                  'h-auto flex-1 rounded-2xl px-4 py-3 text-sm font-medium',
+                )}
               >
                 Close
               </button>
@@ -834,8 +837,10 @@ export function AppointmentQuickEditSheet({
                 data-testid="appointment-sheet-save"
                 onClick={() => void handleSaveEdits()}
                 disabled={saving || !isDirty}
-                className="flex-[1.4] rounded-2xl px-4 py-3 text-sm font-semibold text-white disabled:opacity-50"
-                style={{ backgroundColor: themeVars.primary }}
+                className={cn(
+                  buttonVariants({ variant: 'ownerPrimary' }),
+                  'h-auto flex-[1.4] rounded-2xl px-4 py-3 text-sm font-semibold shadow-none disabled:opacity-50',
+                )}
               >
                 {saving ? 'Saving…' : 'Save changes'}
               </button>

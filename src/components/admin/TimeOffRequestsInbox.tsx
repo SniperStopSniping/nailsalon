@@ -170,7 +170,7 @@ function SearchBar({
           value={value}
           onChange={e => onChange(e.target.value)}
           placeholder="Search by technician name"
-          className="flex-1 bg-transparent text-[16px] text-[#1C1C1E] placeholder-[#8E8E93] outline-none"
+          className="flex-1 bg-transparent text-[16px] text-[#1C1C1E] placeholder:text-[#8E8E93] outline-none"
         />
       </div>
     </div>

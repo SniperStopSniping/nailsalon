@@ -213,9 +213,11 @@ const STATUS_COLORS: Record<
   { bg: string; text: string; border: string }
 > = {
   confirmed: {
-    bg: 'bg-blue-50',
-    text: 'text-blue-700',
-    border: 'border-blue-300',
+    // Owner workspace palette: confirmed reads in the Luster plum family, not
+    // the iOS system blue the customer/system chrome used to borrow.
+    bg: 'bg-[var(--owner-blush,#f6e7ec)]',
+    text: 'text-[var(--owner-accent-strong,#70213f)]',
+    border: 'border-[var(--owner-accent,#8f3155)]',
   },
   pending: {
     bg: 'bg-yellow-50',
@@ -227,9 +229,9 @@ const STATUS_COLORS: Record<
     text: 'text-green-700',
     border: 'border-green-300',
   },
-  // Deliberately distinct from confirmed-blue: an unpaid hold rendered in the
-  // confirmed palette reads as a real booking at a glance. Fuchsia matches the
-  // shared chip contract in appointmentStatusDisplay.ts.
+  // Deliberately distinct from the confirmed plum: an unpaid hold rendered in
+  // the confirmed palette reads as a real booking at a glance. Fuchsia matches
+  // the shared chip contract in appointmentStatusDisplay.ts.
   awaiting_payment: {
     bg: 'bg-fuchsia-50',
     text: 'text-fuchsia-800',
@@ -328,7 +330,7 @@ function DayCell({
   return (
     <motion.button
       type="button"
-      aria-label={`${dayLabel}. ${appointmentCount} Luster ${appointmentCount === 1 ? 'appointment' : 'appointments'}. ${googleBusyCount} Google busy ${googleBusyCount === 1 ? 'event' : 'events'}. ${describeAvailability(availability)}`.trim()}
+      aria-label={`${dayLabel}. ${appointmentCount} Luster ${appointmentCount === 1 ? 'appointment' : 'appointments'}.${googleBusyCount > 0 ? ` ${googleBusyCount} Google busy ${googleBusyCount === 1 ? 'event' : 'events'}.` : ''} ${describeAvailability(availability)}`.trim()}
       aria-pressed={isSelected}
       data-testid={`calendar-day-${formatDateKey(date)}`}
       data-selected={isSelected ? 'true' : 'false'}
@@ -342,16 +344,16 @@ function DayCell({
         ${viewMode === 'weekly' ? 'min-h-[72px] py-1.5' : 'aspect-square min-h-[44px]'}
         ${
     isSelected
-      ? 'bg-rose-800 text-white shadow-lg shadow-rose-900/20'
+      ? 'bg-[var(--owner-accent,#8f3155)] text-white shadow-[0_10px_20px_rgb(76_29_46_/_20%)]'
       : closed
-        ? 'border border-dashed border-stone-300 bg-stone-100/80 bg-[repeating-linear-gradient(45deg,transparent,transparent_3px,rgba(120,113,108,0.10)_3px,rgba(120,113,108,0.10)_6px)] text-stone-500'
+        ? 'border border-dashed border-[var(--owner-line-strong,#d8c1c8)] bg-[repeating-linear-gradient(45deg,transparent,transparent_3px,rgba(112,98,103,0.10)_3px,rgba(112,98,103,0.10)_6px)] text-[var(--owner-muted,#706267)]'
         : today
-          ? 'bg-rose-50 text-rose-700'
+          ? 'bg-[var(--owner-blush,#f6e7ec)] text-[var(--owner-accent-strong,#70213f)]'
           : isCurrentMonth
-            ? 'bg-white text-gray-900 hover:bg-gray-50'
-            : 'bg-gray-50/50 text-gray-400'
+            ? 'bg-[var(--owner-surface,#fffdfb)] text-[var(--owner-ink,#30262a)] hover:bg-[var(--owner-blush,#f6e7ec)]'
+            : 'bg-[var(--owner-ground,#f8f2ed)] text-[var(--owner-muted,#706267)] opacity-70'
     }
-        ${count > 0 && !isSelected && !closed ? 'ring-1 ring-rose-200' : ''}
+        ${count > 0 && !isSelected && !closed ? 'ring-1 ring-[var(--owner-line-strong,#d8c1c8)]' : ''}
       `}
     >
       <span className="text-sm font-semibold">
@@ -360,7 +362,7 @@ function DayCell({
 
       {closed && (
         <span
-          className={`mt-0.5 text-[9px] font-semibold uppercase tracking-wide ${isSelected ? 'text-white/90' : 'text-stone-500'}`}
+          className={`mt-0.5 text-[10px] font-semibold uppercase ${isSelected ? 'text-white/90' : 'text-[var(--owner-muted,#706267)]'}`}
         >
           Closed
         </span>
@@ -375,7 +377,7 @@ function DayCell({
         <span className="mt-px flex max-w-full items-center justify-center gap-1 leading-none">
           {count > 0 && (
             <span
-              className={`truncate text-[10px] font-bold ${isSelected ? 'text-white/90' : 'text-rose-800'}`}
+              className={`truncate text-[11px] font-bold ${isSelected ? 'text-white/90' : 'text-[var(--owner-accent,#8f3155)]'}`}
             >
               {appointmentCount > 0
               && `${appointmentCount} ${appointmentCount === 1 ? 'appt' : 'appts'}`}
@@ -387,7 +389,7 @@ function DayCell({
             <span
               aria-hidden="true"
               data-testid={`calendar-day-off-${formatDateKey(date)}`}
-              className={`inline-flex h-3 shrink-0 items-center rounded-full px-1 text-[9px] font-bold leading-none ${isSelected ? 'bg-white/25 text-white' : 'bg-amber-100 text-amber-800'}`}
+              className={`inline-flex h-[15px] shrink-0 items-center rounded-full px-1 text-[11px] font-bold leading-none ${isSelected ? 'bg-white/25 text-white' : 'bg-amber-100 text-amber-800'}`}
             >
               {offCount > 1 ? `${offCount} off` : 'off'}
             </span>
@@ -659,7 +661,7 @@ function DayDetailPanel({
                                 {appt.clientName || 'Guest'}
                               </span>
                               {appt.source === 'google' && (
-                                <span className="rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-bold text-blue-700">
+                                <span className="rounded-full bg-[var(--owner-blush,#f6e7ec)] px-2 py-0.5 text-[11px] font-bold text-[var(--owner-accent-strong,#70213f)]">
                                   Google
                                 </span>
                               )}
@@ -689,7 +691,7 @@ function DayDetailPanel({
                         <div className="mt-2 flex items-center justify-between">
                           <span
                             className={`
-                            inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide
+                            inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-bold uppercase tracking-wide
                             ${statusColors!.bg} ${statusColors!.text} border ${statusColors!.border}
                           `}
                           >
@@ -707,7 +709,7 @@ function DayDetailPanel({
                           <button
                             type="button"
                             onClick={() => onConvertGoogleEvent(appt)}
-                            className="mt-3 w-full rounded-lg bg-rose-800 px-3 py-2 text-xs font-semibold text-white"
+                            className="mt-3 min-h-11 w-full rounded-full bg-[var(--owner-accent,#8f3155)] px-3 py-2 text-xs font-semibold text-white outline-none transition-colors hover:bg-[var(--owner-accent-strong,#70213f)] focus-visible:ring-2 focus-visible:ring-[var(--owner-focus,#b85075)]"
                           >
                             Convert to appointment
                           </button>
@@ -747,6 +749,16 @@ export function ScheduleCalendarModal({ onClose, salonSlug: salonSlugProp }: Sch
   const [googleEventPrefill, setGoogleEventPrefill]
     = useState<AppointmentSummary | null>(null);
   const [rebookPrefill, setRebookPrefill] = useState<RebookPrefill | null>(null);
+  /**
+   * AG-today-calendar-06 (calendar half). Google vocabulary — the "Google Busy"
+   * / "Free Events" / "Needs Review" chips and the legend swatch — used to
+   * appear for every salon, including salons that have never connected Google
+   * Calendar. `null` means "not answered yet" and is treated as "do not offer
+   * Google vocabulary": the chips appear only once the server has confirmed a
+   * connection, so a salon without Google never sees the words at all, and a
+   * connected salon never sees them flash away when the probe lands.
+   */
+  const [googleConnected, setGoogleConnected] = useState<boolean | null>(null);
 
   // Source-filter chip row: five chips overflow 390 px, so the row scrolls and
   // shows a fade cue until the owner has scrolled to the end.
@@ -769,6 +781,50 @@ export function ScheduleCalendarModal({ onClose, salonSlug: salonSlugProp }: Sch
     window.addEventListener('resize', updateFilterOverflow);
     return () => window.removeEventListener('resize', updateFilterOverflow);
   }, [updateFilterOverflow]);
+
+  // Ask the same endpoint the Today screen already reads, so the calendar and
+  // Today agree about whether Google is connected (r16 gated Today's card on
+  // exactly this signal).
+  useEffect(() => {
+    if (!salonSlug) {
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const response = await fetch(
+          `/api/admin/today?salonSlug=${encodeURIComponent(salonSlug)}`,
+        );
+        if (!response.ok) {
+          return;
+        }
+        const payload = await response.json();
+        const google = payload?.data?.integrationHealth?.google;
+        if (cancelled || !google) {
+          return;
+        }
+        setGoogleConnected(
+          !(google.readiness === 'not_connected' || google.status === 'disconnected'),
+        );
+      } catch {
+        // Leave the answer unknown: the chips stay as they are.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [salonSlug]);
+
+  useEffect(() => {
+    if (
+      !googleConnected
+      && (scheduleFilter === 'google_busy'
+        || scheduleFilter === 'free'
+        || scheduleFilter === 'needs_review')
+    ) {
+      setScheduleFilter('all');
+    }
+  }, [googleConnected, scheduleFilter]);
 
   // Calculate date range based on view mode
   const dateRange = useMemo(() => {
@@ -1166,7 +1222,7 @@ export function ScheduleCalendarModal({ onClose, salonSlug: salonSlugProp }: Sch
           <button
             type="button"
             onClick={handleToday}
-            className="text-[15px] font-medium text-rose-800 transition-opacity active:opacity-50"
+            className="-mr-2 flex min-h-11 items-center rounded-full px-3 text-[15px] font-medium text-[var(--owner-accent,#8f3155)] outline-none transition-opacity focus-visible:ring-2 focus-visible:ring-[var(--owner-focus,#b85075)] active:opacity-50"
           >
             Today
           </button>
@@ -1180,11 +1236,11 @@ export function ScheduleCalendarModal({ onClose, salonSlug: salonSlugProp }: Sch
             type="button"
             onClick={() => setViewMode('weekly')}
             className={`
-              rounded-md px-4 py-1.5 text-sm font-medium transition-all
+              min-h-11 rounded-full px-4 py-1.5 text-sm font-medium outline-none transition-all focus-visible:ring-2 focus-visible:ring-[var(--owner-focus,#b85075)]
               ${
     viewMode === 'weekly'
-      ? 'bg-white text-gray-900 shadow-sm'
-      : 'text-gray-600 hover:text-gray-900'
+      ? 'bg-[var(--owner-surface,#fffdfb)] text-[var(--owner-ink,#30262a)] shadow-sm'
+      : 'text-[var(--owner-muted,#706267)] hover:text-[var(--owner-ink,#30262a)]'
     }
             `}
           >
@@ -1194,11 +1250,11 @@ export function ScheduleCalendarModal({ onClose, salonSlug: salonSlugProp }: Sch
             type="button"
             onClick={() => setViewMode('monthly')}
             className={`
-              rounded-md px-4 py-1.5 text-sm font-medium transition-all
+              min-h-11 rounded-full px-4 py-1.5 text-sm font-medium outline-none transition-all focus-visible:ring-2 focus-visible:ring-[var(--owner-focus,#b85075)]
               ${
     viewMode === 'monthly'
-      ? 'bg-white text-gray-900 shadow-sm'
-      : 'text-gray-600 hover:text-gray-900'
+      ? 'bg-[var(--owner-surface,#fffdfb)] text-[var(--owner-ink,#30262a)] shadow-sm'
+      : 'text-[var(--owner-muted,#706267)] hover:text-[var(--owner-ink,#30262a)]'
     }
             `}
           >
@@ -1215,12 +1271,12 @@ export function ScheduleCalendarModal({ onClose, salonSlug: salonSlugProp }: Sch
           aria-label={
             viewMode === 'weekly' ? 'Previous week' : 'Previous month'
           }
-          className="flex size-10 items-center justify-center rounded-full transition-colors hover:bg-gray-100 active:bg-gray-200"
+          className="flex size-11 items-center justify-center rounded-full outline-none transition-colors hover:bg-[var(--owner-blush,#f6e7ec)] focus-visible:ring-2 focus-visible:ring-[var(--owner-focus,#b85075)] active:bg-[var(--owner-blush,#f6e7ec)]"
         >
-          <ChevronLeft className="size-6 text-gray-600" />
+          <ChevronLeft className="size-6 text-[var(--owner-accent,#8f3155)]" />
         </button>
 
-        <h2 className="text-lg font-semibold text-gray-900">
+        <h2 className="owner-title text-lg font-semibold text-[var(--owner-ink,#30262a)]">
           {viewMode === 'weekly'
             ? formatWeekRange(getWeekStart(currentDate))
             : formatMonthYear(currentDate)}
@@ -1230,14 +1286,14 @@ export function ScheduleCalendarModal({ onClose, salonSlug: salonSlugProp }: Sch
           type="button"
           onClick={handleNext}
           aria-label={viewMode === 'weekly' ? 'Next week' : 'Next month'}
-          className="flex size-10 items-center justify-center rounded-full transition-colors hover:bg-gray-100 active:bg-gray-200"
+          className="flex size-11 items-center justify-center rounded-full outline-none transition-colors hover:bg-[var(--owner-blush,#f6e7ec)] focus-visible:ring-2 focus-visible:ring-[var(--owner-focus,#b85075)] active:bg-[var(--owner-blush,#f6e7ec)]"
         >
-          <ChevronRight className="size-6 text-gray-600" />
+          <ChevronRight className="size-6 text-[var(--owner-accent,#8f3155)]" />
         </button>
       </div>
 
       {/* Calendar Grid */}
-      <div className="flex-1 overflow-y-auto bg-white px-3 pb-24">
+      <div className="flex-1 overflow-y-auto bg-[var(--owner-surface,#fffdfb)] px-3 pb-24">
         {/*
           Five chips do not fit at 390 px. The row scrolls horizontally and a
           right-edge fade advertises the overflow; trailing padding keeps the
@@ -1256,9 +1312,13 @@ export function ScheduleCalendarModal({ onClose, salonSlug: salonSlugProp }: Sch
               [
                 ['all', 'All'],
                 ['appointments', 'Appointments'],
-                ['google_busy', 'Google Busy'],
-                ['free', 'Free Events'],
-                ['needs_review', 'Needs Review'],
+                ...(googleConnected
+                  ? ([
+                      ['google_busy', 'Google Busy'],
+                      ['free', 'Free Events'],
+                      ['needs_review', 'Needs Review'],
+                    ] as Array<[ScheduleFilter, string]>)
+                  : []),
               ] as Array<[ScheduleFilter, string]>
             ).map(([id, label]) => (
               <button
@@ -1266,7 +1326,7 @@ export function ScheduleCalendarModal({ onClose, salonSlug: salonSlugProp }: Sch
                 type="button"
                 onClick={() => setScheduleFilter(id)}
                 aria-pressed={scheduleFilter === id}
-                className={`shrink-0 rounded-full px-3 py-1.5 text-xs font-semibold outline-none transition-colors focus-visible:ring-2 focus-visible:ring-[var(--owner-focus,#b85075)] focus-visible:ring-offset-1 ${scheduleFilter === id ? 'bg-[var(--owner-accent,#8b3151)] text-white' : 'bg-stone-100 text-stone-600'}`}
+                className={`shrink-0 rounded-full px-3 py-1.5 text-xs font-semibold outline-none transition-colors focus-visible:ring-2 focus-visible:ring-[var(--owner-focus,#b85075)] focus-visible:ring-offset-1 ${scheduleFilter === id ? 'bg-[var(--owner-accent,#8f3155)] text-white' : 'bg-[var(--owner-blush,#f6e7ec)] text-[var(--owner-accent-strong,#70213f)]'}`}
               >
                 {label}
               </button>
@@ -1399,7 +1459,7 @@ export function ScheduleCalendarModal({ onClose, salonSlug: salonSlugProp }: Sch
                     >
                       {date.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })}
                     </button>
-                    <span className="shrink-0 text-[11px] font-medium text-stone-500">
+                    <span className="shrink-0 text-[12px] font-medium text-[var(--owner-muted,#706267)]">
                       {dayAppointments.length === 0
                         ? 'Nothing booked'
                         : `${dayAppointments.length} ${dayAppointments.length === 1 ? 'entry' : 'entries'}`}
@@ -1429,13 +1489,13 @@ export function ScheduleCalendarModal({ onClose, salonSlug: salonSlugProp }: Sch
                                 <span className="block truncate text-sm font-medium text-stone-900">
                                   {appointment.clientName || 'Guest'}
                                 </span>
-                                <span className="block truncate text-[11px] text-stone-500">
+                                <span className="block truncate text-[12px] text-[var(--owner-muted,#706267)]">
                                   {[appointment.services.join(', ') || 'Service', appointment.technician]
                                     .filter(Boolean)
                                     .join(' · ')}
                                 </span>
                               </span>
-                              <span className={`shrink-0 text-[10px] font-bold uppercase tracking-wide ${statusColors.text}`}>
+                              <span className={`shrink-0 text-[11px] font-bold uppercase tracking-wide ${statusColors.text}`}>
                                 {formatAppointmentStatus(appointment.status)}
                               </span>
                             </button>
@@ -1451,23 +1511,25 @@ export function ScheduleCalendarModal({ onClose, salonSlug: salonSlugProp }: Sch
         )}
 
         {/* Legend */}
-        <div className="mt-6 flex flex-wrap items-center justify-center gap-4 text-xs text-gray-500">
+        <div className="mb-2 mt-6 flex flex-wrap items-center justify-center gap-x-4 gap-y-2 pr-20 text-[12px] text-[var(--owner-muted,#706267)]">
           <div className="flex items-center gap-1.5">
-            <div className="size-3 rounded-full bg-rose-700" />
+            <div className="size-3 rounded-full bg-[var(--owner-accent,#8f3155)]" />
             <span>Today</span>
           </div>
           <div className="flex items-center gap-1.5">
-            <div className="size-3 rounded border border-rose-200 bg-white" />
+            <div className="size-3 rounded border border-[var(--owner-line-strong,#d8c1c8)] bg-[var(--owner-surface,#fffdfb)]" />
             <span>Has Appointments</span>
           </div>
           <div className="flex items-center gap-1.5">
-            <div className="size-3 rounded bg-rose-800" />
+            <div className="size-3 rounded bg-[var(--owner-accent-strong,#70213f)]" />
             <span>Selected</span>
           </div>
-          <div className="flex items-center gap-1.5">
-            <div className="size-3 rounded border border-violet-300 bg-violet-50" />
-            <span>Google busy</span>
-          </div>
+          {googleConnected && (
+            <div className="flex items-center gap-1.5">
+              <div className="size-3 rounded border border-violet-300 bg-violet-50" />
+              <span>Google busy</span>
+            </div>
+          )}
         </div>
       </div>
 
@@ -1476,7 +1538,7 @@ export function ScheduleCalendarModal({ onClose, salonSlug: salonSlugProp }: Sch
         type="button"
         onClick={() => setShowNewAppointmentModal(true)}
         aria-label="Add new appointment"
-        className="fixed bottom-24 right-6 z-40 flex size-14 items-center justify-center rounded-full bg-rose-800 text-white shadow-[0_4px_16px_rgba(159,18,57,0.3)] transition-transform active:scale-90"
+        className="fixed bottom-24 right-5 z-40 flex size-14 items-center justify-center rounded-full bg-[var(--owner-accent,#8f3155)] text-white shadow-[0_10px_24px_rgb(143_49_85_/_28%)] outline-none transition-transform focus-visible:ring-2 focus-visible:ring-[var(--owner-focus,#b85075)] focus-visible:ring-offset-2 active:scale-90"
       >
         <Plus className="size-8" />
       </button>

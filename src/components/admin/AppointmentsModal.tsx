@@ -234,7 +234,7 @@ export function AppointmentsModal({
         type="button"
         onClick={() => setShowNewAppointmentModal(true)}
         aria-label="Add new appointment"
-        className="fixed bottom-8 right-6 z-50 flex size-14 items-center justify-center rounded-full bg-[#007AFF] text-white shadow-[0_4px_16px_rgba(0,122,255,0.4)] transition-transform active:scale-90"
+        className="fixed bottom-8 right-6 z-50 flex size-14 items-center justify-center rounded-full bg-[var(--owner-accent,#8f3155)] text-white shadow-[0_4px_16px_rgba(0,122,255,0.4)] transition-transform active:scale-90"
       >
         <Plus className="size-8" />
       </button>

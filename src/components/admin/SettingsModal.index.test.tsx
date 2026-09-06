@@ -342,7 +342,7 @@ describe('SettingsModal index', () => {
       />,
     );
 
-    expect(await screen.findByText('Locations & directions')).toBeInTheDocument();
+    expect(await screen.findByText('Location')).toBeInTheDocument();
     // Renamed: the row is "Branding" (logo, page themes, social) now that
     // website colour belongs to the Booking Page hub (AG-more-settings-06).
     expect(screen.getByText('Branding')).toBeInTheDocument();
@@ -419,13 +419,13 @@ describe('SettingsModal index', () => {
     fireEvent.click(screen.getByRole('button', { name: /settings/i }));
     fireEvent.click(await screen.findByRole('button', { name: 'Discard' }));
 
-    expect(await screen.findByText('Locations & directions')).toBeInTheDocument();
+    expect(await screen.findByText('Location')).toBeInTheDocument();
   });
 
   it('keeps parking instructions in the Locations view as the single directions source', async () => {
     render(<SettingsModal onClose={vi.fn()} salonSlug="salon-a" userName="Daniela" />);
 
-    fireEvent.click(await screen.findByText('Locations & directions'));
+    fireEvent.click(await screen.findByText('Location'));
 
     const parking = await screen.findByDisplayValue('Free parking behind the salon.');
     fireEvent.change(parking, { target: { value: 'Park in the back.' } });

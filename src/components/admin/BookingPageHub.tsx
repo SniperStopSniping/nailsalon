@@ -57,7 +57,7 @@ export function BookingPageHub({
   const editor = `/${locale}/admin/booking-page?${query}`;
   const publicPath = `/${locale}/${encodeURIComponent(salonSlug)}`;
   const liveUrl = publicUrl || publicPath;
-  const actionClass = 'inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-stone-300 bg-white px-4 py-3 text-sm font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-700';
+  const actionClass = 'inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-[var(--owner-line-strong)] bg-[var(--owner-surface)] px-4 py-3 text-sm font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)]';
 
   async function copyLink() {
     try {
@@ -69,21 +69,21 @@ export function BookingPageHub({
   }
 
   return (
-    <main className="min-h-screen bg-[#F8F3F0] px-4 pb-12 pt-6 text-stone-950">
+    <main className="owner-workspace-theme min-h-screen bg-[var(--owner-ground)] px-4 pb-12 pt-6 text-[var(--owner-ink)]" data-theme-scope="owner">
       <div className="mx-auto max-w-3xl">
         <a className={actionClass} href={`${workspace}&tab=more`}>
           <ArrowLeft aria-hidden="true" size={18} />
           More apps
         </a>
         <header className="my-6">
-          <p className="break-words text-sm font-semibold text-rose-800">{salonName}</p>
+          <p className="break-words text-sm font-semibold text-[var(--owner-accent)]">{salonName}</p>
           <h1 className="mt-1 text-3xl font-semibold">Booking Page</h1>
-          <p className="mt-2 text-sm text-stone-600">
+          <p className="mt-2 text-sm text-[var(--owner-muted)]">
             {!published ? 'Not published yet' : hasDraftChanges ? 'Live · Draft changes not published' : 'Live · All changes published'}
           </p>
-          <p className="mt-3 break-all text-sm text-stone-600">{liveUrl}</p>
+          <p className="mt-3 break-all text-sm text-[var(--owner-muted)]">{liveUrl}</p>
           <div className="mt-4 flex flex-wrap gap-2">
-            <a className={`${actionClass} border-rose-800 text-white`} id="preview-draft" ref={previewLinkRef} style={{ backgroundColor: '#8b3151' }} href={`/${locale}/admin/booking-page/preview/${encodeURIComponent(salonSlug)}`}>Preview draft</a>
+            <a className={`${actionClass} border-[var(--owner-accent)] text-white`} id="preview-draft" ref={previewLinkRef} style={{ backgroundColor: 'var(--owner-accent)' }} href={`/${locale}/admin/booking-page/preview/${encodeURIComponent(salonSlug)}`}>Preview draft</a>
             {published && <a className={actionClass} href={liveUrl} rel="noreferrer" target="_blank">Open live site</a>}
             {published && (
               <button className={actionClass} onClick={() => void copyLink()} type="button">
@@ -94,24 +94,24 @@ export function BookingPageHub({
             {canPublish
               ? <a className={actionClass} href={`${editor}&panel=publish`}>{published ? 'Review & publish changes' : 'Publish website'}</a>
               : (
-                  <p className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-stone-200 bg-stone-100 px-4 py-3 text-sm font-semibold text-stone-600">
+                  <p className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-[var(--owner-line)] bg-[var(--owner-ground)] px-4 py-3 text-sm font-semibold text-[var(--owner-muted)]">
                     <Lock aria-hidden="true" size={16} />
                     Publishing is owner only
                   </p>
                 )}
           </div>
-          <p aria-live="polite" className="mt-2 text-sm text-stone-600">{copyStatus}</p>
+          <p aria-live="polite" className="mt-2 text-sm text-[var(--owner-muted)]">{copyStatus}</p>
         </header>
         <nav aria-label="Booking Page editors" className="grid grid-cols-2 gap-3">
           {EDITORS.map(({ id, title, description, icon: Icon }) => (
             <a
-              className="min-w-0 rounded-2xl border border-stone-200 bg-white p-4 shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-700"
+              className="min-w-0 rounded-2xl border border-[var(--owner-line)] bg-[var(--owner-surface)] p-4 shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)]"
               href={id === 'gallery' ? `${workspace}&app=portfolio` : `${editor}&panel=${id}`}
               key={id}
             >
-              <span className="mb-3 inline-flex size-11 items-center justify-center rounded-xl bg-rose-100 text-rose-800"><Icon aria-hidden="true" size={22} /></span>
+              <span className="mb-3 inline-flex size-11 items-center justify-center rounded-xl bg-[var(--owner-blush)] text-[var(--owner-accent)]"><Icon aria-hidden="true" size={22} /></span>
               <span className="block text-base font-semibold leading-snug">{title}</span>
-              <span className="mt-1 block text-sm leading-snug text-stone-600">{description}</span>
+              <span className="mt-1 block text-sm leading-snug text-[var(--owner-muted)]">{description}</span>
             </a>
           ))}
         </nav>
@@ -127,12 +127,12 @@ export function BookingPageHub({
           reads as a broken promise, so a published salon is told why and sent
           to the editors above, which hold the same choices in the same order.
         */}
-        <section className="mt-6 rounded-2xl border border-stone-200 p-4">
+        <section className="mt-6 rounded-2xl border border-[var(--owner-line)] p-4">
           <h2 className="font-semibold">Review setup step by step</h2>
           {setupUrl
             ? (
                 <>
-                  <p className="mt-1 text-sm text-stone-600">Review your existing setup using the guided flow. Nothing is reset.</p>
+                  <p className="mt-1 text-sm text-[var(--owner-muted)]">Review your existing setup using the guided flow. Nothing is reset.</p>
                   <a className={`${actionClass} mt-3`} href={setupUrl}>
                     <Check aria-hidden="true" size={16} />
                     Review saved setup
@@ -142,7 +142,7 @@ export function BookingPageHub({
             : published
               ? (
                   <>
-                    <p className="mt-1 text-sm text-stone-600" data-testid="hub-setup-published-note">
+                    <p className="mt-1 text-sm text-[var(--owner-muted)]" data-testid="hub-setup-published-note">
                       Your site is live, so the setup flow that builds a new site is closed. Every choice it
                       made is in the editors above — this walks you through them in the same order, and
                       nothing is reset.
@@ -155,7 +155,7 @@ export function BookingPageHub({
                 )
               : (
                   <>
-                    <p className="mt-1 text-sm text-stone-600">Review your existing setup using the guided flow. Nothing is reset.</p>
+                    <p className="mt-1 text-sm text-[var(--owner-muted)]">Review your existing setup using the guided flow. Nothing is reset.</p>
                     <a className={`${actionClass} mt-3`} href={`${editor}&panel=information&guided=1`}>
                       <Check aria-hidden="true" size={16} />
                       Review current setup

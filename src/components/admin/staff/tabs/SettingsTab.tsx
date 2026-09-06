@@ -452,7 +452,7 @@ export function SettingsTab({ salonSlug, technician, onUpdate, onDelete }: Setti
                 value={rating}
                 onChange={e => setRating(e.target.value)}
                 placeholder="4.9"
-                className="w-full rounded-lg bg-[#F2F2F7] px-3 py-2 text-[15px] text-[#1C1C1E] placeholder-[#C7C7CC] focus:outline-none"
+                className="w-full rounded-lg bg-[#F2F2F7] px-3 py-2 text-[15px] text-[#1C1C1E] placeholder:text-[#C7C7CC] focus:outline-none"
               />
             </div>
             <div>
@@ -465,7 +465,7 @@ export function SettingsTab({ salonSlug, technician, onUpdate, onDelete }: Setti
                 value={reviewCount}
                 onChange={e => setReviewCount(e.target.value)}
                 placeholder="0"
-                className="w-full rounded-lg bg-[#F2F2F7] px-3 py-2 text-[15px] text-[#1C1C1E] placeholder-[#C7C7CC] focus:outline-none"
+                className="w-full rounded-lg bg-[#F2F2F7] px-3 py-2 text-[15px] text-[#1C1C1E] placeholder:text-[#C7C7CC] focus:outline-none"
               />
             </div>
           </div>
@@ -491,7 +491,7 @@ export function SettingsTab({ salonSlug, technician, onUpdate, onDelete }: Setti
             value={userId}
             onChange={e => setUserId(e.target.value)}
             placeholder="user_2abc123..."
-            className="w-full rounded-lg bg-[#F2F2F7] px-3 py-2 text-[15px] text-[#1C1C1E] placeholder-[#C7C7CC] focus:outline-none"
+            className="w-full rounded-lg bg-[#F2F2F7] px-3 py-2 text-[15px] text-[#1C1C1E] placeholder:text-[#C7C7CC] focus:outline-none"
           />
           <p className="mt-2 text-[12px] text-[#8E8E93]">
             Paste the tech&apos;s Clerk User ID here to let them access the Tech Dashboard.
@@ -581,7 +581,7 @@ export function SettingsTab({ salonSlug, technician, onUpdate, onDelete }: Setti
             onChange={e => setNotes(e.target.value)}
             placeholder="Private notes about this staff member..."
             rows={4}
-            className="w-full resize-none bg-white text-[15px] text-[#1C1C1E] placeholder-[#C7C7CC] focus:outline-none"
+            className="w-full resize-none bg-white text-[15px] text-[#1C1C1E] placeholder:text-[#C7C7CC] focus:outline-none"
           />
         </div>
       </div>
@@ -804,7 +804,7 @@ export function SettingsTab({ salonSlug, technician, onUpdate, onDelete }: Setti
             value={deleteConfirmText}
             onChange={e => setDeleteConfirmText(e.target.value.toUpperCase())}
             placeholder="DELETE"
-            className="mb-4 w-full rounded-xl bg-[#F2F2F7] px-4 py-3 text-center text-[17px] text-[#1C1C1E] placeholder-[#C7C7CC] focus:outline-none focus:ring-2 focus:ring-[#FF3B30]/30"
+            className="mb-4 w-full rounded-xl bg-[#F2F2F7] px-4 py-3 text-center text-[17px] text-[#1C1C1E] placeholder:text-[#C7C7CC] focus:outline-none focus:ring-2 focus:ring-[#FF3B30]/30"
           />
           {destructiveActionError && (
             <p className="mb-4 text-center text-[13px] text-[#FF3B30]">

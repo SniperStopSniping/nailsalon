@@ -33,7 +33,7 @@ const FALLBACK_START_HOUR = 8;
 const FALLBACK_END_HOUR = 20;
 
 const STATUS_COLORS: Record<string, string> = {
-  confirmed: 'bg-blue-50 text-blue-700 border-blue-500',
+  confirmed: 'bg-[var(--owner-blush,#f6e7ec)] text-[var(--owner-accent-strong,#70213f)] border-[var(--owner-accent,#8f3155)]',
   pending: 'bg-yellow-50 text-yellow-700 border-yellow-500',
   in_progress: 'bg-green-50 text-green-700 border-green-500',
   completed: 'bg-gray-50 text-gray-600 border-gray-400',
@@ -248,7 +248,7 @@ function DroppableSlot({
     <div
       ref={setNodeRef}
       data-testid={testId}
-      className={`border-b border-dashed border-gray-100 bg-white transition-colors ${isOver ? 'bg-blue-50/80' : ''}`}
+      className={`border-b border-dashed border-[var(--owner-line,#dfd1d4)] bg-[var(--owner-surface,#fffdfb)] transition-colors ${isOver ? 'bg-[var(--owner-blush,#f6e7ec)]' : ''}`}
       style={{ height }}
     />
   );
@@ -309,7 +309,7 @@ function DraggableAppointment({
           <div className="truncate text-xs opacity-80">
             {appointment.clientName || 'Guest'}
           </div>
-          <div className="mt-1 text-[11px] opacity-70">
+          <div className="mt-1 text-[12px] opacity-70">
             {formatShortTime(appointment.startTime)}
             {' '}
             -
@@ -489,14 +489,14 @@ export function AppointmentsDayView({
   };
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col bg-white">
-      <div className="border-b border-gray-100 px-4 py-3">
+    <div className="flex min-h-0 flex-1 flex-col bg-[var(--owner-surface,#fffdfb)]">
+      <div className="border-b border-[var(--owner-line,#dfd1d4)] px-4 py-3">
         <div className="mb-3 flex items-center justify-between">
           <div>
-            <div className="text-sm font-semibold text-gray-900">
+            <div className="text-sm font-semibold text-[var(--owner-ink,#30262a)]">
               {selectedDate.toLocaleDateString('en-US', { weekday: 'long' })}
             </div>
-            <div className="text-xs text-gray-500">
+            <div className="text-xs text-[var(--owner-muted,#706267)]">
               {selectedDate.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
             </div>
           </div>
@@ -548,9 +548,9 @@ export function AppointmentsDayView({
                 data-testid={`calendar-day-${dateKey}`}
                 data-selected={isSelected ? 'true' : 'false'}
                 aria-pressed={isSelected}
-                className={`flex h-12 min-w-11 flex-col items-center justify-center rounded-full px-2 text-[13px] font-medium transition-colors ${isSelected ? 'bg-black text-white' : isToday ? 'bg-blue-100 text-blue-600' : 'text-gray-500 hover:bg-gray-100'}`}
+                className={`flex h-12 min-w-11 flex-col items-center justify-center rounded-full px-2 text-[13px] font-medium outline-none transition-colors focus-visible:ring-2 focus-visible:ring-[var(--owner-focus,#b85075)] ${isSelected ? 'bg-[var(--owner-accent,#8f3155)] text-white' : isToday ? 'bg-[var(--owner-blush,#f6e7ec)] text-[var(--owner-accent-strong,#70213f)]' : 'text-[var(--owner-muted,#706267)] hover:bg-[var(--owner-blush,#f6e7ec)]'}`}
               >
-                <span className="text-[10px]">
+                <span className="text-[11px]">
                   {date.toLocaleDateString('en-US', { weekday: 'narrow' })}
                 </span>
                 <span>{date.getDate()}</span>
@@ -633,7 +633,7 @@ export function AppointmentsDayView({
                         {Array.from({ length: endHour - startHour + 1 }).map((_, index) => {
                           const hour = startHour + index;
                           return (
-                            <div key={hour} className="h-24 pr-3 text-right text-[11px] font-medium text-gray-400">
+                            <div key={hour} className="h-24 pr-3 text-right text-[12px] font-medium text-[var(--owner-muted,#706267)]">
                               {formatHour(hour)}
                             </div>
                           );
@@ -672,7 +672,7 @@ export function AppointmentsDayView({
                                 data-testid={`calendar-column-unavailable-${resource.id}`}
                                 className="pointer-events-none absolute inset-0 z-[5] flex items-start justify-center bg-stone-100/70 bg-[repeating-linear-gradient(45deg,transparent,transparent_5px,rgba(120,113,108,0.10)_5px,rgba(120,113,108,0.10)_10px)] pt-3"
                               >
-                                <span className="rounded-full border border-stone-300 bg-white/90 px-2 py-0.5 text-[11px] font-semibold text-stone-600">
+                                <span className="rounded-full border border-[var(--owner-line-strong,#d8c1c8)] bg-[var(--owner-surface,#fffdfb)] px-2 py-0.5 text-[11px] font-semibold text-[var(--owner-muted,#706267)]">
                                   {availability?.closed
                                     ? 'Closed'
                                     : overlaysByResource.get(resource.id)?.offLabel}

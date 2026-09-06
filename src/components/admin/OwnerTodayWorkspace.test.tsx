@@ -530,10 +530,13 @@ describe('OwnerTodayWorkspace client follow-ups', () => {
         return supportingResponse;
       }
       if (url.startsWith('/api/admin/financial-summary?')) {
+        // Both caveats are true of the REVENUE periods here, and the
+        // unresolved one must win. (The balance projection is deliberately
+        // the quiet one — it has its own test below.)
         return financialSummaryResponse(buildFinancialSummary({
           todayRevenueCents: 5000,
-          periodProvenance: legacyProvenance,
-          balanceProvenance: unresolvedProvenance,
+          periodProvenance: unresolvedProvenance,
+          balanceProvenance: legacyProvenance,
         }));
       }
       throw new Error(`Unhandled fetch: ${url}`);
@@ -552,6 +555,75 @@ describe('OwnerTodayWorkspace client follow-ups', () => {
     expect(revenue).not.toHaveTextContent(
       'Some historical totals use booked values because finalized checkout details are unavailable.',
     );
+    expect(screen.getByTestId('owner-revenue-under-review-chip')).toBeInTheDocument();
+  });
+
+  /**
+   * AG-w2-appointments-02: exact revenue must never be described as
+   * incomplete. Salon B's five completed appointments are finalized revenue
+   * ($90.00 in the current week) while their balances stay unresolved for want
+   * of a payment record; the card answered that with "Incomplete history —
+   * Some historical appointments could not be included", over figures that
+   * were complete.
+   */
+  it('does not call exact revenue incomplete when only the balances are unresolved', async () => {
+    const finalizedProvenance: ReportingProvenance = {
+      mode: 'finalized',
+      finalizedAppointmentCount: 1,
+      legacyAppointmentCount: 0,
+      unresolvedAppointmentCount: 0,
+      finalizedAmountCents: 9000,
+      legacyFallbackAmountCents: 0,
+      isEstimated: false,
+    };
+    const unresolvedBalanceProvenance: ReportingProvenance = {
+      mode: 'empty',
+      finalizedAppointmentCount: 0,
+      legacyAppointmentCount: 0,
+      unresolvedAppointmentCount: 5,
+      finalizedAmountCents: 0,
+      legacyFallbackAmountCents: 0,
+      isEstimated: true,
+    };
+
+    fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      const supportingResponse = supportingWorkspaceResponse(url);
+      if (supportingResponse) {
+        return supportingResponse;
+      }
+      if (url.startsWith('/api/admin/financial-summary?')) {
+        return financialSummaryResponse(buildFinancialSummary({
+          todayRevenueCents: 0,
+          weekRevenueCents: 9000,
+          monthRevenueCents: 9000,
+          periodProvenance: finalizedProvenance,
+          balanceProvenance: unresolvedBalanceProvenance,
+        }));
+      }
+      throw new Error(`Unhandled fetch: ${url}`);
+    });
+
+    renderWorkspace();
+
+    const revenue = await screen.findByTestId('owner-revenue-summary');
+
+    await waitFor(() => expect(revenue).toHaveTextContent('Balances under review'));
+
+    expect(revenue).toHaveTextContent(
+      '5 completed appointments could not be reconciled against their payment records, so they are left out of Completed outstanding.',
+    );
+    expect(revenue).toHaveTextContent(
+      'Every completed appointment is counted in the revenue totals.',
+    );
+    expect(revenue).not.toHaveTextContent('Incomplete history');
+    expect(revenue).not.toHaveTextContent(
+      'Some historical appointments could not be included because their financial details are unavailable.',
+    );
+    // The Revenue headline is exact, so it carries no "Under review" chip.
+    expect(
+      screen.queryByTestId('owner-revenue-under-review-chip'),
+    ).not.toBeInTheDocument();
   });
 
   it('shows a retryable first-load error and recovers', async () => {
@@ -1090,8 +1162,18 @@ describe('OwnerTodayWorkspace first fold', () => {
 
     expect(rows).toHaveLength(3);
 
+    // r27 cohesion sweep: the shared ground moved from the literal `bg-white`
+    // onto the owner surface token, so Today, the calendar and the sheets all
+    // paint from one layer. The rule under test is unchanged — every row has
+    // the SAME ground, and "next" is never carried by an amber wash.
+    const grounds = new Set(
+      rows.map(row =>
+        (row.className.match(/bg-\[var\(--owner-surface[^\]]*\]|bg-white/) ?? [''])[0]),
+    );
+
+    expect(grounds).toEqual(new Set(['bg-[var(--owner-surface,#fffdfb)]']));
+
     for (const row of rows) {
-      expect(row.className).toContain('bg-white');
       expect(row.className).not.toContain('bg-amber-50');
     }
   });

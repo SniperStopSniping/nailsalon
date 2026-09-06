@@ -34,6 +34,7 @@ import {
   OwnerWorkspaceNav,
   type OwnerWorkspaceTab,
 } from '@/components/admin/OwnerWorkspaceNav';
+import { buttonVariants } from '@/components/ui/buttonVariants';
 import { WorkspacePageHeader } from '@/components/ui/workspace-page-header';
 import { formatMoney } from '@/libs/formatMoney';
 // =============================================================================
@@ -43,6 +44,7 @@ import { formatMoney } from '@/libs/formatMoney';
 import type { AnalyticsResponse } from '@/types/admin';
 import type { RetentionStage } from '@/types/retention';
 import type { ModuleKey } from '@/types/salonPolicy';
+import { cn } from '@/utils/Helpers';
 
 import { useOwnerAdminFeatureFlags } from './OwnerAdminFeatureFlags';
 
@@ -1554,8 +1556,8 @@ function AdminDashboardContent() {
           data-testid="admin-auth-loading"
           role="status"
         >
-          <div className="size-8 animate-spin rounded-full border-2 border-gray-300 border-t-gray-600" />
-          <p className="text-sm text-gray-600">Checking your session…</p>
+          <div className="size-8 animate-spin rounded-full border-2 border-[var(--owner-line)] border-t-[var(--owner-accent)]" />
+          <p className="text-[13px] text-[var(--owner-muted)]">Checking your session…</p>
         </div>
       </div>
     );
@@ -1564,19 +1566,19 @@ function AdminDashboardContent() {
   if (authError) {
     return (
       <main className="owner-workspace-theme flex min-h-screen items-center justify-center bg-[var(--owner-ground)] p-5" data-theme-scope="owner">
-        <section className="w-full max-w-md rounded-2xl bg-white p-6 shadow-sm">
-          <h1 className="text-xl font-semibold text-gray-900">Let’s reconnect your account</h1>
-          <p role="alert" className="mt-3 text-gray-600">{authError}</p>
+        <section className="w-full max-w-md rounded-owner-card border border-[var(--owner-line)] bg-[var(--owner-surface)] p-6 shadow-owner-card">
+          <h1 className="owner-title text-[22px] font-semibold text-[var(--owner-ink)]">Let’s reconnect your account</h1>
+          <p role="alert" className="mt-3 text-[15px] leading-6 text-[var(--owner-muted)]">{authError}</p>
           <div className="mt-6 flex flex-wrap gap-3">
             <button
-              className="min-h-11 rounded-xl bg-gray-900 px-5 py-3 font-medium text-white"
+              className={cn(buttonVariants({ variant: 'ownerPrimary', size: 'pillSm' }), 'min-h-11 px-5')}
               onClick={() => setAuthAttempt(attempt => attempt + 1)}
               type="button"
             >
               Try again
             </button>
             <button
-              className="min-h-11 rounded-xl border border-gray-300 px-5 py-3 font-medium text-gray-700"
+              className={cn(buttonVariants({ variant: 'ownerSecondary', size: 'pillSm' }), 'min-h-11 px-5')}
               onClick={handleLogout}
               type="button"
             >
@@ -1611,7 +1613,7 @@ function AdminDashboardContent() {
           <button
             type="button"
             onClick={handleLogout}
-            className="mt-6 text-sm text-[#8E8E93] hover:text-[#1C1C1E]"
+            className="mt-6 min-h-11 text-[13px] text-[var(--owner-muted)] transition-colors hover:text-[var(--owner-accent)]"
           >
             Log out
           </button>
@@ -1716,8 +1718,8 @@ function AdminDashboardContent() {
                 ? `Managing ${activeDashboardSalonName}`
                 : 'Salon owner workspace'
             }
-            titleClassName="text-[28px] font-bold tracking-tight text-stone-950"
-            subtitleClassName="text-[15px] text-stone-500"
+            titleClassName="owner-title text-[28px] font-semibold tracking-tight text-[var(--owner-ink)]"
+            subtitleClassName="text-[15px] text-[var(--owner-muted)]"
             actions={(
               <>
                 {!adminUser.impersonation?.isActive
@@ -1726,7 +1728,7 @@ function AdminDashboardContent() {
                     type="button"
                     onClick={() => setShowSalonSelector(true)}
                     aria-label="Switch salon"
-                    className="flex size-9 items-center justify-center rounded-full border border-rose-100 bg-white text-rose-800 shadow-sm transition-colors active:bg-rose-50"
+                    className="flex size-11 items-center justify-center rounded-full border border-[var(--owner-line)] bg-[var(--owner-surface)] text-[var(--owner-accent)] shadow-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)] focus-visible:ring-offset-2 active:bg-[var(--owner-blush)]"
                   >
                     <Building2 size={19} />
                   </button>
@@ -1739,11 +1741,11 @@ function AdminDashboardContent() {
                       ? `Notifications (${notificationCount} unread)`
                       : 'Notifications'
                   }
-                  className="relative flex size-9 items-center justify-center rounded-full border border-rose-100 bg-white text-rose-800 shadow-sm transition-colors active:bg-rose-50"
+                  className="relative flex size-11 items-center justify-center rounded-full border border-[var(--owner-line)] bg-[var(--owner-surface)] text-[var(--owner-accent)] shadow-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)] focus-visible:ring-offset-2 active:bg-[var(--owner-blush)]"
                 >
                   <Bell size={20} aria-hidden="true" />
                   {notificationCount > 0 && (
-                    <span className="absolute -right-0.5 -top-0.5 flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-[#FF3B30] px-1">
+                    <span className="absolute -right-0.5 -top-0.5 flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-[var(--owner-accent-strong)] px-1">
                       <span className="text-[11px] font-bold text-white">
                         {notificationCount > 9 ? '9+' : notificationCount}
                       </span>
@@ -1759,7 +1761,7 @@ function AdminDashboardContent() {
                   confirmation.
                 */}
                 <div
-                  className="flex size-9 items-center justify-center rounded-full bg-gradient-to-br from-rose-800 to-amber-500 text-[15px] font-semibold text-white shadow-sm"
+                  className="flex size-11 items-center justify-center rounded-full bg-gradient-to-br from-[var(--owner-accent-strong)] to-[var(--owner-accent)] text-[15px] font-semibold text-white shadow-sm"
                   title="Luster owner account"
                 >
                   {userInitial || <Sparkles size={16} />}

@@ -406,7 +406,7 @@ export function AddStaffModal({ isOpen, salonSlug, onClose, onSuccess }: AddStaf
                 value={name}
                 onChange={e => setName(e.target.value)}
                 placeholder="Enter name"
-                className="w-full bg-white text-[17px] text-[#1C1C1E] placeholder-[#C7C7CC] focus:outline-none"
+                className="w-full bg-white text-[17px] text-[#1C1C1E] placeholder:text-[#C7C7CC] focus:outline-none"
               />
             </div>
             <div className="border-b border-gray-100 p-4">
@@ -417,7 +417,7 @@ export function AddStaffModal({ isOpen, salonSlug, onClose, onSuccess }: AddStaf
                 value={email}
                 onChange={e => setEmail(e.target.value)}
                 placeholder="Enter email"
-                className="w-full bg-white text-[17px] text-[#1C1C1E] placeholder-[#C7C7CC] focus:outline-none"
+                className="w-full bg-white text-[17px] text-[#1C1C1E] placeholder:text-[#C7C7CC] focus:outline-none"
               />
             </div>
             <div className="p-4">
@@ -428,7 +428,7 @@ export function AddStaffModal({ isOpen, salonSlug, onClose, onSuccess }: AddStaf
                 value={phone}
                 onChange={e => setPhone(e.target.value)}
                 placeholder="Enter phone"
-                className="w-full bg-white text-[17px] text-[#1C1C1E] placeholder-[#C7C7CC] focus:outline-none"
+                className="w-full bg-white text-[17px] text-[#1C1C1E] placeholder:text-[#C7C7CC] focus:outline-none"
               />
             </div>
           </div>
@@ -551,7 +551,7 @@ export function AddStaffModal({ isOpen, salonSlug, onClose, onSuccess }: AddStaf
               onChange={e => setBio(e.target.value)}
               placeholder="Short bio or description..."
               rows={3}
-              className="w-full resize-none bg-white text-[15px] text-[#1C1C1E] placeholder-[#C7C7CC] focus:outline-none"
+              className="w-full resize-none bg-white text-[15px] text-[#1C1C1E] placeholder:text-[#C7C7CC] focus:outline-none"
             />
           </div>
 

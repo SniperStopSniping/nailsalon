@@ -145,37 +145,37 @@ export function AddOnCreateDialog({
         }
       }}
       maxWidthClassName="max-w-md"
-      contentClassName="max-h-[90dvh] overflow-y-auto rounded-3xl bg-white p-6 shadow-2xl"
+      contentClassName="max-h-[90dvh] overflow-y-auto rounded-3xl bg-[var(--owner-surface)] p-6 shadow-2xl"
       alignClassName="items-end justify-center p-4 sm:items-center"
     >
       <div className="space-y-4" data-testid="addon-create-dialog">
         <div>
-          <h2 className="text-xl font-semibold text-[#1C1C1E]">New add-on</h2>
-          <p className="mt-1 text-sm text-[#6B7280]">
+          <h2 className="text-xl font-semibold text-[var(--owner-ink)]">New add-on</h2>
+          <p className="mt-1 text-sm text-[var(--owner-muted)]">
             Add-ons appear for clients after they pick one of the services you
             choose below — they are never listed on their own.
           </p>
         </div>
 
         <label className="block">
-          <span className="mb-1.5 block text-sm font-medium text-[#1C1C1E]">Name</span>
+          <span className="mb-1.5 block text-sm font-medium text-[var(--owner-ink)]">Name</span>
           <input
             type="text"
             value={name}
             data-testid="addon-create-name"
             onChange={event => setName(event.target.value)}
             placeholder="Chrome finish"
-            className="h-11 w-full rounded-xl border border-gray-200 px-3 text-sm outline-none transition focus:border-rose-700"
+            className="h-11 w-full rounded-xl border border-[var(--owner-line)] px-3 text-sm outline-none transition focus:border-[var(--owner-accent)]"
           />
         </label>
 
         <label className="block">
-          <span className="mb-1.5 block text-sm font-medium text-[#1C1C1E]">Category</span>
+          <span className="mb-1.5 block text-sm font-medium text-[var(--owner-ink)]">Category</span>
           <select
             value={category}
             data-testid="addon-create-category"
             onChange={event => setCategory(event.target.value)}
-            className="h-11 w-full rounded-xl border border-gray-200 px-3 text-sm outline-none transition focus:border-rose-700"
+            className="h-11 w-full rounded-xl border border-[var(--owner-line)] px-3 text-sm outline-none transition focus:border-[var(--owner-accent)]"
           >
             {ADD_ON_CATEGORIES.map(value => (
               <option key={value} value={value}>{addOnCategoryLabel(value)}</option>
@@ -184,20 +184,20 @@ export function AddOnCreateDialog({
         </label>
 
         <label className="block">
-          <span className="mb-1.5 block text-sm font-medium text-[#1C1C1E]">Description</span>
+          <span className="mb-1.5 block text-sm font-medium text-[var(--owner-ink)]">Description</span>
           <textarea
             value={description}
             rows={2}
             data-testid="addon-create-description"
             onChange={event => setDescription(event.target.value)}
             placeholder="What the client gets — one line per point."
-            className="w-full rounded-xl border border-gray-200 p-3 text-sm outline-none transition focus:border-rose-700"
+            className="w-full rounded-xl border border-[var(--owner-line)] p-3 text-sm outline-none transition focus:border-[var(--owner-accent)]"
           />
         </label>
 
         <div className="grid grid-cols-2 gap-3">
           <label className="block">
-            <span className="mb-1.5 block text-sm font-medium text-[#1C1C1E]">Price</span>
+            <span className="mb-1.5 block text-sm font-medium text-[var(--owner-ink)]">Price</span>
             <input
               type="number"
               min="0"
@@ -206,11 +206,11 @@ export function AddOnCreateDialog({
               value={price}
               data-testid="addon-create-price"
               onChange={event => setPrice(event.target.value)}
-              className="h-11 w-full rounded-xl border border-gray-200 px-3 text-sm outline-none transition focus:border-rose-700"
+              className="h-11 w-full rounded-xl border border-[var(--owner-line)] px-3 text-sm outline-none transition focus:border-[var(--owner-accent)]"
             />
           </label>
           <label className="block">
-            <span className="mb-1.5 block text-sm font-medium text-[#1C1C1E]">Duration (min)</span>
+            <span className="mb-1.5 block text-sm font-medium text-[var(--owner-ink)]">Duration (min)</span>
             <input
               type="number"
               min="0"
@@ -219,46 +219,46 @@ export function AddOnCreateDialog({
               value={durationMinutes}
               data-testid="addon-create-duration"
               onChange={event => setDurationMinutes(event.target.value)}
-              className="h-11 w-full rounded-xl border border-gray-200 px-3 text-sm outline-none transition focus:border-rose-700"
+              className="h-11 w-full rounded-xl border border-[var(--owner-line)] px-3 text-sm outline-none transition focus:border-[var(--owner-accent)]"
             />
           </label>
         </div>
 
         <label className="block">
-          <span className="mb-1.5 block text-sm font-medium text-[#1C1C1E]">Price display text</span>
+          <span className="mb-1.5 block text-sm font-medium text-[var(--owner-ink)]">Price display text</span>
           <input
             type="text"
             value={priceDisplayText}
             data-testid="addon-create-price-display"
             onChange={event => setPriceDisplayText(event.target.value)}
             placeholder="$10+"
-            className="h-11 w-full rounded-xl border border-gray-200 px-3 text-sm outline-none transition focus:border-rose-700"
+            className="h-11 w-full rounded-xl border border-[var(--owner-line)] px-3 text-sm outline-none transition focus:border-[var(--owner-accent)]"
           />
         </label>
 
         <div data-testid="addon-create-compatibility">
-          <span className="mb-1.5 block text-sm font-medium text-[#1C1C1E]">Offered with</span>
-          <p className="mb-2 text-xs text-[#6B7280]">
+          <span className="mb-1.5 block text-sm font-medium text-[var(--owner-ink)]">Offered with</span>
+          <p className="mb-2 text-xs text-[var(--owner-muted)]">
             Clients see this add-on only after choosing one of these services.
             {services.length > 0 ? ' Leave everything unticked to set this up later.' : ''}
           </p>
           {services.length === 0
             ? (
-                <p className="rounded-xl border border-gray-200 p-3 text-xs text-[#8E8E93]">
+                <p className="rounded-xl border border-[var(--owner-line)] p-3 text-xs text-[var(--owner-muted)]">
                   Add a service first, then choose where this add-on appears.
                 </p>
               )
             : (
-                <div className="max-h-44 space-y-1 overflow-y-auto rounded-xl border border-gray-200 p-2">
+                <div className="max-h-44 space-y-1 overflow-y-auto rounded-xl border border-[var(--owner-line)] p-2">
                   {services.map(service => (
                     <label
                       key={service.id}
                       className="flex items-center justify-between gap-2 rounded-lg px-2 py-1.5"
                     >
-                      <span className="min-w-0 truncate text-[13px] text-[#1C1C1E]">
+                      <span className="min-w-0 truncate text-[13px] text-[var(--owner-ink)]">
                         {service.name}
                         {!service.isActive && (
-                          <span className="ml-1 text-[11px] text-[#8E8E93]">(inactive)</span>
+                          <span className="ml-1 text-[11px] text-[var(--owner-muted)]">(inactive)</span>
                         )}
                       </span>
                       <input
@@ -278,10 +278,10 @@ export function AddOnCreateDialog({
               )}
         </div>
 
-        <label className="flex items-center justify-between rounded-xl border border-gray-200 p-3">
+        <label className="flex items-center justify-between rounded-xl border border-[var(--owner-line)] p-3">
           <span>
-            <span className="block text-sm font-medium text-[#1C1C1E]">Bookable</span>
-            <span className="block text-xs text-[#6B7280]">
+            <span className="block text-sm font-medium text-[var(--owner-ink)]">Bookable</span>
+            <span className="block text-xs text-[var(--owner-muted)]">
               Turn off to save it without offering it to clients yet.
             </span>
           </span>

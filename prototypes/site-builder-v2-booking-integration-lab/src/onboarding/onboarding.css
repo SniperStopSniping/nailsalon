@@ -1514,8 +1514,22 @@ body:has(.onboarding-app) {
   display: none;
 }
 
+/*
+ * ONE filled primary per screen (AG-cohesion-03).
+ *
+ * The positional selectors are a fallback for footers whose buttons carry no
+ * __primary/__back class. They must never apply to a `is-primary-first`
+ * footer: there the Back button IS the last child, and the unguarded
+ * `:last-child` rule (specificity 0,3,1) out-ranked the explicit
+ * `.sticky-onboarding-actions.is-primary-first > .__back` reset (0,3,0), so
+ * Back rendered as a second filled plum CTA with the primary's shadow. Two
+ * screens had already worked around this with element-qualified per-screen
+ * overrides (booking-layout-screen.css, daniela-about-style.css); guarding the
+ * fallback here fixes every primary-first screen at the source.
+ */
 .sticky-onboarding-actions__primary,
-.sticky-onboarding-actions > button:last-child:not(:only-child) {
+.sticky-onboarding-actions:not(.is-primary-first)
+  > button:last-child:not(:only-child) {
   grid-column: 1 / -1;
   grid-row: 1;
   color: white;
@@ -1525,7 +1539,8 @@ body:has(.onboarding-app) {
 }
 
 .sticky-onboarding-actions__back,
-.sticky-onboarding-actions > button:first-child:not(:last-child) {
+.sticky-onboarding-actions:not(.is-primary-first)
+  > button:first-child:not(:last-child) {
   grid-column: 1;
   grid-row: 2;
 }
@@ -1548,7 +1563,7 @@ body:has(.onboarding-app) {
 }
 
 .sticky-onboarding-actions__primary:hover:not(:disabled),
-.sticky-onboarding-actions
+.sticky-onboarding-actions:not(.is-primary-first)
   > button:last-child:not(:only-child):hover:not(:disabled) {
   border-color: var(--onboarding-accent-dark);
   background: var(--onboarding-accent-dark);
@@ -5270,7 +5285,8 @@ body:has(.onboarding-app) {
   }
 
   .sticky-onboarding-actions__primary,
-  .sticky-onboarding-actions > button:last-child:not(:only-child) {
+  .sticky-onboarding-actions:not(.is-primary-first)
+    > button:last-child:not(:only-child) {
     min-width: min(245px, 42vw);
     order: 3;
   }

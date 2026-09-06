@@ -148,15 +148,15 @@ function Section({ title, footer, children }: SectionProps) {
   return (
     <div className="mb-6">
       {title && (
-        <div className="mb-2 px-4 text-[13px] uppercase tracking-wide text-gray-500">
+        <div className="mb-2 px-4 text-[13px] font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
           {title}
         </div>
       )}
-      <div className="mx-4 overflow-visible rounded-[10px] border border-gray-200/50 bg-white shadow-sm">
+      <div className="mx-4 overflow-visible rounded-[14px] border border-[var(--owner-line)] bg-[var(--owner-surface)] shadow-sm">
         {children}
       </div>
       {footer && (
-        <div className="mt-2 px-8 text-[12px] leading-snug text-gray-500">
+        <div className="mt-2 px-8 text-[12px] leading-snug text-[var(--owner-muted)]">
           {footer}
         </div>
       )}
@@ -167,6 +167,19 @@ function Section({ title, footer, children }: SectionProps) {
 /**
  * Settings Row
  */
+/**
+ * One icon container for every Settings row.
+ *
+ * The rows used to carry a per-row `iconColor` — eleven saturated squares
+ * (green, blue, purple, teal, amber, red, indigo, cyan…) inside a single
+ * screen. Onboarding paints one blush tile with the plum glyph, so the
+ * workspace does too: the icon says "this is a settings row", the colour is
+ * not carrying meaning anybody can decode. `iconColor` is still accepted so
+ * every call site stays untouched, but it no longer paints.
+ */
+const OWNER_ROW_ICON_CLASS
+  = 'mr-3 flex size-8 shrink-0 items-center justify-center rounded-[10px] bg-[var(--owner-blush)] text-[var(--owner-accent)]';
+
 type RowProps = {
   icon?: LucideIcon;
   iconColor?: string;
@@ -181,7 +194,6 @@ type RowProps = {
 
 function Row({
   icon: Icon,
-  iconColor = 'bg-gray-500',
   label,
   value,
   type = 'link',
@@ -200,7 +212,7 @@ function Row({
 
   return (
     <div
-      className={`flex min-h-[48px] items-center pl-4 transition-colors ${type === 'display' ? '' : 'cursor-pointer active:bg-gray-50'}`}
+      className={`flex min-h-11 items-center rounded-[10px] pl-4 outline-none transition-colors focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)] ${type === 'display' ? '' : 'cursor-pointer active:bg-[var(--owner-blush)]'}`}
       onClick={type === 'link' ? onClick : undefined}
       onKeyDown={
         type === 'link' && onClick
@@ -217,20 +229,18 @@ function Row({
     >
       {/* Icon */}
       {Icon && (
-        <div
-          className={`mr-3 flex size-7 items-center justify-center rounded-[6px] text-white shadow-sm ${iconColor}`}
-        >
-          <Icon className="size-4" />
+        <div className={OWNER_ROW_ICON_CLASS}>
+          <Icon aria-hidden="true" className="size-4" />
         </div>
       )}
 
       {/* Content */}
       <div
         className={`flex flex-1 items-center justify-between py-3 pr-4 ${
-          !isLast ? 'border-b border-gray-100' : ''
+          !isLast ? 'border-b border-[var(--owner-line)]' : ''
         }`}
       >
-        <span className="text-[16px] tracking-tight text-black">{label}</span>
+        <span className="text-[16px] tracking-tight text-[var(--owner-ink)]">{label}</span>
 
         <div className="flex items-center gap-2">
           {value && <span className="text-[16px] text-[var(--owner-muted,#706267)]">{value}</span>}
@@ -244,15 +254,18 @@ function Row({
               type="button"
               onClick={handleToggle}
               aria-label={`Toggle ${label}`}
+              aria-pressed={isOn}
               className={`
-                relative h-[31px] w-[51px] rounded-full p-0.5 transition-colors duration-300
-                ${isOn ? 'bg-rose-800' : 'bg-[#E9E9EA]'}
+                relative h-[31px] w-[51px] rounded-full p-0.5 outline-none transition-colors duration-300
+                after:absolute after:inset-x-0 after:top-1/2 after:h-11 after:-translate-y-1/2 after:content-['']
+                focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)] focus-visible:ring-offset-2
+                ${isOn ? 'bg-[var(--owner-accent)]' : 'bg-[var(--owner-line)]'}
               `}
             >
               <motion.div
                 animate={{ x: isOn ? 20 : 0 }}
                 transition={{ type: 'spring', stiffness: 500, damping: 30 }}
-                className="size-[27px] rounded-full bg-white shadow-md"
+                className="size-[27px] rounded-full bg-[var(--owner-surface)] shadow-md"
               />
             </button>
           )}
@@ -328,7 +341,6 @@ type ModuleRowProps = {
 
 function ModuleRow({
   icon: Icon,
-  iconColor = 'bg-gray-500',
   label,
   moduleKey,
   enabled,
@@ -345,25 +357,23 @@ function ModuleRow({
 
   return (
     <div
-      className={`flex min-h-[48px] items-center pl-4 ${entitled ? '' : 'opacity-60'}`}
+      className={`flex min-h-11 items-center pl-4 ${entitled ? '' : 'opacity-60'}`}
     >
       {/* Icon */}
       {Icon && (
-        <div
-          className={`mr-3 flex size-7 items-center justify-center rounded-[6px] text-white shadow-sm ${iconColor}`}
-        >
-          <Icon className="size-4" />
+        <div className={OWNER_ROW_ICON_CLASS}>
+          <Icon aria-hidden="true" className="size-4" />
         </div>
       )}
 
       {/* Content */}
       <div
         className={`flex flex-1 items-center justify-between py-3 pr-4 ${
-          !isLast ? 'border-b border-gray-100' : ''
+          !isLast ? 'border-b border-[var(--owner-line)]' : ''
         }`}
       >
         <div className="flex flex-col">
-          <span className="text-[16px] tracking-tight text-black">{label}</span>
+          <span className="text-[16px] tracking-tight text-[var(--owner-ink)]">{label}</span>
           {!entitled && (
             <span className="text-[11px] text-amber-600">Upgrade required</span>
           )}
@@ -375,16 +385,19 @@ function ModuleRow({
             onClick={handleToggle}
             disabled={!entitled}
             aria-label={`Toggle ${label}`}
+            aria-pressed={enabled && entitled}
             className={`
-              relative h-[31px] w-[51px] rounded-full p-0.5 transition-colors duration-300
+              relative h-[31px] w-[51px] rounded-full p-0.5 outline-none transition-colors duration-300
+              after:absolute after:inset-x-0 after:top-1/2 after:h-11 after:-translate-y-1/2 after:content-['']
+              focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)] focus-visible:ring-offset-2
               ${!entitled ? 'cursor-not-allowed' : 'cursor-pointer'}
-              ${enabled && entitled ? 'bg-rose-800' : 'bg-[#E9E9EA]'}
+              ${enabled && entitled ? 'bg-[var(--owner-accent)]' : 'bg-[var(--owner-line)]'}
             `}
           >
             <motion.div
               animate={{ x: enabled && entitled ? 20 : 0 }}
               transition={{ type: 'spring', stiffness: 500, damping: 30 }}
-              className="size-[27px] rounded-full bg-white shadow-md"
+              className="size-[27px] rounded-full bg-[var(--owner-surface)] shadow-md"
             />
           </button>
         </div>
@@ -431,7 +444,7 @@ function ProfileCard({
       </div>
       <div className="flex-1">
         <div className="text-[20px] font-normal text-[var(--owner-ink,#30262a)]">{name}</div>
-        <div className="text-[13px] text-gray-500">{subtitle}</div>
+        <div className="text-[13px] text-[var(--owner-muted)]">{subtitle}</div>
       </div>
       <ChevronRight className="size-5 text-[var(--owner-line-strong,#d8c1c8)]" />
     </button>
@@ -558,7 +571,7 @@ function ParkingInstructionsCard({
       {loading
         ? (
             <div className="flex items-center justify-center py-8">
-              <div className="size-6 animate-spin rounded-full border-2 border-rose-800 border-t-transparent" />
+              <div className="size-6 animate-spin rounded-full border-2 border-[var(--owner-accent)] border-t-transparent" />
             </div>
           )
         : (
@@ -570,7 +583,7 @@ function ParkingInstructionsCard({
                 </div>
               )}
               <label htmlFor="settings-parking-instructions" className="block">
-                <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                <span className="text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
                   Parking & entry instructions
                 </span>
                 <textarea
@@ -583,7 +596,7 @@ function ParkingInstructionsCard({
                   }}
                   rows={3}
                   maxLength={2000}
-                  className="mt-2 w-full resize-y rounded-[10px] border border-gray-200 p-3 text-[15px] leading-relaxed text-black outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
+                  className="mt-2 w-full resize-y rounded-[10px] border border-[var(--owner-line)] p-3 text-[15px] leading-relaxed text-[var(--owner-ink)] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
                   placeholder="Free parking behind the salon. Enter from Queen Street."
                 />
               </label>
@@ -597,7 +610,7 @@ function ParkingInstructionsCard({
                   type="button"
                   onClick={() => void handleSave()}
                   disabled={saving || !dirty}
-                  className="inline-flex items-center gap-2 rounded-[10px] bg-rose-800 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-rose-900 disabled:cursor-not-allowed disabled:opacity-50"
+                  className="inline-flex min-h-11 items-center justify-center gap-2 rounded-[10px] bg-[var(--owner-accent)] px-4 text-sm font-semibold text-white outline-none transition-colors hover:bg-[var(--owner-accent-strong)] focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)] disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   <Save className="size-4" />
                   <span>{saving ? 'Saving...' : 'Save parking info'}</span>
@@ -832,7 +845,7 @@ function BookingExperienceEditor({
         className="flex items-center justify-center gap-2 py-8"
         role="status"
       >
-        <div className="size-6 animate-spin rounded-full border-2 border-rose-800 border-t-transparent" />
+        <div className="size-6 animate-spin rounded-full border-2 border-[var(--owner-accent)] border-t-transparent" />
         <span className="sr-only">Loading booking experience settings</span>
       </div>
     );
@@ -900,20 +913,20 @@ function BookingExperienceEditor({
           is kept and still saved untouched — nothing here writes it any more.
         */}
         <div
-          className="flex flex-col gap-1 rounded-[10px] border border-gray-200 bg-gray-50 p-3 sm:col-span-2"
+          className="flex flex-col gap-1 rounded-[10px] border border-[var(--owner-line)] bg-[var(--owner-ground)] p-3 sm:col-span-2"
           data-testid="branding-colour-authority"
         >
-          <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+          <span className="text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
             Website colours
           </span>
-          <p className="text-sm text-gray-700">
+          <p className="text-sm text-[var(--owner-muted)]">
             Website colours are set in Booking Page → Style &amp; Colours, where
             they stay in your draft until you publish.
           </p>
           {appearanceHref && (
             <a
               href={appearanceHref}
-              className="inline-flex min-h-11 items-center gap-1 text-sm font-semibold text-rose-800 underline"
+              className="inline-flex min-h-11 items-center gap-1 text-sm font-semibold text-[var(--owner-accent)] underline"
             >
               Open Style &amp; Colours
             </a>
@@ -921,7 +934,7 @@ function BookingExperienceEditor({
         </div>
 
         <label className="flex flex-col gap-1 sm:col-span-2">
-          <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+          <span className="text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
             Booking message
           </span>
           <textarea
@@ -935,20 +948,20 @@ function BookingExperienceEditor({
             rows={2}
             maxLength={160}
             placeholder="A short welcome shown near the top of booking."
-            className="w-full resize-y rounded-[10px] border border-gray-200 p-3 text-[15px] leading-relaxed text-black outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
+            className="w-full resize-y rounded-[10px] border border-[var(--owner-line)] p-3 text-[15px] leading-relaxed text-[var(--owner-ink)] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
           />
-          <span className="text-right text-xs text-gray-500">
+          <span className="text-right text-xs text-[var(--owner-muted)]">
             {(draft.bookingMessage ?? '').length}
             /160
           </span>
         </label>
 
-        <div className="space-y-3 rounded-[10px] border border-gray-200 p-3 sm:col-span-2">
+        <div className="space-y-3 rounded-[10px] border border-[var(--owner-line)] p-3 sm:col-span-2">
           <div>
-            <div className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+            <div className="text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
               Social links
             </div>
-            <p className="mt-1 text-sm text-gray-700">
+            <p className="mt-1 text-sm text-[var(--owner-muted)]">
               Only configured profile links appear on the booking page.
             </p>
           </div>
@@ -957,7 +970,7 @@ function BookingExperienceEditor({
             const isInstagram = social.key === 'instagram';
             return (
               <label key={social.key} className="flex flex-col gap-1">
-                <span className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-gray-500">
+                <span className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
                   <SocialIcon className="size-4" />
                   {social.label}
                 </span>
@@ -992,11 +1005,11 @@ function BookingExperienceEditor({
                     })}
                   maxLength={isInstagram ? 200 : 500}
                   placeholder={isInstagram ? 'yourstudio' : `https://${social.label.toLowerCase()}.com/your-profile`}
-                  className="h-11 rounded-[10px] border border-gray-200 px-3 text-[15px] text-black outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
+                  className="h-11 rounded-[10px] border border-[var(--owner-line)] px-3 text-[15px] text-[var(--owner-ink)] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
                 />
                 {isInstagram && (
                   <span
-                    className={`text-xs ${instagramResolution.status === 'invalid' ? 'text-red-700' : 'text-gray-500'}`}
+                    className={`text-xs ${instagramResolution.status === 'invalid' ? 'text-red-700' : 'text-[var(--owner-muted)]'}`}
                     data-testid="branding-instagram-helper"
                     id="branding-instagram-helper"
                   >
@@ -1011,7 +1024,7 @@ function BookingExperienceEditor({
         </div>
 
         <label className="flex flex-col gap-1 sm:col-span-2">
-          <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+          <span className="text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
             Confirmation message
           </span>
           <textarea
@@ -1025,9 +1038,9 @@ function BookingExperienceEditor({
             rows={3}
             maxLength={500}
             placeholder="Shown below appointment details and in the confirmation email."
-            className="w-full resize-y rounded-[10px] border border-gray-200 p-3 text-[15px] leading-relaxed text-black outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
+            className="w-full resize-y rounded-[10px] border border-[var(--owner-line)] p-3 text-[15px] leading-relaxed text-[var(--owner-ink)] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
           />
-          <span className="text-right text-xs text-gray-500">
+          <span className="text-right text-xs text-[var(--owner-muted)]">
             {(draft.confirmationMessage ?? '').length}
             /500
           </span>
@@ -1036,11 +1049,11 @@ function BookingExperienceEditor({
 
       <div
         data-testid="booking-experience-preview"
-        className="space-y-4 rounded-[14px] border border-gray-200 bg-[#FFF8F5] p-4"
+        className="space-y-4 rounded-[14px] border border-[var(--owner-line)] bg-[var(--owner-ground)] p-4"
       >
         <div className="flex items-center justify-between gap-3">
           <div>
-            <div className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+            <div className="text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
               Live preview
             </div>
             <h3 className="mt-1 text-xl font-semibold text-gray-950">
@@ -1050,19 +1063,19 @@ function BookingExperienceEditor({
         </div>
 
         {draft.bookingMessage && (
-          <p className="whitespace-pre-line break-words text-sm text-gray-700">
+          <p className="whitespace-pre-line break-words text-sm text-[var(--owner-muted)]">
             {draft.bookingMessage}
           </p>
         )}
 
         <div
           data-testid="booking-experience-preview-service"
-          className="flex items-center justify-between rounded-[12px] border-2 bg-white p-3"
+          className="flex items-center justify-between rounded-[12px] border-2 bg-[var(--owner-surface)] p-3"
           style={{ borderColor: previewStateBorder }}
         >
           <div>
             <div className="font-semibold text-gray-950">Signature manicure</div>
-            <div className="text-xs text-gray-500">45 min</div>
+            <div className="text-xs text-[var(--owner-muted)]">45 min</div>
           </div>
           <span
             className="flex size-6 items-center justify-center rounded-full"
@@ -1087,7 +1100,7 @@ function BookingExperienceEditor({
         </div>
 
         {configuredSocials.some(social => Boolean(social.value)) && (
-          <div className="flex items-center gap-2 border-t border-gray-200 pt-3">
+          <div className="flex items-center gap-2 border-t border-[var(--owner-line)] pt-3">
             {configuredSocials.map((social) => {
               if (!social.value) {
                 return null;
@@ -1097,7 +1110,7 @@ function BookingExperienceEditor({
                 <span
                   key={social.key}
                   aria-label={`${social.label} social icon preview`}
-                  className="flex size-9 items-center justify-center rounded-full border-2 bg-white text-gray-900"
+                  className="flex size-9 items-center justify-center rounded-full border-2 bg-[var(--owner-surface)] text-[var(--owner-ink)]"
                   style={{ borderColor: previewStateBorder }}
                   role="img"
                 >
@@ -1109,22 +1122,22 @@ function BookingExperienceEditor({
         )}
 
         {draft.confirmationMessage && (
-          <div className="border-t border-gray-200 pt-3">
-            <div className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+          <div className="border-t border-[var(--owner-line)] pt-3">
+            <div className="text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
               Confirmation message
             </div>
-            <p className="mt-1 whitespace-pre-line break-words text-sm text-gray-700">
+            <p className="mt-1 whitespace-pre-line break-words text-sm text-[var(--owner-muted)]">
               {draft.confirmationMessage}
             </p>
           </div>
         )}
       </div>
 
-      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-gray-100 pt-4">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[var(--owner-line)] pt-4">
         <button
           type="button"
           onClick={onReset}
-          className="inline-flex items-center gap-2 rounded-[10px] border border-gray-200 px-4 py-2.5 text-sm font-semibold text-gray-700 transition-colors hover:bg-gray-50"
+          className="inline-flex items-center gap-2 rounded-[10px] border border-[var(--owner-line)] px-4 py-2.5 text-sm font-semibold text-[var(--owner-muted)] transition-colors hover:bg-[var(--owner-ground)]"
         >
           <RotateCcw className="size-4" />
           Reset to Default
@@ -1142,7 +1155,7 @@ function BookingExperienceEditor({
             type="button"
             onClick={onSave}
             disabled={saving || !dirty}
-            className="inline-flex items-center gap-2 rounded-[10px] bg-rose-800 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-rose-900 disabled:cursor-not-allowed disabled:opacity-50"
+            className="inline-flex min-h-11 items-center justify-center gap-2 rounded-[10px] bg-[var(--owner-accent)] px-4 text-sm font-semibold text-white outline-none transition-colors hover:bg-[var(--owner-accent-strong)] focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)] disabled:cursor-not-allowed disabled:opacity-50"
           >
             <Save className="size-4" />
             <span>{saving ? 'Saving...' : 'Save booking experience'}</span>
@@ -1218,7 +1231,7 @@ function BookingPolicyEditor({
         className="flex items-center justify-center gap-2 py-8"
         role="status"
       >
-        <div className="size-6 animate-spin rounded-full border-2 border-rose-800 border-t-transparent" />
+        <div className="size-6 animate-spin rounded-full border-2 border-[var(--owner-accent)] border-t-transparent" />
         <span className="sr-only">Loading booking policy settings</span>
       </div>
     );
@@ -1242,7 +1255,7 @@ function BookingPolicyEditor({
         <button
           type="button"
           onClick={onRetryLoad}
-          className="inline-flex items-center gap-2 rounded-[10px] border border-gray-200 px-4 py-2.5 text-sm font-semibold text-gray-800 transition-colors hover:bg-gray-50"
+          className="inline-flex items-center gap-2 rounded-[10px] border border-[var(--owner-line)] px-4 py-2.5 text-sm font-semibold text-gray-800 transition-colors hover:bg-[var(--owner-ground)]"
         >
           <RotateCcw className="size-4" />
           Try again
@@ -1304,13 +1317,13 @@ function BookingPolicyEditor({
         </div>
       )}
 
-      <div className="space-y-4 rounded-[12px] border border-gray-200 bg-white p-4">
+      <div className="space-y-4 rounded-[12px] border border-[var(--owner-line)] bg-[var(--owner-surface)] p-4">
         <label className="flex items-start justify-between gap-3">
           <div>
-            <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+            <span className="text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
               Enable booking policy
             </span>
-            <p className="mt-1 text-sm text-gray-700">
+            <p className="mt-1 text-sm text-[var(--owner-muted)]">
               Publish one canonical policy anywhere you enable below.
             </p>
           </div>
@@ -1343,18 +1356,18 @@ function BookingPolicyEditor({
                 },
               }));
             }}
-            className="mt-1 size-4 rounded border-gray-300 text-rose-800 focus:ring-rose-700"
+            className="mt-1 size-4 rounded border-gray-300 text-[var(--owner-accent)] focus:ring-[var(--owner-focus)]"
           />
         </label>
         {acknowledgmentRequired && (
-          <p id="booking-policy-enabled-help" className="text-xs text-gray-600">
+          <p id="booking-policy-enabled-help" className="text-xs text-[var(--owner-muted)]">
             Acknowledgment is required, so this policy is live. Turning it off
             here also stops asking customers to acknowledge it.
           </p>
         )}
 
         <label className="flex flex-col gap-1">
-          <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+          <span className="text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
             Policy title
           </span>
           <input
@@ -1371,16 +1384,16 @@ function BookingPolicyEditor({
               }))}
             maxLength={60}
             placeholder="Booking policy"
-            className="h-11 rounded-[10px] border border-gray-200 px-3 text-[15px] text-black outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
+            className="h-11 rounded-[10px] border border-[var(--owner-line)] px-3 text-[15px] text-[var(--owner-ink)] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
           />
-          <span className="text-right text-xs text-gray-500">
+          <span className="text-right text-xs text-[var(--owner-muted)]">
             {(draft.policy.title ?? '').length}
             /60
           </span>
         </label>
 
         <label className="flex flex-col gap-1">
-          <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+          <span className="text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
             Full policy text
             {draft.policy.enabled ? ' (required)' : ''}
           </span>
@@ -1399,9 +1412,9 @@ function BookingPolicyEditor({
             maxLength={1500}
             required={draft.policy.enabled}
             placeholder="Explain cancellation, no-show, and deposit expectations."
-            className="w-full resize-y rounded-[10px] border border-gray-200 p-3 text-[15px] leading-relaxed text-black outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
+            className="w-full resize-y rounded-[10px] border border-[var(--owner-line)] p-3 text-[15px] leading-relaxed text-[var(--owner-ink)] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
           />
-          <span className="text-right text-xs text-gray-500">
+          <span className="text-right text-xs text-[var(--owner-muted)]">
             {(draft.policy.text ?? '').length}
             /1,500
           </span>
@@ -1416,7 +1429,7 @@ function BookingPolicyEditor({
           ] as const).map(([key, label]) => (
             <label
               key={key}
-              className="flex items-center gap-2 rounded-[10px] border border-gray-200 px-3 py-2.5 text-sm text-gray-700"
+              className="flex items-center gap-2 rounded-[10px] border border-[var(--owner-line)] px-3 py-2.5 text-sm text-[var(--owner-muted)]"
             >
               <input
                 type="checkbox"
@@ -1439,7 +1452,7 @@ function BookingPolicyEditor({
                       [key]: event.target.checked,
                     },
                   }))}
-                className="size-4 rounded border-gray-300 text-rose-800 focus:ring-rose-700"
+                className="size-4 rounded border-gray-300 text-[var(--owner-accent)] focus:ring-[var(--owner-focus)]"
               />
               {label}
             </label>
@@ -1448,7 +1461,7 @@ function BookingPolicyEditor({
         {acknowledgmentRequired && (
           <p
             id="booking-policy-preconfirm-help"
-            className="text-xs text-gray-600"
+            className="text-xs text-[var(--owner-muted)]"
           >
             The policy must appear before confirmation while acknowledgment is
             required. Turn off Require acknowledgment to change this.
@@ -1456,13 +1469,13 @@ function BookingPolicyEditor({
         )}
       </div>
 
-      <div className="space-y-4 rounded-[12px] border border-gray-200 bg-white p-4">
+      <div className="space-y-4 rounded-[12px] border border-[var(--owner-line)] bg-[var(--owner-surface)] p-4">
         <label className="flex items-start justify-between gap-3">
           <div>
-            <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+            <span className="text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
               Require acknowledgment
             </span>
-            <p className="mt-1 text-sm text-gray-700">
+            <p className="mt-1 text-sm text-[var(--owner-muted)]">
               Ask customers to confirm this policy before creating a new public booking.
             </p>
           </div>
@@ -1486,12 +1499,12 @@ function BookingPolicyEditor({
                 },
               }));
             }}
-            className="mt-1 size-4 rounded border-gray-300 text-rose-800 focus:ring-rose-700"
+            className="mt-1 size-4 rounded border-gray-300 text-[var(--owner-accent)] focus:ring-[var(--owner-focus)]"
           />
         </label>
 
         <label className="flex flex-col gap-1">
-          <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+          <span className="text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
             Acknowledgment wording
             {acknowledgmentRequired ? ' (required)' : ''}
           </span>
@@ -1518,12 +1531,12 @@ function BookingPolicyEditor({
             rows={4}
             required={acknowledgmentRequired}
             placeholder={DEFAULT_BOOKING_POLICY_ACKNOWLEDGMENT_TEXT}
-            className="w-full resize-y rounded-[10px] border border-gray-200 p-3 text-[15px] leading-relaxed text-black outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
+            className="w-full resize-y rounded-[10px] border border-[var(--owner-line)] p-3 text-[15px] leading-relaxed text-[var(--owner-ink)] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
           />
           <div className="flex flex-wrap items-start justify-between gap-2">
             <p
               id="booking-policy-acknowledgment-help"
-              className="max-w-xl text-xs leading-5 text-gray-600"
+              className="max-w-xl text-xs leading-5 text-[var(--owner-muted)]"
             >
               This records that the customer confirmed the policy. It does not authorize
               payments, card storage, cancellation fees, or no-show charges.
@@ -1534,7 +1547,7 @@ function BookingPolicyEditor({
                 acknowledgmentCharacterCount
                 > BOOKING_EXPERIENCE_LIMITS.policyAcknowledgmentText
                   ? 'font-semibold text-red-700'
-                  : 'text-gray-500'
+                  : 'text-[var(--owner-muted)]'
               }`}
             >
               {acknowledgmentCharacterCount}
@@ -1558,7 +1571,7 @@ function BookingPolicyEditor({
                 },
               },
             }))}
-          className="inline-flex items-center rounded-[10px] border border-gray-200 px-3 py-2 text-sm font-semibold text-gray-800 transition-colors hover:bg-gray-50"
+          className="inline-flex items-center rounded-[10px] border border-[var(--owner-line)] px-3 py-2 text-sm font-semibold text-gray-800 transition-colors hover:bg-[var(--owner-ground)]"
         >
           Use suggested wording
         </button>
@@ -1585,12 +1598,12 @@ function BookingPolicyEditor({
         )}
       </div>
 
-      <div className="space-y-3 rounded-[12px] border border-gray-200 bg-white p-4">
+      <div className="space-y-3 rounded-[12px] border border-[var(--owner-line)] bg-[var(--owner-surface)] p-4">
         <div>
-          <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+          <span className="text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
             Quick facts
           </span>
-          <p className="mt-1 text-sm text-gray-700">
+          <p className="mt-1 text-sm text-[var(--owner-muted)]">
             Every badge is explicit. Nothing is inferred from policy wording or
             other salon settings.
           </p>
@@ -1600,9 +1613,9 @@ function BookingPolicyEditor({
           return (
             <div
               key={field.key}
-              className="grid gap-3 rounded-[10px] border border-gray-200 p-3 sm:grid-cols-[auto_1fr]"
+              className="grid gap-3 rounded-[10px] border border-[var(--owner-line)] p-3 sm:grid-cols-[auto_1fr]"
             >
-              <label className="flex items-start gap-2 text-sm font-semibold text-gray-900">
+              <label className="flex items-start gap-2 text-sm font-semibold text-[var(--owner-ink)]">
                 <input
                   aria-label={`Enable ${field.title.toLowerCase()} badge`}
                   type="checkbox"
@@ -1618,7 +1631,7 @@ function BookingPolicyEditor({
                         },
                       },
                     }))}
-                  className="mt-0.5 size-4 rounded border-gray-300 text-rose-800 focus:ring-rose-700"
+                  className="mt-0.5 size-4 rounded border-gray-300 text-[var(--owner-accent)] focus:ring-[var(--owner-focus)]"
                 />
                 {field.title}
               </label>
@@ -1641,9 +1654,9 @@ function BookingPolicyEditor({
                     }))}
                   maxLength={40}
                   placeholder={field.description.replace('Example: ', '')}
-                  className="h-10 rounded-[9px] border border-gray-200 px-3 text-sm text-black outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
+                  className="h-10 rounded-[9px] border border-[var(--owner-line)] px-3 text-sm text-[var(--owner-ink)] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
                 />
-                <span className="text-right text-xs text-gray-500">
+                <span className="text-right text-xs text-[var(--owner-muted)]">
                   {(fact.label ?? '').length}
                   /40
                 </span>
@@ -1655,9 +1668,9 @@ function BookingPolicyEditor({
 
       <div
         data-testid="booking-policy-preview"
-        className="space-y-3 rounded-[14px] border border-gray-200 bg-[#FFF8F5] p-4"
+        className="space-y-3 rounded-[14px] border border-[var(--owner-line)] bg-[var(--owner-ground)] p-4"
       >
-        <div className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+        <div className="text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
           Confirmation preview
         </div>
         {visibleQuickFacts.length > 0 && (
@@ -1680,7 +1693,7 @@ function BookingPolicyEditor({
             </div>
             <p
               id={previewPolicyContentId}
-              className="mt-1 whitespace-pre-line break-words text-sm leading-6 text-gray-700"
+              className="mt-1 whitespace-pre-line break-words text-sm leading-6 text-[var(--owner-muted)]"
             >
               {previewPolicyText}
             </p>
@@ -1699,13 +1712,13 @@ function BookingPolicyEditor({
           </div>
         )}
         {acknowledgmentRequired && acknowledgmentText && (
-          <label className="flex items-start gap-3 rounded-[10px] border border-gray-200 bg-white p-3 text-sm leading-6 text-gray-800">
+          <label className="flex items-start gap-3 rounded-[10px] border border-[var(--owner-line)] bg-[var(--owner-surface)] p-3 text-sm leading-6 text-gray-800">
             <input
               type="checkbox"
               checked={previewAcknowledged}
               onChange={event =>
                 setPreviewAcknowledged(event.target.checked)}
-              className="mt-1 size-4 rounded border-gray-300 text-rose-800 focus:ring-rose-700"
+              className="mt-1 size-4 rounded border-gray-300 text-[var(--owner-accent)] focus:ring-[var(--owner-focus)]"
             />
             <span className="min-w-0 break-words">{acknowledgmentText}</span>
           </label>
@@ -1719,18 +1732,18 @@ function BookingPolicyEditor({
         </button>
       </div>
 
-      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-gray-100 pt-4">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[var(--owner-line)] pt-4">
         <div className="space-y-1">
           <button
             type="button"
             data-testid="booking-policy-reset"
             onClick={onReset}
-            className="inline-flex items-center gap-2 rounded-[10px] border border-gray-200 px-4 py-2.5 text-sm font-semibold text-gray-700 transition-colors hover:bg-gray-50"
+            className="inline-flex items-center gap-2 rounded-[10px] border border-[var(--owner-line)] px-4 py-2.5 text-sm font-semibold text-[var(--owner-muted)] transition-colors hover:bg-[var(--owner-ground)]"
           >
             <RotateCcw className="size-4" />
             Reset policy
           </button>
-          <p className="max-w-xs text-xs leading-5 text-gray-500">
+          <p className="max-w-xs text-xs leading-5 text-[var(--owner-muted)]">
             Clears the wording and turns the policy and its acknowledgment off.
             Save to withdraw it from your booking page.
           </p>
@@ -1749,7 +1762,7 @@ function BookingPolicyEditor({
               || !dirty
               || !acknowledgmentDependenciesValid
             }
-            className="inline-flex items-center gap-2 rounded-[10px] bg-rose-800 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-rose-900 disabled:cursor-not-allowed disabled:opacity-50"
+            className="inline-flex min-h-11 items-center justify-center gap-2 rounded-[10px] bg-[var(--owner-accent)] px-4 text-sm font-semibold text-white outline-none transition-colors hover:bg-[var(--owner-accent-strong)] focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)] disabled:cursor-not-allowed disabled:opacity-50"
           >
             <Save className="size-4" />
             <span>{saving ? 'Saving...' : 'Save booking policy'}</span>
@@ -1927,7 +1940,7 @@ function ComparePlansModal({ isOpen, onClose }: ComparePlansModalProps) {
       onClose={onClose}
       alignClassName="items-end justify-center p-0 sm:items-center sm:p-4"
       maxWidthClassName="max-w-2xl"
-      contentClassName="max-h-[90vh] overflow-hidden rounded-t-[20px] bg-white shadow-xl supports-[height:100dvh]:max-h-[90dvh] sm:rounded-[20px]"
+      contentClassName="max-h-[90vh] overflow-hidden rounded-t-[20px] bg-[var(--owner-surface)] shadow-xl supports-[height:100dvh]:max-h-[90dvh] sm:rounded-[20px]"
     >
       <motion.div
         role="dialog"
@@ -1940,15 +1953,15 @@ function ComparePlansModal({ isOpen, onClose }: ComparePlansModalProps) {
         className="w-full"
       >
         {/* Header */}
-        <div className="flex items-center justify-between border-b border-gray-100 px-5 py-4">
-          <h2 id="compare-plans-title" className="text-lg font-semibold text-gray-900">Compare Plans</h2>
+        <div className="flex items-center justify-between border-b border-[var(--owner-line)] px-5 py-4">
+          <h2 id="compare-plans-title" className="text-lg font-semibold text-[var(--owner-ink)]">Compare Plans</h2>
           <button
             type="button"
             onClick={onClose}
             aria-label="Close compare plans modal"
-            className="flex size-11 items-center justify-center rounded-full bg-gray-100 transition-colors hover:bg-gray-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-950"
+            className="flex size-11 items-center justify-center rounded-full bg-[var(--owner-ground)] transition-colors hover:bg-gray-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-950"
           >
-            <X className="size-4 text-gray-600" />
+            <X className="size-4 text-[var(--owner-muted)]" />
           </button>
         </div>
 
@@ -1958,13 +1971,13 @@ function ComparePlansModal({ isOpen, onClose }: ComparePlansModalProps) {
         <div className="max-h-[calc(90vh-120px)] touch-pan-y overflow-y-auto overscroll-contain p-5 supports-[height:100dvh]:max-h-[calc(90dvh-120px)]">
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
             {BILLING_PLAN_CARDS.map(plan => (
-              <div key={plan.family} className="rounded-xl border-2 border-gray-200 bg-white p-4">
+              <div key={plan.family} className="rounded-xl border-2 border-[var(--owner-line)] bg-[var(--owner-surface)] p-4">
                 <div className="mb-3 text-center">
-                  <h3 className="text-lg font-semibold text-gray-900">{plan.name}</h3>
-                  <div className="mt-1 text-2xl font-bold text-gray-900">{plan.monthly}</div>
-                  <p className="mt-1 text-xs text-gray-500">per month</p>
+                  <h3 className="text-lg font-semibold text-[var(--owner-ink)]">{plan.name}</h3>
+                  <div className="mt-1 text-2xl font-bold text-[var(--owner-ink)]">{plan.monthly}</div>
+                  <p className="mt-1 text-xs text-[var(--owner-muted)]">per month</p>
                 </div>
-                <ul className="space-y-2 text-sm text-gray-700">
+                <ul className="space-y-2 text-sm text-[var(--owner-muted)]">
                   <li className="flex items-center gap-2">
                     <Check className="size-4 shrink-0 text-green-500" />
                     {plan.smsCredits}
@@ -1986,13 +1999,13 @@ function ComparePlansModal({ isOpen, onClose }: ComparePlansModalProps) {
             ))}
           </div>
 
-          <p className="mt-4 text-center text-xs text-gray-500">
+          <p className="mt-4 text-center text-xs text-[var(--owner-muted)]">
             Prices in CAD, plus applicable taxes. Annual plans renew at the
             standard annual price. Your current feature access does not change
             with these plans.
           </p>
 
-          <p className="mt-6 text-center text-xs text-gray-500">
+          <p className="mt-6 text-center text-xs text-[var(--owner-muted)]">
             To change plans, contact Luster at support@islanailsalon.com
           </p>
         </div>
@@ -2046,7 +2059,7 @@ function normalizeSettingsView(value: string | null | undefined): SettingsView {
 const VIEW_TITLES: Record<SettingsView, string> = {
   'index': 'Settings',
   'account': 'Account',
-  'location': 'Locations',
+  'location': 'Location',
   'branding': 'Branding',
   'booking': 'Booking rules',
   'booking-policy': 'Booking policy',
@@ -3850,11 +3863,11 @@ export function SettingsModal({
 
   return (
     <div
-      className="flex min-h-full w-full flex-col bg-[#FFF8F5] font-sans text-black"
+      className="flex min-h-full w-full flex-col bg-[var(--owner-ground)] font-sans text-[var(--owner-ink)]"
       style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}
     >
       {/* Header */}
-      <div className="sticky top-0 z-10 bg-[#FFF8F5]/90 backdrop-blur-md">
+      <div className="sticky top-0 z-10 bg-[var(--owner-ground)] backdrop-blur-md">
         <ModalHeader
           title={VIEW_TITLES[view]}
           leftAction={(
@@ -3924,15 +3937,16 @@ export function SettingsModal({
               */}
               <Row
                 icon={Palette}
-                iconColor="bg-rose-800"
+                iconColor="bg-[var(--owner-accent)]"
                 label="Website layout & colours"
                 value="Opens Booking Page"
                 onClick={() => router.push(`/${locale}/admin/website${salonSlug ? `?salon=${encodeURIComponent(salonSlug)}` : ''}`)}
               />
               <Row
                 icon={MapPin}
-                iconColor="bg-rose-800"
-                label="Locations & directions"
+                iconColor="bg-[var(--owner-accent)]"
+                label="Location"
+                value="Address, contact & hours"
                 onClick={() => openView('location')}
               />
               <Row
@@ -3950,7 +3964,7 @@ export function SettingsModal({
               */}
               <Row
                 icon={Camera}
-                iconColor="bg-rose-800"
+                iconColor="bg-[var(--owner-accent)]"
                 label="Photo & auto-post rules"
                 value="Before & after photos, social posts"
                 onClick={() =>
@@ -4071,7 +4085,7 @@ export function SettingsModal({
             <Section title="Communications">
               <Row
                 icon={MessageSquare}
-                iconColor="bg-rose-800"
+                iconColor="bg-[var(--owner-accent)]"
                 label="Client texts & reminders"
                 onClick={() => openView('communications')}
                 isLast
@@ -4097,7 +4111,7 @@ export function SettingsModal({
               >
                 <Row
                   icon={Plug}
-                  iconColor="bg-rose-700"
+                  iconColor="bg-[var(--owner-accent)]"
                   label="Manage integrations"
                   value="Calendar, text, email"
                   onClick={() => openWorkspaceApp('integrations')}
@@ -4132,11 +4146,11 @@ export function SettingsModal({
               beside it. The row stays; the editing goes to the canonical one.
             */}
             <Section
-              title="Address & directions"
+              title="Location, contact and hours"
               footer="Your address, city and how much of it clients can see are all edited in one place, together with your business name, contact details and hours."
             >
               <div className="space-y-3 p-4" data-testid="settings-location-handoff">
-                <p className="text-sm text-gray-700">
+                <p className="text-sm text-[var(--owner-muted)]">
                   Your salon address is part of your business details in Booking
                   Page → Your Information.
                 </p>
@@ -4148,7 +4162,7 @@ export function SettingsModal({
                     }
                   }}
                   disabled={!informationHubHref}
-                  className="inline-flex min-h-11 items-center gap-2 rounded-[10px] bg-rose-800 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-rose-900 disabled:cursor-not-allowed disabled:opacity-50"
+                  className="inline-flex min-h-11 items-center gap-2 rounded-[10px] bg-[var(--owner-accent)] px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-[var(--owner-accent-strong)] disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   <MapPin className="size-4" />
                   <span>Edit address &amp; privacy</span>
@@ -4168,7 +4182,7 @@ export function SettingsModal({
               title="Page themes"
               footer="Per-page themes for the client-facing pages. Your website's layout and colours live in Booking Page → Style & Colours."
             >
-              <PageThemesSettings className="overflow-visible rounded-[10px] bg-white" />
+              <PageThemesSettings className="overflow-visible rounded-[10px] bg-[var(--owner-surface)]" />
             </Section>
             <Section
               title="Public booking experience"
@@ -4274,14 +4288,14 @@ export function SettingsModal({
             {bookingConfigLoading
               ? (
                   <div className="flex items-center justify-center py-8">
-                    <div className="size-6 animate-spin rounded-full border-2 border-rose-800 border-t-transparent" />
+                    <div className="size-6 animate-spin rounded-full border-2 border-[var(--owner-accent)] border-t-transparent" />
                   </div>
                 )
               : (
                   <div className="space-y-4 p-4">
                     <div className="grid gap-3 sm:grid-cols-2">
                       <label className="flex flex-col gap-1">
-                        <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                        <span className="text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
                           Buffer minutes
                         </span>
                         <input
@@ -4301,12 +4315,12 @@ export function SettingsModal({
                                 ),
                               ),
                             }))}
-                          className="h-11 rounded-[10px] border border-gray-200 px-3 text-[15px] text-black outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
+                          className="h-11 rounded-[10px] border border-[var(--owner-line)] px-3 text-[15px] text-[var(--owner-ink)] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
                         />
                       </label>
 
                       <label className="flex flex-col gap-1">
-                        <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                        <span className="text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
                           Slot interval
                         </span>
                         <select
@@ -4319,7 +4333,7 @@ export function SettingsModal({
                                 10,
                               ) as BookingConfigFormState['slotIntervalMinutes'],
                             }))}
-                          className="h-11 rounded-[10px] border border-gray-200 px-3 text-[15px] text-black outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
+                          className="h-11 rounded-[10px] border border-[var(--owner-line)] px-3 text-[15px] text-[var(--owner-ink)] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
                         >
                           {SLOT_INTERVAL_OPTIONS.map(option => (
                             <option key={option} value={option}>
@@ -4332,7 +4346,7 @@ export function SettingsModal({
                       </label>
 
                       <label className="flex flex-col gap-1">
-                        <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                        <span className="text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
                           Currency
                         </span>
                         <select
@@ -4343,7 +4357,7 @@ export function SettingsModal({
                               currency: event.target
                                 .value as BookingConfigFormState['currency'],
                             }))}
-                          className="h-11 rounded-[10px] border border-gray-200 px-3 text-[15px] text-black outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
+                          className="h-11 rounded-[10px] border border-[var(--owner-line)] px-3 text-[15px] text-[var(--owner-ink)] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
                         >
                           {CURRENCY_OPTIONS.map(option => (
                             <option key={option} value={option}>
@@ -4354,7 +4368,7 @@ export function SettingsModal({
                       </label>
 
                       <label className="flex flex-col gap-1">
-                        <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                        <span className="text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
                           Client change cutoff
                         </span>
                         <div className="relative">
@@ -4376,20 +4390,20 @@ export function SettingsModal({
                                   ),
                                 ),
                               }))}
-                            className="h-11 w-full rounded-[10px] border border-gray-200 px-3 pr-16 text-[15px] text-black outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
+                            className="h-11 w-full rounded-[10px] border border-[var(--owner-line)] px-3 pr-16 text-[15px] text-[var(--owner-ink)] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
                           />
-                          <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-xs font-medium text-gray-500">
+                          <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-xs font-medium text-[var(--owner-muted)]">
                             hours
                           </span>
                         </div>
-                        <span className="text-xs text-gray-500">
+                        <span className="text-xs text-[var(--owner-muted)]">
                           Clients contact you inside this window. Use 0 to allow
                           changes anytime.
                         </span>
                       </label>
 
                       <label className="flex flex-col gap-1">
-                        <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                        <span className="text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
                           Minimum notice
                         </span>
                         <select
@@ -4406,7 +4420,7 @@ export function SettingsModal({
                               minimumNoticeMinutes: Number.parseInt(event.target.value, 10),
                             }));
                           }}
-                          className="h-11 rounded-[10px] border border-gray-200 bg-white px-3 text-[15px] text-black outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
+                          className="h-11 rounded-[10px] border border-[var(--owner-line)] bg-[var(--owner-surface)] px-3 text-[15px] text-[var(--owner-ink)] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
                         >
                           {MINIMUM_NOTICE_OPTIONS.map(option => (
                             <option key={option.minutes} value={option.minutes}>
@@ -4436,20 +4450,20 @@ export function SettingsModal({
                                     ),
                                   ),
                                 }))}
-                              className="h-11 w-full rounded-[10px] border border-gray-200 px-3 pr-20 text-[15px] text-black outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
+                              className="h-11 w-full rounded-[10px] border border-[var(--owner-line)] px-3 pr-20 text-[15px] text-[var(--owner-ink)] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
                             />
-                            <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-xs font-medium text-gray-500">
+                            <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-xs font-medium text-[var(--owner-muted)]">
                               minutes
                             </span>
                           </div>
                         )}
-                        <span className="text-xs text-gray-500" data-testid="minimum-notice-current">
+                        <span className="text-xs text-[var(--owner-muted)]" data-testid="minimum-notice-current">
                           {`Now: ${formatMinimumNotice(bookingConfigForm.minimumNoticeMinutes)}. Clients cannot book a time closer than this — your public times start after it.`}
                         </span>
                       </label>
 
                       <label className="flex flex-col gap-1">
-                        <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                        <span className="text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
                           Timezone
                         </span>
                         {/* A typo here silently shifts every booking slot, so the
@@ -4461,7 +4475,7 @@ export function SettingsModal({
                               ...prev,
                               timezone: event.target.value,
                             }))}
-                          className="h-11 rounded-[10px] border border-gray-200 bg-white px-3 text-[15px] text-black outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
+                          className="h-11 rounded-[10px] border border-[var(--owner-line)] bg-[var(--owner-surface)] px-3 text-[15px] text-[var(--owner-ink)] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
                         >
                           {getTimeZoneOptions(bookingConfigForm.timezone).map(zone => (
                             <option key={zone} value={zone}>{zone.replace(/_/g, ' ')}</option>
@@ -4470,7 +4484,7 @@ export function SettingsModal({
                       </label>
 
                       <label className="flex flex-col gap-1 sm:col-span-2">
-                        <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                        <span className="text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
                           Default intro label
                         </span>
                         <input
@@ -4481,17 +4495,17 @@ export function SettingsModal({
                               ...prev,
                               introPriceDefaultLabel: event.target.value,
                             }))}
-                          className="h-11 rounded-[10px] border border-gray-200 px-3 text-[15px] text-black outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
+                          className="h-11 rounded-[10px] border border-[var(--owner-line)] px-3 text-[15px] text-[var(--owner-ink)] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
                           placeholder="Founding Client Price"
                         />
                       </label>
 
-                      <label className="flex items-start justify-between gap-3 rounded-[10px] border border-gray-200 p-3 sm:col-span-2">
+                      <label className="flex items-start justify-between gap-3 rounded-[10px] border border-[var(--owner-line)] p-3 sm:col-span-2">
                         <div className="space-y-1">
-                          <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                          <span className="text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
                             First-visit offer
                           </span>
-                          <p className="text-sm text-gray-700">
+                          <p className="text-sm text-[var(--owner-muted)]">
                             Offer 25% off for first-time clients automatically during
                             booking.
                           </p>
@@ -4504,16 +4518,16 @@ export function SettingsModal({
                               ...prev,
                               firstVisitDiscountEnabled: event.target.checked,
                             }))}
-                          className="mt-1 size-4 rounded border-gray-300 text-rose-800 focus:ring-rose-700"
+                          className="mt-1 size-4 rounded border-gray-300 text-[var(--owner-accent)] focus:ring-[var(--owner-focus)]"
                         />
                       </label>
 
-                      <label className="flex items-start justify-between gap-3 rounded-[10px] border border-gray-200 p-3 sm:col-span-2">
+                      <label className="flex items-start justify-between gap-3 rounded-[10px] border border-[var(--owner-line)] p-3 sm:col-span-2">
                         <div className="space-y-1">
-                          <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                          <span className="text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
                             Feature Luster Manicure
                           </span>
-                          <p className="text-sm text-gray-700">
+                          <p className="text-sm text-[var(--owner-muted)]">
                             Show your active Luster Manicure first in Featured
                             Services.
                           </p>
@@ -4527,16 +4541,16 @@ export function SettingsModal({
                             setBookingConfigDirty(true);
                             setBookingConfigSaved(false);
                           }}
-                          className="mt-1 size-4 rounded border-gray-300 text-rose-800 focus:ring-rose-700"
+                          className="mt-1 size-4 rounded border-gray-300 text-[var(--owner-accent)] focus:ring-[var(--owner-focus)]"
                         />
                       </label>
 
-                      <label className="flex items-start justify-between gap-3 rounded-[10px] border border-gray-200 p-3 sm:col-span-2">
+                      <label className="flex items-start justify-between gap-3 rounded-[10px] border border-[var(--owner-line)] p-3 sm:col-span-2">
                         <div className="space-y-1">
-                          <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                          <span className="text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
                             Show service images
                           </span>
-                          <p className="text-sm text-gray-700">
+                          <p className="text-sm text-[var(--owner-muted)]">
                             Show uploaded service images on your public booking
                             page. Turning this off keeps uploads stored.
                           </p>
@@ -4550,13 +4564,13 @@ export function SettingsModal({
                             setBookingConfigDirty(true);
                             setBookingConfigSaved(false);
                           }}
-                          className="mt-1 size-4 rounded border-gray-300 text-rose-800 focus:ring-rose-700"
+                          className="mt-1 size-4 rounded border-gray-300 text-[var(--owner-accent)] focus:ring-[var(--owner-focus)]"
                         />
                       </label>
                     </div>
 
-                    <div className="flex items-center justify-between gap-3 border-t border-gray-100 pt-3">
-                      <div className="text-xs text-gray-500">
+                    <div className="flex items-center justify-between gap-3 border-t border-[var(--owner-line)] pt-3">
+                      <div className="text-xs text-[var(--owner-muted)]">
                         Applies to slot generation and intro badges when a service
                         does not define its own label.
                       </div>
@@ -4564,7 +4578,7 @@ export function SettingsModal({
                         type="button"
                         onClick={() => void saveBookingConfig()}
                         disabled={bookingConfigSaving || !bookingConfigDirty}
-                        className="inline-flex items-center gap-2 rounded-[10px] bg-rose-800 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-rose-900 disabled:cursor-not-allowed disabled:opacity-50"
+                        className="inline-flex min-h-11 items-center justify-center gap-2 rounded-[10px] bg-[var(--owner-accent)] px-4 text-sm font-semibold text-white outline-none transition-colors hover:bg-[var(--owner-accent-strong)] focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)] disabled:cursor-not-allowed disabled:opacity-50"
                       >
                         <Save className="size-4" />
                         <span>
@@ -4591,7 +4605,7 @@ export function SettingsModal({
             {bookingFlowLoading
               ? (
                   <div className="flex items-center justify-center py-8">
-                    <div className="size-6 animate-spin rounded-full border-2 border-rose-800 border-t-transparent" />
+                    <div className="size-6 animate-spin rounded-full border-2 border-[var(--owner-accent)] border-t-transparent" />
                   </div>
                 )
               : (
@@ -4628,17 +4642,17 @@ export function SettingsModal({
               {programsLoading
                 ? (
                     <div className="flex items-center justify-center py-8">
-                      <div className="size-6 animate-spin rounded-full border-2 border-rose-800 border-t-transparent" />
+                      <div className="size-6 animate-spin rounded-full border-2 border-[var(--owner-accent)] border-t-transparent" />
                     </div>
                   )
                 : (
                     <div className="space-y-4 p-4">
-                      <label className="flex items-start justify-between gap-3 rounded-[10px] border border-gray-200 p-3">
+                      <label className="flex items-start justify-between gap-3 rounded-[10px] border border-[var(--owner-line)] p-3">
                         <div className="space-y-1">
-                          <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                          <span className="text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
                             Charge tax
                           </span>
-                          <p className="text-sm text-gray-700">
+                          <p className="text-sm text-[var(--owner-muted)]">
                             Add tax at checkout when completing appointments.
                           </p>
                         </div>
@@ -4651,14 +4665,14 @@ export function SettingsModal({
                               ...prev,
                               taxEnabled: event.target.checked,
                             }))}
-                          className="mt-1 size-4 rounded border-gray-300 text-rose-800 focus:ring-rose-700"
+                          className="mt-1 size-4 rounded border-gray-300 text-[var(--owner-accent)] focus:ring-[var(--owner-focus)]"
                         />
                       </label>
 
                       {paymentsForm.taxEnabled && (
                         <div className="grid gap-3 sm:grid-cols-2">
                           <label className="flex flex-col gap-1">
-                            <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                            <span className="text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
                               Tax name
                             </span>
                             <input
@@ -4672,12 +4686,12 @@ export function SettingsModal({
                                 }))}
                               placeholder="HST"
                               maxLength={40}
-                              className="h-11 rounded-[10px] border border-gray-200 px-3 text-[15px] text-black outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
+                              className="h-11 rounded-[10px] border border-[var(--owner-line)] px-3 text-[15px] text-[var(--owner-ink)] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
                             />
                           </label>
 
                           <label className="flex flex-col gap-1">
-                            <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                            <span className="text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
                               Tax rate
                             </span>
                             <div className="relative">
@@ -4692,21 +4706,21 @@ export function SettingsModal({
                                     taxRatePercent: event.target.value.replace(/[^0-9.]/g, ''),
                                   }))}
                                 placeholder="13"
-                                className="h-11 w-full rounded-[10px] border border-gray-200 px-3 pr-10 text-[15px] text-black outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
+                                className="h-11 w-full rounded-[10px] border border-[var(--owner-line)] px-3 pr-10 text-[15px] text-[var(--owner-ink)] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
                               />
-                              <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-xs font-medium text-gray-500">
+                              <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-xs font-medium text-[var(--owner-muted)]">
                                 %
                               </span>
                             </div>
                           </label>
 
-                          <div className="rounded-[10px] border border-gray-200 p-3 sm:col-span-2">
-                            <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                          <div className="rounded-[10px] border border-[var(--owner-line)] p-3 sm:col-span-2">
+                            <span className="text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
                               Reporting jurisdiction
                             </span>
                             <div className="mt-2 grid gap-3 sm:grid-cols-3">
                               <label className="flex flex-col gap-1">
-                                <span className="text-xs text-gray-500">Jurisdiction label</span>
+                                <span className="text-xs text-[var(--owner-muted)]">Jurisdiction label</span>
                                 <input
                                   type="text"
                                   data-testid="payments-tax-jurisdiction"
@@ -4718,11 +4732,11 @@ export function SettingsModal({
                                     }))}
                                   placeholder="Ontario HST"
                                   maxLength={120}
-                                  className="h-11 rounded-[10px] border border-gray-200 px-3 text-[15px] text-black outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
+                                  className="h-11 rounded-[10px] border border-[var(--owner-line)] px-3 text-[15px] text-[var(--owner-ink)] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
                                 />
                               </label>
                               <label className="flex flex-col gap-1">
-                                <span className="text-xs text-gray-500">Country code</span>
+                                <span className="text-xs text-[var(--owner-muted)]">Country code</span>
                                 <input
                                   type="text"
                                   data-testid="payments-tax-country"
@@ -4734,11 +4748,11 @@ export function SettingsModal({
                                     }))}
                                   placeholder="CA"
                                   maxLength={120}
-                                  className="h-11 rounded-[10px] border border-gray-200 px-3 text-[15px] uppercase text-black outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
+                                  className="h-11 rounded-[10px] border border-[var(--owner-line)] px-3 text-[15px] uppercase text-[var(--owner-ink)] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
                                 />
                               </label>
                               <label className="flex flex-col gap-1">
-                                <span className="text-xs text-gray-500">Province / region code</span>
+                                <span className="text-xs text-[var(--owner-muted)]">Province / region code</span>
                                 <input
                                   type="text"
                                   data-testid="payments-tax-region"
@@ -4750,28 +4764,28 @@ export function SettingsModal({
                                     }))}
                                   placeholder="ON"
                                   maxLength={120}
-                                  className="h-11 rounded-[10px] border border-gray-200 px-3 text-[15px] uppercase text-black outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
+                                  className="h-11 rounded-[10px] border border-[var(--owner-line)] px-3 text-[15px] uppercase text-[var(--owner-ink)] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
                                 />
                               </label>
                             </div>
-                            <p className="mt-2 text-xs text-gray-500">
+                            <p className="mt-2 text-xs text-[var(--owner-muted)]">
                               Used for reporting only. The reviewed Ontario estimate requires
                               Canada (CA) and Ontario (ON); other or missing locations report
                               forfeited deposits at their gross amount without an estimated tax component.
                             </p>
                           </div>
 
-                          <label className="flex items-start justify-between gap-3 rounded-[10px] border border-gray-200 p-3 sm:col-span-2">
+                          <label className="flex items-start justify-between gap-3 rounded-[10px] border border-[var(--owner-line)] p-3 sm:col-span-2">
                             <div className="space-y-1">
-                              <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                              <span className="text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
                                 Estimate tax included in forfeited deposits
                               </span>
-                              <p className="text-sm text-gray-700">
+                              <p className="text-sm text-[var(--owner-muted)]">
                                 Opt in to an estimated tax-inclusive component when a
                                 collected deposit is retained. This is an estimate from
                                 your settings, not a filing or remittance calculation.
                               </p>
-                              <p className="text-xs text-gray-500">
+                              <p className="text-xs text-[var(--owner-muted)]">
                                 {hasReviewedForfeitureTaxTreatment({
                                   country: paymentsForm.taxCountry,
                                   region: paymentsForm.taxRegion,
@@ -4789,16 +4803,16 @@ export function SettingsModal({
                                   ...prev,
                                   forfeitureTaxEstimationEnabled: event.target.checked,
                                 }))}
-                              className="mt-1 size-4 rounded border-gray-300 text-rose-800 focus:ring-rose-700"
+                              className="mt-1 size-4 rounded border-gray-300 text-[var(--owner-accent)] focus:ring-[var(--owner-focus)]"
                             />
                           </label>
 
-                          <label className="flex items-start justify-between gap-3 rounded-[10px] border border-gray-200 p-3 sm:col-span-2">
+                          <label className="flex items-start justify-between gap-3 rounded-[10px] border border-[var(--owner-line)] p-3 sm:col-span-2">
                             <div className="space-y-1">
-                              <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                              <span className="text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
                                 Prices include tax
                               </span>
-                              <p className="text-sm text-gray-700">
+                              <p className="text-sm text-[var(--owner-muted)]">
                                 On: your listed prices already include tax. Off: tax is
                                 added at checkout.
                               </p>
@@ -4812,12 +4826,12 @@ export function SettingsModal({
                                   ...prev,
                                   pricesIncludeTax: event.target.checked,
                                 }))}
-                              className="mt-1 size-4 rounded border-gray-300 text-rose-800 focus:ring-rose-700"
+                              className="mt-1 size-4 rounded border-gray-300 text-[var(--owner-accent)] focus:ring-[var(--owner-focus)]"
                             />
                           </label>
 
-                          <div className="rounded-[10px] border border-gray-200 p-3 sm:col-span-2">
-                            <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                          <div className="rounded-[10px] border border-[var(--owner-line)] p-3 sm:col-span-2">
+                            <span className="text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
                               Taxable by default
                             </span>
                             <div className="mt-2 space-y-2">
@@ -4827,7 +4841,7 @@ export function SettingsModal({
                                 ['taxCustomByDefault', 'Custom items'],
                               ] as const).map(([key, label]) => (
                                 <label key={key} className="flex items-center justify-between gap-3">
-                                  <span className="text-sm text-gray-700">{label}</span>
+                                  <span className="text-sm text-[var(--owner-muted)]">{label}</span>
                                   <input
                                     type="checkbox"
                                     checked={paymentsForm[key]}
@@ -4836,23 +4850,23 @@ export function SettingsModal({
                                         ...prev,
                                         [key]: event.target.checked,
                                       }))}
-                                    className="size-4 rounded border-gray-300 text-rose-800 focus:ring-rose-700"
+                                    className="size-4 rounded border-gray-300 text-[var(--owner-accent)] focus:ring-[var(--owner-focus)]"
                                   />
                                 </label>
                               ))}
                             </div>
-                            <p className="mt-2 text-xs text-gray-500">
+                            <p className="mt-2 text-xs text-[var(--owner-muted)]">
                               You can still change tax on individual items at checkout.
                             </p>
                           </div>
 
-                          <div className="rounded-[10px] border border-gray-200 p-3 sm:col-span-2">
-                            <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                          <div className="rounded-[10px] border border-[var(--owner-line)] p-3 sm:col-span-2">
+                            <span className="text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
                               Scheduled rate change
                             </span>
                             <div className="mt-2 grid gap-3 sm:grid-cols-2">
                               <label className="flex flex-col gap-1">
-                                <span className="text-xs text-gray-500">New rate</span>
+                                <span className="text-xs text-[var(--owner-muted)]">New rate</span>
                                 <div className="relative">
                                   <input
                                     type="text"
@@ -4865,15 +4879,15 @@ export function SettingsModal({
                                         scheduledRatePercent: event.target.value.replace(/[^0-9.]/g, ''),
                                       }))}
                                     placeholder="15"
-                                    className="h-11 w-full rounded-[10px] border border-gray-200 px-3 pr-10 text-[15px] text-black outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
+                                    className="h-11 w-full rounded-[10px] border border-[var(--owner-line)] px-3 pr-10 text-[15px] text-[var(--owner-ink)] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
                                   />
-                                  <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-xs font-medium text-gray-500">
+                                  <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-xs font-medium text-[var(--owner-muted)]">
                                     %
                                   </span>
                                 </div>
                               </label>
                               <label className="flex flex-col gap-1">
-                                <span className="text-xs text-gray-500">Effective from</span>
+                                <span className="text-xs text-[var(--owner-muted)]">Effective from</span>
                                 <input
                                   type="date"
                                   data-testid="payments-tax-scheduled-date"
@@ -4883,11 +4897,11 @@ export function SettingsModal({
                                       ...prev,
                                       scheduledEffectiveFrom: event.target.value,
                                     }))}
-                                  className="h-11 rounded-[10px] border border-gray-200 px-3 text-[15px] text-black outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
+                                  className="h-11 rounded-[10px] border border-[var(--owner-line)] px-3 text-[15px] text-[var(--owner-ink)] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
                                 />
                               </label>
                             </div>
-                            <p className="mt-2 text-xs text-gray-500">
+                            <p className="mt-2 text-xs text-[var(--owner-muted)]">
                               Checkouts on or after this date use the new rate.
                               Appointments completed earlier keep the old rate. Leave
                               blank to cancel a scheduled change.
@@ -4906,17 +4920,17 @@ export function SettingsModal({
               {programsLoading
                 ? (
                     <div className="flex items-center justify-center py-8">
-                      <div className="size-6 animate-spin rounded-full border-2 border-rose-800 border-t-transparent" />
+                      <div className="size-6 animate-spin rounded-full border-2 border-[var(--owner-accent)] border-t-transparent" />
                     </div>
                   )
                 : (
                     <div className="space-y-4 p-4">
-                      <label className="flex items-start justify-between gap-3 rounded-[10px] border border-gray-200 p-3">
+                      <label className="flex items-start justify-between gap-3 rounded-[10px] border border-[var(--owner-line)] p-3">
                         <div className="space-y-1">
-                          <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                          <span className="text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
                             Accept e-Transfer
                           </span>
-                          <p className="text-sm text-gray-700">
+                          <p className="text-sm text-[var(--owner-muted)]">
                             Show e-Transfer instructions at checkout.
                           </p>
                         </div>
@@ -4929,14 +4943,14 @@ export function SettingsModal({
                               ...prev,
                               etransferEnabled: event.target.checked,
                             }))}
-                          className="mt-1 size-4 rounded border-gray-300 text-rose-800 focus:ring-rose-700"
+                          className="mt-1 size-4 rounded border-gray-300 text-[var(--owner-accent)] focus:ring-[var(--owner-focus)]"
                         />
                       </label>
 
                       {paymentsForm.etransferEnabled && (
                         <div className="grid gap-3 sm:grid-cols-2">
                           <label className="flex flex-col gap-1">
-                            <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                            <span className="text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
                               Recipient email or mobile
                             </span>
                             <input
@@ -4950,12 +4964,12 @@ export function SettingsModal({
                                 }))}
                               placeholder="pay@yoursalon.ca"
                               maxLength={200}
-                              className="h-11 rounded-[10px] border border-gray-200 px-3 text-[15px] text-black outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
+                              className="h-11 rounded-[10px] border border-[var(--owner-line)] px-3 text-[15px] text-[var(--owner-ink)] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
                             />
                           </label>
 
                           <label className="flex flex-col gap-1">
-                            <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                            <span className="text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
                               Display name
                             </span>
                             <input
@@ -4968,16 +4982,16 @@ export function SettingsModal({
                                 }))}
                               placeholder="Your salon name"
                               maxLength={120}
-                              className="h-11 rounded-[10px] border border-gray-200 px-3 text-[15px] text-black outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
+                              className="h-11 rounded-[10px] border border-[var(--owner-line)] px-3 text-[15px] text-[var(--owner-ink)] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
                             />
                           </label>
 
-                          <label className="flex items-start justify-between gap-3 rounded-[10px] border border-gray-200 p-3 sm:col-span-2">
+                          <label className="flex items-start justify-between gap-3 rounded-[10px] border border-[var(--owner-line)] p-3 sm:col-span-2">
                             <div className="space-y-1">
-                              <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                              <span className="text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
                                 Autodeposit is on
                               </span>
-                              <p className="text-sm text-gray-700">
+                              <p className="text-sm text-[var(--owner-muted)]">
                                 Informational only — shown to clients so they know no
                                 security question is needed.
                               </p>
@@ -4990,12 +5004,12 @@ export function SettingsModal({
                                   ...prev,
                                   etransferAutodeposit: event.target.checked,
                                 }))}
-                              className="mt-1 size-4 rounded border-gray-300 text-rose-800 focus:ring-rose-700"
+                              className="mt-1 size-4 rounded border-gray-300 text-[var(--owner-accent)] focus:ring-[var(--owner-focus)]"
                             />
                           </label>
 
                           <label className="flex flex-col gap-1 sm:col-span-2">
-                            <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                            <span className="text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
                               Instructions
                             </span>
                             <textarea
@@ -5008,16 +5022,16 @@ export function SettingsModal({
                               rows={3}
                               maxLength={1000}
                               placeholder="Please include the appointment reference in the message field."
-                              className="rounded-[10px] border border-gray-200 px-3 py-2 text-[15px] text-black outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
+                              className="rounded-[10px] border border-[var(--owner-line)] px-3 py-2 text-[15px] text-[var(--owner-ink)] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
                             />
                           </label>
 
-                          <label className="flex items-start justify-between gap-3 rounded-[10px] border border-gray-200 p-3">
+                          <label className="flex items-start justify-between gap-3 rounded-[10px] border border-[var(--owner-line)] p-3">
                             <div className="space-y-1">
-                              <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                              <span className="text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
                                 Require reference
                               </span>
-                              <p className="text-sm text-gray-700">
+                              <p className="text-sm text-[var(--owner-muted)]">
                                 Ask clients to include the appointment reference.
                               </p>
                             </div>
@@ -5029,16 +5043,16 @@ export function SettingsModal({
                                   ...prev,
                                   etransferRequireReference: event.target.checked,
                                 }))}
-                              className="mt-1 size-4 rounded border-gray-300 text-rose-800 focus:ring-rose-700"
+                              className="mt-1 size-4 rounded border-gray-300 text-[var(--owner-accent)] focus:ring-[var(--owner-focus)]"
                             />
                           </label>
 
-                          <label className="flex items-start justify-between gap-3 rounded-[10px] border border-gray-200 p-3">
+                          <label className="flex items-start justify-between gap-3 rounded-[10px] border border-[var(--owner-line)] p-3">
                             <div className="space-y-1">
-                              <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                              <span className="text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
                                 Payment QR page
                               </span>
-                              <p className="text-sm text-gray-700">
+                              <p className="text-sm text-[var(--owner-muted)]">
                                 Let clients scan a QR code that opens payment
                                 instructions.
                               </p>
@@ -5052,7 +5066,7 @@ export function SettingsModal({
                                   ...prev,
                                   etransferQrEnabled: event.target.checked,
                                 }))}
-                              className="mt-1 size-4 rounded border-gray-300 text-rose-800 focus:ring-rose-700"
+                              className="mt-1 size-4 rounded border-gray-300 text-[var(--owner-accent)] focus:ring-[var(--owner-focus)]"
                             />
                           </label>
                         </div>
@@ -5069,7 +5083,7 @@ export function SettingsModal({
               {programsLoading
                 ? (
                     <div className="flex items-center justify-center py-8">
-                      <div className="size-6 animate-spin rounded-full border-2 border-rose-800 border-t-transparent" />
+                      <div className="size-6 animate-spin rounded-full border-2 border-[var(--owner-accent)] border-t-transparent" />
                     </div>
                   )
                 : (
@@ -5081,7 +5095,7 @@ export function SettingsModal({
                       */}
                       <p
                         data-testid="deposits-status"
-                        className="rounded-[10px] border border-gray-200 bg-gray-50 p-3 text-sm text-gray-700"
+                        className="rounded-[10px] border border-[var(--owner-line)] bg-[var(--owner-ground)] p-3 text-sm text-[var(--owner-muted)]"
                       >
                         {depositPolicy === null
                           ? 'Checking your deposit setup...'
@@ -5135,7 +5149,7 @@ export function SettingsModal({
                       {depositPolicy?.readinessStale && (
                         <p
                           data-testid="deposits-readiness-age"
-                          className="text-xs text-gray-500"
+                          className="text-xs text-[var(--owner-muted)]"
                         >
                           {depositPolicy.readinessAgeMs === null
                             ? 'Stripe status has not been confirmed yet.'
@@ -5143,12 +5157,12 @@ export function SettingsModal({
                         </p>
                       )}
 
-                      <label className="flex items-start justify-between gap-3 rounded-[10px] border border-gray-200 p-3">
+                      <label className="flex items-start justify-between gap-3 rounded-[10px] border border-[var(--owner-line)] p-3">
                         <div className="space-y-1">
-                          <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                          <span className="text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
                             Require a deposit
                           </span>
-                          <p className="text-sm text-gray-700">
+                          <p className="text-sm text-[var(--owner-muted)]">
                             {depositPolicy?.active
                               ? 'Clients are asked for this deposit as they book.'
                               : 'Records that you want a deposit. Clients are only asked for one once the steps above are done.'}
@@ -5163,12 +5177,12 @@ export function SettingsModal({
                             setDepositEnabledDirty(true);
                             setDepositSaved(false);
                           }}
-                          className="mt-1 size-4 rounded border-gray-300 text-rose-800 focus:ring-rose-700"
+                          className="mt-1 size-4 rounded border-gray-300 text-[var(--owner-accent)] focus:ring-[var(--owner-focus)]"
                         />
                       </label>
 
                       <label className="flex flex-col gap-1">
-                        <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                        <span className="text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
                           Deposit amount
                         </span>
                         <input
@@ -5181,12 +5195,12 @@ export function SettingsModal({
                             setDepositAmountDirty(true);
                             setDepositSaved(false);
                           }}
-                          className="rounded-[10px] border border-gray-200 px-3 py-2 text-sm"
+                          className="rounded-[10px] border border-[var(--owner-line)] px-3 py-2 text-sm"
                         />
                       </label>
 
                       {depositAmountInput.trim() !== '' && (
-                        <p data-testid="deposits-clamp-notice" className="text-xs text-gray-500">
+                        <p data-testid="deposits-clamp-notice" className="text-xs text-[var(--owner-muted)]">
                           {depositCardNotices.clampNotice}
                         </p>
                       )}
@@ -5209,7 +5223,7 @@ export function SettingsModal({
                         </p>
                       )}
 
-                      <div className="flex items-center justify-end gap-3 border-t border-gray-100 pt-3">
+                      <div className="flex items-center justify-end gap-3 border-t border-[var(--owner-line)] pt-3">
                         <button
                           type="button"
                           data-testid="deposits-save"
@@ -5218,7 +5232,7 @@ export function SettingsModal({
                             depositSaving
                             || (!depositEnabledDirty && !depositAmountDirty)
                           }
-                          className="inline-flex items-center gap-2 rounded-[10px] bg-rose-800 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-rose-900 disabled:cursor-not-allowed disabled:opacity-50"
+                          className="inline-flex min-h-11 items-center justify-center gap-2 rounded-[10px] bg-[var(--owner-accent)] px-4 text-sm font-semibold text-white outline-none transition-colors hover:bg-[var(--owner-accent-strong)] focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)] disabled:cursor-not-allowed disabled:opacity-50"
                         >
                           <Save className="size-4" />
                           <span>{depositSaving ? 'Saving...' : 'Save deposits'}</span>
@@ -5257,7 +5271,7 @@ export function SettingsModal({
                     data-testid="payments-save"
                     onClick={() => void savePayments()}
                     disabled={paymentsSaving || !paymentsDirty}
-                    className="inline-flex items-center gap-2 rounded-[10px] bg-rose-800 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-rose-900 disabled:cursor-not-allowed disabled:opacity-50"
+                    className="inline-flex min-h-11 items-center justify-center gap-2 rounded-[10px] bg-[var(--owner-accent)] px-4 text-sm font-semibold text-white outline-none transition-colors hover:bg-[var(--owner-accent-strong)] focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)] disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     <Save className="size-4" />
                     <span className="whitespace-nowrap">
@@ -5265,7 +5279,7 @@ export function SettingsModal({
                     </span>
                   </button>
                 </div>
-                <p className="text-xs leading-5 text-gray-500">
+                <p className="text-xs leading-5 text-[var(--owner-muted)]">
                   Saves the Sales tax and Interac e-Transfer cards. Deposits
                   save on their own button. Applies to new checkouts only —
                   completed appointments are never recalculated.
@@ -5282,7 +5296,7 @@ export function SettingsModal({
             <Section title="Channels">
               <div className="space-y-3 p-4">
                 <label className="flex min-h-[44px] items-center justify-between gap-3">
-                  <span className="text-[15px] text-black">Email to clients</span>
+                  <span className="text-[15px] text-[var(--owner-ink)]">Email to clients</span>
                   <input
                     type="checkbox"
                     className="size-5 accent-rose-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-950"
@@ -5294,7 +5308,7 @@ export function SettingsModal({
                   />
                 </label>
                 <label className="flex min-h-[44px] items-center justify-between gap-3">
-                  <span className="text-[15px] text-black">
+                  <span className="text-[15px] text-[var(--owner-ink)]">
                     Text messages to clients
                     {!bookingNotificationCapabilities.smsChannelAvailable && (
                       <>
@@ -5334,7 +5348,7 @@ export function SettingsModal({
                   </p>
                 )}
                 {communicationsForm.rules.map((rule, index) => (
-                  <div key={rule.id} className="flex flex-wrap items-center gap-2 rounded-lg border border-gray-100 p-3">
+                  <div key={rule.id} className="flex flex-wrap items-center gap-2 rounded-lg border border-[var(--owner-line)] p-3">
                     <input
                       type="checkbox"
                       aria-label={`Reminder ${index + 1} enabled`}
@@ -5351,7 +5365,7 @@ export function SettingsModal({
                     />
                     <select
                       aria-label={`Reminder ${index + 1} timing`}
-                      className="h-9 rounded-md border border-gray-200 bg-white px-2 text-[14px] transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-950 motion-reduce:transition-none"
+                      className="h-9 rounded-md border border-[var(--owner-line)] bg-[var(--owner-surface)] px-2 text-[14px] transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-950 motion-reduce:transition-none"
                       value={String(rule.offsetMinutes)}
                       onChange={(event) => {
                         const offsetMinutes = Number(event.target.value);
@@ -5371,7 +5385,7 @@ export function SettingsModal({
                     </select>
                     <select
                       aria-label={`Reminder ${index + 1} channel`}
-                      className="h-9 rounded-md border border-gray-200 bg-white px-2 text-[14px] transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-950 motion-reduce:transition-none"
+                      className="h-9 rounded-md border border-[var(--owner-line)] bg-[var(--owner-surface)] px-2 text-[14px] transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-950 motion-reduce:transition-none"
                       value={rule.channels}
                       onChange={(event) => {
                         const channels = event.target.value as 'sms' | 'email' | 'both';
@@ -5409,7 +5423,7 @@ export function SettingsModal({
                 {communicationsForm.rules.length < 3 && (
                   <button
                     type="button"
-                    className="text-[14px] font-medium text-rose-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-950"
+                    className="text-[14px] font-medium text-[var(--owner-accent)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-950"
                     onClick={() => {
                       setCommunicationsForm(current => ({
                         ...current,
@@ -5439,7 +5453,7 @@ export function SettingsModal({
             <Section title="Quiet hours">
               <div className="space-y-3 p-4">
                 <label className="flex min-h-[44px] items-center justify-between gap-3">
-                  <span className="text-[15px] text-black">Hold texts overnight</span>
+                  <span className="text-[15px] text-[var(--owner-ink)]">Hold texts overnight</span>
                   <input
                     type="checkbox"
                     className="size-5 accent-rose-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-950"
@@ -5455,12 +5469,12 @@ export function SettingsModal({
                 </label>
                 {communicationsForm.quietHours.enabled && (
                   <div className="flex items-center gap-3">
-                    <label className="flex items-center gap-2 text-[14px] text-black">
+                    <label className="flex items-center gap-2 text-[14px] text-[var(--owner-ink)]">
                       From
                       <input
                         type="time"
                         aria-label="Quiet hours start"
-                        className="h-9 rounded-md border border-gray-200 px-2 text-[14px] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-950"
+                        className="h-9 rounded-md border border-[var(--owner-line)] px-2 text-[14px] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-950"
                         value={communicationsForm.quietHours.start}
                         onChange={(event) => {
                           setCommunicationsForm(current => ({
@@ -5471,12 +5485,12 @@ export function SettingsModal({
                         }}
                       />
                     </label>
-                    <label className="flex items-center gap-2 text-[14px] text-black">
+                    <label className="flex items-center gap-2 text-[14px] text-[var(--owner-ink)]">
                       to
                       <input
                         type="time"
                         aria-label="Quiet hours end"
-                        className="h-9 rounded-md border border-gray-200 px-2 text-[14px] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-950"
+                        className="h-9 rounded-md border border-[var(--owner-line)] px-2 text-[14px] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-950"
                         value={communicationsForm.quietHours.end}
                         onChange={(event) => {
                           setCommunicationsForm(current => ({
@@ -5502,7 +5516,7 @@ export function SettingsModal({
                 type="button"
                 onClick={saveCommunications}
                 disabled={communicationsSaving || !communicationsDirty}
-                className="rounded-lg bg-rose-800 px-4 py-2 text-[15px] font-medium text-white transition-opacity focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-950 disabled:opacity-40 motion-reduce:transition-none"
+                className="rounded-lg bg-[var(--owner-accent)] px-4 py-2 text-[15px] font-medium text-white transition-opacity focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-950 disabled:opacity-40 motion-reduce:transition-none"
               >
                 {communicationsSaving ? 'Saving…' : 'Save communication settings'}
               </button>
@@ -5522,7 +5536,7 @@ export function SettingsModal({
             {programsLoading
               ? (
                   <div className="flex items-center justify-center py-8">
-                    <div className="size-6 animate-spin rounded-full border-2 border-rose-800 border-t-transparent" />
+                    <div className="size-6 animate-spin rounded-full border-2 border-[var(--owner-accent)] border-t-transparent" />
                   </div>
                 )
               : (
@@ -5553,27 +5567,27 @@ export function SettingsModal({
                       return (
                         <div
                           key={notificationEvent.key}
-                          className="space-y-3 rounded-[14px] border border-gray-200 bg-gray-50/70 p-3"
+                          className="space-y-3 rounded-[14px] border border-[var(--owner-line)] bg-[var(--owner-ground)] p-3"
                         >
                           <div className="space-y-1 px-1">
                             <div className="text-sm font-semibold text-[var(--owner-ink,#30262a)]">
                               {notificationEvent.title}
                             </div>
-                            <p className="text-xs text-gray-500">
+                            <p className="text-xs text-[var(--owner-muted)]">
                               {notificationEvent.subtitle}
                             </p>
                           </div>
 
-                          <div className="rounded-[12px] border border-gray-200 bg-white/80 p-3">
+                          <div className="rounded-[12px] border border-[var(--owner-line)] bg-[var(--owner-surface)] p-3">
                             <div className="flex items-start justify-between gap-3">
                               <div className="space-y-1">
                                 <div className="flex items-center gap-2">
-                                  <Bell className="size-4 text-[#FF3B30]" />
+                                  <Bell className="size-4 text-red-600" />
                                   <span className="text-sm font-semibold text-[var(--owner-ink,#30262a)]">
                                     Notify assigned technician
                                   </span>
                                 </div>
-                                <p className="text-sm text-gray-600">
+                                <p className="text-sm text-[var(--owner-muted)]">
                                   {notificationEvent.technicianDescription}
                                 </p>
                               </div>
@@ -5587,13 +5601,13 @@ export function SettingsModal({
                                       technicianEnabled: event.target.checked,
                                     },
                                   )}
-                                className="mt-1 size-4 rounded border-gray-300 text-rose-800 focus:ring-rose-700"
+                                className="mt-1 size-4 rounded border-gray-300 text-[var(--owner-accent)] focus:ring-[var(--owner-focus)]"
                                 aria-label={`Notify assigned technician for ${notificationEvent.title.toLowerCase()}`}
                               />
                             </div>
 
                             <label className="mt-3 flex flex-col gap-1">
-                              <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                              <span className="text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
                                 Channel
                               </span>
                               <select
@@ -5607,7 +5621,7 @@ export function SettingsModal({
                                     },
                                   )}
                                 disabled={!eventForm.technicianEnabled}
-                                className="h-11 rounded-[10px] border border-gray-200 px-3 text-[15px] text-black outline-none transition-colors focus:border-[var(--owner-focus,#b85075)] disabled:cursor-not-allowed disabled:bg-gray-50 disabled:text-gray-400"
+                                className="h-11 rounded-[10px] border border-[var(--owner-line)] px-3 text-[15px] text-[var(--owner-ink)] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)] disabled:cursor-not-allowed disabled:bg-[var(--owner-ground)] disabled:text-[var(--owner-muted)]"
                                 aria-label={`Technician notification channel for ${notificationEvent.title.toLowerCase()}`}
                               >
                                 {BOOKING_NOTIFICATION_CHANNEL_OPTIONS.map(
@@ -5640,22 +5654,22 @@ export function SettingsModal({
                               </select>
                             </label>
 
-                            <p className="mt-2 text-xs text-gray-500">
+                            <p className="mt-2 text-xs text-[var(--owner-muted)]">
                               Technician email alerts require an email on each
                               technician profile.
                             </p>
                           </div>
 
-                          <div className="rounded-[12px] border border-gray-200 bg-white/80 p-3">
+                          <div className="rounded-[12px] border border-[var(--owner-line)] bg-[var(--owner-surface)] p-3">
                             <div className="flex items-start justify-between gap-3">
                               <div className="space-y-1">
                                 <div className="flex items-center gap-2">
-                                  <User className="size-4 text-rose-800" />
+                                  <User className="size-4 text-[var(--owner-accent)]" />
                                   <span className="text-sm font-semibold text-[var(--owner-ink,#30262a)]">
                                     Notify salon owner
                                   </span>
                                 </div>
-                                <p className="text-sm text-gray-600">
+                                <p className="text-sm text-[var(--owner-muted)]">
                                   Text the owner phone saved on the salon record.
                                 </p>
                               </div>
@@ -5669,13 +5683,13 @@ export function SettingsModal({
                                       ownerEnabled: event.target.checked,
                                     },
                                   )}
-                                className="mt-1 size-4 rounded border-gray-300 text-rose-800 focus:ring-rose-700"
+                                className="mt-1 size-4 rounded border-gray-300 text-[var(--owner-accent)] focus:ring-[var(--owner-focus)]"
                                 aria-label={`Notify salon owner for ${notificationEvent.title.toLowerCase()}`}
                               />
                             </div>
 
                             <label className="mt-3 flex flex-col gap-1">
-                              <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                              <span className="text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
                                 Channel
                               </span>
                               <select
@@ -5689,7 +5703,7 @@ export function SettingsModal({
                                     },
                                   )}
                                 disabled={!eventForm.ownerEnabled}
-                                className="h-11 rounded-[10px] border border-gray-200 px-3 text-[15px] text-black outline-none transition-colors focus:border-[var(--owner-focus,#b85075)] disabled:cursor-not-allowed disabled:bg-gray-50 disabled:text-gray-400"
+                                className="h-11 rounded-[10px] border border-[var(--owner-line)] px-3 text-[15px] text-[var(--owner-ink)] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)] disabled:cursor-not-allowed disabled:bg-[var(--owner-ground)] disabled:text-[var(--owner-muted)]"
                                 aria-label={`Owner notification channel for ${notificationEvent.title.toLowerCase()}`}
                               >
                                 {OWNER_NOTIFICATION_CHANNEL_OPTIONS.map((option) => {
@@ -5711,7 +5725,7 @@ export function SettingsModal({
                               </select>
                             </label>
 
-                            <p className="mt-2 text-xs text-gray-500">
+                            <p className="mt-2 text-xs text-[var(--owner-muted)]">
                               Owner emails now live in Appointment notifications
                               below.
                             </p>
@@ -5732,7 +5746,7 @@ export function SettingsModal({
 
                     {(!bookingNotificationCapabilities.smsChannelAvailable
                       || !bookingNotificationCapabilities.emailChannelAvailable) && (
-                      <div className="rounded-[10px] border border-dashed border-gray-200 bg-gray-50 px-3 py-2 text-xs text-gray-500">
+                      <div className="rounded-[10px] border border-dashed border-[var(--owner-line)] bg-[var(--owner-ground)] px-3 py-2 text-xs text-[var(--owner-muted)]">
                         {!bookingNotificationCapabilities.smsChannelAvailable && (
                           <div>
                             SMS alerts are unavailable until SMS reminders are enabled
@@ -5747,8 +5761,8 @@ export function SettingsModal({
                       </div>
                     )}
 
-                    <div className="flex items-center justify-between gap-3 border-t border-gray-100 pt-3">
-                      <div className="text-xs text-gray-500">
+                    <div className="flex items-center justify-between gap-3 border-t border-[var(--owner-line)] pt-3">
+                      <div className="text-xs text-[var(--owner-muted)]">
                         Duplicate owner and technician destinations are deduplicated
                         automatically per channel.
                       </div>
@@ -5756,7 +5770,7 @@ export function SettingsModal({
                         type="button"
                         onClick={() => void saveBookingNotifications()}
                         disabled={bookingNotificationsSaving || !notificationsDirty}
-                        className="inline-flex items-center gap-2 rounded-[10px] bg-rose-800 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-rose-900 disabled:cursor-not-allowed disabled:opacity-50"
+                        className="inline-flex min-h-11 items-center justify-center gap-2 rounded-[10px] bg-[var(--owner-accent)] px-4 text-sm font-semibold text-white outline-none transition-colors hover:bg-[var(--owner-accent-strong)] focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)] disabled:cursor-not-allowed disabled:opacity-50"
                       >
                         <Save className="size-4" />
                         <span>
@@ -5765,19 +5779,19 @@ export function SettingsModal({
                       </button>
                     </div>
 
-                    <div className="space-y-3 rounded-[14px] border border-gray-200 bg-gray-50/70 p-3">
+                    <div className="space-y-3 rounded-[14px] border border-[var(--owner-line)] bg-[var(--owner-ground)] p-3">
                       <div className="space-y-1 px-1">
                         <div className="text-sm font-semibold text-[var(--owner-ink,#30262a)]">
                           Appointment notifications
                         </div>
-                        <p className="text-xs text-gray-500">
+                        <p className="text-xs text-[var(--owner-muted)]">
                           Detailed emails to the salon when a client books,
                           reschedules, or cancels. Separate from the confirmation
                           and reminder emails your clients receive.
                         </p>
                       </div>
 
-                      <div className="space-y-2 rounded-[12px] border border-gray-200 bg-white/80 p-3">
+                      <div className="space-y-2 rounded-[12px] border border-[var(--owner-line)] bg-[var(--owner-surface)] p-3">
                         {SALON_EMAIL_NOTIFICATION_EVENT_OPTIONS.map(option => (
                           <div
                             key={option.key}
@@ -5787,7 +5801,7 @@ export function SettingsModal({
                               <span className="text-sm font-semibold text-[var(--owner-ink,#30262a)]">
                                 {option.label}
                               </span>
-                              <p className="text-sm text-gray-600">
+                              <p className="text-sm text-[var(--owner-muted)]">
                                 {option.description}
                               </p>
                             </div>
@@ -5798,14 +5812,14 @@ export function SettingsModal({
                                 updateSalonEmailNotifications({
                                   [option.key]: event.target.checked,
                                 })}
-                              className="mt-1 size-4 rounded border-gray-300 text-rose-800 focus:ring-rose-700"
+                              className="mt-1 size-4 rounded border-gray-300 text-[var(--owner-accent)] focus:ring-[var(--owner-focus)]"
                               aria-label={option.label}
                             />
                           </div>
                         ))}
 
                         <label className="flex flex-col gap-1 pt-2">
-                          <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                          <span className="text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
                             Send notifications to
                           </span>
                           <input
@@ -5818,7 +5832,7 @@ export function SettingsModal({
                               updateSalonEmailNotifications({
                                 recipientEmail: event.target.value,
                               })}
-                            className="h-11 rounded-[10px] border border-gray-200 px-3 text-[15px] text-black outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
+                            className="h-11 rounded-[10px] border border-[var(--owner-line)] px-3 text-[15px] text-[var(--owner-ink)] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
                             aria-label="Salon notification email address"
                           />
                         </label>
@@ -5835,7 +5849,7 @@ export function SettingsModal({
                               </div>
                             )
                           : salonNotificationRecipient.email && (
-                            <p className="text-xs text-gray-500">
+                            <p className="text-xs text-[var(--owner-muted)]">
                               {`Sending to ${salonNotificationRecipient.email}`}
                               {salonNotificationRecipient.source
                               && ` (${SALON_NOTIFICATION_RECIPIENT_SOURCE_LABEL[salonNotificationRecipient.source]})`}
@@ -5850,8 +5864,8 @@ export function SettingsModal({
                         )}
                       </div>
 
-                      <div className="flex items-center justify-between gap-3 border-t border-gray-100 pt-3">
-                        <div className="text-xs text-gray-500">
+                      <div className="flex items-center justify-between gap-3 border-t border-[var(--owner-line)] pt-3">
+                        <div className="text-xs text-[var(--owner-muted)]">
                           {salonEmailNotificationsSaved
                             ? 'Appointment notifications saved.'
                             : 'Leave the address blank to use the salon’s owner email.'}
@@ -5863,7 +5877,7 @@ export function SettingsModal({
                             salonEmailNotificationsSaving
                             || !salonEmailNotificationsDirty
                           }
-                          className="inline-flex items-center gap-2 rounded-[10px] bg-rose-800 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-rose-900 disabled:cursor-not-allowed disabled:opacity-50"
+                          className="inline-flex min-h-11 items-center justify-center gap-2 rounded-[10px] bg-[var(--owner-accent)] px-4 text-sm font-semibold text-white outline-none transition-colors hover:bg-[var(--owner-accent-strong)] focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)] disabled:cursor-not-allowed disabled:opacity-50"
                         >
                           <Save className="size-4" />
                           <span>
@@ -5895,7 +5909,7 @@ export function SettingsModal({
               {modulesLoading
                 ? (
                     <div className="flex items-center justify-center py-8">
-                      <div className="size-6 animate-spin rounded-full border-2 border-rose-800 border-t-transparent" />
+                      <div className="size-6 animate-spin rounded-full border-2 border-[var(--owner-accent)] border-t-transparent" />
                     </div>
                   )
                 : (
@@ -5905,8 +5919,8 @@ export function SettingsModal({
                           = groupIndex === MODULE_GROUPS.length - 1;
                         return (
                           <div key={group.title}>
-                            <div className="border-b border-gray-100 px-4 py-2">
-                              <span className="text-xs font-semibold uppercase tracking-wide text-gray-400">
+                            <div className="border-b border-[var(--owner-line)] px-4 py-2">
+                              <span className="text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
                                 {group.title}
                               </span>
                             </div>
@@ -5947,7 +5961,7 @@ export function SettingsModal({
                       })}
 
                       {modulesSaving && (
-                        <div className="flex items-center justify-center py-2 text-xs text-gray-500">
+                        <div className="flex items-center justify-center py-2 text-xs text-[var(--owner-muted)]">
                           Saving...
                         </div>
                       )}
@@ -5964,7 +5978,7 @@ export function SettingsModal({
                 {programsLoading
                   ? (
                       <div className="flex items-center justify-center py-8">
-                        <div className="size-6 animate-spin rounded-full border-2 border-rose-800 border-t-transparent" />
+                        <div className="size-6 animate-spin rounded-full border-2 border-[var(--owner-accent)] border-t-transparent" />
                       </div>
                     )
                   : (
@@ -5994,34 +6008,34 @@ export function SettingsModal({
                           isLast
                         />
 
-                        <div className="border-t border-gray-100 px-4 py-3">
-                          <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-400">
+                        <div className="border-t border-[var(--owner-line)] px-4 py-3">
+                          <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
                             Active Offers
                           </div>
                           <div className="space-y-2 text-sm">
                             <div className="flex justify-between">
-                              <span className="text-gray-600">Referral reward</span>
-                              <span className="font-medium text-gray-900">
+                              <span className="text-[var(--owner-muted)]">Referral reward</span>
+                              <span className="font-medium text-[var(--owner-ink)]">
                                 $10 for the referrer
                               </span>
                             </div>
                             <div className="flex justify-between">
-                              <span className="text-gray-600">Friend offer</span>
-                              <span className="font-medium text-gray-900">
+                              <span className="text-[var(--owner-muted)]">Friend offer</span>
+                              <span className="font-medium text-[var(--owner-ink)]">
                                 $10 off first appointment
                               </span>
                             </div>
                             <div className="flex justify-between">
-                              <span className="text-gray-600">
+                              <span className="text-[var(--owner-muted)]">
                                 Google review reward
                               </span>
-                              <span className="font-medium text-gray-900">
+                              <span className="font-medium text-[var(--owner-ink)]">
                                 $10 off (manual grant)
                               </span>
                             </div>
                             <div className="flex justify-between">
-                              <span className="text-gray-600">Visit earning</span>
-                              <span className="font-medium text-gray-900">
+                              <span className="text-[var(--owner-muted)]">Visit earning</span>
+                              <span className="font-medium text-[var(--owner-ink)]">
                                 20 points per $1 spent
                               </span>
                             </div>
@@ -6029,7 +6043,7 @@ export function SettingsModal({
                         </div>
 
                         {programsSaving && (
-                          <div className="flex items-center justify-center py-2 text-xs text-gray-500">
+                          <div className="flex items-center justify-center py-2 text-xs text-[var(--owner-muted)]">
                             Saving...
                           </div>
                         )}
@@ -6048,14 +6062,14 @@ export function SettingsModal({
             {visibilityLoading
               ? (
                   <div className="flex items-center justify-center py-8">
-                    <div className="size-6 animate-spin rounded-full border-2 border-rose-800 border-t-transparent" />
+                    <div className="size-6 animate-spin rounded-full border-2 border-[var(--owner-accent)] border-t-transparent" />
                   </div>
                 )
               : (
                   <>
                     <Row
                       icon={Eye}
-                      iconColor="bg-rose-800"
+                      iconColor="bg-[var(--owner-accent)]"
                       label="Client Phone"
                       type="toggle"
                       defaultOn={visibility.staff?.showClientPhone ?? true}
@@ -6111,7 +6125,7 @@ export function SettingsModal({
                       isLast
                     />
                     {visibilitySaving && (
-                      <div className="flex items-center justify-center py-2 text-xs text-gray-500">
+                      <div className="flex items-center justify-center py-2 text-xs text-[var(--owner-muted)]">
                         Saving...
                       </div>
                     )}
@@ -6134,7 +6148,7 @@ export function SettingsModal({
                   </div>
                 )}
                 <label className="flex flex-col gap-1">
-                  <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                  <span className="text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
                     Name
                   </span>
                   <input
@@ -6146,11 +6160,11 @@ export function SettingsModal({
                       setProfileDirty(true);
                       setProfileSaved(false);
                     }}
-                    className="h-11 rounded-[10px] border border-gray-200 px-3 text-[15px] text-black outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
+                    className="h-11 rounded-[10px] border border-[var(--owner-line)] px-3 text-[15px] text-[var(--owner-ink)] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
                   />
                 </label>
                 <label className="flex flex-col gap-1">
-                  <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                  <span className="text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
                     Email
                   </span>
                   <input
@@ -6167,10 +6181,10 @@ export function SettingsModal({
                       setProfileDirty(true);
                       setProfileSaved(false);
                     }}
-                    className={`h-11 rounded-[10px] border border-gray-200 px-3 text-[15px] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)] ${
+                    className={`h-11 rounded-[10px] border border-[var(--owner-line)] px-3 text-[15px] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)] ${
                       profileEmailLocked
-                        ? 'bg-gray-50 text-gray-600'
-                        : 'text-black'
+                        ? 'bg-[var(--owner-ground)] text-[var(--owner-muted)]'
+                        : 'text-[var(--owner-ink)]'
                     }`}
                     placeholder={
                       profileLoading ? 'Loading…' : 'you@example.com'
@@ -6178,7 +6192,7 @@ export function SettingsModal({
                   />
                   <span
                     id="owner-profile-email-help"
-                    className="text-xs text-gray-500"
+                    className="text-xs text-[var(--owner-muted)]"
                   >
                     {profileEmailLocked
                       ? 'Your sign-in email is managed by your account — contact support to change it. Your name saves on its own.'
@@ -6200,7 +6214,7 @@ export function SettingsModal({
                       || !profileName.trim()
                       || (!profileEmailLocked && !profileEmail.includes('@'))
                     }
-                    className="inline-flex items-center gap-2 rounded-[10px] bg-rose-800 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-rose-900 disabled:cursor-not-allowed disabled:opacity-50"
+                    className="inline-flex min-h-11 items-center justify-center gap-2 rounded-[10px] bg-[var(--owner-accent)] px-4 text-sm font-semibold text-white outline-none transition-colors hover:bg-[var(--owner-accent-strong)] focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)] disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     <Save className="size-4" />
                     <span>{profileSaving ? 'Saving...' : 'Save profile'}</span>
@@ -6225,7 +6239,7 @@ export function SettingsModal({
                         <div
                           className={`size-2 rounded-full ${subscriptionStatus === 'active' ? 'bg-green-500' : 'bg-amber-500'}`}
                         />
-                        <span className="text-sm text-gray-900">
+                        <span className="text-sm text-[var(--owner-ink)]">
                           Stripe Billing
                           {subscriptionStatus
                             ? ` (${subscriptionStatus})`
@@ -6236,7 +6250,7 @@ export function SettingsModal({
                   : (
                       <div className="flex items-center gap-2">
                         <div className="size-2 rounded-full bg-gray-400" />
-                        <span className="text-sm text-gray-600">
+                        <span className="text-sm text-[var(--owner-muted)]">
                           Cash / Offline billing enabled
                         </span>
                       </div>
@@ -6256,7 +6270,7 @@ export function SettingsModal({
                       onClick={() => void openBillingPortal()}
                       disabled={portalOpening}
                       data-testid="manage-billing-button"
-                      className="inline-flex items-center gap-2 rounded-[10px] bg-rose-800 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-rose-900 disabled:cursor-not-allowed disabled:opacity-50"
+                      className="inline-flex min-h-11 items-center justify-center gap-2 rounded-[10px] bg-[var(--owner-accent)] px-4 text-sm font-semibold text-white outline-none transition-colors hover:bg-[var(--owner-accent-strong)] focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)] disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       <CreditCard className="size-4" />
                       <span>{portalOpening ? 'Opening…' : 'Manage billing'}</span>

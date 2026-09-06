@@ -255,13 +255,13 @@ function BulkAddRecommendedDialog({
         }
       }}
       maxWidthClassName="max-w-md"
-      contentClassName="max-h-[85dvh] overflow-y-auto rounded-3xl bg-white p-6 shadow-2xl"
+      contentClassName="max-h-[85dvh] overflow-y-auto rounded-3xl bg-[var(--owner-surface)] p-6 shadow-2xl"
       alignClassName="items-end justify-center p-4 sm:items-center"
     >
       <div className="space-y-4">
         <div>
-          <h2 className="text-xl font-semibold text-[#1C1C1E]">Add recommended services</h2>
-          <p data-testid="bulk-add-summary" className="mt-1 text-sm text-[#6B7280]">
+          <h2 className="text-xl font-semibold text-[var(--owner-ink)]">Add recommended services</h2>
+          <p data-testid="bulk-add-summary" className="mt-1 text-sm text-[var(--owner-muted)]">
             {`Add ${selectedServiceCount} ${selectedServiceCount === 1 ? 'service' : 'services'} and ${selectedAddOnCount} ${selectedAddOnCount === 1 ? 'add-on' : 'add-ons'}.`}
             {alreadyOwnedCount > 0
               ? ` ${alreadyOwnedCount} already on your menu ${alreadyOwnedCount === 1 ? 'is' : 'are'} skipped.`
@@ -270,7 +270,7 @@ function BulkAddRecommendedDialog({
           </p>
         </div>
 
-        <div className="max-h-[45dvh] space-y-1 overflow-y-auto rounded-2xl border border-gray-200 p-2">
+        <div className="max-h-[45dvh] space-y-1 overflow-y-auto rounded-2xl border border-[var(--owner-line)] p-2">
           {starters.map((template) => {
             const alreadyAdded = ownedTemplateKeys.has(template.systemKey);
             return (
@@ -279,8 +279,8 @@ function BulkAddRecommendedDialog({
                 className={`flex items-center justify-between gap-2 rounded-xl px-2 py-1.5 ${alreadyAdded ? 'opacity-50' : ''}`}
               >
                 <span className="min-w-0">
-                  <span className="block truncate text-[14px] font-medium text-[#1C1C1E]">{template.name}</span>
-                  <span className="block text-[12px] text-[#8E8E93]">
+                  <span className="block truncate text-[14px] font-medium text-[var(--owner-ink)]">{template.name}</span>
+                  <span className="block text-[12px] text-[var(--owner-muted)]">
                     {formatTemplatePrice(template)}
                     {' · '}
                     {formatDuration(template.defaultDurationMinutes)}
@@ -364,7 +364,14 @@ export function ServiceLibraryTab({
   const [showBulkAdd, setShowBulkAdd] = useState(false);
   const [pendingTemplateKey, setPendingTemplateKey] = useState<string | null>(null);
   const resultsRef = useRef<HTMLUListElement>(null);
-  const firstRenderRef = useRef(true);
+  /**
+   * The filter the results are currently showing. A "first render" boolean is
+   * not enough: React runs an effect twice on mount in development, so the
+   * second invoke fired the reset and zeroed a scroll offset the Services
+   * sheet had just restored for this tab. Comparing the filter itself is
+   * idempotent, so a re-run with unchanged filters is a no-op.
+   */
+  const shownFilterRef = useRef<string | null>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
 
   const trimmedQuery = query.trim();
@@ -380,8 +387,10 @@ export function ServiceLibraryTab({
   const menuCountsLabel = `${menuServiceCount} ${menuServiceCount === 1 ? 'service' : 'services'} · ${menuAddOnCount} ${menuAddOnCount === 1 ? 'add-on' : 'add-ons'} on your menu`;
 
   useEffect(() => {
-    if (firstRenderRef.current) {
-      firstRenderRef.current = false;
+    const filterKey = `${segment}|${activeCategory}|${trimmedQuery}`;
+    const previous = shownFilterRef.current;
+    shownFilterRef.current = filterKey;
+    if (previous === null || previous === filterKey) {
       return;
     }
     scrollResultsIntoView(resultsRef.current);

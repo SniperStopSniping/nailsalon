@@ -117,15 +117,15 @@ export function BookingPageAppearance({ draft, disabled, mode, onChange }: {
 
   return (
     <div className="space-y-6">
-      <p className="text-sm text-stone-600">These choices change presentation only. Your business details and services stay the same. Preview your draft before publishing.</p>
+      <p className="text-sm text-[var(--owner-muted)]">These choices change presentation only. Your business details and services stay the same. Preview your draft before publishing.</p>
       {groups.map(group => (
-        <fieldset className="rounded-2xl border border-stone-200 bg-white p-4" disabled={disabled} key={group.key}>
+        <fieldset className="rounded-2xl border border-[var(--owner-line)] bg-[var(--owner-surface)] p-4" disabled={disabled} key={group.key}>
           <legend className="px-2 text-xl font-semibold">{group.title}</legend>
           {group.key === 'siteStylePreset' && (
-            <p className="mb-3 text-xs text-stone-500">Every sample uses your chosen colours, so only the lettering, corners and button shape change.</p>
+            <p className="mb-3 text-xs text-[var(--owner-muted)]">Every sample uses your chosen colours, so only the lettering, corners and button shape change.</p>
           )}
           {group.key === 'sitePalettePreset' && (
-            <p className="mb-3 text-xs text-stone-500">Every sample shows that palette's page background, button colour and accent colour.</p>
+            <p className="mb-3 text-xs text-[var(--owner-muted)]">Every sample shows that palette's page background, button colour and accent colour.</p>
           )}
           <div className="grid grid-cols-2 gap-3">
             {group.values.map((value) => {
@@ -137,7 +137,7 @@ export function BookingPageAppearance({ draft, disabled, mode, onChange }: {
               return (
                 <button
                   aria-pressed={group.selected === value}
-                  className={`min-h-14 rounded-xl border p-3 text-left text-sm font-semibold disabled:opacity-50 ${group.selected === value ? 'border-rose-800 bg-rose-50 text-rose-900' : 'border-stone-300 text-stone-900'}`}
+                  className={`min-h-14 rounded-xl border p-3 text-left text-sm font-semibold disabled:opacity-50 ${group.selected === value ? 'border-[var(--owner-accent)] bg-[var(--owner-blush)] text-[var(--owner-accent-strong)]' : 'border-[var(--owner-line-strong)] text-[var(--owner-ink)]'}`}
                   key={value}
                   onClick={() => onChange({ [group.key]: value } as BookingPageDraftPatch)}
                   type="button"

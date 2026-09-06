@@ -726,8 +726,8 @@ function formatAppointmentStatus(status: string): string {
 
 function SectionHeader({ letter }: { letter: string }) {
   return (
-    <div className="sticky top-0 z-10 bg-[#F2F2F7] px-4 py-1">
-      <span className="text-[13px] font-semibold text-[#8E8E93]">{letter}</span>
+    <div className="sticky top-0 z-10 bg-[var(--owner-ground,#f8f2ed)] px-4 py-1">
+      <span className="text-[13px] font-semibold text-[var(--owner-muted,#706267)]">{letter}</span>
     </div>
   );
 }
@@ -741,7 +741,7 @@ function EmptyState({
 }) {
   return (
     <AsyncStatePanel
-      icon={<User className="mx-auto size-8 text-[#8E8E93]" />}
+      icon={<User className="mx-auto size-8 text-[var(--owner-muted,#706267)]" />}
       title={searchQuery ? 'No Results' : 'No Clients Yet'}
       description={searchQuery
         ? `No clients match "${searchQuery}"`
@@ -781,19 +781,19 @@ function ClientRow({
       type="button"
       initial={{ opacity: 0, x: -10 }}
       animate={{ opacity: 1, x: 0 }}
-      className="flex min-h-[60px] w-full items-center pl-4 text-left transition-colors active:bg-gray-50"
+      className="flex min-h-[60px] w-full items-center pl-4 text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--owner-focus,#b85075)] active:bg-[var(--owner-blush,#f6e7ec)]"
       onClick={onClick}
     >
-      <div className="mr-3 flex size-10 items-center justify-center rounded-full bg-gradient-to-br from-[#4facfe] to-[#00f2fe] text-[13px] font-bold text-white shadow-sm">
+      <div className="mr-3 flex size-10 items-center justify-center rounded-full bg-gradient-to-br from-[var(--owner-accent-strong,#70213f)] to-[var(--owner-accent,#8f3155)] text-[13px] font-bold text-white shadow-sm">
         {getInitials(client.fullName)}
       </div>
 
       <div className={`flex flex-1 items-center justify-between py-3 pr-4 ${!isLast ? 'border-b border-gray-100' : ''}`}>
         <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-1.5 text-[16px] font-medium text-[#1C1C1E]">
+          <div className="flex flex-wrap items-center gap-1.5 text-[16px] font-medium text-[var(--owner-ink,#30262a)]">
             <span className="truncate">{name}</span>
             {client.noShowCount > 0 && (
-              <span className="rounded-full bg-red-100 px-1.5 py-0.5 text-[10px] font-medium text-red-600">
+              <span className="rounded-full bg-red-100 px-1.5 py-0.5 text-[11px] font-medium text-red-600">
                 {client.noShowCount}
                 {' '}
                 no-show
@@ -801,7 +801,7 @@ function ClientRow({
               </span>
             )}
           </div>
-          <div className="mt-0.5 flex items-center gap-1 text-[13px] text-[#8E8E93]">
+          <div className="mt-0.5 flex items-center gap-1 text-[13px] text-[var(--owner-muted,#706267)]">
             <Phone className="size-3" />
             {formatPhone(client.phone)}
           </div>
@@ -809,7 +809,7 @@ function ClientRow({
 
         <div className="ml-3 flex items-center gap-2">
           <div className="mr-2 text-right">
-            <div className="text-[13px] text-[#8E8E93]">
+            <div className="text-[13px] text-[var(--owner-muted,#706267)]">
               {client.totalVisits}
               {' '}
               visit
@@ -819,13 +819,13 @@ function ClientRow({
               ? (
                   <span
                     data-testid="client-spend-under-review"
-                    className="mt-0.5 inline-block rounded-full bg-[#F2F2F7] px-2 py-0.5 text-[11px] font-semibold text-[#6B6B70]"
+                    className="mt-0.5 inline-block rounded-full bg-[var(--owner-blush,#f6e7ec)] px-2 py-0.5 text-[11px] font-semibold text-[var(--owner-muted,#706267)]"
                   >
                     {SPEND_UNDER_REVIEW_LABEL}
                   </span>
                 )
               : (
-                  <div className="text-[12px] font-medium text-[#34C759]">
+                  <div className="text-[12px] font-medium text-emerald-700">
                     {client.spendCurrency
                       ? formatCurrency(client.totalSpent, client.spendCurrency)
                       : SPEND_UNDER_REVIEW_LABEL}
@@ -856,15 +856,12 @@ function SortPills({
               key={option.value}
               type="button"
               onClick={() => onChange(option.value)}
-              className="rounded-full px-4 py-2 text-[13px] font-semibold transition-all duration-200"
-              style={{
-                backgroundColor: active ? '#1C1C1E' : 'white',
-                color: active ? 'white' : '#525252',
-                borderWidth: active ? 0 : '1px',
-                borderStyle: 'solid',
-                borderColor: active ? 'transparent' : '#E5E7EB',
-                boxShadow: active ? '0 6px 18px rgba(0,0,0,0.08)' : '0 2px 8px rgba(0,0,0,0.03)',
-              }}
+              aria-pressed={active}
+              className={`min-h-11 rounded-full border px-4 py-2 text-[13px] font-semibold outline-none transition-all duration-200 focus-visible:ring-2 focus-visible:ring-[var(--owner-focus,#b85075)] focus-visible:ring-offset-1 ${
+                active
+                  ? 'border-transparent bg-[var(--owner-accent,#8f3155)] text-white shadow-[0_6px_18px_rgb(143_49_85_/_18%)]'
+                  : 'border-[var(--owner-line,#dfd1d4)] bg-[var(--owner-surface,#fffdfb)] text-[var(--owner-muted,#706267)] shadow-[0_2px_8px_rgb(76_29_46_/_4%)]'
+              }`}
             >
               {option.label}
             </button>
@@ -892,7 +889,7 @@ function StatCard({
 }) {
   return (
     <AdminDetailCard>
-      <div className="flex items-center gap-1 text-[12px] font-medium uppercase text-[#8E8E93]">
+      <div className="flex items-center gap-1 text-[12px] font-medium uppercase text-[var(--owner-muted,#706267)]">
         {icon}
         {label}
       </div>
@@ -908,7 +905,7 @@ function StatCard({
         : (
             <div
               data-testid={testId}
-              className={`mt-1 text-[24px] font-bold ${accent ?? 'text-[#1C1C1E]'}`}
+              className={`mt-1 text-[24px] font-bold ${accent ?? 'text-[var(--owner-ink,#30262a)]'}`}
             >
               {value}
             </div>
@@ -924,7 +921,7 @@ function HistoryQualityBadge({ provenance }: { provenance?: FinancialProvenance 
   const incomplete = provenance.unresolvedAppointmentCount > 0;
   return (
     <span
-      className={`mt-2 inline-flex rounded-full px-2 py-1 text-[10px] font-semibold ${
+      className={`mt-2 inline-flex rounded-full px-2 py-1 text-[11px] font-semibold ${
         incomplete ? 'bg-amber-100 text-amber-900' : 'bg-stone-100 text-stone-700'
       }`}
       title={incomplete
@@ -1063,7 +1060,7 @@ function AppointmentCard({
     >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <div className="text-[15px] font-semibold text-[#1C1C1E]">
+          <div className="text-[15px] font-semibold text-[var(--owner-ink,#30262a)]">
             {appointment.services.length > 0
               ? appointment.services.map(service => service.name).join(' · ')
               : 'Appointment'}
@@ -1076,7 +1073,7 @@ function AppointmentCard({
           </div>
         </div>
         <div className="shrink-0 text-right">
-          <div className="text-[15px] font-semibold text-[#1C1C1E]">
+          <div className="text-[15px] font-semibold text-[var(--owner-ink,#30262a)]">
             {financialUnderReview
               ? 'Under review'
               : appointmentCurrency && displayedAppointmentValue != null
@@ -1164,7 +1161,7 @@ function AppointmentCard({
                 event.stopPropagation();
                 onManage(appointment.id);
               }}
-              className="min-h-10 flex-1 rounded-xl border border-neutral-200 px-3 py-2 text-[13px] font-semibold text-[#1C1C1E]"
+              className="min-h-10 flex-1 rounded-xl border border-neutral-200 px-3 py-2 text-[13px] font-semibold text-[var(--owner-ink,#30262a)]"
             >
               Change
             </button>
@@ -1205,13 +1202,13 @@ function AppointmentsSection({
 }) {
   return (
     <AdminDetailCard className="mb-4">
-      <div className="mb-3 flex items-center gap-2 text-[12px] font-medium uppercase text-[#8E8E93]">
+      <div className="mb-3 flex items-center gap-2 text-[12px] font-medium uppercase text-[var(--owner-muted,#706267)]">
         <Calendar className="size-3.5" />
         {title}
       </div>
       {appointments.length === 0
         ? (
-            <div className="rounded-[14px] border border-dashed border-neutral-200 bg-neutral-50 px-4 py-5 text-[14px] text-[#8E8E93]">
+            <div className="rounded-[14px] border border-dashed border-neutral-200 bg-neutral-50 px-4 py-5 text-[14px] text-[var(--owner-muted,#706267)]">
               {emptyMessage}
             </div>
           )
@@ -1948,25 +1945,25 @@ function ClientDetail({
                       <AdminDetailCard className="mb-4">
                         <div className="mb-3 flex items-center justify-between gap-3">
                           <div>
-                            <div className="text-[12px] font-medium uppercase text-[#8E8E93]">Client details</div>
-                            <div className="mt-1 text-[15px] font-semibold text-[#1C1C1E]">
+                            <div className="text-[12px] font-medium uppercase text-[var(--owner-muted,#706267)]">Client details</div>
+                            <div className="mt-1 text-[15px] font-semibold text-[var(--owner-ink,#30262a)]">
                               Avg spend
                               {' '}
                               {profile ? formatCurrency(profile.averageSpend) : '...'}
                             </div>
                           </div>
-                          <div className="rounded-full bg-[#F2F2F7] px-3 py-1 text-[12px] font-medium text-[#6B7280]">
+                          <div className="rounded-full bg-[var(--owner-blush,#f6e7ec)] px-3 py-1 text-[12px] font-medium text-[var(--owner-muted,#706267)]">
                             {techniciansLoading ? 'Loading artists...' : techniciansError ?? `${technicians.length} artists`}
                           </div>
                         </div>
 
                         <label className="mb-3 block">
-                          <span className="mb-1.5 block text-[12px] font-medium uppercase text-[#8E8E93]">Preferred artist</span>
+                          <span className="mb-1.5 block text-[12px] font-medium uppercase text-[var(--owner-muted,#706267)]">Preferred artist</span>
                           <select
                             aria-label="Preferred artist"
                             value={preferredTechnicianIdDraft}
                             onChange={event => setPreferredTechnicianIdDraft(event.target.value)}
-                            className="w-full rounded-xl border border-[#E5E7EB] bg-white px-3 py-2.5 text-[15px] text-[#1C1C1E] focus:outline-none focus:ring-2 focus:ring-[#007AFF]/30"
+                            className="w-full rounded-xl border border-[var(--owner-line,#dfd1d4)] bg-white px-3 py-2.5 text-[15px] text-[var(--owner-ink,#30262a)] focus:outline-none focus:ring-2 focus:ring-[var(--owner-focus,#b85075)]/40"
                             disabled={techniciansLoading}
                           >
                             <option value="">No preference</option>
@@ -1977,10 +1974,10 @@ function ClientDetail({
                             ))}
                           </select>
                           {techniciansError && (
-                            <div className="mt-2 text-[13px] text-[#FF3B30]">
+                            <div className="mt-2 text-[13px] text-[#b3261e]">
                               {techniciansError}
                               {' '}
-                              <button type="button" className="font-semibold text-[#007AFF]" onClick={() => void onRefreshTechnicians()}>
+                              <button type="button" className="font-semibold text-[var(--owner-accent,#8f3155)]" onClick={() => void onRefreshTechnicians()}>
                                 Retry
                               </button>
                             </div>
@@ -1995,42 +1992,42 @@ function ClientDetail({
                             onChange={event => setSensitivitiesDraft(event.target.value)}
                             rows={3}
                             placeholder="Allergies, product reactions, damaged nails, removal care..."
-                            className="w-full rounded-xl border border-amber-300 bg-amber-50/60 px-3 py-2.5 text-[15px] text-[#1C1C1E] placeholder-[#8E8E93] focus:outline-none focus:ring-2 focus:ring-amber-400/40"
+                            className="w-full rounded-xl border border-amber-300 bg-amber-50/60 px-3 py-2.5 text-[15px] text-[var(--owner-ink,#30262a)] placeholder:text-[var(--owner-muted,#706267)] focus:outline-none focus:ring-2 focus:ring-amber-400/40"
                           />
-                          <span className="mt-1 block text-[11px] text-[#8E8E93]">Shown to the tech on today’s schedule before every appointment.</span>
+                          <span className="mt-1 block text-[11px] text-[var(--owner-muted,#706267)]">Shown to the tech on today’s schedule before every appointment.</span>
                         </label>
 
                         <div className="mt-4 grid grid-cols-2 gap-3">
                           <label className="block">
-                            <span className="mb-1.5 block text-[12px] font-medium uppercase text-[#8E8E93]">Preferred shape</span>
-                            <input value={shapeDraft} onChange={event => setShapeDraft(event.target.value)} placeholder="Almond, square..." className="w-full rounded-xl border border-[#E5E7EB] bg-white px-3 py-2.5 text-[15px]" />
+                            <span className="mb-1.5 block text-[12px] font-medium uppercase text-[var(--owner-muted,#706267)]">Preferred shape</span>
+                            <input value={shapeDraft} onChange={event => setShapeDraft(event.target.value)} placeholder="Almond, square..." className="w-full rounded-xl border border-[var(--owner-line,#dfd1d4)] bg-white px-3 py-2.5 text-[15px]" />
                           </label>
                           <label className="block">
-                            <span className="mb-1.5 block text-[12px] font-medium uppercase text-[#8E8E93]">Preferred length</span>
-                            <input value={lengthDraft} onChange={event => setLengthDraft(event.target.value)} placeholder="Short, medium..." className="w-full rounded-xl border border-[#E5E7EB] bg-white px-3 py-2.5 text-[15px]" />
+                            <span className="mb-1.5 block text-[12px] font-medium uppercase text-[var(--owner-muted,#706267)]">Preferred length</span>
+                            <input value={lengthDraft} onChange={event => setLengthDraft(event.target.value)} placeholder="Short, medium..." className="w-full rounded-xl border border-[var(--owner-line,#dfd1d4)] bg-white px-3 py-2.5 text-[15px]" />
                           </label>
                         </div>
 
                         <label className="mt-3 block">
-                          <span className="mb-1.5 block text-[12px] font-medium uppercase text-[#8E8E93]">Favourite colours & styles</span>
-                          <input value={colorsDraft} onChange={event => setColorsDraft(event.target.value)} placeholder="Nudes, French, chrome..." className="w-full rounded-xl border border-[#E5E7EB] bg-white px-3 py-2.5 text-[15px]" />
+                          <span className="mb-1.5 block text-[12px] font-medium uppercase text-[var(--owner-muted,#706267)]">Favourite colours & styles</span>
+                          <input value={colorsDraft} onChange={event => setColorsDraft(event.target.value)} placeholder="Nudes, French, chrome..." className="w-full rounded-xl border border-[var(--owner-line,#dfd1d4)] bg-white px-3 py-2.5 text-[15px]" />
                         </label>
 
                         <label className="mt-3 block">
-                          <span className="mb-1.5 block text-[12px] font-medium uppercase text-[#8E8E93]">Products used</span>
-                          <input value={productsDraft} onChange={event => setProductsDraft(event.target.value)} placeholder="Builder gel shade, base, top..." className="w-full rounded-xl border border-[#E5E7EB] bg-white px-3 py-2.5 text-[15px]" />
+                          <span className="mb-1.5 block text-[12px] font-medium uppercase text-[var(--owner-muted,#706267)]">Products used</span>
+                          <input value={productsDraft} onChange={event => setProductsDraft(event.target.value)} placeholder="Builder gel shade, base, top..." className="w-full rounded-xl border border-[var(--owner-line,#dfd1d4)] bg-white px-3 py-2.5 text-[15px]" />
                         </label>
 
                         <div className="mt-3 grid grid-cols-2 gap-3">
                           <label className="block">
-                            <span className="mb-1.5 block text-[12px] font-medium uppercase text-[#8E8E93]">Tags</span>
-                            <input value={tagsDraft} onChange={event => setTagsDraft(event.target.value)} placeholder="VIP, bridal" className="w-full rounded-xl border border-[#E5E7EB] bg-white px-3 py-2.5 text-[15px]" />
+                            <span className="mb-1.5 block text-[12px] font-medium uppercase text-[var(--owner-muted,#706267)]">Tags</span>
+                            <input value={tagsDraft} onChange={event => setTagsDraft(event.target.value)} placeholder="VIP, bridal" className="w-full rounded-xl border border-[var(--owner-line,#dfd1d4)] bg-white px-3 py-2.5 text-[15px]" />
                           </label>
                           <label className="block">
-                            <span className="mb-1.5 block text-[12px] font-medium uppercase text-[#8E8E93]">Rebook every</span>
+                            <span className="mb-1.5 block text-[12px] font-medium uppercase text-[var(--owner-muted,#706267)]">Rebook every</span>
                             <div className="flex items-center gap-2">
-                              <input type="number" min={1} max={365} value={rebookDaysDraft} onChange={event => setRebookDaysDraft(event.target.value)} placeholder="21" className="min-w-0 flex-1 rounded-xl border border-[#E5E7EB] bg-white px-3 py-2.5 text-[15px]" />
-                              <span className="text-sm text-[#8E8E93]">days</span>
+                              <input type="number" min={1} max={365} value={rebookDaysDraft} onChange={event => setRebookDaysDraft(event.target.value)} placeholder="21" className="min-w-0 flex-1 rounded-xl border border-[var(--owner-line,#dfd1d4)] bg-white px-3 py-2.5 text-[15px]" />
+                              <span className="text-sm text-[var(--owner-muted,#706267)]">days</span>
                             </div>
                           </label>
                         </div>
@@ -2044,7 +2041,7 @@ function ClientDetail({
                         )}
 
                         {profileSaveError && (
-                          <div className="mt-3 text-[13px] text-[#FF3B30]">{profileSaveError}</div>
+                          <div className="mt-3 text-[13px] text-[#b3261e]">{profileSaveError}</div>
                         )}
 
                         <div className="mt-4 flex flex-wrap justify-end gap-2">
@@ -2081,7 +2078,7 @@ function ClientDetail({
                       </AdminDetailCard>
 
                       <AdminDetailCard className="mb-4">
-                        <div className="text-[12px] font-medium uppercase text-[#8E8E93]">
+                        <div className="text-[12px] font-medium uppercase text-[var(--owner-muted,#706267)]">
                           Client-submitted preferences
                         </div>
                         <p className="mt-1 text-sm text-stone-500">
@@ -2122,7 +2119,7 @@ function ClientDetail({
                   {activeSection === 'overview' && (
                     <div className="grid gap-4 lg:grid-cols-2">
                       <AdminDetailCard className="mb-4">
-                        <div className="text-[12px] font-medium uppercase text-[#8E8E93]">Appointments & rebooking</div>
+                        <div className="text-[12px] font-medium uppercase text-[var(--owner-muted,#706267)]">Appointments & rebooking</div>
                         <div className="mt-4 space-y-3">
                           <div className="rounded-2xl bg-rose-50 px-4 py-3">
                             <div className="text-xs font-semibold uppercase text-rose-700">Next appointment</div>
@@ -2162,7 +2159,7 @@ function ClientDetail({
                       </AdminDetailCard>
 
                       <AdminDetailCard className="mb-4">
-                        <div className="text-[12px] font-medium uppercase text-[#8E8E93]">Client care</div>
+                        <div className="text-[12px] font-medium uppercase text-[var(--owner-muted,#706267)]">Client care</div>
                         <div className="mt-4 space-y-3">
                           {(sensitivitiesDraft || submittedPreferences?.sensitivities?.length) && (
                             <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3">
@@ -2209,7 +2206,7 @@ function ClientDetail({
 
                   {activeSection === 'overview' && canManageFlags && (
                     <AdminDetailCard className="mb-4">
-                      <div className="mb-3 flex items-center gap-2 text-[12px] font-medium uppercase text-[#8E8E93]">
+                      <div className="mb-3 flex items-center gap-2 text-[12px] font-medium uppercase text-[var(--owner-muted,#706267)]">
                         <ShieldAlert className="size-3.5" />
                         Client status
                       </div>
@@ -2240,18 +2237,18 @@ function ClientDetail({
                                 <div className="mb-3 rounded-xl bg-[#F8FAFC] px-3 py-2 text-[13px] text-[#6B7280]">
                                   No-shows:
                                   {' '}
-                                  <span className="font-semibold text-[#1C1C1E]">{flagsState?.noShowCount ?? statsSource.noShowCount}</span>
+                                  <span className="font-semibold text-[var(--owner-ink,#30262a)]">{flagsState?.noShowCount ?? statsSource.noShowCount}</span>
                                   {' '}
                                   · Late cancels:
                                   {' '}
-                                  <span className="font-semibold text-[#1C1C1E]">{flagsState?.lateCancelCount ?? 0}</span>
+                                  <span className="font-semibold text-[var(--owner-ink,#30262a)]">{flagsState?.lateCancelCount ?? 0}</span>
                                 </div>
 
                                 {moduleAvailability.clientFlags && (
                                   <div className="mb-4 rounded-[14px] border border-neutral-100 bg-neutral-50 p-3">
                                     <label className="flex items-center justify-between gap-3">
                                       <div>
-                                        <div className="text-[15px] font-semibold text-[#1C1C1E]">Problem client flag</div>
+                                        <div className="text-[15px] font-semibold text-[var(--owner-ink,#30262a)]">Problem client flag</div>
                                         <div className="text-[13px] text-[#6B7280]">Marks the client for internal visibility.</div>
                                       </div>
                                       <input
@@ -2269,7 +2266,7 @@ function ClientDetail({
                                         onChange={event => setProblemClientReasonDraft(event.target.value)}
                                         rows={3}
                                         placeholder="Why is this client flagged?"
-                                        className="mt-3 w-full rounded-xl border border-[#E5E7EB] bg-white px-3 py-2.5 text-[14px] text-[#1C1C1E] placeholder-[#8E8E93] focus:outline-none focus:ring-2 focus:ring-[#007AFF]/30"
+                                        className="mt-3 w-full rounded-xl border border-[var(--owner-line,#dfd1d4)] bg-white px-3 py-2.5 text-[14px] text-[var(--owner-ink,#30262a)] placeholder:text-[var(--owner-muted,#706267)] focus:outline-none focus:ring-2 focus:ring-[var(--owner-focus,#b85075)]/40"
                                       />
                                     )}
                                   </div>
@@ -2279,7 +2276,7 @@ function ClientDetail({
                                   <div className="rounded-[14px] border border-neutral-100 bg-neutral-50 p-3">
                                     <label className="flex items-center justify-between gap-3">
                                       <div>
-                                        <div className="text-[15px] font-semibold text-[#1C1C1E]">Block future booking</div>
+                                        <div className="text-[15px] font-semibold text-[var(--owner-ink,#30262a)]">Block future booking</div>
                                         <div className="text-[13px] text-[#6B7280]">Prevents the client from booking online.</div>
                                       </div>
                                       <input
@@ -2297,14 +2294,14 @@ function ClientDetail({
                                         onChange={event => setBlockedReasonDraft(event.target.value)}
                                         rows={3}
                                         placeholder="Why is this client blocked?"
-                                        className="mt-3 w-full rounded-xl border border-[#E5E7EB] bg-white px-3 py-2.5 text-[14px] text-[#1C1C1E] placeholder-[#8E8E93] focus:outline-none focus:ring-2 focus:ring-[#007AFF]/30"
+                                        className="mt-3 w-full rounded-xl border border-[var(--owner-line,#dfd1d4)] bg-white px-3 py-2.5 text-[14px] text-[var(--owner-ink,#30262a)] placeholder:text-[var(--owner-muted,#706267)] focus:outline-none focus:ring-2 focus:ring-[var(--owner-focus,#b85075)]/40"
                                       />
                                     )}
                                   </div>
                                 )}
 
                                 {flagsSaveError && (
-                                  <div className="mt-3 text-[13px] text-[#FF3B30]">{flagsSaveError}</div>
+                                  <div className="mt-3 text-[13px] text-[#b3261e]">{flagsSaveError}</div>
                                 )}
 
                                 <div className="mt-4 flex justify-end">
@@ -2325,7 +2322,7 @@ function ClientDetail({
 
                   {(activeSection === 'notes' || activeSection === 'details') && (
                     <AdminDetailCard className="mb-4">
-                      <div className="text-[12px] font-medium uppercase text-[#8E8E93]">Internal notes</div>
+                      <div className="text-[12px] font-medium uppercase text-[var(--owner-muted,#706267)]">Internal notes</div>
                       <textarea
                         aria-label="Private notes"
                         value={notesDraft}
@@ -2350,7 +2347,7 @@ function ClientDetail({
                         </Button>
                       </div>
 
-                      <div className="mb-3 mt-6 text-[12px] font-medium uppercase text-[#8E8E93]">Nail history photos</div>
+                      <div className="mb-3 mt-6 text-[12px] font-medium uppercase text-[var(--owner-muted,#706267)]">Nail history photos</div>
                       {photos.length > 0
                         ? (
                             <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
@@ -2377,7 +2374,7 @@ function ClientDetail({
 
                   {(activeSection === 'payments' || activeSection === 'activity') && (
                     <AdminDetailCard className="mb-4">
-                      <div className="mb-1 text-[12px] font-medium uppercase text-[#8E8E93]">Payments</div>
+                      <div className="mb-1 text-[12px] font-medium uppercase text-[var(--owner-muted,#706267)]">Payments</div>
                       <p className="text-sm text-stone-500">
                         Completed appointment value and recorded payments are separate. Future balances are not completed outstanding.
                       </p>
@@ -3167,8 +3164,8 @@ export function ClientsModal({
   }, [clients, fetchClients, initialClientId, salonSlug]);
 
   return (
-    <div className="relative flex min-h-full w-full flex-col bg-[#F2F2F7] font-sans text-black">
-      <div className="sticky top-0 z-20 bg-[#F2F2F7]/80 backdrop-blur-md">
+    <div className="relative flex min-h-full w-full flex-col bg-[var(--owner-ground,#f8f2ed)] font-sans text-[var(--owner-ink,#30262a)]">
+      <div className="sticky top-0 z-20 bg-[var(--owner-ground,#f8f2ed)]/85 backdrop-blur-md">
         <ModalHeader
           title={showHub ? 'Client Insights' : 'Clients'}
           subtitle={showHub ? 'Client health and follow-up' : `${totalClients} total`}
@@ -3188,7 +3185,7 @@ export function ClientsModal({
               )}
         />
         <div className="space-y-3 px-4 pb-3">
-          <div className="flex rounded-[10px] bg-[#7676801f] p-0.5" role="tablist" aria-label="Clients or Client Insights">
+          <div className="flex rounded-[10px] bg-[var(--owner-blush,#f6e7ec)] p-0.5" role="tablist" aria-label="Clients or Client Insights">
             {([['clients', 'Clients'], ['insights', 'Client Insights']] as const).map(([id, label]) => (
               <button
                 key={id}
@@ -3225,7 +3222,7 @@ export function ClientsModal({
                   }
                   setShowHub(id === 'insights');
                 }}
-                className={`min-h-9 flex-1 rounded-[8px] text-[14px] font-semibold ${showHub === (id === 'insights') ? 'bg-white text-[#1C1C1E] shadow-sm' : 'text-[#636366]'}`}
+                className={`min-h-11 flex-1 rounded-[8px] text-[14px] font-semibold outline-none transition-colors focus-visible:ring-2 focus-visible:ring-[var(--owner-focus,#b85075)] ${showHub === (id === 'insights') ? 'bg-[var(--owner-surface,#fffdfb)] text-[var(--owner-ink,#30262a)] shadow-sm' : 'text-[var(--owner-muted,#706267)]'}`}
               >
                 {label}
               </button>
@@ -3237,13 +3234,13 @@ export function ClientsModal({
                 value={searchQuery}
                 onChange={handleSearchChange}
                 placeholder="Search clients"
-                inputClassName="rounded-[10px] bg-[#767680]/12 py-2 text-[16px] shadow-none focus:ring-1 focus:ring-[#007AFF]/30"
+                inputClassName="rounded-[10px] bg-[#767680]/12 py-2 text-[16px] shadow-none focus:ring-1 focus:ring-[var(--owner-focus,#b85075)]/40"
               />
               <SortPills sortBy={sortBy} onChange={handleSortChange} />
               {sortBy === 'spent' && spendUnderReviewCount > 0 && (
                 <p
                   data-testid="clients-spend-review-note"
-                  className="text-[12px] leading-4 text-[#6B6B70]"
+                  className="text-[12px] leading-4 text-[var(--owner-muted,#706267)]"
                 >
                   {`Spend under review — ${spendUnderReviewCount} client${spendUnderReviewCount === 1 ? '' : 's'}. `}
                   They sit with your paying clients and are ordered by visits
