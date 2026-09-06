@@ -277,7 +277,7 @@ export function FraudSignalsModal({
         <div className="max-h-[calc(90vh-60px)] touch-pan-y overflow-y-auto overscroll-contain px-4 pb-8 supports-[height:100dvh]:max-h-[calc(90dvh-60px)]">
           {loading && (
             <div className="flex flex-col items-center justify-center py-20">
-              <div className="size-8 animate-spin rounded-full border-2 border-[#007AFF] border-t-transparent" />
+              <div className="size-8 animate-spin rounded-full border-2 border-[var(--owner-accent,#8f3155)] border-t-transparent" />
               <p className="mt-4 text-sm text-[#8E8E93]">Loading...</p>
             </div>
           )}
@@ -289,7 +289,7 @@ export function FraudSignalsModal({
               <button
                 type="button"
                 onClick={onRefetch}
-                className="mt-4 rounded-lg bg-[#007AFF] px-4 py-2 text-sm font-medium text-white"
+                className="mt-4 min-h-11 rounded-full bg-[var(--owner-accent,#8f3155)] px-4 py-2 text-sm font-medium text-white"
               >
                 Try Again
               </button>

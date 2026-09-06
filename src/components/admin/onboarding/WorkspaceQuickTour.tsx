@@ -10,35 +10,49 @@ export type WorkspaceTourTarget =
   | 'services'
   | 'website';
 
+/**
+ * Five steps, each naming the destination it has just opened underneath.
+ *
+ * `where` exists because the tour drives the real workspace rather than a
+ * mock-up: the tab really does change behind the card, and the audit asked for
+ * every step to be verifiable as "this landed". Naming the destination lets
+ * the owner — and a test — tie the card to what is now on screen.
+ */
 const TOUR_STEPS: ReadonlyArray<{
   body: string;
   target: WorkspaceTourTarget;
   title: string;
+  where: string;
 }> = [
   {
-    body: 'See today’s appointments, reminders and the actions you use most.',
+    body: 'See today’s appointments, what needs attention and the actions you use most.',
     target: 'today',
     title: 'Your day at a glance',
+    where: 'Today tab',
   },
   {
-    body: 'Open your real calendar to manage availability and appointments.',
+    body: 'Your calendar is open behind this card. Manage availability, move appointments and add time off there.',
     target: 'calendar',
     title: 'Your calendar',
+    where: 'Calendar tab',
   },
   {
-    body: 'Keep client details and visit history together in your workspace.',
+    body: 'Client details, contact preferences and visit history live together here.',
     target: 'clients',
     title: 'Your clients',
+    where: 'Clients tab',
   },
   {
-    body: 'Update the service menu that clients see when they book.',
+    body: 'Update the service menu, prices and durations clients see when they book.',
     target: 'services',
     title: 'Your services',
+    where: 'Services tab',
   },
   {
-    body: 'Preview the saved website or return to setup without opening a placeholder editor.',
+    body: 'Your booking page lives in More. Open it to change layout, style and text, and to publish.',
     target: 'website',
-    title: 'Your website and booking page',
+    title: 'Your booking page',
+    where: 'More → Booking Page',
   },
 ];
 
@@ -65,11 +79,7 @@ export function WorkspaceQuickTour({
       ? document.activeElement
       : null;
     setStepIndex(0);
-    const focusTimer = window.setTimeout(() => {
-      dialogRef.current?.querySelector<HTMLElement>('button')?.focus();
-    }, 0);
     return () => {
-      window.clearTimeout(focusTimer);
       priorFocusRef.current?.focus();
     };
   }, [open]);
@@ -81,19 +91,57 @@ export function WorkspaceQuickTour({
     onTargetChange(TOUR_STEPS[stepIndex]!.target);
   }, [onTargetChange, open, stepIndex]);
 
+  /*
+    Every step opens a real workspace surface underneath, and two of them
+    (Clients, Services) are AppModal sheets that place their own initial focus
+    when they mount. Without this the tour lost focus to the sheet behind it
+    the moment the owner pressed Next. Re-claim it after the step's surface has
+    settled, but only if focus actually left the card — never yank it away from
+    something the owner is using inside the tour.
+  */
   useEffect(() => {
     if (!open) {
       return undefined;
     }
+    const claimFocus = () => {
+      const dialog = dialogRef.current;
+      if (!dialog) {
+        return;
+      }
+      if (document.activeElement instanceof HTMLElement && dialog.contains(document.activeElement)) {
+        return;
+      }
+      dialog.focus();
+    };
+    claimFocus();
+    const settleTimer = window.setTimeout(claimFocus, 120);
+    return () => window.clearTimeout(settleTimer);
+  }, [open, stepIndex]);
+
+  useEffect(() => {
+    if (!open) {
+      return undefined;
+    }
+    /*
+      The tour sits above whatever surface a step opened, so while it is open
+      it owns the keyboard. The shared modal focus lifecycle
+      (useModalFocusLifecycle) listens for keydown on `window` in the bubble
+      phase and treats the most recently mounted sheet as the topmost surface —
+      which, from step 3 onward, is the sheet *behind* this card. Listening in
+      the capture phase on `document` and stopping propagation once handled
+      keeps Escape closing the tour and Tab cycling inside it.
+    */
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         event.preventDefault();
+        event.stopPropagation();
         onClose();
         return;
       }
       if (event.key !== 'Tab' || !dialogRef.current) {
         return;
       }
+      event.stopPropagation();
       const focusable = Array.from(
         dialogRef.current.querySelectorAll<HTMLElement>(
           'button:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])',
@@ -104,16 +152,22 @@ export function WorkspaceQuickTour({
       }
       const first = focusable[0]!;
       const last = focusable.at(-1)!;
-      if (event.shiftKey && document.activeElement === first) {
+      const activeElement = document.activeElement;
+      const focusIsInside = activeElement instanceof HTMLElement
+        && dialogRef.current.contains(activeElement);
+      if (!focusIsInside) {
+        event.preventDefault();
+        (event.shiftKey ? last : first).focus();
+      } else if (event.shiftKey && activeElement === first) {
         event.preventDefault();
         last.focus();
-      } else if (!event.shiftKey && document.activeElement === last) {
+      } else if (!event.shiftKey && activeElement === last) {
         event.preventDefault();
         first.focus();
       }
     };
-    document.addEventListener('keydown', handleKeyDown);
-    return () => document.removeEventListener('keydown', handleKeyDown);
+    document.addEventListener('keydown', handleKeyDown, true);
+    return () => document.removeEventListener('keydown', handleKeyDown, true);
   }, [onClose, open]);
 
   if (!open) {
@@ -129,7 +183,17 @@ export function WorkspaceQuickTour({
 
   return (
     <div
-      className="fixed inset-0 z-[100] flex items-start justify-center px-4 pb-24 pt-[calc(env(safe-area-inset-top,0px)+5rem)]"
+      /*
+        The card normally sits under the workspace header. The last step is the
+        exception: the tile it is describing is the first one in the More grid,
+        so a top-anchored card covers exactly what it just scrolled into view.
+        On that step the card moves to the bottom, above the tab bar.
+      */
+      className={`fixed inset-0 z-[100] flex justify-center px-4 ${
+        current.target === 'website'
+          ? 'items-end pb-[calc(env(safe-area-inset-bottom,0px)+7rem)] pt-24'
+          : 'items-start pb-24 pt-[calc(env(safe-area-inset-top,0px)+5rem)]'
+      }`}
       data-testid="workspace-quick-tour"
     >
       <button
@@ -161,6 +225,14 @@ export function WorkspaceQuickTour({
             <h2 className="mt-2 text-2xl font-semibold tracking-tight" id="workspace-tour-title">
               {current.title}
             </h2>
+            <p
+              className="mt-2 inline-flex items-center rounded-full bg-[var(--owner-blush,#f6e7ec)] px-2.5 py-1 text-[12px] font-semibold text-[var(--owner-accent-strong,#70213f)]"
+              data-testid="workspace-tour-where"
+            >
+              Now open:
+              {' '}
+              {current.where}
+            </p>
           </div>
           <button
             aria-label="Skip tour"

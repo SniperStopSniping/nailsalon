@@ -22,6 +22,7 @@ import {
   Bell,
   Boxes,
   CalendarClock,
+  Camera,
   Check,
   ChevronRight,
   CreditCard,
@@ -30,6 +31,7 @@ import {
   Flag,
   Gift,
   Instagram,
+  LayoutTemplate,
   ListOrdered,
   MapPin,
   MessageSquare,
@@ -43,16 +45,19 @@ import {
   Users,
   X,
 } from 'lucide-react';
-import { useParams, useRouter } from 'next/navigation';
+import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import {
   type ReactNode,
   useCallback,
   useEffect,
   useId,
+  useRef,
   useState,
 } from 'react';
 
+import { useOwnerAdminFeatureFlags } from '@/app/[locale]/admin/OwnerAdminFeatureFlags';
 import { DialogShell } from '@/components/ui/dialog-shell';
+import { LockedFeatureRow } from '@/components/ui/locked-feature-row';
 import {
   BOOKING_EXPERIENCE_DEFAULTS,
   BOOKING_EXPERIENCE_LIMITS,
@@ -68,6 +73,12 @@ import {
   formatDepositCentsForInput,
   parseDepositDollarsToCents,
 } from '@/libs/depositPolicy';
+import {
+  INSTAGRAM_FIELD_HELPER,
+  INSTAGRAM_FIELD_LABEL,
+  resolveInstagramInput,
+  toInstagramHandle,
+} from '@/libs/instagramHandle';
 import type { ResolvedLoyaltyPoints } from '@/libs/loyalty';
 import { hasReviewedForfeitureTaxTreatment } from '@/libs/taxConfig';
 import { getDateKeyInTimeZone } from '@/libs/timeZone';
@@ -137,15 +148,15 @@ function Section({ title, footer, children }: SectionProps) {
   return (
     <div className="mb-6">
       {title && (
-        <div className="mb-2 px-4 text-[13px] uppercase tracking-wide text-gray-500">
+        <div className="mb-2 px-4 text-[13px] font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
           {title}
         </div>
       )}
-      <div className="mx-4 overflow-visible rounded-[10px] border border-gray-200/50 bg-white shadow-sm">
+      <div className="mx-4 overflow-visible rounded-[14px] border border-[var(--owner-line)] bg-[var(--owner-surface)] shadow-sm">
         {children}
       </div>
       {footer && (
-        <div className="mt-2 px-8 text-[12px] leading-snug text-gray-500">
+        <div className="mt-2 px-8 text-[12px] leading-snug text-[var(--owner-muted)]">
           {footer}
         </div>
       )}
@@ -156,6 +167,19 @@ function Section({ title, footer, children }: SectionProps) {
 /**
  * Settings Row
  */
+/**
+ * One icon container for every Settings row.
+ *
+ * The rows used to carry a per-row `iconColor` — eleven saturated squares
+ * (green, blue, purple, teal, amber, red, indigo, cyan…) inside a single
+ * screen. Onboarding paints one blush tile with the plum glyph, so the
+ * workspace does too: the icon says "this is a settings row", the colour is
+ * not carrying meaning anybody can decode. `iconColor` is still accepted so
+ * every call site stays untouched, but it no longer paints.
+ */
+const OWNER_ROW_ICON_CLASS
+  = 'mr-3 flex size-8 shrink-0 items-center justify-center rounded-[10px] bg-[var(--owner-blush)] text-[var(--owner-accent)]';
+
 type RowProps = {
   icon?: LucideIcon;
   iconColor?: string;
@@ -170,7 +194,6 @@ type RowProps = {
 
 function Row({
   icon: Icon,
-  iconColor = 'bg-gray-500',
   label,
   value,
   type = 'link',
@@ -189,7 +212,7 @@ function Row({
 
   return (
     <div
-      className={`flex min-h-[48px] items-center pl-4 transition-colors ${type === 'display' ? '' : 'cursor-pointer active:bg-gray-50'}`}
+      className={`flex min-h-11 items-center rounded-[10px] pl-4 outline-none transition-colors focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)] ${type === 'display' ? '' : 'cursor-pointer active:bg-[var(--owner-blush)]'}`}
       onClick={type === 'link' ? onClick : undefined}
       onKeyDown={
         type === 'link' && onClick
@@ -206,26 +229,24 @@ function Row({
     >
       {/* Icon */}
       {Icon && (
-        <div
-          className={`mr-3 flex size-7 items-center justify-center rounded-[6px] text-white shadow-sm ${iconColor}`}
-        >
-          <Icon className="size-4" />
+        <div className={OWNER_ROW_ICON_CLASS}>
+          <Icon aria-hidden="true" className="size-4" />
         </div>
       )}
 
       {/* Content */}
       <div
         className={`flex flex-1 items-center justify-between py-3 pr-4 ${
-          !isLast ? 'border-b border-gray-100' : ''
+          !isLast ? 'border-b border-[var(--owner-line)]' : ''
         }`}
       >
-        <span className="text-[16px] tracking-tight text-black">{label}</span>
+        <span className="text-[16px] tracking-tight text-[var(--owner-ink)]">{label}</span>
 
         <div className="flex items-center gap-2">
-          {value && <span className="text-[16px] text-[#8E8E93]">{value}</span>}
+          {value && <span className="text-[16px] text-[var(--owner-muted,#706267)]">{value}</span>}
 
           {type === 'link' && (
-            <ChevronRight className="size-4 text-[#C7C7CC]" />
+            <ChevronRight className="size-4 text-[var(--owner-line-strong,#d8c1c8)]" />
           )}
 
           {type === 'toggle' && (
@@ -233,15 +254,18 @@ function Row({
               type="button"
               onClick={handleToggle}
               aria-label={`Toggle ${label}`}
+              aria-pressed={isOn}
               className={`
-                relative h-[31px] w-[51px] rounded-full p-0.5 transition-colors duration-300
-                ${isOn ? 'bg-rose-800' : 'bg-[#E9E9EA]'}
+                relative h-[31px] w-[51px] rounded-full p-0.5 outline-none transition-colors duration-300
+                after:absolute after:inset-x-0 after:top-1/2 after:h-11 after:-translate-y-1/2 after:content-['']
+                focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)] focus-visible:ring-offset-2
+                ${isOn ? 'bg-[var(--owner-accent)]' : 'bg-[var(--owner-line)]'}
               `}
             >
               <motion.div
                 animate={{ x: isOn ? 20 : 0 }}
                 transition={{ type: 'spring', stiffness: 500, damping: 30 }}
-                className="size-[27px] rounded-full bg-white shadow-md"
+                className="size-[27px] rounded-full bg-[var(--owner-surface)] shadow-md"
               />
             </button>
           )}
@@ -250,6 +274,55 @@ function Row({
     </div>
   );
 }
+
+/**
+ * Module catalogue for the Features view.
+ *
+ * Every module is listed here whether or not the salon is entitled to it: an
+ * entitled module renders as a toggle, a non-entitled one as a LockedFeatureRow
+ * naming the reason. Driving the view from one table is what makes an empty
+ * category heading impossible (AG-more-settings-01 /
+ * AG-w2-settings-integrations-05).
+ */
+const MODULE_GROUPS: ReadonlyArray<{
+  title: string;
+  modules: ReadonlyArray<{
+    key: ModuleKey;
+    label: string;
+    icon: LucideIcon;
+    iconColor: string;
+  }>;
+}> = [
+  {
+    title: 'Marketing',
+    modules: [
+      { key: 'smsReminders', label: 'SMS Reminders', icon: MessageSquare, iconColor: 'bg-green-500' },
+      { key: 'referrals', label: 'Referrals', icon: Users, iconColor: 'bg-blue-500' },
+      { key: 'rewards', label: 'Rewards', icon: Gift, iconColor: 'bg-purple-500' },
+    ],
+  },
+  {
+    title: 'Staff',
+    modules: [
+      { key: 'scheduleOverrides', label: 'Schedule Overrides', icon: User, iconColor: 'bg-orange-500' },
+      { key: 'staffEarnings', label: 'Staff Earnings', icon: BarChart3, iconColor: 'bg-teal-500' },
+    ],
+  },
+  {
+    title: 'Controls',
+    modules: [
+      { key: 'clientFlags', label: 'Client Flags', icon: Flag, iconColor: 'bg-amber-500' },
+      { key: 'clientBlocking', label: 'Client Blocking', icon: Shield, iconColor: 'bg-red-500' },
+    ],
+  },
+  {
+    title: 'Analytics',
+    modules: [
+      { key: 'analyticsDashboard', label: 'Analytics Dashboard', icon: BarChart3, iconColor: 'bg-indigo-500' },
+      { key: 'utilization', label: 'Utilization Reports', icon: BarChart3, iconColor: 'bg-cyan-500' },
+    ],
+  },
+];
 
 /**
  * Module Row (Step 16.3)
@@ -268,7 +341,6 @@ type ModuleRowProps = {
 
 function ModuleRow({
   icon: Icon,
-  iconColor = 'bg-gray-500',
   label,
   moduleKey,
   enabled,
@@ -285,25 +357,23 @@ function ModuleRow({
 
   return (
     <div
-      className={`flex min-h-[48px] items-center pl-4 ${entitled ? '' : 'opacity-60'}`}
+      className={`flex min-h-11 items-center pl-4 ${entitled ? '' : 'opacity-60'}`}
     >
       {/* Icon */}
       {Icon && (
-        <div
-          className={`mr-3 flex size-7 items-center justify-center rounded-[6px] text-white shadow-sm ${iconColor}`}
-        >
-          <Icon className="size-4" />
+        <div className={OWNER_ROW_ICON_CLASS}>
+          <Icon aria-hidden="true" className="size-4" />
         </div>
       )}
 
       {/* Content */}
       <div
         className={`flex flex-1 items-center justify-between py-3 pr-4 ${
-          !isLast ? 'border-b border-gray-100' : ''
+          !isLast ? 'border-b border-[var(--owner-line)]' : ''
         }`}
       >
         <div className="flex flex-col">
-          <span className="text-[16px] tracking-tight text-black">{label}</span>
+          <span className="text-[16px] tracking-tight text-[var(--owner-ink)]">{label}</span>
           {!entitled && (
             <span className="text-[11px] text-amber-600">Upgrade required</span>
           )}
@@ -315,16 +385,19 @@ function ModuleRow({
             onClick={handleToggle}
             disabled={!entitled}
             aria-label={`Toggle ${label}`}
+            aria-pressed={enabled && entitled}
             className={`
-              relative h-[31px] w-[51px] rounded-full p-0.5 transition-colors duration-300
+              relative h-[31px] w-[51px] rounded-full p-0.5 outline-none transition-colors duration-300
+              after:absolute after:inset-x-0 after:top-1/2 after:h-11 after:-translate-y-1/2 after:content-['']
+              focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)] focus-visible:ring-offset-2
               ${!entitled ? 'cursor-not-allowed' : 'cursor-pointer'}
-              ${enabled && entitled ? 'bg-rose-800' : 'bg-[#E9E9EA]'}
+              ${enabled && entitled ? 'bg-[var(--owner-accent)]' : 'bg-[var(--owner-line)]'}
             `}
           >
             <motion.div
               animate={{ x: enabled && entitled ? 20 : 0 }}
               transition={{ type: 'spring', stiffness: 500, damping: 30 }}
-              className="size-[27px] rounded-full bg-white shadow-md"
+              className="size-[27px] rounded-full bg-[var(--owner-surface)] shadow-md"
             />
           </button>
         </div>
@@ -370,320 +443,22 @@ function ProfileCard({
         </div>
       </div>
       <div className="flex-1">
-        <div className="text-[20px] font-normal text-[#1C1C1E]">{name}</div>
-        <div className="text-[13px] text-gray-500">{subtitle}</div>
+        <div className="text-[20px] font-normal text-[var(--owner-ink,#30262a)]">{name}</div>
+        <div className="text-[13px] text-[var(--owner-muted)]">{subtitle}</div>
       </div>
-      <ChevronRight className="size-5 text-[#C7C7CC]" />
+      <ChevronRight className="size-5 text-[var(--owner-line-strong,#d8c1c8)]" />
     </button>
   );
 }
 
-type DirectionsLocationFormState = {
-  id: string | null;
-  name: string;
-  address: string;
-  city: string;
-  state: string;
-  zipCode: string;
-};
-
-function DirectionsLocationSection({
-  salonSlug,
-  onDirtyChange,
-}: {
-  salonSlug: string;
-  onDirtyChange?: (dirty: boolean) => void;
-}) {
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [saved, setSaved] = useState(false);
-  const [dirty, setDirty] = useState(false);
-  const [locationCount, setLocationCount] = useState(0);
-  const [isPrimaryFallback, setIsPrimaryFallback] = useState(false);
-  const [form, setForm] = useState<DirectionsLocationFormState>({
-    id: null,
-    name: '',
-    address: '',
-    city: '',
-    state: '',
-    zipCode: '',
-  });
-
-  const markDirty = useCallback(
-    (value: boolean) => {
-      setDirty(value);
-      onDirtyChange?.(value);
-    },
-    [onDirtyChange],
-  );
-
-  const fetchLocation = useCallback(async () => {
-    if (!salonSlug) {
-      return;
-    }
-
-    setLoading(true);
-    setError(null);
-
-    try {
-      const response = await fetch(
-        `/api/admin/location?salonSlug=${encodeURIComponent(salonSlug)}`,
-      );
-      const body = await response.json().catch(() => null);
-
-      if (!response.ok) {
-        throw new Error(
-          body?.error?.message || 'Failed to load location settings',
-        );
-      }
-
-      const location = body?.data?.location;
-      const salonName = body?.data?.salon?.name || '';
-
-      setLocationCount(body?.data?.salon?.locationCount || 0);
-      setIsPrimaryFallback(Boolean(body?.data?.isPrimaryFallback));
-      setForm({
-        id: location?.id ?? null,
-        name: location?.name ?? salonName,
-        address: location?.address ?? '',
-        city: location?.city ?? '',
-        state: location?.state ?? '',
-        zipCode: location?.zipCode ?? '',
-      });
-      markDirty(false);
-    } catch (fetchError) {
-      setError(
-        fetchError instanceof Error
-          ? fetchError.message
-          : 'Failed to load location settings',
-      );
-    } finally {
-      setLoading(false);
-    }
-  }, [salonSlug, markDirty]);
-
-  useEffect(() => {
-    fetchLocation();
-  }, [fetchLocation]);
-
-  useEffect(() => {
-    if (!saved) {
-      return undefined;
-    }
-
-    const timer = window.setTimeout(() => setSaved(false), 2500);
-    return () => window.clearTimeout(timer);
-  }, [saved]);
-
-  const handleChange = (
-    field: keyof DirectionsLocationFormState,
-    value: string,
-  ) => {
-    setForm(prev => ({ ...prev, [field]: value }));
-    setSaved(false);
-    markDirty(true);
-  };
-
-  const handleSave = async () => {
-    if (!form.name.trim() || saving) {
-      return;
-    }
-
-    setSaving(true);
-    setError(null);
-
-    try {
-      const response = await fetch(
-        `/api/admin/location?salonSlug=${encodeURIComponent(salonSlug)}`,
-        {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            name: form.name,
-            address: form.address,
-            city: form.city,
-            state: form.state,
-            zipCode: form.zipCode,
-          }),
-        },
-      );
-
-      const body = await response.json().catch(() => null);
-      if (!response.ok) {
-        throw new Error(
-          body?.error?.message || 'Failed to save location settings',
-        );
-      }
-
-      const location = body?.data?.location;
-      setLocationCount(body?.data?.locationCount || locationCount);
-      setIsPrimaryFallback(false);
-      setForm(prev => ({
-        ...prev,
-        id: location?.id ?? prev.id,
-        name: location?.name ?? prev.name,
-        address: location?.address ?? '',
-        city: location?.city ?? '',
-        state: location?.state ?? '',
-        zipCode: location?.zipCode ?? '',
-      }));
-      setSaved(true);
-      markDirty(false);
-    } catch (saveError) {
-      setError(
-        saveError instanceof Error
-          ? saveError.message
-          : 'Failed to save location settings',
-      );
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  return (
-    <Section
-      title="Directions Location"
-      footer={
-        locationCount > 1
-          ? 'This edits the primary location used as the default customer directions target. Other locations remain unchanged.'
-          : 'This address is used for customer directions and the default booking location when a visit does not specify another location.'
-      }
-    >
-      {loading
-        ? (
-            <div className="flex items-center justify-center py-8">
-              <div className="size-6 animate-spin rounded-full border-2 border-rose-800 border-t-transparent" />
-            </div>
-          )
-        : (
-            <div className="space-y-4 p-4">
-              {isPrimaryFallback && (
-                <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-relaxed text-amber-800">
-                  No primary location was set. Saving here will promote the current
-                  default location for customer directions.
-                </div>
-              )}
-
-              {error && (
-                <div className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
-                  <AlertCircle className="mt-0.5 size-4 shrink-0" />
-                  <span>{error}</span>
-                </div>
-              )}
-
-              <div className="grid gap-3 sm:grid-cols-2">
-                <label className="flex flex-col gap-1 sm:col-span-2">
-                  <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
-                    Location name
-                  </span>
-                  <input
-                    type="text"
-                    value={form.name}
-                    onChange={event => handleChange('name', event.target.value)}
-                    className="h-11 rounded-[10px] border border-gray-200 px-3 text-[15px] text-black outline-none transition-colors focus:border-[#007AFF]"
-                    placeholder="Main salon"
-                  />
-                </label>
-
-                <label className="flex flex-col gap-1 sm:col-span-2">
-                  <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
-                    Street address
-                  </span>
-                  <input
-                    type="text"
-                    value={form.address}
-                    onChange={event =>
-                      handleChange('address', event.target.value)}
-                    className="h-11 rounded-[10px] border border-gray-200 px-3 text-[15px] text-black outline-none transition-colors focus:border-[#007AFF]"
-                    placeholder="123 Main St"
-                  />
-                </label>
-
-                <label className="flex flex-col gap-1">
-                  <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
-                    City
-                  </span>
-                  <input
-                    type="text"
-                    value={form.city}
-                    onChange={event => handleChange('city', event.target.value)}
-                    className="h-11 rounded-[10px] border border-gray-200 px-3 text-[15px] text-black outline-none transition-colors focus:border-[#007AFF]"
-                    placeholder="Toronto"
-                  />
-                </label>
-
-                <div className="grid grid-cols-2 gap-3">
-                  <label className="flex flex-col gap-1">
-                    <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
-                      State
-                    </span>
-                    <input
-                      type="text"
-                      value={form.state}
-                      onChange={event =>
-                        handleChange('state', event.target.value)}
-                      className="h-11 rounded-[10px] border border-gray-200 px-3 text-[15px] text-black outline-none transition-colors focus:border-[#007AFF]"
-                      placeholder="ON"
-                    />
-                  </label>
-
-                  <label className="flex flex-col gap-1">
-                    <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
-                      ZIP / postal
-                    </span>
-                    <input
-                      type="text"
-                      value={form.zipCode}
-                      onChange={event =>
-                        handleChange('zipCode', event.target.value)}
-                      onBlur={(event) => {
-                        // Readable Canadian format on edit; never rewrites an
-                        // untouched stored value.
-                        const formatted = formatCanadianPostalCode(
-                          event.target.value,
-                        );
-                        if (formatted !== event.target.value) {
-                          handleChange('zipCode', formatted);
-                        }
-                      }}
-                      className="h-11 rounded-[10px] border border-gray-200 px-3 text-[15px] text-black outline-none transition-colors focus:border-[#007AFF]"
-                      placeholder="M5H 2M9"
-                    />
-                  </label>
-                </div>
-              </div>
-
-              <div className="flex items-center justify-between gap-3 border-t border-gray-100 pt-3">
-                <div className="flex items-center gap-2 text-xs text-gray-500">
-                  <MapPin className="size-4 text-rose-800" />
-                  <span>
-                    {form.id
-                      ? 'Editing current default location'
-                      : 'Create the first customer-facing location'}
-                  </span>
-                </div>
-                <button
-                  type="button"
-                  onClick={handleSave}
-                  disabled={!form.name.trim() || saving || !dirty}
-                  className="inline-flex items-center gap-2 rounded-[10px] bg-rose-800 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-rose-900 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  <Save className="size-4" />
-                  <span>{saving ? 'Saving...' : 'Save location'}</span>
-                </button>
-              </div>
-
-              {saved && !error && (
-                <div className="text-right text-xs font-medium text-green-600">
-                  Location saved.
-                </div>
-              )}
-            </div>
-          )}
-    </Section>
-  );
-}
+/*
+ * `DirectionsLocationSection` lived here: a second five-field address form
+ * writing the same `PATCH /api/admin/location` as Booking Page → Your
+ * Information → Location (source map §C1 row 1). It was removed rather than
+ * hidden so there is exactly one address editor; Settings → Locations &
+ * directions now hands off to that editor and keeps only the parking &
+ * entry instructions, which live nowhere else.
+ */
 
 /**
  * Parking & entry instructions — the single editing surface for the
@@ -796,7 +571,7 @@ function ParkingInstructionsCard({
       {loading
         ? (
             <div className="flex items-center justify-center py-8">
-              <div className="size-6 animate-spin rounded-full border-2 border-rose-800 border-t-transparent" />
+              <div className="size-6 animate-spin rounded-full border-2 border-[var(--owner-accent)] border-t-transparent" />
             </div>
           )
         : (
@@ -808,7 +583,7 @@ function ParkingInstructionsCard({
                 </div>
               )}
               <label htmlFor="settings-parking-instructions" className="block">
-                <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                <span className="text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
                   Parking & entry instructions
                 </span>
                 <textarea
@@ -821,7 +596,7 @@ function ParkingInstructionsCard({
                   }}
                   rows={3}
                   maxLength={2000}
-                  className="mt-2 w-full resize-y rounded-[10px] border border-gray-200 p-3 text-[15px] leading-relaxed text-black outline-none transition-colors focus:border-[#007AFF]"
+                  className="mt-2 w-full resize-y rounded-[10px] border border-[var(--owner-line)] p-3 text-[15px] leading-relaxed text-[var(--owner-ink)] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
                   placeholder="Free parking behind the salon. Enter from Queen Street."
                 />
               </label>
@@ -835,7 +610,7 @@ function ParkingInstructionsCard({
                   type="button"
                   onClick={() => void handleSave()}
                   disabled={saving || !dirty}
-                  className="inline-flex items-center gap-2 rounded-[10px] bg-rose-800 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-rose-900 disabled:cursor-not-allowed disabled:opacity-50"
+                  className="inline-flex min-h-11 items-center justify-center gap-2 rounded-[10px] bg-[var(--owner-accent)] px-4 text-sm font-semibold text-white outline-none transition-colors hover:bg-[var(--owner-accent-strong)] focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)] disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   <Save className="size-4" />
                   <span>{saving ? 'Saving...' : 'Save parking info'}</span>
@@ -864,6 +639,13 @@ type BookingConfigFormState = {
   introPriceDefaultLabel: string;
   firstVisitDiscountEnabled: boolean;
   clientChangeCutoffHours: number;
+  /**
+   * How far ahead a client must book. Enforced by
+   * `GET /api/appointments/availability` and `POST /api/appointments`
+   * (`TOO_SOON`) and written by onboarding — until now with no owner editor at
+   * all (AG-w2-settings-integrations-01).
+   */
+  minimumNoticeMinutes: number;
 };
 
 type BookingExperienceFormState = BookingExperience;
@@ -1040,6 +822,8 @@ type BookingExperienceEditorProps = {
   ) => void;
   onReset: () => void;
   onSave: () => void;
+  /** Booking Page → Style & Colours, the single colour authority. */
+  appearanceHref?: string;
 };
 
 function BookingExperienceEditor({
@@ -1052,6 +836,7 @@ function BookingExperienceEditor({
   onChange,
   onReset,
   onSave,
+  appearanceHref,
 }: BookingExperienceEditorProps) {
   if (loading) {
     return (
@@ -1060,7 +845,7 @@ function BookingExperienceEditor({
         className="flex items-center justify-center gap-2 py-8"
         role="status"
       >
-        <div className="size-6 animate-spin rounded-full border-2 border-rose-800 border-t-transparent" />
+        <div className="size-6 animate-spin rounded-full border-2 border-[var(--owner-accent)] border-t-transparent" />
         <span className="sr-only">Loading booking experience settings</span>
       </div>
     );
@@ -1077,10 +862,15 @@ function BookingExperienceEditor({
       '--booking-brand-state-border'
     ] ?? previewColor
     : previewColor;
+  // One Instagram normaliser, shared with Your Information → Contact: the
+  // owner types a handle, `@handle` or a link and we store the same canonical
+  // profile URL either editor would store (source map §C1 row 6).
+  const instagramResolution = resolveInstagramInput(draft.socialLinks.instagram);
+  const instagramFieldValue = toInstagramHandle(draft.socialLinks.instagram);
   const configuredSocials = [
     {
       key: 'instagram',
-      label: 'Instagram',
+      label: INSTAGRAM_FIELD_LABEL,
       value: draft.socialLinks.instagram,
       icon: Instagram,
     },
@@ -1115,55 +905,36 @@ function BookingExperienceEditor({
       )}
 
       <div className="grid gap-4 sm:grid-cols-2">
-        <label className="flex flex-col gap-1 sm:col-span-2">
-          <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
-            Primary brand colour
+        {/*
+          One colour authority. The drafted palette in Booking Page → Style &
+          Colours is what customers see; this screen used to edit a SECOND,
+          live-immediate colour (`bookingExperience.primaryColor`) three rows
+          away from it (source map §C1, AG-more-settings-06). The stored field
+          is kept and still saved untouched — nothing here writes it any more.
+        */}
+        <div
+          className="flex flex-col gap-1 rounded-[10px] border border-[var(--owner-line)] bg-[var(--owner-ground)] p-3 sm:col-span-2"
+          data-testid="branding-colour-authority"
+        >
+          <span className="text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
+            Website colours
           </span>
-          <div className="flex items-center gap-2">
-            <input
-              type="color"
-              aria-label="Choose primary brand colour"
-              value={hasValidPreviewColor ? previewColor : '#9F1239'}
-              onChange={event =>
-                onChange(current => ({
-                  ...current,
-                  primaryColor: event.target.value.toUpperCase(),
-                }))}
-              className="size-11 cursor-pointer rounded-[10px] border border-gray-200 bg-white p-1"
-            />
-            <input
-              type="text"
-              aria-label="Primary brand colour"
-              value={draft.primaryColor ?? ''}
-              onChange={event =>
-                onChange(current => ({
-                  ...current,
-                  primaryColor: event.target.value
-                    ? event.target.value.toUpperCase()
-                    : null,
-                }))}
-              maxLength={7}
-              pattern="#[0-9A-Fa-f]{6}"
-              placeholder="Theme default"
-              className="h-11 min-w-0 flex-1 rounded-[10px] border border-gray-200 px-3 font-mono text-[15px] uppercase text-black outline-none transition-colors focus:border-[#007AFF]"
-            />
-            <button
-              type="button"
-              onClick={() =>
-                onChange(current => ({ ...current, primaryColor: null }))}
-              className="h-11 rounded-[10px] border border-gray-200 px-3 text-xs font-semibold text-gray-700 transition-colors hover:bg-gray-50"
+          <p className="text-sm text-[var(--owner-muted)]">
+            Website colours are set in Booking Page → Style &amp; Colours, where
+            they stay in your draft until you publish.
+          </p>
+          {appearanceHref && (
+            <a
+              href={appearanceHref}
+              className="inline-flex min-h-11 items-center gap-1 text-sm font-semibold text-[var(--owner-accent)] underline"
             >
-              Use theme
-            </button>
-          </div>
-          <span className="text-xs text-gray-500">
-            Buttons, selected states, borders, and accents only. Enter a six-digit
-            hex colour.
-          </span>
-        </label>
+              Open Style &amp; Colours
+            </a>
+          )}
+        </div>
 
         <label className="flex flex-col gap-1 sm:col-span-2">
-          <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+          <span className="text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
             Booking message
           </span>
           <textarea
@@ -1177,53 +948,83 @@ function BookingExperienceEditor({
             rows={2}
             maxLength={160}
             placeholder="A short welcome shown near the top of booking."
-            className="w-full resize-y rounded-[10px] border border-gray-200 p-3 text-[15px] leading-relaxed text-black outline-none transition-colors focus:border-[#007AFF]"
+            className="w-full resize-y rounded-[10px] border border-[var(--owner-line)] p-3 text-[15px] leading-relaxed text-[var(--owner-ink)] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
           />
-          <span className="text-right text-xs text-gray-500">
+          <span className="text-right text-xs text-[var(--owner-muted)]">
             {(draft.bookingMessage ?? '').length}
             /160
           </span>
         </label>
 
-        <div className="space-y-3 rounded-[10px] border border-gray-200 p-3 sm:col-span-2">
+        <div className="space-y-3 rounded-[10px] border border-[var(--owner-line)] p-3 sm:col-span-2">
           <div>
-            <div className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+            <div className="text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
               Social links
             </div>
-            <p className="mt-1 text-sm text-gray-700">
+            <p className="mt-1 text-sm text-[var(--owner-muted)]">
               Only configured profile links appear on the booking page.
             </p>
           </div>
           {configuredSocials.map((social) => {
             const SocialIcon = social.icon;
+            const isInstagram = social.key === 'instagram';
             return (
               <label key={social.key} className="flex flex-col gap-1">
-                <span className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-gray-500">
+                <span className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
                   <SocialIcon className="size-4" />
                   {social.label}
                 </span>
                 <input
-                  type="url"
-                  value={social.value ?? ''}
+                  type={isInstagram ? 'text' : 'url'}
+                  // The helper below lives inside the <label>, so it would
+                  // otherwise be concatenated into the accessible name.
+                  aria-label={social.label}
+                  aria-describedby={isInstagram ? 'branding-instagram-helper' : undefined}
+                  data-testid={isInstagram ? 'branding-instagram' : undefined}
+                  value={isInstagram ? instagramFieldValue : social.value ?? ''}
                   onChange={event =>
-                    onChange(current => ({
-                      ...current,
-                      socialLinks: {
-                        ...current.socialLinks,
-                        [social.key]: event.target.value || null,
-                      },
-                    }))}
-                  maxLength={500}
-                  placeholder={`https://${social.label.toLowerCase()}.com/your-profile`}
-                  className="h-11 rounded-[10px] border border-gray-200 px-3 text-[15px] text-black outline-none transition-colors focus:border-[#007AFF]"
+                    onChange((current) => {
+                      const typed = event.target.value;
+                      if (!isInstagram) {
+                        return {
+                          ...current,
+                          socialLinks: { ...current.socialLinks, [social.key]: typed || null },
+                        };
+                      }
+                      const resolution = resolveInstagramInput(typed);
+                      return {
+                        ...current,
+                        socialLinks: {
+                          ...current.socialLinks,
+                          // A resolvable handle/link is stored canonically; an
+                          // in-progress or invalid value is kept verbatim so the
+                          // owner keeps what they typed and sees the hint below.
+                          instagram: resolution.status === 'resolved' ? resolution.url : typed || null,
+                        },
+                      };
+                    })}
+                  maxLength={isInstagram ? 200 : 500}
+                  placeholder={isInstagram ? 'yourstudio' : `https://${social.label.toLowerCase()}.com/your-profile`}
+                  className="h-11 rounded-[10px] border border-[var(--owner-line)] px-3 text-[15px] text-[var(--owner-ink)] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
                 />
+                {isInstagram && (
+                  <span
+                    className={`text-xs ${instagramResolution.status === 'invalid' ? 'text-red-700' : 'text-[var(--owner-muted)]'}`}
+                    data-testid="branding-instagram-helper"
+                    id="branding-instagram-helper"
+                  >
+                    {instagramResolution.status === 'invalid'
+                      ? instagramResolution.error
+                      : `${INSTAGRAM_FIELD_HELPER}${instagramResolution.status === 'resolved' ? ` — clients see @${instagramResolution.username}` : ''}`}
+                  </span>
+                )}
               </label>
             );
           })}
         </div>
 
         <label className="flex flex-col gap-1 sm:col-span-2">
-          <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+          <span className="text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
             Confirmation message
           </span>
           <textarea
@@ -1237,9 +1038,9 @@ function BookingExperienceEditor({
             rows={3}
             maxLength={500}
             placeholder="Shown below appointment details and in the confirmation email."
-            className="w-full resize-y rounded-[10px] border border-gray-200 p-3 text-[15px] leading-relaxed text-black outline-none transition-colors focus:border-[#007AFF]"
+            className="w-full resize-y rounded-[10px] border border-[var(--owner-line)] p-3 text-[15px] leading-relaxed text-[var(--owner-ink)] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
           />
-          <span className="text-right text-xs text-gray-500">
+          <span className="text-right text-xs text-[var(--owner-muted)]">
             {(draft.confirmationMessage ?? '').length}
             /500
           </span>
@@ -1248,11 +1049,11 @@ function BookingExperienceEditor({
 
       <div
         data-testid="booking-experience-preview"
-        className="space-y-4 rounded-[14px] border border-gray-200 bg-[#FFF8F5] p-4"
+        className="space-y-4 rounded-[14px] border border-[var(--owner-line)] bg-[var(--owner-ground)] p-4"
       >
         <div className="flex items-center justify-between gap-3">
           <div>
-            <div className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+            <div className="text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
               Live preview
             </div>
             <h3 className="mt-1 text-xl font-semibold text-gray-950">
@@ -1262,19 +1063,19 @@ function BookingExperienceEditor({
         </div>
 
         {draft.bookingMessage && (
-          <p className="whitespace-pre-line break-words text-sm text-gray-700">
+          <p className="whitespace-pre-line break-words text-sm text-[var(--owner-muted)]">
             {draft.bookingMessage}
           </p>
         )}
 
         <div
           data-testid="booking-experience-preview-service"
-          className="flex items-center justify-between rounded-[12px] border-2 bg-white p-3"
+          className="flex items-center justify-between rounded-[12px] border-2 bg-[var(--owner-surface)] p-3"
           style={{ borderColor: previewStateBorder }}
         >
           <div>
             <div className="font-semibold text-gray-950">Signature manicure</div>
-            <div className="text-xs text-gray-500">45 min</div>
+            <div className="text-xs text-[var(--owner-muted)]">45 min</div>
           </div>
           <span
             className="flex size-6 items-center justify-center rounded-full"
@@ -1299,7 +1100,7 @@ function BookingExperienceEditor({
         </div>
 
         {configuredSocials.some(social => Boolean(social.value)) && (
-          <div className="flex items-center gap-2 border-t border-gray-200 pt-3">
+          <div className="flex items-center gap-2 border-t border-[var(--owner-line)] pt-3">
             {configuredSocials.map((social) => {
               if (!social.value) {
                 return null;
@@ -1309,7 +1110,7 @@ function BookingExperienceEditor({
                 <span
                   key={social.key}
                   aria-label={`${social.label} social icon preview`}
-                  className="flex size-9 items-center justify-center rounded-full border-2 bg-white text-gray-900"
+                  className="flex size-9 items-center justify-center rounded-full border-2 bg-[var(--owner-surface)] text-[var(--owner-ink)]"
                   style={{ borderColor: previewStateBorder }}
                   role="img"
                 >
@@ -1321,22 +1122,22 @@ function BookingExperienceEditor({
         )}
 
         {draft.confirmationMessage && (
-          <div className="border-t border-gray-200 pt-3">
-            <div className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+          <div className="border-t border-[var(--owner-line)] pt-3">
+            <div className="text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
               Confirmation message
             </div>
-            <p className="mt-1 whitespace-pre-line break-words text-sm text-gray-700">
+            <p className="mt-1 whitespace-pre-line break-words text-sm text-[var(--owner-muted)]">
               {draft.confirmationMessage}
             </p>
           </div>
         )}
       </div>
 
-      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-gray-100 pt-4">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[var(--owner-line)] pt-4">
         <button
           type="button"
           onClick={onReset}
-          className="inline-flex items-center gap-2 rounded-[10px] border border-gray-200 px-4 py-2.5 text-sm font-semibold text-gray-700 transition-colors hover:bg-gray-50"
+          className="inline-flex items-center gap-2 rounded-[10px] border border-[var(--owner-line)] px-4 py-2.5 text-sm font-semibold text-[var(--owner-muted)] transition-colors hover:bg-[var(--owner-ground)]"
         >
           <RotateCcw className="size-4" />
           Reset to Default
@@ -1354,7 +1155,7 @@ function BookingExperienceEditor({
             type="button"
             onClick={onSave}
             disabled={saving || !dirty}
-            className="inline-flex items-center gap-2 rounded-[10px] bg-rose-800 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-rose-900 disabled:cursor-not-allowed disabled:opacity-50"
+            className="inline-flex min-h-11 items-center justify-center gap-2 rounded-[10px] bg-[var(--owner-accent)] px-4 text-sm font-semibold text-white outline-none transition-colors hover:bg-[var(--owner-accent-strong)] focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)] disabled:cursor-not-allowed disabled:opacity-50"
           >
             <Save className="size-4" />
             <span>{saving ? 'Saving...' : 'Save booking experience'}</span>
@@ -1365,7 +1166,18 @@ function BookingExperienceEditor({
   );
 }
 
-type BookingPolicyEditorProps = BookingExperienceEditorProps;
+const BOOKING_POLICY_UNREADABLE_MESSAGE
+  = 'We could not read your saved booking policy, so it is not shown here. Nothing has changed.';
+
+type BookingPolicyEditorProps = BookingExperienceEditorProps & {
+  /**
+   * AG-04: false until the saved policy has actually been read back. The form
+   * must never be interactive while it is showing the OFF defaults for a salon
+   * whose policy is live.
+   */
+  hydrated: boolean;
+  onRetryLoad: () => void;
+};
 
 function BookingPolicyEditor({
   draft,
@@ -1374,8 +1186,10 @@ function BookingPolicyEditor({
   saved,
   dirty,
   error,
+  hydrated,
   onChange,
   onReset,
+  onRetryLoad,
   onSave,
 }: BookingPolicyEditorProps) {
   const [previewAcknowledged, setPreviewAcknowledged] = useState(false);
@@ -1417,8 +1231,35 @@ function BookingPolicyEditor({
         className="flex items-center justify-center gap-2 py-8"
         role="status"
       >
-        <div className="size-6 animate-spin rounded-full border-2 border-rose-800 border-t-transparent" />
+        <div className="size-6 animate-spin rounded-full border-2 border-[var(--owner-accent)] border-t-transparent" />
         <span className="sr-only">Loading booking policy settings</span>
+      </div>
+    );
+  }
+
+  // The load settled without giving us the saved policy. Showing the defaults
+  // here would tell the owner the policy is OFF for a policy that may be live,
+  // and any toggle they touched would be applied to that wrong baseline.
+  if (!hydrated) {
+    return (
+      <div className="space-y-3 p-4" data-testid="booking-policy-unavailable">
+        <div
+          className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950"
+          role="alert"
+        >
+          <AlertCircle className="mt-0.5 size-4 shrink-0" />
+          <span>
+            {error ?? BOOKING_POLICY_UNREADABLE_MESSAGE}
+          </span>
+        </div>
+        <button
+          type="button"
+          onClick={onRetryLoad}
+          className="inline-flex items-center gap-2 rounded-[10px] border border-[var(--owner-line)] px-4 py-2.5 text-sm font-semibold text-gray-800 transition-colors hover:bg-[var(--owner-ground)]"
+        >
+          <RotateCcw className="size-4" />
+          Try again
+        </button>
       </div>
     );
   }
@@ -1476,40 +1317,57 @@ function BookingPolicyEditor({
         </div>
       )}
 
-      <div className="space-y-4 rounded-[12px] border border-gray-200 bg-white p-4">
+      <div className="space-y-4 rounded-[12px] border border-[var(--owner-line)] bg-[var(--owner-surface)] p-4">
         <label className="flex items-start justify-between gap-3">
           <div>
-            <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+            <span className="text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
               Enable booking policy
             </span>
-            <p className="mt-1 text-sm text-gray-700">
+            <p className="mt-1 text-sm text-[var(--owner-muted)]">
               Publish one canonical policy anywhere you enable below.
             </p>
           </div>
           <input
             aria-label="Enable booking policy"
+            aria-describedby={
+              acknowledgmentRequired
+                ? 'booking-policy-enabled-help'
+                : undefined
+            }
             type="checkbox"
             checked={draft.policy.enabled}
-            disabled={acknowledgmentRequired}
-            onChange={event =>
+            onChange={(event) => {
+              const enabled = event.target.checked;
               onChange(current => ({
                 ...current,
                 policy: {
                   ...current.policy,
-                  enabled: event.target.checked,
+                  enabled,
+                  // AG-03: this is the master switch. Turning the policy off
+                  // withdraws the acknowledgment gate with it instead of
+                  // leaving a required acknowledgment on a policy that is off
+                  // (which the server would silently re-enable).
+                  acknowledgment: enabled
+                    ? current.policy.acknowledgment
+                    : {
+                        required: false,
+                        text: current.policy.acknowledgment?.text ?? null,
+                      },
                 },
-              }))}
-            className="mt-1 size-4 rounded border-gray-300 text-rose-800 focus:ring-rose-700"
+              }));
+            }}
+            className="mt-1 size-4 rounded border-gray-300 text-[var(--owner-accent)] focus:ring-[var(--owner-focus)]"
           />
         </label>
         {acknowledgmentRequired && (
-          <p className="text-xs text-gray-600">
-            The policy stays enabled while acknowledgment is required.
+          <p id="booking-policy-enabled-help" className="text-xs text-[var(--owner-muted)]">
+            Acknowledgment is required, so this policy is live. Turning it off
+            here also stops asking customers to acknowledge it.
           </p>
         )}
 
         <label className="flex flex-col gap-1">
-          <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+          <span className="text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
             Policy title
           </span>
           <input
@@ -1526,16 +1384,16 @@ function BookingPolicyEditor({
               }))}
             maxLength={60}
             placeholder="Booking policy"
-            className="h-11 rounded-[10px] border border-gray-200 px-3 text-[15px] text-black outline-none transition-colors focus:border-[#007AFF]"
+            className="h-11 rounded-[10px] border border-[var(--owner-line)] px-3 text-[15px] text-[var(--owner-ink)] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
           />
-          <span className="text-right text-xs text-gray-500">
+          <span className="text-right text-xs text-[var(--owner-muted)]">
             {(draft.policy.title ?? '').length}
             /60
           </span>
         </label>
 
         <label className="flex flex-col gap-1">
-          <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+          <span className="text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
             Full policy text
             {draft.policy.enabled ? ' (required)' : ''}
           </span>
@@ -1554,9 +1412,9 @@ function BookingPolicyEditor({
             maxLength={1500}
             required={draft.policy.enabled}
             placeholder="Explain cancellation, no-show, and deposit expectations."
-            className="w-full resize-y rounded-[10px] border border-gray-200 p-3 text-[15px] leading-relaxed text-black outline-none transition-colors focus:border-[#007AFF]"
+            className="w-full resize-y rounded-[10px] border border-[var(--owner-line)] p-3 text-[15px] leading-relaxed text-[var(--owner-ink)] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
           />
-          <span className="text-right text-xs text-gray-500">
+          <span className="text-right text-xs text-[var(--owner-muted)]">
             {(draft.policy.text ?? '').length}
             /1,500
           </span>
@@ -1571,11 +1429,16 @@ function BookingPolicyEditor({
           ] as const).map(([key, label]) => (
             <label
               key={key}
-              className="flex items-center gap-2 rounded-[10px] border border-gray-200 px-3 py-2.5 text-sm text-gray-700"
+              className="flex items-center gap-2 rounded-[10px] border border-[var(--owner-line)] px-3 py-2.5 text-sm text-[var(--owner-muted)]"
             >
               <input
                 type="checkbox"
                 aria-label={label}
+                aria-describedby={
+                  key === 'showBeforeConfirmation' && acknowledgmentRequired
+                    ? 'booking-policy-preconfirm-help'
+                    : undefined
+                }
                 checked={draft.policy[key]}
                 disabled={
                   key === 'showBeforeConfirmation'
@@ -1589,26 +1452,30 @@ function BookingPolicyEditor({
                       [key]: event.target.checked,
                     },
                   }))}
-                className="size-4 rounded border-gray-300 text-rose-800 focus:ring-rose-700"
+                className="size-4 rounded border-gray-300 text-[var(--owner-accent)] focus:ring-[var(--owner-focus)]"
               />
               {label}
             </label>
           ))}
         </div>
         {acknowledgmentRequired && (
-          <p className="text-xs text-gray-600">
-            The policy must appear before confirmation while acknowledgment is required.
+          <p
+            id="booking-policy-preconfirm-help"
+            className="text-xs text-[var(--owner-muted)]"
+          >
+            The policy must appear before confirmation while acknowledgment is
+            required. Turn off Require acknowledgment to change this.
           </p>
         )}
       </div>
 
-      <div className="space-y-4 rounded-[12px] border border-gray-200 bg-white p-4">
+      <div className="space-y-4 rounded-[12px] border border-[var(--owner-line)] bg-[var(--owner-surface)] p-4">
         <label className="flex items-start justify-between gap-3">
           <div>
-            <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+            <span className="text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
               Require acknowledgment
             </span>
-            <p className="mt-1 text-sm text-gray-700">
+            <p className="mt-1 text-sm text-[var(--owner-muted)]">
               Ask customers to confirm this policy before creating a new public booking.
             </p>
           </div>
@@ -1632,12 +1499,12 @@ function BookingPolicyEditor({
                 },
               }));
             }}
-            className="mt-1 size-4 rounded border-gray-300 text-rose-800 focus:ring-rose-700"
+            className="mt-1 size-4 rounded border-gray-300 text-[var(--owner-accent)] focus:ring-[var(--owner-focus)]"
           />
         </label>
 
         <label className="flex flex-col gap-1">
-          <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+          <span className="text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
             Acknowledgment wording
             {acknowledgmentRequired ? ' (required)' : ''}
           </span>
@@ -1664,12 +1531,12 @@ function BookingPolicyEditor({
             rows={4}
             required={acknowledgmentRequired}
             placeholder={DEFAULT_BOOKING_POLICY_ACKNOWLEDGMENT_TEXT}
-            className="w-full resize-y rounded-[10px] border border-gray-200 p-3 text-[15px] leading-relaxed text-black outline-none transition-colors focus:border-[#007AFF]"
+            className="w-full resize-y rounded-[10px] border border-[var(--owner-line)] p-3 text-[15px] leading-relaxed text-[var(--owner-ink)] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
           />
           <div className="flex flex-wrap items-start justify-between gap-2">
             <p
               id="booking-policy-acknowledgment-help"
-              className="max-w-xl text-xs leading-5 text-gray-600"
+              className="max-w-xl text-xs leading-5 text-[var(--owner-muted)]"
             >
               This records that the customer confirmed the policy. It does not authorize
               payments, card storage, cancellation fees, or no-show charges.
@@ -1680,7 +1547,7 @@ function BookingPolicyEditor({
                 acknowledgmentCharacterCount
                 > BOOKING_EXPERIENCE_LIMITS.policyAcknowledgmentText
                   ? 'font-semibold text-red-700'
-                  : 'text-gray-500'
+                  : 'text-[var(--owner-muted)]'
               }`}
             >
               {acknowledgmentCharacterCount}
@@ -1704,7 +1571,7 @@ function BookingPolicyEditor({
                 },
               },
             }))}
-          className="inline-flex items-center rounded-[10px] border border-gray-200 px-3 py-2 text-sm font-semibold text-gray-800 transition-colors hover:bg-gray-50"
+          className="inline-flex items-center rounded-[10px] border border-[var(--owner-line)] px-3 py-2 text-sm font-semibold text-gray-800 transition-colors hover:bg-[var(--owner-ground)]"
         >
           Use suggested wording
         </button>
@@ -1731,12 +1598,12 @@ function BookingPolicyEditor({
         )}
       </div>
 
-      <div className="space-y-3 rounded-[12px] border border-gray-200 bg-white p-4">
+      <div className="space-y-3 rounded-[12px] border border-[var(--owner-line)] bg-[var(--owner-surface)] p-4">
         <div>
-          <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+          <span className="text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
             Quick facts
           </span>
-          <p className="mt-1 text-sm text-gray-700">
+          <p className="mt-1 text-sm text-[var(--owner-muted)]">
             Every badge is explicit. Nothing is inferred from policy wording or
             other salon settings.
           </p>
@@ -1746,9 +1613,9 @@ function BookingPolicyEditor({
           return (
             <div
               key={field.key}
-              className="grid gap-3 rounded-[10px] border border-gray-200 p-3 sm:grid-cols-[auto_1fr]"
+              className="grid gap-3 rounded-[10px] border border-[var(--owner-line)] p-3 sm:grid-cols-[auto_1fr]"
             >
-              <label className="flex items-start gap-2 text-sm font-semibold text-gray-900">
+              <label className="flex items-start gap-2 text-sm font-semibold text-[var(--owner-ink)]">
                 <input
                   aria-label={`Enable ${field.title.toLowerCase()} badge`}
                   type="checkbox"
@@ -1764,7 +1631,7 @@ function BookingPolicyEditor({
                         },
                       },
                     }))}
-                  className="mt-0.5 size-4 rounded border-gray-300 text-rose-800 focus:ring-rose-700"
+                  className="mt-0.5 size-4 rounded border-gray-300 text-[var(--owner-accent)] focus:ring-[var(--owner-focus)]"
                 />
                 {field.title}
               </label>
@@ -1787,9 +1654,9 @@ function BookingPolicyEditor({
                     }))}
                   maxLength={40}
                   placeholder={field.description.replace('Example: ', '')}
-                  className="h-10 rounded-[9px] border border-gray-200 px-3 text-sm text-black outline-none transition-colors focus:border-[#007AFF]"
+                  className="h-10 rounded-[9px] border border-[var(--owner-line)] px-3 text-sm text-[var(--owner-ink)] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
                 />
-                <span className="text-right text-xs text-gray-500">
+                <span className="text-right text-xs text-[var(--owner-muted)]">
                   {(fact.label ?? '').length}
                   /40
                 </span>
@@ -1801,9 +1668,9 @@ function BookingPolicyEditor({
 
       <div
         data-testid="booking-policy-preview"
-        className="space-y-3 rounded-[14px] border border-gray-200 bg-[#FFF8F5] p-4"
+        className="space-y-3 rounded-[14px] border border-[var(--owner-line)] bg-[var(--owner-ground)] p-4"
       >
-        <div className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+        <div className="text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
           Confirmation preview
         </div>
         {visibleQuickFacts.length > 0 && (
@@ -1826,7 +1693,7 @@ function BookingPolicyEditor({
             </div>
             <p
               id={previewPolicyContentId}
-              className="mt-1 whitespace-pre-line break-words text-sm leading-6 text-gray-700"
+              className="mt-1 whitespace-pre-line break-words text-sm leading-6 text-[var(--owner-muted)]"
             >
               {previewPolicyText}
             </p>
@@ -1845,13 +1712,13 @@ function BookingPolicyEditor({
           </div>
         )}
         {acknowledgmentRequired && acknowledgmentText && (
-          <label className="flex items-start gap-3 rounded-[10px] border border-gray-200 bg-white p-3 text-sm leading-6 text-gray-800">
+          <label className="flex items-start gap-3 rounded-[10px] border border-[var(--owner-line)] bg-[var(--owner-surface)] p-3 text-sm leading-6 text-gray-800">
             <input
               type="checkbox"
               checked={previewAcknowledged}
               onChange={event =>
                 setPreviewAcknowledged(event.target.checked)}
-              className="mt-1 size-4 rounded border-gray-300 text-rose-800 focus:ring-rose-700"
+              className="mt-1 size-4 rounded border-gray-300 text-[var(--owner-accent)] focus:ring-[var(--owner-focus)]"
             />
             <span className="min-w-0 break-words">{acknowledgmentText}</span>
           </label>
@@ -1865,15 +1732,22 @@ function BookingPolicyEditor({
         </button>
       </div>
 
-      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-gray-100 pt-4">
-        <button
-          type="button"
-          onClick={onReset}
-          className="inline-flex items-center gap-2 rounded-[10px] border border-gray-200 px-4 py-2.5 text-sm font-semibold text-gray-700 transition-colors hover:bg-gray-50"
-        >
-          <RotateCcw className="size-4" />
-          Reset policy
-        </button>
+      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[var(--owner-line)] pt-4">
+        <div className="space-y-1">
+          <button
+            type="button"
+            data-testid="booking-policy-reset"
+            onClick={onReset}
+            className="inline-flex items-center gap-2 rounded-[10px] border border-[var(--owner-line)] px-4 py-2.5 text-sm font-semibold text-[var(--owner-muted)] transition-colors hover:bg-[var(--owner-ground)]"
+          >
+            <RotateCcw className="size-4" />
+            Reset policy
+          </button>
+          <p className="max-w-xs text-xs leading-5 text-[var(--owner-muted)]">
+            Clears the wording and turns the policy and its acknowledgment off.
+            Save to withdraw it from your booking page.
+          </p>
+        </div>
         <div className="flex items-center gap-3">
           {saved && !error && (
             <span className="text-xs font-medium text-green-600" role="status">
@@ -1888,7 +1762,7 @@ function BookingPolicyEditor({
               || !dirty
               || !acknowledgmentDependenciesValid
             }
-            className="inline-flex items-center gap-2 rounded-[10px] bg-rose-800 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-rose-900 disabled:cursor-not-allowed disabled:opacity-50"
+            className="inline-flex min-h-11 items-center justify-center gap-2 rounded-[10px] bg-[var(--owner-accent)] px-4 text-sm font-semibold text-white outline-none transition-colors hover:bg-[var(--owner-accent-strong)] focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)] disabled:cursor-not-allowed disabled:opacity-50"
           >
             <Save className="size-4" />
             <span>{saving ? 'Saving...' : 'Save booking policy'}</span>
@@ -1968,8 +1842,10 @@ const SALON_NOTIFICATION_RECIPIENT_SOURCE_LABEL: Record<
   string
 > = {
   configured: 'the address above',
-  owner: 'your owner email',
-  salon_account: 'your salon account email',
+  // AG-13: this is a salon property, not the signed-in admin's address. On a
+  // salon with more than one admin "your owner email" was simply wrong.
+  owner: 'the salon’s owner email',
+  salon_account: 'the salon’s account email',
 };
 
 function isValidNotificationEmail(value: string): boolean {
@@ -1984,6 +1860,39 @@ const CURRENCY_OPTIONS: Array<BookingConfigFormState['currency']> = [
   'CAD',
   'USD',
 ];
+/**
+ * The same choices onboarding offers for "How much notice do you need before
+ * an appointment?", so an owner who set it during setup recognises it here.
+ * Any other stored value (a custom one from onboarding, or a legacy value)
+ * still shows and saves through the Custom row.
+ */
+const MINIMUM_NOTICE_OPTIONS: Array<{ minutes: number; label: string }> = [
+  { minutes: 0, label: 'Same day — no minimum notice' },
+  { minutes: 120, label: '2 hours' },
+  { minutes: 240, label: '4 hours' },
+  { minutes: 480, label: '8 hours' },
+  { minutes: 720, label: '12 hours' },
+  { minutes: 1_440, label: '1 day' },
+  { minutes: 2_880, label: '2 days' },
+  { minutes: 4_320, label: '3 days' },
+];
+
+/** Plain-language summary of a stored notice value, for the Settings row. */
+export function formatMinimumNotice(minutes: number): string {
+  const preset = MINIMUM_NOTICE_OPTIONS.find(option => option.minutes === minutes);
+  if (preset) {
+    return preset.minutes === 0 ? 'Same day' : preset.label;
+  }
+  if (minutes % 1_440 === 0) {
+    const days = minutes / 1_440;
+    return `${days} ${days === 1 ? 'day' : 'days'}`;
+  }
+  if (minutes % 60 === 0) {
+    const hours = minutes / 60;
+    return `${hours} ${hours === 1 ? 'hour' : 'hours'}`;
+  }
+  return `${minutes} ${minutes === 1 ? 'minute' : 'minutes'}`;
+}
 const BOOKING_NOTIFICATION_CHANNEL_OPTIONS: Array<{
   value: BookingNotificationChannel;
   label: string;
@@ -2031,7 +1940,7 @@ function ComparePlansModal({ isOpen, onClose }: ComparePlansModalProps) {
       onClose={onClose}
       alignClassName="items-end justify-center p-0 sm:items-center sm:p-4"
       maxWidthClassName="max-w-2xl"
-      contentClassName="max-h-[90vh] overflow-hidden rounded-t-[20px] bg-white shadow-xl supports-[height:100dvh]:max-h-[90dvh] sm:rounded-[20px]"
+      contentClassName="max-h-[90vh] overflow-hidden rounded-t-[20px] bg-[var(--owner-surface)] shadow-xl supports-[height:100dvh]:max-h-[90dvh] sm:rounded-[20px]"
     >
       <motion.div
         role="dialog"
@@ -2044,15 +1953,15 @@ function ComparePlansModal({ isOpen, onClose }: ComparePlansModalProps) {
         className="w-full"
       >
         {/* Header */}
-        <div className="flex items-center justify-between border-b border-gray-100 px-5 py-4">
-          <h2 id="compare-plans-title" className="text-lg font-semibold text-gray-900">Compare Plans</h2>
+        <div className="flex items-center justify-between border-b border-[var(--owner-line)] px-5 py-4">
+          <h2 id="compare-plans-title" className="text-lg font-semibold text-[var(--owner-ink)]">Compare Plans</h2>
           <button
             type="button"
             onClick={onClose}
             aria-label="Close compare plans modal"
-            className="flex size-11 items-center justify-center rounded-full bg-gray-100 transition-colors hover:bg-gray-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-950"
+            className="flex size-11 items-center justify-center rounded-full bg-[var(--owner-ground)] transition-colors hover:bg-gray-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-950"
           >
-            <X className="size-4 text-gray-600" />
+            <X className="size-4 text-[var(--owner-muted)]" />
           </button>
         </div>
 
@@ -2062,13 +1971,13 @@ function ComparePlansModal({ isOpen, onClose }: ComparePlansModalProps) {
         <div className="max-h-[calc(90vh-120px)] touch-pan-y overflow-y-auto overscroll-contain p-5 supports-[height:100dvh]:max-h-[calc(90dvh-120px)]">
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
             {BILLING_PLAN_CARDS.map(plan => (
-              <div key={plan.family} className="rounded-xl border-2 border-gray-200 bg-white p-4">
+              <div key={plan.family} className="rounded-xl border-2 border-[var(--owner-line)] bg-[var(--owner-surface)] p-4">
                 <div className="mb-3 text-center">
-                  <h3 className="text-lg font-semibold text-gray-900">{plan.name}</h3>
-                  <div className="mt-1 text-2xl font-bold text-gray-900">{plan.monthly}</div>
-                  <p className="mt-1 text-xs text-gray-500">per month</p>
+                  <h3 className="text-lg font-semibold text-[var(--owner-ink)]">{plan.name}</h3>
+                  <div className="mt-1 text-2xl font-bold text-[var(--owner-ink)]">{plan.monthly}</div>
+                  <p className="mt-1 text-xs text-[var(--owner-muted)]">per month</p>
                 </div>
-                <ul className="space-y-2 text-sm text-gray-700">
+                <ul className="space-y-2 text-sm text-[var(--owner-muted)]">
                   <li className="flex items-center gap-2">
                     <Check className="size-4 shrink-0 text-green-500" />
                     {plan.smsCredits}
@@ -2090,13 +1999,13 @@ function ComparePlansModal({ isOpen, onClose }: ComparePlansModalProps) {
             ))}
           </div>
 
-          <p className="mt-4 text-center text-xs text-gray-500">
+          <p className="mt-4 text-center text-xs text-[var(--owner-muted)]">
             Prices in CAD, plus applicable taxes. Annual plans renew at the
             standard annual price. Your current feature access does not change
             with these plans.
           </p>
 
-          <p className="mt-6 text-center text-xs text-gray-500">
+          <p className="mt-6 text-center text-xs text-[var(--owner-muted)]">
             To change plans, contact Luster at support@islanailsalon.com
           </p>
         </div>
@@ -2120,10 +2029,37 @@ type SettingsView
   | 'features'
   | 'visibility';
 
+/**
+ * AG-10: settings sub-views live in the URL as `?app=settings&view=<id>` so the
+ * system Back gesture walks the same path the on-screen back control does —
+ * sub-view → Settings index → More. Every id below is addressable.
+ */
+const SETTINGS_VIEW_IDS: readonly SettingsView[] = [
+  'index',
+  'account',
+  'location',
+  'branding',
+  'booking',
+  'booking-policy',
+  'booking-flow',
+  'smart-fit',
+  'payments',
+  'notifications',
+  'communications',
+  'features',
+  'visibility',
+];
+
+function normalizeSettingsView(value: string | null | undefined): SettingsView {
+  return SETTINGS_VIEW_IDS.includes(value as SettingsView)
+    ? (value as SettingsView)
+    : 'index';
+}
+
 const VIEW_TITLES: Record<SettingsView, string> = {
   'index': 'Settings',
   'account': 'Account',
-  'location': 'Locations',
+  'location': 'Location',
   'branding': 'Branding',
   'booking': 'Booking rules',
   'booking-policy': 'Booking policy',
@@ -2132,7 +2068,7 @@ const VIEW_TITLES: Record<SettingsView, string> = {
   'payments': 'Payments & taxes',
   'notifications': 'Notifications',
   'communications': 'Client communications',
-  'features': 'Features',
+  'features': 'Features & plan',
   'visibility': 'Staff visibility',
 };
 
@@ -2277,15 +2213,28 @@ export function SettingsModal({
   const salonSlug = explicitSalonSlug ?? providerSalonSlug ?? null;
   const router = useRouter();
   const params = useParams();
+  const searchParams = useSearchParams();
   const locale = String(params?.locale || 'en');
+  const { sectionLibraryV1Enabled } = useOwnerAdminFeatureFlags();
+  /**
+   * The Booking Page hub owns website appearance and the business record.
+   * Settings links there instead of keeping a second editor for either
+   * (source map §C1; AG-more-settings-06, AG-w2-information-parity-03).
+   */
+  const bookingPageHubHref = salonSlug
+    ? `/${locale}/admin/booking-page?salon=${encodeURIComponent(salonSlug)}`
+    : null;
+  const appearanceHubHref = bookingPageHubHref ? `${bookingPageHubHref}&panel=appearance` : undefined;
+  const informationHubHref = bookingPageHubHref ? `${bookingPageHubHref}&panel=information` : undefined;
 
   // View navigation state (index + focused editing views)
-  const [view, setView] = useState<SettingsView>(() => initialView && ['location', 'booking', 'booking-policy', 'payments'].includes(initialView) ? initialView as SettingsView : 'index');
+  const [view, setView] = useState<SettingsView>(
+    () => normalizeSettingsView(initialView),
+  );
   const [confirmingLeave, setConfirmingLeave] = useState(false);
 
   // Per-view unsaved-edit tracking (explicit-save views only; autosave views
   // never hold unsaved state)
-  const [locationDirty, setLocationDirty] = useState(false);
   const [parkingDirty, setParkingDirty] = useState(false);
   const [bookingConfigDirty, setBookingConfigDirty] = useState(false);
   const [notificationsDirty, setNotificationsDirty] = useState(false);
@@ -2350,6 +2299,11 @@ export function SettingsModal({
     analyticsDashboard: false,
     utilization: false,
   });
+  // Why each module is unavailable, straight from the modules API. The Features
+  // view shows this to the owner instead of discarding it.
+  const [moduleReasons, setModuleReasons] = useState<
+    Partial<Record<ModuleKey, string>>
+  >({});
 
   // Visibility settings state (Step 16.1)
   const [visibilityLoading, setVisibilityLoading] = useState(true);
@@ -2365,6 +2319,11 @@ export function SettingsModal({
   // Owner profile state (Account view)
   const [profileName, setProfileName] = useState(userName);
   const [profileEmail, setProfileEmail] = useState('');
+  // AG-08/AG-09: the address is loaded so the owner can see it, and it is
+  // locked once the account has one — /api/admin/profile has no verification
+  // step, so a silent rewrite would redirect owner alerts.
+  const [profileEmailLocked, setProfileEmailLocked] = useState(true);
+  const [profileLoading, setProfileLoading] = useState(true);
   const [profileSaving, setProfileSaving] = useState(false);
   const [profileSaved, setProfileSaved] = useState(false);
   const [profileError, setProfileError] = useState<string | null>(null);
@@ -2390,6 +2349,9 @@ export function SettingsModal({
   const [bookingConfigSaving, setBookingConfigSaving] = useState(false);
   const [bookingConfigSaved, setBookingConfigSaved] = useState(false);
   const [bookingExperienceLoading, setBookingExperienceLoading] = useState(true);
+  // AG-04: only true once the saved booking experience has been read back.
+  const [bookingExperienceHydrated, setBookingExperienceHydrated]
+    = useState(false);
   const [bookingExperienceSaving, setBookingExperienceSaving] = useState(false);
   const [bookingExperienceSaved, setBookingExperienceSaved] = useState(false);
   const [bookingExperienceError, setBookingExperienceError]
@@ -2413,6 +2375,7 @@ export function SettingsModal({
       introPriceDefaultLabel: '',
       firstVisitDiscountEnabled: false,
       clientChangeCutoffHours: 24,
+      minimumNoticeMinutes: 120,
     });
   const [featureLusterManicure, setFeatureLusterManicure] = useState(true);
   const [showServiceImages, setShowServiceImages] = useState(true);
@@ -2486,6 +2449,8 @@ export function SettingsModal({
   });
 
   /** Field edits mark the booking view dirty so Back can warn about them. */
+  /** Sticky "Custom" selection: a typed 180 must not snap back to a preset. */
+  const [minimumNoticeCustom, setMinimumNoticeCustom] = useState(false);
   const updateBookingConfigForm = (
     updater: (prev: BookingConfigFormState) => BookingConfigFormState,
   ) => {
@@ -2493,6 +2458,10 @@ export function SettingsModal({
     setBookingConfigDirty(true);
     setBookingConfigSaved(false);
   };
+  const showCustomMinimumNotice = minimumNoticeCustom
+    || !MINIMUM_NOTICE_OPTIONS.some(
+      option => option.minutes === bookingConfigForm.minimumNoticeMinutes,
+    );
 
   const updateBookingExperienceDraft = (
     updater: (
@@ -2542,6 +2511,9 @@ export function SettingsModal({
         }
         if (data.data.entitledModules) {
           setEntitledModules(data.data.entitledModules);
+        }
+        if (data.data.moduleReasons) {
+          setModuleReasons(data.data.moduleReasons);
         }
       }
     } catch (error) {
@@ -2615,6 +2587,7 @@ export function SettingsModal({
         setBookingExperienceDraft(
           copyBookingExperience(loadedBookingExperience),
         );
+        setBookingExperienceHydrated(true);
         setBookingExperienceDirty(false);
         setBookingPolicyDirty(false);
         setBookingExperienceSaved(false);
@@ -2638,6 +2611,8 @@ export function SettingsModal({
             data.bookingConfig?.firstVisitDiscountEnabled ?? false,
           clientChangeCutoffHours:
             data.bookingConfig?.clientChangeCutoffHours ?? 24,
+          minimumNoticeMinutes:
+            data.bookingConfig?.minimumNoticeMinutes ?? 120,
         });
         setFeatureLusterManicure(
           data.merchandising?.featureLusterManicure ?? true,
@@ -2746,6 +2721,7 @@ export function SettingsModal({
         setDepositAmountDirty(false);
         setDepositPolicy(data.depositPolicy ?? null);
       } else {
+        setBookingExperienceHydrated(false);
         const body = await response.json().catch(() => null);
         setBookingExperienceError(
           body?.message
@@ -2762,6 +2738,7 @@ export function SettingsModal({
       }
     } catch (error) {
       console.error('Failed to fetch programs settings:', error);
+      setBookingExperienceHydrated(false);
       setBookingExperienceError(
         error instanceof Error
           ? error.message
@@ -2834,6 +2811,8 @@ export function SettingsModal({
                 bookingConfigForm.firstVisitDiscountEnabled,
               clientChangeCutoffHours:
                 bookingConfigForm.clientChangeCutoffHours,
+              minimumNoticeMinutes:
+                bookingConfigForm.minimumNoticeMinutes,
             },
             merchandising: {
               featureLusterManicure,
@@ -2864,6 +2843,9 @@ export function SettingsModal({
         clientChangeCutoffHours:
           data.bookingConfig?.clientChangeCutoffHours
           ?? bookingConfigForm.clientChangeCutoffHours,
+        minimumNoticeMinutes:
+          data.bookingConfig?.minimumNoticeMinutes
+          ?? bookingConfigForm.minimumNoticeMinutes,
       });
       setFeatureLusterManicure(
         data.merchandising?.featureLusterManicure ?? featureLusterManicure,
@@ -3504,6 +3486,45 @@ export function SettingsModal({
     fetchPrograms();
   }, [fetchBookingFlow, fetchVisibility, fetchModules, fetchPrograms]);
 
+  // AG-09: the Account view used to open with an empty email field under a
+  // rule that refused to save without one, so a name-only edit meant retyping
+  // an address from memory. Load the stored profile instead.
+  useEffect(() => {
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const response = await fetch('/api/admin/profile');
+        if (!response.ok) {
+          return;
+        }
+        const body = await response.json().catch(() => null);
+        const user = body?.user;
+        if (cancelled || !user) {
+          return;
+        }
+        const storedEmail
+          = typeof user.email === 'string' ? user.email : '';
+        setProfileName(current =>
+          current === userName && typeof user.name === 'string' && user.name
+            ? user.name
+            : current);
+        setProfileEmail(storedEmail);
+        setProfileEmailLocked(storedEmail.trim().length > 0);
+      } catch {
+        // Leave the fields as they are; the save path reports its own errors.
+      } finally {
+        if (!cancelled) {
+          setProfileLoading(false);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [userName]);
+
   useEffect(() => {
     if (!bookingConfigSaved) {
       return undefined;
@@ -3567,10 +3588,18 @@ export function SettingsModal({
       const response = await fetch('/api/admin/profile', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: profileName.trim(),
-          email: profileEmail.trim(),
-        }),
+        body: JSON.stringify(
+          // A locked address is never submitted: the route treats a submitted
+          // address as a change request and refuses one it cannot verify.
+          profileEmailLocked
+            ? { name: profileName.trim() }
+            : {
+                name: profileName.trim(),
+                ...(profileEmail.trim()
+                  ? { email: profileEmail.trim() }
+                  : {}),
+              },
+        ),
       });
       const body = await response.json().catch(() => null);
       if (!response.ok) {
@@ -3681,7 +3710,7 @@ export function SettingsModal({
   }, [salonSlug, communicationsSaving, communicationsForm]);
 
   const viewDirty: Partial<Record<SettingsView, boolean>> = {
-    'location': locationDirty || parkingDirty,
+    'location': parkingDirty,
     'branding': bookingExperienceDirty,
     'booking-policy': bookingPolicyDirty,
     'booking': bookingConfigDirty,
@@ -3693,9 +3722,37 @@ export function SettingsModal({
   };
   const currentViewDirty = viewDirty[view] === true;
 
-  const goToIndex = () => {
-    setConfirmingLeave(false);
-    if (view === 'branding') {
+  /**
+   * The settings URL for a view. `?salon=` is carried through so the workspace
+   * keeps naming the salon it is showing, and the index drops `view` entirely
+   * so it is the same URL the More grid opened.
+   */
+  const buildSettingsHref = useCallback(
+    (next: SettingsView) => {
+      const query = new URLSearchParams();
+      const salonParam = searchParams?.get('salon') ?? salonSlug;
+      if (salonParam) {
+        query.set('salon', salonParam);
+      }
+      query.set('app', 'settings');
+      if (next !== 'index') {
+        query.set('view', next);
+      }
+      return `/${locale}/admin?${query.toString()}`;
+    },
+    [locale, salonSlug, searchParams],
+  );
+
+  const urlView = normalizeSettingsView(searchParams?.get('view'));
+  // Counts the history entries this component pushed, so leaving a sub-view
+  // pops the entry it added instead of adding a second one.
+  const pushedViewDepthRef = useRef(0);
+  const viewRef = useRef<SettingsView>(view);
+  viewRef.current = view;
+
+  /** Drop the unsaved draft a focused view was holding. */
+  const revertViewDrafts = (from: SettingsView) => {
+    if (from === 'branding') {
       setBookingExperienceDraft(current => ({
         ...current,
         primaryColor: savedBookingExperience.primaryColor,
@@ -3707,7 +3764,7 @@ export function SettingsModal({
       setBookingExperienceError(null);
       setBookingExperienceSaved(false);
     }
-    if (view === 'booking-policy') {
+    if (from === 'booking-policy') {
       setBookingExperienceDraft(current => ({
         ...current,
         policy: { ...savedBookingExperience.policy },
@@ -3727,10 +3784,22 @@ export function SettingsModal({
       setBookingPolicyError(null);
       setBookingPolicySaved(false);
     }
-    setLocationDirty(false);
     setParkingDirty(false);
     setSmartFitDirty(false);
+  };
+
+  const goToIndex = () => {
+    setConfirmingLeave(false);
+    revertViewDrafts(view);
     setView('index');
+    if (pushedViewDepthRef.current > 0) {
+      pushedViewDepthRef.current -= 1;
+      router.back();
+    } else if (urlView !== 'index') {
+      // Deep-linked straight into a sub-view: there is no entry of ours to
+      // pop, so the URL is replaced rather than the history grown.
+      router.replace(buildSettingsHref('index'), { scroll: false });
+    }
   };
 
   /** Back from a focused view; warns when the view holds unsaved edits. */
@@ -3746,18 +3815,59 @@ export function SettingsModal({
     goToIndex();
   };
 
+  /**
+   * AG-10: opening a sub-view pushes `?app=settings&view=<id>` so the system
+   * Back gesture returns to the Settings index instead of closing the sheet
+   * and discarding the owner's place in a long list.
+   */
   const openView = (next: SettingsView) => {
     setConfirmingLeave(false);
     setView(next);
+    if (next !== 'index' && next !== urlView) {
+      pushedViewDepthRef.current += 1;
+      router.push(buildSettingsHref(next), { scroll: false });
+    }
   };
+
+  /**
+   * AG-06: a Settings row that opens another workspace app leaves Settings
+   * first, so the sheet is not left holding a sub-view of an app that is no
+   * longer on screen and the `?app=` push is the only navigation in flight.
+   */
+  const openWorkspaceApp = (appId: string) => {
+    if (!onOpenApp) {
+      return;
+    }
+    setConfirmingLeave(false);
+    revertViewDrafts(view);
+    setView('index');
+    pushedViewDepthRef.current = 0;
+    onOpenApp(appId);
+  };
+
+  // The system Back/Forward gesture moves the URL without going through the
+  // handlers above; follow it so the sheet shows the level the URL names.
+  useEffect(() => {
+    if (urlView === viewRef.current) {
+      return;
+    }
+    setConfirmingLeave(false);
+    if (urlView === 'index') {
+      revertViewDrafts(viewRef.current);
+      pushedViewDepthRef.current = 0;
+    }
+    setView(urlView);
+    // `revertViewDrafts` is re-created every render; the URL is the trigger.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [urlView]);
 
   return (
     <div
-      className="flex min-h-full w-full flex-col bg-[#FFF8F5] font-sans text-black"
+      className="flex min-h-full w-full flex-col bg-[var(--owner-ground)] font-sans text-[var(--owner-ink)]"
       style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}
     >
       {/* Header */}
-      <div className="sticky top-0 z-10 bg-[#FFF8F5]/90 backdrop-blur-md">
+      <div className="sticky top-0 z-10 bg-[var(--owner-ground)] backdrop-blur-md">
         <ModalHeader
           title={VIEW_TITLES[view]}
           leftAction={(
@@ -3771,7 +3881,7 @@ export function SettingsModal({
 
         {/* Large Title */}
         <div className="px-4 pb-2">
-          <h1 className="text-[34px] font-bold text-[#1C1C1E]">
+          <h1 className="owner-title text-[34px] font-bold text-[var(--owner-ink,#30262a)]">
             {VIEW_TITLES[view]}
           </h1>
         </div>
@@ -3818,25 +3928,66 @@ export function SettingsModal({
             />
 
             <Section title="Business">
+              {/*
+                The two rows used to be "Website layout & colours" and
+                "Branding & appearance" — near-synonyms, three rows apart, one
+                of which silently leaves Settings while the other edited a
+                second, live-immediate colour (AG-more-settings-06). Each now
+                says what it is and where it goes.
+              */}
               <Row
                 icon={Palette}
-                iconColor="bg-rose-800"
+                iconColor="bg-[var(--owner-accent)]"
                 label="Website layout & colours"
+                value="Opens Booking Page"
                 onClick={() => router.push(`/${locale}/admin/website${salonSlug ? `?salon=${encodeURIComponent(salonSlug)}` : ''}`)}
               />
               <Row
                 icon={MapPin}
-                iconColor="bg-rose-800"
-                label="Locations & directions"
+                iconColor="bg-[var(--owner-accent)]"
+                label="Location"
+                value="Address, contact & hours"
                 onClick={() => openView('location')}
               />
               <Row
                 icon={Palette}
                 iconColor="bg-pink-500"
-                label="Branding & appearance"
+                label="Branding"
+                value="Logo, page themes & social"
                 onClick={() => openView('branding')}
-                isLast
               />
+              {/*
+                AG-w2-settings-integrations-15: /admin/policies had no entry
+                point anywhere in the workspace, so the only way to reach a
+                live write surface was a bookmark or a support instruction.
+                It is a Settings screen; it now has a Settings row.
+              */}
+              <Row
+                icon={Camera}
+                iconColor="bg-[var(--owner-accent)]"
+                label="Photo & auto-post rules"
+                value="Before & after photos, social posts"
+                onClick={() =>
+                  router.push(
+                    `/${locale}/admin/policies${salonSlug ? `?salon=${encodeURIComponent(salonSlug)}` : ''}`,
+                  )}
+                isLast={!sectionLibraryV1Enabled}
+              />
+              {/*
+                The Section Gallery is a dark-launched lab surface. It is only
+                offered when its flag is on, and it says so, so nobody lands
+                there from a stray URL expecting a finished feature.
+              */}
+              {sectionLibraryV1Enabled && (
+                <Row
+                  icon={LayoutTemplate}
+                  iconColor="bg-stone-600"
+                  label="Section gallery (preview)"
+                  value="Early look at new page sections"
+                  onClick={() => router.push(`/${locale}/admin/site-builder/section-gallery`)}
+                  isLast
+                />
+              )}
             </Section>
 
             <Section title="Booking">
@@ -3847,7 +3998,7 @@ export function SettingsModal({
                 value={
                   bookingConfigLoading
                     ? undefined
-                    : `${bookingConfigForm.slotIntervalMinutes} min · ${bookingConfigForm.currency}`
+                    : `${bookingConfigForm.slotIntervalMinutes} min · ${formatMinimumNotice(bookingConfigForm.minimumNoticeMinutes)} notice`
                 }
                 onClick={() => openView('booking')}
               />
@@ -3905,7 +4056,7 @@ export function SettingsModal({
                     icon={Users}
                     iconColor="bg-stone-600"
                     label="Staff & schedules"
-                    onClick={() => onOpenApp('staff')}
+                    onClick={() => openWorkspaceApp('staff')}
                     isLast={!(hasEntitledModules && visibilityEntitled)}
                   />
                 )}
@@ -3934,7 +4085,7 @@ export function SettingsModal({
             <Section title="Communications">
               <Row
                 icon={MessageSquare}
-                iconColor="bg-rose-800"
+                iconColor="bg-[var(--owner-accent)]"
                 label="Client texts & reminders"
                 onClick={() => openView('communications')}
                 isLast
@@ -3946,7 +4097,7 @@ export function SettingsModal({
                 <Row
                   icon={Boxes}
                   iconColor="bg-purple-500"
-                  label="Modules & programs"
+                  label="Features & plan"
                   onClick={() => openView('features')}
                   isLast
                 />
@@ -3960,10 +4111,10 @@ export function SettingsModal({
               >
                 <Row
                   icon={Plug}
-                  iconColor="bg-rose-700"
+                  iconColor="bg-[var(--owner-accent)]"
                   label="Manage integrations"
                   value="Calendar, text, email"
-                  onClick={() => onOpenApp('integrations')}
+                  onClick={() => openWorkspaceApp('integrations')}
                   isLast
                 />
               </Section>
@@ -3987,10 +4138,37 @@ export function SettingsModal({
 
         {view === 'location' && salonSlug && (
           <>
-            <DirectionsLocationSection
-              salonSlug={salonSlug}
-              onDirtyChange={setLocationDirty}
-            />
+            {/*
+              One address editor. This screen used to carry a second copy of
+              the same five location fields writing the same
+              `PATCH /api/admin/location` as Booking Page → Your Information →
+              Location (source map §C1 row 1), with no address-privacy control
+              beside it. The row stays; the editing goes to the canonical one.
+            */}
+            <Section
+              title="Location, contact and hours"
+              footer="Your address, city and how much of it clients can see are all edited in one place, together with your business name, contact details and hours."
+            >
+              <div className="space-y-3 p-4" data-testid="settings-location-handoff">
+                <p className="text-sm text-[var(--owner-muted)]">
+                  Your salon address is part of your business details in Booking
+                  Page → Your Information.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (informationHubHref) {
+                      router.push(informationHubHref);
+                    }
+                  }}
+                  disabled={!informationHubHref}
+                  className="inline-flex min-h-11 items-center gap-2 rounded-[10px] bg-[var(--owner-accent)] px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-[var(--owner-accent-strong)] disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <MapPin className="size-4" />
+                  <span>Edit address &amp; privacy</span>
+                </button>
+              </div>
+            </Section>
             <ParkingInstructionsCard
               salonSlug={salonSlug}
               onDirtyChange={setParkingDirty}
@@ -4000,14 +4178,18 @@ export function SettingsModal({
 
         {view === 'branding' && (
           <>
-            <Section title="Branding & appearance">
-              <PageThemesSettings className="overflow-visible rounded-[10px] bg-white" />
+            <Section
+              title="Page themes"
+              footer="Per-page themes for the client-facing pages. Your website's layout and colours live in Booking Page → Style & Colours."
+            >
+              <PageThemesSettings className="overflow-visible rounded-[10px] bg-[var(--owner-surface)]" />
             </Section>
             <Section
               title="Public booking experience"
               footer="These bounded controls customize booking and confirmation content without changing the site theme or email template."
             >
               <BookingExperienceEditor
+                appearanceHref={appearanceHubHref}
                 draft={bookingExperienceDraft}
                 loading={bookingExperienceLoading}
                 saving={bookingExperienceSaving}
@@ -4021,7 +4203,9 @@ export function SettingsModal({
                   );
                   const next = {
                     ...bookingExperienceDraft,
-                    primaryColor: defaults.primaryColor,
+                    // `primaryColor` is deliberately preserved: this screen no
+                    // longer authors website colour, so Reset must not write it.
+                    primaryColor: bookingExperienceDraft.primaryColor,
                     bookingMessage: defaults.bookingMessage,
                     socialLinks: { ...defaults.socialLinks },
                     confirmationMessage: defaults.confirmationMessage,
@@ -4050,18 +4234,28 @@ export function SettingsModal({
             <BookingPolicyEditor
               draft={bookingExperienceDraft}
               loading={bookingExperienceLoading}
+              hydrated={bookingExperienceHydrated}
               saving={bookingPolicySaving}
               saved={bookingPolicySaved}
               dirty={bookingPolicyDirty}
               error={bookingPolicyError}
               onChange={updateBookingPolicyDraft}
+              onRetryLoad={() => void fetchPrograms()}
               onReset={() => {
                 const defaults = copyBookingExperience(
                   BOOKING_EXPERIENCE_DEFAULTS,
                 );
                 const next = {
                   ...bookingExperienceDraft,
-                  policy: { ...defaults.policy },
+                  policy: {
+                    ...defaults.policy,
+                    // AG-02: Reset is a deliberate owner action, so it states
+                    // the acknowledgment explicitly. Leaving it out made the
+                    // server treat the save as a stale tab and merge the
+                    // stored `required: true` back in, which re-enabled the
+                    // very policy the owner was withdrawing.
+                    acknowledgment: { required: false, text: null },
+                  },
                   quickFacts: {
                     appointmentOnly: {
                       ...defaults.quickFacts.appointmentOnly,
@@ -4094,14 +4288,14 @@ export function SettingsModal({
             {bookingConfigLoading
               ? (
                   <div className="flex items-center justify-center py-8">
-                    <div className="size-6 animate-spin rounded-full border-2 border-rose-800 border-t-transparent" />
+                    <div className="size-6 animate-spin rounded-full border-2 border-[var(--owner-accent)] border-t-transparent" />
                   </div>
                 )
               : (
                   <div className="space-y-4 p-4">
                     <div className="grid gap-3 sm:grid-cols-2">
                       <label className="flex flex-col gap-1">
-                        <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                        <span className="text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
                           Buffer minutes
                         </span>
                         <input
@@ -4121,12 +4315,12 @@ export function SettingsModal({
                                 ),
                               ),
                             }))}
-                          className="h-11 rounded-[10px] border border-gray-200 px-3 text-[15px] text-black outline-none transition-colors focus:border-[#007AFF]"
+                          className="h-11 rounded-[10px] border border-[var(--owner-line)] px-3 text-[15px] text-[var(--owner-ink)] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
                         />
                       </label>
 
                       <label className="flex flex-col gap-1">
-                        <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                        <span className="text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
                           Slot interval
                         </span>
                         <select
@@ -4139,7 +4333,7 @@ export function SettingsModal({
                                 10,
                               ) as BookingConfigFormState['slotIntervalMinutes'],
                             }))}
-                          className="h-11 rounded-[10px] border border-gray-200 px-3 text-[15px] text-black outline-none transition-colors focus:border-[#007AFF]"
+                          className="h-11 rounded-[10px] border border-[var(--owner-line)] px-3 text-[15px] text-[var(--owner-ink)] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
                         >
                           {SLOT_INTERVAL_OPTIONS.map(option => (
                             <option key={option} value={option}>
@@ -4152,7 +4346,7 @@ export function SettingsModal({
                       </label>
 
                       <label className="flex flex-col gap-1">
-                        <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                        <span className="text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
                           Currency
                         </span>
                         <select
@@ -4163,7 +4357,7 @@ export function SettingsModal({
                               currency: event.target
                                 .value as BookingConfigFormState['currency'],
                             }))}
-                          className="h-11 rounded-[10px] border border-gray-200 px-3 text-[15px] text-black outline-none transition-colors focus:border-[#007AFF]"
+                          className="h-11 rounded-[10px] border border-[var(--owner-line)] px-3 text-[15px] text-[var(--owner-ink)] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
                         >
                           {CURRENCY_OPTIONS.map(option => (
                             <option key={option} value={option}>
@@ -4174,7 +4368,7 @@ export function SettingsModal({
                       </label>
 
                       <label className="flex flex-col gap-1">
-                        <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                        <span className="text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
                           Client change cutoff
                         </span>
                         <div className="relative">
@@ -4196,20 +4390,80 @@ export function SettingsModal({
                                   ),
                                 ),
                               }))}
-                            className="h-11 w-full rounded-[10px] border border-gray-200 px-3 pr-16 text-[15px] text-black outline-none transition-colors focus:border-[#007AFF]"
+                            className="h-11 w-full rounded-[10px] border border-[var(--owner-line)] px-3 pr-16 text-[15px] text-[var(--owner-ink)] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
                           />
-                          <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-xs font-medium text-gray-500">
+                          <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-xs font-medium text-[var(--owner-muted)]">
                             hours
                           </span>
                         </div>
-                        <span className="text-xs text-gray-500">
+                        <span className="text-xs text-[var(--owner-muted)]">
                           Clients contact you inside this window. Use 0 to allow
                           changes anytime.
                         </span>
                       </label>
 
                       <label className="flex flex-col gap-1">
-                        <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                        <span className="text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
+                          Minimum notice
+                        </span>
+                        <select
+                          data-testid="minimum-notice-select"
+                          value={showCustomMinimumNotice ? 'custom' : String(bookingConfigForm.minimumNoticeMinutes)}
+                          onChange={(event) => {
+                            if (event.target.value === 'custom') {
+                              setMinimumNoticeCustom(true);
+                              return;
+                            }
+                            setMinimumNoticeCustom(false);
+                            updateBookingConfigForm(prev => ({
+                              ...prev,
+                              minimumNoticeMinutes: Number.parseInt(event.target.value, 10),
+                            }));
+                          }}
+                          className="h-11 rounded-[10px] border border-[var(--owner-line)] bg-[var(--owner-surface)] px-3 text-[15px] text-[var(--owner-ink)] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
+                        >
+                          {MINIMUM_NOTICE_OPTIONS.map(option => (
+                            <option key={option.minutes} value={option.minutes}>
+                              {option.label}
+                            </option>
+                          ))}
+                          <option value="custom">Custom</option>
+                        </select>
+                        {showCustomMinimumNotice && (
+                          <div className="relative">
+                            <input
+                              type="number"
+                              min={0}
+                              max={525_600}
+                              step={15}
+                              aria-label="Minimum notice in minutes"
+                              data-testid="minimum-notice-custom"
+                              value={bookingConfigForm.minimumNoticeMinutes}
+                              onChange={event =>
+                                updateBookingConfigForm(prev => ({
+                                  ...prev,
+                                  minimumNoticeMinutes: Math.max(
+                                    0,
+                                    Math.min(
+                                      525_600,
+                                      Number.parseInt(event.target.value || '0', 10) || 0,
+                                    ),
+                                  ),
+                                }))}
+                              className="h-11 w-full rounded-[10px] border border-[var(--owner-line)] px-3 pr-20 text-[15px] text-[var(--owner-ink)] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
+                            />
+                            <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-xs font-medium text-[var(--owner-muted)]">
+                              minutes
+                            </span>
+                          </div>
+                        )}
+                        <span className="text-xs text-[var(--owner-muted)]" data-testid="minimum-notice-current">
+                          {`Now: ${formatMinimumNotice(bookingConfigForm.minimumNoticeMinutes)}. Clients cannot book a time closer than this — your public times start after it.`}
+                        </span>
+                      </label>
+
+                      <label className="flex flex-col gap-1">
+                        <span className="text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
                           Timezone
                         </span>
                         {/* A typo here silently shifts every booking slot, so the
@@ -4221,7 +4475,7 @@ export function SettingsModal({
                               ...prev,
                               timezone: event.target.value,
                             }))}
-                          className="h-11 rounded-[10px] border border-gray-200 bg-white px-3 text-[15px] text-black outline-none transition-colors focus:border-[#007AFF]"
+                          className="h-11 rounded-[10px] border border-[var(--owner-line)] bg-[var(--owner-surface)] px-3 text-[15px] text-[var(--owner-ink)] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
                         >
                           {getTimeZoneOptions(bookingConfigForm.timezone).map(zone => (
                             <option key={zone} value={zone}>{zone.replace(/_/g, ' ')}</option>
@@ -4230,7 +4484,7 @@ export function SettingsModal({
                       </label>
 
                       <label className="flex flex-col gap-1 sm:col-span-2">
-                        <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                        <span className="text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
                           Default intro label
                         </span>
                         <input
@@ -4241,17 +4495,17 @@ export function SettingsModal({
                               ...prev,
                               introPriceDefaultLabel: event.target.value,
                             }))}
-                          className="h-11 rounded-[10px] border border-gray-200 px-3 text-[15px] text-black outline-none transition-colors focus:border-[#007AFF]"
+                          className="h-11 rounded-[10px] border border-[var(--owner-line)] px-3 text-[15px] text-[var(--owner-ink)] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
                           placeholder="Founding Client Price"
                         />
                       </label>
 
-                      <label className="flex items-start justify-between gap-3 rounded-[10px] border border-gray-200 p-3 sm:col-span-2">
+                      <label className="flex items-start justify-between gap-3 rounded-[10px] border border-[var(--owner-line)] p-3 sm:col-span-2">
                         <div className="space-y-1">
-                          <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                          <span className="text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
                             First-visit offer
                           </span>
-                          <p className="text-sm text-gray-700">
+                          <p className="text-sm text-[var(--owner-muted)]">
                             Offer 25% off for first-time clients automatically during
                             booking.
                           </p>
@@ -4264,16 +4518,16 @@ export function SettingsModal({
                               ...prev,
                               firstVisitDiscountEnabled: event.target.checked,
                             }))}
-                          className="mt-1 size-4 rounded border-gray-300 text-rose-800 focus:ring-rose-700"
+                          className="mt-1 size-4 rounded border-gray-300 text-[var(--owner-accent)] focus:ring-[var(--owner-focus)]"
                         />
                       </label>
 
-                      <label className="flex items-start justify-between gap-3 rounded-[10px] border border-gray-200 p-3 sm:col-span-2">
+                      <label className="flex items-start justify-between gap-3 rounded-[10px] border border-[var(--owner-line)] p-3 sm:col-span-2">
                         <div className="space-y-1">
-                          <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                          <span className="text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
                             Feature Luster Manicure
                           </span>
-                          <p className="text-sm text-gray-700">
+                          <p className="text-sm text-[var(--owner-muted)]">
                             Show your active Luster Manicure first in Featured
                             Services.
                           </p>
@@ -4287,16 +4541,16 @@ export function SettingsModal({
                             setBookingConfigDirty(true);
                             setBookingConfigSaved(false);
                           }}
-                          className="mt-1 size-4 rounded border-gray-300 text-rose-800 focus:ring-rose-700"
+                          className="mt-1 size-4 rounded border-gray-300 text-[var(--owner-accent)] focus:ring-[var(--owner-focus)]"
                         />
                       </label>
 
-                      <label className="flex items-start justify-between gap-3 rounded-[10px] border border-gray-200 p-3 sm:col-span-2">
+                      <label className="flex items-start justify-between gap-3 rounded-[10px] border border-[var(--owner-line)] p-3 sm:col-span-2">
                         <div className="space-y-1">
-                          <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                          <span className="text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
                             Show service images
                           </span>
-                          <p className="text-sm text-gray-700">
+                          <p className="text-sm text-[var(--owner-muted)]">
                             Show uploaded service images on your public booking
                             page. Turning this off keeps uploads stored.
                           </p>
@@ -4310,13 +4564,13 @@ export function SettingsModal({
                             setBookingConfigDirty(true);
                             setBookingConfigSaved(false);
                           }}
-                          className="mt-1 size-4 rounded border-gray-300 text-rose-800 focus:ring-rose-700"
+                          className="mt-1 size-4 rounded border-gray-300 text-[var(--owner-accent)] focus:ring-[var(--owner-focus)]"
                         />
                       </label>
                     </div>
 
-                    <div className="flex items-center justify-between gap-3 border-t border-gray-100 pt-3">
-                      <div className="text-xs text-gray-500">
+                    <div className="flex items-center justify-between gap-3 border-t border-[var(--owner-line)] pt-3">
+                      <div className="text-xs text-[var(--owner-muted)]">
                         Applies to slot generation and intro badges when a service
                         does not define its own label.
                       </div>
@@ -4324,18 +4578,18 @@ export function SettingsModal({
                         type="button"
                         onClick={() => void saveBookingConfig()}
                         disabled={bookingConfigSaving || !bookingConfigDirty}
-                        className="inline-flex items-center gap-2 rounded-[10px] bg-rose-800 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-rose-900 disabled:cursor-not-allowed disabled:opacity-50"
+                        className="inline-flex min-h-11 items-center justify-center gap-2 rounded-[10px] bg-[var(--owner-accent)] px-4 text-sm font-semibold text-white outline-none transition-colors hover:bg-[var(--owner-accent-strong)] focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)] disabled:cursor-not-allowed disabled:opacity-50"
                       >
                         <Save className="size-4" />
                         <span>
-                          {bookingConfigSaving ? 'Saving...' : 'Save booking config'}
+                          {bookingConfigSaving ? 'Saving...' : 'Save booking rules'}
                         </span>
                       </button>
                     </div>
 
                     {bookingConfigSaved && (
                       <div className="text-right text-xs font-medium text-green-600">
-                        Booking configuration saved.
+                        Booking rules saved.
                       </div>
                     )}
                   </div>
@@ -4351,7 +4605,7 @@ export function SettingsModal({
             {bookingFlowLoading
               ? (
                   <div className="flex items-center justify-center py-8">
-                    <div className="size-6 animate-spin rounded-full border-2 border-rose-800 border-t-transparent" />
+                    <div className="size-6 animate-spin rounded-full border-2 border-[var(--owner-accent)] border-t-transparent" />
                   </div>
                 )
               : (
@@ -4388,17 +4642,17 @@ export function SettingsModal({
               {programsLoading
                 ? (
                     <div className="flex items-center justify-center py-8">
-                      <div className="size-6 animate-spin rounded-full border-2 border-rose-800 border-t-transparent" />
+                      <div className="size-6 animate-spin rounded-full border-2 border-[var(--owner-accent)] border-t-transparent" />
                     </div>
                   )
                 : (
                     <div className="space-y-4 p-4">
-                      <label className="flex items-start justify-between gap-3 rounded-[10px] border border-gray-200 p-3">
+                      <label className="flex items-start justify-between gap-3 rounded-[10px] border border-[var(--owner-line)] p-3">
                         <div className="space-y-1">
-                          <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                          <span className="text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
                             Charge tax
                           </span>
-                          <p className="text-sm text-gray-700">
+                          <p className="text-sm text-[var(--owner-muted)]">
                             Add tax at checkout when completing appointments.
                           </p>
                         </div>
@@ -4411,14 +4665,14 @@ export function SettingsModal({
                               ...prev,
                               taxEnabled: event.target.checked,
                             }))}
-                          className="mt-1 size-4 rounded border-gray-300 text-rose-800 focus:ring-rose-700"
+                          className="mt-1 size-4 rounded border-gray-300 text-[var(--owner-accent)] focus:ring-[var(--owner-focus)]"
                         />
                       </label>
 
                       {paymentsForm.taxEnabled && (
                         <div className="grid gap-3 sm:grid-cols-2">
                           <label className="flex flex-col gap-1">
-                            <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                            <span className="text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
                               Tax name
                             </span>
                             <input
@@ -4432,12 +4686,12 @@ export function SettingsModal({
                                 }))}
                               placeholder="HST"
                               maxLength={40}
-                              className="h-11 rounded-[10px] border border-gray-200 px-3 text-[15px] text-black outline-none transition-colors focus:border-[#007AFF]"
+                              className="h-11 rounded-[10px] border border-[var(--owner-line)] px-3 text-[15px] text-[var(--owner-ink)] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
                             />
                           </label>
 
                           <label className="flex flex-col gap-1">
-                            <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                            <span className="text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
                               Tax rate
                             </span>
                             <div className="relative">
@@ -4452,21 +4706,21 @@ export function SettingsModal({
                                     taxRatePercent: event.target.value.replace(/[^0-9.]/g, ''),
                                   }))}
                                 placeholder="13"
-                                className="h-11 w-full rounded-[10px] border border-gray-200 px-3 pr-10 text-[15px] text-black outline-none transition-colors focus:border-[#007AFF]"
+                                className="h-11 w-full rounded-[10px] border border-[var(--owner-line)] px-3 pr-10 text-[15px] text-[var(--owner-ink)] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
                               />
-                              <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-xs font-medium text-gray-500">
+                              <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-xs font-medium text-[var(--owner-muted)]">
                                 %
                               </span>
                             </div>
                           </label>
 
-                          <div className="rounded-[10px] border border-gray-200 p-3 sm:col-span-2">
-                            <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                          <div className="rounded-[10px] border border-[var(--owner-line)] p-3 sm:col-span-2">
+                            <span className="text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
                               Reporting jurisdiction
                             </span>
                             <div className="mt-2 grid gap-3 sm:grid-cols-3">
                               <label className="flex flex-col gap-1">
-                                <span className="text-xs text-gray-500">Jurisdiction label</span>
+                                <span className="text-xs text-[var(--owner-muted)]">Jurisdiction label</span>
                                 <input
                                   type="text"
                                   data-testid="payments-tax-jurisdiction"
@@ -4478,11 +4732,11 @@ export function SettingsModal({
                                     }))}
                                   placeholder="Ontario HST"
                                   maxLength={120}
-                                  className="h-11 rounded-[10px] border border-gray-200 px-3 text-[15px] text-black outline-none transition-colors focus:border-[#007AFF]"
+                                  className="h-11 rounded-[10px] border border-[var(--owner-line)] px-3 text-[15px] text-[var(--owner-ink)] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
                                 />
                               </label>
                               <label className="flex flex-col gap-1">
-                                <span className="text-xs text-gray-500">Country code</span>
+                                <span className="text-xs text-[var(--owner-muted)]">Country code</span>
                                 <input
                                   type="text"
                                   data-testid="payments-tax-country"
@@ -4494,11 +4748,11 @@ export function SettingsModal({
                                     }))}
                                   placeholder="CA"
                                   maxLength={120}
-                                  className="h-11 rounded-[10px] border border-gray-200 px-3 text-[15px] uppercase text-black outline-none transition-colors focus:border-[#007AFF]"
+                                  className="h-11 rounded-[10px] border border-[var(--owner-line)] px-3 text-[15px] uppercase text-[var(--owner-ink)] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
                                 />
                               </label>
                               <label className="flex flex-col gap-1">
-                                <span className="text-xs text-gray-500">Province / region code</span>
+                                <span className="text-xs text-[var(--owner-muted)]">Province / region code</span>
                                 <input
                                   type="text"
                                   data-testid="payments-tax-region"
@@ -4510,28 +4764,28 @@ export function SettingsModal({
                                     }))}
                                   placeholder="ON"
                                   maxLength={120}
-                                  className="h-11 rounded-[10px] border border-gray-200 px-3 text-[15px] uppercase text-black outline-none transition-colors focus:border-[#007AFF]"
+                                  className="h-11 rounded-[10px] border border-[var(--owner-line)] px-3 text-[15px] uppercase text-[var(--owner-ink)] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
                                 />
                               </label>
                             </div>
-                            <p className="mt-2 text-xs text-gray-500">
+                            <p className="mt-2 text-xs text-[var(--owner-muted)]">
                               Used for reporting only. The reviewed Ontario estimate requires
                               Canada (CA) and Ontario (ON); other or missing locations report
                               forfeited deposits at their gross amount without an estimated tax component.
                             </p>
                           </div>
 
-                          <label className="flex items-start justify-between gap-3 rounded-[10px] border border-gray-200 p-3 sm:col-span-2">
+                          <label className="flex items-start justify-between gap-3 rounded-[10px] border border-[var(--owner-line)] p-3 sm:col-span-2">
                             <div className="space-y-1">
-                              <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                              <span className="text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
                                 Estimate tax included in forfeited deposits
                               </span>
-                              <p className="text-sm text-gray-700">
+                              <p className="text-sm text-[var(--owner-muted)]">
                                 Opt in to an estimated tax-inclusive component when a
                                 collected deposit is retained. This is an estimate from
                                 your settings, not a filing or remittance calculation.
                               </p>
-                              <p className="text-xs text-gray-500">
+                              <p className="text-xs text-[var(--owner-muted)]">
                                 {hasReviewedForfeitureTaxTreatment({
                                   country: paymentsForm.taxCountry,
                                   region: paymentsForm.taxRegion,
@@ -4549,16 +4803,16 @@ export function SettingsModal({
                                   ...prev,
                                   forfeitureTaxEstimationEnabled: event.target.checked,
                                 }))}
-                              className="mt-1 size-4 rounded border-gray-300 text-rose-800 focus:ring-rose-700"
+                              className="mt-1 size-4 rounded border-gray-300 text-[var(--owner-accent)] focus:ring-[var(--owner-focus)]"
                             />
                           </label>
 
-                          <label className="flex items-start justify-between gap-3 rounded-[10px] border border-gray-200 p-3 sm:col-span-2">
+                          <label className="flex items-start justify-between gap-3 rounded-[10px] border border-[var(--owner-line)] p-3 sm:col-span-2">
                             <div className="space-y-1">
-                              <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                              <span className="text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
                                 Prices include tax
                               </span>
-                              <p className="text-sm text-gray-700">
+                              <p className="text-sm text-[var(--owner-muted)]">
                                 On: your listed prices already include tax. Off: tax is
                                 added at checkout.
                               </p>
@@ -4572,12 +4826,12 @@ export function SettingsModal({
                                   ...prev,
                                   pricesIncludeTax: event.target.checked,
                                 }))}
-                              className="mt-1 size-4 rounded border-gray-300 text-rose-800 focus:ring-rose-700"
+                              className="mt-1 size-4 rounded border-gray-300 text-[var(--owner-accent)] focus:ring-[var(--owner-focus)]"
                             />
                           </label>
 
-                          <div className="rounded-[10px] border border-gray-200 p-3 sm:col-span-2">
-                            <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                          <div className="rounded-[10px] border border-[var(--owner-line)] p-3 sm:col-span-2">
+                            <span className="text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
                               Taxable by default
                             </span>
                             <div className="mt-2 space-y-2">
@@ -4587,7 +4841,7 @@ export function SettingsModal({
                                 ['taxCustomByDefault', 'Custom items'],
                               ] as const).map(([key, label]) => (
                                 <label key={key} className="flex items-center justify-between gap-3">
-                                  <span className="text-sm text-gray-700">{label}</span>
+                                  <span className="text-sm text-[var(--owner-muted)]">{label}</span>
                                   <input
                                     type="checkbox"
                                     checked={paymentsForm[key]}
@@ -4596,23 +4850,23 @@ export function SettingsModal({
                                         ...prev,
                                         [key]: event.target.checked,
                                       }))}
-                                    className="size-4 rounded border-gray-300 text-rose-800 focus:ring-rose-700"
+                                    className="size-4 rounded border-gray-300 text-[var(--owner-accent)] focus:ring-[var(--owner-focus)]"
                                   />
                                 </label>
                               ))}
                             </div>
-                            <p className="mt-2 text-xs text-gray-500">
+                            <p className="mt-2 text-xs text-[var(--owner-muted)]">
                               You can still change tax on individual items at checkout.
                             </p>
                           </div>
 
-                          <div className="rounded-[10px] border border-gray-200 p-3 sm:col-span-2">
-                            <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                          <div className="rounded-[10px] border border-[var(--owner-line)] p-3 sm:col-span-2">
+                            <span className="text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
                               Scheduled rate change
                             </span>
                             <div className="mt-2 grid gap-3 sm:grid-cols-2">
                               <label className="flex flex-col gap-1">
-                                <span className="text-xs text-gray-500">New rate</span>
+                                <span className="text-xs text-[var(--owner-muted)]">New rate</span>
                                 <div className="relative">
                                   <input
                                     type="text"
@@ -4625,15 +4879,15 @@ export function SettingsModal({
                                         scheduledRatePercent: event.target.value.replace(/[^0-9.]/g, ''),
                                       }))}
                                     placeholder="15"
-                                    className="h-11 w-full rounded-[10px] border border-gray-200 px-3 pr-10 text-[15px] text-black outline-none transition-colors focus:border-[#007AFF]"
+                                    className="h-11 w-full rounded-[10px] border border-[var(--owner-line)] px-3 pr-10 text-[15px] text-[var(--owner-ink)] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
                                   />
-                                  <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-xs font-medium text-gray-500">
+                                  <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-xs font-medium text-[var(--owner-muted)]">
                                     %
                                   </span>
                                 </div>
                               </label>
                               <label className="flex flex-col gap-1">
-                                <span className="text-xs text-gray-500">Effective from</span>
+                                <span className="text-xs text-[var(--owner-muted)]">Effective from</span>
                                 <input
                                   type="date"
                                   data-testid="payments-tax-scheduled-date"
@@ -4643,11 +4897,11 @@ export function SettingsModal({
                                       ...prev,
                                       scheduledEffectiveFrom: event.target.value,
                                     }))}
-                                  className="h-11 rounded-[10px] border border-gray-200 px-3 text-[15px] text-black outline-none transition-colors focus:border-[#007AFF]"
+                                  className="h-11 rounded-[10px] border border-[var(--owner-line)] px-3 text-[15px] text-[var(--owner-ink)] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
                                 />
                               </label>
                             </div>
-                            <p className="mt-2 text-xs text-gray-500">
+                            <p className="mt-2 text-xs text-[var(--owner-muted)]">
                               Checkouts on or after this date use the new rate.
                               Appointments completed earlier keep the old rate. Leave
                               blank to cancel a scheduled change.
@@ -4666,17 +4920,17 @@ export function SettingsModal({
               {programsLoading
                 ? (
                     <div className="flex items-center justify-center py-8">
-                      <div className="size-6 animate-spin rounded-full border-2 border-rose-800 border-t-transparent" />
+                      <div className="size-6 animate-spin rounded-full border-2 border-[var(--owner-accent)] border-t-transparent" />
                     </div>
                   )
                 : (
                     <div className="space-y-4 p-4">
-                      <label className="flex items-start justify-between gap-3 rounded-[10px] border border-gray-200 p-3">
+                      <label className="flex items-start justify-between gap-3 rounded-[10px] border border-[var(--owner-line)] p-3">
                         <div className="space-y-1">
-                          <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                          <span className="text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
                             Accept e-Transfer
                           </span>
-                          <p className="text-sm text-gray-700">
+                          <p className="text-sm text-[var(--owner-muted)]">
                             Show e-Transfer instructions at checkout.
                           </p>
                         </div>
@@ -4689,14 +4943,14 @@ export function SettingsModal({
                               ...prev,
                               etransferEnabled: event.target.checked,
                             }))}
-                          className="mt-1 size-4 rounded border-gray-300 text-rose-800 focus:ring-rose-700"
+                          className="mt-1 size-4 rounded border-gray-300 text-[var(--owner-accent)] focus:ring-[var(--owner-focus)]"
                         />
                       </label>
 
                       {paymentsForm.etransferEnabled && (
                         <div className="grid gap-3 sm:grid-cols-2">
                           <label className="flex flex-col gap-1">
-                            <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                            <span className="text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
                               Recipient email or mobile
                             </span>
                             <input
@@ -4710,12 +4964,12 @@ export function SettingsModal({
                                 }))}
                               placeholder="pay@yoursalon.ca"
                               maxLength={200}
-                              className="h-11 rounded-[10px] border border-gray-200 px-3 text-[15px] text-black outline-none transition-colors focus:border-[#007AFF]"
+                              className="h-11 rounded-[10px] border border-[var(--owner-line)] px-3 text-[15px] text-[var(--owner-ink)] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
                             />
                           </label>
 
                           <label className="flex flex-col gap-1">
-                            <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                            <span className="text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
                               Display name
                             </span>
                             <input
@@ -4728,16 +4982,16 @@ export function SettingsModal({
                                 }))}
                               placeholder="Your salon name"
                               maxLength={120}
-                              className="h-11 rounded-[10px] border border-gray-200 px-3 text-[15px] text-black outline-none transition-colors focus:border-[#007AFF]"
+                              className="h-11 rounded-[10px] border border-[var(--owner-line)] px-3 text-[15px] text-[var(--owner-ink)] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
                             />
                           </label>
 
-                          <label className="flex items-start justify-between gap-3 rounded-[10px] border border-gray-200 p-3 sm:col-span-2">
+                          <label className="flex items-start justify-between gap-3 rounded-[10px] border border-[var(--owner-line)] p-3 sm:col-span-2">
                             <div className="space-y-1">
-                              <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                              <span className="text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
                                 Autodeposit is on
                               </span>
-                              <p className="text-sm text-gray-700">
+                              <p className="text-sm text-[var(--owner-muted)]">
                                 Informational only — shown to clients so they know no
                                 security question is needed.
                               </p>
@@ -4750,12 +5004,12 @@ export function SettingsModal({
                                   ...prev,
                                   etransferAutodeposit: event.target.checked,
                                 }))}
-                              className="mt-1 size-4 rounded border-gray-300 text-rose-800 focus:ring-rose-700"
+                              className="mt-1 size-4 rounded border-gray-300 text-[var(--owner-accent)] focus:ring-[var(--owner-focus)]"
                             />
                           </label>
 
                           <label className="flex flex-col gap-1 sm:col-span-2">
-                            <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                            <span className="text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
                               Instructions
                             </span>
                             <textarea
@@ -4768,16 +5022,16 @@ export function SettingsModal({
                               rows={3}
                               maxLength={1000}
                               placeholder="Please include the appointment reference in the message field."
-                              className="rounded-[10px] border border-gray-200 px-3 py-2 text-[15px] text-black outline-none transition-colors focus:border-[#007AFF]"
+                              className="rounded-[10px] border border-[var(--owner-line)] px-3 py-2 text-[15px] text-[var(--owner-ink)] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
                             />
                           </label>
 
-                          <label className="flex items-start justify-between gap-3 rounded-[10px] border border-gray-200 p-3">
+                          <label className="flex items-start justify-between gap-3 rounded-[10px] border border-[var(--owner-line)] p-3">
                             <div className="space-y-1">
-                              <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                              <span className="text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
                                 Require reference
                               </span>
-                              <p className="text-sm text-gray-700">
+                              <p className="text-sm text-[var(--owner-muted)]">
                                 Ask clients to include the appointment reference.
                               </p>
                             </div>
@@ -4789,16 +5043,16 @@ export function SettingsModal({
                                   ...prev,
                                   etransferRequireReference: event.target.checked,
                                 }))}
-                              className="mt-1 size-4 rounded border-gray-300 text-rose-800 focus:ring-rose-700"
+                              className="mt-1 size-4 rounded border-gray-300 text-[var(--owner-accent)] focus:ring-[var(--owner-focus)]"
                             />
                           </label>
 
-                          <label className="flex items-start justify-between gap-3 rounded-[10px] border border-gray-200 p-3">
+                          <label className="flex items-start justify-between gap-3 rounded-[10px] border border-[var(--owner-line)] p-3">
                             <div className="space-y-1">
-                              <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                              <span className="text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
                                 Payment QR page
                               </span>
-                              <p className="text-sm text-gray-700">
+                              <p className="text-sm text-[var(--owner-muted)]">
                                 Let clients scan a QR code that opens payment
                                 instructions.
                               </p>
@@ -4812,36 +5066,12 @@ export function SettingsModal({
                                   ...prev,
                                   etransferQrEnabled: event.target.checked,
                                 }))}
-                              className="mt-1 size-4 rounded border-gray-300 text-rose-800 focus:ring-rose-700"
+                              className="mt-1 size-4 rounded border-gray-300 text-[var(--owner-accent)] focus:ring-[var(--owner-focus)]"
                             />
                           </label>
                         </div>
                       )}
 
-                      <div className="flex items-center justify-between gap-3 border-t border-gray-100 pt-3">
-                        <div className="text-xs text-gray-500">
-                          Applies to new checkouts only — completed appointments are
-                          never recalculated.
-                        </div>
-                        <button
-                          type="button"
-                          data-testid="payments-save"
-                          onClick={() => void savePayments()}
-                          disabled={paymentsSaving || !paymentsDirty}
-                          className="inline-flex items-center gap-2 rounded-[10px] bg-rose-800 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-rose-900 disabled:cursor-not-allowed disabled:opacity-50"
-                        >
-                          <Save className="size-4" />
-                          <span>
-                            {paymentsSaving ? 'Saving...' : 'Save payments & taxes'}
-                          </span>
-                        </button>
-                      </div>
-
-                      {paymentsSaved && (
-                        <div className="text-right text-xs font-medium text-green-600">
-                          Payments & taxes saved.
-                        </div>
-                      )}
                     </div>
                   )}
             </Section>
@@ -4853,7 +5083,7 @@ export function SettingsModal({
               {programsLoading
                 ? (
                     <div className="flex items-center justify-center py-8">
-                      <div className="size-6 animate-spin rounded-full border-2 border-rose-800 border-t-transparent" />
+                      <div className="size-6 animate-spin rounded-full border-2 border-[var(--owner-accent)] border-t-transparent" />
                     </div>
                   )
                 : (
@@ -4865,14 +5095,14 @@ export function SettingsModal({
                       */}
                       <p
                         data-testid="deposits-status"
-                        className="rounded-[10px] border border-gray-200 bg-gray-50 p-3 text-sm text-gray-700"
+                        className="rounded-[10px] border border-[var(--owner-line)] bg-[var(--owner-ground)] p-3 text-sm text-[var(--owner-muted)]"
                       >
                         {depositPolicy === null
                           ? 'Checking your deposit setup...'
                           : depositPolicy.collectionLive === false
-                            ? 'Deposit payments are not switched on yet.'
+                            ? 'Deposits are not collected on Luster yet. Nothing here charges a client.'
                             : !depositPolicy.entitled
-                                ? 'Deposits are not enabled for your salon yet.'
+                                ? 'Deposits are not part of your plan yet, so nothing here charges a client.'
                                 : depositPolicy.active
                                   ? 'Deposits are being collected on new bookings.'
                                   : (depositPolicy.reason
@@ -4880,10 +5110,46 @@ export function SettingsModal({
                                     || 'Deposits are not being collected yet.'}
                       </p>
 
+                      {/*
+                        AG-more-settings-02: the card used to describe the
+                        prerequisite only as "switched on for your salon", and
+                        the API's reason was never surfaced. Name both gates,
+                        say who acts on each, and say plainly that a saved
+                        choice is not a collected deposit.
+                      */}
+                      {depositPolicy !== null && !depositPolicy.active && (
+                        <div
+                          data-testid="deposits-prerequisites"
+                          className="space-y-2 rounded-[10px] border border-[var(--owner-line,#dfd1d4)] bg-[var(--owner-blush,#f6e7ec)] p-3 text-sm leading-6 text-[var(--owner-ink,#30262a)]"
+                        >
+                          <p className="font-semibold">
+                            Two things have to be in place first
+                          </p>
+                          <ol className="list-decimal space-y-1 pl-5">
+                            <li>
+                              Deposits have to be enabled for your salon. Only
+                              Luster can do that &mdash; ask support to turn
+                              deposits on for your salon.
+                            </li>
+                            <li>
+                              Your own payment account has to be connected, so
+                              the deposit can be charged and paid out to you.
+                              When deposits are enabled, that appears as
+                              &ldquo;Payments&rdquo; in the Integrations app.
+                            </li>
+                          </ol>
+                          <p>
+                            Until both are done, what you set here is stored
+                            and waits. No client is asked for a deposit and no
+                            card is charged.
+                          </p>
+                        </div>
+                      )}
+
                       {depositPolicy?.readinessStale && (
                         <p
                           data-testid="deposits-readiness-age"
-                          className="text-xs text-gray-500"
+                          className="text-xs text-[var(--owner-muted)]"
                         >
                           {depositPolicy.readinessAgeMs === null
                             ? 'Stripe status has not been confirmed yet.'
@@ -4891,14 +5157,15 @@ export function SettingsModal({
                         </p>
                       )}
 
-                      <label className="flex items-start justify-between gap-3 rounded-[10px] border border-gray-200 p-3">
+                      <label className="flex items-start justify-between gap-3 rounded-[10px] border border-[var(--owner-line)] p-3">
                         <div className="space-y-1">
-                          <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                          <span className="text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
                             Require a deposit
                           </span>
-                          <p className="text-sm text-gray-700">
-                            Saved. Deposits will be collected once deposit payments are
-                            switched on for your salon.
+                          <p className="text-sm text-[var(--owner-muted)]">
+                            {depositPolicy?.active
+                              ? 'Clients are asked for this deposit as they book.'
+                              : 'Records that you want a deposit. Clients are only asked for one once the steps above are done.'}
                           </p>
                         </div>
                         <input
@@ -4910,12 +5177,12 @@ export function SettingsModal({
                             setDepositEnabledDirty(true);
                             setDepositSaved(false);
                           }}
-                          className="mt-1 size-4 rounded border-gray-300 text-rose-800 focus:ring-rose-700"
+                          className="mt-1 size-4 rounded border-gray-300 text-[var(--owner-accent)] focus:ring-[var(--owner-focus)]"
                         />
                       </label>
 
                       <label className="flex flex-col gap-1">
-                        <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                        <span className="text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
                           Deposit amount
                         </span>
                         <input
@@ -4928,12 +5195,12 @@ export function SettingsModal({
                             setDepositAmountDirty(true);
                             setDepositSaved(false);
                           }}
-                          className="rounded-[10px] border border-gray-200 px-3 py-2 text-sm"
+                          className="rounded-[10px] border border-[var(--owner-line)] px-3 py-2 text-sm"
                         />
                       </label>
 
                       {depositAmountInput.trim() !== '' && (
-                        <p data-testid="deposits-clamp-notice" className="text-xs text-gray-500">
+                        <p data-testid="deposits-clamp-notice" className="text-xs text-[var(--owner-muted)]">
                           {depositCardNotices.clampNotice}
                         </p>
                       )}
@@ -4956,7 +5223,7 @@ export function SettingsModal({
                         </p>
                       )}
 
-                      <div className="flex items-center justify-end gap-3 border-t border-gray-100 pt-3">
+                      <div className="flex items-center justify-end gap-3 border-t border-[var(--owner-line)] pt-3">
                         <button
                           type="button"
                           data-testid="deposits-save"
@@ -4965,7 +5232,7 @@ export function SettingsModal({
                             depositSaving
                             || (!depositEnabledDirty && !depositAmountDirty)
                           }
-                          className="inline-flex items-center gap-2 rounded-[10px] bg-rose-800 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-rose-900 disabled:cursor-not-allowed disabled:opacity-50"
+                          className="inline-flex min-h-11 items-center justify-center gap-2 rounded-[10px] bg-[var(--owner-accent)] px-4 text-sm font-semibold text-white outline-none transition-colors hover:bg-[var(--owner-accent-strong)] focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)] disabled:cursor-not-allowed disabled:opacity-50"
                         >
                           <Save className="size-4" />
                           <span>{depositSaving ? 'Saving...' : 'Save deposits'}</span>
@@ -4980,6 +5247,45 @@ export function SettingsModal({
                     </div>
                   )}
             </Section>
+
+            {/*
+              AG-more-settings-03: this save commits the Sales tax and Interac
+              e-Transfer cards together, so it belongs to the view, not to
+              either card. It used to sit inside the e-Transfer card, where it
+              read as the e-Transfer save and its label wrapped to three lines
+              at 390 px. Deposits keep their own save, and the copy says so.
+            */}
+            {!programsLoading && (
+              <div className="space-y-2 px-4 pb-8 pt-2">
+                <div className="flex flex-wrap items-center justify-end gap-3">
+                  {paymentsSaved && (
+                    <span
+                      className="text-xs font-medium text-green-600"
+                      role="status"
+                    >
+                      Tax and e-Transfer saved.
+                    </span>
+                  )}
+                  <button
+                    type="button"
+                    data-testid="payments-save"
+                    onClick={() => void savePayments()}
+                    disabled={paymentsSaving || !paymentsDirty}
+                    className="inline-flex min-h-11 items-center justify-center gap-2 rounded-[10px] bg-[var(--owner-accent)] px-4 text-sm font-semibold text-white outline-none transition-colors hover:bg-[var(--owner-accent-strong)] focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)] disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <Save className="size-4" />
+                    <span className="whitespace-nowrap">
+                      {paymentsSaving ? 'Saving…' : 'Save tax & e-Transfer'}
+                    </span>
+                  </button>
+                </div>
+                <p className="text-xs leading-5 text-[var(--owner-muted)]">
+                  Saves the Sales tax and Interac e-Transfer cards. Deposits
+                  save on their own button. Applies to new checkouts only —
+                  completed appointments are never recalculated.
+                </p>
+              </div>
+            )}
           </>
         )}
 
@@ -4990,7 +5296,7 @@ export function SettingsModal({
             <Section title="Channels">
               <div className="space-y-3 p-4">
                 <label className="flex min-h-[44px] items-center justify-between gap-3">
-                  <span className="text-[15px] text-black">Email to clients</span>
+                  <span className="text-[15px] text-[var(--owner-ink)]">Email to clients</span>
                   <input
                     type="checkbox"
                     className="size-5 accent-rose-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-950"
@@ -5002,10 +5308,15 @@ export function SettingsModal({
                   />
                 </label>
                 <label className="flex min-h-[44px] items-center justify-between gap-3">
-                  <span className="text-[15px] text-black">
+                  <span className="text-[15px] text-[var(--owner-ink)]">
                     Text messages to clients
                     {!bookingNotificationCapabilities.smsChannelAvailable && (
-                      <span className="ml-1 text-[13px] text-[#8E8E93]">(Unavailable)</span>
+                      <>
+                        {' '}
+                        <span className="text-[13px] text-[var(--owner-muted,#706267)]">
+                          (Unavailable)
+                        </span>
+                      </>
                     )}
                   </span>
                   <input
@@ -5019,7 +5330,7 @@ export function SettingsModal({
                     }}
                   />
                 </label>
-                <p className="text-[13px] leading-snug text-[#8E8E93]">
+                <p className="text-[13px] leading-snug text-[var(--owner-muted,#706267)]">
                   Email confirmations and reminders are included with every plan.
                   Text messages use your SMS credits once texting is available for
                   your salon.
@@ -5031,13 +5342,13 @@ export function SettingsModal({
             <Section title="Appointment reminders">
               <div className="space-y-3 p-4">
                 {communicationsForm.rules.length === 0 && (
-                  <p className="text-[14px] text-[#8E8E93]">
+                  <p className="text-[14px] text-[var(--owner-muted,#706267)]">
                     No reminders configured. Clients only receive their booking
                     confirmation.
                   </p>
                 )}
                 {communicationsForm.rules.map((rule, index) => (
-                  <div key={rule.id} className="flex flex-wrap items-center gap-2 rounded-lg border border-gray-100 p-3">
+                  <div key={rule.id} className="flex flex-wrap items-center gap-2 rounded-lg border border-[var(--owner-line)] p-3">
                     <input
                       type="checkbox"
                       aria-label={`Reminder ${index + 1} enabled`}
@@ -5054,7 +5365,7 @@ export function SettingsModal({
                     />
                     <select
                       aria-label={`Reminder ${index + 1} timing`}
-                      className="h-9 rounded-md border border-gray-200 bg-white px-2 text-[14px] transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-950 motion-reduce:transition-none"
+                      className="h-9 rounded-md border border-[var(--owner-line)] bg-[var(--owner-surface)] px-2 text-[14px] transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-950 motion-reduce:transition-none"
                       value={String(rule.offsetMinutes)}
                       onChange={(event) => {
                         const offsetMinutes = Number(event.target.value);
@@ -5074,7 +5385,7 @@ export function SettingsModal({
                     </select>
                     <select
                       aria-label={`Reminder ${index + 1} channel`}
-                      className="h-9 rounded-md border border-gray-200 bg-white px-2 text-[14px] transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-950 motion-reduce:transition-none"
+                      className="h-9 rounded-md border border-[var(--owner-line)] bg-[var(--owner-surface)] px-2 text-[14px] transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-950 motion-reduce:transition-none"
                       value={rule.channels}
                       onChange={(event) => {
                         const channels = event.target.value as 'sms' | 'email' | 'both';
@@ -5112,7 +5423,7 @@ export function SettingsModal({
                 {communicationsForm.rules.length < 3 && (
                   <button
                     type="button"
-                    className="text-[14px] font-medium text-rose-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-950"
+                    className="text-[14px] font-medium text-[var(--owner-accent)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-950"
                     onClick={() => {
                       setCommunicationsForm(current => ({
                         ...current,
@@ -5142,7 +5453,7 @@ export function SettingsModal({
             <Section title="Quiet hours">
               <div className="space-y-3 p-4">
                 <label className="flex min-h-[44px] items-center justify-between gap-3">
-                  <span className="text-[15px] text-black">Hold texts overnight</span>
+                  <span className="text-[15px] text-[var(--owner-ink)]">Hold texts overnight</span>
                   <input
                     type="checkbox"
                     className="size-5 accent-rose-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-950"
@@ -5158,12 +5469,12 @@ export function SettingsModal({
                 </label>
                 {communicationsForm.quietHours.enabled && (
                   <div className="flex items-center gap-3">
-                    <label className="flex items-center gap-2 text-[14px] text-black">
+                    <label className="flex items-center gap-2 text-[14px] text-[var(--owner-ink)]">
                       From
                       <input
                         type="time"
                         aria-label="Quiet hours start"
-                        className="h-9 rounded-md border border-gray-200 px-2 text-[14px] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-950"
+                        className="h-9 rounded-md border border-[var(--owner-line)] px-2 text-[14px] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-950"
                         value={communicationsForm.quietHours.start}
                         onChange={(event) => {
                           setCommunicationsForm(current => ({
@@ -5174,12 +5485,12 @@ export function SettingsModal({
                         }}
                       />
                     </label>
-                    <label className="flex items-center gap-2 text-[14px] text-black">
+                    <label className="flex items-center gap-2 text-[14px] text-[var(--owner-ink)]">
                       to
                       <input
                         type="time"
                         aria-label="Quiet hours end"
-                        className="h-9 rounded-md border border-gray-200 px-2 text-[14px] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-950"
+                        className="h-9 rounded-md border border-[var(--owner-line)] px-2 text-[14px] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-950"
                         value={communicationsForm.quietHours.end}
                         onChange={(event) => {
                           setCommunicationsForm(current => ({
@@ -5192,7 +5503,7 @@ export function SettingsModal({
                     </label>
                   </div>
                 )}
-                <p className="text-[13px] leading-snug text-[#8E8E93]">
+                <p className="text-[13px] leading-snug text-[var(--owner-muted,#706267)]">
                   Scheduled reminders wait until quiet hours end. Booking
                   confirmations still send right away.
                 </p>
@@ -5205,11 +5516,11 @@ export function SettingsModal({
                 type="button"
                 onClick={saveCommunications}
                 disabled={communicationsSaving || !communicationsDirty}
-                className="rounded-lg bg-rose-800 px-4 py-2 text-[15px] font-medium text-white transition-opacity focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-950 disabled:opacity-40 motion-reduce:transition-none"
+                className="rounded-lg bg-[var(--owner-accent)] px-4 py-2 text-[15px] font-medium text-white transition-opacity focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-950 disabled:opacity-40 motion-reduce:transition-none"
               >
                 {communicationsSaving ? 'Saving…' : 'Save communication settings'}
               </button>
-              <span role="status" aria-live="polite" className="text-[13px] text-[#8E8E93]">
+              <span role="status" aria-live="polite" className="text-[13px] text-[var(--owner-muted,#706267)]">
                 {communicationsSaved ? 'Saved' : ''}
                 {communicationsError ?? ''}
               </span>
@@ -5225,7 +5536,7 @@ export function SettingsModal({
             {programsLoading
               ? (
                   <div className="flex items-center justify-center py-8">
-                    <div className="size-6 animate-spin rounded-full border-2 border-rose-800 border-t-transparent" />
+                    <div className="size-6 animate-spin rounded-full border-2 border-[var(--owner-accent)] border-t-transparent" />
                   </div>
                 )
               : (
@@ -5256,27 +5567,27 @@ export function SettingsModal({
                       return (
                         <div
                           key={notificationEvent.key}
-                          className="space-y-3 rounded-[14px] border border-gray-200 bg-gray-50/70 p-3"
+                          className="space-y-3 rounded-[14px] border border-[var(--owner-line)] bg-[var(--owner-ground)] p-3"
                         >
                           <div className="space-y-1 px-1">
-                            <div className="text-sm font-semibold text-[#1C1C1E]">
+                            <div className="text-sm font-semibold text-[var(--owner-ink,#30262a)]">
                               {notificationEvent.title}
                             </div>
-                            <p className="text-xs text-gray-500">
+                            <p className="text-xs text-[var(--owner-muted)]">
                               {notificationEvent.subtitle}
                             </p>
                           </div>
 
-                          <div className="rounded-[12px] border border-gray-200 bg-white/80 p-3">
+                          <div className="rounded-[12px] border border-[var(--owner-line)] bg-[var(--owner-surface)] p-3">
                             <div className="flex items-start justify-between gap-3">
                               <div className="space-y-1">
                                 <div className="flex items-center gap-2">
-                                  <Bell className="size-4 text-[#FF3B30]" />
-                                  <span className="text-sm font-semibold text-[#1C1C1E]">
+                                  <Bell className="size-4 text-red-600" />
+                                  <span className="text-sm font-semibold text-[var(--owner-ink,#30262a)]">
                                     Notify assigned technician
                                   </span>
                                 </div>
-                                <p className="text-sm text-gray-600">
+                                <p className="text-sm text-[var(--owner-muted)]">
                                   {notificationEvent.technicianDescription}
                                 </p>
                               </div>
@@ -5290,13 +5601,13 @@ export function SettingsModal({
                                       technicianEnabled: event.target.checked,
                                     },
                                   )}
-                                className="mt-1 size-4 rounded border-gray-300 text-rose-800 focus:ring-rose-700"
+                                className="mt-1 size-4 rounded border-gray-300 text-[var(--owner-accent)] focus:ring-[var(--owner-focus)]"
                                 aria-label={`Notify assigned technician for ${notificationEvent.title.toLowerCase()}`}
                               />
                             </div>
 
                             <label className="mt-3 flex flex-col gap-1">
-                              <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                              <span className="text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
                                 Channel
                               </span>
                               <select
@@ -5310,7 +5621,7 @@ export function SettingsModal({
                                     },
                                   )}
                                 disabled={!eventForm.technicianEnabled}
-                                className="h-11 rounded-[10px] border border-gray-200 px-3 text-[15px] text-black outline-none transition-colors focus:border-[#007AFF] disabled:cursor-not-allowed disabled:bg-gray-50 disabled:text-gray-400"
+                                className="h-11 rounded-[10px] border border-[var(--owner-line)] px-3 text-[15px] text-[var(--owner-ink)] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)] disabled:cursor-not-allowed disabled:bg-[var(--owner-ground)] disabled:text-[var(--owner-muted)]"
                                 aria-label={`Technician notification channel for ${notificationEvent.title.toLowerCase()}`}
                               >
                                 {BOOKING_NOTIFICATION_CHANNEL_OPTIONS.map(
@@ -5343,22 +5654,22 @@ export function SettingsModal({
                               </select>
                             </label>
 
-                            <p className="mt-2 text-xs text-gray-500">
+                            <p className="mt-2 text-xs text-[var(--owner-muted)]">
                               Technician email alerts require an email on each
                               technician profile.
                             </p>
                           </div>
 
-                          <div className="rounded-[12px] border border-gray-200 bg-white/80 p-3">
+                          <div className="rounded-[12px] border border-[var(--owner-line)] bg-[var(--owner-surface)] p-3">
                             <div className="flex items-start justify-between gap-3">
                               <div className="space-y-1">
                                 <div className="flex items-center gap-2">
-                                  <User className="size-4 text-rose-800" />
-                                  <span className="text-sm font-semibold text-[#1C1C1E]">
+                                  <User className="size-4 text-[var(--owner-accent)]" />
+                                  <span className="text-sm font-semibold text-[var(--owner-ink,#30262a)]">
                                     Notify salon owner
                                   </span>
                                 </div>
-                                <p className="text-sm text-gray-600">
+                                <p className="text-sm text-[var(--owner-muted)]">
                                   Text the owner phone saved on the salon record.
                                 </p>
                               </div>
@@ -5372,13 +5683,13 @@ export function SettingsModal({
                                       ownerEnabled: event.target.checked,
                                     },
                                   )}
-                                className="mt-1 size-4 rounded border-gray-300 text-rose-800 focus:ring-rose-700"
+                                className="mt-1 size-4 rounded border-gray-300 text-[var(--owner-accent)] focus:ring-[var(--owner-focus)]"
                                 aria-label={`Notify salon owner for ${notificationEvent.title.toLowerCase()}`}
                               />
                             </div>
 
                             <label className="mt-3 flex flex-col gap-1">
-                              <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                              <span className="text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
                                 Channel
                               </span>
                               <select
@@ -5392,7 +5703,7 @@ export function SettingsModal({
                                     },
                                   )}
                                 disabled={!eventForm.ownerEnabled}
-                                className="h-11 rounded-[10px] border border-gray-200 px-3 text-[15px] text-black outline-none transition-colors focus:border-[#007AFF] disabled:cursor-not-allowed disabled:bg-gray-50 disabled:text-gray-400"
+                                className="h-11 rounded-[10px] border border-[var(--owner-line)] px-3 text-[15px] text-[var(--owner-ink)] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)] disabled:cursor-not-allowed disabled:bg-[var(--owner-ground)] disabled:text-[var(--owner-muted)]"
                                 aria-label={`Owner notification channel for ${notificationEvent.title.toLowerCase()}`}
                               >
                                 {OWNER_NOTIFICATION_CHANNEL_OPTIONS.map((option) => {
@@ -5414,7 +5725,7 @@ export function SettingsModal({
                               </select>
                             </label>
 
-                            <p className="mt-2 text-xs text-gray-500">
+                            <p className="mt-2 text-xs text-[var(--owner-muted)]">
                               Owner emails now live in Appointment notifications
                               below.
                             </p>
@@ -5435,7 +5746,7 @@ export function SettingsModal({
 
                     {(!bookingNotificationCapabilities.smsChannelAvailable
                       || !bookingNotificationCapabilities.emailChannelAvailable) && (
-                      <div className="rounded-[10px] border border-dashed border-gray-200 bg-gray-50 px-3 py-2 text-xs text-gray-500">
+                      <div className="rounded-[10px] border border-dashed border-[var(--owner-line)] bg-[var(--owner-ground)] px-3 py-2 text-xs text-[var(--owner-muted)]">
                         {!bookingNotificationCapabilities.smsChannelAvailable && (
                           <div>
                             SMS alerts are unavailable until SMS reminders are enabled
@@ -5450,8 +5761,8 @@ export function SettingsModal({
                       </div>
                     )}
 
-                    <div className="flex items-center justify-between gap-3 border-t border-gray-100 pt-3">
-                      <div className="text-xs text-gray-500">
+                    <div className="flex items-center justify-between gap-3 border-t border-[var(--owner-line)] pt-3">
+                      <div className="text-xs text-[var(--owner-muted)]">
                         Duplicate owner and technician destinations are deduplicated
                         automatically per channel.
                       </div>
@@ -5459,7 +5770,7 @@ export function SettingsModal({
                         type="button"
                         onClick={() => void saveBookingNotifications()}
                         disabled={bookingNotificationsSaving || !notificationsDirty}
-                        className="inline-flex items-center gap-2 rounded-[10px] bg-rose-800 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-rose-900 disabled:cursor-not-allowed disabled:opacity-50"
+                        className="inline-flex min-h-11 items-center justify-center gap-2 rounded-[10px] bg-[var(--owner-accent)] px-4 text-sm font-semibold text-white outline-none transition-colors hover:bg-[var(--owner-accent-strong)] focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)] disabled:cursor-not-allowed disabled:opacity-50"
                       >
                         <Save className="size-4" />
                         <span>
@@ -5468,29 +5779,29 @@ export function SettingsModal({
                       </button>
                     </div>
 
-                    <div className="space-y-3 rounded-[14px] border border-gray-200 bg-gray-50/70 p-3">
+                    <div className="space-y-3 rounded-[14px] border border-[var(--owner-line)] bg-[var(--owner-ground)] p-3">
                       <div className="space-y-1 px-1">
-                        <div className="text-sm font-semibold text-[#1C1C1E]">
+                        <div className="text-sm font-semibold text-[var(--owner-ink,#30262a)]">
                           Appointment notifications
                         </div>
-                        <p className="text-xs text-gray-500">
+                        <p className="text-xs text-[var(--owner-muted)]">
                           Detailed emails to the salon when a client books,
                           reschedules, or cancels. Separate from the confirmation
                           and reminder emails your clients receive.
                         </p>
                       </div>
 
-                      <div className="space-y-2 rounded-[12px] border border-gray-200 bg-white/80 p-3">
+                      <div className="space-y-2 rounded-[12px] border border-[var(--owner-line)] bg-[var(--owner-surface)] p-3">
                         {SALON_EMAIL_NOTIFICATION_EVENT_OPTIONS.map(option => (
                           <div
                             key={option.key}
                             className="flex items-start justify-between gap-3"
                           >
                             <div className="space-y-0.5">
-                              <span className="text-sm font-semibold text-[#1C1C1E]">
+                              <span className="text-sm font-semibold text-[var(--owner-ink,#30262a)]">
                                 {option.label}
                               </span>
-                              <p className="text-sm text-gray-600">
+                              <p className="text-sm text-[var(--owner-muted)]">
                                 {option.description}
                               </p>
                             </div>
@@ -5501,14 +5812,14 @@ export function SettingsModal({
                                 updateSalonEmailNotifications({
                                   [option.key]: event.target.checked,
                                 })}
-                              className="mt-1 size-4 rounded border-gray-300 text-rose-800 focus:ring-rose-700"
+                              className="mt-1 size-4 rounded border-gray-300 text-[var(--owner-accent)] focus:ring-[var(--owner-focus)]"
                               aria-label={option.label}
                             />
                           </div>
                         ))}
 
                         <label className="flex flex-col gap-1 pt-2">
-                          <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                          <span className="text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
                             Send notifications to
                           </span>
                           <input
@@ -5521,7 +5832,7 @@ export function SettingsModal({
                               updateSalonEmailNotifications({
                                 recipientEmail: event.target.value,
                               })}
-                            className="h-11 rounded-[10px] border border-gray-200 px-3 text-[15px] text-black outline-none transition-colors focus:border-[#007AFF]"
+                            className="h-11 rounded-[10px] border border-[var(--owner-line)] px-3 text-[15px] text-[var(--owner-ink)] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
                             aria-label="Salon notification email address"
                           />
                         </label>
@@ -5538,7 +5849,7 @@ export function SettingsModal({
                               </div>
                             )
                           : salonNotificationRecipient.email && (
-                            <p className="text-xs text-gray-500">
+                            <p className="text-xs text-[var(--owner-muted)]">
                               {`Sending to ${salonNotificationRecipient.email}`}
                               {salonNotificationRecipient.source
                               && ` (${SALON_NOTIFICATION_RECIPIENT_SOURCE_LABEL[salonNotificationRecipient.source]})`}
@@ -5553,11 +5864,11 @@ export function SettingsModal({
                         )}
                       </div>
 
-                      <div className="flex items-center justify-between gap-3 border-t border-gray-100 pt-3">
-                        <div className="text-xs text-gray-500">
+                      <div className="flex items-center justify-between gap-3 border-t border-[var(--owner-line)] pt-3">
+                        <div className="text-xs text-[var(--owner-muted)]">
                           {salonEmailNotificationsSaved
                             ? 'Appointment notifications saved.'
-                            : 'Leave the address blank to use your owner email.'}
+                            : 'Leave the address blank to use the salon’s owner email.'}
                         </div>
                         <button
                           type="button"
@@ -5566,7 +5877,7 @@ export function SettingsModal({
                             salonEmailNotificationsSaving
                             || !salonEmailNotificationsDirty
                           }
-                          className="inline-flex items-center gap-2 rounded-[10px] bg-rose-800 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-rose-900 disabled:cursor-not-allowed disabled:opacity-50"
+                          className="inline-flex min-h-11 items-center justify-center gap-2 rounded-[10px] bg-[var(--owner-accent)] px-4 text-sm font-semibold text-white outline-none transition-colors hover:bg-[var(--owner-accent-strong)] focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)] disabled:cursor-not-allowed disabled:opacity-50"
                         >
                           <Save className="size-4" />
                           <span>
@@ -5593,146 +5904,64 @@ export function SettingsModal({
             {/* Modules (Step 16.3) */}
             <Section
               title="Modules"
-              footer="Enable or disable features for your salon. Disabled modules won't be available to staff."
+              footer="Enable or disable features for your salon. Disabled modules won't be available to staff. Locked features are not included in your current plan yet."
             >
               {modulesLoading
                 ? (
                     <div className="flex items-center justify-center py-8">
-                      <div className="size-6 animate-spin rounded-full border-2 border-rose-800 border-t-transparent" />
+                      <div className="size-6 animate-spin rounded-full border-2 border-[var(--owner-accent)] border-t-transparent" />
                     </div>
                   )
                 : (
                     <>
-                      {/* Marketing Group */}
-                      <div className="border-b border-gray-100 px-4 py-2">
-                        <span className="text-xs font-semibold uppercase tracking-wide text-gray-400">
-                          Marketing
-                        </span>
-                      </div>
-                      {entitledModules.smsReminders && (
-                        <ModuleRow
-                          icon={MessageSquare}
-                          iconColor="bg-green-500"
-                          label="SMS Reminders"
-                          moduleKey="smsReminders"
-                          enabled={modules.smsReminders}
-                          entitled={entitledModules.smsReminders}
-                          onToggle={handleModuleToggle}
-                        />
-                      )}
-                      {entitledModules.referrals && (
-                        <ModuleRow
-                          icon={Users}
-                          iconColor="bg-blue-500"
-                          label="Referrals"
-                          moduleKey="referrals"
-                          enabled={modules.referrals}
-                          entitled={entitledModules.referrals}
-                          onToggle={handleModuleToggle}
-                        />
-                      )}
-                      {entitledModules.rewards && (
-                        <ModuleRow
-                          icon={Gift}
-                          iconColor="bg-purple-500"
-                          label="Rewards"
-                          moduleKey="rewards"
-                          enabled={modules.rewards}
-                          entitled={entitledModules.rewards}
-                          onToggle={handleModuleToggle}
-                        />
-                      )}
+                      {MODULE_GROUPS.map((group, groupIndex) => {
+                        const isLastGroup
+                          = groupIndex === MODULE_GROUPS.length - 1;
+                        return (
+                          <div key={group.title}>
+                            <div className="border-b border-[var(--owner-line)] px-4 py-2">
+                              <span className="text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
+                                {group.title}
+                              </span>
+                            </div>
+                            {group.modules.map((module, moduleIndex) => {
+                              const isLastRow = isLastGroup
+                                && moduleIndex === group.modules.length - 1;
+                              const Icon = module.icon;
 
-                      {/* Staff Group */}
-                      <div className="border-b border-gray-100 px-4 py-2">
-                        <span className="text-xs font-semibold uppercase tracking-wide text-gray-400">
-                          Staff
-                        </span>
-                      </div>
-                      {entitledModules.scheduleOverrides && (
-                        <ModuleRow
-                          icon={User}
-                          iconColor="bg-orange-500"
-                          label="Schedule Overrides"
-                          moduleKey="scheduleOverrides"
-                          enabled={modules.scheduleOverrides}
-                          entitled={entitledModules.scheduleOverrides}
-                          onToggle={handleModuleToggle}
-                        />
-                      )}
-                      {entitledModules.staffEarnings && (
-                        <ModuleRow
-                          icon={BarChart3}
-                          iconColor="bg-teal-500"
-                          label="Staff Earnings"
-                          moduleKey="staffEarnings"
-                          enabled={modules.staffEarnings}
-                          entitled={entitledModules.staffEarnings}
-                          onToggle={handleModuleToggle}
-                        />
-                      )}
-
-                      {/* Controls Group */}
-                      <div className="border-b border-gray-100 px-4 py-2">
-                        <span className="text-xs font-semibold uppercase tracking-wide text-gray-400">
-                          Controls
-                        </span>
-                      </div>
-                      {entitledModules.clientFlags && (
-                        <ModuleRow
-                          icon={Flag}
-                          iconColor="bg-amber-500"
-                          label="Client Flags"
-                          moduleKey="clientFlags"
-                          enabled={modules.clientFlags}
-                          entitled={entitledModules.clientFlags}
-                          onToggle={handleModuleToggle}
-                        />
-                      )}
-                      {entitledModules.clientBlocking && (
-                        <ModuleRow
-                          icon={Shield}
-                          iconColor="bg-red-500"
-                          label="Client Blocking"
-                          moduleKey="clientBlocking"
-                          enabled={modules.clientBlocking}
-                          entitled={entitledModules.clientBlocking}
-                          onToggle={handleModuleToggle}
-                        />
-                      )}
-
-                      {/* Analytics Group */}
-                      <div className="border-b border-gray-100 px-4 py-2">
-                        <span className="text-xs font-semibold uppercase tracking-wide text-gray-400">
-                          Analytics
-                        </span>
-                      </div>
-                      {entitledModules.analyticsDashboard && (
-                        <ModuleRow
-                          icon={BarChart3}
-                          iconColor="bg-indigo-500"
-                          label="Analytics Dashboard"
-                          moduleKey="analyticsDashboard"
-                          enabled={modules.analyticsDashboard}
-                          entitled={entitledModules.analyticsDashboard}
-                          onToggle={handleModuleToggle}
-                        />
-                      )}
-                      {entitledModules.utilization && (
-                        <ModuleRow
-                          icon={BarChart3}
-                          iconColor="bg-cyan-500"
-                          label="Utilization Reports"
-                          moduleKey="utilization"
-                          enabled={modules.utilization}
-                          entitled={entitledModules.utilization}
-                          onToggle={handleModuleToggle}
-                          isLast
-                        />
-                      )}
+                              // Entitled -> a live toggle. Not entitled -> a
+                              // locked row naming the reason, so the category
+                              // never renders with nothing under it and the
+                              // owner can see what a higher plan unlocks.
+                              return entitledModules[module.key]
+                                ? (
+                                    <ModuleRow
+                                      key={module.key}
+                                      icon={Icon}
+                                      iconColor={module.iconColor}
+                                      label={module.label}
+                                      moduleKey={module.key}
+                                      enabled={modules[module.key]}
+                                      entitled
+                                      onToggle={handleModuleToggle}
+                                      isLast={isLastRow}
+                                    />
+                                  )
+                                : (
+                                    <LockedFeatureRow
+                                      key={module.key}
+                                      name={module.label}
+                                      reasonCode={moduleReasons[module.key]}
+                                      isLast={isLastRow}
+                                    />
+                                  );
+                            })}
+                          </div>
+                        );
+                      })}
 
                       {modulesSaving && (
-                        <div className="flex items-center justify-center py-2 text-xs text-gray-500">
+                        <div className="flex items-center justify-center py-2 text-xs text-[var(--owner-muted)]">
                           Saving...
                         </div>
                       )}
@@ -5749,7 +5978,7 @@ export function SettingsModal({
                 {programsLoading
                   ? (
                       <div className="flex items-center justify-center py-8">
-                        <div className="size-6 animate-spin rounded-full border-2 border-rose-800 border-t-transparent" />
+                        <div className="size-6 animate-spin rounded-full border-2 border-[var(--owner-accent)] border-t-transparent" />
                       </div>
                     )
                   : (
@@ -5779,34 +6008,34 @@ export function SettingsModal({
                           isLast
                         />
 
-                        <div className="border-t border-gray-100 px-4 py-3">
-                          <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-400">
+                        <div className="border-t border-[var(--owner-line)] px-4 py-3">
+                          <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
                             Active Offers
                           </div>
                           <div className="space-y-2 text-sm">
                             <div className="flex justify-between">
-                              <span className="text-gray-600">Referral reward</span>
-                              <span className="font-medium text-gray-900">
+                              <span className="text-[var(--owner-muted)]">Referral reward</span>
+                              <span className="font-medium text-[var(--owner-ink)]">
                                 $10 for the referrer
                               </span>
                             </div>
                             <div className="flex justify-between">
-                              <span className="text-gray-600">Friend offer</span>
-                              <span className="font-medium text-gray-900">
+                              <span className="text-[var(--owner-muted)]">Friend offer</span>
+                              <span className="font-medium text-[var(--owner-ink)]">
                                 $10 off first appointment
                               </span>
                             </div>
                             <div className="flex justify-between">
-                              <span className="text-gray-600">
+                              <span className="text-[var(--owner-muted)]">
                                 Google review reward
                               </span>
-                              <span className="font-medium text-gray-900">
+                              <span className="font-medium text-[var(--owner-ink)]">
                                 $10 off (manual grant)
                               </span>
                             </div>
                             <div className="flex justify-between">
-                              <span className="text-gray-600">Visit earning</span>
-                              <span className="font-medium text-gray-900">
+                              <span className="text-[var(--owner-muted)]">Visit earning</span>
+                              <span className="font-medium text-[var(--owner-ink)]">
                                 20 points per $1 spent
                               </span>
                             </div>
@@ -5814,7 +6043,7 @@ export function SettingsModal({
                         </div>
 
                         {programsSaving && (
-                          <div className="flex items-center justify-center py-2 text-xs text-gray-500">
+                          <div className="flex items-center justify-center py-2 text-xs text-[var(--owner-muted)]">
                             Saving...
                           </div>
                         )}
@@ -5833,14 +6062,14 @@ export function SettingsModal({
             {visibilityLoading
               ? (
                   <div className="flex items-center justify-center py-8">
-                    <div className="size-6 animate-spin rounded-full border-2 border-rose-800 border-t-transparent" />
+                    <div className="size-6 animate-spin rounded-full border-2 border-[var(--owner-accent)] border-t-transparent" />
                   </div>
                 )
               : (
                   <>
                     <Row
                       icon={Eye}
-                      iconColor="bg-rose-800"
+                      iconColor="bg-[var(--owner-accent)]"
                       label="Client Phone"
                       type="toggle"
                       defaultOn={visibility.staff?.showClientPhone ?? true}
@@ -5896,7 +6125,7 @@ export function SettingsModal({
                       isLast
                     />
                     {visibilitySaving && (
-                      <div className="flex items-center justify-center py-2 text-xs text-gray-500">
+                      <div className="flex items-center justify-center py-2 text-xs text-[var(--owner-muted)]">
                         Saving...
                       </div>
                     )}
@@ -5909,7 +6138,7 @@ export function SettingsModal({
           <>
             <Section
               title="Owner profile"
-              footer="Your name appears in the workspace header and on decision logs. Email is used for account matching and owner alerts."
+              footer="Your name appears in the workspace header and on decision logs. Your email signs you in and receives owner alerts, so it is changed by support rather than here."
             >
               <div className="space-y-3 p-4">
                 {profileError && (
@@ -5919,7 +6148,7 @@ export function SettingsModal({
                   </div>
                 )}
                 <label className="flex flex-col gap-1">
-                  <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                  <span className="text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
                     Name
                   </span>
                   <input
@@ -5931,26 +6160,43 @@ export function SettingsModal({
                       setProfileDirty(true);
                       setProfileSaved(false);
                     }}
-                    className="h-11 rounded-[10px] border border-gray-200 px-3 text-[15px] text-black outline-none transition-colors focus:border-[#007AFF]"
+                    className="h-11 rounded-[10px] border border-[var(--owner-line)] px-3 text-[15px] text-[var(--owner-ink)] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
                   />
                 </label>
                 <label className="flex flex-col gap-1">
-                  <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                  <span className="text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
                     Email
                   </span>
                   <input
                     type="email"
                     value={profileEmail}
+                    readOnly={profileEmailLocked}
+                    aria-readonly={profileEmailLocked}
+                    aria-describedby="owner-profile-email-help"
                     onChange={(event) => {
+                      if (profileEmailLocked) {
+                        return;
+                      }
                       setProfileEmail(event.target.value);
                       setProfileDirty(true);
                       setProfileSaved(false);
                     }}
-                    className="h-11 rounded-[10px] border border-gray-200 px-3 text-[15px] text-black outline-none transition-colors focus:border-[#007AFF]"
-                    placeholder="you@example.com"
+                    className={`h-11 rounded-[10px] border border-[var(--owner-line)] px-3 text-[15px] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)] ${
+                      profileEmailLocked
+                        ? 'bg-[var(--owner-ground)] text-[var(--owner-muted)]'
+                        : 'text-[var(--owner-ink)]'
+                    }`}
+                    placeholder={
+                      profileLoading ? 'Loading…' : 'you@example.com'
+                    }
                   />
-                  <span className="text-xs text-gray-500">
-                    Both fields save together. Email must be entered to save.
+                  <span
+                    id="owner-profile-email-help"
+                    className="text-xs text-[var(--owner-muted)]"
+                  >
+                    {profileEmailLocked
+                      ? 'Your sign-in email is managed by your account — contact support to change it. Your name saves on its own.'
+                      : 'This address signs you in and receives owner alerts. Once saved it can only be changed by contacting support.'}
                   </span>
                 </label>
                 <div className="flex items-center justify-end gap-3">
@@ -5966,9 +6212,9 @@ export function SettingsModal({
                       profileSaving
                       || !profileDirty
                       || !profileName.trim()
-                      || !profileEmail.includes('@')
+                      || (!profileEmailLocked && !profileEmail.includes('@'))
                     }
-                    className="inline-flex items-center gap-2 rounded-[10px] bg-rose-800 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-rose-900 disabled:cursor-not-allowed disabled:opacity-50"
+                    className="inline-flex min-h-11 items-center justify-center gap-2 rounded-[10px] bg-[var(--owner-accent)] px-4 text-sm font-semibold text-white outline-none transition-colors hover:bg-[var(--owner-accent-strong)] focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)] disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     <Save className="size-4" />
                     <span>{profileSaving ? 'Saving...' : 'Save profile'}</span>
@@ -5993,7 +6239,7 @@ export function SettingsModal({
                         <div
                           className={`size-2 rounded-full ${subscriptionStatus === 'active' ? 'bg-green-500' : 'bg-amber-500'}`}
                         />
-                        <span className="text-sm text-gray-900">
+                        <span className="text-sm text-[var(--owner-ink)]">
                           Stripe Billing
                           {subscriptionStatus
                             ? ` (${subscriptionStatus})`
@@ -6004,7 +6250,7 @@ export function SettingsModal({
                   : (
                       <div className="flex items-center gap-2">
                         <div className="size-2 rounded-full bg-gray-400" />
-                        <span className="text-sm text-gray-600">
+                        <span className="text-sm text-[var(--owner-muted)]">
                           Cash / Offline billing enabled
                         </span>
                       </div>
@@ -6024,7 +6270,7 @@ export function SettingsModal({
                       onClick={() => void openBillingPortal()}
                       disabled={portalOpening}
                       data-testid="manage-billing-button"
-                      className="inline-flex items-center gap-2 rounded-[10px] bg-rose-800 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-rose-900 disabled:cursor-not-allowed disabled:opacity-50"
+                      className="inline-flex min-h-11 items-center justify-center gap-2 rounded-[10px] bg-[var(--owner-accent)] px-4 text-sm font-semibold text-white outline-none transition-colors hover:bg-[var(--owner-accent-strong)] focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)] disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       <CreditCard className="size-4" />
                       <span>{portalOpening ? 'Opening…' : 'Manage billing'}</span>
@@ -6071,4 +6317,4 @@ export function SettingsModal({
 }
 
 // Export sub-components for reuse
-export { DirectionsLocationSection, ParkingInstructionsCard, ProfileCard, Row, Section };
+export { ParkingInstructionsCard, ProfileCard, Row, Section };

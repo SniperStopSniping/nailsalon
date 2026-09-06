@@ -8,14 +8,13 @@ import {
   useState,
 } from 'react';
 
-import { STAGE_METADATA } from '../copy';
-import type { OnboardingStage } from '../model/types';
+import type { OnboardingScreenId, OnboardingStage } from '../model/types';
 import {
   AutosaveStatus,
   type OnboardingAutosaveState,
 } from './AutosaveStatus';
 import { EssentialsCounter } from './EssentialsCounter';
-import { OnboardingStageProgress } from './OnboardingStageProgress';
+import { getRailStepLabel, OnboardingStageProgress } from './OnboardingStageProgress';
 import { useOnboardingKeyboard } from './useOnboardingKeyboard';
 
 type OnboardingShellProps = {
@@ -23,6 +22,8 @@ type OnboardingShellProps = {
   autosaveState: OnboardingAutosaveState;
   children: ReactNode;
   completedStages: readonly OnboardingStage[];
+  /** Screen the owner is on — the rail needs it to place the design stage. */
+  currentScreen?: OnboardingScreenId;
   currentStage: OnboardingStage;
   essentialsRemaining: number;
   onLabOptions?: () => void;
@@ -36,6 +37,7 @@ export function OnboardingShell({
   autosaveState,
   children,
   completedStages,
+  currentScreen,
   currentStage,
   essentialsRemaining,
   onLabOptions,
@@ -168,7 +170,7 @@ export function OnboardingShell({
         </a>
         <p aria-live="polite" className="onboarding-shell__current-stage">
           <span className="visually-hidden">Current stage: </span>
-          {STAGE_METADATA[currentStage].label}
+          {getRailStepLabel(currentStage, currentScreen)}
         </p>
         <AutosaveStatus state={autosaveState} />
         {hasMoreActions
@@ -228,7 +230,7 @@ export function OnboardingShell({
           : null}
       </header>
       <div className="onboarding-shell__progress">
-        <OnboardingStageProgress completedStages={completedStages} currentStage={currentStage} />
+        <OnboardingStageProgress completedStages={completedStages} currentScreen={currentScreen} currentStage={currentStage} />
         <EssentialsCounter remaining={essentialsRemaining} />
       </div>
       <main className="onboarding-shell__content" id={contentId} tabIndex={-1}>

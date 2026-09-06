@@ -12,6 +12,7 @@ import {
 } from '@/components/appointments/AppointmentsDayView';
 import { CheckoutSheet } from '@/components/appointments/CheckoutSheet';
 import { type CancelArgs, type RebookPrefill, useAppointmentActions } from '@/hooks/useAppointmentActions';
+import type { CalendarSchedule } from '@/libs/calendarSchedule';
 
 import { BackButton, ModalHeader } from './AppModal';
 import { NewAppointmentModal } from './NewAppointmentModal';
@@ -26,6 +27,9 @@ type AdminAppointmentsResponse = {
   data?: {
     appointments?: AdminAppointmentRecord[];
     technicians?: Array<{ id: string; name: string }>;
+    // Closed days, time off and blocked slots, shipped with the appointments
+    // they must stay consistent with (r17-calendar).
+    schedule?: CalendarSchedule;
   };
   meta?: {
     slotIntervalMinutes?: number;
@@ -92,6 +96,7 @@ export function AppointmentsModal({
   const [error, setError] = useState<string | null>(null);
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [slotIntervalMinutes, setSlotIntervalMinutes] = useState(15);
+  const [schedule, setSchedule] = useState<CalendarSchedule | null>(null);
   const [showNewAppointmentModal, setShowNewAppointmentModal] = useState(false);
   const [rebookPrefill, setRebookPrefill] = useState<RebookPrefill | null>(null);
   const latestAppointmentsFetchIdRef = useRef(0);
@@ -148,6 +153,7 @@ export function AppointmentsModal({
         label: technician.name,
       })) ?? []);
       setSlotIntervalMinutes(result.meta?.slotIntervalMinutes ?? 15);
+      setSchedule(result.data?.schedule ?? null);
     } catch {
       if (latestAppointmentsFetchIdRef.current !== fetchId) {
         return;
@@ -221,13 +227,14 @@ export function AppointmentsModal({
         emptyTitle="No appointments scheduled"
         emptyDescription="You are clear for the selected day."
         resourceLabel="Artist"
+        schedule={schedule}
       />
 
       <button
         type="button"
         onClick={() => setShowNewAppointmentModal(true)}
         aria-label="Add new appointment"
-        className="fixed bottom-8 right-6 z-50 flex size-14 items-center justify-center rounded-full bg-[#007AFF] text-white shadow-[0_4px_16px_rgba(0,122,255,0.4)] transition-transform active:scale-90"
+        className="fixed bottom-8 right-6 z-50 flex size-14 items-center justify-center rounded-full bg-[var(--owner-accent,#8f3155)] text-white shadow-[0_4px_16px_rgba(0,122,255,0.4)] transition-transform active:scale-90"
       >
         <Plus className="size-8" />
       </button>
@@ -288,6 +295,7 @@ export function AppointmentsModal({
 
       <NewAppointmentModal
         isOpen={showNewAppointmentModal}
+        salonSlug={salonSlug}
         onClose={() => {
           setShowNewAppointmentModal(false);
           setRebookPrefill(null);

@@ -1,7 +1,8 @@
 /**
  * Admin Time Off Requests API
  *
- * GET /api/admin/time-off-requests - List requests for the admin's active salon
+ * GET /api/admin/time-off-requests - List requests for the salon the URL names
+ * (`?salonSlug=` / `?salon=`, membership-checked) or the admin's active salon
  *
  * SECURITY:
  * - Admin session required
@@ -10,8 +11,9 @@
 
 import { and, desc, eq } from 'drizzle-orm';
 
-import { requireActiveAdminSalon } from '@/libs/adminAuth';
+import { requireAdminSalonFromRequest } from '@/libs/adminAuth';
 import { db } from '@/libs/DB';
+import { toDateOnlyString } from '@/libs/timeOffDates';
 import {
   salonSchema,
   technicianSchema,
@@ -38,7 +40,7 @@ type ErrorResponse = {
 
 export async function GET(request: Request): Promise<Response> {
   try {
-    const { salon, error } = await requireActiveAdminSalon();
+    const { salon, error } = await requireAdminSalonFromRequest(request);
     if (error || !salon) {
       return error!;
     }
@@ -76,21 +78,37 @@ export async function GET(request: Request): Promise<Response> {
       .orderBy(desc(timeOffRequestSchema.createdAt))
       .limit(100);
 
+    // 6. Serialise. start/end are whole-day DATE columns; a value we cannot
+    // read must skip that one row rather than crash the whole inbox.
+    const serialised = requests.flatMap((r) => {
+      const startDate = toDateOnlyString(r.startDate);
+      const endDate = toDateOnlyString(r.endDate);
+
+      if (!startDate || !endDate) {
+        console.warn(
+          `[TimeOffRequest] Skipping request ${r.id}: unreadable date range`,
+        );
+        return [];
+      }
+
+      return [{
+        id: r.id,
+        salonId: r.salonId,
+        salonName: r.salonName,
+        technicianId: r.technicianId,
+        technicianName: r.technicianName,
+        startDate,
+        endDate,
+        note: r.note,
+        status: r.status,
+        decidedAt: r.decidedAt?.toISOString() ?? null,
+        createdAt: r.createdAt.toISOString(),
+      }];
+    });
+
     return Response.json({
       data: {
-        requests: requests.map(r => ({
-          id: r.id,
-          salonId: r.salonId,
-          salonName: r.salonName,
-          technicianId: r.technicianId,
-          technicianName: r.technicianName,
-          startDate: r.startDate.toISOString().split('T')[0],
-          endDate: r.endDate.toISOString().split('T')[0],
-          note: r.note,
-          status: r.status,
-          decidedAt: r.decidedAt?.toISOString() ?? null,
-          createdAt: r.createdAt.toISOString(),
-        })),
+        requests: serialised,
       },
     });
   } catch (error) {

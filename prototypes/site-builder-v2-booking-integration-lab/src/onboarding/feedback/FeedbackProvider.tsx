@@ -28,6 +28,35 @@ type VisibleFeedback = {
 const isMajorFeedback = (kind: FeedbackKind): boolean =>
   kind === 'milestone' || kind === 'stage_complete';
 
+/**
+ * The toast docks under the sticky app chrome (header + progress rail), which
+ * is the one band every onboarding screen keeps free of controls. The rail is
+ * not present on every screen, so the clearance is measured rather than
+ * assumed — feedback.css only carries the fallback (OP-004).
+ */
+const CHROME_SELECTORS = [
+  '.onboarding-shell__header',
+  '.onboarding-shell__progress',
+] as const;
+
+function measureChromeClearance(): number | null {
+  if (typeof document === 'undefined') {
+    return null;
+  }
+  let bottom = 0;
+  for (const selector of CHROME_SELECTORS) {
+    const element = document.querySelector(selector);
+    if (!element) {
+      continue;
+    }
+    const rect = element.getBoundingClientRect();
+    if (rect.height > 0) {
+      bottom = Math.max(bottom, rect.bottom);
+    }
+  }
+  return bottom > 0 ? Math.round(bottom) : null;
+}
+
 export const FeedbackContext = createContext<FeedbackController | null>(null);
 
 const visualDuration = (kind: FeedbackKind): number => {
@@ -191,6 +220,21 @@ export function FeedbackProvider({
       }
     };
   }, []);
+
+  // Placement only: keep the toast docked to the real chrome, never over it.
+  useEffect(() => {
+    if (!visible) {
+      return;
+    }
+    const clearance = measureChromeClearance();
+    if (clearance === null) {
+      return;
+    }
+    document.documentElement.style.setProperty(
+      '--onboarding-feedback-header-clearance',
+      `${clearance}px`,
+    );
+  }, [visible]);
 
   const clearQueuedVisuals = useCallback(() => {
     const preserved = queuedMajorFeedbackRef.current

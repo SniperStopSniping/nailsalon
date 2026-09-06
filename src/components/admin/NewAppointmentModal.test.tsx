@@ -4,8 +4,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { type GoogleEventPrefill, NewAppointmentModal } from './NewAppointmentModal';
 
-const { fetchMock } = vi.hoisted(() => ({
+const { fetchMock, salonContext } = vi.hoisted(() => ({
   fetchMock: vi.fn(),
+  salonContext: { salonSlug: 'test-salon' },
 }));
 
 vi.mock('framer-motion', () => ({
@@ -16,7 +17,7 @@ vi.mock('framer-motion', () => ({
 }));
 
 vi.mock('@/providers/SalonProvider', () => ({
-  useSalon: () => ({ salonSlug: 'test-salon' }),
+  useSalon: () => salonContext,
 }));
 
 const initialEvent: GoogleEventPrefill = {
@@ -83,9 +84,44 @@ function postCalls() {
       && (init as RequestInit | undefined)?.method === 'POST');
 }
 
+describe('NewAppointmentModal salon resolution', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    salonContext.salonSlug = 'test-salon';
+    vi.stubGlobal('fetch', fetchMock);
+    installDefaultFetch();
+  });
+
+  it('explains the missing tenant instead of spinning forever when no salon resolves', async () => {
+    salonContext.salonSlug = '';
+    render(<NewAppointmentModal {...modalProps({ googleEventPrefill: null })} />);
+
+    const notice = await screen.findByTestId('new-appointment-error');
+
+    expect(notice).toHaveTextContent('Choose a salon to continue');
+    expect(notice).toHaveAttribute('role', 'alert');
+    expect(screen.queryByTestId('new-appointment-loading')).not.toBeInTheDocument();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('prefers the dashboard salon prop over the tenant-cookie context', async () => {
+    salonContext.salonSlug = '';
+    render(<NewAppointmentModal {...modalProps({ googleEventPrefill: null, salonSlug: 'salon-b' })} />);
+
+    await waitForForm();
+
+    const requested = fetchMock.mock.calls.map(([input]) => String(input));
+
+    expect(requested).toContain('/api/admin/technicians?salonSlug=salon-b&status=active');
+    expect(requested).toContain('/api/salon/services?salonSlug=salon-b');
+    expect(screen.queryByText('Choose a salon to continue')).not.toBeInTheDocument();
+  });
+});
+
 describe('NewAppointmentModal Google conversion session', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    salonContext.salonSlug = 'test-salon';
     vi.stubGlobal('fetch', fetchMock);
     installDefaultFetch();
   });
@@ -356,5 +392,74 @@ describe('NewAppointmentModal Google conversion session', () => {
     expect(firstKey).toBeTruthy();
     expect(secondKey).toBeTruthy();
     expect(secondKey).not.toBe(firstKey);
+  });
+});
+
+// AG-w2-calendar-writes-09: the picker used a fixed 08:00–20:00 range, so the
+// last bookable hour of a technician working to 21:00 was unreachable while
+// 08:00 starts nobody works were offered.
+describe('NewAppointmentModal time picker range', () => {
+  const ALL_DAY = { start: '09:00', end: '21:00' };
+  const DANIELA_SCHEDULE = {
+    sunday: ALL_DAY,
+    monday: ALL_DAY,
+    tuesday: ALL_DAY,
+    wednesday: ALL_DAY,
+    thursday: ALL_DAY,
+    friday: ALL_DAY,
+    saturday: ALL_DAY,
+  };
+
+  function installScheduleFetch() {
+    fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input), 'http://localhost');
+      if (url.pathname === '/api/admin/technicians') {
+        return jsonResponse({
+          data: {
+            technicians: [
+              { id: 'tech_daniela', name: 'Daniela', avatarUrl: null, weeklySchedule: DANIELA_SCHEDULE },
+            ],
+          },
+        });
+      }
+      if (url.pathname === '/api/salon/services') {
+        return jsonResponse({ data: { services: [] } });
+      }
+      throw new Error(`Unexpected fetch: ${url.pathname}`);
+    });
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    salonContext.salonSlug = 'nail-salon-no5';
+    vi.stubGlobal('fetch', fetchMock);
+    installScheduleFetch();
+  });
+
+  async function openTimeDropdown() {
+    render(
+      <NewAppointmentModal
+        {...modalProps({ googleEventPrefill: null, preselectedDate: new Date(2026, 8, 16, 12, 0, 0) })}
+      />,
+    );
+    await waitForForm();
+    fireEvent.click(await screen.findByLabelText('Appointment time'));
+  }
+
+  it('spans the technician schedule, reaching 21:00 and dropping 08:00', async () => {
+    await openTimeDropdown();
+
+    expect(screen.getByRole('button', { name: '21:00' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '20:30' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '09:00' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '08:00' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '08:30' })).not.toBeInTheDocument();
+  });
+
+  it('keeps the currently selected time selectable', async () => {
+    await openTimeDropdown();
+
+    // The default 10:00 is inside the schedule and stays offered.
+    expect(screen.getByRole('button', { name: '10:00' })).toBeInTheDocument();
   });
 });

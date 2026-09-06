@@ -1,6 +1,6 @@
 'use client';
 
-import { Banknote, Camera, CheckCircle2, Copy, Minus, Plus, QrCode, Trash2 } from 'lucide-react';
+import { Banknote, Camera, CheckCircle2, Copy, Minus, Plus, QrCode, Trash2, X } from 'lucide-react';
 import Image from 'next/image';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
@@ -407,6 +407,16 @@ export function CheckoutSheet({
   const [recordingPayment, setRecordingPayment] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  /**
+   * Completing an appointment is a one-way, money-bearing write. `submitting`
+   * only disables the button after React re-renders, so a double tap — or the
+   * photo prompt's Confirm landing on top of a tap that is still in flight —
+   * can POST the completion twice. This ref flips synchronously, before the
+   * first `await`, and is the actual guard.
+   */
+  const submitInFlightRef = useRef(false);
+  /** Same synchronous guard for recording a payment after completion. */
+  const recordPaymentInFlightRef = useRef(false);
   const postPaymentIdempotencyRef = useRef<{
     signature: string;
     key: string;
@@ -728,6 +738,10 @@ export function CheckoutSheet({
       setError(financialBlockReason);
       return;
     }
+    if (submitInFlightRef.current) {
+      return;
+    }
+    submitInFlightRef.current = true;
     try {
       setSubmitting(true);
       setError(null);
@@ -790,8 +804,15 @@ export function CheckoutSheet({
       await fetchContext(false);
       onCompleted?.({ showReviewPrompt: Boolean(result?.data?.showReviewPrompt) });
     } catch (submitError) {
-      setError(submitError instanceof Error ? submitError.message : 'Unable to complete appointment');
+      setError(
+        submitError instanceof TypeError
+          ? 'No connection — the appointment was not completed. Reconnect and try again.'
+          : submitError instanceof Error
+            ? submitError.message
+            : 'Unable to complete appointment',
+      );
     } finally {
+      submitInFlightRef.current = false;
       setSubmitting(false);
     }
   }, [apiPath, appointmentId, context, totals, financialBlockReason, paymentNowCents, items, discountInput, discountReason, tipInput, taxExempt, taxExemptReason, actualStart, actualEnd, comp, paymentMethod, paymentRefInput, notes, skipPhotoConfirmed, fetchContext, onCompleted]);
@@ -833,6 +854,10 @@ export function CheckoutSheet({
       };
     }
     const idempotencyKey = postPaymentIdempotencyRef.current.key;
+    if (recordPaymentInFlightRef.current) {
+      return;
+    }
+    recordPaymentInFlightRef.current = true;
     try {
       setRecordingPayment(true);
       setError(null);
@@ -853,8 +878,15 @@ export function CheckoutSheet({
       postPaymentIdempotencyRef.current = null;
       await fetchContext(false);
     } catch (paymentError) {
-      setError(paymentError instanceof Error ? paymentError.message : 'Could not record the payment');
+      setError(
+        paymentError instanceof TypeError
+          ? 'No connection — the payment was not recorded. Reconnect and try again.'
+          : paymentError instanceof Error
+            ? paymentError.message
+            : 'Could not record the payment',
+      );
     } finally {
+      recordPaymentInFlightRef.current = false;
       setRecordingPayment(false);
     }
   }, [apiPath, appointmentId, context, postPaymentAmount, postPaymentMethod, fetchContext, money]);
@@ -1271,8 +1303,8 @@ export function CheckoutSheet({
     >
       <div data-testid="checkout-sheet" className="flex min-h-0 flex-1 flex-col">
         {/* Header */}
-        <div className="flex shrink-0 items-center justify-between border-b border-neutral-100 px-4 pb-3 pt-4 sm:px-5">
-          <div>
+        <div className="flex shrink-0 items-center justify-between gap-3 border-b border-neutral-100 px-4 pb-3 pt-4 sm:px-5">
+          <div className="min-w-0">
             <div className="text-lg font-semibold text-neutral-900">
               {view === 'success' ? 'Appointment completed' : view === 'receipt' ? 'Receipt' : 'Complete appointment'}
             </div>
@@ -1280,16 +1312,18 @@ export function CheckoutSheet({
               {context?.appointment.clientName || 'Checkout'}
             </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex shrink-0 items-center gap-2">
+            {/* Full 44px target whose ring is drawn inside the sheet, so it is
+                never clipped by the sheet's rounded overflow at 320px. */}
             <button
               type="button"
               data-testid="checkout-close"
               aria-label="Close checkout"
               disabled={submitting}
               onClick={requestClose}
-              className="rounded-full p-2 text-neutral-400 transition-colors hover:bg-neutral-100 hover:text-neutral-700"
+              className="flex size-11 items-center justify-center rounded-full text-neutral-400 transition-colors hover:bg-neutral-100 hover:text-neutral-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neutral-400 focus-visible:ring-offset-2 disabled:opacity-50"
             >
-              ×
+              <X aria-hidden="true" className="size-5" />
             </button>
           </div>
         </div>

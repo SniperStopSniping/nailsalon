@@ -303,7 +303,15 @@ export default async function BookConfirmPage(
     zipCode: salon.zipCode,
   })
     ? applyLocationDisplayMode({
-      id: locationId || `salon_${salon.id}`,
+      // This object is a DIRECTIONS fallback for a salon whose location row is
+      // missing (or carries no usable address), but `BookConfirmClient` also
+      // posts `location.id` as the booking's `locationId`. A synthesised
+      // `salon_<id>` is not a `salon_location` primary key, so
+      // `POST /api/appointments` rejected the whole booking with
+      // INVALID_LOCATION. Only ever carry a real location id here; an empty
+      // string makes the client omit `locationId`, and the API then resolves
+      // the primary location itself.
+      id: locationId || primaryLocation?.id || '',
       name: salon.name,
       address: salon.address,
       city: salon.city,
@@ -463,6 +471,12 @@ export default async function BookConfirmPage(
           depositDisclosure={depositDisclosure}
           depositNoticeSuppressed={depositNoticeSuppressed}
           depositFingerprint={depositFingerprint}
+          // Copy-only signal for the confirm step: the SAME salon-wide flag
+          // `POST /api/appointments` reads when it decides whether the row is
+          // written as 'confirmed' or as a 'pending' request
+          // (src/app/api/appointments/route.ts), so the button cannot promise a
+          // reservation the server will not make.
+          salonConfirmsManually={!salon.freeSoloEnabled}
         />
       </Suspense>
     </PublicSalonPageShell>

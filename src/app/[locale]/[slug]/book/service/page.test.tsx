@@ -184,6 +184,10 @@ vi.mock('@/libs/queries', () => ({
   getServiceAddOnRulesBySalonId,
   getServicesBySalonId,
   getTechniciansBySalonId,
+  // The tenant page also resolves the salon for its LocalBusiness JSON-LD
+  // (AG-w2-public-quick-book-03). Null keeps these banner tests focused: no
+  // structured data is emitted, and the rendered page is otherwise identical.
+  getSalonBySlug: vi.fn(async () => null),
 }));
 
 vi.mock('@/libs/serviceAssignments', () => ({

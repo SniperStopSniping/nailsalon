@@ -158,11 +158,13 @@ export function SalonPolicyForm({
     <div className="space-y-6">
       {/* Header */}
       <div className="rounded-xl bg-white p-5 shadow-sm">
-        <h2 className="text-lg font-semibold text-gray-900">Policy Settings</h2>
+        <h2 className="text-lg font-semibold text-gray-900">What these rules do</h2>
         <p className="mt-1 text-sm text-gray-500">
-          Configure photo requirements and auto-posting for
+          They decide when your team has to take a before or after photo, and
+          whether finished work is posted to social media, for
           {' '}
           {salonName}
+          .
         </p>
       </div>
 
@@ -177,12 +179,13 @@ export function SalonPolicyForm({
           {/* Before Photo to Start */}
           <div className="flex items-center justify-between">
             <div>
-              <label className="text-sm font-medium text-gray-700">
+              <label htmlFor="policy-requireBeforePhotoToStart" className="text-sm font-medium text-gray-700">
                 Before Photo to Start
               </label>
               <p className="text-xs text-gray-500">Require photo before starting service</p>
             </div>
             <select
+              id="policy-requireBeforePhotoToStart"
               value={policy.requireBeforePhotoToStart}
               onChange={e => updatePolicy('requireBeforePhotoToStart', e.target.value as PhotoRequirementMode)}
               disabled={isOverridden('requireBeforePhotoToStart')}
@@ -197,12 +200,13 @@ export function SalonPolicyForm({
           {/* After Photo to Finish */}
           <div className="flex items-center justify-between">
             <div>
-              <label className="text-sm font-medium text-gray-700">
+              <label htmlFor="policy-requireAfterPhotoToFinish" className="text-sm font-medium text-gray-700">
                 After Photo to Finish
               </label>
               <p className="text-xs text-gray-500">Require photo before completing</p>
             </div>
             <select
+              id="policy-requireAfterPhotoToFinish"
               value={policy.requireAfterPhotoToFinish}
               onChange={e => updatePolicy('requireAfterPhotoToFinish', e.target.value as PhotoRequirementMode)}
               disabled={isOverridden('requireAfterPhotoToFinish')}
@@ -217,12 +221,13 @@ export function SalonPolicyForm({
           {/* After Photo to Pay */}
           <div className="flex items-center justify-between">
             <div>
-              <label className="text-sm font-medium text-gray-700">
+              <label htmlFor="policy-requireAfterPhotoToPay" className="text-sm font-medium text-gray-700">
                 After Photo to Pay
               </label>
               <p className="text-xs text-gray-500">Require photo before payment</p>
             </div>
             <select
+              id="policy-requireAfterPhotoToPay"
               value={policy.requireAfterPhotoToPay}
               onChange={e => updatePolicy('requireAfterPhotoToPay', e.target.value as PhotoRequirementMode)}
               disabled={isOverridden('requireAfterPhotoToPay')}
@@ -247,12 +252,13 @@ export function SalonPolicyForm({
           {/* Enable Auto-Post */}
           <div className="flex items-center justify-between">
             <div>
-              <label className="text-sm font-medium text-gray-700">
+              <span id="policy-autoPostEnabled-label" className="text-sm font-medium text-gray-700">
                 Enable Auto-Post
-              </label>
+              </span>
               <p className="text-xs text-gray-500">Automatically post after photos to social media</p>
             </div>
             <button
+              aria-labelledby="policy-autoPostEnabled-label"
               type="button"
               onClick={() => updatePolicy('autoPostEnabled', !policy.autoPostEnabled)}
               disabled={isOverridden('autoPostEnabled')}
@@ -272,7 +278,7 @@ export function SalonPolicyForm({
           {policy.autoPostEnabled && (
             <>
               <div className="border-t pt-2">
-                <label className="mb-2 block text-sm font-medium text-gray-700">
+                <label htmlFor="policy-autoPostIncludePrice" className="mb-2 block text-sm font-medium text-gray-700">
                   Platforms
                 </label>
                 <div className="flex gap-3">
@@ -305,12 +311,13 @@ export function SalonPolicyForm({
 
               {/* Caption Options */}
               <div className="border-t pt-2">
-                <label className="mb-2 block text-sm font-medium text-gray-700">
+                <p id="policy-caption-options-label" className="mb-2 block text-sm font-medium text-gray-700">
                   Caption Options
-                </label>
+                </p>
                 <div className="space-y-2">
-                  <label className="flex items-center gap-2">
+                  <label htmlFor="policy-autoPostIncludePrice" className="flex items-center gap-2">
                     <input
+                      id="policy-autoPostIncludePrice"
                       type="checkbox"
                       checked={policy.autoPostIncludePrice}
                       onChange={e => updatePolicy('autoPostIncludePrice', e.target.checked)}
@@ -318,8 +325,9 @@ export function SalonPolicyForm({
                     />
                     <span className="text-sm text-gray-700">Include price</span>
                   </label>
-                  <label className="flex items-center gap-2">
+                  <label htmlFor="policy-autoPostIncludeColor" className="flex items-center gap-2">
                     <input
+                      id="policy-autoPostIncludeColor"
                       type="checkbox"
                       checked={policy.autoPostIncludeColor}
                       onChange={e => updatePolicy('autoPostIncludeColor', e.target.checked)}
@@ -327,8 +335,9 @@ export function SalonPolicyForm({
                     />
                     <span className="text-sm text-gray-700">Include color</span>
                   </label>
-                  <label className="flex items-center gap-2">
+                  <label htmlFor="policy-autoPostIncludeBrand" className="flex items-center gap-2">
                     <input
+                      id="policy-autoPostIncludeBrand"
                       type="checkbox"
                       checked={policy.autoPostIncludeBrand}
                       onChange={e => updatePolicy('autoPostIncludeBrand', e.target.checked)}
@@ -344,13 +353,14 @@ export function SalonPolicyForm({
                 <div className="flex items-center gap-2">
                   <Sparkles className="size-4 text-amber-500" />
                   <div>
-                    <label className="text-sm font-medium text-gray-700">
+                    <span id="policy-autoPostAiCaptionEnabled-label" className="text-sm font-medium text-gray-700">
                       AI Caption
-                    </label>
+                    </span>
                     <p className="text-xs text-gray-500">Generate captions with AI</p>
                   </div>
                 </div>
                 <button
+                  aria-labelledby="policy-autoPostAiCaptionEnabled-label"
                   type="button"
                   onClick={() => updatePolicy('autoPostAiCaptionEnabled', !policy.autoPostAiCaptionEnabled)}
                   disabled={isOverridden('autoPostAiCaptionEnabled')}
@@ -372,9 +382,10 @@ export function SalonPolicyForm({
 
       {/* Effective Policy Preview */}
       <div className="rounded-xl border border-blue-100 bg-gradient-to-br from-blue-50 to-purple-50 p-5">
-        <h3 className="mb-3 font-semibold text-gray-900">Effective Policy Preview</h3>
+        <h3 className="mb-3 font-semibold text-gray-900">What is enforced right now</h3>
         <p className="mb-4 text-xs text-gray-500">
-          This is what will actually be enforced after super admin overrides are applied.
+          This is what your team is actually held to today. Where Luster has set
+          a rule for every salon, that rule wins over the choice above.
         </p>
 
         <div className="space-y-2 text-sm">
@@ -502,6 +513,17 @@ export function SalonPolicyForm({
 // SOURCE BADGE COMPONENT
 // =============================================================================
 
+/**
+ * AG-w2-settings-integrations-15: owners were shown the internal source codes
+ * ("SA Forced", "Salon") as-is. The codes stay — other callers type against
+ * them — but the owner reads who decided, in their own words.
+ */
+const SOURCE_LABELS: Record<'SA Forced' | 'Salon' | 'Default', string> = {
+  'SA Forced': 'Set by Luster',
+  'Salon': 'Your choice',
+  'Default': 'Luster default',
+};
+
 function SourceBadge({ source }: { source: 'SA Forced' | 'Salon' | 'Default' }) {
   const colors = {
     'SA Forced': 'bg-red-100 text-red-700',
@@ -511,7 +533,7 @@ function SourceBadge({ source }: { source: 'SA Forced' | 'Salon' | 'Default' }) 
 
   return (
     <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${colors[source]}`}>
-      {source}
+      {SOURCE_LABELS[source]}
     </span>
   );
 }

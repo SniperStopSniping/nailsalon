@@ -108,6 +108,24 @@ vi.mock('@/libs/tenant', () => ({
   getPublicPageContext,
 }));
 
+// The real module reaches `@/libs/DB` (server-only) through its query
+// helpers, which this jsdom suite cannot import. Only the pure hours
+// precedence is needed here; it is unit-tested for real in
+// `src/libs/bookingPolicy.test.ts`.
+vi.mock('@/libs/bookingPolicy', () => ({
+  resolveBookingHoursCeiling: ({
+    location = null,
+    salonBusinessHours = null,
+  }: {
+    location?: { id: string; businessHours?: unknown } | null;
+    salonBusinessHours?: unknown;
+  }) => ({
+    locationId: location?.id ?? null,
+    businessHours: location?.businessHours ?? salonBusinessHours ?? null,
+    source: 'test',
+  }),
+}));
+
 vi.mock('./BookTimeClient', () => ({
   BookTimeClient: bookTimeClientMock,
 }));
@@ -429,6 +447,113 @@ describe('BookTimePage', () => {
     expect((element as unknown as { props: Record<string, unknown> }).props).toMatchObject({
       isPreviewingDraftConfig: false,
     });
+  });
+
+  // AG-w2-clients-02 / AG-w2-services-05 / AG-w2-public-quick-book-04: the
+  // calendar can only refuse a closed day if the server tells it which days
+  // the salon is shut, from the same hours ceiling availability enforces.
+  const stubTechnicianContext = () => {
+    resolvePublicBookingTechnicianContext.mockResolvedValue({
+      resolvedSelection: {
+        services: [{ id: 'svc_1', name: 'BIAB', priceCents: 5000, durationMinutes: 75 }],
+        addOns: [],
+        totalPriceCents: 5000,
+        visibleDurationMinutes: 75,
+      },
+      activeTechnicians: [],
+      compatibleTechnicians: [],
+      compatibleCount: 0,
+      compatibleTechnicianIds: [],
+      soleCompatibleTechnician: null,
+      requestedTechnicianId: null,
+      hasValidExplicitTechnician: false,
+      validExplicitTechnician: null,
+      effectiveTechnicianId: null,
+      effectiveTechnician: null,
+      effectiveTechnicianSelectionSource: null,
+      shouldAutoSkipTech: false,
+    });
+  };
+
+  const renderTimeStepWith = async (salon: Record<string, unknown>, locationId?: string) => {
+    getPublicPageContext.mockResolvedValue({
+      appearance: null,
+      salon: { id: 'salon_1', slug: 'salon-a', bookingFlow: null, ...salon },
+    });
+    checkSalonStatus.mockResolvedValue({});
+    checkFeatureEnabled.mockResolvedValue({});
+    stubTechnicianContext();
+
+    render(await BookTimePage({
+      searchParams: Promise.resolve({
+        salonSlug: 'salon-a',
+        baseServiceId: 'svc_1',
+        techId: 'any',
+        ...(locationId ? { locationId } : {}),
+      }),
+    }));
+
+    return bookTimeClientMock.mock.calls.at(-1)?.[0];
+  };
+
+  it('marks every weekday the location is closed', async () => {
+    getPrimaryLocation.mockResolvedValue({
+      id: 'loc_1',
+      businessHours: {
+        monday: { open: '10:00', close: '18:00' },
+        tuesday: { open: '10:00', close: '18:00' },
+        wednesday: { open: '10:00', close: '18:00' },
+        thursday: { open: '10:00', close: '18:00' },
+        friday: { open: '10:00', close: '18:00' },
+        saturday: { open: '10:00', close: '17:00' },
+        sunday: null,
+      },
+    });
+    getLocationById.mockResolvedValue({
+      id: 'loc_1',
+      businessHours: {
+        monday: { open: '10:00', close: '18:00' },
+        tuesday: { open: '10:00', close: '18:00' },
+        wednesday: { open: '10:00', close: '18:00' },
+        thursday: { open: '10:00', close: '18:00' },
+        friday: { open: '10:00', close: '18:00' },
+        saturday: { open: '10:00', close: '17:00' },
+        sunday: null,
+      },
+    });
+
+    const props = await renderTimeStepWith({ businessHours: null }, 'loc_1');
+
+    // 0 = Sunday, the day the audit funnel landed on.
+    expect(props).toMatchObject({ closedWeekdays: [0] });
+  });
+
+  it('falls back to the salon row when the location carries no hours', async () => {
+    getPrimaryLocation.mockResolvedValue(null);
+    getLocationById.mockResolvedValue(null);
+
+    const props = await renderTimeStepWith({
+      businessHours: {
+        monday: { open: '10:00', close: '18:00' },
+        tuesday: null,
+        wednesday: { open: '10:00', close: '18:00' },
+        thursday: { open: '10:00', close: '18:00' },
+        friday: { open: '10:00', close: '18:00' },
+        saturday: null,
+        sunday: null,
+      },
+    });
+
+    expect(props).toMatchObject({ closedWeekdays: [0, 2, 6] });
+  });
+
+  it('marks nothing closed when the salon publishes no hours anywhere', async () => {
+    getPrimaryLocation.mockResolvedValue(null);
+    getLocationById.mockResolvedValue(null);
+
+    const props = await renderTimeStepWith({ businessHours: null });
+
+    expect(props).toMatchObject({ closedWeekdays: [] });
   });
 });
 

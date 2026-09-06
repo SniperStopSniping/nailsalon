@@ -1723,12 +1723,19 @@ export function BookServiceClient({
                           ? 'service-menu-grouped-categories'
                           : 'service-menu-list'}
                       >
+                        {/*
+                          Test hook only. The layout token must never reach the
+                          accessibility tree — screen readers were announcing
+                          "visual grid" mid-menu (AG-services-04 /
+                          AG-hub-publish-05). The data-testid carries the value;
+                          the node has no text and is hidden from AT.
+                        */}
                         <div
-                          className="sr-only"
+                          hidden
+                          aria-hidden="true"
                           data-testid={`service-menu-presentation-${serviceMenuPresentation.layout}`}
-                        >
-                          {serviceMenuPresentation.layout}
-                        </div>
+                        />
+
                         {shouldGroupServiceMenu(
                           bookingPage?.serviceMenuLayout,
                           serviceMenuPresentation.grouped,

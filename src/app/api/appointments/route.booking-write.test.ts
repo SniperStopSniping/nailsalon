@@ -116,7 +116,10 @@ const {
   },
 }));
 
-vi.mock('@/libs/bookingPolicy', () => ({
+vi.mock('@/libs/bookingPolicy', async importOriginal => ({
+  // `resolveBookingHoursCeiling` is a pure selector over the location/salon
+  // hours records, so the route is exercised against the real one.
+  ...(await importOriginal<typeof import('@/libs/bookingPolicy')>()),
   canTechnicianTakeAppointment,
   getTorontoDateString: vi.fn(() => '2026-03-13'),
   loadBookingPolicy,
@@ -780,6 +783,74 @@ describe('POST /api/appointments booking policy', () => {
     });
     expect(db.transaction).not.toHaveBeenCalled();
     expect(db.insert).not.toHaveBeenCalled();
+  });
+
+  // OP-010 / AG-clients-02: a guest booking that carries no locationId (the
+  // public confirm page omits it when the salon has no location row) must
+  // still succeed, and must still be bounded by the owner's opening hours —
+  // which, for a salon with no `salon_location`, live only on the salon row.
+  describe('location and hours resolution for a booking without a locationId', () => {
+    const CLOSED_SUNDAY = {
+      monday: null,
+      tuesday: null,
+      wednesday: null,
+      thursday: null,
+      friday: { open: '10:00', close: '18:00' },
+      saturday: { open: '10:00', close: '17:00' },
+      sunday: null,
+    };
+
+    beforeEach(() => {
+      canTechnicianTakeAppointment.mockReturnValue({
+        available: true,
+        schedule: { start: '09:00', end: '18:00' },
+      });
+    });
+
+    it('books a single-location salon by resolving its primary location server-side', async () => {
+      getPrimaryLocation.mockResolvedValue({ id: 'loc_primary', businessHours: CLOSED_SUNDAY });
+      const insertState = mockSuccessfulAppointmentInserts({
+        appointmentId: 'appt_primary_location',
+        salonClientId: 'client_1',
+        clientPhone: '1111111111',
+      });
+
+      const response = await postBooking();
+
+      expect(response.status).toBe(201);
+      expect(getLocationById).not.toHaveBeenCalled();
+      expect(insertState.appointmentValues).toMatchObject({ locationId: 'loc_primary' });
+      expect(canTechnicianTakeAppointment).toHaveBeenCalledWith(expect.objectContaining({
+        locationId: 'loc_primary',
+        locationBusinessHours: CLOSED_SUNDAY,
+      }));
+    });
+
+    it('books a salon with no location row and still enforces salon.business_hours', async () => {
+      getPrimaryLocation.mockResolvedValue(null);
+      getSalonBySlug.mockResolvedValue({
+        id: 'salon_1',
+        slug: 'salon-a',
+        name: 'Salon A',
+        plan: 'single_salon',
+        features: null,
+        businessHours: CLOSED_SUNDAY,
+        settings: { booking: { bufferMinutes: 10, slotIntervalMinutes: 15, currency: 'CAD', timezone: 'America/Toronto' } },
+      });
+      mockSuccessfulAppointmentInserts({
+        appointmentId: 'appt_no_location',
+        salonClientId: 'client_1',
+        clientPhone: '1111111111',
+      });
+
+      const response = await postBooking();
+
+      expect(response.status).toBe(201);
+      expect(canTechnicianTakeAppointment).toHaveBeenCalledWith(expect.objectContaining({
+        locationId: null,
+        locationBusinessHours: CLOSED_SUNDAY,
+      }));
+    });
   });
 
   it('locks and books against an existing terminal client inside the authoritative transaction', async () => {

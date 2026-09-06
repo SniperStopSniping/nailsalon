@@ -11,8 +11,15 @@ const { fetchMock, refreshMock, capability } = vi.hoisted(() => ({
 }));
 
 vi.mock('next/navigation', () => ({
-  useRouter: () => ({ push: vi.fn(), refresh: refreshMock }),
+  useRouter: () => ({
+    push: vi.fn(),
+    replace: vi.fn(),
+    back: vi.fn(),
+    refresh: refreshMock,
+  }),
   useParams: () => ({ locale: 'en' }),
+  // Settings sub-views are URL-backed (AG-w2-settings-integrations-10).
+  useSearchParams: () => new URLSearchParams(),
 }));
 
 vi.mock('@/providers/SalonProvider', () => ({

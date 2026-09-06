@@ -144,6 +144,7 @@ type ListClient = {
   totalVisits?: number;
   totalSpent?: number;
   spendCurrency?: string | null;
+  spendState?: 'canonical_settled' | 'under_review';
   noShowCount?: number;
   loyaltyPoints?: number;
   notes?: string | null;
@@ -165,6 +166,7 @@ function buildListClient(overrides: Partial<ListClient> = {}): ListClient {
     totalVisits: 6,
     totalSpent: 45500,
     spendCurrency: 'CAD',
+    spendState: 'canonical_settled',
     noShowCount: 1,
     loyaltyPoints: 820,
     notes: 'Prefers shorter almond shape.',
@@ -465,6 +467,110 @@ describe('ClientsModal', () => {
     vi.clearAllMocks();
     fetchMock.mockReset();
     vi.stubGlobal('fetch', fetchMock);
+  });
+
+  function stubSupportingEndpoints(
+    clientsHandler: (url: URL) => Response | Promise<Response>,
+  ) {
+    fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input), 'http://localhost');
+      if (url.pathname === '/api/admin/settings/modules') {
+        return new Response(JSON.stringify({
+          data: {
+            moduleReasons: {
+              clientFlags: 'MODULE_DISABLED',
+              clientBlocking: 'MODULE_DISABLED',
+            },
+          },
+        }), { status: 200 });
+      }
+      if (url.pathname === '/api/admin/technicians') {
+        return new Response(
+          JSON.stringify(buildTechniciansResponse()),
+          { status: 200 },
+        );
+      }
+      if (url.pathname === '/api/admin/clients') {
+        return clientsHandler(url);
+      }
+      return new Response(JSON.stringify({ data: {} }), { status: 200 });
+    });
+  }
+
+  it('offers an add-client entry point in the header and in the zero state', async () => {
+    // AG-clients-01 / AG-w2-clients-08 and AG-clients-11.
+    stubSupportingEndpoints(() =>
+      new Response(JSON.stringify(buildListResponse([])), { status: 200 }));
+
+    render(<ClientsModal onClose={() => {}} />);
+
+    expect(await screen.findByTestId('clients-empty-add')).toBeInTheDocument();
+    expect(screen.getByTestId('clients-add-action')).toBeInTheDocument();
+    // Dead controls over an empty book are gone.
+    expect(screen.queryByPlaceholderText('Search clients')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Spent' })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('clients-empty-add'));
+
+    expect(await screen.findByTestId('add-client-dialog')).toBeInTheDocument();
+  });
+
+  it('shows a loading state rather than a failure while the first fetch is retried', async () => {
+    // AG-w2-clients-03: a single failed first fetch used to paint a bare
+    // "Failed to load clients" on a screen that recovers by itself.
+    let clientAttempts = 0;
+    stubSupportingEndpoints(() => {
+      clientAttempts += 1;
+      if (clientAttempts === 1) {
+        return new Response('boom', { status: 503 });
+      }
+      return new Response(JSON.stringify(buildListResponse([
+        buildListClient({ id: 'client_1', fullName: 'Ava Thompson' }),
+      ])), { status: 200 });
+    });
+
+    render(<ClientsModal onClose={() => {}} />);
+
+    expect(await screen.findByText('Loading clients')).toBeInTheDocument();
+    expect(screen.queryByText(/Failed to load clients/)).not.toBeInTheDocument();
+
+    expect(
+      await screen.findByRole('button', { name: /ava thompson/i }),
+    ).toBeInTheDocument();
+    expect(screen.queryByText('Couldn’t load your client list')).not.toBeInTheDocument();
+    expect(clientAttempts).toBe(2);
+  });
+
+  it('uses one neutral money vocabulary and explains the spend grouping', async () => {
+    // AG-clients-06 / AG-w2-clients-07 and AG-clients-07 / AG-w2-clients-05.
+    stubSupportingEndpoints(() =>
+      new Response(JSON.stringify(buildListResponse([
+        buildListClient({
+          id: 'client_paid',
+          fullName: 'Nora Vale',
+          phone: '4444444444',
+          totalSpent: 99000,
+        }),
+        buildListClient({
+          id: 'client_review',
+          fullName: 'Ada Lane',
+          phone: '5555555555',
+          totalSpent: 0,
+          spendState: 'under_review',
+        }),
+      ])), { status: 200 }));
+
+    render(<ClientsModal onClose={() => {}} />);
+
+    await screen.findByRole('button', { name: /nora vale/i });
+    fireEvent.click(screen.getByRole('button', { name: 'Spent' }));
+
+    const chip = await screen.findByTestId('client-spend-under-review');
+
+    expect(chip).toHaveTextContent('Under review');
+    expect(chip).not.toHaveClass('#34C759');
+    expect(await screen.findByTestId('clients-spend-review-note'))
+      .toHaveTextContent('Spend under review — 1 client');
   });
 
   it('loads paginated clients, appends additional pages, and resets on sort/search changes', async () => {
@@ -1528,12 +1634,18 @@ describe('ClientsModal', () => {
       fireEvent.click(
         await screen.findByRole('button', { name: /ava thompson/i }),
       );
-      fireEvent.click(await screen.findByTestId('client-delete-action'));
+
+      // AG-clients-08: one destructive control per screen, behind "More
+      // actions", named for what the endpoint does.
+      expect(screen.queryByTestId('client-archive-action')).not.toBeInTheDocument();
+
+      fireEvent.click(await screen.findByTestId('client-more-actions-toggle'));
+      fireEvent.click(await screen.findByTestId('client-archive-action'));
 
       const archiveDialog = await screen.findByTestId('client-archive-dialog');
 
       expect(
-        within(archiveDialog).getByRole('heading', { name: 'Delete client?' }),
+        within(archiveDialog).getByRole('heading', { name: 'Archive client?' }),
       ).toBeInTheDocument();
       expect(archiveDialog).toHaveTextContent(
         'This client will be removed from your active client list. Their appointments, payments and history will be kept.',
@@ -1562,7 +1674,7 @@ describe('ClientsModal', () => {
 
       expect(await screen.findByTestId('client-lifecycle-success'))
         .toHaveTextContent(
-          'Client deleted from the active list. Their history was kept.',
+          'Client archived. They are off your active list and their history was kept.',
         );
       expect(screen.queryByRole('heading', { name: 'Ava Thompson' }))
         .not.toBeInTheDocument();
@@ -1939,6 +2051,146 @@ describe('ClientsModal', () => {
         serviceId: 'svc_pedicure',
         technicianId: 'tech_2',
       }));
+    });
+  });
+
+  describe('client detail contact actions and section switching', () => {
+    function mockDetailRoutes(
+      detailResponder: () => Response | Promise<Response>,
+      listClient = buildListClient(),
+    ) {
+      fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.startsWith('/api/admin/settings/modules?')) {
+          return new Response(JSON.stringify({
+            data: {
+              moduleReasons: {
+                clientFlags: 'MODULE_DISABLED',
+                clientBlocking: 'MODULE_DISABLED',
+              },
+            },
+          }), { status: 200 });
+        }
+        if (url.startsWith('/api/admin/clients?')) {
+          return new Response(
+            JSON.stringify(buildListResponse([listClient])),
+            { status: 200 },
+          );
+        }
+        if (url === '/api/admin/clients/client_1?salonSlug=isla-nail-studio') {
+          return detailResponder();
+        }
+        // Communication support endpoints and technicians answer empty; the
+        // detail screen must stand up without them.
+        return new Response(JSON.stringify({ data: {} }), { status: 200 });
+      });
+    }
+
+    it('holds the visit count on a skeleton instead of flashing the list number', async () => {
+      // AG-clients-10: the tile read the directory count (or a 0 stub) and then
+      // swapped to the server's completed-visit count seconds later.
+      const detail = deferredResponse();
+      mockDetailRoutes(
+        () => detail.promise,
+        buildListClient({ totalVisits: 2 }),
+      );
+
+      render(<ClientsModal onClose={() => {}} />);
+
+      fireEvent.click(await screen.findByRole('button', { name: /ava thompson/i }));
+
+      expect(
+        await screen.findByTestId('client-visits-tile-loading'),
+      ).toBeInTheDocument();
+      // The contradictory list-derived number is never painted.
+      expect(screen.queryByTestId('client-visits-tile')).not.toBeInTheDocument();
+
+      detail.resolve(new Response(
+        JSON.stringify(buildDetailResponse({
+          summary: {
+            currency: 'CAD',
+            timeZone: 'America/Toronto',
+            lifetimeSpendCents: 45500,
+            spendThisMonthCents: 10000,
+            completedOutstandingCents: 0,
+            financialState: 'resolved',
+            completedVisits: 5,
+            mostBookedService: null,
+            rebooking: { status: 'due', dueAt: null },
+            provenance: {
+              lifetimeSpend: { mode: 'finalized', unresolvedAppointmentCount: 0, isEstimated: false },
+              spendThisMonth: { mode: 'finalized', unresolvedAppointmentCount: 0, isEstimated: false },
+              completedOutstanding: { mode: 'finalized', unresolvedAppointmentCount: 0, isEstimated: false },
+            },
+          },
+        })),
+        { status: 200 },
+      ));
+
+      expect(await screen.findByTestId('client-visits-tile')).toHaveTextContent('5');
+    });
+
+    it('gives Call and Email real device targets from the loaded profile', async () => {
+      mockDetailRoutes(() => new Response(
+        JSON.stringify(buildDetailResponse()),
+        { status: 200 },
+      ));
+
+      render(<ClientsModal onClose={() => {}} />);
+
+      fireEvent.click(await screen.findByRole('button', { name: /ava thompson/i }));
+
+      expect(await screen.findByTestId('client-call-action'))
+        .toHaveAttribute('href', 'tel:1111111111');
+      expect(screen.getByTestId('client-email-action'))
+        .toHaveAttribute('href', 'mailto:ava@example.com');
+    });
+
+    it('returns the profile to the top when the owner switches section', async () => {
+      mockDetailRoutes(() => new Response(
+        JSON.stringify(buildDetailResponse()),
+        { status: 200 },
+      ));
+
+      render(<ClientsModal onClose={() => {}} />);
+
+      fireEvent.click(await screen.findByRole('button', { name: /ava thompson/i }));
+
+      const scroller = await screen.findByTestId('client-detail-scroll');
+      const scrollTo = vi.fn();
+      scroller.scrollTo = scrollTo as unknown as Element['scrollTo'];
+
+      fireEvent.click(screen.getByRole('button', { name: 'Details' }));
+
+      expect(scrollTo).toHaveBeenCalledWith(
+        expect.objectContaining({ top: 0 }),
+      );
+    });
+
+    it('keeps a current tab in both the mobile and the desktop lane', async () => {
+      // The lanes render the same content at different granularity, so a
+      // desktop-only section must still light a mobile tab and vice versa.
+      mockDetailRoutes(() => new Response(
+        JSON.stringify(buildDetailResponse()),
+        { status: 200 },
+      ));
+
+      render(<ClientsModal onClose={() => {}} />);
+
+      fireEvent.click(await screen.findByRole('button', { name: /ava thompson/i }));
+      await screen.findByTestId('client-detail-scroll');
+
+      // "Payments" only exists in the desktop lane; mobile shows it under
+      // "Activity", which must be the tab marked current.
+      fireEvent.click(screen.getByRole('button', { name: 'Payments' }));
+
+      const nav = screen.getByRole('navigation', { name: 'Client profile sections' });
+      const current = within(nav)
+        .getAllByRole('button')
+        .filter(button => button.getAttribute('aria-current') === 'page')
+        .map(button => button.textContent);
+
+      expect(current).toEqual(['Activity', 'Payments']);
     });
   });
 });

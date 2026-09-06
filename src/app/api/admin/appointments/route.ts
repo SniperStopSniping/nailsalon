@@ -4,19 +4,34 @@
  * GET /api/admin/appointments
  * Returns appointments for the authenticated admin's active salon.
  *
- * salonId is ALWAYS derived from the active admin salon selection.
- * NEVER accepts salonId from query params.
+ * salonId is ALWAYS derived from a membership-checked salon: the slug the URL
+ * names (`?salonSlug=` / `?salon=`) when it names one, otherwise the active
+ * admin salon selection. NEVER accepts a salonId from query params.
  */
 
-import { and, asc, desc, eq, gte, inArray, isNull, lt, ne } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, inArray, isNull, lt, lte, ne, or } from 'drizzle-orm';
 import { z } from 'zod';
 
-import { requireActiveAdminSalon } from '@/libs/adminAuth';
+import { requireAdminSalonFromRequest } from '@/libs/adminAuth';
 import { getBookingConfigForSalon } from '@/libs/bookingConfig';
+import type { BusinessHours } from '@/libs/bookingPolicy';
+import { resolveBookingHoursCeiling } from '@/libs/bookingPolicy';
+import type { CalendarBlockedSlot, CalendarSchedule, CalendarTimeOff } from '@/libs/calendarSchedule';
 import { db } from '@/libs/DB';
-import { getTechniciansBySalonId } from '@/libs/queries';
+import { getPrimaryLocation, getTechniciansBySalonId } from '@/libs/queries';
+import { toDateOnlyString } from '@/libs/timeOffDates';
 import { getZonedDayBounds } from '@/libs/timeZone';
-import { APPOINTMENT_STATUSES, appointmentSchema, appointmentServicesSchema, serviceSchema, technicianSchema } from '@/models/Schema';
+import { normalizeWeeklySchedule } from '@/libs/weeklySchedule';
+import {
+  APPOINTMENT_STATUSES,
+  appointmentSchema,
+  appointmentServicesSchema,
+  serviceSchema,
+  technicianBlockedSlotSchema,
+  technicianSchema,
+  technicianTimeOffSchema,
+  type WeeklySchedule,
+} from '@/models/Schema';
 
 export const dynamic = 'force-dynamic';
 
@@ -37,6 +52,127 @@ const querySchema = z.object({
   limit: z.preprocess(coerceStrOrUndefined, z.coerce.number().int().min(1).max(200).default(200)),
 });
 
+/**
+ * The availability authorities the owner calendar has to draw: opening hours
+ * (primary location, falling back to the salon row — the same resolution the
+ * booking engine uses), approved time off overlapping the requested range, and
+ * blocked slots. Additive on the response; every pre-existing field is
+ * untouched.
+ *
+ * `technician_time_off` / `technician_blocked_slot` are read defensively: a
+ * database without those relations still returns a calendar rather than a 500,
+ * which is how `loadBookingPolicy` treats them too.
+ */
+async function loadCalendarSchedule(args: {
+  salonId: string;
+  salonBusinessHours: BusinessHours;
+  technicians: Array<{ id: string; name: string; weeklySchedule: WeeklySchedule | null }>;
+  rangeStart: Date;
+  rangeEndExclusive: Date;
+}): Promise<CalendarSchedule> {
+  const technicianIds = args.technicians.map(technician => technician.id);
+
+  const primaryLocation = await getPrimaryLocation(args.salonId).catch(() => null);
+  const ceiling = resolveBookingHoursCeiling({
+    location: primaryLocation
+      ? { id: primaryLocation.id, businessHours: primaryLocation.businessHours ?? null }
+      : null,
+    salonBusinessHours: args.salonBusinessHours,
+  });
+
+  let timeOff: CalendarTimeOff[] = [];
+  let blockedSlots: CalendarBlockedSlot[] = [];
+
+  if (technicianIds.length > 0) {
+    const [timeOffRows, blockedRows] = await Promise.all([
+      db
+        .select({
+          id: technicianTimeOffSchema.id,
+          technicianId: technicianTimeOffSchema.technicianId,
+          startDate: technicianTimeOffSchema.startDate,
+          endDate: technicianTimeOffSchema.endDate,
+          reason: technicianTimeOffSchema.reason,
+        })
+        .from(technicianTimeOffSchema)
+        .where(
+          and(
+            eq(technicianTimeOffSchema.salonId, args.salonId),
+            inArray(technicianTimeOffSchema.technicianId, technicianIds),
+            lte(technicianTimeOffSchema.startDate, args.rangeEndExclusive),
+            gte(technicianTimeOffSchema.endDate, args.rangeStart),
+          ),
+        )
+        .catch((error: unknown) => {
+          console.warn('[AdminAppointments] technician_time_off unavailable', error);
+          return [];
+        }),
+      db
+        .select({
+          id: technicianBlockedSlotSchema.id,
+          technicianId: technicianBlockedSlotSchema.technicianId,
+          dayOfWeek: technicianBlockedSlotSchema.dayOfWeek,
+          startTime: technicianBlockedSlotSchema.startTime,
+          endTime: technicianBlockedSlotSchema.endTime,
+          specificDate: technicianBlockedSlotSchema.specificDate,
+          label: technicianBlockedSlotSchema.label,
+          isRecurring: technicianBlockedSlotSchema.isRecurring,
+        })
+        .from(technicianBlockedSlotSchema)
+        .where(
+          and(
+            eq(technicianBlockedSlotSchema.salonId, args.salonId),
+            inArray(technicianBlockedSlotSchema.technicianId, technicianIds),
+            // Recurring blocks apply to every week in view; a one-off block
+            // only matters when its own date is inside the range.
+            or(
+              isNull(technicianBlockedSlotSchema.specificDate),
+              and(
+                gte(technicianBlockedSlotSchema.specificDate, args.rangeStart),
+                lt(technicianBlockedSlotSchema.specificDate, args.rangeEndExclusive),
+              ),
+            ),
+          ),
+        )
+        .catch((error: unknown) => {
+          console.warn('[AdminAppointments] technician_blocked_slot unavailable', error);
+          return [];
+        }),
+    ]);
+
+    timeOff = timeOffRows.flatMap((row) => {
+      const startDate = toDateOnlyString(row.startDate);
+      const endDate = toDateOnlyString(row.endDate);
+      if (!startDate || !endDate) {
+        return [];
+      }
+      return [{ id: row.id, technicianId: row.technicianId, startDate, endDate, reason: row.reason ?? null }];
+    });
+
+    blockedSlots = blockedRows.map(row => ({
+      id: row.id,
+      technicianId: row.technicianId,
+      dayOfWeek: row.dayOfWeek ?? null,
+      startTime: row.startTime,
+      endTime: row.endTime,
+      specificDate: toDateOnlyString(row.specificDate),
+      label: row.label ?? null,
+      isRecurring: row.isRecurring ?? true,
+    }));
+  }
+
+  return {
+    businessHours: ceiling.businessHours,
+    businessHoursSource: ceiling.source,
+    technicians: args.technicians.map(technician => ({
+      id: technician.id,
+      name: technician.name,
+      weeklySchedule: technician.weeklySchedule,
+    })),
+    timeOff,
+    blockedSlots,
+  };
+}
+
 function parseStatuses(statusParam: string | undefined): string[] | null {
   if (!statusParam) {
     return null;
@@ -52,7 +188,7 @@ function parseStatuses(statusParam: string | undefined): string[] | null {
 
 export async function GET(request: Request): Promise<Response> {
   try {
-    const { salon, error } = await requireActiveAdminSalon();
+    const { salon, error } = await requireAdminSalonFromRequest(request);
     if (error || !salon) {
       return error!;
     }
@@ -151,14 +287,33 @@ export async function GET(request: Request): Promise<Response> {
       getTechniciansBySalonId(salonId),
     ]);
 
+    // The calendar draws closed days, time off and blocked windows from the
+    // same authorities the booking engine enforces, so it rides along with the
+    // appointments it has to be consistent with (one round trip, one tenant
+    // check) rather than becoming three more client fetches.
+    const schedule = await loadCalendarSchedule({
+      salonId,
+      salonBusinessHours: salon.businessHours ?? null,
+      technicians: technicians.map(technician => ({
+        id: technician.id,
+        name: technician.name,
+        weeklySchedule: normalizeWeeklySchedule(technician.weeklySchedule),
+      })),
+      rangeStart: start,
+      rangeEndExclusive: endExclusive,
+    });
+    const technicianPayload = schedule.technicians.map(technician => ({
+      id: technician.id,
+      name: technician.name,
+      weeklySchedule: technician.weeklySchedule,
+    }));
+
     if (appointments.length === 0) {
       return Response.json({
         data: {
           appointments: [],
-          technicians: technicians.map(technician => ({
-            id: technician.id,
-            name: technician.name,
-          })),
+          technicians: technicianPayload,
+          schedule,
         },
         meta: {
           slotIntervalMinutes: bookingConfig.slotIntervalMinutes,
@@ -205,10 +360,8 @@ export async function GET(request: Request): Promise<Response> {
     return Response.json({
       data: {
         appointments: payload,
-        technicians: technicians.map(technician => ({
-          id: technician.id,
-          name: technician.name,
-        })),
+        technicians: technicianPayload,
+        schedule,
       },
       meta: {
         slotIntervalMinutes: bookingConfig.slotIntervalMinutes,

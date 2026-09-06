@@ -30,7 +30,7 @@ vi.mock('@/libs/DB', () => ({
   },
 }));
 
-import { requireAppointmentManagerAccess } from './routeAccessGuards';
+import { requireAppointmentAccess, requireAppointmentManagerAccess } from './routeAccessGuards';
 
 const HINTED_SALON = { id: 'salon_hinted', slug: 'hinted-salon' };
 const ACTIVE_SALON = { id: 'salon_active', slug: 'active-salon' };
@@ -100,6 +100,24 @@ describe('requireAppointmentManagerAccess salon hint', () => {
     expect(access.ok).toBe(true);
     expect(getSalonBySlug).not.toHaveBeenCalled();
     expect(requireActiveAdminSalon).toHaveBeenCalled();
+  });
+
+  it('answers a plain 401 to an anonymous caller when the legacy staff sign-in is switched off (410)', async () => {
+    requireStaffSession.mockResolvedValue({
+      ok: false,
+      response: Response.json({ error: { code: 'LEGACY_OTP_DISABLED' } }, { status: 410 }),
+    });
+    requireAdmin.mockResolvedValue({ ok: false, response: new Response(null, { status: 401 }) });
+    requireActiveAdminSalon.mockResolvedValue({ error: new Response(null, { status: 401 }), salon: null, admin: null });
+    getClientSession.mockResolvedValue(null);
+
+    const result = await requireAppointmentAccess('appt_1', { salonSlugHint: null });
+
+    expect(result.ok).toBe(false);
+
+    if (!result.ok) {
+      expect(result.response.status).toBe(401);
+    }
   });
 
   it('reports 401, not a role error, when admin auth is missing and only a client cookie exists', async () => {

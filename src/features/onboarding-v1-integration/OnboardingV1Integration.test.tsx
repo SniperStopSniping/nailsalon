@@ -6,6 +6,7 @@ import { onTestFinished } from 'vitest';
 import { initializeStarter } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/model/starters';
 import { SITE_BUILDER_STORAGE_KEY } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/model/validation';
 import { createDefaultOnboardingState } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/model/defaults';
+import { goToScreen } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/model/routing';
 import { loadOnboardingState, saveOnboardingState } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/storage/storage';
 import type { OnboardingAuthProviderAvailability } from './auth-providers';
 import type { OnboardingClaimSuccess } from './contracts';
@@ -324,6 +325,60 @@ describe('OnboardingV1Integration rendered account-save flow', () => {
     expect(mocks.claim).toHaveBeenCalledTimes(2);
     expect(mocks.claim.mock.calls[1]?.[0]).toEqual(firstClaim);
     expect(mocks.claimMedia).toHaveBeenCalledTimes(1);
+  });
+
+  it('tells the owner which dashboard edits a resumed setup preserved', async () => {
+    mocks.auth.isSignedIn = true;
+    mocks.userState.user = verifiedClerkUser();
+    mocks.claim.mockResolvedValue({
+      status: 'saved',
+      value: { ...savedSite, preservedDashboardEdits: ['opening hours', 'service prices'] },
+    });
+    mocks.claimMedia.mockResolvedValue({ failures: [], verifiedRevision: 1 });
+    mocks.cleanupMedia.mockResolvedValue({ removedAssetIds: [] });
+
+    render(<OnboardingV1Integration authProviders={ALL_PROVIDERS} locale="en" />);
+
+    expect(await screen.findByRole('heading', { level: 1, name: 'Your Luster site is saved' })).toBeVisible();
+
+    const notice = screen.getByTestId('onboarding-preserved-edits');
+
+    expect(notice).toHaveAttribute('role', 'status');
+    expect(notice).toHaveTextContent('We kept the changes you already made in your dashboard: opening hours, service prices.');
+  });
+
+  it('explains an incomplete snapshot in words and routes to the screen that owns the field', async () => {
+    // OP-001: the account gate used to render the raw ZodError issue JSON and
+    // send "Return to Review" back to Style & colours, where nothing about the
+    // missing detail can be fixed.
+    const interaction = userEvent.setup();
+    mocks.auth.isSignedIn = true;
+    mocks.userState.user = verifiedClerkUser();
+    const state = loadOnboardingState().state;
+    state.profile.businessType = 'home_based';
+    state.profile.ownerName = '';
+
+    expect(saveOnboardingState(goToScreen(goToScreen(state, 'site_style'), 'save_progress')).success).toBe(true);
+
+    render(<OnboardingV1Integration authProviders={ALL_PROVIDERS} locale="en" />);
+
+    const card = await screen.findByRole('alert');
+
+    expect(await screen.findByRole('heading', {
+      level: 1,
+      name: 'We couldn’t finish saving your site',
+    })).toBeVisible();
+    expect(card).toHaveTextContent(
+      'We need one more detail before saving: the name clients should see.',
+    );
+    expect(card).not.toHaveTextContent(/too_small|"path"|"code"|\[\{/u);
+    expect(mocks.claim).not.toHaveBeenCalled();
+
+    await interaction.click(screen.getByRole('button', { name: 'Add this detail' }));
+
+    await waitFor(() => {
+      expect(loadOnboardingState().state.progress.currentScreen).toBe('business');
+    });
   });
 
   it('keeps ordinary request failures retryable without requesting email verification', async () => {

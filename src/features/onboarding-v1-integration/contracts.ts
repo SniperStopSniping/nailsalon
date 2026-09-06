@@ -8,6 +8,7 @@ import { validateCustomDesignSettings } from '../../../prototypes/site-builder-v
 import type { CustomDesignSettings } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/custom-design/model/types';
 import type { SiteBuilderDocument } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/model/types';
 import { validateImportedDocumentValue } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/model/validation';
+import { isPersonalBusinessType } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/model/business-identity';
 import { DEFAULT_QUICK_BOOK_PROFILE_VISIBILITY } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/model/types';
 
 export const ONBOARDING_SITE_SNAPSHOT_VERSION = 1 as const;
@@ -249,7 +250,14 @@ const profileSchema = z.object({
     transitInformation: text(2_000),
   }).strict(),
   logoItemId: nonEmptyText(160).nullable(),
-  ownerName: nonEmptyText(80),
+  /**
+   * Basics only asks for an owner name when the business type is personal
+   * (`isPersonalBusinessType`). "Salon / studio" (`salon_team`) owners never
+   * see the field, so their snapshot legitimately carries ''. The personal
+   * requirement is enforced by the snapshot refinement below, which can see
+   * `profile.businessType`; downstream records fall back to the business name.
+   */
+  ownerName: text(80).default(''),
   policies: policiesSchema,
   preferredContact: z.enum(['text', 'call', 'instagram', 'email']).nullable(),
   profilePhotoItemId: nonEmptyText(160).nullable(),
@@ -363,6 +371,20 @@ export const onboardingPersistedSnapshotSchema = z.object({
   site: siteRecipeSchema,
   version: z.literal(ONBOARDING_SITE_SNAPSHOT_VERSION),
 }).strict().superRefine((value, context) => {
+  // Mirrors the Basics screen and the essentials checklist: the owner name is
+  // a personal-business field. Requiring it for every business type blocked
+  // "Salon / studio" owners at the account gate with a value no screen asked
+  // for (OP-001).
+  if (
+    isPersonalBusinessType(value.profile.businessType)
+    && !value.profile.ownerName.trim()
+  ) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'Add the name clients should see for this business.',
+      path: ['profile', 'ownerName'],
+    });
+  }
   const canonicalServiceIds = new Set<string>(CANONICAL_SERVICE_IDS);
   const canonicalAddOnIds = new Set(MOCK_ADD_ONS.map(item => item.id));
   const serviceIds = new Set<string>();
@@ -744,6 +766,15 @@ export type OnboardingClaimSuccess = {
   media: { failed: number; pending: number; ready: number };
   ownerCreatedServiceIds: string[];
   payloadFingerprint: string;
+  /**
+   * Resume guard (implementation plan Batch 2, "Resume overwrite risk"). Set
+   * only when a re-claim (`continue_onboarding_draft` / `replace_draft`) found
+   * canonical records the dashboard had edited since the revision it
+   * continues, and therefore left them alone. Owner-readable phrases, e.g.
+   * "your service prices, durations and visibility". Absent on a first claim
+   * and on any re-claim that overwrote nothing.
+   */
+  preservedDashboardEdits?: string[];
   revision: number;
   revisionId: string;
   salonId: string;

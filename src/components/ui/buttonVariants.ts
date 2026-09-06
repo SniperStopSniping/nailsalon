@@ -18,6 +18,13 @@ export const buttonVariants = cva(
           'bg-secondary text-secondary-foreground hover:bg-secondary/80',
         ghost: 'hover:bg-accent hover:text-accent-foreground',
         link: 'text-primary underline-offset-4 hover:underline',
+        // Owner workspace variants — painted from the --owner-* token layer
+        // (src/styles/global.css) so owner surfaces stop hand-writing plum
+        // hexes. Only usable inside .owner-workspace-theme / .owner-theme-scope.
+        ownerPrimary:
+          'rounded-full bg-[var(--owner-accent)] text-white shadow-[0_10px_24px_rgb(143_49_85_/_20%)] hover:bg-[var(--owner-accent-strong)] focus-visible:ring-[var(--owner-focus)] active:scale-[0.985]',
+        ownerSecondary:
+          'rounded-full border border-[var(--owner-line-strong)] bg-[var(--owner-surface)] text-[var(--owner-ink)] hover:border-[var(--owner-accent)] hover:text-[var(--owner-accent)] focus-visible:ring-[var(--owner-focus)] active:scale-[0.99]',
       },
       size: {
         default: 'h-10 px-4 py-2',

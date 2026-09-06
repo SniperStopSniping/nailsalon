@@ -150,14 +150,14 @@ export function EarningsTab({ salonSlug, technicianId, commissionRate }: Earning
           <div className="grid grid-cols-2 gap-3">
             <EarningsCard
               icon={<DollarSign className="size-5" />}
-              label="They Earned"
+              label="Technician earned"
               value={formatCurrency(summary?.techEarned ?? 0, currency)}
               sublabel={`${Math.round(commissionRate * 100)}% commission`}
               color="#34C759"
             />
             <EarningsCard
               icon={<Building2 className="size-5" />}
-              label="They Made Us"
+              label="Salon revenue"
               value={formatCurrency(summary?.salonEarned ?? 0, currency)}
               sublabel={`${Math.round((1 - commissionRate) * 100)}% salon`}
               color="#007AFF"

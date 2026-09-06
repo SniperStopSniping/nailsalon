@@ -64,13 +64,13 @@ function getStatusColor(status: string): { bg: string; text: string } {
     case 'reward_earned':
       return { bg: 'bg-blue-100', text: 'text-blue-600' };
     case 'used':
-      return { bg: 'bg-gray-100', text: 'text-gray-500' };
+      return { bg: 'bg-[var(--owner-ground)]', text: 'text-[var(--owner-muted)]' };
     case 'expired':
       return { bg: 'bg-red-100', text: 'text-red-500' };
     case 'sent':
       return { bg: 'bg-orange-100', text: 'text-orange-600' };
     default:
-      return { bg: 'bg-gray-100', text: 'text-gray-500' };
+      return { bg: 'bg-[var(--owner-ground)]', text: 'text-[var(--owner-muted)]' };
   }
 }
 
@@ -98,12 +98,12 @@ function StatsCard({
   color: string;
 }) {
   return (
-    <div className="rounded-[16px] bg-white p-4 shadow-[0_4px_20px_rgba(0,0,0,0.03)]">
-      <div className={`size-10 rounded-[10px] bg-gradient-to-br ${color} mb-3 flex items-center justify-center`}>
-        <Icon className="size-5 text-white" />
+    <div className="rounded-[16px] bg-[var(--owner-surface)] p-4 shadow-[0_4px_20px_rgba(0,0,0,0.03)]">
+      <div className={`mb-3 flex size-10 items-center justify-center rounded-[10px] ${color}`}>
+        <Icon aria-hidden="true" className="size-5" />
       </div>
-      <div className="text-[13px] font-medium uppercase text-[#8E8E93]">{label}</div>
-      <div className="mt-0.5 text-[28px] font-bold text-[#1C1C1E]">{value}</div>
+      <div className="text-[13px] font-medium uppercase text-[var(--owner-muted)]">{label}</div>
+      <div className="mt-0.5 text-[28px] font-bold text-[var(--owner-ink)]">{value}</div>
     </div>
   );
 }
@@ -119,15 +119,15 @@ function TabSelector({
   onChange: (tab: 'rewards' | 'referrals') => void;
 }) {
   return (
-    <div className="mb-4 flex rounded-lg bg-[#767680]/10 p-0.5">
+    <div className="mb-4 flex rounded-lg bg-[var(--owner-ground)] p-0.5">
       <button
         type="button"
         onClick={() => onChange('rewards')}
         className={`
           flex flex-1 items-center justify-center gap-2 rounded-[6px] py-2 text-[14px] font-medium transition-all
           ${active === 'rewards'
-      ? 'bg-white text-black shadow-sm'
-      : 'bg-transparent text-gray-500'
+      ? 'bg-[var(--owner-surface)] text-[var(--owner-ink)] shadow-sm'
+      : 'bg-transparent text-[var(--owner-muted)]'
     }
         `}
       >
@@ -140,8 +140,8 @@ function TabSelector({
         className={`
           flex flex-1 items-center justify-center gap-2 rounded-[6px] py-2 text-[14px] font-medium transition-all
           ${active === 'referrals'
-      ? 'bg-white text-black shadow-sm'
-      : 'bg-transparent text-gray-500'
+      ? 'bg-[var(--owner-surface)] text-[var(--owner-ink)] shadow-sm'
+      : 'bg-transparent text-[var(--owner-muted)]'
     }
         `}
       >
@@ -178,21 +178,21 @@ function RewardRow({
         : 'Reward';
 
   return (
-    <div className={`flex items-center px-4 py-3 ${!isLast ? 'border-b border-gray-100' : ''}`}>
-      <div className="mr-3 flex size-10 items-center justify-center rounded-full bg-gradient-to-br from-[#84fab0] to-[#8fd3f4]">
-        <Gift className="size-5 text-white" />
+    <div className={`flex items-center px-4 py-3 ${!isLast ? 'border-b border-[var(--owner-line)]' : ''}`}>
+      <div className="mr-3 flex size-10 shrink-0 items-center justify-center rounded-full bg-[var(--owner-blush)] text-[var(--owner-accent)]">
+        <Gift aria-hidden="true" className="size-5" />
       </div>
 
       <div className="min-w-0 flex-1">
-        <div className="truncate text-[15px] font-medium text-[#1C1C1E]">
+        <div className="truncate text-[15px] font-medium text-[var(--owner-ink)]">
           {reward.clientName || formatPhone(reward.clientPhone)}
         </div>
-        <div className="mt-0.5 flex items-center gap-2 text-[13px] text-[#8E8E93]">
+        <div className="mt-0.5 flex items-center gap-2 text-[13px] text-[var(--owner-muted)]">
           <span>{typeLabel}</span>
           <span>•</span>
           <span>{formattedDate}</span>
         </div>
-        <div className="mt-1 text-[12px] text-[#636366]">
+        <div className="mt-1 text-[12px] text-[var(--owner-muted)]">
           {reward.displayTitle}
         </div>
       </div>
@@ -202,7 +202,7 @@ function RewardRow({
           {reward.status}
         </div>
         {reward.valueLabel && (
-          <div className="mt-1 text-[11px] text-[#8E8E93]">
+          <div className="mt-1 text-[11px] text-[var(--owner-muted)]">
             {reward.valueLabel}
           </div>
         )}
@@ -229,16 +229,16 @@ function ReferralRow({
   });
 
   return (
-    <div className={`flex items-center px-4 py-3 ${!isLast ? 'border-b border-gray-100' : ''}`}>
-      <div className="mr-3 flex size-10 items-center justify-center rounded-full bg-gradient-to-br from-[#43e97b] to-[#38f9d7]">
-        <Users className="size-5 text-white" />
+    <div className={`flex items-center px-4 py-3 ${!isLast ? 'border-b border-[var(--owner-line)]' : ''}`}>
+      <div className="mr-3 flex size-10 shrink-0 items-center justify-center rounded-full bg-[var(--owner-blush)] text-[var(--owner-accent)]">
+        <Users aria-hidden="true" className="size-5" />
       </div>
 
       <div className="min-w-0 flex-1">
-        <div className="truncate text-[15px] font-medium text-[#1C1C1E]">
+        <div className="truncate text-[15px] font-medium text-[var(--owner-ink)]">
           {referral.referrerName || formatPhone(referral.referrerPhone)}
         </div>
-        <div className="mt-0.5 flex items-center gap-1 text-[13px] text-[#8E8E93]">
+        <div className="mt-0.5 flex items-center gap-1 text-[13px] text-[var(--owner-muted)]">
           <span>→</span>
           <span className="truncate">
             {referral.refereeName || (referral.refereePhone ? formatPhone(referral.refereePhone) : 'Pending')}
@@ -250,7 +250,7 @@ function ReferralRow({
         <div className={`rounded-full px-2 py-0.5 text-[12px] font-medium ${statusColors.bg} ${statusColors.text} capitalize`}>
           {referral.status.replace('_', ' ')}
         </div>
-        <div className="mt-1 text-[11px] text-[#8E8E93]">{formattedDate}</div>
+        <div className="mt-1 text-[11px] text-[var(--owner-muted)]">{formattedDate}</div>
       </div>
     </div>
   );
@@ -262,26 +262,32 @@ function ReferralRow({
 function EmptyState({ type }: { type: 'rewards' | 'referrals' }) {
   return (
     <div className="flex flex-col items-center justify-center px-8 py-16">
-      <div className="mb-4 flex size-16 items-center justify-center rounded-full bg-[#F2F2F7]">
+      <div className="mb-4 flex size-16 items-center justify-center rounded-full bg-[var(--owner-ground)]">
         {type === 'rewards'
           ? (
-              <Gift className="size-8 text-[#8E8E93]" />
+              <Gift className="size-8 text-[var(--owner-muted)]" />
             )
           : (
-              <Users className="size-8 text-[#8E8E93]" />
+              <Users className="size-8 text-[var(--owner-muted)]" />
             )}
       </div>
-      <h3 className="mb-1 text-[17px] font-semibold text-[#1C1C1E]">
+      <h3 className="mb-1 text-[17px] font-semibold text-[var(--owner-ink)]">
         No
         {' '}
         {type === 'rewards' ? 'Rewards' : 'Referrals'}
         {' '}
         Yet
       </h3>
-      <p className="text-center text-[15px] text-[#8E8E93]">
+      <p className="max-w-xs text-center text-[15px] text-[var(--owner-muted)]">
         {type === 'rewards'
-          ? 'Rewards will appear here when clients earn them'
-          : 'Referrals will appear here when clients share their links'}
+          ? 'Rewards appear here when a client earns one.'
+          : 'Referrals appear here when a client shares their link and the friend books.'}
+      </p>
+      {/* An empty list still owes the owner a next step. */}
+      <p className="mt-2 max-w-xs text-center text-[13px] leading-5 text-[var(--owner-muted)]">
+        {type === 'rewards'
+          ? 'You can grant one yourself: open Review rewards after you have checked a client’s Google review.'
+          : 'Nothing to set up — this list fills itself in as clients refer each other.'}
       </p>
     </div>
   );
@@ -298,7 +304,7 @@ function LoadingSkeleton() {
           <div className="mr-3 size-10 rounded-full bg-gray-200" />
           <div className="flex-1">
             <div className="mb-2 h-4 w-32 rounded bg-gray-200" />
-            <div className="h-3 w-24 rounded bg-gray-100" />
+            <div className="h-3 w-24 rounded bg-[var(--owner-ground)]" />
           </div>
           <div className="h-5 w-16 rounded bg-gray-200" />
         </div>
@@ -363,9 +369,9 @@ export function RewardsModal({ onClose }: RewardsModalProps) {
   const completedReferrals = referrals.filter(r => r.status === 'reward_earned').length;
 
   return (
-    <div className="flex min-h-full w-full flex-col bg-[#F2F2F7] font-sans text-black">
+    <div className="flex min-h-full w-full flex-col bg-[var(--owner-ground)] font-sans text-[var(--owner-ink)]">
       {/* Header */}
-      <div className="sticky top-0 z-20 bg-[#F2F2F7]/80 backdrop-blur-md">
+      <div className="sticky top-0 z-20 bg-[var(--owner-ground)] backdrop-blur-md">
         <ModalHeader
           title="Rewards"
           subtitle="Salon rewards and referrals"
@@ -387,25 +393,25 @@ export function RewardsModal({ onClose }: RewardsModalProps) {
             icon={Gift}
             label="Active Rewards"
             value={activeRewards}
-            color="from-[#84fab0] to-[#8fd3f4]"
+            color="bg-[var(--owner-blush)] text-[var(--owner-accent)]"
           />
           <StatsCard
             icon={CheckCircle}
             label="Redeemed"
             value={usedRewards}
-            color="from-[#a18cd1] to-[#fbc2eb]"
+            color="bg-[var(--owner-blush)] text-[var(--owner-accent)]"
           />
           <StatsCard
             icon={Clock}
             label="Pending Referrals"
             value={pendingReferrals}
-            color="from-[#f6d365] to-[#fda085]"
+            color="bg-[var(--owner-blush)] text-[var(--owner-accent)]"
           />
           <StatsCard
             icon={TrendingUp}
             label="Completed"
             value={completedReferrals}
-            color="from-[#43e97b] to-[#38f9d7]"
+            color="bg-[var(--owner-blush)] text-[var(--owner-accent)]"
           />
         </div>
 
@@ -415,7 +421,7 @@ export function RewardsModal({ onClose }: RewardsModalProps) {
         {/* Content */}
         {loading
           ? (
-              <div className="overflow-hidden rounded-[16px] bg-white shadow-[0_4px_20px_rgba(0,0,0,0.03)]">
+              <div className="overflow-hidden rounded-[16px] bg-[var(--owner-surface)] shadow-[0_4px_20px_rgba(0,0,0,0.03)]">
                 <LoadingSkeleton />
               </div>
             )
@@ -426,7 +432,7 @@ export function RewardsModal({ onClose }: RewardsModalProps) {
                       <EmptyState type="rewards" />
                     )
                   : (
-                      <div className="overflow-hidden rounded-[16px] bg-white shadow-[0_4px_20px_rgba(0,0,0,0.03)]">
+                      <div className="overflow-hidden rounded-[16px] bg-[var(--owner-surface)] shadow-[0_4px_20px_rgba(0,0,0,0.03)]">
                         {rewards.map((reward, index) => (
                           <RewardRow
                             key={reward.id}
@@ -443,7 +449,7 @@ export function RewardsModal({ onClose }: RewardsModalProps) {
                       <EmptyState type="referrals" />
                     )
                   : (
-                      <div className="overflow-hidden rounded-[16px] bg-white shadow-[0_4px_20px_rgba(0,0,0,0.03)]">
+                      <div className="overflow-hidden rounded-[16px] bg-[var(--owner-surface)] shadow-[0_4px_20px_rgba(0,0,0,0.03)]">
                         {referrals.map((referral, index) => (
                           <ReferralRow
                             key={referral.id}

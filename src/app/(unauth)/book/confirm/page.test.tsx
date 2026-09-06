@@ -320,15 +320,48 @@ describe('BookConfirmPage directions fallback', () => {
     render(element);
 
     expect(screen.getByText('Book confirm client')).toBeInTheDocument();
+    // Deliberate change (OP-010 / AG-clients-02): this used to assert the
+    // synthesised `salon_salon_1`, which the client posted as `locationId` and
+    // `POST /api/appointments` rejected with INVALID_LOCATION — no guest could
+    // book such a salon at all. The directions fallback now carries no id, so
+    // the client omits `locationId` and the API resolves the location itself.
     expect(bookConfirmClientSpy).toHaveBeenCalledWith(expect.objectContaining({
       location: {
-        id: 'salon_salon_1',
+        id: '',
         name: 'Salon A',
         address: '123 Beauty Lane',
         city: 'Los Angeles',
         state: 'CA',
         zipCode: '90001',
       },
+    }));
+    expect(JSON.stringify(bookConfirmClientSpy.mock.calls)).not.toContain('salon_salon_1');
+  });
+
+  it('carries the real primary location id when the location has no usable directions address', async () => {
+    getPrimaryLocation.mockResolvedValue({
+      id: 'loc_primary',
+      name: 'Primary location',
+      address: null,
+      city: null,
+      state: null,
+      zipCode: null,
+    });
+
+    const element = await BookConfirmPage({
+      searchParams: Promise.resolve({
+        salonSlug: 'salon-a',
+        serviceIds: 'srv_1',
+        techId: 'any',
+        date: '2026-03-20',
+        time: '10:00',
+      }),
+    });
+
+    render(element);
+
+    expect(bookConfirmClientSpy).toHaveBeenCalledWith(expect.objectContaining({
+      location: expect.objectContaining({ id: 'loc_primary' }),
     }));
   });
 
@@ -681,7 +714,7 @@ describe('BookConfirmPage location privacy (locationDisplayMode) — Blocker 1',
       const location = await renderAndCaptureLocation();
 
       expect(location).toEqual({
-        id: 'salon_salon_1',
+        id: '',
         name: 'Salon A',
         address: PRIVATE_FULL_ADDRESS,
         city: 'Homeburg',
@@ -701,7 +734,7 @@ describe('BookConfirmPage location privacy (locationDisplayMode) — Blocker 1',
       expect(serialized).not.toContain(PRIVATE_POSTAL_CODE);
 
       expect(location).toEqual({
-        id: 'salon_salon_1',
+        id: '',
         name: 'Salon A',
         address: null,
         city: 'Homeburg',

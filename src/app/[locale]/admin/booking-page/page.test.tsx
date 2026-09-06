@@ -189,6 +189,87 @@ describe('BookingPageOwnerSurface', () => {
     expect(screen.getByTestId('content-bio')).toHaveValue('Keep this edit');
   });
 
+  // AG-hub-publish-07 — the last action of a six-step review used to keep its
+  // label and merely go disabled while the queued writes drained, for 10-15 s.
+  it('shows a pending state on the guided review while it drains queued writes', async () => {
+    searchParamsMock.value = new URLSearchParams('salon=salon-a&panel=publish&guided=1');
+    render(<BookingPageOwnerSurface />);
+    const finish = await screen.findByTestId('guided-review-next');
+
+    expect(finish).toHaveTextContent('Finish review');
+    expect(finish).toHaveAttribute('aria-busy', 'false');
+
+    fireEvent.click(finish);
+
+    expect(finish).toHaveTextContent('Finishing review…');
+    expect(finish).toHaveAttribute('aria-busy', 'true');
+    expect(finish).toBeDisabled();
+    expect(screen.getByText('Saving your changes and returning to Booking Page…')).toBeVisible();
+
+    await waitFor(() => expect(pushMock).toHaveBeenCalledWith('/en/admin/website?salon=salon-a'));
+  });
+
+  it('names the step being saved and releases the pending state when the save fails', async () => {
+    searchParamsMock.value = new URLSearchParams('salon=salon-a&panel=text&guided=1');
+    const originalFetch = fetchMock.getMockImplementation()!;
+    fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => init?.method === 'PATCH'
+      ? Promise.resolve(new Response(JSON.stringify({ error: 'Unavailable' }), { status: 503 }))
+      : originalFetch(input, init));
+    render(<BookingPageOwnerSurface />);
+    fireEvent.change(await screen.findByTestId('content-bio'), { target: { value: 'Keep this edit' } });
+    const next = screen.getByTestId('guided-review-next');
+
+    fireEvent.click(next);
+
+    expect(next).toHaveTextContent('Saving…');
+
+    await screen.findByText('Your changes could not be saved. Please retry before leaving this editor.');
+
+    // A failed hand-off must give the button back, not strand it mid-flight.
+    expect(next).toHaveTextContent('Save & next step');
+    expect(next).toBeEnabled();
+    expect(next).toHaveAttribute('aria-busy', 'false');
+  });
+
+  /*
+   * Legacy no-panel editor retirement. The hub gave these controls a home, so
+   * the ones that now duplicate a panel are gone or renamed to that panel's
+   * own words, and the ones with nowhere else to live speak onboarding's
+   * language instead of the config field's.
+   */
+  it('retires the dead style-pack picker from the legacy editor', async () => {
+    render(<BookingPageOwnerSurface />);
+    await screen.findByTestId('content-bio');
+
+    expect(screen.queryByTestId('style-pack-option-default')).not.toBeInTheDocument();
+    expect(screen.queryByText('Style pack')).not.toBeInTheDocument();
+    expect(screen.queryByText('More style packs coming soon.')).not.toBeInTheDocument();
+    // The saved field itself is untouched — only the one-option control went.
+    expect(config.draft.stylePack).toBe('default');
+  });
+
+  it('speaks onboarding vocabulary for the legacy-only controls', async () => {
+    render(<BookingPageOwnerSurface />);
+    await screen.findByTestId('content-bio');
+
+    expect(screen.getByText('Business type')).toBeVisible();
+    expect(screen.getByTestId('business-mode-option-solo')).toHaveTextContent('Independent nail tech');
+    expect(screen.getByTestId('business-mode-option-team')).toHaveTextContent('Salon / studio');
+    expect(screen.queryByText('Business mode')).not.toBeInTheDocument();
+    expect(screen.getByText('Profile photo link')).toBeVisible();
+    expect(screen.queryByText('Hero / profile image URL')).not.toBeInTheDocument();
+  });
+
+  it('calls the duplicated address control what Your Information calls it, and links there', async () => {
+    render(<BookingPageOwnerSurface />);
+    await screen.findByTestId('location-display-mode-city_only');
+
+    expect(screen.getByText('Address privacy')).toBeVisible();
+    expect(screen.queryByText('Location shown as')).not.toBeInTheDocument();
+    expect(screen.getByTestId('location-display-mode-canonical-link'))
+      .toHaveAttribute('href', '/en/admin/booking-page?salon=salon-a&panel=information');
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
     searchParamsMock.value = new URLSearchParams('salon=salon-a');
@@ -1522,6 +1603,32 @@ describe('BookingPageOwnerSurface', () => {
     });
   });
 
+  // AG-w2-information-parity-03: the second address-privacy control never told
+  // the owner their live site still showed something else. One record, two
+  // controls, one warning.
+  it('warns in the no-panel control that the live site still uses the published mode', async () => {
+    render(<BookingPageOwnerSurface />);
+
+    await screen.findByTestId('content-hero-image-url');
+
+    // Draft and live both start at full_address — no warning yet.
+    expect(screen.queryByTestId('location-display-mode-unpublished')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('location-display-mode-city_only'));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('location-display-mode-unpublished')).toHaveTextContent(
+        'Your live site still uses “Always show my full address” until you publish.',
+      );
+    });
+
+    fireEvent.click(screen.getByTestId('booking-page-publish'));
+
+    await waitFor(() => {
+      expect(screen.queryByTestId('location-display-mode-unpublished')).not.toBeInTheDocument();
+    });
+  });
+
   it('keeps full-page draft preview on the authenticated owner origin even when auth/me advertises a public host', async () => {
     render(<BookingPageOwnerSurface />);
 
@@ -1552,16 +1659,21 @@ describe('BookingPageOwnerSurface', () => {
     {
       action: 'publish',
       buttonTestId: 'booking-page-publish',
+      // AG-hub-publish-02: only the two consequential actions confirm —
+      // pushing the draft onto an already-published salon is reversible.
+      needsConfirmation: false,
       success: /Published\. Your live booking page now matches your draft\./,
     },
     {
       action: 'revert',
       buttonTestId: 'booking-page-revert',
+      needsConfirmation: true,
       success: /Reverted\. Your draft now matches what is live\./,
     },
   ] as const)('waits for an in-flight field save before $action', async ({
     action,
     buttonTestId,
+    needsConfirmation,
     success,
   }) => {
     const fallbackFetch = fetchMock.getMockImplementation()!;
@@ -1596,6 +1708,9 @@ describe('BookingPageOwnerSurface', () => {
     await waitFor(() => expect(releaseFieldSave).toBeTypeOf('function'));
 
     fireEvent.click(screen.getByTestId(buttonTestId));
+    if (needsConfirmation) {
+      fireEvent.click(await screen.findByTestId('confirm-dialog-confirm'));
+    }
 
     expect(fetchMock.mock.calls.filter(([, init]) => init?.method === 'POST')).toHaveLength(0);
 
@@ -1689,6 +1804,7 @@ describe('BookingPageOwnerSurface', () => {
     await waitFor(() => expect(releaseFailedSave).toBeTypeOf('function'));
 
     fireEvent.click(screen.getByTestId('booking-page-revert'));
+    fireEvent.click(await screen.findByTestId('confirm-dialog-confirm'));
 
     expect(fetchMock.mock.calls.filter(([, init]) => init?.method === 'POST')).toHaveLength(0);
 
@@ -1768,13 +1884,18 @@ describe('BookingPageOwnerSurface', () => {
     expect(fetchMock.mock.calls.filter(([, init]) => init?.method === 'POST')).toHaveLength(1);
   });
 
-  it('Revert asks for confirmation, then calls the revert action and reports success', async () => {
+  it('Revert asks for confirmation in the product dialog, then calls the revert action and reports success', async () => {
     render(<BookingPageOwnerSurface />);
     const revertButton = await screen.findByTestId('booking-page-revert');
 
     fireEvent.click(revertButton);
 
-    expect(window.confirm).toHaveBeenCalled();
+    // AG-hub-publish-02: this used to be a native window.confirm branded
+    // "localhost says…". The confirmation is now the product's own dialog.
+    expect(window.confirm).not.toHaveBeenCalled();
+    expect(await screen.findByText('Discard your unpublished changes?')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('confirm-dialog-confirm'));
 
     await screen.findByText(/Reverted\. Your draft now matches what is live\./);
 
@@ -1784,15 +1905,61 @@ describe('BookingPageOwnerSurface', () => {
   });
 
   it('Revert does nothing when the confirmation is declined', async () => {
-    vi.stubGlobal('confirm', vi.fn(() => false));
     render(<BookingPageOwnerSurface />);
     const revertButton = await screen.findByTestId('booking-page-revert');
 
     fireEvent.click(revertButton);
+    fireEvent.click(await screen.findByTestId('confirm-dialog-cancel'));
 
     await waitFor(() => {
       expect(fetchMock.mock.calls.filter(([, init]) => init?.method === 'POST')).toHaveLength(0);
     });
+  });
+
+  // AG-hub-publish-03 — the draft promise was emitted unconditionally by the
+  // shared panel header, including on the two panels whose writes are
+  // live-immediate.
+  describe('panel subtitles state the real write semantics', () => {
+    it.each([
+      { panel: '', expected: /Nothing goes live until you publish/ },
+      { panel: 'layouts', expected: /Nothing goes live until you publish/ },
+      { panel: 'appearance', expected: /Nothing goes live until you publish/ },
+      { panel: 'text', expected: /Nothing goes live until you publish/ },
+      { panel: 'publish', expected: /Nothing goes live until you publish/ },
+    ])('keeps the draft promise on the drafted panel "$panel"', async ({ panel, expected }) => {
+      searchParamsMock.value = new URLSearchParams(`salon=salon-a${panel ? `&panel=${panel}` : ''}`);
+      render(<BookingPageOwnerSurface />);
+
+      expect(await screen.findByTestId('booking-page-panel-subtitle')).toHaveTextContent(expected);
+    });
+
+    it.each([
+      { panel: 'information', expected: /Saved changes apply immediately/ },
+      { panel: 'policies', expected: /save immediately/ },
+    ])('drops the draft promise on the live-immediate panel "$panel"', async ({ panel, expected }) => {
+      searchParamsMock.value = new URLSearchParams(`salon=salon-a&panel=${panel}`);
+      render(<BookingPageOwnerSurface />);
+
+      const subtitle = await screen.findByTestId('booking-page-panel-subtitle');
+
+      expect(subtitle).toHaveTextContent(expected);
+      expect(subtitle).not.toHaveTextContent(/Nothing goes live until you publish/);
+    });
+  });
+
+  // AG-hub-publish-06 — the booking-page publish only moves the draft onto the
+  // published side of the same salon. On a salon that is still a private
+  // draft, "your live booking page" contradicts the banner above it.
+  it('reports a booking-page publish on a still-draft salon without claiming a live page', async () => {
+    salonPublicationStatus = 'draft';
+    render(<BookingPageOwnerSurface />);
+
+    fireEvent.click(await screen.findByTestId('booking-page-publish'));
+
+    const message = await screen.findByText(/Saved to your draft site — publish your salon to make it public\./);
+
+    expect(message).toBeInTheDocument();
+    expect(screen.queryByText(/Your live booking page now matches your draft/)).not.toBeInTheDocument();
   });
 
   // Phase A follow-up: the wizard's success screen is not the owner's only
@@ -1824,6 +1991,27 @@ describe('BookingPageOwnerSurface', () => {
       expect(screen.getByText(/permanently locks your link/i)).toBeInTheDocument();
     });
 
+    it('asks for confirmation naming the exact address that gets locked, and stays in draft when dismissed', async () => {
+      salonPublicationStatus = 'draft';
+      render(<BookingPageOwnerSurface />);
+
+      fireEvent.click(await screen.findByTestId('salon-publish-button'));
+
+      const dialog = await screen.findByTestId('confirm-dialog');
+
+      expect(within(dialog).getByText(/Your link becomes permanent and your site goes live/)).toBeInTheDocument();
+      expect(within(dialog).getByTestId('salon-publish-confirm-url')).toHaveTextContent('/salon-a');
+
+      fireEvent.click(within(dialog).getByTestId('confirm-dialog-cancel'));
+
+      await waitFor(() => {
+        expect(screen.queryByTestId('confirm-dialog')).not.toBeInTheDocument();
+      });
+
+      expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/api/admin/salon/publish'))).toBe(false);
+      expect(screen.getByTestId('salon-publish-banner')).toBeInTheDocument();
+    });
+
     it('clicking the salon-publish button calls POST /api/admin/salon/publish (not the booking-page action endpoint), and hides the banner on success', async () => {
       salonPublicationStatus = 'draft';
       render(<BookingPageOwnerSurface />);
@@ -1832,6 +2020,11 @@ describe('BookingPageOwnerSurface', () => {
       const previousPreview = screen.getByTitle('Live booking page preview');
       const previousSrc = previousPreview.getAttribute('src');
       fireEvent.click(button);
+
+      // AG-hub-publish-02: the irreversible action confirms first.
+      expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/api/admin/salon/publish'))).toBe(false);
+
+      fireEvent.click(await screen.findByTestId('confirm-dialog-confirm'));
 
       await waitFor(() => {
         expect(screen.queryByTestId('salon-publish-banner')).not.toBeInTheDocument();
@@ -1867,6 +2060,7 @@ describe('BookingPageOwnerSurface', () => {
       const previousPreview = screen.getByTitle('Live booking page preview');
       const previousSrc = previousPreview.getAttribute('src');
       fireEvent.click(button);
+      fireEvent.click(await screen.findByTestId('confirm-dialog-confirm'));
 
       await screen.findByRole('alert');
 
@@ -1906,6 +2100,7 @@ describe('BookingPageOwnerSurface', () => {
       expect(salonPublishButton).toBeEnabled();
 
       fireEvent.click(salonPublishButton);
+      fireEvent.click(await screen.findByTestId('confirm-dialog-confirm'));
 
       await waitFor(() => {
         expect(screen.queryByTestId('salon-publish-banner')).not.toBeInTheDocument();

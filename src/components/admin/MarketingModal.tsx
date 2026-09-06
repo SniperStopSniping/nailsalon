@@ -9,6 +9,7 @@ import {
   Save,
   Star,
 } from 'lucide-react';
+import { useSearchParams } from 'next/navigation';
 import {
   type Ref,
   useCallback,
@@ -161,7 +162,7 @@ function FieldError({ id, message }: { id: string; message?: string }) {
     return null;
   }
   return (
-    <p id={id} role="alert" className="mt-2 text-[13px] font-medium text-[#D70015]">
+    <p id={id} role="alert" className="mt-2 text-[13px] font-medium text-red-700">
       {message}
     </p>
   );
@@ -193,8 +194,8 @@ function NumberField({
 
   return (
     <label htmlFor={id} className="block">
-      <span className="text-[15px] font-semibold text-[#1C1C1E]">{label}</span>
-      <span className="mt-2 flex items-center overflow-hidden rounded-[12px] border border-[#D1D1D6] bg-white focus-within:border-[#007AFF] focus-within:ring-2 focus-within:ring-[#007AFF]/15">
+      <span className="text-[15px] font-semibold text-[var(--owner-ink)]">{label}</span>
+      <span className="mt-2 flex items-center overflow-hidden rounded-[12px] border border-[var(--owner-line)] bg-[var(--owner-surface)] focus-within:border-[var(--owner-accent)] focus-within:ring-2 focus-within:ring-[var(--owner-focus)]">
         <input
           id={id}
           type="number"
@@ -206,11 +207,11 @@ function NumberField({
           aria-invalid={Boolean(error)}
           aria-describedby={`${hintId}${error ? ` ${errorId}` : ''}`}
           onChange={event => onChange(Number(event.target.value))}
-          className="min-w-0 flex-1 bg-transparent p-3 text-[17px] text-[#1C1C1E] outline-none"
+          className="min-w-0 flex-1 bg-transparent p-3 text-[17px] text-[var(--owner-ink)] outline-none"
         />
-        <span className="pr-3 text-[15px] text-[#8E8E93]">{suffix}</span>
+        <span className="pr-3 text-[15px] text-[var(--owner-muted)]">{suffix}</span>
       </span>
-      <span id={hintId} className="mt-1.5 block text-[12px] leading-relaxed text-[#8E8E93]">
+      <span id={hintId} className="mt-1.5 block text-[12px] leading-relaxed text-[var(--owner-muted)]">
         {hint}
       </span>
       <FieldError id={errorId} message={error} />
@@ -275,15 +276,15 @@ function PromotionEditor({
       tabIndex={-1}
       aria-label={`${title} promotion settings`}
       data-highlighted={highlighted ? 'true' : undefined}
-      className={`scroll-mt-24 overflow-hidden rounded-[20px] bg-white shadow-[0_4px_20px_rgba(0,0,0,0.04)] outline-none transition-shadow ${highlighted ? 'ring-2 ring-[#007AFF] ring-offset-2' : ''}`}
+      className={`scroll-mt-24 overflow-hidden rounded-[20px] bg-[var(--owner-surface)] shadow-[0_4px_20px_rgba(0,0,0,0.04)] outline-none transition-shadow ${highlighted ? 'ring-2 ring-[var(--owner-focus)] ring-offset-2' : ''}`}
     >
       <div className="flex items-start justify-between gap-4 p-4">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
-            <Gift className={`size-5 ${stage === 'eight-week' ? 'text-[#AF52DE]' : 'text-[#FF9500]'}`} />
-            <h2 className="text-[18px] font-semibold text-[#1C1C1E]">{title}</h2>
+            <Gift className={`size-5 ${stage === 'eight-week' ? 'text-[var(--owner-accent)]' : 'text-amber-500'}`} />
+            <h2 className="text-[18px] font-semibold text-[var(--owner-ink)]">{title}</h2>
           </div>
-          <p className="mt-1 text-[13px] leading-relaxed text-[#8E8E93]">{description}</p>
+          <p className="mt-1 text-[13px] leading-relaxed text-[var(--owner-muted)]">{description}</p>
         </div>
         <label className="relative mt-1 inline-flex shrink-0 cursor-pointer items-center">
           <input
@@ -293,33 +294,33 @@ function PromotionEditor({
             aria-label={`Enable ${title}`}
             onChange={event => update('enabled', event.target.checked)}
           />
-          <span className="h-[31px] w-[51px] rounded-full bg-[#E5E5EA] transition-colors after:absolute after:left-[2px] after:top-[2px] after:size-[27px] after:rounded-full after:bg-white after:shadow-sm after:transition-transform peer-checked:bg-[#34C759] peer-checked:after:translate-x-5 peer-focus-visible:ring-2 peer-focus-visible:ring-[#007AFF] peer-focus-visible:ring-offset-2" />
+          <span className="h-[31px] w-[51px] rounded-full bg-[var(--owner-line)] transition-colors after:absolute after:left-[2px] after:top-[2px] after:size-[27px] after:rounded-full after:bg-white after:shadow-sm after:transition-transform peer-checked:bg-[var(--owner-accent)] peer-checked:after:translate-x-5 peer-focus-visible:ring-2 peer-focus-visible:ring-[var(--owner-focus)] peer-focus-visible:ring-offset-2" />
         </label>
       </div>
 
       {promotion.enabled && (
-        <div className="space-y-5 border-t border-[#E5E5EA] p-4">
+        <div className="space-y-5 border-t border-[var(--owner-line)] p-4">
           <label htmlFor={`${idPrefix}-name`} className="block">
-            <span className="text-[13px] font-medium uppercase tracking-wide text-[#8E8E93]">Promotion name</span>
+            <span className="text-[13px] font-medium uppercase tracking-wide text-[var(--owner-muted)]">Promotion name</span>
             <input
               id={`${idPrefix}-name`}
               type="text"
               value={promotion.name}
               onChange={event => update('name', event.target.value)}
-              className="mt-2 w-full rounded-[12px] border border-[#D1D1D6] p-3 text-[16px] text-[#1C1C1E] outline-none focus:border-[#007AFF] focus:ring-2 focus:ring-[#007AFF]/15"
+              className="mt-2 w-full rounded-[12px] border border-[var(--owner-line)] p-3 text-[16px] text-[var(--owner-ink)] outline-none focus:border-[var(--owner-accent)] focus:ring-2 focus:ring-[var(--owner-focus)]"
               placeholder="We miss you"
             />
           </label>
 
           <div className="grid grid-cols-2 gap-3">
             <label htmlFor={`${idPrefix}-type`} className="block">
-              <span className="text-[13px] font-medium uppercase tracking-wide text-[#8E8E93]">Discount type</span>
+              <span className="text-[13px] font-medium uppercase tracking-wide text-[var(--owner-muted)]">Discount type</span>
               <select
                 id={`${idPrefix}-type`}
                 aria-label={`${title} discount type`}
                 value={promotion.discountType}
                 onChange={event => changeDiscountType(event.target.value as RetentionPromotionSettings['discountType'])}
-                className="mt-2 w-full rounded-[12px] border border-[#D1D1D6] bg-white p-3 text-[16px] text-[#1C1C1E] outline-none focus:border-[#007AFF] focus:ring-2 focus:ring-[#007AFF]/15"
+                className="mt-2 w-full rounded-[12px] border border-[var(--owner-line)] bg-[var(--owner-surface)] p-3 text-[16px] text-[var(--owner-ink)] outline-none focus:border-[var(--owner-accent)] focus:ring-2 focus:ring-[var(--owner-focus)]"
               >
                 <option value="percent">Percentage</option>
                 <option value="fixed">Fixed amount</option>
@@ -327,9 +328,9 @@ function PromotionEditor({
             </label>
 
             <label htmlFor={`${idPrefix}-value`} className="block">
-              <span className="text-[13px] font-medium uppercase tracking-wide text-[#8E8E93]">Discount</span>
-              <span className="mt-2 flex items-center rounded-[12px] border border-[#D1D1D6] focus-within:border-[#007AFF] focus-within:ring-2 focus-within:ring-[#007AFF]/15">
-                {promotion.discountType === 'fixed' && <span className="pl-3 text-[16px] text-[#8E8E93]">$</span>}
+              <span className="text-[13px] font-medium uppercase tracking-wide text-[var(--owner-muted)]">Discount</span>
+              <span className="mt-2 flex items-center rounded-[12px] border border-[var(--owner-line)] focus-within:border-[var(--owner-accent)] focus-within:ring-2 focus-within:ring-[var(--owner-focus)]">
+                {promotion.discountType === 'fixed' && <span className="pl-3 text-[16px] text-[var(--owner-muted)]">$</span>}
                 <input
                   id={`${idPrefix}-value`}
                   aria-label={`${title} discount`}
@@ -343,17 +344,17 @@ function PromotionEditor({
                     const next = Number(event.target.value);
                     update('value', promotion.discountType === 'fixed' ? Math.round(next * 100) : next);
                   }}
-                  className="min-w-0 flex-1 bg-transparent p-3 text-[16px] text-[#1C1C1E] outline-none"
+                  className="min-w-0 flex-1 bg-transparent p-3 text-[16px] text-[var(--owner-ink)] outline-none"
                 />
-                {promotion.discountType === 'percent' && <span className="pr-3 text-[16px] text-[#8E8E93]">%</span>}
+                {promotion.discountType === 'percent' && <span className="pr-3 text-[16px] text-[var(--owner-muted)]">%</span>}
               </span>
             </label>
           </div>
 
           <div className="grid grid-cols-2 gap-3">
             <label htmlFor={`${idPrefix}-expiry`} className="block">
-              <span className="text-[13px] font-medium uppercase tracking-wide text-[#8E8E93]">Expires after</span>
-              <span className="mt-2 flex items-center rounded-[12px] border border-[#D1D1D6] focus-within:border-[#007AFF] focus-within:ring-2 focus-within:ring-[#007AFF]/15">
+              <span className="text-[13px] font-medium uppercase tracking-wide text-[var(--owner-muted)]">Expires after</span>
+              <span className="mt-2 flex items-center rounded-[12px] border border-[var(--owner-line)] focus-within:border-[var(--owner-accent)] focus-within:ring-2 focus-within:ring-[var(--owner-focus)]">
                 <input
                   id={`${idPrefix}-expiry`}
                   type="number"
@@ -362,63 +363,63 @@ function PromotionEditor({
                   inputMode="numeric"
                   value={promotion.expiryDays}
                   onChange={event => update('expiryDays', Number(event.target.value))}
-                  className="min-w-0 flex-1 bg-transparent p-3 text-[16px] text-[#1C1C1E] outline-none"
+                  className="min-w-0 flex-1 bg-transparent p-3 text-[16px] text-[var(--owner-ink)] outline-none"
                 />
-                <span className="pr-3 text-[14px] text-[#8E8E93]">days</span>
+                <span className="pr-3 text-[14px] text-[var(--owner-muted)]">days</span>
               </span>
             </label>
 
             <label htmlFor={`${idPrefix}-code`} className="block">
-              <span className="text-[13px] font-medium uppercase tracking-wide text-[#8E8E93]">Code (optional)</span>
+              <span className="text-[13px] font-medium uppercase tracking-wide text-[var(--owner-muted)]">Code (optional)</span>
               <input
                 id={`${idPrefix}-code`}
                 type="text"
                 value={promotion.code || ''}
                 maxLength={40}
                 onChange={event => update('code', event.target.value.toUpperCase() || null)}
-                className="mt-2 w-full rounded-[12px] border border-[#D1D1D6] p-3 text-[16px] uppercase text-[#1C1C1E] outline-none focus:border-[#007AFF] focus:ring-2 focus:ring-[#007AFF]/15"
+                className="mt-2 w-full rounded-[12px] border border-[var(--owner-line)] p-3 text-[16px] uppercase text-[var(--owner-ink)] outline-none focus:border-[var(--owner-accent)] focus:ring-2 focus:ring-[var(--owner-focus)]"
                 placeholder="WELCOME20"
               />
             </label>
           </div>
 
           <fieldset>
-            <legend className="text-[13px] font-medium uppercase tracking-wide text-[#8E8E93]">Eligible services</legend>
-            <p className="mt-1 text-[12px] text-[#8E8E93]">Leave every service unchecked to allow the offer on all services.</p>
+            <legend className="text-[13px] font-medium uppercase tracking-wide text-[var(--owner-muted)]">Eligible services</legend>
+            <p className="mt-1 text-[12px] text-[var(--owner-muted)]">Leave every service unchecked to allow the offer on all services.</p>
             {services.length > 0
               ? (
                   <div className="mt-3 grid gap-2 sm:grid-cols-2">
                     {services.map(service => (
-                      <label key={service.id} className="flex min-h-11 cursor-pointer items-center gap-3 rounded-[12px] bg-[#F2F2F7] px-3 py-2.5">
+                      <label key={service.id} className="flex min-h-11 cursor-pointer items-center gap-3 rounded-[12px] bg-[var(--owner-ground)] px-3 py-2.5">
                         <input
                           type="checkbox"
                           aria-label={`${title}: ${service.name}`}
                           checked={promotion.eligibleServiceIds.includes(service.id)}
                           onChange={() => toggleService(service.id)}
-                          className="size-5 rounded border-[#C7C7CC] text-[#007AFF] focus:ring-[#007AFF]"
+                          className="size-5 rounded border-[var(--owner-line-strong)] text-[var(--owner-accent)] focus:ring-[var(--owner-focus)]"
                         />
-                        <span className="text-[15px] text-[#1C1C1E]">{service.name}</span>
+                        <span className="text-[15px] text-[var(--owner-ink)]">{service.name}</span>
                       </label>
                     ))}
                   </div>
                 )
               : (
-                  <p className="mt-3 rounded-[12px] bg-[#F2F2F7] p-3 text-[13px] text-[#636366]">
+                  <p className="mt-3 rounded-[12px] bg-[var(--owner-ground)] p-3 text-[13px] text-[var(--owner-muted)]">
                     No active services are available. This offer will apply to all services.
                   </p>
                 )}
           </fieldset>
 
           <label htmlFor={`${idPrefix}-message`} className="block">
-            <span className="text-[13px] font-medium uppercase tracking-wide text-[#8E8E93]">Message template</span>
+            <span className="text-[13px] font-medium uppercase tracking-wide text-[var(--owner-muted)]">Message template</span>
             <textarea
               id={`${idPrefix}-message`}
               value={promotion.messageTemplate}
               onChange={event => update('messageTemplate', event.target.value)}
               rows={5}
-              className="mt-2 w-full resize-y rounded-[12px] border border-[#D1D1D6] p-3 text-[15px] leading-relaxed text-[#1C1C1E] outline-none focus:border-[#007AFF] focus:ring-2 focus:ring-[#007AFF]/15"
+              className="mt-2 w-full resize-y rounded-[12px] border border-[var(--owner-line)] p-3 text-[15px] leading-relaxed text-[var(--owner-ink)] outline-none focus:border-[var(--owner-accent)] focus:ring-2 focus:ring-[var(--owner-focus)]"
             />
-            <span className="mt-2 block text-[12px] leading-relaxed text-[#8E8E93]">
+            <span className="mt-2 block text-[12px] leading-relaxed text-[var(--owner-muted)]">
               Available:
               {' '}
               {PROMOTION_PLACEHOLDERS.join(', ')}
@@ -430,16 +431,16 @@ function PromotionEditor({
             </span>
           </label>
 
-          <label className="flex cursor-pointer items-start gap-3 rounded-[12px] bg-[#F2F2F7] p-3">
+          <label className="flex cursor-pointer items-start gap-3 rounded-[12px] bg-[var(--owner-ground)] p-3">
             <input
               type="checkbox"
               checked={promotion.singleUse}
               onChange={event => update('singleUse', event.target.checked)}
-              className="mt-0.5 size-5 rounded border-[#C7C7CC] text-[#007AFF] focus:ring-[#007AFF]"
+              className="mt-0.5 size-5 rounded border-[var(--owner-line-strong)] text-[var(--owner-accent)] focus:ring-[var(--owner-focus)]"
             />
             <span>
-              <span className="block text-[15px] font-medium text-[#1C1C1E]">Single-use promotion</span>
-              <span className="mt-0.5 block text-[12px] leading-relaxed text-[#8E8E93]">Each eligible client can redeem this campaign once.</span>
+              <span className="block text-[15px] font-medium text-[var(--owner-ink)]">Single-use promotion</span>
+              <span className="mt-0.5 block text-[12px] leading-relaxed text-[var(--owner-muted)]">Each eligible client can redeem this campaign once.</span>
             </span>
           </label>
 
@@ -460,12 +461,18 @@ function PromotionEditor({
 
 type MarketingView = 'home' | 'followups' | 'campaigns' | 'results' | 'reviews';
 
+const MARKETING_VIEWS: MarketingView[] = ['home', 'followups', 'campaigns', 'results', 'reviews'];
+
+function isMarketingView(value: string | null): value is MarketingView {
+  return value !== null && (MARKETING_VIEWS as string[]).includes(value);
+}
+
 const VIEW_TITLES: Record<MarketingView, string> = {
   home: 'Marketing',
   followups: 'Follow-ups',
   campaigns: 'Campaigns',
   results: 'Results',
-  reviews: 'Reviews',
+  reviews: 'Review settings',
 };
 
 type FollowupItem = {
@@ -538,10 +545,19 @@ export function MarketingModal({
   onOpenNativeUrl,
 }: MarketingModalProps) {
   const { salonSlug } = useSalon();
+  const searchParams = useSearchParams();
+  // A one-tap hop from the Review rewards app lands here: ?app=marketing&view=reviews.
+  // Null in unit tests / outside an App Router tree — a missing param is just 'home'.
+  const requestedView = searchParams?.get('view') ?? null;
   const sixWeekPromotionRef = useRef<HTMLElement>(null);
   const eightWeekPromotionRef = useRef<HTMLElement>(null);
   const focusedPromotionStageRef = useRef<MarketingModalProps['initialPromotionStage']>(null);
-  const [view, setView] = useState<MarketingView>(initialPromotionStage ? 'campaigns' : 'home');
+  const [view, setView] = useState<MarketingView>(() => {
+    if (initialPromotionStage) {
+      return 'campaigns';
+    }
+    return isMarketingView(requestedView) ? requestedView : 'home';
+  });
   const [settings, setSettings] = useState<RetentionSettings | null>(null);
   const [savedSettings, setSavedSettings] = useState<RetentionSettings | null>(null);
   const [services, setServices] = useState<AvailableService[]>([]);
@@ -917,7 +933,7 @@ export function MarketingModal({
     ? overview.results.campaigns.reduce((sum, row) => sum + row.redeemed, 0)
     : null;
 
-  const card = 'rounded-[20px] bg-white p-4 shadow-[0_4px_20px_rgba(0,0,0,0.04)]';
+  const card = 'rounded-[20px] bg-[var(--owner-surface)] p-4 shadow-[0_4px_20px_rgba(0,0,0,0.04)]';
 
   const homeRow = (args: {
     testId: string;
@@ -930,14 +946,14 @@ export function MarketingModal({
       type="button"
       data-testid={args.testId}
       onClick={args.onClick}
-      className="flex w-full items-center justify-between gap-3 rounded-[16px] bg-white p-4 text-left shadow-[0_4px_20px_rgba(0,0,0,0.04)]"
+      className="flex w-full items-center justify-between gap-3 rounded-[16px] bg-[var(--owner-surface)] p-4 text-left shadow-[0_4px_20px_rgba(0,0,0,0.04)]"
     >
       <div className="min-w-0">
-        <div className="text-[16px] font-semibold text-[#1C1C1E]">{args.title}</div>
-        <div className="mt-0.5 text-[13px] leading-relaxed text-[#8E8E93]">{args.detail}</div>
+        <div className="text-[16px] font-semibold text-[var(--owner-ink)]">{args.title}</div>
+        <div className="mt-0.5 text-[13px] leading-relaxed text-[var(--owner-muted)]">{args.detail}</div>
       </div>
       {args.status && (
-        <span className="shrink-0 rounded-full bg-[#F2F2F7] px-2.5 py-1 text-[12px] font-medium text-[#636366]">
+        <span className="shrink-0 rounded-full bg-[var(--owner-ground)] px-2.5 py-1 text-[12px] font-medium text-[var(--owner-muted)]">
           {args.status}
         </span>
       )}
@@ -945,8 +961,8 @@ export function MarketingModal({
   );
 
   return (
-    <div className="relative flex min-h-full w-full flex-col bg-[#F2F2F7] font-sans text-black">
-      <div className="sticky top-0 z-20 bg-[#F2F2F7]/85 backdrop-blur-md">
+    <div className="relative flex min-h-full w-full flex-col bg-[var(--owner-ground)] font-sans text-[var(--owner-ink)]">
+      <div className="sticky top-0 z-20 bg-[var(--owner-ground)] backdrop-blur-md">
         <ModalHeader
           title={VIEW_TITLES[view]}
           leftAction={(
@@ -961,22 +977,22 @@ export function MarketingModal({
       {loading
         ? (
             <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center" role="status">
-              <Loader2 className="size-8 animate-spin text-[#007AFF]" />
-              <p className="text-[15px] text-[#636366]">Loading marketing…</p>
+              <Loader2 className="size-8 animate-spin text-[var(--owner-accent)]" />
+              <p className="text-[15px] text-[var(--owner-muted)]">Loading marketing…</p>
             </div>
           )
         : loadError
           ? (
               <div className="flex flex-1 flex-col items-center justify-center px-6 text-center">
-                <div className="flex size-14 items-center justify-center rounded-full bg-[#FF3B30]/10">
-                  <RefreshCw className="size-6 text-[#D70015]" />
+                <div className="flex size-14 items-center justify-center rounded-full bg-red-50">
+                  <RefreshCw className="size-6 text-red-700" />
                 </div>
-                <h2 className="mt-4 text-[20px] font-semibold text-[#1C1C1E]">Marketing unavailable</h2>
-                <p role="alert" className="mt-2 max-w-sm text-[15px] leading-relaxed text-[#636366]">{loadError}</p>
+                <h2 className="mt-4 text-[20px] font-semibold text-[var(--owner-ink)]">Marketing unavailable</h2>
+                <p role="alert" className="mt-2 max-w-sm text-[15px] leading-relaxed text-[var(--owner-muted)]">{loadError}</p>
                 <button
                   type="button"
                   onClick={() => void loadSettings()}
-                  className="mt-5 min-h-11 rounded-[12px] bg-[#007AFF] px-5 py-2.5 text-[16px] font-semibold text-white active:opacity-75"
+                  className="mt-5 min-h-11 rounded-[12px] bg-[var(--owner-accent)] px-5 py-2.5 text-[16px] font-semibold text-white active:opacity-75"
                 >
                   Try again
                 </button>
@@ -987,14 +1003,14 @@ export function MarketingModal({
                 <>
                   <div className="flex-1 space-y-4 overflow-y-auto px-4 pb-32 pt-1">
                     {actionError && (
-                      <div role="alert" className="rounded-[14px] border border-[#FF3B30]/30 bg-[#FF3B30]/10 p-3 text-[13px] text-[#D70015]">
+                      <div role="alert" className="rounded-[14px] border border-red-200 bg-red-50 p-3 text-[13px] text-red-700">
                         {actionError}
                       </div>
                     )}
 
                     {view === 'home' && (
                       <div className="space-y-3" data-testid="marketing-home">
-                        <div className="rounded-[18px] bg-gradient-to-br from-[#007AFF] to-[#5856D6] p-4 text-white shadow-sm">
+                        <div className="rounded-[18px] bg-gradient-to-br from-[var(--owner-accent)] to-[var(--owner-accent-strong)] p-4 text-white shadow-sm">
                           <h2 className="text-[18px] font-semibold">Grow your bookings</h2>
                           <p className="mt-1 text-[13px] leading-relaxed text-white/85">
                             Follow up with clients, fill open time and promote your services.
@@ -1024,33 +1040,33 @@ export function MarketingModal({
                         })}
                         {homeRow({
                           testId: 'marketing-home-reviews',
-                          title: 'Reviews',
-                          detail: 'Google review link and manual requests.',
+                          title: 'Review settings',
+                          detail: 'Your Google review link, and asking clients for a review.',
                           status: settings.googleReviewUrl ? 'Link set' : 'Add link',
                           onClick: () => setView('reviews'),
                         })}
 
                         <div className={card} data-testid="marketing-home-channels">
-                          <h3 className="text-[15px] font-semibold text-[#1C1C1E]">Channels</h3>
+                          <h3 className="text-[15px] font-semibold text-[var(--owner-ink)]">Channels</h3>
                           <div className="mt-2 space-y-2 text-[13px]">
                             <div className="flex items-center justify-between gap-3">
-                              <span className="text-[#636366]">Manual texting</span>
-                              <span className={`rounded-full px-2.5 py-1 text-[12px] font-medium ${smsCapableDevice ? 'bg-emerald-50 text-emerald-700' : 'bg-[#F2F2F7] text-[#8E8E93]'}`}>
+                              <span className="text-[var(--owner-muted)]">Manual texting</span>
+                              <span className={`rounded-full px-2.5 py-1 text-[12px] font-medium ${smsCapableDevice ? 'bg-emerald-50 text-emerald-700' : 'bg-[var(--owner-ground)] text-[var(--owner-muted)]'}`}>
                                 {smsCapableDevice ? 'Ready' : 'Use your phone'}
                               </span>
                             </div>
                             <div className="flex items-center justify-between gap-3">
-                              <span className="text-[#636366]">Automatic texting</span>
+                              <span className="text-[var(--owner-muted)]">Automatic texting</span>
                               <span
                                 data-testid="marketing-automatic-status"
-                                className={`rounded-full px-2.5 py-1 text-[12px] font-medium ${automaticStatus.tone === 'good' ? 'bg-emerald-50 text-emerald-700' : automaticStatus.tone === 'error' ? 'bg-red-50 text-red-700' : automaticStatus.tone === 'warn' ? 'bg-amber-50 text-amber-800' : 'bg-[#F2F2F7] text-[#8E8E93]'}`}
+                                className={`rounded-full px-2.5 py-1 text-[12px] font-medium ${automaticStatus.tone === 'good' ? 'bg-emerald-50 text-emerald-700' : automaticStatus.tone === 'error' ? 'bg-red-50 text-red-700' : automaticStatus.tone === 'warn' ? 'bg-amber-50 text-amber-800' : 'bg-[var(--owner-ground)] text-[var(--owner-muted)]'}`}
                               >
                                 {automaticStatus.label}
                               </span>
                             </div>
                             <div className="flex items-center justify-between gap-3">
-                              <span className="text-[#636366]">Marketing email</span>
-                              <span className="rounded-full bg-[#F2F2F7] px-2.5 py-1 text-[12px] font-medium text-[#8E8E93]">
+                              <span className="text-[var(--owner-muted)]">Marketing email</span>
+                              <span className="rounded-full bg-[var(--owner-ground)] px-2.5 py-1 text-[12px] font-medium text-[var(--owner-muted)]">
                                 Not available yet
                               </span>
                             </div>
@@ -1060,7 +1076,7 @@ export function MarketingModal({
                               type="button"
                               data-testid="marketing-open-integrations"
                               onClick={() => onOpenApp('integrations')}
-                              className="mt-3 w-full rounded-[12px] border border-[#D1D1D6] p-2.5 text-[13px] font-semibold text-[#1C1C1E]"
+                              className="mt-3 w-full rounded-[12px] border border-[var(--owner-line)] p-2.5 text-[13px] font-semibold text-[var(--owner-ink)]"
                             >
                               Finish texting setup in Integrations
                             </button>
@@ -1071,21 +1087,21 @@ export function MarketingModal({
 
                     {view === 'followups' && (
                       <div className="space-y-4" data-testid="marketing-followups">
-                        <p className="px-1 text-[13px] leading-relaxed text-[#8E8E93]">
+                        <p className="px-1 text-[13px] leading-relaxed text-[var(--owner-muted)]">
                           Your phone’s Messages app will open with the message ready to
                           review. Nothing sends until you press send yourself.
                         </p>
                         {overviewError && (
-                          <div role="alert" className="rounded-[14px] border border-[#FF3B30]/30 bg-[#FF3B30]/10 p-3 text-[13px] text-[#D70015]">
+                          <div role="alert" className="rounded-[14px] border border-red-200 bg-red-50 p-3 text-[13px] text-red-700">
                             {overviewError}
                           </div>
                         )}
                         {overview?.followups.groups.map(group => (
                           <section key={group.id} className={card}>
-                            <h3 className="text-[15px] font-semibold text-[#1C1C1E]">
+                            <h3 className="text-[15px] font-semibold text-[var(--owner-ink)]">
                               {group.title}
                               {group.id !== 'rebook' && (
-                                <span className="ml-2 text-[12px] font-normal text-[#8E8E93]">
+                                <span className="ml-2 text-[12px] font-normal text-[var(--owner-muted)]">
                                   {group.id === 'promo_6w'
                                     ? 'After 42 days without a visit'
                                     : 'After 56 days if the client still has not booked'}
@@ -1094,18 +1110,18 @@ export function MarketingModal({
                             </h3>
                             {group.items.length === 0
                               ? (
-                                  <p className="mt-2 text-[13px] text-[#8E8E93]">No one right now.</p>
+                                  <p className="mt-2 text-[13px] text-[var(--owner-muted)]">No one right now.</p>
                                 )
                               : (
-                                  <div className="mt-2 divide-y divide-[#F2F2F7]">
+                                  <div className="mt-2 divide-y divide-[var(--owner-ground)]">
                                     {group.items.map(item => (
                                       <div key={`${group.id}-${item.clientId}`} className="py-3" data-testid={`followup-row-${item.clientId}`}>
                                         <div className="flex items-start justify-between gap-3">
                                           <div className="min-w-0">
-                                            <div className="text-[15px] font-semibold text-[#1C1C1E]">
+                                            <div className="text-[15px] font-semibold text-[var(--owner-ink)]">
                                               {item.clientName || 'Client'}
                                             </div>
-                                            <div className="mt-0.5 text-[12px] leading-relaxed text-[#8E8E93]">
+                                            <div className="mt-0.5 text-[12px] leading-relaxed text-[var(--owner-muted)]">
                                               {STAGE_REASONS[item.stage]}
                                               {' · due '}
                                               {formatDay(item.dueAt)}
@@ -1113,10 +1129,10 @@ export function MarketingModal({
                                               {' · no upcoming visit'}
                                             </div>
                                             <div className="mt-1 flex flex-wrap gap-1.5 text-[11px]">
-                                              <span className="rounded-full bg-[#F2F2F7] px-2 py-0.5 font-medium text-[#636366]">
+                                              <span className="rounded-full bg-[var(--owner-ground)] px-2 py-0.5 font-medium text-[var(--owner-muted)]">
                                                 Text (manual)
                                               </span>
-                                              <span className={`rounded-full px-2 py-0.5 font-medium ${item.smsConsent ? 'bg-emerald-50 text-emerald-700' : 'bg-[#F2F2F7] text-[#8E8E93]'}`}>
+                                              <span className={`rounded-full px-2 py-0.5 font-medium ${item.smsConsent ? 'bg-emerald-50 text-emerald-700' : 'bg-[var(--owner-ground)] text-[var(--owner-muted)]'}`}>
                                                 {item.smsConsent ? 'Text consent on file' : 'No text consent recorded'}
                                               </span>
                                             </div>
@@ -1128,21 +1144,21 @@ export function MarketingModal({
                                             data-testid={`followup-review-text-${item.clientId}`}
                                             disabled={preparing === item.clientId}
                                             onClick={() => void startFollowup(item)}
-                                            className="min-h-9 rounded-full bg-[#007AFF] px-3.5 py-1.5 text-[13px] font-semibold text-white disabled:opacity-50"
+                                            className="min-h-9 rounded-full bg-[var(--owner-accent)] px-3.5 py-1.5 text-[13px] font-semibold text-white disabled:opacity-50"
                                           >
                                             {preparing === item.clientId ? 'Preparing…' : 'Review and text'}
                                           </button>
                                           <button
                                             type="button"
                                             onClick={() => void snoozeOrDismiss(item, 'snoozed')}
-                                            className="min-h-9 rounded-full border border-[#D1D1D6] px-3.5 py-1.5 text-[13px] font-medium text-[#636366]"
+                                            className="min-h-9 rounded-full border border-[var(--owner-line)] px-3.5 py-1.5 text-[13px] font-medium text-[var(--owner-muted)]"
                                           >
                                             Snooze 7d
                                           </button>
                                           <button
                                             type="button"
                                             onClick={() => void snoozeOrDismiss(item, 'dismissed')}
-                                            className="min-h-9 rounded-full border border-[#D1D1D6] px-3.5 py-1.5 text-[13px] font-medium text-[#636366]"
+                                            className="min-h-9 rounded-full border border-[var(--owner-line)] px-3.5 py-1.5 text-[13px] font-medium text-[var(--owner-muted)]"
                                           >
                                             Dismiss
                                           </button>
@@ -1151,7 +1167,7 @@ export function MarketingModal({
                                               type="button"
                                               data-testid={`followup-open-client-${item.clientId}`}
                                               onClick={() => onOpenClient(item.clientId)}
-                                              className="min-h-9 rounded-full border border-[#D1D1D6] px-3.5 py-1.5 text-[13px] font-medium text-[#636366]"
+                                              className="min-h-9 rounded-full border border-[var(--owner-line)] px-3.5 py-1.5 text-[13px] font-medium text-[var(--owner-muted)]"
                                             >
                                               Open client
                                             </button>
@@ -1165,17 +1181,17 @@ export function MarketingModal({
                         ))}
                         {overview && overview.followups.reminders.length > 0 && (
                           <section className={card}>
-                            <h3 className="text-[15px] font-semibold text-[#1C1C1E]">Reminders due</h3>
-                            <p className="mt-1 text-[12px] text-[#8E8E93]">
+                            <h3 className="text-[15px] font-semibold text-[var(--owner-ink)]">Reminders due</h3>
+                            <p className="mt-1 text-[12px] text-[var(--owner-muted)]">
                               Open the client to review and send their reminder with the
                               secure manage link included.
                             </p>
-                            <div className="mt-2 divide-y divide-[#F2F2F7]">
+                            <div className="mt-2 divide-y divide-[var(--owner-ground)]">
                               {overview.followups.reminders.map(reminder => (
                                 <div key={reminder.appointmentId} className="flex items-center justify-between gap-3 py-2.5">
-                                  <div className="min-w-0 text-[14px] font-medium text-[#1C1C1E]">
+                                  <div className="min-w-0 text-[14px] font-medium text-[var(--owner-ink)]">
                                     {reminder.clientName || 'Client'}
-                                    <span className="ml-2 text-[12px] font-normal text-[#8E8E93]">
+                                    <span className="ml-2 text-[12px] font-normal text-[var(--owner-muted)]">
                                       {new Date(reminder.startTime).toLocaleString('en-CA', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
                                     </span>
                                   </div>
@@ -1183,7 +1199,7 @@ export function MarketingModal({
                                     <button
                                       type="button"
                                       onClick={() => onOpenClient(reminder.clientId)}
-                                      className="min-h-9 shrink-0 rounded-full border border-[#D1D1D6] px-3.5 py-1.5 text-[13px] font-medium text-[#636366]"
+                                      className="min-h-9 shrink-0 rounded-full border border-[var(--owner-line)] px-3.5 py-1.5 text-[13px] font-medium text-[var(--owner-muted)]"
                                     >
                                       Open client
                                     </button>
@@ -1200,8 +1216,8 @@ export function MarketingModal({
                       <div className="space-y-4" data-testid="marketing-campaigns">
                         <section className={`${card}`}>
                           <div className="mb-4 flex items-center gap-2">
-                            <BellRing className="size-5 text-[#007AFF]" />
-                            <h2 className="text-[18px] font-semibold text-[#1C1C1E]">Follow-up timing</h2>
+                            <BellRing className="size-5 text-[var(--owner-accent)]" />
+                            <h2 className="text-[18px] font-semibold text-[var(--owner-ink)]">Follow-up timing</h2>
                           </div>
                           <div className="grid gap-5 sm:grid-cols-2">
                             <NumberField
@@ -1229,12 +1245,12 @@ export function MarketingModal({
                           </div>
                         </section>
 
-                        <div className="rounded-[18px] bg-white p-4 shadow-[0_4px_20px_rgba(0,0,0,0.04)]">
+                        <div className="rounded-[18px] bg-[var(--owner-surface)] p-4 shadow-[0_4px_20px_rgba(0,0,0,0.04)]">
                           <div className="flex items-center gap-2">
-                            <Gift className="size-5 text-[#AF52DE]" />
-                            <h2 className="text-[18px] font-semibold text-[#1C1C1E]">Win-back sequence</h2>
+                            <Gift className="size-5 text-[var(--owner-accent)]" />
+                            <h2 className="text-[18px] font-semibold text-[var(--owner-ink)]">Win-back sequence</h2>
                           </div>
-                          <p className="mt-1 text-[13px] leading-relaxed text-[#8E8E93]">
+                          <p className="mt-1 text-[13px] leading-relaxed text-[var(--owner-muted)]">
                             Two staged offers. Clients appear in Follow-ups at each stage;
                             you review and text every message yourself.
                           </p>
@@ -1268,20 +1284,20 @@ export function MarketingModal({
 
                     {view === 'results' && (
                       <div className="space-y-4" data-testid="marketing-results">
-                        <p className="px-1 text-[13px] leading-relaxed text-[#8E8E93]">
+                        <p className="px-1 text-[13px] leading-relaxed text-[var(--owner-muted)]">
                           Only measured outcomes appear here. Manual texts are counted when
                           you mark them sent — Luster cannot see Messages deliveries, and
                           link opens are not tracked.
                         </p>
                         <section className={card}>
-                          <h3 className="text-[15px] font-semibold text-[#1C1C1E]">
+                          <h3 className="text-[15px] font-semibold text-[var(--owner-ink)]">
                             Manual outreach · last
                             {' '}
                             {overview?.results.windowDays ?? 30}
                             {' '}
                             days
                           </h3>
-                          <div className="mt-2 space-y-1.5 text-[13px] text-[#636366]" data-testid="marketing-results-outreach">
+                          <div className="mt-2 space-y-1.5 text-[13px] text-[var(--owner-muted)]" data-testid="marketing-results-outreach">
                             {(['prepared', 'marked_sent', 'not_sent', 'converted'] as const).map((status) => {
                               const count = overview?.results.outreach
                                 .filter(row => row.status === status)
@@ -1296,7 +1312,7 @@ export function MarketingModal({
                               return (
                                 <div key={status} className="flex items-center justify-between">
                                   <span>{label}</span>
-                                  <span className="font-semibold text-[#1C1C1E]">{count}</span>
+                                  <span className="font-semibold text-[var(--owner-ink)]">{count}</span>
                                 </div>
                               );
                             })}
@@ -1304,40 +1320,40 @@ export function MarketingModal({
                         </section>
 
                         <section className={card} data-testid="marketing-results-campaigns">
-                          <h3 className="text-[15px] font-semibold text-[#1C1C1E]">Win-back campaigns · all time</h3>
+                          <h3 className="text-[15px] font-semibold text-[var(--owner-ink)]">Win-back campaigns · all time</h3>
                           {(overview?.results.campaigns.length ?? 0) === 0
-                            ? <p className="mt-2 text-[13px] text-[#8E8E93]">No offers have been prepared yet.</p>
+                            ? <p className="mt-2 text-[13px] text-[var(--owner-muted)]">No offers have been prepared yet.</p>
                             : overview?.results.campaigns.map(row => (
-                              <div key={row.stage} className="mt-3 rounded-[14px] bg-[#F8F8FA] p-3 text-[13px] text-[#636366]">
-                                <div className="font-semibold text-[#1C1C1E]">
+                              <div key={row.stage} className="mt-3 rounded-[14px] bg-[var(--owner-ground)] p-3 text-[13px] text-[var(--owner-muted)]">
+                                <div className="font-semibold text-[var(--owner-ink)]">
                                   {row.stage === 'promo_6w' ? 'Stage 1 (42 days)' : 'Stage 2 (56 days)'}
                                 </div>
                                 <div className="mt-1.5 space-y-1">
                                   <div className="flex justify-between">
                                     <span>Offers prepared</span>
-                                    <span className="font-medium text-[#1C1C1E]">{row.minted}</span>
+                                    <span className="font-medium text-[var(--owner-ink)]">{row.minted}</span>
                                   </div>
                                   <div className="flex justify-between">
                                     <span>Promotion redeemed</span>
-                                    <span className="font-medium text-[#1C1C1E]">{row.redeemed}</span>
+                                    <span className="font-medium text-[var(--owner-ink)]">{row.redeemed}</span>
                                   </div>
                                   <div className="flex justify-between">
                                     <span>Completed visits</span>
-                                    <span className="font-medium text-[#1C1C1E]">{row.completedCount}</span>
+                                    <span className="font-medium text-[var(--owner-ink)]">{row.completedCount}</span>
                                   </div>
                                   <div className="flex justify-between">
                                     <span>Completed revenue (before tax)</span>
-                                    <span className="font-medium text-[#1C1C1E]" data-testid={`campaign-revenue-${row.stage}`}>
+                                    <span className="font-medium text-[var(--owner-ink)]" data-testid={`campaign-revenue-${row.stage}`}>
                                       {formatMoney(row.completedRevenueCents, overview.currency)}
                                     </span>
                                   </div>
                                   <div className="flex justify-between">
                                     <span>Tax collected (not revenue)</span>
-                                    <span className="font-medium text-[#1C1C1E]">{formatMoney(row.completedTaxCents, overview.currency)}</span>
+                                    <span className="font-medium text-[var(--owner-ink)]">{formatMoney(row.completedTaxCents, overview.currency)}</span>
                                   </div>
                                   <div className="flex justify-between">
                                     <span>Discounts given</span>
-                                    <span className="font-medium text-[#1C1C1E]">{formatMoney(row.discountGivenCents, overview.currency)}</span>
+                                    <span className="font-medium text-[var(--owner-ink)]">{formatMoney(row.discountGivenCents, overview.currency)}</span>
                                   </div>
                                   {row.unresolvedFinancialCount > 0 && (
                                     <div className="flex justify-between text-amber-700">
@@ -1351,19 +1367,19 @@ export function MarketingModal({
                         </section>
 
                         <section className={card} data-testid="marketing-results-automatic">
-                          <h3 className="text-[15px] font-semibold text-[#1C1C1E]">
+                          <h3 className="text-[15px] font-semibold text-[var(--owner-ink)]">
                             Automatic appointment messages · last
                             {' '}
                             {overview?.results.windowDays ?? 30}
                             {' '}
                             days
                           </h3>
-                          <p className="mt-1 text-[12px] text-[#8E8E93]">
+                          <p className="mt-1 text-[12px] text-[var(--owner-muted)]">
                             Confirmations, reminders and cancellations — not marketing.
                           </p>
-                          <div className="mt-2 space-y-1.5 text-[13px] text-[#636366]">
+                          <div className="mt-2 space-y-1.5 text-[13px] text-[var(--owner-muted)]">
                             {(overview?.results.automatic.length ?? 0) === 0
-                              ? <p className="text-[13px] text-[#8E8E93]">None in this window.</p>
+                              ? <p className="text-[13px] text-[var(--owner-muted)]">None in this window.</p>
                               : overview?.results.automatic.map(row => (
                                 <div key={`${row.channel}-${row.status}`} className="flex items-center justify-between">
                                   <span className="capitalize">
@@ -1371,7 +1387,7 @@ export function MarketingModal({
                                     {' · '}
                                     {row.status}
                                   </span>
-                                  <span className="font-semibold text-[#1C1C1E]">{row.count}</span>
+                                  <span className="font-semibold text-[var(--owner-ink)]">{row.count}</span>
                                 </div>
                               ))}
                           </div>
@@ -1383,13 +1399,13 @@ export function MarketingModal({
                       <div className="space-y-4" data-testid="marketing-reviews">
                         <section className={card}>
                           <div className="mb-4 flex items-center gap-2">
-                            <Star className="size-5 text-[#FF9500]" />
-                            <h2 className="text-[18px] font-semibold text-[#1C1C1E]">Reviews</h2>
+                            <Star className="size-5 text-amber-500" />
+                            <h2 className="text-[18px] font-semibold text-[var(--owner-ink)]">Review settings</h2>
                           </div>
                           <div className="space-y-5">
                             <label htmlFor="google-review-url" className="block">
-                              <span className="flex items-center gap-2 text-[15px] font-semibold text-[#1C1C1E]">
-                                <Star className="size-4 text-[#FF9500]" />
+                              <span className="flex items-center gap-2 text-[15px] font-semibold text-[var(--owner-ink)]">
+                                <Star className="size-4 text-amber-500" />
                                 Direct Google review link
                               </span>
                               <input
@@ -1403,23 +1419,23 @@ export function MarketingModal({
                                 aria-invalid={Boolean(validationErrors.googleReviewUrl)}
                                 aria-describedby={validationErrors.googleReviewUrl ? 'google-review-url-error' : 'google-review-url-hint'}
                                 onChange={event => updateSetting('googleReviewUrl', event.target.value.trim() || null)}
-                                className="mt-2 w-full rounded-[12px] border border-[#D1D1D6] p-3 text-[16px] text-[#1C1C1E] outline-none focus:border-[#007AFF] focus:ring-2 focus:ring-[#007AFF]/15"
+                                className="mt-2 w-full rounded-[12px] border border-[var(--owner-line)] p-3 text-[16px] text-[var(--owner-ink)] outline-none focus:border-[var(--owner-accent)] focus:ring-2 focus:ring-[var(--owner-focus)]"
                                 placeholder="https://g.page/r/…/review"
                               />
-                              <span id="google-review-url-hint" className="mt-1.5 block text-[12px] leading-relaxed text-[#8E8E93]">
+                              <span id="google-review-url-hint" className="mt-1.5 block text-[12px] leading-relaxed text-[var(--owner-muted)]">
                                 The Google review button remains disabled until this link is configured.
                               </span>
                               <FieldError id="google-review-url-error" message={validationErrors.googleReviewUrl} />
                             </label>
 
-                            <p className="text-[12px] leading-relaxed text-[#8E8E93]">
+                            <p className="text-[12px] leading-relaxed text-[var(--owner-muted)]">
                               Review requests are texts you review and send yourself from a
                               client’s profile. Opening the composer is never counted as a
                               sent request, and Luster never claims a Google review was
                               posted — clients can tell you, and you record it on their
                               profile.
                             </p>
-                            <p className="text-[12px] leading-relaxed text-[#8E8E93]">
+                            <p className="text-[12px] leading-relaxed text-[var(--owner-muted)]">
                               Parking &amp; entry instructions live in Settings → Locations, so
                               directions stay in one place.
                             </p>
@@ -1430,9 +1446,9 @@ export function MarketingModal({
                   </div>
 
                   {(view === 'campaigns' || view === 'reviews') && (
-                    <div className="absolute inset-x-0 bottom-0 z-20 border-t border-[#D1D1D6] bg-white/95 px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-3 backdrop-blur-md">
+                    <div className="absolute inset-x-0 bottom-0 z-20 border-t border-[var(--owner-line)] bg-[var(--owner-surface)] px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-3 backdrop-blur-md">
                       {(saveError || saved) && (
-                        <div className={`mb-2 flex items-center justify-center gap-2 text-center text-[13px] font-medium ${saved ? 'text-[#248A3D]' : 'text-[#D70015]'}`} role={saveError ? 'alert' : 'status'}>
+                        <div className={`mb-2 flex items-center justify-center gap-2 text-center text-[13px] font-medium ${saved ? 'text-emerald-700' : 'text-red-700'}`} role={saveError ? 'alert' : 'status'}>
                           {saved && <Check className="size-4" />}
                           {saved ? 'Marketing settings saved.' : saveError}
                         </div>
@@ -1441,7 +1457,7 @@ export function MarketingModal({
                         type="button"
                         onClick={() => void saveSettings()}
                         disabled={saving || !isDirty}
-                        className="flex min-h-12 w-full items-center justify-center gap-2 rounded-[14px] bg-[#007AFF] px-4 py-3 text-[17px] font-semibold text-white transition-opacity active:opacity-75 disabled:cursor-not-allowed disabled:opacity-40"
+                        className="flex min-h-12 w-full items-center justify-center gap-2 rounded-[14px] bg-[var(--owner-accent)] px-4 py-3 text-[17px] font-semibold text-white transition-opacity active:opacity-75 disabled:cursor-not-allowed disabled:opacity-40"
                       >
                         {saving ? <Loader2 className="size-5 animate-spin" /> : <Save className="size-5" />}
                         {saving ? 'Saving…' : 'Save marketing settings'}
@@ -1459,15 +1475,15 @@ export function MarketingModal({
         closeOnBackdrop={false}
         alignClassName="items-end justify-center p-0 sm:items-center sm:p-4"
         maxWidthClassName="max-w-md"
-        contentClassName="max-h-[90vh] touch-pan-y overflow-y-auto overscroll-contain rounded-t-2xl bg-white p-4 supports-[height:100dvh]:max-h-[90dvh] sm:rounded-2xl"
+        contentClassName="max-h-[90vh] touch-pan-y overflow-y-auto overscroll-contain rounded-t-2xl bg-[var(--owner-surface)] p-4 supports-[height:100dvh]:max-h-[90dvh] sm:rounded-2xl"
         contentTestId="marketing-message-preview"
       >
         {preview && (
           <div role="dialog" aria-modal="true" aria-labelledby="marketing-preview-title">
-            <h3 id="marketing-preview-title" className="text-[17px] font-semibold text-[#1C1C1E]">
+            <h3 id="marketing-preview-title" className="text-[17px] font-semibold text-[var(--owner-ink)]">
               Review and text
             </h3>
-            <p className="mt-0.5 text-[13px] text-[#8E8E93]">
+            <p className="mt-0.5 text-[13px] text-[var(--owner-muted)]">
               {preview.item.clientName || 'Client'}
               {' · '}
               {preview.item.phone}
@@ -1477,7 +1493,7 @@ export function MarketingModal({
               data-testid="marketing-preview-message"
               onChange={event => setPreview(current => current ? { ...current, body: event.target.value } : current)}
               rows={6}
-              className="mt-3 w-full rounded-[12px] border border-[#D1D1D6] p-3 text-[15px] leading-relaxed text-[#1C1C1E]"
+              className="mt-3 w-full rounded-[12px] border border-[var(--owner-line)] p-3 text-[15px] leading-relaxed text-[var(--owner-ink)]"
             />
             <div className="mt-2 flex flex-wrap gap-1.5">
               {preview.insertions.map(insertion => (
@@ -1488,7 +1504,7 @@ export function MarketingModal({
                   onClick={() => setPreview(current => current
                     ? { ...current, body: `${current.body.replace(/\s+$/, '')} ${insertion.value}` }
                     : current)}
-                  className="rounded-full bg-[#F2F2F7] px-2.5 py-1 text-[12px] font-medium text-[#636366]"
+                  className="rounded-full bg-[var(--owner-ground)] px-2.5 py-1 text-[12px] font-medium text-[var(--owner-muted)]"
                 >
                   +
                   {' '}
@@ -1496,13 +1512,13 @@ export function MarketingModal({
                 </button>
               ))}
             </div>
-            <p className="mt-2 text-[12px] leading-relaxed text-[#8E8E93]">
+            <p className="mt-2 text-[12px] leading-relaxed text-[var(--owner-muted)]">
               Your phone’s Messages app will open with this message ready to
               review. Nothing sends until you press send.
             </p>
             {!smsCapableDevice && (
-              <div className="mt-3 rounded-[12px] bg-[#F8F8FA] p-3" data-testid="marketing-desktop-fallback">
-                <p className="text-[12px] text-[#8E8E93]">
+              <div className="mt-3 rounded-[12px] bg-[var(--owner-ground)] p-3" data-testid="marketing-desktop-fallback">
+                <p className="text-[12px] text-[var(--owner-muted)]">
                   This browser can’t open a Messages app. Copy the details below or
                   open Luster on your phone.
                 </p>
@@ -1511,7 +1527,7 @@ export function MarketingModal({
                     type="button"
                     data-testid="marketing-copy-phone"
                     onClick={() => void copyText('phone', preview.item.phone)}
-                    className="flex-1 rounded-[10px] border border-[#D1D1D6] p-2 text-[13px] font-medium text-[#1C1C1E]"
+                    className="flex-1 rounded-[10px] border border-[var(--owner-line)] p-2 text-[13px] font-medium text-[var(--owner-ink)]"
                   >
                     {copied === 'phone' ? 'Copied' : 'Copy phone'}
                   </button>
@@ -1519,7 +1535,7 @@ export function MarketingModal({
                     type="button"
                     data-testid="marketing-copy-message"
                     onClick={() => void copyText('message', preview.body)}
-                    className="flex-1 rounded-[10px] border border-[#D1D1D6] p-2 text-[13px] font-medium text-[#1C1C1E]"
+                    className="flex-1 rounded-[10px] border border-[var(--owner-line)] p-2 text-[13px] font-medium text-[var(--owner-ink)]"
                   >
                     {copied === 'message' ? 'Copied' : 'Copy message'}
                   </button>
@@ -1531,7 +1547,7 @@ export function MarketingModal({
                 type="button"
                 data-testid="marketing-preview-cancel"
                 onClick={() => setPreview(null)}
-                className="flex-1 rounded-[12px] border border-[#D1D1D6] p-3 text-[15px] font-medium text-[#636366]"
+                className="flex-1 rounded-[12px] border border-[var(--owner-line)] p-3 text-[15px] font-medium text-[var(--owner-muted)]"
               >
                 Cancel
               </button>
@@ -1539,7 +1555,7 @@ export function MarketingModal({
                 type="button"
                 data-testid="marketing-preview-open"
                 onClick={() => void openPreviewMessage(preview.body)}
-                className="flex-[1.4] rounded-[12px] bg-[#007AFF] p-3 text-[15px] font-semibold text-white"
+                className="flex-[1.4] rounded-[12px] bg-[var(--owner-accent)] p-3 text-[15px] font-semibold text-white"
               >
                 Open text message
               </button>
@@ -1556,18 +1572,18 @@ export function MarketingModal({
         closeOnEscape={false}
         alignClassName="items-end justify-center p-0 sm:items-center sm:p-4"
         maxWidthClassName="max-w-md"
-        contentClassName="max-h-[calc(100vh-2rem)] touch-pan-y overflow-y-auto overscroll-contain rounded-t-2xl bg-white p-4 supports-[height:100dvh]:max-h-[calc(100dvh-2rem)] sm:rounded-2xl"
+        contentClassName="max-h-[calc(100vh-2rem)] touch-pan-y overflow-y-auto overscroll-contain rounded-t-2xl bg-[var(--owner-surface)] p-4 supports-[height:100dvh]:max-h-[calc(100dvh-2rem)] sm:rounded-2xl"
         contentTestId="marketing-did-you-send"
       >
         {pendingAsk && (
           <div role="dialog" aria-modal="true" aria-labelledby="marketing-send-status-title">
-            <h3 id="marketing-send-status-title" className="text-[17px] font-semibold text-[#1C1C1E]">
+            <h3 id="marketing-send-status-title" className="text-[17px] font-semibold text-[var(--owner-ink)]">
               Did you send the
               {' '}
               {pendingAsk.label}
               ?
             </h3>
-            <p className="mt-1 text-[13px] leading-relaxed text-[#8E8E93]">
+            <p className="mt-1 text-[13px] leading-relaxed text-[var(--owner-muted)]">
               Messages can’t report back to Luster, so tell us what happened to
               keep this client’s follow-ups accurate.
             </p>
@@ -1577,7 +1593,7 @@ export function MarketingModal({
                 data-testid="marketing-mark-sent"
                 disabled={recordingStatus}
                 onClick={() => void finishPendingAsk('marked_sent')}
-                className="rounded-[12px] bg-[#007AFF] p-3 text-[15px] font-semibold text-white disabled:opacity-50"
+                className="rounded-[12px] bg-[var(--owner-accent)] p-3 text-[15px] font-semibold text-white disabled:opacity-50"
               >
                 Mark as sent
               </button>
@@ -1586,7 +1602,7 @@ export function MarketingModal({
                 data-testid="marketing-not-sent"
                 disabled={recordingStatus}
                 onClick={() => void finishPendingAsk('not_sent')}
-                className="rounded-[12px] border border-[#D1D1D6] p-3 text-[15px] font-medium text-[#636366] disabled:opacity-50"
+                className="rounded-[12px] border border-[var(--owner-line)] p-3 text-[15px] font-medium text-[var(--owner-muted)] disabled:opacity-50"
               >
                 I didn’t send it
               </button>

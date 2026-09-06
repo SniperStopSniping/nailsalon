@@ -16,9 +16,11 @@ import { TimeOffRequestsInbox } from './TimeOffRequestsInbox';
 
 type StaffOpsModalProps = {
   onClose: () => void;
+  /** Active salon of the workspace; forwarded so the inbox scopes its requests explicitly. */
+  salonSlug?: string | null;
 };
 
-export function StaffOpsModal({ onClose }: StaffOpsModalProps) {
+export function StaffOpsModal({ onClose, salonSlug = null }: StaffOpsModalProps) {
   return (
     <div className="relative flex min-h-full w-full flex-col bg-[#F2F2F7] font-sans text-black">
       {/* Header */}
@@ -31,7 +33,7 @@ export function StaffOpsModal({ onClose }: StaffOpsModalProps) {
       </div>
 
       {/* Content */}
-      <TimeOffRequestsInbox />
+      <TimeOffRequestsInbox salonSlug={salonSlug} />
     </div>
   );
 }

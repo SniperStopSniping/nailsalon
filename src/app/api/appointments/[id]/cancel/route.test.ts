@@ -113,6 +113,12 @@ const {
   };
 });
 
+const logAppointmentChange = vi.hoisted(() => vi.fn(async () => {}));
+
+vi.mock('@/libs/appointmentAudit', () => ({
+  logAppointmentChange,
+}));
+
 vi.mock('@/libs/routeAccessGuards', () => ({
   requireAppointmentManagerAccess,
 }));
@@ -289,6 +295,17 @@ describe('PATCH /api/appointments/[id]/cancel', () => {
 
     expect(response.status).toBe(200);
     expect(updateSet).toHaveBeenCalled();
+    // AG-w2-calendar-writes-06: a cancellation must record WHO cancelled it
+    // and why — this route wrote no appointment_audit_log row at all.
+    expect(logAppointmentChange).toHaveBeenCalledWith(expect.objectContaining({
+      appointmentId: 'appt_1',
+      salonId: 'salon_1',
+      action: 'cancelled',
+      performedBy: 'staff:tech_1',
+      performedByRole: 'staff',
+      performedByName: 'Taylor',
+      reason: 'client_request',
+    }));
     expect(body).toEqual({
       data: {
         appointment: {

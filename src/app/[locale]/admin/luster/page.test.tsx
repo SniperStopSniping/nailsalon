@@ -190,6 +190,26 @@ describe('LusterOwnerPage', () => {
     });
   });
 
+  it('returns to the More grid the Luster tile was tapped from', async () => {
+    render(<LusterOwnerPage />);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'More apps' }));
+
+    expect(pushMock).toHaveBeenCalledWith('/en/admin?salon=salon-a&tab=more');
+  });
+
+  it('paints itself with the owner token layer rather than raw palette values', async () => {
+    const { container } = render(<LusterOwnerPage />);
+
+    await screen.findByRole('heading', { level: 2, name: 'Promotions' });
+
+    const main = container.querySelector('main');
+
+    expect(main).toHaveClass('owner-workspace-theme');
+    expect(main?.className).toContain('bg-[var(--owner-ground)]');
+    expect(container.innerHTML).not.toMatch(/text-stone-|border-stone-|text-rose-700|bg-\[#F8F3F0\]/);
+  });
+
   it('safely redirects legacy integration callback links to the Integrations app', async () => {
     searchParamsMock.value = new URLSearchParams('salon=salon-a&google=connected');
 

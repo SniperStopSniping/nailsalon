@@ -34,6 +34,8 @@ vi.mock('@/libs/DB', () => ({
 
 vi.mock('@/libs/adminAuth', () => ({
   requireActiveAdminSalon: vi.fn(async () => ({ salon: holder.salon, error: null })),
+  // GET /api/admin/appointments honours ?salonSlug= through this guard since CP2.
+  requireAdminSalonFromRequest: vi.fn(async () => ({ salon: holder.salon, error: null, admin: null, impersonation: null })),
   requireAdminSalon: vi.fn(async () => ({ salon: holder.salon, error: null })),
   getAdminSession: vi.fn(async () => ({ id: 'admin_1', name: 'Owner' })),
 }));
@@ -68,6 +70,8 @@ vi.mock('@/libs/bookingConfig', async importOriginal => ({
 }));
 
 vi.mock('@/libs/queries', () => ({
+  // The admin appointments list resolves the primary location for its schedule block (CP4).
+  getPrimaryLocation: vi.fn(async () => null),
   getTechniciansBySalonId: vi.fn(async () => []),
   getAppointmentServiceNames: vi.fn(async () => ['Gel Manicure']),
 }));

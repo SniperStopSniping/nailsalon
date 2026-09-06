@@ -165,7 +165,7 @@ export function OverviewTab({ technician, stats, onRefresh: _onRefresh }: Overvi
         <div className="overflow-hidden rounded-[12px] bg-white">
           <div className="border-b border-gray-100 p-4">
             <div className="flex items-center justify-between">
-              <span className="text-[15px] text-[#1C1C1E]">They Earned</span>
+              <span className="text-[15px] text-[#1C1C1E]">Technician earned</span>
               <span className="text-[17px] font-semibold text-[#34C759]">
                 {formatCurrency(stats?.thisMonth.techEarned ?? 0)}
               </span>
@@ -173,7 +173,7 @@ export function OverviewTab({ technician, stats, onRefresh: _onRefresh }: Overvi
           </div>
           <div className="p-4">
             <div className="flex items-center justify-between">
-              <span className="text-[15px] text-[#1C1C1E]">They Made Us</span>
+              <span className="text-[15px] text-[#1C1C1E]">Salon revenue</span>
               <span className="text-[17px] font-semibold text-[#007AFF]">
                 {formatCurrency(stats?.thisMonth.salonEarned ?? 0)}
               </span>

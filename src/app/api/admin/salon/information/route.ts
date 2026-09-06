@@ -31,16 +31,17 @@ import { resolveBookingConfigFromSettings } from '@/libs/bookingConfig';
 import { bookingExperienceAppearanceUpdateSchema, resolveBookingExperience } from '@/libs/bookingExperience';
 import { resolveBookingPageContent } from '@/libs/bookingPageContent';
 import { db } from '@/libs/DB';
+import { resolveInstagramInput, toInstagramHandle } from '@/libs/instagramHandle';
 import { buildSalonTenantPublicUrl } from '@/libs/publicUrl';
 import { getActiveLocationsBySalonId, getSalonBySlug, getTechniciansBySalonId } from '@/libs/queries';
 import { resolveSharedSalonProfile } from '@/libs/sharedSalonProfile';
+import { resolveWeeklySchedule } from '@/libs/weeklySchedule';
 import { type Salon, salonLocationSchema, salonSchema } from '@/models/Schema';
-
-import { resolveInstagramUsername } from '../../../../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/model/contact';
 
 export const dynamic = 'force-dynamic';
 
-type Weekday = 'monday' | 'tuesday' | 'wednesday' | 'thursday' | 'friday' | 'saturday' | 'sunday';
+const WEEKDAYS = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'] as const;
+type Weekday = (typeof WEEKDAYS)[number];
 type BusinessHours = Record<Weekday, { open: string; close: string } | null>;
 
 const timeOfDaySchema = z.string().regex(/^(?:[01]\d|2[0-3]):[0-5]\d$/u, 'Use 24-hour HH:MM times');
@@ -103,12 +104,18 @@ const emailSchema = optionalText(320).transform((value, context) => {
 
 const instagramUrlSchema = bookingExperienceAppearanceUpdateSchema.shape.socialLinks.shape.instagram;
 
-/** Accepts a username, `@username` or a profile URL; stores the canonical profile URL. */
+/**
+ * Accepts a username, `@username` or a profile URL; stores the canonical
+ * profile URL. `@/libs/instagramHandle` is the single normaliser — Settings →
+ * Branding sends the same canonical URL through
+ * `PATCH /api/admin/salon/settings`, so both owner editors agree on the stored
+ * form and both display the bare handle.
+ */
 const instagramSchema = optionalText(200).transform((value, context) => {
   if (value === null) {
     return null;
   }
-  const resolution = resolveInstagramUsername(value);
+  const resolution = resolveInstagramInput(value);
   if (resolution.status === 'empty') {
     return null;
   }
@@ -116,7 +123,7 @@ const instagramSchema = optionalText(200).transform((value, context) => {
     context.addIssue({ code: z.ZodIssueCode.custom, message: resolution.error });
     return z.NEVER;
   }
-  const parsed = instagramUrlSchema.safeParse(`https://www.instagram.com/${resolution.username}/`);
+  const parsed = instagramUrlSchema.safeParse(resolution.url);
   if (!parsed.success) {
     context.addIssue({ code: z.ZodIssueCode.custom, message: 'Enter only your Instagram username.' });
     return z.NEVER;
@@ -196,8 +203,17 @@ async function buildInformation(salon: Salon) {
   ]);
   const location = locations.find(item => item.isPrimary) ?? locations[0] ?? null;
   const soleTechnician = technicians.length === 1 ? technicians[0]! : null;
+  // Opening a day here does NOT make it bookable on its own: the availability
+  // engine floors every slot on the staff schedules, which this route
+  // deliberately never writes (see the header). Reporting which weekdays are
+  // actually staffed lets the editor warn the owner instead of promising the
+  // public a day nobody works.
+  const staffedDays = WEEKDAYS.filter(day =>
+    technicians.some(technician => Boolean(resolveWeeklySchedule(technician)?.[day])),
+  );
   const content = resolveBookingPageContent(salon.settings);
   const sharedProfile = resolveSharedSalonProfile(salon.settings);
+  const instagramUrl = resolveBookingExperience(salon.settings).socialLinks.instagram;
 
   return {
     salon: {
@@ -216,7 +232,13 @@ async function buildInformation(salon: Salon) {
       ? { id: soleTechnician.id, name: soleTechnician.name, avatarUrl: soleTechnician.avatarUrl ?? null }
       : null,
     technicianCount: technicians.length,
-    instagram: resolveBookingExperience(salon.settings).socialLinks.instagram,
+    instagram: instagramUrl,
+    /**
+     * The bare handle the editor pre-fills with. The stored URL stays in
+     * `instagram` for anything that links out; the owner never has to read or
+     * retype `https://www.instagram.com/…/`.
+     */
+    instagramHandle: toInstagramHandle(instagramUrl) || null,
     location: location
       ? {
           id: location.id,
@@ -238,6 +260,7 @@ async function buildInformation(salon: Salon) {
       textNumber: sharedProfile.textNumber,
     },
     businessHours: (location?.businessHours ?? salon.businessHours ?? null) as BusinessHours | null,
+    staffedDays,
     timezone: resolveBookingConfigFromSettings(salon.settings).timezone,
   };
 }

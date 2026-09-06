@@ -27,6 +27,10 @@ import { Button } from '@/components/ui/button';
 import { ListSurface } from '@/components/ui/list-surface';
 
 import { StaffCard, type StaffCardData } from './StaffCard';
+import {
+  type TechnicianReviewSummary,
+  useTechnicianReviews,
+} from './useTechnicianReviews';
 
 // =============================================================================
 // Types
@@ -40,12 +44,13 @@ type FilterTab = 'all' | 'available' | 'busy' | 'break' | 'off' | 'inactive';
 
 type SortableStaffCardProps = {
   staff: StaffCardData;
+  reviews: TechnicianReviewSummary | null;
   isLast: boolean;
   onClick: () => void;
   isDraggable: boolean;
 };
 
-function SortableStaffCard({ staff, isLast, onClick, isDraggable }: SortableStaffCardProps) {
+function SortableStaffCard({ staff, reviews, isLast, onClick, isDraggable }: SortableStaffCardProps) {
   const {
     attributes,
     listeners,
@@ -64,6 +69,7 @@ function SortableStaffCard({ staff, isLast, onClick, isDraggable }: SortableStaf
     <div ref={setNodeRef} style={style}>
       <StaffCard
         staff={staff}
+        reviews={reviews}
         isLast={isLast}
         onClick={onClick}
         isDraggable={isDraggable}
@@ -103,6 +109,14 @@ export function StaffListView({ salonSlug, onStaffSelect, onAddStaff }: StaffLis
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [activeFilter, setActiveFilter] = useState<FilterTab>('all');
+  // Status filters are team machinery. A solo owner has no team to filter, so
+  // they stay folded away until asked for (the audit's solo-owner simplicity
+  // note) — never removed, so an owner with a deactivated technician can still
+  // reach the Inactive tab.
+  const [showStatusFilters, setShowStatusFilters] = useState(false);
+
+  // One review truth: the same rows the Reviews app counts (AG-w2-more-tools-04).
+  const { byTechnician: reviewsByTechnician } = useTechnicianReviews(salonSlug);
 
   // Drag-and-drop sensors
   const sensors = useSensors(
@@ -117,7 +131,13 @@ export function StaffListView({ salonSlug, onStaffSelect, onAddStaff }: StaffLis
   );
 
   // Only allow dragging in active staff views (not inactive, not searching)
-  const isDraggable = activeFilter !== 'inactive' && !searchQuery;
+  const isDraggable = activeFilter !== 'inactive' && !searchQuery && staff.length > 1;
+
+  // A one-technician salon is the owner working alone: no drag-to-reorder, no
+  // status filter rail, no plural 'team' language until there is a team.
+  const isSoloRoster
+    = !loading && !searchQuery && activeFilter === 'all' && staff.length === 1;
+  const filtersVisible = showStatusFilters || !isSoloRoster;
 
   // Fetch staff data
   const fetchStaff = useCallback(async () => {
@@ -216,8 +236,25 @@ export function StaffListView({ salonSlug, onStaffSelect, onAddStaff }: StaffLis
         />
       </div>
 
+      {/* Solo owner: the roster is one person, so say so and keep the status
+          rail out of the way until it is useful. */}
+      {isSoloRoster && !showStatusFilters && (
+        <div className="flex items-center justify-between gap-3 px-4 pb-3">
+          <p className="text-[13px] text-[#8E8E93]" data-testid="staff-solo-note">
+            It’s just you right now. Add someone when you’re ready.
+          </p>
+          <button
+            type="button"
+            onClick={() => setShowStatusFilters(true)}
+            className="shrink-0 text-[13px] font-medium text-[var(--owner-accent,#8b3151)] underline underline-offset-2"
+          >
+            Show status filters
+          </button>
+        </div>
+      )}
+
       {/* Filter Tabs */}
-      <div className="px-4 pb-3">
+      <div className={`px-4 pb-3 ${filtersVisible ? '' : 'hidden'}`}>
         <div className="no-scrollbar flex gap-2 overflow-x-auto">
           {FILTER_TABS.map((tab) => {
             const isActive = activeFilter === tab.value;
@@ -291,6 +328,7 @@ export function StaffListView({ salonSlug, onStaffSelect, onAddStaff }: StaffLis
                           <SortableStaffCard
                             key={member.id}
                             staff={member}
+                            reviews={reviewsByTechnician[member.id] ?? null}
                             isLast={index === staff.length - 1}
                             onClick={() => onStaffSelect(member)}
                             isDraggable={isDraggable}

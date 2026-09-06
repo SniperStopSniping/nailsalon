@@ -19,7 +19,7 @@ const {
   loadAppointmentForSalon,
   logAuditEvent,
   readDevRoleFromCookies,
-  requireAdmin,
+  requireAdminOwner,
   resolveDepositActor,
   selectedDeposits,
 } = vi.hoisted(() => {
@@ -44,7 +44,7 @@ const {
     loadAppointmentForSalon: vi.fn(),
     logAuditEvent: vi.fn(async () => undefined),
     readDevRoleFromCookies: vi.fn((): string | null => null),
-    requireAdmin: vi.fn(),
+    requireAdminOwner: vi.fn(),
     resolveDepositActor: vi.fn(() => ({ requestedBy: 'admin_1' })),
     selectedDeposits,
   };
@@ -52,7 +52,7 @@ const {
 
 vi.mock('@/libs/adminAuth', () => ({
   getAdminImpersonationForAdmin,
-  requireAdmin,
+  requireAdminOwner,
 }));
 vi.mock('@/libs/auditLog', () => ({ logAuditEvent }));
 vi.mock('@/libs/DB', () => ({ db }));
@@ -101,7 +101,7 @@ describe('deposit money guard', () => {
     isDevModeServer.mockReturnValue(false);
     readDevRoleFromCookies.mockReturnValue(null);
     getSalonBySlug.mockResolvedValue(salon);
-    requireAdmin.mockResolvedValue({ ok: true, admin });
+    requireAdminOwner.mockResolvedValue({ ok: true, admin });
     getAdminImpersonationForAdmin.mockResolvedValue(null);
     loadAppointmentForSalon.mockResolvedValue(appointment);
   });
@@ -138,7 +138,7 @@ describe('deposit money guard', () => {
     }
 
     expect(getSalonBySlug).not.toHaveBeenCalled();
-    expect(requireAdmin).not.toHaveBeenCalled();
+    expect(requireAdminOwner).not.toHaveBeenCalled();
   });
 
   it('returns the same 404 for a missing or unknown required salon slug', async () => {
@@ -169,11 +169,11 @@ describe('deposit money guard', () => {
       expect(unknown.response.status).toBe(404);
     }
 
-    expect(requireAdmin).not.toHaveBeenCalled();
+    expect(requireAdminOwner).not.toHaveBeenCalled();
   });
 
   it('requires a super-admin to impersonate before appointment or deposit reads', async () => {
-    requireAdmin.mockResolvedValue({
+    requireAdminOwner.mockResolvedValue({
       ok: true,
       admin: { ...admin, isSuperAdmin: true },
     });
@@ -236,8 +236,70 @@ describe('deposit money guard', () => {
     expect(result).toEqual({ ok: true, crossSalon: true });
     expect(checkEndpointRateLimit).toHaveBeenCalledTimes(1);
     expect(getSalonBySlug).not.toHaveBeenCalled();
-    expect(requireAdmin).not.toHaveBeenCalled();
+    expect(requireAdminOwner).not.toHaveBeenCalled();
     expect(loadAppointmentForSalon).not.toHaveBeenCalled();
+  });
+
+  // AG-security-tenancy-02: deposit records are money (paid, refunded, waived,
+  // released, forfeited), so every route behind this guard — the salon list,
+  // the per-appointment read and the five mutations — is owner-only.
+  it('authorizes deposit access as the salon OWNER, not as any membership role', async () => {
+    selectedDeposits.push([deposit]);
+
+    const result = await requireDepositMoneyActor({
+      request: request(),
+      rateLimitKey: 'deposit-refund',
+      salonSlug: 'salon-one',
+      appointmentId: 'appt_1',
+    });
+
+    expect(result.ok).toBe(true);
+    expect(requireAdminOwner).toHaveBeenCalledWith('salon_1', expect.any(String));
+  });
+
+  it('passes the OWNER_REQUIRED refusal through for a collaborator, reading no deposit', async () => {
+    requireAdminOwner.mockResolvedValue({
+      ok: false,
+      response: new Response(
+        JSON.stringify({ error: { code: 'OWNER_REQUIRED', message: 'Only the salon owner can access deposit records.' } }),
+        { status: 403, headers: { 'Content-Type': 'application/json' } },
+      ),
+    });
+
+    const mutation = await requireDepositMoneyActor({
+      request: request(),
+      rateLimitKey: 'deposit-refund',
+      salonSlug: 'salon-one',
+      appointmentId: 'appt_1',
+    });
+
+    expect(mutation.ok).toBe(false);
+
+    if (!mutation.ok) {
+      expect(mutation.response.status).toBe(403);
+      await expect(mutation.response.json()).resolves.toEqual({
+        error: {
+          code: 'OWNER_REQUIRED',
+          message: 'Only the salon owner can access deposit records.',
+        },
+      });
+    }
+
+    const read = await requireDepositReadActor({
+      request: request(),
+      rateLimitKey: 'deposit-list',
+      salonSlug: 'salon-one',
+    });
+
+    expect(read.ok).toBe(false);
+
+    if (!read.ok) {
+      expect(read.response.status).toBe(403);
+    }
+
+    expect(loadAppointmentForSalon).not.toHaveBeenCalled();
+    expect(db.select).not.toHaveBeenCalled();
+    expect(logAuditEvent).not.toHaveBeenCalled();
   });
 
   it('writes the read audit only for an impersonated salon-scoped GET', async () => {
@@ -249,7 +311,7 @@ describe('deposit money guard', () => {
       adminPhone: '+15550000000',
       startedAt: '2026-08-14T12:00:00.000Z',
     };
-    requireAdmin.mockResolvedValue({
+    requireAdminOwner.mockResolvedValue({
       ok: true,
       admin: { ...admin, id: 'super_1', isSuperAdmin: true },
     });

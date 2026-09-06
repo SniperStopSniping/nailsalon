@@ -6,6 +6,7 @@ import {
   ClipboardList,
   Gift,
   LoaderCircle,
+  Mail,
   MapPin,
   MessageCircle,
   Phone,
@@ -22,6 +23,7 @@ import {
 } from 'react';
 
 import { Button } from '@/components/ui/button';
+import { InlineFeedback } from '@/components/ui/inline-feedback';
 import {
   buildNativeSmsUrl,
   type ClientSmsAppointment,
@@ -32,7 +34,7 @@ import {
 } from '@/libs/clientSmsComposer';
 import { notifyRetentionDataChanged } from '@/libs/dashboardEvents';
 import { resolveDirectionsLocation } from '@/libs/directions';
-import { normalizePhone } from '@/libs/phone';
+import { isValidPhone, normalizePhone } from '@/libs/phone';
 import { firstNameForMessage, renderPromotionMessage } from '@/libs/promotionMessage';
 import {
   type ClientCommunicationKind,
@@ -118,6 +120,21 @@ type PromotionSettingsStage = Extract<
 
 function openNativeUrl(href: string): void {
   window.location.assign(href);
+}
+
+/** A refusal the server explained, as opposed to a transport failure. */
+class SupportSettingsError extends Error {}
+
+const NO_MOBILE_REASON
+  = 'This client needs a valid mobile number before a text can be prepared';
+
+/** `mailto:` needs a plausible address, not a validated one. */
+function emailHref(email: string | null | undefined): string | null {
+  const trimmed = (email ?? '').trim();
+  if (!trimmed || !/^[^\s@]+@[^\s@.]+(?:\.[^\s@.]+)+$/.test(trimmed)) {
+    return null;
+  }
+  return `mailto:${encodeURIComponent(trimmed).replace(/%40/g, '@')}`;
 }
 
 const DEFAULT_SUPPORT_DATA: SupportData = {
@@ -230,6 +247,31 @@ function toSmsAppointment(
   };
 }
 
+// One surface for every contact action so a real `tel:`/`mailto:` link is
+// visually identical to the buttons beside it.
+const ACTION_SURFACE_BASE
+  = 'flex items-center rounded-2xl border border-stone-200 bg-white font-semibold text-stone-800 shadow-sm transition active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-stone-100 disabled:text-stone-400 disabled:shadow-none';
+
+/** Wide row: used inside "More actions", where labels are long. */
+const ACTION_ROW_CLASS
+  = `${ACTION_SURFACE_BASE} min-h-12 gap-2 px-3 py-2 text-left text-[13px]`;
+
+/**
+ * Compact square: the four primary contact actions stay on ONE row at 320px so
+ * the sticky footer costs the daily-work screen a single 56px band instead of
+ * two. Icon over label until 640px, then the wide row shape.
+ */
+const ACTION_TILE_CLASS
+  = `${ACTION_SURFACE_BASE} min-h-14 flex-col justify-center gap-1 px-1 py-2 text-center text-[11px] leading-tight sm:min-h-12 sm:flex-row sm:justify-start sm:gap-2 sm:px-3 sm:text-left sm:text-[13px]`;
+
+function ActionGlyph({ icon }: { icon: ReactNode }) {
+  return (
+    <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-rose-50 text-rose-700 sm:size-7">
+      {icon}
+    </span>
+  );
+}
+
 function ActionButton({
   icon,
   label,
@@ -237,6 +279,7 @@ function ActionButton({
   disabled = false,
   title,
   testId,
+  shape = 'row',
 }: {
   icon: ReactNode;
   label: string;
@@ -244,6 +287,7 @@ function ActionButton({
   disabled?: boolean;
   title?: string;
   testId?: string;
+  shape?: 'row' | 'tile';
 }) {
   return (
     <button
@@ -252,13 +296,62 @@ function ActionButton({
       disabled={disabled}
       title={title}
       data-testid={testId}
-      className="flex min-h-12 items-center gap-2 rounded-2xl border border-stone-200 bg-white px-3 py-2 text-left text-[13px] font-semibold text-stone-800 shadow-sm transition active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-stone-100 disabled:text-stone-400 disabled:shadow-none"
+      className={shape === 'tile' ? ACTION_TILE_CLASS : ACTION_ROW_CLASS}
     >
-      <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-rose-50 text-rose-700">
-        {icon}
-      </span>
-      <span>{label}</span>
+      <ActionGlyph icon={icon} />
+      <span className="min-w-0 truncate">{label}</span>
     </button>
+  );
+}
+
+/**
+ * A contact action the device — not Luster — completes: `tel:` dials, `mailto:`
+ * composes. It is a real link so long-press, "copy link", right-click and
+ * keyboard activation all behave the way the owner expects, and so the target
+ * is visible in the status bar before they commit (contact-actions repair).
+ *
+ * When the client has no usable number or address there is nothing to link to,
+ * so the tile stays in place as a disabled control that says why, instead of
+ * disappearing or failing after the tap.
+ */
+function ContactActionLink({
+  icon,
+  label,
+  href,
+  unavailableReason,
+  testId,
+}: {
+  icon: ReactNode;
+  label: string;
+  href: string | null;
+  unavailableReason: string;
+  testId?: string;
+}) {
+  if (!href) {
+    return (
+      <button
+        type="button"
+        disabled
+        title={unavailableReason}
+        aria-label={`${label} — ${unavailableReason}`}
+        data-testid={testId}
+        className={ACTION_TILE_CLASS}
+      >
+        <ActionGlyph icon={icon} />
+        <span className="min-w-0 truncate">{label}</span>
+      </button>
+    );
+  }
+
+  return (
+    <a
+      href={href}
+      data-testid={testId}
+      className={ACTION_TILE_CLASS}
+    >
+      <ActionGlyph icon={icon} />
+      <span className="min-w-0 truncate">{label}</span>
+    </a>
   );
 }
 
@@ -278,7 +371,12 @@ export function ClientCommunicationActions({
 }: {
   salonSlug: string;
   salonName: string;
-  client: { id: string; fullName: string | null; phone: string };
+  client: {
+    id: string;
+    fullName: string | null;
+    phone: string;
+    email?: string | null;
+  };
   upcomingAppointment?: CommunicationAppointment | null;
   lastCompletedAppointment?: CommunicationAppointment | null;
   completedAppointmentCount: number;
@@ -291,7 +389,15 @@ export function ClientCommunicationActions({
 }) {
   const [supportData, setSupportData] = useState<SupportData>(DEFAULT_SUPPORT_DATA);
   const [supportLoading, setSupportLoading] = useState(true);
-  const [supportError, setSupportError] = useState<string | null>(null);
+  /**
+   * A background capability check that fails must never print a bare
+   * "Failed to fetch" beside the client's primary actions (AG-clients-09).
+   * The failure is kept as structured state so the owner reads the capability
+   * that is degraded, and the raw transport string is only ever the detail
+   * line of a named notice.
+   */
+  const [supportFailure, setSupportFailure] = useState<{ detail: string | null } | null>(null);
+  const [supportFailureDismissed, setSupportFailureDismissed] = useState(false);
   const [preparingKind, setPreparingKind] = useState<ClientSmsMessageKind | null>(null);
   const [preparingPromotion, setPreparingPromotion] = useState<RetentionStage | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -311,7 +417,8 @@ export function ClientCommunicationActions({
     }
 
     setSupportLoading(true);
-    setSupportError(null);
+    setSupportFailure(null);
+    setSupportFailureDismissed(false);
     try {
       const query = `salonSlug=${encodeURIComponent(salonSlug)}`;
       const [settingsResponse, locationResponse, todayResponse, retentionResponse] = await Promise.all([
@@ -328,8 +435,9 @@ export function ClientCommunicationActions({
       ]);
 
       if (!settingsResponse.ok) {
-        throw new Error(
-          settingsPayload?.error?.message || 'Communication settings could not be loaded.',
+        throw new SupportSettingsError(
+          settingsPayload?.error?.message
+          || `The settings request answered ${settingsResponse.status}.`,
         );
       }
 
@@ -355,11 +463,12 @@ export function ClientCommunicationActions({
         setReminderDue(ownReminder ?? null);
       }
     } catch (error) {
-      setSupportError(
-        error instanceof Error
-          ? error.message
-          : 'Communication settings could not be loaded.',
-      );
+      // Only a message the server wrote is worth showing; a transport failure
+      // ("Failed to fetch", "NetworkError") tells the owner nothing.
+      const serverReason = error instanceof SupportSettingsError
+        ? error.message
+        : null;
+      setSupportFailure({ detail: serverReason });
     } finally {
       setSupportLoading(false);
     }
@@ -802,6 +911,13 @@ export function ClientCommunicationActions({
     }
   }, [pendingOutreach, recordOutreach]);
 
+  // Contact targets. A text needs a real mobile; a call only needs enough
+  // digits to dial; an email needs an address the client actually gave us.
+  const canText = isValidPhone(client.phone);
+  const dialDigits = normalizePhone(client.phone);
+  const callHref = dialDigits.length >= 7 ? `tel:${dialDigits}` : null;
+  const mailtoHref = emailHref(client.email);
+
   const reviewDisabled = completedAppointmentCount < 1
     || !supportData.settings.googleReviewUrl
     || reviewRecorded;
@@ -885,22 +1001,42 @@ export function ClientCommunicationActions({
           ? 'sticky bottom-[calc(4.75rem+env(safe-area-inset-bottom))] z-20 -mx-1 rounded-2xl border border-rose-100 bg-[#fffaf5]/95 p-2 shadow-lg backdrop-blur lg:static lg:mx-0 lg:border-0 lg:bg-transparent lg:p-0 lg:shadow-none'
           : ''}
       >
-        <div className="grid grid-cols-3 gap-2">
+        {/*
+          The four contact actions an owner uses every day, on one row at every
+          width. Book and Text are Luster's own flows; Call and Email hand off
+          to the device through real links so the target is inspectable before
+          the tap (contact-actions repair).
+        */}
+        <div className="grid grid-cols-4 gap-2">
           <ActionButton
             icon={<CalendarPlus size={15} />}
             label="Book"
+            shape="tile"
             onClick={onBookAppointment}
             testId="client-book-appointment"
           />
           <ActionButton
             icon={<MessageCircle size={15} />}
             label="Text"
+            shape="tile"
+            disabled={!canText}
+            title={canText ? undefined : NO_MOBILE_REASON}
+            testId="client-text-action"
             onClick={() => openDraft('text', 'Text', null)}
           />
-          <ActionButton
+          <ContactActionLink
             icon={<Phone size={15} />}
             label="Call"
-            onClick={() => onOpenNativeUrl(`tel:${normalizePhone(client.phone)}`)}
+            href={callHref}
+            unavailableReason="No phone number on file"
+            testId="client-call-action"
+          />
+          <ContactActionLink
+            icon={<Mail size={15} />}
+            label="Email"
+            href={mailtoHref}
+            unavailableReason="No email on file — add one from Edit client"
+            testId="client-email-action"
           />
         </div>
 
@@ -986,16 +1122,6 @@ export function ClientCommunicationActions({
         </div>
       )}
 
-      {supportError && (
-        <div className="mt-2 rounded-xl bg-amber-50 px-3 py-2 text-left text-xs text-amber-900">
-          {supportError}
-          {' '}
-          <button type="button" className="font-semibold underline" onClick={() => void loadSupportData()}>
-            Try again
-          </button>
-        </div>
-      )}
-
       {actionError && (
         <div role="alert" className="mt-2 rounded-xl bg-red-50 px-3 py-2 text-left text-xs text-red-800">
           {actionError}
@@ -1006,6 +1132,50 @@ export function ClientCommunicationActions({
         <div role="status" className="mt-2 rounded-xl bg-emerald-50 px-3 py-2 text-left text-xs font-medium text-emerald-800">
           {actionNotice}
         </div>
+      )}
+
+      {/*
+        AG-clients-09: this used to render the raw transport string
+        ("Failed to fetch") with a bare "Try again" immediately under Book /
+        Text / Call. It now names the capability that is degraded, says what
+        the owner loses, keeps the retry inside the notice rather than in the
+        primary action strip, and can be dismissed. It is polite (role=status)
+        because nothing the owner did failed — a background check did.
+      */}
+      {supportFailure && !supportFailureDismissed && (
+        <InlineFeedback
+          tone="info"
+          className="mt-3"
+          data-testid="client-support-failure"
+          message="Couldn’t load your message templates and review link"
+          detail={(
+            <>
+              <span>
+                Book, Call, Email and a plain text still work. Reminder,
+                promotion and Google review drafts stay unavailable until this
+                loads.
+              </span>
+              {supportFailure.detail
+                ? (
+                    <span className="mt-0.5 block">{supportFailure.detail}</span>
+                  )
+                : null}
+            </>
+          )}
+          onDismiss={() => setSupportFailureDismissed(true)}
+          dismissLabel="Dismiss message template notice"
+          action={(
+            <Button
+              type="button"
+              variant="brandSoft"
+              size="pillSm"
+              disabled={supportLoading}
+              onClick={() => void loadSupportData()}
+            >
+              {supportLoading ? 'Retrying…' : 'Try again'}
+            </Button>
+          )}
+        />
       )}
 
       {manualReminderFallback && upcomingAppointment && (

@@ -5,6 +5,51 @@ import { onboardingPersistedSnapshotSchema } from './contracts';
 import { createSavedSitePreviewModel } from './saved-preview';
 import { createPersistableOnboardingDraft } from './snapshot';
 
+describe('onboarding persisted owner name boundary', () => {
+  const teamSalonState = () => {
+    const state = createDefaultOnboardingState();
+    state.profile.businessName = 'AUDIT Repro Team Salon';
+    state.profile.businessType = 'salon_team';
+    state.profile.businessStructure = 'multi_tech';
+    state.profile.location.cityOrArea = 'Toronto';
+    state.recipe.starter = 'quick_book';
+    return state;
+  };
+
+  it('accepts a Salon/studio snapshot whose owner name was never asked for', () => {
+    // OP-001: Basics hides the personal owner-name field for `salon_team`, so
+    // requiring it here blocked the whole account gate.
+    const state = teamSalonState();
+    state.profile.ownerName = '';
+
+    const { snapshot } = createPersistableOnboardingDraft(state, 'luster_berry');
+
+    expect(snapshot.profile.ownerName).toBe('');
+    expect(onboardingPersistedSnapshotSchema.safeParse(snapshot).success).toBe(true);
+  });
+
+  it('still requires the owner name for the personal business types that ask for it', () => {
+    for (const businessType of ['independent_salon', 'home_based', 'mobile'] as const) {
+      const state = teamSalonState();
+      state.profile.businessType = businessType;
+      state.profile.businessStructure = 'solo';
+      state.profile.ownerName = 'Maya';
+      const { snapshot } = createPersistableOnboardingDraft(state, 'luster_berry');
+
+      expect(onboardingPersistedSnapshotSchema.safeParse(snapshot).success).toBe(true);
+
+      const withoutOwnerName = onboardingPersistedSnapshotSchema.safeParse({
+        ...snapshot,
+        profile: { ...snapshot.profile, ownerName: '' },
+      });
+
+      expect(withoutOwnerName.success).toBe(false);
+      expect(withoutOwnerName.error?.issues.map(issue => issue.path.join('.')))
+        .toContain('profile.ownerName');
+    }
+  });
+});
+
 describe('onboarding persisted location boundary', () => {
   it('keeps setup-default provenance local while saving canonical address and contact choices', () => {
     const state = createDefaultOnboardingState();

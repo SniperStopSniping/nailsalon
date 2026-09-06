@@ -75,9 +75,11 @@ const privateSnapshotVisibility = () => {
 const request = (
   suffix: string,
   options: {
+    businessType?: 'home_based' | 'independent_salon' | 'mobile' | 'salon_team';
     idempotencyKey?: string;
     includeProfilePhoto?: boolean;
     localPhotoId?: string;
+    ownerName?: string;
     ownerOverridesByServiceId?: Record<string, { durationMinutes?: number; priceCents?: number }>;
     selectedAddOnIds?: string[];
     selectedServiceIds?: string[];
@@ -97,8 +99,11 @@ const request = (
   // Real onboarding saves the suggested URL before claiming. Use an explicit
   // unique fixture URL instead of relying on the retired collision suffixing.
   state.profile.siteSlug = suffix.replace(/_/g, '-');
-  state.profile.businessStructure = 'solo';
-  state.profile.ownerName = 'Daniela';
+  state.profile.businessStructure = options.businessType === 'salon_team' ? 'multi_tech' : 'solo';
+  if (options.businessType) {
+    state.profile.businessType = options.businessType;
+  }
+  state.profile.ownerName = options.ownerName ?? 'Daniela';
   state.profile.instagram = 'islanailstudio';
   state.profile.bookingOnlyContact = false;
   state.profile.clientContact.primaryNumber = '+14165550199';
@@ -247,6 +252,38 @@ describe.sequential('account-backed onboarding persistence', () => {
       { name: 'Neighbourhood Nail Studio', slug: 'neighbourhood-nails-east' },
       { name: 'Neighbourhood Nail Studio', slug: 'neighbourhood-nails-west' },
     ]);
+  });
+
+  it('saves a Salon/studio business whose owner name was never asked for', async () => {
+    // OP-001: "Salon / studio" (salon_team) hides the personal owner-name
+    // field, so the snapshot legitimately carries ''. The claim must succeed
+    // and every canonical name must fall back to the business name.
+    const owner = { ...identity('team_no_owner_name'), name: null };
+    const input = request('team_no_owner_name', {
+      businessType: 'salon_team',
+      ownerName: '',
+    });
+
+    expect(input.snapshot.profile.ownerName).toBe('');
+
+    const claim = await claimOnboardingDraft(owner, input, handle());
+    if (claim.kind !== 'success') {
+      throw new Error('Expected the Salon/studio claim to succeed.');
+    }
+    const [salon] = await database.select({
+      name: schema.salonSchema.name,
+      ownerName: schema.salonSchema.ownerName,
+    }).from(schema.salonSchema).where(eq(schema.salonSchema.id, claim.data.salonId));
+    const technicians = await database.select({ name: schema.technicianSchema.name })
+      .from(schema.technicianSchema)
+      .where(eq(schema.technicianSchema.salonId, claim.data.salonId));
+    const [admin] = await database.select({ name: schema.adminUserSchema.name })
+      .from(schema.adminUserSchema)
+      .where(eq(schema.adminUserSchema.clerkUserId, owner.clerkUserId));
+
+    expect(salon?.ownerName).toBe(salon?.name);
+    expect(technicians).toEqual([{ name: salon?.name }]);
+    expect(admin?.name).toBe(salon?.name);
   });
 
   it('claims the complete Product library into tenant-owned rows and rejects another owner', async () => {
@@ -1058,6 +1095,139 @@ describe.sequential('account-backed onboarding persistence', () => {
       .resolves.toMatchObject({ available: true });
     await expect(claimOnboardingDraft(owner, continuedInput, handle()))
       .resolves.toMatchObject({ data: { created: false, salonSlug: 'my-new-studio-url' }, kind: 'success' });
+  });
+
+  // Implementation plan Batch 2, "Resume overwrite risk" + source map §C
+  // (`syncQuickBookProfilePresentationDraft` runs unconditionally; the
+  // re-claim re-applies price/priceDisplayText/duration/is_active on
+  // onboarding-sourced services). One canonical writer per record: a resume
+  // never reverts what the owner changed in the dashboard.
+  describe('resume guard — a re-claim never overwrites dashboard edits', () => {
+    it('keeps dashboard edits to name, hours, contact, services and booking-page presentation, and names what it kept', async () => {
+      const owner = identity('resume_guard');
+      const initialInput = request('resume_guard', {
+        selectedServiceIds: [SERVICE_MENU_PRODUCTION_MAPPINGS[0]!.labServiceId],
+      });
+      const initial = await claimOnboardingDraft(owner, initialInput, handle());
+      if (initial.kind !== 'success') {
+        throw new Error('Expected early account save.');
+      }
+
+      // --- The owner then works in the dashboard.
+      await database.update(schema.salonSchema).set({
+        name: 'Renamed in the dashboard',
+        phone: '+14165550111',
+      }).where(eq(schema.salonSchema.id, initial.data.salonId));
+      const [onboardingService] = await database.select().from(schema.serviceSchema).where(and(
+        eq(schema.serviceSchema.salonId, initial.data.salonId),
+        isNotNull(schema.serviceSchema.onboardingSourceServiceId),
+      ));
+
+      expect(onboardingService).toBeDefined();
+
+      await database.update(schema.serviceSchema).set({
+        durationMinutes: 95,
+        price: 12_345,
+        priceDisplayText: null,
+      }).where(eq(schema.serviceSchema.id, onboardingService!.id));
+      const [beforeSalon] = await database.select().from(schema.salonSchema)
+        .where(eq(schema.salonSchema.id, initial.data.salonId));
+      const beforeSettings = beforeSalon!.settings as {
+        bookingPage?: { draft?: Record<string, unknown> };
+      } & Record<string, unknown>;
+      await database.update(schema.salonSchema).set({
+        settings: {
+          ...beforeSettings,
+          bookingPage: {
+            ...(beforeSettings.bookingPage ?? {}),
+            draft: {
+              ...(beforeSettings.bookingPage?.draft ?? {}),
+              sitePalettePreset: 'navy_ivory',
+              siteStylePreset: 'luxury',
+            },
+          },
+        } as NonNullable<typeof beforeSalon>['settings'],
+      }).where(eq(schema.salonSchema.id, initial.data.salonId));
+
+      // --- The owner reopens setup and saves the same (now stale) snapshot.
+      const resumedInput = structuredClone(initialInput);
+      resumedInput.anonymousDraftToken = opaque('resume_guard_later');
+      resumedInput.target = {
+        continuationClaimId: initial.data.claimId,
+        existingSiteStrategy: 'continue_onboarding_draft',
+        expectedRevision: initial.data.revision,
+        expectedSiteId: initial.data.siteId,
+        mode: 'existing_business',
+        salonId: initial.data.salonId,
+      };
+      const resumed = await claimOnboardingDraft(owner, resumedInput, handle());
+      if (resumed.kind !== 'success') {
+        throw new Error('Expected the resume claim to succeed.');
+      }
+
+      expect(resumed.data.preservedDashboardEdits).toEqual(expect.arrayContaining([
+        'your business name',
+        'your phone, email and Instagram',
+        'your service prices, durations and visibility',
+        'your booking page style, palette and layout',
+      ]));
+
+      const [salon] = await database.select().from(schema.salonSchema)
+        .where(eq(schema.salonSchema.id, initial.data.salonId));
+
+      expect(salon).toMatchObject({ name: 'Renamed in the dashboard', phone: '+14165550111' });
+      expect(resolveBookingPageConfig(salon!.settings).draft).toMatchObject({
+        sitePalettePreset: 'navy_ivory',
+        siteStylePreset: 'luxury',
+      });
+
+      const [service] = await database.select().from(schema.serviceSchema)
+        .where(eq(schema.serviceSchema.id, onboardingService!.id));
+
+      expect(service).toMatchObject({ durationMinutes: 95, price: 12_345 });
+
+      // AG-w2-information-parity-05: the onboarding columns mirror the draft
+      // that customers actually render, not the snapshot being replayed.
+      const [site] = await database.select().from(schema.onboardingSiteSchema)
+        .where(eq(schema.onboardingSiteSchema.id, initial.data.siteId));
+
+      expect(site).toMatchObject({
+        palettePresetId: 'navy_ivory',
+        stylePresetId: 'luxury',
+      });
+    });
+
+    it('still applies the snapshot when the dashboard has not touched the record', async () => {
+      const owner = identity('resume_clean');
+      const initialInput = request('resume_clean');
+      const initial = await claimOnboardingDraft(owner, initialInput, handle());
+      if (initial.kind !== 'success') {
+        throw new Error('Expected early account save.');
+      }
+
+      const resumedInput = structuredClone(initialInput);
+      resumedInput.anonymousDraftToken = opaque('resume_clean_later');
+      resumedInput.target = {
+        continuationClaimId: initial.data.claimId,
+        existingSiteStrategy: 'continue_onboarding_draft',
+        expectedRevision: initial.data.revision,
+        expectedSiteId: initial.data.siteId,
+        mode: 'existing_business',
+        salonId: initial.data.salonId,
+      };
+      resumedInput.snapshot.profile.businessName = 'Renamed inside setup';
+      const resumed = await claimOnboardingDraft(owner, resumedInput, handle());
+      if (resumed.kind !== 'success') {
+        throw new Error('Expected the resume claim to succeed.');
+      }
+
+      expect(resumed.data.preservedDashboardEdits).toBeUndefined();
+
+      const [salon] = await database.select().from(schema.salonSchema)
+        .where(eq(schema.salonSchema.id, initial.data.salonId));
+
+      expect(salon?.name).toBe('Renamed inside setup');
+    });
   });
 
   it.each(['occupied', 'reserved', 'locked'] as const)('rejects a %s URL edit without changing the saved draft', async (state) => {

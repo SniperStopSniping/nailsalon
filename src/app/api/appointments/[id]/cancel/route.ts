@@ -1,6 +1,7 @@
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import { z } from 'zod';
 
+import { logAppointmentChange } from '@/libs/appointmentAudit';
 import { sendBookingNotificationsForAppointmentCancelled } from '@/libs/bookingNotifications';
 import {
   lockOperationalSalonClientContactWithHandle,
@@ -22,7 +23,7 @@ import {
 import { requireAppointmentManagerAccess } from '@/libs/routeAccessGuards';
 import { sendSalonNotificationEmail } from '@/libs/salonNotificationEmail';
 import { sendCancellationConfirmation } from '@/libs/SMS';
-import { APPOINTMENT_CANCELLATION_REASONS, type AppointmentCancellationReason, appointmentSchema, rewardSchema, salonClientSchema } from '@/models/Schema';
+import { APPOINTMENT_CANCELLATION_REASONS, type AppointmentCancellationReason, appointmentSchema, type AuditPerformerRole, rewardSchema, salonClientSchema } from '@/models/Schema';
 import type { SalonFeatures, SalonSettings } from '@/types/salonPolicy';
 
 // =============================================================================
@@ -110,6 +111,42 @@ function depositForfeitureBlockedResponse(error: DepositForfeitureBlockedError):
     } satisfies ErrorResponse,
     { status: 409 },
   );
+}
+
+type AuditActor = {
+  performedBy: string;
+  performedByRole: AuditPerformerRole;
+  performedByName: string | null;
+};
+
+/**
+ * The acting owner/staff member for the audit row. Mirrors
+ * `resolveCheckoutActor`, which cannot be imported here: it is a
+ * `server-only` module and this route's tests run in the jsdom
+ * environment. Returns null only if the guard ever yields an identity-less
+ * actor, in which case the cancellation still stands and the audit row is
+ * skipped rather than the write being failed.
+ */
+function resolveAuditActor(access: {
+  actorRole: string;
+  admin?: { id: string; name?: string | null } | null;
+  session?: { technicianId: string; technicianName?: string | null } | null;
+}): AuditActor | null {
+  if (access.actorRole === 'staff' && access.session?.technicianId) {
+    return {
+      performedBy: `staff:${access.session.technicianId}`,
+      performedByRole: 'staff',
+      performedByName: access.session.technicianName ?? null,
+    };
+  }
+  if (access.actorRole === 'admin' && access.admin?.id) {
+    return {
+      performedBy: access.admin.id,
+      performedByRole: 'admin',
+      performedByName: access.admin.name ?? null,
+    };
+  }
+  return null;
 }
 
 function pointsRedeemedFromNotes(notes: string | null): number {
@@ -489,6 +526,32 @@ export async function PATCH(request: Request, props: { params: Promise<{ id: str
     }
     if (transition.conflictStatus) {
       return invalidStateResponse(transition.conflictStatus);
+    }
+
+    // WHO cancelled this, and why. Only the request that won the transition
+    // writes the row, so an idempotent retry does not duplicate the trail.
+    // logAppointmentChange never throws: a failed audit write cannot undo a
+    // committed cancellation.
+    const auditActor = transition.applied ? resolveAuditActor(access) : null;
+    if (auditActor) {
+      await logAppointmentChange({
+        appointmentId,
+        salonId: appointment.salonId,
+        action: resolvedStatus === 'no_show' ? 'status_changed' : 'cancelled',
+        performedBy: auditActor.performedBy,
+        performedByRole: auditActor.performedByRole,
+        performedByName: auditActor.performedByName ?? undefined,
+        previousValue: {
+          status: appointment.status,
+          startTime: appointment.startTime?.toISOString() ?? null,
+          technicianId: appointment.technicianId ?? null,
+        },
+        newValue: {
+          status: resolvedStatus,
+          cancelledAt: (transition.cancelledAt ?? new Date()).toISOString(),
+        },
+        reason: validated.data.cancelReason,
+      });
     }
 
     // No-show statistics and outbound notifications only belong to the request

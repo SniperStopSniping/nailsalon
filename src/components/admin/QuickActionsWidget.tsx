@@ -69,13 +69,20 @@ function QuickActionButton({ action, onTap }: QuickActionButtonProps) {
   const Icon = action.icon;
 
   return (
-    <div className="flex flex-col items-center gap-1.5">
-      <motion.button
-        type="button"
-        onClick={() => onTap(action.id)}
-        whileTap={{ scale: 0.9 }}
-        whileHover={{ scale: 1.05 }}
-        transition={{ type: 'spring', stiffness: 400, damping: 17 }}
+    // The caption lives INSIDE the button so the control carries its own
+    // accessible name (AG-today-calendar-01). The visible text IS the name, so
+    // it can never drift from what the owner reads on screen.
+    <motion.button
+      type="button"
+      data-testid={`quick-action-${action.id}`}
+      onClick={() => onTap(action.id)}
+      whileTap={{ scale: 0.9 }}
+      whileHover={{ scale: 1.05 }}
+      transition={{ type: 'spring', stiffness: 400, damping: 17 }}
+      className="flex flex-col items-center gap-1.5 rounded-[18px] p-1 outline-none focus-visible:ring-2 focus-visible:ring-[var(--owner-focus,#b85075)] focus-visible:ring-offset-2"
+    >
+      <span
+        aria-hidden="true"
         className={`
           relative flex size-14 items-center justify-center rounded-[14px] bg-gradient-to-br ${action.gradient}
         `}
@@ -84,17 +91,17 @@ function QuickActionButton({ action, onTap }: QuickActionButtonProps) {
         }}
       >
         {/* Gloss Effect */}
-        <div className="pointer-events-none absolute inset-0 rounded-[14px] bg-gradient-to-b from-white/30 to-transparent" />
+        <span className="pointer-events-none absolute inset-0 rounded-[14px] bg-gradient-to-b from-white/30 to-transparent" />
 
         {/* Icon */}
         <Icon className="relative z-10 size-6 text-white drop-shadow-sm" strokeWidth={2.5} />
-      </motion.button>
+      </span>
 
-      {/* Label */}
+      {/* Label — this text is the button's accessible name */}
       <span className="text-center text-[11px] font-medium leading-tight text-stone-500">
         {action.label}
       </span>
-    </div>
+    </motion.button>
   );
 }
 

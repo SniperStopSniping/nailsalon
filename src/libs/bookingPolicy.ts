@@ -280,6 +280,8 @@ export function technicianSupportsLocation(args: {
   return !technician.primaryLocationId || technician.primaryLocationId === locationId;
 }
 
+export { type BookingHoursCeiling, resolveBookingHoursCeiling } from '@/libs/bookingHoursCeiling';
+
 export function getEffectiveScheduleForWindow(args: {
   startTime: Date;
   weeklySchedule: WeeklySchedule | null;

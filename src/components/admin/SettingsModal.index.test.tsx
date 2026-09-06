@@ -21,9 +21,13 @@ const { fetchMock, refreshMock, pushMock } = vi.hoisted(() => ({
 vi.mock('next/navigation', () => ({
   useRouter: () => ({
     push: pushMock,
+    replace: vi.fn(),
+    back: vi.fn(),
     refresh: refreshMock,
   }),
   useParams: () => ({ locale: 'en' }),
+  // Settings sub-views are URL-backed (AG-w2-settings-integrations-10).
+  useSearchParams: () => new URLSearchParams(),
 }));
 
 vi.mock('@/providers/SalonProvider', () => ({
@@ -277,6 +281,19 @@ function mockEndpoints(options: {
       }), { status: 200 }));
     }
 
+    if (url === '/api/admin/profile' && init?.method !== 'POST') {
+      // AG-w2-settings-integrations-09: the Account view reads the stored
+      // profile so the address is shown instead of demanded.
+      return Promise.resolve(new Response(JSON.stringify({
+        user: {
+          id: 'admin_1',
+          name: 'Daniela',
+          email: 'daniela@example.com',
+          emailEditable: false,
+        },
+      }), { status: 200 }));
+    }
+
     if (url === '/api/admin/profile' && init?.method === 'POST') {
       return Promise.resolve(new Response(JSON.stringify({
         data: { admin: { id: 'admin_1', name: 'Daniela D', email: 'daniela@example.com' } },
@@ -325,12 +342,14 @@ describe('SettingsModal index', () => {
       />,
     );
 
-    expect(await screen.findByText('Locations & directions')).toBeInTheDocument();
-    expect(screen.getByText('Branding & appearance')).toBeInTheDocument();
+    expect(await screen.findByText('Location')).toBeInTheDocument();
+    // Renamed: the row is "Branding" (logo, page themes, social) now that
+    // website colour belongs to the Booking Page hub (AG-more-settings-06).
+    expect(screen.getByText('Branding')).toBeInTheDocument();
     expect(screen.getByText('Booking rules')).toBeInTheDocument();
     expect(screen.getByText('Booking policy')).toBeInTheDocument();
     expect(screen.getByText('Booking & cancellation alerts')).toBeInTheDocument();
-    expect(await screen.findByText('Modules & programs')).toBeInTheDocument();
+    expect(await screen.findByText('Features & plan')).toBeInTheDocument();
     expect(screen.getByText('Manage integrations')).toBeInTheDocument();
     expect(screen.getByText('Terms of Service')).toBeInTheDocument();
 
@@ -400,13 +419,13 @@ describe('SettingsModal index', () => {
     fireEvent.click(screen.getByRole('button', { name: /settings/i }));
     fireEvent.click(await screen.findByRole('button', { name: 'Discard' }));
 
-    expect(await screen.findByText('Locations & directions')).toBeInTheDocument();
+    expect(await screen.findByText('Location')).toBeInTheDocument();
   });
 
   it('keeps parking instructions in the Locations view as the single directions source', async () => {
     render(<SettingsModal onClose={vi.fn()} salonSlug="salon-a" userName="Daniela" />);
 
-    fireEvent.click(await screen.findByText('Locations & directions'));
+    fireEvent.click(await screen.findByText('Location'));
 
     const parking = await screen.findByDisplayValue('Free parking behind the salon.');
     fireEvent.change(parking, { target: { value: 'Park in the back.' } });
@@ -434,12 +453,14 @@ describe('SettingsModal index', () => {
 
     render(<SettingsModal onClose={vi.fn()} salonSlug="salon-a" userName="Daniela" />);
 
-    fireEvent.click(await screen.findByText('Branding & appearance'));
+    fireEvent.click(await screen.findByText('Branding'));
 
     expect(await screen.findByTestId('page-themes-settings')).toBeInTheDocument();
-    expect(
-      screen.getByRole('textbox', { name: 'Primary brand colour' }),
-    ).toHaveValue('#123456');
+    // Website colour is authored in the Booking Page hub now; this screen only
+    // points at it (AG-more-settings-06).
+    expect(screen.getByTestId('branding-colour-authority'))
+      .toHaveTextContent('Booking Page → Style & Colours');
+    expect(screen.queryByRole('textbox', { name: 'Primary brand colour' })).not.toBeInTheDocument();
     expect(
       screen.getByDisplayValue('Welcome to online booking.'),
     ).toBeInTheDocument();
@@ -531,7 +552,10 @@ describe('SettingsModal index', () => {
     })).toBeChecked();
     expect(screen.getByRole('checkbox', {
       name: 'Enable booking policy',
-    })).toBeDisabled();
+    })).toBeEnabled();
+    expect(screen.getByText(
+      'Acknowledgment is required, so this policy is live. Turning it off here also stops asking customers to acknowledge it.',
+    )).toBeInTheDocument();
     expect(screen.getByRole('checkbox', {
       name: 'Show before confirmation',
     })).toBeChecked();
@@ -690,7 +714,7 @@ describe('SettingsModal index', () => {
 
     render(<SettingsModal onClose={vi.fn()} salonSlug="salon-a" userName="Daniela" />);
 
-    fireEvent.click(await screen.findByText('Branding & appearance'));
+    fireEvent.click(await screen.findByText('Branding'));
     await screen.findByTestId('booking-experience-preview');
 
     // The locked banner and the inactive-preview notice are gone entirely.
@@ -749,12 +773,9 @@ describe('SettingsModal index', () => {
   it('updates every appearance preview element from the unsaved draft', async () => {
     render(<SettingsModal onClose={vi.fn()} salonSlug="salon-a" userName="Daniela" />);
 
-    fireEvent.click(await screen.findByText('Branding & appearance'));
+    fireEvent.click(await screen.findByText('Branding'));
     await screen.findByTestId('booking-experience-preview');
 
-    fireEvent.change(screen.getByRole('textbox', { name: 'Primary brand colour' }), {
-      target: { value: '#F5D000' },
-    });
     fireEvent.change(screen.getByRole('textbox', { name: 'Booking message' }), {
       target: { value: 'Pick a service that feels right.' },
     });
@@ -778,15 +799,11 @@ describe('SettingsModal index', () => {
     expect(
       preview.getByRole('img', { name: 'TikTok social icon preview' }),
     ).toBeInTheDocument();
+    // The preview keeps painting from the stored colour; it is no longer
+    // editable here, so it stays at the theme default for this fixture.
     expect(
       preview.getByTestId('booking-experience-preview-button'),
-    ).toHaveStyle({
-      backgroundColor: '#F5D000',
-      color: '#000000',
-    });
-    expect(
-      preview.getByTestId('booking-experience-preview-service'),
-    ).toHaveStyle({ borderColor: '#000000' });
+    ).toHaveStyle({ backgroundColor: '#9F1239' });
   });
 
   it('updates explicit quick facts and the canonical policy preview from an unsaved policy draft', async () => {
@@ -887,7 +904,7 @@ describe('SettingsModal index', () => {
 
     render(<SettingsModal onClose={vi.fn()} salonSlug="salon-a" userName="Daniela" />);
 
-    fireEvent.click(await screen.findByText('Branding & appearance'));
+    fireEvent.click(await screen.findByText('Branding'));
     await screen.findByDisplayValue('Welcome to online booking.');
 
     fireEvent.click(screen.getByRole('button', { name: 'Reset to Default' }));
@@ -910,7 +927,8 @@ describe('SettingsModal index', () => {
       expect(patchCall).toBeTruthy();
       expect(JSON.parse(String((patchCall![1] as RequestInit).body))).toEqual({
         bookingExperienceAppearance: {
-          primaryColor: DEFAULT_BOOKING_EXPERIENCE.primaryColor,
+          // Reset no longer clears the colour: this screen stopped authoring it.
+          primaryColor: CONFIGURED_BOOKING_EXPERIENCE.primaryColor,
           bookingMessage: DEFAULT_BOOKING_EXPERIENCE.bookingMessage,
           socialLinks: DEFAULT_BOOKING_EXPERIENCE.socialLinks,
           confirmationMessage: DEFAULT_BOOKING_EXPERIENCE.confirmationMessage,
@@ -932,7 +950,7 @@ describe('SettingsModal index', () => {
 
     render(<SettingsModal onClose={vi.fn()} salonSlug="salon-a" userName="Daniela" />);
 
-    fireEvent.click(await screen.findByText('Branding & appearance'));
+    fireEvent.click(await screen.findByText('Branding'));
     const bookingMessage = await screen.findByRole('textbox', {
       name: 'Booking message',
     });
@@ -986,7 +1004,7 @@ describe('SettingsModal index', () => {
 
     render(<SettingsModal onClose={vi.fn()} salonSlug="salon-a" userName="Daniela" />);
 
-    fireEvent.click(await screen.findByText('Branding & appearance'));
+    fireEvent.click(await screen.findByText('Branding'));
     const bookingMessage = await screen.findByRole('textbox', {
       name: 'Booking message',
     });
@@ -1042,7 +1060,7 @@ describe('SettingsModal index', () => {
 
     render(<SettingsModal onClose={vi.fn()} salonSlug="salon-a" userName="Daniela" />);
 
-    fireEvent.click(await screen.findByText('Branding & appearance'));
+    fireEvent.click(await screen.findByText('Branding'));
     const bookingMessage = await screen.findByRole('textbox', {
       name: 'Booking message',
     });
@@ -1068,7 +1086,7 @@ describe('SettingsModal index', () => {
   it('guards unsaved booking-experience navigation and discards only the draft', async () => {
     render(<SettingsModal onClose={vi.fn()} salonSlug="salon-a" userName="Daniela" />);
 
-    fireEvent.click(await screen.findByText('Branding & appearance'));
+    fireEvent.click(await screen.findByText('Branding'));
     await screen.findByTestId('booking-experience-preview');
     fireEvent.change(screen.getByRole('textbox', { name: 'Booking message' }), {
       target: { value: 'Unsaved welcome' },
@@ -1082,7 +1100,7 @@ describe('SettingsModal index', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Discard' }));
 
-    fireEvent.click(await screen.findByText('Branding & appearance'));
+    fireEvent.click(await screen.findByText('Branding'));
 
     expect(
       await screen.findByRole('textbox', { name: 'Booking message' }),
@@ -1113,7 +1131,7 @@ describe('SettingsModal index', () => {
 
     render(<SettingsModal onClose={vi.fn()} salonSlug="salon-a" userName="Daniela" />);
 
-    fireEvent.click(await screen.findByText('Branding & appearance'));
+    fireEvent.click(await screen.findByText('Branding'));
     await screen.findByTestId('booking-experience-preview');
 
     fireEvent.change(screen.getByRole('textbox', { name: 'Instagram' }), {
@@ -1206,7 +1224,7 @@ describe('SettingsModal index', () => {
 
     render(<SettingsModal onClose={vi.fn()} salonSlug="salon-a" userName="Daniela" />);
 
-    fireEvent.click(await screen.findByText('Branding & appearance'));
+    fireEvent.click(await screen.findByText('Branding'));
     await screen.findByTestId('booking-experience-preview');
     fireEvent.change(screen.getByRole('textbox', { name: 'Booking message' }), {
       target: { value: 'Keep this draft too' },
@@ -1228,7 +1246,10 @@ describe('SettingsModal index', () => {
     expect(refreshMock).not.toHaveBeenCalled();
   });
 
-  it('saves the owner profile through the existing profile endpoint', async () => {
+  // AG-w2-settings-integrations-08/09: the address is shown and locked, and a
+  // name-only edit saves on its own instead of demanding the address be
+  // retyped from memory into a field nothing verifies.
+  it('shows the stored owner email read-only and saves a name-only edit', async () => {
     render(<SettingsModal onClose={vi.fn()} salonSlug="salon-a" userName="Daniela" />);
 
     fireEvent.click(await screen.findByTestId('settings-profile-card'));
@@ -1237,8 +1258,20 @@ describe('SettingsModal index', () => {
 
     expect(saveButton).toBeDisabled();
 
-    fireEvent.change(screen.getByPlaceholderText('you@example.com'), {
-      target: { value: 'daniela@example.com' },
+    const emailField = await screen.findByDisplayValue('daniela@example.com');
+
+    expect(emailField).toHaveAttribute('readonly');
+    expect(screen.getByText(
+      'Your sign-in email is managed by your account — contact support to change it. Your name saves on its own.',
+    )).toBeInTheDocument();
+
+    fireEvent.change(emailField, { target: { value: 'attacker@example.com' } });
+
+    expect(emailField).toHaveValue('daniela@example.com');
+    expect(saveButton).toBeDisabled();
+
+    fireEvent.change(screen.getByDisplayValue('Daniela'), {
+      target: { value: 'Daniela D' },
     });
     fireEvent.click(saveButton);
 
@@ -1247,7 +1280,7 @@ describe('SettingsModal index', () => {
         '/api/admin/profile',
         expect.objectContaining({
           method: 'POST',
-          body: JSON.stringify({ name: 'Daniela', email: 'daniela@example.com' }),
+          body: JSON.stringify({ name: 'Daniela D' }),
         }),
       );
     });
@@ -1302,5 +1335,40 @@ describe('SettingsModal index', () => {
         }),
       );
     });
+  });
+
+  /*
+    AG-w2-settings-integrations-15: /admin/policies is a live write surface
+    with no entry point anywhere in the workspace — reachable only by bookmark
+    or a support instruction. It is a Settings screen, so it has a Settings row.
+  */
+  it('offers the photo & auto-post rules and carries the salon to them', async () => {
+    render(
+      <SettingsModal
+        onClose={vi.fn()}
+        salonSlug="salon-a"
+        userName="Daniela"
+        onOpenApp={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(await screen.findByText('Photo & auto-post rules'));
+
+    expect(pushMock).toHaveBeenCalledWith('/en/admin/policies?salon=salon-a');
+  });
+
+  it('keeps the dark Section Gallery out of Settings while its flag is off', async () => {
+    render(
+      <SettingsModal
+        onClose={vi.fn()}
+        salonSlug="salon-a"
+        userName="Daniela"
+        onOpenApp={vi.fn()}
+      />,
+    );
+
+    await screen.findByText('Photo & auto-post rules');
+
+    expect(screen.queryByText(/section gallery/i)).not.toBeInTheDocument();
   });
 });

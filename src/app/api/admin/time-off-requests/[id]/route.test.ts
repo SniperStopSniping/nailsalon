@@ -3,7 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { GET, PATCH } from './route';
 
 const {
-  requireActiveAdminSalon,
+  requireAdminSalonFromRequest,
+  logAuditEvent,
   buildTimeOffDecisionNotification,
   createStaffNotification,
   db,
@@ -37,7 +38,8 @@ const {
   };
 
   return {
-    requireActiveAdminSalon: vi.fn(),
+    requireAdminSalonFromRequest: vi.fn(),
+    logAuditEvent: vi.fn(async () => undefined),
     buildTimeOffDecisionNotification: vi.fn(() => ({ title: 'Decision', body: 'Body' })),
     createStaffNotification: vi.fn(),
     db,
@@ -50,7 +52,11 @@ const {
 });
 
 vi.mock('@/libs/adminAuth', () => ({
-  requireActiveAdminSalon,
+  requireAdminSalonFromRequest,
+}));
+
+vi.mock('@/libs/auditLog', () => ({
+  logAuditEvent,
 }));
 
 vi.mock('@/libs/notifications', () => ({
@@ -62,8 +68,13 @@ vi.mock('@/libs/DB', () => ({
   db,
 }));
 
-const START = new Date('2026-03-14T00:00:00.000Z');
-const END = new Date('2026-03-15T00:00:00.000Z');
+// `time_off_request.start_date` / `end_date` are DATE columns: the mapper
+// hands the route 'YYYY-MM-DD' strings, never Dates.
+const START = '2026-03-14';
+const END = '2026-03-15';
+// technician_time_off stores real timestamps; whole days go in at midnight UTC.
+const BLOCK_START = new Date('2026-03-14T00:00:00.000Z');
+const BLOCK_END = new Date('2026-03-15T00:00:00.000Z');
 
 function pendingRequest(overrides: Record<string, unknown> = {}) {
   return {
@@ -107,9 +118,8 @@ function patchRequest(status: 'APPROVED' | 'DENIED') {
 describe('/api/admin/time-off-requests/[id]', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    // The route logs each decision via console.warn; that log is expected.
     vi.spyOn(console, 'warn').mockImplementation(() => {});
-    requireActiveAdminSalon.mockResolvedValue({
+    requireAdminSalonFromRequest.mockResolvedValue({
       error: null,
       salon: { id: 'salon_active', name: 'Active Salon' },
       admin: { id: 'admin_1', name: 'Admin' },
@@ -156,14 +166,83 @@ describe('/api/admin/time-off-requests/[id]', () => {
       expect.objectContaining({
         technicianId: 'tech_1',
         salonId: 'salon_active',
-        startDate: START,
-        endDate: END,
+        startDate: BLOCK_START,
+        endDate: BLOCK_END,
         notes: 'Approved staff request: Family trip',
       }),
     );
     expect(createStaffNotification).toHaveBeenCalledWith(
       expect.objectContaining({ technicianId: 'tech_1', type: 'TIME_OFF_DECISION' }),
     );
+    expect(buildTimeOffDecisionNotification).toHaveBeenCalledWith({
+      status: 'APPROVED',
+      startDate: START,
+      endDate: END,
+    });
+    await expect(response.json()).resolves.toMatchObject({
+      data: { request: { startDate: START, endDate: END } },
+    });
+  });
+
+  it('writes an audit entry naming the decision, the request and the block', async () => {
+    selectLimit
+      .mockResolvedValueOnce([pendingRequest({ note: 'Family trip' })])
+      .mockResolvedValue([{ name: 'Daniela' }]);
+    txUpdateReturning.mockResolvedValueOnce([decidedRow('APPROVED')]);
+
+    const response = await patchRequest('APPROVED');
+
+    expect(response.status).toBe(200);
+    // Approving writes a real calendar block: the decision has to be
+    // reconstructable later, not just a line in a server log.
+    expect(logAuditEvent).toHaveBeenCalledWith({
+      salonId: 'salon_active',
+      actorType: 'admin',
+      actorId: 'admin_1',
+      action: 'time_off_request_decided',
+      entityType: 'time_off_request',
+      entityId: 'req_1',
+      metadata: {
+        status: 'APPROVED',
+        technicianId: 'tech_1',
+        startDate: START,
+        endDate: END,
+        blockCreated: true,
+      },
+    });
+  });
+
+  it('records a denial in the audit log with no block created', async () => {
+    selectLimit
+      .mockResolvedValueOnce([pendingRequest()])
+      .mockResolvedValue([{ name: 'Daniela' }]);
+    txUpdateReturning.mockResolvedValueOnce([decidedRow('DENIED')]);
+
+    const response = await patchRequest('DENIED');
+
+    expect(response.status).toBe(200);
+    expect(logAuditEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'time_off_request_decided',
+        metadata: expect.objectContaining({ status: 'DENIED', blockCreated: false }),
+      }),
+    );
+  });
+
+  it('refuses to decide a request whose stored dates cannot be read', async () => {
+    // Regression: an unreadable date used to reach `.toISOString()` and 500.
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    selectLimit
+      .mockResolvedValueOnce([pendingRequest({ startDate: 'not-a-date' })])
+      .mockResolvedValue([{ name: 'Daniela' }]);
+
+    const response = await patchRequest('APPROVED');
+    const body = await response.json();
+
+    expect(response.status).toBe(422);
+    expect(body.error.code).toBe('INVALID_DATE_RANGE');
+    expect(db.transaction).not.toHaveBeenCalled();
+    expect(createStaffNotification).not.toHaveBeenCalled();
   });
 
   it('denying a request never writes a time-off block', async () => {

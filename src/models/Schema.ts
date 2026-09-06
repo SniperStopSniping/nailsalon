@@ -3060,9 +3060,13 @@ export const timeOffRequestSchema = pgTable(
       .notNull()
       .references(() => technicianSchema.id, { onDelete: 'cascade' }),
 
-    // Request details
-    startDate: timestamp('start_date', { mode: 'date' }).notNull(),
-    endDate: timestamp('end_date', { mode: 'date' }).notNull(),
+    // Request details.
+    // The shipped columns are DATE (migrations/0027), not timestamp: a
+    // whole-day request has no time component. Modelling them as timestamp
+    // made the non-timezone mapper append '+0000' to '2026-09-17', producing
+    // an Invalid Date that crashed every reader of this table.
+    startDate: date('start_date', { mode: 'string' }).notNull(),
+    endDate: date('end_date', { mode: 'string' }).notNull(),
     note: text('note'),
 
     // Status: PENDING | APPROVED | DENIED
@@ -3314,6 +3318,9 @@ export const AUDIT_LOG_ACTIONS = [
   'portfolio_photos_reordered',
   'portfolio_photo_crop_updated',
   'discover_participation_changed',
+  // Staff time-off decisions. An approval writes a real calendar block, so the
+  // decision needs a durable record. Appended, never reordered.
+  'time_off_request_decided',
 ] as const;
 export type AuditLogAction = (typeof AUDIT_LOG_ACTIONS)[number];
 
