@@ -251,15 +251,18 @@ test('iPhone Safari keeps archive confirmation safe and refreshes after success 
 
     await firstClient.click();
 
-    await expect(page.getByTestId('client-delete-action')).toBeVisible();
+    // The one destructive control sits behind "More actions" and is named
+    // for what it does (archive, not delete) since the CP2 clients repair.
+    await page.getByTestId('client-more-actions-toggle').click();
+    await expect(page.getByTestId('client-archive-action')).toBeVisible();
 
-    await page.getByTestId('client-delete-action').click();
+    await page.getByTestId('client-archive-action').click();
 
     const dialog = page.getByTestId('client-archive-dialog');
 
     await expect(dialog).toBeVisible();
     await expect(
-      dialog.getByRole('heading', { name: 'Delete client?' }),
+      dialog.getByRole('heading', { name: 'Archive client?' }),
     ).toBeVisible();
     await expect(
       dialog.getByText(
@@ -297,7 +300,7 @@ test('iPhone Safari keeps archive confirmation safe and refreshes after success 
 
     await expect.poll(() => archiveRequests).toBe(1);
     await expect(dialog).toBeHidden();
-    await expect(page.getByTestId('client-delete-action')).toBeHidden();
+    await expect(page.getByTestId('client-archive-action')).toBeHidden();
     await expect(page.getByTestId('clients-directory-scroll')).toBeVisible();
     await expect(page.getByTestId('client-lifecycle-success')).toHaveText(
       'Client deleted from the active list. Their history was kept.',

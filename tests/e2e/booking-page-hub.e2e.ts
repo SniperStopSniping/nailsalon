@@ -63,7 +63,8 @@ for (const viewport of [{ width: 320, height: 568 }, { width: 375, height: 667 }
       await instagram.fill('luster.e2e.fixture');
       await page.getByTestId('information-save-contact').click();
 
-      await expect(instagram).toHaveValue('https://www.instagram.com/luster.e2e.fixture/');
+      // One normaliser stores the canonical URL and shows the bare handle (CP2).
+      await expect(instagram).toHaveValue('luster.e2e.fixture');
     } finally {
       await instagram.fill(originalInstagram);
       await page.getByTestId('information-save-contact').click();
