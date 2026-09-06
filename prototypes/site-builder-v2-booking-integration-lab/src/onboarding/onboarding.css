@@ -6214,6 +6214,13 @@ body:has(.onboarding-app) {
   line-height: 1.3;
 }
 
+.onboarding-field-note {
+  margin: 8px 0 0;
+  color: var(--onboarding-muted);
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+
 .onboarding-quick-book-layout-default-note {
   margin: 12px 0 0;
   padding: 10px 12px;

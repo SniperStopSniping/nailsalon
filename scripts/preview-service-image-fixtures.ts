@@ -26,8 +26,8 @@ type PreviewFixtureDatabase = {
 };
 const APPLICATION_NAME = 'luster-preview-service-image-fixtures-v1';
 const DATABASE_NAME = 'luster_preview';
-const FINAL_MIGRATION = '0074_onboarding_account_site_foundation';
-const MIGRATION_COUNT = 75;
+const FINAL_MIGRATION = '0075_onboarding_cover_media_role';
+const MIGRATION_COUNT = 76;
 const CONFIRM = 'CREATE_SYNTHETIC_PREVIEW_FIXTURES';
 const RESET_CONFIRM = 'DELETE_SYNTHETIC_PREVIEW_FIXTURES';
 const ADMIN_CONFIRM = 'MAP_SYNTHETIC_DEVELOPMENT_USER';

@@ -4964,7 +4964,7 @@ export const onboardingSiteMediaSchema = pgTable(
     salonId: text('salon_id').notNull(),
     siteId: text('site_id').notNull(),
     revisionId: text('revision_id').notNull(),
-    role: text('role').$type<'profile' | 'logo' | 'gallery' | 'custom_design'>().notNull(),
+    role: text('role').$type<'profile' | 'logo' | 'gallery' | 'custom_design' | 'cover'>().notNull(),
     localItemId: text('local_item_id').notNull(),
     claimStatus: text('claim_status').$type<'pending' | 'uploading' | 'ready' | 'failed'>().default('pending').notNull(),
     uploadLeaseId: text('upload_lease_id'),
@@ -5001,7 +5001,7 @@ export const onboardingSiteMediaSchema = pgTable(
     ),
     roleValid: check(
       'onboarding_site_media_role_check',
-      sql`${table.role} IN ('profile', 'logo', 'gallery', 'custom_design')`,
+      sql`${table.role} IN ('profile', 'logo', 'gallery', 'custom_design', 'cover')`,
     ),
     statusValid: check(
       'onboarding_site_media_status_check',

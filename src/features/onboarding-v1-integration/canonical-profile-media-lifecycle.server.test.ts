@@ -48,6 +48,7 @@ import {
   completeCanonicalProfileMediaPromotion,
   discardPreparedCanonicalProfileMediaPromotion,
   prepareCanonicalProfileMediaForPublish,
+  promoteCurrentDraftCanonicalIdentityMedia,
 } from './canonical-profile-media-lifecycle.server';
 /* eslint-enable import/first */
 
@@ -56,15 +57,21 @@ const ADMIN_ID = 'admin_canonical_media_lifecycle';
 let client: PGlite;
 let database: PgliteDatabase<typeof schema>;
 
-const snapshot = (logoItemId: string | null, profilePhotoItemId: string | null) => ({
-  profile: { logoItemId, profilePhotoItemId },
+const snapshot = (
+  logoItemId: string | null,
+  profilePhotoItemId: string | null,
+  coverPhotoItemId: string | null = null,
+) => ({
+  profile: { coverPhotoItemId, logoItemId, profilePhotoItemId },
 });
 
 async function seedSalon(input: {
+  coverPhotoItemId?: string | null;
   logoItemId: string | null;
   profilePhotoItemId: string | null;
   revision?: number;
   salonId: string;
+  settings?: Record<string, unknown>;
 }) {
   const revision = input.revision ?? 1;
   const siteId = `site_${input.salonId}`;
@@ -73,6 +80,7 @@ async function seedSalon(input: {
     id: input.salonId,
     name: `Salon ${input.salonId}`,
     publicationStatus: 'published',
+    ...(input.settings ? { settings: input.settings as never } : {}),
     slug: input.salonId,
   });
   await database.insert(schema.technicianSchema).values({
@@ -98,7 +106,11 @@ async function seedSalon(input: {
     revision,
     salonId: input.salonId,
     siteId,
-    snapshot: snapshot(input.logoItemId, input.profilePhotoItemId) as never,
+    snapshot: snapshot(
+      input.logoItemId,
+      input.profilePhotoItemId,
+      input.coverPhotoItemId ?? null,
+    ) as never,
     snapshotFingerprint: `snapshot-${revisionId}`,
     snapshotVersion: 1,
   });
@@ -110,7 +122,7 @@ async function insertReadyMedia(input: {
   localItemId: string;
   metadata?: Record<string, string>;
   revisionId: string;
-  role: 'logo' | 'profile';
+  role: 'cover' | 'logo' | 'profile';
   salonId: string;
   siteId: string;
 }) {
@@ -511,6 +523,127 @@ describe('canonical profile media draft-to-live lifecycle', () => {
       publicUrl: 'https://images.example/logo/media-logo-old.webp',
       storageKey: 'canonical/logo/media-logo-old',
       storageProvider: 'cloudinary',
+    });
+  });
+});
+
+describe('canonical onboarding cover promotion', () => {
+  const coverUrl = (mediaId: string) => `https://images.example/cover/${mediaId}.webp`;
+  const heroImage = async (salonId: string) => {
+    const [salon] = await database.select({ settings: schema.salonSchema.settings })
+      .from(schema.salonSchema).where(eq(schema.salonSchema.id, salonId));
+    const content = (salon?.settings as { bookingPageContent?: {
+      draft?: { heroImageUrl?: string | null };
+      live?: { heroImageUrl?: string | null };
+    }; } | null)?.bookingPageContent;
+    return {
+      draft: content?.draft?.heroImageUrl ?? null,
+      live: content?.live?.heroImageUrl ?? null,
+    };
+  };
+
+  it('publishes a first onboarding cover onto BOTH booking-page sides in one action', async () => {
+    // Publish computes its draft-to-live copy before this promotion applies,
+    // so a draft-only write would leave the first published page on the
+    // default cover until the owner published a second time.
+    const salonId = 'canonical_cover_publish';
+    const { revisionId, siteId } = await seedSalon({
+      coverPhotoItemId: 'cover-current',
+      logoItemId: null,
+      profilePhotoItemId: null,
+      salonId,
+    });
+    await insertReadyMedia({
+      id: 'media-cover-current',
+      localItemId: 'cover-current',
+      revisionId,
+      role: 'cover',
+      salonId,
+      siteId,
+    });
+
+    await expect(heroImage(salonId)).resolves.toEqual({ draft: null, live: null });
+
+    await synchronizeBookingPageLifecycle(salonId, 'publish');
+
+    await expect(heroImage(salonId)).resolves.toEqual({
+      draft: coverUrl('media-cover-current'),
+      live: coverUrl('media-cover-current'),
+    });
+  });
+
+  it('promotes an onboarding cover to the DRAFT side only while the salon is still a draft', async () => {
+    const salonId = 'canonical_cover_draft';
+    const { revisionId, siteId } = await seedSalon({
+      coverPhotoItemId: 'cover-draft',
+      logoItemId: null,
+      profilePhotoItemId: null,
+      salonId,
+    });
+    await database.update(schema.salonSchema)
+      .set({ publicationStatus: 'draft' })
+      .where(eq(schema.salonSchema.id, salonId));
+    await insertReadyMedia({
+      id: 'media-cover-draft',
+      localItemId: 'cover-draft',
+      revisionId,
+      role: 'cover',
+      salonId,
+      siteId,
+    });
+
+    const projection = await promoteCurrentDraftCanonicalIdentityMedia(
+      'media-cover-draft',
+      'cover',
+      salonId,
+    );
+
+    expect(projection?.publicUrl).toBe(coverUrl('media-cover-draft'));
+    // The dashboard reads exactly this field, so the cover is already there
+    // when the owner arrives — and it is still unpublished.
+    await expect(heroImage(salonId)).resolves.toEqual({
+      draft: coverUrl('media-cover-draft'),
+      live: null,
+    });
+  });
+
+  it('keeps a newer dashboard cover when a later revision drops the onboarding one', async () => {
+    const salonId = 'canonical_cover_replaced';
+    const dashboardCover = 'https://cdn.example/owner-chosen-cover.webp';
+    const { revisionId, siteId } = await seedSalon({
+      coverPhotoItemId: null,
+      logoItemId: null,
+      profilePhotoItemId: null,
+      salonId,
+      settings: {
+        bookingPageContent: {
+          draft: { heroImageUrl: dashboardCover },
+          live: { heroImageUrl: dashboardCover },
+          version: 1,
+        },
+      },
+    });
+    // A prior revision owned a cover projection, but the salon no longer
+    // points at it: the owner replaced it from the dashboard.
+    await insertReadyMedia({
+      id: 'media-cover-stale',
+      localItemId: 'cover-stale',
+      metadata: {
+        canonicalPublicUrl: coverUrl('media-cover-stale'),
+        canonicalStorageKey: 'canonical/cover/media-cover-stale',
+        canonicalStorageProvider: 'cloudinary',
+      },
+      revisionId,
+      role: 'cover',
+      salonId,
+      siteId,
+    });
+
+    await synchronizeBookingPageLifecycle(salonId, 'publish');
+
+    await expect(heroImage(salonId)).resolves.toEqual({
+      draft: dashboardCover,
+      live: dashboardCover,
     });
   });
 });

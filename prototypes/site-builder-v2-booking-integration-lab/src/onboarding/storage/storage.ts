@@ -404,13 +404,18 @@ const normalizeOnboardingMediaReferences = <T>(value: T): T => {
   if (profile) {
     const profilePhoto = normalizeLocalImageReference(profile.profilePhoto);
     const logo = normalizeLocalImageReference(profile.logo);
+    const coverPhoto = normalizeLocalImageReference(profile.coverPhoto);
     delete profile.profilePhoto;
     delete profile.logo;
+    delete profile.coverPhoto;
     if (profilePhoto) {
       profile.profilePhoto = profilePhoto;
     }
     if (logo) {
       profile.logo = logo;
+    }
+    if (coverPhoto) {
+      profile.coverPhoto = coverPhoto;
     }
   }
   return {
@@ -482,31 +487,33 @@ const isOnboardingState = (value: unknown): value is OnboardingLabState => {
       || isCurrentLocalImageReference(value.profile.profilePhoto))
       && (value.profile.logo === undefined
         || isCurrentLocalImageReference(value.profile.logo))
-        && isGalleryDraft(value.gallery)
-        && isRecord(value.profile.bookingPreferences)
-        && Number.isSafeInteger(value.profile.bookingPreferences.minimumNoticeMinutes)
-        && Number(value.profile.bookingPreferences.minimumNoticeMinutes) >= 0
-        && !('depositPreference' in value.profile.bookingPreferences)
-        && isServiceMenuSelection(value.profile.serviceMenu)
-        && isRecord(value.profile.policies)
-        && isDepositDraft(value.profile.policies.deposits)
-        && !('amount' in value.profile.policies.deposits)
-        && !('amountType' in value.profile.policies.deposits)
-        && !('required' in value.profile.policies.deposits)
-        && isDashboardHandoffDraft(value.dashboardHandoff)
-        && isRecord(value.recipe)
-        && isSitePalettePresetId(value.recipe.palettePreset)
-        && typeof value.recipe.paletteConfirmed === 'boolean'
-        && isQuickBookLayoutId(value.recipe.quickBookLayout)
-        && isQuickBookProfileVisibility(value.recipe.quickBookProfile)
-        && isRecord(value.profile.location)
-        && typeof value.profile.location.allowGeneralAreaDirections === 'boolean'
-        && isSessionStatus(value.progress.sessionStatus)
-        && isPlanIntent(value.planOffer.planIntent)
-        && isFoundingOfferMode(value.planOffer.foundingMode)
-        && typeof value.reviewOptions.previewTimestamp === 'string'
-        && isStringArray(value.canva.ownedAssetIds)
-        && isCanvaUploadResult(value.canva.uploadResult);
+        && (value.profile.coverPhoto === undefined
+          || isCurrentLocalImageReference(value.profile.coverPhoto))
+          && isGalleryDraft(value.gallery)
+          && isRecord(value.profile.bookingPreferences)
+          && Number.isSafeInteger(value.profile.bookingPreferences.minimumNoticeMinutes)
+          && Number(value.profile.bookingPreferences.minimumNoticeMinutes) >= 0
+          && !('depositPreference' in value.profile.bookingPreferences)
+          && isServiceMenuSelection(value.profile.serviceMenu)
+          && isRecord(value.profile.policies)
+          && isDepositDraft(value.profile.policies.deposits)
+          && !('amount' in value.profile.policies.deposits)
+          && !('amountType' in value.profile.policies.deposits)
+          && !('required' in value.profile.policies.deposits)
+          && isDashboardHandoffDraft(value.dashboardHandoff)
+          && isRecord(value.recipe)
+          && isSitePalettePresetId(value.recipe.palettePreset)
+          && typeof value.recipe.paletteConfirmed === 'boolean'
+          && isQuickBookLayoutId(value.recipe.quickBookLayout)
+          && isQuickBookProfileVisibility(value.recipe.quickBookProfile)
+          && isRecord(value.profile.location)
+          && typeof value.profile.location.allowGeneralAreaDirections === 'boolean'
+          && isSessionStatus(value.progress.sessionStatus)
+          && isPlanIntent(value.planOffer.planIntent)
+          && isFoundingOfferMode(value.planOffer.foundingMode)
+          && typeof value.reviewOptions.previewTimestamp === 'string'
+          && isStringArray(value.canva.ownedAssetIds)
+          && isCanvaUploadResult(value.canva.uploadResult);
 };
 
 type LegacyWeeklyHoursDraft = {

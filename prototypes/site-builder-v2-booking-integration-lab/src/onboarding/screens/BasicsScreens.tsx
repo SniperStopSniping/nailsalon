@@ -8,6 +8,7 @@ import {
   Check,
   House,
   Image,
+  Images,
   Instagram,
   Store,
   UserRound,
@@ -111,6 +112,7 @@ type BrandBasicsScreenProps = SharedBasicsScreenProps & {
     signal?: AbortSignal,
   ) => Promise<SiteSlugAvailabilityCheck>;
   onContinue: () => void;
+  onCoverPhotoSelected: (file: File) => Promise<void>;
   onLogoSelected: (file: File) => Promise<void>;
   onProfilePhotoSelected: (file: File) => Promise<void>;
   onQuickBookProfileChange?: (patch: Partial<QuickBookProfileVisibilityDraft>) => void;
@@ -119,12 +121,13 @@ type BrandBasicsScreenProps = SharedBasicsScreenProps & {
   starter: StarterId | null;
 };
 
-type OptionalBusinessSection = 'instagram' | 'logo' | 'profile_photo';
+type OptionalBusinessSection = 'cover_photo' | 'instagram' | 'logo' | 'profile_photo';
 
 export function BrandBasicsScreen({
   checkSiteSlugAvailability,
   onBack,
   onContinue,
+  onCoverPhotoSelected,
   onLogoSelected,
   onProfileChange,
   onProfilePhotoSelected,
@@ -147,15 +150,18 @@ export function BrandBasicsScreen({
     = useState<OptionalBusinessSection | null>(null);
   const isShortPhone = useMediaQuery('(max-width: 479px) and (max-height: 700px)');
 
-  const imageAssetIds = [profile.profilePhoto, profile.logo]
+  const imageAssetIds = [profile.profilePhoto, profile.logo, profile.coverPhoto]
     .flatMap(image => image?.storageId ? [image.storageId] : []);
   const imageAssets = useCustomDesignAssetMap(imageAssetIds);
   const profileImage = resolveOnboardingImage(profile.profilePhoto, imageAssets);
   const logoImage = resolveOnboardingImage(profile.logo, imageAssets);
+  const coverImage = resolveOnboardingImage(profile.coverPhoto, imageAssets);
   const profileNeedsReselect = profileImage.status === 'error'
     || profileImage.status === 'missing';
   const logoNeedsReselect = logoImage.status === 'error'
     || logoImage.status === 'missing';
+  const coverNeedsReselect = coverImage.status === 'error'
+    || coverImage.status === 'missing';
   const instagramResolution = resolveInstagramUsername(profile.instagram);
   const instagramError = getInstagramInputError(profile.instagram);
   const personalBusiness = isPersonalBusinessType(profile.businessType);
@@ -347,6 +353,9 @@ export function BrandBasicsScreen({
   const logoSummary = profile.logo
     ? logoNeedsReselect ? 'Needs to be selected again' : 'Logo added'
     : 'Not added';
+  const coverSummary = profile.coverPhoto
+    ? coverNeedsReselect ? 'Needs to be selected again' : 'Cover added'
+    : 'Using the default cover';
   const instagramSummary = instagramResolution.status === 'resolved'
     ? `@${instagramResolution.username}`
     : instagramError ? 'Needs attention' : 'Not added';
@@ -621,6 +630,63 @@ export function BrandBasicsScreen({
                 ? 'This saved logo couldn’t be loaded on this device. Select it again to restore it.'
                 : 'This saved logo is no longer available on this device. Select it again to restore it.'}
             />
+          </div>
+        </section>
+
+        <section className="onboarding-business-card onboarding-business-card--optional">
+          <header>
+            <Images aria-hidden="true" size={22} />
+            <div>
+              <h2>
+                Cover photo
+                {' '}
+                <span>Optional</span>
+              </h2>
+              <p>A large photo of your work or studio, used in selected layouts.</p>
+              <small className="onboarding-business-card__compact-summary">{coverSummary}</small>
+            </div>
+            <button
+              aria-controls="onboarding-cover-photo-editor"
+              aria-expanded={optionalSectionIsOpen('cover_photo')}
+              aria-label={`${optionalSectionIsOpen('cover_photo') ? 'Done editing' : profile.coverPhoto ? 'Change' : 'Add'} cover photo`}
+              className="onboarding-business-card__compact-action"
+              hidden={!isShortPhone}
+              type="button"
+              onClick={() => toggleOptionalSection('cover_photo')}
+            >
+              {optionalSectionIsOpen('cover_photo') ? 'Done' : profile.coverPhoto ? 'Change' : 'Add'}
+            </button>
+          </header>
+          <div
+            className="onboarding-business-card__optional-body"
+            hidden={!optionalSectionIsOpen('cover_photo')}
+            id="onboarding-cover-photo-editor"
+          >
+            <ImageUploadField
+              assetLoading={coverImage.status === 'loading'}
+              chooseLabel="Choose cover photo"
+              currentLabel={profile.coverPhoto?.fileName}
+              currentSummary={profile.coverPhoto?.width && profile.coverPhoto.height
+                ? `${profile.coverPhoto.width} × ${profile.coverPhoto.height}`
+                : undefined}
+              label="Cover photo"
+              loadingLabel="Loading saved cover photo…"
+              mediaRole="cover"
+              needsReselect={coverNeedsReselect}
+              onRemove={() => onProfileChange({ coverPhoto: undefined })}
+              onSelect={onCoverPhotoSelected}
+              previewAlt=""
+              previewUrl={coverImage.status === 'ready' ? coverImage.url : undefined}
+              readyLabel="Cover photo ready"
+              recoveryMessage={coverImage.status === 'error'
+                ? 'This saved cover photo couldn’t be loaded on this device. Select it again to restore it.'
+                : 'This saved cover photo is no longer available on this device. Select it again to restore it.'}
+            />
+            <p className="onboarding-field-note" data-testid="onboarding-cover-default-note">
+              {profile.coverPhoto
+                ? 'Cover-photo layouts show this photo. Other layouts keep it saved without showing it.'
+                : 'Skip this and cover-photo layouts use a designed default cover until you add your own. You can add or replace it any time from your dashboard.'}
+            </p>
           </div>
         </section>
 

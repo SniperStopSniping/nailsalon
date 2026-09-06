@@ -931,13 +931,16 @@ export function QuickBookLayoutScreen({
   const imageAssetIds = useMemo(() => [
     state.profile.logo?.storageId,
     state.profile.profilePhoto?.storageId,
+    state.profile.coverPhoto?.storageId,
   ].filter((assetId): assetId is string => Boolean(assetId)), [
     state.profile.logo?.storageId,
     state.profile.profilePhoto?.storageId,
+    state.profile.coverPhoto?.storageId,
   ]);
   const imageAssets = useCustomDesignAssetMap(imageAssetIds);
   const logoUrl = resolveOnboardingImageUrl(state.profile.logo, imageAssets);
   const profilePhotoUrl = resolveOnboardingImageUrl(state.profile.profilePhoto, imageAssets);
+  const coverPhotoUrl = resolveOnboardingImageUrl(state.profile.coverPhoto, imageAssets);
   const policiesReached = state.progress.visitedScreens.includes('policies');
   const quickBookProfile = useMemo(() => resolveQuickBookProfile({
     previewTimestamp: state.reviewOptions.previewTimestamp,
@@ -982,7 +985,7 @@ export function QuickBookLayoutScreen({
   } as CSSProperties;
   const posterProps = {
     businessName: state.profile.businessName.trim() || 'Your business',
-    coverUrl: null,
+    coverUrl: coverPhotoUrl,
     galleryCount: state.recipe.galleryEnabled ? state.gallery.images.length : 0,
     hasStory: Boolean(aboutSummary),
     logoUrl,
@@ -1078,13 +1081,18 @@ export function QuickBookLayoutScreen({
       {selectedLayout.cover || selectedLayout.portrait === 'essential'
         ? (
             <p className="onboarding-quick-book-layout-default-note" data-testid="quick-book-layout-default-note">
-              {selectedLayout.cover && selectedLayout.portrait === 'essential'
-                ? 'This layout includes a default cover and a default profile illustration until you add your own photos. Both stay visible to clients in the meantime; add or replace them any time from your dashboard.'
-                : selectedLayout.cover
-                  ? 'This layout includes a default cover until you add your own photo. It stays visible to clients in the meantime; add or replace it any time from your dashboard.'
-                  : profilePhotoUrl && quickBookProfile.techPhotoVisible
-                    ? 'This layout features your profile photo.'
-                    : 'This layout includes a default profile illustration until you add your photo. It stays visible to clients in the meantime; add or replace it any time from your dashboard.'}
+              {[
+                selectedLayout.cover
+                  ? coverPhotoUrl
+                    ? 'This layout shows your cover photo.'
+                    : 'This layout includes a designed default cover until you add your own. Add one back on Your business, or any time from your dashboard.'
+                  : null,
+                selectedLayout.portrait === 'essential'
+                  ? profilePhotoUrl && quickBookProfile.techPhotoVisible
+                    ? 'It features your profile photo.'
+                    : 'It includes a default profile illustration until you add your photo. Clients see the illustration in the meantime.'
+                  : null,
+              ].filter(Boolean).join(' ')}
             </p>
           )
         : null}

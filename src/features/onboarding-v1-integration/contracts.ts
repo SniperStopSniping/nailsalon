@@ -46,6 +46,7 @@ export const ONBOARDING_SITE_MEDIA_ROLES = [
   'logo',
   'gallery',
   'custom_design',
+  'cover',
 ] as const;
 
 export const ONBOARDING_SITE_MEDIA_CLAIM_STATUSES = [
@@ -63,7 +64,7 @@ export const ONBOARDING_SITE_MEDIA_CLAIM_STATUSES = [
 export const ONBOARDING_SITE_MEDIA_MAX_ITEMS = 80;
 
 export const ONBOARDING_SITE_MEDIA_LIMIT_MESSAGE
-  = 'Account save supports up to 80 website images across profile, logo, Gallery, and Custom Design sections. Remove or reduce images, including restorable sections, then try again.';
+  = 'Account save supports up to 80 website images across profile, logo, cover, Gallery, and Custom Design sections. Remove or reduce images, including restorable sections, then try again.';
 
 export type OnboardingStylePresetId = (typeof ONBOARDING_STYLE_PRESET_IDS)[number];
 export type OnboardingPalettePresetId = (typeof ONBOARDING_PALETTE_PRESET_IDS)[number];
@@ -250,6 +251,13 @@ const profileSchema = z.object({
     serviceAreas: text(2_000).optional(),
     transitInformation: text(2_000),
   }).strict(),
+  /**
+   * The owner's cover photo chosen during onboarding. Absent means the
+   * cover-photo layouts keep showing the built-in default cover, which is a
+   * supported published state rather than a missing value. Defaulted so an
+   * older stored revision resolves without a migration of saved snapshots.
+   */
+  coverPhotoItemId: nonEmptyText(160).nullable().default(null),
   logoItemId: nonEmptyText(160).nullable(),
   /**
    * Basics only asks for an owner name when the business type is personal
@@ -663,6 +671,9 @@ export const onboardingDraftClaimRequestSchema = z.object({
     custom_design: customDesignImageIds,
     gallery: new Set(value.snapshot.gallery.source === 'uploads'
       ? value.snapshot.gallery.imageItemIds
+      : []),
+    cover: new Set(value.snapshot.profile.coverPhotoItemId
+      ? [value.snapshot.profile.coverPhotoItemId]
       : []),
     logo: new Set(value.snapshot.profile.logoItemId ? [value.snapshot.profile.logoItemId] : []),
     profile: new Set(value.snapshot.profile.profilePhotoItemId

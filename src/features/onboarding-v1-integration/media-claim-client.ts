@@ -82,8 +82,21 @@ type VerifyResponse = {
   error?: { message?: unknown };
 };
 
+/**
+ * Roles that own a public Product field (logo, technician photo, cover). One
+ * stored asset may not serve two of them: the promotion writes a different
+ * canonical destination per role and would otherwise fight over the same file.
+ */
+const IDENTITY_MEDIA_ROLES: ReadonlySet<OnboardingMediaRole> = new Set([
+  'cover',
+  'logo',
+  'profile',
+]);
+
 const ownerMessageForRole = (role: OnboardingMediaRole): string => {
   switch (role) {
+    case 'cover':
+      return 'Your cover photo could not be saved. Your local copy is still safe.';
     case 'custom_design':
       return 'One Canva page could not be saved. Your local copy is still safe.';
     case 'gallery':
@@ -134,6 +147,7 @@ export const collectOnboardingMediaReferences = (
   const candidates = [
     asReference(state.profile.profilePhoto, 'profile', 0),
     asReference(state.profile.logo, 'logo', 0),
+    asReference(state.profile.coverPhoto, 'cover', 0),
     ...state.gallery.images.map((image, order) =>
       asReference(image, 'gallery', order)),
     ...customDesignReferences,
@@ -146,10 +160,8 @@ export const collectOnboardingMediaReferences = (
     if (
       priorRole
       && priorRole !== reference.role
-      && (priorRole === 'logo'
-        || priorRole === 'profile'
-        || reference.role === 'logo'
-        || reference.role === 'profile')
+      && (IDENTITY_MEDIA_ROLES.has(priorRole)
+        || IDENTITY_MEDIA_ROLES.has(reference.role))
     ) {
       throw new Error(
         `ONBOARDING_MEDIA_ROLE_CONFLICT:${reference.assetId}:${priorRole}:${reference.role}`,

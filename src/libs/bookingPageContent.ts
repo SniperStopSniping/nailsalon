@@ -426,6 +426,82 @@ export async function updateBookingPageContentDraftInTransaction(
 }
 
 /**
+ * Writes ONLY `heroImageUrl`, on the named sides.
+ *
+ * The onboarding canonical-cover promotion needs this. A promotion during a
+ * DRAFT salon touches `draft` alone, exactly like the dashboard cover upload.
+ * A promotion that runs inside Publish must also land on `live`: by the time
+ * `applyPreparedCanonicalProfileMediaPromotion` runs, the publish has already
+ * computed and written its draft-to-live copy from the PRE-promotion draft,
+ * so a draft-only write would leave the owner's first published page showing
+ * the default cover until they published a second time.
+ *
+ * Every other content field is untouched — this is a targeted `jsonb_set`,
+ * not a whole-side replacement, so it cannot clobber a concurrent edit to a
+ * neighbouring key.
+ */
+export async function setBookingPageContentHeroImageInTransaction(
+  tx: BookingPageContentTransaction,
+  salonId: string,
+  heroImageUrl: string | null,
+  sides: readonly ('draft' | 'live')[] = ['draft'],
+): Promise<BookingPageContent | null> {
+  const current = await readCurrentBookingPageContent(tx, salonId);
+  if (!current || sides.length === 0) {
+    return current;
+  }
+
+  let settingsExpression = sql`
+    CASE
+      WHEN jsonb_typeof(${salonSchema.settings}) = 'object'
+        THEN ${salonSchema.settings}
+      ELSE '{}'::jsonb
+    END
+  `;
+  settingsExpression = sql`
+    jsonb_set(
+      ${settingsExpression},
+      '{bookingPageContent}',
+      CASE
+        WHEN jsonb_typeof(${settingsExpression}->'bookingPageContent') = 'object'
+          THEN ${settingsExpression}->'bookingPageContent'
+        ELSE '{}'::jsonb
+      END
+    )
+  `;
+  settingsExpression = sql`jsonb_set(${settingsExpression}, '{bookingPageContent,version}', '1'::jsonb)`;
+
+  for (const side of sides) {
+    const sidePath = side === 'draft'
+      ? sql.raw(`'{bookingPageContent,draft}'`)
+      : sql.raw(`'{bookingPageContent,live}'`);
+    const heroPath = side === 'draft'
+      ? sql.raw(`'{bookingPageContent,draft,heroImageUrl}'`)
+      : sql.raw(`'{bookingPageContent,live,heroImageUrl}'`);
+    settingsExpression = sql`
+      jsonb_set(
+        ${settingsExpression},
+        ${sidePath},
+        CASE
+          WHEN jsonb_typeof(${settingsExpression}#>${sidePath}) = 'object'
+            THEN ${settingsExpression}#>${sidePath}
+          ELSE ${JSON.stringify(current[side])}::jsonb
+        END
+      )
+    `;
+    settingsExpression = sql`jsonb_set(${settingsExpression}, ${heroPath}, ${JSON.stringify(heroImageUrl)}::jsonb)`;
+  }
+
+  const [updated] = await tx
+    .update(salonSchema)
+    .set({ settings: settingsExpression })
+    .where(eq(salonSchema.id, salonId))
+    .returning();
+
+  return updated ? resolveBookingPageContent(updated.settings) : null;
+}
+
+/**
  * Writes a patch into `salon.settings.bookingPageContent.draft` only. The
  * patch must already be valid (validate with `bookingPageContentPatchSchema`
  * upstream) — an invalid patch throws here, same contract as

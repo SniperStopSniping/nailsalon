@@ -10,7 +10,7 @@ import { cloudinary, isCloudinaryConfigured } from '@/libs/Cloudinary';
 const SAFE_ID = /^[\w-]{1,160}$/;
 const LOCAL_ROOT_SEGMENTS = ['public', 'uploads', 'onboarding-profile'] as const;
 
-export type CanonicalOnboardingProfileMediaRole = 'logo' | 'profile';
+export type CanonicalOnboardingProfileMediaRole = 'cover' | 'logo' | 'profile';
 
 export type CanonicalOnboardingProfileMedia = {
   publicUrl: string;
@@ -57,6 +57,11 @@ const canonicalFileStem = ({
 }): string => {
   if (role === 'logo') {
     return `logo_${mediaId}`;
+  }
+  // A cover belongs to the business, not to one technician, so it needs no
+  // technician owner and never carries one in its file name.
+  if (role === 'cover') {
+    return `cover_${mediaId}`;
   }
   if (!technicianId) {
     throw new CanonicalOnboardingProfileMediaError(
@@ -135,7 +140,11 @@ const saveCloudinaryMedia = async ({
         invalidate: true,
         transformation: role === 'profile'
           ? [{ crop: 'fill', gravity: 'face', height: 400, width: 400 }]
-          : [{ crop: 'limit', height: 600, width: 1_200 }],
+          // A cover is rendered edge-to-edge behind the identity band, so it
+          // keeps a much larger bound than a logo and is never face-cropped.
+          : role === 'cover'
+            ? [{ crop: 'limit', height: 1_400, width: 2_000 }]
+            : [{ crop: 'limit', height: 600, width: 1_200 }],
       },
       (error, uploaded) => {
         if (error) {

@@ -242,6 +242,8 @@ export type BusinessProfileDraft = {
   siteSlugCustomized: boolean;
   profilePhoto?: LocalImageReference;
   logo?: LocalImageReference;
+  /** Optional cover photo; cover layouts use the built-in default without it. */
+  coverPhoto?: LocalImageReference;
   instagram: string;
   preferredContact: PreferredContactMethod | null;
   clientContact: ClientContactDraft;

@@ -788,10 +788,12 @@ function QuickBookProfileHeader({
   const identityAssetIds = useMemo(() => [
     profile.logo?.storageId,
     profile.profilePhoto?.storageId,
+    profile.coverPhoto?.storageId,
     ...(state.recipe.galleryEnabled ? state.gallery.images.slice(0, 5).map(image => image.storageId) : []),
   ].filter((assetId): assetId is string => Boolean(assetId)), [
     profile.logo?.storageId,
     profile.profilePhoto?.storageId,
+    profile.coverPhoto?.storageId,
     state.gallery.images,
     state.recipe.galleryEnabled,
   ]);
@@ -814,7 +816,7 @@ function QuickBookProfileHeader({
       view,
       logoUrl: resolveOnboardingImageUrl(profile.logo, identityAssets),
       profilePhotoUrl: resolveOnboardingImageUrl(profile.profilePhoto, identityAssets),
-      coverUrl: null,
+      coverUrl: resolveOnboardingImageUrl(profile.coverPhoto, identityAssets),
       gallery,
       websiteCopy: null,
     });

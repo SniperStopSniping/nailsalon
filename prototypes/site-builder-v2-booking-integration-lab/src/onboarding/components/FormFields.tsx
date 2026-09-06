@@ -416,7 +416,7 @@ type ImageUploadFieldProps = {
   chooseLabel?: string;
   label: string;
   loadingLabel?: string;
-  mediaRole?: 'logo' | 'profile';
+  mediaRole?: 'cover' | 'logo' | 'profile';
   needsReselect?: boolean;
   onRemove?: () => void;
   onSelect: (file: File) => Promise<void> | void;

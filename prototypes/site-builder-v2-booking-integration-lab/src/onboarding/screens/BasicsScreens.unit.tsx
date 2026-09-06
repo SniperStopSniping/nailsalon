@@ -48,6 +48,7 @@ type BrandBasicsHandlers = Partial<{
     signal?: AbortSignal,
   ) => Promise<SiteSlugAvailabilityCheck>;
   onContinue: () => void;
+  onCoverPhotoSelected: (file: File) => Promise<void>;
   onLogoSelected: (file: File) => Promise<void>;
   onProfilePhotoSelected: (file: File) => Promise<void>;
   onQuickBookProfileChange: (patch: Record<string, boolean>) => void;
@@ -69,6 +70,7 @@ function renderBrandBasics(
         starter={handlers.starter === undefined ? 'one_page' : handlers.starter}
         onBack={vi.fn()}
         onContinue={handlers.onContinue ?? vi.fn()}
+        onCoverPhotoSelected={handlers.onCoverPhotoSelected ?? vi.fn()}
         onLogoSelected={handlers.onLogoSelected ?? vi.fn()}
         onProfileChange={fixedProfile ? vi.fn() : update}
         onProfilePhotoSelected={handlers.onProfilePhotoSelected ?? vi.fn()}
@@ -236,6 +238,7 @@ describe('BrandBasicsScreen', () => {
           starter="one_page"
           onBack={vi.fn()}
           onContinue={onContinue}
+          onCoverPhotoSelected={vi.fn()}
           onLogoSelected={vi.fn()}
           onProfileChange={update}
           onProfilePhotoSelected={vi.fn()}
@@ -509,6 +512,51 @@ describe('BrandBasicsScreen', () => {
       'This saved logo is no longer available on this device. Select it again to restore it.',
     )).toBeVisible();
     expect(screen.getAllByRole('button', { name: 'Select again' })).toHaveLength(2);
+  });
+
+  it('offers the three image roles together and keeps the cover optional', async () => {
+    const user = userEvent.setup();
+    const onCoverPhotoSelected = vi.fn(async () => {});
+    renderBrandBasics({ onCoverPhotoSelected }, undefined, { businessType: 'home_based' });
+
+    // All three roles are on this one screen, so an owner never has to finish
+    // setup and go to the dashboard to add a cover.
+    expect(screen.getByRole('heading', { name: /Logo/u })).toBeVisible();
+    expect(screen.getByRole('heading', { name: /Profile photo/u })).toBeVisible();
+    const coverHeading = screen.getByRole('heading', { name: /Cover photo/u });
+
+    expect(coverHeading).toBeVisible();
+    expect(screen.getByText('A large photo of your work or studio, used in selected layouts.'))
+      .toBeVisible();
+
+    // Skipping is a supported published state, described truthfully.
+    expect(screen.getByTestId('onboarding-cover-default-note'))
+      .toHaveTextContent(/designed default cover/u);
+
+    const file = new File(['cover-bytes'], 'studio.jpg', { type: 'image/jpeg' });
+    await user.upload(screen.getByLabelText('Cover photo'), file);
+
+    await waitFor(() => {
+      expect(onCoverPhotoSelected).toHaveBeenCalledWith(file);
+    });
+  });
+
+  it('reports a saved cover without claiming it is a photo of the technician', () => {
+    renderBrandBasics({}, undefined, {
+      coverPhoto: {
+        fileName: 'studio.webp',
+        height: 900,
+        id: 'cover_1',
+        mimeType: 'image/webp',
+        source: 'indexed_db',
+        storageId: 'asset_cover_1',
+        width: 1600,
+      },
+    });
+
+    expect(screen.getByTestId('onboarding-cover-default-note'))
+      .toHaveTextContent(/show this photo/u);
+    expect(screen.queryByText(/default cover/u)).not.toBeInTheDocument();
   });
 });
 

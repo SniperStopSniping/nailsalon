@@ -60,9 +60,13 @@ type QuickBookProfileHeaderProps = {
   announcement?: ReactNode;
 };
 
-function ProfileLogo({ name, src }: { name: string; src: string }) {
+function ProfileLogo({ compact = false, name, src }: {
+  compact?: boolean;
+  name: string;
+  src: string;
+}) {
   return (
-    <div className="relative size-16 shrink-0 overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-sm sm:size-[4.5rem]">
+    <div className={`relative shrink-0 overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-sm sm:size-[4.5rem] ${compact ? 'size-12 min-[360px]:size-16' : 'size-16'}`}>
       <Image
         src={src}
         alt={`${name} logo`}
@@ -75,9 +79,13 @@ function ProfileLogo({ name, src }: { name: string; src: string }) {
   );
 }
 
-function TechnicianPhoto({ name, src }: { name: string; src: string }) {
+function TechnicianPhoto({ compact = false, name, src }: {
+  compact?: boolean;
+  name: string;
+  src: string;
+}) {
   return (
-    <div className="relative size-16 shrink-0 overflow-hidden rounded-full border-2 border-white bg-neutral-100 shadow-sm sm:size-[4.5rem]">
+    <div className={`relative shrink-0 overflow-hidden rounded-full border-2 border-white bg-neutral-100 shadow-sm sm:size-[4.5rem] ${compact ? 'size-12 min-[360px]:size-16' : 'size-16'}`}>
       <Image
         src={src}
         alt={name}
@@ -163,7 +171,14 @@ export function QuickBookProfileHeader({
                   data-testid="quick-book-identity"
                   className={`flex min-w-0 gap-3 sm:gap-4 ${
                     activeLayout === 'editorial'
-                      ? 'items-center justify-center text-center'
+                      // The masthead is the whole point of Editorial, so the
+                      // identity images sit on their own centred row above it
+                      // rather than competing with it for width. Before this,
+                      // a long name squeezed both images against the card
+                      // edges (clipping them below `sm`) and pushed the
+                      // heading off the card's centre axis whenever only one
+                      // image was present.
+                      ? 'flex-col items-center text-center'
                       : activeLayout === 'clean_card'
                         ? 'flex-col items-center text-center sm:flex-row sm:text-left'
                         : activeLayout === 'profile_story'
@@ -171,11 +186,35 @@ export function QuickBookProfileHeader({
                           : 'items-center'
                   }`}
                 >
-                  {profile.identity.logoUrl
-                    ? <ProfileLogo name={profile.identity.salonName} src={profile.identity.logoUrl} />
-                    : null}
+                  {activeLayout === 'editorial'
+                    ? profile.identity.logoUrl || profile.identity.technicianPhotoUrl
+                      ? (
+                          <div className="flex items-center justify-center gap-3">
+                            {profile.identity.logoUrl
+                              ? <ProfileLogo name={profile.identity.salonName} src={profile.identity.logoUrl} />
+                              : null}
+                            {profile.identity.technicianPhotoUrl
+                              ? (
+                                  <TechnicianPhoto
+                                    name={profile.identity.technicianName ?? profile.identity.salonName}
+                                    src={profile.identity.technicianPhotoUrl}
+                                  />
+                                )
+                              : null}
+                          </div>
+                        )
+                      : null
+                    : profile.identity.logoUrl
+                      ? (
+                          <ProfileLogo
+                            compact={activeLayout === 'profile_story'}
+                            name={profile.identity.salonName}
+                            src={profile.identity.logoUrl}
+                          />
+                        )
+                      : null}
 
-                  <div className={activeLayout === 'editorial' ? 'max-w-sm' : 'min-w-0 flex-1'}>
+                  <div className={activeLayout === 'editorial' ? 'w-full max-w-sm' : 'min-w-0 flex-1'}>
                     <h1
                       id="quick-book-profile-name"
                       data-testid="booking-salon-name"
@@ -198,9 +237,10 @@ export function QuickBookProfileHeader({
                       : null}
                   </div>
 
-                  {profile.identity.technicianPhotoUrl
+                  {profile.identity.technicianPhotoUrl && activeLayout !== 'editorial'
                     ? (
                         <TechnicianPhoto
+                          compact={activeLayout === 'profile_story'}
                           name={profile.identity.technicianName ?? profile.identity.salonName}
                           src={profile.identity.technicianPhotoUrl}
                         />
@@ -230,9 +270,22 @@ export function QuickBookProfileHeader({
                           data-testid="quick-book-business-details"
                           className={`${
                             activeLayout === 'hub_menu'
-                              ? 'grid grid-cols-2 gap-2 pt-3 [&>*]:rounded-2xl [&>*]:border [&>*]:border-neutral-100 [&>*]:px-3'
+                              // Full-width tiles. This card stays about 400px wide at
+                              // EVERY viewport, so a two-up grid left roughly 120px of
+                              // text per tile: it broke a real street address into
+                              // two-word lines, split it mid-word at 320px, and left
+                              // the short hours tile half empty beside it. The tiles
+                              // keep their icon, border and tap target — the hub
+                              // personality — they simply each get the full row.
+                              ? 'grid grid-cols-1 gap-2 pt-3 [&>*]:rounded-2xl [&>*]:border [&>*]:border-neutral-100 [&>*]:px-3'
                               : activeLayout === 'editorial'
-                                ? 'grid gap-x-4 divide-y divide-neutral-100 sm:grid-cols-2 sm:divide-y-0'
+                                // `sm:` is a VIEWPORT breakpoint, but this card stays about
+                                // 400px wide even on desktop, so the two-column path
+                                // fired where it never had room: the address wrapped
+                                // every two or three words and the second column was
+                                // left half empty. One column with the divider rules is
+                                // what already reads well on a phone.
+                                ? 'divide-y divide-neutral-100'
                                 : activeLayout === 'compact_dropdown' || activeLayout === 'ultra_minimal'
                                   ? 'divide-y divide-neutral-100 text-sm'
                                   : 'divide-y divide-neutral-100'
@@ -301,7 +354,7 @@ export function QuickBookProfileHeader({
                                     ? (
                                         <a
                                           href={profile.contact.phone.href}
-                                          className="flex min-h-11 min-w-0 items-center gap-2 rounded-xl bg-neutral-50 px-3 text-sm font-medium text-neutral-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
+                                          className="flex min-h-11 min-w-0 items-center gap-2 rounded-xl border border-neutral-100 bg-neutral-50 px-2.5 text-sm font-medium text-neutral-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
                                         >
                                           <Phone aria-hidden="true" className="size-4 shrink-0" style={{ color: themeVars.accent }} />
                                           <span className="min-w-0">
@@ -317,7 +370,7 @@ export function QuickBookProfileHeader({
                                     ? (
                                         <a
                                           href={profile.contact.email.href}
-                                          className="flex min-h-11 min-w-0 items-center gap-2 rounded-xl bg-neutral-50 px-3 text-sm font-medium text-neutral-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
+                                          className="flex min-h-11 min-w-0 items-center gap-2 rounded-xl border border-neutral-100 bg-neutral-50 px-2.5 text-sm font-medium text-neutral-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
                                         >
                                           <Mail aria-hidden="true" className="size-4 shrink-0" style={{ color: themeVars.accent }} />
                                           {/* break-all split the address mid-token
