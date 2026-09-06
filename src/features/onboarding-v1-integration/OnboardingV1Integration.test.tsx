@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import type { ReactNode } from 'react';
 import { onTestFinished } from 'vitest';
@@ -7,12 +7,13 @@ import { initializeStarter } from '../../../prototypes/site-builder-v2-booking-i
 import { SITE_BUILDER_STORAGE_KEY } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/model/validation';
 import { createDefaultOnboardingState } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/model/defaults';
 import { goToScreen } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/model/routing';
-import { loadOnboardingState, saveOnboardingState } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/storage/storage';
+import { loadOnboardingState, ONBOARDING_STORAGE_KEY, saveOnboardingState } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/storage/storage';
 import type { OnboardingAuthProviderAvailability } from './auth-providers';
 import type { OnboardingClaimSuccess } from './contracts';
 import {
   createOnboardingIntegrationFlow,
   loadOnboardingIntegrationFlow,
+  ONBOARDING_INTEGRATION_FLOW_STORAGE_KEY,
   saveOnboardingIntegrationFlow,
 } from './flow-storage';
 import { OnboardingV1Integration } from './OnboardingV1Integration';
@@ -345,6 +346,40 @@ describe('OnboardingV1Integration rendered account-save flow', () => {
 
     expect(notice).toHaveAttribute('role', 'status');
     expect(notice).toHaveTextContent('We kept the changes you already made in your dashboard: opening hours, service prices.');
+  });
+
+  it('lets a saved owner go back to change something or start over from the saved screen', async () => {
+    const interaction = userEvent.setup();
+    mocks.auth.isSignedIn = true;
+    mocks.userState.user = verifiedClerkUser();
+    mocks.claim.mockResolvedValue({ status: 'saved', value: savedSite });
+    mocks.claimMedia.mockResolvedValue({ failures: [], verifiedRevision: 1 });
+    mocks.cleanupMedia.mockResolvedValue({ removedAssetIds: [] });
+    const assign = vi.fn();
+    const originalLocation = window.location;
+    Object.defineProperty(window, 'location', { configurable: true, value: { ...originalLocation, assign } });
+
+    try {
+      render(<OnboardingV1Integration authProviders={ALL_PROVIDERS} locale="en" />);
+
+      expect(await screen.findByRole('heading', { level: 1, name: 'Your Luster site is saved' })).toBeVisible();
+      expect(screen.getByRole('button', { name: 'Go back and change something' })).toBeVisible();
+
+      await interaction.click(screen.getByRole('button', { name: 'Start over' }));
+
+      const dialog = await screen.findByRole('alertdialog', { name: 'Start over?' });
+
+      expect(dialog).toHaveTextContent(/stays as a draft/u);
+      expect(assign).not.toHaveBeenCalled();
+
+      await interaction.click(within(dialog).getByRole('button', { name: 'Start over' }));
+
+      expect(window.localStorage.getItem(ONBOARDING_STORAGE_KEY)).toBeNull();
+      expect(window.localStorage.getItem(ONBOARDING_INTEGRATION_FLOW_STORAGE_KEY)).toBeNull();
+      expect(assign).toHaveBeenCalledWith('/en/onboarding-v1');
+    } finally {
+      Object.defineProperty(window, 'location', { configurable: true, value: originalLocation });
+    }
   });
 
   it('explains an incomplete snapshot in words and routes to the screen that owns the field', async () => {

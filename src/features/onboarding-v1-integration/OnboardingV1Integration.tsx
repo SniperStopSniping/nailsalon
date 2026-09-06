@@ -20,6 +20,8 @@ import {
 } from 'react';
 import { ZodError } from 'zod';
 
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+
 import {
   CustomDesignAssetProvider,
   useCustomDesignAssetRepository,
@@ -42,10 +44,7 @@ import {
   type OnboardingSavePayload,
 } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/OnboardingApp';
 import { createLabPlanConfiguration } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/overlays/PlanOfferSheet';
-import {
-  loadOnboardingState,
-  saveOnboardingState,
-} from '../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/storage/storage';
+import { clearOnboardingState as clearLabOnboardingState, loadOnboardingState, saveOnboardingState } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/storage/storage';
 import { useLabDocument } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/ui/useLabDocument';
 import { PremiumAccountGate } from './account-gate/AccountGate';
 import {
@@ -1212,6 +1211,7 @@ function OnboardingIntegrationController({
               onContinue={currentPayload.state.progress.currentScreen === 'save_progress'
                 ? continueAfterEarlySave
                 : () => setFlow(current => ({ ...current, phase: 'plans' }))}
+              onReturn={returnToReview}
               savedSite={flow.savedSite}
               state={currentPayload.state}
             />
@@ -1476,6 +1476,7 @@ function SavedCelebration({
   locale,
   mediaComplete,
   onContinue,
+  onReturn,
   savedSite,
   state,
 }: {
@@ -1483,12 +1484,22 @@ function SavedCelebration({
   locale: string;
   mediaComplete: boolean;
   onContinue: () => void;
+  onReturn: () => void;
   savedSite: OnboardingClaimSuccess;
   state: OnboardingLabState;
 }) {
   const feedback = useFeedback();
   const headingRef = useRef<HTMLHeadingElement>(null);
   const [previewLoaded, setPreviewLoaded] = useState(false);
+  const [startOverOpen, setStartOverOpen] = useState(false);
+  // "Start over" clears this device's onboarding answers and the integration's
+  // flow record, then reloads the starter. The site already saved to the
+  // account stays as a draft; the next save offers to replace it.
+  const startOver = () => {
+    clearLabOnboardingState();
+    clearOnboardingIntegrationBrowserState();
+    window.location.assign(getOnboardingIntegrationRoute(locale));
+  };
   const salonName = state.profile.businessName.trim() || 'Your nail studio';
   useEffect(() => {
     headingRef.current?.focus({ preventScroll: true });
@@ -1541,6 +1552,24 @@ function SavedCelebration({
               Preview my saved site
             </a>
           </div>
+          <div className="onboarding-integration-action-stack onboarding-saved-secondary-actions">
+            <button className="onboarding-integration-text-action" type="button" onClick={onReturn}>
+              Go back and change something
+            </button>
+            <button className="onboarding-integration-text-action" type="button" onClick={() => setStartOverOpen(true)}>
+              Start over
+            </button>
+          </div>
+          <ConfirmDialog
+            cancelLabel="Keep my setup"
+            confirmLabel="Start over"
+            description="This clears your setup answers on this device so you can begin again from the first step. The site already saved to your account stays as a draft — your next save will offer to replace it."
+            isOpen={startOverOpen}
+            onClose={() => setStartOverOpen(false)}
+            onConfirm={startOver}
+            title="Start over?"
+            tone="danger"
+          />
         </div>
         <div className="onboarding-saved-preview" aria-label={`Saved preview of ${salonName}`}>
           {!previewLoaded && <p className="onboarding-saved-preview-loading" role="status">Loading your saved preview…</p>}
