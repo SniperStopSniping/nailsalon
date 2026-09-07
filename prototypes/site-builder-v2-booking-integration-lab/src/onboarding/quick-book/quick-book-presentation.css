@@ -581,9 +581,25 @@ details[open] > summary > .qb-fact__chevron {
 
 /* Gallery ---------------------------------------------------------------- */
 
+/* The strip's own `ul` scrolls, but the wrapper around it is a grid item with
+   the default `min-width: auto`, so it handed the presentation grid a
+   min-content of 4 x 78px + gaps = 336px. Below about 390px that pinned the
+   single column at 336px and pushed every sibling — the facts rows, the
+   disclosures and their carets — past the clipped edge of the card. Letting
+   the wrapper shrink hands the overflow back to the strip, which is built to
+   scroll. Above 390px the column is already wider than 336px, so nothing
+   moves. */
+.qb-gallery {
+  min-width: 0;
+}
+
 .qb-gallery ul {
   display: grid;
-  grid-auto-columns: minmax(78px, 1fr);
+  /* 77px, not 78: four tiles plus three 8px gaps come to 332px, which is
+     exactly the content width of the card at a 390px viewport. At 78px the
+     strip needed 336px, overflowed by 4px, and only looked right because the
+     card's padding absorbed it. */
+  grid-auto-columns: minmax(77px, 1fr);
   grid-auto-flow: column;
   margin: 0;
   padding: 0 0 4px;
