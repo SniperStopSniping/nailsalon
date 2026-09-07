@@ -329,6 +329,9 @@ jobs:
               migrations/0073_l1_catalog_rules_foundation.sql) ;;
               # Account-backed onboarding — canonical saved site foundation.
               migrations/0074_onboarding_account_site_foundation.sql) ;;
+              # Quick Book design system — widens the onboarding media role
+              # list to include `cover`. Additive constraint change only.
+              migrations/0075_onboarding_cover_media_role.sql) ;;
               migrations/meta/_journal.json) ;;
               vercel.json) ;;
               *)
@@ -411,6 +414,8 @@ jobs:
               # foundation.
               0073_l1_catalog_rules_foundation) ;;
               0074_onboarding_account_site_foundation) ;;
+              # Quick Book design system — onboarding cover media role.
+              0075_onboarding_cover_media_role) ;;
               *)
                 echo "::error::Unauthorized migration journal entries: $tag"
                 exit 1
