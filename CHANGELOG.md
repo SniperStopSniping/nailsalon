@@ -1,3 +1,10 @@
+## [1.88.1](https://github.com/SniperStopSniping/nailsalon/compare/v1.88.0...v1.88.1) (2026-09-07)
+
+
+### Bug Fixes
+
+* **owner:** give portalled dialogs the owner token layer ([0e002b0](https://github.com/SniperStopSniping/nailsalon/commit/0e002b04f54201c90f39219890e636788cf4cd50))
+
 # [1.88.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.87.0...v1.88.0) (2026-09-07)
 
 
