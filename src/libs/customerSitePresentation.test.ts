@@ -28,6 +28,58 @@ describe('customerSitePresentation', () => {
     }
   });
 
+  it('gives every style preset its own display face', () => {
+    // The six styles are a typography choice, so two of them resolving to the
+    // same face is the defect this asserts against: before this contract
+    // existed, four of the six named the same serif.
+    const families = CUSTOMER_SITE_STYLE_PRESETS.map((stylePreset) => {
+      const variables = getCustomerSitePresentationCssVariables({ stylePreset });
+      return variables['--customer-site-heading-font'];
+    });
+
+    expect(new Set(families).size).toBe(CUSTOMER_SITE_STYLE_PRESETS.length);
+  });
+
+  it('self-hosts every display face rather than naming an unloaded family', () => {
+    // A bare family name is what made the presets silently identical on the
+    // public page: nothing loaded them, so they all fell back to Georgia or
+    // system-ui. Each must resolve through a next/font variable.
+    for (const stylePreset of CUSTOMER_SITE_STYLE_PRESETS) {
+      const variables = getCustomerSitePresentationCssVariables({ stylePreset });
+
+      expect(variables['--customer-site-heading-font'], stylePreset).toMatch(/^var\(--font-luster-[a-z]+\)/u);
+      expect(variables['--customer-site-body-font'], stylePreset).toMatch(/^var\(--font-luster-sans\)/u);
+    }
+  });
+
+  it('carries a weight, tracking and leading with each face', () => {
+    // Family alone left the six reading as one voice, because the renderer
+    // asked for the same weight and rhythm whichever preset was active.
+    const treatments = CUSTOMER_SITE_STYLE_PRESETS.map((stylePreset) => {
+      const variables = getCustomerSitePresentationCssVariables({ stylePreset });
+      return [
+        variables['--customer-site-heading-weight'],
+        variables['--customer-site-heading-tracking'],
+        variables['--customer-site-heading-leading'],
+      ].join('/');
+    });
+
+    for (const treatment of treatments) {
+      expect(treatment).not.toContain('undefined');
+    }
+
+    expect(new Set(treatments).size).toBe(CUSTOMER_SITE_STYLE_PRESETS.length);
+  });
+
+  it('keeps operational text on one neutral body face for every style', () => {
+    // Addresses, hours, prices and booking controls are read, not admired.
+    const bodyFonts = CUSTOMER_SITE_STYLE_PRESETS.map(
+      stylePreset => getCustomerSitePresentationCssVariables({ stylePreset })['--customer-site-body-font'],
+    );
+
+    expect(new Set(bodyFonts).size).toBe(1);
+  });
+
   it('uses safe released defaults for absent or unsupported ids', () => {
     expect(resolveCustomerSiteStylePreset(undefined)).toBe('modern');
     expect(resolveCustomerSiteStylePreset('future-style')).toBe('modern');
