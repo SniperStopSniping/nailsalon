@@ -21,6 +21,7 @@ const INK = 'var(--qb-ink, #2b1a22)';
 export function DefaultPortraitIllustration({ className }: { className?: string }) {
   const id = useId().replace(/:/g, '');
   const ground = `qb-portrait-ground-${id}`;
+  const halo = `qb-portrait-halo-${id}`;
   const figure = `qb-portrait-figure-${id}`;
   return (
     <svg
@@ -37,40 +38,29 @@ export function DefaultPortraitIllustration({ className }: { className?: string 
           <stop offset="0" stopColor={SECONDARY} />
           <stop offset="1" stopColor={SURFACE} />
         </linearGradient>
+        {/* A centred glow instead of corner blobs: an off-centre shape at this
+            size read as a second head once the art was cropped to a circle. */}
+        <radialGradient id={halo} cx="0.5" cy="0.44" r="0.62">
+          <stop offset="0" stopColor={SURFACE} stopOpacity="0.85" />
+          <stop offset="1" stopColor={SURFACE} stopOpacity="0" />
+        </radialGradient>
         <linearGradient id={figure} x1="0" x2="0" y1="0" y2="1">
-          <stop offset="0" stopColor={ACCENT} stopOpacity="0.92" />
-          <stop offset="1" stopColor={ACCENT} stopOpacity="0.62" />
+          <stop offset="0" stopColor={ACCENT} stopOpacity="0.9" />
+          <stop offset="1" stopColor={ACCENT} stopOpacity="0.6" />
         </linearGradient>
       </defs>
       <rect fill={`url(#${ground})`} height="240" width="200" />
-      <circle cx="152" cy="46" fill={SURFACE} opacity="0.55" r="34" />
-      <circle cx="34" cy="196" fill={ACCENT} opacity="0.12" r="42" />
-      <path
-        d="M52 214c0-38 22-62 48-62s48 24 48 62v26H52z"
-        fill={`url(#${figure})`}
-      />
-      <circle cx="100" cy="106" fill={`url(#${figure})`} r="36" />
-      <path
-        d="M70 88c8-22 52-24 60-2-4-12-14-20-30-20s-26 8-30 22z"
-        fill={INK}
-        opacity="0.18"
-      />
-      <path
-        d="M128 178c10 6 15 16 15 30"
-        fill="none"
-        opacity="0.35"
-        stroke={SURFACE}
-        strokeLinecap="round"
-        strokeWidth="4"
-      />
-      <path
-        d="M22 62c14-10 26-10 40 0M20 74c12-8 24-8 36 0"
-        fill="none"
-        opacity="0.5"
-        stroke={ACCENT}
-        strokeLinecap="round"
-        strokeWidth="3"
-      />
+      <rect fill={`url(#${halo})`} height="240" width="200" />
+      {/* Head and shoulders only, centred on x=100. The head sits inside
+          x 66–134, well within the narrowest crop in use — the portrait rail
+          shows roughly the middle two thirds of the width — and the shoulders
+          run off the bottom in every crop and off the sides in the rail. No
+          neck: at this size a column between head and shoulders read as a
+          stalk rather than a person. */}
+      <path d="M40 240c0-56 27-96 60-96s60 40 60 96z" fill={`url(#${figure})`} />
+      <ellipse cx="100" cy="150" fill={INK} opacity="0.08" rx="26" ry="8" />
+      <circle cx="100" cy="98" fill={`url(#${figure})`} r="34" />
+      <circle cx="89" cy="87" fill={SURFACE} opacity="0.16" r="10" />
     </svg>
   );
 }

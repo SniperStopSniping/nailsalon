@@ -42,6 +42,17 @@ export type QuickBookContactTreatment = 'shown' | 'disclosure';
 
 /** Which secondary actions sit above booking. */
 export type QuickBookActionsTreatment = 'full' | 'policies' | 'none';
+/**
+ * Where the saved social link lives. `inline` gives it its own row in the
+ * stack above booking; `details` keeps it one tap away inside Salon details,
+ * for a layout whose restraint is the point. The link itself is never dropped:
+ * when Salon details has nothing of its own to hold, the link keeps its row.
+ *
+ * Read by the shared presentation renderer only. The six legacy layouts have
+ * their own renderer and none of them declares this, so it is not yet a
+ * registry-wide contract.
+ */
+export type QuickBookSocialTreatment = 'inline' | 'details';
 
 /**
  * The business-name range a composition is built for. This is guidance, never
@@ -76,6 +87,8 @@ export type QuickBookLayoutDefinition = {
   facts: QuickBookFactsTreatment;
   contact: QuickBookContactTreatment;
   actions: QuickBookActionsTreatment;
+  /** Defaults to `inline` when a layout does not say otherwise. */
+  social?: QuickBookSocialTreatment;
   nameFit: QuickBookNameFit;
   /** One short, positive owner-facing suitability line. */
   guidance?: string;
@@ -279,6 +292,10 @@ export const QUICK_BOOK_LAYOUTS = [
     facts: 'compact',
     contact: 'disclosure',
     actions: 'policies',
+    // This layout's whole case is restraint: a big serif name, one portrait
+    // and almost nothing else. The social link keeps its place inside Salon
+    // details rather than adding a fifth row to the stack.
+    social: 'details',
     nameFit: 'short',
     guidance: 'Best for short names',
   },

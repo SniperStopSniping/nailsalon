@@ -306,7 +306,8 @@
   margin: 0 0 3px;
 }
 
-.qb-disclosure__body .qb-contact {
+.qb-disclosure__body .qb-contact,
+.qb-disclosure__body .qb-link-row {
   margin-top: 8px;
 }
 
@@ -375,6 +376,21 @@
 
 .qb-fact--hours > summary::-webkit-details-marker {
   display: none;
+}
+
+/* Wherever an hours row runs the full width of an UNBORDERED facts area, the
+   copy grew to fill it and the caret landed at the card's edge — measured
+   83–115px from the words it opens — where it stopped reading as part of the
+   Hours control. Size the copy to its own text so the caret follows the value.
+   `tiles` is deliberately excluded: its rows are bordered cards, and inside a
+   border the caret at the inner edge already belongs to the row. In the
+   two-up cases these variants overflow their cell anyway, so the rule is
+   inert there and only bites on a full-width row. The summary keeps its full
+   width, so the tap target and the disclosure behaviour are unchanged. */
+.qb-facts[data-qb-variant="compact"] .qb-fact--hours > summary > .qb-fact__copy,
+.qb-facts[data-qb-variant="rows"] .qb-fact--hours > summary > .qb-fact__copy,
+.qb-facts[data-qb-variant="grid"] .qb-fact--hours > summary > .qb-fact__copy {
+  flex: 0 1 auto;
 }
 
 .qb-fact__chevron {

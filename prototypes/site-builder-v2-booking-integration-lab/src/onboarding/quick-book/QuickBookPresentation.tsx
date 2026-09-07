@@ -387,17 +387,33 @@ function Story({ profile, greeting }: { profile: QuickBookPresentationProfile; g
  * removed from the salon record — this is where a curated header keeps its
  * promise that the rest is still one tap away.
  */
-function SalonDetails({ profile, layout }: {
-  profile: QuickBookPresentationProfile;
-  layout: QuickBookLayoutDefinition;
-}) {
+/**
+ * What Salon details would hold for this layout and profile. Both the
+ * disclosure and its parent need the answer: the parent decides whether to
+ * render the disclosure at all, and whether a social link that would
+ * otherwise live inside it has to fall back to its own row.
+ */
+function resolveSalonDetails(profile: QuickBookPresentationProfile, layout: QuickBookLayoutDefinition) {
   const instructions = layout.facts === 'rows' ? [] : profile.location?.instructionLines ?? [];
   const hiddenFacts = layout.facts === 'compact' || layout.facts === 'none'
     ? buildFacts(profile).filter(fact => fact.id === 'booking' || fact.id === 'clients')
     : [];
   const contact = layout.contact === 'disclosure' ? profile.contact : null;
   const hasContact = Boolean(contact?.phone || contact?.email);
-  if (instructions.length === 0 && hiddenFacts.length === 0 && !hasContact) {
+  // Salon details is named for the salon's own particulars. It may CARRY a
+  // social link, but it may not BE one: a map-pin disclosure called "Salon
+  // details" whose whole body is an Instagram row is a lie about itself.
+  const ownContent = instructions.length > 0 || hiddenFacts.length > 0 || hasContact;
+  const social = ownContent && layout.social === 'details' ? profile.instagram : null;
+  return { instructions, hiddenFacts, hasContact, social, renders: ownContent };
+}
+
+function SalonDetails({ profile, layout }: {
+  profile: QuickBookPresentationProfile;
+  layout: QuickBookLayoutDefinition;
+}) {
+  const { instructions, hiddenFacts, hasContact, social, renders } = resolveSalonDetails(profile, layout);
+  if (!renders) {
     return null;
   }
   return (
@@ -406,7 +422,9 @@ function SalonDetails({ profile, layout }: {
         <MapPin aria-hidden="true" size={18} />
         <span className="qb-disclosure__copy">
           <strong>Salon details</strong>
-          <span>{[hasContact ? 'Contact' : null, hiddenFacts.length > 0 ? 'Booking' : null, instructions.length > 0 ? 'Getting there' : null].filter(Boolean).join(' · ')}</span>
+          {/* The separator is bound to the word that FOLLOWS it, so a wrap
+              never leaves a dangling interpunct at the end of a line. */}
+          <span>{[hasContact ? 'Contact' : null, hiddenFacts.length > 0 ? 'Booking' : null, instructions.length > 0 ? 'Getting there' : null, social ? 'Instagram' : null].filter(Boolean).map((part, index) => (index === 0 ? part : `·\u00A0${part}`)).join(' ')}</span>
         </span>
         <ChevronDown aria-hidden="true" className="qb-fact__chevron" size={16} />
       </summary>
@@ -427,6 +445,18 @@ function SalonDetails({ profile, layout }: {
             )
           : null}
         {hasContact ? <Contact profile={profile} /> : null}
+        {social
+          ? (
+              <a className="qb-link-row" data-testid="quick-book-instagram" href={social.href} rel="noopener noreferrer" target="_blank">
+                <Instagram aria-hidden="true" size={18} />
+                <span className="qb-disclosure__copy">
+                  <strong>{social.label}</strong>
+                  <span>Instagram</span>
+                </span>
+                <span aria-hidden="true" className="qb-row__arrow">›</span>
+              </a>
+            )
+          : null}
       </div>
     </details>
   );
@@ -440,10 +470,14 @@ function Actions({ profile, layout }: {
   // A story-led layout already shows the introduction in the composition, so
   // repeating it as an About disclosure would print the same words twice.
   const showAbout = layout.actions === 'full' && !layout.story && Boolean(profile.bio);
-  const details = <SalonDetails layout={layout} profile={profile} />;
+  const salonDetails = resolveSalonDetails(profile, layout);
+  const details = salonDetails.renders ? <SalonDetails layout={layout} profile={profile} /> : null;
   const showLinks = layout.actions !== 'none';
+  // The social link keeps its own row unless Salon details actually took it.
+  const showSocialRow = showLinks && !salonDetails.social;
   const hasAny = showAbout || details !== null
-    || (showLinks && (profile.policies.length > 0 || profile.reviews || profile.instagram));
+    || (showLinks && (profile.policies.length > 0 || profile.reviews))
+    || (showSocialRow && Boolean(profile.instagram));
   if (!hasAny) {
     return null;
   }
@@ -509,7 +543,7 @@ function Actions({ profile, layout }: {
               </div>
             )
         : null}
-      {showLinks && profile.instagram
+      {showSocialRow && profile.instagram
         ? (
             <a className="qb-link-row" data-testid="quick-book-instagram" href={profile.instagram.href} rel="noopener noreferrer" target="_blank">
               <Instagram aria-hidden="true" size={18} />

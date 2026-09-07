@@ -159,6 +159,67 @@ describe('QuickBookProfileHeader', () => {
     expect(FULL_PROFILE).toEqual(sourceBefore);
   });
 
+  it('renders the saved social link exactly once, wherever a layout parks it', () => {
+    for (const layout of QUICK_BOOK_SITE_LAYOUTS) {
+      const definition = getQuickBookLayout(layout);
+      const view = render(
+        <QuickBookProfileHeader
+          profile={FULL_PROFILE}
+          bookingFlow={['service', 'tech', 'time', 'confirm']}
+          layout={layout}
+          mounted
+        />,
+      );
+      const links = screen.queryAllByTestId('quick-book-instagram');
+      const details = screen.queryByTestId('quick-book-salon-details');
+
+      // Never dropped and never printed twice, whatever the recipe says. A
+      // layout that shows no action rows at all is the one exception.
+      const expected = definition.actions === 'none' ? 0 : 1;
+
+      expect(links, `${layout} must show the saved social link ${expected} time(s)`).toHaveLength(expected);
+
+      if (expected === 0) {
+        view.unmount();
+        continue;
+      }
+
+      const [link] = links;
+      if (!link) {
+        throw new Error(`${layout} rendered no social link`);
+      }
+
+      expect(link).toHaveAttribute('href', FULL_PROFILE.instagram?.href);
+
+      if (definition.social === 'details') {
+        expect(details, `${layout} parks the social link in Salon details`).not.toBeNull();
+        expect(details).toContainElement(link);
+      } else if (details) {
+        expect(details).not.toContainElement(link);
+      }
+      view.unmount();
+    }
+  });
+
+  it('gives the social link its own row when Salon details has nothing of its own to hold', () => {
+    // Editorial Split normally parks the link inside Salon details. A map-pin
+    // disclosure called "Salon details" whose entire body is an Instagram row
+    // would be a lie about itself, so the link keeps its row instead.
+    render(
+      <QuickBookProfileHeader
+        profile={{ ...MINIMAL_PROFILE, instagram: FULL_PROFILE.instagram }}
+        bookingFlow={['service', 'tech', 'time', 'confirm']}
+        layout="editorial_split"
+        mounted
+      />,
+    );
+
+    const link = screen.getByTestId('quick-book-instagram');
+
+    expect(screen.queryByTestId('quick-book-salon-details')).not.toBeInTheDocument();
+    expect(link).toHaveAttribute('href', FULL_PROFILE.instagram?.href);
+  });
+
   it('renders a compact minimal identity immediately above booking', () => {
     render(
       <QuickBookProfileHeader

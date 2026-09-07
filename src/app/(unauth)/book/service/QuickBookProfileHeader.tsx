@@ -343,7 +343,16 @@ export function QuickBookProfileHeader({
                                 <details data-testid="quick-book-hours" className="group/hours py-1">
                                   <summary className="flex min-h-14 cursor-pointer list-none items-center gap-3 rounded-xl py-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 [&::-webkit-details-marker]:hidden">
                                     <Clock3 aria-hidden="true" className="size-5 shrink-0" style={{ color: themeVars.accent }} />
-                                    <span className="min-w-0 flex-1 text-sm">
+                                    {/* Not `flex-1`: growing to the full row
+                                        parked the caret at the card's edge,
+                                        far from the words it opens. The
+                                        summary keeps its own width, so the
+                                        tap target is unchanged. Hub Menu is
+                                        the exception — its facts are bordered
+                                        tiles, and inside a border the caret at
+                                        the inner edge already belongs to the
+                                        row and lines up with its siblings. */}
+                                    <span className={`min-w-0 text-sm ${activeLayout === 'hub_menu' ? 'flex-1' : ''}`}>
                                       <strong className="block text-neutral-900">{profile.hours.statusLabel}</strong>
                                       <span className="block text-neutral-500">{profile.hours.todayLabel ?? 'See weekly hours'}</span>
                                     </span>
