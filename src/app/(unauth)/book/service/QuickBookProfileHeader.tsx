@@ -44,6 +44,11 @@ const PRESENTATION_TOKEN_STYLE = {
   '--qb-muted': 'var(--customer-site-muted, #6b6b6b)',
   '--qb-line': 'var(--theme-card-border, #e5e5e5)',
   '--qb-heading-font': 'var(--customer-site-heading-font, inherit)',
+  // These fallbacks are the values `.qb-name` hard-coded before the tokens
+  // existed, so a salon with no style preset renders exactly as it does today.
+  '--qb-heading-weight': 'var(--customer-site-heading-weight, 700)',
+  '--qb-heading-tracking': 'var(--customer-site-heading-tracking, -0.02em)',
+  '--qb-heading-leading': 'var(--customer-site-heading-leading, 1.08)',
   '--qb-body-font': 'var(--customer-site-body-font, inherit)',
   '--qb-radius': 'var(--customer-site-card-radius, 16px)',
   '--qb-button-radius': 'var(--customer-site-button-radius, 14px)',

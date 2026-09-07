@@ -39,6 +39,17 @@ type CustomerSiteStyleRoles = Readonly<{
   buttonRadius: string;
   cardRadius: string;
   headingFont: string;
+  /**
+   * A family alone did not separate six styles: the renderer asked for the
+   * same weight, tracking and leading whichever preset was active, so two
+   * different faces still arrived with identical colour and rhythm. These
+   * three carry the rest of each personality. Their fallbacks in the renderer
+   * reproduce the values it hard-coded before, so a salon that has never
+   * chosen a style renders exactly as it does today.
+   */
+  headingWeight: string;
+  headingTracking: string;
+  headingLeading: string;
 }>;
 
 type CustomerSitePaletteRoles = Readonly<{
@@ -57,42 +68,84 @@ type CustomerSitePaletteRoles = Readonly<{
 const STYLE_PRESET_SET: ReadonlySet<string> = new Set(CUSTOMER_SITE_STYLE_PRESETS);
 const PALETTE_PRESET_SET: ReadonlySet<string> = new Set(CUSTOMER_SITE_PALETTE_PRESETS);
 
+/**
+ * Body copy stays one neutral sans for every preset. Addresses, hours, prices,
+ * durations, policies and every booking control are operational text, and a
+ * display face would cost readability for no personality gain — the six read
+ * as six because of what happens to the headings.
+ */
+const CUSTOMER_SITE_BODY_FONT
+  = 'var(--font-luster-sans), Inter, ui-sans-serif, system-ui, sans-serif';
+
 const CUSTOMER_SITE_STYLE_ROLES: Record<CustomerSiteStylePreset, CustomerSiteStyleRoles> = {
+  // Heavy grotesque. Replaces Arial Black, which was a system font the page
+  // never loaded and which is absent on most Android devices. Impact comes
+  // from weight and tight tracking, not from capitals: a 40-character brand
+  // set in all-caps across three lines is harder to read, not bolder.
   bold: {
-    bodyFont: 'Inter, ui-sans-serif, system-ui, sans-serif',
+    bodyFont: CUSTOMER_SITE_BODY_FONT,
     buttonRadius: '4px',
     cardRadius: '0px',
-    headingFont: 'Arial Black, Inter, ui-sans-serif, sans-serif',
+    headingFont: 'var(--font-luster-bold), Archivo, Inter, ui-sans-serif, sans-serif',
+    headingWeight: '800',
+    headingTracking: '-0.022em',
+    headingLeading: '1.04',
   },
+  // Editorial serif at moderate contrast: magazine, not couture. Kept at a
+  // near-neutral tracking so long brand names stay comfortable.
   editorial: {
-    bodyFont: 'Inter, ui-sans-serif, system-ui, sans-serif',
+    bodyFont: CUSTOMER_SITE_BODY_FONT,
     buttonRadius: '2px',
     cardRadius: '4px',
-    headingFont: 'Newsreader, Georgia, \'Times New Roman\', serif',
+    headingFont: 'var(--font-luster-editorial), Newsreader, Georgia, \'Times New Roman\', serif',
+    headingWeight: '600',
+    headingTracking: '-0.004em',
+    headingLeading: '1.12',
   },
+  // High-contrast display serif, the most formal of the six. Separated from
+  // editorial by contrast and by open tracking rather than by size, so it
+  // gains presence without growing the header.
   luxury: {
-    bodyFont: 'Inter, ui-sans-serif, system-ui, sans-serif',
+    bodyFont: CUSTOMER_SITE_BODY_FONT,
     buttonRadius: '2px',
     cardRadius: '10px',
-    headingFont: 'Newsreader, Georgia, \'Times New Roman\', serif',
+    headingFont: 'var(--font-luster-luxury), \'Playfair Display\', Georgia, serif',
+    headingWeight: '500',
+    headingTracking: '0.012em',
+    headingLeading: '1.06',
   },
+  // The one preset whose typography should go unnoticed: the body face doing
+  // double duty, a step down in weight, and neutral tracking.
   minimal: {
-    bodyFont: 'Inter, ui-sans-serif, system-ui, sans-serif',
+    bodyFont: CUSTOMER_SITE_BODY_FONT,
     buttonRadius: '6px',
     cardRadius: '10px',
-    headingFont: 'Inter, ui-sans-serif, system-ui, sans-serif',
+    headingFont: CUSTOMER_SITE_BODY_FONT,
+    headingWeight: '500',
+    headingTracking: '0.004em',
+    headingLeading: '1.24',
   },
+  // Contemporary geometric sans. Tight tracking and short leading keep it
+  // crisp, which is what separates it from soft's rounder, airier setting.
   modern: {
-    bodyFont: 'Inter, ui-sans-serif, system-ui, sans-serif',
+    bodyFont: CUSTOMER_SITE_BODY_FONT,
     buttonRadius: '16px',
     cardRadius: '24px',
-    headingFont: 'Newsreader, Georgia, \'Times New Roman\', serif',
+    headingFont: 'var(--font-luster-modern), Outfit, Inter, ui-sans-serif, sans-serif',
+    headingWeight: '600',
+    headingTracking: '-0.026em',
+    headingLeading: '1.08',
   },
+  // Rounded humanist sans, set lighter and more openly than modern. Warm
+  // without the bubble-lettering that would read as juvenile.
   soft: {
-    bodyFont: 'Inter, ui-sans-serif, system-ui, sans-serif',
+    bodyFont: CUSTOMER_SITE_BODY_FONT,
     buttonRadius: '999px',
     cardRadius: '32px',
-    headingFont: 'Newsreader, Georgia, \'Times New Roman\', serif',
+    headingFont: 'var(--font-luster-soft), Nunito, Inter, ui-sans-serif, sans-serif',
+    headingWeight: '600',
+    headingTracking: '0.014em',
+    headingLeading: '1.26',
   },
 };
 
@@ -235,6 +288,9 @@ export function getCustomerSitePresentationCssVariables(input: {
     '--customer-site-button-radius': style.buttonRadius,
     '--customer-site-card-radius': style.cardRadius,
     '--customer-site-heading-font': style.headingFont,
+    '--customer-site-heading-leading': style.headingLeading,
+    '--customer-site-heading-tracking': style.headingTracking,
+    '--customer-site-heading-weight': style.headingWeight,
     '--customer-site-ink': palette.ink,
     '--customer-site-muted': palette.muted,
     '--theme-accent': palette.accent,
