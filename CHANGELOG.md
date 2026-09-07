@@ -1,3 +1,22 @@
+# [1.88.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.87.0...v1.88.0) (2026-09-07)
+
+
+### Bug Fixes
+
+* **booking:** correct three shared-control defects found in the design pass ([87f0fab](https://github.com/SniperStopSniping/nailsalon/commit/87f0fabe465db945b47fa878ceca42aabfa1a62d))
+* **booking:** give contact rows the same outlined treatment as their siblings ([42a7f1d](https://github.com/SniperStopSniping/nailsalon/commit/42a7f1d4f98439fdc7160a83782512b3f1e738f7))
+* **booking:** make three layouts keep the promise their recipe makes ([370d7c7](https://github.com/SniperStopSniping/nailsalon/commit/370d7c77de2ec4e0c65cb2877fb11ec6e02fbb43))
+* **booking:** redraw the profile placeholder and settle two control nits ([4d6f70a](https://github.com/SniperStopSniping/nailsalon/commit/4d6f70a97f3781948476c3489aba7e27e38e61d1))
+* **booking:** settle the two remaining cross-layout inconsistencies ([6f25e5b](https://github.com/SniperStopSniping/nailsalon/commit/6f25e5b2f4bec953d6a40dbf6cb52f451a38ab8e))
+* **booking:** stop the gallery strip forcing Gallery Header past its card ([5277414](https://github.com/SniperStopSniping/nailsalon/commit/5277414d26ce1d29a36f5a9f7bf8eb2886f7db4d))
+
+
+### Features
+
+* **booking:** add Quick Book design system with logo, profile and cover roles ([96a906d](https://github.com/SniperStopSniping/nailsalon/commit/96a906d36c3b23f7dd84ee3face4595a547bdf82))
+* **booking:** give each Quick Book layout its own content recipe ([cea92f8](https://github.com/SniperStopSniping/nailsalon/commit/cea92f8a379d67daa21bf2f3d9f3c4d411631475))
+* **onboarding:** add the cover photo role and polish the weak legacy layouts ([b79f4a2](https://github.com/SniperStopSniping/nailsalon/commit/b79f4a282212dbd7f3ee57f768e85ccc42b7000c))
+
 # [1.87.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.86.0...v1.87.0) (2026-09-06)
 
 
