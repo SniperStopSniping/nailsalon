@@ -57,6 +57,15 @@ export function DialogShell({
   }
 
   // Portalling keeps fixed dialogs viewport-bound even inside transformed apps.
+  //
+  // It also lands the dialog in `document.body`, OUTSIDE the workspace subtree
+  // that defines the `--owner-*` token layer. Without `owner-theme-scope` every
+  // one of those tokens is undefined in here, so a panel styled
+  // `bg-[var(--owner-surface)]` painted transparent and the page behind it read
+  // straight through the dialog — most visibly on Edit Service, whose form then
+  // sat on top of the services list. AppModal carries the same class for the
+  // same reason. The scope only declares the tokens; it paints no ground of its
+  // own, so a dialog that never uses them is unaffected.
   return createPortal(
     <div
       ref={rootRef}
@@ -64,7 +73,7 @@ export function DialogShell({
       data-dialog-shell-root="true"
       data-modal-focus-root="true"
       data-testid={overlayTestId}
-      className={cn('fixed inset-0 z-50 flex min-h-0 bg-black/50', alignClassName, overlayClassName)}
+      className={cn('owner-theme-scope fixed inset-0 z-50 flex min-h-0 bg-black/50', alignClassName, overlayClassName)}
       onClick={(event) => {
         if (closeOnBackdrop && event.target === event.currentTarget) {
           onClose();
