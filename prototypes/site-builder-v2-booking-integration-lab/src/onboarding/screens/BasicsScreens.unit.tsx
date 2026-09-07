@@ -523,6 +523,7 @@ describe('BrandBasicsScreen', () => {
     // setup and go to the dashboard to add a cover.
     expect(screen.getByRole('heading', { name: /Logo/u })).toBeVisible();
     expect(screen.getByRole('heading', { name: /Profile photo/u })).toBeVisible();
+
     const coverHeading = screen.getByRole('heading', { name: /Cover photo/u });
 
     expect(coverHeading).toBeVisible();
