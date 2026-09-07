@@ -10,6 +10,10 @@ import {
   saveCanonicalOnboardingProfileMedia,
 } from '@/features/onboarding-v1-integration/canonical-profile-media.server';
 import { readOnboardingMediaFile } from '@/features/onboarding-v1-integration/media-storage.server';
+import {
+  resolveBookingPageContent,
+  setBookingPageContentHeroImageInTransaction,
+} from '@/libs/bookingPageContent';
 import { db } from '@/libs/DB';
 import {
   onboardingSiteMediaSchema,
@@ -34,11 +38,48 @@ type PreparedRole = {
 };
 
 export type PreparedCanonicalProfileMediaPromotion = {
+  /**
+   * True when this promotion runs inside Booking Page Publish. The publish
+   * writes its own draft-to-live copy BEFORE this promotion applies, so a
+   * cover promoted here must reach both sides or the first published page
+   * would still show the default cover.
+   */
+  publishing: boolean;
   revisionId: string;
   roles: PreparedRole[];
   salonId: string;
   siteId: string;
 };
+
+const ROLE_LABELS: Record<CanonicalOnboardingProfileMediaRole, string> = {
+  cover: 'cover photo',
+  logo: 'logo',
+  profile: 'profile photo',
+};
+
+type RevisionSnapshot = typeof onboardingSiteRevisionSchema.$inferSelect['snapshot'];
+
+/** The stable logical image id the saved revision holds for one identity role. */
+const snapshotItemIdForRole = (
+  snapshot: RevisionSnapshot,
+  role: CanonicalOnboardingProfileMediaRole,
+): string | null => {
+  if (role === 'logo') {
+    return snapshot.profile.logoItemId;
+  }
+  if (role === 'cover') {
+    return snapshot.profile.coverPhotoItemId ?? null;
+  }
+  return snapshot.profile.profilePhotoItemId;
+};
+
+/**
+ * The canonical cover the salon is currently showing. Read from the same
+ * booking-page DRAFT field the dashboard cover control writes, so onboarding
+ * and the dashboard can never disagree about which cover is current.
+ */
+const currentCanonicalCoverUrl = (settings: unknown): string | null =>
+  resolveBookingPageContent(settings).draft.heroImageUrl;
 
 const canonicalMetadata = (
   media: IdentityMediaRow,
@@ -64,6 +105,7 @@ const uniqueProjections = (
 
 async function preparePromotion(input: {
   mediaId?: string;
+  publishing?: boolean;
   requireDraftSalon?: boolean;
   roles: readonly CanonicalOnboardingProfileMediaRole[];
   salonId: string;
@@ -71,6 +113,7 @@ async function preparePromotion(input: {
   const [salon] = await db.select({
     logoUrl: salonSchema.logoUrl,
     publicationStatus: salonSchema.publicationStatus,
+    settings: salonSchema.settings,
   }).from(salonSchema).where(eq(salonSchema.id, input.salonId)).limit(1);
   if (!salon || (input.requireDraftSalon && salon.publicationStatus !== 'draft')) {
     return null;
@@ -98,6 +141,7 @@ async function preparePromotion(input: {
     or(
       eq(onboardingSiteMediaSchema.role, 'logo'),
       eq(onboardingSiteMediaSchema.role, 'profile'),
+      eq(onboardingSiteMediaSchema.role, 'cover'),
     ),
   ));
   const currentMedia = allIdentityMedia.filter(media => media.revisionId === revision.id);
@@ -109,6 +153,7 @@ async function preparePromotion(input: {
         : [];
     }),
   );
+  const currentCoverUrl = currentCanonicalCoverUrl(salon.settings);
   const technicians = await db.select({
     avatarUrl: technicianSchema.avatarUrl,
     id: technicianSchema.id,
@@ -117,9 +162,7 @@ async function preparePromotion(input: {
 
   const roles: PreparedRole[] = [];
   for (const role of input.roles) {
-    const expectedLocalItemId = role === 'logo'
-      ? revision.snapshot.profile.logoItemId
-      : revision.snapshot.profile.profilePhotoItemId;
+    const expectedLocalItemId = snapshotItemIdForRole(revision.snapshot, role);
     const media = expectedLocalItemId
       ? currentMedia.find(candidate => (
         candidate.role === role
@@ -134,7 +177,7 @@ async function preparePromotion(input: {
     )) {
       throw new CanonicalOnboardingProfileMediaError(
         'CANONICAL_MEDIA_NOT_READY',
-        `The saved ${role === 'logo' ? 'logo' : 'profile photo'} is not ready to publish.`,
+        `The saved ${ROLE_LABELS[role]} is not ready to publish.`,
       );
     }
     if (input.mediaId && media?.id !== input.mediaId) {
@@ -159,11 +202,17 @@ async function preparePromotion(input: {
       ? salon.logoUrl && managedByUrl.has(salon.logoUrl)
         ? [managedByUrl.get(salon.logoUrl)!]
         : []
-      : technicians.flatMap(technician => (
-        technician.avatarUrl && managedByUrl.has(technician.avatarUrl)
-          ? [managedByUrl.get(technician.avatarUrl)!]
+      : role === 'cover'
+        // The canonical cover lives on the booking-page DRAFT side, the same
+        // field the dashboard editor and the public cover layouts read.
+        ? currentCoverUrl && managedByUrl.has(currentCoverUrl)
+          ? [managedByUrl.get(currentCoverUrl)!]
           : []
-      ));
+        : technicians.flatMap(technician => (
+          technician.avatarUrl && managedByUrl.has(technician.avatarUrl)
+            ? [managedByUrl.get(technician.avatarUrl)!]
+            : []
+        ));
     const existingProjection = media ? canonicalMetadata(media) : null;
     const projection = media && !existingProjection
       ? await saveCanonicalOnboardingProfileMedia({
@@ -191,6 +240,7 @@ async function preparePromotion(input: {
   }
 
   return {
+    publishing: input.publishing === true,
     revisionId: revision.id,
     roles,
     salonId: input.salonId,
@@ -227,9 +277,7 @@ const assertPromotionStillCurrent = async (
     );
   }
   for (const role of prepared.roles) {
-    const expectedLocalItemId = role.role === 'logo'
-      ? revision.snapshot.profile.logoItemId
-      : revision.snapshot.profile.profilePhotoItemId;
+    const expectedLocalItemId = snapshotItemIdForRole(revision.snapshot, role.role);
     if (expectedLocalItemId !== role.expectedLocalItemId) {
       throw new CanonicalOnboardingProfileMediaError(
         'CANONICAL_MEDIA_REVISION_STALE',
@@ -269,7 +317,32 @@ export const applyPreparedCanonicalProfileMediaPromotion = async (
 ): Promise<void> => {
   await assertPromotionStillCurrent(tx, prepared);
   for (const role of prepared.roles) {
-    if (role.role === 'logo') {
+    if (role.role === 'cover') {
+      // Writes the DRAFT side only, exactly like the dashboard cover upload:
+      // an onboarding cover becomes public when the owner publishes, never
+      // before. Removal is conditional on the draft still pointing at the
+      // projection this promotion owns, so a newer dashboard choice wins.
+      const sides = prepared.publishing
+        ? (['draft', 'live'] as const)
+        : (['draft'] as const);
+      if (role.projection) {
+        await setBookingPageContentHeroImageInTransaction(
+          tx,
+          prepared.salonId,
+          role.projection.publicUrl,
+          sides,
+        );
+      } else if (role.removeCanonical) {
+        const [current] = await tx.select({ settings: salonSchema.settings })
+          .from(salonSchema)
+          .where(eq(salonSchema.id, prepared.salonId))
+          .limit(1);
+        const currentUrl = currentCanonicalCoverUrl(current?.settings ?? null);
+        if (currentUrl && role.previous.some(previous => previous.publicUrl === currentUrl)) {
+          await setBookingPageContentHeroImageInTransaction(tx, prepared.salonId, null, sides);
+        }
+      }
+    } else if (role.role === 'logo') {
       if (role.projection) {
         await tx.update(salonSchema).set({
           logoUrl: role.projection.publicUrl,
@@ -333,7 +406,8 @@ export const applyPreparedCanonicalProfileMediaPromotion = async (
 export const prepareCanonicalProfileMediaForPublish = (
   salonId: string,
 ): Promise<PreparedCanonicalProfileMediaPromotion | null> => preparePromotion({
-  roles: ['logo', 'profile'],
+  publishing: true,
+  roles: ['logo', 'profile', 'cover'],
   salonId,
 });
 

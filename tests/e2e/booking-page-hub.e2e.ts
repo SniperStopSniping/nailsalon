@@ -63,15 +63,45 @@ for (const viewport of [{ width: 320, height: 568 }, { width: 375, height: 667 }
     await expect(instagram).toBeVisible();
 
     if (viewport.width === 390 && browserName === 'chromium') {
+      // `fill()` replaces the value without producing the keystrokes React's
+      // controlled input needs to mark the section dirty, so Save stays
+      // correctly disabled and the click waits forever. Type it the way an
+      // owner does. Verified against the product: typing enables Save both
+      // for the first edit and for a second edit after a successful save.
+      // Saving re-renders this section, so a click that lands mid-render can
+      // lose the selection or the focus. Retry the whole select-and-type until
+      // the field settles on the value.
+      const retype = async (value: string) => {
+        await expect(async () => {
+          await instagram.click({ clickCount: 3 });
+          await instagram.pressSequentially(value, { delay: 15 });
+
+          await expect(instagram).toHaveValue(value, { timeout: 2_000 });
+        }).toPass({ timeout: 20_000 });
+      };
       const originalInstagram = await instagram.inputValue();
+      // The probe handle must DIFFER from whatever is stored, or the form
+      // never becomes dirty and Save stays correctly disabled. A run that is
+      // interrupted between the write and the restore leaves the fixture
+      // holding the probe value, and a fixed constant would then make every
+      // later run wait on a button that can never enable.
+      const probeInstagram = originalInstagram === 'luster.e2e.fixture'
+        ? 'luster.e2e.fixture.alt'
+        : 'luster.e2e.fixture';
       try {
-        await instagram.fill('luster.e2e.fixture');
+        await retype(probeInstagram);
+
+        await expect(page.getByTestId('information-save-contact')).toBeEnabled();
+
         await page.getByTestId('information-save-contact').click();
 
         // One normaliser stores the canonical URL and shows the bare handle (CP2).
-        await expect(instagram).toHaveValue('luster.e2e.fixture');
+        await expect(instagram).toHaveValue(probeInstagram);
       } finally {
-        await instagram.fill(originalInstagram);
+        await retype(originalInstagram);
+
+        await expect(page.getByTestId('information-save-contact')).toBeEnabled();
+
         await page.getByTestId('information-save-contact').click();
 
         await expect(page.getByTestId('information-contact').getByRole('status')).toContainText('Contact saved');

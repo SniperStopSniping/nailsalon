@@ -531,8 +531,8 @@ describe('BookConfirmPage location privacy (locationDisplayMode) — Blocker 1',
   function bookingPageContentReturn(liveMode: 'full_address' | 'city_only', draftMode: 'full_address' | 'city_only' = liveMode) {
     return {
       version: 1 as const,
-      draft: { heroImageUrl: null, specialtyLine: null, bio: null, locationDisplayMode: draftMode },
-      live: { heroImageUrl: null, specialtyLine: null, bio: null, locationDisplayMode: liveMode },
+      draft: { heroImageUrl: null, specialtyLine: null, bio: null, locationDisplayMode: draftMode, coverFocalPoint: null, portraitFocalPoint: null, coverTextMode: 'website_copy' as const, coverText: null, galleryPhotoIds: [] },
+      live: { heroImageUrl: null, specialtyLine: null, bio: null, locationDisplayMode: liveMode, coverFocalPoint: null, portraitFocalPoint: null, coverTextMode: 'website_copy' as const, coverText: null, galleryPhotoIds: [] },
     };
   }
 

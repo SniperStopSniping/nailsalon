@@ -941,6 +941,11 @@ async function clearExplicitlyRemovedDraftIdentityMedia(input: {
       previousItemId: previous.snapshot.profile.profilePhotoItemId,
       role: 'profile' as const,
     },
+    {
+      currentItemId: input.snapshot.profile.coverPhotoItemId,
+      previousItemId: previous.snapshot.profile.coverPhotoItemId ?? null,
+      role: 'cover' as const,
+    },
   ];
   for (const candidate of candidates) {
     if (candidate.currentItemId !== null || candidate.previousItemId === null) {
@@ -969,7 +974,22 @@ async function clearExplicitlyRemovedDraftIdentityMedia(input: {
     if (!canonicalPublicUrl) {
       continue;
     }
-    if (candidate.role === 'logo') {
+    if (candidate.role === 'cover') {
+      // The canonical cover lives on the booking-page DRAFT side. Clear it
+      // only while it still points at the projection this revision owned, so
+      // a newer dashboard cover is never discarded by an onboarding replace.
+      const [current] = await input.database.select({ settings: salonSchema.settings })
+        .from(salonSchema)
+        .where(eq(salonSchema.id, input.salonId))
+        .limit(1);
+      if (resolveBookingPageContent(current?.settings ?? null).draft.heroImageUrl === canonicalPublicUrl) {
+        await updateBookingPageContentDraftInTransaction(
+          input.database as BookingPageContentTransaction,
+          input.salonId,
+          { heroImageUrl: null },
+        );
+      }
+    } else if (candidate.role === 'logo') {
       await input.database.update(salonSchema).set({ logoUrl: null })
         .where(and(
           eq(salonSchema.id, input.salonId),

@@ -83,6 +83,11 @@ describe('resolveBookingPageContent defaults', () => {
       specialtyLine: null,
       bio: null,
       locationDisplayMode: 'full_address',
+      coverFocalPoint: null,
+      portraitFocalPoint: null,
+      coverTextMode: 'website_copy',
+      coverText: null,
+      galleryPhotoIds: [],
     });
   });
 
@@ -163,6 +168,11 @@ describe('bookingPageContent draft/publish/revert lifecycle (PGlite)', () => {
       specialtyLine: 'Current specialty',
       bio: null,
       locationDisplayMode: 'city_only',
+      coverFocalPoint: null,
+      portraitFocalPoint: null,
+      coverTextMode: 'website_copy',
+      coverText: null,
+      galleryPhotoIds: [],
     });
   });
 

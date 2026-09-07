@@ -185,6 +185,30 @@ describe('onboarding browser-local storage', () => {
     expect(loaded.state.recipe.quickBookLayout).toBe('profile_story');
   });
 
+  it('round-trips a cover photo chosen during onboarding across a reload', () => {
+    const storage = createMemoryStorage();
+    const state = createDefaultOnboardingState();
+    state.profile.coverPhoto = {
+      fileName: 'studio.webp',
+      height: 900,
+      id: 'cover_studio',
+      mimeType: 'image/webp',
+      source: 'indexed_db',
+      storageId: 'asset_cover_studio',
+      width: 1600,
+    };
+
+    expect(saveOnboardingState(state, { storage }).success).toBe(true);
+
+    const loaded = loadOnboardingState(storage);
+
+    expect(loaded.status).toBe('loaded');
+    expect(loaded.state.profile.coverPhoto).toMatchObject({
+      id: 'cover_studio',
+      storageId: 'asset_cover_studio',
+    });
+  });
+
   it('resumes a current-schema Quick Book draft on the new Booking layout step', () => {
     const state = createDefaultOnboardingState();
     state.recipe.starter = 'quick_book';

@@ -47,7 +47,11 @@ export function mapPublicTechnician(technician: Awaited<ReturnType<typeof getTec
     id: technician.id,
     name: technician.name,
     imageUrl: normalizePublicAvatarUrl(technician.avatarUrl),
-    specialties: technician.specialties ?? [],
+    // Optional JSONB: a malformed legacy value resolves to no specialties
+    // rather than reaching a consumer that expects to iterate it.
+    specialties: Array.isArray(technician.specialties)
+      ? technician.specialties.filter((entry): entry is string => typeof entry === 'string')
+      : [],
     rating: technician.rating ? Number(technician.rating) : null,
     reviewCount: technician.reviewCount ?? 0,
     enabledServiceIds: technician.enabledServiceIds ?? [],

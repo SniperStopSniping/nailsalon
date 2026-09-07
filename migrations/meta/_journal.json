@@ -526,6 +526,13 @@
       "when": 1787303592670,
       "tag": "0074_onboarding_account_site_foundation",
       "breakpoints": true
+    },
+    {
+      "idx": 75,
+      "version": "7",
+      "when": 1787389992670,
+      "tag": "0075_onboarding_cover_media_role",
+      "breakpoints": true
     }
   ]
 }

@@ -988,7 +988,7 @@ export function OnboardingApp({
       });
     }
   };
-  const selectImage = async (file: File, kind: 'logo' | 'profile') => {
+  const selectImage = async (file: File, kind: 'cover' | 'logo' | 'profile') => {
     setError('');
     profileMediaOperationsRef.current += 1;
     try {
@@ -997,9 +997,15 @@ export function OnboardingApp({
       }
       const previous = kind === 'profile'
         ? onboarding.state.profile.profilePhoto
-        : onboarding.state.profile.logo;
+        : kind === 'cover'
+          ? onboarding.state.profile.coverPhoto
+          : onboarding.state.profile.logo;
       const image = await onboardingMediaPort.storeOne(assetRepository, file, kind);
-      onboarding.updateProfile(kind === 'profile' ? { profilePhoto: image } : { logo: image });
+      onboarding.updateProfile(kind === 'profile'
+        ? { profilePhoto: image }
+        : kind === 'cover'
+          ? { coverPhoto: image }
+          : { logo: image });
       if (previous) {
         void onboardingMediaPort.deleteOwned(assetRepository, [previous]).then((cleanupErrors) => {
           if (cleanupErrors.length === 0 || !previous.storageId) {
@@ -1386,6 +1392,7 @@ export function OnboardingApp({
               setStartingSiteRevealActive(true);
               onboarding.continueFlow();
             }}
+            onCoverPhotoSelected={file => selectImage(file, 'cover')}
             onLogoSelected={file => selectImage(file, 'logo')}
             onProfileChange={updatePhotoProfile}
             onProfilePhotoSelected={file => selectImage(file, 'profile')}

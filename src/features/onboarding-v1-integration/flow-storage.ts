@@ -46,7 +46,7 @@ export type StoredMediaFailure = {
   assetId: string;
   fileName: string;
   message: string;
-  role: 'custom_design' | 'gallery' | 'logo' | 'profile';
+  role: 'cover' | 'custom_design' | 'gallery' | 'logo' | 'profile';
 };
 
 export type OnboardingIntegrationFlow = {
@@ -145,7 +145,7 @@ export const loadOnboardingIntegrationFlow = (): OnboardingIntegrationFlow => {
           && typeof item.assetId === 'string'
           && typeof item.fileName === 'string'
           && typeof item.message === 'string'
-          && ['custom_design', 'gallery', 'logo', 'profile'].includes(item.role)
+          && ['cover', 'custom_design', 'gallery', 'logo', 'profile'].includes(item.role)
         ))
         : [],
       phase: parsed.phase,

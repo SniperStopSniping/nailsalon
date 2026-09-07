@@ -17,6 +17,7 @@ import { repairBookingUrl, shouldRepairBookingUrl } from '@/libs/bookingParams';
 import { getClientSession } from '@/libs/clientAuth';
 import { isClientEligibleForFirstVisitDiscount } from '@/libs/firstVisitDiscount';
 import { resolveDraftSalonAccess } from '@/libs/ownerPreview';
+import { listPublicPortfolioPhotosByIds } from '@/libs/portfolioMedia.server';
 import { mapPublicTechnician } from '@/libs/publicBookingTechnicians';
 import { getActiveAddOnsBySalonId, getActiveLocationsBySalonId, getServiceAddOnRulesBySalonId, getServicesBySalonId, getTechniciansBySalonId } from '@/libs/queries';
 import { getRetentionSettingsForSalon } from '@/libs/retentionSettings.server';
@@ -341,6 +342,15 @@ export async function renderBookServicePage({
   const showNewClientPromo = showFirstVisitOffer
     && getDateKeyInTimeZone(new Date(), bookingConfig.timezone) <= NEW_CLIENT_PROMO_END_DATE;
   const bookingExperience = resolveBookingExperience(salon.settings);
+  // Design-system presentation inputs. The gallery is re-authorized on every
+  // read (tenant, deleted, owner-hidden, moderation) from opaque saved ids,
+  // and only the sole public technician's own facts are ever surfaced — a
+  // team salon never implies every booking is with one featured person.
+  const soleDbTechnician = dbTechnicians.length === 1 ? dbTechnicians[0] ?? null : null;
+  const galleryPhotoIds = activeBookingPageContentSide.galleryPhotoIds ?? [];
+  const quickBookGallery = galleryPhotoIds.length > 0
+    ? await listPublicPortfolioPhotosByIds(salon.id, galleryPhotoIds)
+    : [];
   const quickBookProfile = activeBookingPageSide.layout === 'quick_book'
     ? resolvePublicQuickBookProfile({
       salon: {
@@ -383,6 +393,30 @@ export async function renderBookServicePage({
             textNumber: sharedProfile.textNumber,
           },
       timeZone: bookingConfig.timezone,
+      presentation: {
+        layout: activeBookingPageSide.quickBookLayout,
+        content: {
+          heroImageUrl: activeBookingPageContentSide.heroImageUrl,
+          specialtyLine: activeBookingPageContentSide.specialtyLine,
+          coverFocalPoint: activeBookingPageContentSide.coverFocalPoint,
+          portraitFocalPoint: activeBookingPageContentSide.portraitFocalPoint,
+          coverTextMode: activeBookingPageContentSide.coverTextMode,
+          coverText: activeBookingPageContentSide.coverText,
+        },
+        gallery: quickBookGallery.map(photo => ({
+          id: photo.publicId,
+          url: photo.imageUrl,
+          alt: photo.altText?.trim() || `${salon.name} nail work`,
+          width: photo.originalWidth,
+          height: photo.originalHeight,
+        })),
+        technician: soleDbTechnician
+          ? {
+              specialties: soleDbTechnician.specialties ?? null,
+              acceptingNewClients: soleDbTechnician.acceptingNewClients ?? null,
+            }
+          : null,
+      },
     })
     : undefined;
 

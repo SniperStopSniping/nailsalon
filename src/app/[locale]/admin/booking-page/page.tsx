@@ -25,6 +25,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { BookingPageAppearance } from '@/components/admin/BookingPageAppearance';
 import { BookingPageBuilder } from '@/components/admin/BookingPageBuilder';
 import { ADDRESS_PRIVACY_OPTIONS, BookingPageInformationEditor } from '@/components/admin/BookingPageInformationEditor';
+import type { BookingPagePresentationPreview, CoverUploadState } from '@/components/admin/BookingPageLayoutChooser';
 import {
   BookingPagePresetPicker,
   type BookingPagePresetPickerStatus,
@@ -45,6 +46,7 @@ import type {
   BookingPageContent,
   LocationDisplayMode,
 } from '@/libs/bookingPageContent';
+import { getQuickBookLayout } from '@/libs/quickBookSiteLayout';
 import { SECTION_PRESENTATION_SECTION_IDS } from '@/libs/sectionPresentation';
 import { getI18nPath } from '@/utils/Helpers';
 
@@ -106,6 +108,8 @@ type BookingPageApiResponse = {
    */
   salon: { publicationStatus: string };
   savedDetails?: Record<string, string[]>;
+  /** Owner-only identity/image facts for the Layouts chooser thumbnails. */
+  presentationPreview?: BookingPagePresentationPreview;
 };
 
 /**
@@ -307,6 +311,13 @@ export default function BookingPageOwnerSurface() {
   const [config, setConfig] = useState<BookingPageConfig | null>(null);
   const [content, setContent] = useState<BookingPageContent | null>(null);
   const [savedDetails, setSavedDetails] = useState<Record<string, string[]> | undefined>();
+  const [presentationPreview, setPresentationPreview] = useState<BookingPagePresentationPreview | null>(null);
+  const [coverUpload, setCoverUpload] = useState<CoverUploadState>({ status: 'idle', error: null, note: null });
+  // Every cover choice (upload or "use default") bumps this; a slow upload
+  // whose generation is no longer current is abandoned client-side, and the
+  // route's baseline check keeps the newer choice server-side too.
+  const coverChoiceGenerationRef = useRef(0);
+  const coverUploadAbortRef = useRef<AbortController | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [saveStatus, setSaveStatusState]
@@ -462,6 +473,9 @@ export default function BookingPageOwnerSurface() {
 
     setConfig(state.config);
     setContent(state.content);
+    if (state.presentationPreview) {
+      setPresentationPreview(state.presentationPreview);
+    }
     // Publishing a salon is irreversible on this surface. A complete booking
     // response may have started before that independent resource was
     // published, so its older salon snapshot must never resurrect the draft
@@ -631,6 +645,68 @@ export default function BookingPageOwnerSurface() {
       adoptBookingPageState(response.state, response.identity);
     });
   }, [adoptBookingPageState, requestBookingPageState, salonSlug, setTruthfulSaveStatus, trackOrdinaryWrite]);
+
+  const saveCoverChoice = useCallback(async (patch: Record<string, unknown>) => {
+    coverChoiceGenerationRef.current += 1;
+    coverUploadAbortRef.current?.abort();
+    setCoverUpload({ status: 'idle', error: null, note: null });
+    await saveContentPatch(patch);
+  }, [saveContentPatch]);
+
+  const uploadCover = useCallback(async (file: File) => {
+    if (!salonSlug) {
+      return;
+    }
+    coverChoiceGenerationRef.current += 1;
+    const generation = coverChoiceGenerationRef.current;
+    coverUploadAbortRef.current?.abort();
+    const controller = new AbortController();
+    coverUploadAbortRef.current = controller;
+    setCoverUpload({ status: 'uploading', error: null, note: null });
+    setTruthfulSaveStatus('saving');
+    const body = new FormData();
+    body.append('file', file);
+    body.append('baselineHeroImageUrl', content?.draft.heroImageUrl ?? '');
+    try {
+      const response = await fetch(`/api/admin/booking-page/cover?salonSlug=${encodeURIComponent(salonSlug)}`, {
+        method: 'POST',
+        body,
+        signal: controller.signal,
+      });
+      const payload = await response.json().catch(() => null) as {
+        data?: { heroImageUrl: string; qualityNote: string | null };
+        error?: { code?: string; message?: string };
+      } | null;
+      if (generation !== coverChoiceGenerationRef.current) {
+        return;
+      }
+      if (!response.ok || !payload?.data) {
+        const stale = payload?.error?.code === 'STALE_CHOICE';
+        setCoverUpload({
+          status: stale ? 'idle' : 'error',
+          error: stale ? null : payload?.error?.message ?? 'Could not upload the cover. Your current cover is unchanged.',
+          note: stale ? payload?.error?.message ?? null : null,
+        });
+        setTruthfulSaveStatus(stale ? 'saved' : 'error');
+        return;
+      }
+      setCoverUpload({ status: 'idle', error: null, note: payload.data.qualityNote });
+      // Re-read both pairs from the server rather than trusting one field.
+      const fresh = await requestBookingPageState(() => fetchBookingPageState(salonSlug));
+      adoptBookingPageState(fresh.state, fresh.identity);
+      setTruthfulSaveStatus('saved');
+    } catch (uploadError) {
+      if (controller.signal.aborted || generation !== coverChoiceGenerationRef.current) {
+        return;
+      }
+      setCoverUpload({
+        status: 'error',
+        error: uploadError instanceof Error ? uploadError.message : 'Could not upload the cover. Your current cover is unchanged.',
+        note: null,
+      });
+      setTruthfulSaveStatus('error');
+    }
+  }, [adoptBookingPageState, content?.draft.heroImageUrl, requestBookingPageState, salonSlug, setTruthfulSaveStatus]);
 
   /**
    * AG-hub-publish-07 — every guided-review move drains the queued ordinary
@@ -1017,7 +1093,7 @@ export default function BookingPageOwnerSurface() {
         </div>
 
         <div className="mt-6 space-y-6">
-          {!panel && (
+          {(!panel || panel === 'layouts') && (
             <SectionCard
               title="Live preview"
               description="This is your real draft booking page. Saved presentation changes refresh here before anything is published."
@@ -1076,19 +1152,39 @@ export default function BookingPageOwnerSurface() {
           {panel === 'information' && salonSlug && (
             <BookingPageInformationEditor
               addressPrivacy={content.draft.locationDisplayMode}
+              coverUpload={coverUpload}
+              coverUrl={content.draft.heroImageUrl}
+              coverUsedByLayout={getQuickBookLayout(draft.quickBookLayout ?? 'clean_card').cover}
               disabled={presentationPending}
               draft={draft}
               liveAddressPrivacy={content.live.locationDisplayMode}
               locale={locale}
               onAddressPrivacyChange={mode => void saveContentPatch({ locationDisplayMode: mode })}
               onConfigPatch={patch => void saveConfigPatch(patch)}
+              onUploadCover={file => void uploadCover(file)}
+              onUseDefaultCover={() => void saveCoverChoice({ heroImageUrl: null })}
               registerFlush={registerInformationFlush}
               salonSlug={salonSlug}
               savedDetails={savedDetails}
             />
           )}
 
-          {(panel === 'layouts' || panel === 'appearance') && <BookingPageAppearance disabled={presentationPending} draft={draft} mode={panel} onChange={patch => void saveConfigPatch(patch)} />}
+          {(panel === 'layouts' || panel === 'appearance') && (
+            <BookingPageAppearance
+              content={content?.draft ?? null}
+              coverUpload={coverUpload}
+              disabled={presentationPending}
+              draft={draft}
+              informationHref={salonSlug ? `/${locale}/admin/booking-page?salon=${encodeURIComponent(salonSlug)}&panel=information` : null}
+              mode={panel}
+              onChange={patch => void saveConfigPatch(patch)}
+              onContentChange={patch => void (Object.prototype.hasOwnProperty.call(patch, 'heroImageUrl') ? saveCoverChoice(patch) : saveContentPatch(patch))}
+              onUploadCover={file => void uploadCover(file)}
+              portfolioHref={salonSlug ? `/${locale}/admin?salon=${encodeURIComponent(salonSlug)}&app=portfolio` : null}
+              presentationPreview={presentationPreview}
+              textHref={salonSlug ? `/${locale}/admin/booking-page?salon=${encodeURIComponent(salonSlug)}&panel=text` : null}
+            />
+          )}
 
           {panel === 'policies' && (
             <>

@@ -332,11 +332,11 @@ describe('migration 0068 — D6.1 invoice and tax snapshot foundation', () => {
       readFileSync(path.join(process.cwd(), 'migrations/meta/_journal.json'), 'utf8'),
     ) as { entries: { idx: number; when: number; tag: string }[] };
 
-    expect(journal.entries).toHaveLength(75);
+    expect(journal.entries).toHaveLength(76);
     expect(journal.entries.at(-1)).toMatchObject({
-      idx: 74,
-      when: 1787303592670,
-      tag: '0074_onboarding_account_site_foundation',
+      idx: 75,
+      when: 1787389992670,
+      tag: '0075_onboarding_cover_media_role',
     });
   });
 });

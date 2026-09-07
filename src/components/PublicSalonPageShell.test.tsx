@@ -35,8 +35,8 @@ vi.mock('@/libs/bookingPageConfig', () => ({
 vi.mock('@/libs/bookingPageContent', () => ({
   resolveBookingPageContent: vi.fn(() => ({
     version: 1,
-    draft: { heroImageUrl: null, specialtyLine: null, bio: null, locationDisplayMode: 'full_address' },
-    live: { heroImageUrl: null, specialtyLine: null, bio: null, locationDisplayMode: 'full_address' },
+    draft: { heroImageUrl: null, specialtyLine: null, bio: null, locationDisplayMode: 'full_address', coverFocalPoint: null, portraitFocalPoint: null, coverTextMode: 'website_copy' as const, coverText: null, galleryPhotoIds: [] },
+    live: { heroImageUrl: null, specialtyLine: null, bio: null, locationDisplayMode: 'full_address', coverFocalPoint: null, portraitFocalPoint: null, coverTextMode: 'website_copy' as const, coverText: null, galleryPhotoIds: [] },
   })),
 }));
 
@@ -200,8 +200,8 @@ describe('PublicSalonPageShell owner-preview wiring', () => {
 function bookingPageContentReturn(liveMode: 'full_address' | 'city_only', draftMode: 'full_address' | 'city_only' = liveMode) {
   return {
     version: 1 as const,
-    draft: { heroImageUrl: null, specialtyLine: null, bio: null, locationDisplayMode: draftMode },
-    live: { heroImageUrl: null, specialtyLine: null, bio: null, locationDisplayMode: liveMode },
+    draft: { heroImageUrl: null, specialtyLine: null, bio: null, locationDisplayMode: draftMode, coverFocalPoint: null, portraitFocalPoint: null, coverTextMode: 'website_copy' as const, coverText: null, galleryPhotoIds: [] },
+    live: { heroImageUrl: null, specialtyLine: null, bio: null, locationDisplayMode: liveMode, coverFocalPoint: null, portraitFocalPoint: null, coverTextMode: 'website_copy' as const, coverText: null, galleryPhotoIds: [] },
   };
 }
 

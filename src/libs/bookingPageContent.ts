@@ -45,6 +45,12 @@ import { z } from 'zod';
 import { db } from '@/libs/DB';
 import { salonSchema } from '@/models/Schema';
 
+import {
+  QUICK_BOOK_COVER_TEXT_MODES,
+  type QuickBookCoverTextMode,
+  type QuickBookFocalPoint,
+} from '../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/quick-book/presentation-view';
+
 // =============================================================================
 // LOCATION PRESENTATION
 // =============================================================================
@@ -77,10 +83,26 @@ const DEFAULT_LOCATION_DISPLAY_MODE: LocationDisplayMode = 'full_address';
 // =============================================================================
 
 export type BookingPageContentSide = {
+  /**
+   * The owner's cover photo (and the Editorial hero). `null` means the
+   * cover-photo layouts show the built-in default cover — a supported
+   * published state, not a missing value.
+   */
   heroImageUrl: string | null;
   specialtyLine: string | null;
   bio: string | null;
   locationDisplayMode: LocationDisplayMode;
+  // ---- Quick Book design-system presentation overrides (additive) --------
+  /** Saved focal point for the cover photo; null = centre. */
+  coverFocalPoint: QuickBookFocalPoint | null;
+  /** Saved focal point for the profile photo; null = upper-centre. */
+  portraitFocalPoint: QuickBookFocalPoint | null;
+  /** Where cover writing comes from: existing website copy, custom text, or none. */
+  coverTextMode: QuickBookCoverTextMode;
+  /** Custom cover writing; kept when the mode or layout stops showing it. */
+  coverText: string | null;
+  /** Ordered public portfolio photo ids for gallery layouts (references, not copies). */
+  galleryPhotoIds: string[];
 };
 
 export type BookingPageContent = {
@@ -95,6 +117,11 @@ function createDefaultContentSide(): BookingPageContentSide {
     specialtyLine: null,
     bio: null,
     locationDisplayMode: DEFAULT_LOCATION_DISPLAY_MODE,
+    coverFocalPoint: null,
+    portraitFocalPoint: null,
+    coverTextMode: 'website_copy',
+    coverText: null,
+    galleryPhotoIds: [],
   };
 }
 
@@ -140,6 +167,13 @@ const nullableUrlSchema = z.union([z.string(), z.null()]).transform((value, cont
   if (trimmed === '') {
     return null;
   }
+  // Repository-owned media saved by the local (non-Cloudinary) upload path is
+  // a root-relative `/uploads/...` file, exactly like technician avatars and
+  // service images. Accept it alongside absolute URLs; never a protocol-
+  // relative `//host` value, which would leave the app's own origin.
+  if (/^\/(?:uploads|assets)\/\S+$/u.test(trimmed) && !trimmed.startsWith('//')) {
+    return trimmed;
+  }
   const result = z.string().url().safeParse(trimmed);
   if (!result.success) {
     context.addIssue({
@@ -151,6 +185,28 @@ const nullableUrlSchema = z.union([z.string(), z.null()]).transform((value, cont
   return result.data;
 });
 
+const focalPointSchema = z.union([
+  z.object({
+    x: z.number().min(0).max(100),
+    y: z.number().min(0).max(100),
+  }).strict().transform(value => ({ x: Math.round(value.x), y: Math.round(value.y) })),
+  z.null(),
+]);
+
+const coverTextModeSchema = z.enum(QUICK_BOOK_COVER_TEXT_MODES);
+
+const coverTextSchema = z.union([z.string().max(120), z.null()]).transform((value) => {
+  if (value === null) {
+    return null;
+  }
+  const trimmed = value.trim().replace(/\s+/gu, ' ');
+  return trimmed === '' ? null : trimmed;
+});
+
+/** Portfolio photo ids are opaque tokens; ownership is re-checked on every read. */
+const galleryPhotoIdsSchema = z.array(z.string().trim().min(1).max(160)).max(12)
+  .transform(ids => [...new Set(ids)]);
+
 const locationDisplayModeSchema = z.enum(LOCATION_DISPLAY_MODES);
 
 const bookingPageContentSideSchema = z.object({
@@ -158,6 +214,11 @@ const bookingPageContentSideSchema = z.object({
   specialtyLine: nullableTrimmedStringSchema,
   bio: nullableTrimmedStringSchema,
   locationDisplayMode: locationDisplayModeSchema,
+  coverFocalPoint: focalPointSchema,
+  portraitFocalPoint: focalPointSchema,
+  coverTextMode: coverTextModeSchema,
+  coverText: coverTextSchema,
+  galleryPhotoIds: galleryPhotoIdsSchema,
 });
 
 export type BookingPageContentPatch = Partial<BookingPageContentSide>;
@@ -179,6 +240,11 @@ function resolveContentSide(raw: unknown): BookingPageContentSide {
       source.locationDisplayMode,
       source.locationDisplayMode === undefined ? DEFAULT_LOCATION_DISPLAY_MODE : 'city_only',
     ),
+    coverFocalPoint: resolveWithDefault(focalPointSchema, source.coverFocalPoint, null),
+    portraitFocalPoint: resolveWithDefault(focalPointSchema, source.portraitFocalPoint, null),
+    coverTextMode: resolveWithDefault(coverTextModeSchema, source.coverTextMode, 'website_copy'),
+    coverText: resolveWithDefault(coverTextSchema, source.coverText, null),
+    galleryPhotoIds: resolveWithDefault(galleryPhotoIdsSchema, source.galleryPhotoIds, []),
   };
 }
 
@@ -333,6 +399,97 @@ export async function updateBookingPageContentDraftInTransaction(
   }
   if (validatedPatch.locationDisplayMode !== undefined) {
     settingsExpression = sql`jsonb_set(${settingsExpression}, '{bookingPageContent,draft,locationDisplayMode}', ${JSON.stringify(validatedPatch.locationDisplayMode)}::jsonb)`;
+  }
+  if (validatedPatch.coverFocalPoint !== undefined) {
+    settingsExpression = sql`jsonb_set(${settingsExpression}, '{bookingPageContent,draft,coverFocalPoint}', ${JSON.stringify(validatedPatch.coverFocalPoint)}::jsonb)`;
+  }
+  if (validatedPatch.portraitFocalPoint !== undefined) {
+    settingsExpression = sql`jsonb_set(${settingsExpression}, '{bookingPageContent,draft,portraitFocalPoint}', ${JSON.stringify(validatedPatch.portraitFocalPoint)}::jsonb)`;
+  }
+  if (validatedPatch.coverTextMode !== undefined) {
+    settingsExpression = sql`jsonb_set(${settingsExpression}, '{bookingPageContent,draft,coverTextMode}', ${JSON.stringify(validatedPatch.coverTextMode)}::jsonb)`;
+  }
+  if (validatedPatch.coverText !== undefined) {
+    settingsExpression = sql`jsonb_set(${settingsExpression}, '{bookingPageContent,draft,coverText}', ${JSON.stringify(validatedPatch.coverText)}::jsonb)`;
+  }
+  if (validatedPatch.galleryPhotoIds !== undefined) {
+    settingsExpression = sql`jsonb_set(${settingsExpression}, '{bookingPageContent,draft,galleryPhotoIds}', ${JSON.stringify(validatedPatch.galleryPhotoIds)}::jsonb)`;
+  }
+
+  const [updated] = await tx
+    .update(salonSchema)
+    .set({ settings: settingsExpression })
+    .where(eq(salonSchema.id, salonId))
+    .returning();
+
+  return updated ? resolveBookingPageContent(updated.settings) : null;
+}
+
+/**
+ * Writes ONLY `heroImageUrl`, on the named sides.
+ *
+ * The onboarding canonical-cover promotion needs this. A promotion during a
+ * DRAFT salon touches `draft` alone, exactly like the dashboard cover upload.
+ * A promotion that runs inside Publish must also land on `live`: by the time
+ * `applyPreparedCanonicalProfileMediaPromotion` runs, the publish has already
+ * computed and written its draft-to-live copy from the PRE-promotion draft,
+ * so a draft-only write would leave the owner's first published page showing
+ * the default cover until they published a second time.
+ *
+ * Every other content field is untouched — this is a targeted `jsonb_set`,
+ * not a whole-side replacement, so it cannot clobber a concurrent edit to a
+ * neighbouring key.
+ */
+export async function setBookingPageContentHeroImageInTransaction(
+  tx: BookingPageContentTransaction,
+  salonId: string,
+  heroImageUrl: string | null,
+  sides: readonly ('draft' | 'live')[] = ['draft'],
+): Promise<BookingPageContent | null> {
+  const current = await readCurrentBookingPageContent(tx, salonId);
+  if (!current || sides.length === 0) {
+    return current;
+  }
+
+  let settingsExpression = sql`
+    CASE
+      WHEN jsonb_typeof(${salonSchema.settings}) = 'object'
+        THEN ${salonSchema.settings}
+      ELSE '{}'::jsonb
+    END
+  `;
+  settingsExpression = sql`
+    jsonb_set(
+      ${settingsExpression},
+      '{bookingPageContent}',
+      CASE
+        WHEN jsonb_typeof(${settingsExpression}->'bookingPageContent') = 'object'
+          THEN ${settingsExpression}->'bookingPageContent'
+        ELSE '{}'::jsonb
+      END
+    )
+  `;
+  settingsExpression = sql`jsonb_set(${settingsExpression}, '{bookingPageContent,version}', '1'::jsonb)`;
+
+  for (const side of sides) {
+    const sidePath = side === 'draft'
+      ? sql.raw(`'{bookingPageContent,draft}'`)
+      : sql.raw(`'{bookingPageContent,live}'`);
+    const heroPath = side === 'draft'
+      ? sql.raw(`'{bookingPageContent,draft,heroImageUrl}'`)
+      : sql.raw(`'{bookingPageContent,live,heroImageUrl}'`);
+    settingsExpression = sql`
+      jsonb_set(
+        ${settingsExpression},
+        ${sidePath},
+        CASE
+          WHEN jsonb_typeof(${settingsExpression}#>${sidePath}) = 'object'
+            THEN ${settingsExpression}#>${sidePath}
+          ELSE ${JSON.stringify(current[side])}::jsonb
+        END
+      )
+    `;
+    settingsExpression = sql`jsonb_set(${settingsExpression}, ${heroPath}, ${JSON.stringify(heroImageUrl)}::jsonb)`;
   }
 
   const [updated] = await tx

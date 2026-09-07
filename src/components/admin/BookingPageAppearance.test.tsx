@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { resolveBookingPageConfig } from '@/libs/bookingPageConfig';
 import { getCustomerSitePresentationCssVariables } from '@/libs/customerSitePresentation';
+import { QUICK_BOOK_SITE_LAYOUTS } from '@/libs/quickBookSiteLayout';
 
 import { BookingPageAppearance } from './BookingPageAppearance';
 
@@ -28,18 +29,21 @@ describe('Booking Page appearance', () => {
     expect(JSON.stringify(draft)).toBe(before);
   });
 
-  it('keeps the six site compositions independent from the five booking menus', () => {
+  it('keeps every registered site composition independent from the five booking menus', () => {
     const onChange = vi.fn();
     const draft = resolveBookingPageConfig({}).draft;
     render(<BookingPageAppearance disabled={false} draft={draft} mode="layouts" onChange={onChange} />);
 
-    expect(screen.getAllByRole('button')).toHaveLength(11);
+    // 22 site layouts (the six originals plus the design-system compositions)
+    // and the five booking-menu layouts stay two independent choices.
+    expect(screen.getAllByRole('button', { pressed: true })).toHaveLength(2);
+    expect(screen.getAllByRole('button').filter(button => button.hasAttribute('aria-pressed'))).toHaveLength(QUICK_BOOK_SITE_LAYOUTS.length + 5);
 
-    fireEvent.click(screen.getByRole('button', { name: 'Profile Story' }));
+    fireEvent.click(screen.getByRole('button', { name: /^Profile Story/u }));
 
     expect(onChange).toHaveBeenLastCalledWith({ quickBookLayout: 'profile_story' });
 
-    fireEvent.click(screen.getByRole('button', { name: 'Editorial Price List' }));
+    fireEvent.click(screen.getByRole('button', { name: /^Editorial Price List/u }));
 
     expect(onChange).toHaveBeenLastCalledWith({ serviceMenuLayout: 'editorial_price_list' });
   });

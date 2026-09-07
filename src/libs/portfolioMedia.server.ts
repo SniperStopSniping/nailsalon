@@ -209,6 +209,65 @@ export async function listPortfolioPhotos(salonId: string) {
     );
 }
 
+/**
+ * Public, ordered projection of the owner-selected gallery photos for a
+ * Quick Book gallery layout. The ids are opaque owner-saved references, so
+ * every read re-checks tenant ownership and public visibility: another
+ * salon's id, a deleted photo, a photo the owner hid, or one moderation
+ * disabled everywhere simply drops out. Order follows the saved list.
+ */
+export async function listPublicPortfolioPhotosByIds(
+  salonId: string,
+  ids: readonly string[],
+): Promise<Array<{
+    id: string;
+    publicId: string;
+    imageUrl: string;
+    altText: string | null;
+    originalWidth: number;
+    originalHeight: number;
+  }>> {
+  const wanted = [...new Set(ids.filter(id => typeof id === 'string' && id.length > 0))];
+  if (wanted.length === 0) {
+    return [];
+  }
+  const rows = await db
+    .select({
+      id: salonPortfolioPhotoSchema.id,
+      publicId: salonPortfolioPhotoSchema.publicId,
+      imageUrl: salonPortfolioPhotoSchema.imageUrl,
+      altText: salonPortfolioPhotoSchema.altText,
+      originalWidth: salonPortfolioPhotoSchema.originalWidth,
+      originalHeight: salonPortfolioPhotoSchema.originalHeight,
+      moderationState: salonPortfolioPhotoSchema.moderationState,
+    })
+    .from(salonPortfolioPhotoSchema)
+    .where(
+      and(
+        eq(salonPortfolioPhotoSchema.salonId, salonId),
+        inArray(salonPortfolioPhotoSchema.id, wanted),
+        isNull(salonPortfolioPhotoSchema.deletedAt),
+        eq(salonPortfolioPhotoSchema.ownerVisible, true),
+      ),
+    );
+  const byId = new Map(rows
+    .filter(row => row.moderationState !== 'disabled')
+    .map(row => [row.id, row]));
+  return wanted.flatMap((id) => {
+    const row = byId.get(id);
+    return row
+      ? [{
+          id: row.id,
+          publicId: row.publicId,
+          imageUrl: row.imageUrl,
+          altText: row.altText,
+          originalWidth: row.originalWidth,
+          originalHeight: row.originalHeight,
+        }]
+      : [];
+  });
+}
+
 export type PortfolioPhotoPatch = {
   serviceFamily?: DiscoverServiceFamily;
   nailLength?: DiscoverNailLength;

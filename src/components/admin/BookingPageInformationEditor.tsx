@@ -24,7 +24,7 @@
  */
 
 import { ExternalLink } from 'lucide-react';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { type ChangeEvent, useCallback, useEffect, useRef, useState } from 'react';
 
 import type { BookingPageConfigSide } from '@/libs/bookingPageConfig';
 import type { LocationDisplayMode } from '@/libs/bookingPageContent';
@@ -270,6 +270,11 @@ export function BookingPageInformationEditor({
   onAddressPrivacyChange,
   savedDetails,
   registerFlush,
+  coverUrl = null,
+  coverUsedByLayout,
+  coverUpload,
+  onUploadCover,
+  onUseDefaultCover,
 }: {
   locale: string;
   salonSlug: string;
@@ -283,6 +288,17 @@ export function BookingPageInformationEditor({
   savedDetails?: Record<string, string[]>;
   /** The guided review calls this before navigating; false keeps the owner here. */
   registerFlush?: (flush: (() => Promise<boolean>) | null) => void;
+  /**
+   * Cover photo — the third image role. Lives on the booking-page DRAFT
+   * (`bookingPageContent.draft.heroImageUrl`), so unlike the logo and the
+   * nail-tech photo it waits for a publish. Optional: an omitted handler
+   * hides the control (older call sites).
+   */
+  coverUrl?: string | null;
+  coverUsedByLayout?: boolean;
+  coverUpload?: { status: 'idle' | 'uploading' | 'error'; error: string | null; note: string | null };
+  onUploadCover?: (file: File) => void;
+  onUseDefaultCover?: () => void;
 }) {
   const [info, setInfo] = useState<SalonInformation | null>(null);
   const [loadState, setLoadState] = useState<'loading' | 'ready' | 'forbidden' | 'error'>('loading');
@@ -467,6 +483,14 @@ export function BookingPageInformationEditor({
     }
   };
 
+  const chooseCoverFile = (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (file && onUploadCover) {
+      onUploadCover(file);
+    }
+  };
+
   const uploadProfilePhoto = async (file: File | null) => {
     if (!file || !info?.technician) {
       return;
@@ -638,8 +662,43 @@ export function BookingPageInformationEditor({
                           <input accept="image/jpeg,image/png,image/webp" className="sr-only" data-testid="information-tech-photo" disabled={disabled} onChange={event => void uploadProfilePhoto(event.target.files?.[0] ?? null)} type="file" />
                         </label>
                       )}
-                      <p className="mt-1 text-xs text-[var(--owner-muted)]">Uses the same Staff photo upload. It is never used as the logo.</p>
+                      <p className="mt-1 text-xs text-[var(--owner-muted)]">Uses the same Staff photo upload. It is never used as the logo. Profile-led layouts show a default illustration until you add a photo.</p>
                     </div>
+                    {onUploadCover && (
+                      <div data-testid="information-cover">
+                        <span className={labelClass}>Cover photo · optional</span>
+                        <p className="mt-0.5 text-xs text-[var(--owner-muted)]">A large photo of your work or studio, used in selected layouts.</p>
+                        {coverUrl
+                          ? <img alt="Current cover" className="mt-2 h-20 w-36 rounded-xl border border-[var(--owner-line)] object-cover" src={coverUrl} />
+                          : (
+                              <p className="mt-1 text-sm text-[var(--owner-muted)]" data-testid="information-cover-default-note">
+                                Using a default cover. It appears in cover-photo layouts until you replace it, and clients can see it in the meantime.
+                              </p>
+                            )}
+                        {coverUrl && coverUsedByLayout === false && (
+                          <p className="mt-1 text-xs text-[var(--owner-muted)]">Your cover is saved. Your current layout does not display it.</p>
+                        )}
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          <label className={`${secondaryButtonClass} cursor-pointer`}>
+                            {coverUpload?.status === 'uploading' ? 'Uploading…' : coverUrl ? 'Replace cover' : 'Upload cover'}
+                            <input
+                              accept="image/jpeg,image/png,image/webp"
+                              className="sr-only"
+                              data-testid="information-cover-upload"
+                              disabled={disabled || coverUpload?.status === 'uploading'}
+                              onChange={chooseCoverFile}
+                              type="file"
+                            />
+                          </label>
+                          {coverUrl && onUseDefaultCover && (
+                            <button className={secondaryButtonClass} data-testid="information-cover-use-default" disabled={disabled} onClick={onUseDefaultCover} type="button">Use default cover</button>
+                          )}
+                        </div>
+                        {coverUpload?.status === 'error' && coverUpload.error && <p className="mt-1 text-sm text-red-700" role="alert">{coverUpload.error}</p>}
+                        {coverUpload?.note && <p className="mt-1 text-xs text-[var(--owner-muted)]">{coverUpload.note}</p>}
+                        <p className="mt-1 text-xs text-[var(--owner-muted)]">Saves to your booking-page draft; it goes live when you publish. Reposition it and choose cover writing in Layouts.</p>
+                      </div>
+                    )}
                   </div>
                   <StatusLine error={mediaStatus.error} savedText="Image saved" status={mediaStatus.status} />
                   {renderSwitches('Business identity')}

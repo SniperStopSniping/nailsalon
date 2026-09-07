@@ -1,5 +1,8 @@
 import type { DepositDraft } from '../integrations/contracts/booking-preferences';
 import type { ServiceMenuSelectionDraft } from '../integrations/contracts/service-menu';
+import type { QuickBookLayoutId } from '../quick-book/layouts';
+
+export type { QuickBookLayoutId };
 
 export const ONBOARDING_SCHEMA_VERSION = 13 as const;
 
@@ -239,6 +242,8 @@ export type BusinessProfileDraft = {
   siteSlugCustomized: boolean;
   profilePhoto?: LocalImageReference;
   logo?: LocalImageReference;
+  /** Optional cover photo; cover layouts use the built-in default without it. */
+  coverPhoto?: LocalImageReference;
   instagram: string;
   preferredContact: PreferredContactMethod | null;
   clientContact: ClientContactDraft;
@@ -277,14 +282,6 @@ export type SitePalettePresetId =
   | 'navy_ivory'
   | 'monochrome'
   | 'black_champagne';
-
-export type QuickBookLayoutId =
-  | 'compact_dropdown'
-  | 'clean_card'
-  | 'editorial'
-  | 'hub_menu'
-  | 'profile_story'
-  | 'ultra_minimal';
 
 export type StarterId = 'quick_book' | 'one_page' | 'multi_page';
 

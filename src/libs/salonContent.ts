@@ -519,14 +519,39 @@ function toNumberOrNull(value: number | string | null | undefined): number | nul
   return Number.isFinite(numeric) ? numeric : null;
 }
 
+/**
+ * `technician.specialties` and `.languages` are optional JSONB columns, so a
+ * legacy or hand-edited row can hold an object, a string or a number rather
+ * than an array. Spreading such a value throws, and because this projection
+ * runs while the public salon page renders, one malformed optional field
+ * returned HTTP 500 for the whole booking page.
+ *
+ * An optional decorative list is never worth taking the page down for: an
+ * unusable value resolves to "no specialties", which is exactly what an
+ * empty column already means. Nothing is invented, nothing malformed is
+ * shown, and a valid array keeps behaving as before.
+ */
+function resolveStringList(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.flatMap((entry) => {
+    if (typeof entry !== 'string') {
+      return [];
+    }
+    const trimmed = entry.trim();
+    return trimmed ? [trimmed] : [];
+  });
+}
+
 function resolveTechnician(input: SalonContentTechnicianInput): SalonContentTechnician {
   return {
     id: input.id,
     name: input.name,
     bio: input.bio ?? null,
     avatarUrl: input.avatarUrl ?? null,
-    specialties: input.specialties ? [...input.specialties] : [],
-    languages: input.languages ? [...input.languages] : [],
+    specialties: resolveStringList(input.specialties),
+    languages: resolveStringList(input.languages),
     rating: toNumberOrNull(input.rating),
     reviewCount: input.reviewCount ?? 0,
     skillLevel: input.skillLevel ?? null,

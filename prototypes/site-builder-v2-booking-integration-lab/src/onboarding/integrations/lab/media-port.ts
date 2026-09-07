@@ -28,7 +28,11 @@ const toReference = (
     ? 'Business owner portrait'
     : owner === 'logo'
       ? 'Business logo'
-      : 'Uploaded portfolio work',
+      // A cover is decorative behind the identity band, so its alternative
+      // text never describes it as the technician or as portfolio work.
+      : owner === 'cover'
+        ? ''
+        : 'Uploaded portfolio work',
   fileName: metadata.fileName,
   height: metadata.height,
   id: `${owner}_${metadata.id}`,

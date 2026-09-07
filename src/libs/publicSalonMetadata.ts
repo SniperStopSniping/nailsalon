@@ -41,6 +41,16 @@ function trimmed(value: string | null | undefined): string | null {
   return next || null;
 }
 
+/**
+ * A cover saved by the local upload path is a root-relative `/uploads/...`
+ * file. Link unfurlers need an absolute URL and this module has no origin,
+ * so only absolute cover URLs reach the social/JSON-LD image slots.
+ */
+function absoluteImageUrl(value: string | null | undefined): string | null {
+  const candidate = trimmed(value);
+  return candidate && /^https?:\/\//iu.test(candidate) ? candidate : null;
+}
+
 /** One sentence, from the owner's own words, never fabricated. */
 function resolveDescription(input: PublicSalonMetadataInput, cityLabel: string | null): string {
   const intro = trimmed(input.specialtyLine) ?? trimmed(input.bio);
@@ -65,7 +75,7 @@ export function buildPublicSalonMetadata(input: PublicSalonMetadataInput): Metad
   const cityLabel = resolvePublicCityLabel(input);
   const title = `${input.salonName} · Book online`;
   const description = resolveDescription(input, cityLabel);
-  const image = trimmed(input.logoUrl) ?? trimmed(input.heroImageUrl);
+  const image = trimmed(input.logoUrl) ?? absoluteImageUrl(input.heroImageUrl);
   const canonical = `/${input.locale}/${input.slug}`;
 
   return {
@@ -108,7 +118,7 @@ export function buildPublicSalonJsonLd(input: PublicSalonMetadataInput): Record<
   const postalCode = trimmed(redacted.zipCode);
   const city = trimmed(redacted.city);
   const region = trimmed(redacted.state);
-  const image = trimmed(input.logoUrl) ?? trimmed(input.heroImageUrl);
+  const image = trimmed(input.logoUrl) ?? absoluteImageUrl(input.heroImageUrl);
   const hasAddress = Boolean(street || city || region || postalCode);
 
   return {

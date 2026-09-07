@@ -66,6 +66,51 @@ const SERVICE_B = {
   sortOrder: 2,
 };
 
+describe('malformed optional technician lists', () => {
+  // Regression: a technician row whose `specialties` JSONB held an object
+  // (not an array) threw inside resolveTechnician and returned HTTP 500 for
+  // the entire public salon page. An optional decorative list must never do
+  // that.
+  const base = {
+    id: 'tech_1',
+    isActive: true,
+    name: 'Daniela',
+  };
+
+  it.each([
+    ['an object', { biab: true }],
+    ['a string', 'BIAB'],
+    ['a number', 7],
+    ['null', null],
+    ['undefined', undefined],
+  ])('resolves %s specialties to an empty list instead of throwing', (_label, specialties) => {
+    const content = resolveSalonContent({
+      salon: { name: 'Salon' },
+      technicians: [{ ...base, specialties: specialties as never }],
+      services: [],
+      bookingExperience: BASE_BOOKING_EXPERIENCE,
+    });
+
+    expect(content.people.technicians[0]?.specialties).toEqual([]);
+  });
+
+  it('keeps a valid array exactly as before, dropping only unusable entries', () => {
+    const content = resolveSalonContent({
+      salon: { name: 'Salon' },
+      technicians: [{
+        ...base,
+        languages: ['English', '  ', 'French'] as never,
+        specialties: ['Russian manicure', '', 'BIAB', 42] as never,
+      }],
+      services: [],
+      bookingExperience: BASE_BOOKING_EXPERIENCE,
+    });
+
+    expect(content.people.technicians[0]?.specialties).toEqual(['Russian manicure', 'BIAB']);
+    expect(content.people.technicians[0]?.languages).toEqual(['English', 'French']);
+  });
+});
+
 describe('resolveSalonContent', () => {
   it('resolves a fully populated salon into every content group', () => {
     const content = resolveSalonContent({

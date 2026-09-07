@@ -102,6 +102,7 @@ export function createPersistableOnboardingDraft(
     : null;
   const profilePhoto = mediaReference(state.profile.profilePhoto, 'profile', 0, 'cover');
   const logo = mediaReference(state.profile.logo, 'logo', 0, 'contain');
+  const coverPhoto = mediaReference(state.profile.coverPhoto, 'cover', 0, 'cover');
   const galleryMedia = state.gallery.images.flatMap((image, order) => {
     const item = mediaReference(image, 'gallery', order, 'cover');
     return item ? [item] : [];
@@ -146,7 +147,7 @@ export function createPersistableOnboardingDraft(
     };
   });
   const media = onboardingMediaManifestSchema.parse(
-    [profilePhoto, logo, ...galleryMedia, ...customDesignMedia]
+    [profilePhoto, logo, coverPhoto, ...galleryMedia, ...customDesignMedia]
       .filter((item): item is OnboardingMediaManifestItem => item !== null),
   );
   const publicContactMethods = state.profile.bookingOnlyContact
@@ -218,6 +219,7 @@ export function createPersistableOnboardingDraft(
           : {}),
         transitInformation: state.profile.location.transitInformation,
       },
+      coverPhotoItemId: coverPhoto?.localItemId ?? null,
       logoItemId: logo?.localItemId ?? null,
       ownerName: state.profile.ownerName,
       policies: state.profile.policies,

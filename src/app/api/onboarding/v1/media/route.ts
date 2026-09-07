@@ -26,6 +26,12 @@ import {
 
 export const dynamic = 'force-dynamic';
 
+/** Roles whose bytes are projected onto a public Product field on upload. */
+const isCanonicalIdentityRole = (
+  role: string,
+): role is 'cover' | 'logo' | 'profile' =>
+  role === 'logo' || role === 'profile' || role === 'cover';
+
 const uploadFieldsSchema = z.object({
   altText: z.string().trim().max(300).nullable(),
   draftId: z.string().trim().min(1).max(256).regex(/^[\w-]+$/),
@@ -34,7 +40,7 @@ const uploadFieldsSchema = z.object({
   localItemId: z.string().trim().min(1).max(160),
   mimeType: z.enum(['image/jpeg', 'image/png', 'image/webp']),
   order: z.coerce.number().int().min(0).max(1_000),
-  role: z.enum(['profile', 'logo', 'gallery', 'custom_design']),
+  role: z.enum(['profile', 'logo', 'gallery', 'custom_design', 'cover']),
   siteId: z.string().uuid(),
   siteRevision: z.coerce.number().int().positive(),
 }).strict();
@@ -203,7 +209,7 @@ export async function POST(request: Request): Promise<Response> {
       }
 
       try {
-        const projection = manifestItem.role === 'logo' || manifestItem.role === 'profile'
+        const projection = isCanonicalIdentityRole(manifestItem.role)
           ? await promoteCurrentDraftCanonicalIdentityMedia(
             manifestItem.id,
             manifestItem.role,
@@ -329,7 +335,7 @@ export async function POST(request: Request): Promise<Response> {
     // the public role-owned projection. Projecting before this compare-and-set
     // would let a reclaimed, stale request overwrite the newer logo/photo.
     try {
-      const canonicalProjection = ready.role === 'logo' || ready.role === 'profile'
+      const canonicalProjection = isCanonicalIdentityRole(ready.role)
         ? await promoteCurrentDraftCanonicalIdentityMedia(
           ready.id,
           ready.role,

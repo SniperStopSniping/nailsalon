@@ -50,6 +50,7 @@ import {
   updateBookingPageDraftState,
 } from '@/libs/bookingPageLifecycle';
 import { db } from '@/libs/DB';
+import { listPortfolioPhotos } from '@/libs/portfolioMedia.server';
 import { getActiveLocationsBySalonId, getSalonById, getSalonBySlug, getTechniciansBySalonId } from '@/libs/queries';
 import type { Salon } from '@/models/Schema';
 import { onboardingSiteSchema } from '@/models/Schema';
@@ -194,10 +195,34 @@ export async function GET(request: Request): Promise<Response> {
     };
   }
 
+  // Owner-only inputs for the Layouts chooser thumbnails: the same identity,
+  // portrait, cover and gallery facts the public renderer resolves, so a
+  // thumbnail can never promise an image the published page will not show.
+  // Never a public payload — it names the real technician photo regardless
+  // of the public visibility switch so the owner can decide about it.
+  const [previewTechnicians, previewPhotos] = await Promise.all([
+    getTechniciansBySalonId(salon.id),
+    listPortfolioPhotos(salon.id),
+  ]);
+  const previewTechnician = previewTechnicians.length === 1 ? previewTechnicians[0] ?? null : null;
+  const previewContent = resolveBookingPageContent(salon.settings);
+  const presentationPreview = {
+    salonName: salon.name,
+    logoUrl: salon.logoUrl ?? null,
+    technicianName: previewTechnician?.name ?? null,
+    technicianPhotoUrl: previewTechnician?.avatarUrl ?? null,
+    specialties: previewTechnician?.specialties ?? [],
+    hasBio: Boolean(previewContent.draft.bio?.trim()),
+    gallery: previewPhotos
+      .filter(photo => photo.ownerVisible && photo.moderationState !== 'disabled')
+      .map(photo => ({ id: photo.id, imageUrl: photo.imageUrl, altText: photo.altText ?? null })),
+  };
+
   return Response.json({
     ...(savedDetails ? { savedDetails } : {}),
+    presentationPreview,
     config: resolveBookingPageConfig(salon.settings),
-    content: resolveBookingPageContent(salon.settings),
+    content: previewContent,
     // Phase A (draft/publish split): lets the owner Booking Page surface
     // show its own "publish the salon" affordance (distinct from the
     // Publish/Revert below, which only ever moves the draft/live config

@@ -1,7 +1,11 @@
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 
-import { QUICK_BOOK_SITE_LAYOUTS } from '@/libs/quickBookSiteLayout';
+import {
+  getQuickBookLayout,
+  QUICK_BOOK_SITE_LAYOUTS,
+  type QuickBookSiteLayout,
+} from '@/libs/quickBookSiteLayout';
 
 import type { QuickBookProfileView } from './quickBookProfile';
 import { QuickBookProfileHeader } from './QuickBookProfileHeader';
@@ -68,9 +72,15 @@ const FULL_PROFILE: QuickBookProfileView = {
 };
 
 describe('QuickBookProfileHeader', () => {
-  it('renders six distinct presentations without changing canonical profile data', () => {
+  it('renders every registered layout as a distinct presentation without changing canonical profile data', () => {
     const sourceBefore = structuredClone(FULL_PROFILE);
     const fingerprints = new Set<string>();
+    // The design-system layouts share one class vocabulary and differ by
+    // composition, so the fingerprint also captures their block structure
+    // with text, media and the layout identifier itself stripped out.
+    const structure = (root: HTMLElement) => (root.querySelector('.qb-presentation')?.outerHTML ?? '')
+      .replace(/>[^<]+</g, '><')
+      .replace(/ (?:id|alt|src|href|style|aria-[a-z-]+|data-qb-layout|data-qb-family)="[^"]*"/g, '');
 
     for (const layout of QUICK_BOOK_SITE_LAYOUTS) {
       const view = render(
@@ -90,17 +100,124 @@ describe('QuickBookProfileHeader', () => {
       expect(profile).toHaveAttribute('data-layout-presentation', layout);
       expect(profile).toHaveAttribute('data-public-surface', 'salonProfile');
 
+      // Which blocks a layout puts above booking IS its content recipe, so the
+      // inventory belongs in the fingerprint: two layouts that show the same
+      // blocks in the same arrangement would not be two designs.
+      const blocks = [...profile.querySelectorAll('[data-qb-block]')]
+        .map(node => node.getAttribute('data-qb-block'))
+        .join(',');
+
       fingerprints.add([
         profile.className,
         identity.className,
         details.className,
-        screen.getByTestId('quick-book-bio').className,
+        blocks,
+        structure(profile),
       ].join('|'));
       view.unmount();
     }
 
     expect(fingerprints).toHaveLength(QUICK_BOOK_SITE_LAYOUTS.length);
     expect(FULL_PROFILE).toEqual(sourceBefore);
+  });
+
+  it('lets each layout curate which image roles it shows, without changing the data', () => {
+    const sourceBefore = structuredClone(FULL_PROFILE);
+    const shown = (layout: QuickBookSiteLayout) => {
+      const view = render(
+        <QuickBookProfileHeader
+          profile={FULL_PROFILE}
+          bookingFlow={['service', 'tech', 'time', 'confirm']}
+          layout={layout}
+          mounted
+        />,
+      );
+      const result = {
+        logo: screen.queryByAltText(/logo$/u) !== null,
+        portrait: screen.queryByAltText('Daniela') !== null
+          || screen.queryByTestId('quick-book-portrait-image') !== null,
+      };
+      view.unmount();
+      return result;
+    };
+
+    for (const layout of QUICK_BOOK_SITE_LAYOUTS) {
+      const definition = getQuickBookLayout(layout);
+      const rendered = shown(layout);
+
+      expect(
+        { layout, ...rendered },
+        `${layout} must follow its own content recipe`,
+      ).toEqual({
+        layout,
+        logo: definition.logo !== 'omitted',
+        portrait: definition.portrait !== 'none',
+      });
+    }
+
+    // Curating a header never edits the salon.
+    expect(FULL_PROFILE).toEqual(sourceBefore);
+  });
+
+  it('renders the saved social link exactly once, wherever a layout parks it', () => {
+    for (const layout of QUICK_BOOK_SITE_LAYOUTS) {
+      const definition = getQuickBookLayout(layout);
+      const view = render(
+        <QuickBookProfileHeader
+          profile={FULL_PROFILE}
+          bookingFlow={['service', 'tech', 'time', 'confirm']}
+          layout={layout}
+          mounted
+        />,
+      );
+      const links = screen.queryAllByTestId('quick-book-instagram');
+      const details = screen.queryByTestId('quick-book-salon-details');
+
+      // Never dropped and never printed twice, whatever the recipe says. A
+      // layout that shows no action rows at all is the one exception.
+      const expected = definition.actions === 'none' ? 0 : 1;
+
+      expect(links, `${layout} must show the saved social link ${expected} time(s)`).toHaveLength(expected);
+
+      if (expected === 0) {
+        view.unmount();
+        continue;
+      }
+
+      const [link] = links;
+      if (!link) {
+        throw new Error(`${layout} rendered no social link`);
+      }
+
+      expect(link).toHaveAttribute('href', FULL_PROFILE.instagram?.href);
+
+      if (definition.social === 'details') {
+        expect(details, `${layout} parks the social link in Salon details`).not.toBeNull();
+        expect(details).toContainElement(link);
+      } else if (details) {
+        expect(details).not.toContainElement(link);
+      }
+      view.unmount();
+    }
+  });
+
+  it('gives the social link its own row when Salon details has nothing of its own to hold', () => {
+    // Editorial Split normally parks the link inside Salon details. A map-pin
+    // disclosure called "Salon details" whose entire body is an Instagram row
+    // would be a lie about itself, so the link keeps its row instead.
+    render(
+      <QuickBookProfileHeader
+        profile={{ ...MINIMAL_PROFILE, instagram: FULL_PROFILE.instagram }}
+        bookingFlow={['service', 'tech', 'time', 'confirm']}
+        layout="editorial_split"
+        mounted
+      />,
+    );
+
+    const link = screen.getByTestId('quick-book-instagram');
+
+    expect(screen.queryByTestId('quick-book-salon-details')).not.toBeInTheDocument();
+    expect(link).toHaveAttribute('href', FULL_PROFILE.instagram?.href);
   });
 
   it('renders a compact minimal identity immediately above booking', () => {
@@ -130,8 +247,12 @@ describe('QuickBookProfileHeader', () => {
       />,
     );
 
+    // Clean Card's recipe keeps the logo and omits the portrait: two centred
+    // image blobs either side of the name is the composition this layout is
+    // meant to avoid. The photo itself is untouched on the salon record and
+    // every portrait-led layout still uses it.
     expect(screen.getByAltText('Isla Nail Studio With A Deliberately Long Name logo')).toBeInTheDocument();
-    expect(screen.getByAltText('Daniela')).toBeInTheDocument();
+    expect(screen.queryByAltText('Daniela')).not.toBeInTheDocument();
     expect(screen.getByTestId('quick-book-location')).toHaveAttribute('href', expect.stringContaining('google.com/maps'));
     expect(screen.getByTestId('quick-book-location')).toHaveTextContent('Inside TB Nails · Back of building');
     expect(screen.getByTestId('quick-book-location')).toHaveTextContent('Parking: Use the rear lot');
