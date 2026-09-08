@@ -1,3 +1,16 @@
+# [1.89.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.88.1...v1.89.0) (2026-09-08)
+
+
+### Bug Fixes
+
+* **owner:** keep a long sheet title from running through the Back control ([5119b86](https://github.com/SniperStopSniping/nailsalon/commit/5119b86d1735786649732279ee8834902f695f06))
+
+
+### Features
+
+* **customer-site:** give the six style presets six real typefaces ([981b6f3](https://github.com/SniperStopSniping/nailsalon/commit/981b6f3ade031149bd8df4b2994139bc49303ca9))
+* **owner:** say "fonts" where an owner would look for them ([e6cdcf1](https://github.com/SniperStopSniping/nailsalon/commit/e6cdcf1ad894f772d1cf5ce46ea351c80b5fa41b))
+
 ## [1.88.1](https://github.com/SniperStopSniping/nailsalon/compare/v1.88.0...v1.88.1) (2026-09-07)
 
 
