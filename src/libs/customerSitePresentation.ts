@@ -77,7 +77,13 @@ const PALETTE_PRESET_SET: ReadonlySet<string> = new Set(CUSTOMER_SITE_PALETTE_PR
 const CUSTOMER_SITE_BODY_FONT
   = 'var(--font-luster-sans), Inter, ui-sans-serif, system-ui, sans-serif';
 
-const CUSTOMER_SITE_STYLE_ROLES: Record<CustomerSiteStylePreset, CustomerSiteStyleRoles> = {
+/**
+ * Exported so the onboarding preview can spend the same typefaces rather than
+ * keeping a second copy of them. It kept its own table, which is how the six
+ * styles ended up genuinely distinct on the published page while still looking
+ * near-identical in setup.
+ */
+export const CUSTOMER_SITE_STYLE_ROLES: Record<CustomerSiteStylePreset, CustomerSiteStyleRoles> = {
   // Heavy grotesque. Replaces Arial Black, which was a system font the page
   // never loaded and which is absent on most Android devices. Impact comes
   // from weight and tight tracking, not from capitals: a 40-character brand

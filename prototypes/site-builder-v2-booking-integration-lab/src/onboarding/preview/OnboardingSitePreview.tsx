@@ -25,6 +25,7 @@ import {
 } from 'react';
 import { createPortal } from 'react-dom';
 
+import { CUSTOMER_SITE_STYLE_ROLES } from '../../../../../src/libs/customerSitePresentation';
 import {
   BookingSectionRenderer,
   type BookingSessionUpdater,
@@ -161,10 +162,10 @@ export type StyleRoles = {
 export const ONBOARDING_STYLE_ROLES: Record<SiteStylePresetId, StyleRoles> = {
   modern: {
     accent: '#a44f3e',
-    bodyFont: 'Inter, ui-sans-serif, system-ui, sans-serif',
+    bodyFont: CUSTOMER_SITE_STYLE_ROLES.modern.bodyFont,
     buttonRadius: '16px',
     ground: '#f7f0e6',
-    headingFont: 'Newsreader, Georgia, \'Times New Roman\', serif',
+    headingFont: CUSTOMER_SITE_STYLE_ROLES.modern.headingFont,
     ink: '#332824',
     line: '#ddcfc5',
     muted: '#756761',
@@ -175,10 +176,10 @@ export const ONBOARDING_STYLE_ROLES: Record<SiteStylePresetId, StyleRoles> = {
   },
   editorial: {
     accent: '#771d36',
-    bodyFont: 'Inter, ui-sans-serif, system-ui, sans-serif',
+    bodyFont: CUSTOMER_SITE_STYLE_ROLES.editorial.bodyFont,
     buttonRadius: '2px',
     ground: '#fbf7ef',
-    headingFont: 'Newsreader, Georgia, \'Times New Roman\', serif',
+    headingFont: CUSTOMER_SITE_STYLE_ROLES.editorial.headingFont,
     ink: '#20191a',
     line: '#c9beb2',
     muted: '#6f625d',
@@ -189,10 +190,10 @@ export const ONBOARDING_STYLE_ROLES: Record<SiteStylePresetId, StyleRoles> = {
   },
   soft: {
     accent: '#9d5374',
-    bodyFont: 'Inter, ui-sans-serif, system-ui, sans-serif',
+    bodyFont: CUSTOMER_SITE_STYLE_ROLES.soft.bodyFont,
     buttonRadius: '999px',
     ground: '#fff2f5',
-    headingFont: 'Newsreader, Georgia, \'Times New Roman\', serif',
+    headingFont: CUSTOMER_SITE_STYLE_ROLES.soft.headingFont,
     ink: '#4b303a',
     line: '#ead4dc',
     muted: '#806a73',
@@ -203,10 +204,10 @@ export const ONBOARDING_STYLE_ROLES: Record<SiteStylePresetId, StyleRoles> = {
   },
   minimal: {
     accent: '#285346',
-    bodyFont: 'Inter, ui-sans-serif, system-ui, sans-serif',
+    bodyFont: CUSTOMER_SITE_STYLE_ROLES.minimal.bodyFont,
     buttonRadius: '6px',
     ground: '#f5f6f1',
-    headingFont: 'Inter, ui-sans-serif, system-ui, sans-serif',
+    headingFont: CUSTOMER_SITE_STYLE_ROLES.minimal.headingFont,
     ink: '#202823',
     line: '#d2d9d1',
     muted: '#647069',
@@ -217,10 +218,10 @@ export const ONBOARDING_STYLE_ROLES: Record<SiteStylePresetId, StyleRoles> = {
   },
   bold: {
     accent: '#c9322c',
-    bodyFont: 'Inter, ui-sans-serif, system-ui, sans-serif',
+    bodyFont: CUSTOMER_SITE_STYLE_ROLES.bold.bodyFont,
     buttonRadius: '4px',
     ground: '#f4df53',
-    headingFont: 'Arial Black, Inter, ui-sans-serif, sans-serif',
+    headingFont: CUSTOMER_SITE_STYLE_ROLES.bold.headingFont,
     ink: '#171717',
     line: '#171717',
     muted: '#514a24',
@@ -231,10 +232,10 @@ export const ONBOARDING_STYLE_ROLES: Record<SiteStylePresetId, StyleRoles> = {
   },
   luxury: {
     accent: '#c9a45f',
-    bodyFont: 'Inter, ui-sans-serif, system-ui, sans-serif',
+    bodyFont: CUSTOMER_SITE_STYLE_ROLES.luxury.bodyFont,
     buttonRadius: '2px',
     ground: '#171315',
-    headingFont: 'Newsreader, Georgia, \'Times New Roman\', serif',
+    headingFont: CUSTOMER_SITE_STYLE_ROLES.luxury.headingFont,
     ink: '#f9eedc',
     line: '#514349',
     muted: '#c8b8ae',
