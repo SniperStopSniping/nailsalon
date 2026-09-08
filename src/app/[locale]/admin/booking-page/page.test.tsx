@@ -2107,7 +2107,18 @@ describe('BookingPageOwnerSurface', () => {
       });
 
       releaseBookingPagePublish?.();
-      await screen.findByText(/Published\. Your live booking page now matches your draft\./);
+      // This assertion waits on a response the test itself held open, so the
+      // render it depends on lands a full round-trip later than the rest of
+      // the file's. Testing Library's one-second default was enough locally
+      // and on pull-request runners but not on a loaded main runner, where it
+      // failed twice with no action message rendered at all rather than the
+      // wrong one. The budget is explicit for the same reason the client
+      // lifecycle suite pins its own.
+      await screen.findByText(
+        /Published\. Your live booking page now matches your draft\./,
+        {},
+        { timeout: 10_000 },
+      );
 
       expect(screen.queryByTestId('salon-publish-banner')).not.toBeInTheDocument();
       expect(fetchMock.mock.calls.filter(([url, init]) => (
