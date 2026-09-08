@@ -872,14 +872,9 @@ export async function enqueueDepositConfirmationEffectsInTx(args: {
     appliedRewardId: null,
   });
 
-  // Gate C1 — durable confirmation + reminder intents, with the SAME
-  // transaction handle as the money write. Keyed on the DEPOSIT id, so the
-  // Stripe return page, a browser refresh, a duplicate webhook, the reaper
-  // and the late-recovery lane (which calls this same function) all collapse
-  // onto one intent per channel. SMS only, shared mode only: BYO keeps the
-  // legacy synchronous send byte-identical (owner decision 2.2), and the
-  // confirmation EMAIL stays on the legacy outbox leg until the reminder
-  // reconciler lands so a client is never double-emailed.
+  // Confirmation SMS and reminders commit with the money write for both
+  // sender modes. The deposit id dedupes webhook, return-page and reaper
+  // replays. Confirmation email stays on its existing outbox delivery path.
   const communicationContext = await resolveSalonCommunicationContext(tx, salonId);
   const smsConsentGranted = await hasTransactionalSmsConsent(tx, salonId, args.clientPhone);
   const [appointmentRow] = await tx
@@ -887,13 +882,15 @@ export async function enqueueDepositConfirmationEffectsInTx(args: {
       startTime: appointmentSchema.startTime,
       updatedAt: appointmentSchema.updatedAt,
       clientEmail: appointmentSchema.clientEmail,
+      salonClientId: appointmentSchema.salonClientId,
     })
     .from(appointmentSchema)
-    .where(eq(appointmentSchema.id, appointment.id))
+    .where(and(eq(appointmentSchema.id, appointment.id), eq(appointmentSchema.salonId, salonId)))
     .limit(1);
   if (appointmentRow !== undefined) {
     const variables = {
       salonName: communicationContext.salonName ?? '',
+      ...(appointmentRow.salonClientId ? { clientId: appointmentRow.salonClientId } : {}),
       startTime: formatIntentStartTime(appointmentRow.startTime, communicationContext.timeZone),
       manageUrl: buildAppointmentManageUrl(salon, capability.token),
     };
@@ -911,21 +908,19 @@ export async function enqueueDepositConfirmationEffectsInTx(args: {
       variables,
       smsEligible: communicationContext.smsEligible,
     });
-    if (communicationContext.mode !== 'connected_byo') {
-      await materializeReminders({
-        tx,
-        salonId,
-        appointmentId: appointment.id,
-        appointmentStart: appointmentRow.startTime,
-        appointmentUpdatedAt: appointmentRow.updatedAt,
-        clientPhone: smsConsentGranted ? args.clientPhone : null,
-        clientEmail: appointmentRow.clientEmail,
-        settings: communicationContext.settings,
-        timeZone: communicationContext.timeZone,
-        variables,
-        smsEligible: communicationContext.smsEligible,
-      });
-    }
+    await materializeReminders({
+      tx,
+      salonId,
+      appointmentId: appointment.id,
+      appointmentStart: appointmentRow.startTime,
+      appointmentUpdatedAt: appointmentRow.updatedAt,
+      clientPhone: smsConsentGranted ? args.clientPhone : null,
+      clientEmail: appointmentRow.clientEmail,
+      settings: communicationContext.settings,
+      timeZone: communicationContext.timeZone,
+      variables,
+      smsEligible: communicationContext.smsEligible,
+    });
   }
 }
 

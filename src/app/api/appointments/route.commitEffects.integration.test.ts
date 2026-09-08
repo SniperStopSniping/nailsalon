@@ -403,11 +403,17 @@ describe('D4.5 — the effects straddle the idempotency cache write', () => {
 
     expect(response.status).toBe(201);
 
+    // Legacy/default services are instant bookings even outside free-solo.
+    // The stored state must agree with the confirmation text and calendar.
+    const [createdAppointment] = await db.select().from(schema.appointmentSchema);
+
+    expect(createdAppointment).toMatchObject({ status: 'confirmed', requestExpiresAt: null });
+
     // Every effect ran...
     expect(timeline.entries).toContain('cache-write');
     expect(timeline.entries).toContain('calendar-intent');
     expect(timeline.entries).toContain('customer-email');
-    expect(timeline.entries).toContain('client-sms');
+    expect(timeline.entries).not.toContain('client-sms');
     expect(timeline.entries).toContain('staff-notifications');
 
     // The durable intent precedes the cache; provider-independent deliveries
@@ -423,7 +429,6 @@ describe('D4.5 — the effects straddle the idempotency cache write', () => {
       'calendar-intent',
       'cache-write',
       'customer-email',
-      'client-sms',
       'staff-notifications',
     ]);
   });

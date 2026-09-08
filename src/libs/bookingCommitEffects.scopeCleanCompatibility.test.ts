@@ -139,17 +139,12 @@ describe('scope-clean booking-effect compatibility', () => {
     expect(boundaries.enqueueGoogleCalendarAppointmentMutation).not.toHaveBeenCalled();
     expect(boundaries.enqueueGoogleCalendarUpsert).not.toHaveBeenCalled();
     expect(boundaries.sendCustomerBookingConfirmationEmail.mock.invocationCallOrder[0])
-      .toBeLessThan(boundaries.sendBookingConfirmationToClient.mock.invocationCallOrder[0]!);
-    expect(boundaries.sendBookingConfirmationToClient.mock.invocationCallOrder[0])
       .toBeLessThan(boundaries.sendSalonNotificationEmail.mock.invocationCallOrder[0]!);
+    expect(boundaries.sendBookingConfirmationToClient).not.toHaveBeenCalled();
     expect(boundaries.loadBookingEmailFinancialSummary).toHaveBeenCalledWith({
       salonId: context.salon.id,
       appointmentId: context.appointment.id,
     });
-    expect(boundaries.sendBookingConfirmationToClient).toHaveBeenCalledWith(
-      context.salon.id,
-      expect.objectContaining({ financialSummary: boundaries.financialSummary }),
-    );
     expect(boundaries.sendBookingNotificationsForNewBooking).toHaveBeenCalledWith(
       expect.objectContaining({ financialSummary: boundaries.financialSummary }),
     );

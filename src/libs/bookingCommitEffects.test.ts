@@ -235,6 +235,7 @@ describe('loadBookingCommitEffectsContext', () => {
       notes: 'Please use the ramp entrance',
       googleCalendarEventId: null,
       status: 'confirmed',
+      isExplicitRequestApproval: false,
       updatedAt: expect.any(Date),
     });
     expect(context!.serviceNames).toEqual(['Gel Manicure']);

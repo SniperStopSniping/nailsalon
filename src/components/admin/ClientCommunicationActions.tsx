@@ -22,6 +22,7 @@ import {
   useState,
 } from 'react';
 
+import { LusterClientSms } from '@/components/admin/LusterClientSms';
 import { Button } from '@/components/ui/button';
 import { InlineFeedback } from '@/components/ui/inline-feedback';
 import {
@@ -410,6 +411,7 @@ export function ClientCommunicationActions({
   const [reminderDue, setReminderDue] = useState<AppointmentReminderItem | null>(null);
   const [reviewRecorded, setReviewRecorded] = useState(hasGoogleReview);
   const [markingReviewed, setMarkingReviewed] = useState(false);
+  const [smsComposerOpen, setSmsComposerOpen] = useState(false);
 
   const loadSupportData = useCallback(async () => {
     if (!salonSlug) {
@@ -645,6 +647,12 @@ export function ClientCommunicationActions({
             setManualReminderFallback(fallback);
           }
           throw new Error(reminderPayload?.error?.message || 'The reminder could not be sent.');
+        }
+        if (reminderPayload?.data?.mode === 'automatic' && reminderPayload.data.queued) {
+          setReminderDue(null);
+          setActionNotice('Reminder queued through Luster. Delivery status appears in SMS history.');
+          notifyRetentionDataChanged();
+          return;
         }
         if (reminderPayload?.data?.mode === 'automatic' && reminderPayload.data.sent) {
           const duplicateSuppressed = reminderPayload.data.reason === 'DUPLICATE_SUPPRESSED';
@@ -1022,7 +1030,7 @@ export function ClientCommunicationActions({
             disabled={!canText}
             title={canText ? undefined : NO_MOBILE_REASON}
             testId="client-text-action"
-            onClick={() => openDraft('text', 'Text', null)}
+            onClick={() => setSmsComposerOpen(true)}
           />
           <ContactActionLink
             icon={<Phone size={15} />}
@@ -1247,10 +1255,21 @@ export function ClientCommunicationActions({
         </div>
       )}
 
+      <LusterClientSms
+        key={`${salonSlug}:${client.id}:${upcomingAppointment?.id ?? ''}`}
+        salonSlug={salonSlug}
+        salonName={salonName}
+        clientId={client.id}
+        appointmentId={upcomingAppointment?.id}
+        composerOpen={smsComposerOpen}
+        onClose={() => setSmsComposerOpen(false)}
+        showHistory={showHistory}
+      />
+
       {showHistory && (
         <details className="mt-3 rounded-2xl border border-stone-200 bg-stone-50 p-3 text-left" open={profileLayout}>
           <summary className="cursor-pointer text-sm font-semibold text-stone-800">
-            Communication history
+            Recorded outreach
             {history.length > 0 ? ` (${history.length})` : ''}
           </summary>
           {history.length === 0

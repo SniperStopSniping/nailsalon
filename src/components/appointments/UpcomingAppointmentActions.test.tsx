@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { AppointmentManageDetail } from '@/libs/appointmentManage';
@@ -102,6 +102,17 @@ const baseDetail: AppointmentManageDetail = {
   },
   warnings: [],
   communications: [],
+};
+
+const detailWithReminder: AppointmentManageDetail = {
+  ...baseDetail,
+  communications: [{
+    channel: 'sms',
+    purpose: 'appointment_reminder_manual',
+    status: 'sent',
+    errorCode: null,
+    updatedAt: '2026-07-22T17:00:00.000Z',
+  }],
 };
 
 function renderActions(
@@ -231,9 +242,7 @@ describe('UpcomingAppointmentActions', () => {
 
     fireEvent.click(screen.getByTestId('appointment-send-reminder'));
 
-    expect(await screen.findByRole('status')).toHaveTextContent(
-      'Reminder sent automatically from your salon number.',
-    );
+    expect(await screen.findByText('Reminder sent automatically from your salon number.')).toBeVisible();
     expect(onReminderSent).toHaveBeenCalledTimes(1);
     expect(onOpenNativeUrl).not.toHaveBeenCalled();
 
@@ -245,6 +254,7 @@ describe('UpcomingAppointmentActions', () => {
       headers: { 'Content-Type': 'application/json' },
     });
     expect(JSON.parse(String(request?.[1]?.body))).toEqual({ force: false });
+    expect(new Headers(request?.[1]?.headers).has('Idempotency-Key')).toBe(false);
   });
 
   it('does not add another history entry when a duplicate reminder is suppressed', async () => {
@@ -259,9 +269,7 @@ describe('UpcomingAppointmentActions', () => {
 
     fireEvent.click(screen.getByTestId('appointment-send-reminder'));
 
-    expect(await screen.findByRole('status')).toHaveTextContent(
-      'A reminder was just sent, so the duplicate was skipped.',
-    );
+    expect(await screen.findByText('A reminder was just sent, so the duplicate was skipped.')).toBeVisible();
     expect(onReminderSent).toHaveBeenCalledTimes(1);
     expect(fetchMock.mock.calls.filter(([input, init]) => (
       String(input).includes('/communication') && init?.method === 'POST'
@@ -299,18 +307,7 @@ describe('UpcomingAppointmentActions', () => {
   });
 
   it('requires confirmation before resending and sends the confirmed request with force enabled', async () => {
-    renderActions({
-      detail: {
-        ...baseDetail,
-        communications: [{
-          channel: 'sms',
-          purpose: 'appointment_reminder_manual',
-          status: 'sent',
-          errorCode: null,
-          updatedAt: '2026-07-22T17:00:00.000Z',
-        }],
-      },
-    });
+    renderActions({ detail: detailWithReminder });
 
     fireEvent.click(screen.getByRole('button', { name: 'Resend reminder' }));
 
@@ -322,6 +319,106 @@ describe('UpcomingAppointmentActions', () => {
     await waitFor(() => expect(findReminderRequest()).toBeDefined());
 
     expect(JSON.parse(String(findReminderRequest()?.[1]?.body))).toEqual({ force: true });
+    expect(new Headers(findReminderRequest()?.[1]?.headers).get('Idempotency-Key')).toMatch(/^[\da-f-]{36}$/i);
+  });
+
+  it.each(['network', 'server'] as const)('retries a confirmed resend with the same identity after an uncertain %s failure', async (failure) => {
+    const originalFetch = fetchMock.getMockImplementation()!;
+    let attempts = 0;
+    fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).includes('/send-reminder')) {
+        attempts += 1;
+        if (attempts === 1) {
+          return failure === 'network'
+            ? Promise.reject(new TypeError('Reminder response was lost.'))
+            : Promise.resolve(jsonResponse({ error: { message: 'Reminder response was lost.' } }, 503));
+        }
+        return Promise.resolve(jsonResponse({ data: { mode: 'automatic', queued: true, sent: false } }));
+      }
+      return originalFetch(input, init);
+    });
+    renderActions({ detail: detailWithReminder });
+    fireEvent.click(screen.getByRole('button', { name: 'Resend reminder' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Send again' }));
+
+    expect(await screen.findByText('Reminder response was lost.')).toBeVisible();
+
+    const firstKey = new Headers(findReminderRequest()?.[1]?.headers).get('Idempotency-Key');
+    fireEvent.click(screen.getByRole('button', { name: 'Resend reminder' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Send again' }));
+
+    expect(await screen.findByText('Reminder queued through Luster. Delivery status appears in SMS history.')).toBeVisible();
+
+    const requests = fetchMock.mock.calls.filter(([input]) => String(input).includes('/send-reminder'));
+
+    expect(requests).toHaveLength(2);
+    expect(new Headers(requests[1]?.[1]?.headers).get('Idempotency-Key')).toBe(firstKey);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Resend reminder' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Send again' }));
+
+    await waitFor(() => expect(attempts).toBe(3));
+
+    const nextRequest = fetchMock.mock.calls.filter(([input]) => String(input).includes('/send-reminder'))[2];
+
+    expect(new Headers(nextRequest?.[1]?.headers).get('Idempotency-Key')).not.toBe(firstKey);
+  });
+
+  it('guards repeated confirmation taps before the first request settles', async () => {
+    const originalFetch = fetchMock.getMockImplementation()!;
+    let release: ((response: Response) => void) | undefined;
+    const pending = new Promise<Response>((resolve) => {
+      release = resolve;
+    });
+    fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => String(input).includes('/send-reminder')
+      ? pending
+      : originalFetch(input, init));
+    renderActions({ detail: detailWithReminder });
+    fireEvent.click(screen.getByRole('button', { name: 'Resend reminder' }));
+    const sendAgain = screen.getByRole('button', { name: 'Send again' });
+    act(() => {
+      sendAgain.click();
+      sendAgain.click();
+    });
+
+    expect(fetchMock.mock.calls.filter(([input]) => String(input).includes('/send-reminder'))).toHaveLength(1);
+
+    release!(jsonResponse({ data: { mode: 'automatic', queued: true, sent: false } }));
+
+    expect(await screen.findByText('Reminder queued through Luster. Delivery status appears in SMS history.')).toBeVisible();
+  });
+
+  it('resets resend identity on appointment changes and ignores the old appointment response', async () => {
+    const originalFetch = fetchMock.getMockImplementation()!;
+    let releaseOld: ((response: Response) => void) | undefined;
+    const oldPending = new Promise<Response>((resolve) => {
+      releaseOld = resolve;
+    });
+    fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes('/send-reminder')) {
+        return url.includes('appt_1') ? oldPending : Promise.resolve(jsonResponse({ data: { mode: 'automatic', queued: true, sent: false } }));
+      }
+      return originalFetch(input, init);
+    });
+    const { rerender, onReminderSent } = renderActions({ detail: detailWithReminder });
+    fireEvent.click(screen.getByRole('button', { name: 'Resend reminder' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Send again' }));
+    const firstKey = new Headers(findReminderRequest()?.[1]?.headers).get('Idempotency-Key');
+    rerender(<UpcomingAppointmentActions detail={{ ...detailWithReminder, appointment: { ...detailWithReminder.appointment, id: 'appt_2' } }} saving={false} onChangeAppointment={vi.fn()} onCancelAppointment={vi.fn()} onReminderSent={onReminderSent} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Resend reminder' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Send again' }));
+
+    expect(await screen.findByText('Reminder queued through Luster. Delivery status appears in SMS history.')).toBeVisible();
+
+    const newRequest = fetchMock.mock.calls.find(([input]) => String(input).includes('appt_2/send-reminder'));
+
+    expect(new Headers(newRequest?.[1]?.headers).get('Idempotency-Key')).not.toBe(firstKey);
+
+    await act(async () => releaseOld!(jsonResponse({ error: { message: 'Old appointment failure' } }, 503)));
+
+    expect(screen.queryByText('Old appointment failure')).not.toBeInTheDocument();
+    expect(onReminderSent).toHaveBeenCalledTimes(1);
   });
 
   it('routes change and cancel actions to their callbacks', () => {

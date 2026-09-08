@@ -598,3 +598,60 @@ describe('durable SMS preparation', () => {
     expect(provider).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('fresh reminder settings and actionable suppression', () => {
+  it.each(['enabled', 'disabled', 'changed_offset'] as const)('checks the current reminder rule before dispatch: %s', async (mode) => {
+    const { salonId, recipient } = await seedSalonWithConsent();
+    await enableControl(true);
+    await grantCredits(salonId, 10);
+    const { communicationSettingsSchema } = await import('./communicationSettings');
+    const { computeSchedulingRevision } = await import('./communicationScheduling');
+    const rule = { id: 'current-rule', enabled: true, channels: 'sms' as const, offsetMinutes: 1440 };
+    const settings = communicationSettingsSchema.parse({ sms: { enabled: true }, quietHours: { enabled: false, start: '21:00', end: '09:00' }, reminders: { rules: [rule] } });
+    const start = new Date(NOW.getTime() + 24 * 60 * 60 * 1000);
+    const appointmentId = `rule_${salonId}`;
+    await db.insert(schema.appointmentSchema).values({ id: appointmentId, salonId, clientPhone: recipient, startTime: start, endTime: new Date(start.getTime() + 60 * 60 * 1000), updatedAt: NOW, status: 'confirmed', totalPrice: 5000, totalDurationMinutes: 60 });
+    await db.execute(sql`UPDATE salon SET settings = ${JSON.stringify({ communications: settings })}::jsonb WHERE id = ${salonId}`);
+    await enqueueSmsIntent(salonId, recipient, {
+      appointmentId,
+      eventType: 'appointment_reminder',
+      ruleId: rule.id,
+      startRevision: start.toISOString(),
+      schedulingRevision: computeSchedulingRevision({ timeZone: null, quietHours: settings.quietHours, rule, appointmentStart: start, appointmentUpdatedAt: NOW, smsEnabled: true, emailEnabled: settings.email.enabled }),
+    });
+    if (mode !== 'enabled') {
+      const changed = { ...settings, reminders: { rules: [{ ...rule, enabled: mode !== 'disabled', offsetMinutes: mode === 'changed_offset' ? 1800 : 1440 }] } };
+      await db.execute(sql`UPDATE salon SET settings = ${JSON.stringify({ communications: changed })}::jsonb WHERE id = ${salonId}`);
+    }
+    const intent = await claimOne(salonId);
+    const provider = vi.fn(async () => ({ sid: `SM_rule_${mode}` }));
+    const { dispatchClaimedIntent } = await import('./communicationDispatcher');
+
+    expect(await dispatchClaimedIntent(intent, provider, NOW)).toBe(mode === 'enabled' ? 'sent' : 'suppressed');
+    expect(provider).toHaveBeenCalledTimes(mode === 'enabled' ? 1 : 0);
+
+    if (mode !== 'enabled') {
+      const result = await db.execute(sql`SELECT last_error FROM communication_intent WHERE id = ${intent.id}`);
+
+      expect(result.rows[0]).toMatchObject({ last_error: 'REMINDER_RULE_CHANGED' });
+    }
+  });
+
+  it('records missing consent as an actionable failure reason without exposing provider content', async () => {
+    const { salonId, recipient } = await seedSalonWithConsent();
+    await enableControl(true);
+    await grantCredits(salonId, 10);
+    await db.execute(sql`DELETE FROM communication_consent WHERE salon_id = ${salonId}`);
+    await enqueueSmsIntent(salonId, recipient);
+    const intent = await claimOne(salonId);
+    const provider = vi.fn();
+    const { dispatchClaimedIntent } = await import('./communicationDispatcher');
+
+    expect(await dispatchClaimedIntent(intent, provider, NOW)).toBe('suppressed');
+    expect(provider).not.toHaveBeenCalled();
+
+    const result = await db.execute(sql`SELECT last_error FROM communication_intent WHERE id = ${intent.id}`);
+
+    expect(result.rows[0]).toMatchObject({ last_error: 'CONSENT_REQUIRED' });
+  });
+});

@@ -11,23 +11,16 @@
  * and a replay cannot mint a second one (dedupe_key UNIQUE + ON CONFLICT
  * DO NOTHING).
  *
- * MODE-FIRST ROUTING (owner decision 2.2) lives at the CALL SITES, not here:
- * a `connected_byo` salon keeps its existing synchronous SMS.ts path
- * byte-identical, so callers consult the sender mode and only route
- * shared-mode salons through this module for SMS. Email intents are
- * mode-independent. This module never reads Twilio configuration.
- *
- * Template coverage: the Gate A template registry ships client templates
- * only for confirmation and reminder. Events without a registered SMS
- * template materialize EMAIL ONLY until their template lands — enforced
- * here via TEMPLATED_SMS_EVENTS so an intent can never reference a template
- * key the dispatcher cannot render.
+ * Both shared and connected Twilio senders use these same intents. Provider
+ * configuration, consent, credits and delivery are evaluated by the dispatcher.
+ * Each registered lifecycle template describes the actual appointment state.
  */
 
 import 'server-only';
 
 import type {
   CommunicationIntentDatabase,
+  CommunicationIntentTransaction,
   EnqueueIntentInput,
 } from '@/libs/communicationIntent';
 import { cancelAppointmentIntents, enqueueCommunicationIntent } from '@/libs/communicationIntent';
@@ -47,6 +40,13 @@ import type { CommunicationEventType } from '@/models/Schema';
 const TEMPLATED_SMS_EVENTS: Partial<Record<CommunicationEventType, { templateKey: string; templateVersion: string }>> = {
   booking_confirmation: { templateKey: 'client_booking_confirmation_shortlink', templateVersion: 'v1' },
   appointment_reminder: { templateKey: 'client_appointment_reminder_shortlink', templateVersion: 'v1' },
+  manual_reminder: { templateKey: 'client_appointment_reminder_shortlink', templateVersion: 'v1' },
+  booking_request_received: { templateKey: 'client_booking_request_received_shortlink', templateVersion: 'v1' },
+  booking_request_approved: { templateKey: 'client_booking_request_approved_shortlink', templateVersion: 'v1' },
+  appointment_rescheduled: { templateKey: 'client_appointment_rescheduled_shortlink', templateVersion: 'v1' },
+  appointment_cancelled: { templateKey: 'client_appointment_cancelled_shortlink', templateVersion: 'v1' },
+  booking_request_declined: { templateKey: 'client_booking_request_declined_shortlink', templateVersion: 'v1' },
+  booking_request_expired: { templateKey: 'client_booking_request_expired_shortlink', templateVersion: 'v1' },
 };
 
 /** Email uses per-event template keys the email lane renders. */
@@ -77,10 +77,7 @@ export type MaterializeEventInput = {
   timeZone: string | null;
   appointmentStart: Date | null;
   variables: Record<string, string>;
-  /**
-   * Owner decision 2.2: SMS only materializes for shared-mode salons. BYO
-   * salons keep the legacy synchronous path, so their callers pass false.
-   */
+  /** Resolved SMS master for the salon's current sender mode. */
   smsEligible: boolean;
   now?: Date;
 };
@@ -113,7 +110,7 @@ export async function materializeClientEvent(
 
   for (const channel of channels) {
     if (channel === 'sms' && !input.smsEligible) {
-      continue; // BYO or SMS-ineligible: legacy path owns SMS (decision 2.2).
+      continue; // SMS disabled for this salon.
     }
     const recipient = channel === 'sms' ? input.clientPhone : input.clientEmail;
     if (!recipient) {
@@ -133,7 +130,7 @@ export async function materializeClientEvent(
       quietHours: input.settings.quietHours,
       timeZone: input.timeZone,
       notAfter,
-      bypass: isConfirmation || channel === 'email',
+      bypass: isConfirmation || input.eventType === 'booking_request_received' || channel === 'email',
     });
     if (decision.kind === 'stale') {
       continue;
@@ -167,6 +164,7 @@ export async function materializeClientEvent(
       templateKey: template.templateKey,
       templateVersion: template.templateVersion,
       variables: input.variables,
+      startRevision: input.appointmentStart?.toISOString() ?? null,
       schedulingRevision: computeSchedulingRevision({
         timeZone: input.timeZone,
         quietHours: input.settings.quietHours,
@@ -199,6 +197,7 @@ export type MaterializeRemindersInput = {
   variables: Record<string, string>;
   smsEligible: boolean;
   now?: Date;
+  existingDedupeKeys?: ReadonlySet<string>;
 };
 
 /**
@@ -228,6 +227,7 @@ export async function materializeReminders(
     allowedChannels,
     smsEnabled: input.settings.sms.enabled,
     emailEnabled: input.settings.email.enabled,
+    existingDedupeKeys: input.existingDedupeKeys,
     now,
   });
 
@@ -283,9 +283,18 @@ export async function reconcileAppointmentReminders(
     skipped: Array<{ ruleId: string; channel: string; reason: string }>;
     canceledStale: number;
   }> {
-  const { materialized, skipped, desiredDedupeKeys } = await materializeReminders(input);
   const { communicationIntentSchema } = await import('@/models/Schema');
   const { and, eq, inArray, notInArray } = await import('drizzle-orm');
+  const existing = await input.tx.select({ dedupeKey: communicationIntentSchema.dedupeKey })
+    .from(communicationIntentSchema).where(and(
+      eq(communicationIntentSchema.salonId, input.salonId),
+      eq(communicationIntentSchema.appointmentId, input.appointmentId),
+      eq(communicationIntentSchema.eventType, 'appointment_reminder'),
+    ));
+  const { materialized, skipped, desiredDedupeKeys } = await materializeReminders({
+    ...input,
+    existingDedupeKeys: new Set(existing.map(row => row.dedupeKey)),
+  });
   const staleFilter = and(
     eq(communicationIntentSchema.salonId, input.salonId),
     eq(communicationIntentSchema.appointmentId, input.appointmentId),
@@ -347,16 +356,16 @@ export async function resolveSalonCommunicationContext(
     salonName: string | null;
   }> {
   const { resolveSmsSenderMode } = await import('@/libs/smsSender');
-  const { resolveCommunicationSettingsFromSettings } = await import('@/libs/communicationSettings');
+  const { resolveSalonCommunicationSettings, resolveCommunicationSettingsFromSettings } = await import('@/libs/communicationSettings');
   const { salonSchema, salonTwilioConnectionSchema } = await import('@/models/Schema');
   const { eq } = await import('drizzle-orm');
 
   const [salon] = await tx
-    .select({ name: salonSchema.name, settings: salonSchema.settings })
+    .select({ name: salonSchema.name, settings: salonSchema.settings, smsRemindersEnabled: salonSchema.smsRemindersEnabled })
     .from(salonSchema)
     .where(eq(salonSchema.id, salonId))
     .limit(1);
-  const settings = resolveCommunicationSettingsFromSettings(
+  let settings = resolveCommunicationSettingsFromSettings(
     (salon?.settings ?? null) as Parameters<typeof resolveCommunicationSettingsFromSettings>[0],
   );
   const [connection] = await tx
@@ -373,13 +382,15 @@ export async function resolveSalonCommunicationContext(
     connection: connection ?? null,
     perSalonDisabled: settings.killSwitch,
   });
+  settings = resolveSalonCommunicationSettings(salon?.settings as Parameters<typeof resolveSalonCommunicationSettings>[0], {
+    senderMode: mode,
+    legacySmsEnabled: salon?.smsRemindersEnabled,
+  });
   const storedSettings = (salon?.settings ?? null) as { booking?: { timezone?: string } } | null;
   return {
     settings,
     mode,
-    // Owner decision 2.2: only shared-mode salons route SMS through intents;
-    // BYO keeps the legacy synchronous path byte-identical.
-    smsEligible: mode === 'shared_luster' && settings.sms.enabled,
+    smsEligible: mode !== 'disabled' && settings.sms.enabled,
     timeZone: storedSettings?.booking?.timezone ?? null,
     salonName: salon?.name ?? null,
   };
@@ -405,13 +416,171 @@ export function formatIntentStartTime(start: Date, timeZone: string | null): str
 export async function loadAppointmentClientEmail(
   dbh: CommunicationIntentDatabase,
   appointmentId: string,
+  salonId: string,
 ): Promise<string | null> {
   const { appointmentSchema } = await import('@/models/Schema');
-  const { eq } = await import('drizzle-orm');
+  const { and, eq } = await import('drizzle-orm');
   const [row] = await dbh
     .select({ clientEmail: appointmentSchema.clientEmail })
     .from(appointmentSchema)
-    .where(eq(appointmentSchema.id, appointmentId))
+    .where(and(eq(appointmentSchema.id, appointmentId), eq(appointmentSchema.salonId, salonId)))
     .limit(1);
   return row?.clientEmail ?? null;
+}
+
+/**
+ * Appointment mutations persist their texts and reminder changes with the
+ * business write. Every caller passes its already authorized appointment and
+ * transaction; dispatch still verifies current tenant, contact and state.
+ */
+export async function materializeAppointmentLifecycle(input: {
+  tx: CommunicationIntentTransaction;
+  appointment: import('@/models/Schema').Appointment;
+  eventType: MaterializeEventInput['eventType'];
+  transitionEventId?: string;
+  supersede?: boolean;
+  notifyClient?: boolean;
+  manageUrl?: string;
+  now?: Date;
+}): Promise<MaterializedIntent[]> {
+  const { appointment, tx } = input;
+  const now = input.now ?? new Date();
+  if (input.supersede) {
+    await supersedeAppointmentCommunications({ tx, salonId: appointment.salonId, appointmentId: appointment.id, now });
+  }
+  const context = await resolveSalonCommunicationContext(tx, appointment.salonId);
+  const { resolveOperationalSalonClientContactWithHandle, resolveOperationalSalonClientContactByPhoneWithHandle } = await import('@/libs/clientLifecycleStabilization');
+  const contact = appointment.salonClientId
+    ? await resolveOperationalSalonClientContactWithHandle(tx, { salonId: appointment.salonId, clientId: appointment.salonClientId, allowArchived: true })
+    : await resolveOperationalSalonClientContactByPhoneWithHandle(tx, { salonId: appointment.salonId, phone: appointment.clientPhone, allowArchived: true });
+  const clientPhone = contact?.phone ?? appointment.clientPhone;
+  const clientId = contact?.id ?? appointment.salonClientId;
+  const { isReminderEligibleAppointment } = await import('@/libs/reminderEligibility');
+  const reminderEligible = !appointment.deletedAt && isReminderEligibleAppointment(appointment);
+  const channels = resolveEventChannels(context.settings, input.eventType);
+  const notifySms = input.notifyClient !== false && context.smsEligible && channels.includes('sms');
+  const futureReminders = reminderEligible && planReminders({
+    salonId: appointment.salonId,
+    appointmentId: appointment.id,
+    appointmentStart: appointment.startTime,
+    appointmentUpdatedAt: appointment.updatedAt,
+    timeZone: context.timeZone,
+    quietHours: context.settings.quietHours,
+    rules: resolveActiveReminderRules(context.settings),
+    allowedChannels: resolveEventChannels(context.settings, 'appointment_reminder')
+      .filter(channel => channel === 'sms' ? context.smsEligible && Boolean(clientPhone) : Boolean(appointment.clientEmail)),
+    smsEnabled: context.settings.sms.enabled,
+    emailEnabled: context.settings.email.enabled,
+    now,
+  }).some(plan => plan.kind === 'scheduled');
+  if (!notifySms && !futureReminders) {
+    return [];
+  }
+  const { mintShortManageToken } = await import('@/libs/shortManageLink');
+  const manageUrl = input.manageUrl ?? (await mintShortManageToken(tx, {
+    salonId: appointment.salonId,
+    appointmentId: appointment.id,
+    expiresAt: new Date(appointment.endTime.getTime() + 30 * 24 * 60 * 60 * 1000),
+  })).url;
+  const variables = {
+    salonName: context.salonName ?? '',
+    ...(clientId ? { clientId } : {}),
+    startTime: formatIntentStartTime(appointment.startTime, context.timeZone),
+    manageUrl,
+  };
+  const results = notifySms
+    ? await materializeClientEvent({
+      tx,
+      salonId: appointment.salonId,
+      appointmentId: appointment.id,
+      eventType: input.eventType,
+      transitionEventId: input.transitionEventId ?? appointment.updatedAt.toISOString(),
+      clientPhone,
+      clientEmail: null, // Existing operational email delivery remains its channel owner.
+      settings: context.settings,
+      timeZone: context.timeZone,
+      appointmentStart: appointment.startTime,
+      variables,
+      smsEligible: context.smsEligible,
+      now,
+    })
+    : [];
+  if (reminderEligible) {
+    await reconcileAppointmentReminders({
+      tx,
+      salonId: appointment.salonId,
+      appointmentId: appointment.id,
+      appointmentStart: appointment.startTime,
+      appointmentUpdatedAt: appointment.updatedAt,
+      clientPhone,
+      clientEmail: appointment.clientEmail,
+      settings: context.settings,
+      timeZone: context.timeZone,
+      variables,
+      smsEligible: context.smsEligible,
+      now,
+    });
+  }
+  return results;
+}
+
+/** Queue an owner-requested reminder without bypassing the normal send guards. */
+export async function queueAppointmentReminder(input: {
+  salonId: string;
+  appointmentId: string;
+  phone: string;
+  clientId?: string;
+  manageUrl: string;
+  requestId?: string;
+  now?: Date;
+}): Promise<{ intentId: string; status: string; created: boolean; scheduledFor: string }> {
+  const { db } = await import('@/libs/DB');
+  const { and, eq } = await import('drizzle-orm');
+  const { appointmentSchema, communicationIntentSchema } = await import('@/models/Schema');
+  const { isReminderEligibleAppointment } = await import('@/libs/reminderEligibility');
+  const { normalizeNanpNumber } = await import('@/libs/smsDestination');
+  const now = input.now ?? new Date();
+  if (!normalizeNanpNumber(input.phone)) {
+    throw new Error('INVALID_CLIENT_PHONE');
+  }
+  return db.transaction(async (tx) => {
+    const [appointment] = await tx.select().from(appointmentSchema).where(and(
+      eq(appointmentSchema.id, input.appointmentId),
+      eq(appointmentSchema.salonId, input.salonId),
+    )).for('update').limit(1);
+    if (!appointment || appointment.deletedAt || !isReminderEligibleAppointment(appointment)
+      || appointment.startTime.getTime() <= now.getTime()) {
+      throw new Error('APPOINTMENT_NOT_UPCOMING');
+    }
+    const context = await resolveSalonCommunicationContext(tx, input.salonId);
+    if (!context.smsEligible || !resolveEventChannels(context.settings, 'manual_reminder').includes('sms')) {
+      throw new Error('SMS_DISABLED');
+    }
+    const [intent] = await materializeClientEvent({
+      tx,
+      salonId: input.salonId,
+      appointmentId: appointment.id,
+      eventType: 'manual_reminder',
+      transitionEventId: `${appointment.startTime.toISOString()}:${input.requestId ?? 'owner-reminder'}`,
+      clientPhone: input.phone,
+      clientEmail: null,
+      settings: context.settings,
+      timeZone: context.timeZone,
+      appointmentStart: appointment.startTime,
+      variables: {
+        salonName: context.salonName ?? '',
+        startTime: formatIntentStartTime(appointment.startTime, context.timeZone),
+        manageUrl: input.manageUrl,
+        ...((input.clientId ?? appointment.salonClientId) ? { clientId: (input.clientId ?? appointment.salonClientId)! } : {}),
+      },
+      smsEligible: context.smsEligible,
+      now,
+    });
+    if (!intent) {
+      throw new Error('QUIET_HOURS_STALE');
+    }
+    const [row] = await tx.select({ status: communicationIntentSchema.status, scheduledFor: communicationIntentSchema.scheduledFor })
+      .from(communicationIntentSchema).where(and(eq(communicationIntentSchema.id, intent.intentId), eq(communicationIntentSchema.salonId, input.salonId))).limit(1);
+    return { ...intent, status: row!.status, scheduledFor: row!.scheduledFor.toISOString() };
+  });
 }

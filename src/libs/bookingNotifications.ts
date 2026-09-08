@@ -129,6 +129,8 @@ export async function sendBookingNotificationsForNewBooking(
     signal: options.signal,
     sendSms: (recipient) => {
       const smsInput = {
+        appointmentId: context.appointmentId,
+        recipientAudience: recipient.labels.includes('owner') ? 'owner' as const : 'technician' as const,
         phone: recipient.destination,
         salonName: context.salon.name,
         clientName: context.clientName,
@@ -186,6 +188,8 @@ export async function sendBookingNotificationsForAppointmentCancelled(
     recipients,
     emailPayload: buildAppointmentCancelledEmailPayload(context),
     sendSms: recipient => sendInternalCancellationNotificationSms(context.salon.id, {
+      appointmentId: context.appointmentId,
+      recipientAudience: recipient.labels.includes('owner') ? 'owner' : 'technician',
       phone: recipient.destination,
       salonName: context.salon.name,
       clientName: context.clientName,

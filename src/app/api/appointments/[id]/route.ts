@@ -38,7 +38,6 @@ import {
 } from '@/libs/queries';
 import { requireAppointmentAccess } from '@/libs/routeAccessGuards';
 import { sendSalonNotificationEmail } from '@/libs/salonNotificationEmail';
-import { sendCancellationConfirmation } from '@/libs/SMS';
 import {
   APPOINTMENT_CANCELLATION_REASONS,
   APPOINTMENT_STATUSES,
@@ -458,7 +457,6 @@ export async function PATCH(request: Request, props: { params: Promise<{ id: str
     // authorize against the same snapshot, but only one may transition the
     // appointment and perform dependent economic mutations.
     let cancellationApplied = false;
-    let operationalClientPhone = existingAppointment.clientPhone;
     let updatedAppointment: AppointmentRecord;
     if (data.status === 'cancelled') {
       const requestedReason
@@ -685,6 +683,17 @@ export async function PATCH(request: Request, props: { params: Promise<{ id: str
                 );
             }
 
+            const { materializeAppointmentLifecycle } = await import('@/libs/communicationMaterialization');
+            await materializeAppointmentLifecycle({
+              tx,
+              appointment: cancelledAppointment,
+              eventType: cancelledAppointment.cancelReason === 'declined_by_salon'
+                ? 'booking_request_declined'
+                : 'appointment_cancelled',
+              notifyClient: cancelledAppointment.status === 'cancelled' && cancelledAppointment.cancelReason !== 'rescheduled',
+              supersede: true,
+            });
+
             await enqueueGoogleCalendarDeleteInTx(tx, {
               appointmentId: cancelledAppointment.id,
               salonId: cancelledAppointment.salonId,
@@ -720,7 +729,6 @@ export async function PATCH(request: Request, props: { params: Promise<{ id: str
         }
 
         cancellationApplied = transition.applied;
-        operationalClientPhone = transition.operationalClientPhone;
         updatedAppointment = transition.appointment;
       }
     } else if (data.status === 'no_show') {
@@ -1178,6 +1186,17 @@ export async function PATCH(request: Request, props: { params: Promise<{ id: str
             };
           }
 
+          const { materializeAppointmentLifecycle } = await import('@/libs/communicationMaterialization');
+          await materializeAppointmentLifecycle({
+            tx,
+            appointment: reactivatedAppointment,
+            eventType: lockedAppointment.status === 'pending' && lockedAppointment.requestExpiresAt
+              ? 'booking_request_approved'
+              : 'booking_confirmation',
+            supersede: true,
+            notifyClient: reactivatedAppointment.status === 'confirmed' && lockedAppointment.status !== 'confirmed',
+          });
+
           await enqueueGoogleCalendarAppointmentMutation(tx, {
             appointmentId: reactivatedAppointment.id,
             salonId: reactivatedAppointment.salonId,
@@ -1224,12 +1243,6 @@ export async function PATCH(request: Request, props: { params: Promise<{ id: str
           getAppointmentServiceNames(appointmentId),
         ]);
         const notificationResults = await Promise.allSettled([
-          sendCancellationConfirmation(existingAppointment.salonId, {
-            phone: operationalClientPhone,
-            clientName: existingAppointment.clientName || undefined,
-            appointmentId,
-            salonName: salon?.name || 'the salon',
-          }),
           salon
             ? sendBookingNotificationsForAppointmentCancelled({
               salon: {

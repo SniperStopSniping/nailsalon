@@ -1,8 +1,7 @@
 /**
  * Materialization proofs — Gate C1. The vectors that matter: one intent per
- * authoritative transition per channel under replay; mode-first SMS gating
- * (BYO callers never produce an SMS intent); email-only fallback for events
- * without a registered SMS template; reminder rules; in-tx supersession.
+ * authoritative transition per channel under replay; configured SMS gating;
+ * reminder rules; in-tx supersession; a disposable salon lifecycle journey.
  */
 import path from 'node:path';
 
@@ -102,12 +101,11 @@ describe('materializeClientEvent — confirmation exactness', () => {
       transitionEventId: '2026-09-02T10:00:00.000Z',
     }));
 
-    // No SMS template registered for reschedule yet — email only.
-    expect(reschedule.map(r => r.channel)).toEqual(['email']);
-    expect(await intentsFor('appt_m1')).toHaveLength(3);
+    expect(reschedule.map(r => r.channel).sort()).toEqual(['email', 'sms']);
+    expect(await intentsFor('appt_m1')).toHaveLength(4);
   });
 
-  it('never produces an SMS intent for a BYO-mode caller (owner decision 2.2)', async () => {
+  it('never produces an SMS intent when the caller is not SMS eligible', async () => {
     const { materializeClientEvent } = await materialization();
     await seedSalonAndAppointment('s_m2', 'appt_m2');
     const results = await db.transaction(async tx => materializeClientEvent({
@@ -122,7 +120,7 @@ describe('materializeClientEvent — confirmation exactness', () => {
       timeZone: 'America/Toronto',
       appointmentStart: new Date('2026-09-10T18:00:00.000Z'),
       variables: {},
-      smsEligible: false, // BYO: legacy synchronous path owns SMS.
+      smsEligible: false,
       now: NOW,
     }));
 
@@ -291,5 +289,112 @@ describe('materializeReminders + supersession', () => {
 
     expect(result.materialized).toEqual([]);
     expect(result.skipped.every(s => s.reason === 'REMINDER_TIME_PASSED')).toBe(true);
+  });
+});
+
+describe('owner reminder action idempotency', () => {
+  it('reuses one reminder for repeat clicks and one new reminder for an explicit resend key', async () => {
+    const { queueAppointmentReminder } = await materialization();
+    await seedSalonAndAppointment('s_manual_reminder', 'appt_manual_reminder');
+    await db.update(schema.salonSchema).set({ settings: {
+      communications: { sms: { enabled: true }, email: { enabled: false }, quietHours: { enabled: false, start: '21:00', end: '09:00' } },
+    } as never }).where(eq(schema.salonSchema.id, 's_manual_reminder'));
+    const input = {
+      salonId: 's_manual_reminder',
+      appointmentId: 'appt_manual_reminder',
+      phone: '4165550100',
+      manageUrl: 'https://app.test/manage/private',
+      now: NOW,
+    };
+    const original = await queueAppointmentReminder(input);
+    const repeatClick = await queueAppointmentReminder(input);
+
+    expect(repeatClick).toMatchObject({ intentId: original.intentId, created: false });
+
+    const resend = await queueAppointmentReminder({ ...input, requestId: 'explicit-resend-1' });
+    const networkRetry = await queueAppointmentReminder({ ...input, requestId: 'explicit-resend-1' });
+
+    expect(resend.created).toBe(true);
+    expect(resend.intentId).not.toBe(original.intentId);
+    expect(networkRetry).toMatchObject({ intentId: resend.intentId, created: false });
+    expect(await intentsFor('appt_manual_reminder')).toHaveLength(2);
+  });
+});
+
+describe('disposable salon communications journey', () => {
+  it('records requests, approval, manual texting, reschedule and cancellation with coherent history', async () => {
+    const { materializeAppointmentLifecycle } = await materialization();
+    const { queueClientSms, getClientSmsHistory } = await import('./clientMessaging');
+    const { COMMUNICATION_TEMPLATES } = await import('./communicationTemplates');
+    await seedSalonAndAppointment('s_journey', 'appt_journey');
+    await db.update(schema.salonSchema).set({ settings: {
+      booking: { timezone: 'America/Toronto' },
+      communications: { sms: { enabled: true }, email: { enabled: false }, quietHours: { enabled: false, start: '21:00', end: '09:00' } },
+    } as never }).where(eq(schema.salonSchema.id, 's_journey'));
+    await db.insert(schema.salonClientSchema).values({ id: 'client_journey', salonId: 's_journey', phone: '4165550100', fullName: 'Test Client' });
+    const [pending] = await db.update(schema.appointmentSchema).set({
+      salonClientId: 'client_journey',
+      status: 'pending',
+      requestExpiresAt: new Date('2026-09-02T20:00:00Z'),
+      updatedAt: NOW,
+    }).where(eq(schema.appointmentSchema.id, 'appt_journey')).returning();
+    const receipt = await db.transaction(tx => materializeAppointmentLifecycle({ tx, appointment: pending!, eventType: 'booking_request_received', transitionEventId: 'direct', now: NOW }));
+
+    expect(receipt).toHaveLength(1);
+
+    let rows = await intentsFor('appt_journey');
+
+    expect(rows.map(row => row.eventType)).toEqual(['booking_request_received']);
+    expect(COMMUNICATION_TEMPLATES[rows[0]!.templateKey]!.render(rows[0]!.variables)).toContain('Request pending:');
+    expect(COMMUNICATION_TEMPLATES[rows[0]!.templateKey]!.render(rows[0]!.variables)).not.toContain('Confirmed');
+
+    const approvedAt = new Date(NOW.getTime() + 60_000);
+    const [confirmed] = await db.update(schema.appointmentSchema).set({ status: 'confirmed', updatedAt: approvedAt })
+      .where(eq(schema.appointmentSchema.id, 'appt_journey')).returning();
+    await db.transaction(tx => materializeAppointmentLifecycle({ tx, appointment: confirmed!, eventType: 'booking_request_approved', supersede: true, now: approvedAt }));
+    rows = await intentsFor('appt_journey');
+
+    expect(rows.find(row => row.eventType === 'booking_request_received')!.status).toBe('canceled');
+
+    const approved = rows.find(row => row.eventType === 'booking_request_approved')!;
+
+    expect(COMMUNICATION_TEMPLATES[approved.templateKey]!.render(approved.variables)).toContain('Confirmed for');
+
+    const originalReminder = rows.find(row => row.eventType === 'appointment_reminder')!;
+
+    expect(originalReminder.scheduledFor.toISOString()).toBe('2026-09-09T18:00:00.000Z');
+
+    const manualInput = { salonId: 's_journey', clientId: 'client_journey', appointmentId: 'appt_journey', message: 'We look forward to seeing you.', requestId: 'journey-owner-click', now: approvedAt };
+    const manual = await queueClientSms(manualInput);
+    const replay = await queueClientSms(manualInput);
+
+    expect(replay).toMatchObject({ intentId: manual.intentId, created: false });
+
+    await db.update(schema.salonClientSchema).set({ phone: '4165550198' }).where(eq(schema.salonClientSchema.id, 'client_journey'));
+    const movedAt = new Date(NOW.getTime() + 120_000);
+    const [moved] = await db.update(schema.appointmentSchema).set({ startTime: new Date('2026-09-11T18:00:00Z'), endTime: new Date('2026-09-11T19:00:00Z'), updatedAt: movedAt })
+      .where(eq(schema.appointmentSchema.id, 'appt_journey')).returning();
+    await db.transaction(tx => materializeAppointmentLifecycle({ tx, appointment: moved!, eventType: 'appointment_rescheduled', supersede: true, now: movedAt }));
+    rows = await intentsFor('appt_journey');
+
+    expect(rows.find(row => row.id === originalReminder.id)!.status).toBe('canceled');
+    expect(rows.find(row => row.eventType === 'appointment_rescheduled')).toMatchObject({ recipient: '4165550198', status: 'pending' });
+    expect(rows.find(row => row.eventType === 'appointment_reminder' && row.status === 'pending')).toMatchObject({ recipient: '4165550198', startRevision: '2026-09-11T18:00:00.000Z' });
+    expect(rows.find(row => row.id === manual.intentId)!.status).toBe('pending');
+
+    const cancelledAt = new Date(NOW.getTime() + 180_000);
+    const [cancelled] = await db.update(schema.appointmentSchema).set({ status: 'cancelled', cancelReason: 'client_request', updatedAt: cancelledAt })
+      .where(eq(schema.appointmentSchema.id, 'appt_journey')).returning();
+    await db.transaction(tx => materializeAppointmentLifecycle({ tx, appointment: cancelled!, eventType: 'appointment_cancelled', supersede: true, now: cancelledAt }));
+    rows = await intentsFor('appt_journey');
+
+    expect(rows.filter(row => row.eventType === 'appointment_reminder' && row.status !== 'canceled')).toHaveLength(0);
+    expect(rows.find(row => row.eventType === 'appointment_cancelled')).toMatchObject({ status: 'pending', recipient: '4165550198' });
+    expect(rows.filter(row => row.eventType === 'manual_text')).toHaveLength(1);
+
+    const history = await getClientSmsHistory({ salonId: 's_journey', clientId: 'client_journey', appointmentId: 'appt_journey' });
+
+    expect(history).toHaveLength(rows.length);
+    expect(history.some(row => row.message?.includes('look forward'))).toBe(true);
   });
 });

@@ -22,7 +22,6 @@ import {
 } from '@/libs/queries';
 import { requireAppointmentManagerAccess } from '@/libs/routeAccessGuards';
 import { sendSalonNotificationEmail } from '@/libs/salonNotificationEmail';
-import { sendCancellationConfirmation } from '@/libs/SMS';
 import { APPOINTMENT_CANCELLATION_REASONS, type AppointmentCancellationReason, appointmentSchema, type AuditPerformerRole, rewardSchema, salonClientSchema } from '@/models/Schema';
 import type { SalonFeatures, SalonSettings } from '@/types/salonPolicy';
 
@@ -479,6 +478,17 @@ export async function PATCH(request: Request, props: { params: Promise<{ id: str
               ));
           }
 
+          const { materializeAppointmentLifecycle } = await import('@/libs/communicationMaterialization');
+          await materializeAppointmentLifecycle({
+            tx,
+            appointment: cancelledAppointment,
+            eventType: cancelledAppointment.cancelReason === 'declined_by_salon'
+              ? 'booking_request_declined'
+              : 'appointment_cancelled',
+            notifyClient: cancelledAppointment.status === 'cancelled' && cancelledAppointment.cancelReason !== 'rescheduled',
+            supersede: true,
+          });
+
           await enqueueGoogleCalendarDeleteInTx(tx, {
             appointmentId: cancelledAppointment.id,
             salonId: cancelledAppointment.salonId,
@@ -580,12 +590,6 @@ export async function PATCH(request: Request, props: { params: Promise<{ id: str
           getAppointmentServiceNames(appointmentId),
         ]);
         const notificationResults = await Promise.allSettled([
-          sendCancellationConfirmation(appointment.salonId, {
-            phone: operationalClientPhone,
-            clientName: appointment.clientName || undefined,
-            appointmentId,
-            salonName: salon?.name || 'the salon',
-          }),
           salon
             ? sendBookingNotificationsForAppointmentCancelled({
               salon: {

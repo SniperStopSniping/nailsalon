@@ -81,6 +81,7 @@ beforeAll(async () => {
     id: SALON_ID,
     name: 'Expire Approval Salon',
     slug: 'expire-approval-salon',
+    settings: { communications: { sms: { enabled: true }, quietHours: { enabled: false, start: '21:00', end: '09:00' } } } as never,
   });
   await db.insert(schema.technicianSchema).values({
     id: TECH_ID,
@@ -137,7 +138,7 @@ describe('expireApprovalRequest', () => {
       eventType: 'booking_request_expired',
       audience: 'client',
       status: 'pending',
-      dedupeKey: `appointment-approval-expired:appt_expired:${requestExpiresAt.toISOString()}`,
+      dedupeKey: `${SALON_ID}:appt_expired:booking_request_expired:${requestExpiresAt.toISOString()}:sms`,
     });
   });
 
@@ -275,7 +276,7 @@ describe('expireApprovalRequest', () => {
 
     expect(outcome.outcome).toBe('transitioned');
 
-    const dedupeKey = `appointment-approval-expired:appt_dedupe:${requestExpiresAt.toISOString()}`;
+    const dedupeKey = `${SALON_ID}:appt_dedupe:booking_request_expired:${requestExpiresAt.toISOString()}:sms`;
     const replayInsert = await db.insert(schema.communicationIntentSchema).values({
       id: 'ci_dedupe_replay_probe',
       salonId: SALON_ID,

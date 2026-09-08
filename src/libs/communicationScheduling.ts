@@ -210,6 +210,8 @@ export function resolveNotAfter(input: {
   const expiresAtStart
     = eventType === 'appointment_reminder'
     || eventType === 'booking_confirmation'
+    || eventType === 'booking_request_received'
+    || eventType === 'booking_request_approved'
     || eventType === 'balance_reminder'
     || eventType === 'manual_reminder';
 
@@ -372,6 +374,8 @@ export function planReminders(input: {
   smsEnabled: boolean;
   emailEnabled: boolean;
   now: Date;
+  /** Existing identities remain valid after becoming due; never create a late reminder. */
+  existingDedupeKeys?: ReadonlySet<string>;
 }): PlannedReminder[] {
   const planned: PlannedReminder[] = [];
   const notAfter = resolveNotAfter({
@@ -396,10 +400,17 @@ export function planReminders(input: {
         emailEnabled: input.emailEnabled,
       });
       const identity = { ruleId: rule.id, channel } as const;
+      const dedupeKey = reminderDedupeKey({
+        salonId: input.salonId,
+        appointmentId: input.appointmentId,
+        ruleId: rule.id,
+        channel,
+        schedulingRevision,
+      });
 
       // Contract §11 / blueprint H13: a lead time already in the past for a
       // last-minute booking is skipped, never fired immediately.
-      if (instant.getTime() <= input.now.getTime()) {
+      if (instant.getTime() <= input.now.getTime() && !input.existingDedupeKeys?.has(dedupeKey)) {
         planned.push({ kind: 'skipped', ...identity, reason: 'REMINDER_TIME_PASSED' });
         continue;
       }
@@ -424,13 +435,7 @@ export function planReminders(input: {
         scheduledFor: decision.sendAt,
         notAfter,
         schedulingRevision,
-        dedupeKey: reminderDedupeKey({
-          salonId: input.salonId,
-          appointmentId: input.appointmentId,
-          ruleId: rule.id,
-          channel,
-          schedulingRevision,
-        }),
+        dedupeKey,
         quietHoursShifted: decision.kind === 'shifted',
       });
     }

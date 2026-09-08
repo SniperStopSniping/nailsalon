@@ -2682,13 +2682,13 @@ describe('D5 integration outbox', () => {
     expect(await processIntegrationOutbox()).toMatchObject({ scanned: 0, succeeded: 0 });
   });
 
-  it('[T20] retries an unexpected SMS-boundary failure without resending the stable customer email', async () => {
-    externalEffects.sendBookingConfirmationToClient
+  it('[T20] retries an unexpected owner-notification queue failure without resending the stable customer email', async () => {
+    externalEffects.sendBookingNotificationsForNewBooking
       .mockReset()
       // Production SMS absorbs an ordinary provider rejection. This synthetic
       // throw represents an unexpected dependency failure and forces the
       // aggregate retry whose per-effect replay posture this test exercises.
-      .mockRejectedValueOnce(new Error('unexpected SMS boundary failure'))
+      .mockRejectedValueOnce(new Error('unexpected notification queue failure'))
       .mockResolvedValue(undefined);
     await seedConfirmationJob();
 
@@ -2706,7 +2706,7 @@ describe('D5 integration outbox', () => {
 
     expect(second).toMatchObject({ failed: 0, retried: 0, scanned: 1, succeeded: 1 });
     expect(providerEmail).toHaveBeenCalledTimes(1);
-    expect(externalEffects.sendBookingConfirmationToClient).toHaveBeenCalledTimes(2);
+    expect(externalEffects.sendBookingNotificationsForNewBooking).toHaveBeenCalledTimes(2);
     expect((await readJob())?.status).toBe('completed');
 
     const deliveries = await db.select().from(schema.notificationDeliverySchema)
@@ -2752,13 +2752,13 @@ describe('D5 integration outbox', () => {
     // The stable customer claim suppresses a second provider send; only the
     // legs never dispatched by the expired attempt run on aggregate replay.
     expect(providerEmail).toHaveBeenCalledTimes(1);
-    expect(externalEffects.sendBookingConfirmationToClient).toHaveBeenCalledTimes(1);
+    expect(externalEffects.sendBookingConfirmationToClient).not.toHaveBeenCalled();
     expect(externalEffects.sendSalonNotificationEmail).toHaveBeenCalledTimes(1);
     expect(externalEffects.sendBookingNotificationsForNewBooking).toHaveBeenCalledTimes(1);
     expect((await readJob())?.status).toBe('completed');
   });
 
-  it('replays best-effort SMS and internal delegates after a lost completion write while customer email stays single-claimed', async () => {
+  it('replays internal delegates after a lost completion write without a second direct client SMS', async () => {
     externalEffects.sendBookingConfirmationToClient.mockResolvedValue(undefined);
     await seedConfirmationJob();
 
@@ -2769,7 +2769,7 @@ describe('D5 integration outbox', () => {
       succeeded: 1,
     });
     expect(providerEmail).toHaveBeenCalledTimes(1);
-    expect(externalEffects.sendBookingConfirmationToClient).toHaveBeenCalledTimes(1);
+    expect(externalEffects.sendBookingConfirmationToClient).not.toHaveBeenCalled();
     expect(externalEffects.sendBookingNotificationsForNewBooking).toHaveBeenCalledTimes(1);
 
     await simulateLostCompletionWrite('job_outbox_d5');
@@ -2781,7 +2781,7 @@ describe('D5 integration outbox', () => {
       succeeded: 1,
     });
     expect(providerEmail).toHaveBeenCalledTimes(1);
-    expect(externalEffects.sendBookingConfirmationToClient).toHaveBeenCalledTimes(2);
+    expect(externalEffects.sendBookingConfirmationToClient).not.toHaveBeenCalled();
     expect(externalEffects.sendBookingNotificationsForNewBooking).toHaveBeenCalledTimes(2);
 
     const deliveries = await db.select().from(schema.notificationDeliverySchema)
@@ -2976,6 +2976,7 @@ describe('D5 integration outbox', () => {
   });
 
   it('[T49][M31] alerts once and remains queryable when the eighth batch attempt fails', async () => {
+    externalEffects.sendBookingNotificationsForNewBooking.mockRejectedValue(new Error('notification queue unavailable'));
     await seedConfirmationJob();
 
     for (let attempt = 1; attempt < 8; attempt += 1) {

@@ -31,7 +31,7 @@ Repair the existing Twilio/communications system only. No broad product audit, p
 
 - `npm ci --no-audit --no-fund` succeeded with Node 20.19.4.
 - No provider credentials copied into this worktree; no real messages sent.
-- Final checks, logical commits, preview/PR and provider-console runbook pending. Protected main will not be merged or deployed automatically.
+- Final checks, remaining logical commits and provider-console runbook pending. No push, preview deployment, merge or production deployment has been performed.
 
 ## Checkpoint 1 — truthful settings and integration readiness
 
@@ -57,3 +57,15 @@ Repair the existing Twilio/communications system only. No broad product audit, p
 - Signed inbound/status/deauthorization requests bind known account identity. Known connected-account signing tokens can be fetched with existing Connect authorization and held briefly server-side; no token is stored or logged. Missing access fails closed.
 - Callback replay resumes idempotent refunds after interruption. Unknown-outcome adoption settles evidence and refunds an already-undelivered message once.
 - Provider scope: 90 targeted tests passed; focused lint clean. Unknown-outcome resolver: 4 passed. No real Twilio API calls made during tests.
+
+## Checkpoint 3 — appointment lifecycle, reminders and owner texting
+
+- Appointment creation, request approval, deposit confirmation, private-link cancellation, expiry and reschedule persist canonical SMS events inside the business transaction. Instant bookings are stored as confirmed; explicit requests remain pending with matching wording.
+- Replaced the separate direct-send reminder worker with canonical reminder rules. Current timezone, lead time, contact, rule/settings revision and appointment state are checked; old reminders are invalidated and concurrent workers cannot duplicate provider calls.
+- Added tenant-authorized manual text/history/retry API and composer to existing client/appointment actions. Current canonical contact and appointment ownership are resolved server-side. Lost-response replays observe the original intent before mutable readiness checks; safe rejected retries reuse the original delivery.
+- Explicit reminder resends carry an action key; ordinary repeated clicks retain deterministic dedupe. History separates provider delivery from owner-recorded native outreach.
+- Final dispatcher checks also reject changed reminder rules, inactive salons and revoked BYO connections, with readable failure reasons.
+- Lifecycle targeted verification: 12 suites / 259 tests passed. Manual queue-to-provider/tenant/contact/quiet/retry tests: 8 passed. Manual route: 6 passed. Dispatcher followup/email checks: 25 passed.
+- Real PostgreSQL 16.15 verification: dispatcher concurrency 5/5 and SMS credit concurrency 9/9 passed against a new explicitly disposable localhost cluster. Provider mocked; cluster stopped and removed. Logs: `/tmp/luster-sms-pg-dispatcher-20260908.log`, `/tmp/luster-sms-pg-credits-20260908.log`.
+- Production build passed with approved synthetic CI configuration and no external database/provider credentials. Task build artifacts cleaned afterward to restore scarce local disk space.
+- Secret scan initially refused an unstaged tracked-file deletion; rerun after staging/commit is required. It did not report a credential value.

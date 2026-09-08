@@ -26,8 +26,8 @@ import {
   transitionIntent,
 } from '@/libs/communicationIntent';
 import { checkSharedSendRateLimits } from '@/libs/communicationRateLimit.server';
-import { applyQuietHours } from '@/libs/communicationScheduling';
-import { resolveEventChannels, resolveSalonCommunicationSettings } from '@/libs/communicationSettings';
+import { applyQuietHours, computeSchedulingRevision } from '@/libs/communicationScheduling';
+import { channelModeIncludes, type CommunicationSettings, resolveEventChannels, resolveSalonCommunicationSettings } from '@/libs/communicationSettings';
 import { COMMUNICATION_TEMPLATES } from '@/libs/communicationTemplates';
 import { db } from '@/libs/DB';
 import { Env } from '@/libs/Env';
@@ -107,15 +107,21 @@ async function appointmentStillActive(intent: CommunicationIntent, now = new Dat
     return true;
   }
   const rows = await db.execute(sql`
-    SELECT status, start_time, request_expires_at FROM appointment
+    SELECT status, start_time, request_expires_at, cancel_reason FROM appointment
     WHERE id = ${intent.appointmentId} AND salon_id = ${intent.salonId}
       AND deleted_at IS NULL LIMIT 1
   `);
-  const appointment = rows.rows[0] as { status: string; start_time: Date | string; request_expires_at: Date | string | null } | undefined;
+  const appointment = rows.rows[0] as { status: string; start_time: Date | string; request_expires_at: Date | string | null; cancel_reason: string | null } | undefined;
   if (!appointment) {
     return false;
   }
-  if (['appointment_cancelled', 'booking_request_declined', 'booking_request_expired', 'owner_appointment_cancelled', 'tech_appointment_cancelled'].includes(intent.eventType)) {
+  if (intent.eventType === 'booking_request_declined') {
+    return appointment.status === 'cancelled' && appointment.cancel_reason === 'declined_by_salon';
+  }
+  if (intent.eventType === 'booking_request_expired') {
+    return appointment.status === 'cancelled' && appointment.cancel_reason === 'request_expired';
+  }
+  if (['appointment_cancelled', 'owner_appointment_cancelled', 'tech_appointment_cancelled'].includes(intent.eventType)) {
     return appointment.status === 'cancelled' || (intent.audience !== 'client' && appointment.status === 'no_show');
   }
   if (intent.eventType === 'manual_text') {
@@ -194,6 +200,35 @@ async function recipientStillCurrent(intent: CommunicationIntent): Promise<boole
   }
 }
 
+/** Rules can change after materialization; an old rule must not send once disabled or edited. */
+async function reminderRuleStillCurrent(
+  intent: CommunicationIntent,
+  settings: CommunicationSettings,
+  timeZone: string | null | undefined,
+): Promise<boolean> {
+  if (intent.eventType !== 'appointment_reminder') {
+    return true;
+  }
+  const rule = settings.reminders.rules.find(candidate => candidate.id === intent.ruleId);
+  if (!rule?.enabled || !channelModeIncludes(rule.channels, 'sms') || !intent.appointmentId) {
+    return false;
+  }
+  const rows = await db.execute(sql`
+    SELECT start_time, updated_at FROM appointment
+    WHERE id = ${intent.appointmentId} AND salon_id = ${intent.salonId} AND deleted_at IS NULL LIMIT 1
+  `);
+  const appointment = rows.rows[0] as { start_time: Date | string; updated_at: Date | string } | undefined;
+  return !!appointment && intent.schedulingRevision === computeSchedulingRevision({
+    timeZone,
+    quietHours: settings.quietHours,
+    rule,
+    appointmentStart: new Date(appointment.start_time),
+    appointmentUpdatedAt: new Date(appointment.updated_at),
+    smsEnabled: settings.sms.enabled,
+    emailEnabled: settings.email.enabled,
+  });
+}
+
 async function deferIntent(intentId: string, reason: string, now: Date, availableAt = new Date(now.getTime() + 5 * 60 * 1000)): Promise<void> {
   await db
     .update(communicationIntentSchema)
@@ -234,12 +269,12 @@ export async function dispatchClaimedIntent(
     return 'failed';
   }
   const salonRows = await db
-    .select({ name: salonSchema.name, slug: salonSchema.slug, isActive: salonSchema.isActive, settings: salonSchema.settings, smsRemindersEnabled: salonSchema.smsRemindersEnabled })
+    .select({ name: salonSchema.name, slug: salonSchema.slug, isActive: salonSchema.isActive, deletedAt: salonSchema.deletedAt, settings: salonSchema.settings, smsRemindersEnabled: salonSchema.smsRemindersEnabled })
     .from(salonSchema)
     .where(eq(salonSchema.id, intent.salonId))
     .limit(1);
   const salon = salonRows[0];
-  if (salon === undefined || salon.isActive === false) {
+  if (salon === undefined || salon.isActive === false || salon.deletedAt !== null) {
     await transitionIntent(intent.id, { to: 'suppressed', lastError: 'SALON_INACTIVE' }, now);
     return 'suppressed';
   }
@@ -262,7 +297,7 @@ export async function dispatchClaimedIntent(
     legacySmsEnabled: salon.smsRemindersEnabled,
   });
   if (!resolveEventChannels(settings, intent.eventType).includes('sms')) {
-    await transitionIntent(intent.id, { to: 'suppressed', lastError: 'SALON_SMS_DISABLED' }, now);
+    await transitionIntent(intent.id, { to: 'suppressed', lastError: settings.killSwitch ? 'COMMUNICATIONS_PAUSED' : 'SMS_DISABLED' }, now);
     return 'suppressed';
   }
   const quiet = applyQuietHours({
@@ -312,8 +347,12 @@ export async function dispatchClaimedIntent(
     await transitionIntent(intent.id, { to: 'suppressed', lastError: 'APPOINTMENT_NO_LONGER_ACTIVE' }, now);
     return 'suppressed';
   }
+  if (!(await reminderRuleStillCurrent(intent, settings, salon.settings?.booking?.timezone))) {
+    await transitionIntent(intent.id, { to: 'suppressed', lastError: 'REMINDER_RULE_CHANGED' }, now);
+    return 'suppressed';
+  }
   if (!(await recipientStillCurrent(intent))) {
-    await transitionIntent(intent.id, { to: 'suppressed', lastError: 'CLIENT_CONTACT_CHANGED' }, now);
+    await transitionIntent(intent.id, { to: 'suppressed', lastError: 'RECIPIENT_CHANGED' }, now);
     return 'suppressed';
   }
   let variables = intent.variables;
@@ -440,7 +479,7 @@ export async function dispatchClaimedIntent(
   const finalControl = await readCommunicationControlUncached();
   const finalSuppressed = readiness.mode === 'shared_luster' && await hasGlobalSuppression(readiness.senderIdentity, destination.e164);
   const finalConsent = await hasSalonTransactionalConsent(intent.salonId, intent.recipient, intent.audience === 'client');
-  const [freshSalon] = await db.select({ isActive: salonSchema.isActive, settings: salonSchema.settings, smsRemindersEnabled: salonSchema.smsRemindersEnabled })
+  const [freshSalon] = await db.select({ isActive: salonSchema.isActive, deletedAt: salonSchema.deletedAt, settings: salonSchema.settings, smsRemindersEnabled: salonSchema.smsRemindersEnabled })
     .from(salonSchema).where(eq(salonSchema.id, intent.salonId)).limit(1);
   const finalSettings = resolveSalonCommunicationSettings(freshSalon?.settings, { senderMode: mode, legacySmsEnabled: freshSalon?.smsRemindersEnabled });
   const finalChannels = resolveEventChannels(finalSettings, intent.eventType);
@@ -449,31 +488,43 @@ export async function dispatchClaimedIntent(
     .where(eq(salonTwilioConnectionSchema.salonId, intent.salonId)).limit(1);
   const currentMode = resolveSmsSenderMode({ connection: freshConnection ?? null, perSalonDisabled: finalSettings.killSwitch });
   const senderChanged = currentMode !== mode || (readiness.mode === 'connected_byo' && (
-    freshConnection?.connectAccountSid !== readiness.connectAccountSid
+    freshConnection?.status !== 'active'
+    || freshConnection.connectAccountSid !== readiness.connectAccountSid
     || freshConnection.messagingServiceSid !== readiness.messagingServiceSid
     || freshConnection.phoneNumber !== readiness.phoneNumber
   ));
   const finalNow = new Date(now.getTime() + Math.max(0, Date.now() - dispatchStartedAt));
   const finalQuiet = applyQuietHours({ instant: finalNow, quietHours: finalSettings.quietHours, timeZone: freshSalon?.settings?.booking?.timezone, notAfter: intent.notAfter, bypass: ['booking_confirmation', 'booking_request_received'].includes(intent.eventType) });
-  if (
-    (mode === 'shared_luster' && (finalControl === null || !finalControl.smsEnabled || (finalControl.disabledEventTypes ?? []).includes(intent.eventType)))
-    || !freshSalon || freshSalon.isActive === false
-    || senderChanged
-    || !finalChannels.includes('sms')
-    || !recipientCurrent
-    || finalSuppressed
-    || !finalConsent
-    || finalQuiet.kind === 'stale'
-    || intent.notAfter.getTime() <= finalNow.getTime()
-  ) {
+  const currentRule = await reminderRuleStillCurrent(intent, finalSettings, freshSalon?.settings?.booking?.timezone);
+  const finalFailure = !freshSalon || freshSalon.isActive === false || freshSalon.deletedAt !== null
+    ? 'SALON_INACTIVE'
+    : finalSuppressed
+      ? 'GLOBAL_OPT_OUT'
+      : !finalConsent
+          ? 'CONSENT_REQUIRED'
+          : !recipientCurrent
+              ? 'RECIPIENT_CHANGED'
+              : finalSettings.killSwitch
+                ? 'COMMUNICATIONS_PAUSED'
+                : !finalChannels.includes('sms')
+                    ? 'SMS_DISABLED'
+                    : senderChanged
+                      ? 'SENDER_NOT_READY'
+                      : !currentRule
+                          ? 'REMINDER_RULE_CHANGED'
+                          : mode === 'shared_luster' && (finalControl === null || !finalControl.smsEnabled || (finalControl.disabledEventTypes ?? []).includes(intent.eventType))
+                            ? 'GLOBAL_SMS_DISABLED'
+                            : intent.notAfter.getTime() <= finalNow.getTime()
+                              ? 'NOT_AFTER_ELAPSED'
+                              : finalQuiet.kind === 'stale' ? finalQuiet.reason : null;
+  if (finalFailure) {
     if (reservation.reservationId) {
-      await releaseReservation({ reservationId: reservation.reservationId, reason: 'FINAL_CHECK_STOPPED', now });
+      await releaseReservation({ reservationId: reservation.reservationId, reason: finalFailure, now: finalNow });
     }
-    await db
-      .update(notificationDeliverySchema)
-      .set({ status: 'canceled', settlementState: 'not_applicable' })
-      .where(eq(notificationDeliverySchema.id, deliveryId));
-    await transitionIntent(intent.id, { to: 'suppressed', lastError: 'FINAL_CHECK_STOPPED' }, now);
+    await db.update(notificationDeliverySchema)
+      .set({ status: 'canceled', settlementState: 'not_applicable', errorCode: finalFailure })
+      .where(and(eq(notificationDeliverySchema.id, deliveryId), eq(notificationDeliverySchema.salonId, intent.salonId)));
+    await transitionIntent(intent.id, { to: 'suppressed', lastError: finalFailure }, finalNow);
     return 'suppressed';
   }
 

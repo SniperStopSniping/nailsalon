@@ -3,7 +3,7 @@ import 'server-only';
 import { and, eq, isNotNull, lte } from 'drizzle-orm';
 
 import { buildAppointmentAuditRow } from '@/libs/appointmentAudit';
-import { enqueueCommunicationIntent } from '@/libs/communicationIntent';
+import { materializeAppointmentLifecycle } from '@/libs/communicationMaterialization';
 import type { db } from '@/libs/DB';
 import { appointmentAuditLogSchema, appointmentSchema } from '@/models/Schema';
 
@@ -68,7 +68,7 @@ import { appointmentAuditLogSchema, appointmentSchema } from '@/models/Schema';
 type ExpireApprovalRequestTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
 export type ExpireApprovalRequestOutcome =
-  | { outcome: 'transitioned'; notificationIntentId: string }
+  | { outcome: 'transitioned'; notificationIntentId: string | null }
   | { outcome: 'already_expired' }
   | { outcome: 'not_expirable' };
 
@@ -77,13 +77,6 @@ export type ExpireApprovalRequestArgs = {
   /** The caller's own transaction-stable instant — never re-read mid-transaction. */
   transactionNow: Date;
 };
-
-/** No SMS template is registered yet for this dark event type (PR7 owns the customer-facing copy) — see `communicationMaterialization.ts`'s `TEMPLATED_SMS_EVENTS` doc comment for the same convention. This module enqueues directly rather than through that helper because the dedupe key here is deliberately fixed to the request's own identity, not a mutation-revision-keyed lifecycle dedupe key. */
-const NOTIFICATION_TEMPLATE_KEY = 'client_booking_request_expired_shortlink';
-const NOTIFICATION_TEMPLATE_VERSION = 'v1';
-
-/** Mirrors `resolveNotAfter`'s (`communicationScheduling.ts`) fallback window for a non-start-anchored lifecycle event: the appointment is already cancelled, so there is no `appointmentStart` to expire the window against. */
-const NOTIFICATION_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 export async function expireApprovalRequest(
   tx: ExpireApprovalRequestTransaction,
@@ -153,27 +146,14 @@ export async function expireApprovalRequest(
     reason: 'request_expired',
   }));
 
-  const { intentId } = await enqueueCommunicationIntent({
-    database: tx,
-    salonId: locked.salonId,
-    appointmentId,
-    channel: 'sms',
+  const intents = await materializeAppointmentLifecycle({
+    tx,
+    appointment: transitioned,
     eventType: 'booking_request_expired',
-    audience: 'client',
-    dedupeKey: `appointment-approval-expired:${appointmentId}:${requestExpiresAt.toISOString()}`,
-    recipient: locked.clientPhone,
-    destinationCountry: 'CA',
-    templateKey: NOTIFICATION_TEMPLATE_KEY,
-    templateVersion: NOTIFICATION_TEMPLATE_VERSION,
-    variables: {
-      appointmentId,
-      requestExpiresAt: requestExpiresAt.toISOString(),
-    },
-    startRevision: locked.startTime.toISOString(),
-    schedulingRevision: `request-expired:${requestExpiresAt.toISOString()}`,
-    scheduledFor: transactionNow,
-    notAfter: new Date(transactionNow.getTime() + NOTIFICATION_WINDOW_MS),
+    transitionEventId: requestExpiresAt.toISOString(),
+    supersede: true,
+    now: transactionNow,
   });
 
-  return { outcome: 'transitioned', notificationIntentId: intentId };
+  return { outcome: 'transitioned', notificationIntentId: intents[0]?.intentId ?? null };
 }
