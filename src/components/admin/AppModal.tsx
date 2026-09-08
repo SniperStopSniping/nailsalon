@@ -209,19 +209,27 @@ export function ModalHeader({
         ${transparent ? 'bg-transparent' : 'border-b border-[var(--owner-line)] bg-[var(--owner-surface)] backdrop-blur-xl'}
       `}
     >
-      <div className="flex h-[52px] items-center justify-between px-4">
-        <div className="flex w-20 justify-start">{leftAction}</div>
-        <div className="flex flex-1 flex-col items-center">
-          <span className="owner-title text-[19px] font-semibold leading-none text-[var(--owner-ink)]">
+      {/*
+        The title column needs `min-w-0` and the side columns need `shrink-0`.
+        Without them a long title — "Gel Manicure + Gel Pedicure" is a real
+        one — grew past its track and wrapped, which both overflowed this
+        fixed 52px row and printed the second line straight through the Back
+        control beside it. A nav-bar title truncates instead; the full name is
+        always the heading of the screen underneath.
+      */}
+      <div className="flex h-[52px] items-center justify-between gap-2 px-4">
+        <div className="flex w-20 shrink-0 justify-start">{leftAction}</div>
+        <div className="flex min-w-0 flex-1 flex-col items-center">
+          <span className="owner-title w-full truncate text-center text-[19px] font-semibold leading-none text-[var(--owner-ink)]">
             {title}
           </span>
           {subtitle && (
-            <span className="mt-0.5 text-[11px] font-medium text-[var(--owner-muted)]">
+            <span className="mt-0.5 w-full truncate text-center text-[11px] font-medium text-[var(--owner-muted)]">
               {subtitle}
             </span>
           )}
         </div>
-        <div className="flex w-20 justify-end">{rightAction}</div>
+        <div className="flex w-20 shrink-0 justify-end">{rightAction}</div>
       </div>
     </div>
   );
