@@ -2,7 +2,7 @@
 
 This pass repairs communications only. It does not enable production SMS, change credentials, provision numbers, run production migrations, or authorize customer sends. The current code and deployment configuration govern behavior; older Gate A/B descriptions of a future dispatcher or native-only manual texting are obsolete.
 
-Operational follow-up: the existing Canadian sender and approved opt-out routing are configured. The repair is under review in [PR #170](https://github.com/SniperStopSniping/nailsalon/pull/170); production still runs `71f70ca`. The authorized Preview needs verification after a branch-scoped Clerk development-key repair, and required CI is in progress. See `RESUME.md` checkpoints 5–9 and the [pilot checklist](TWILIO_PILOT_CHECKLIST.md) for current setup evidence and remaining gates. No live SMS pilot or production release has been authorized or performed.
+Operational follow-up: the existing Canadian sender and approved opt-out routing are configured. The repair is under review in [PR #170](https://github.com/SniperStopSniping/nailsalon/pull/170); production still runs `71f70ca`. All GitHub CI passed at `1e631bb`. The authorized Preview passed its corrected Clerk guard but is blocked by mismatched Stripe test keys. See `RESUME.md` checkpoints 5–10 and the [pilot checklist](TWILIO_PILOT_CHECKLIST.md) for authenticated salon findings and remaining gates. No live SMS pilot or production release has been authorized or performed.
 
 ## Architecture and audit findings
 
@@ -45,6 +45,10 @@ Use the account that owns the shared Luster sender. Do not put credentials in a 
 5. Confirm the account can send to the intended Canadian destination. Trial restrictions and provider sender registration/verification must be satisfied in Twilio before a real delivery pilot.
 
 Twilio references: [Messaging Services](https://www.twilio.com/docs/messaging/services), [incoming webhook fields](https://www.twilio.com/docs/messaging/guides/webhook-request), [status callbacks](https://www.twilio.com/docs/usage/webhooks/messaging-webhooks), [Advanced Opt-Out webhook behavior](https://help.twilio.com/articles/31560110671259).
+
+Canada guidance checked September 8, 2026: domestic long codes and two-way SMS are supported. Canadian carriers can filter application-generated texts; Twilio recommends verified toll-free numbers or short codes for optimal delivery, but a configured local sender is not itself a carrier-delivery guarantee. Use the existing Canadian number for the separately approved, bounded pilot before considering any purchase. Follow daytime sending and HELP/STOP guidance. [Twilio Canada SMS guidelines](https://www.twilio.com/en-us/guidelines/ca/sms).
+
+Keep consent evidence for the intended appointment-text use and identify the sender clearly. Appointment details or a phone number alone are not proof of permission for unrelated promotional messaging. Honor opt-outs before any further send. [Twilio Messaging Policy](https://www.twilio.com/en-us/legal/messaging-policy).
 
 Before reusing an existing number, inspect its current messaging and voice routing. Attaching a number to a service can change inbound routing and opt-out scope, including when outbound application sending is disabled. Prepare an empty service first; obtain approval for any cutover that affects an existing workflow. Preserve the prior configuration for rollback and leave voice routing unchanged unless explicitly authorized.
 
