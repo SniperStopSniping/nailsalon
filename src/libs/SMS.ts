@@ -7,12 +7,12 @@
  * - Appointment reminders
  * - Cancellation confirmations
  *
- * Falls back to console logging in dev mode if Twilio is not configured.
+ * Appointment operations enqueue durable communication intents. Legacy ancillary
+ * sends fail closed unless the salon has its own active Twilio connection.
  * All SMS functions check the salon's smsRemindersEnabled toggle before sending.
  */
 
 import { and, desc, eq, gte, inArray } from 'drizzle-orm';
-import twilio from 'twilio';
 
 import { bookingEmailTaxLineLabel } from '@/libs/bookingEmailFinancialPresentation';
 import type { BookingEmailFinancialSummary } from '@/libs/bookingEmailFinancialSummary.server';
@@ -23,9 +23,8 @@ import { buildSalonPublicUrl } from '@/libs/publicUrl';
 import { formatRewardDollars, REFERRAL_REFEREE_AMOUNT_CENTS } from '@/libs/rewardRules';
 import { isSmsEnabled } from '@/libs/salonStatus';
 import { formatDateInTimeZone, formatTimeInTimeZone } from '@/libs/timeZone';
-import { communicationConsentSchema, notificationDeliverySchema, salonSchema, salonTwilioConnectionSchema } from '@/models/Schema';
-
-const TWILIO_REQUEST_TIMEOUT_MS = 30_000;
+import { buildStatusCallbackUrl, sendViaTwilio } from '@/libs/twilioMessagingSend';
+import { appointmentSchema, communicationConsentSchema, notificationDeliverySchema, salonTwilioConnectionSchema } from '@/models/Schema';
 
 // =============================================================================
 // TYPES
@@ -63,6 +62,8 @@ export type TechNotificationParams = {
 };
 
 export type InternalBookingNotificationSmsParams = {
+  appointmentId?: string;
+  recipientAudience?: 'owner' | 'technician';
   phone: string;
   salonName: string;
   clientName: string;
@@ -76,6 +77,8 @@ export type InternalBookingNotificationSmsParams = {
 };
 
 export type InternalCancellationNotificationSmsParams = {
+  appointmentId?: string;
+  recipientAudience?: 'owner' | 'technician';
   phone: string;
   salonName: string;
   clientName: string;
@@ -212,46 +215,14 @@ export function buildBookingFinancialSmsLines(
 // TWILIO CLIENT
 // =============================================================================
 
-function getLegacyTwilioClient() {
-  if (!Env.TWILIO_ACCOUNT_SID || !Env.TWILIO_AUTH_TOKEN || !Env.TWILIO_PHONE_NUMBER) {
+/** Legacy non-appointment facades may only use the salon's own sender. */
+async function getSalonTwilioSender(salonId: string) {
+  const [connection] = await db.select().from(salonTwilioConnectionSchema)
+    .where(and(eq(salonTwilioConnectionSchema.salonId, salonId), eq(salonTwilioConnectionSchema.status, 'active'))).limit(1);
+  if (!connection || !Env.TWILIO_AUTH_TOKEN || (!connection.messagingServiceSid && !connection.phoneNumber)) {
     return null;
   }
-  return twilio(Env.TWILIO_ACCOUNT_SID, Env.TWILIO_AUTH_TOKEN, {
-    timeout: TWILIO_REQUEST_TIMEOUT_MS,
-  });
-}
-
-/**
- * Send an SMS message via Twilio
- * Falls back to console logging if Twilio is not configured
- */
-async function getSalonTwilioSender(
-  salonId: string,
-  options: { allowLegacy?: boolean } = {},
-) {
-  const [connection] = await db
-    .select()
-    .from(salonTwilioConnectionSchema)
-    .where(and(eq(salonTwilioConnectionSchema.salonId, salonId), eq(salonTwilioConnectionSchema.status, 'active')))
-    .limit(1);
-  if (connection && Env.TWILIO_AUTH_TOKEN && (connection.messagingServiceSid || connection.phoneNumber)) {
-    return {
-      client: twilio(connection.connectAccountSid, Env.TWILIO_AUTH_TOKEN, {
-        timeout: TWILIO_REQUEST_TIMEOUT_MS,
-      }),
-      messagingServiceSid: connection.messagingServiceSid,
-      phoneNumber: connection.phoneNumber,
-    };
-  }
-  if (options.allowLegacy === false) {
-    return null;
-  }
-  const [salon] = await db.select({ freeSoloEnabled: salonSchema.freeSoloEnabled }).from(salonSchema).where(eq(salonSchema.id, salonId)).limit(1);
-  if (salon?.freeSoloEnabled) {
-    return null;
-  }
-  const legacyClient = getLegacyTwilioClient();
-  return legacyClient ? { client: legacyClient, messagingServiceSid: null, phoneNumber: Env.TWILIO_PHONE_NUMBER ?? null } : null;
+  return { accountSid: connection.connectAccountSid, messagingServiceSid: connection.messagingServiceSid, phoneNumber: connection.phoneNumber };
 }
 
 const RAPID_MANUAL_REMINDER_WINDOW_MS = 2 * 60 * 1000;
@@ -299,7 +270,7 @@ export async function sendSmartAppointmentReminder(
     };
   }
 
-  const sender = await getSalonTwilioSender(salonId, { allowLegacy: false });
+  const sender = await getSalonTwilioSender(salonId);
   if (!sender) {
     return {
       outcome: 'manual',
@@ -405,22 +376,20 @@ export async function sendSmartAppointmentReminder(
 
   try {
     const normalizedTo = `+1${normalizedPhone}`;
-    const statusCallback = Env.NEXT_PUBLIC_APP_URL
-      ? `${Env.NEXT_PUBLIC_APP_URL.replace(/\/$/, '')}/api/integrations/twilio/status?deliveryId=${encodeURIComponent(deliveryId)}`
-      : null;
-    const message = await sender.client.messages.create({
+    const statusCallback = buildStatusCallbackUrl(deliveryId);
+    const message = await sendViaTwilio({
       body,
-      ...(sender.messagingServiceSid
-        ? { messagingServiceSid: sender.messagingServiceSid }
-        : { from: sender.phoneNumber! }),
-      ...(statusCallback ? { statusCallback } : {}),
+      accountSid: sender.accountSid,
+      messagingServiceSid: sender.messagingServiceSid,
+      from: sender.phoneNumber,
+      statusCallbackUrl: statusCallback,
       to: normalizedTo,
     });
     const sentAt = new Date();
     await db
       .update(notificationDeliverySchema)
       .set({
-        status: message.status || 'accepted',
+        status: 'accepted',
         providerMessageId: message.sid,
       })
       .where(and(
@@ -436,17 +405,16 @@ export async function sendSmartAppointmentReminder(
       sentAt: sentAt.toISOString(),
     };
   } catch (error) {
-    console.error('Failed to send staff-triggered appointment reminder SMS:', error);
     const providerError = error as { code?: number | string; status?: number };
     const errorCode = providerError.code ? String(providerError.code) : null;
-    const retryable = (providerError.status ?? 0) >= 500
-      || ['30001', '30008'].includes(errorCode || '');
+    const unknown = error instanceof Error && error.name === 'ProviderOutcomeUnknownError';
+    const retryable = !unknown;
     await db
       .update(notificationDeliverySchema)
       .set({
-        status: 'failed',
-        errorCode,
-        errorMessage: error instanceof Error ? error.message : String(error),
+        status: unknown ? 'send_outcome_unknown' : 'failed',
+        errorCode: unknown ? 'PROVIDER_OUTCOME_UNKNOWN' : errorCode,
+        errorMessage: unknown ? 'Provider acceptance is unconfirmed; do not resend.' : 'Provider rejected this send.',
         retryable,
       })
       .where(and(
@@ -459,7 +427,7 @@ export async function sendSmartAppointmentReminder(
       outcome: 'provider_failure',
       phone: normalizedPhone,
       body,
-      errorCode,
+      errorCode: unknown ? 'PROVIDER_OUTCOME_UNKNOWN' : errorCode,
     };
   }
 }
@@ -536,41 +504,39 @@ async function sendSMS(
     purpose: context.purpose || 'transactional',
     dedupeKey: `sms:${deliveryId}`,
     status: 'queued',
-  }).catch(() => undefined);
+  });
   await stopQueuedSmsBeforeDispatch(salonId, deliveryId, context.signal);
   const sender = await getSalonTwilioSender(salonId);
   await stopQueuedSmsBeforeDispatch(salonId, deliveryId, context.signal);
 
   if (!sender) {
-    console.warn('[SMS DEV MODE] Would send to:', to);
-    console.warn('[SMS DEV MODE] Message:', body);
-    console.warn('---');
     await db.update(notificationDeliverySchema).set({ status: 'failed', errorCode: 'SENDER_UNAVAILABLE', errorMessage: 'No active salon Twilio sender', retryable: true }).where(and(eq(notificationDeliverySchema.id, deliveryId), eq(notificationDeliverySchema.salonId, salonId))).catch(() => undefined);
     return false;
   }
 
   try {
-    const normalizedTo = to.startsWith('+') ? to : `+1${to.replace(/\D/g, '')}`;
-    const statusCallback = Env.NEXT_PUBLIC_APP_URL
-      ? `${Env.NEXT_PUBLIC_APP_URL.replace(/\/$/, '')}/api/integrations/twilio/status?deliveryId=${encodeURIComponent(deliveryId)}`
-      : null;
-    const message = await sender.client.messages.create({
+    const normalizedPhone = normalizeSmsRecipient(to);
+    if (!normalizedPhone) {
+      throw new Error('INVALID_PHONE');
+    }
+    const normalizedTo = `+1${normalizedPhone}`;
+    const statusCallback = buildStatusCallbackUrl(deliveryId);
+    const message = await sendViaTwilio({
       body,
-      ...(sender.messagingServiceSid
-        ? { messagingServiceSid: sender.messagingServiceSid }
-        : { from: sender.phoneNumber! }),
-      ...(statusCallback ? { statusCallback } : {}),
+      accountSid: sender.accountSid,
+      messagingServiceSid: sender.messagingServiceSid,
+      from: sender.phoneNumber,
+      statusCallbackUrl: statusCallback,
       to: normalizedTo,
     });
-    console.warn('SMS sent successfully:', message.sid);
-    await db.update(notificationDeliverySchema).set({ status: message.status || 'accepted', providerMessageId: message.sid }).where(and(eq(notificationDeliverySchema.id, deliveryId), eq(notificationDeliverySchema.salonId, salonId))).catch(() => undefined);
+    await db.update(notificationDeliverySchema).set({ status: 'accepted', providerMessageId: message.sid }).where(and(eq(notificationDeliverySchema.id, deliveryId), eq(notificationDeliverySchema.salonId, salonId))).catch(() => undefined);
     return true;
   } catch (error) {
-    console.error('Failed to send SMS:', error);
     const providerError = error as { code?: number | string; status?: number };
     const errorCode = providerError.code ? String(providerError.code) : null;
-    const retryable = (providerError.status ?? 0) >= 500 || ['30001', '30008'].includes(errorCode || '');
-    await db.update(notificationDeliverySchema).set({ status: 'failed', errorCode, errorMessage: error instanceof Error ? error.message : String(error), retryable }).where(and(eq(notificationDeliverySchema.id, deliveryId), eq(notificationDeliverySchema.salonId, salonId))).catch(() => undefined);
+    const unknown = error instanceof Error && error.name === 'ProviderOutcomeUnknownError';
+    const retryable = !unknown;
+    await db.update(notificationDeliverySchema).set({ status: unknown ? 'send_outcome_unknown' : 'failed', errorCode: unknown ? 'PROVIDER_OUTCOME_UNKNOWN' : errorCode, errorMessage: unknown ? 'Provider acceptance is unconfirmed; do not resend.' : 'Provider rejected this send.', retryable }).where(and(eq(notificationDeliverySchema.id, deliveryId), eq(notificationDeliverySchema.salonId, salonId))).catch(() => undefined);
     // Don't throw - we don't want SMS failures to break bookings
     return false;
   }
@@ -667,6 +633,8 @@ export async function sendBookingNotificationToTech(
   }
 
   await sendInternalBookingNotificationSms(salonId, {
+    appointmentId: params.appointmentId,
+    recipientAudience: 'technician',
     phone: technicianPhone,
     salonName: '',
     clientName,
@@ -680,100 +648,72 @@ export async function sendBookingNotificationToTech(
   });
 }
 
+/** Internal alerts use the same queue, history, credits and sender as client messages. */
+async function enqueueInternalSms(
+  salonId: string,
+  params: InternalBookingNotificationSmsParams | InternalCancellationNotificationSmsParams,
+  cancelled: boolean,
+): Promise<boolean> {
+  if (!params.appointmentId || !normalizeSmsRecipient(params.phone)) {
+    return false;
+  }
+  const { enqueueCommunicationIntent } = await import('@/libs/communicationIntent');
+  const { formatIntentStartTime, resolveSalonCommunicationContext } = await import('@/libs/communicationMaterialization');
+  const { resolveEventChannels } = await import('@/libs/communicationSettings');
+  const context = await resolveSalonCommunicationContext(db, salonId);
+  const audience = params.recipientAudience ?? 'owner';
+  const eventType = audience === 'technician'
+    ? cancelled ? 'tech_appointment_cancelled' : 'tech_new_booking'
+    : cancelled ? 'owner_appointment_cancelled' : 'owner_new_booking';
+  if (!context.smsEligible || !resolveEventChannels(context.settings, eventType).includes('sms')) {
+    return false;
+  }
+  const [appointment] = await db.select({ updatedAt: appointmentSchema.updatedAt, status: appointmentSchema.status, confirmationModeSnapshot: appointmentSchema.confirmationModeSnapshot })
+    .from(appointmentSchema).where(and(eq(appointmentSchema.id, params.appointmentId), eq(appointmentSchema.salonId, salonId))).limit(1);
+  if (!appointment) {
+    return false;
+  }
+  const now = new Date();
+  await enqueueCommunicationIntent({
+    salonId,
+    appointmentId: params.appointmentId,
+    channel: 'sms',
+    eventType,
+    audience,
+    dedupeKey: `internal:${salonId}:${params.appointmentId}:${eventType}:${normalizeSmsRecipient(params.phone)}:${cancelled ? appointment.updatedAt.toISOString() : 'created'}`,
+    recipient: params.phone,
+    destinationCountry: 'CA',
+    templateKey: cancelled ? 'owner_appointment_cancelled' : 'owner_new_booking',
+    templateVersion: 'v1',
+    variables: {
+      clientName: params.clientName,
+      serviceName: params.services.join(', '),
+      startTime: formatIntentStartTime(new Date(params.startTime), context.timeZone),
+      statusLabel: cancelled
+        ? 'cancelReason' in params && params.cancelReason === 'no_show' ? 'No-show' : 'Cancelled'
+        : appointment.status === 'pending' ? 'New booking request' : 'New booking',
+    },
+    schedulingRevision: appointment.updatedAt.toISOString(),
+    scheduledFor: now,
+    notAfter: new Date(now.getTime() + 24 * 60 * 60 * 1000),
+  });
+  return true;
+}
+
 export async function sendInternalBookingNotificationSms(
   salonId: string,
   params: InternalBookingNotificationSmsParams,
   options: SmsSendOptions = {},
 ): Promise<boolean> {
   throwIfSmsAborted(options.signal);
-  if (!await isSmsEnabled(salonId)) {
-    console.warn('[SMS DISABLED] SMS reminders not enabled for salon:', salonId);
-    return false;
-  }
-  throwIfSmsAborted(options.signal);
-
-  const {
-    phone,
-    salonName,
-    clientName,
-    clientPhone,
-    services,
-    startTime,
-    totalDurationMinutes,
-    financialSummary,
-    technicianName,
-    timeZone,
-  } = params;
-
-  const appointmentRange = formatAppointmentRange(startTime, totalDurationMinutes, timeZone);
-  const serviceLabel = services.join(', ');
-
-  const messageLines = [
-    `New booking${salonName ? ` at ${salonName}` : ''}`,
-    '',
-    technicianName ? `${serviceLabel} with ${technicianName}` : serviceLabel,
-    appointmentRange,
-    '',
-    `Client: ${clientName}`,
-    `Phone: ${clientPhone}`,
-    `Duration: ${totalDurationMinutes} min`,
-    ...buildBookingFinancialSmsLines(financialSummary),
-  ];
-
-  return sendSMS(salonId, phone, messageLines.join('\n'), {
-    signal: options.signal,
-  });
+  return enqueueInternalSms(salonId, params, false);
 }
 
 export async function sendInternalCancellationNotificationSms(
   salonId: string,
   params: InternalCancellationNotificationSmsParams,
 ): Promise<boolean> {
-  if (!await isSmsEnabled(salonId)) {
-    console.warn('[SMS DISABLED] SMS reminders not enabled for salon:', salonId);
-    return false;
-  }
-
-  const {
-    phone,
-    salonName,
-    clientName,
-    clientPhone,
-    services,
-    startTime,
-    cancelReason,
-    technicianName,
-    timeZone,
-  } = params;
-
-  const appointmentTime = formatAppointmentRange(startTime, 0, timeZone).replace(/-.+$/, '');
-
-  const statusLabel = cancelReason === 'no_show'
-    ? 'marked as no-show'
-    : 'cancelled';
-
-  const messageLines = [
-    `Appointment ${statusLabel}${salonName ? ` at ${salonName}` : ''}`,
-    '',
-    services.join(', '),
-    appointmentTime,
-    '',
-    `Client: ${clientName}`,
-  ];
-
-  if (clientPhone) {
-    messageLines.push(`Phone: ${clientPhone}`);
-  }
-
-  if (technicianName) {
-    messageLines.push(`Artist: ${technicianName}`);
-  }
-
-  if (cancelReason !== 'client_request') {
-    messageLines.push(`Reason: ${cancelReason.replaceAll('_', ' ')}`);
-  }
-
-  return sendSMS(salonId, phone, messageLines.join('\n'));
+  return enqueueInternalSms(salonId, params, true);
 }
 
 /**
@@ -1026,7 +966,7 @@ Client: ${clientName}
 Time: ${formattedDate} at ${formattedTime}
 Service: ${services.join(', ')}`;
 
-    console.warn('[TECH NOTIFICATION]', message);
+    void message;
   }
 }
 

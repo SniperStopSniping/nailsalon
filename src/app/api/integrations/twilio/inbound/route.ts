@@ -1,33 +1,10 @@
 /**
- * Twilio inbound webhook — Gate B3 shared/BYO split (contract §10).
- *
- * ONE inbound URL serves both sender modes. The discriminator runs BEFORE
- * any connection lookup: a message is SHARED traffic iff the platform
- * Messaging Service SID is configured AND the inbound carries exactly that
- * SID. Everything else falls through to the LIVE BYO branch, which is
- * byte-identical to the pre-Gate-B route (connection lookup by Connect
- * account SID or salon number, per-salon consent row with metadata).
- *
- * Shared branch rules:
- * - signature validation precedes every mutation (both branches);
- * - STOP/CANCEL/UNSUBSCRIBE/... appends a GLOBAL suppression event keyed on
- *   the logical sender identity — CANCEL is an opt-out keyword ONLY and
- *   never touches an appointment;
- * - START/UNSTOP appends a GLOBAL restore ONLY — the per-salon consent row
- *   must independently be granted (both gates always; §10.1);
- * - ordinary replies mutate nothing, consume no credits, and their BODIES
- *   ARE NEVER STORED (body-present indicator only);
- * - attribution is deterministic or absent: shared-sender intents to this
- *   recipient in the last 72h — exactly one salon attributes, zero is
- *   unattributed, several is ambiguous, never a guess;
- * - every shared inbound leaves an sms_inbound_event evidence row
- *   (provider-SID idempotent; 90-day retention sweep).
- *
- * Twilio Advanced Opt-Out sends the compliance auto-replies (approved copy
- * pinned as ADVANCED_OPT_OUT_COPY); this route always returns empty TwiML.
+ * Signed Twilio inbound handling. Shared STOP/START updates global sender
+ * suppression; connected-salon traffic updates only that salon's consent.
+ * Receiving identity is exact and every inbound is provider-SID idempotent.
+ * Ordinary replies retain metadata only; this product does not offer an inbox.
  */
 import { and, eq, gte, inArray, or } from 'drizzle-orm';
-import twilio from 'twilio';
 
 import { db } from '@/libs/DB';
 import { Env } from '@/libs/Env';
@@ -36,9 +13,11 @@ import {
   normalizeConsentRecipient,
 } from '@/libs/smsConsentShared';
 import { LUSTER_DEFAULT_SENDER_IDENTITY } from '@/libs/smsSender';
+import { validateTwilioWebhook } from '@/libs/twilioWebhook';
 import {
   communicationConsentSchema,
   communicationIntentSchema,
+  notificationDeliverySchema,
   salonTwilioConnectionSchema,
   smsInboundEventSchema,
 } from '@/models/Schema';
@@ -78,8 +57,12 @@ async function attributeSharedInbound(recipient: string, now: Date): Promise<{
   const rows = await db
     .selectDistinct({ salonId: communicationIntentSchema.salonId })
     .from(communicationIntentSchema)
+    .innerJoin(notificationDeliverySchema, eq(notificationDeliverySchema.intentId, communicationIntentSchema.id))
     .where(and(
+      eq(notificationDeliverySchema.salonId, communicationIntentSchema.salonId),
+      eq(notificationDeliverySchema.senderIdentity, Env.LUSTER_SMS_SENDER_IDENTITY || LUSTER_DEFAULT_SENDER_IDENTITY),
       eq(communicationIntentSchema.recipient, recipient),
+      eq(communicationIntentSchema.channel, 'sms'),
       inArray(communicationIntentSchema.status, ['sent', 'send_outcome_unknown']),
       gte(communicationIntentSchema.updatedAt, horizon),
     ))
@@ -152,8 +135,7 @@ async function handleSharedInbound(params: Record<string, string>): Promise<Resp
 export async function POST(request: Request) {
   const form = await request.formData();
   const params = Object.fromEntries(Array.from(form.entries()).map(([key, value]) => [key, String(value)]));
-  const signature = request.headers.get('x-twilio-signature') || '';
-  if (!Env.TWILIO_AUTH_TOKEN || !twilio.validateRequest(Env.TWILIO_AUTH_TOKEN, signature, request.url, params)) {
+  if (!await validateTwilioWebhook(request, params)) {
     return new Response('Forbidden', { status: 403 });
   }
 
@@ -163,23 +145,58 @@ export async function POST(request: Request) {
   const isSharedTraffic
     = Boolean(Env.TWILIO_MESSAGING_SERVICE_SID)
     && params.MessagingServiceSid === Env.TWILIO_MESSAGING_SERVICE_SID;
+  if (isSharedTraffic && (!Env.TWILIO_ACCOUNT_SID || params.AccountSid !== Env.TWILIO_ACCOUNT_SID)) {
+    return new Response('Forbidden', { status: 403 });
+  }
   if (isSharedTraffic) {
     return handleSharedInbound(params);
   }
 
-  // ---- LIVE BYO branch: byte-identical to the pre-Gate-B route. ----
-  const from = (params.From || '').replace(/\D/g, '').replace(/^1(?=\d{10}$)/, '');
+  // Resolve the exact connected account AND its receiving identity. An
+  // account/number disagreement must never select whichever salon sorts first.
+  const from = normalizeConsentRecipient(params.From || '');
   const to = params.To || '';
   const accountSid = params.AccountSid || '';
-  const body = (params.Body || '').trim().toUpperCase();
+  const providerSid = params.MessageSid || params.SmsSid || '';
+  if (from.length !== 10 || !to || !accountSid || !providerSid) {
+    return new Response('Invalid inbound message', { status: 400 });
+  }
+  const connections = await db.select().from(salonTwilioConnectionSchema).where(and(
+    eq(salonTwilioConnectionSchema.connectAccountSid, accountSid),
+    eq(salonTwilioConnectionSchema.status, 'active'),
+    or(
+      eq(salonTwilioConnectionSchema.phoneNumber, to),
+      ...(params.MessagingServiceSid ? [eq(salonTwilioConnectionSchema.messagingServiceSid, params.MessagingServiceSid)] : []),
+    ),
+  )).limit(2);
+  const connection = connections.length === 1 ? connections[0] : undefined;
+  if (!connection || (params.MessagingServiceSid && connection.messagingServiceSid && params.MessagingServiceSid !== connection.messagingServiceSid)) {
+    return new Response('Unknown receiving identity', { status: 403 });
+  }
+  const body = (params.Body || '').trim();
   const optOutType = (params.OptOutType || '').trim().toUpperCase();
-  const [connection] = await db.select({ salonId: salonTwilioConnectionSchema.salonId }).from(salonTwilioConnectionSchema).where(or(eq(salonTwilioConnectionSchema.connectAccountSid, accountSid), eq(salonTwilioConnectionSchema.phoneNumber, to))).limit(1);
-  const isStop = optOutType === 'STOP' || ['STOP', 'STOPALL', 'UNSUBSCRIBE', 'CANCEL', 'END', 'QUIT', 'REVOKE', 'OPTOUT'].includes(body);
-  const isStart = optOutType === 'START' || ['START', 'UNSTOP'].includes(body);
-  if (connection && (isStop || isStart)) {
-    const now = new Date();
-    await db.insert(communicationConsentSchema).values({
-      id: crypto.randomUUID(),
+  const keyword = classifyKeyword(body.toUpperCase(), optOutType);
+  const now = new Date();
+  await db.transaction(async (tx) => {
+    const inserted = await tx.insert(smsInboundEventSchema).values({
+      id: `sie_${crypto.randomUUID()}`,
+      attributedSalonId: connection.salonId,
+      senderIdentity: `byo:${connection.connectAccountSid}`,
+      fromRecipient: from,
+      toNumber: to,
+      keywordClassification: keyword,
+      attributionState: 'attributed',
+      bodyPresent: body.length > 0,
+      segmentCount: Number.parseInt(params.NumSegments || '', 10) || null,
+      providerSid,
+      receivedAt: now,
+    }).onConflictDoNothing().returning();
+    if (inserted.length === 0 || !['stop', 'cancel', 'start'].includes(keyword)) {
+      return;
+    }
+    const isStop = keyword !== 'start';
+    await tx.insert(communicationConsentSchema).values({
+      id: `twilio:${providerSid}`,
       salonId: connection.salonId,
       recipient: from,
       channel: 'sms',
@@ -187,10 +204,10 @@ export async function POST(request: Request) {
       status: isStop ? 'revoked' : 'granted',
       wordingVersion: isStop ? 'twilio-stop-v1' : 'twilio-start-v1',
       source: 'twilio_inbound',
-      grantedAt: isStart ? now : null,
+      grantedAt: isStop ? null : now,
       revokedAt: isStop ? now : null,
-      metadata: { keyword: body, optOutType: optOutType || null },
-    });
-  }
+      metadata: { keyword: body.toUpperCase(), optOutType: optOutType || null },
+    }).onConflictDoNothing();
+  });
   return new Response(EMPTY_TWIML, { headers: TWIML_HEADERS });
 }

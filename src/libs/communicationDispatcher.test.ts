@@ -71,6 +71,7 @@ async function seedSalonWithConsent(): Promise<{ salonId: string; recipient: str
   const recipient = `416555${String(1000 + salonSeq)}`;
   await db.insert(schema.salonSchema).values({
     id: salonId,
+    settings: { communications: { sms: { enabled: true }, quietHours: { enabled: false, start: '21:00', end: '09:00' } } } as schema.Salon['settings'],
     name: `Dispatch Salon ${salonSeq}`,
     slug: `dispatch-salon-${salonSeq}`,
   });
@@ -164,7 +165,7 @@ describe('dispatcher — dark by default, live only behind every switch', () => 
     await enableControl(true);
     await enqueueSmsIntent(salonId, recipient);
     const intent = await claimOne(salonId);
-    const providerSend = vi.fn(async (_input: { to: string; messagingServiceSid: string }) => ({ sid: 'SM_pipeline_1' }));
+    const providerSend = vi.fn(async (_input: { to: string; messagingServiceSid: string | null }) => ({ sid: 'SM_pipeline_1' }));
     const { dispatchClaimedIntent } = await import('./communicationDispatcher');
     const outcome = await dispatchClaimedIntent(intent, providerSend, NOW);
 
@@ -418,5 +419,182 @@ describe('intent lifecycle — leases, notAfter, supersession', () => {
     const canceled = await cancelAppointmentIntents({ salonId, appointmentId: `apt_${salonId}`, now: NOW });
 
     expect(canceled.canceled).toBe(1);
+  });
+});
+
+describe('canonical SMS safety and recovery', () => {
+  it('uses a connected salon sender without platform credits or shared activation', async () => {
+    const { salonId, recipient } = await seedSalonWithConsent();
+    await enableControl(false);
+    envHolder.COMMUNICATIONS_SMS_ENABLED = undefined;
+    await db.insert(schema.salonTwilioConnectionSchema).values({
+      salonId,
+      connectAccountSid: 'AC11111111111111111111111111111111',
+      phoneNumber: '+14165559999',
+      status: 'active',
+    });
+    await enqueueSmsIntent(salonId, recipient);
+    const provider = vi.fn(async () => ({ sid: 'SM_byo_canonical' }));
+    const { dispatchClaimedIntent } = await import('./communicationDispatcher');
+
+    expect(await dispatchClaimedIntent(await claimOne(salonId), provider, NOW)).toBe('sent');
+    expect(provider).toHaveBeenCalledWith(expect.objectContaining({ accountSid: 'AC11111111111111111111111111111111', from: '+14165559999', messagingServiceSid: null }));
+
+    const rows = await db.execute(sql`SELECT credit_reservation_id, settlement_state FROM notification_delivery WHERE salon_id = ${salonId}`);
+
+    expect(rows.rows[0]).toMatchObject({ credit_reservation_id: null, settlement_state: 'not_applicable' });
+  });
+
+  it('retains one delivery row when the owner retries a proven provider rejection', async () => {
+    const { salonId, recipient } = await seedSalonWithConsent();
+    await enableControl(true);
+    await grantCredits(salonId, 10);
+    await enqueueSmsIntent(salonId, recipient);
+    const intent = await claimOne(salonId);
+    const { dispatchClaimedIntent } = await import('./communicationDispatcher');
+
+    expect(await dispatchClaimedIntent(intent, vi.fn(async () => {
+      throw new Error('Rejected');
+    }), NOW)).toBe('failed');
+
+    const before = await db.execute(sql`SELECT id, retryable FROM notification_delivery WHERE intent_id = ${intent.id}`);
+
+    expect(before.rows[0]).toMatchObject({ retryable: true });
+
+    await db.execute(sql`UPDATE communication_intent SET status = 'pending', available_at = ${NOW} WHERE id = ${intent.id}`);
+    const retried = await claimOne(salonId);
+    const provider = vi.fn(async () => ({ sid: 'SM_retry_same_delivery' }));
+
+    expect(await dispatchClaimedIntent(retried, provider, NOW)).toBe('sent');
+
+    const after = await db.execute(sql`SELECT id, provider_message_id FROM notification_delivery WHERE intent_id = ${intent.id}`);
+
+    expect(after.rows).toHaveLength(1);
+    expect(after.rows[0]).toMatchObject({ id: before.rows[0]!.id, provider_message_id: 'SM_retry_same_delivery' });
+  });
+
+  it('never retries an ambiguous provider outcome or sends a duplicate invocation', async () => {
+    const { salonId, recipient } = await seedSalonWithConsent();
+    await enableControl(true);
+    await grantCredits(salonId, 10);
+    await enqueueSmsIntent(salonId, recipient);
+    const intent = await claimOne(salonId);
+    const { dispatchClaimedIntent, ProviderOutcomeUnknownError } = await import('./communicationDispatcher');
+    const provider = vi.fn(async () => {
+      throw new ProviderOutcomeUnknownError();
+    });
+
+    expect(await dispatchClaimedIntent(intent, provider, NOW)).toBe('unknown_outcome');
+    expect(await dispatchClaimedIntent(intent, provider, NOW)).toBe('failed');
+    expect(provider).toHaveBeenCalledTimes(1);
+  });
+
+  it('defers a manual text through current salon quiet hours without reserving credits', async () => {
+    const { salonId, recipient } = await seedSalonWithConsent();
+    await enableControl(true);
+    await db.execute(sql`UPDATE salon SET settings = ${JSON.stringify({ booking: { timezone: 'America/Toronto' }, communications: { sms: { enabled: true }, quietHours: { enabled: true, start: '21:00', end: '09:00' } } })}::jsonb WHERE id = ${salonId}`);
+    await enqueueSmsIntent(salonId, recipient, { eventType: 'manual_text', templateKey: 'client_manual_text', variables: { message: 'Hello' } });
+    const provider = vi.fn();
+    const { dispatchClaimedIntent } = await import('./communicationDispatcher');
+    const intent = await claimOne(salonId);
+
+    expect(await dispatchClaimedIntent(intent, provider, NOW)).toBe('deferred');
+    expect(provider).not.toHaveBeenCalled();
+
+    const rows = await db.execute(sql`SELECT available_at, last_error FROM communication_intent WHERE id = ${intent.id}`);
+
+    expect(rows.rows[0]).toMatchObject({ last_error: 'QUIET_HOURS' });
+    expect(new Date(String(rows.rows[0]!.available_at)).toISOString()).toBe('2026-08-17T13:00:00.000Z');
+  });
+
+  it('suppresses stale and cross-tenant client identities before sending', async () => {
+    const { salonId, recipient } = await seedSalonWithConsent();
+    const other = await seedSalonWithConsent();
+    await enableControl(true);
+    await grantCredits(salonId, 10);
+    await db.insert(schema.salonClientSchema).values({ id: `client_${other.salonId}`, salonId: other.salonId, phone: recipient });
+    await enqueueSmsIntent(salonId, recipient, { eventType: 'manual_text', templateKey: 'client_manual_text', variables: { clientId: `client_${other.salonId}`, message: 'Hello' } });
+    const provider = vi.fn();
+    const { dispatchClaimedIntent } = await import('./communicationDispatcher');
+
+    expect(await dispatchClaimedIntent(await claimOne(salonId), provider, NOW)).toBe('suppressed');
+    expect(provider).not.toHaveBeenCalled();
+  });
+
+  it('suppresses an old reminder after rescheduling, but sends a cancellation for a cancelled appointment', async () => {
+    const { salonId, recipient } = await seedSalonWithConsent();
+    await enableControl(true);
+    await grantCredits(salonId, 10);
+    const appointmentId = `safety_${salonId}`;
+    await db.insert(schema.appointmentSchema).values({
+      id: appointmentId,
+      salonId,
+      clientPhone: recipient,
+      startTime: new Date('2026-08-18T16:00:00Z'),
+      endTime: new Date('2026-08-18T17:00:00Z'),
+      status: 'confirmed',
+      totalPrice: 50,
+      totalDurationMinutes: 60,
+    });
+    await enqueueSmsIntent(salonId, recipient, { appointmentId, eventType: 'appointment_reminder', startRevision: '2026-08-18T15:00:00.000Z' });
+    const provider = vi.fn(async () => ({ sid: 'SM_cancel_notice' }));
+    const { dispatchClaimedIntent } = await import('./communicationDispatcher');
+
+    expect(await dispatchClaimedIntent(await claimOne(salonId), provider, NOW)).toBe('suppressed');
+    expect(provider).not.toHaveBeenCalled();
+
+    await db.execute(sql`UPDATE appointment SET status = 'cancelled' WHERE id = ${appointmentId}`);
+    await enqueueSmsIntent(salonId, recipient, { appointmentId, eventType: 'appointment_cancelled', templateKey: 'client_appointment_cancelled_shortlink' });
+
+    expect(await dispatchClaimedIntent(await claimOne(salonId), provider, NOW)).toBe('sent');
+    expect(provider).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('durable SMS preparation', () => {
+  it('adopts an old queued evidence row after a proven pre-send worker crash', async () => {
+    const { salonId, recipient } = await seedSalonWithConsent();
+    await enableControl(true);
+    await grantCredits(salonId, 10);
+    await enqueueSmsIntent(salonId, recipient);
+    const claimed = await claimOne(salonId);
+    const deliveryId = `nd_orphan_${salonId}`;
+    await db.insert(schema.notificationDeliverySchema).values({
+      id: deliveryId,
+      salonId,
+      intentId: claimed.id,
+      channel: 'sms',
+      purpose: 'test',
+      dedupeKey: `delivery:${claimed.dedupeKey}`,
+      status: 'queued',
+      settlementState: 'settling',
+    });
+    const provider = vi.fn(async () => ({ sid: 'SM_recovered_preparation' }));
+    const { dispatchClaimedIntent } = await import('./communicationDispatcher');
+
+    expect(await dispatchClaimedIntent(claimed, provider, NOW)).toBe('sent');
+    expect(provider).toHaveBeenCalledTimes(1);
+
+    const deliveries = await db.execute(sql`SELECT id, provider_message_id FROM notification_delivery WHERE intent_id = ${claimed.id}`);
+
+    expect(deliveries.rows).toEqual([{ id: deliveryId, provider_message_id: 'SM_recovered_preparation' }]);
+  });
+
+  it('does not release credits held by an ambiguous send on a duplicate invocation', async () => {
+    const { salonId, recipient } = await seedSalonWithConsent();
+    await enableControl(true);
+    await grantCredits(salonId, 10);
+    await enqueueSmsIntent(salonId, recipient);
+    const claimed = await claimOne(salonId);
+    const { dispatchClaimedIntent, ProviderOutcomeUnknownError } = await import('./communicationDispatcher');
+    const provider = vi.fn(async () => {
+      throw new ProviderOutcomeUnknownError();
+    });
+    await dispatchClaimedIntent(claimed, provider, NOW);
+    await dispatchClaimedIntent(claimed, provider, NOW);
+    const holds = await db.execute(sql`SELECT r.status FROM sms_credit_reservation r JOIN communication_intent i ON i.credit_reservation_id = r.id WHERE i.id = ${claimed.id}`);
+
+    expect(holds.rows[0]).toMatchObject({ status: 'held' });
+    expect(provider).toHaveBeenCalledTimes(1);
   });
 });

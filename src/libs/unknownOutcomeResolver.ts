@@ -53,6 +53,8 @@ export async function resolveUnknownOutcomes(now = new Date()): Promise<UnknownO
   const unknowns = await db
     .select({
       id: communicationIntentSchema.id,
+      salonId: communicationIntentSchema.salonId,
+      appointmentId: communicationIntentSchema.appointmentId,
       deliveryId: communicationIntentSchema.deliveryId,
       creditReservationId: communicationIntentSchema.creditReservationId,
       updatedAt: communicationIntentSchema.updatedAt,
@@ -67,7 +69,11 @@ export async function resolveUnknownOutcomes(now = new Date()): Promise<UnknownO
       const [delivery] = await db
         .select({ providerMessageId: notificationDeliverySchema.providerMessageId })
         .from(notificationDeliverySchema)
-        .where(eq(notificationDeliverySchema.id, intent.deliveryId))
+        .where(and(
+          eq(notificationDeliverySchema.id, intent.deliveryId),
+          eq(notificationDeliverySchema.salonId, intent.salonId),
+          eq(notificationDeliverySchema.intentId, intent.id),
+        ))
         .limit(1);
       const sid = delivery?.providerMessageId ?? null;
       if (sid !== null) {
@@ -75,11 +81,35 @@ export async function resolveUnknownOutcomes(now = new Date()): Promise<UnknownO
         // exact delivery. Settle the reservation (idempotent per-lot keys),
         // then resolve the intent.
         if (intent.creditReservationId !== null) {
-          const { settleReservationOnAccept } = await import('@/libs/billing/creditReservation');
+          const { settleReservationOnAccept, refundTerminalFailure } = await import('@/libs/billing/creditReservation');
           await settleReservationOnAccept({
             reservationId: intent.creditReservationId,
             providerSid: sid,
+            now,
           });
+          await db.update(notificationDeliverySchema).set({ settlementState: 'settled', settledAt: now })
+            .where(and(
+              eq(notificationDeliverySchema.id, intent.deliveryId),
+              eq(notificationDeliverySchema.salonId, intent.salonId),
+              eq(notificationDeliverySchema.creditReservationId, intent.creditReservationId),
+              eq(notificationDeliverySchema.settlementState, 'settling'),
+            ));
+          // A terminal callback can precede SID adoption. Finish the same
+          // idempotent refund before resolving the unknown intent, so a crash
+          // leaves the adoption eligible to resume rather than losing credits.
+          const [current] = await db.select().from(notificationDeliverySchema).where(and(
+            eq(notificationDeliverySchema.id, intent.deliveryId),
+            eq(notificationDeliverySchema.salonId, intent.salonId),
+          )).limit(1);
+          if (current && ['failed', 'undelivered', 'canceled'].includes(current.status)
+            && current.settlementState === 'settled') {
+            await refundTerminalFailure({ reservationId: intent.creditReservationId, now });
+            await db.update(notificationDeliverySchema).set({ settlementState: 'refunded' }).where(and(
+              eq(notificationDeliverySchema.id, intent.deliveryId),
+              eq(notificationDeliverySchema.salonId, intent.salonId),
+              eq(notificationDeliverySchema.settlementState, 'settled'),
+            ));
+          }
         }
         const moved = await transitionIntent(intent.id, { to: 'sent' }, now);
         if (moved.applied) {

@@ -49,3 +49,11 @@ Repair the existing Twilio/communications system only. No broad product audit, p
 - First full suite during active migration: 630 files passed, 12 failed, 17 skipped; failures exposed obsolete direct-send expectations, token churn, and component test timing. Repairs and full rerun required before handoff.
 - Disk filled during local browser verification. Stopped own browser/server, ran `npm run clean` in this task worktree, and replaced this task's fresh dependencies with a symlink to an existing installation only after verifying every dependency lock entry matched. Recovered 1.6 GiB without deleting user caches or changing the original checkout.
 - Disposable browser data is `/tmp/luster-sms-lab-20260908`; server stopped. No real provider calls. Full browser journey not yet verified.
+
+## Checkpoint 2 — provider, delivery, callbacks and recovery
+
+- One `messages.create` seam with bounded timeout, SDK retries disabled and explicit rejection versus uncertain outcome handling. No fallback onto a different texting identity.
+- Shared/BYO dispatcher checks current settings, quiet hours, tenant/client/appointment state and contacts before provider invocation. Delivery evidence and transition to sending are atomic; rejected retries reuse the delivery record and ambiguous outcomes retain their credit hold.
+- Signed inbound/status/deauthorization requests bind known account identity. Known connected-account signing tokens can be fetched with existing Connect authorization and held briefly server-side; no token is stored or logged. Missing access fails closed.
+- Callback replay resumes idempotent refunds after interruption. Unknown-outcome adoption settles evidence and refunds an already-undelivered message once.
+- Provider scope: 90 targeted tests passed; focused lint clean. Unknown-outcome resolver: 4 passed. No real Twilio API calls made during tests.

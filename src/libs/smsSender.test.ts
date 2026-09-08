@@ -37,11 +37,11 @@ describe('resolveSmsSenderMode — mode first, from salon state alone', () => {
       { connection: null, perSalonDisabled: true, expected: 'disabled' },
       { connection: activeByoConnection, perSalonDisabled: false, expected: 'connected_byo' },
       { connection: activeByoConnection, perSalonDisabled: true, expected: 'disabled' },
-      { connection: { ...activeByoConnection, status: 'pending' }, perSalonDisabled: false, expected: 'shared_luster' },
-      { connection: { ...activeByoConnection, status: 'deauthorized' }, perSalonDisabled: false, expected: 'shared_luster' },
+      { connection: { ...activeByoConnection, status: 'pending' }, perSalonDisabled: false, expected: 'connected_byo' },
+      { connection: { ...activeByoConnection, status: 'deauthorized' }, perSalonDisabled: false, expected: 'connected_byo' },
       { connection: { ...activeByoConnection, messagingServiceSid: null }, perSalonDisabled: false, expected: 'connected_byo' },
       { connection: { ...activeByoConnection, phoneNumber: null }, perSalonDisabled: false, expected: 'connected_byo' },
-      { connection: { ...activeByoConnection, messagingServiceSid: null, phoneNumber: null }, perSalonDisabled: false, expected: 'shared_luster' },
+      { connection: { ...activeByoConnection, messagingServiceSid: null, phoneNumber: null }, perSalonDisabled: false, expected: 'connected_byo' },
     ] as const;
     for (const testCase of cases) {
       expect(resolveSmsSenderMode(testCase)).toBe(testCase.expected);
@@ -247,6 +247,7 @@ describe('smsSender source hygiene (mechanical dark-by-default proof)', () => {
     expect(importers).toEqual([
       'src/app/api/integrations/twilio/inbound/route.ts',
       'src/libs/communicationDispatcher.ts',
+      'src/libs/integrationHealth.ts',
     ]);
   });
 });

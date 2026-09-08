@@ -24,6 +24,7 @@ vi.mock('@/libs/DB', () => ({
 }));
 
 const envHolder = vi.hoisted(() => ({
+  TWILIO_ACCOUNT_SID: 'AC00000000000000000000000000000000',
   TWILIO_AUTH_TOKEN: 'platform-token' as string | undefined,
   TWILIO_MESSAGING_SERVICE_SID: 'MG11111111111111111111111111111111' as string | undefined,
   LUSTER_SMS_SENDER_IDENTITY: undefined as string | undefined,
@@ -69,7 +70,8 @@ function inboundRequest(fields: Record<string, string>) {
   const body = new URLSearchParams({
     MessageSid: `SM_ib_${sidSeq}`,
     From: '+14165553000',
-    To: '+14165550001',
+    To: '+14165559999',
+    AccountSid: 'AC00000000000000000000000000000000',
     ...fields,
   });
   return new Request('https://x.test/api/integrations/twilio/inbound', {
@@ -88,8 +90,9 @@ async function count(table: string, where = 'TRUE'): Promise<number> {
 }
 
 async function seedSentIntent(salonId: string, recipient: string): Promise<void> {
+  const intentId = `ci_attr_${salonId}_${crypto.randomUUID().slice(0, 8)}`;
   await db.insert(schema.communicationIntentSchema).values({
-    id: `ci_attr_${salonId}_${crypto.randomUUID().slice(0, 8)}`,
+    id: intentId,
     salonId,
     channel: 'sms',
     eventType: 'booking_confirmation',
@@ -105,6 +108,16 @@ async function seedSentIntent(salonId: string, recipient: string): Promise<void>
     availableAt: new Date(Date.now() - 60 * 60 * 1000),
     notAfter: new Date(Date.now() + 60 * 60 * 1000),
   });
+  await db.insert(schema.notificationDeliverySchema).values({
+    id: `nd_${intentId}`,
+    salonId,
+    intentId,
+    channel: 'sms',
+    purpose: 'test',
+    dedupeKey: `delivery:${intentId}`,
+    senderIdentity: 'luster_shared_v1',
+    status: 'sent',
+  });
 }
 
 describe('inbound webhook — shared/BYO split', () => {
@@ -119,7 +132,7 @@ describe('inbound webhook — shared/BYO split', () => {
     expect(await count('communication_consent')).toBe(0);
   });
 
-  it('BYO branch stays byte-identical: STOP writes the per-salon revoked row with metadata, nothing global', async () => {
+  it('BYO STOP records one scoped consent change and inbound evidence, nothing global', async () => {
     const { POST } = await import('./route');
     // No MessagingServiceSid → BYO path via account-SID connection lookup.
     const response = await POST(inboundRequest({
@@ -140,7 +153,7 @@ describe('inbound webhook — shared/BYO split', () => {
     expect((rows.rows[0] as { metadata: Record<string, unknown> }).metadata).toEqual({ keyword: 'STOP', optOutType: null });
 
     expect(await count('sms_global_consent_event')).toBe(0);
-    expect(await count('sms_inbound_event')).toBe(0);
+    expect(await count('sms_inbound_event')).toBe(1);
   });
 
   it('BYO branch also serves shared-shaped traffic when the platform SID is UNSET (discriminator is env-first)', async () => {
@@ -287,5 +300,40 @@ describe('inbound webhook — shared/BYO split', () => {
     await POST(inboundRequest(fields));
 
     expect(await count('sms_inbound_event', `provider_sid = 'SM_ib_replay'`)).toBe(1);
+  });
+});
+
+describe('BYO inbound tenant identity and replay safety', () => {
+  it('rejects an account whose receiving number belongs elsewhere', async () => {
+    const { POST } = await import('./route');
+    const before = await count('communication_consent');
+
+    expect((await POST(inboundRequest({ AccountSid: 'AC00000000000000000000000000000001', To: '+14165551234', Body: 'STOP' }))).status).toBe(403);
+    expect(await count('communication_consent')).toBe(before);
+  });
+
+  it('records duplicate STOP callbacks once, including consent evidence', async () => {
+    const { POST } = await import('./route');
+    const fields = { MessageSid: 'SM_byo_deduped', AccountSid: 'AC00000000000000000000000000000001', From: '+14165556789', Body: 'STOP' };
+    await POST(inboundRequest(fields));
+    await POST(inboundRequest(fields));
+
+    expect(await count('communication_consent', 'recipient = \'4165556789\'')).toBe(1);
+    expect(await count('sms_inbound_event', 'provider_sid = \'SM_byo_deduped\'')).toBe(1);
+  });
+
+  it('records ordinary BYO replies without retaining private message bodies', async () => {
+    const { POST } = await import('./route');
+    await POST(inboundRequest({ MessageSid: 'SM_byo_reply', AccountSid: 'AC00000000000000000000000000000001', Body: 'Private customer detail' }));
+    const rows = await db.execute(sql`SELECT attributed_salon_id, keyword_classification, body_present FROM sms_inbound_event WHERE provider_sid = 'SM_byo_reply'`);
+
+    expect(rows.rows[0]).toMatchObject({ attributed_salon_id: 'ib1', keyword_classification: 'other', body_present: true });
+    expect(JSON.stringify(rows.rows)).not.toContain('Private customer detail');
+  });
+
+  it('rejects shared traffic whose signed account differs from the platform account', async () => {
+    const { POST } = await import('./route');
+
+    expect((await POST(inboundRequest({ AccountSid: 'AC00000000000000000000000000000001', MessagingServiceSid: SHARED_MS, Body: 'STOP' }))).status).toBe(403);
   });
 });

@@ -1,15 +1,13 @@
 import { eq } from 'drizzle-orm';
-import twilio from 'twilio';
 
 import { db } from '@/libs/DB';
-import { Env } from '@/libs/Env';
+import { validateTwilioWebhook } from '@/libs/twilioWebhook';
 import { salonSchema, salonTwilioConnectionSchema } from '@/models/Schema';
 
 export async function POST(request: Request) {
   const form = await request.formData();
   const params = Object.fromEntries(Array.from(form.entries()).map(([key, value]) => [key, String(value)]));
-  const signature = request.headers.get('x-twilio-signature') || '';
-  if (!Env.TWILIO_AUTH_TOKEN || !twilio.validateRequest(Env.TWILIO_AUTH_TOKEN, signature, request.url, params)) {
+  if (!await validateTwilioWebhook(request, params)) {
     return Response.json({ error: 'Invalid Twilio signature' }, { status: 403 });
   }
   const accountSid = params.AccountSid || params.account_sid;

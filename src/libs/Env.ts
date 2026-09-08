@@ -37,7 +37,7 @@ export const Env = createEnv({
     // Dedicated secret for /api/webhooks/stripe-billing (§8.1) — never shared
     // with the legacy or deposits webhook secrets.
     STRIPE_BILLING_WEBHOOK_SECRET: z.string().optional(),
-    // Twilio (for SMS OTP and notifications)
+    // Twilio (salon communications; Verify is reserved for existing super-admin verification)
     TWILIO_ACCOUNT_SID: z.string().optional(),
     TWILIO_AUTH_TOKEN: z.string().optional(),
     TWILIO_VERIFY_SERVICE_SID: z.string().optional(),

@@ -110,7 +110,7 @@ suite('dispatcher — real-lock concurrency matrix', () => {
     seq += 1;
     const salonId = `cs_${seq}`;
     const recipient = `416555${String(2000 + seq)}`;
-    await db.insert(schema.salonSchema).values({ id: salonId, name: `C${seq}`, slug: `conc-${seq}` });
+    await db.insert(schema.salonSchema).values({ id: salonId, settings: { communications: { sms: { enabled: true }, quietHours: { enabled: false, start: '21:00', end: '09:00' } } } as schema.Salon['settings'], name: `C${seq}`, slug: `conc-${seq}` });
     await db.insert(schema.communicationConsentSchema).values({
       id: `cc_${salonId}`,
       salonId,

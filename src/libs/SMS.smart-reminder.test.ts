@@ -45,6 +45,7 @@ const {
   };
 });
 
+vi.mock('server-only', () => ({}));
 vi.mock('@/libs/DB', () => ({ db }));
 vi.mock('@/libs/salonStatus', () => ({ isSmsEnabled }));
 vi.mock('@/libs/Env', () => ({
@@ -179,14 +180,14 @@ describe('sendSmartAppointmentReminder', () => {
 
     expect(result).toMatchObject({
       outcome: 'provider_failure',
-      errorCode: '30008',
+      errorCode: 'PROVIDER_OUTCOME_UNKNOWN',
       phone: '4165550198',
       body: expect.stringContaining('BIAB Fill'),
     });
     expect(updateSet).toHaveBeenCalledWith(expect.objectContaining({
-      status: 'failed',
-      errorCode: '30008',
-      retryable: true,
+      status: 'send_outcome_unknown',
+      errorCode: 'PROVIDER_OUTCOME_UNKNOWN',
+      retryable: false,
     }));
   });
 

@@ -78,12 +78,10 @@ export function resolveSmsSenderMode(input: {
   if (input.perSalonDisabled) {
     return 'disabled';
   }
-  const connection = input.connection;
-  if (
-    connection !== null
-    && connection.status === 'active'
-    && (connection.messagingServiceSid !== null || connection.phoneNumber !== null)
-  ) {
+  // An existing connection is an explicit salon identity, even while setup
+  // is incomplete or revoked. Readiness fails in place; never substitute
+  // the platform number for a broken connected sender.
+  if (input.connection !== null) {
     return 'connected_byo';
   }
   return 'shared_luster';
@@ -181,7 +179,8 @@ export function resolveByoSenderReadiness(
 ): ByoSenderResolution {
   // Defense in depth for future callers: the mode resolver guarantees this
   // invariant, but nothing type-enforces call ordering.
-  if (connection.messagingServiceSid === null && connection.phoneNumber === null) {
+  if (connection.status !== 'active' || !/^AC[0-9a-f]{32}$/i.test(connection.connectAccountSid)
+    || (!connection.messagingServiceSid?.trim() && !connection.phoneNumber?.trim())) {
     return { ready: false, mode: 'connected_byo', reason: 'SENDER_NOT_READY' };
   }
   if (!deps.authTokenPresent) {

@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { BookingEmailFinancialSummary } from './bookingEmailFinancialSummary.server';
 
-const { create, isSmsEnabled, twilio, db, queueSelectResults } = vi.hoisted(() => {
+const { create, isSmsEnabled, twilio, db, queueSelectResults, enqueue } = vi.hoisted(() => {
   const selectResults: unknown[][] = [];
   const query = {
     from: vi.fn(() => query),
@@ -13,6 +13,7 @@ const { create, isSmsEnabled, twilio, db, queueSelectResults } = vi.hoisted(() =
   };
 
   return {
+    enqueue: vi.fn(async () => ({ intentId: 'ci_test', created: true })),
     create: vi.fn(async (_input: { body: string }) => ({ sid: 'SM_referral' })),
     isSmsEnabled: vi.fn(),
     twilio: vi.fn(() => ({
@@ -31,6 +32,12 @@ const { create, isSmsEnabled, twilio, db, queueSelectResults } = vi.hoisted(() =
   };
 });
 
+vi.mock('server-only', () => ({}));
+vi.mock('@/libs/communicationIntent', () => ({ enqueueCommunicationIntent: enqueue }));
+vi.mock('@/libs/communicationMaterialization', () => ({
+  formatIntentStartTime: () => 'Wed Jun 10, 1:45 PM',
+  resolveSalonCommunicationContext: async () => ({ smsEligible: true, timeZone: 'America/Toronto', settings: { sms: { enabled: true }, email: { enabled: true }, events: {}, killSwitch: false } }),
+}));
 vi.mock('@/libs/DB', () => ({ db }));
 
 vi.mock('twilio', () => ({
@@ -39,6 +46,7 @@ vi.mock('twilio', () => ({
 
 vi.mock('@/libs/Env', () => ({
   Env: {
+    NEXT_PUBLIC_APP_URL: 'https://app.test',
     TWILIO_ACCOUNT_SID: 'twilio_sid',
     TWILIO_AUTH_TOKEN: 'twilio_token',
     TWILIO_PHONE_NUMBER: '+15551234567',
@@ -91,18 +99,20 @@ describe('SMS templates', () => {
         create,
       },
     });
-    queueSelectResults([], [{ freeSoloEnabled: false }]);
+    queueSelectResults([{ connectAccountSid: 'AC00000000000000000000000000000000', messagingServiceSid: null, phoneNumber: '+14165559999', status: 'active' }]);
     vi.spyOn(console, 'warn').mockImplementation(() => undefined);
   });
 
-  it('sends clean internal booking summaries without emoji-heavy copy', async () => {
+  it('queues internal booking summaries through the canonical communications path', async () => {
+    queueSelectResults([{ updatedAt: new Date('2026-06-10T15:00:00Z'), status: 'confirmed' }]);
     const sent = await sendInternalBookingNotificationSms('salon_1', {
+      appointmentId: 'appt_1',
       phone: '4165550198',
       salonName: 'Isla Nail Studio',
       clientName: 'Bob',
       clientPhone: '4165550198',
       services: ['Gel Manicure'],
-      startTime: '2026-06-10T17:45:00.000Z',
+      startTime: '2026-06-10T17:45:00Z',
       totalDurationMinutes: 60,
       financialSummary: financialSummary(),
       technicianName: 'Daniela',
@@ -110,29 +120,18 @@ describe('SMS templates', () => {
     });
 
     expect(sent).toBe(true);
-    expect(twilio).toHaveBeenCalledWith('twilio_sid', 'twilio_token', {
-      timeout: 30_000,
-    });
-    expect(create).toHaveBeenCalledWith(expect.objectContaining({
-      body: [
-        'New booking at Isla Nail Studio',
-        '',
-        'Gel Manicure with Daniela',
-        'Wed, Jun 10, 1:45 PM-2:45 PM',
-        '',
-        'Client: Bob',
-        'Phone: 4165550198',
-        'Duration: 60 min',
-        'Estimated appointment total: $40.00 CAD',
-        'Already paid: $0.00 CAD',
-        'Estimated remaining balance: $40.00 CAD',
-      ].join('\n'),
-      to: '+14165550198',
+    expect(create).not.toHaveBeenCalled();
+    expect(enqueue).toHaveBeenCalledWith(expect.objectContaining({
+      salonId: 'salon_1',
+      appointmentId: 'appt_1',
+      audience: 'owner',
+      eventType: 'owner_new_booking',
+      variables: expect.objectContaining({ statusLabel: 'New booking', clientName: 'Bob', serviceName: 'Gel Manicure' }),
     }));
   });
 
   it('sends clean customer booking confirmations', async () => {
-    queueSelectResults([{ status: 'granted' }], [], [{ freeSoloEnabled: false }]);
+    queueSelectResults([{ status: 'granted' }], [{ connectAccountSid: 'AC00000000000000000000000000000000', messagingServiceSid: null, phoneNumber: '+14165559999', status: 'active' }]);
     await sendBookingConfirmationToClient('salon_1', {
       phone: '4165550198',
       clientName: 'Bob',
@@ -184,7 +183,7 @@ describe('SMS templates', () => {
   });
 
   it('uses the added-tax snapshot and reconciled deposit/payment totals in customer SMS', async () => {
-    queueSelectResults([{ status: 'granted' }], [], [{ freeSoloEnabled: false }]);
+    queueSelectResults([{ status: 'granted' }], [{ connectAccountSid: 'AC00000000000000000000000000000000', messagingServiceSid: null, phoneNumber: '+14165559999', status: 'active' }]);
 
     await sendBookingConfirmationToClient('salon_1', {
       phone: '4165550198',
@@ -250,7 +249,7 @@ describe('SMS templates', () => {
   });
 
   it('suppresses every definitive amount when a deposit refund is unresolved', async () => {
-    queueSelectResults([{ status: 'granted' }], [], [{ freeSoloEnabled: false }]);
+    queueSelectResults([{ status: 'granted' }], [{ connectAccountSid: 'AC00000000000000000000000000000000', messagingServiceSid: null, phoneNumber: '+14165559999', status: 'active' }]);
 
     await sendBookingConfirmationToClient('salon_1', {
       phone: '4165550198',
@@ -277,24 +276,24 @@ describe('SMS templates', () => {
     expect(body).not.toMatch(/\$|Total:|Balance due:/u);
   });
 
-  it('keeps internal booking SMS money-free when immutable evidence is unavailable', async () => {
+  it('labels pending bookings as requests in queued internal alerts', async () => {
+    queueSelectResults([{ updatedAt: new Date('2026-06-10T15:00:00Z'), status: 'pending' }]);
     await sendInternalBookingNotificationSms('salon_1', {
+      appointmentId: 'appt_1',
       phone: '4165550198',
       salonName: 'Isla Nail Studio',
       clientName: 'Bob',
       clientPhone: '4165550198',
       services: ['Gel Manicure'],
-      startTime: '2026-06-10T17:45:00.000Z',
+      startTime: '2026-06-10T17:45:00Z',
       totalDurationMinutes: 60,
       financialSummary: null,
       technicianName: 'Daniela',
       timeZone: 'America/Toronto',
     });
 
-    const body = create.mock.calls[0]![0].body as string;
-
-    expect(body).toContain('Payment details: under review');
-    expect(body).not.toMatch(/\$|Total:|Balance due:/u);
+    expect(enqueue).toHaveBeenCalledWith(expect.objectContaining({ variables: expect.objectContaining({ statusLabel: 'New booking request' }) }));
+    expect(create).not.toHaveBeenCalled();
   });
 
   it('builds staff-triggered reminders with full appointment details and the secure link', () => {
@@ -321,7 +320,7 @@ describe('SMS templates', () => {
   });
 
   it('sends referral invite links on the salon custom domain', async () => {
-    queueSelectResults([], [{ freeSoloEnabled: false }]);
+    queueSelectResults([{ connectAccountSid: 'AC00000000000000000000000000000000', messagingServiceSid: null, phoneNumber: '+14165559999', status: 'active' }]);
     const sent = await sendReferralInvite('salon_1', {
       refereePhone: '2223334444',
       referrerName: 'Ava',
