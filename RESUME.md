@@ -19,19 +19,19 @@ Repair the existing Twilio/communications system only. No broad product audit, p
 - Integrations reflects old BYO/module readiness, ignoring shared sender, credits and actual communications preferences. Invalid settings can reset safety preferences.
 - Inbound currently handles consent and metadata, not a two-way inbox. Preserve this scope and explain reply behavior honestly.
 
-## In progress
+## Delivery scope completed
 
 1. Provider/dispatcher, sender safety, callbacks and inbound regression tests.
-2. Booking lifecycle, reminders and deterministic disposable-salon journey.
+2. Booking lifecycle, reminders and deterministic disposable-salon helper journey.
 3. Manual composer/send/retry/history using existing intents and delivery records.
 4. Settings/Integrations readiness and focused UI repairs.
-5. Targeted suites, typecheck, changed-source lint, appointment regressions, mobile browser checks where isolated prerequisites permit.
+5. Full suite, typecheck, branch-wide lint, appointment regressions, mobile component browser checks and real PostgreSQL SMS concurrency checks.
 
 ## Verification / release status
 
 - `npm ci --no-audit --no-fund` succeeded with Node 20.19.4.
 - No provider credentials copied into this worktree; no real messages sent.
-- Final checks, remaining logical commits and provider-console runbook pending. No push, preview deployment, merge or production deployment has been performed.
+- Code repairs and automated verification are complete. No push, preview deployment, merge or production deployment has been performed. Full authenticated owner browser verification and an approved-number carrier pilot remain release gates.
 
 ## Checkpoint 1 — truthful settings and integration readiness
 
@@ -69,3 +69,16 @@ Repair the existing Twilio/communications system only. No broad product audit, p
 - Real PostgreSQL 16.15 verification: dispatcher concurrency 5/5 and SMS credit concurrency 9/9 passed against a new explicitly disposable localhost cluster. Provider mocked; cluster stopped and removed. Logs: `/tmp/luster-sms-pg-dispatcher-20260908.log`, `/tmp/luster-sms-pg-credits-20260908.log`.
 - Production build passed with approved synthetic CI configuration and no external database/provider credentials. Task build artifacts cleaned afterward to restore scarce local disk space.
 - Secret scan initially refused an unstaged tracked-file deletion; rerun after staging/commit is required. It did not report a credential value.
+
+## Checkpoint 4 — mobile regression coverage and operational handoff
+
+- Audit checkpoint: `891226f`; settings/usage: `4c394a1`; provider/callback recovery: `4c5574a`; lifecycle/manual texting: `6a1b813`.
+- Added actual-component mobile browser fixture in `tests/browser/sms/` and `docs/TWILIO_COMMUNICATIONS_RUNBOOK.md` with configuration, exact Console setup, worker behavior, controlled activation and remaining verification gates.
+- `npm run test:all -- --maxWorkers=3 --minWorkers=1`: **642 files passed, 17 skipped; 7,484 tests passed, 175 skipped, 1 TODO; no failures**. Log: `/tmp/luster-sms-final-all.log`.
+- `npm run test:appointment-regression -- --maxWorkers=2 --minWorkers=1`: **8 files / 105 tests passed**. Final manual service/API/composer subset: **18 passed**. Forced-reminder action suite: **14 passed**.
+- Mobile Playwright: **6/6 passed**, Pixel 7 Chromium and iPhone 13 WebKit, after final composer changes. Component APIs intercepted; no real SMS. Full authenticated Next owner journey was not completed because isolated auth/runtime prerequisites failed during the initial low-disk attempt. The PGlite journey exercises real business helpers and booking routes have separate integration coverage; neither substitutes for the missing full browser journey.
+- `npm run check-types` passed in the final source checkpoint's required commit hook. `npm run lint` passed; explicit ESLint covered all **85 changed/untracked TS/TSX files**, zero errors and four existing warnings. `git diff --check` clean.
+- Final-source `npm run build` passed after the resend changes, using synthetic CI credentials and isolated PGlite fallback. Log: `/tmp/luster-sms-final-build2.log`. Build output was cleaned to recover local disk space; no build was deployed.
+- `npm run security:check-secrets` passed after the intentional test-file deletion was staged. No credential leak found.
+- The general suite leaves external PostgreSQL suites and the live Redis check opt-in; the relevant dispatcher (5) and credit reservation (9) PostgreSQL tests were run separately and passed. Other skipped groups include booking/deposit/client lifecycle/integration outbox/entitlement/portfolio/Stripe concurrency and existing deletion/architecture skips. No shared database or external provider was used.
+- Daniela is **not yet cleared for live customer SMS**. The code is ready for release review, but Twilio account/sender-pool/permissions, public signed callback reachability, Redis/cron execution, approved credits/consent and an authorized owner-number end-to-end pilot must be verified on the release environment. Ordinary inbound replies remain metadata/consent evidence, not a conversational inbox.
