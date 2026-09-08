@@ -33,7 +33,7 @@ describe('customerSitePresentation', () => {
     // same face is the defect this asserts against: before this contract
     // existed, four of the six named the same serif.
     const families = CUSTOMER_SITE_STYLE_PRESETS.map((stylePreset) => {
-      const variables = getCustomerSitePresentationCssVariables({ stylePreset });
+      const variables = getCustomerSitePresentationCssVariables({ palettePreset: 'luster_berry', stylePreset });
       return variables['--customer-site-heading-font'];
     });
 
@@ -45,7 +45,7 @@ describe('customerSitePresentation', () => {
     // public page: nothing loaded them, so they all fell back to Georgia or
     // system-ui. Each must resolve through a next/font variable.
     for (const stylePreset of CUSTOMER_SITE_STYLE_PRESETS) {
-      const variables = getCustomerSitePresentationCssVariables({ stylePreset });
+      const variables = getCustomerSitePresentationCssVariables({ palettePreset: 'luster_berry', stylePreset });
 
       expect(variables['--customer-site-heading-font'], stylePreset).toMatch(/^var\(--font-luster-[a-z]+\)/u);
       expect(variables['--customer-site-body-font'], stylePreset).toMatch(/^var\(--font-luster-sans\)/u);
@@ -56,7 +56,7 @@ describe('customerSitePresentation', () => {
     // Family alone left the six reading as one voice, because the renderer
     // asked for the same weight and rhythm whichever preset was active.
     const treatments = CUSTOMER_SITE_STYLE_PRESETS.map((stylePreset) => {
-      const variables = getCustomerSitePresentationCssVariables({ stylePreset });
+      const variables = getCustomerSitePresentationCssVariables({ palettePreset: 'luster_berry', stylePreset });
       return [
         variables['--customer-site-heading-weight'],
         variables['--customer-site-heading-tracking'],
@@ -74,7 +74,7 @@ describe('customerSitePresentation', () => {
   it('keeps operational text on one neutral body face for every style', () => {
     // Addresses, hours, prices and booking controls are read, not admired.
     const bodyFonts = CUSTOMER_SITE_STYLE_PRESETS.map(
-      stylePreset => getCustomerSitePresentationCssVariables({ stylePreset })['--customer-site-body-font'],
+      stylePreset => getCustomerSitePresentationCssVariables({ palettePreset: 'luster_berry', stylePreset })['--customer-site-body-font'],
     );
 
     expect(new Set(bodyFonts).size).toBe(1);
