@@ -1,3 +1,10 @@
+## [1.89.1](https://github.com/SniperStopSniping/nailsalon/compare/v1.89.0...v1.89.1) (2026-09-08)
+
+
+### Bug Fixes
+
+* **onboarding:** show setup the same six typefaces the site will publish ([0ffdf61](https://github.com/SniperStopSniping/nailsalon/commit/0ffdf61e0fe2a769578300ded810b022ddfd98e6))
+
 # [1.89.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.88.1...v1.89.0) (2026-09-08)
 
 
