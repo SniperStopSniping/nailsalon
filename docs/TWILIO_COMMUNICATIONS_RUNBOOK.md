@@ -38,11 +38,13 @@ Use the account that owns the shared Luster sender. Do not put credentials in a 
 
 1. Under **Phone Numbers → Manage → Active numbers**, ensure an SMS-capable Canadian number is available. Under **Messaging → Services**, create/open the intended Luster Messaging Service and add that number to its **Sender Pool**. An `MG…` environment value alone does not verify that a number is attached.
 2. In the Messaging Service **Integration** settings, select the option that sends incoming messages to a webhook, rather than deferring to each sender or dropping messages. Set POST to `https://<production-app-origin>/api/integrations/twilio/inbound`.
-3. Enable **Advanced Opt-Out** for the Messaging Service. Preserve STOP/START/HELP behavior and configure STOP wording to explain that opting out does not cancel the appointment. The reviewed copy is `ADVANCED_OPT_OUT_COPY` in `src/libs/communicationTemplates.ts`. `CANCEL` is an opt-out keyword; it never cancels an appointment in Luster.
+3. Stage **Advanced Opt-Out** wording for the Messaging Service, then obtain explicit approval before enabling it: [Twilio requires Support to disable it afterward](https://www.twilio.com/docs/messaging/tutorials/advanced-opt-out). Preserve STOP/START/HELP behavior and configure STOP wording to explain that opting out does not cancel the appointment. The reviewed copy is `ADVANCED_OPT_OUT_COPY` in `src/libs/communicationTemplates.ts`. `CANCEL` is an opt-out keyword; it never cancels an appointment in Luster.
 4. Delivery callbacks are supplied per message by Luster as `https://<production-app-origin>/api/integrations/twilio/status?deliveryId=<generated-id>`. Do not invent or hard-code a delivery ID in Console. The application's `NEXT_PUBLIC_APP_URL` must match the public HTTPS origin used to receive and validate these signed requests. This origin is public configuration, never a credential.
 5. Confirm the account can send to the intended Canadian destination. Trial restrictions and provider sender registration/verification must be satisfied in Twilio before a real delivery pilot.
 
 Twilio references: [Messaging Services](https://www.twilio.com/docs/messaging/services), [incoming webhook fields](https://www.twilio.com/docs/messaging/guides/webhook-request), [status callbacks](https://www.twilio.com/docs/usage/webhooks/messaging-webhooks), [Advanced Opt-Out webhook behavior](https://help.twilio.com/articles/31560110671259).
+
+Before reusing an existing number, inspect its current messaging and voice routing. Attaching a number to a service can change inbound routing and opt-out scope, including when outbound application sending is disabled. Prepare an empty service first; obtain approval for any cutover that affects an existing workflow. Preserve the prior configuration for rollback and leave voice routing unchanged unless explicitly authorized.
 
 ## Application configuration and controlled activation
 
