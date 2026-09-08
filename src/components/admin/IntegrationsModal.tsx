@@ -33,7 +33,7 @@ import {
 import { useCallback, useEffect, useState } from 'react';
 
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
-import { isNativeSmsCapableDevice, resolveAutomaticTextStatus } from '@/libs/textingStatus';
+import { isNativeSmsCapableDevice, resolveAutomaticTextStatus, type SmsOperationalHealth } from '@/libs/textingStatus';
 
 type GoogleReadiness
   = | 'not_connected'
@@ -43,7 +43,8 @@ type GoogleReadiness
   | 'ready';
 
 type Health = {
-  availability: { google: boolean; twilio: boolean; email: boolean; photos: boolean };
+  availability: { google: boolean; twilio: boolean; email: boolean; photos: boolean; twilioConnectOnboarding?: boolean };
+  sms?: SmsOperationalHealth;
   google: {
     status: string;
     readiness?: GoogleReadiness;
@@ -418,14 +419,11 @@ export function IntegrationsModal({
       icon: MessageSquareText,
       iconClass: 'bg-amber-100 text-amber-800',
       name: 'Text messaging',
-      // Manual texting always works without Twilio — never describe texting
-      // as disconnected just because automatic sending is not set up.
-      status: automaticText.label === 'Ready' ? 'Ready' : 'Manual ready',
-      tone: automaticText.label === 'Ready' ? 'good' : 'good',
-      explanation:
-        automaticText.label === 'Ready'
-          ? 'Manual texting plus automatic reminders are set up.'
-          : 'Text clients from your phone. Automatic reminders are optional.',
+      status: health ? automaticText.label : 'Loading…',
+      tone: automaticText.tone,
+      explanation: health?.sms?.manualAvailable
+        ? 'Text clients from Luster and track appointment messages.'
+        : 'Check your texting identity, delivery status, reminders and credits.',
     },
     {
       id: 'email',
@@ -492,6 +490,7 @@ export function IntegrationsModal({
         {healthError && (
           <div className="mb-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
             {healthError}
+            <button type="button" onClick={() => void loadHealth()} className="ml-3 underline">Try again</button>
           </div>
         )}
 
@@ -838,22 +837,28 @@ export function IntegrationsModal({
           <div className="space-y-4">
             <div className={card} data-testid="manual-texting-section">
               <div className="flex items-start justify-between gap-3">
-                <p className="text-[15px] font-semibold text-[var(--owner-ink)]">Manual texting</p>
+                <p className="text-[15px] font-semibold text-[var(--owner-ink)]">Text from Luster</p>
                 <StatusPill
-                  label={smsCapableDevice ? 'Ready' : 'Unsupported on this device'}
-                  tone={smsCapableDevice ? 'good' : 'muted'}
+                  label={health?.sms?.manualAvailable ? 'Ready' : health ? 'Unavailable' : 'Loading…'}
+                  tone={health?.sms?.manualAvailable ? 'good' : 'muted'}
                 />
               </div>
               <p className="mt-1 text-sm text-[var(--owner-muted)]">
-                Opens your phone’s Messages app with the client’s number and a prewritten message you can edit.
-                Nothing sends until you hit send, and Luster cannot confirm delivery. Works without any setup —
-                no Twilio needed.
+                Send a client a text from their client profile or appointment. Messages use your salon’s
+                texting identity and appear in communication history with their delivery status.
               </p>
-              {!smsCapableDevice && (
-                <p className="mt-2 text-xs text-[var(--owner-muted)]">
-                  This browser can’t open a Messages app. Open Luster on your phone to text clients.
-                </p>
-              )}
+              {health?.sms && <p className="mt-2 text-sm text-[var(--owner-muted)]">{health.sms.detail}</p>}
+            </div>
+
+            <div className={card} data-testid="native-texting-section">
+              <div className="flex items-start justify-between gap-3">
+                <p className="text-[15px] font-semibold text-[var(--owner-ink)]">Text from your phone</p>
+                <StatusPill label={smsCapableDevice ? 'Available on this device' : 'Use your phone'} tone="muted" />
+              </div>
+              <p className="mt-1 text-sm text-[var(--owner-muted)]">
+                You can also open your phone’s Messages app from a client profile. These texts use your
+                own mobile number and mobile plan. Luster cannot confirm their delivery. No Twilio needed.
+              </p>
             </div>
 
             <div className={card} data-testid="automatic-texting-section">
@@ -862,8 +867,8 @@ export function IntegrationsModal({
                 <StatusPill label={automaticText.label} tone={automaticText.tone} />
               </div>
               <p className="mt-1 text-sm text-[var(--owner-muted)]">
-                Optional. Sends booking confirmations and appointment reminders automatically from a dedicated
-                number in your own Twilio account. Bookings still work if texting is off.
+                Sends booking updates and scheduled appointment reminders using the texting identity below.
+                Bookings still work if texting is off.
               </p>
               {automaticText.detail && (
                 <p className={`mt-2 text-sm ${automaticText.tone === 'error' ? 'text-red-700' : 'text-[var(--owner-muted)]'}`}>
@@ -871,7 +876,32 @@ export function IntegrationsModal({
                 </p>
               )}
 
-              {health && health.availability.twilio && health.twilio.status !== 'active' && (
+              {health?.sms && (
+                <dl className="mt-4 space-y-2 text-sm text-[var(--owner-muted)]">
+                  <div>
+                    <dt className="font-medium text-[var(--owner-ink)]">Texting identity</dt>
+                    <dd>{health.sms.senderLabel}</dd>
+                  </div>
+                  <div>
+                    <dt className="font-medium text-[var(--owner-ink)]">Automatic texts</dt>
+                    <dd>{health.sms.smsEnabled ? 'Enabled in Settings' : 'Off in Settings'}</dd>
+                  </div>
+                  <div>
+                    <dt className="font-medium text-[var(--owner-ink)]">Text reminders</dt>
+                    <dd>{health.sms.remindersEnabled ? 'Enabled' : 'Not sending'}</dd>
+                  </div>
+                  <div>
+                    <dt className="font-medium text-[var(--owner-ink)]">SMS credits</dt>
+                    <dd>{health.sms.availableCredits === null ? 'Message usage is billed by your Twilio account.' : `${health.sms.availableCredits} available. Details and top-ups are in Usage.`}</dd>
+                  </div>
+                  <div>
+                    <dt className="font-medium text-[var(--owner-ink)]">Quiet hours</dt>
+                    <dd>{health.sms.quietHours.enabled ? `${health.sms.quietHours.start}–${health.sms.quietHours.end}, salon local time. Scheduled and manual texts wait until quiet hours end.` : 'Off'}</dd>
+                  </div>
+                </dl>
+              )}
+
+              {health && health.availability.twilioConnectOnboarding === true && health.twilio.status !== 'active' && (
                 health.twilio.status === 'pending'
                   ? (
                       <div className="mt-4 space-y-3">
@@ -941,13 +971,13 @@ export function IntegrationsModal({
                     )
               )}
 
-              {health?.twilio.status === 'active' && smsModuleReason === 'MODULE_DISABLED' && onOpenSettings && (
+              {health && onOpenSettings && (
                 <button
                   type="button"
                   onClick={onOpenSettings}
                   className="mt-3 text-sm font-semibold text-[var(--owner-accent)] underline-offset-2 outline-none hover:underline focus-visible:ring-2 focus-visible:ring-rose-400"
                 >
-                  Turn on SMS reminders in Settings
+                  Manage texts and reminders in Settings
                 </button>
               )}
               {health?.latestSmsDeliveryError && (

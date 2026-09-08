@@ -25,6 +25,7 @@ import { checkEndpointRateLimit, getClientIp, rateLimitResponse } from '@/libs/r
 import {
   billingSubscriptionSchema,
   communicationIntentSchema,
+  notificationDeliverySchema,
 } from '@/models/Schema';
 
 const NO_STORE = { headers: { 'Cache-Control': 'no-store' } };
@@ -147,8 +148,16 @@ export async function GET(request: NextRequest): Promise<Response> {
       lastError: communicationIntentSchema.lastError,
       blockedReason: communicationIntentSchema.blockedReason,
       createdAt: communicationIntentSchema.createdAt,
+      deliveryStatus: notificationDeliverySchema.status,
+      deliveryErrorCode: notificationDeliverySchema.errorCode,
+      settlementState: notificationDeliverySchema.settlementState,
+      chargedCredits: notificationDeliverySchema.segmentCount,
     })
     .from(communicationIntentSchema)
+    .leftJoin(notificationDeliverySchema, and(
+      eq(notificationDeliverySchema.id, communicationIntentSchema.deliveryId),
+      eq(notificationDeliverySchema.salonId, salonId),
+    ))
     .where(cursorFilter === undefined
       ? eq(communicationIntentSchema.salonId, salonId)
       : and(eq(communicationIntentSchema.salonId, salonId), cursorFilter))
@@ -166,13 +175,15 @@ export async function GET(request: NextRequest): Promise<Response> {
     eventType: row.eventType,
     appointmentId: row.appointmentId,
     recipient: maskRecipient(row.channel, row.recipient),
-    status: row.status,
+    status: row.status === 'sent' && row.deliveryStatus ? row.deliveryStatus : row.status,
     scheduledFor: row.scheduledFor.toISOString(),
     sentAt: row.status === 'sent' ? row.resolvedAt?.toISOString() ?? null : null,
-    creditsUsed: row.channel === 'sms' && row.status === 'sent' ? row.segmentCount ?? 1 : 0,
-    failureReason: ['failed', 'expired', 'suppressed', 'blocked_no_credit', 'canceled'].includes(row.status)
-      ? friendlyFailureReason(row.blockedReason ?? row.lastError)
-      : null,
+    creditsUsed: row.channel === 'sms' && row.settlementState === 'settled' ? row.chargedCredits ?? row.segmentCount ?? 1 : 0,
+    failureReason: ['failed', 'undelivered'].includes(row.deliveryStatus ?? '')
+      ? friendlyFailureReason(row.deliveryErrorCode ?? 'DELIVERY_FAILED')
+      : ['failed', 'expired', 'suppressed', 'blocked_no_credit', 'canceled'].includes(row.status)
+          ? friendlyFailureReason(row.blockedReason ?? row.lastError)
+          : null,
   }));
 
   return Response.json({ data: { salonId, usage, history, nextCursor, topupOffers } }, NO_STORE);

@@ -130,7 +130,7 @@ describe('SettingsModal communications view', () => {
     });
   });
 
-  it('keeps SMS options visible but DISABLED when texting is unavailable', async () => {
+  it('keeps saved SMS preferences editable when provider setup is incomplete', async () => {
     capability.smsChannelAvailable = false;
     await openCommunications();
     const channel = screen.getByLabelText('Reminder 1 channel') as HTMLSelectElement;
@@ -139,9 +139,9 @@ describe('SettingsModal communications view', () => {
       disabled: option.disabled,
     }));
 
-    expect(options).toContainEqual({ text: 'Text (Unavailable)', disabled: true });
-    expect(options).toContainEqual({ text: 'Email & text (Unavailable)', disabled: true });
-    // The master toggle is present, labelled unavailable, and disabled.
+    expect(options).toContainEqual({ text: 'Text (Unavailable)', disabled: false });
+    expect(options).toContainEqual({ text: 'Email & text (Unavailable)', disabled: false });
+    expect(screen.getByRole('checkbox', { name: /text messages to clients/i })).toBeEnabled();
     expect(screen.getByText('(Unavailable)')).toBeInTheDocument();
   });
 
@@ -162,5 +162,39 @@ describe('SettingsModal communications view', () => {
       expect(body.communications.sms).toEqual({ enabled: false });
       expect(body.communications.quietHours).toEqual({ enabled: true, start: '21:00', end: '09:00' });
     });
+  });
+
+  it('adds a third reminder at a different time and persists an emergency pause', async () => {
+    await openCommunications();
+    fireEvent.click(screen.getByText('+ Add reminder'));
+    fireEvent.click(screen.getByText('+ Add reminder'));
+
+    expect(screen.getByLabelText('Reminder 3 timing')).toHaveValue('240');
+
+    fireEvent.click(screen.getByRole('checkbox', { name: /pause all communications/i }));
+    fireEvent.click(screen.getByRole('button', { name: /save communication settings/i }));
+    await waitFor(() => {
+      const patch = fetchMock.mock.calls.find(([, init]) => (init as RequestInit | undefined)?.method === 'PATCH');
+
+      expect(JSON.parse(String((patch![1] as RequestInit).body)).communications.killSwitch).toBe(true);
+    });
+  });
+
+  it('explains duplicate reminder times before attempting a save', async () => {
+    await openCommunications();
+    fireEvent.click(screen.getByText('+ Add reminder'));
+    fireEvent.change(screen.getByLabelText('Reminder 2 timing'), { target: { value: '1440' } });
+    fireEvent.click(screen.getByRole('button', { name: /save communication settings/i }));
+
+    expect(await screen.findByText('Choose a different time for each enabled reminder.')).toBeInTheDocument();
+    expect(fetchMock.mock.calls.some(([, init]) => (init as RequestInit | undefined)?.method === 'PATCH')).toBe(false);
+  });
+
+  it('explains invalid quiet hours before attempting a save', async () => {
+    await openCommunications();
+    fireEvent.change(screen.getByLabelText('Quiet hours start'), { target: { value: '09:00' } });
+    fireEvent.click(screen.getByRole('button', { name: /save communication settings/i }));
+
+    expect(await screen.findByText('Choose different start and end times for quiet hours.')).toBeInTheDocument();
   });
 });

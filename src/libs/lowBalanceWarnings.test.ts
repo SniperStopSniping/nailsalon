@@ -238,4 +238,54 @@ describe('usage + history route (§10.1/§10.2/§10.4)', () => {
 
     expect(response.status).toBe(403);
   });
+
+  it('shows actual delivery outcomes and never attributes another salon delivery or BYO credits', async () => {
+    await seedAccount('s_delivery_health', 10);
+    guardHolder.salonId = 's_delivery_health';
+    const at = new Date('2026-09-03T12:00:00.000Z');
+    for (const [name, status, settlementState, salonId] of [
+      ['delivered', 'delivered', 'settled', 's_delivery_health'],
+      ['byo', 'sent', 'not_applicable', 's_delivery_health'],
+      ['failed', 'undelivered', 'refunded', 's_delivery_health'],
+      ['foreign', 'delivered', 'settled', 's_usage'],
+    ]) {
+      await db.insert(schema.notificationDeliverySchema).values({
+        id: `nd_health_${name}`,
+        salonId: salonId!,
+        channel: 'sms',
+        purpose: 'manual_text',
+        dedupeKey: `nd-health:${name}`,
+        status,
+        settlementState,
+        segmentCount: 2,
+        errorCode: status === 'undelivered' ? '30007' : null,
+        errorMessage: 'Provider body containing private fixture data',
+      });
+      await db.insert(schema.communicationIntentSchema).values({
+        id: `ci_health_${name}`,
+        salonId: 's_delivery_health',
+        channel: 'sms',
+        eventType: 'manual_text',
+        audience: 'client',
+        dedupeKey: `history-health:${name}`,
+        recipient: '+14165550199',
+        templateKey: 'client_manual_text',
+        templateVersion: 'v1',
+        variables: {},
+        schedulingRevision: 'health',
+        status: 'sent',
+        scheduledFor: at,
+        notAfter: new Date(at.getTime() + 3600_000),
+        deliveryId: `nd_health_${name}`,
+        segmentCount: 2,
+      });
+    }
+    const { data } = await (await get('?salonSlug=slug-s_delivery_health')).json();
+
+    expect(data.history.find((entry: { id: string }) => entry.id === 'ci_health_delivered')).toMatchObject({ status: 'delivered', creditsUsed: 2 });
+    expect(data.history.find((entry: { id: string }) => entry.id === 'ci_health_byo')).toMatchObject({ status: 'sent', creditsUsed: 0 });
+    expect(data.history.find((entry: { id: string }) => entry.id === 'ci_health_failed')).toMatchObject({ status: 'undelivered', creditsUsed: 0, failureReason: 'This message could not be delivered.' });
+    expect(data.history.find((entry: { id: string }) => entry.id === 'ci_health_foreign')).toMatchObject({ status: 'sent', creditsUsed: 0 });
+    expect(JSON.stringify(data)).not.toContain('private fixture data');
+  });
 });

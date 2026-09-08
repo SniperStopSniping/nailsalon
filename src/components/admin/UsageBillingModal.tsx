@@ -64,10 +64,23 @@ const EVENT_LABELS: Record<string, string> = {
   deposit_refunded: 'Deposit refund',
   balance_reminder: 'Balance reminder',
   manual_reminder: 'Manual reminder',
+  manual_text: 'Manual text',
+  booking_request_received: 'Booking request received',
+  booking_request_approved: 'Booking confirmed',
+  booking_request_declined: 'Booking request declined',
+  booking_request_expired: 'Booking request expired',
+  owner_new_booking: 'New booking alert',
+  owner_appointment_cancelled: 'Cancellation alert',
+  tech_new_booking: 'Technician booking alert',
+  tech_appointment_cancelled: 'Technician cancellation alert',
 };
 
 const STATUS_LABELS: Record<string, string> = {
   sent: 'Sent',
+  queued: 'Queued',
+  accepted: 'Queued',
+  delivered: 'Delivered',
+  undelivered: 'Undelivered',
   pending: 'Scheduled',
   claimed: 'Sending',
   sending: 'Sending',

@@ -32,3 +32,20 @@ Repair the existing Twilio/communications system only. No broad product audit, p
 - `npm ci --no-audit --no-fund` succeeded with Node 20.19.4.
 - No provider credentials copied into this worktree; no real messages sent.
 - Final checks, logical commits, preview/PR and provider-console runbook pending. Protected main will not be merged or deployed automatically.
+
+## Checkpoint 1 — truthful settings and integration readiness
+
+- Added server-resolved shared/BYO SMS availability, worker configuration, credits, sender label, and manual/automatic/reminder state.
+- Settings preserves explicit pauses and disabled preferences when stored data is malformed; BYO legacy defaults apply only when canonical SMS settings are absent.
+- Removed contradictory native-only manual-text messaging. Usage reads provider delivery state and only counts settled shared-credit sends.
+- Existing SMS event storage is unrestricted text; added the `manual_text` TypeScript event without a database migration.
+- Settings/Integrations/settings API focused checks: 273 tests passed; new operational SMS health/history checks: 11 passed. Owned-file lint has no errors (pre-existing warnings remain).
+
+## Additional verification in progress
+
+- Manual API/service tests: 9 passed; composer + client/appointment actions: 34 passed.
+- Unknown-outcome refund + appointment sheet + booking-page isolated rerun: 91 passed.
+- `npm run check-types` passed using repository-approved CI placeholders and Node 20. Initial attempts correctly failed closed on incomplete environment markers; no guards were bypassed.
+- First full suite during active migration: 630 files passed, 12 failed, 17 skipped; failures exposed obsolete direct-send expectations, token churn, and component test timing. Repairs and full rerun required before handoff.
+- Disk filled during local browser verification. Stopped own browser/server, ran `npm run clean` in this task worktree, and replaced this task's fresh dependencies with a symlink to an existing installation only after verifying every dependency lock entry matched. Recovered 1.6 GiB without deleting user caches or changing the original checkout.
+- Disposable browser data is `/tmp/luster-sms-lab-20260908`; server stopped. No real provider calls. Full browser journey not yet verified.

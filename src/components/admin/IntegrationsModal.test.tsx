@@ -6,6 +6,7 @@ import { IntegrationsModal } from './IntegrationsModal';
 type HealthOverrides = {
   google?: Record<string, unknown>;
   twilio?: Record<string, unknown>;
+  sms?: Record<string, unknown>;
   availability?: Record<string, unknown>;
   latestSmsDeliveryError?: Record<string, unknown> | null;
 };
@@ -16,6 +17,7 @@ function healthPayload(overrides: HealthOverrides = {}) {
       availability: {
         google: true,
         twilio: true,
+        twilioConnectOnboarding: true,
         email: true,
         photos: true,
         ...overrides.availability,
@@ -37,6 +39,7 @@ function healthPayload(overrides: HealthOverrides = {}) {
         lastError: null,
         ...overrides.twilio,
       },
+      sms: overrides.sms,
       latestSmsDeliveryError: overrides.latestSmsDeliveryError ?? null,
     },
   };
@@ -123,7 +126,7 @@ describe('IntegrationsModal', () => {
     vi.unstubAllGlobals();
   });
 
-  it('shows honest home statuses: texting is "Manual ready" without Twilio, never disconnected', async () => {
+  it('does not claim Luster texting is ready without a configured sender', async () => {
     mockEndpoints({ health: { twilio: { status: 'disconnected' } } });
 
     render(<IntegrationsModal onClose={vi.fn()} salonSlug="salon-a" />);
@@ -132,8 +135,8 @@ describe('IntegrationsModal', () => {
       expect(screen.getByTestId('integration-row-google')).toHaveTextContent('Not connected');
     });
 
-    expect(screen.getByTestId('integration-row-texting')).toHaveTextContent('Manual ready');
-    expect(screen.getByTestId('integration-row-texting')).not.toHaveTextContent(/disconnected/i);
+    expect(screen.getByTestId('integration-row-texting')).toHaveTextContent('Not connected');
+
     expect(screen.getByTestId('integration-row-email')).toHaveTextContent('Ready');
     // No payments row: no client-payment integration exists.
     expect(screen.queryByText(/payments/i)).toBeInTheDocument(); // informational footnote only
@@ -166,8 +169,8 @@ describe('IntegrationsModal', () => {
       expect(screen.getByTestId('automatic-texting-section')).toHaveTextContent('Not connected');
     });
 
-    expect(screen.getByTestId('manual-texting-section')).toHaveTextContent('Ready');
-    expect(screen.getByTestId('manual-texting-section')).toHaveTextContent(/no Twilio needed/i);
+    expect(screen.getByTestId('manual-texting-section')).toHaveTextContent('Unavailable');
+    expect(screen.getByTestId('native-texting-section')).toHaveTextContent(/no Twilio needed/i);
     expect(screen.getByText('Authorize Twilio')).toBeInTheDocument();
   });
 
@@ -180,8 +183,8 @@ describe('IntegrationsModal', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByTestId('manual-texting-section')).toHaveTextContent(
-        'Unsupported on this device',
+      expect(screen.getByTestId('native-texting-section')).toHaveTextContent(
+        'Use your phone',
       );
     });
   });
@@ -346,7 +349,7 @@ describe('IntegrationsModal', () => {
 
     it('keeps automatic texting honest when Twilio is not offered here', async () => {
       stubUserAgent('Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X)');
-      mockEndpoints({ health: { availability: { twilio: false } } });
+      mockEndpoints({ health: { availability: { twilio: false, twilioConnectOnboarding: false } } });
 
       render(
         <IntegrationsModal onClose={vi.fn()} salonSlug="salon-a" initialView="texting" />,
@@ -360,7 +363,7 @@ describe('IntegrationsModal', () => {
 
       // Nothing chargeable is offered when the provider is absent.
       expect(screen.queryByTestId('twilio-preview')).not.toBeInTheDocument();
-      expect(screen.getByTestId('manual-texting-section')).toHaveTextContent('Ready');
+      expect(screen.getByTestId('manual-texting-section')).toHaveTextContent('Unavailable');
     });
   });
 
@@ -426,5 +429,43 @@ describe('IntegrationsModal', () => {
     fireEvent.click(screen.getByTestId('integrations-open-settings'));
 
     expect(onOpenSettings).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows shared SMS identity, manual delivery and credits on desktop without offering BYO onboarding', async () => {
+    stubUserAgent('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)');
+    mockEndpoints({ health: {
+      availability: { twilio: false, twilioConnectOnboarding: false },
+      sms: {
+        providerReady: true,
+        senderMode: 'shared_luster',
+        senderLabel: 'Luster shared texting number',
+        phoneNumber: null,
+        blockingReason: null,
+        detail: 'Texts send through Luster.',
+        smsEnabled: true,
+        automaticEnabled: true,
+        manualAvailable: true,
+        remindersEnabled: true,
+        quietHours: { enabled: true, start: '21:00', end: '09:00' },
+        availableCredits: 42,
+        workerConfigured: true,
+      },
+    } });
+    render(<IntegrationsModal onClose={vi.fn()} salonSlug="salon-a" initialView="texting" />);
+    await waitFor(() => expect(screen.getByTestId('manual-texting-section')).toHaveTextContent('Ready'));
+
+    expect(screen.getByTestId('automatic-texting-section')).toHaveTextContent('Luster shared texting number');
+    expect(screen.getByTestId('automatic-texting-section')).toHaveTextContent('42 available');
+    expect(screen.queryByText('Authorize Twilio')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('twilio-preview')).not.toBeInTheDocument();
+  });
+
+  it('does not offer a number purchase while BYO onboarding is disabled', async () => {
+    mockEndpoints({ health: { twilio: { status: 'pending' }, availability: { twilioConnectOnboarding: false } } });
+    render(<IntegrationsModal onClose={vi.fn()} salonSlug="salon-a" initialView="texting" />);
+    await waitFor(() => expect(screen.getByTestId('automatic-texting-section')).toHaveTextContent('Setup incomplete'));
+
+    expect(screen.queryByText('Authorize Twilio')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('twilio-preview')).not.toBeInTheDocument();
   });
 });

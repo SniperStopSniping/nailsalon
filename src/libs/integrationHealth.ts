@@ -2,13 +2,21 @@ import 'server-only';
 
 import { and, desc, eq, inArray, sql } from 'drizzle-orm';
 
+import { computeAvailableBalance } from '@/libs/billing/creditLedger';
+import { friendlyFailureReason } from '@/libs/communicationMasking';
+import { resolveSalonCommunicationSettings } from '@/libs/communicationSettings';
 import { db } from '@/libs/DB';
+import { Env } from '@/libs/Env';
 import { resolveEntitlement } from '@/libs/featureEntitlements';
+import { readCommunicationControlCached } from '@/libs/platformCommunicationControl';
+import { readSharedSenderEnvConfig, resolveByoSenderReadiness, resolveSharedSenderReadiness, resolveSmsSenderMode } from '@/libs/smsSender';
 import {
   deriveConnectStatus,
   EXPECTED_LIVEMODE,
   toBinding,
 } from '@/libs/stripeConnect/readiness';
+import type { SmsOperationalHealth } from '@/libs/textingStatus';
+import { buildStatusCallbackUrl } from '@/libs/twilioMessagingSend';
 import {
   integrationOutboxSchema,
   notificationDeliverySchema,
@@ -54,6 +62,99 @@ export function resolveGoogleReadiness(
   return 'ready';
 }
 
+/** Read-only status projection of the same sender gates used by dispatch. */
+export async function getSalonSmsReadiness(salonId: string): Promise<SmsOperationalHealth> {
+  const [[salon], [connection]] = await Promise.all([
+    db.select({ slug: salonSchema.slug, settings: salonSchema.settings, smsRemindersEnabled: salonSchema.smsRemindersEnabled })
+      .from(salonSchema).where(eq(salonSchema.id, salonId)).limit(1),
+    db.select().from(salonTwilioConnectionSchema).where(eq(salonTwilioConnectionSchema.salonId, salonId)).limit(1),
+  ]);
+  const candidateMode = resolveSmsSenderMode({ connection: connection ?? null, perSalonDisabled: false });
+  const settings = resolveSalonCommunicationSettings(salon?.settings ?? null, {
+    senderMode: candidateMode,
+    legacySmsEnabled: salon?.smsRemindersEnabled,
+  });
+  let providerReady = false;
+  let availableCredits: number | null = null;
+  let blockingReason: string | null = null;
+  let detail = '';
+  let disabledEventTypes: string[] = [];
+  const phoneNumber = candidateMode === 'connected_byo' ? connection?.phoneNumber ?? null : null;
+  const senderLabel = candidateMode === 'connected_byo' ? phoneNumber ?? 'Your connected Twilio sender' : 'Luster shared texting number';
+  const workerConfigured = Boolean(process.env.CRON_SECRET);
+  if (!salon) {
+    blockingReason = 'SALON_NOT_FOUND';
+    detail = 'The salon could not be loaded. Refresh and try again.';
+  } else if (candidateMode === 'connected_byo' && connection) {
+    providerReady = resolveByoSenderReadiness(connection, { authTokenPresent: Boolean(Env.TWILIO_AUTH_TOKEN) }).ready;
+    if (!providerReady) {
+      blockingReason = 'SENDER_NOT_READY';
+      detail = 'Your Twilio connection needs attention. Contact support to restore its texting identity.';
+    }
+  } else {
+    const control = await readCommunicationControlCached();
+    disabledEventTypes = control?.disabledEventTypes ?? [];
+    const readiness = resolveSharedSenderReadiness({
+      salonSlug: salon.slug,
+      config: { ...readSharedSenderEnvConfig(), platformControl: control, creditReservation: { available: true } },
+    });
+    providerReady = readiness.ready;
+    if (!readiness.ready) {
+      blockingReason = readiness.reason;
+      detail = readiness.reason === 'PLAN_NOT_ELIGIBLE'
+        ? 'Luster texting is not enabled for this salon yet. Contact support.'
+        : 'Luster texting is not switched on or its sender is not configured. Contact support to finish setup.';
+    }
+    const balance = await db.transaction(tx => computeAvailableBalance(tx, salonId, new Date()));
+    availableCredits = balance.available;
+  }
+  if (blockingReason === null && !buildStatusCallbackUrl('readiness')) {
+    providerReady = false;
+    blockingReason = 'CALLBACK_NOT_CONFIGURED';
+    detail = 'Text delivery tracking is not configured. Contact support to set the public callback address.';
+  }
+  if (blockingReason === null && candidateMode === 'shared_luster' && !process.env.REDIS_URL) {
+    blockingReason = 'RATE_LIMITER_NOT_CONFIGURED';
+    detail = 'Text delivery is waiting for its sending controls to be configured. Contact support.';
+  }
+  // A configured worker is necessary for both automatic and manual queued sends.
+  if (blockingReason === null && !workerConfigured) {
+    blockingReason = 'WORKER_NOT_CONFIGURED';
+    detail = 'Text delivery is not configured in this environment. Contact support to enable the message worker.';
+  }
+  if (blockingReason === null && settings.killSwitch) {
+    blockingReason = 'COMMUNICATIONS_PAUSED';
+    detail = 'Communications are paused. Review and save Client texts & reminders in Settings to resume.';
+  }
+  if (blockingReason === null && !settings.sms.enabled) {
+    blockingReason = 'SMS_DISABLED';
+    detail = 'Text messages are turned off. Enable Text messages to clients in Settings.';
+  }
+  if (blockingReason === null && availableCredits !== null && availableCredits <= 0) {
+    blockingReason = 'NO_CREDITS';
+    detail = 'No SMS credits are available. Add credits from Usage to resume texting.';
+  }
+  const available = blockingReason === null;
+  return {
+    providerReady,
+    senderMode: candidateMode,
+    senderLabel,
+    phoneNumber,
+    blockingReason,
+    detail: detail || (disabledEventTypes.includes('manual_text')
+      ? 'Manual texting is temporarily paused by support. Automatic booking messages follow your saved preferences.'
+      : `Texts send through ${senderLabel}. Each recipient must have agreed to receive texts.`),
+    smsEnabled: settings.sms.enabled,
+    automaticEnabled: available,
+    manualAvailable: available && !disabledEventTypes.includes('manual_text'),
+    remindersEnabled: available && !disabledEventTypes.includes('appointment_reminder') && settings.events.appointment_reminder.enabled
+      && settings.reminders.rules.some(rule => rule.enabled && rule.channels !== 'email'),
+    quietHours: settings.quietHours,
+    availableCredits,
+    workerConfigured,
+  };
+}
+
 export async function getSalonIntegrationHealth(salonId: string) {
   const [
     [google],
@@ -63,6 +164,7 @@ export async function getSalonIntegrationHealth(salonId: string) {
     [failed],
     stripeBindingRows,
     [salonFeatureRow],
+    sms,
   ] = await Promise.all([
     db
       .select({
@@ -98,7 +200,7 @@ export async function getSalonIntegrationHealth(salonId: string) {
         and(
           eq(notificationDeliverySchema.salonId, salonId),
           eq(notificationDeliverySchema.channel, 'sms'),
-          eq(notificationDeliverySchema.status, 'failed'),
+          inArray(notificationDeliverySchema.status, ['failed', 'undelivered']),
         ),
       )
       .orderBy(desc(notificationDeliverySchema.createdAt))
@@ -150,9 +252,11 @@ export async function getSalonIntegrationHealth(salonId: string) {
         return [];
       }
     })(),
+    getSalonSmsReadiness(salonId),
   ]);
 
   return {
+    sms,
     availability: {
       google: Boolean(
         process.env.GOOGLE_OAUTH_CLIENT_ID
@@ -239,7 +343,7 @@ export async function getSalonIntegrationHealth(salonId: string) {
       ? {
           status: twilio.status,
           phoneNumber: twilio.phoneNumber,
-          lastError: twilio.lastError,
+          lastError: twilio.lastError ? 'Your Twilio connection needs attention. Contact support.' : null,
           deauthorized: Boolean(twilio.deauthorizedAt) || twilio.status === 'deauthorized',
         }
       : {
@@ -248,7 +352,7 @@ export async function getSalonIntegrationHealth(salonId: string) {
           lastError: null,
           deauthorized: false,
         },
-    latestSmsDeliveryError: latestSmsFailure ?? null,
+    latestSmsDeliveryError: latestSmsFailure ? { ...latestSmsFailure, errorMessage: friendlyFailureReason(latestSmsFailure.errorCode ?? 'DELIVERY_FAILED') } : null,
     calendarOutbox: {
       pending: Number(pending?.count ?? 0),
       failed: Number(failed?.count ?? 0),

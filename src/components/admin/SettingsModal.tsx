@@ -81,6 +81,7 @@ import {
 } from '@/libs/instagramHandle';
 import type { ResolvedLoyaltyPoints } from '@/libs/loyalty';
 import { hasReviewedForfeitureTaxTreatment } from '@/libs/taxConfig';
+import type { SmsOperationalHealth } from '@/libs/textingStatus';
 import { getDateKeyInTimeZone } from '@/libs/timeZone';
 import { useSalon } from '@/providers/SalonProvider';
 import type {
@@ -2400,15 +2401,18 @@ export function SettingsModal({
   // Rules are edited as a whole list (replace-on-save, matching the server's
   // update schema); every control below is reduced-motion safe (CSS
   // transitions behind Tailwind's motion-reduce variant, no spring physics).
+  const [smsReadiness, setSmsReadiness] = useState<SmsOperationalHealth | null>(null);
   const [communicationsForm, setCommunicationsForm] = useState<{
     emailEnabled: boolean;
     smsEnabled: boolean;
+    killSwitch: boolean;
     quietHours: { enabled: boolean; start: string; end: string };
     rules: Array<{ id: string; offsetMinutes: number; channels: 'sms' | 'email' | 'both'; enabled: boolean }>;
     events: Record<string, { enabled: boolean; channels: 'sms' | 'email' | 'both' }>;
   }>({
     emailEnabled: true,
     smsEnabled: false,
+    killSwitch: false,
     quietHours: { enabled: true, start: '21:00', end: '09:00' },
     rules: [],
     events: {},
@@ -2620,10 +2624,12 @@ export function SettingsModal({
         setShowServiceImages(
           data.merchandising?.showServiceImages !== false,
         );
+        setSmsReadiness(data.sms ?? null);
         if (data.communications) {
           setCommunicationsForm({
             emailEnabled: data.communications.email?.enabled !== false,
             smsEnabled: data.communications.sms?.enabled === true,
+            killSwitch: data.communications.killSwitch === true,
             quietHours: {
               enabled: data.communications.quietHours?.enabled !== false,
               start: data.communications.quietHours?.start ?? '21:00',
@@ -3667,12 +3673,20 @@ export function SettingsModal({
       setCommunicationsSaving(true);
       setCommunicationsSaved(false);
       setCommunicationsError(null);
+      if (communicationsForm.quietHours.start === communicationsForm.quietHours.end) {
+        throw new Error('Choose different start and end times for quiet hours.');
+      }
+      const enabledOffsets = communicationsForm.rules.filter(rule => rule.enabled).map(rule => rule.offsetMinutes);
+      if (new Set(enabledOffsets).size !== enabledOffsets.length) {
+        throw new Error('Choose a different time for each enabled reminder.');
+      }
       const response = await fetch(`/api/admin/salon/settings?salonSlug=${salonSlug}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           communications: {
             sms: { enabled: communicationsForm.smsEnabled },
+            killSwitch: communicationsForm.killSwitch,
             email: { enabled: communicationsForm.emailEnabled },
             quietHours: communicationsForm.quietHours,
             reminders: { rules: communicationsForm.rules },
@@ -3682,14 +3696,18 @@ export function SettingsModal({
           },
         }),
       });
-      if (!response.ok) {
-        throw new Error('Failed to save communication settings');
-      }
       const data = await response.json();
+      if (!response.ok) {
+        throw new Error(response.status === 400
+          ? 'Check your reminder times and quiet hours, then try again.'
+          : 'Could not save. Please try again.');
+      }
+      setSmsReadiness(data.sms ?? null);
       if (data.communications) {
         setCommunicationsForm({
           emailEnabled: data.communications.email?.enabled !== false,
           smsEnabled: data.communications.sms?.enabled === true,
+          killSwitch: data.communications.killSwitch === true,
           quietHours: {
             enabled: data.communications.quietHours?.enabled !== false,
             start: data.communications.quietHours?.start ?? '21:00',
@@ -3702,8 +3720,8 @@ export function SettingsModal({
       setCommunicationsDirty(false);
       setCommunicationsSaved(true);
       setTimeout(() => setCommunicationsSaved(false), 2500);
-    } catch {
-      setCommunicationsError('Could not save. Please try again.');
+    } catch (error) {
+      setCommunicationsError(error instanceof Error ? error.message : 'Could not save. Please try again.');
     } finally {
       setCommunicationsSaving(false);
     }
@@ -5291,10 +5309,28 @@ export function SettingsModal({
 
         {view === 'communications' && (
           <div className="space-y-6 px-4 pb-8 pt-2">
-            {/* Channel masters. SMS stays VISIBLE but disabled when the
-                platform cannot send (§6.3: disabled, never hidden). */}
+            {smsReadiness && (
+              <div className="rounded-xl border border-[var(--owner-line)] bg-[var(--owner-surface)] p-4 text-sm" role="status">
+                <p className="font-medium text-[var(--owner-ink)]">{smsReadiness.senderLabel}</p>
+                <p className="mt-1 text-[var(--owner-muted)]">{smsReadiness.detail}</p>
+                <p className="mt-1 text-[var(--owner-muted)]">{smsReadiness.availableCredits === null ? 'SMS usage is billed by your connected Twilio account.' : `${smsReadiness.availableCredits} SMS credits available. See Usage for details.`}</p>
+              </div>
+            )}
+            {/* Preferences stay editable while a provider is unavailable. */}
             <Section title="Channels">
               <div className="space-y-3 p-4">
+                <label className="flex min-h-[44px] items-center justify-between gap-3">
+                  <span className="text-[15px] text-[var(--owner-ink)]">Pause all communications</span>
+                  <input
+                    type="checkbox"
+                    className="size-5 accent-rose-800"
+                    checked={communicationsForm.killSwitch}
+                    onChange={(event) => {
+                      setCommunicationsForm(current => ({ ...current, killSwitch: event.target.checked }));
+                      setCommunicationsDirty(true);
+                    }}
+                  />
+                </label>
                 <label className="flex min-h-[44px] items-center justify-between gap-3">
                   <span className="text-[15px] text-[var(--owner-ink)]">Email to clients</span>
                   <input
@@ -5323,7 +5359,6 @@ export function SettingsModal({
                     type="checkbox"
                     className="size-5 accent-rose-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-950 disabled:opacity-40"
                     checked={communicationsForm.smsEnabled}
-                    disabled={!bookingNotificationCapabilities.smsChannelAvailable}
                     onChange={(event) => {
                       setCommunicationsForm(current => ({ ...current, smsEnabled: event.target.checked }));
                       setCommunicationsDirty(true);
@@ -5332,8 +5367,8 @@ export function SettingsModal({
                 </label>
                 <p className="text-[13px] leading-snug text-[var(--owner-muted,#706267)]">
                   Email confirmations and reminders are included with every plan.
-                  Text messages use your SMS credits once texting is available for
-                  your salon.
+                  Text messages use Luster SMS credits or your connected Twilio account.
+                  You can save preferences while texting setup is incomplete.
                 </p>
               </div>
             </Section>
@@ -5343,8 +5378,7 @@ export function SettingsModal({
               <div className="space-y-3 p-4">
                 {communicationsForm.rules.length === 0 && (
                   <p className="text-[14px] text-[var(--owner-muted,#706267)]">
-                    No reminders configured. Clients only receive their booking
-                    confirmation.
+                    No scheduled reminders configured. Booking updates follow your channel preferences.
                   </p>
                 )}
                 {communicationsForm.rules.map((rule, index) => (
@@ -5398,10 +5432,10 @@ export function SettingsModal({
                       }}
                     >
                       <option value="email">Email</option>
-                      <option value="sms" disabled={!bookingNotificationCapabilities.smsChannelAvailable}>
+                      <option value="sms">
                         {bookingNotificationCapabilities.smsChannelAvailable ? 'Text' : 'Text (Unavailable)'}
                       </option>
-                      <option value="both" disabled={!bookingNotificationCapabilities.smsChannelAvailable}>
+                      <option value="both">
                         {bookingNotificationCapabilities.smsChannelAvailable ? 'Email & text' : 'Email & text (Unavailable)'}
                       </option>
                     </select>
@@ -5431,10 +5465,7 @@ export function SettingsModal({
                           ...current.rules,
                           {
                             id: `crule_${crypto.randomUUID()}`,
-                            // 2h, NOT 24h: a new rule must not collide with
-                            // the shipped default rule's enabled offset,
-                            // which would fail validation on save.
-                            offsetMinutes: 120,
+                            offsetMinutes: [120, 240, 1440, 2880, 4320].find(offset => !current.rules.some(rule => rule.enabled && rule.offsetMinutes === offset)) ?? 4320,
                             channels: 'email' as const,
                             enabled: true,
                           },
@@ -5504,8 +5535,8 @@ export function SettingsModal({
                   </div>
                 )}
                 <p className="text-[13px] leading-snug text-[var(--owner-muted,#706267)]">
-                  Scheduled reminders wait until quiet hours end. Booking
-                  confirmations still send right away.
+                  Scheduled reminders and manual texts wait until quiet hours end, using your salon’s timezone.
+                  Initial booking confirmations and request receipts still send right away.
                 </p>
               </div>
             </Section>
@@ -5749,8 +5780,8 @@ export function SettingsModal({
                       <div className="rounded-[10px] border border-dashed border-[var(--owner-line)] bg-[var(--owner-ground)] px-3 py-2 text-xs text-[var(--owner-muted)]">
                         {!bookingNotificationCapabilities.smsChannelAvailable && (
                           <div>
-                            SMS alerts are unavailable until SMS reminders are enabled
-                            for the salon and Twilio is configured.
+                            SMS alerts need a configured texting identity and message worker.
+                            Enable Text messages to clients in Client texts & reminders to send them.
                           </div>
                         )}
                         {!bookingNotificationCapabilities.emailChannelAvailable && (

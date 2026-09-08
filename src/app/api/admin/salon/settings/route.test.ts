@@ -20,6 +20,10 @@ import {
 
 import { GET, PATCH } from './route';
 
+vi.mock('@/libs/integrationHealth', () => ({
+  getSalonSmsReadiness: vi.fn(async () => ({ senderMode: 'shared_luster', providerReady: true, workerConfigured: true })),
+}));
+
 vi.mock('server-only', () => ({}));
 
 const {
