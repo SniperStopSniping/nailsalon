@@ -134,7 +134,10 @@ export function BookingPageAppearance({
         { key: 'serviceMenuLayout' as const, title: 'Booking menu layout', values: SERVICE_MENU_LAYOUTS, selected: draft.serviceMenuLayout },
       ]
     : [
-        { key: 'siteStylePreset' as const, title: 'Choose your style', values: CUSTOMER_SITE_STYLE_PRESETS, selected: draft.siteStylePreset ?? 'modern' },
+        // Named for fonts because that is now most of what the choice is:
+        // each preset carries its own display typeface, and every card shows
+        // its name and description set in that face.
+        { key: 'siteStylePreset' as const, title: 'Choose your style and fonts', values: CUSTOMER_SITE_STYLE_PRESETS, selected: draft.siteStylePreset ?? 'modern' },
         { key: 'sitePalettePreset' as const, title: 'Choose your colours', values: CUSTOMER_SITE_PALETTE_PRESETS, selected: draft.sitePalettePreset ?? 'luster_berry' },
       ];
 

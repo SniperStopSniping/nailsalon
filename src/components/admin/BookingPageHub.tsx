@@ -13,7 +13,10 @@ const PREVIEW_RETURN_HASH = '#preview-draft';
 
 const EDITORS = [
   { id: 'layouts', title: 'Layouts', description: 'Site layout and booking menu', icon: LayoutTemplate },
-  { id: 'appearance', title: 'Style & Colours', description: 'The look you chose during setup', icon: Palette },
+  // Fonts are named here on purpose. Each style preset now carries its own
+  // display typeface, and "the look you chose during setup" gave an owner
+  // looking for their fonts nothing to aim at.
+  { id: 'appearance', title: 'Style & Colours', description: 'Fonts, colours and overall look', icon: Palette },
   { id: 'information', title: 'Your Information', description: 'Business details and public visibility', icon: UserRound },
   { id: 'text', title: 'About & Website Text', description: 'Your introduction and bio', icon: Type },
   { id: 'policies', title: 'Policies & Booking Rules', description: 'Client policies and booking settings', icon: ShieldCheck },

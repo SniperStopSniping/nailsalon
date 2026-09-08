@@ -256,6 +256,21 @@
   .service-page-viewport[data-customer-site-style] :where(h1, h2, h3) {
     color: var(--customer-site-ink);
     font-family: var(--customer-site-heading-font);
+    letter-spacing: var(--customer-site-heading-tracking, normal);
+  }
+
+  /*
+   * The business name carries most of a style's character, and in the six
+   * original layouts it is a Tailwind-styled heading rather than the shared
+   * renderer's `.qb-name`. A `:where()` rule has no specificity and would lose
+   * to `font-bold`/`leading-tight`, so the name is addressed directly here.
+   * Only weight, tracking and leading are set: size stays with the layout, so
+   * no composition moves when the style changes.
+   */
+  .service-page-viewport[data-customer-site-style] [data-testid='booking-salon-name'] {
+    font-weight: var(--customer-site-heading-weight, 700);
+    letter-spacing: var(--customer-site-heading-tracking, -0.02em);
+    line-height: var(--customer-site-heading-leading, 1.1);
   }
 
   .service-page-viewport[data-customer-site-style] :where(.text-neutral-950, .text-neutral-900, .text-neutral-800) {
