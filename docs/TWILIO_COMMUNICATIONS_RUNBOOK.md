@@ -2,6 +2,8 @@
 
 This pass repairs communications only. It does not enable production SMS, change credentials, provision numbers, run production migrations, or authorize customer sends. The current code and deployment configuration govern behavior; older Gate A/B descriptions of a future dispatcher or native-only manual texting are obsolete.
 
+Operational follow-up: the existing Canadian sender and approved opt-out routing are configured. The repair is under review in [PR #170](https://github.com/SniperStopSniping/nailsalon/pull/170); production still runs `71f70ca`. The authorized Preview needs verification after a branch-scoped Clerk development-key repair, and required CI is in progress. See `RESUME.md` checkpoints 5–9 and the [pilot checklist](TWILIO_PILOT_CHECKLIST.md) for current setup evidence and remaining gates. No live SMS pilot or production release has been authorized or performed.
+
 ## Architecture and audit findings
 
 | Area | Existing foundation | Defect repaired / operational boundary |
