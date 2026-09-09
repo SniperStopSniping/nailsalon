@@ -106,6 +106,50 @@ suite('credit engine — real-lock concurrency matrix', () => {
     });
   }
 
+  it('concurrent top-up attempts reuse one attempt while another salon proceeds independently', async () => {
+    const { beginCheckoutAttempt } = await import('./checkoutAttempts');
+    let releaseCreator!: () => void;
+    let signalCreator!: () => void;
+    const creatorGate = new Promise<void>((resolve) => {
+      releaseCreator = resolve;
+    });
+    const creatorStarted = new Promise<void>((resolve) => {
+      signalCreator = resolve;
+    });
+    const input = { salonId: 's1', purpose: 'sms_topup' as const, topupOfferKey: 'topup_100_free_2026_08' };
+    const creator = db.transaction(async (tx) => {
+      const result = await beginCheckoutAttempt(tx, input);
+      signalCreator();
+      await creatorGate;
+      return result;
+    });
+    await creatorStarted;
+    const followers = Array.from({ length: 24 }, () =>
+      db.transaction(tx => beginCheckoutAttempt(tx, input)));
+    try {
+      const otherSalon = await db.transaction(tx => beginCheckoutAttempt(tx, { ...input, salonId: 's2' }));
+
+      expect(otherSalon.ok && !otherSalon.reused).toBe(true);
+    } finally {
+      releaseCreator();
+    }
+    const results = await Promise.all([creator, ...followers]);
+    const successful = results.filter(result => result.ok);
+
+    expect(successful).toHaveLength(25);
+    expect(successful.filter(result => !result.reused)).toHaveLength(1);
+    expect(new Set(successful.map(result => result.attemptId)).size).toBe(1);
+    expect(new Set(successful.map(result => result.stripeIdempotencyKey)).size).toBe(1);
+
+    const active = await pool.query(
+      `SELECT salon_id, COUNT(*)::int AS n FROM billing_checkout_attempt
+       WHERE purpose = 'sms_topup' AND status IN ('creating', 'checkout_created') GROUP BY salon_id`,
+    );
+
+    expect(active.rows).toEqual(expect.arrayContaining([{ salon_id: 's1', n: 1 }, { salon_id: 's2', n: 1 }]));
+    expect(active.rows).toHaveLength(2);
+  });
+
   it('25-way race on one remaining credit: exactly one hold, never negative', async () => {
     const { reserveSmsCredits } = await import('./creditReservation');
     await grant('s1', 1, 'c1_seed');

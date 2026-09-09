@@ -1,6 +1,8 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('server-only', () => ({}));
+const env = vi.hoisted(() => ({ BILLING_PLAN_ENV: 'test', BILLING_TOPUP_PRICE_IDS: undefined as string | undefined }));
+vi.mock('@/libs/Env', () => ({ Env: env }));
 
 const {
   BillingCatalogError,
@@ -16,6 +18,44 @@ const { TOPUP_OFFERS } = await import('./topupOffers');
 const { PROMOTIONS } = await import('./promotions');
 
 describe('stripePriceMap', () => {
+  beforeEach(() => {
+    env.BILLING_PLAN_ENV = 'test';
+    env.BILLING_TOPUP_PRICE_IDS = undefined;
+  });
+
+  it('resolves provisioned top-up prices only in the current environment', () => {
+    env.BILLING_TOPUP_PRICE_IDS = JSON.stringify({
+      test: { topup_100_free_2026_08: 'price_testFixture123' },
+      prod: { topup_100_free_2026_08: 'price_prodFixture123' },
+    });
+
+    expect(resolveStripePriceIdForTopup('topup_100_free_2026_08')).toBe('price_testFixture123');
+    expect(resolveTopupOfferFromStripePriceId('price_testFixture123')).toBe('topup_100_free_2026_08');
+    expect(resolveTopupOfferFromStripePriceId('price_prodFixture123')).toBeNull();
+
+    env.BILLING_PLAN_ENV = 'prod';
+
+    expect(resolveStripePriceIdForTopup('topup_100_free_2026_08')).toBe('price_prodFixture123');
+
+    env.BILLING_PLAN_ENV = 'dev';
+
+    expect(() => resolveStripePriceIdForTopup('topup_100_free_2026_08')).toThrow(/PRICE_UNCONFIGURED/);
+  });
+
+  it.each([
+    'invalid JSON',
+    '{"test":{"unknown_offer":"price_fixture123"}}',
+    '{"test":{"topup_100_free_2026_08":"price_123"}}',
+    '{"test":{"topup_100_free_2026_08":"coupon_fixture123"}}',
+    '{"test":{"topup_100_free_2026_08":"price_fixture123","topup_500_free_2026_08":"price_fixture123"}}',
+    '{"production":{}}',
+  ])('fails closed on malformed or ambiguous mapping %s', (raw) => {
+    env.BILLING_TOPUP_PRICE_IDS = raw;
+
+    expect(() => resolveStripePriceIdForTopup('topup_100_free_2026_08')).toThrow(/PRICE_UNCONFIGURED/);
+    expect(() => resolveTopupOfferFromStripePriceId('price_fixture123')).toThrow(/PRICE_UNCONFIGURED/);
+  });
+
   it('throws PRICE_UNCONFIGURED for every catalogue key while identifiers are placeholders', () => {
     for (const key of Object.keys(BILLING_OFFERS) as Array<keyof typeof BILLING_OFFERS>) {
       expect(() => resolveStripePriceIdForOffer(key)).toThrow(BillingCatalogError);

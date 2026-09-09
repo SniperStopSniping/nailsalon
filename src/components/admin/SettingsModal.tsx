@@ -5430,6 +5430,7 @@ export function SettingsModal({
                         setCommunicationsDirty(true);
                       }}
                     >
+                      <option value="60">1 hour before</option>
                       <option value="120">2 hours before</option>
                       <option value="240">4 hours before</option>
                       <option value="1440">24 hours before</option>
@@ -5480,7 +5481,7 @@ export function SettingsModal({
                           ...current.rules,
                           {
                             id: `crule_${crypto.randomUUID()}`,
-                            offsetMinutes: [120, 240, 1440, 2880, 4320].find(offset => !current.rules.some(rule => rule.enabled && rule.offsetMinutes === offset)) ?? 4320,
+                            offsetMinutes: [60, 120, 240, 1440, 2880, 4320].find(offset => !current.rules.some(rule => rule.enabled && rule.offsetMinutes === offset)) ?? 4320,
                             channels: 'email' as const,
                             enabled: true,
                           },

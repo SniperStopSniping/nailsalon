@@ -10,8 +10,8 @@
  * becoming three billing systems.
  *
  * Pipeline: dedicated-secret signature verification → livemode gate against
- * BILLING_PLAN_ENV → billing_stripe_event claim (replay exits 200; a
- * failed_retryable row past backoff reclaims) → type-specific handler →
+ * BILLING_PLAN_ENV → billing_stripe_event claim (terminal replay exits 200;
+ * elapsed backoff or an abandoned processing lease reclaims) → type-specific handler →
  * terminal status. Handler errors mark failed_retryable with backoff and
  * return 500 so Stripe retries; the 8th attempt poisons, alerts, and
  * returns 200. Financial effects live in billingSubscriptionProjection and
@@ -107,21 +107,34 @@ export async function POST(request: Request): Promise<Response> {
     rawPayload: JSON.parse(JSON.stringify(event)) as Record<string, unknown>,
   });
   if (!claim.claimed) {
-    // Replay or concurrent delivery: acknowledged, never reprocessed.
+    if (claim.reason === 'in_flight') {
+      // Stripe drives recovery; acknowledging a pending/backoff delivery
+      // would stop retries before the original event reaches a terminal state.
+      return Response.json({ error: { code: 'BILLING_EVENT_PENDING' } }, {
+        status: 503,
+        headers: { 'Retry-After': '60' },
+      });
+    }
     return Response.json({ received: true, deduplicated: true });
   }
   if (event.livemode !== expectLive) {
-    await resolveBillingEvent(event.id, 'ignored_livemode_mismatch');
+    if (!await resolveBillingEvent(event.id, 'ignored_livemode_mismatch', claim.attempts)) {
+      return Response.json({ error: { code: 'BILLING_EVENT_PENDING' } }, { status: 503 });
+    }
     return Response.json({ received: true, ignored: 'livemode_mismatch' });
   }
   if (!HANDLED_TYPES.has(event.type)) {
-    await resolveBillingEvent(event.id, 'ignored_unhandled');
+    if (!await resolveBillingEvent(event.id, 'ignored_unhandled', claim.attempts)) {
+      return Response.json({ error: { code: 'BILLING_EVENT_PENDING' } }, { status: 503 });
+    }
     return Response.json({ received: true, ignored: 'unhandled_type' });
   }
 
   try {
     const outcome = await handleEvent(event);
-    await resolveBillingEvent(event.id, outcome.status, outcome.detail);
+    if (!await resolveBillingEvent(event.id, outcome.status, claim.attempts, outcome.detail)) {
+      return Response.json({ error: { code: 'BILLING_EVENT_PENDING' } }, { status: 503 });
+    }
     return Response.json({ received: true, outcome: outcome.status });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'HANDLER_FAILED';
@@ -142,6 +155,16 @@ export async function POST(request: Request): Promise<Response> {
   }
 }
 
+// A refund/dispute may beat checkout completion's payment-intent binding.
+// Keep top-up reversals retryable so a stale completion snapshot cannot
+// grant permanently after an early reversal was acknowledged and forgotten.
+async function retryUnboundTopupReversal(paymentIntentId: string) {
+  const intent = await stripe.paymentIntents.retrieve(paymentIntentId);
+  if (intent.metadata.purpose === 'sms_topup') {
+    throw new Error('TOPUP_REVERSAL_AWAITING_PURCHASE_BINDING');
+  }
+}
+
 async function handleEvent(event: Stripe.Event): Promise<{
   status: 'processed' | 'held_anomaly' | 'ignored_foreign';
   detail?: string;
@@ -153,17 +176,17 @@ async function handleEvent(event: Stripe.Event): Promise<{
       const session = event.data.object as Stripe.Checkout.Session;
       const purpose = session.metadata?.purpose;
       if (purpose === 'sms_topup') {
-        const result = await applyTopupSessionCompleted({
-          sessionId: session.id,
-          paymentStatus: session.payment_status ?? 'unpaid',
-          paymentIntentId: typeof session.payment_intent === 'string'
-            ? session.payment_intent
-            : session.payment_intent?.id ?? null,
+        const authoritative = await stripe.checkout.sessions.retrieve(session.id, {
+          expand: ['line_items', 'payment_intent.latest_charge'],
         });
-        if (!result.fulfilled && result.reason === 'PURCHASE_NOT_FOUND') {
-          // The precreated row should always exist — retryable, redelivery
-          // gives a racing checkout TX2 time to record the session id.
-          throw new Error('TOPUP_PURCHASE_NOT_FOUND');
+        const result = await applyTopupSessionCompleted({ session: authoritative });
+        if (!result.fulfilled && result.reason) {
+          Sentry.captureMessage(result.reason, {
+            level: 'error',
+            tags: { endpoint: 'webhooks/stripe-billing', eventType: event.type },
+            extra: { eventId: event.id, sessionId: session.id },
+          });
+          return { status: 'held_anomaly', detail: result.reason };
         }
         return { status: 'processed' };
       }
@@ -279,6 +302,7 @@ async function handleEvent(event: Stripe.Event): Promise<{
             ? { status: 'held_anomaly', detail: outcome.anomaly }
             : { status: 'processed' };
         }
+        await retryUnboundTopupReversal(paymentIntentId);
       }
       // Not a top-up: a SUBSCRIPTION-charge refund has no automated v1
       // behavior (§6.7 — "MAY suspend" is an operator decision).
@@ -301,6 +325,7 @@ async function handleEvent(event: Stripe.Event): Promise<{
         if (outcome !== null) {
           return { status: 'processed' };
         }
+        await retryUnboundTopupReversal(paymentIntentId);
       }
       Sentry.captureMessage('billing.charge_event_held', {
         level: 'warning',

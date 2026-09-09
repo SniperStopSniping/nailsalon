@@ -186,6 +186,8 @@ describe('materializeReminders + supersession', () => {
 
     expect(first.materialized.map(r => r.channel).sort()).toEqual(['email', 'sms']);
 
+    expect((await intentsFor('appt_m4')).every(row => row.variables.reminderLeadMinutes === '1440')).toBe(true);
+
     // Replay with identical inputs: same scheduling revision, same keys.
     const replay = await db.transaction(async tx => materializeReminders({ tx, ...base }));
 
@@ -266,6 +268,41 @@ describe('materializeReminders + supersession', () => {
 
     expect(back.materialized).toHaveLength(2);
     expect(back.materialized.every(r => r.created)).toBe(true);
+  });
+
+  it('preserves each rule lead time for history even when quiet hours move the send', async () => {
+    const { materializeReminders } = await materialization();
+    await seedSalonAndAppointment('s_lead_times', 'appt_lead_times');
+    const settings = await resolvedSettings({
+      reminders: { rules: [
+        { id: 'day_before', offsetMinutes: 1440, channels: 'both', enabled: true },
+        { id: 'hour_before', offsetMinutes: 60, channels: 'both', enabled: true },
+      ] },
+    });
+    await db.transaction(async tx => materializeReminders({
+      tx,
+      salonId: 's_lead_times',
+      appointmentId: 'appt_lead_times',
+      appointmentStart: new Date('2026-09-10T13:30:00.000Z'),
+      appointmentUpdatedAt: NOW,
+      clientPhone: '4165550100',
+      clientEmail: 'client@example.com',
+      settings,
+      timeZone: 'America/Toronto',
+      variables: { salonName: 'Fixture', reminderLeadMinutes: '999' },
+      smsEligible: true,
+      now: NOW,
+    }));
+    const rows = await intentsFor('appt_lead_times');
+
+    expect(rows).toHaveLength(4);
+
+    for (const row of rows) {
+      expect(row.variables).toMatchObject({
+        salonName: 'Fixture',
+        reminderLeadMinutes: row.ruleId === 'day_before' ? '1440' : '60',
+      });
+    }
   });
 
   it('skips rules whose lead time already passed instead of firing late', async () => {

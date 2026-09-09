@@ -45,6 +45,8 @@ vi.mock('@/libs/rateLimit', () => ({
 }));
 
 const stripeMock = vi.hoisted(() => ({
+  prices: { retrieve: vi.fn() },
+  paymentIntents: { retrieve: vi.fn() },
   checkout: { sessions: { create: vi.fn(), retrieve: vi.fn() } },
   webhooks: {
     constructEvent: vi.fn((rawBody: string, signature: string) => {
@@ -82,14 +84,83 @@ beforeAll(async () => {
   holder.db = db;
 });
 
+const sessions = new Map<string, Record<string, any>>();
+const fixedPrice = (overrides: Record<string, unknown> = {}) => ({
+  id: 'price_topup_resolved',
+  active: true,
+  type: 'one_time',
+  recurring: null,
+  currency: 'cad',
+  unit_amount: 599,
+  billing_scheme: 'per_unit',
+  custom_unit_amount: null,
+  transform_quantity: null,
+  livemode: false,
+  ...overrides,
+});
+
 beforeEach(() => {
   envHolder.BILLING_TOPUPS_ENABLED = 'true';
+  envHolder.STRIPE_BILLING_WEBHOOK_SECRET = 'whsec_test';
   priceMapHolder.priceId = 'price_topup_resolved';
+  sessions.clear();
+  stripeMock.paymentIntents.retrieve.mockReset();
+  stripeMock.paymentIntents.retrieve.mockImplementation(async (id: string) => {
+    const session = [...sessions.values()].find(entry => entry.payment_intent.id === id);
+    return session?.payment_intent ?? { id, metadata: {} };
+  });
+  stripeMock.prices.retrieve.mockReset();
+  stripeMock.prices.retrieve.mockResolvedValue(fixedPrice());
+  stripeMock.checkout.sessions.retrieve.mockReset();
+  stripeMock.checkout.sessions.retrieve.mockImplementation(async (id: string) => sessions.get(id));
   stripeMock.checkout.sessions.create.mockReset();
-  stripeMock.checkout.sessions.create.mockImplementation(async () => ({
-    id: `cs_topup_${Math.random().toString(36).slice(2, 8)}`,
-    url: 'https://checkout.stripe.test/topup',
-  }));
+  stripeMock.checkout.sessions.create.mockImplementation(async (params) => {
+    const id = `cs_topup_${crypto.randomUUID()}`;
+    const price = await stripeMock.prices.retrieve();
+    const session = {
+      id,
+      url: 'https://checkout.stripe.test/topup',
+      mode: 'payment',
+      status: 'complete',
+      livemode: false,
+      currency: 'cad',
+      amount_total: price.unit_amount,
+      amount_subtotal: price.unit_amount,
+      payment_status: 'paid',
+      payment_method_types: ['card'],
+      metadata: params.metadata,
+      payment_intent: {
+        metadata: { ...params.payment_intent_data.metadata },
+        id: `pi_${params.metadata.salonId}`,
+        status: 'succeeded',
+        livemode: false,
+        currency: 'cad',
+        amount: price.unit_amount,
+        amount_received: price.unit_amount,
+        payment_method_types: ['card'],
+        latest_charge: {
+          id: `ch_${params.metadata.salonId}`,
+          paid: true,
+          captured: true,
+          livemode: false,
+          currency: 'cad',
+          amount: price.unit_amount,
+          amount_captured: price.unit_amount,
+          amount_refunded: 0,
+          disputed: false,
+        },
+      },
+      line_items: { has_more: false, data: [{
+        quantity: 1,
+        currency: 'cad',
+        amount_total: price.unit_amount,
+        amount_subtotal: price.unit_amount,
+        price,
+      }] },
+    };
+    sessions.set(id, session);
+    return session;
+  });
 });
 
 const postCheckout = async (body: unknown) => {
@@ -161,6 +232,7 @@ describe('top-up checkout (§9.2)', () => {
 
   it('precreates the durable purchase and creates the session under the attempt key', async () => {
     await seedSalon('s_t_ok');
+    stripeMock.prices.retrieve.mockResolvedValue(fixedPrice({ unit_amount: 1399 }));
     const response = await postCheckout({ salonId: 's_t_ok', topupOfferKey: 'topup_250_paid_2026_08' });
 
     expect(response.status).toBe(200);
@@ -182,7 +254,276 @@ describe('top-up checkout (§9.2)', () => {
     const params = stripeMock.checkout.sessions.create.mock.calls[0]![0];
 
     expect(params.mode).toBe('payment');
+    expect(params.payment_method_types).toEqual(['card']);
     expect(params.metadata.purpose).toBe('sms_topup');
+  });
+});
+
+describe('top-up launch safety', () => {
+  it.each([undefined, '   '])('rejects checkout without a configured fulfillment webhook (%s) before writes or Stripe calls', async (secret) => {
+    envHolder.STRIPE_BILLING_WEBHOOK_SECRET = secret;
+    const salonId = `s_t_no_webhook_${String(secret)}`;
+    await seedSalon(salonId);
+    const response = await postCheckout({ salonId, topupOfferKey: 'topup_100_paid_2026_08' });
+
+    expect(response.status).toBe(503);
+    expect((await response.json()).error.code).toBe('TOPUPS_UNAVAILABLE');
+    expect(stripeMock.prices.retrieve).not.toHaveBeenCalled();
+    expect(stripeMock.checkout.sessions.create).not.toHaveBeenCalled();
+    expect(await purchaseRows(salonId)).toHaveLength(0);
+  });
+
+  it('reuses one purchase and session across retries and rejects a different offer', async () => {
+    await seedSalon('s_t_retry');
+    const first = await postCheckout({ salonId: 's_t_retry', topupOfferKey: 'topup_100_paid_2026_08' });
+    const firstData = (await first.json()).data;
+    const retry = await postCheckout({ salonId: 's_t_retry', topupOfferKey: 'topup_100_paid_2026_08' });
+
+    expect((await retry.json()).data).toMatchObject({ sessionId: firstData.sessionId, reused: true });
+    expect(stripeMock.checkout.sessions.create).toHaveBeenCalledTimes(1);
+    expect(await purchaseRows('s_t_retry')).toHaveLength(1);
+
+    stripeMock.prices.retrieve.mockResolvedValue(fixedPrice({ unit_amount: 1399 }));
+    const different = await postCheckout({ salonId: 's_t_retry', topupOfferKey: 'topup_250_paid_2026_08' });
+
+    expect(different.status).toBe(409);
+    expect(await purchaseRows('s_t_retry')).toHaveLength(1);
+  });
+
+  it('reuses the committed creating attempt while the sole provider call is pending', async () => {
+    await seedSalon('s_t_parallel');
+    const createSession = stripeMock.checkout.sessions.create.getMockImplementation()!;
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let started!: () => void;
+    const providerStarted = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    stripeMock.checkout.sessions.create.mockImplementation(async (...args) => {
+      started();
+      await gate;
+      return createSession(...args);
+    });
+    const first = postCheckout({ salonId: 's_t_parallel', topupOfferKey: 'topup_100_paid_2026_08' });
+    await providerStarted;
+    const retry = await postCheckout({ salonId: 's_t_parallel', topupOfferKey: 'topup_100_paid_2026_08' });
+
+    expect(retry.status).toBe(409);
+    expect(stripeMock.checkout.sessions.create).toHaveBeenCalledTimes(1);
+    expect(await purchaseRows('s_t_parallel')).toHaveLength(1);
+
+    release();
+
+    expect((await first).status).toBe(200);
+  });
+
+  it('keeps an unknown provider outcome reserved until its fixed expiry', async () => {
+    await seedSalon('s_t_unknown');
+    stripeMock.checkout.sessions.create.mockRejectedValue(new Error('connection lost'));
+    const first = await postCheckout({ salonId: 's_t_unknown', topupOfferKey: 'topup_100_paid_2026_08' });
+    const retry = await postCheckout({ salonId: 's_t_unknown', topupOfferKey: 'topup_100_paid_2026_08' });
+    const [attempt] = await db.select().from(schema.billingCheckoutAttemptSchema)
+      .where(eq(schema.billingCheckoutAttemptSchema.salonId, 's_t_unknown'));
+
+    expect(first.status).toBe(502);
+    expect(retry.status).toBe(409);
+    expect(attempt!.status).toBe('creating');
+    expect(stripeMock.checkout.sessions.create).toHaveBeenCalledTimes(1);
+    expect(await purchaseRows('s_t_unknown')).toHaveLength(1);
+
+    await db.update(schema.billingCheckoutAttemptSchema).set({ expiresAt: new Date(0) })
+      .where(eq(schema.billingCheckoutAttemptSchema.id, attempt!.id));
+    await postCheckout({ salonId: 's_t_unknown', topupOfferKey: 'topup_100_paid_2026_08' });
+
+    expect(stripeMock.checkout.sessions.create).toHaveBeenCalledTimes(2);
+    expect(await purchaseRows('s_t_unknown')).toHaveLength(2);
+  });
+
+  it.each([
+    ['inactive', { active: false }],
+    ['recurring', { type: 'recurring' }],
+    ['currency', { currency: 'usd' }],
+    ['amount', { unit_amount: 1 }],
+    ['environment', { livemode: true }],
+    ['variable quantity', { transform_quantity: { divide_by: 2 } }],
+  ])('rejects an invalid configured price (%s) before durable writes', async (label, overrides) => {
+    const salonId = `s_price_${label}`;
+    await seedSalon(salonId);
+    stripeMock.prices.retrieve.mockResolvedValue(fixedPrice(overrides));
+    const response = await postCheckout({ salonId, topupOfferKey: 'topup_100_paid_2026_08' });
+
+    expect(response.status).toBe(503);
+    expect(stripeMock.checkout.sessions.create).not.toHaveBeenCalled();
+    expect(await purchaseRows(salonId)).toHaveLength(0);
+  });
+
+  it('fulfills before TX2 and completes the attempt without being downgraded by TX2', async () => {
+    await seedSalon('s_t_early');
+    const createSession = stripeMock.checkout.sessions.create.getMockImplementation()!;
+    stripeMock.checkout.sessions.create.mockImplementation(async (...args) => {
+      const session = await createSession(...args);
+      const result = await postWebhook(webhookEvent('checkout.session.completed', session));
+
+      expect(result.status).toBe(200);
+      expect(await purchasedBalance('s_t_early')).toBe(100);
+
+      return session;
+    });
+    const response = await postCheckout({ salonId: 's_t_early', topupOfferKey: 'topup_100_paid_2026_08' });
+    const [attempt] = await db.select().from(schema.billingCheckoutAttemptSchema)
+      .where(eq(schema.billingCheckoutAttemptSchema.salonId, 's_t_early'));
+
+    expect(response.status).toBe(200);
+    expect(attempt!.status).toBe('completed');
+    expect((await purchaseRows('s_t_early'))[0]!.status).toBe('fulfilled');
+  });
+
+  it('recovers a remotely created session after a lost response and fulfills only once across distinct events', async () => {
+    await seedSalon('s_t_lost');
+    const createSession = stripeMock.checkout.sessions.create.getMockImplementation()!;
+    stripeMock.checkout.sessions.create.mockImplementation(async (...args) => {
+      await createSession(...args);
+      throw new Error('response lost');
+    });
+    const response = await postCheckout({ salonId: 's_t_lost', topupOfferKey: 'topup_100_paid_2026_08' });
+    const session = [...sessions.values()][0]!;
+
+    expect(response.status).toBe(502);
+    expect((await purchaseRows('s_t_lost'))[0]!.stripeCheckoutSessionId).toBeNull();
+
+    await postWebhook(webhookEvent('checkout.session.completed', session));
+    await postWebhook(webhookEvent('checkout.session.completed', session));
+
+    expect(await purchasedBalance('s_t_lost')).toBe(100);
+    expect((await purchaseRows('s_t_lost'))[0]!.stripeCheckoutSessionId).toBe(session.id);
+  });
+
+  it.each(['charge.refunded', 'charge.dispute.created'])('retries an early %s until completion binds the purchase', async (eventType) => {
+    const salonId = `s_early_${eventType}`;
+    await seedSalon(salonId);
+    const createSession = stripeMock.checkout.sessions.create.getMockImplementation()!;
+    let reversal: ReturnType<typeof webhookEvent>;
+    stripeMock.checkout.sessions.create.mockImplementation(async (...args) => {
+      const session = await createSession(...args);
+      // Provider session exists, but checkout TX2 has not bound it. Simulate
+      // a reversal arriving after completion fetched a clean charge snapshot.
+      const cleanSnapshot = structuredClone(session);
+      reversal = webhookEvent(eventType, {
+        id: `reversal_${salonId}`,
+        payment_intent: session.payment_intent.id,
+        amount_refunded: 599,
+        refunds: { data: [{ id: `refund_${salonId}` }] },
+      });
+      const early = await postWebhook(reversal);
+
+      expect(early.status).toBe(500);
+      expect((await early.json()).error.message).toBe('TOPUP_REVERSAL_AWAITING_PURCHASE_BINDING');
+
+      const tooSoon = await postWebhook(reversal);
+      const [pending] = await db.select().from(schema.billingStripeEventSchema)
+        .where(eq(schema.billingStripeEventSchema.eventId, reversal.id));
+
+      expect(tooSoon.status).toBe(503);
+      expect((await tooSoon.json()).error.code).toBe('BILLING_EVENT_PENDING');
+      expect(pending!.status).toBe('failed_retryable');
+      expect(pending!.attempts).toBe(1);
+
+      stripeMock.checkout.sessions.retrieve.mockResolvedValueOnce(cleanSnapshot);
+      await postWebhook(webhookEvent('checkout.session.completed', session));
+
+      expect(await purchasedBalance(salonId)).toBe(100);
+
+      return session;
+    });
+    const response = await postCheckout({ salonId, topupOfferKey: 'topup_100_paid_2026_08' });
+
+    expect(response.status).toBe(200);
+
+    await db.update(schema.billingStripeEventSchema).set({ availableAt: new Date(0) })
+      .where(eq(schema.billingStripeEventSchema.eventId, reversal!.id));
+    const retried = await postWebhook(reversal!);
+
+    expect(retried.status).toBe(200);
+    expect(await purchasedBalance(salonId)).toBe(0);
+
+    await postWebhook(reversal!);
+
+    expect(await purchasedBalance(salonId)).toBe(0);
+  });
+
+  it.each([
+    'tenant',
+    'purchase',
+    'attempt',
+    'offer',
+    'environment',
+    'amount',
+    'currency',
+    'price',
+    'quantity',
+    'payment mode',
+    'intent amount',
+    'intent currency',
+    'intent environment',
+    'delayed method',
+    'already refunded',
+    'already disputed',
+    'intent metadata',
+  ])('holds mismatched authoritative payment evidence (%s) without granting', async (mismatch) => {
+    const salonId = `s_mismatch_${mismatch}`;
+    await seedSalon(salonId);
+    const response = await postCheckout({ salonId, topupOfferKey: 'topup_100_paid_2026_08' });
+    const { data } = await response.json();
+    const session = sessions.get(data.sessionId)!;
+    switch (mismatch) {
+      case 'tenant': session.metadata.salonId = 'different-tenant';
+        break;
+      case 'purchase': session.metadata.purchaseId = 'different-purchase';
+        break;
+      case 'attempt': session.metadata.attemptId = 'different-attempt';
+        break;
+      case 'offer': session.metadata.topupOfferKey = 'topup_250_paid_2026_08';
+        break;
+      case 'environment': session.metadata.billingEnv = 'prod';
+        break;
+      case 'amount': session.amount_total = 1;
+        break;
+      case 'currency': session.currency = 'usd';
+        break;
+      case 'price': session.line_items.data[0].price.id = 'price_foreign';
+        break;
+      case 'quantity': session.line_items.data[0].quantity = 2;
+        break;
+      case 'payment mode': session.mode = 'subscription';
+        break;
+      case 'intent amount': session.payment_intent.amount = 1;
+        break;
+      case 'intent currency': session.payment_intent.currency = 'usd';
+        break;
+      case 'intent environment': session.payment_intent.livemode = true;
+        break;
+      case 'delayed method': session.payment_method_types = ['us_bank_account'];
+        break;
+    }
+    if (mismatch === 'intent metadata') {
+      session.payment_intent.metadata = { ...session.metadata, purchaseId: 'other-purchase' };
+    }
+    if (mismatch === 'already refunded') {
+      session.payment_intent.latest_charge.amount_refunded = 599;
+    }
+    if (mismatch === 'already disputed') {
+      session.payment_intent.latest_charge.disputed = true;
+    }
+    const event = webhookEvent('checkout.session.completed', session);
+    await postWebhook(event);
+    const [record] = await db.select().from(schema.billingStripeEventSchema)
+      .where(eq(schema.billingStripeEventSchema.eventId, event.id));
+
+    expect(record!.status).toBe('held_anomaly');
+    expect(await purchasedBalance(salonId)).toBe(0);
+    expect((await purchaseRows(salonId))[0]!.stripePaymentIntentId).toBeNull();
   });
 });
 
@@ -194,9 +535,7 @@ describe('top-up fulfillment through the webhook (§9.3-§9.5)', () => {
     const sessionId = sessionOverride ?? data.sessionId;
     const completed = webhookEvent('checkout.session.completed', {
       id: sessionId,
-      payment_status: 'paid',
-      payment_intent: `pi_${salonId}`,
-      metadata: { purpose: 'sms_topup', salonId },
+      ...sessions.get(sessionId),
     });
     await postWebhook(completed);
     return { sessionId, completed };
@@ -217,23 +556,41 @@ describe('top-up fulfillment through the webhook (§9.3-§9.5)', () => {
     expect(await purchasedBalance('s_t_fulfill')).toBe(100);
   });
 
-  it('an unpaid async completion records the intent and grants nothing', async () => {
+  it('reclaims an abandoned event after its grant committed without granting again', async () => {
+    const { completed } = await buyAndPay('s_t_abandoned');
+
+    expect(await purchasedBalance('s_t_abandoned')).toBe(100);
+
+    // Model a worker dying between financial commit and terminal event write.
+    await db.update(schema.billingStripeEventSchema)
+      .set({ status: 'processing', availableAt: new Date(0), processedAt: null })
+      .where(eq(schema.billingStripeEventSchema.eventId, completed.id));
+    const replay = await postWebhook(completed);
+    const [record] = await db.select().from(schema.billingStripeEventSchema)
+      .where(eq(schema.billingStripeEventSchema.eventId, completed.id));
+
+    expect(replay.status).toBe(200);
+    expect(record!.status).toBe('processed');
+    expect(record!.attempts).toBe(2);
+    expect(await purchasedBalance('s_t_abandoned')).toBe(100);
+  });
+
+  it('an unpaid completion is held without binding or granting credits', async () => {
     await seedSalon('s_t_unpaid');
     const checkout = await postCheckout({ salonId: 's_t_unpaid', topupOfferKey: 'topup_100_paid_2026_08' });
     const { data } = await checkout.json();
-    await postWebhook(webhookEvent('checkout.session.completed', {
-      id: data.sessionId,
-      payment_status: 'unpaid',
-      payment_intent: 'pi_unpaid',
-      metadata: { purpose: 'sms_topup', salonId: 's_t_unpaid' },
-    }));
+    const session = sessions.get(data.sessionId)!;
+    session.payment_status = 'unpaid';
+    session.payment_intent.status = 'processing';
+    session.payment_intent.amount_received = 0;
+    await postWebhook(webhookEvent('checkout.session.completed', session));
 
     expect(await purchasedBalance('s_t_unpaid')).toBe(0);
 
     const [purchase] = await purchaseRows('s_t_unpaid');
 
     expect(purchase!.status).toBe('checkout_created');
-    expect(purchase!.stripePaymentIntentId).toBe('pi_unpaid');
+    expect(purchase!.stripePaymentIntentId).toBeNull();
   });
 
   it('an expired session parks the purchase', async () => {
