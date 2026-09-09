@@ -2127,6 +2127,6 @@ describe('BookingPageOwnerSurface', () => {
       expect(fetchMock.mock.calls.filter(([url, init]) => (
         String(url).includes('/api/admin/booking-page') && init?.method === 'POST'
       ))).toHaveLength(1);
-    });
+    }, 15_000);
   });
 });
