@@ -18,9 +18,11 @@ import { requireAdminSalon } from '@/libs/adminAuth';
 import { computeAvailableBalance } from '@/libs/billing/creditLedger';
 import { resolveTopupAudienceForLegacyPlan } from '@/libs/billing/legacyPlanAdapter';
 import { getPlanDefinition } from '@/libs/billing/planDefinitions';
+import { BillingCatalogError, resolveStripePriceIdForTopup } from '@/libs/billing/stripePriceMap';
 import { listActiveTopupOffersForAudience } from '@/libs/billing/topupOffers';
 import { friendlyFailureReason, maskRecipient } from '@/libs/communicationMasking';
 import { db } from '@/libs/DB';
+import { Env } from '@/libs/Env';
 import { checkEndpointRateLimit, getClientIp, rateLimitResponse } from '@/libs/rateLimit';
 import {
   billingSubscriptionSchema,
@@ -53,8 +55,23 @@ export async function GET(request: NextRequest): Promise<Response> {
   // Server-resolved, audience-correct Buy More offers (§9.1): the client
   // never sees the other audience's pricing, let alone chooses it.
   const topupAudience = resolveTopupAudienceForLegacyPlan(guard.salon.plan ?? null);
-  const topupOffers = listActiveTopupOffersForAudience(topupAudience)
-    .map(offer => ({ key: offer.key, credits: offer.credits, priceCents: offer.priceCents }));
+  const topupOffers = Env.BILLING_TOPUPS_ENABLED === 'true'
+    ? listActiveTopupOffersForAudience(topupAudience)
+      .filter((offer) => {
+        try {
+          resolveStripePriceIdForTopup(offer.key);
+          return true;
+        } catch (error) {
+          if (error instanceof BillingCatalogError) {
+            return false;
+          }
+          throw error;
+        }
+      })
+      .map(offer => ({ key: offer.key, credits: offer.credits, priceCents: offer.priceCents }))
+    : [];
+  // Configuration readiness only: never contact Stripe from this read path.
+  const creditPurchasesAvailable = topupOffers.length > 0;
 
   // --- Credit meter -------------------------------------------------------
   const balance = await db.transaction(async tx => computeAvailableBalance(tx, salonId, now));
@@ -186,7 +203,7 @@ export async function GET(request: NextRequest): Promise<Response> {
           : null,
   }));
 
-  return Response.json({ data: { salonId, usage, history, nextCursor, topupOffers } }, NO_STORE);
+  return Response.json({ data: { salonId, usage, history, nextCursor, topupOffers, creditPurchasesAvailable } }, NO_STORE);
 }
 
 export const dynamic = 'force-dynamic';

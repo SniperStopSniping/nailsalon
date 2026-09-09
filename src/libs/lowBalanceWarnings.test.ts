@@ -11,7 +11,7 @@ import { PGlite } from '@electric-sql/pglite';
 import { drizzle } from 'drizzle-orm/pglite';
 import { migrate } from 'drizzle-orm/pglite/migrator';
 import { NextRequest } from 'next/server';
-import { beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import * as schema from '@/models/Schema';
 
@@ -23,7 +23,11 @@ vi.mock('@/libs/DB', () => ({
     return holder.db;
   },
 }));
-vi.mock('@/libs/Env', () => ({ Env: { BILLING_PLAN_ENV: 'test' } }));
+const envHolder = vi.hoisted(() => ({
+  BILLING_PLAN_ENV: 'test',
+  BILLING_TOPUPS_ENABLED: undefined as string | undefined,
+}));
+vi.mock('@/libs/Env', () => ({ Env: envHolder }));
 vi.mock('@/libs/rateLimit', () => ({
   checkEndpointRateLimit: () => ({ allowed: true }),
   getClientIp: () => '127.0.0.1',
@@ -134,6 +138,15 @@ describe('low-balance warnings (§10.3)', () => {
 });
 
 describe('usage + history route (§10.1/§10.2/§10.4)', () => {
+  beforeEach(() => {
+    envHolder.BILLING_TOPUPS_ENABLED = undefined;
+    guardHolder.salonId = 's_usage';
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   const get = async (query: string) => {
     const { GET } = await import('../app/api/admin/salon/communications/usage/route');
     return GET(new NextRequest(`http://localhost/api/admin/salon/communications/usage${query}`));
@@ -234,9 +247,58 @@ describe('usage + history route (§10.1/§10.2/§10.4)', () => {
   });
 
   it('a foreign slug is refused by the tenant guard', async () => {
+    envHolder.BILLING_TOPUPS_ENABLED = 'true';
+    const priceMap = await import('./billing/stripePriceMap');
+    const priceResolver = vi.spyOn(priceMap, 'resolveStripePriceIdForTopup');
     const response = await get('?salonSlug=slug-someone-else');
 
     expect(response.status).toBe(403);
+    expect(priceResolver).not.toHaveBeenCalled();
+  });
+
+  it.each([undefined, 'false'])('does not offer credit purchases when the billing flag is %s', async (flag) => {
+    envHolder.BILLING_TOPUPS_ENABLED = flag;
+    const priceMap = await import('./billing/stripePriceMap');
+    const priceResolver = vi.spyOn(priceMap, 'resolveStripePriceIdForTopup')
+      .mockReturnValue('price_configured_fixture');
+    const { data } = await (await get('?salonSlug=slug-s_usage')).json();
+
+    expect(data.creditPurchasesAvailable).toBe(false);
+    expect(data.topupOffers).toEqual([]);
+    expect(data.usage.availableCredits).toBe(40);
+    expect(data.history).toHaveLength(3);
+    expect(priceResolver).not.toHaveBeenCalled();
+  });
+
+  it('keeps credit purchases unavailable when billing is enabled but prices are unconfigured', async () => {
+    envHolder.BILLING_TOPUPS_ENABLED = 'true';
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('Provider requests are forbidden'));
+    const { data } = await (await get('?salonSlug=slug-s_usage')).json();
+
+    expect(data.creditPurchasesAvailable).toBe(false);
+    expect(data.topupOffers).toEqual([]);
+    expect(data.usage.availableCredits).toBe(40);
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('offers only configured prices for the authorized salon audience without exposing Stripe IDs', async () => {
+    envHolder.BILLING_TOPUPS_ENABLED = 'true';
+    const priceMap = await import('./billing/stripePriceMap');
+    const priceResolver = vi.spyOn(priceMap, 'resolveStripePriceIdForTopup').mockImplementation((key) => {
+      if (key === 'topup_100_free_2026_08') {
+        return 'price_configured_fixture';
+      }
+      throw new priceMap.BillingCatalogError('PRICE_UNCONFIGURED', key);
+    });
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('Provider requests are forbidden'));
+    const { data } = await (await get('?salonSlug=slug-s_usage')).json();
+
+    expect(data.creditPurchasesAvailable).toBe(true);
+    expect(data.topupOffers).toEqual([{ key: 'topup_100_free_2026_08', credits: 100, priceCents: 699 }]);
+    expect(priceResolver.mock.calls.every(([key]) => key.includes('_free_'))).toBe(true);
+    expect(JSON.stringify(data)).not.toContain('price_configured_fixture');
+    expect(data.usage.availableCredits).toBe(40);
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 
   it('shows actual delivery outcomes and never attributes another salon delivery or BYO credits', async () => {
