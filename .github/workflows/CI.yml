@@ -670,6 +670,15 @@ jobs:
             npm run test:e2e -- tests/e2e/mobile-staff-uiqi.e2e.ts tests/e2e/booking-layout-variants.e2e.ts tests/e2e/account-gate-contrast.e2e.ts tests/e2e/booking-page-hub.e2e.ts
           fi
 
+      - name: Verify onboarding desktop and phone geometry
+        timeout-minutes: 5
+        working-directory: prototypes/site-builder-v2-booking-integration-lab
+        env:
+          LUSTER_LAB_PORT: '4199'
+          LUSTER_LAB_URL: http://127.0.0.1:4199
+          LUSTER_CAPTURE_EVIDENCE: '0'
+        run: ../../node_modules/.bin/playwright test --config playwright.config.ts tests/e2e/onboarding-desktop-layout.spec.ts --project=chromium --output=../../test-results/onboarding-desktop
+
       - uses: actions/upload-artifact@v4
         if: always()
         with:
