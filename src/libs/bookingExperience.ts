@@ -21,25 +21,29 @@ export const BOOKING_EXPERIENCE_LIMITS = {
 
 export const DEFAULT_BOOKING_POLICY_TITLE = 'Booking policy';
 
+export const DEFAULT_BOOKING_POLICY_TEXT
+  = 'Please arrive on time. If you need to cancel, use your booking link or contact the salon as soon as possible.';
+
 export const DEFAULT_BOOKING_POLICY_ACKNOWLEDGMENT_TEXT
-  = 'I understand this appointment reserves the technician’s time. If I cannot attend, I will contact the salon as soon as possible.';
+  = 'I agree to arrive on time and cancel promptly if I can’t attend.';
 
 const BOOKING_POLICY_ACKNOWLEDGMENT_DEFAULTS = {
-  required: false,
-  text: null,
+  required: true,
+  text: DEFAULT_BOOKING_POLICY_ACKNOWLEDGMENT_TEXT,
 } as const;
 
 export const BOOKING_EXPERIENCE_DEFAULTS: BookingExperience = {
   primaryColor: null,
   bookingMessage: null,
   policy: {
-    enabled: false,
-    title: null,
-    text: null,
-    showOnServicePage: true,
+    enabled: true,
+    title: 'Appointment agreement',
+    text: DEFAULT_BOOKING_POLICY_TEXT,
+    showOnServicePage: false,
     showBeforeConfirmation: true,
-    showAfterConfirmation: true,
+    showAfterConfirmation: false,
     showInConfirmationEmail: true,
+    acknowledgment: { ...BOOKING_POLICY_ACKNOWLEDGMENT_DEFAULTS },
   },
   quickFacts: {
     appointmentOnly: {
@@ -514,7 +518,11 @@ function cloneBookingExperienceDefaults(): ResolvedBookingExperience {
       acknowledgment: {
         ...BOOKING_POLICY_ACKNOWLEDGMENT_DEFAULTS,
       },
-      version: null,
+      version: resolvePolicyVersion({
+        title: BOOKING_EXPERIENCE_DEFAULTS.policy.title,
+        text: DEFAULT_BOOKING_POLICY_TEXT,
+        acknowledgmentText: DEFAULT_BOOKING_POLICY_ACKNOWLEDGMENT_TEXT,
+      }),
     },
     quickFacts: {
       appointmentOnly: {
@@ -535,15 +543,13 @@ function resolvePolicyAcknowledgment(
   value: unknown,
 ): ResolvedBookingExperience['policy']['acknowledgment'] {
   if (!isRecord(value)) {
-    return {
-      ...BOOKING_POLICY_ACKNOWLEDGMENT_DEFAULTS,
-    };
+    return { required: false, text: null };
   }
 
   return {
     required: typeof value.required === 'boolean'
       ? value.required
-      : BOOKING_POLICY_ACKNOWLEDGMENT_DEFAULTS.required,
+      : false,
     text: resolveNullableField(
       optionalPolicyAcknowledgmentTextSchema(),
       value.text,
@@ -651,7 +657,11 @@ export function resolveBookingExperience(
   }
 
   const stored = settings.bookingExperience as unknown as Record<string, unknown>;
-  const storedPolicy = isRecord(stored.policy) ? stored.policy : {};
+  // Only an unconfigured policy receives the starter agreement. An owner's
+  // saved wording, optional acknowledgment, or explicit off switch wins.
+  const storedPolicy = isRecord(stored.policy)
+    ? stored.policy
+    : cloneBookingExperienceDefaults().policy;
   const storedQuickFacts = isRecord(stored.quickFacts)
     ? stored.quickFacts
     : {};

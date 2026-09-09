@@ -2141,9 +2141,13 @@ describe('booking experience validation and safe resolution', () => {
   });
 
   it('falls back field-by-field for missing or invalid stored JSON', () => {
-    expect(resolveBookingExperience(null)).toEqual(
-      BOOKING_EXPERIENCE_DEFAULTS,
-    );
+    expect(resolveBookingExperience(null)).toEqual({
+      ...BOOKING_EXPERIENCE_DEFAULTS,
+      policy: {
+        ...BOOKING_EXPERIENCE_DEFAULTS.policy,
+        version: expect.stringMatching(/^policy-v1:/),
+      },
+    });
 
     const resolved = resolveBookingExperience(
       {
@@ -2173,9 +2177,9 @@ describe('booking experience validation and safe resolution', () => {
         enabled: false,
         title: 'Draft title',
         text: null,
-        showOnServicePage: true,
+        showOnServicePage: false,
         showBeforeConfirmation: true,
-        showAfterConfirmation: true,
+        showAfterConfirmation: false,
         showInConfirmationEmail: true,
         acknowledgment: {
           required: false,
@@ -2335,11 +2339,7 @@ describe('/api/admin/salon/settings booking experience', () => {
       ...BOOKING_EXPERIENCE_DEFAULTS,
       policy: {
         ...BOOKING_EXPERIENCE_DEFAULTS.policy,
-        acknowledgment: {
-          required: false,
-          text: null,
-        },
-        version: null,
+        version: expect.stringMatching(/^policy-v1:[a-f0-9]{64}$/u),
       },
     });
   });

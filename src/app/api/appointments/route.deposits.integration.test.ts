@@ -18,6 +18,7 @@
  * LOCALLY with no provider call, so a retrieve count cannot tell ENTER from SKIP
  * at 'account_not_connected'.
  */
+import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 
 import { PGlite } from '@electric-sql/pglite';
@@ -358,7 +359,7 @@ beforeEach(async () => {
   await db.delete(schema.appointmentSchema);
   await db
     .update(schema.salonSchema)
-    .set({ settings: null })
+    .set({ settings: { bookingExperience: { policy: { enabled: false } } } })
     .where(eq(schema.salonSchema.id, SALON_ID));
   seedChargeReady(false);
   deposits.chargeOverride = null;
@@ -401,6 +402,48 @@ describe('28(f) — the pre-transaction undetermined refusal', () => {
     expect(await appointmentRows()).toHaveLength(0);
     expect(await depositRows()).toHaveLength(0);
     expect(deposits.refreshAccountReadiness).not.toHaveBeenCalled();
+  });
+});
+
+describe('default appointment agreement on a public booking', () => {
+  it('requires acceptance and stores the exact default wording in the salon-scoped booking', async () => {
+    await db.update(schema.salonSchema).set({ settings: null })
+      .where(eq(schema.salonSchema.id, SALON_ID));
+    seedPolicy({ active: false, reason: 'account_not_connected', amountCents: 2500 });
+    setClientSession(freshPhone());
+    const booking = { startTime: at(futureDate(19), '12:00').toISOString() };
+
+    const rejected = await postBooking(booking);
+    const rejection = await rejected.json();
+
+    expect(rejected.status).toBe(400);
+    expect(rejection.error).toBe('BOOKING_POLICY_ACKNOWLEDGMENT_REQUIRED');
+    expect(await appointmentRows()).toHaveLength(0);
+    expect(rejection.bookingPolicy.text).toBe('Please arrive on time. If you need to cancel, use your booking link or contact the salon as soon as possible.');
+
+    const accepted = await postBooking({
+      ...booking,
+      bookingPolicyAcknowledgment: {
+        accepted: true,
+        version: rejection.bookingPolicy.version,
+        attemptId: randomUUID(),
+      },
+    });
+    const result = await accepted.json();
+
+    expect(accepted.status, JSON.stringify(result)).toBe(201);
+
+    const evidence = await db.select().from(schema.appointmentBookingPolicyAcknowledgmentSchema)
+      .where(eq(schema.appointmentBookingPolicyAcknowledgmentSchema.appointmentId, result.data.appointmentId));
+
+    expect(evidence).toHaveLength(1);
+    expect(evidence[0]).toMatchObject({
+      salonId: SALON_ID,
+      policyVersion: rejection.bookingPolicy.version,
+      policyTextSnapshot: rejection.bookingPolicy.text,
+      acknowledgmentTextSnapshot: rejection.bookingPolicy.acknowledgment.text,
+      source: 'public_booking',
+    });
   });
 });
 
@@ -565,7 +608,7 @@ describe('28(g-iii) — stale stored row, live account healthy', () => {
   it('refuses a CAD deposit hold when the frozen booking invoice is USD', async () => {
     await db
       .update(schema.salonSchema)
-      .set({ settings: { booking: { currency: 'USD' } } })
+      .set({ settings: { bookingExperience: { policy: { enabled: false } }, booking: { currency: 'USD' } } })
       .where(eq(schema.salonSchema.id, SALON_ID));
     // Bypass the primary raw-settings policy guard to prove the route-level
     // invariant independently. No mismatched appointment or hold may commit.
@@ -1200,6 +1243,7 @@ describe('D6.1 — booking tax quote binding', () => {
   it('rolls back when the locked tax configuration differs from the displayed quote', async () => {
     await db.update(schema.salonSchema).set({
       settings: {
+        bookingExperience: { policy: { enabled: false } },
         payments: {
           tax: {
             enabled: true,
@@ -1692,6 +1736,7 @@ describe('L1 PR4 §14 — deposit priority over explicit request-approval activa
       name: 'Request Approval Deposits Salon',
       slug: RA_SALON_SLUG,
       ownerEmail: 'owner-ra@example.com',
+      settings: { bookingExperience: { policy: { enabled: false } } },
       // The dark L1 feature key, set directly on a FIXTURE salon only.
       features: { catalog: { variantsV1: false, addOnGroupsV1: false, bookingModesV1: true } },
     });

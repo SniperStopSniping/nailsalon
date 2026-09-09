@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto';
+
 import {
   type APIRequestContext,
   expect,
@@ -154,14 +156,33 @@ async function postJson<T>(
   url: string,
   body: unknown,
 ): Promise<HttpResult<T>> {
-  const response = await requestContext.post(url, {
+  let response = await requestContext.post(url, {
     data: body,
     timeout: 60_000,
   });
+  let result = await response.json().catch(() => null);
+  // These requests create disposable test bookings. Acknowledge the exact
+  // current policy returned by the server, as the confirmation screen does.
+  if (url === '/api/appointments' && response.status() === 400
+    && result?.error === 'BOOKING_POLICY_ACKNOWLEDGMENT_REQUIRED'
+    && typeof result.bookingPolicy?.version === 'string') {
+    response = await requestContext.post(url, {
+      data: {
+        ...(body as Record<string, unknown>),
+        bookingPolicyAcknowledgment: {
+          accepted: true,
+          version: result.bookingPolicy.version,
+          attemptId: randomUUID(),
+        },
+      },
+      timeout: 60_000,
+    });
+    result = await response.json().catch(() => null);
+  }
   return {
     ok: response.ok(),
     status: response.status(),
-    body: await response.json().catch(() => null) as T | null,
+    body: result as T | null,
   };
 }
 
@@ -682,4 +703,11 @@ export async function selectDifferentCalendarDay(
   }
 
   throw new Error(`Could not find a second calendar day different from ${currentDateKey}.`);
+}
+
+export async function acknowledgeBookingPolicy(page: Page) {
+  const acknowledgment = page.getByTestId('booking-policy-acknowledgment');
+  if (await acknowledgment.count()) {
+    await acknowledgment.getByRole('checkbox').check();
+  }
 }

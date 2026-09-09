@@ -57,14 +57,17 @@ describe('S1 — authored universal content reaches the confirmation email on a 
     });
   });
 
-  it('NO-OP CONTROL: an unauthored free salon gets no customization at all', () => {
+  it('an unconfigured free salon includes the default attendance agreement in email', () => {
     const customization = resolveBookingEmailCustomization({
       ...FREE_PLAN_SALON,
       settings: {},
     });
 
     expect(customization.confirmationMessage).toBeNull();
-    expect(customization.policy.kind).not.toBe('informational');
+    expect(customization.policy).toMatchObject({
+      kind: 'informational',
+      policyText: 'Please arrive on time. If you need to cancel, use your booking link or contact the salon as soon as possible.',
+    });
   });
 
   it('CONTROL: an authored policy NOT marked for email stays out of the email', () => {

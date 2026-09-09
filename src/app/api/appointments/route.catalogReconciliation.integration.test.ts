@@ -189,7 +189,7 @@ async function seedSalon(salonId: string, slug: string, gated: boolean) {
     id: salonId,
     name: slug,
     slug,
-    settings: { booking: {} },
+    settings: { bookingExperience: { policy: { enabled: false } }, booking: {} },
     features: gated
       ? { catalog: { variantsV1: true, addOnGroupsV1: false, bookingModesV1: false } }
       : null,

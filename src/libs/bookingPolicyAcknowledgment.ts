@@ -45,8 +45,8 @@ export type CustomerBookingPolicyProjection = RequiredBookingPolicy;
  * agrees with what the public page renders: previously a free-plan salon could
  * author and display an acknowledgment-requiring policy that the server then
  * declined to enforce. Every other condition below is unchanged — a salon that
- * has authored no policy, or has not enabled acknowledgment, still returns
- * `null` here and sees no new rejection.
+ * has saved an off policy or optional acknowledgment still returns `null`.
+ * An unconfigured salon uses the default attendance agreement.
  *
  * `storedPlan` and `features` remain on the input type: callers pass trusted
  * salon state and the signature is shared, but neither now affects the result.

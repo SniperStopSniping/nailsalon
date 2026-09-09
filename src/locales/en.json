@@ -243,5 +243,14 @@
     "tech": "Artist",
     "empty_state": "Your nail gallery is empty",
     "empty_description": "Photos from your visits will appear here"
+  },
+  "BookingConfirmation": {
+    "contact_description": "Your confirmation and private booking link will arrive by email.",
+    "sms_label": "Text me appointment updates (optional)",
+    "sms_details": "From {salon}. Frequency varies. Msg/data rates may apply. Reply STOP to opt out or HELP for help.",
+    "terms": "Terms",
+    "privacy": "Privacy",
+    "offers_title": "Your offers",
+    "request_notice": "The salon will review your request before confirming your appointment."
   }
 }

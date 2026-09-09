@@ -204,7 +204,7 @@ beforeAll(async () => {
   holder.db = db;
 
   await db.insert(schema.salonSchema).values([
-    { id: SALON_ID, name: 'Luster Price Salon', slug: SALON_SLUG, settings: {} },
+    { id: SALON_ID, name: 'Luster Price Salon', slug: SALON_SLUG, settings: { bookingExperience: { policy: { enabled: false } } } },
   ]);
 
   await db.insert(schema.technicianSchema).values([

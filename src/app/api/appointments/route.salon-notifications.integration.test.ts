@@ -191,7 +191,7 @@ async function salonDeliveries(purpose?: string) {
 async function setSalonSettings(settings: Record<string, unknown> | null) {
   await db
     .update(schema.salonSchema)
-    .set({ settings: settings as never })
+    .set({ settings: { bookingExperience: { policy: { enabled: false } }, ...settings } as never })
     .where(eq(schema.salonSchema.id, SALON_ID));
 }
 

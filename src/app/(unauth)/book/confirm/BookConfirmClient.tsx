@@ -16,6 +16,7 @@ import {
   User,
 } from 'lucide-react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
+import { useTranslations } from 'next-intl';
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
 
 import { TechnicianAvatar } from '@/components/booking/TechnicianAvatar';
@@ -390,10 +391,12 @@ const PolicyCard = ({
   title,
   text,
   placement,
+  children,
 }: {
   title: string;
   text: string;
   placement: 'beforeConfirmation' | 'afterConfirmation';
+  children?: React.ReactNode;
 }) => {
   const [expanded, setExpanded] = useState(false);
   const contentId = useId();
@@ -452,6 +455,7 @@ const PolicyCard = ({
           )}
         </div>
       </div>
+      {children}
     </section>
   );
 };
@@ -1141,6 +1145,10 @@ const ConfirmContent = ({
    */
   salonConfirmsManually: boolean;
 }) => {
+  const t = useTranslations('BookingConfirmation');
+  const { salonName } = useSalon();
+  const params = useParams();
+  const locale = typeof params?.locale === 'string' ? params.locale : 'en';
   // Focus and announcement management for the one nearby suggestion: both
   // actions unmount the banner (and the focused button with it), so focus
   // moves to the confirm button and a polite live region states the outcome.
@@ -1235,15 +1243,15 @@ const ConfirmContent = ({
             initial={{ scale: 0 }}
             animate={{ scale: 1 }}
             transition={{ delay: 0.2, type: 'spring', stiffness: 200 }}
-            className="mx-auto mb-4 flex size-20 items-center justify-center"
+            className="mx-auto mb-3 flex size-12 items-center justify-center"
             style={{
               backgroundColor: 'color-mix(in srgb, var(--n5-accent) 10%, transparent)',
               borderRadius: n5.radiusPill,
             }}
           >
             {isSubmitting
-              ? <RefreshCw aria-hidden="true" className="size-9 animate-spin text-[var(--n5-accent)]" />
-              : <Check aria-hidden="true" className="size-9 text-[var(--n5-accent)]" strokeWidth={2.5} />}
+              ? <RefreshCw aria-hidden="true" className="size-6 animate-spin text-[var(--n5-accent)]" />
+              : <Check aria-hidden="true" className="size-6 text-[var(--n5-accent)]" strokeWidth={2.5} />}
           </motion.div>
           <h1 className="font-heading mb-2 text-2xl font-bold text-[var(--n5-ink-main)]">
             Review your appointment
@@ -1355,7 +1363,7 @@ const ConfirmContent = ({
         >
           <SectionCard
             title="Your contact details"
-            description="No account or phone verification is required. We use your email for the confirmation and secure management link."
+            description={t('contact_description')}
             className="border-[var(--n5-border)] bg-[var(--n5-bg-card)]"
             contentClassName="space-y-3 pt-0"
           >
@@ -1381,100 +1389,87 @@ const ConfirmContent = ({
               <input aria-label="Customer phone" required aria-required="true" type="tel" inputMode="tel" autoComplete="tel" disabled={isSubmitting} value={guestPhone} onChange={event => onGuestPhoneChange(event.target.value)} className="mt-1 w-full rounded-xl border border-[var(--n5-border)] bg-[var(--n5-bg-page)] p-3 text-sm text-[var(--n5-ink-main)] outline-none focus:border-[var(--n5-accent)] disabled:cursor-not-allowed disabled:opacity-60" />
             </label>
             {smsEnabled && (
-              <label className="flex items-start gap-3 rounded-xl border border-[var(--n5-border-muted)] p-3 text-xs leading-5 text-[var(--n5-ink-muted)]">
-                <input aria-label="SMS consent" type="checkbox" disabled={isSubmitting} checked={smsConsent} onChange={event => onSmsConsentChange(event.target.checked)} className="mt-1 disabled:cursor-not-allowed" />
-                <span>I agree to receive transactional appointment confirmations and reminders by text. Consent is optional, message/data rates may apply, and I can reply STOP at any time.</span>
-              </label>
+              <div className="space-y-1 text-xs leading-4 text-[var(--n5-ink-muted)]">
+                <label className="flex min-h-11 cursor-pointer items-center gap-2 text-[var(--n5-ink-main)]">
+                  <input aria-label="SMS consent" aria-describedby="booking-sms-details" type="checkbox" disabled={isSubmitting} checked={smsConsent} onChange={event => onSmsConsentChange(event.target.checked)} className="size-4 shrink-0 accent-[var(--n5-accent)] disabled:cursor-not-allowed" />
+                  <span>{t('sms_label')}</span>
+                </label>
+                <p id="booking-sms-details">{t('sms_details', { salon: salonName })}</p>
+                <div className="flex gap-3">
+                  <a href={`/${locale}/terms`} target="_blank" rel="noreferrer" className="underline underline-offset-2">{t('terms')}</a>
+                  <a href={`/${locale}/privacy`} target="_blank" rel="noreferrer" className="underline underline-offset-2">{t('privacy')}</a>
+                </div>
+              </div>
             )}
           </SectionCard>
 
-          <SectionCard
-            title={createsRequest ? 'Before you send your request' : 'Before you confirm'}
-            description={createsRequest
-              ? 'This reserves the selected time while the salon reviews your request. Your appointment is confirmed only after the salon approves it.'
-              : 'This will reserve the time above and block duplicate bookings using the same contact details.'}
-            className="border-[var(--n5-border)] bg-[var(--n5-bg-card)]"
-            contentClassName="grid gap-2 pt-0 sm:grid-cols-2"
-          >
-            {campaignPromotionPreview && discountAmount > 0 && (
-              <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm sm:col-span-2">
-                <span className="font-body text-[10px] font-semibold uppercase tracking-[0.16em] text-emerald-700">
-                  Welcome-back offer
-                </span>
-                <p className="font-body mt-1 font-semibold text-emerald-950">
-                  {campaignPromotionPreview.name}
-                  {' · '}
-                  {campaignPromotionPreview.displayOffer}
-                </p>
-                <p className="font-body mt-1 text-xs text-emerald-800">
-                  Subtotal $
-                  {subtotalBeforeDiscount.toFixed(2)}
-                  {' · Savings $'}
-                  {discountAmount.toFixed(2)}
-                  {campaignPromotionPreview.code ? ` · Code ${campaignPromotionPreview.code}` : ''}
-                </p>
-              </div>
-            )}
-            {firstVisitDiscountPreview && discountAmount > 0 && (
-              <div className="rounded-xl border p-3 text-sm sm:col-span-2" style={{ borderColor: 'var(--n5-border-muted)' }}>
-                <span className="font-body text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--n5-ink-muted)]">
-                  Offer
-                </span>
-                <p className="font-body mt-1 font-semibold text-[var(--n5-ink-main)]">
-                  First visit discount applied: -
-                  {firstVisitDiscountPreview.percent}
-                  %
-                </p>
-                <p className="font-body mt-1 text-xs text-[var(--n5-ink-muted)]">
-                  Subtotal $
-                  {subtotalBeforeDiscount.toFixed(2)}
-                  {' '}
-                  · Savings $
-                  {discountAmount.toFixed(2)}
-                </p>
-              </div>
-            )}
-            {smartFitOffer && (
-              <div
-                data-testid="smart-fit-review"
-                className="rounded-xl border p-3 text-sm sm:col-span-2"
-                style={{ borderColor: 'var(--n5-border-muted)' }}
-              >
-                <span className="font-body text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--n5-ink-muted)]">
-                  {SMART_FIT_BADGE_LABEL}
-                </span>
-                <p className="font-body mt-1 font-semibold text-[var(--n5-ink-main)]">
-                  {`${SMART_FIT_REVIEW_DISCOUNT_LABEL} applied`}
-                </p>
-                <p className="font-body mt-1 text-xs text-[var(--n5-ink-muted)]">
-                  {`Subtotal ${formatMoney(smartFitOffer.originalPriceCents)}`}
-                  {` · ${SMART_FIT_REVIEW_DISCOUNT_LABEL} −${formatMoney(smartFitOffer.discountAmountCents)}`}
-                  {` · Total ${formatMoney(smartFitOffer.discountedPriceCents)}`}
-                </p>
-              </div>
-            )}
-            <div className="rounded-xl border px-3 py-2 text-sm" style={{ borderColor: 'var(--n5-border-muted)' }}>
-              <span className="font-body text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--n5-ink-muted)]">
-                Duration
-              </span>
-              <p className="font-body mt-1 font-semibold text-[var(--n5-ink-main)]">
-                {formatDuration(totalDuration)}
-              </p>
-            </div>
-            {rewardsEnabled && (
-              <div className="rounded-xl border px-3 py-2 text-sm" style={{ borderColor: 'var(--n5-border-muted)' }}>
-                <span className="font-body text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--n5-ink-muted)]">
-                  Rewards
-                </span>
-                <p className="font-body mt-1 font-semibold text-[var(--n5-ink-main)]">
-                  +
-                  {pointsEarned.toLocaleString()}
-                  {' '}
-                  points after completion
-                </p>
-              </div>
-            )}
-          </SectionCard>
+          {createsRequest && <p className="text-sm text-[var(--n5-ink-muted)]">{t('request_notice')}</p>}
+
+          {((discountAmount > 0 && (campaignPromotionPreview || firstVisitDiscountPreview)) || smartFitOffer) && (
+            <SectionCard
+              title={t('offers_title')}
+              className="border-[var(--n5-border)] bg-[var(--n5-bg-card)]"
+              contentClassName="grid gap-2 pt-0 sm:grid-cols-2"
+            >
+              {campaignPromotionPreview && discountAmount > 0 && (
+                <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm sm:col-span-2">
+                  <span className="font-body text-[10px] font-semibold uppercase tracking-[0.16em] text-emerald-700">
+                    Welcome-back offer
+                  </span>
+                  <p className="font-body mt-1 font-semibold text-emerald-950">
+                    {campaignPromotionPreview.name}
+                    {' · '}
+                    {campaignPromotionPreview.displayOffer}
+                  </p>
+                  <p className="font-body mt-1 text-xs text-emerald-800">
+                    Subtotal $
+                    {subtotalBeforeDiscount.toFixed(2)}
+                    {' · Savings $'}
+                    {discountAmount.toFixed(2)}
+                    {campaignPromotionPreview.code ? ` · Code ${campaignPromotionPreview.code}` : ''}
+                  </p>
+                </div>
+              )}
+              {firstVisitDiscountPreview && discountAmount > 0 && (
+                <div className="rounded-xl border p-3 text-sm sm:col-span-2" style={{ borderColor: 'var(--n5-border-muted)' }}>
+                  <span className="font-body text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--n5-ink-muted)]">
+                    Offer
+                  </span>
+                  <p className="font-body mt-1 font-semibold text-[var(--n5-ink-main)]">
+                    First visit discount applied: -
+                    {firstVisitDiscountPreview.percent}
+                    %
+                  </p>
+                  <p className="font-body mt-1 text-xs text-[var(--n5-ink-muted)]">
+                    Subtotal $
+                    {subtotalBeforeDiscount.toFixed(2)}
+                    {' '}
+                    · Savings $
+                    {discountAmount.toFixed(2)}
+                  </p>
+                </div>
+              )}
+              {smartFitOffer && (
+                <div
+                  data-testid="smart-fit-review"
+                  className="rounded-xl border p-3 text-sm sm:col-span-2"
+                  style={{ borderColor: 'var(--n5-border-muted)' }}
+                >
+                  <span className="font-body text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--n5-ink-muted)]">
+                    {SMART_FIT_BADGE_LABEL}
+                  </span>
+                  <p className="font-body mt-1 font-semibold text-[var(--n5-ink-main)]">
+                    {`${SMART_FIT_REVIEW_DISCOUNT_LABEL} applied`}
+                  </p>
+                  <p className="font-body mt-1 text-xs text-[var(--n5-ink-muted)]">
+                    {`Subtotal ${formatMoney(smartFitOffer.originalPriceCents)}`}
+                    {` · ${SMART_FIT_REVIEW_DISCOUNT_LABEL} −${formatMoney(smartFitOffer.discountAmountCents)}`}
+                    {` · Total ${formatMoney(smartFitOffer.discountedPriceCents)}`}
+                  </p>
+                </div>
+              )}
+            </SectionCard>
+          )}
 
           {campaignMessage && (
             <div
@@ -1570,45 +1565,45 @@ const ConfirmContent = ({
               title={policy.title ?? 'Booking policy'}
               text={policy.text}
               placement="beforeConfirmation"
-            />
-          )}
-
-          {acknowledgmentRequired && (
-            <div
-              data-testid="booking-policy-acknowledgment"
-              className="rounded-2xl border border-[var(--n5-border)] bg-[var(--n5-bg-card)] p-4"
             >
-              <label className="flex items-start gap-3 text-sm leading-6 text-[var(--n5-ink-main)]">
-                <input
-                  aria-describedby={
-                    policyAcknowledged ? undefined : acknowledgmentHelpId
-                  }
-                  aria-required="true"
-                  required
-                  type="checkbox"
-                  disabled={isSubmitting}
-                  checked={policyAcknowledged}
-                  onChange={event =>
-                    onPolicyAcknowledgmentChange(event.target.checked)}
-                  className="mt-1 size-4 shrink-0 rounded border-[var(--n5-border)] text-[var(--n5-accent)] focus:ring-[var(--n5-accent)]"
-                />
-                <span className="min-w-0 whitespace-pre-line break-words">
-                  {policy.acknowledgment.text}
-                </span>
-                <span className="shrink-0 text-[10px] font-semibold uppercase tracking-[0.08em] text-[var(--n5-ink-muted)]">
-                  Required
-                </span>
-              </label>
-              {!policyAcknowledged && (
-                <p
-                  id={acknowledgmentHelpId}
-                  role="status"
-                  className="font-body mt-2 text-xs font-semibold text-[var(--n5-ink-muted)]"
+              {acknowledgmentRequired && (
+                <div
+                  data-testid="booking-policy-acknowledgment"
+                  className="mt-3 border-t border-[var(--n5-border-muted)] pt-3"
                 >
-                  Check the box to confirm your appointment.
-                </p>
+                  <label className="flex items-start gap-3 text-sm leading-6 text-[var(--n5-ink-main)]">
+                    <input
+                      aria-describedby={
+                        policyAcknowledged ? undefined : acknowledgmentHelpId
+                      }
+                      aria-required="true"
+                      required
+                      type="checkbox"
+                      disabled={isSubmitting}
+                      checked={policyAcknowledged}
+                      onChange={event =>
+                        onPolicyAcknowledgmentChange(event.target.checked)}
+                      className="mt-1 size-4 shrink-0 rounded border-[var(--n5-border)] text-[var(--n5-accent)] focus:ring-[var(--n5-accent)]"
+                    />
+                    <span className="min-w-0 whitespace-pre-line break-words">
+                      {policy.acknowledgment.text}
+                    </span>
+                    <span className="shrink-0 text-[10px] font-semibold uppercase tracking-[0.08em] text-[var(--n5-ink-muted)]">
+                      Required
+                    </span>
+                  </label>
+                  {!policyAcknowledged && (
+                    <p
+                      id={acknowledgmentHelpId}
+                      role="status"
+                      className="font-body mt-2 text-xs font-semibold text-[var(--n5-ink-muted)]"
+                    >
+                      Check the box to confirm your appointment.
+                    </p>
+                  )}
+                </div>
               )}
-            </div>
+            </PolicyCard>
           )}
 
           <button
@@ -1623,7 +1618,7 @@ const ConfirmContent = ({
               || contactBlocker !== null
               || (acknowledgmentRequired && !policyAcknowledged)
             }
-            className="font-body flex w-full items-center justify-center gap-2 bg-[var(--n5-accent)] py-4 font-bold text-[var(--n5-ink-inverse)] transition-all active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
+            className="font-body flex min-h-11 w-full items-center justify-center gap-2 bg-[var(--n5-accent)] px-3 py-2.5 text-sm font-semibold text-[var(--n5-ink-inverse)] transition-all active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
             style={{
               borderRadius: n5.radiusMd,
               boxShadow: n5.shadowSm,
@@ -1661,7 +1656,7 @@ const ConfirmContent = ({
               triggerHaptic('select');
               onEditSelection();
             }}
-            className="font-body flex w-full items-center justify-center gap-2 border py-3 font-bold text-[var(--n5-accent)] transition-all active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
+            className="font-body flex min-h-11 w-full items-center justify-center gap-2 border px-3 py-2.5 text-sm font-semibold text-[var(--n5-accent)] transition-all active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
             style={{
               borderRadius: n5.radiusMd,
               borderColor: 'var(--n5-accent)',
@@ -1808,10 +1803,10 @@ const SuccessContent = ({
             className="text-center"
           >
             <div
-              className="mx-auto flex size-20 items-center justify-center bg-[var(--n5-success)]"
+              className="mx-auto flex size-12 items-center justify-center bg-[var(--n5-success)]"
               style={{ borderRadius: n5.radiusPill }}
             >
-              <Check className="size-10 text-white" strokeWidth={3} />
+              <Check className="size-6 text-white" strokeWidth={3} />
             </div>
           </motion.div>
         )}
@@ -1847,7 +1842,7 @@ const SuccessContent = ({
             ? (
                 <a
                   href={manageUrl}
-                  className="font-body flex w-full items-center justify-center gap-2 bg-[var(--n5-accent)] py-4 font-bold text-[var(--n5-ink-inverse)] transition-all active:scale-[0.98]"
+                  className="font-body flex min-h-11 w-full items-center justify-center gap-2 bg-[var(--n5-accent)] px-3 py-2.5 text-sm font-semibold text-[var(--n5-ink-inverse)] transition-all active:scale-[0.98]"
                   style={{
                     borderRadius: n5.radiusMd,
                     boxShadow: n5.shadowSm,
@@ -1877,15 +1872,15 @@ const SuccessContent = ({
               )}
 
           {!isPending && (googleCalendarUrl || manageUrl) && (
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-2 gap-2">
               {googleCalendarUrl && (
-                <a href={googleCalendarUrl} target="_blank" rel="noreferrer" className="font-body flex items-center justify-center gap-2 rounded-xl border py-3 text-center text-sm font-semibold text-[var(--n5-ink-main)]" style={{ borderColor: 'var(--n5-border)' }}>
+                <a href={googleCalendarUrl} target="_blank" rel="noreferrer" className="font-body flex min-h-11 items-center justify-center gap-1.5 rounded-xl border p-2 text-center text-xs font-semibold text-[var(--n5-ink-main)]" style={{ borderColor: 'var(--n5-border)' }}>
                   <Calendar className="size-4" />
                   Google Calendar
                 </a>
               )}
               {manageUrl && (
-                <a href={`${manageUrl}/calendar.ics`} className="font-body flex items-center justify-center gap-2 rounded-xl border py-3 text-center text-sm font-semibold text-[var(--n5-ink-main)]" style={{ borderColor: 'var(--n5-border)' }}>
+                <a href={`${manageUrl}/calendar.ics`} className="font-body flex min-h-11 items-center justify-center gap-1.5 rounded-xl border p-2 text-center text-xs font-semibold text-[var(--n5-ink-main)]" style={{ borderColor: 'var(--n5-border)' }}>
                   <Calendar className="size-4" />
                   Apple Calendar
                 </a>
@@ -1893,7 +1888,7 @@ const SuccessContent = ({
             </div>
           )}
 
-          <div className="grid grid-cols-1 gap-3">
+          <div className="flex flex-wrap items-center justify-center gap-x-6 gap-y-1">
             {directionsUrl && (
               <button
                 type="button"
@@ -1901,7 +1896,7 @@ const SuccessContent = ({
                   triggerHaptic('select');
                   onOpenDirections();
                 }}
-                className="font-body flex w-full items-center justify-center gap-2 border bg-[var(--n5-bg-card)] py-3.5 font-bold text-[var(--n5-ink-main)] transition-all active:scale-[0.98]"
+                className="font-body inline-flex min-h-11 items-center justify-center gap-1.5 p-2 text-xs font-semibold text-[var(--n5-ink-main)] transition-all active:scale-[0.98]"
                 style={{
                   borderRadius: n5.radiusMd,
                   borderColor: 'var(--n5-border)',
@@ -1911,16 +1906,13 @@ const SuccessContent = ({
                 <span>Directions</span>
               </button>
             )}
-          </div>
-
-          <div className="grid grid-cols-1 gap-3 pt-1">
             <button
               type="button"
               onClick={() => {
                 triggerHaptic('select');
                 onGoHome();
               }}
-              className="font-body flex items-center justify-center gap-2 rounded-xl border py-3 text-sm font-semibold text-[var(--n5-ink-main)] transition-all active:scale-[0.98]"
+              className="font-body inline-flex min-h-11 items-center justify-center gap-1.5 rounded-xl p-2 text-xs font-semibold text-[var(--n5-ink-main)] transition-all active:scale-[0.98]"
               style={{ borderColor: 'var(--n5-border)' }}
             >
               <Home className="size-4" />
@@ -1934,7 +1926,7 @@ const SuccessContent = ({
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ delay: 0.6 }}
-          className="pt-4 text-center"
+          className="pt-1 text-center"
         >
           <div className="mb-2 flex items-center justify-center gap-2">
             {!isPending && <Sparkles className="size-4 text-[var(--n5-accent)]" />}
@@ -2273,7 +2265,7 @@ export function BookConfirmClient({
     clientEmail: guestEmail.trim().toLowerCase(),
     clientPhone: guestPhone.replace(/\D/g, '').replace(/^1(?=\d{10}$)/, ''),
     smsConsent: smsEnabled
-      ? { granted: smsConsent, wordingVersion: 'booking-v1' }
+      ? { granted: smsConsent, wordingVersion: 'booking-v2' }
       : null,
     canonicalStartTime,
     appointmentDate: dateStr,
@@ -2382,7 +2374,7 @@ export function BookConfirmClient({
         bookingSubject: 'guest' as const,
         clientEmail: guestEmail.trim().toLowerCase(),
         clientPhone: guestPhone.replace(/\D/g, '').replace(/^1(?=\d{10}$)/, ''),
-        ...(smsEnabled && { smsConsent: { granted: smsConsent, wordingVersion: 'booking-v1' } }),
+        ...(smsEnabled && { smsConsent: { granted: smsConsent, wordingVersion: 'booking-v2' } }),
         startTime: startTime.toISOString(),
         appointmentDate: dateStr,
         appointmentTime: timeStr,

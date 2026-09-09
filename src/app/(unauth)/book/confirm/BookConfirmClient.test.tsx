@@ -2,6 +2,8 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import React from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import messages from '@/locales/en.json';
+
 import { BookConfirmClient } from './BookConfirmClient';
 
 const { routerBack, routerPush, routerReplace, syncFromUrl, fetchMock, windowOpen, navigationMock, bookingExperienceMock } = vi.hoisted(() => ({
@@ -54,6 +56,11 @@ const SMART_FIT_STALE_FALLBACK_MESSAGE_FOR_TEST
   = 'This discounted time is no longer available. Please choose from the latest times.';
 const HOSTILE_SERVER_MESSAGE_FOR_TEST
   = 'SQLSTATE 23505 /api/appointments internal conflict';
+
+vi.mock('next-intl', () => ({
+  useTranslations: () => (key: keyof typeof messages.BookingConfirmation, values?: Record<string, string>) =>
+    Object.entries(values ?? {}).reduce((text, [name, value]) => text.replace(`{${name}}`, value), messages.BookingConfirmation[key]),
+}));
 
 vi.mock('canvas-confetti', () => ({
   default: confettiMock,
@@ -384,7 +391,7 @@ describe('BookConfirmClient', () => {
 
     expect(screen.queryByText(/We’ll text you before your visit|We'll text you before your visit/)).not.toBeInTheDocument();
     expect(JSON.parse(fetchMock.mock.calls[0]?.[1]?.body)).toMatchObject({
-      smsConsent: { granted: consent, wordingVersion: 'booking-v1' },
+      smsConsent: { granted: consent, wordingVersion: 'booking-v2' },
     });
   });
 
@@ -634,15 +641,13 @@ describe('BookConfirmClient', () => {
 
       const summary = screen.getByText('Appointment summary');
       const contact = screen.getByText('Your contact details');
-      const bookingDetails = screen.getByText('Before you confirm');
       const quickFacts = screen.getByTestId('booking-quick-facts');
       const policy = screen.getByTestId('booking-policy-before-confirmation');
       const confirm = screen.getByRole('button', { name: /confirm appointment/i });
       const changeSelection = screen.getByRole('button', { name: /change time or services/i });
 
       expect(summary.compareDocumentPosition(contact) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-      expect(contact.compareDocumentPosition(bookingDetails) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-      expect(bookingDetails.compareDocumentPosition(quickFacts) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(contact.compareDocumentPosition(quickFacts) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
       expect(quickFacts.nextElementSibling).toBe(policy);
       expect(policy.nextElementSibling).toBe(confirm);
       expect(confirm.compareDocumentPosition(changeSelection) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
@@ -691,7 +696,7 @@ describe('BookConfirmClient', () => {
       expect(screen.getByRole('button', { name: /confirm appointment/i })).toBeInTheDocument();
     });
 
-    it('requires an unchecked acknowledgment immediately below the forced policy card for a new public booking', async () => {
+    it('requires an unchecked acknowledgment inside the forced policy card for a new public booking', async () => {
       enablePolicy({
         showBeforeConfirmation: false,
         acknowledgment: {
@@ -719,8 +724,8 @@ describe('BookConfirmClient', () => {
         name: /confirm appointment/i,
       });
 
-      expect(policy.nextElementSibling).toBe(acknowledgment);
-      expect(acknowledgment.nextElementSibling).toBe(confirm);
+      expect(policy).toContainElement(acknowledgment);
+      expect(policy.nextElementSibling).toBe(confirm);
       expect(checkbox).not.toBeChecked();
       expect(checkbox).toBeRequired();
       expect(confirm).toBeDisabled();
@@ -2011,7 +2016,8 @@ describe('BookConfirmClient', () => {
       expect(screen.queryByRole('button', { name: /sign out/i })).not.toBeInTheDocument();
       expect(screen.queryByText(/same account/i)).not.toBeInTheDocument();
       expect(screen.queryByText(/change it in your profile/i)).not.toBeInTheDocument();
-      expect(screen.getByText(/same contact details/i)).toBeInTheDocument();
+      expect(screen.queryByText(/same contact details/i)).not.toBeInTheDocument();
+      expect(screen.queryByText('Before you confirm')).not.toBeInTheDocument();
     });
 
     it('submits explicit guest identity using editable contact details despite an inert legacy cookie', async () => {
@@ -2249,8 +2255,7 @@ describe('BookConfirmClient deposit disclosure', () => {
 
     expect(screen.getByRole('button', { name: 'Request this time · $65' })).toBeInTheDocument();
     expect(screen.getByText('Nothing is booked yet. Send your request below for the salon to review.')).toBeInTheDocument();
-    expect(screen.getByText('Before you send your request')).toBeInTheDocument();
-    expect(screen.getByText(/This reserves the selected time while the salon reviews your request\./)).toBeInTheDocument();
+    expect(screen.getByText('The salon will review your request before confirming your appointment.')).toBeInTheDocument();
     expect(screen.queryByText(/Confirm below to reserve this time/)).not.toBeInTheDocument();
     expect(screen.queryByText(/This will reserve the time above/)).not.toBeInTheDocument();
   });
