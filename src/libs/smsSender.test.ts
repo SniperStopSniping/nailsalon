@@ -97,13 +97,20 @@ describe('resolveSharedSenderReadiness — structurally dark by default', () => 
     expect(resolution).toEqual({ ready: false, mode: 'shared_luster', reason: 'SENDER_NOT_READY' });
   });
 
+  it('identifies an explicit platform pause separately from missing sender setup', () => {
+    expect(resolveSharedSenderReadiness({
+      salonSlug: 'free-salon',
+      config: { ...fullyConfiguredShared, platformControl: { smsEnabled: false } },
+    })).toEqual({ ready: false, mode: 'shared_luster', reason: 'GLOBAL_SMS_DISABLED' });
+  });
+
   it('pilot mode with an EMPTY allowlist means nobody, never everybody', () => {
     const resolution = resolveSharedSenderReadiness({
       salonSlug: 'isla-nail-studio',
       config: { ...fullyConfiguredShared, pilot: { enabled: true, allowlist: [] } },
     });
 
-    expect(resolution).toEqual({ ready: false, mode: 'shared_luster', reason: 'PLAN_NOT_ELIGIBLE' });
+    expect(resolution).toEqual({ ready: false, mode: 'shared_luster', reason: 'PILOT_NOT_ENABLED' });
   });
 
   it('pilot mode admits only allowlisted slugs', () => {
@@ -113,7 +120,7 @@ describe('resolveSharedSenderReadiness — structurally dark by default', () => 
     expect(resolveSharedSenderReadiness({ salonSlug: 'other-salon', config })).toEqual({
       ready: false,
       mode: 'shared_luster',
-      reason: 'PLAN_NOT_ELIGIBLE',
+      reason: 'PILOT_NOT_ENABLED',
     });
   });
 

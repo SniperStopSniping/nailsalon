@@ -136,7 +136,7 @@ describe('SettingsModal communications view', () => {
     };
     await openCommunications();
 
-    expect(screen.getByText(/Text messages sent from Luster use Luster SMS credits\./)).toBeInTheDocument();
+    expect(screen.getByText(/SMS access is included with every plan and uses Luster SMS credits\./)).toBeInTheDocument();
     expect(screen.getByText(availableCredits === null
       ? 'Luster SMS credit balance is unavailable. Contact support.'
       : '42 SMS credits available. See Usage for details.')).toBeInTheDocument();
@@ -172,10 +172,10 @@ describe('SettingsModal communications view', () => {
       disabled: option.disabled,
     }));
 
-    expect(options).toContainEqual({ text: 'Text (Unavailable)', disabled: false });
-    expect(options).toContainEqual({ text: 'Email & text (Unavailable)', disabled: false });
+    expect(options).toContainEqual({ text: 'Text', disabled: false });
+    expect(options).toContainEqual({ text: 'Email & text', disabled: false });
     expect(screen.getByRole('checkbox', { name: /text messages to clients/i })).toBeEnabled();
-    expect(screen.getByText('(Unavailable)')).toBeInTheDocument();
+    expect(screen.queryByText('(Unavailable)')).not.toBeInTheDocument();
   });
 
   it('saves the whole rules list under the communications namespace', async () => {

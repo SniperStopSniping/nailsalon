@@ -2,7 +2,7 @@
 
 This pass repairs communications only. It does not enable production SMS, change credentials, provision numbers, run production migrations, or authorize customer sends. The current code and deployment configuration govern behavior; older Gate A/B descriptions of a future dispatcher or native-only manual texting are obsolete.
 
-Operational follow-up: the existing Canadian sender and approved opt-out routing are configured. The repair is under review in [PR #170](https://github.com/SniperStopSniping/nailsalon/pull/170); production still runs `71f70ca`. The exact `afd1a65` Preview is READY and serves the app, with Clerk Development and Stripe Test-mode keys scoped only to this branch. Its database/schema checks pass through the approved existing migration `0075`; no SMS migration was added. Aggregate Preview health remains degraded by unconfigured test-environment integrations. The corrected marketing fixture passed full CI Vitest at `29fff5d`: 7,501 tests. A further focused usage-screen change now hides unavailable credit purchases; it requires its own fresh release checks and Preview. Current check results are recorded on the PR. Read-only production inspection matches `isla-nail-studio` to Daniela's reference address and hours. See `RESUME.md` and the [pilot checklist](TWILIO_PILOT_CHECKLIST.md). No live SMS pilot or production release has been authorized or performed.
+Operational follow-up, September 9: [PR #170](https://github.com/SniperStopSniping/nailsalon/pull/170) was merged and released with explicit approval to keep SMS disabled. Production release `69b3b34` (v1.89.2) was verified healthy; both the environment SMS switch and platform control remained off. Scheduled dispatch and reminder invocations returned HTTP 200, and unsigned Twilio callbacks were rejected. The existing Canadian sender and approved opt-out routing are configured. The separate authenticated business `luster-sms-pilot-20260909` now shows 100 credits in the owner UI; its grant ledger has not yet been inspected. This is not Daniela's `isla-nail-studio` business. No recipient or carrier send is approved. The SMS access/status corrections described below are pending review on `codex/sms-credit-plan-access-20260909`, not yet released. See `RESUME.md` and the [pilot checklist](TWILIO_PILOT_CHECKLIST.md).
 
 ## Architecture and audit findings
 
@@ -21,6 +21,14 @@ Operational follow-up: the existing Canadian sender and approved opt-out routing
 | Settings | Existing communications JSON and Integrations | Luster identity, manual/automatic/reminder availability, pause, credits, quiet hours and blockers are shown from actual server gates. No salon Connect or number-purchase controls remain. |
 
 Every queued text carries salon, optional appointment, canonical client ID in variables when applicable, type, recipient, dedupe identity, schedule and expiry. Rendering records the body, fingerprint, encoding and segment count; delivery records sender identity, provider SID, status, timestamps, error and credit settlement. No schema migration is required for this repair.
+
+### SMS access across plans
+
+Every plan, including Free, includes SMS access. The canonical entitlement resolver ignores historical paid-only `marketing.smsReminders` and flat `smsReminders` flags. Presets and legacy projections agree. Subscription prices, paid feature bundles, monthly credit allowances and Stripe catalog configuration are unchanged. SMS access does not turn sending on or mint credits.
+
+Settings → Features & plan links SMS to the existing Client communications preferences. There is no separate paid SMS entitlement or second owner toggle. An explicit save of `communications.sms.enabled` also aligns the legacy SMS module field used by salon/technician booking notifications, atomically within that salon's settings update. Unrelated preference edits preserve that field and all other module choices. Existing salons are not automatically opted into texting.
+
+The availability display distinguishes a Luster-wide pause (`GLOBAL_SMS_DISABLED`), pending controlled-pilot access (`PILOT_NOT_ENABLED`), missing provider setup and insufficient credits. Historical `PLAN_NOT_ELIGIBLE` events remain readable as pilot-access blocks; that old code did not represent a subscription requirement. Public booking consent uses actual automatic-text readiness and acknowledges consent without promising a scheduled reminder.
 
 ### Initial 100 free credits
 
@@ -93,7 +101,7 @@ Operational readiness is a configuration and saved-state check. It does not call
 
 ## Verification and remaining release gate
 
-Final local implementation verification on this branch: the full Vitest suite passed 7,484 tests across 642 files, with 175 skipped tests and one existing TODO; the appointment regression suite passed 105 tests. Typecheck, production build, secret scan and explicit lint of all 85 changed TypeScript files passed (zero lint errors, four existing warnings). General-suite skips include opt-in external-database/Redis checks; the relevant SMS PostgreSQL suites were run separately as described below. Subsequent CI and authorized Preview deployment evidence appears above; no production deployment or live Twilio send occurred.
+Original repair checkpoint verification: the full Vitest suite passed 7,484 tests across 642 files, with 175 skipped tests and one existing TODO; the appointment regression suite passed 105 tests. Typecheck, production build, secret scan and explicit lint of all 85 changed TypeScript files passed (zero lint errors, four existing warnings). General-suite skips include opt-in external-database/Redis checks; the relevant SMS PostgreSQL suites were run separately as described below. The subsequent approved v1.89.2 release passed full CI with 7,509 tests. Current SMS-access correction results are recorded in `RESUME.md`; no live Twilio pilot has occurred.
 
 Automated tests use isolated PGlite, mocked provider calls, and generated signed callback requests. They must not connect to a shared development/production database or text customer numbers. Twilio test credentials do not support `MessagingServiceSid` and do not trigger delivery callbacks, so they cannot prove this complete production path. [Twilio test-credential limitations](https://www.twilio.com/docs/iam/test-credentials).
 

@@ -12,7 +12,8 @@ const repository = path.resolve(root, '../../..');
 export default defineConfig({
   root,
   cacheDir: path.join(os.tmpdir(), 'luster-sms-vite-cache'),
+  envDir: root,
   plugins: [react()],
-  resolve: { alias: { '@': path.join(repository, 'src') } },
+  resolve: { alias: { 'next/navigation': path.join(root, 'navigation.ts'), '@': path.join(repository, 'src') } },
   server: { host: '127.0.0.1', port: 3127, strictPort: true, fs: { allow: [repository] } },
 });

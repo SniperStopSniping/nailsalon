@@ -1,6 +1,6 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type {
   BookingExperienceEntitlementInspection,
@@ -191,6 +191,10 @@ describe('SalonDetailPanel Booking Experience entitlement wiring', () => {
     });
   });
 
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
   it('passes authoritative inspection state to the focused control and adopts its returned feature state', async () => {
     const user = userEvent.setup();
     render(
@@ -210,6 +214,55 @@ describe('SalonDetailPanel Booking Experience entitlement wiring', () => {
     await waitFor(() => {
       expect(screen.getByText('salon_1:force_disabled')).toBeInTheDocument();
       expect(screen.getByTestId('mock-feature-manager')).toHaveTextContent('false:audit_new');
+    });
+  });
+
+  it('replaces the legacy SMS switch with included access and preserves SMS values on an unrelated save', async () => {
+    vi.stubEnv('NODE_ENV', 'development');
+    const user = userEvent.setup();
+    const legacyResponse = {
+      ...organizationResponse,
+      salon: {
+        ...organizationResponse.salon,
+        plan: 'free',
+        features: {
+          ...organizationResponse.salon.features,
+          smsReminders: false,
+          marketing: { smsReminders: false },
+        },
+        smsRemindersEnabled: false,
+      },
+    };
+    const fallback = fetchMock.getMockImplementation()!;
+    fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input) === '/api/super-admin/organizations/salon_1') {
+        return Promise.resolve(new Response(JSON.stringify(legacyResponse), { status: 200 }));
+      }
+      return fallback(input, init);
+    });
+    render(<SalonDetailPanel salonId="salon_1" onClose={vi.fn()} />);
+
+    await user.click(await screen.findByRole('button', { name: 'Legacy feature settings' }));
+
+    expect(screen.getByText('Luster SMS')).toBeInTheDocument();
+    expect(screen.getByText('Included')).toBeInTheDocument();
+    expect(screen.getByText('Texts use SMS credits. The owner manages texting and reminders in communication preferences.')).toBeInTheDocument();
+    expect(screen.queryByRole('switch', { name: /sms/i })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Save changes' })).toBeDisabled();
+
+    await user.type(screen.getByLabelText('Salon Name'), ' Updated');
+    await user.click(screen.getByRole('button', { name: 'Save changes' }));
+
+    await screen.findByRole('button', { name: 'Saved' });
+
+    const writes = fetchMock.mock.calls.filter(([, init]) => init?.method === 'PUT');
+
+    expect(writes).toHaveLength(1);
+    expect(writes[0]?.[0]).toBe('/api/super-admin/organizations/salon_1');
+    expect(JSON.parse(writes[0]?.[1]?.body as string)).toMatchObject({
+      name: 'Isla Nail Studio Updated',
+      features: { smsReminders: false, marketing: { smsReminders: false } },
+      smsRemindersEnabled: false,
     });
   });
 });

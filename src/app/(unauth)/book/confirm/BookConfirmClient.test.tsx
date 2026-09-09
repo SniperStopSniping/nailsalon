@@ -348,6 +348,32 @@ describe('BookConfirmClient', () => {
     expect(screen.getByRole('link', { name: /manage this appointment/i })).toBeInTheDocument();
   });
 
+  it.each([true, false])('acknowledges the customer SMS choice without promising a reminder (consent=%s)', async (consent) => {
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({
+      data: { appointment: { id: 'appt_confirmed', status: 'confirmed' } },
+    }), { status: 201 }));
+    renderBasicConfirm({ smsEnabled: true });
+    if (consent) {
+      fireEvent.click(screen.getByRole('checkbox', { name: 'SMS consent' }));
+    }
+    fireEvent.click(screen.getByRole('button', { name: /confirm appointment/i }));
+
+    expect(await screen.findByRole('heading', { name: 'Appointment confirmed' })).toBeInTheDocument();
+
+    const acknowledgement = screen.queryByText('You\'ve agreed to receive appointment updates by text.');
+
+    if (consent) {
+      expect(acknowledgement).toBeInTheDocument();
+    } else {
+      expect(acknowledgement).not.toBeInTheDocument();
+    }
+
+    expect(screen.queryByText(/We’ll text you before your visit|We'll text you before your visit/)).not.toBeInTheDocument();
+    expect(JSON.parse(fetchMock.mock.calls[0]?.[1]?.body)).toMatchObject({
+      smsConsent: { granted: consent, wordingVersion: 'booking-v1' },
+    });
+  });
+
   it('renders an approval request as pending without confirmed/checkmark celebration semantics', async () => {
     bookingExperienceMock.confirmationMessage
       = 'Your appointment is confirmed. We look forward to seeing you.';
