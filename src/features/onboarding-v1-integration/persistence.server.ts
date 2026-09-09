@@ -3,6 +3,8 @@ import 'server-only';
 import { and, eq, inArray, isNotNull, isNull, ne, or, sql } from 'drizzle-orm';
 
 import { formatPhoneE164 } from '@/libs/adminAuth';
+import { resolveOrCreateBusinessIdentity } from '@/libs/billing/businessIdentity';
+import { grantStarterCredits } from '@/libs/billing/creditGrants';
 import {
   BOOKING_EXPERIENCE_LIMITS,
   bookingExperienceUpdateSchema,
@@ -1966,6 +1968,19 @@ async function claimOnboardingDraftUnlocked(
       salonId = created.salonId;
       salonSlug = created.salonSlug;
       technicianId = created.technicianId;
+      // Grant with initial authenticated business creation, in the same
+      // transaction. Existing-business draft edits and claim replays do
+      // not backfill credits; the durable identity also fences new salons
+      // created by an owner who already received the allowance.
+      const businessIdentity = await resolveOrCreateBusinessIdentity(tx, {
+        clerkUserId: identity.clerkUserId,
+        salonId,
+        verifiedEmail: identity.email,
+      });
+      await grantStarterCredits(tx, {
+        businessIdentityId: businessIdentity.businessIdentityId,
+        salonId,
+      });
     }
 
     if (!preserveExistingProductData) {

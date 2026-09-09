@@ -51,9 +51,16 @@ const { seedStarterMenuForSalon } = vi.hoisted(() => ({
   })),
 }));
 
+const { grantStarterCredits, resolveOrCreateBusinessIdentity } = vi.hoisted(() => ({
+  grantStarterCredits: vi.fn(),
+  resolveOrCreateBusinessIdentity: vi.fn(),
+}));
+
 vi.mock('@clerk/nextjs/server', () => ({ currentUser }));
 vi.mock('@/libs/DB', () => ({ db }));
 vi.mock('@/libs/auditLog', () => ({ logAuditEvent: vi.fn() }));
+vi.mock('@/libs/billing/businessIdentity', () => ({ resolveOrCreateBusinessIdentity }));
+vi.mock('@/libs/billing/creditGrants', () => ({ grantStarterCredits }));
 vi.mock('@/libs/clerkIdentity.server', () => ({ isClerkUserMissing }));
 vi.mock('@/libs/starterMenu', () => ({ seedStarterMenuForSalon }));
 vi.mock('server-only', () => ({}));
@@ -112,6 +119,8 @@ describe('POST /api/onboarding/luster', () => {
     process.env.TENANT_SUBDOMAINS_ENABLED = 'true';
     transaction.mockImplementation(callback => callback(tx));
     isClerkUserMissing.mockResolvedValue(false);
+    resolveOrCreateBusinessIdentity.mockResolvedValue({ businessIdentityId: 'business_owner_1', created: true });
+    grantStarterCredits.mockResolvedValue({ granted: true });
   });
 
   it('creates the complete solo salon and consumes the invitation atomically', async () => {
@@ -155,6 +164,18 @@ describe('POST /api/onboarding/luster', () => {
     expect(body.data).toMatchObject({
       slug: 'isla-nails',
       publicUrl: 'https://isla-nails.luster.com/',
+    });
+    expect(resolveOrCreateBusinessIdentity).toHaveBeenCalledOnce();
+    expect(resolveOrCreateBusinessIdentity).toHaveBeenCalledWith(tx, {
+      clerkUserId: 'clerk_owner_1',
+      salonId: body.data.salonId,
+      verifiedEmail: 'owner@example.com',
+    });
+    expect(grantStarterCredits).toHaveBeenCalledOnce();
+    expect(grantStarterCredits).toHaveBeenCalledWith(tx, {
+      businessIdentityId: 'business_owner_1',
+      salonId: body.data.salonId,
+      now: expect.any(Date),
     });
   });
 
@@ -247,9 +268,16 @@ describe('POST /api/onboarding/luster', () => {
       salonId: 'salon_best',
       role: 'owner',
     }));
+    expect(grantStarterCredits).toHaveBeenCalledOnce();
+    expect(grantStarterCredits).toHaveBeenCalledWith(tx, {
+      businessIdentityId: 'business_owner_1',
+      salonId: 'salon_best',
+      now: expect.any(Date),
+    });
   });
 
   it('reuses an existing Clerk owner and adds another salon membership', async () => {
+    grantStarterCredits.mockResolvedValue({ granted: false });
     queueSelectResults(
       [{
         id: 'invite_2',
@@ -273,6 +301,11 @@ describe('POST /api/onboarding/luster', () => {
       adminId: 'admin_existing',
       role: 'owner',
     }));
+    expect(resolveOrCreateBusinessIdentity).toHaveBeenCalledWith(tx, expect.objectContaining({
+      clerkUserId: 'clerk_owner_1',
+      salonId: body.data.salonId,
+    }));
+    expect(grantStarterCredits).toHaveBeenCalledOnce();
   });
 
   it('links an existing verified-email owner to Clerk without replacing memberships', async () => {
@@ -316,6 +349,8 @@ describe('POST /api/onboarding/luster', () => {
     expect(response.status).toBe(200);
     expect(body.data).toMatchObject({ salonId: 'salon_existing', slug: 'existing' });
     expect(tx.insert).not.toHaveBeenCalled();
+    expect(resolveOrCreateBusinessIdentity).not.toHaveBeenCalled();
+    expect(grantStarterCredits).not.toHaveBeenCalled();
   });
 
   it('rejects an email already linked to a different Clerk identity', async () => {
@@ -376,6 +411,7 @@ describe('POST /api/onboarding/luster', () => {
     expect(response.status).toBe(403);
     expect(body.error.code).toBe('EMAIL_NOT_VERIFIED');
     expect(transaction).not.toHaveBeenCalled();
+    expect(grantStarterCredits).not.toHaveBeenCalled();
   });
 
   it('rejects an expired, reused, or unknown invitation before creating records', async () => {
@@ -387,6 +423,7 @@ describe('POST /api/onboarding/luster', () => {
     expect(response.status).toBe(403);
     expect(body.error.code).toBe('INVITE_INVALID');
     expect(tx.insert).not.toHaveBeenCalled();
+    expect(grantStarterCredits).not.toHaveBeenCalled();
   });
 
   it('requires the signed-in Clerk email to match the invitation', async () => {
@@ -405,6 +442,7 @@ describe('POST /api/onboarding/luster', () => {
       message: 'Sign in with the email address that received this invitation.',
     });
     expect(tx.insert).not.toHaveBeenCalled();
+    expect(grantStarterCredits).not.toHaveBeenCalled();
   });
 
   it('maps a concurrent slug uniqueness violation to a stable conflict response', async () => {

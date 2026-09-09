@@ -171,6 +171,11 @@ describe.sequential('account-backed onboarding persistence', () => {
   });
 
   const handle = () => database as unknown as DatabaseSessionHandle;
+  const starterLots = (salonId: string) => database.select().from(schema.smsCreditLedgerSchema)
+    .where(and(
+      eq(schema.smsCreditLedgerSchema.salonId, salonId),
+      eq(schema.smsCreditLedgerSchema.bucket, 'starter'),
+    ));
 
   it('checks available, occupied, and invalid URLs without exposing the occupying salon', async () => {
     const occupiedSalonId = crypto.randomUUID();
@@ -451,6 +456,95 @@ describe.sequential('account-backed onboarding persistence', () => {
       city: 'Toronto',
       ownerClerkUserId: owner.clerkUserId,
     });
+
+    const lots = await starterLots(first.data.salonId);
+
+    expect(lots).toHaveLength(1);
+    expect(lots[0]).toMatchObject({ amount: 100, entryType: 'grant', expiresAt: null });
+    expect(await database.select().from(schema.billingStarterGrantSchema)
+      .where(eq(schema.billingStarterGrantSchema.salonId, first.data.salonId))).toMatchObject([
+      { credits: 100, ledgerId: lots[0]!.id },
+    ]);
+    expect(await database.select().from(schema.smsCreditAccountSchema)
+      .where(eq(schema.smsCreditAccountSchema.salonId, first.data.salonId))).toMatchObject([
+      { cachedAvailable: 100, cachedReserved: 0 },
+    ]);
+  });
+
+  it('grants independent new owners 100 credits each, without granting a second salon for the same business', async () => {
+    const owner = identity('starter_owner');
+    const first = await claimOnboardingDraft(owner, request('starter_first'), handle());
+    const second = await claimOnboardingDraft(owner, request('starter_second', {
+      target: { mode: 'create_business' },
+    }), handle());
+    const independent = await claimOnboardingDraft(identity('starter_independent'), request('starter_independent'), handle());
+    if (first.kind !== 'success' || second.kind !== 'success' || independent.kind !== 'success') {
+      throw new Error('Expected saved businesses.');
+    }
+
+    expect(await starterLots(first.data.salonId)).toMatchObject([{ amount: 100 }]);
+    expect(await starterLots(second.data.salonId)).toEqual([]);
+    expect(await starterLots(independent.data.salonId)).toMatchObject([{ amount: 100 }]);
+  });
+
+  it('does not backfill starter credits when an existing owner saves a site for an older salon', async () => {
+    const owner = identity('starter_existing');
+    const salonId = 'starter_existing_salon';
+    const adminId = 'starter_existing_admin';
+    await database.insert(schema.adminUserSchema).values({
+      id: adminId,
+      clerkUserId: owner.clerkUserId,
+      email: owner.email,
+    });
+    await database.insert(schema.salonSchema).values({
+      id: salonId,
+      name: 'Existing salon',
+      slug: 'starter-existing-salon',
+      ownerClerkUserId: owner.clerkUserId,
+      publicationStatus: 'draft',
+    });
+    await database.insert(schema.adminSalonMembershipSchema).values({ adminId, salonId, role: 'owner' });
+
+    const claimed = await claimOnboardingDraft(owner, request('starter_existing', {
+      target: { mode: 'existing_business', salonId },
+    }), handle());
+
+    expect(claimed).toMatchObject({ kind: 'success', data: { salonId } });
+    expect(await starterLots(salonId)).toEqual([]);
+    expect(await database.select().from(schema.billingStarterGrantSchema)
+      .where(eq(schema.billingStarterGrantSchema.salonId, salonId))).toEqual([]);
+  });
+
+  it('rolls back the starter grant and business identity when initial onboarding fails before commit', async () => {
+    const owner = identity('starter_rollback');
+    const failedDatabase = new Proxy(handle(), {
+      get(target, property, receiver) {
+        if (property === 'transaction') {
+          return async (operation: (tx: unknown) => Promise<unknown>) => database.transaction(async (tx) => {
+            await operation(tx);
+            throw new Error('Injected onboarding commit failure');
+          });
+        }
+        return Reflect.get(target, property, receiver);
+      },
+    });
+
+    await expect(claimOnboardingDraft(owner, request('starter_rollback'), failedDatabase))
+      .rejects.toThrow('Injected onboarding commit failure');
+    expect(await database.select().from(schema.salonSchema)
+      .where(eq(schema.salonSchema.ownerClerkUserId, owner.clerkUserId))).toEqual([]);
+    expect(await database.select().from(schema.billingBusinessIdentityLinkSchema)
+      .where(and(
+        eq(schema.billingBusinessIdentityLinkSchema.linkType, 'clerk_user'),
+        eq(schema.billingBusinessIdentityLinkSchema.linkValue, owner.clerkUserId),
+      ))).toEqual([]);
+
+    const retry = await claimOnboardingDraft(owner, request('starter_rollback'), handle());
+    if (retry.kind !== 'success') {
+      throw new Error('Expected retry to create the business.');
+    }
+
+    expect(await starterLots(retry.data.salonId)).toMatchObject([{ amount: 100 }]);
   });
 
   it('persists onboarding routing and booking rules into canonical salon settings', async () => {
@@ -928,6 +1022,7 @@ describe.sequential('account-backed onboarding persistence', () => {
       .where(eq(schema.onboardingDraftClaimSchema.siteId, left.data.siteId));
 
     expect(claims).toHaveLength(1);
+    expect(await starterLots(left.data.salonId)).toMatchObject([{ amount: 100 }]);
   });
 
   it.each([false, true])('verifies the snapshot after another server wins the claim race (changed: %s)', async (changed) => {
@@ -971,13 +1066,21 @@ describe.sequential('account-backed onboarding persistence', () => {
 
   it('rejects another Clerk owner attempting to reuse the claimed opaque token', async () => {
     const input = request('tenant_owner');
-    await claimOnboardingDraft(identity('tenant_owner'), input, handle());
+    const initial = await claimOnboardingDraft(identity('tenant_owner'), input, handle());
 
     await expect(claimOnboardingDraft(identity('wrong_owner'), input, handle()))
       .rejects.toMatchObject({
         code: 'DRAFT_ALREADY_CLAIMED',
         status: 409,
       });
+
+    if (initial.kind !== 'success') {
+      throw new Error('Expected initial claim.');
+    }
+
+    expect(await starterLots(initial.data.salonId)).toMatchObject([{ amount: 100 }]);
+    expect(await database.select().from(schema.billingBusinessIdentityLinkSchema)
+      .where(eq(schema.billingBusinessIdentityLinkSchema.linkValue, 'user_wrong_owner'))).toEqual([]);
   });
 
   it('does not return a claimed site status to another Clerk owner', async () => {
