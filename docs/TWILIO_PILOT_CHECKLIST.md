@@ -1,10 +1,14 @@
 # Luster SMS pilot checklist
 
-Preparation only. No recipient is approved, no pilot has run, and this checklist does not authorize configuration changes, deployment, credits, or sends. Follow the [SMS runbook](TWILIO_COMMUNICATIONS_RUNBOOK.md) for the implementation and Console settings.
+## Current live check (2026-09-09)
 
-## Current release and pilot state (2026-09-09 08:27 UTC)
+The user explicitly approved removing the test-salon restriction, making Luster SMS live and booking an appointment to their approved recipient. Production v1.89.3 / `601807a` is live; both SMS switches are on and `SMS_PILOT_ENABLED=false`. Existing salon preferences, consent, credits and quiet-hour controls still apply. The verified `isla-nail-studio` owner's SMS preference is on. Its previously missed starter allowance was corrected once after durable-owner and related-salon eligibility checks; there was no previous grant and no production SMS backlog at activation.
 
-The user has approved releasing PRs #171–#173 together with SMS paused. They are combined in PR #173, awaiting fresh combined CI and Preview before merge; production currently remains v1.89.2 / `69b3b34`. Both production SMS switches were read-verified off. The existing disposable `luster-sms-pilot-20260909` business has exactly one verified non-expiring 100-credit starter grant, no reservations, clients, appointments, SMS intents or deliveries. Signup and starter-ledger verification are complete. No recipient, pilot send or customer activation is approved. Paid credit sales remain a separate configuration task. Follow the activation order below after release verification.
+A real customer booking was submitted once through the public page with transactional SMS consent. It was automatically confirmed, created one confirmation intent and scheduled one reminder for 24 hours before the appointment. The five-minute dispatcher made one send attempt; the delivery callback recorded Delivered at 13:50:20 UTC. Owner history agreed, and the user independently confirmed the text arrived. One credit settled, leaving 99 at that checkpoint. The test appointment was then cancelled through the owner UI: its reminder became `canceled` with zero attempts, and the normal cancellation notice subsequently delivered with one attempt and one settled credit. Final readback at 13:57 UTC: both messages delivered once, 98 credits available and zero reserved; the reminder remains canceled with zero attempts. Do not repeat the booking/confirmation to reproduce these results.
+
+This is a successful live booking/receipt check, not completion of every scenario in the twelve-outcome matrix below. Manual SMS, explicit request/approval, reminder delivery, reschedule, STOP/START and induced failure/refund remain separate live checks. They have prior isolated regression coverage, which is not carrier evidence. Paid top-up sales remain unconfigured and were not tested. The existing disposable salon still exists but is no longer an access requirement for the user-approved rollout. Do not ask the user to recreate or find it before continuing ordinary salon operations.
+
+The historical activation sequence and approval boundaries below describe the prior isolated-pilot setup; they do not override the user's subsequent live-activation instruction. No credentials, message bodies, private manage links or recipient numbers are stored in this checklist.
 
 ## Historical setup evidence
 
