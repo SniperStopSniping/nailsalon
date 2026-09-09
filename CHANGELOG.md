@@ -1,3 +1,14 @@
+## [1.89.3](https://github.com/SniperStopSniping/nailsalon/compare/v1.89.2...v1.89.3) (2026-09-09)
+
+
+### Bug Fixes
+
+* keep paid booking requests pending on deposit return ([e02b234](https://github.com/SniperStopSniping/nailsalon/commit/e02b2348fee8613d474df2c3b3efbe952fd4db6e))
+* make booking confirmation explicit in onboarding and settings ([e053d28](https://github.com/SniperStopSniping/nailsalon/commit/e053d28198944ca2bb72fd2fdd6bc0af20b73120))
+* **onboarding:** restore desktop design layout and progress rail ([b15486a](https://github.com/SniperStopSniping/nailsalon/commit/b15486a942143ba0a1864877314d9120af70215f))
+* **sms:** include credit-funded texting on every plan ([ea13516](https://github.com/SniperStopSniping/nailsalon/commit/ea1351690db4e2dce0d985bd8224635b26b48808))
+* **sms:** preserve owner preferences across feature updates ([511377d](https://github.com/SniperStopSniping/nailsalon/commit/511377d2cc2c5cf88fd7655263ac4b8551718d96))
+
 ## [1.89.2](https://github.com/SniperStopSniping/nailsalon/compare/v1.89.1...v1.89.2) (2026-09-09)
 
 
