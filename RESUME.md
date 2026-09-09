@@ -28,6 +28,11 @@ Worktree: `/Users/me/nailsalon-worktrees/booking-confirmation-onboarding-2026090
 - Session-status, return-panel and ICS regression suites: 3 files / 19 tests passed. Complete changed-file ESLint passed after formatting the new prototype test/validation (12 existing warnings); root secret scan and both TypeScript checks passed earlier in this checkpoint. Full root and CI checks are still running.
 - No live deployment or provider send has occurred. The new browser checks cover local onboarding controls; they do not certify authenticated production or carrier delivery.
 
+## Checkpoint 3 — reconciliation regression
+
+- The real paid-session reconciliation test now covers automatic, explicit review and legacy holds. Its old assertion treated a legacy pending appointment as confirmed because the former endpoint conflated payment and appointment state.
+- All 14 reconciliation tests passed, including per-deposit provider-retrieval budgets. Together with the 19 status/panel/calendar tests, these cover the paid return path without provider calls. Final executable TypeScript and changed-source lint passed. Fresh full CI is required on this checkpoint.
+
 ## Outstanding release and pilot boundary
 
 - Desktop layout PR #171 and SMS access/credits plan PR #172 remain unmerged and passed their required CI. The user added this booking task instead of approving their release. This branch starts from main, not those pending branches.
