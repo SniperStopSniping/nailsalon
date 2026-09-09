@@ -1,3 +1,15 @@
+## [1.89.2](https://github.com/SniperStopSniping/nailsalon/compare/v1.89.1...v1.89.2) (2026-09-09)
+
+
+### Bug Fixes
+
+* **sms:** enforce Luster credits as the salon texting path ([afd1a65](https://github.com/SniperStopSniping/nailsalon/commit/afd1a65e1fd60c446525365af05f372616573891))
+* **sms:** grant starter credits during initial owner setup ([124ce01](https://github.com/SniperStopSniping/nailsalon/commit/124ce01a61284880baff2d5c6bf179e43a4633a4))
+* **sms:** report sender readiness and preserve communication controls ([4c394a1](https://github.com/SniperStopSniping/nailsalon/commit/4c394a10f32d5ee0d48c370d26724428392adacf))
+* **sms:** show credit purchases only when configured ([26d1590](https://github.com/SniperStopSniping/nailsalon/commit/26d1590a7ef83b06975313d31d4ee863082d8621))
+* **sms:** unify provider delivery and harden callback recovery ([4c5574a](https://github.com/SniperStopSniping/nailsalon/commit/4c5574a45aac23935934068e6d25dcce9e5b936a))
+* **sms:** wire appointment lifecycle and durable client texting ([6a1b813](https://github.com/SniperStopSniping/nailsalon/commit/6a1b813a23c291e8485fe038070ff9f4c88d6bd3))
+
 ## [1.89.1](https://github.com/SniperStopSniping/nailsalon/compare/v1.89.0...v1.89.1) (2026-09-08)
 
 
