@@ -7,6 +7,13 @@
 - The existing disposable `luster-sms-pilot-20260909` business has one verified non-expiring 100-credit starter grant and one ledger row; zero reserved segments, clients, appointments, SMS intents or deliveries. This closes the earlier grant-ledger inspection gap. No data or preference was changed.
 - Production still serves v1.89.2 / `69b3b3456a9d08b0e8dbc51d8331ef5bdb607e4a` at this checkpoint. Original user-owned checkout remains untouched. Final CI/Preview/production evidence will be maintained on PR #173 without committing solely to refresh completed-check timestamps.
 
+## Combined verification checkpoint
+
+- Full combined Vitest passed 7,605 tests (649 files; 175 skipped and one existing TODO). Selected coverage passed 935 tests; appointment regression 103; onboarding 1,341; confirmation browsers 3; SMS browsers 9. Existing owner/browser journeys passed 54 with four skips and the known Booking Page hub case passing on configured retry. Both builds, typecheck and lint passed.
+- Exact runtime Preview `d52848a` is READY and serves Luster; database and all schema checks pass, with Clerk/Stripe test-mode configuration. Branch-only Preview key mismatches were corrected using existing development configuration; the sensitive Stripe test secret was re-scoped from the completed PR170 branch without reading/changing it. Production settings are unchanged and SMS remains paused.
+- Combining #171 and #173 installed both root and prototype Playwright packages. The final desktop command still launched the root CLI against prototype imports, so Playwright rejected test registration. Use the prototype's existing `npx playwright` just like its confirmation-browser gate; retain the same cases, assertions and budgets. No runtime source changed.
+- The unchanged client-lifecycle migration test also hit its existing 5-second timeout, leaving a following reset blocked by a disposable-database deadlock. That gate must pass on fresh CI; no timeout or assertion is relaxed. Final results remain recorded on PR #173.
+
 ---
 
 # Booking confirmation and onboarding — 2026-09-09
