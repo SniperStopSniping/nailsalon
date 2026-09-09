@@ -1274,7 +1274,7 @@ describe('5 — non-goal exclusions', () => {
     expect(response.status).toBe(201);
     expect(body.data.deposit).toBeUndefined();
     // The replacement carries the NORMAL ternary, not a hold.
-    expect(body.data.appointment.status).toBe('pending');
+    expect(body.data.appointment.status).toBe('confirmed');
     expect(await depositRows()).toHaveLength(0);
     expect(deposits.createDepositCheckoutSession).not.toHaveBeenCalled();
     // The scope leg proper: isNewPublicBooking is false on a committing request.

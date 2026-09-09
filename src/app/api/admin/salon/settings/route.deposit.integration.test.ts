@@ -16,6 +16,10 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as schema from '@/models/Schema';
 import type { SalonSettings } from '@/types/salonPolicy';
 
+vi.mock('@/libs/integrationHealth', () => ({
+  getSalonSmsReadiness: vi.fn(async () => ({ senderMode: 'shared_luster', providerReady: true, workerConfigured: true })),
+}));
+
 vi.mock('server-only', () => ({}));
 
 const holder = vi.hoisted(() => ({ db: null as unknown }));

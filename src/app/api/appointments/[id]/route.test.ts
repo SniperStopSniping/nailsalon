@@ -1,6 +1,9 @@
 /* eslint-disable import/first */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { materializeAppointmentLifecycle } from '@/libs/communicationMaterialization';
+
+vi.mock('@/libs/communicationMaterialization', () => ({ materializeAppointmentLifecycle: vi.fn(async () => []) }));
 vi.mock('server-only', () => ({}));
 
 const {
@@ -1312,10 +1315,7 @@ describe('appointment detail route auth', () => {
         allowArchived: true,
       },
     );
-    expect(sendCancellationConfirmation).toHaveBeenCalledWith(
-      'salon_1',
-      expect.objectContaining({ phone: '4165550198' }),
-    );
+    expect(materializeAppointmentLifecycle).toHaveBeenCalledWith(expect.objectContaining({ eventType: 'appointment_cancelled', supersede: true }));
     expect(updateSet).toHaveBeenCalledWith(expect.objectContaining({
       loyaltyPoints: expect.anything(),
     }));
@@ -1527,11 +1527,8 @@ describe('appointment detail route auth', () => {
     expect(rewardRestores).toHaveLength(1);
     expect(snapshotWrites).toHaveLength(0);
     expect(lockOperationalSalonClientContactWithHandle).toHaveBeenCalledTimes(2);
-    expect(sendCancellationConfirmation).toHaveBeenCalledTimes(1);
-    expect(sendCancellationConfirmation).toHaveBeenCalledWith(
-      'salon_1',
-      expect.objectContaining({ phone: '4165550198' }),
-    );
+    expect(materializeAppointmentLifecycle).toHaveBeenCalledTimes(1);
+    expect(materializeAppointmentLifecycle).toHaveBeenCalledWith(expect.objectContaining({ eventType: 'appointment_cancelled', supersede: true }));
     expect(sendBookingNotificationsForAppointmentCancelled).toHaveBeenCalledTimes(1);
     expect(sendBookingNotificationsForAppointmentCancelled).toHaveBeenCalledWith(
       expect.objectContaining({ clientPhone: '4165550100' }),

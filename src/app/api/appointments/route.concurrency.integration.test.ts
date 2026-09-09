@@ -234,12 +234,9 @@ suite('POST /api/appointments — genuine concurrency', () => {
       publicationStatus: 'published',
       settings: BASE_SALON_SETTINGS,
     });
-    // Gate C1 mode-split: this suite pins the LEGACY synchronous send paths
-    // under genuine concurrency, and those paths now belong to BYO salons
-    // (owner decision 2.2 — shared-mode salons route through durable
-    // intents, proven in their own suites). An ACTIVE BYO connection keeps
-    // every expectation in this file exercising exactly the pipeline it has
-    // always proven.
+    // Connected senders now use the same durable SMS/reminder intents as
+    // shared senders. This fake connection exercises that mode without ever
+    // contacting a provider; operational email remains mocked separately.
     await db.insert(schema.salonTwilioConnectionSchema).values({
       salonId: SALON_ID,
       connectAccountSid: 'AC00000000000000000000000000000000',
@@ -1258,6 +1255,30 @@ suite('POST /api/appointments — genuine concurrency', () => {
     return appointment;
   }
 
+  async function configureEmailReminder() {
+    await db.update(schema.salonSchema).set({
+      settings: {
+        ...BASE_SALON_SETTINGS,
+        communications: {
+          sms: { enabled: false },
+          email: { enabled: true },
+          quietHours: { enabled: false, start: '21:00', end: '09:00' },
+          reminders: {
+            rules: [{ id: 'concurrency_24h', offsetMinutes: 1440, channels: 'email', enabled: true }],
+          },
+        },
+      },
+    }).where(eq(schema.salonSchema.id, SALON_ID));
+  }
+
+  async function loadReminderIntents(appointmentId: string) {
+    return db.select().from(schema.communicationIntentSchema).where(and(
+      eq(schema.communicationIntentSchema.salonId, SALON_ID),
+      eq(schema.communicationIntentSchema.appointmentId, appointmentId),
+      eq(schema.communicationIntentSchema.eventType, 'appointment_reminder'),
+    ));
+  }
+
   async function loadStaffRescheduleJobs(appointmentId: string) {
     return db
       .select()
@@ -1429,11 +1450,24 @@ suite('POST /api/appointments — genuine concurrency', () => {
       expect(appointmentRows).toHaveLength(input.expectedAppointmentCount ?? 1);
       expect(appointmentServices).toHaveLength(0);
       expect(appointmentAddOns).toHaveLength(0);
-      expect(accessTokens).toHaveLength(0);
       expect(deliveries).toHaveLength(0);
 
       if (input.expectedReactivationCalendarJob) {
         const mutationVersion = original.updatedAt.toISOString();
+        const intents = await db.select().from(schema.communicationIntentSchema);
+
+        // The winning reactivation owns its new capability and intents. The
+        // losing booking must not create any rows for a second appointment.
+        expect(accessTokens).toHaveLength(1);
+        expect(accessTokens[0]).toMatchObject({ salonId: SALON_ID, appointmentId: original.id });
+        expect(intents).toHaveLength(3);
+        expect(intents.every(intent => intent.salonId === SALON_ID
+          && intent.appointmentId === original.id && intent.status === 'pending')).toBe(true);
+        expect(intents.map(intent => `${intent.eventType}:${intent.channel}`).sort()).toEqual([
+          'appointment_reminder:email',
+          'appointment_reminder:sms',
+          'booking_confirmation:sms',
+        ]);
 
         expect(outbox).toHaveLength(1);
         expect(outbox[0]).toMatchObject({
@@ -1450,6 +1484,7 @@ suite('POST /api/appointments — genuine concurrency', () => {
           },
         });
       } else {
+        expect(accessTokens).toHaveLength(0);
         expect(outbox).toHaveLength(0);
       }
 
@@ -4425,18 +4460,24 @@ suite('POST /api/appointments — genuine concurrency', () => {
     expect((await loadAppointment(second.id)).technicianId).toBe(TECH_ID);
   });
 
-  it('refuses an old reminder candidate after a real move and sends the new identity', async () => {
-    const now = new Date('2099-08-31T22:05:00.000Z');
+  it('refuses an old reminder candidate after a real move and dispatches only the new identity', async () => {
+    const now = new Date('2099-08-31T14:05:00.000Z');
     const oldStart = '2099-09-01T15:00:00.000Z';
     const newStart = '2099-09-01T16:00:00.000Z';
+    await configureEmailReminder();
     const appointment = await seedManagedAppointment({
       id: 'managed_stale_reminder',
       startTime: oldStart,
       reminderSent: false,
     });
-    const { processAppointmentReminders } = await import(
-      '@/libs/appointmentReminders'
-    );
+    const { processAppointmentReminders } = await import('@/libs/appointmentReminders');
+    const { processDueCommunications } = await import('@/libs/communicationDispatcher');
+    const emailSend = vi.fn(async () => ({ delivered: true }));
+    const providerSend = vi.fn(async () => {
+      throw new Error('SMS_PROVIDER_MUST_NOT_RUN');
+    });
+
+    expect((await processAppointmentReminders({ now })).intentsMaterialized).toBe(1);
 
     const staleRun = await processAppointmentReminders({
       now,
@@ -4450,111 +4491,133 @@ suite('POST /api/appointments — genuine concurrency', () => {
     });
 
     expect(staleRun.skipped).toBe(1);
+    expect(staleRun.failures).toBe(0);
     expect(sendTransactionalEmailDetailed).not.toHaveBeenCalled();
     expect(sendAppointmentReminder).not.toHaveBeenCalled();
 
     const afterMove = await loadAppointment(appointment.id);
+    const intents = await loadReminderIntents(appointment.id);
 
     expect(afterMove.startTime.toISOString()).toBe(newStart);
     expect(afterMove.dayBeforeReminderSentAt).toBeNull();
-
-    const staleDeliveries = await db
-      .select()
-      .from(schema.notificationDeliverySchema)
-      .where(eq(
-        schema.notificationDeliverySchema.appointmentId,
-        appointment.id,
-      ));
-
-    expect(staleDeliveries).toHaveLength(1);
-    expect(staleDeliveries[0]).toMatchObject({
-      status: 'failed',
-      errorCode: 'REMINDER_SUPERSEDED',
-      retryable: false,
+    expect(intents).toHaveLength(2);
+    expect(intents.find(intent => intent.startRevision === oldStart)).toMatchObject({
+      status: 'canceled',
+      lastError: 'APPOINTMENT_SUPERSEDED',
+      deliveryId: null,
     });
-    expect(staleDeliveries[0]?.dedupeKey).toContain(oldStart);
 
-    const currentRun = await processAppointmentReminders({ now });
+    const current = intents.find(intent => intent.startRevision === newStart)!;
 
-    expect(currentRun.dayBeforeSent).toBe(1);
-    expect(sendTransactionalEmailDetailed).toHaveBeenCalledTimes(1);
+    expect(current).toMatchObject({ channel: 'email', status: 'pending' });
+    expect((await processAppointmentReminders({ now })).intentsMaterialized).toBe(0);
+    expect(await loadReminderIntents(appointment.id)).toHaveLength(2);
 
-    const final = await loadAppointment(appointment.id);
+    const dispatched = await processDueCommunications({
+      workerId: 'moved-reminder',
+      providerSend,
+      emailSend,
+      now: current.scheduledFor,
+    });
 
-    expect(final.dayBeforeReminderSentAt).toEqual(now);
+    expect(dispatched.sent).toBe(1);
+    expect(emailSend).toHaveBeenCalledTimes(1);
+    expect(emailSend).toHaveBeenCalledWith(expect.objectContaining({
+      intentId: current.id,
+      salonId: SALON_ID,
+      appointmentId: appointment.id,
+      recipient: 'managed@example.invalid',
+    }));
+    expect(providerSend).not.toHaveBeenCalled();
 
-    const deliveries = await db
-      .select()
-      .from(schema.notificationDeliverySchema)
-      .where(eq(
-        schema.notificationDeliverySchema.appointmentId,
-        appointment.id,
-      ));
+    const deliveries = await db.select().from(schema.notificationDeliverySchema)
+      .where(eq(schema.notificationDeliverySchema.appointmentId, appointment.id));
 
-    expect(deliveries).toHaveLength(2);
-    expect(deliveries.find(row => row.status === 'sent')?.dedupeKey)
-      .toContain(newStart);
+    expect(deliveries).toHaveLength(1);
+    expect(deliveries[0]).toMatchObject({ intentId: current.id, status: 'sent' });
   });
 
-  it('sends an unchanged reminder candidate through the real processor', async () => {
-    const now = new Date('2099-08-31T22:05:00.000Z');
+  it('rejects a reminder candidate after a contact change and schedules the current recipient', async () => {
+    const now = new Date('2099-08-31T14:05:00.000Z');
     const startTime = '2099-09-01T15:00:00.000Z';
+    await configureEmailReminder();
     const appointment = await seedManagedAppointment({
       id: 'managed_current_reminder',
       startTime,
       reminderSent: false,
       clientEmail: 'resolved-before-guard@example.invalid',
     });
-    const { processAppointmentReminders } = await import(
-      '@/libs/appointmentReminders'
-    );
+    const { processAppointmentReminders } = await import('@/libs/appointmentReminders');
+    const { processDueCommunications } = await import('@/libs/communicationDispatcher');
+    const emailSend = vi.fn(async () => ({ delivered: true }));
+    const providerSend = vi.fn(async () => {
+      throw new Error('SMS_PROVIDER_MUST_NOT_RUN');
+    });
 
-    const result = await processAppointmentReminders({
+    const staleRun = await processAppointmentReminders({
       now,
       beforeDeliveryGuard: async () => {
-        expect(sendTransactionalEmailDetailed).not.toHaveBeenCalled();
-
-        await db
-          .update(schema.appointmentSchema)
-          .set({ clientEmail: 'changed-after-resolution@example.invalid' })
-          .where(eq(schema.appointmentSchema.id, appointment.id));
+        await db.update(schema.appointmentSchema).set({
+          clientEmail: 'changed-after-resolution@example.invalid',
+          updatedAt: new Date(appointment.updatedAt.getTime() + 1000),
+        }).where(eq(schema.appointmentSchema.id, appointment.id));
       },
     });
 
-    expect(result.dayBeforeSent).toBe(1);
-    expect(sendTransactionalEmailDetailed).toHaveBeenCalledTimes(1);
-    expect(sendTransactionalEmailDetailed).toHaveBeenCalledWith(
-      expect.objectContaining({
-        to: 'resolved-before-guard@example.invalid',
-      }),
-      { signal: undefined },
-    );
-    expect((await loadAppointment(appointment.id)).dayBeforeReminderSentAt)
-      .toEqual(now);
+    expect(staleRun).toMatchObject({ skipped: 1, failures: 0, intentsMaterialized: 0 });
+    expect(await loadReminderIntents(appointment.id)).toHaveLength(0);
+    expect((await processAppointmentReminders({ now })).intentsMaterialized).toBe(1);
 
-    const [delivery] = await db
-      .select()
-      .from(schema.notificationDeliverySchema)
-      .where(eq(
-        schema.notificationDeliverySchema.appointmentId,
-        appointment.id,
-      ));
+    const [intent] = await loadReminderIntents(appointment.id);
 
-    expect(delivery).toMatchObject({ status: 'sent' });
-    expect(delivery?.dedupeKey).toContain(startTime);
+    expect(intent).toMatchObject({
+      recipient: 'changed-after-resolution@example.invalid',
+      startRevision: startTime,
+      status: 'pending',
+      deliveryId: null,
+    });
+    expect(sendTransactionalEmailDetailed).not.toHaveBeenCalled();
+    expect((await loadAppointment(appointment.id)).dayBeforeReminderSentAt).toBeNull();
+
+    const dispatched = await processDueCommunications({
+      workerId: 'current-contact-reminder',
+      providerSend,
+      emailSend,
+      now: intent!.scheduledFor,
+    });
+
+    expect(dispatched.sent).toBe(1);
+    expect(emailSend).toHaveBeenCalledTimes(1);
+    expect(emailSend).toHaveBeenCalledWith(expect.objectContaining({
+      intentId: intent!.id,
+      salonId: SALON_ID,
+      appointmentId: appointment.id,
+      recipient: 'changed-after-resolution@example.invalid',
+    }));
+    expect(providerSend).not.toHaveBeenCalled();
+
+    const deliveries = await db.select().from(schema.notificationDeliverySchema)
+      .where(eq(schema.notificationDeliverySchema.appointmentId, appointment.id));
+
+    expect(deliveries).toHaveLength(1);
+    expect(deliveries[0]).toMatchObject({ intentId: intent!.id, status: 'sent' });
   });
 
-  it('allows only one of two reminder workers to call the provider', async () => {
-    const now = new Date('2099-08-31T22:05:00.000Z');
+  it('deduplicates concurrent reminder reconciliation and allows one dispatcher to call the provider', async () => {
+    const now = new Date('2099-08-31T14:05:00.000Z');
     const startTime = '2099-09-01T15:00:00.000Z';
+    await configureEmailReminder();
     const appointment = await seedManagedAppointment({
       id: 'managed_two_reminder_workers',
       startTime,
       reminderSent: false,
     });
-    const { processAppointmentReminders } = await import(
-      '@/libs/appointmentReminders'
-    );
+    const { processAppointmentReminders } = await import('@/libs/appointmentReminders');
+    const { processDueCommunications } = await import('@/libs/communicationDispatcher');
+    const emailSend = vi.fn(async () => ({ delivered: true }));
+    const providerSend = vi.fn(async () => {
+      throw new Error('SMS_PROVIDER_MUST_NOT_RUN');
+    });
     let releaseFirst!: () => void;
     let markFirstAtGuard!: () => void;
     const firstAtGuard = new Promise<void>((resolve) => {
@@ -4571,29 +4634,36 @@ suite('POST /api/appointments — genuine concurrency', () => {
       },
     });
     await firstAtGuard;
-    const secondWorker = processAppointmentReminders({ now });
-    await secondWorker;
-    releaseFirst();
-    await firstWorker;
+    const secondResult = await processAppointmentReminders({ now }).finally(releaseFirst);
+    const firstResult = await firstWorker;
 
-    expect(sendTransactionalEmailDetailed).toHaveBeenCalledTimes(1);
+    expect(firstResult.failures + secondResult.failures).toBe(0);
+    expect(firstResult.intentsMaterialized + secondResult.intentsMaterialized).toBe(1);
+
+    const intents = await loadReminderIntents(appointment.id);
+
+    expect(intents).toHaveLength(1);
+    expect(intents[0]).toMatchObject({ startRevision: startTime, status: 'pending' });
+    expect(sendTransactionalEmailDetailed).not.toHaveBeenCalled();
     expect(sendAppointmentReminder).not.toHaveBeenCalled();
 
-    const final = await loadAppointment(appointment.id);
+    const outcomes = await Promise.all(['reminder-dispatch-a', 'reminder-dispatch-b'].map(workerId =>
+      processDueCommunications({ workerId, providerSend, emailSend, now: intents[0]!.scheduledFor }),
+    ));
 
-    expect(final.dayBeforeReminderSentAt).toEqual(now);
+    expect(outcomes.reduce((sum, outcome) => sum + outcome.sent, 0)).toBe(1);
+    expect(emailSend).toHaveBeenCalledTimes(1);
+    expect(providerSend).not.toHaveBeenCalled();
 
-    const deliveries = await db
-      .select()
-      .from(schema.notificationDeliverySchema)
-      .where(eq(
-        schema.notificationDeliverySchema.appointmentId,
-        appointment.id,
-      ));
+    const deliveries = await db.select().from(schema.notificationDeliverySchema)
+      .where(eq(schema.notificationDeliverySchema.appointmentId, appointment.id));
 
     expect(deliveries).toHaveLength(1);
-    expect(deliveries[0]).toMatchObject({ status: 'sent' });
-    expect(deliveries[0]?.dedupeKey).toContain(startTime);
+    expect(deliveries[0]).toMatchObject({ intentId: intents[0]!.id, status: 'sent' });
+    expect((await loadReminderIntents(appointment.id))[0]).toMatchObject({
+      status: 'sent',
+      deliveryId: deliveries[0]!.id,
+    });
   });
 
   it('allows only one of two outbox workers to deliver a staff reschedule', async () => {

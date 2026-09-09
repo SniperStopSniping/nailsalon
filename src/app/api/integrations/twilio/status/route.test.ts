@@ -24,6 +24,7 @@ vi.mock('@/libs/DB', () => ({
 }));
 
 const envHolder = vi.hoisted(() => ({
+  TWILIO_ACCOUNT_SID: 'AC00000000000000000000000000000000',
   TWILIO_AUTH_TOKEN: 'platform-token' as string | undefined,
   BILLING_IDENTITY_HMAC_SECRET: undefined,
   BILLING_IDENTITY_HMAC_VERSION: undefined,
@@ -48,7 +49,7 @@ beforeAll(async () => {
 });
 
 function callbackRequest(deliveryId: string, status: string, extra: Record<string, string> = {}) {
-  const body = new URLSearchParams({ MessageSid: 'SM_cb_1', MessageStatus: status, ...extra });
+  const body = new URLSearchParams({ MessageSid: 'SM_cb_1', AccountSid: 'AC00000000000000000000000000000000', MessageStatus: status, ...extra });
   return new Request(`https://x.test/api/integrations/twilio/status?deliveryId=${deliveryId}`, {
     method: 'POST',
     headers: {
@@ -196,5 +197,67 @@ describe('Twilio delivery status callback (hardened)', () => {
     const { POST } = await import('./route');
 
     expect((await POST(callbackRequest('nd_missing', 'delivered'))).status).toBe(204);
+  });
+});
+
+describe('delivery callback identity binding', () => {
+  it('does not attach another provider message to an existing delivery', async () => {
+    await db.insert(schema.notificationDeliverySchema).values({ id: 'nd_bound_sid', salonId: 'st1', channel: 'sms', purpose: 'test', dedupeKey: 'bound_sid', providerMessageId: 'SM_original', status: 'sent' });
+    const { POST } = await import('./route');
+
+    expect((await POST(callbackRequest('nd_bound_sid', 'delivered', { MessageSid: 'SM_some_other_message' }))).status).toBe(409);
+
+    const rows = await db.execute(sql`SELECT provider_message_id, status FROM notification_delivery WHERE id = 'nd_bound_sid'`);
+
+    expect(rows.rows[0]).toMatchObject({ provider_message_id: 'SM_original', status: 'sent' });
+  });
+
+  it('rejects a signed callback from the wrong Twilio account', async () => {
+    await db.insert(schema.notificationDeliverySchema).values({ id: 'nd_bound_account', salonId: 'st1', channel: 'sms', purpose: 'test', dedupeKey: 'bound_account', status: 'queued' });
+    const { POST } = await import('./route');
+
+    expect((await POST(callbackRequest('nd_bound_account', 'delivered', { AccountSid: 'AC11111111111111111111111111111111' }))).status).toBe(403);
+
+    const rows = await db.execute(sql`SELECT provider_message_id, status FROM notification_delivery WHERE id = 'nd_bound_account'`);
+
+    expect(rows.rows[0]).toMatchObject({ provider_message_id: null, status: 'queued' });
+  });
+});
+
+describe('callback financial recovery after a crash', () => {
+  it('resumes the refund when a terminal status was saved before financial work completed', async () => {
+    const { appendLotGrant, lockCreditAccount } = await import('@/libs/billing/creditLedger');
+    const { reserveSmsCredits, settleReservationOnAccept } = await import('@/libs/billing/creditReservation');
+    await db.transaction(async (tx) => {
+      await lockCreditAccount(tx, 'st1');
+      await appendLotGrant(tx, { salonId: 'st1', bucket: 'purchased', amount: 5, expiresAt: null, idempotencyKey: 'callback_recovery_seed', reason: 'test' });
+    });
+    const reservation = await reserveSmsCredits({ salonId: 'st1', dedupeKey: 'callback_recovery_reservation', segments: 1 });
+    if (!reservation.ok) {
+      throw new Error('Expected test credits');
+    }
+    await settleReservationOnAccept({ reservationId: reservation.reservationId, providerSid: 'SM_cb_1' });
+    await db.insert(schema.notificationDeliverySchema).values({
+      id: 'nd_callback_recovery',
+      salonId: 'st1',
+      channel: 'sms',
+      purpose: 'test',
+      dedupeKey: 'callback_recovery_delivery',
+      status: 'undelivered',
+      statusRank: 70,
+      providerMessageId: 'SM_cb_1',
+      creditReservationId: reservation.reservationId,
+      settlementState: 'settled',
+    });
+    const { POST } = await import('./route');
+
+    expect((await POST(callbackRequest('nd_callback_recovery', 'undelivered'))).status).toBe(204);
+    expect((await POST(callbackRequest('nd_callback_recovery', 'undelivered'))).status).toBe(204);
+
+    const delivery = await db.execute(sql`SELECT settlement_state FROM notification_delivery WHERE id = 'nd_callback_recovery'`);
+    const refunds = await db.execute(sql`SELECT COUNT(*)::int AS n FROM sms_credit_ledger WHERE idempotency_key LIKE ${`sms-refund:${reservation.reservationId}:%`}`);
+
+    expect(delivery.rows[0]).toMatchObject({ settlement_state: 'refunded' });
+    expect(refunds.rows[0]).toMatchObject({ n: 1 });
   });
 });

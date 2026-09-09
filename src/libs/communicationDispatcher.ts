@@ -1,33 +1,9 @@
 /**
- * Communication dispatcher — the shared-sender delivery core.
- *
- * Governing contract: docs/luster-billing-communications-rev-2-2.md §7.4,
- * §9.4, §10.9, §11.
- *
- * Per-intent pipeline (invariants I1-I9 from the Gate B design review):
- *
- *   claim (lease)
- *   → render + segments + destination + MODE resolution
- *   → TX1: reserve credits + INSERT delivery(settlement_state='settling')
- *          + intent → 'sending'                        [COMMIT before provider]
- *   → FINAL pre-provider check — a FRESH read after TX1: platform control
- *     (UNCACHED), per-event disable, global suppression, salon consent,
- *     rate limits, notAfter. STOP/kill-switch committed before this check
- *     prevents the send (release + suppress); provider acceptance first
- *     means the accepted message stands and the change affects subsequent
- *     sends. No retroactive recall exists.
- *   → provider call (INJECTED — Gate B ships no Twilio import here; tests
- *     and future Gate C wiring supply it)
- *      ├─ sync throw  → release reservation, delivery canceled/not_applicable,
- *      │                intent 'failed'
- *      └─ SID         → TX2: record SID + settle-on-accept (B1) + delivery
- *                       settlement_state 'settled', intent 'sent'
- *
- * DARK BY CONSTRUCTION: the shared sender requires COMMUNICATIONS_SMS_ENABLED,
- * the platform control row (ships disabled), the pilot allowlist when
- * enabled, AND a live credit balance. BYO intents are out of scope for this
- * dispatcher in Gate B (call-site migration is Gate C); the live BYO path in
- * SMS.ts is untouched.
+ * Canonical SMS dispatcher for shared Luster and connected salon senders.
+ * Durable intents own delivery history, retries, quiet hours and current
+ * client/appointment checks. Shared sends reserve credits before provider
+ * acceptance; connected sends use the same pipeline without Luster credits.
+ * Ambiguous provider outcomes are parked and never automatically resent.
  */
 
 import 'server-only';
@@ -50,22 +26,29 @@ import {
   transitionIntent,
 } from '@/libs/communicationIntent';
 import { checkSharedSendRateLimits } from '@/libs/communicationRateLimit.server';
+import { applyQuietHours, computeSchedulingRevision } from '@/libs/communicationScheduling';
+import { channelModeIncludes, type CommunicationSettings, resolveEventChannels, resolveSalonCommunicationSettings } from '@/libs/communicationSettings';
 import { COMMUNICATION_TEMPLATES } from '@/libs/communicationTemplates';
 import { db } from '@/libs/DB';
+import { Env } from '@/libs/Env';
 import { readCommunicationControlUncached } from '@/libs/platformCommunicationControl';
 import { hasGlobalSuppression, normalizeConsentRecipient } from '@/libs/smsConsentShared';
 import { resolveSmsDestination } from '@/libs/smsDestination';
 import { calculateSmsSegments } from '@/libs/smsSegments';
 import {
   readSharedSenderEnvConfig,
+  resolveByoSenderReadiness,
   resolveSharedSenderReadiness,
+  resolveSmsSenderMode,
 } from '@/libs/smsSender';
+import { ProviderOutcomeUnknownError } from '@/libs/twilioMessagingSend';
 import {
   communicationConsentSchema,
   type CommunicationIntent,
   communicationIntentSchema,
   notificationDeliverySchema,
   salonSchema,
+  salonTwilioConnectionSchema,
 } from '@/models/Schema';
 
 /**
@@ -75,17 +58,14 @@ import {
  * never resent — for the §7.5 reconciliation to resolve. A plain throw stays
  * a proven synchronous rejection (release, no debit).
  */
-export class ProviderOutcomeUnknownError extends Error {
-  constructor(message = 'PROVIDER_OUTCOME_UNKNOWN') {
-    super(message);
-    this.name = 'ProviderOutcomeUnknownError';
-  }
-}
+export { ProviderOutcomeUnknownError } from '@/libs/twilioMessagingSend';
 
 export type ProviderSendFn = (input: {
   to: string;
   body: string;
-  messagingServiceSid: string;
+  messagingServiceSid: string | null;
+  accountSid?: string;
+  from?: string | null;
   statusCallbackUrl: string | null;
 }) => Promise<{ sid: string }>;
 
@@ -101,7 +81,7 @@ export type DispatchSummary = {
   unknownOutcome: number;
 };
 
-async function hasSalonTransactionalConsent(salonId: string, recipient: string): Promise<boolean> {
+async function hasSalonTransactionalConsent(salonId: string, recipient: string, requireGranted = true): Promise<boolean> {
   const rows = await db
     .select({ status: communicationConsentSchema.status })
     .from(communicationConsentSchema)
@@ -113,7 +93,7 @@ async function hasSalonTransactionalConsent(salonId: string, recipient: string):
     ))
     .orderBy(sql`${communicationConsentSchema.createdAt} DESC`)
     .limit(1);
-  return rows[0]?.status === 'granted';
+  return requireGranted ? rows[0]?.status === 'granted' : rows[0]?.status !== 'revoked';
 }
 
 /**
@@ -122,29 +102,141 @@ async function hasSalonTransactionalConsent(salonId: string, recipient: string):
  * which a cancellation can land): a no-longer-active appointment suppresses
  * the message. Non-appointment intents pass through.
  */
-async function appointmentStillActive(intent: CommunicationIntent): Promise<boolean> {
+async function appointmentStillActive(intent: CommunicationIntent, now = new Date()): Promise<boolean> {
   if (intent.appointmentId === null) {
     return true;
   }
   const rows = await db.execute(sql`
-    SELECT 1 FROM appointment
-    WHERE id = ${intent.appointmentId}
-      AND salon_id = ${intent.salonId}
-      AND status IN ('pending', 'confirmed')
-      AND deleted_at IS NULL
-    LIMIT 1
+    SELECT status, start_time, request_expires_at, cancel_reason FROM appointment
+    WHERE id = ${intent.appointmentId} AND salon_id = ${intent.salonId}
+      AND deleted_at IS NULL LIMIT 1
   `);
-  return rows.rows.length === 1;
+  const appointment = rows.rows[0] as { status: string; start_time: Date | string; request_expires_at: Date | string | null; cancel_reason: string | null } | undefined;
+  if (!appointment) {
+    return false;
+  }
+  if (intent.eventType === 'booking_request_declined') {
+    return appointment.status === 'cancelled' && appointment.cancel_reason === 'declined_by_salon';
+  }
+  if (intent.eventType === 'booking_request_expired') {
+    return appointment.status === 'cancelled' && appointment.cancel_reason === 'request_expired';
+  }
+  if (['appointment_cancelled', 'owner_appointment_cancelled', 'tech_appointment_cancelled'].includes(intent.eventType)) {
+    return appointment.status === 'cancelled' || (intent.audience !== 'client' && appointment.status === 'no_show');
+  }
+  if (intent.eventType === 'manual_text') {
+    return true;
+  }
+  if (intent.startRevision && new Date(appointment.start_time).toISOString() !== intent.startRevision) {
+    return false;
+  }
+  if (intent.eventType === 'booking_request_received') {
+    return appointment.status === 'pending' && (!appointment.request_expires_at || new Date(appointment.request_expires_at).getTime() > now.getTime());
+  }
+  if (['appointment_reminder', 'manual_reminder'].includes(intent.eventType)) {
+    return appointment.status === 'confirmed' || (appointment.status === 'pending' && !appointment.request_expires_at);
+  }
+  if (['booking_confirmation', 'booking_request_approved'].includes(intent.eventType)) {
+    return appointment.status === 'confirmed';
+  }
+  return ['pending', 'confirmed'].includes(appointment.status);
 }
 
-async function deferIntent(intentId: string, reason: string, now: Date): Promise<void> {
+/** An intent must still address the same tenant-owned client at send time. */
+async function recipientStillCurrent(intent: CommunicationIntent): Promise<boolean> {
+  if (intent.channel !== 'sms') {
+    return true;
+  }
+  if (intent.audience !== 'client') {
+    const [salon] = await db.select({ ownerPhone: salonSchema.ownerPhone, settings: salonSchema.settings })
+      .from(salonSchema).where(eq(salonSchema.id, intent.salonId)).limit(1);
+    if (!salon) {
+      return false;
+    }
+    const { resolveBookingNotificationSettingsFromSettings } = await import('@/libs/bookingNotificationSettings');
+    const notifications = resolveBookingNotificationSettingsFromSettings(salon.settings);
+    const preference = intent.eventType.endsWith('appointment_cancelled') ? notifications.appointmentCancelled : notifications.newBooking;
+    if (intent.audience === 'owner') {
+      return preference.ownerEnabled && preference.ownerChannel !== 'email' && !!salon.ownerPhone
+        && normalizeConsentRecipient(salon.ownerPhone) === normalizeConsentRecipient(intent.recipient);
+    }
+    if (!preference.technicianEnabled || preference.technicianChannel === 'email' || !intent.appointmentId) {
+      return false;
+    }
+    const rows = await db.execute(sql`
+      SELECT t.phone FROM appointment a JOIN technician t ON t.id = a.technician_id AND t.salon_id = a.salon_id
+      WHERE a.id = ${intent.appointmentId} AND a.salon_id = ${intent.salonId} AND t.is_active IS NOT FALSE LIMIT 1
+    `);
+    const technician = rows.rows[0] as { phone: string | null } | undefined;
+    return !!technician?.phone && normalizeConsentRecipient(technician.phone) === normalizeConsentRecipient(intent.recipient);
+  }
+  let clientId = intent.variables?.clientId;
+  if (intent.appointmentId) {
+    const rows = await db.execute(sql`
+      SELECT client_phone, salon_client_id FROM appointment
+      WHERE id = ${intent.appointmentId} AND salon_id = ${intent.salonId} LIMIT 1
+    `);
+    const appointment = rows.rows[0] as { client_phone: string; salon_client_id: string | null } | undefined;
+    if (!appointment) {
+      return false;
+    }
+    clientId = appointment.salon_client_id ?? clientId;
+    if (!clientId) {
+      return normalizeConsentRecipient(appointment.client_phone) === normalizeConsentRecipient(intent.recipient);
+    }
+  }
+  if (!clientId) {
+    return true;
+  }
+  const { ClientLifecycleStabilizationError, resolveOperationalSalonClientContact } = await import('@/libs/clientLifecycleStabilization');
+  try {
+    const client = await resolveOperationalSalonClientContact({ salonId: intent.salonId, clientId, allowArchived: false });
+    return normalizeConsentRecipient(client.phone) === normalizeConsentRecipient(intent.recipient);
+  } catch (error) {
+    if (error instanceof ClientLifecycleStabilizationError) {
+      return false;
+    }
+    throw error;
+  }
+}
+
+/** Rules can change after materialization; an old rule must not send once disabled or edited. */
+async function reminderRuleStillCurrent(
+  intent: CommunicationIntent,
+  settings: CommunicationSettings,
+  timeZone: string | null | undefined,
+): Promise<boolean> {
+  if (intent.eventType !== 'appointment_reminder') {
+    return true;
+  }
+  const rule = settings.reminders.rules.find(candidate => candidate.id === intent.ruleId);
+  if (!rule?.enabled || !channelModeIncludes(rule.channels, 'sms') || !intent.appointmentId) {
+    return false;
+  }
+  const rows = await db.execute(sql`
+    SELECT start_time, updated_at FROM appointment
+    WHERE id = ${intent.appointmentId} AND salon_id = ${intent.salonId} AND deleted_at IS NULL LIMIT 1
+  `);
+  const appointment = rows.rows[0] as { start_time: Date | string; updated_at: Date | string } | undefined;
+  return !!appointment && intent.schedulingRevision === computeSchedulingRevision({
+    timeZone,
+    quietHours: settings.quietHours,
+    rule,
+    appointmentStart: new Date(appointment.start_time),
+    appointmentUpdatedAt: new Date(appointment.updated_at),
+    smsEnabled: settings.sms.enabled,
+    emailEnabled: settings.email.enabled,
+  });
+}
+
+async function deferIntent(intentId: string, reason: string, now: Date, availableAt = new Date(now.getTime() + 5 * 60 * 1000)): Promise<void> {
   await db
     .update(communicationIntentSchema)
     .set({
       status: 'pending',
       lockedBy: null,
       leaseExpiresAt: null,
-      availableAt: new Date(now.getTime() + 5 * 60 * 1000),
+      availableAt,
       lastError: reason,
     })
     .where(and(
@@ -162,6 +254,7 @@ export async function dispatchClaimedIntent(
   providerSend: ProviderSendFn,
   now = new Date(),
 ): Promise<'sent' | 'suppressed' | 'blocked_no_credit' | 'failed' | 'deferred' | 'expired' | 'unknown_outcome'> {
+  const dispatchStartedAt = Date.now();
   if (intent.notAfter.getTime() <= now.getTime()) {
     await transitionIntent(intent.id, { to: 'expired', lastError: 'NOT_AFTER_ELAPSED' }, now);
     return 'expired';
@@ -176,17 +269,15 @@ export async function dispatchClaimedIntent(
     return 'failed';
   }
   const salonRows = await db
-    .select({ name: salonSchema.name, slug: salonSchema.slug, isActive: salonSchema.isActive })
+    .select({ name: salonSchema.name, slug: salonSchema.slug, isActive: salonSchema.isActive, deletedAt: salonSchema.deletedAt, settings: salonSchema.settings, smsRemindersEnabled: salonSchema.smsRemindersEnabled })
     .from(salonSchema)
     .where(eq(salonSchema.id, intent.salonId))
     .limit(1);
   const salon = salonRows[0];
-  if (salon === undefined || salon.isActive === false) {
+  if (salon === undefined || salon.isActive === false || salon.deletedAt !== null) {
     await transitionIntent(intent.id, { to: 'suppressed', lastError: 'SALON_INACTIVE' }, now);
     return 'suppressed';
   }
-  const body = template.render({ ...intent.variables, salonName: salon.name });
-  const segmentation = calculateSmsSegments(body);
 
   // Destination policy (explicit stored country; +1 is not proof of Canada).
   const destination = resolveSmsDestination({
@@ -198,49 +289,111 @@ export async function dispatchClaimedIntent(
     return 'suppressed';
   }
 
-  // Mode + shared readiness (env + platform control + pilot + credits-capability).
-  const control = await readCommunicationControlUncached();
-  const envConfig = readSharedSenderEnvConfig();
-  const readiness = resolveSharedSenderReadiness({
-    salonSlug: salon.slug,
-    config: {
-      ...envConfig,
-      platformControl: control === null ? null : { smsEnabled: control.smsEnabled },
-      creditReservation: { available: true },
-    },
+  const [connection] = await db.select().from(salonTwilioConnectionSchema)
+    .where(eq(salonTwilioConnectionSchema.salonId, intent.salonId)).limit(1);
+  const mode = resolveSmsSenderMode({ connection: connection ?? null, perSalonDisabled: false });
+  const settings = resolveSalonCommunicationSettings(salon.settings, {
+    senderMode: mode,
+    legacySmsEnabled: salon.smsRemindersEnabled,
   });
-  if (!readiness.ready) {
-    if (readiness.reason === 'GLOBAL_SMS_DISABLED' || readiness.reason === 'SENDER_NOT_READY') {
-      // Kill switches hold, never destroy, queued evidence.
-      await deferIntent(intent.id, `KILL_SWITCH:${readiness.reason}`, now);
-      return 'deferred';
-    }
-    await transitionIntent(intent.id, { to: 'suppressed', lastError: readiness.reason }, now);
+  if (!resolveEventChannels(settings, intent.eventType).includes('sms')) {
+    await transitionIntent(intent.id, { to: 'suppressed', lastError: settings.killSwitch ? 'COMMUNICATIONS_PAUSED' : 'SMS_DISABLED' }, now);
     return 'suppressed';
   }
-  if (control !== null && (control.disabledEventTypes ?? []).includes(intent.eventType)) {
-    await deferIntent(intent.id, 'KILL_SWITCH:EVENT_DISABLED', now);
+  const quiet = applyQuietHours({
+    instant: now,
+    quietHours: settings.quietHours,
+    timeZone: salon.settings?.booking?.timezone,
+    notAfter: intent.notAfter,
+    bypass: ['booking_confirmation', 'booking_request_received'].includes(intent.eventType),
+  });
+  if (quiet.kind === 'stale') {
+    await transitionIntent(intent.id, { to: 'expired', lastError: quiet.reason }, now);
+    return 'expired';
+  }
+  if (quiet.kind === 'shifted') {
+    await deferIntent(intent.id, 'QUIET_HOURS', now, quiet.sendAt);
     return 'deferred';
+  }
+  const control = await readCommunicationControlUncached();
+  const envConfig = readSharedSenderEnvConfig();
+  const readiness = mode === 'connected_byo' && connection
+    ? resolveByoSenderReadiness(connection, { authTokenPresent: !!Env.TWILIO_AUTH_TOKEN })
+    : resolveSharedSenderReadiness({
+      salonSlug: salon.slug,
+      config: {
+        ...envConfig,
+        platformControl: control === null ? null : { smsEnabled: control.smsEnabled },
+        creditReservation: { available: true },
+      },
+    });
+  if (!readiness.ready) {
+    await deferIntent(intent.id, `SENDER_UNAVAILABLE:${readiness.reason}`, now);
+    return 'deferred';
+  }
+  if (mode === 'shared_luster') {
+    if (control !== null && (control.disabledEventTypes ?? []).includes(intent.eventType)) {
+      await deferIntent(intent.id, 'KILL_SWITCH:EVENT_DISABLED', now);
+      return 'deferred';
+    }
+    const rate = await checkSharedSendRateLimits({ salonId: intent.salonId, recipient: destination.e164 });
+    if (!rate.allowed) {
+      await deferIntent(intent.id, `RATE_LIMITED:${rate.reason}`, now);
+      return 'deferred';
+    }
   }
 
-  // Rate limits — sends degrade CLOSED (defer, never send unenforced).
-  const rate = await checkSharedSendRateLimits({
-    salonId: intent.salonId,
-    recipient: destination.e164,
-  });
-  if (!rate.allowed) {
-    await deferIntent(intent.id, `RATE_LIMITED:${rate.reason}`, now);
-    return 'deferred';
+  if (!(await appointmentStillActive(intent, now))) {
+    await transitionIntent(intent.id, { to: 'suppressed', lastError: 'APPOINTMENT_NO_LONGER_ACTIVE' }, now);
+    return 'suppressed';
   }
+  if (!(await reminderRuleStillCurrent(intent, settings, salon.settings?.booking?.timezone))) {
+    await transitionIntent(intent.id, { to: 'suppressed', lastError: 'REMINDER_RULE_CHANGED' }, now);
+    return 'suppressed';
+  }
+  if (!(await recipientStillCurrent(intent))) {
+    await transitionIntent(intent.id, { to: 'suppressed', lastError: 'RECIPIENT_CHANGED' }, now);
+    return 'suppressed';
+  }
+  let variables = intent.variables;
+  if (intent.appointmentId && intent.templateKey.endsWith('_shortlink') && variables.manageUrl
+    && !/\/a\/[\w-]{22}$/.test(variables.manageUrl)) {
+    // Retain the capability URL on the intent under a row lock, so retries
+    // reuse it and simultaneous workers cannot mint different aliases.
+    variables = await db.transaction(async (tx) => {
+      const [current] = await tx.select({ variables: communicationIntentSchema.variables })
+        .from(communicationIntentSchema).where(and(
+          eq(communicationIntentSchema.id, intent.id),
+          eq(communicationIntentSchema.salonId, intent.salonId),
+        )).for('update').limit(1);
+      if (current?.variables.manageUrl && /\/a\/[\w-]{22}$/.test(current.variables.manageUrl)) {
+        return current.variables;
+      }
+      const { mintShortManageToken } = await import('@/libs/shortManageLink');
+      const link = await mintShortManageToken(tx, {
+        salonId: intent.salonId,
+        appointmentId: intent.appointmentId!,
+        expiresAt: new Date(Math.max(now.getTime(), intent.notAfter.getTime()) + 30 * 24 * 60 * 60 * 1000),
+      });
+      const nextVariables = { ...intent.variables, manageUrl: link.url };
+      await tx.update(communicationIntentSchema).set({ variables: nextVariables })
+        .where(and(eq(communicationIntentSchema.id, intent.id), eq(communicationIntentSchema.salonId, intent.salonId)));
+      return nextVariables;
+    });
+  }
+  const body = template.render({ ...variables, salonName: salon.name });
+  const segmentation = calculateSmsSegments(body);
 
   // TX1: reserve + delivery(settling) + intent→sending, committed BEFORE the
   // provider call (invariant I1).
-  const reservation = await reserveSmsCredits({
-    salonId: intent.salonId,
-    dedupeKey: `${intent.dedupeKey}:r${intent.attempts}`,
-    segments: segmentation.segments,
-    now,
-  });
+  const reservation = mode === 'shared_luster'
+    ? await reserveSmsCredits({
+      salonId: intent.salonId,
+      dedupeKey: `${intent.dedupeKey}:r${intent.attempts}`,
+      segments: segmentation.segments,
+      now,
+    })
+    : { ok: true as const, reservationId: null };
   if (!reservation.ok) {
     await transitionIntent(intent.id, {
       to: 'blocked_no_credit',
@@ -250,7 +403,7 @@ export async function dispatchClaimedIntent(
     return 'blocked_no_credit';
   }
 
-  const deliveryId = `nd_${crypto.randomUUID()}`;
+  let deliveryId = intent.deliveryId ?? `nd_${crypto.randomUUID()}`;
   const bodyFingerprint = createHash('sha256').update(body, 'utf8').digest('hex').slice(0, 32);
   // The attempt-scoped delivery dedupe key doubles as the same-intent race
   // gate: two dispatchers holding the same claimed row (double invocation of
@@ -258,90 +411,142 @@ export async function dispatchClaimedIntent(
   // proceeds. The loser must touch NOTHING on the way out: its reservation
   // is dedupe-shared with the winner, so releasing it would strip the
   // winner's held credits mid-send.
-  const insertedDelivery = await db.insert(notificationDeliverySchema).values({
+  const deliveryValues = {
     id: deliveryId,
     salonId: intent.salonId,
     appointmentId: intent.appointmentId,
     channel: 'sms',
     purpose: `intent:${intent.eventType}`,
-    dedupeKey: `delivery:${intent.dedupeKey}:r${intent.attempts}`,
+    dedupeKey: `delivery:${intent.dedupeKey}`,
     status: 'queued',
     retryable: false,
     intentId: intent.id,
     creditReservationId: reservation.reservationId,
     segmentCount: segmentation.segments,
     encoding: segmentation.encoding,
-    senderIdentity: readiness.senderIdentity,
+    senderIdentity: readiness.mode === 'shared_luster' ? readiness.senderIdentity : `byo:${readiness.connectAccountSid}`,
     messagingServiceSid: readiness.messagingServiceSid,
-    settlementState: 'settling',
+    settlementState: reservation.reservationId ? 'settling' : 'not_applicable',
     statusRank: 0,
-  }).onConflictDoNothing().returning();
-  if (insertedDelivery.length === 0) {
-    return 'failed';
-  }
-  const toSending = await transitionIntent(intent.id, {
-    to: 'sending',
-    deliveryId,
-    creditReservationId: reservation.reservationId,
-    bodySnapshot: body,
-    bodyFingerprint,
-    segmentCount: segmentation.segments,
-    encoding: segmentation.encoding,
-  }, now);
-  if (!toSending.applied) {
-    // Either genuine supersession (canceled/suppressed between claim and
-    // here) or a lease-recovered duplicate whose winner re-reserved under a
-    // HIGHER attempt key. Release our hold unless the winner's send is
-    // literally using OUR reservation — status alone is not enough, because
-    // a recovered intent's winner holds a different reservation and ours
-    // would otherwise leak forever.
-    const [fresh] = await db
-      .select({
-        status: communicationIntentSchema.status,
-        creditReservationId: communicationIntentSchema.creditReservationId,
-      })
-      .from(communicationIntentSchema)
-      .where(eq(communicationIntentSchema.id, intent.id))
-      .limit(1);
-    const winnerOwnsOurReservation
-      = fresh !== undefined
-      && (fresh.status === 'sending' || fresh.status === 'sent')
+  };
+  // The delivery evidence and sending transition commit together. A crash
+  // before this transaction leaves only an expiring credit hold; a crash
+  // after it leaves a sending intent that recovery will never resend.
+  const preparedDeliveryId = await db.transaction(async (tx) => {
+    const [current] = await tx.select().from(communicationIntentSchema)
+      .where(and(eq(communicationIntentSchema.id, intent.id), eq(communicationIntentSchema.salonId, intent.salonId)))
+      .for('update').limit(1);
+    if (!current || current.status !== 'claimed' || current.attempts !== intent.attempts || current.lockedBy !== intent.lockedBy) {
+      return null;
+    }
+    const [existing] = await tx.select().from(notificationDeliverySchema)
+      .where(eq(notificationDeliverySchema.dedupeKey, deliveryValues.dedupeKey)).for('update').limit(1);
+    if (existing) {
+      const provenPreSend = existing.status === 'queued' && current.deliveryId === null;
+      const provenStopped = ['failed', 'canceled'].includes(existing.status) && existing.settlementState === 'not_applicable';
+      if (existing.salonId !== intent.salonId || existing.intentId !== intent.id || existing.providerMessageId || (!provenPreSend && !provenStopped)) {
+        return null;
+      }
+      deliveryId = existing.id;
+      await tx.update(notificationDeliverySchema).set({ ...deliveryValues, id: existing.id, errorCode: null, errorMessage: null })
+        .where(and(eq(notificationDeliverySchema.id, existing.id), eq(notificationDeliverySchema.salonId, intent.salonId)));
+    } else {
+      await tx.insert(notificationDeliverySchema).values(deliveryValues);
+    }
+    await tx.update(communicationIntentSchema).set({
+      status: 'sending',
+      deliveryId,
+      creditReservationId: reservation.reservationId,
+      bodySnapshot: body,
+      bodyFingerprint,
+      segmentCount: segmentation.segments,
+      encoding: segmentation.encoding,
+    }).where(and(eq(communicationIntentSchema.id, intent.id), eq(communicationIntentSchema.salonId, intent.salonId)));
+    return deliveryId;
+  });
+  if (!preparedDeliveryId) {
+    const [fresh] = await db.select({ status: communicationIntentSchema.status, creditReservationId: communicationIntentSchema.creditReservationId })
+      .from(communicationIntentSchema).where(and(eq(communicationIntentSchema.id, intent.id), eq(communicationIntentSchema.salonId, intent.salonId))).limit(1);
+    const winnerOwnsOurReservation = fresh && ['sending', 'sent', 'send_outcome_unknown'].includes(fresh.status)
       && fresh.creditReservationId === reservation.reservationId;
-    if (!winnerOwnsOurReservation) {
+    if (!winnerOwnsOurReservation && reservation.reservationId) {
       await releaseReservation({ reservationId: reservation.reservationId, reason: 'INTENT_SUPERSEDED', now });
-      await db
-        .update(notificationDeliverySchema)
-        .set({ status: 'canceled', settlementState: 'not_applicable' })
-        .where(eq(notificationDeliverySchema.id, deliveryId));
     }
     return 'failed';
   }
 
   // FINAL pre-provider check (invariant I2): FRESH reads after TX1 committed.
   const finalControl = await readCommunicationControlUncached();
-  const finalSuppressed = await hasGlobalSuppression(readiness.senderIdentity, destination.e164);
-  const finalConsent = await hasSalonTransactionalConsent(intent.salonId, intent.recipient);
-  if (
-    finalControl === null
-    || !finalControl.smsEnabled
-    || (finalControl.disabledEventTypes ?? []).includes(intent.eventType)
-    || finalSuppressed
-    || !finalConsent
-    || intent.notAfter.getTime() <= now.getTime()
-  ) {
-    await releaseReservation({ reservationId: reservation.reservationId, reason: 'FINAL_CHECK_STOPPED', now });
-    await db
-      .update(notificationDeliverySchema)
-      .set({ status: 'canceled', settlementState: 'not_applicable' })
-      .where(eq(notificationDeliverySchema.id, deliveryId));
-    await transitionIntent(intent.id, { to: 'suppressed', lastError: 'FINAL_CHECK_STOPPED' }, now);
+  const finalSuppressed = readiness.mode === 'shared_luster' && await hasGlobalSuppression(readiness.senderIdentity, destination.e164);
+  const finalConsent = await hasSalonTransactionalConsent(intent.salonId, intent.recipient, intent.audience === 'client');
+  const [freshSalon] = await db.select({ isActive: salonSchema.isActive, deletedAt: salonSchema.deletedAt, settings: salonSchema.settings, smsRemindersEnabled: salonSchema.smsRemindersEnabled })
+    .from(salonSchema).where(eq(salonSchema.id, intent.salonId)).limit(1);
+  const finalSettings = resolveSalonCommunicationSettings(freshSalon?.settings, { senderMode: mode, legacySmsEnabled: freshSalon?.smsRemindersEnabled });
+  const finalChannels = resolveEventChannels(finalSettings, intent.eventType);
+  const recipientCurrent = await recipientStillCurrent(intent);
+  const [freshConnection] = await db.select().from(salonTwilioConnectionSchema)
+    .where(eq(salonTwilioConnectionSchema.salonId, intent.salonId)).limit(1);
+  const currentMode = resolveSmsSenderMode({ connection: freshConnection ?? null, perSalonDisabled: finalSettings.killSwitch });
+  const senderChanged = currentMode !== mode || (readiness.mode === 'connected_byo' && (
+    freshConnection?.status !== 'active'
+    || freshConnection.connectAccountSid !== readiness.connectAccountSid
+    || freshConnection.messagingServiceSid !== readiness.messagingServiceSid
+    || freshConnection.phoneNumber !== readiness.phoneNumber
+  ));
+  const finalNow = new Date(now.getTime() + Math.max(0, Date.now() - dispatchStartedAt));
+  const finalQuiet = applyQuietHours({ instant: finalNow, quietHours: finalSettings.quietHours, timeZone: freshSalon?.settings?.booking?.timezone, notAfter: intent.notAfter, bypass: ['booking_confirmation', 'booking_request_received'].includes(intent.eventType) });
+  const currentRule = await reminderRuleStillCurrent(intent, finalSettings, freshSalon?.settings?.booking?.timezone);
+  const finalFailure = !freshSalon || freshSalon.isActive === false || freshSalon.deletedAt !== null
+    ? 'SALON_INACTIVE'
+    : finalSuppressed
+      ? 'GLOBAL_OPT_OUT'
+      : !finalConsent
+          ? 'CONSENT_REQUIRED'
+          : !recipientCurrent
+              ? 'RECIPIENT_CHANGED'
+              : finalSettings.killSwitch
+                ? 'COMMUNICATIONS_PAUSED'
+                : !finalChannels.includes('sms')
+                    ? 'SMS_DISABLED'
+                    : senderChanged
+                      ? 'SENDER_NOT_READY'
+                      : !currentRule
+                          ? 'REMINDER_RULE_CHANGED'
+                          : mode === 'shared_luster' && (finalControl === null || !finalControl.smsEnabled || (finalControl.disabledEventTypes ?? []).includes(intent.eventType))
+                            ? 'GLOBAL_SMS_DISABLED'
+                            : intent.notAfter.getTime() <= finalNow.getTime()
+                              ? 'NOT_AFTER_ELAPSED'
+                              : finalQuiet.kind === 'stale' ? finalQuiet.reason : null;
+  if (finalFailure) {
+    if (reservation.reservationId) {
+      await releaseReservation({ reservationId: reservation.reservationId, reason: finalFailure, now: finalNow });
+    }
+    await db.update(notificationDeliverySchema)
+      .set({ status: 'canceled', settlementState: 'not_applicable', errorCode: finalFailure })
+      .where(and(eq(notificationDeliverySchema.id, deliveryId), eq(notificationDeliverySchema.salonId, intent.salonId)));
+    await transitionIntent(intent.id, { to: 'suppressed', lastError: finalFailure }, finalNow);
     return 'suppressed';
   }
 
-  if (!(await appointmentStillActive(intent))) {
+  if (finalQuiet.kind === 'shifted') {
+    if (reservation.reservationId) {
+      await releaseReservation({ reservationId: reservation.reservationId, reason: 'QUIET_HOURS', now: finalNow });
+    }
+    await db.transaction(async (tx) => {
+      await tx.update(notificationDeliverySchema).set({ status: 'canceled', settlementState: 'not_applicable' })
+        .where(and(eq(notificationDeliverySchema.id, deliveryId), eq(notificationDeliverySchema.salonId, intent.salonId)));
+      await tx.update(communicationIntentSchema).set({ status: 'pending', availableAt: finalQuiet.sendAt, lockedBy: null, leaseExpiresAt: null, lastError: 'QUIET_HOURS' })
+        .where(and(eq(communicationIntentSchema.id, intent.id), eq(communicationIntentSchema.salonId, intent.salonId), eq(communicationIntentSchema.status, 'sending')));
+    });
+    return 'deferred';
+  }
+
+  if (!(await appointmentStillActive(intent, finalNow))) {
     // Final pre-provider appointment recheck: the reservation releases and
     // the provider is never called — same linearization posture as STOP.
-    await releaseReservation({ reservationId: reservation.reservationId, reason: 'appointment_inactive', now });
+    if (reservation.reservationId) {
+      await releaseReservation({ reservationId: reservation.reservationId, reason: 'appointment_inactive', now });
+    }
     await db.update(notificationDeliverySchema)
       .set({ status: 'canceled', settlementState: 'not_applicable' })
       .where(eq(notificationDeliverySchema.id, deliveryId));
@@ -356,6 +561,7 @@ export async function dispatchClaimedIntent(
       to: destination.e164,
       body,
       messagingServiceSid: readiness.messagingServiceSid,
+      ...(readiness.mode === 'connected_byo' ? { accountSid: readiness.connectAccountSid, from: readiness.phoneNumber } : {}),
       // Delivery identity in the callback (§6.10): a signed status callback
       // carrying this id is the §7.5 evidence that lets the resolver adopt a
       // SID onto an unknown-outcome intent.
@@ -369,13 +575,17 @@ export async function dispatchClaimedIntent(
       await transitionIntent(intent.id, { to: 'send_outcome_unknown', lastError: 'PROVIDER_OUTCOME_UNKNOWN' }, now);
       return 'unknown_outcome';
     }
-    await releaseReservation({ reservationId: reservation.reservationId, reason: 'PROVIDER_SYNC_REJECT', now });
+    if (reservation.reservationId) {
+      await releaseReservation({ reservationId: reservation.reservationId, reason: 'PROVIDER_SYNC_REJECT', now });
+    }
     await db
       .update(notificationDeliverySchema)
       .set({
         status: 'failed',
         settlementState: 'not_applicable',
-        errorMessage: error instanceof Error ? error.message.slice(0, 500) : 'PROVIDER_ERROR',
+        errorCode: typeof error === 'object' && error !== null && 'code' in error ? String(error.code) : 'PROVIDER_SYNC_REJECT',
+        errorMessage: 'The provider rejected this send before accepting a message.',
+        retryable: true,
       })
       .where(eq(notificationDeliverySchema.id, deliveryId));
     await transitionIntent(intent.id, { to: 'failed', lastError: 'PROVIDER_SYNC_REJECT' }, now);
@@ -395,7 +605,9 @@ export async function dispatchClaimedIntent(
         sql`${notificationDeliverySchema.statusRank} < 20`,
       ),
     ));
-  await settleReservationOnAccept({ reservationId: reservation.reservationId, providerSid: sid, now });
+  if (reservation.reservationId) {
+    await settleReservationOnAccept({ reservationId: reservation.reservationId, providerSid: sid, now });
+  }
   await db
     .update(notificationDeliverySchema)
     .set({ settlementState: 'settled', settledAt: now })
@@ -416,7 +628,8 @@ export async function dispatchClaimedIntent(
     .where(eq(notificationDeliverySchema.id, deliveryId))
     .limit(1);
   if (
-    postSettle !== undefined
+    reservation.reservationId !== null
+    && postSettle !== undefined
     && ['failed', 'undelivered', 'canceled'].includes(postSettle.status)
     && postSettle.settlementState === 'settled'
   ) {
@@ -468,7 +681,7 @@ async function dispatchClaimedEmailIntent(
     await transitionIntent(intent.id, { to: 'failed', lastError: 'TEMPLATE_UNKNOWN' }, now);
     return 'failed';
   }
-  if (!(await appointmentStillActive(intent))) {
+  if (!(await appointmentStillActive(intent, now))) {
     await transitionIntent(intent.id, { to: 'suppressed', lastError: 'APPOINTMENT_NO_LONGER_ACTIVE' }, now);
     return 'failed';
   }

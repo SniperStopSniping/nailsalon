@@ -37,29 +37,29 @@ describe('resolveSmsSenderMode — mode first, from salon state alone', () => {
       { connection: null, perSalonDisabled: true, expected: 'disabled' },
       { connection: activeByoConnection, perSalonDisabled: false, expected: 'connected_byo' },
       { connection: activeByoConnection, perSalonDisabled: true, expected: 'disabled' },
-      { connection: { ...activeByoConnection, status: 'pending' }, perSalonDisabled: false, expected: 'shared_luster' },
-      { connection: { ...activeByoConnection, status: 'deauthorized' }, perSalonDisabled: false, expected: 'shared_luster' },
+      { connection: { ...activeByoConnection, status: 'pending' }, perSalonDisabled: false, expected: 'connected_byo' },
+      { connection: { ...activeByoConnection, status: 'deauthorized' }, perSalonDisabled: false, expected: 'connected_byo' },
       { connection: { ...activeByoConnection, messagingServiceSid: null }, perSalonDisabled: false, expected: 'connected_byo' },
       { connection: { ...activeByoConnection, phoneNumber: null }, perSalonDisabled: false, expected: 'connected_byo' },
-      { connection: { ...activeByoConnection, messagingServiceSid: null, phoneNumber: null }, perSalonDisabled: false, expected: 'shared_luster' },
+      { connection: { ...activeByoConnection, messagingServiceSid: null, phoneNumber: null }, perSalonDisabled: false, expected: 'connected_byo' },
     ] as const;
     for (const testCase of cases) {
       expect(resolveSmsSenderMode(testCase)).toBe(testCase.expected);
     }
   });
 
-  it('keeps a phone-only active BYO connection on connected_byo (live-behavior continuity reading of §9.4)', () => {
+  it('keeps a phone-only active BYO connection on connected_byo (historical identity without sender substitution)', () => {
     const phoneOnly = { ...activeByoConnection, messagingServiceSid: null };
 
     expect(resolveSmsSenderMode({ connection: phoneOnly, perSalonDisabled: false })).toBe('connected_byo');
   });
 });
 
-describe('resolveByoSenderReadiness — continuity, never fall-through', () => {
-  it('validates BYO from the connection row and auth-token presence alone', () => {
+describe('resolveByoSenderReadiness — permanently retired, never fall-through', () => {
+  it('rejects even a fully configured legacy connection without becoming shared', () => {
     const resolution = resolveByoSenderReadiness(activeByoConnection, { authTokenPresent: true });
 
-    expect(resolution).toMatchObject({ ready: true, mode: 'connected_byo' });
+    expect(resolution).toEqual({ ready: false, mode: 'connected_byo', reason: 'SENDER_NOT_READY' });
   });
 
   it('a missing auth token makes BYO unavailable IN PLACE — it never becomes shared_luster', () => {
@@ -222,11 +222,11 @@ describe('smsSender source hygiene (mechanical dark-by-default proof)', () => {
     expect(source).not.toMatch(/@\/libs\/salonStatus|@\/libs\/featureGating|@\/libs\/featureEntitlements/);
   });
 
-  it('does not read the BYO onboarding flag — continuity and onboarding are separate permissions', () => {
+  it('cannot be reactivated by the retired BYO onboarding flag', () => {
     expect(source).not.toContain('SMS_BYO_MODE_ENABLED');
   });
 
-  it('is imported by NOTHING in src outside its own test — dark-by-deploy is mechanical, not incidental', async () => {
+  it('limits provider-mode imports to reviewed send and historical webhook boundaries', async () => {
     const { execFileSync } = await import('node:child_process');
     const grep = (() => {
       try {
@@ -246,7 +246,9 @@ describe('smsSender source hygiene (mechanical dark-by-default proof)', () => {
     // Any importer beyond this reviewed list re-fails.
     expect(importers).toEqual([
       'src/app/api/integrations/twilio/inbound/route.ts',
+      'src/libs/SMS.ts',
       'src/libs/communicationDispatcher.ts',
+      'src/libs/integrationHealth.ts',
     ]);
   });
 });

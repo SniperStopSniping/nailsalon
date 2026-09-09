@@ -6,7 +6,7 @@
  * Focused Integrations home opened from the More workspace. Shows only
  * integrations that genuinely exist, each with a plain-language status:
  * - Google Calendar (two-way sync — reuses the existing connect/calendar APIs)
- * - Text messaging (manual native composer vs optional automatic Twilio)
+ * - Text messaging (Luster SMS credits and the device's native composer)
  * - Email (transactional + owner/staff alerts; marketing email does not exist)
  *
  * - Payments (Stripe Connect account setup)
@@ -32,8 +32,7 @@ import {
 } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 
-import { ConfirmDialog } from '@/components/ui/confirm-dialog';
-import { isNativeSmsCapableDevice, resolveAutomaticTextStatus } from '@/libs/textingStatus';
+import { isNativeSmsCapableDevice, resolveAutomaticTextStatus, type SmsOperationalHealth } from '@/libs/textingStatus';
 
 type GoogleReadiness
   = | 'not_connected'
@@ -44,6 +43,7 @@ type GoogleReadiness
 
 type Health = {
   availability: { google: boolean; twilio: boolean; email: boolean; photos: boolean };
+  sms?: SmsOperationalHealth;
   google: {
     status: string;
     readiness?: GoogleReadiness;
@@ -196,22 +196,8 @@ export function IntegrationsModal({
   const [working, setWorking] = useState('');
   const [confirmingDisconnect, setConfirmingDisconnect] = useState(false);
 
-  // Twilio provisioning state
-  const [areaCode, setAreaCode] = useState('416');
-  const [twilioPreview, setTwilioPreview] = useState<{
-    number: { phone_number: string };
-    monthlyPrice: string | null;
-    currency: string;
-  } | null>(null);
-
   const [smsCapableDevice, setSmsCapableDevice] = useState(true);
   const [paymentsBusy, setPaymentsBusy] = useState(false);
-  /**
-   * Buying a phone number puts a recurring charge on the owner's own Twilio
-   * account. It never happens on a single tap: the price is fetched first and
-   * then named again in a confirmation the owner has to accept.
-   */
-  const [confirmingTwilioPurchase, setConfirmingTwilioPurchase] = useState(false);
 
   useEffect(() => {
     setSmsCapableDevice(isNativeSmsCapableDevice(navigator.userAgent));
@@ -303,45 +289,6 @@ export function IntegrationsModal({
     setWorking('');
   }
 
-  async function previewTwilio() {
-    setWorking('twilio-preview');
-    const response = await fetch(
-      `/api/integrations/twilio/provision?salonSlug=${encodeURIComponent(salonSlug ?? '')}&areaCode=${encodeURIComponent(areaCode)}`,
-    );
-    const payload = await response.json();
-    if (response.ok) {
-      setTwilioPreview(payload.data);
-    } else {
-      setMessage(payload.error || 'No number is available.');
-    }
-    setWorking('');
-  }
-
-  async function provisionTwilio() {
-    setWorking('twilio-provision');
-    setConfirmingTwilioPurchase(false);
-    const response = await fetch('/api/integrations/twilio/provision', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        salonSlug,
-        areaCode,
-        confirmedMonthlyPrice: twilioPreview?.monthlyPrice || null,
-      }),
-    });
-    const payload = await response.json();
-    setMessage(
-      response.ok
-        ? `Automatic texts are active from ${payload.data.phoneNumber}.`
-        : payload.error || 'Twilio setup failed.',
-    );
-    if (response.ok) {
-      setTwilioPreview(null);
-      void loadHealth();
-    }
-    setWorking('');
-  }
-
   const googleReadiness: GoogleReadiness = health
     ? (health.availability.google === false && health.google.status === 'disconnected'
         ? 'not_connected'
@@ -418,14 +365,11 @@ export function IntegrationsModal({
       icon: MessageSquareText,
       iconClass: 'bg-amber-100 text-amber-800',
       name: 'Text messaging',
-      // Manual texting always works without Twilio — never describe texting
-      // as disconnected just because automatic sending is not set up.
-      status: automaticText.label === 'Ready' ? 'Ready' : 'Manual ready',
-      tone: automaticText.label === 'Ready' ? 'good' : 'good',
-      explanation:
-        automaticText.label === 'Ready'
-          ? 'Manual texting plus automatic reminders are set up.'
-          : 'Text clients from your phone. Automatic reminders are optional.',
+      status: health ? automaticText.label : 'Loading…',
+      tone: automaticText.tone,
+      explanation: health?.sms?.manualAvailable
+        ? 'Text clients from Luster and track appointment messages.'
+        : 'Check your texting identity, delivery status, reminders and credits.',
     },
     {
       id: 'email',
@@ -492,6 +436,7 @@ export function IntegrationsModal({
         {healthError && (
           <div className="mb-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
             {healthError}
+            <button type="button" onClick={() => void loadHealth()} className="ml-3 underline">Try again</button>
           </div>
         )}
 
@@ -838,22 +783,28 @@ export function IntegrationsModal({
           <div className="space-y-4">
             <div className={card} data-testid="manual-texting-section">
               <div className="flex items-start justify-between gap-3">
-                <p className="text-[15px] font-semibold text-[var(--owner-ink)]">Manual texting</p>
+                <p className="text-[15px] font-semibold text-[var(--owner-ink)]">Text from Luster</p>
                 <StatusPill
-                  label={smsCapableDevice ? 'Ready' : 'Unsupported on this device'}
-                  tone={smsCapableDevice ? 'good' : 'muted'}
+                  label={health?.sms?.manualAvailable ? 'Ready' : health ? 'Unavailable' : 'Loading…'}
+                  tone={health?.sms?.manualAvailable ? 'good' : 'muted'}
                 />
               </div>
               <p className="mt-1 text-sm text-[var(--owner-muted)]">
-                Opens your phone’s Messages app with the client’s number and a prewritten message you can edit.
-                Nothing sends until you hit send, and Luster cannot confirm delivery. Works without any setup —
-                no Twilio needed.
+                Send a client a text from their client profile or appointment. Messages use your salon’s
+                Luster texting identity and SMS credits, and appear in communication history with their delivery status.
               </p>
-              {!smsCapableDevice && (
-                <p className="mt-2 text-xs text-[var(--owner-muted)]">
-                  This browser can’t open a Messages app. Open Luster on your phone to text clients.
-                </p>
-              )}
+              {health?.sms && <p className="mt-2 text-sm text-[var(--owner-muted)]">{health.sms.detail}</p>}
+            </div>
+
+            <div className={card} data-testid="native-texting-section">
+              <div className="flex items-start justify-between gap-3">
+                <p className="text-[15px] font-semibold text-[var(--owner-ink)]">Text from your phone</p>
+                <StatusPill label={smsCapableDevice ? 'Available on this device' : 'Use your phone'} tone="muted" />
+              </div>
+              <p className="mt-1 text-sm text-[var(--owner-muted)]">
+                You can also open your phone’s Messages app from a client profile. These texts use your
+                own mobile number and mobile plan. They do not use Luster SMS credits, and Luster cannot confirm their delivery.
+              </p>
             </div>
 
             <div className={card} data-testid="automatic-texting-section">
@@ -862,8 +813,8 @@ export function IntegrationsModal({
                 <StatusPill label={automaticText.label} tone={automaticText.tone} />
               </div>
               <p className="mt-1 text-sm text-[var(--owner-muted)]">
-                Optional. Sends booking confirmations and appointment reminders automatically from a dedicated
-                number in your own Twilio account. Bookings still work if texting is off.
+                Sends booking updates and scheduled appointment reminders using the texting identity below.
+                Bookings still work if texting is off.
               </p>
               {automaticText.detail && (
                 <p className={`mt-2 text-sm ${automaticText.tone === 'error' ? 'text-red-700' : 'text-[var(--owner-muted)]'}`}>
@@ -871,83 +822,38 @@ export function IntegrationsModal({
                 </p>
               )}
 
-              {health && health.availability.twilio && health.twilio.status !== 'active' && (
-                health.twilio.status === 'pending'
-                  ? (
-                      <div className="mt-4 space-y-3">
-                        <label className="block text-sm">
-                          Canadian area code
-                          <input
-                            className="mt-1 w-full rounded-xl border border-[var(--owner-line-strong)] px-3 py-2"
-                            maxLength={3}
-                            value={areaCode}
-                            onChange={event => setAreaCode(event.target.value.replace(/\D/g, ''))}
-                          />
-                        </label>
-                        <button
-                          type="button"
-                          data-testid="twilio-preview"
-                          onClick={previewTwilio}
-                          disabled={working !== '' || areaCode.length !== 3}
-                          className="min-h-11 rounded-full border border-[var(--owner-line-strong)] px-5 py-2.5 text-sm font-semibold outline-none focus-visible:ring-2 focus-visible:ring-rose-400 disabled:opacity-50"
-                        >
-                          Find a number and its price
-                        </button>
-                        {twilioPreview && (
-                          <div
-                            className="rounded-2xl bg-amber-50 p-4 text-sm"
-                            data-testid="twilio-preview-panel"
-                          >
-                            <p>
-                              Available:
-                              {' '}
-                              <strong>{twilioPreview.number.phone_number}</strong>
-                            </p>
-                            <p className="mt-1">
-                              Twilio monthly number charge:
-                              {' '}
-                              <strong>
-                                {twilioPreview.monthlyPrice
-                                  ? `${twilioPreview.monthlyPrice} ${twilioPreview.currency}`
-                                  : 'shown in your Twilio account'}
-                              </strong>
-                              , plus message usage.
-                            </p>
-                            <p className="mt-1 text-[13px] leading-6 text-[var(--owner-muted)]">
-                              Twilio bills this to your own Twilio account, not
-                              to Luster. Keeping the number keeps the monthly
-                              charge; releasing it in Twilio stops it.
-                            </p>
-                            <button
-                              type="button"
-                              data-testid="twilio-provision"
-                              onClick={() => setConfirmingTwilioPurchase(true)}
-                              disabled={working !== ''}
-                              className="mt-3 min-h-11 rounded-full bg-red-600 px-5 py-2.5 font-semibold text-white outline-none focus-visible:ring-2 focus-visible:ring-red-400 disabled:opacity-50"
-                            >
-                              Buy this number
-                            </button>
-                          </div>
-                        )}
-                      </div>
-                    )
-                  : (
-                      <a
-                        className="mt-4 inline-flex rounded-full bg-[var(--owner-accent)] px-5 py-2.5 text-sm font-semibold text-white outline-none transition-colors hover:bg-[var(--owner-accent-strong)] focus-visible:ring-2 focus-visible:ring-rose-400"
-                        href={`/api/integrations/twilio/connect?salonSlug=${encodeURIComponent(salonSlug ?? '')}`}
-                      >
-                        Authorize Twilio
-                      </a>
-                    )
+              {health?.sms && (
+                <dl className="mt-4 space-y-2 text-sm text-[var(--owner-muted)]">
+                  <div>
+                    <dt className="font-medium text-[var(--owner-ink)]">Texting identity</dt>
+                    <dd>{health.sms.senderLabel}</dd>
+                  </div>
+                  <div>
+                    <dt className="font-medium text-[var(--owner-ink)]">Automatic texts</dt>
+                    <dd>{health.sms.smsEnabled ? 'Enabled in Settings' : 'Off in Settings'}</dd>
+                  </div>
+                  <div>
+                    <dt className="font-medium text-[var(--owner-ink)]">Text reminders</dt>
+                    <dd>{health.sms.remindersEnabled ? 'Enabled' : 'Not sending'}</dd>
+                  </div>
+                  <div>
+                    <dt className="font-medium text-[var(--owner-ink)]">SMS credits</dt>
+                    <dd>{health.sms.availableCredits === null ? 'Luster SMS credit balance is unavailable. Contact support.' : `${health.sms.availableCredits} available. Details and top-ups are in Usage.`}</dd>
+                  </div>
+                  <div>
+                    <dt className="font-medium text-[var(--owner-ink)]">Quiet hours</dt>
+                    <dd>{health.sms.quietHours.enabled ? `${health.sms.quietHours.start}–${health.sms.quietHours.end}, salon local time. Scheduled and manual texts wait until quiet hours end.` : 'Off'}</dd>
+                  </div>
+                </dl>
               )}
 
-              {health?.twilio.status === 'active' && smsModuleReason === 'MODULE_DISABLED' && onOpenSettings && (
+              {health && onOpenSettings && (
                 <button
                   type="button"
                   onClick={onOpenSettings}
                   className="mt-3 text-sm font-semibold text-[var(--owner-accent)] underline-offset-2 outline-none hover:underline focus-visible:ring-2 focus-visible:ring-rose-400"
                 >
-                  Turn on SMS reminders in Settings
+                  Manage texts and reminders in Settings
                 </button>
               )}
               {health?.latestSmsDeliveryError && (
@@ -1064,41 +970,6 @@ export function IntegrationsModal({
           </div>
         )}
       </div>
-
-      {/*
-        A phone number is a purchase on the owner's own Twilio account, so it
-        gets an explicit confirmation that names the recurring charge. Nothing
-        is bought on a single tap.
-      */}
-      <ConfirmDialog
-        isOpen={confirmingTwilioPurchase}
-        title="Buy this phone number?"
-        tone="danger"
-        confirmLabel="Buy the number"
-        cancelLabel="Not now"
-        busy={working === 'twilio-provision'}
-        onClose={() => setConfirmingTwilioPurchase(false)}
-        onConfirm={() => void provisionTwilio()}
-        description={(
-          <div className="space-y-2">
-            <p>
-              {twilioPreview
-                ? `Twilio will reserve ${twilioPreview.number.phone_number} for this salon.`
-                : 'Twilio will reserve a number for this salon.'}
-            </p>
-            <p>
-              {twilioPreview?.monthlyPrice
-                ? `That starts a recurring charge of ${twilioPreview.monthlyPrice} ${twilioPreview.currency} per month, plus per-message usage.`
-                : 'That starts a recurring monthly charge, plus per-message usage, at the price shown in your Twilio account.'}
-            </p>
-            <p>
-              It is billed by Twilio to your own Twilio account — Luster does
-              not charge you for it and cannot cancel it for you. To stop the
-              charge later, release the number in Twilio.
-            </p>
-          </div>
-        )}
-      />
     </div>
   );
 }

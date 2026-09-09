@@ -32,7 +32,7 @@ import {
 import {
   communicationSettingsUpdateSchema,
   mergeCommunicationSettings,
-  resolveCommunicationSettingsFromSettings,
+  resolveSalonCommunicationSettings,
 } from '@/libs/communicationSettings';
 import { db } from '@/libs/DB';
 import {
@@ -43,6 +43,7 @@ import {
 } from '@/libs/depositPolicy';
 import { getDepositPolicyForSalon } from '@/libs/depositPolicy.server';
 import { resolveBookingExperienceEntitlement } from '@/libs/featureEntitlements';
+import { getSalonSmsReadiness } from '@/libs/integrationHealth';
 import { getDefaultLoyaltyPoints, resolveSalonLoyaltyPoints } from '@/libs/loyalty';
 import { getSalonBySlug } from '@/libs/queries';
 import { checkEndpointRateLimit, rateLimitResponse } from '@/libs/rateLimit';
@@ -275,6 +276,8 @@ export async function GET(request: Request): Promise<Response> {
       salon.features as SalonFeatures | null | undefined,
     );
 
+    const sms = await getSalonSmsReadiness(salon.id);
+
     // 4. Return settings
     return Response.json({
       reviewsEnabled: salon.reviewsEnabled ?? true,
@@ -294,8 +297,10 @@ export async function GET(request: Request): Promise<Response> {
       ),
       bookingExperienceEntitlement,
       bookingNotifications,
-      communications: resolveCommunicationSettingsFromSettings(
+      sms,
+      communications: resolveSalonCommunicationSettings(
         (salon.settings as SalonSettings | null | undefined) ?? null,
+        { senderMode: sms.senderMode, legacySmsEnabled: salon.smsRemindersEnabled },
       ),
       ...buildSalonEmailNotificationResponse({
         settings: (salon.settings as SalonSettings | null | undefined) ?? null,
@@ -313,7 +318,7 @@ export async function GET(request: Request): Promise<Response> {
       ),
       ownerPhonePresent: notificationCapabilities.ownerPhonePresent,
       ownerEmailPresent: notificationCapabilities.ownerEmailPresent,
-      smsChannelAvailable: notificationCapabilities.smsChannelAvailable,
+      smsChannelAvailable: sms.providerReady && sms.workerConfigured,
       emailChannelAvailable: notificationCapabilities.emailChannelAvailable,
       effectivePoints,
       defaults,
@@ -655,7 +660,8 @@ export async function PATCH(request: Request): Promise<Response> {
     }
 
     if (updates.communications) {
-      const currentCommunications = resolveCommunicationSettingsFromSettings(currentSettings);
+      const sms = await getSalonSmsReadiness(salon.id);
+      const currentCommunications = resolveSalonCommunicationSettings(currentSettings, { senderMode: sms.senderMode, legacySmsEnabled: salon.smsRemindersEnabled });
       let mergedCommunications: ReturnType<typeof mergeCommunicationSettings>;
       try {
         mergedCommunications = mergeCommunicationSettings(
@@ -1189,7 +1195,10 @@ export async function PATCH(request: Request): Promise<Response> {
         ownerEmail: salon.ownerEmail,
       });
 
+      const sms = await getSalonSmsReadiness(salon.id);
       return Response.json({
+        sms,
+        communications: resolveSalonCommunicationSettings(currentSettings, { senderMode: sms.senderMode, legacySmsEnabled: salon.smsRemindersEnabled }),
         reviewsEnabled: salon.reviewsEnabled ?? true,
         rewardsEnabled: salon.rewardsEnabled ?? true,
         bookingConfig: currentBookingConfig,
@@ -1206,7 +1215,7 @@ export async function PATCH(request: Request): Promise<Response> {
         smartFit: currentSmartFit,
         ownerPhonePresent: notificationCapabilities.ownerPhonePresent,
         ownerEmailPresent: notificationCapabilities.ownerEmailPresent,
-        smsChannelAvailable: notificationCapabilities.smsChannelAvailable,
+        smsChannelAvailable: sms.providerReady && sms.workerConfigured,
         emailChannelAvailable: notificationCapabilities.emailChannelAvailable,
         effectivePoints,
         defaults,
@@ -1341,6 +1350,7 @@ export async function PATCH(request: Request): Promise<Response> {
       ownerPhone: updatedSalon.ownerPhone,
       ownerEmail: updatedSalon.ownerEmail,
     });
+    const sms = await getSalonSmsReadiness(updatedSalon.id);
     const updatedBookingExperienceEntitlement
       = resolveBookingExperienceEntitlement({
         storedPlan: updatedSalon.plan,
@@ -1358,8 +1368,10 @@ export async function PATCH(request: Request): Promise<Response> {
       ),
       bookingExperienceEntitlement: updatedBookingExperienceEntitlement,
       bookingNotifications,
-      communications: resolveCommunicationSettingsFromSettings(
+      sms,
+      communications: resolveSalonCommunicationSettings(
         (updatedSalon.settings as SalonSettings | null | undefined) ?? null,
+        { senderMode: sms.senderMode, legacySmsEnabled: updatedSalon.smsRemindersEnabled },
       ),
       ...buildSalonEmailNotificationResponse({
         settings: (updatedSalon.settings as SalonSettings | null | undefined) ?? null,
@@ -1378,7 +1390,7 @@ export async function PATCH(request: Request): Promise<Response> {
       ),
       ownerPhonePresent: notificationCapabilities.ownerPhonePresent,
       ownerEmailPresent: notificationCapabilities.ownerEmailPresent,
-      smsChannelAvailable: notificationCapabilities.smsChannelAvailable,
+      smsChannelAvailable: sms.providerReady && sms.workerConfigured,
       emailChannelAvailable: notificationCapabilities.emailChannelAvailable,
       effectivePoints,
       defaults,

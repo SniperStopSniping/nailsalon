@@ -1,17 +1,14 @@
 /**
  * Communications dispatcher cron — GET/POST /api/communications/dispatch.
  *
- * CRON_SECRET-gated exactly like /api/reminders/process. DARK BY DEFAULT:
- * without COMMUNICATIONS_SMS_ENABLED + an enabled platform control row +
- * pilot allowlisting + credits, every claimed intent defers or suppresses —
- * deploying this route sends nothing. The provider send function is a
- * fail-closed stub in Gate B (no Twilio import anywhere in the pipeline);
- * Gate C wires the real Messaging Service sender.
+ * CRON_SECRET-gated like /api/reminders/process. The dispatcher checks salon
+ * preferences and the configured sender before sending. Shared Luster sends
+ * additionally require platform enablement, pilot eligibility and credits.
  */
 import { processDueCommunications } from '@/libs/communicationDispatcher';
 import { evaluateLowBalanceWarnings, sendLowBalanceWarningEmail } from '@/libs/lowBalanceWarnings';
 import { releaseExpiredInboundEvidence } from '@/libs/smsInboundRetention';
-import { sendIntentEmail, sendViaSharedMessagingService } from '@/libs/twilioMessagingSend';
+import { sendIntentEmail, sendViaTwilio } from '@/libs/twilioMessagingSend';
 import { resolveUnknownOutcomes } from '@/libs/unknownOutcomeResolver';
 
 function isAuthorized(request: Request): boolean {
@@ -30,13 +27,8 @@ async function run(request: Request): Promise<Response> {
   }
   const summary = await processDueCommunications({
     workerId: `cron_${crypto.randomUUID().slice(0, 8)}`,
-    // Gate C1: the production-capable seams. STILL DARK — the dispatcher's
-    // shared-sender gates (COMMUNICATIONS_SMS_ENABLED, platform control,
-    // pilot allowlist, credits) reject every SMS intent long before this
-    // function is invoked, and the email lane sends only what materialized
-    // intents carry. No configuration in this repo can make providerSend
-    // fire without the §20 runbook's deliberate activation order.
-    providerSend: sendViaSharedMessagingService,
+    // Both configured Twilio sender modes use the same guarded provider seam.
+    providerSend: sendViaTwilio,
     emailSend: sendIntentEmail,
   });
   const retention = await releaseExpiredInboundEvidence();

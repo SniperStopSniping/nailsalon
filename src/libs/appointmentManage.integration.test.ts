@@ -33,7 +33,8 @@ vi.mock('@/libs/DB', () => ({
     return holder.db;
   },
 }));
-vi.mock('@/libs/clientLifecycleStabilization', () => ({
+vi.mock('@/libs/clientLifecycleStabilization', async importOriginal => ({
+  ...(await importOriginal<typeof import('@/libs/clientLifecycleStabilization')>()),
   sendAppointmentOperationalEmailOnce,
 }));
 vi.mock('@/libs/routeAccessGuards', () => ({

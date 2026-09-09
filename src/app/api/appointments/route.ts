@@ -173,10 +173,6 @@ import {
   type ReschedulePricingInputs,
   resolveSmartFitRescheduleDiscount,
 } from '@/libs/smartFitReschedulePolicy';
-import {
-  sendCancellationNotificationToTech,
-  sendRescheduleConfirmation,
-} from '@/libs/SMS';
 import { requireStaffSession } from '@/libs/staffAuth';
 import {
   type ReadinessDecision,
@@ -3499,6 +3495,9 @@ export async function POST(request: Request): Promise<Response> {
                 ));
             }
 
+            const { supersedeAppointmentCommunications } = await import('@/libs/communicationMaterialization');
+            await supersedeAppointmentCommunications({ tx, salonId: salon.id, appointmentId: normalizedOriginalApptId });
+
             await enqueueGoogleCalendarDeleteInTx(tx, {
               appointmentId: cancelledOriginal.id,
               salonId: cancelledOriginal.salonId,
@@ -3525,7 +3524,7 @@ export async function POST(request: Request): Promise<Response> {
                 googleCalendarEventId: googleReviewEvent?.googleEventId ?? null,
                 startTime,
                 endTime,
-                status: salon.freeSoloEnabled ? 'confirmed' : 'pending',
+                status: 'confirmed',
                 invoiceCurrency: lockedBookingConfiguration.invoiceCurrency,
                 bookingTaxSnapshot,
                 totalPrice,
@@ -3623,6 +3622,19 @@ export async function POST(request: Request): Promise<Response> {
                 appointmentId: createdAppointment.id,
                 salonId: createdAppointment.salonId,
                 mutationVersion: createdAppointment.updatedAt,
+              });
+            }
+
+            if (createdAppointment.status !== 'awaiting_payment') {
+              const { materializeAppointmentLifecycle } = await import('@/libs/communicationMaterialization');
+              await materializeAppointmentLifecycle({
+                tx,
+                appointment: createdAppointment,
+                eventType: originalAppointment
+                  ? 'appointment_rescheduled'
+                  : createdAppointment.requestExpiresAt ? 'booking_request_received' : 'booking_confirmation',
+                transitionEventId: 'direct',
+                manageUrl: buildAppointmentManageUrl(salon, managementCapability.token),
               });
             }
 
@@ -3944,7 +3956,7 @@ export async function POST(request: Request): Promise<Response> {
                   ? 'awaiting_payment'
                   : explicitRequestApproval
                     ? 'pending'
-                    : (salon.freeSoloEnabled ? 'confirmed' : 'pending'),
+                    : 'confirmed',
                 ...(depositCharge
                   ? { createdAt: holdNow, depositHoldExpiresAt: holdExpiresAt }
                   : {}),
@@ -4218,6 +4230,19 @@ export async function POST(request: Request): Promise<Response> {
               });
             }
 
+            if (createdAppointment.status !== 'awaiting_payment') {
+              const { materializeAppointmentLifecycle } = await import('@/libs/communicationMaterialization');
+              await materializeAppointmentLifecycle({
+                tx,
+                appointment: createdAppointment,
+                eventType: originalAppointment
+                  ? 'appointment_rescheduled'
+                  : createdAppointment.requestExpiresAt ? 'booking_request_received' : 'booking_confirmation',
+                transitionEventId: 'direct',
+                manageUrl: buildAppointmentManageUrl(salon, managementCapability.token),
+              });
+            }
+
             return {
               appointment: createdAppointment,
               appointmentServices: insertedServices,
@@ -4333,39 +4358,6 @@ export async function POST(request: Request): Promise<Response> {
         title: googleReviewEvent.title,
         decision: 'appointment',
       });
-    }
-
-    // 9b. If this is a reschedule, cancel the original appointment and send SMS
-    if (originalAppointment && normalizedOriginalApptId) {
-      // Send reschedule confirmation SMS to client (gated by smsRemindersEnabled toggle)
-      // Use salonClient.phone as source of truth
-      await sendRescheduleConfirmation(salon.id, {
-        phone: salonClient.phone,
-        clientName: clientName ?? undefined,
-        appointmentId: appointment.id,
-        salonName: salon.name,
-        oldStartTime: originalAppointment.startTime.toISOString(),
-        newStartTime: startTime.toISOString(),
-        services: services.map(s => s.name),
-        technicianName: technician?.name ?? 'Any available artist',
-        timeZone: bookingConfig.timezone,
-      });
-
-      // Notify technician about the reschedule (if original had one assigned)
-      if (originalAppointment.technicianId) {
-        const originalTech = await getTechnicianById(originalAppointment.technicianId, salon.id);
-        if (originalTech) {
-          await sendCancellationNotificationToTech(salon.id, {
-            technicianName: originalTech.name,
-            // Note: technicianPhone not currently stored in schema, will log instead of SMS
-            technicianPhone: undefined,
-            clientName: clientName ?? 'Guest',
-            startTime: originalAppointment.startTime.toISOString(),
-            services: services.map(s => s.name),
-            cancelReason: 'rescheduled',
-          });
-        }
-      }
     }
 
     // =========================================================================

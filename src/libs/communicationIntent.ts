@@ -20,7 +20,7 @@
 
 import 'server-only';
 
-import { and, eq, inArray, lt, sql } from 'drizzle-orm';
+import { and, eq, inArray, lt, ne, sql } from 'drizzle-orm';
 
 import { type DatabaseSessionHandle, db } from '@/libs/DB';
 import { normalizeConsentRecipient } from '@/libs/smsConsentShared';
@@ -321,6 +321,7 @@ export async function cancelAppointmentIntents(input: {
     .where(and(
       eq(communicationIntentSchema.salonId, input.salonId),
       eq(communicationIntentSchema.appointmentId, input.appointmentId),
+      ne(communicationIntentSchema.eventType, 'manual_text'),
       inArray(communicationIntentSchema.status, ['pending', 'blocked_no_credit']),
     ))
     .returning();

@@ -7,6 +7,10 @@ import type { AppointmentManageDetail } from '@/libs/appointmentManage';
 
 import { AppointmentQuickEditSheet } from './AppointmentQuickEditSheet';
 
+// The SMS component has dedicated send/history tests. Keep these appointment
+// editing tests independent of its background delivery-status requests.
+vi.mock('@/components/admin/LusterClientSms', () => ({ LusterClientSms: () => null }));
+
 vi.mock('next/image', () => ({
   default: (props: React.ImgHTMLAttributes<HTMLImageElement>) => React.createElement('img', {
     alt: props.alt,

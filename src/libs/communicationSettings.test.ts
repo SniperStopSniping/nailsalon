@@ -14,6 +14,7 @@ const {
   mergeCommunicationSettings,
   resolveActiveReminderRules,
   resolveCommunicationSettingsFromSettings,
+  resolveSalonCommunicationSettings,
   resolveEventChannels,
   schedulingRelevantSettings,
 } = await import('./communicationSettings');
@@ -331,5 +332,37 @@ describe('schedulingRelevantSettings — the fingerprint surface', () => {
     });
 
     expect(schedulingRelevantSettings(settings).rules).toEqual([]);
+  });
+});
+
+describe('communications safety and existing BYO continuity', () => {
+  it('pauses malformed stored settings and preserves valid channel preferences', () => {
+    const settings = resolveCommunicationSettingsFromSettings({ communications: {
+      sms: { enabled: true },
+      email: { enabled: false },
+      killSwitch: true,
+      quietHours: { enabled: true, start: 'bad', end: '09:00' },
+      reminders: { rules: [] },
+    } });
+
+    expect(settings.killSwitch).toBe(true);
+    expect(settings.email.enabled).toBe(false);
+    expect(settings.reminders.rules).toEqual([]);
+    expect(resolveEventChannels(settings, 'booking_confirmation')).toEqual([]);
+  });
+
+  it('inherits the existing BYO master only when the canonical SMS preference is absent', () => {
+    expect(resolveSalonCommunicationSettings(null, { senderMode: 'connected_byo', legacySmsEnabled: true }).sms.enabled).toBe(true);
+    expect(resolveSalonCommunicationSettings(null, { senderMode: 'connected_byo', legacySmsEnabled: false }).sms.enabled).toBe(false);
+    expect(resolveSalonCommunicationSettings(null, { senderMode: 'shared_luster', legacySmsEnabled: true }).sms.enabled).toBe(false);
+    expect(resolveSalonCommunicationSettings({ communications: { sms: { enabled: false } } }, { senderMode: 'connected_byo', legacySmsEnabled: true }).sms.enabled).toBe(false);
+  });
+
+  it('manual texting uses only SMS and respects the master and emergency pause', () => {
+    const settings = mergeCommunicationSettings(resolveDefaults(), { sms: { enabled: true }, events: { manual_text: { enabled: false, channels: 'email' } } });
+
+    expect(resolveEventChannels(settings, 'manual_text')).toEqual(['sms']);
+    expect(resolveEventChannels({ ...settings, killSwitch: true }, 'manual_text')).toEqual([]);
+    expect(resolveEventChannels(resolveDefaults(), 'manual_text')).toEqual([]);
   });
 });

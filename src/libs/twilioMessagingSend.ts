@@ -25,6 +25,13 @@ import twilio from 'twilio';
 import type { EmailSendFn, ProviderSendFn } from '@/libs/communicationDispatcher';
 import { Env } from '@/libs/Env';
 
+export class ProviderOutcomeUnknownError extends Error {
+  constructor(message = 'PROVIDER_OUTCOME_UNKNOWN') {
+    super(message);
+    this.name = 'ProviderOutcomeUnknownError';
+  }
+}
+
 /**
  * Status-callback URL carrying the delivery identity, so a signed callback
  * can adopt a SID onto an unknown-outcome intent (§7.5 resolution path 1).
@@ -34,7 +41,15 @@ export function buildStatusCallbackUrl(deliveryId: string): string | null {
   if (!origin) {
     return null;
   }
-  return `${origin}/api/integrations/twilio/status?deliveryId=${encodeURIComponent(deliveryId)}`;
+  try {
+    const parsed = new URL(origin);
+    if (parsed.protocol !== 'https:' && !(parsed.protocol === 'http:' && ['localhost', '127.0.0.1'].includes(parsed.hostname))) {
+      return null;
+    }
+    return `${parsed.origin}/api/integrations/twilio/status?deliveryId=${encodeURIComponent(deliveryId)}`;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -42,19 +57,23 @@ export function buildStatusCallbackUrl(deliveryId: string): string | null {
  * (contract §9.1 — the shared sender has no phone-number field), so a future
  * toll-free swap changes no send-path code.
  */
-export const sendViaSharedMessagingService: ProviderSendFn = async (input) => {
+export const sendViaTwilio: ProviderSendFn = async (input) => {
   const accountSid = Env.TWILIO_ACCOUNT_SID;
   const authToken = Env.TWILIO_AUTH_TOKEN;
-  if (!accountSid || !authToken) {
+  if (!accountSid || !authToken || !input.statusCallbackUrl) {
     // Provably pre-request: no client, no send — ordinary failure (release).
     throw new Error('SENDER_NOT_READY');
   }
-  const client = twilio(accountSid, authToken);
+  if (input.accountSid !== undefined || input.from !== undefined
+    || !Env.TWILIO_MESSAGING_SERVICE_SID || input.messagingServiceSid !== Env.TWILIO_MESSAGING_SERVICE_SID) {
+    throw new Error('SENDER_NOT_READY');
+  }
+  const client = twilio(accountSid, authToken, { timeout: 30_000, autoRetry: false });
   try {
     const message = await client.messages.create({
       to: input.to,
       body: input.body,
-      messagingServiceSid: input.messagingServiceSid,
+      messagingServiceSid: Env.TWILIO_MESSAGING_SERVICE_SID,
       ...(input.statusCallbackUrl ? { statusCallback: input.statusCallbackUrl } : {}),
     });
     return { sid: message.sid };
@@ -66,10 +85,12 @@ export const sendViaSharedMessagingService: ProviderSendFn = async (input) => {
     if (isTwilioApiRejection(error)) {
       throw error instanceof Error ? error : new Error('PROVIDER_REJECTED');
     }
-    const { ProviderOutcomeUnknownError } = await import('@/libs/communicationDispatcher');
     throw new ProviderOutcomeUnknownError();
   }
 };
+
+/** Compatibility export for existing cron callers. */
+export const sendViaSharedMessagingService = sendViaTwilio;
 
 /**
  * Twilio API rejections carry a numeric `code` and an HTTP `status` — their
@@ -81,7 +102,8 @@ function isTwilioApiRejection(error: unknown): boolean {
     return false;
   }
   const candidate = error as { code?: unknown; status?: unknown };
-  return typeof candidate.code === 'number' && typeof candidate.status === 'number';
+  return typeof candidate.code === 'number' && typeof candidate.status === 'number'
+    && candidate.status >= 400 && candidate.status < 500;
 }
 
 /**

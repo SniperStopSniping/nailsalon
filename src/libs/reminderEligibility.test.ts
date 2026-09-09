@@ -179,17 +179,14 @@ describe('structural call-site drift', () => {
     expect(offenders).toEqual([]);
   });
 
-  it('appointmentReminders.ts uses the shared predicate at all three known call sites (query, freshness re-check, markReminderSent CAS)', () => {
+  it('appointmentReminders.ts uses the shared predicate in the query and locked freshness check', () => {
     const source = stripComments(files.get('src/libs/appointmentReminders.ts')!);
     const queryUsages = source.match(/reminderEligibleAppointmentCondition\(\)/g) ?? [];
     const inMemoryUsages = source.match(/isReminderEligibleAppointment\(/g) ?? [];
 
-    // Two SQL-fragment call sites (loadReminderCandidates's query,
-    // markReminderSent's day-before AND same-day CAS branches = 3 total, but
-    // the query itself is one more) plus one in-memory call site
-    // (isCurrentReminderCandidate). Asserts >= rather than an exact count so
-    // this does not become a brittle line-count pin.
-    expect(queryUsages.length).toBeGreaterThanOrEqual(3);
+    // The rule reconciler selects eligible appointments and verifies the
+    // same predicate after locking the current row.
+    expect(queryUsages.length).toBeGreaterThanOrEqual(1);
     expect(inMemoryUsages.length).toBeGreaterThanOrEqual(1);
   });
 });

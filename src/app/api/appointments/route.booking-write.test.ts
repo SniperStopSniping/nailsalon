@@ -3,6 +3,15 @@ import { createHash, randomUUID } from 'node:crypto';
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+vi.mock('@/libs/communicationMaterialization', () => ({
+  materializeAppointmentLifecycle: vi.fn(async () => []),
+  supersedeAppointmentCommunications: vi.fn(async () => ({ canceled: 0 })),
+  formatIntentStartTime: vi.fn(() => 'Fri Sep 11, 2:00 PM'),
+  loadAppointmentClientEmail: vi.fn(async () => null),
+  materializeClientEvent: vi.fn(async () => []),
+  materializeReminders: vi.fn(async () => ({ materialized: [], skipped: [] })),
+  resolveSalonCommunicationContext: vi.fn(async () => ({ settings: {}, mode: 'shared_luster', smsEligible: false, timeZone: 'America/Toronto', salonName: 'Test Salon' })),
+}));
 vi.mock('server-only', () => ({}));
 
 const {

@@ -10,8 +10,9 @@ import {
   Phone,
   Trash2,
 } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
+import { LusterClientSms } from '@/components/admin/LusterClientSms';
 import type { AppointmentManageDetail } from '@/libs/appointmentManage';
 import {
   buildNativeSmsUrl,
@@ -42,6 +43,7 @@ type ReminderFallback = {
 type ReminderResponse = {
   mode: 'automatic' | 'manual';
   sent: boolean;
+  queued?: boolean;
   reason?: string;
   phone?: string;
   body?: string;
@@ -123,8 +125,20 @@ export function UpcomingAppointmentActions({
   const [reminderDue, setReminderDue] = useState(false);
   const [manualReminderSentAt, setManualReminderSentAt] = useState<string | null>(null);
   const [confirmResend, setConfirmResend] = useState(false);
+  const [smsComposerOpen, setSmsComposerOpen] = useState(false);
   const [manualFallback, setManualFallback] = useState<ReminderFallback | null>(null);
   const latestReminder = latestReminderDelivery(detail);
+  const reminderScope = `${detail.appointment.salonId}:${detail.appointment.id}`;
+  const reminderAction = useRef({ scope: reminderScope, inFlight: false, requestId: null as string | null });
+
+  useEffect(() => {
+    reminderAction.current = { scope: reminderScope, inFlight: false, requestId: null };
+    setPreparingKind(null);
+    setConfirmResend(false);
+    setManualFallback(null);
+    setActionError(null);
+    setActionNotice(null);
+  }, [reminderScope]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -298,6 +312,16 @@ export function UpcomingAppointmentActions({
   }, [detail.appointment.id, detail.appointment.salonSlug, messageContext, openDraft]);
 
   const sendReminder = useCallback(async (force = false) => {
+    const action = reminderAction.current;
+    if (action.scope !== reminderScope || action.inFlight) {
+      return;
+    }
+    action.inFlight = true;
+    // A confirmed resend is one owner action. Keep its identity until the
+    // server acknowledges it, including a lost response or failed refresh.
+    if (force) {
+      action.requestId ??= crypto.randomUUID();
+    }
     setPreparingKind('appointment_reminder');
     setActionError(null);
     setActionNotice(null);
@@ -311,11 +335,17 @@ export function UpcomingAppointmentActions({
         `/api/appointments/${encodeURIComponent(detail.appointment.id)}/send-reminder${query}`,
         {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            ...(force ? { 'Idempotency-Key': action.requestId! } : {}),
+          },
           body: JSON.stringify({ force }),
         },
       );
       const payload = await response.json().catch(() => null);
+      if (reminderAction.current !== action) {
+        return;
+      }
       const fallback = payload?.manualFallback ?? payload?.error?.manualFallback ?? null;
       if (!response.ok) {
         if (fallback?.phone && fallback?.body) {
@@ -325,7 +355,16 @@ export function UpcomingAppointmentActions({
       }
 
       const result = payload?.data as ReminderResponse | undefined;
+      if (result?.mode === 'automatic' && result.queued) {
+        action.requestId = null;
+        setReminderDue(false);
+        setActionNotice('Reminder queued through Luster. Delivery status appears in SMS history.');
+        notifyRetentionDataChanged();
+        await onReminderSent?.();
+        return;
+      }
       if (result?.mode === 'automatic' && result.sent) {
+        action.requestId = null;
         const duplicateSuppressed = result.reason === 'DUPLICATE_SUPPRESSED';
 
         setReminderDue(false);
@@ -358,11 +397,16 @@ export function UpcomingAppointmentActions({
       }
       throw new Error('The reminder could not be prepared.');
     } catch (error) {
-      setActionError(error instanceof Error ? error.message : 'The reminder could not be sent.');
+      if (reminderAction.current === action) {
+        setActionError(error instanceof Error ? error.message : 'The reminder could not be sent.');
+      }
     } finally {
-      setPreparingKind(null);
+      action.inFlight = false;
+      if (reminderAction.current === action) {
+        setPreparingKind(null);
+      }
     }
-  }, [detail.appointment.id, detail.appointment.salonSlug, messageContext, onReminderSent, openDraft, recordOutreach]);
+  }, [detail.appointment.id, detail.appointment.salonSlug, messageContext, onReminderSent, openDraft, recordOutreach, reminderScope]);
 
   const finishPendingOutreach = useCallback(async (status: ClientCommunicationStatus) => {
     if (!pendingOutreach) {
@@ -464,7 +508,8 @@ export function UpcomingAppointmentActions({
         <ActionButton
           icon={<MessageCircle size={15} />}
           label="Text"
-          onClick={() => openDraft('text', 'Text', messageContext)}
+          disabled={!detail.client}
+          onClick={() => setSmsComposerOpen(true)}
         />
         <ActionButton
           icon={preparingKind === 'appointment_reminder'
@@ -474,7 +519,7 @@ export function UpcomingAppointmentActions({
           disabled={saving || preparingKind !== null}
           testId="appointment-send-reminder"
           onClick={() => {
-            if (hasRecordedReminder && !confirmResend) {
+            if (hasRecordedReminder) {
               setConfirmResend(true);
               return;
             }
@@ -556,6 +601,18 @@ export function UpcomingAppointmentActions({
         </div>
       )}
 
+      {detail.client && (
+        <LusterClientSms
+          key={`${detail.appointment.salonSlug}:${detail.client.id}:${detail.appointment.id}`}
+          salonSlug={detail.appointment.salonSlug}
+          salonName={detail.appointment.salonName}
+          clientId={detail.client.id}
+          appointmentId={detail.appointment.id}
+          historyAppointmentId={detail.appointment.id}
+          composerOpen={smsComposerOpen}
+          onClose={() => setSmsComposerOpen(false)}
+        />
+      )}
       {pendingOutreach && (
         <div className="mt-3 rounded-2xl border border-blue-100 bg-blue-50 p-3" role="dialog" aria-label="Confirm text status">
           <p className="text-sm font-semibold text-blue-950">

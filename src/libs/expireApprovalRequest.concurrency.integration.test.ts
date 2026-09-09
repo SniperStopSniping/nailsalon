@@ -248,6 +248,14 @@ suite('L1 PR5 — request-approval expiry lifecycle: genuine PostgreSQL races', 
       name: 'L1 PR5 Concurrency Salon',
       slug: 'l1-pr5-concurrency',
       ownerEmail: 'owner@example.com',
+      // Exercise exactly one enabled SMS intent; provider dispatch is outside
+      // this transaction/race suite and never runs against a live account.
+      settings: {
+        communications: {
+          sms: { enabled: true },
+          quietHours: { enabled: false, start: '21:00', end: '09:00' },
+        },
+      },
     });
     await db.insert(schema.technicianSchema).values({
       id: TECH_ID,

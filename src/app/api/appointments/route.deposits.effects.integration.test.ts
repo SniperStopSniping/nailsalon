@@ -454,7 +454,7 @@ describe('7 — the skip guards disabled nothing for real bookings', () => {
     // 5/8 customer confirmation email.
     expect(effects.sendCustomerBookingConfirmationEmail).toHaveBeenCalledTimes(1);
     // 6/8 client SMS.
-    expect(effects.sendBookingConfirmationToClient).toHaveBeenCalledTimes(1);
+    expect(effects.sendBookingConfirmationToClient).not.toHaveBeenCalled();
     // 7/8 salon-facing booking alert.
     expect(after.deliveries.filter(row => row.purpose === 'salon_new_booking')).toHaveLength(1);
     // 8/8 staff notifications.

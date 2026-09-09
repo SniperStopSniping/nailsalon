@@ -643,6 +643,18 @@ export async function PATCH(request: Request, context: { params: Promise<{ token
       return null;
     }
 
+    const { materializeAppointmentLifecycle } = await import('@/libs/communicationMaterialization');
+    await materializeAppointmentLifecycle({
+      tx,
+      appointment: terminalAppointment,
+      eventType: 'appointment_cancelled',
+      supersede: true,
+      manageUrl: buildAppointmentManageUrl(
+        { slug: managed.details.salonSlug, customDomain: managed.details.salonCustomDomain },
+        (await context.params).token,
+      ),
+    });
+
     await enqueueGoogleCalendarDeleteInTx(tx, {
       appointmentId: terminalAppointment.id,
       salonId: terminalAppointment.salonId,

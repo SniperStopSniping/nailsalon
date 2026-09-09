@@ -185,6 +185,13 @@ const WORST_CASE_SALON_NAME = 'Twenty Four Septet Name Xy';
 const WORST_CASE_TIME = 'Wed Aug 26, 12:30 PM';
 
 export const COMMUNICATION_TEMPLATES: Record<string, TemplateDefinition> = {
+  client_manual_text: {
+    key: 'client_manual_text',
+    version: 'v1',
+    audience: 'client',
+    render: variables => `${buildClientSmsPrefix(variables.salonName ?? '')}${variables.message ?? ''} ${STOP_LANGUAGE}`,
+    worstCaseVariables: [{ salonName: WORST_CASE_SALON_NAME, message: 'Please use your appointment link to update your booking.' }],
+  },
   client_booking_confirmation_nolink: {
     key: 'client_booking_confirmation_nolink',
     version: 'v1',
@@ -242,12 +249,92 @@ export const COMMUNICATION_TEMPLATES: Record<string, TemplateDefinition> = {
       },
     ],
   },
+  client_booking_request_received_shortlink: {
+    key: 'client_booking_request_received_shortlink',
+    version: 'v1',
+    audience: 'client',
+    render: variables =>
+      `${buildClientSmsPrefix(variables.salonName ?? '')}Request pending: ${variables.startTime ?? ''}. ${variables.manageUrl ?? ''} ${STOP_LANGUAGE}`,
+    worstCaseVariables: [{
+      salonName: WORST_CASE_SALON_NAME,
+      startTime: WORST_CASE_TIME,
+      manageUrl: WORST_CASE_SHORT_LINK,
+    }],
+  },
+  client_booking_request_approved_shortlink: {
+    key: 'client_booking_request_approved_shortlink',
+    version: 'v1',
+    audience: 'client',
+    render: variables =>
+      `${buildClientSmsPrefix(variables.salonName ?? '')}Confirmed for ${variables.startTime ?? ''}. ${variables.manageUrl ?? ''} ${STOP_LANGUAGE}`,
+    worstCaseVariables: [{
+      salonName: WORST_CASE_SALON_NAME,
+      startTime: WORST_CASE_TIME,
+      manageUrl: WORST_CASE_SHORT_LINK,
+    }],
+  },
+  client_appointment_rescheduled_shortlink: {
+    key: 'client_appointment_rescheduled_shortlink',
+    version: 'v1',
+    audience: 'client',
+    render: variables =>
+      `${buildClientSmsPrefix(variables.salonName ?? '')}Rescheduled to ${variables.startTime ?? ''}. ${variables.manageUrl ?? ''} ${STOP_LANGUAGE}`,
+    worstCaseVariables: [{
+      salonName: WORST_CASE_SALON_NAME,
+      startTime: WORST_CASE_TIME,
+      manageUrl: WORST_CASE_SHORT_LINK,
+    }],
+  },
+  client_appointment_cancelled_shortlink: {
+    key: 'client_appointment_cancelled_shortlink',
+    version: 'v1',
+    audience: 'client',
+    render: variables =>
+      `${buildClientSmsPrefix(variables.salonName ?? '')}Cancelled: ${variables.startTime ?? ''}. ${variables.manageUrl ?? ''} ${STOP_LANGUAGE}`,
+    worstCaseVariables: [{
+      salonName: WORST_CASE_SALON_NAME,
+      startTime: WORST_CASE_TIME,
+      manageUrl: WORST_CASE_SHORT_LINK,
+    }],
+  },
+  client_booking_request_declined_shortlink: {
+    key: 'client_booking_request_declined_shortlink',
+    version: 'v1',
+    audience: 'client',
+    render: variables =>
+      `${buildClientSmsPrefix(variables.salonName ?? '')}Request declined: ${variables.startTime ?? ''}. ${variables.manageUrl ?? ''} ${STOP_LANGUAGE}`,
+    worstCaseVariables: [{
+      salonName: WORST_CASE_SALON_NAME,
+      startTime: WORST_CASE_TIME,
+      manageUrl: WORST_CASE_SHORT_LINK,
+    }],
+  },
+  client_booking_request_expired_shortlink: {
+    key: 'client_booking_request_expired_shortlink',
+    version: 'v1',
+    audience: 'client',
+    render: variables =>
+      `${buildClientSmsPrefix(variables.salonName ?? '')}Request expired: ${variables.startTime ?? ''}. ${variables.manageUrl ?? ''} ${STOP_LANGUAGE}`,
+    worstCaseVariables: [{
+      salonName: WORST_CASE_SALON_NAME,
+      startTime: WORST_CASE_TIME,
+      manageUrl: WORST_CASE_SHORT_LINK,
+    }],
+  },
+  owner_appointment_cancelled: {
+    key: 'owner_appointment_cancelled',
+    version: 'v1',
+    audience: 'owner',
+    render: variables =>
+      `Luster: Cancelled at ${sanitizeSalonNameForSms(variables.salonName ?? '')} - ${variables.clientName ?? ''}, ${variables.startTime ?? ''}.`,
+    worstCaseVariables: [{ salonName: WORST_CASE_SALON_NAME, clientName: 'Alexandria-Konstantina Papadopoulos-Winterbottom', startTime: WORST_CASE_TIME }],
+  },
   owner_new_booking: {
     key: 'owner_new_booking',
     version: 'v1',
     audience: 'owner',
     render: variables =>
-      `Luster: New booking at ${sanitizeSalonNameForSms(variables.salonName ?? '')} - ${variables.clientName ?? ''}, ${variables.serviceName ?? ''}, ${variables.startTime ?? ''}.`,
+      `Luster: ${variables.statusLabel ?? 'New booking'} at ${sanitizeSalonNameForSms(variables.salonName ?? '')} - ${variables.clientName ?? ''}, ${variables.serviceName ?? ''}, ${variables.startTime ?? ''}.`,
     worstCaseVariables: [
       {
         salonName: WORST_CASE_SALON_NAME,

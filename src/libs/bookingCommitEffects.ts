@@ -44,7 +44,6 @@ import {
   getTechnicianById,
 } from '@/libs/queries';
 import { sendSalonNotificationEmail } from '@/libs/salonNotificationEmail';
-import { sendBookingConfirmationToClient } from '@/libs/SMS';
 import type { Appointment } from '@/models/Schema';
 import {
   appointmentAccessTokenSchema,
@@ -474,15 +473,8 @@ export async function runBookingCommitSideEffects(
   }
   throwIfBookingEffectsAborted(options.signal);
 
-  // 6/8. Client confirmation SMS. MODE-FIRST (Gate C1, owner decision 2.2):
-  // shared-Luster salons get their confirmation through the durable
-  // communication-intent pipeline — materialized in-transaction by the
-  // deposit seam and the booking route — which is exactly-once per
-  // authoritative transition, so the legacy leg MUST NOT also fire (its
-  // delivery identity is per attempt, and an aggregate replay of this
-  // at-least-once runner can invoke it again: the historical double-send).
-  // BYO salons keep this path byte-identical; provider failures are absorbed
-  // by the SMS helper exactly as before.
+  // 6/8. Replay the same durable event identity written by the booking
+  // transaction. Shared and connected senders both dispatch through intents.
   const {
     formatIntentStartTime,
     loadAppointmentClientEmail,
@@ -492,18 +484,14 @@ export async function runBookingCommitSideEffects(
   } = await import('@/libs/communicationMaterialization');
   const communicationContext = await resolveSalonCommunicationContext(db, context.salon.id);
 
-  // Direct-confirm lane only: materialize the durable confirmation and
-  // reminder intents here. The DEPOSIT lane already materialized them inside
-  // the money transaction (its runner invocation carries the
-  // deposit_confirmation calendarCause), so materializing again would race a
-  // second identity against the seam's. This runner is post-commit for the
-  // direct lane, so durability rides its idempotent keys: a replay recomputes
-  // transitionEventId 'direct' and lands on the same rows.
+  // Direct bookings replay the transaction's 'direct' identity. Deposits use
+  // the deposit id instead, so their money transaction owns materialization.
   if (options.calendarCause?.kind !== 'deposit_confirmation') {
     try {
-      const appointmentClientEmail = await loadAppointmentClientEmail(db, context.appointment.id);
+      const appointmentClientEmail = await loadAppointmentClientEmail(db, context.appointment.id, context.salon.id);
       const intentVariables = {
         salonName: context.salon.name,
+        clientId: context.salonClientId,
         startTime: formatIntentStartTime(context.startTime, context.timeZone),
         manageUrl: context.manageUrl,
       };
@@ -511,21 +499,20 @@ export async function runBookingCommitSideEffects(
         tx: db,
         salonId: context.salon.id,
         appointmentId: context.appointment.id,
-        eventType: 'booking_confirmation',
+        eventType: context.originalAppointment
+          ? 'appointment_rescheduled'
+          : context.appointment.isExplicitRequestApproval ? 'booking_request_received' : 'booking_confirmation',
         transitionEventId: 'direct',
         clientPhone: context.smsConsentGranted ? context.clientPhone : null,
-        clientEmail: null, // the legacy email leg below owns the confirmation email
+        clientEmail: null, // the existing email leg above owns this confirmation
         settings: communicationContext.settings,
         timeZone: context.timeZone,
         appointmentStart: context.startTime,
         variables: intentVariables,
         smsEligible: communicationContext.smsEligible,
       });
-      // REMINDER intents are shared-mode only: a BYO salon's reminders (SMS
-      // AND email) stay wholly on the legacy dual-window cron it runs today —
-      // materializing the email half here would double-email BYO clients
-      // (adversarial review H1).
-      if (communicationContext.mode !== 'connected_byo') {
+      // An unapproved request must not create attendance reminders.
+      if (!context.appointment.isExplicitRequestApproval) {
         await materializeReminders({
           tx: db,
           salonId: context.salon.id,
@@ -541,38 +528,14 @@ export async function runBookingCommitSideEffects(
         });
       }
     } catch (materializationError) {
-      // Materialization must never take down the effects that follow it —
-      // the legacy confirmation and the owner alert still fire (review H8).
-      // The 15-minute reconciler re-materializes anything lost here.
+      // New bookings already wrote their events atomically; post-commit
+      // replay failure must not prevent the owner notification that follows.
       Sentry.captureException(materializationError, {
         tags: { seam: 'bookingCommitEffects.materialization' },
       });
     }
   }
 
-  if (context.smsConsentGranted && !communicationContext.smsEligible) {
-    const smsParams = {
-      phone: context.clientPhone,
-      clientName: context.clientName ?? undefined,
-      appointmentId: context.appointment.id,
-      salonName: context.salon.name,
-      services: context.serviceNames,
-      technicianName: context.technician?.name ?? 'Any available artist',
-      startTime: context.startTime.toISOString(),
-      financialSummary,
-      timeZone: context.timeZone,
-      manageUrl: context.manageUrl,
-    };
-    if (options.signal) {
-      await sendBookingConfirmationToClient(
-        context.salon.id,
-        smsParams,
-        { signal: options.signal },
-      );
-    } else {
-      await sendBookingConfirmationToClient(context.salon.id, smsParams);
-    }
-  }
   throwIfBookingEffectsAborted(options.signal);
 
   // 7/8. Salon-facing appointment alert. Failures are swallowed inside the
@@ -757,6 +720,7 @@ export async function loadBookingCommitEffectsContext(
       googleCalendarEventId: appointment.googleCalendarEventId,
       updatedAt: appointment.updatedAt,
       status: appointment.status,
+      isExplicitRequestApproval: appointment.status === 'pending' && appointment.requestExpiresAt !== null,
     },
     serviceNames: serviceRows.map(row => row.name),
     technician: technician

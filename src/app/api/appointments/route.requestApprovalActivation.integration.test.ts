@@ -343,8 +343,8 @@ describe('explicit request-approval activation — not request-bookable', () => 
   });
 });
 
-describe('explicit request-approval activation — LEGACY PARITY', () => {
-  it('an ordinary (non-request-approval) service on the SAME gated salon books exactly as before: no dark columns written', async () => {
+describe('explicit request-approval activation — instant booking state', () => {
+  it('an ordinary service on the same gated salon is confirmed immediately without request columns', async () => {
     signInFreshClient();
 
     const response = await postBooking({
@@ -361,7 +361,7 @@ describe('explicit request-approval activation — LEGACY PARITY', () => {
     const rows = await appointmentRowsFor(GATED_SALON_ID);
     const row = rows.find(r => r.id === body.data.appointmentId);
 
-    expect(row?.status).toBe('pending'); // freeSoloEnabled is false by default — same as any legacy salon
+    expect(row?.status).toBe('confirmed'); // Instant mode also applies outside free-solo.
     expect(row?.requestExpiresAt).toBeNull();
     expect(row?.confirmationModeSnapshot).toBeNull();
     expect(row?.selectionModeSnapshot).toBeNull();
@@ -383,10 +383,9 @@ describe('explicit request-approval activation — LEGACY PARITY', () => {
     const rows = await appointmentRowsFor(LEGACY_SALON_ID);
     const row = rows.find(r => r.id === body.data.appointmentId);
 
-    // Would be 'pending' with request_expires_at set if the gate wrongly
-    // activated — instead it is legacy 'pending' with everything dark unset,
-    // proving `resolveCatalogDomainView` (not the raw column) is the gate.
-    expect(row?.status).toBe('pending');
+    // A gate-off service keeps instant mode; only an activated approval
+    // workflow may create a pending request.
+    expect(row?.status).toBe('confirmed');
     expect(row?.requestExpiresAt).toBeNull();
     expect(row?.confirmationModeSnapshot).toBeNull();
   });

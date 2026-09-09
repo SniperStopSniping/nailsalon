@@ -144,6 +144,7 @@ export const EVENTS_GOVERNED_ELSEWHERE: ReadonlySet<CommunicationEventType> = ne
   'booking_request_declined',
   'booking_request_expired',
   'manual_reminder',
+  'manual_text',
 ]);
 
 /**
@@ -155,6 +156,9 @@ export const EVENTS_GOVERNED_ELSEWHERE: ReadonlySet<CommunicationEventType> = ne
  * DEFAULT_BOOKING_NOTIFICATION_SETTINGS technicianChannel.
  */
 function defaultChannelsFor(eventType: CommunicationEventType): CommunicationChannelMode {
+  if (eventType === 'manual_text') {
+    return 'sms';
+  }
   if (eventType.startsWith('owner_') || eventType.startsWith('tech_')) {
     return 'sms';
   }
@@ -322,7 +326,34 @@ export function resolveCommunicationSettingsFromSettings(
   if (parsed.success) {
     return parsed.data;
   }
-  return communicationSettingsSchema.parse({});
+  // An invalid branch must not erase a saved emergency stop or re-enable
+  // messages the owner disabled. A malformed namespace pauses delivery until
+  // the owner repairs it; untouched/unconfigured salons still use defaults.
+  const stored = (settings as { communications?: unknown } | null | undefined)?.communications;
+  const defaults = communicationSettingsSchema.parse({});
+  if (stored && typeof stored === 'object') {
+    const value = stored as Record<string, unknown>;
+    for (const key of ['sms', 'email', 'quietHours', 'events', 'reminders', 'staffOverrides'] as const) {
+      const branch = communicationSettingsSchema.safeParse({ [key]: value[key] });
+      if (branch.success) {
+        Object.assign(defaults, { [key]: branch.data[key] });
+      }
+    }
+  }
+  return { ...defaults, killSwitch: true };
+}
+
+/** Preserve an existing BYO salon's saved legacy master until it saves the new one. */
+export function resolveSalonCommunicationSettings(
+  settings: SalonSettings | null | undefined,
+  input: { senderMode: 'shared_luster' | 'connected_byo' | 'disabled'; legacySmsEnabled: boolean | null | undefined },
+): CommunicationSettings {
+  const resolved = resolveCommunicationSettingsFromSettings(settings);
+  const namespace = (settings as { communications?: { sms?: unknown } } | null | undefined)?.communications;
+  if (input.senderMode === 'connected_byo' && namespace?.sms === undefined && !resolved.killSwitch) {
+    return { ...resolved, sms: { enabled: input.legacySmsEnabled !== false } };
+  }
+  return resolved;
 }
 
 /**
@@ -378,6 +409,9 @@ export function resolveEventChannels(
 ): Array<'sms' | 'email'> {
   if (settings.killSwitch) {
     return [];
+  }
+  if (eventType === 'manual_text') {
+    return settings.sms.enabled ? ['sms'] : [];
   }
   const event = settings.events[eventType] ?? DEFAULT_COMMUNICATION_EVENT_SETTINGS[eventType];
   if (!event.enabled) {

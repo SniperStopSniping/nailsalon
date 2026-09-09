@@ -11,5 +11,7 @@ export async function GET(request: Request) {
     return error || Response.json({ error: 'Salon not found' }, { status: 404 });
   }
   const data = await getSalonIntegrationHealth(salon.id);
-  return Response.json({ data });
+  return Response.json({ data }, { headers: { 'Cache-Control': 'no-store' } });
 }
+
+export const dynamic = 'force-dynamic';

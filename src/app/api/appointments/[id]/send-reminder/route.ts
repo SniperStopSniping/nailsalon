@@ -1,23 +1,17 @@
 import { z } from 'zod';
 
 import { mintAppointmentManageLink } from '@/libs/appointmentManageLink';
-import { resolveBookingConfigFromSettings } from '@/libs/bookingConfig';
 import {
   resolveOperationalSalonClientContact,
   resolveOperationalSalonClientContactByPhone,
 } from '@/libs/clientLifecycleStabilization';
-import {
-  getAppointmentServiceNames,
-  getSalonById,
-  getTechnicianById,
-} from '@/libs/queries';
+import { queueAppointmentReminder } from '@/libs/communicationMaterialization';
+import { getSalonById } from '@/libs/queries';
+import { isReminderEligibleAppointment } from '@/libs/reminderEligibility';
 import { requireAppointmentManagerAccess } from '@/libs/routeAccessGuards';
-import { sendSmartAppointmentReminder } from '@/libs/SMS';
-import type { SalonSettings } from '@/types/salonPolicy';
 
 export const dynamic = 'force-dynamic';
 
-const MANAGEABLE_STATUSES = new Set(['pending', 'confirmed']);
 const requestSchema = z.object({
   force: z.boolean().optional().default(false),
 });
@@ -61,10 +55,20 @@ export async function POST(request: Request, props: { params: Promise<{ id: stri
     );
   }
 
+  const requestId = request.headers.get('Idempotency-Key')?.trim();
+  if ((parsedBody.data.force && !requestId) || (requestId !== undefined && (requestId.length === 0 || requestId.length > 128))) {
+    return Response.json({
+      error: {
+        code: 'IDEMPOTENCY_KEY_REQUIRED',
+        message: 'The reminder request could not be prepared. Reload the appointment and try again.',
+      },
+    } satisfies ErrorResponse, { status: 400 });
+  }
+
   const appointment = access.appointment;
   const now = new Date();
   if (
-    !MANAGEABLE_STATUSES.has(appointment.status)
+    !isReminderEligibleAppointment(appointment)
     || appointment.deletedAt
     || appointment.startTime.getTime() <= now.getTime()
   ) {
@@ -80,12 +84,8 @@ export async function POST(request: Request, props: { params: Promise<{ id: stri
   }
 
   try {
-    const [salon, services, technician, operationalClient] = await Promise.all([
+    const [salon, operationalClient] = await Promise.all([
       getSalonById(appointment.salonId),
-      getAppointmentServiceNames(appointment.id),
-      appointment.technicianId
-        ? getTechnicianById(appointment.technicianId, appointment.salonId)
-        : Promise.resolve(null),
       appointment.salonClientId
         ? resolveOperationalSalonClientContact({
           salonId: appointment.salonId,
@@ -127,67 +127,37 @@ export async function POST(request: Request, props: { params: Promise<{ id: stri
       );
     }
 
-    const bookingConfig = resolveBookingConfigFromSettings(
-      (salon.settings as SalonSettings | null | undefined) ?? null,
-    );
-    const result = await sendSmartAppointmentReminder(appointment.salonId, {
-      phone: operationalClient?.phone ?? appointment.clientPhone,
-      clientName: appointment.clientName ?? undefined,
+    const result = await queueAppointmentReminder({
+      salonId: appointment.salonId,
       appointmentId: appointment.id,
-      salonName: salon.name,
-      startTime: appointment.startTime.toISOString(),
-      hoursUntil: Math.max(
-        1,
-        Math.ceil((appointment.startTime.getTime() - now.getTime()) / 3600000),
-      ),
-      services,
-      technicianName: technician?.name ?? null,
-      timeZone: bookingConfig.timezone,
+      phone: operationalClient?.phone ?? appointment.clientPhone,
+      ...(operationalClient?.id ? { clientId: operationalClient.id } : {}),
       manageUrl,
-      force: parsedBody.data.force,
+      requestId,
       now,
     });
-
-    if (result.outcome === 'manual') {
-      return Response.json({
-        data: {
-          mode: 'manual' as const,
-          sent: false,
-          reason: result.reason,
-          phone: result.phone,
-          body: result.body,
-        },
-      });
-    }
-
-    if (result.outcome === 'provider_failure') {
-      return Response.json(
-        {
-          error: {
-            code: 'SMS_DELIVERY_FAILED',
-            message: 'Twilio could not confirm delivery. Prepare a manual text only if the client did not receive it.',
-            details: result.errorCode ? { providerCode: result.errorCode } : undefined,
-          },
-          manualFallback: {
-            phone: result.phone,
-            body: result.body,
-          },
-        } satisfies ErrorResponse,
-        { status: 502 },
-      );
-    }
-
     return Response.json({
       data: {
         mode: 'automatic' as const,
-        sent: true,
-        ...(result.outcome === 'duplicate'
-          ? { reason: 'DUPLICATE_SUPPRESSED' }
-          : {}),
-        sentAt: result.sentAt,
+        sent: result.status === 'sent',
+        queued: ['pending', 'claimed', 'sending', 'blocked_no_credit'].includes(result.status),
+        status: result.status,
+        intentId: result.intentId,
+        scheduledFor: result.scheduledFor,
+        ...(!result.created ? { reason: 'DUPLICATE_SUPPRESSED' } : {}),
       },
     });
   } catch (error) {
+    const code = error instanceof Error ? error.message : '';
+    const knownErrors: Record<string, string> = {
+      INVALID_CLIENT_PHONE: 'Add a valid mobile number to this client before sending.',
+      APPOINTMENT_NOT_UPCOMING: 'Reminders can only be sent for accepted upcoming appointments.',
+      SMS_DISABLED: 'Enable SMS in Communications settings before sending a reminder.',
+      QUIET_HOURS_STALE: 'Quiet hours leave no useful sending window before this appointment.',
+    };
+    if (knownErrors[code]) {
+      return Response.json({ error: { code, message: knownErrors[code] } }, { status: 409 });
+    }
     console.error('[AppointmentReminder] failed to prepare reminder', error);
     return Response.json(
       {

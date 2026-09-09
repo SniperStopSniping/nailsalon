@@ -4200,6 +4200,7 @@ export const COMMUNICATION_EVENT_TYPES = [
   'balance_reminder',
   'appointment_reminder',
   'manual_reminder',
+  'manual_text',
   'owner_new_booking',
   'owner_appointment_cancelled',
   'tech_new_booking',

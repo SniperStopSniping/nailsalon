@@ -225,7 +225,7 @@ describe('ClientCommunicationActions', () => {
         },
       },
     });
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(4));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(5));
 
     fireEvent.click(screen.getByRole('button', { name: 'Appointment details' }));
 
@@ -249,7 +249,7 @@ describe('ClientCommunicationActions', () => {
         },
       },
     });
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(4));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(5));
 
     fireEvent.click(screen.getByRole('button', { name: 'Appointment details' }));
 
@@ -260,53 +260,13 @@ describe('ClientCommunicationActions', () => {
     expect(body).not.toContain('$65.00');
   });
 
-  it('normalizes the synthetic client phone, opens an encoded message, and records only honest states', async () => {
-    const syntheticClient = {
-      id: 'client_fixture_sms',
-      fullName: 'Casey Fixture',
-      phone: '+1 (416) 555-1234',
-    };
-    const { onOpenNativeUrl } = renderActions({ client: syntheticClient });
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(4));
-
+  it('opens the Luster composer without handing the client to a personal phone app', async () => {
+    const { onOpenNativeUrl } = renderActions();
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(5));
     fireEvent.click(screen.getByRole('button', { name: 'Text' }));
 
-    expect(onOpenNativeUrl).toHaveBeenCalledTimes(1);
-
-    const href = String(onOpenNativeUrl.mock.calls[0]?.[0]);
-    const encodedBody = href.split('body=')[1]!;
-    const decodedBody = decodeURIComponent(encodedBody);
-
-    expect(href).toMatch(/^sms:4165551234[?&]body=/);
-    expect(encodedBody).toBe(encodeURIComponent(decodedBody));
-    expect(decodedBody).toContain('Hi Casey');
-    expect(screen.getByRole('dialog', { name: 'Confirm text status' })).toBeInTheDocument();
-
-    await waitFor(() => {
-      const retentionCalls = fetchMock.mock.calls.filter(([url]) => url === '/api/admin/retention');
-
-      expect(retentionCalls).toHaveLength(1);
-      expect(JSON.parse(String(retentionCalls[0]?.[1]?.body))).toMatchObject({
-        kind: 'generic_text',
-        status: 'prepared',
-        clientId: syntheticClient.id,
-      });
-      expect(retentionCalls.map(([, init]) => JSON.parse(String(init?.body)).status))
-        .not.toEqual(expect.arrayContaining(['marked_sent', 'completed', 'converted']));
-    });
-
-    fireEvent.click(screen.getByRole('button', { name: 'Not sent' }));
-    await waitFor(() => {
-      const retentionCalls = fetchMock.mock.calls.filter(([url]) => url === '/api/admin/retention');
-
-      expect(retentionCalls).toHaveLength(2);
-      expect(JSON.parse(String(retentionCalls[1]?.[1]?.body))).toMatchObject({
-        kind: 'generic_text',
-        status: 'not_sent',
-        clientId: syntheticClient.id,
-      });
-    });
-
+    expect(screen.getByRole('region', { name: 'Text client through Luster' })).toBeInTheDocument();
+    expect(onOpenNativeUrl).not.toHaveBeenCalled();
     expect(screen.queryByRole('dialog', { name: 'Confirm text status' })).not.toBeInTheDocument();
   });
 
@@ -320,7 +280,7 @@ describe('ClientCommunicationActions', () => {
         phone: '+1 (647) 555-0198',
       },
     });
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(4));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(5));
 
     expect(screen.getByRole('link', { name: 'Call' }))
       .toHaveAttribute('href', 'tel:6475550198');
@@ -331,7 +291,7 @@ describe('ClientCommunicationActions', () => {
 
   it('uses the smart reminder endpoint and opens its manual draft when Twilio is unavailable', async () => {
     const { onOpenNativeUrl } = renderActions();
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(4));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(5));
 
     fireEvent.click(screen.getByRole('button', { name: 'Send reminder' }));
 
@@ -373,7 +333,7 @@ describe('ClientCommunicationActions', () => {
       sentAt: '2026-07-18T12:00:00.000Z',
     };
     const { onOpenNativeUrl } = renderActions();
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(4));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(5));
 
     fireEvent.click(screen.getByRole('button', { name: 'Send reminder' }));
 
@@ -388,7 +348,7 @@ describe('ClientCommunicationActions', () => {
       reason: 'DUPLICATE_SUPPRESSED',
     };
     const { onOpenNativeUrl } = renderActions();
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(4));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(5));
 
     fireEvent.click(screen.getByRole('button', { name: 'Send reminder' }));
 
@@ -415,7 +375,7 @@ describe('ClientCommunicationActions', () => {
         },
       },
     });
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(4));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(5));
 
     fireEvent.click(screen.getByRole('button', { name: 'Directions' }));
 
@@ -533,7 +493,7 @@ describe('ClientCommunicationActions', () => {
 
   it('disables review outreach until there is a completed appointment', async () => {
     renderActions({ completedAppointmentCount: 0 });
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(4));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(5));
 
     expect(screen.getByRole('button', { name: 'Satisfaction text' })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Google review' })).toBeDisabled();
@@ -601,7 +561,7 @@ describe('ClientCommunicationActions', () => {
     expect(body).toContain('Use code WELCOME10');
     expect(screen.getByTestId('client-retention-alert')).toHaveTextContent('Six-week win-back');
 
-    fireEvent.click(screen.getByText(/^Communication history/));
+    fireEvent.click(screen.getByText(/^Recorded outreach/));
 
     expect(screen.getByText('Rebook request')).toBeInTheDocument();
     expect(screen.getByText('Marked sent')).toBeInTheDocument();

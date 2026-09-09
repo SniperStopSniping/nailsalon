@@ -173,6 +173,26 @@ describe('unknown-outcome resolver', () => {
     expect(reservation!.status).toBe('held');
   });
 
+  it('refunds an undelivered callback that arrived before unknown-outcome adoption exactly once', async () => {
+    const { resolveUnknownOutcomes } = await import('./unknownOutcomeResolver');
+    await seedUnknownIntent({ salonId: 's_uo_failed', intentId: 'ci_uo_failed', withSid: 'SM_failed_evidence' });
+    await db.update(schema.notificationDeliverySchema).set({ status: 'undelivered', statusRank: 70 })
+      .where(eq(schema.notificationDeliverySchema.id, 'nd_ci_uo_failed'));
+    await resolveUnknownOutcomes(NOW);
+    await resolveUnknownOutcomes(NOW);
+    const [delivery] = await db.select().from(schema.notificationDeliverySchema)
+      .where(eq(schema.notificationDeliverySchema.id, 'nd_ci_uo_failed'));
+
+    expect(delivery).toMatchObject({ status: 'undelivered', settlementState: 'refunded' });
+
+    const ledger = await db.select().from(schema.smsCreditLedgerSchema)
+      .where(eq(schema.smsCreditLedgerSchema.salonId, 's_uo_failed'));
+
+    expect(ledger.filter(row => row.entryType === 'debit')).toHaveLength(1);
+    expect(ledger.filter(row => row.entryType === 'sms_refund')).toHaveLength(1);
+    expect(ledger.filter(row => row.entryType !== 'grant').reduce((sum, row) => sum + row.amount, 0)).toBe(0);
+  });
+
   it('the ordinary reservation reaper never releases an unknown-outcome hold', async () => {
     // Both seeds above created reservations already past the reaper TTL. The
     // reaper's skip predicate (delivery row present / unknown status) must

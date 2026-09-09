@@ -2073,9 +2073,15 @@ describe('BookingPageOwnerSurface', () => {
       salonPublicationStatus = 'draft';
       const fallbackFetch = fetchMock.getMockImplementation()!;
       let releaseBookingPagePublish: (() => void) | undefined;
+      let releaseSalonPublish: (() => Promise<void>) | undefined;
 
       fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
         const url = String(input);
+        if (url.includes('/api/admin/salon/publish') && init?.method === 'POST') {
+          return new Promise<Response>((resolve) => {
+            releaseSalonPublish = async () => resolve(await fallbackFetch(input, init));
+          });
+        }
         if (url.includes('/api/admin/booking-page') && init?.method === 'POST') {
           const staleResponse = new Response(JSON.stringify({
             config,
@@ -2102,18 +2108,20 @@ describe('BookingPageOwnerSurface', () => {
       fireEvent.click(salonPublishButton);
       fireEvent.click(await screen.findByTestId('confirm-dialog-confirm'));
 
-      await waitFor(() => {
-        expect(screen.queryByTestId('salon-publish-banner')).not.toBeInTheDocument();
+      await waitFor(() => expect(releaseSalonPublish).toBeTypeOf('function'));
+      // Flush the newer salon response and its publication-status effect before
+      // resolving the deliberately older booking-page snapshot.
+      await act(async () => {
+        await releaseSalonPublish?.();
       });
 
-      releaseBookingPagePublish?.();
-      // This assertion waits on a response the test itself held open, so the
-      // render it depends on lands a full round-trip later than the rest of
-      // the file's. Testing Library's one-second default was enough locally
-      // and on pull-request runners but not on a loaded main runner, where it
-      // failed twice with no action message rendered at all rather than the
-      // wrong one. The budget is explicit for the same reason the client
-      // lifecycle suite pins its own.
+      expect(screen.queryByTestId('salon-publish-banner')).not.toBeInTheDocument();
+      expect(screen.getByTestId('booking-page-publish')).toBeDisabled();
+
+      await act(async () => {
+        releaseBookingPagePublish?.();
+      });
+      await waitFor(() => expect(screen.getByTestId('booking-page-publish')).toBeEnabled());
       await screen.findByText(
         /Published\. Your live booking page now matches your draft\./,
         {},
@@ -2127,6 +2135,6 @@ describe('BookingPageOwnerSurface', () => {
       expect(fetchMock.mock.calls.filter(([url, init]) => (
         String(url).includes('/api/admin/booking-page') && init?.method === 'POST'
       ))).toHaveLength(1);
-    });
+    }, 15_000);
   });
 });

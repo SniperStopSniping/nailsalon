@@ -45,6 +45,7 @@ const {
   };
 });
 
+vi.mock('server-only', () => ({}));
 vi.mock('@/libs/DB', () => ({ db }));
 vi.mock('@/libs/salonStatus', () => ({ isSmsEnabled }));
 vi.mock('@/libs/Env', () => ({
@@ -92,125 +93,29 @@ describe('sendSmartAppointmentReminder', () => {
     vi.spyOn(console, 'error').mockImplementation(() => undefined);
   });
 
-  it('sends through an active salon connection and records notification history', async () => {
-    queueSelectResults(
-      [{ status: 'granted' }],
-      [activeConnection],
-      [],
-    );
-    queueInsertResults([{ id: 'delivery_1' }]);
+  it.each([false, true])('returns an unsent draft for a retired active connection even with force=%s', async (force) => {
+    queueSelectResults([{ status: 'granted' }], [activeConnection]);
+    const result = await sendSmartAppointmentReminder('salon_1', { ...params, force });
 
-    const result = await sendSmartAppointmentReminder('salon_1', params);
-
-    expect(result).toMatchObject({
-      outcome: 'sent',
-      phone: '4165550198',
-    });
-    expect(create).toHaveBeenCalledWith(expect.objectContaining({
-      body: expect.stringContaining(
-        'View, reschedule, or cancel: https://islanailsalon.com/en/isla/manage/token',
-      ),
-      messagingServiceSid: 'MG_service',
-      to: '+14165550198',
-    }));
-    expect(updateSet).toHaveBeenCalledWith(expect.objectContaining({
-      status: 'accepted',
-      providerMessageId: 'SM_reminder',
-    }));
+    expect(result).toMatchObject({ outcome: 'manual', reason: 'TWILIO_UNAVAILABLE', body: expect.stringContaining('BIAB Fill') });
+    expect(create).not.toHaveBeenCalled();
+    expect(twilio).not.toHaveBeenCalled();
+    expect(db.insert).not.toHaveBeenCalled();
+    expect(updateSet).not.toHaveBeenCalled();
   });
 
-  it('returns a manual draft when transactional consent is unavailable', async () => {
+  it('returns a draft when consent is unavailable without contacting any provider', async () => {
     queueSelectResults([]);
 
-    const result = await sendSmartAppointmentReminder('salon_1', params);
-
-    expect(result).toMatchObject({
-      outcome: 'manual',
-      reason: 'SMS_CONSENT_REQUIRED',
-      phone: '4165550198',
-      body: expect.stringContaining('BIAB Fill'),
-    });
+    expect(await sendSmartAppointmentReminder('salon_1', params)).toMatchObject({ outcome: 'manual', reason: 'SMS_CONSENT_REQUIRED' });
     expect(twilio).not.toHaveBeenCalled();
     expect(db.insert).not.toHaveBeenCalled();
   });
 
-  it('does not use the legacy Twilio sender when the salon connection is unavailable', async () => {
+  it('never falls back to the platform number when there is no connection', async () => {
     queueSelectResults([{ status: 'granted' }], []);
 
-    const result = await sendSmartAppointmentReminder('salon_1', params);
-
-    expect(result).toMatchObject({
-      outcome: 'manual',
-      reason: 'TWILIO_UNAVAILABLE',
-    });
+    expect(await sendSmartAppointmentReminder('salon_1', params)).toMatchObject({ outcome: 'manual', reason: 'TWILIO_UNAVAILABLE' });
     expect(twilio).not.toHaveBeenCalled();
-  });
-
-  it('suppresses a rapid duplicate without another provider call', async () => {
-    queueSelectResults(
-      [{ status: 'granted' }],
-      [activeConnection],
-      [{ status: 'accepted', updatedAt: new Date('2026-07-22T17:59:30.000Z') }],
-    );
-
-    const result = await sendSmartAppointmentReminder('salon_1', params);
-
-    expect(result).toEqual(expect.objectContaining({
-      outcome: 'duplicate',
-      sentAt: '2026-07-22T17:59:30.000Z',
-    }));
-    expect(db.insert).not.toHaveBeenCalled();
-    expect(create).not.toHaveBeenCalled();
-  });
-
-  it('keeps a provider failure distinct from known manual fallback cases', async () => {
-    queueSelectResults(
-      [{ status: 'granted' }],
-      [activeConnection],
-      [],
-    );
-    queueInsertResults([{ id: 'delivery_1' }]);
-    create.mockRejectedValue(Object.assign(new Error('Twilio timed out'), {
-      code: 30008,
-      status: 503,
-    }));
-
-    const result = await sendSmartAppointmentReminder('salon_1', params);
-
-    expect(result).toMatchObject({
-      outcome: 'provider_failure',
-      errorCode: '30008',
-      phone: '4165550198',
-      body: expect.stringContaining('BIAB Fill'),
-    });
-    expect(updateSet).toHaveBeenCalledWith(expect.objectContaining({
-      status: 'failed',
-      errorCode: '30008',
-      retryable: true,
-    }));
-  });
-
-  it('does not report a failed dedupe-key collision as a successful duplicate', async () => {
-    queueSelectResults(
-      [{ status: 'granted' }],
-      [activeConnection],
-      [],
-      [{
-        status: 'failed',
-        errorCode: '30008',
-        updatedAt: new Date('2026-07-22T17:59:30.000Z'),
-      }],
-    );
-    queueInsertResults([]);
-
-    const result = await sendSmartAppointmentReminder('salon_1', params);
-
-    expect(result).toMatchObject({
-      outcome: 'provider_failure',
-      errorCode: '30008',
-      phone: '4165550198',
-      body: expect.stringContaining('BIAB Fill'),
-    });
-    expect(create).not.toHaveBeenCalled();
   });
 });

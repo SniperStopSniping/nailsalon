@@ -14,46 +14,19 @@ describe('isNativeSmsCapableDevice', () => {
 });
 
 describe('resolveAutomaticTextStatus', () => {
-  it('is Ready ONLY when a number is active AND the SMS module is enabled', () => {
-    const ready = resolveAutomaticTextStatus(
-      { ...AVAILABLE, twilio: { status: 'active', phoneNumber: '+16475550000' } },
+  it.each(['active', 'pending', 'deauthorized', 'degraded'])('never advertises historical %s Twilio as usable', (status) => {
+    const result = resolveAutomaticTextStatus(
+      { ...AVAILABLE, twilio: { status, phoneNumber: '+16475550000' } },
       'ENABLED',
     );
 
-    expect(ready.label).toBe('Ready');
-    expect(ready.detail).toContain('+16475550000');
+    expect(result.label).toBe('Setup incomplete');
+    expect(result.detail).toContain('retired');
+    expect(result.detail).not.toMatch(/connect Twilio|choose a phone/i);
   });
 
-  it('never claims Ready when any prerequisite is missing', () => {
-    // Number active but module off / not entitled → incomplete, not Ready.
-    expect(resolveAutomaticTextStatus(
-      { ...AVAILABLE, twilio: { status: 'active', phoneNumber: '+16475550000' } },
-      'MODULE_DISABLED',
-    ).label).toBe('Setup incomplete');
-    expect(resolveAutomaticTextStatus(
-      { ...AVAILABLE, twilio: { status: 'active', phoneNumber: '+16475550000' } },
-      'UPGRADE_REQUIRED',
-    ).label).toBe('Setup incomplete');
-    // Authorized without a number → incomplete.
-    expect(resolveAutomaticTextStatus(
-      { ...AVAILABLE, twilio: { status: 'pending' } },
-      'ENABLED',
-    ).label).toBe('Setup incomplete');
-    // Deauthorized → Error.
-    expect(resolveAutomaticTextStatus(
-      { ...AVAILABLE, twilio: { status: 'deauthorized' } },
-      'ENABLED',
-    ).label).toBe('Error');
-    // Environment does not offer Twilio at all.
-    expect(resolveAutomaticTextStatus(
-      { availability: { twilio: false }, twilio: { status: 'disconnected' } },
-      null,
-    ).label).toBe('Not available yet');
-    // Nothing connected.
-    expect(resolveAutomaticTextStatus(
-      { ...AVAILABLE, twilio: { status: 'disconnected' } },
-      null,
-    ).label).toBe('Not connected');
+  it('requires canonical SMS readiness even if legacy configuration is present', () => {
+    expect(resolveAutomaticTextStatus({ ...AVAILABLE, twilio: { status: 'disconnected' } }, 'ENABLED').label).toBe('Not available yet');
   });
 
   it('treats missing or malformed health payloads as loading, never as a status claim', () => {

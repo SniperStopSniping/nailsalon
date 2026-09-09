@@ -1053,6 +1053,15 @@ async function withLockedManagedAppointment(
       }
 
       const result = await apply(tx, authoritative);
+      if (result.appointment.startTime.getTime() !== authoritative.appointment.startTime.getTime()) {
+        const { materializeAppointmentLifecycle } = await import('@/libs/communicationMaterialization');
+        await materializeAppointmentLifecycle({
+          tx,
+          appointment: result.appointment,
+          eventType: 'appointment_rescheduled',
+          supersede: true,
+        });
+      }
       const { enqueueGoogleCalendarAppointmentMutation } = await import('@/libs/integrationOutbox');
       await enqueueGoogleCalendarAppointmentMutation(tx, {
         appointmentId: result.appointment.id,

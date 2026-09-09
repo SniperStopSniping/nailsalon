@@ -1,6 +1,8 @@
 /* eslint-disable import/first */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { materializeAppointmentLifecycle } from '@/libs/communicationMaterialization';
+
 const forfeitAppointmentDepositInTx = vi.hoisted(() => vi.fn(async () => ({
   disposition: 'no_deposit',
   depositIds: [],
@@ -115,6 +117,7 @@ const {
 
 const logAppointmentChange = vi.hoisted(() => vi.fn(async () => {}));
 
+vi.mock('@/libs/communicationMaterialization', () => ({ materializeAppointmentLifecycle: vi.fn(async () => []) }));
 vi.mock('@/libs/appointmentAudit', () => ({
   logAppointmentChange,
 }));
@@ -406,7 +409,7 @@ describe('PATCH /api/appointments/[id]/cancel', () => {
       status: 'cancelled',
       canvasState: 'cancelled',
     }));
-    expect(vi.mocked(sendCancellationConfirmation)).toHaveBeenCalled();
+    expect(materializeAppointmentLifecycle).toHaveBeenCalled();
   });
 
   it('applies a concurrent double-cancel once and refunds loyalty points only once', async () => {
@@ -469,7 +472,7 @@ describe('PATCH /api/appointments/[id]/cancel', () => {
 
     expect(loyaltyRefunds).toHaveLength(1);
     expect(rewardRestores).toHaveLength(1);
-    expect(vi.mocked(sendCancellationConfirmation)).toHaveBeenCalledTimes(1);
+    expect(materializeAppointmentLifecycle).toHaveBeenCalledTimes(1);
     expect(sendBookingNotificationsForAppointmentCancelled).toHaveBeenCalledTimes(1);
   });
 
@@ -533,10 +536,7 @@ describe('PATCH /api/appointments/[id]/cancel', () => {
     ));
 
     expect(loyaltyRefunds).toHaveLength(1);
-    expect(vi.mocked(sendCancellationConfirmation)).toHaveBeenCalledWith(
-      'salon_1',
-      expect.objectContaining({ phone: '4165550198' }),
-    );
+    expect(materializeAppointmentLifecycle).toHaveBeenCalledWith(expect.objectContaining({ eventType: 'appointment_cancelled', supersede: true }));
   });
 
   it('locks the terminal before cancellation, refunds it, and messages its current phone', async () => {
@@ -578,10 +578,7 @@ describe('PATCH /api/appointments/[id]/cancel', () => {
         allowArchived: true,
       },
     );
-    expect(vi.mocked(sendCancellationConfirmation)).toHaveBeenCalledWith(
-      'salon_1',
-      expect.objectContaining({ phone: '4165550198' }),
-    );
+    expect(materializeAppointmentLifecycle).toHaveBeenCalledWith(expect.objectContaining({ eventType: 'appointment_cancelled', supersede: true }));
 
     const loyaltyRefund = updateSet.mock.calls.find(([values]) => (
       values && typeof values === 'object' && 'loyaltyPoints' in values
