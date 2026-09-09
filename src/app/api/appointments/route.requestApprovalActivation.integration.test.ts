@@ -198,12 +198,14 @@ beforeAll(async () => {
       id: GATED_SALON_ID,
       name: 'RA PR4 Gated Salon',
       slug: GATED_SALON_SLUG,
+      settings: { bookingExperience: { policy: { enabled: false } } },
       features: { catalog: { variantsV1: false, addOnGroupsV1: false, bookingModesV1: true } },
     },
     {
       id: LEGACY_SALON_ID,
       name: 'RA PR4 Legacy Salon',
       slug: LEGACY_SALON_SLUG,
+      settings: { bookingExperience: { policy: { enabled: false } } },
       features: null, // gate OFF
     },
   ]);
@@ -397,7 +399,7 @@ describe('salon-wide booking confirmation', () => {
     { mode: 'request_approval' as const, status: 'pending', day: 41 },
   ])('uses $mode for a guest booking without a catalog feature or plan upgrade', async ({ mode, status, day }) => {
     const [before] = await db.select().from(schema.salonSchema).where(eq(schema.salonSchema.id, LEGACY_SALON_ID));
-    await db.update(schema.salonSchema).set({ settings: { booking: { confirmationMode: mode, minimumNoticeMinutes: 120 } } })
+    await db.update(schema.salonSchema).set({ settings: { bookingExperience: { policy: { enabled: false } }, booking: { confirmationMode: mode, minimumNoticeMinutes: 120 } } })
       .where(eq(schema.salonSchema.id, LEGACY_SALON_ID));
     counter += 1;
     try {

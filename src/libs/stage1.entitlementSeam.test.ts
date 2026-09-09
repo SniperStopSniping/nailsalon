@@ -38,6 +38,7 @@ vi.mock('server-only', () => ({}));
 /* eslint-disable import/first */
 import {
   BOOKING_EXPERIENCE_DEFAULTS,
+  DEFAULT_BOOKING_POLICY_TEXT,
   resolveBookingExperience,
 } from './bookingExperience';
 import { resolveRequiredBookingPolicy } from './bookingPolicyAcknowledgment';
@@ -109,13 +110,15 @@ describe('S1 — universal owner-authored content renders for a free salon', () 
   });
 });
 
-describe('S1 — NO-OP CONTROL: nothing is fabricated when nothing is authored', () => {
-  it('an unauthored free salon resolves to the canonical defaults, unchanged', () => {
+describe('S1 — unconfigured content uses only the default appointment agreement', () => {
+  it('an unauthored free salon resolves to the canonical defaults with a required agreement', () => {
     const experience = resolveBookingExperience(UNAUTHORED_SETTINGS);
 
-    // Byte-equality with the shipped defaults is the strongest form of "the
-    // seam split did not invent content, a section, or a colour".
-    expect(experience).toEqual(BOOKING_EXPERIENCE_DEFAULTS);
+    // The server binds the starter wording to its computed acceptance version.
+    expect(experience).toEqual({
+      ...BOOKING_EXPERIENCE_DEFAULTS,
+      policy: { ...BOOKING_EXPERIENCE_DEFAULTS.policy, version: expect.stringMatching(/^policy-v1:[a-f0-9]{64}$/u) },
+    });
   });
 
   it('absent content stays absent field-by-field', () => {
@@ -124,14 +127,14 @@ describe('S1 — NO-OP CONTROL: nothing is fabricated when nothing is authored',
     expect(experience.bookingMessage).toBeNull();
     expect(experience.confirmationMessage).toBeNull();
     expect(experience.primaryColor).toBeNull();
-    expect(experience.policy.enabled).toBe(false);
-    expect(experience.policy.text).toBeNull();
+    expect(experience.policy.enabled).toBe(true);
+    expect(experience.policy.text).toBe(DEFAULT_BOOKING_POLICY_TEXT);
     expect(experience.socialLinks.instagram).toBeNull();
     expect(experience.quickFacts.appointmentOnly.enabled).toBe(false);
   });
 
   it('a null settings blob is treated the same as an empty one', () => {
-    expect(resolveBookingExperience(null)).toEqual(BOOKING_EXPERIENCE_DEFAULTS);
+    expect(resolveBookingExperience(null)).toEqual(resolveBookingExperience({}));
   });
 });
 
@@ -165,10 +168,10 @@ describe('S1 — booking-policy enforcement now agrees with what is rendered', (
     expect(required!.version.length).toBeGreaterThan(10);
   });
 
-  it('NO-OP CONTROL: a salon with no policy still requires nothing', () => {
+  it('an unconfigured salon requires the default appointment agreement', () => {
     expect(
       resolveRequiredBookingPolicy({ ...FREE_PLAN_SALON, settings: UNAUTHORED_SETTINGS }),
-    ).toBeNull();
+    ).toMatchObject({ text: DEFAULT_BOOKING_POLICY_TEXT, acknowledgment: { required: true } });
   });
 
   it('NO-OP CONTROL: an authored policy that does not require acknowledgment requires nothing', () => {

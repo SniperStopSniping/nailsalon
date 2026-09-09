@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 
-import { selectBookableSlotFromApi } from './support/booking';
+import { acknowledgeBookingPolicy, selectBookableSlotFromApi } from './support/booking';
 import { appPath, appPathPattern, e2eConfig, uniqueCustomerPhone } from './support/config';
 
 test('guest can book without OTP and receive an appointment management link', async ({ page }) => {
@@ -58,6 +58,7 @@ test('guest can book without OTP and receive an appointment management link', as
     && response.status() === 201
   ));
 
+  await acknowledgeBookingPolicy(page);
   await page.getByRole('button', { name: /confirm appointment/i }).click();
 
   const bookingResponse = await bookingResponsePromise;
@@ -130,6 +131,7 @@ test('duplicate booking offers recovery options and a server-verified retry path
     && response.request().method() === 'POST'
     && response.status() === 201
   ));
+  await acknowledgeBookingPolicy(page);
   await page.getByRole('button', { name: /confirm appointment/i }).click();
   const firstBody = await (await firstBookingResponse).json();
   const firstManageUrl = firstBody?.data?.manageUrl as string | undefined;
@@ -146,6 +148,7 @@ test('duplicate booking offers recovery options and a server-verified retry path
     && response.request().method() === 'POST'
     && response.status() === 409
   ));
+  await acknowledgeBookingPolicy(page);
   await page.getByRole('button', { name: /confirm appointment/i }).click();
   const duplicateBody = await (await duplicateResponse).json();
 
@@ -179,6 +182,7 @@ test('duplicate booking offers recovery options and a server-verified retry path
     && response.request().method() === 'POST'
     && response.status() === 201
   ));
+  await acknowledgeBookingPolicy(page);
   await page.getByRole('button', { name: /confirm appointment/i }).click();
   const retryBody = await (await retryResponse).json();
 

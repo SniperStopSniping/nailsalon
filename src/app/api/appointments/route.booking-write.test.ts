@@ -289,7 +289,7 @@ function requiredPolicyProjection() {
 const DEFAULT_LOCKED_SALON_FINANCIAL_CONFIGURATION = {
   plan: null,
   features: null,
-  settings: null,
+  settings: { bookingExperience: { policy: { enabled: false } } },
 };
 
 function isSalonFinancialConfigurationSelection(
@@ -338,7 +338,12 @@ describe('POST /api/appointments booking policy', () => {
     vi.clearAllMocks();
 
     db.select.mockImplementation(selectionAwareSelect(() => mockSelectRows([])));
-    getSalonBySlug.mockResolvedValue({ id: 'salon_1', slug: 'salon-a', name: 'Salon A' });
+    getSalonBySlug.mockResolvedValue({
+      id: 'salon_1',
+      slug: 'salon-a',
+      name: 'Salon A',
+      settings: { bookingExperience: { policy: { enabled: false } } },
+    });
     getSalonById.mockResolvedValue({
       id: 'salon_1',
       slug: 'salon-a',
@@ -843,7 +848,7 @@ describe('POST /api/appointments booking policy', () => {
         plan: 'single_salon',
         features: null,
         businessHours: CLOSED_SUNDAY,
-        settings: { booking: { bufferMinutes: 10, slotIntervalMinutes: 15, currency: 'CAD', timezone: 'America/Toronto' } },
+        settings: { bookingExperience: { policy: { enabled: false } }, booking: { bufferMinutes: 10, slotIntervalMinutes: 15, currency: 'CAD', timezone: 'America/Toronto' } },
       });
       mockSuccessfulAppointmentInserts({
         appointmentId: 'appt_no_location',

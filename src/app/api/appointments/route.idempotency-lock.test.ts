@@ -224,7 +224,7 @@ describe('POST /api/appointments booking-lock lifecycle', () => {
   beforeEach(() => {
     vi.clearAllMocks();
 
-    getSalonBySlug.mockResolvedValue({ id: 'salon_1', slug: 'salon-a', name: 'Salon A' });
+    getSalonBySlug.mockResolvedValue({ id: 'salon_1', slug: 'salon-a', name: 'Salon A', settings: { bookingExperience: { policy: { enabled: false } } } });
     guardSalonApiRoute.mockResolvedValue(null);
     guardFeatureEntitlement.mockResolvedValue(null);
     requireStaffSession.mockResolvedValue({ ok: false, response: new Response(null, { status: 401 }) });

@@ -13,11 +13,7 @@ import {
   selectCalendarDay,
 } from './support/appointment-ops';
 import { authenticateCustomer } from './support/auth';
-import {
-  createAppointmentViaApi,
-  getSelectableSlotsForDate,
-  selectBookableSlotFromApi,
-} from './support/booking';
+import { acknowledgeBookingPolicy, createAppointmentViaApi, getSelectableSlotsForDate, selectBookableSlotFromApi } from './support/booking';
 import { appPath, appPathPattern, authStatePaths, e2eConfig, uniqueCustomerPhone } from './support/config';
 
 test.use({ storageState: authStatePaths.superAdmin });
@@ -108,6 +104,7 @@ async function createCustomerBookingWithAddOn(browser: Browser) {
       && response.status() === 201
     ));
 
+    await acknowledgeBookingPolicy(page);
     await page.getByRole('button', { name: /confirm appointment/i }).click();
     const bookingResponse = await bookingResponsePromise;
     const body = await bookingResponse.json();

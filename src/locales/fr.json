@@ -243,5 +243,14 @@
     "tech": "Artist",
     "empty_state": "Your nail gallery is empty",
     "empty_description": "Photos from your visits will appear here"
+  },
+  "BookingConfirmation": {
+    "contact_description": "Votre confirmation et votre lien privé de réservation seront envoyés par courriel.",
+    "sms_label": "Recevoir les mises à jour par texto (facultatif)",
+    "sms_details": "De {salon}. La fréquence varie. Des frais de messagerie ou de données peuvent s’appliquer. Répondez STOP pour vous désabonner ou HELP pour obtenir de l’aide.",
+    "terms": "Conditions",
+    "privacy": "Confidentialité",
+    "offers_title": "Vos offres",
+    "request_notice": "Le salon examinera votre demande avant de confirmer votre rendez-vous."
   }
 }

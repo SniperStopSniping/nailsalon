@@ -585,7 +585,7 @@ describe('SettingsModal index', () => {
 
     const preview = within(screen.getByTestId('booking-policy-preview'));
     const previewCheckbox = preview.getByRole('checkbox', {
-      name: 'I understand this appointment reserves the technician’s time. If I cannot attend, I will contact the salon as soon as possible.',
+      name: 'I agree to arrive on time and cancel promptly if I can’t attend.',
     });
     const previewConfirm = preview.getByRole('button', {
       name: 'Confirm appointment',
@@ -597,7 +597,7 @@ describe('SettingsModal index', () => {
     expect(screen.getByRole('textbox', {
       name: 'Acknowledgment wording',
     })).toHaveValue(
-      'I understand this appointment reserves the technician’s time. If I cannot attend, I will contact the salon as soon as possible.',
+      'I agree to arrive on time and cancel promptly if I can’t attend.',
     );
     expect(previewCheckbox).not.toBeChecked();
     expect(previewConfirm).toBeDisabled();

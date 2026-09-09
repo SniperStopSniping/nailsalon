@@ -196,7 +196,10 @@ async function seedSalon(salonId: string, slug: string, enforce: boolean) {
     slug,
     // The OFF salon has no `enforceRequiredAddOns` key at all — the shape of
     // every salon in the database on the day this ships.
-    settings: enforce ? { booking: { enforceRequiredAddOns: true } } : { booking: {} },
+    settings: {
+      bookingExperience: { policy: { enabled: false } },
+      booking: enforce ? { enforceRequiredAddOns: true } : {},
+    },
   });
   await db.insert(schema.technicianSchema).values({
     id: techId(salonId),

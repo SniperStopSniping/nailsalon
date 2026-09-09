@@ -145,6 +145,7 @@ const FULL_WEEK = {
 };
 
 const SMART_FIT_ON = {
+  bookingExperience: { policy: { enabled: false } },
   smartFit: {
     enabled: true,
     discountType: 'percent',
@@ -399,7 +400,7 @@ describe('booking POST × Smart Fit — grant and persistence', () => {
     const date = futureDate(32);
     await seedAppointment({ date, startTime: '9:00' });
     await db.update(schema.salonSchema)
-      .set({ settings: {} })
+      .set({ settings: { bookingExperience: { policy: { enabled: false } } } })
       .where(eq(schema.salonSchema.id, SALON_ID));
     const phone = freshPhone();
     holder.clientSession = { normalizedPhone: phone, phoneVariants: [phone] };
@@ -1030,7 +1031,7 @@ describe('booking POST × Smart Fit — client reschedule', () => {
   it('keeps plain rescheduling working when Smart Fit is disabled', async () => {
     const date = futureDate(46);
     await db.update(schema.salonSchema)
-      .set({ settings: {} })
+      .set({ settings: { bookingExperience: { policy: { enabled: false } } } })
       .where(eq(schema.salonSchema.id, SALON_ID));
     const phone = freshPhone();
     const salonClientId = await seedSalonClient(phone);

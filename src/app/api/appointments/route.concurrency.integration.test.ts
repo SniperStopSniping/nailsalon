@@ -162,6 +162,7 @@ const POLICY_TEXT
 const ACKNOWLEDGMENT_TEXT
   = 'I understand this appointment reserves the technician’s time.';
 const BASE_SALON_SETTINGS: SalonSettings = {
+  bookingExperience: { policy: { enabled: false } },
   booking: {
     timezone: 'America/Toronto',
     slotIntervalMinutes: 15,

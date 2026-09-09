@@ -352,6 +352,7 @@ beforeAll(async () => {
     name: 'Effects Salon',
     slug: SALON_SLUG,
     ownerEmail: 'owner@example.com',
+    settings: { bookingExperience: { policy: { enabled: false } } },
   });
   await db.insert(schema.technicianSchema).values({
     id: TECH_ID,
