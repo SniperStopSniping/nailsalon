@@ -339,3 +339,28 @@ Repair the existing Twilio/communications system only. No broad product audit, p
 - Added ten Playwright geometry regressions for Quick Book and one-page About design at **920, 1280, 1440, 390 and 320px**. The original 1280px case failed on readable widths/order/progress; corrected tests pass **10/10** with no retries. They check full-size preview, ordering, five-stage alignment, horizontal overflow and reachable action buttons, and block non-loopback requests. Wired the same test into the existing required CI test job after product E2E, reusing installed Chromium/root runtime dependencies and preserving test artifacts. The harness verifies shared onboarding layout; it is not a claim of a full authenticated production journey.
 - Validation: app **`npm run check-types`** passed with approved synthetic CI placeholders, **`npm run lint`** and explicit ESLint on the workflow/new test passed, and diff checks passed. Focused design/progress units passed **23/23**. The first broad prototype run reused production-root development dependencies and was not a valid prototype-suite gate: six suites lacked its `fake-indexeddb` dependency and two widget tests used a different user-event version. Installed the prototype's existing committed lockfile in this new worktree without changing manifests/locks or shared dependencies; the complete prototype suite then passed **1,341/1,341 tests across 118 files**. No application/test assertions were changed to clear those dependency-related failures.
 - The user has now completed the separate pilot account signup: read-only native UI shows authenticated workspace **`luster-sms-pilot-20260909`**, **100 SMS credits available**, and texting unavailable while production SMS remains disabled. The initial grant is visible in the owner UI; ledger/dedupe inspection is still pending. The earlier signup handoff is satisfied and must not be requested again. No approved recipient, pilot send approval, fixture appointment or activation is recorded; no real SMS was sent. Preserve Daniela's customer salon and the unrelated active number ending 9891.
+
+---
+
+# Owner dashboard IA restructure — 2026-09-09
+
+Branch: `codex/owner-dashboard-ia-20260909`
+
+Base: `45badae1aebbd00844c8da4d39d091a88f23652a` (`origin/main` at task start)
+
+## Status
+
+- Read the completed owner-dashboard inventory from the original checkout.
+- Inspected current owner navigation, Settings, Booking Page, Marketing, Integrations, Team/staff, time off, rewards/reviews, Services, and photo/auto-post policy sources.
+- Wrote the canonical ownership and before→after migration map in `docs/OWNER_DASHBOARD_IA_MIGRATION_MAP.md`.
+- No application code changed at this checkpoint.
+
+## Safety
+
+- Original dirty checkout is preserved at `/Users/me/Desktop/nail-salon-copy2 copy 2`.
+- This task runs in the clean worktree `/Users/me/Desktop/luster-owner-dashboard-ia-20260909`.
+- Do not deploy, push, migrate, seed, or alter provider configuration.
+
+## Next batch
+
+Implement More grid and compatibility routing, then add Team, Payments, and Rewards & Reviews hubs while reusing the existing editors and APIs.
