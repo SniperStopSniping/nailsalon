@@ -202,7 +202,8 @@ describe('SettingsModal communications view', () => {
     fireEvent.click(screen.getByText('+ Add reminder'));
     fireEvent.click(screen.getByText('+ Add reminder'));
 
-    expect(screen.getByLabelText('Reminder 3 timing')).toHaveValue('240');
+    expect(screen.getByLabelText('Reminder 2 timing')).toHaveValue('60');
+    expect(screen.getByLabelText('Reminder 3 timing')).toHaveValue('120');
 
     fireEvent.click(screen.getByRole('checkbox', { name: /pause all communications/i }));
     fireEvent.click(screen.getByRole('button', { name: /save communication settings/i }));

@@ -4,8 +4,9 @@
  * B1 persists and serializes ONLY: no Stripe SDK import, no session
  * creation, no route. At most one ACTIVE subscription attempt per salon
  * (purpose-scoped partial unique — a pending subscription attempt must
- * never block top-ups); repeated requests reuse the active attempt; the
- * Stripe idempotency key derives deterministically from the persisted
+ * never block top-ups); repeated requests reuse the active attempt.
+ * Top-up attempts serialize on the salon row and also reuse active attempts.
+ * The Stripe idempotency key derives deterministically from the persisted
  * attempt id and is never browser-supplied. A salon with a LIVE paid
  * subscription cannot begin a new-subscription attempt
  * (ACTIVE_SUBSCRIPTION_EXISTS): upgrades are never a second subscription.
@@ -18,11 +19,16 @@ import { and, eq, inArray, lt } from 'drizzle-orm';
 import {
   billingCheckoutAttemptSchema,
   billingSubscriptionSchema,
+  salonSchema,
 } from '@/models/Schema';
 
 import type { BillingDbTransaction } from './creditLedger';
 
 export const CHECKOUT_ATTEMPT_TTL_MS = 60 * 60 * 1000;
+
+export function deriveTopupPurchaseId(attemptId: string): string {
+  return `stp_${attemptId}`;
+}
 
 export function deriveStripeIdempotencyKey(attemptId: string): string {
   return `billing-attempt:${attemptId}`;
@@ -44,6 +50,13 @@ export async function beginCheckoutAttempt(
   },
 ): Promise<BeginAttemptResult> {
   const now = input.now ?? new Date();
+
+  // There is no top-up partial unique index. Serialize the complete
+  // read/expire/insert decision on the tenant row before looking up attempts.
+  if (input.purpose === 'sms_topup') {
+    await tx.select({ id: salonSchema.id }).from(salonSchema)
+      .where(eq(salonSchema.id, input.salonId)).for('update');
+  }
 
   if (input.purpose === 'plan_subscription') {
     const live = await tx
@@ -69,7 +82,7 @@ export async function beginCheckoutAttempt(
       lt(billingCheckoutAttemptSchema.expiresAt, now),
     ));
 
-  if (input.purpose === 'plan_subscription') {
+  {
     const active = await tx
       .select({
         id: billingCheckoutAttemptSchema.id,
@@ -78,7 +91,7 @@ export async function beginCheckoutAttempt(
       .from(billingCheckoutAttemptSchema)
       .where(and(
         eq(billingCheckoutAttemptSchema.salonId, input.salonId),
-        eq(billingCheckoutAttemptSchema.purpose, 'plan_subscription'),
+        eq(billingCheckoutAttemptSchema.purpose, input.purpose),
         inArray(billingCheckoutAttemptSchema.status, ['creating', 'checkout_created']),
       ))
       .limit(1);

@@ -33,6 +33,7 @@ export const Env = createEnv({
     // are the control boundary, enforced before any Stripe call.
     BILLING_SUBSCRIPTIONS_ENABLED: z.enum(['true', 'false']).optional(),
     BILLING_TOPUPS_ENABLED: z.enum(['true', 'false']).optional(),
+    BILLING_TOPUP_PRICE_IDS: z.string().optional(),
     PUBLIC_PRICING_ENABLED: z.enum(['true', 'false']).optional(),
     // Dedicated secret for /api/webhooks/stripe-billing (§8.1) — never shared
     // with the legacy or deposits webhook secrets.
@@ -134,6 +135,7 @@ export const Env = createEnv({
     BILLING_PLAN_ENV: process.env.BILLING_PLAN_ENV,
     BILLING_SUBSCRIPTIONS_ENABLED: process.env.BILLING_SUBSCRIPTIONS_ENABLED,
     BILLING_TOPUPS_ENABLED: process.env.BILLING_TOPUPS_ENABLED,
+    BILLING_TOPUP_PRICE_IDS: process.env.BILLING_TOPUP_PRICE_IDS,
     PUBLIC_PRICING_ENABLED: process.env.PUBLIC_PRICING_ENABLED,
     STRIPE_BILLING_WEBHOOK_SECRET: process.env.STRIPE_BILLING_WEBHOOK_SECRET,
     TWILIO_ACCOUNT_SID: process.env.TWILIO_ACCOUNT_SID,

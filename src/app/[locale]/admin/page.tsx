@@ -154,6 +154,7 @@ const URL_APP_IDS = [
   'rewards',
   'staff-ops',
   'integrations',
+  'client-reminders',
   // Photos & Gallery: the More tile and the Booking Page hub both open the
   // shared Portfolio library through this URL.
   'portfolio',

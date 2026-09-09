@@ -11,14 +11,16 @@
  * callers cannot supply an environment, which is what makes "preview/local
  * cannot resolve production mappings" structural rather than procedural.
  *
- * Every identifier in this file is a null placeholder in Gate A. Creating
- * real Stripe Products/Prices/Coupons is a separately authorized production
- * configuration step (contract §20); committing a live identifier here is
- * forbidden. Resolution of a placeholder throws PRICE_UNCONFIGURED, so no
- * checkout path can silently proceed against unconfigured commerce.
+ * Committed identifiers stay null. Top-up prices may be provisioned through
+ * server-only BILLING_TOPUP_PRICE_IDS, scoped by environment. Creating live
+ * Stripe resources is a production configuration step (contract §20), and
+ * live identifiers must never be committed. Unconfigured resolution fails
+ * closed with PRICE_UNCONFIGURED.
  */
 
 import 'server-only';
+
+import { z } from 'zod';
 
 import { Env } from '@/libs/Env';
 
@@ -65,6 +67,40 @@ const TOPUP_PRICE_IDS: Record<TopupOfferKey, StripeIdByEnv> = Object.freeze({
   topup_500_paid_2026_08: unconfigured(),
   topup_1000_paid_2026_08: unconfigured(),
 });
+
+const topupPriceConfiguration = z.object({
+  dev: z.record(z.string()).optional(),
+  test: z.record(z.string()).optional(),
+  prod: z.record(z.string()).optional(),
+}).strict();
+
+/** Environment values are provisioned outside Git, and never sent to clients. */
+function topupPriceTable(): Record<TopupOfferKey, StripeIdByEnv> {
+  const raw = Env.BILLING_TOPUP_PRICE_IDS;
+  if (!raw) {
+    return TOPUP_PRICE_IDS;
+  }
+  try {
+    const configuration = topupPriceConfiguration.parse(JSON.parse(raw));
+    const table = Object.fromEntries(Object.keys(TOPUP_PRICE_IDS)
+      .map(key => [key, { dev: null, test: null, prod: null }])) as Record<TopupOfferKey, StripeIdByEnv>;
+    for (const env of ['dev', 'test', 'prod'] as const) {
+      const seen = new Set<string>();
+      for (const [key, id] of Object.entries(configuration[env] ?? {})) {
+        if (!Object.prototype.hasOwnProperty.call(table, key)
+          || !/^price_[A-Za-z0-9]{8,}$/.test(id) || seen.has(id)) {
+          throw new Error('Invalid top-up mapping');
+        }
+        seen.add(id);
+        table[key as TopupOfferKey][env] = id;
+      }
+    }
+    return table;
+  } catch {
+    // Invalid configuration fails closed without logging its contents.
+    throw new BillingCatalogError('PRICE_UNCONFIGURED', 'topup_catalog');
+  }
+}
 
 const PROMOTION_COUPON_IDS: Record<PromotionKey, StripeIdByEnv> = Object.freeze({
   founding_annual_2026: unconfigured(),
@@ -113,7 +149,7 @@ export function resolveStripePriceIdForOffer(key: BillingOfferKey): string {
 }
 
 export function resolveStripePriceIdForTopup(key: TopupOfferKey): string {
-  return resolveStripeIdFromTable(TOPUP_PRICE_IDS, billingEnv(), key);
+  return resolveStripeIdFromTable(topupPriceTable(), billingEnv(), key);
 }
 
 export function resolveStripeCouponIdForPromotion(key: PromotionKey): string {
@@ -146,5 +182,5 @@ export function resolveBillingOfferFromStripePriceId(priceId: string): BillingOf
 }
 
 export function resolveTopupOfferFromStripePriceId(priceId: string): TopupOfferKey | null {
-  return reverseLookup(TOPUP_PRICE_IDS, priceId);
+  return reverseLookup(topupPriceTable(), priceId);
 }

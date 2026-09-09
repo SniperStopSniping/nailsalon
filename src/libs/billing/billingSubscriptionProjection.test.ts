@@ -96,11 +96,66 @@ describe('billing event claim machinery (§8.2)', () => {
 
     expect(await claimBillingEvent({ ...base, now: afterBackoff })).toEqual({ claimed: true, attempts: 2 });
 
-    // The 8th failure poisons and stays terminal.
+    // The 8th claimed handler failure poisons and stays terminal.
+    await db.update(schema.billingStripeEventSchema).set({ attempts: 8 })
+      .where(eq(schema.billingStripeEventSchema.eventId, base.eventId));
     const poisoned = await failBillingEvent({ eventId: 'evt_claim_1', attempts: 8, error: 'still boom', now: afterBackoff });
 
     expect(poisoned.poisoned).toBe(true);
     expect((await claimBillingEvent({ ...base, now: new Date(afterBackoff.getTime() + 7_200_000) })).claimed).toBe(false);
+  });
+});
+
+describe('billing event processing leases', () => {
+  it('reclaims an expired lease once and fences stale worker success and failure', async () => {
+    const { BILLING_EVENT_PROCESSING_LEASE_MS, claimBillingEvent, failBillingEvent, resolveBillingEvent } = await events();
+    const base = { eventId: 'evt_lease', eventType: 'checkout.session.completed', livemode: false, apiCreatedAt: T0, now: T0 };
+
+    expect(await claimBillingEvent(base)).toEqual({ claimed: true, attempts: 1 });
+
+    const [first] = await db.select().from(schema.billingStripeEventSchema)
+      .where(eq(schema.billingStripeEventSchema.eventId, base.eventId));
+
+    expect(first!.availableAt!.getTime()).toBe(T0.getTime() + BILLING_EVENT_PROCESSING_LEASE_MS);
+    expect(await claimBillingEvent({ ...base, now: new Date(T0.getTime() + BILLING_EVENT_PROCESSING_LEASE_MS - 1) }))
+      .toEqual({ claimed: false, reason: 'in_flight' });
+
+    const expiredAt = new Date(T0.getTime() + BILLING_EVENT_PROCESSING_LEASE_MS);
+
+    expect(await claimBillingEvent({ ...base, now: expiredAt })).toEqual({ claimed: true, attempts: 2 });
+    expect(await claimBillingEvent({ ...base, now: expiredAt })).toEqual({ claimed: false, reason: 'in_flight' });
+    expect(await resolveBillingEvent(base.eventId, 'processed', 1)).toBe(false);
+
+    await failBillingEvent({ eventId: base.eventId, attempts: 1, error: 'stale worker', now: expiredAt });
+    const [reclaimed] = await db.select().from(schema.billingStripeEventSchema)
+      .where(eq(schema.billingStripeEventSchema.eventId, base.eventId));
+
+    expect(reclaimed!.status).toBe('processing');
+    expect(reclaimed!.attempts).toBe(2);
+    expect(reclaimed!.availableAt!.getTime()).toBe(expiredAt.getTime() + BILLING_EVENT_PROCESSING_LEASE_MS);
+    expect(await resolveBillingEvent(base.eventId, 'processed', 2)).toBe(true);
+
+    await failBillingEvent({ eventId: base.eventId, attempts: 2, error: 'late failure', now: expiredAt });
+
+    expect(await claimBillingEvent({ ...base, now: new Date(expiredAt.getTime() + BILLING_EVENT_PROCESSING_LEASE_MS) }))
+      .toEqual({ claimed: false, reason: 'already_processed' });
+  });
+
+  it('recovers an abandoned legacy processing row with no lease after updatedAt ages out', async () => {
+    const { BILLING_EVENT_PROCESSING_LEASE_MS, claimBillingEvent } = await events();
+    const base = { eventId: 'evt_legacy_lease', eventType: 'checkout.session.completed', livemode: false, apiCreatedAt: T0, now: T0 };
+    await db.insert(schema.billingStripeEventSchema).values({
+      id: 'bse_legacy_lease',
+      ...base,
+      status: 'processing',
+      attempts: 1,
+      availableAt: null,
+      updatedAt: T0,
+    });
+
+    expect(await claimBillingEvent(base)).toEqual({ claimed: false, reason: 'in_flight' });
+    expect(await claimBillingEvent({ ...base, now: new Date(T0.getTime() + BILLING_EVENT_PROCESSING_LEASE_MS) }))
+      .toEqual({ claimed: true, attempts: 2 });
   });
 });
 

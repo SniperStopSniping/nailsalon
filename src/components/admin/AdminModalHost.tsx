@@ -18,6 +18,7 @@ import { ServicesModal } from '@/components/admin/ServicesModal';
 import { SettingsModal } from '@/components/admin/SettingsModal';
 import { StaffModal } from '@/components/admin/StaffModal';
 import { StaffOpsModal } from '@/components/admin/StaffOpsModal';
+import { UsageBillingModal } from '@/components/admin/UsageBillingModal';
 import { WalkInModal } from '@/components/admin/WalkInModal';
 import { SalonProvider, useSalon } from '@/providers/SalonProvider';
 import type { RetentionStage } from '@/types/retention';
@@ -232,6 +233,13 @@ export function AdminModalHost({
           onOpenSettings={onOpenSettingsFromIntegrations}
         />
       </AppModal>
+
+      {activeModal === 'client-reminders' && salonSlugForModals && (
+        <UsageBillingModal
+          salonSlug={salonSlugForModals}
+          onClose={onCloseModal}
+        />
+      )}
 
       <AppModal
         isOpen={activeModal === 'reviews'}

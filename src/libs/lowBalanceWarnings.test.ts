@@ -26,6 +26,7 @@ vi.mock('@/libs/DB', () => ({
 const envHolder = vi.hoisted(() => ({
   BILLING_PLAN_ENV: 'test',
   BILLING_TOPUPS_ENABLED: undefined as string | undefined,
+  STRIPE_BILLING_WEBHOOK_SECRET: 'fixture-billing-webhook' as string | undefined,
 }));
 vi.mock('@/libs/Env', () => ({ Env: envHolder }));
 const sendTransactionalEmailDetailed = vi.hoisted(() => vi.fn(async () => ({ sent: true })));
@@ -164,6 +165,7 @@ describe('low-balance warnings (§10.3)', () => {
 describe('usage + history route (§10.1/§10.2/§10.4)', () => {
   beforeEach(() => {
     envHolder.BILLING_TOPUPS_ENABLED = undefined;
+    envHolder.STRIPE_BILLING_WEBHOOK_SECRET = 'fixture-billing-webhook';
     guardHolder.salonId = 's_usage';
   });
 
@@ -294,6 +296,18 @@ describe('usage + history route (§10.1/§10.2/§10.4)', () => {
     expect(priceResolver).not.toHaveBeenCalled();
   });
 
+  it('does not offer checkout without its dedicated fulfillment webhook secret', async () => {
+    envHolder.BILLING_TOPUPS_ENABLED = 'true';
+    envHolder.STRIPE_BILLING_WEBHOOK_SECRET = undefined;
+    const priceMap = await import('./billing/stripePriceMap');
+    const priceResolver = vi.spyOn(priceMap, 'resolveStripePriceIdForTopup').mockReturnValue('price_configured_fixture');
+    const { data } = await (await get('?salonSlug=slug-s_usage')).json();
+
+    expect(data.creditPurchasesAvailable).toBe(false);
+    expect(data.topupOffers).toEqual([]);
+    expect(priceResolver).not.toHaveBeenCalled();
+  });
+
   it('keeps credit purchases unavailable when billing is enabled but prices are unconfigured', async () => {
     envHolder.BILLING_TOPUPS_ENABLED = 'true';
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('Provider requests are forbidden'));
@@ -323,6 +337,112 @@ describe('usage + history route (§10.1/§10.2/§10.4)', () => {
     expect(JSON.stringify(data)).not.toContain('price_configured_fixture');
     expect(data.usage.availableCredits).toBe(40);
     expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('reports pending credits separately and net charges after partial and terminal refunds', async () => {
+    await seedAccount('s_net_usage', 100, 'starter');
+    guardHolder.salonId = 's_net_usage';
+    const { reserveSmsCredits, settleReservationOnAccept, refundOverpredictedSegments, refundTerminalFailure } = await import('./billing/creditReservation');
+    const reserved = await reserveSmsCredits({ salonId: 's_net_usage', dedupeKey: 'net-settled', segments: 3 });
+
+    expect(reserved.ok).toBe(true);
+
+    if (!reserved.ok) {
+      throw new Error('fixture reservation failed');
+    }
+    await settleReservationOnAccept({ reservationId: reserved.reservationId, providerSid: 'SM_net_usage' });
+    await reserveSmsCredits({ salonId: 's_net_usage', dedupeKey: 'net-held', segments: 2 });
+    const at = new Date();
+    await db.insert(schema.notificationDeliverySchema).values({
+      id: 'nd_net_usage',
+      salonId: 's_net_usage',
+      channel: 'sms',
+      purpose: 'appointment_reminder',
+      dedupeKey: 'nd-net-usage',
+      status: 'delivered',
+      settlementState: 'settled',
+      segmentCount: 3,
+      creditReservationId: reserved.reservationId,
+    });
+    await db.insert(schema.communicationIntentSchema).values({
+      id: 'ci_net_usage',
+      salonId: 's_net_usage',
+      channel: 'sms',
+      eventType: 'appointment_reminder',
+      audience: 'client',
+      dedupeKey: 'ci-net-usage',
+      recipient: '4165550199',
+      templateKey: 'client_reminder',
+      templateVersion: 'v1',
+      variables: { reminderLeadMinutes: '60' },
+      schedulingRevision: 'net',
+      status: 'sent',
+      scheduledFor: at,
+      notAfter: new Date(at.getTime() + 3600_000),
+      deliveryId: 'nd_net_usage',
+      segmentCount: 3,
+    });
+    await refundOverpredictedSegments({ reservationId: reserved.reservationId, actualSegments: 1 });
+    const partial = (await (await get('?salonSlug=slug-s_net_usage')).json()).data;
+
+    expect(partial.usage).toMatchObject({ availableCredits: 97, pendingCredits: 2 });
+    expect(partial.history[0]).toMatchObject({ creditsUsed: 1, reminderLeadMinutes: 60 });
+
+    await refundTerminalFailure({ reservationId: reserved.reservationId });
+    const refunded = (await (await get('?salonSlug=slug-s_net_usage')).json()).data;
+
+    expect(refunded.usage).toMatchObject({ availableCredits: 98, pendingCredits: 2 });
+    expect(refunded.history[0].creditsUsed).toBe(0);
+  });
+
+  it('does not expose foreign reservation charges and validates historical lead times', async () => {
+    await seedAccount('s_lead_usage', 5);
+    await seedAccount('s_foreign_charge', 5);
+    guardHolder.salonId = 's_lead_usage';
+    const { reserveSmsCredits, settleReservationOnAccept } = await import('./billing/creditReservation');
+    const reserved = await reserveSmsCredits({ salonId: 's_foreign_charge', dedupeKey: 'foreign-charge', segments: 3 });
+    if (!reserved.ok) {
+      throw new Error('fixture reservation failed');
+    }
+    await settleReservationOnAccept({ reservationId: reserved.reservationId, providerSid: 'SM_foreign_charge' });
+    const at = new Date();
+    await db.insert(schema.notificationDeliverySchema).values({
+      id: 'nd_foreign_reservation',
+      salonId: 's_lead_usage',
+      channel: 'sms',
+      purpose: 'appointment_reminder',
+      dedupeKey: 'nd-foreign-reservation',
+      status: 'delivered',
+      settlementState: 'settled',
+      segmentCount: 3,
+      creditReservationId: reserved.reservationId,
+    });
+    for (const [index, lead] of [undefined, '', 'oops', '14', '10081', '60.5', '1440'].entries()) {
+      await db.insert(schema.communicationIntentSchema).values({
+        id: `ci_lead_${index}`,
+        salonId: 's_lead_usage',
+        channel: 'sms',
+        eventType: 'appointment_reminder',
+        audience: 'client',
+        dedupeKey: `ci-lead-${index}`,
+        recipient: '4165550199',
+        templateKey: 'client_reminder',
+        templateVersion: 'v1',
+        variables: lead === undefined ? {} : { reminderLeadMinutes: lead },
+        schedulingRevision: 'lead',
+        status: 'sent',
+        scheduledFor: at,
+        notAfter: new Date(at.getTime() + 3600_000),
+        deliveryId: index === 0 ? 'nd_foreign_reservation' : null,
+      });
+    }
+    const { data } = await (await get('?salonSlug=slug-s_lead_usage')).json();
+
+    expect(data.usage).toMatchObject({ availableCredits: 5, pendingCredits: 0 });
+    expect(data.history.every((entry: { creditsUsed: number }) => entry.creditsUsed === 0)).toBe(true);
+    expect(data.history.find((entry: { id: string }) => entry.id === 'ci_lead_6').reminderLeadMinutes).toBe(1440);
+    expect(data.history.filter((entry: { id: string }) => entry.id !== 'ci_lead_6')
+      .every((entry: { reminderLeadMinutes: number | null }) => entry.reminderLeadMinutes === null)).toBe(true);
   });
 
   it('shows actual delivery outcomes and never attributes another salon delivery or BYO credits', async () => {

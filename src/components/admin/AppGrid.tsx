@@ -36,6 +36,7 @@ import {
   Images,
   LayoutTemplate,
   LogOut,
+  MessageSquare,
   Plug,
   Scissors,
   Settings,
@@ -104,6 +105,14 @@ const APPS: AppItem[] = [
     icon: Plug,
     iconFrom: '#44403C',
     iconTo: '#78716C',
+  },
+  {
+    id: 'client-reminders',
+    name: 'Client reminders',
+    description: 'Texts, timing and credit usage',
+    icon: MessageSquare,
+    iconFrom: '#6B3B15',
+    iconTo: '#A16207',
   },
   {
     id: 'marketing',

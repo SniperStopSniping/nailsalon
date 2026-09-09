@@ -15,12 +15,12 @@
  * the success page is never authoritative.
  */
 import * as Sentry from '@sentry/nextjs';
-import { eq } from 'drizzle-orm';
+import { and, eq, isNull } from 'drizzle-orm';
 import { type NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 
 import { requireAdmin } from '@/libs/adminAuth';
-import { beginCheckoutAttempt, failAttempt, markAttemptCheckoutCreated } from '@/libs/billing/checkoutAttempts';
+import { beginCheckoutAttempt, deriveTopupPurchaseId, markAttemptCheckoutCreated } from '@/libs/billing/checkoutAttempts';
 import { resolveTopupAudienceForLegacyPlan } from '@/libs/billing/legacyPlanAdapter';
 import { BillingCatalogError, resolveStripePriceIdForTopup } from '@/libs/billing/stripePriceMap';
 import { getTopupOffer } from '@/libs/billing/topupOffers';
@@ -30,7 +30,8 @@ import { checkEndpointRateLimit, getClientIp, rateLimitResponse } from '@/libs/r
 import { stripe } from '@/libs/stripe';
 import { billingCheckoutAttemptSchema, salonSchema, smsTopupPurchaseSchema } from '@/models/Schema';
 
-const CHECKOUT_SESSION_TTL_MS = 55 * 60 * 1000;
+// Provider expiry precedes the durable reservation expiry by five minutes.
+const CHECKOUT_EXPIRY_BUFFER_MS = 5 * 60 * 1000;
 
 const requestSchema = z
   .object({
@@ -47,6 +48,9 @@ export async function POST(request: NextRequest) {
   try {
     if (Env.BILLING_TOPUPS_ENABLED !== 'true') {
       return errorJson(503, 'TOPUPS_DISABLED', 'SMS credit top-ups are not enabled.');
+    }
+    if (!Env.STRIPE_BILLING_WEBHOOK_SECRET?.trim()) {
+      return errorJson(503, 'TOPUPS_UNAVAILABLE', 'SMS credit top-ups are not ready for checkout.');
     }
     const ip = getClientIp(request);
     const rateLimit = checkEndpointRateLimit('billing/checkout-topup', ip, 'BILLING');
@@ -99,6 +103,16 @@ export async function POST(request: NextRequest) {
       throw error;
     }
 
+    // Fail closed before any reservation if the configured Stripe price is
+    // not the exact fixed, one-time CAD offer for this environment.
+    const price = await stripe.prices.retrieve(stripePriceId);
+    if (!price.active || price.type !== 'one_time' || price.recurring !== null
+      || price.currency !== 'cad' || price.unit_amount !== offer.priceCents
+      || price.billing_scheme !== 'per_unit' || price.custom_unit_amount != null
+      || price.transform_quantity != null || price.livemode !== (Env.BILLING_PLAN_ENV === 'prod')) {
+      return errorJson(503, 'PRICE_UNCONFIGURED', 'The configured top-up price is not ready for checkout.');
+    }
+
     const now = new Date();
     const reservation = await db.transaction(async (tx) => {
       const attempt = await beginCheckoutAttempt(tx, {
@@ -110,24 +124,28 @@ export async function POST(request: NextRequest) {
       if (!attempt.ok) {
         return { kind: 'conflict' as const };
       }
-      // Precreate the durable purchase record (§9.2): the webhook fulfills
-      // against THIS row on verified payment evidence, snapshotting the
-      // offer, credits and price at purchase time.
-      const purchaseId = `stp_${crypto.randomUUID()}`;
-      await tx.insert(smsTopupPurchaseSchema).values({
-        id: purchaseId,
-        salonId,
-        topupOfferKey: offer.key,
-        credits: offer.credits,
-        amountCents: offer.priceCents,
-        currency: 'cad',
-        status: 'checkout_created',
-      }).onConflictDoNothing();
       const [attemptRow] = await tx
-        .select({ stripeCheckoutSessionId: billingCheckoutAttemptSchema.stripeCheckoutSessionId })
+        .select()
         .from(billingCheckoutAttemptSchema)
-        .where(eq(billingCheckoutAttemptSchema.id, attempt.attemptId))
+        .where(and(eq(billingCheckoutAttemptSchema.id, attempt.attemptId), eq(billingCheckoutAttemptSchema.salonId, salonId)))
         .limit(1);
+      if (!attemptRow || attemptRow.topupOfferKey !== offer.key) {
+        return { kind: 'conflict' as const };
+      }
+      const purchaseId = deriveTopupPurchaseId(attempt.attemptId);
+      // Exactly one snapshot per attempt. A retry never creates a purchase
+      // or calls Stripe before the original creator has bound its session.
+      if (!attempt.reused) {
+        await tx.insert(smsTopupPurchaseSchema).values({
+          id: purchaseId,
+          salonId,
+          topupOfferKey: offer.key,
+          credits: offer.credits,
+          amountCents: offer.priceCents,
+          currency: 'cad',
+          status: 'checkout_created',
+        });
+      }
       return {
         kind: 'reserved' as const,
         attemptId: attempt.attemptId,
@@ -135,48 +153,53 @@ export async function POST(request: NextRequest) {
         reused: attempt.reused,
         existingSessionId: attemptRow?.stripeCheckoutSessionId ?? null,
         purchaseId,
+        expiresAt: attemptRow.expiresAt,
       };
     });
     if (reservation.kind === 'conflict') {
       return errorJson(409, 'CHECKOUT_IN_PROGRESS', 'Another checkout is already in progress for this salon.');
     }
-    if (reservation.reused && reservation.existingSessionId !== null) {
+    if (reservation.reused) {
+      if (reservation.existingSessionId === null) {
+        return errorJson(409, 'CHECKOUT_IN_PROGRESS', 'Checkout is being confirmed. Please retry later.');
+      }
       const existing = await stripe.checkout.sessions.retrieve(reservation.existingSessionId);
       return NextResponse.json({ data: { sessionId: existing.id, url: existing.url, reused: true } });
     }
 
+    const metadata = {
+      purpose: 'sms_topup',
+      billingEnv: Env.BILLING_PLAN_ENV,
+      salonId,
+      topupOfferKey: offer.key,
+      purchaseId: reservation.purchaseId,
+      attemptId: reservation.attemptId,
+    };
     const baseUrl = Env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
     let session: Awaited<ReturnType<typeof stripe.checkout.sessions.create>>;
     try {
       session = await stripe.checkout.sessions.create(
         {
           mode: 'payment',
+          payment_method_types: ['card'],
           ...(salon.stripeCustomerId
             ? { customer: salon.stripeCustomerId }
             : { customer_email: salon.stripeCustomerEmail ?? salon.ownerEmail ?? undefined }),
           line_items: [{ price: stripePriceId, quantity: 1 }],
           success_url: `${baseUrl}/admin?topup=success`,
           cancel_url: `${baseUrl}/admin?topup=cancelled`,
-          expires_at: Math.floor((now.getTime() + CHECKOUT_SESSION_TTL_MS) / 1000),
-          metadata: {
-            purpose: 'sms_topup',
-            salonId,
-            topupOfferKey: offer.key,
-            purchaseId: reservation.purchaseId,
-            attemptId: reservation.attemptId,
-          },
+          expires_at: Math.floor((reservation.expiresAt.getTime() - CHECKOUT_EXPIRY_BUFFER_MS) / 1000),
+          metadata,
+          payment_intent_data: { metadata },
         },
         { idempotencyKey: reservation.stripeIdempotencyKey },
       );
     } catch (error) {
-      await db.transaction(async (tx) => {
-        await failAttempt(tx, { attemptId: reservation.attemptId });
-        await tx.update(smsTopupPurchaseSchema)
-          .set({ status: 'canceled' })
-          .where(eq(smsTopupPurchaseSchema.id, reservation.purchaseId));
-      });
+      // A timeout/connection failure can occur after Stripe creates the
+      // session. Keep the reservation until its fixed expiry; only verified
+      // webhook evidence may bind and fulfill an uncertain remote outcome.
       Sentry.captureException(error, { tags: { endpoint: 'billing/checkout-topup' } });
-      return errorJson(502, 'CHECKOUT_CREATE_FAILED', 'The payment provider rejected the checkout request.');
+      return errorJson(502, 'CHECKOUT_CREATE_FAILED', 'Checkout could not be confirmed. Please retry later.');
     }
 
     await db.transaction(async (tx) => {
@@ -186,7 +209,11 @@ export async function POST(request: NextRequest) {
       });
       await tx.update(smsTopupPurchaseSchema)
         .set({ stripeCheckoutSessionId: session.id })
-        .where(eq(smsTopupPurchaseSchema.id, reservation.purchaseId));
+        .where(and(
+          eq(smsTopupPurchaseSchema.id, reservation.purchaseId),
+          eq(smsTopupPurchaseSchema.salonId, salonId),
+          isNull(smsTopupPurchaseSchema.stripeCheckoutSessionId),
+        ));
     });
     return NextResponse.json({
       data: {

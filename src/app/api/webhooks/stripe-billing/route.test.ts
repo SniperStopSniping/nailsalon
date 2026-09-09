@@ -36,6 +36,7 @@ vi.mock('@/libs/Env', () => ({ Env: envHolder }));
 // constructEvent parses our JSON "signature-valid" test bodies; a literal
 // 'invalid' signature throws, exactly like the real SDK.
 const stripeMock = vi.hoisted(() => ({
+  paymentIntents: { retrieve: vi.fn(async () => ({ metadata: {} })) },
   webhooks: {
     constructEvent: vi.fn((rawBody: string, signature: string) => {
       if (signature !== 'sig_valid') {
@@ -192,6 +193,31 @@ describe('stripe-billing webhook pipeline', () => {
     expect(Number((regranted.rows[0] as Record<string, unknown>).total)).toBe(400);
   });
 
+  it('keeps an in-flight duplicate retryable and only acknowledges terminal replay', async () => {
+    const event = stripeEvent('payment_intent.created', { id: 'pi_in_flight' });
+    await db.insert(schema.billingStripeEventSchema).values({
+      id: 'bse_in_flight',
+      eventId: event.id,
+      eventType: event.type,
+      livemode: false,
+      apiCreatedAt: new Date(event.created * 1000),
+      status: 'processing',
+      attempts: 1,
+    });
+    const pending = await post(event);
+
+    expect(pending.status).toBe(503);
+    expect(pending.headers.get('Retry-After')).toBe('60');
+    expect((await pending.json()).error.code).toBe('BILLING_EVENT_PENDING');
+
+    await db.update(schema.billingStripeEventSchema).set({ status: 'processed' })
+      .where(eq(schema.billingStripeEventSchema.eventId, event.id));
+    const terminal = await post(event);
+
+    expect(terminal.status).toBe(200);
+    expect((await terminal.json()).deduplicated).toBe(true);
+  });
+
   it('a handler failure returns 500 retryable, then Stripe redelivery reclaims and succeeds', async () => {
     await db.insert(schema.salonSchema).values({ id: 's_route2', name: 's', slug: 's-route2' });
     const createdAt = Math.floor(new Date('2026-09-02T10:00:00.000Z').getTime() / 1000);
@@ -219,11 +245,12 @@ describe('stripe-billing webhook pipeline', () => {
       metadata: { purpose: 'plan_subscription', salonId: 's_route2', billingOfferKey: 'starter_2026_08_monthly' },
     }, { created: createdAt }));
 
-    // ...but redelivery BEFORE the backoff elapses stays deduplicated (the
-    // reclaim honors available_at), which is §8.2's backoff in action.
+    // Pending retries must stay non-2xx until eligible; Stripe is the only
+    // driver that will redeliver this failed event after available_at.
     const tooSoon = await post(invoiceEvent);
 
-    expect((await tooSoon.json()).deduplicated).toBe(true);
+    expect(tooSoon.status).toBe(503);
+    expect((await tooSoon.json()).error.code).toBe('BILLING_EVENT_PENDING');
 
     // Force the backoff window past, as Stripe's next retry would find it.
     await db.update(schema.billingStripeEventSchema)

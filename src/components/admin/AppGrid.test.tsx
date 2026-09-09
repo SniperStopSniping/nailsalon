@@ -42,7 +42,7 @@ describe('AppGrid', () => {
       />,
     );
 
-    for (const id of ['luster', 'integrations', 'marketing', 'settings', 'analytics', 'reviews', 'rewards', 'staff', 'staff-ops', 'workspace-tour']) {
+    for (const id of ['luster', 'integrations', 'client-reminders', 'marketing', 'settings', 'analytics', 'reviews', 'rewards', 'staff', 'staff-ops', 'workspace-tour']) {
       expect(screen.getByTestId(`admin-app-tile-${id}`)).toBeInTheDocument();
     }
 

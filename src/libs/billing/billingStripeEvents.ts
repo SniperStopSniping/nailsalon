@@ -5,10 +5,10 @@
  * idempotency backbone of /api/webhooks/stripe-billing:
  *
  *   claim     INSERT … ON CONFLICT (event_id) DO NOTHING RETURNING — exactly
- *             one delivery of a Stripe event ever processes; replays exit 200.
- *   reclaim   a failed_retryable row past its backoff becomes processable
- *             again by THIS delivery (CAS on status), so Stripe's retry
- *             schedule drives recovery with no cron.
+ *             one current lease holder; terminal replays exit 200.
+ *   reclaim   a failed_retryable row past backoff or abandoned processing
+ *             lease becomes processable by this delivery (CAS); Stripe
+ *             retries drive recovery, and pending duplicates stay non-2xx.
  *   poison    the 8th failed attempt parks the event for a human (Sentry) and
  *             returns 200 so Stripe stops retrying a poison pill.
  *
@@ -19,12 +19,13 @@
 
 import 'server-only';
 
-import { and, eq, lte, sql } from 'drizzle-orm';
+import { and, eq, isNull, lte, or, sql } from 'drizzle-orm';
 
 import { db } from '@/libs/DB';
 import { billingStripeEventSchema } from '@/models/Schema';
 
 export const BILLING_EVENT_MAX_ATTEMPTS = 8;
+export const BILLING_EVENT_PROCESSING_LEASE_MS = 5 * 60 * 1000;
 
 export type BillingEventClaim =
   | { claimed: true; attempts: number }
@@ -62,6 +63,8 @@ export async function claimBillingEvent(input: {
       salonId: input.salonId ?? null,
       status: 'processing',
       attempts: 1,
+      availableAt: new Date(now.getTime() + BILLING_EVENT_PROCESSING_LEASE_MS),
+      updatedAt: now,
       subscriptionId: input.subscriptionId ?? null,
       invoiceId: input.invoiceId ?? null,
       checkoutSessionId: input.checkoutSessionId ?? null,
@@ -78,18 +81,31 @@ export async function claimBillingEvent(input: {
     return { claimed: true, attempts: inserted[0]!.attempts };
   }
 
-  // Reclaim: only a failed_retryable row past its backoff may run again.
+  // CAS reclaim after retry backoff or an abandoned processing lease.
+  // Object-level transactions make replay safe if a worker committed its
+  // financial effect but died before recording the terminal event state.
   const reclaimed = await db
     .update(billingStripeEventSchema)
     .set({
       status: 'processing',
       attempts: sql`${billingStripeEventSchema.attempts} + 1`,
       lastError: null,
+      availableAt: new Date(now.getTime() + BILLING_EVENT_PROCESSING_LEASE_MS),
+      updatedAt: now,
     })
     .where(and(
       eq(billingStripeEventSchema.eventId, input.eventId),
-      eq(billingStripeEventSchema.status, 'failed_retryable'),
-      lte(billingStripeEventSchema.availableAt, now),
+      or(
+        and(eq(billingStripeEventSchema.status, 'failed_retryable'), lte(billingStripeEventSchema.availableAt, now)),
+        and(
+          eq(billingStripeEventSchema.status, 'processing'),
+          or(
+            lte(billingStripeEventSchema.availableAt, now),
+            // Rows claimed before processing leases were introduced.
+            and(isNull(billingStripeEventSchema.availableAt), lte(billingStripeEventSchema.updatedAt, new Date(now.getTime() - BILLING_EVENT_PROCESSING_LEASE_MS))),
+          ),
+        ),
+      ),
     ))
     .returning();
   if (reclaimed.length === 1) {
@@ -109,16 +125,22 @@ export async function claimBillingEvent(input: {
   };
 }
 
-/** Terminal success / classification statuses. */
+/** Terminal writes are fenced to the current processing lease generation. */
 export async function resolveBillingEvent(
   eventId: string,
   status: 'processed' | 'ignored_unhandled' | 'ignored_livemode_mismatch' | 'ignored_foreign' | 'superseded_stale' | 'held_anomaly',
+  attempts: number,
   detail?: string,
-): Promise<void> {
-  await db
+): Promise<boolean> {
+  const updated = await db
     .update(billingStripeEventSchema)
     .set({ status, processedAt: new Date(), ...(detail !== undefined ? { lastError: detail.slice(0, 500) } : {}) })
-    .where(eq(billingStripeEventSchema.eventId, eventId));
+    .where(and(
+      eq(billingStripeEventSchema.eventId, eventId),
+      eq(billingStripeEventSchema.attempts, attempts),
+      eq(billingStripeEventSchema.status, 'processing'),
+    )).returning();
+  return updated.length === 1;
 }
 
 /**
@@ -134,11 +156,15 @@ export async function failBillingEvent(input: {
 }): Promise<{ poisoned: boolean }> {
   const now = input.now ?? new Date();
   if (input.attempts >= BILLING_EVENT_MAX_ATTEMPTS) {
-    await db
+    const updated = await db
       .update(billingStripeEventSchema)
       .set({ status: 'poisoned', lastError: input.error.slice(0, 500), processedAt: now })
-      .where(eq(billingStripeEventSchema.eventId, input.eventId));
-    return { poisoned: true };
+      .where(and(
+        eq(billingStripeEventSchema.eventId, input.eventId),
+        eq(billingStripeEventSchema.attempts, input.attempts),
+        eq(billingStripeEventSchema.status, 'processing'),
+      )).returning();
+    return { poisoned: updated.length === 1 };
   }
   const backoffMs = Math.min(60_000 * 2 ** (input.attempts - 1), 60 * 60 * 1000);
   await db
@@ -148,6 +174,10 @@ export async function failBillingEvent(input: {
       lastError: input.error.slice(0, 500),
       availableAt: new Date(now.getTime() + backoffMs),
     })
-    .where(eq(billingStripeEventSchema.eventId, input.eventId));
+    .where(and(
+      eq(billingStripeEventSchema.eventId, input.eventId),
+      eq(billingStripeEventSchema.attempts, input.attempts),
+      eq(billingStripeEventSchema.status, 'processing'),
+    ));
   return { poisoned: false };
 }
