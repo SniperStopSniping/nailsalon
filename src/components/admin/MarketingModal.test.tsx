@@ -121,7 +121,8 @@ function settingsResponse(settings: RetentionSettings) {
 }
 
 function installSuccessfulFetch(initialSettings = makeSettings(), options: {
-  twilioReady?: boolean;
+  lusterReady?: boolean;
+  legacyConnection?: boolean;
 } = {}) {
   fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
@@ -140,9 +141,28 @@ function installSuccessfulFetch(initialSettings = makeSettings(), options: {
     if (url.startsWith('/api/integrations/health')) {
       return jsonResponse({
         data: {
-          availability: { google: false, twilio: options.twilioReady ?? false, email: false, photos: false },
+          availability: { google: false, twilio: false, email: false, photos: false },
           google: { status: 'disconnected' },
-          twilio: options.twilioReady
+          ...(options.lusterReady
+            ? {
+                sms: {
+                  senderMode: 'shared_luster',
+                  senderLabel: 'Luster texting number',
+                  providerReady: true,
+                  automaticEnabled: true,
+                  manualAvailable: true,
+                  smsEnabled: true,
+                  remindersEnabled: true,
+                  availableCredits: 100,
+                  phoneNumber: null,
+                  blockingReason: null,
+                  detail: 'Luster SMS is ready and uses your SMS credits.',
+                  workerConfigured: true,
+                  quietHours: { enabled: false, start: '21:00', end: '09:00' },
+                },
+              }
+            : {}),
+          twilio: options.legacyConnection
             ? { status: 'active', phoneNumber: '+16475550000' }
             : { status: 'disconnected', phoneNumber: null },
         },
@@ -150,7 +170,7 @@ function installSuccessfulFetch(initialSettings = makeSettings(), options: {
     }
     if (url.startsWith('/api/admin/settings/modules')) {
       return jsonResponse({
-        data: { moduleReasons: { smsReminders: options.twilioReady ? 'ENABLED' : 'MODULE_DISABLED' } },
+        data: { moduleReasons: { smsReminders: options.lusterReady ? 'ENABLED' : 'MODULE_DISABLED' } },
       });
     }
     if (url.startsWith('/api/admin/retention/campaigns') && init?.method === 'POST') {
@@ -206,11 +226,19 @@ describe('MarketingModal', () => {
     expect(screen.queryByRole('checkbox', { name: /email/i })).not.toBeInTheDocument();
   });
 
-  it('automatic texting shows Ready only when the provider and module are both ready', async () => {
-    installSuccessfulFetch(makeSettings(), { twilioReady: true });
+  it('automatic texting shows Ready from canonical Luster SMS readiness', async () => {
+    installSuccessfulFetch(makeSettings(), { lusterReady: true });
     await renderMarketing();
 
     expect(screen.getByTestId('marketing-automatic-status')).toHaveTextContent('Ready');
+  });
+
+  it('never reports a legacy salon-owned Twilio number as ready', async () => {
+    installSuccessfulFetch(makeSettings(), { legacyConnection: true });
+    await renderMarketing();
+
+    expect(screen.getByTestId('marketing-automatic-status')).toHaveTextContent('Setup incomplete');
+    expect(screen.getByTestId('marketing-automatic-status')).not.toHaveTextContent('Ready');
   });
 
   it('follow-up rows show reason, last service, consent and honest channel', async () => {
