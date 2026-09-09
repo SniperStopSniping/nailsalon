@@ -1,7 +1,7 @@
 import path from 'node:path';
 
 import { PGlite } from '@electric-sql/pglite';
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { drizzle, type PgliteDatabase } from 'drizzle-orm/pglite';
 import { migrate } from 'drizzle-orm/pglite/migrator';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -96,6 +96,29 @@ describe('module API SMS access on Free', () => {
 
     expect(response.status).toBe(403);
     expect(await response.json()).toMatchObject({ error: { code: 'UPGRADE_REQUIRED' } });
+  });
+
+  it.each([true, false])('preserves a concurrent canonical SMS=%s save when a stale tab changes another module', async (enabled) => {
+    await database.update(schema.salonSchema).set({ settings: {
+      modules: { smsReminders: !enabled, scheduleOverrides: true },
+      communications: { sms: { enabled: !enabled } },
+    } }).where(eq(schema.salonSchema.id, salonId));
+    const [staleSalon] = await database.select().from(schema.salonSchema).where(eq(schema.salonSchema.id, salonId));
+    holder.requireAdminSalon.mockResolvedValueOnce({ error: null, salon: staleSalon });
+
+    // The canonical communications PATCH can commit while this other editor
+    // still holds its older module snapshot. Exercise the actual emitted SQL.
+    await database.update(schema.salonSchema).set({
+      settings: sql`jsonb_set(jsonb_set(${schema.salonSchema.settings}, '{modules,smsReminders}', ${JSON.stringify(enabled)}::jsonb), '{communications,sms,enabled}', ${JSON.stringify(enabled)}::jsonb)`,
+    }).where(eq(schema.salonSchema.id, salonId));
+    const response = await PUT(updateRequest(salonId, { scheduleOverrides: false }));
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ data: { modules: { smsReminders: enabled, scheduleOverrides: false } } });
+
+    const [salon] = await database.select().from(schema.salonSchema).where(eq(schema.salonSchema.id, salonId));
+
+    expect(salon?.settings).toMatchObject({ modules: { smsReminders: enabled, scheduleOverrides: false }, communications: { sms: { enabled } } });
   });
 
   it('denies a foreign salon read and update before exposing or changing module settings', async () => {
