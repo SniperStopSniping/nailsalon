@@ -1,3 +1,10 @@
+# [1.90.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.89.3...v1.90.0) (2026-09-09)
+
+
+### Features
+
+* **booking:** add a default editable attendance agreement ([d5e9f2f](https://github.com/SniperStopSniping/nailsalon/commit/d5e9f2fa84cf1dc01ffe66fcebb4f90a5af30b46))
+
 ## [1.89.3](https://github.com/SniperStopSniping/nailsalon/compare/v1.89.2...v1.89.3) (2026-09-09)
 
 
