@@ -261,6 +261,16 @@ afterEach(() => {
 });
 
 describe('new booking notifications', () => {
+  it('labels an unapproved booking as a request in the owner email', async () => {
+    const appointmentId = await seedAppointment({ status: 'pending' });
+    await sendSalonNotificationEmail({ salonId: SALON_ID, appointmentId, event: 'newBooking', source: 'online_booking' });
+
+    expect(lastEmail().subject).toContain('New booking request:');
+    expect(lastEmail().html).toContain('Appointment request needs approval');
+    expect(lastEmail().text).toContain('not confirmed yet');
+    expect(lastEmail().html).not.toContain('New appointment booked');
+  });
+
   it('sends exactly one email and records a sent delivery', async () => {
     const appointmentId = await seedAppointment();
 

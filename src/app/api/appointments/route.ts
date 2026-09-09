@@ -3632,7 +3632,7 @@ export async function POST(request: Request): Promise<Response> {
                 appointment: createdAppointment,
                 eventType: originalAppointment
                   ? 'appointment_rescheduled'
-                  : createdAppointment.requestExpiresAt ? 'booking_request_received' : 'booking_confirmation',
+                  : createdAppointment.status === 'pending' ? 'booking_request_received' : 'booking_confirmation',
                 transitionEventId: 'direct',
                 manageUrl: buildAppointmentManageUrl(salon, managementCapability.token),
               });
@@ -3924,6 +3924,12 @@ export async function POST(request: Request): Promise<Response> {
               ? new Date(holdNow.getTime() + DEPOSIT_HOLD_WINDOW_MINUTES * 60_000)
               : null;
 
+            const confirmationMode = originalAppointment?.status === 'pending'
+              ? 'request_approval'
+              : isNewPublicBooking
+                ? resolveBookingConfigFromSettings(lockedBookingConfiguration.settings).confirmationMode
+                : 'instant';
+
             const [createdAppointment] = await tx
               .insert(appointmentSchema)
               .values({
@@ -3939,24 +3945,13 @@ export async function POST(request: Request): Promise<Response> {
                 googleCalendarEventId: googleReviewEvent?.googleEventId ?? null,
                 startTime,
                 endTime,
-                // THE APPOINTMENT ROW IS THE HOLD.
-                //
-                // L1 PR4 §14 — explicit request-approval activation is
-                // checked ONLY when `depositCharge` is falsy: the existing
-                // deposit-priority arm is UNCHANGED and always wins when a
-                // deposit is required — "current main wins" applied
-                // literally, per the coordinator's explicit ruling, rather
-                // than guessing how a request-approval booking should
-                // interact with a deposit hold. When it does apply, it also
-                // overrides `salon.freeSoloEnabled`'s normal
-                // 'confirmed' default: an owner's explicit per-service
-                // request-approval choice is a stronger signal than the
-                // salon-wide free-solo convenience setting.
+                // Payment holds keep their booking-time choice even if settings change later.
                 status: depositCharge
                   ? 'awaiting_payment'
-                  : explicitRequestApproval
+                  : explicitRequestApproval || confirmationMode === 'request_approval'
                     ? 'pending'
                     : 'confirmed',
+                confirmationModeSnapshot: confirmationMode,
                 ...(depositCharge
                   ? { createdAt: holdNow, depositHoldExpiresAt: holdExpiresAt }
                   : {}),
@@ -4237,7 +4232,7 @@ export async function POST(request: Request): Promise<Response> {
                 appointment: createdAppointment,
                 eventType: originalAppointment
                   ? 'appointment_rescheduled'
-                  : createdAppointment.requestExpiresAt ? 'booking_request_received' : 'booking_confirmation',
+                  : createdAppointment.status === 'pending' ? 'booking_request_received' : 'booking_confirmation',
                 transitionEventId: 'direct',
                 manageUrl: buildAppointmentManageUrl(salon, managementCapability.token),
               });
@@ -4539,10 +4534,8 @@ export async function POST(request: Request): Promise<Response> {
         notes: appointment.notes,
         googleCalendarEventId: appointment.googleCalendarEventId,
         updatedAt: appointment.updatedAt,
-        // `explicitRequestApproval` stays `null` on the reschedule branch
-        // (only ever set in the new-booking branch above), so this is
-        // `undefined` there — byte-identical to before this PR.
-        ...(explicitRequestApproval ? { isExplicitRequestApproval: true } : {}),
+        status: appointment.status,
+        ...(appointment.status === 'pending' ? { isExplicitRequestApproval: true } : {}),
       },
       serviceNames: services.map(s => s.name),
       technician: technician

@@ -240,6 +240,20 @@ describe('BookConfirmClient', () => {
     expect(syncFromUrl).toHaveBeenCalledWith(expect.objectContaining({ techId: 'tech_1' }));
   });
 
+  it.each([0, 2500])('labels review-mode bookings as requests with a %i-cent deposit', (amountCents) => {
+    renderBasicConfirm({
+      salonConfirmsManually: true,
+      depositDisclosure: amountCents ? { label: 'A deposit is required', amountCents } : null,
+    });
+
+    expect(screen.getByRole('button', { name: /request this time/i })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /confirm appointment/i })).not.toBeInTheDocument();
+    expect(screen.getByText(amountCents
+      ? 'Pay the required deposit to send your request. The salon will review it before the appointment is confirmed.'
+      : 'Nothing is booked yet. Send your request below for the salon to review.')).toBeInTheDocument();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it('retains known review facts and locks material edits while submission is unresolved', async () => {
     let resolveBooking!: (response: Response) => void;
     const unresolvedBooking = new Promise<Response>((resolve) => {
@@ -2204,25 +2218,25 @@ describe('BookConfirmClient deposit disclosure', () => {
     instant.unmount();
 
     // Manual-confirmation salon: the tap stores a REQUEST the owner still has
-    // to accept, so nothing on this screen may claim the time is held.
+    // to accept; reserving the slot is separate from approving the appointment.
     renderClient({ salonConfirmsManually: true });
 
     expect(screen.getByRole('button', { name: 'Request this time · $65' })).toBeInTheDocument();
-    expect(screen.getByText('Nothing is booked yet. Send your request below and the salon will confirm it shortly.')).toBeInTheDocument();
+    expect(screen.getByText('Nothing is booked yet. Send your request below for the salon to review.')).toBeInTheDocument();
     expect(screen.getByText('Before you send your request')).toBeInTheDocument();
-    expect(screen.getByText(/The time is not held until the salon confirms\./)).toBeInTheDocument();
+    expect(screen.getByText(/This reserves the selected time while the salon reviews your request\./)).toBeInTheDocument();
     expect(screen.queryByText(/Confirm below to reserve this time/)).not.toBeInTheDocument();
     expect(screen.queryByText(/This will reserve the time above/)).not.toBeInTheDocument();
   });
 
-  it('keeps the reserve copy for a deposit booking, which really does hold the slot', () => {
+  it('keeps the request copy when payment precedes salon approval', () => {
     renderClient({
       salonConfirmsManually: true,
       depositDisclosure: { label: 'A $25.00 deposit is required', amountCents: 2500 },
     });
 
-    expect(screen.getByRole('button', { name: /^Confirm appointment · / })).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /^Request this time/ })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^Request this time/ })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^Confirm appointment/ })).not.toBeInTheDocument();
   });
 
   it('explains nothing about deposits or tax on a booking that has neither', () => {

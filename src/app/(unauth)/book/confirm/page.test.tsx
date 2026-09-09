@@ -254,6 +254,23 @@ describe('BookConfirmPage directions fallback', () => {
     });
   });
 
+  it.each([
+    { confirmationMode: undefined, freeSoloEnabled: false, manual: false },
+    { confirmationMode: 'instant', freeSoloEnabled: false, manual: false },
+    { confirmationMode: 'request_approval', freeSoloEnabled: true, manual: true },
+    { confirmationMode: 'request_approval', freeSoloEnabled: false, manual: true },
+  ])('uses the saved confirmation mode instead of the plan flag: %j', async ({ confirmationMode, freeSoloEnabled, manual }) => {
+    const context = await getPublicPageContext();
+    getPublicPageContext.mockResolvedValue({ ...context, salon: { ...context.salon, freeSoloEnabled } });
+    getSalonById.mockResolvedValue({ id: 'salon_1', settings: { booking: { confirmationMode } } });
+
+    render(await BookConfirmPage({
+      searchParams: Promise.resolve({ salonSlug: 'salon-a', serviceIds: 'srv_1', techId: 'any', date: '2026-03-20', time: '10:00' }),
+    }));
+
+    expect(bookConfirmClientSpy).toHaveBeenCalledWith(expect.objectContaining({ salonConfirmsManually: manual }));
+  });
+
   it('passes the primary active location to the confirmed screen instead of the stale salon root address', async () => {
     const element = await BookConfirmPage({
       searchParams: Promise.resolve({

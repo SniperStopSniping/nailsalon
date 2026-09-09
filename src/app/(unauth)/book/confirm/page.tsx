@@ -471,12 +471,8 @@ export default async function BookConfirmPage(
           depositDisclosure={depositDisclosure}
           depositNoticeSuppressed={depositNoticeSuppressed}
           depositFingerprint={depositFingerprint}
-          // Copy-only signal for the confirm step: the SAME salon-wide flag
-          // `POST /api/appointments` reads when it decides whether the row is
-          // written as 'confirmed' or as a 'pending' request
-          // (src/app/api/appointments/route.ts), so the button cannot promise a
-          // reservation the server will not make.
-          salonConfirmsManually={!salon.freeSoloEnabled}
+          // Use the same canonical booking setting as the appointment writer.
+          salonConfirmsManually={bookingConfig.confirmationMode === 'request_approval'}
         />
       </Suspense>
     </PublicSalonPageShell>

@@ -19,6 +19,7 @@ describe('bookingConfig', () => {
         firstVisitDiscountEnabled: true,
       },
     })).toEqual({
+      confirmationMode: 'instant',
       bufferMinutes: 15,
       slotIntervalMinutes: 10,
       minimumNoticeMinutes: 480,
@@ -31,6 +32,12 @@ describe('bookingConfig', () => {
       // inherited from an unrelated booking-settings edit (PR 1 stage e).
       enforceRequiredAddOns: false,
     });
+  });
+
+  it('defaults to automatic confirmation and preserves an explicit review choice', () => {
+    expect(resolveBookingConfigFromSettings(null).confirmationMode).toBe('instant');
+    expect(resolveBookingConfigFromSettings({ booking: { confirmationMode: 'request_approval' } }).confirmationMode).toBe('request_approval');
+    expect(resolveBookingConfigFromSettings({ booking: { confirmationMode: 'request_approval', minimumNoticeMinutes: -1 } }).confirmationMode).toBe('request_approval');
   });
 
   it('falls back to two hours when minimum notice is absent or malformed', () => {

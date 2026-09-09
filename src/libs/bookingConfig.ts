@@ -8,6 +8,7 @@ export const DEFAULT_BOOKING_CONFIG = {
   bufferMinutes: 10,
   slotIntervalMinutes: 15,
   minimumNoticeMinutes: 120,
+  confirmationMode: 'instant',
   currency: 'CAD',
   timezone: 'America/Toronto',
   introPriceDefaultLabel: null,
@@ -27,6 +28,7 @@ export const bookingConfigSchema = z.object({
     z.ZodLiteral<15>,
     z.ZodLiteral<30>,
   ]).default(DEFAULT_BOOKING_CONFIG.slotIntervalMinutes),
+  confirmationMode: z.enum(['instant', 'request_approval']).default(DEFAULT_BOOKING_CONFIG.confirmationMode),
   minimumNoticeMinutes: z.number().int().min(0).max(525_600)
     .default(DEFAULT_BOOKING_CONFIG.minimumNoticeMinutes),
   currency: z.union(SUPPORTED_BOOKING_CURRENCIES.map(value => z.literal(value)) as [
@@ -63,7 +65,10 @@ export function resolveBookingConfigFromSettings(settings: SalonSettings | null 
     return parsed.data;
   }
 
-  return bookingConfigSchema.parse({});
+  return bookingConfigSchema.parse({
+    // A malformed unrelated setting must not turn an owner's review choice off.
+    confirmationMode: settings?.booking?.confirmationMode === 'request_approval' ? 'request_approval' : 'instant',
+  });
 }
 
 export async function getBookingConfigForSalon(salonId: string): Promise<BookingConfig> {

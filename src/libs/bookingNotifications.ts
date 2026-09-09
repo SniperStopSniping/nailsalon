@@ -41,6 +41,7 @@ export type NewBookingNotificationContext = {
   salon: BookingSalon;
   technician: BookingTechnician;
   appointmentId: string;
+  appointmentStatus?: string;
   clientName: string;
   clientPhone: string;
   services: string[];
@@ -456,7 +457,7 @@ function buildNewBookingSubject(context: NewBookingNotificationContext): string 
   }, context.timeZone);
   const formattedTime = formatTimeInTimeZone(context.startTime, {}, context.timeZone);
 
-  return `New booking: ${context.clientName} on ${formattedDate} at ${formattedTime}`;
+  return `${context.appointmentStatus === 'pending' ? 'New booking request' : 'New booking'}: ${context.clientName} on ${formattedDate} at ${formattedTime}`;
 }
 
 function buildNewBookingText(context: NewBookingNotificationContext): string {
@@ -468,7 +469,7 @@ function buildNewBookingText(context: NewBookingNotificationContext): string {
   const formattedTime = formatTimeInTimeZone(context.startTime, {}, context.timeZone);
 
   return [
-    `New booking at ${context.salon.name}`,
+    `${context.appointmentStatus === 'pending' ? 'Appointment request awaiting approval' : 'New booking'} at ${context.salon.name}`,
     '',
     `Client: ${context.clientName}`,
     `Phone: ${context.clientPhone}`,

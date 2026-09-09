@@ -421,17 +421,18 @@ describe('customer booking operational email', () => {
     expect(email.html).toContain('is confirmed for');
   });
 
-  it('L1 PR4 §14: isExplicitRequestApproval true sends the "request received" copy instead, with no other change to the send', async () => {
+  it('uses the current pending status for the request receipt, even without the legacy mode hint', async () => {
+    state.eligibilityQueue.push([{ status: 'pending', deletedAt: null, startTime: new Date('2099-07-01T18:00:00Z') }]);
     state.insertQueue.push([{ id: 'delivery_1' }]);
 
-    await expect(sendCustomerBookingConfirmationEmail({ ...initialInput(), isExplicitRequestApproval: true }))
+    await expect(sendCustomerBookingConfirmationEmail(initialInput()))
       .resolves.toBe(true);
 
     const email = state.sendTransactionalEmailDetailed.mock.calls[0]?.[0];
 
     expect(email.subject).toBe('Salon booking request received');
     expect(email.text).toContain('We\'ve received your request for');
-    expect(email.text).toContain('The salon will review it and confirm shortly.');
+    expect(email.text).toContain('The salon will review it before the appointment is confirmed.');
     expect(email.text).not.toContain('is confirmed for');
     expect(email.html).toContain('We\'ve received your request for');
     // The manage-link section is UNCHANGED regardless of the split.
@@ -1123,6 +1124,29 @@ describe('customer booking operational email', () => {
     expect(state.sendTransactionalEmailDetailed).toHaveBeenCalledWith(
       expect.objectContaining({ to: 'changed@example.com' }),
     );
+  });
+
+  it('retries a pending request without claiming it is confirmed', async () => {
+    state.selectQueue.push(
+      [{ status: 'failed', retryable: true }],
+      [{ ...appointmentRow, appointment: { ...appointmentRow.appointment, status: 'pending' } }],
+      [{ name: 'Manicure' }],
+      [],
+    );
+    state.eligibilityQueue.push([{ status: 'pending', deletedAt: null, startTime: new Date('2099-07-01T18:00:00Z') }]);
+    state.insertQueue.push([{}]);
+    await retryCustomerBookingConfirmationEmail({ salonId: 'salon_1', appointmentId: 'appointment_1', deliveryId: 'delivery_1' });
+    const email = state.sendTransactionalEmailDetailed.mock.calls[0]?.[0];
+
+    expect(email.subject).toBe('Salon booking request received');
+    expect(email.text).not.toContain('is confirmed for');
+    expect(email.html).toContain('before the appointment is confirmed');
+  });
+
+  it('uses confirmed status even if a stale caller still labels the appointment a request', async () => {
+    await sendCustomerBookingConfirmationEmail({ ...initialInput(), isExplicitRequestApproval: true });
+
+    expect(state.sendTransactionalEmailDetailed.mock.calls[0]?.[0].subject).toBe('Salon booking confirmed');
   });
 
   it('uses the latest saved shared message for a retry and preserves its system content', async () => {

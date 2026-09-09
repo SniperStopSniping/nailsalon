@@ -1,3 +1,34 @@
+# Booking confirmation and onboarding — 2026-09-09
+
+Branch: `codex/booking-confirmation-onboarding-20260909`, from freshly fetched `origin/main` at `69b3b3456a9d08b0e8dbc51d8331ef5bdb607e4a` (released v1.89.2 / PR #170).
+Worktree: `/Users/me/nailsalon-worktrees/booking-confirmation-onboarding-20260909`.
+
+## Checkpoint 1 — canonical mode and booking notice
+
+- User requested automatic confirmation by default and a visible automatic/review choice beside minimum advance notice in onboarding. Minimum notice already existed and remains enforced by the current availability/booking path.
+- Added `settings.booking.confirmationMode` (`instant` default, `request_approval` optional) to the existing JSON settings contract. Onboarding's Confirmation & booking notice card and Settings → Booking rules edit the same values; old drafts resolve to automatic without changing notice. Reopening onboarding preserves later dashboard policy edits.
+- Removed the stale public confirmation-page dependency on `freeSoloEnabled`. New public appointments and payment holds capture the explicit booking-time mode in the existing appointment snapshot. Deposit payment cannot approve a request; legacy in-flight holds without a mode preserve their prior completion behavior. Existing appointments are not reclassified.
+- Initial/retried customer email, customer request/deposit wording, owner booking email, approval events and reminder eligibility follow appointment state. New review requests reserve their time without an automatic expiry and receive no attendance reminders before approval. Historical booking-confirmation records use the neutral Booking receipt label; email sent is not described as delivered.
+- The dashboard-edit regression also exposed a pre-existing preserved-policy schema error: the server-owned policy version was passed to a strict update schema. The resume path now validates only update fields and retains stored policy metadata.
+- No new schema, parallel messaging path, credentials, production changes or customer messages. Original dirty checkout is preserved. The superadmin deposit impersonation guard is untouched.
+
+## Verification checkpoint
+
+- Targeted canonical configuration, booking/deposit, customer email, dispatcher and reminder suites passed (215 tests before final owner/UI coverage additions).
+- Onboarding full suite: 118 files / 1,341 tests passed with two workers. An initial unbounded run hit parallel-load timeouts; no timeouts or assertions were relaxed.
+- Onboarding TypeScript passed after supplying two missing required callback props in existing test fixtures. Root TypeScript and scoped ESLint passed (six existing component-export warnings). Secret scan passed.
+- Desktop Chromium, Android Chromium and iPhone WebKit onboarding browser test: 3/3 passed, no retries, no external requests, no page errors. Exercises default, mode and notice changes, autosave, reopen and continue. This is isolated UI verification, not a live customer journey. CI runs the same suite and full onboarding tests.
+- Final approval/duplicate-action and guest-identity suites: 7 + 56 tests passed. Onboarding persistence: 41 tests passed, including retaining a later review-mode setting across resume.
+- Appointment regression: 8 files / 103 tests passed. Initial full root run was stopped after finding an old mock that forced pending status and several unrelated 5-second timeouts under local parallel load. The mock now returns the actual inserted status, with an explicit confirmed-mode assertion. Required full CI remains the release gate; no assertion or timeout was weakened.
+
+## Outstanding release and pilot boundary
+
+- Desktop layout PR #171 and SMS access/credits plan PR #172 remain unmerged and passed their required CI. The user added this booking task instead of approving their release. This branch starts from main, not those pending branches.
+- Main remains the previously approved PR #170 release. Last prior production inspection at 2026-09-09 04:07 UTC found SMS disabled in the environment and platform singleton. This pass has not rechecked or changed provider/production state.
+- No approval to merge/deploy this change or to send a pilot SMS. No approved pilot recipient. Provider delivery, STOP/START and live credit accounting still require the controlled pilot; do not certify customer rollout from these tests.
+
+---
+
 # Twilio communications reliability — 2026-09-08
 
 Branch: `codex/twilio-communications-reliability-20260908` from `origin/main` at `71f70ca`.

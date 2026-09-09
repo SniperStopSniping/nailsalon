@@ -2,7 +2,7 @@
 
 This pass repairs communications only. It does not enable production SMS, change credentials, provision numbers, run production migrations, or authorize customer sends. The current code and deployment configuration govern behavior; older Gate A/B descriptions of a future dispatcher or native-only manual texting are obsolete.
 
-Operational follow-up: the existing Canadian sender and approved opt-out routing are configured. The repair is under review in [PR #170](https://github.com/SniperStopSniping/nailsalon/pull/170); production still runs `71f70ca`. The exact `afd1a65` Preview is READY and serves the app, with Clerk Development and Stripe Test-mode keys scoped only to this branch. Its database/schema checks pass through the approved existing migration `0075`; no SMS migration was added. Aggregate Preview health remains degraded by unconfigured test-environment integrations. The corrected marketing fixture passed full CI Vitest at `29fff5d`: 7,501 tests. A further focused usage-screen change now hides unavailable credit purchases; it requires its own fresh release checks and Preview. Current check results are recorded on the PR. Read-only production inspection matches `isla-nail-studio` to Daniela's reference address and hours. See `RESUME.md` and the [pilot checklist](TWILIO_PILOT_CHECKLIST.md). No live SMS pilot or production release has been authorized or performed.
+Operational follow-up (2026-09-09): PR #170 was released through the approved path as v1.89.2 at `69b3b3456a9d08b0e8dbc51d8331ef5bdb607e4a`. Desktop layout PR #171, SMS plan-access PR #172 and the booking-confirmation follow-up remain separate unreleased work. The prior production inspection at 04:07 UTC found SMS disabled in the environment and platform singleton; this booking pass has not changed or freshly rechecked provider state. The existing Canadian sender and opt-out routing were configured during setup. Daniela is `isla-nail-studio`, matched to her reference address and hours. See `RESUME.md` and the [pilot checklist](TWILIO_PILOT_CHECKLIST.md) for release evidence and remaining authorization. A live SMS pilot still requires explicit recipient and send approval.
 
 ## Architecture and audit findings
 
@@ -33,6 +33,16 @@ Paid credit sales are a separate activation gate. The current `stripePriceMap.ts
 Production metadata has no `BILLING_IDENTITY_HMAC_SECRET` or version. This optional keyed email link is not required for the verified-Clerk/salon starter grant, but continuity across a recreated owner account cannot be inferred without it. Preserve the existing fail-closed identity conflict checks.
 
 ## Owner workflow
+
+### Booking confirmation and notice
+
+Onboarding → Services & booking → **Confirmation & booking notice** and Settings → **Booking rules** write the same `settings.booking.confirmationMode` and `minimumNoticeMinutes`. Automatic confirmation (`instant`) is the default. Owners can explicitly choose `request_approval`; these new requests reserve the selected time and remain pending until the existing owner confirmation action is used. Hours, availability and minimum notice apply in both modes. Changing the mode does not reclassify existing appointments, and resuming an older onboarding draft preserves subsequent dashboard edits.
+
+New payment holds capture the booking-time mode in the existing appointment snapshot. Payment confirms an automatic booking but only submits a review-mode request. Legacy in-flight holds without a mode retain their existing completion behavior. New salon-wide pending requests have no automatic expiry and do not receive attendance reminders before approval. Existing expiring service requests retain their expiry rules. No schema migration or new messaging path is introduced.
+
+Customer page, initial/retried email, SMS lifecycle event and owner new-booking email use request/confirmed wording according to appointment state. A provider's `sent` email status is displayed as sent; it does not certify delivery. Historical `booking_confirmation` communication records are labelled **Booking receipt**, since older records may predate the wording repair.
+
+### Texting controls
 
 1. In Settings → Client texts & reminders, enable text messages. Check the reminder rules, salon timezone and quiet hours, then save. Existing per-event preferences remain respected by the server.
 2. In Integrations, check the texting identity and any blocker. A saved preference alone does not mean the sender, worker, or credits are ready.

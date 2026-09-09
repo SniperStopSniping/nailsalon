@@ -518,14 +518,18 @@ describe('BookingPreferencesScreen', () => {
     }
 
     render(<Harness />);
-    await user.click(screen.getByRole('button', { name: /Booking notice 2 hours Complete/ }));
+    await user.click(screen.getByRole('button', { name: /Confirmation & booking notice Automatic confirmation · 2 hours notice Complete/ }));
     await user.selectOptions(screen.getByRole('combobox', {
       name: 'How much notice do you need before an appointment?',
     }), 'preset:720');
 
     expect(latest.bookingPreferences.minimumNoticeMinutes).toBe(720);
+    expect(latest.bookingPreferences.confirmationMode).toBe('instant');
 
-    await user.click(screen.getByRole('button', { name: /Booking notice 12 hours Complete/ }));
+    await user.click(screen.getByRole('button', { name: /Confirmation & booking notice Automatic confirmation · 12 hours notice Complete/ }));
+    await user.click(screen.getByRole('radio', { name: /Review each request first/ }));
+    expect(latest.bookingPreferences.confirmationMode).toBe('request_approval');
+    expect(latest.bookingPreferences.minimumNoticeMinutes).toBe(720);
     await user.selectOptions(screen.getByRole('combobox', {
       name: 'How much notice do you need before an appointment?',
     }), 'custom');
@@ -586,12 +590,12 @@ describe('BookingPreferencesScreen', () => {
     }
 
     render(<Harness />);
-    await user.click(screen.getByRole('button', { name: /Booking notice 2 hours Complete/ }));
+    await user.click(screen.getByRole('button', { name: /Confirmation & booking notice Automatic confirmation · 2 hours notice Complete/ }));
     const notice = screen.getByRole('combobox', {
       name: 'How much notice do you need before an appointment?',
     });
     await user.selectOptions(notice, choice);
-    await user.click(screen.getByRole('button', { name: new RegExp(`Booking notice ${label} Complete`) }));
+    await user.click(screen.getByRole('button', { name: new RegExp(`Confirmation & booking notice Automatic confirmation · ${label} notice Complete`) }));
     const updatedNotice = screen.getByRole('combobox', {
       name: 'How much notice do you need before an appointment?',
     });
@@ -643,7 +647,7 @@ describe('BookingPreferencesScreen', () => {
     }
 
     render(<Harness />);
-    await user.click(screen.getByRole('button', { name: /Booking notice 2 hours Complete/ }));
+    await user.click(screen.getByRole('button', { name: /Confirmation & booking notice Automatic confirmation · 2 hours notice Complete/ }));
     await user.selectOptions(screen.getByRole('combobox', {
       name: 'How much notice do you need before an appointment?',
     }), 'custom');

@@ -363,7 +363,7 @@ describe('explicit request-approval activation — instant booking state', () =>
 
     expect(row?.status).toBe('confirmed'); // Instant mode also applies outside free-solo.
     expect(row?.requestExpiresAt).toBeNull();
-    expect(row?.confirmationModeSnapshot).toBeNull();
+    expect(row?.confirmationModeSnapshot).toBe('instant');
     expect(row?.selectionModeSnapshot).toBeNull();
   });
 
@@ -387,6 +387,44 @@ describe('explicit request-approval activation — instant booking state', () =>
     // workflow may create a pending request.
     expect(row?.status).toBe('confirmed');
     expect(row?.requestExpiresAt).toBeNull();
-    expect(row?.confirmationModeSnapshot).toBeNull();
+    expect(row?.confirmationModeSnapshot).toBe('instant');
+  });
+});
+
+describe('salon-wide booking confirmation', () => {
+  it.each([
+    { mode: 'instant' as const, status: 'confirmed', day: 40 },
+    { mode: 'request_approval' as const, status: 'pending', day: 41 },
+  ])('uses $mode for a guest booking without a catalog feature or plan upgrade', async ({ mode, status, day }) => {
+    const [before] = await db.select().from(schema.salonSchema).where(eq(schema.salonSchema.id, LEGACY_SALON_ID));
+    await db.update(schema.salonSchema).set({ settings: { booking: { confirmationMode: mode, minimumNoticeMinutes: 120 } } })
+      .where(eq(schema.salonSchema.id, LEGACY_SALON_ID));
+    counter += 1;
+    try {
+      const response = await postBooking({
+        salonSlug: LEGACY_SALON_SLUG,
+        baseServiceId: LEGACY_SERVICE_ID,
+        technicianId: LEGACY_TECH_ID,
+        startTime: at(futureDate(day), '10:00').toISOString(),
+        clientPhone: `416782${String(1000 + counter).padStart(4, '0')}`,
+        clientName: 'Booking Mode Test',
+        clientEmail: `booking-mode-${counter}@example.test`,
+      });
+      const body = await response.json();
+
+      expect(response.status, JSON.stringify(body)).toBe(201);
+
+      const rows = await appointmentRowsFor(LEGACY_SALON_ID);
+      const row = rows.find(item => item.id === body.data.appointmentId);
+
+      expect(row).toMatchObject({ status, confirmationModeSnapshot: mode, requestExpiresAt: null });
+
+      const expectedSubject = status === 'pending' ? 'booking request received' : 'booking confirmed';
+
+      expect(sendTransactionalEmailDetailed.mock.calls.some(call => call[0]?.subject.includes(expectedSubject))).toBe(true);
+    } finally {
+      await db.update(schema.salonSchema).set({ settings: before?.settings ?? null })
+        .where(eq(schema.salonSchema.id, LEGACY_SALON_ID));
+    }
   });
 });

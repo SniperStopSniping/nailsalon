@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { and, eq, isNull, or, type SQL } from 'drizzle-orm';
+import { and, eq, isNull, ne, or, type SQL } from 'drizzle-orm';
 
 import { appointmentSchema } from '@/models/Schema';
 
@@ -26,13 +26,15 @@ import { appointmentSchema } from '@/models/Schema';
  * appropriate to remind about, not more). A LEGACY `pending` row
  * (`request_expires_at IS NULL`) is completely unaffected: it keeps
  * receiving reminders exactly as it always has — this module changes
- * nothing for it.
+ * nothing for it. New salon-wide review requests carry a request_approval
+ * snapshot without an expiry; those wait for approval before any reminders.
  *
  * THE PREDICATE (both forms below MUST agree — see the differential test in
  * `reminderEligibility.test.ts`):
  *
  *   status = 'confirmed'
- *   OR (status = 'pending' AND request_expires_at IS NULL)
+ *   OR (status = 'pending' AND request_expires_at IS NULL
+ *       AND confirmation_mode_snapshot IS DISTINCT FROM 'request_approval')
  *
  * Deliberately does NOT reuse `appointmentBlocking.ts`'s predicate: that
  * module answers "does this occupy the slot right now" (an explicit pending
@@ -42,7 +44,7 @@ import { appointmentSchema } from '@/models/Schema';
  * notwithstanding.
  */
 export function isReminderEligibleAppointment(
-  appointment: { status: string; requestExpiresAt: Date | string | null },
+  appointment: { status: string; requestExpiresAt: Date | string | null; confirmationModeSnapshot?: string | null },
 ): boolean {
   if (appointment.status === 'confirmed') {
     return true;
@@ -50,7 +52,7 @@ export function isReminderEligibleAppointment(
   if (appointment.status !== 'pending') {
     return false;
   }
-  return appointment.requestExpiresAt === null;
+  return appointment.requestExpiresAt === null && appointment.confirmationModeSnapshot !== 'request_approval';
 }
 
 /**
@@ -64,6 +66,7 @@ export function reminderEligibleAppointmentCondition(): SQL {
     and(
       eq(appointmentSchema.status, 'pending'),
       isNull(appointmentSchema.requestExpiresAt),
+      or(isNull(appointmentSchema.confirmationModeSnapshot), ne(appointmentSchema.confirmationModeSnapshot, 'request_approval')),
     ),
   )!;
 }

@@ -342,11 +342,13 @@ async function syncSharedSalonProfileContent(input: {
     : normalizedInstagram(snapshot.profile.instagram);
   const policyChanged = policyText !== currentBookingExperience.policy.text;
   const preservePolicies = preserve.has('policies');
+  // The stored policy version is server-owned, not an accepted update field.
+  const { version: _storedPolicyVersion, ...preservedPolicy } = currentBookingExperience.policy;
   const candidate = bookingExperienceUpdateSchema.parse({
     bookingMessage: currentBookingExperience.bookingMessage,
     confirmationMessage: currentBookingExperience.confirmationMessage,
     policy: preservePolicies
-      ? currentBookingExperience.policy
+      ? preservedPolicy
       : {
           acknowledgment: policyChanged
             ? { required: false, text: null }
@@ -418,6 +420,7 @@ async function syncSharedSalonProfileContent(input: {
         ? rawBooking
         : {
             ...rawBooking,
+            confirmationMode: snapshot.profile.bookingPreferences.confirmationMode ?? rawBooking.confirmationMode ?? 'instant',
             minimumNoticeMinutes: snapshot.profile.bookingPreferences.minimumNoticeMinutes,
             timezone: snapshot.profile.timeZone,
           },
@@ -1520,6 +1523,7 @@ async function resolveDashboardOwnedFields(input: {
   const booking = isRecord(settings.booking) ? settings.booking : {};
   if (
     (bookingExperience.policy.text ?? null) !== onboardingPolicyText(baseline)
+    || (booking.confirmationMode ?? 'instant') !== (baseline.profile.bookingPreferences.confirmationMode ?? 'instant')
     || booking.minimumNoticeMinutes !== baseline.profile.bookingPreferences.minimumNoticeMinutes
     || booking.timezone !== baseline.profile.timeZone
   ) {

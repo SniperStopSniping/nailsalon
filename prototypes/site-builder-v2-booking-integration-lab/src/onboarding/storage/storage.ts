@@ -491,6 +491,9 @@ const isOnboardingState = (value: unknown): value is OnboardingLabState => {
           || isCurrentLocalImageReference(value.profile.coverPhoto))
           && isGalleryDraft(value.gallery)
           && isRecord(value.profile.bookingPreferences)
+          && (value.profile.bookingPreferences.confirmationMode === undefined
+            || value.profile.bookingPreferences.confirmationMode === 'instant'
+            || value.profile.bookingPreferences.confirmationMode === 'request_approval')
           && Number.isSafeInteger(value.profile.bookingPreferences.minimumNoticeMinutes)
           && Number(value.profile.bookingPreferences.minimumNoticeMinutes) >= 0
           && !('depositPreference' in value.profile.bookingPreferences)
@@ -664,6 +667,7 @@ const migrateMinimumNoticeMinutes = (
   }
 
   return {
+    confirmationMode: bookingPreferences.confirmationMode === 'request_approval' ? 'request_approval' : 'instant',
     minimumNoticeMinutes,
     newClientStatus: bookingPreferences.newClientStatus === 'yes'
       || bookingPreferences.newClientStatus === 'no'

@@ -557,7 +557,6 @@ describe('POST /api/appointments booking policy', () => {
               salonClientId: options.salonClientId,
               startTime: new Date(String(values.startTime)),
               endTime: new Date(String(values.endTime)),
-              status: 'pending',
               totalPrice: 6500,
               totalDurationMinutes: 90,
             }]),
@@ -943,6 +942,8 @@ describe('POST /api/appointments booking policy', () => {
     expect(insertState.appointmentValues).toEqual(expect.objectContaining({
       salonClientId: 'client_primary',
       clientPhone: '2222222222',
+      status: 'confirmed',
+      confirmationModeSnapshot: 'instant',
     }));
     expect(sendBookingNotificationsForNewBooking).toHaveBeenCalledWith(
       expect.objectContaining({ clientPhone: '2222222222' }),

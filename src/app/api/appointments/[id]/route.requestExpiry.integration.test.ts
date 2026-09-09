@@ -271,6 +271,43 @@ describe('PATCH /api/appointments/:id — strict REQUEST_EXPIRED on confirm', ()
     expect((await readBack())?.status).toBe('confirmed');
   });
 
+  it('confirms a salon review request with no expiry and queues its approval receipt once', async () => {
+    await db.update(schema.salonSchema).set({ settings: {
+      communications: { sms: { enabled: true }, quietHours: { enabled: false, start: '21:00', end: '09:00' } },
+    } as never }).where(eq(schema.salonSchema.id, SALON_ID));
+    await seedAppointment('pending', null);
+    await db.update(schema.appointmentSchema).set({
+      confirmationModeSnapshot: 'request_approval',
+      clientEmail: 'client@example.test',
+    }).where(eq(schema.appointmentSchema.id, APPT_ID));
+    holder.access = accessFor('pending', null);
+
+    const response = await PATCH(patchRequest({ status: 'confirmed' }), {
+      params: Promise.resolve({ id: APPT_ID }),
+    });
+
+    expect(response.status).toBe(200);
+    expect((await readBack())?.status).toBe('confirmed');
+
+    const intents = await db.select().from(schema.communicationIntentSchema)
+      .where(eq(schema.communicationIntentSchema.appointmentId, APPT_ID));
+
+    expect(intents.filter(intent => intent.eventType === 'booking_request_approved')).toHaveLength(1);
+    expect(intents.filter(intent => intent.eventType === 'booking_confirmation')).toHaveLength(0);
+
+    const replay = await PATCH(patchRequest({ status: 'confirmed' }), {
+      params: Promise.resolve({ id: APPT_ID }),
+    });
+
+    // The repeated request still carries the old pending access snapshot.
+    expect(replay.status).toBe(409);
+
+    const afterReplay = await db.select().from(schema.communicationIntentSchema)
+      .where(eq(schema.communicationIntentSchema.appointmentId, APPT_ID));
+
+    expect(afterReplay.filter(intent => intent.eventType === 'booking_request_approved')).toHaveLength(1);
+  });
+
   it('CONTROL: confirms normally for a legacy pending row (NULL requestExpiresAt) — byte-identical to pre-PR5 behaviour', async () => {
     await seedAppointment('pending', null);
     holder.access = accessFor('pending', null);

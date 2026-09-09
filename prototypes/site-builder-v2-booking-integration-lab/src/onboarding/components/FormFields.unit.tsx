@@ -110,6 +110,7 @@ describe('focusFirstInvalidControl', () => {
         <BrandBasicsScreen
           onBack={vi.fn()}
           onContinue={onContinue}
+          onCoverPhotoSelected={vi.fn()}
           onLogoSelected={vi.fn()}
           onProfileChange={(patch: Partial<ReturnType<typeof createDefaultBusinessProfile>>) =>
             setProfile(current => ({

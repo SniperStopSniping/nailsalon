@@ -554,11 +554,12 @@ function renderEmail(args: {
   subject: string;
   salonName: string;
   headline: string;
+  chip?: string;
   blocks: Block[];
   dashboardUrl: string | null;
 }): SalonNotificationEmailPayload {
   const accent = EVENT_ACCENT[args.event];
-  const chip = EVENT_LABEL[args.event];
+  const chip = args.chip ?? EVENT_LABEL[args.event];
 
   const button = args.dashboardUrl
     ? `<tr><td colspan="2" style="padding:24px;">
@@ -682,11 +683,13 @@ export function buildSalonNotificationEmailPayload(
   if (input.event === 'newBooking') {
     return renderEmail({
       event: 'newBooking',
-      subject: `New booking: ${clientName} — ${serviceSummary} on ${formatShortDate(appointment.startTime, timeZone)} at ${formatClock(appointment.startTime, timeZone)}`,
+      chip: appointment.status === 'pending' ? 'REQUEST RECEIVED' : undefined,
+      subject: `${appointment.status === 'pending' ? 'New booking request' : 'New booking'}: ${clientName} — ${serviceSummary} on ${formatShortDate(appointment.startTime, timeZone)} at ${formatClock(appointment.startTime, timeZone)}`,
       salonName: context.salon.name,
-      headline: 'New appointment booked',
+      headline: appointment.status === 'pending' ? 'Appointment request needs approval' : 'New appointment booked',
       dashboardUrl,
       blocks: [
+        ...(appointment.status === 'pending' ? [{ kind: 'text' as const, title: 'Approval required', body: 'Review this request in Luster and confirm or decline it. The appointment is not confirmed yet.' }] : []),
         { kind: 'lines', title: 'Client', lines: buildClientLines(context) },
         { kind: 'lines', title: 'Appointment', lines: [...buildServiceLines(context), ...buildScheduleLines(context)] },
         ...commonTail,

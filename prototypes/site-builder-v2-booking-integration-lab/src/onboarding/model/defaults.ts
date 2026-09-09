@@ -167,6 +167,7 @@ export const createDefaultBusinessProfile = (): BusinessProfileDraft => ({
   },
   bookingOnlyContact: false,
   bookingPreferences: {
+    confirmationMode: 'instant',
     minimumNoticeMinutes: 120,
     newClientStatus: null,
     visitMode: null,

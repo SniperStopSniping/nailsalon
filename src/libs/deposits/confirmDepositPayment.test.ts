@@ -386,6 +386,27 @@ describe('TX-B hold arm', () => {
     expect((await readAppointment(hold.appointmentId))?.status).toBe('confirmed');
   });
 
+  it.each([
+    { salonId: SALON, account: ACCOUNT, mode: 'instant', expected: 'confirmed' },
+    { salonId: FREE_SOLO_SALON, account: FREE_SOLO_ACCOUNT, mode: 'request_approval', expected: 'pending' },
+  ])('honors the booking-time $mode choice independently of the old plan flag', async ({ salonId, account, mode, expected }) => {
+    const hold = await seedHold({ salonId, account });
+    await db.update(schema.appointmentSchema).set({ confirmationModeSnapshot: mode })
+      .where(eq(schema.appointmentSchema.id, hold.appointmentId));
+    // An owner edit while the payment page is open cannot rewrite this booking's choice.
+    await db.update(schema.salonSchema).set({ settings: { booking: { confirmationMode: mode === 'instant' ? 'request_approval' : 'instant' } } })
+      .where(eq(schema.salonSchema.id, salonId));
+    await confirmDepositPayment(evidence({ sessionId: hold.sessionId, connectedAccountId: account }));
+
+    expect((await readAppointment(hold.appointmentId))?.status).toBe(expected);
+    expect((await readDeposit(hold.depositId))?.status).toBe('paid');
+
+    await confirmDepositPayment(evidence({ sessionId: hold.sessionId, connectedAccountId: account }));
+
+    expect((await readAppointment(hold.appointmentId))?.status).toBe(expected);
+    expect(await outboxRows(hold.appointmentId)).toHaveLength(1);
+  });
+
   it('writes the payment intent, one audit row and the side-effect job in ONE transaction', async () => {
     const hold = await seedHold({ salonId: SALON });
 

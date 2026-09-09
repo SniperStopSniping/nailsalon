@@ -450,6 +450,7 @@ describe('BrandBasicsScreen', () => {
         starter="quick_book"
         onBack={vi.fn()}
         onContinue={vi.fn()}
+        onCoverPhotoSelected={vi.fn()}
         onLogoSelected={onLogoSelected}
         onProfileChange={onProfileChange}
         onProfilePhotoSelected={onProfilePhotoSelected}

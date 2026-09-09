@@ -1190,7 +1190,8 @@ export async function PATCH(request: Request, props: { params: Promise<{ id: str
           await materializeAppointmentLifecycle({
             tx,
             appointment: reactivatedAppointment,
-            eventType: lockedAppointment.status === 'pending' && lockedAppointment.requestExpiresAt
+            eventType: lockedAppointment.status === 'pending'
+              && (lockedAppointment.requestExpiresAt || lockedAppointment.confirmationModeSnapshot === 'request_approval')
               ? 'booking_request_approved'
               : 'booking_confirmation',
             supersede: true,

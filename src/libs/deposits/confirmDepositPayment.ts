@@ -447,9 +447,13 @@ async function holdArm(args: ArmArgs & { onWarn?: (message: string) => void }): 
     .where(eq(salonSchema.id, salonId))
     .limit(1);
 
-  // NOT unconditionally 'confirmed'. A non-freeSolo salon keeps its booking
-  // triage queue: the deposit replaces the PAYMENT gate, not the REVIEW gate.
-  const target = salon?.freeSoloEnabled ? 'confirmed' : 'pending';
+  // New holds carry the booking-time choice. Preserve legacy in-flight holds
+  // whose mode predates the explicit salon setting. Payment never approves a request.
+  const target = appointment.confirmationModeSnapshot === 'request_approval'
+    ? 'pending'
+    : appointment.confirmationModeSnapshot === 'instant' || salon?.freeSoloEnabled
+      ? 'confirmed'
+      : 'pending';
 
   const movedAppointment = await tx
     .update(appointmentSchema)
@@ -879,6 +883,7 @@ export async function enqueueDepositConfirmationEffectsInTx(args: {
   const smsConsentGranted = await hasTransactionalSmsConsent(tx, salonId, args.clientPhone);
   const [appointmentRow] = await tx
     .select({
+      status: appointmentSchema.status,
       startTime: appointmentSchema.startTime,
       updatedAt: appointmentSchema.updatedAt,
       clientEmail: appointmentSchema.clientEmail,
@@ -898,7 +903,7 @@ export async function enqueueDepositConfirmationEffectsInTx(args: {
       tx,
       salonId,
       appointmentId: appointment.id,
-      eventType: 'booking_confirmation',
+      eventType: appointmentRow.status === 'pending' ? 'booking_request_received' : 'booking_confirmation',
       transitionEventId: deposit.id,
       clientPhone: smsConsentGranted ? args.clientPhone : null,
       clientEmail: null, // legacy outbox leg owns the confirmation email today
@@ -908,19 +913,21 @@ export async function enqueueDepositConfirmationEffectsInTx(args: {
       variables,
       smsEligible: communicationContext.smsEligible,
     });
-    await materializeReminders({
-      tx,
-      salonId,
-      appointmentId: appointment.id,
-      appointmentStart: appointmentRow.startTime,
-      appointmentUpdatedAt: appointmentRow.updatedAt,
-      clientPhone: smsConsentGranted ? args.clientPhone : null,
-      clientEmail: appointmentRow.clientEmail,
-      settings: communicationContext.settings,
-      timeZone: communicationContext.timeZone,
-      variables,
-      smsEligible: communicationContext.smsEligible,
-    });
+    if (appointmentRow.status === 'confirmed') {
+      await materializeReminders({
+        tx,
+        salonId,
+        appointmentId: appointment.id,
+        appointmentStart: appointmentRow.startTime,
+        appointmentUpdatedAt: appointmentRow.updatedAt,
+        clientPhone: smsConsentGranted ? args.clientPhone : null,
+        clientEmail: appointmentRow.clientEmail,
+        settings: communicationContext.settings,
+        timeZone: communicationContext.timeZone,
+        variables,
+        smsEligible: communicationContext.smsEligible,
+      });
+    }
   }
 }
 
