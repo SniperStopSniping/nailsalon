@@ -21,6 +21,13 @@ Worktree: `/Users/me/nailsalon-worktrees/booking-confirmation-onboarding-2026090
 - Final approval/duplicate-action and guest-identity suites: 7 + 56 tests passed. Onboarding persistence: 41 tests passed, including retaining a later review-mode setting across resume.
 - Appointment regression: 8 files / 103 tests passed. Initial full root run was stopped after finding an old mock that forced pending status and several unrelated 5-second timeouts under local parallel load. The mock now returns the actual inserted status, with an explicit confirmed-mode assertion. Required full CI remains the release gate; no assertion or timeout was weakened.
 
+## Checkpoint 2 — payment-return consistency and review
+
+- Opened [PR #173](https://github.com/SniperStopSniping/nailsalon/pull/173); implementation checkpoint `e053d28198944ca2bb72fd2fdd6bc0af20b73120`.
+- The deposit session-status API previously mapped every paid deposit to confirmed, including pending requests and cancelled appointments. It now preserves those states without adding response fields or changing provider reconciliation/budgets. Both return/cancel panels describe a paid request as awaiting approval. Existing ICS status already correctly distinguishes tentative and confirmed.
+- Session-status, return-panel and ICS regression suites: 3 files / 19 tests passed. Complete changed-file ESLint passed after formatting the new prototype test/validation (12 existing warnings); root secret scan and both TypeScript checks passed earlier in this checkpoint. Full root and CI checks are still running.
+- No live deployment or provider send has occurred. The new browser checks cover local onboarding controls; they do not certify authenticated production or carrier delivery.
+
 ## Outstanding release and pilot boundary
 
 - Desktop layout PR #171 and SMS access/credits plan PR #172 remain unmerged and passed their required CI. The user added this booking task instead of approving their release. This branch starts from main, not those pending branches.

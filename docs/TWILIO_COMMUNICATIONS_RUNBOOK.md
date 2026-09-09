@@ -40,7 +40,7 @@ Onboarding → Services & booking → **Confirmation & booking notice** and Sett
 
 New payment holds capture the booking-time mode in the existing appointment snapshot. Payment confirms an automatic booking but only submits a review-mode request. Legacy in-flight holds without a mode retain their existing completion behavior. New salon-wide pending requests have no automatic expiry and do not receive attendance reminders before approval. Existing expiring service requests retain their expiry rules. No schema migration or new messaging path is introduced.
 
-Customer page, initial/retried email, SMS lifecycle event and owner new-booking email use request/confirmed wording according to appointment state. A provider's `sent` email status is displayed as sent; it does not certify delivery. Historical `booking_confirmation` communication records are labelled **Booking receipt**, since older records may predate the wording repair.
+Customer page, deposit return/cancel page, initial/retried email, SMS lifecycle event and owner new-booking email use request/confirmed wording according to appointment state. A provider's `sent` email status is displayed as sent; it does not certify delivery. Historical `booking_confirmation` communication records are labelled **Booking receipt**, since older records may predate the wording repair.
 
 ### Texting controls
 

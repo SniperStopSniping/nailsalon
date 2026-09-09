@@ -21,6 +21,22 @@ describe('DepositStatusPanel — hold countdown and resume', () => {
     window.history.replaceState(null, '', '/?session_id=cs_test_1');
   });
 
+  it.each(['return', 'cancel'] as const)('keeps a paid request pending on the %s page', async (variant) => {
+    mockSessionStatus({ state: 'pending', holdExpiresAt: null });
+    render(<DepositStatusPanel variant={variant} />);
+
+    expect(await screen.findByText(/Payment received — your request is awaiting salon approval/)).toBeInTheDocument();
+    expect(screen.queryByText(/your booking is confirmed/)).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Resume payment' })).not.toBeInTheDocument();
+  });
+
+  it('confirms an automatic booking only when the server reports confirmed', async () => {
+    mockSessionStatus({ state: 'confirmed', holdExpiresAt: null });
+    render(<DepositStatusPanel variant="return" />);
+
+    expect(await screen.findByText(/Payment received — your booking is confirmed/)).toBeInTheDocument();
+  });
+
   it('counts down from the endpoint\'s authoritative expiry and offers resume while live', async () => {
     const holdExpiresAt = '2030-03-20T15:35:00.000Z';
     mockSessionStatus({

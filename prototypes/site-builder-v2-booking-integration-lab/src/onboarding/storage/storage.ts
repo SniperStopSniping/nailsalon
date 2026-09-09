@@ -471,6 +471,9 @@ const hasSharedStateShape = (value: unknown): value is SharedStateShape => {
     && Array.isArray(value.progress.skippedOptionalItems);
 };
 
+const isStoredConfirmationMode = (value: unknown) =>
+  value === undefined || value === 'instant' || value === 'request_approval';
+
 const isOnboardingState = (value: unknown): value is OnboardingLabState => {
   if (!hasSharedStateShape(value) || value.schemaVersion !== ONBOARDING_SCHEMA_VERSION) {
     return false;
@@ -491,9 +494,7 @@ const isOnboardingState = (value: unknown): value is OnboardingLabState => {
           || isCurrentLocalImageReference(value.profile.coverPhoto))
           && isGalleryDraft(value.gallery)
           && isRecord(value.profile.bookingPreferences)
-          && (value.profile.bookingPreferences.confirmationMode === undefined
-            || value.profile.bookingPreferences.confirmationMode === 'instant'
-            || value.profile.bookingPreferences.confirmationMode === 'request_approval')
+          && isStoredConfirmationMode(value.profile.bookingPreferences.confirmationMode)
           && Number.isSafeInteger(value.profile.bookingPreferences.minimumNoticeMinutes)
           && Number(value.profile.bookingPreferences.minimumNoticeMinutes) >= 0
           && !('depositPreference' in value.profile.bookingPreferences)

@@ -70,6 +70,8 @@ describe('GET /api/public/deposits/session-status (§14 test 24)', () => {
 
   it.each([
     ['confirmed', { depositStatus: 'paid', appointmentStatus: 'confirmed' }],
+    ['pending', { depositStatus: 'paid', appointmentStatus: 'pending' }],
+    ['cancelled', { depositStatus: 'paid', appointmentStatus: 'cancelled' }],
     ['expired', { depositStatus: 'expired', appointmentStatus: 'cancelled' }],
     ['cancelled', { depositStatus: 'canceled', appointmentStatus: 'cancelled' }],
   ])('state %s omits checkoutUrl entirely', async (expectedState, row) => {
@@ -99,6 +101,7 @@ describe('GET /api/public/deposits/session-status (§14 test 24)', () => {
     const states = [
       { depositStatus: 'checkout_created', appointmentStatus: 'awaiting_payment' },
       { depositStatus: 'paid', appointmentStatus: 'confirmed' },
+      { depositStatus: 'paid', appointmentStatus: 'pending' },
       { depositStatus: 'expired', appointmentStatus: 'cancelled' },
       { depositStatus: 'canceled', appointmentStatus: 'cancelled' },
     ];

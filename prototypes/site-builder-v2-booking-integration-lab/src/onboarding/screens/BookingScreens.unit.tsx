@@ -528,8 +528,10 @@ describe('BookingPreferencesScreen', () => {
 
     await user.click(screen.getByRole('button', { name: /Confirmation & booking notice Automatic confirmation · 12 hours notice Complete/ }));
     await user.click(screen.getByRole('radio', { name: /Review each request first/ }));
+
     expect(latest.bookingPreferences.confirmationMode).toBe('request_approval');
     expect(latest.bookingPreferences.minimumNoticeMinutes).toBe(720);
+
     await user.selectOptions(screen.getByRole('combobox', {
       name: 'How much notice do you need before an appointment?',
     }), 'custom');

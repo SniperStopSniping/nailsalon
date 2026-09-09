@@ -36,7 +36,7 @@ import { appointmentDepositSchema, appointmentSchema } from '@/models/Schema';
 
 export const dynamic = 'force-dynamic';
 
-type DepositSessionState = 'awaiting_payment' | 'confirmed' | 'expired' | 'cancelled';
+type DepositSessionState = 'awaiting_payment' | 'pending' | 'confirmed' | 'expired' | 'cancelled';
 
 type SessionStatusResponse = {
   state: DepositSessionState;
@@ -276,7 +276,9 @@ function resolveState(
   depositStatus: string,
 ): DepositSessionState {
   if (depositStatus === 'paid') {
-    return 'confirmed';
+    return appointmentStatus === 'pending' || appointmentStatus === 'cancelled'
+      ? appointmentStatus
+      : 'confirmed';
   }
   if (appointmentStatus === 'awaiting_payment') {
     return 'awaiting_payment';
@@ -289,5 +291,5 @@ function resolveState(
   }
   // The appointment moved on without the deposit reaching a terminal state —
   // D5's confirm is the normal cause.
-  return appointmentStatus === 'cancelled' ? 'cancelled' : 'confirmed';
+  return appointmentStatus === 'cancelled' || appointmentStatus === 'pending' ? appointmentStatus : 'confirmed';
 }

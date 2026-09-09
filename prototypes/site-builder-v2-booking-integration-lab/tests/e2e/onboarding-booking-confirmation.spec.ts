@@ -14,8 +14,10 @@ test('confirmation mode and minimum notice save together and survive reopening',
   await page.getByRole('menuitem', { name: 'Lab review options' }).click();
   await page.getByRole('dialog', { name: 'Lab review options' })
     .getByRole('button', { name: 'Daniela / Isla Nail Studio', exact: true }).click();
+
   await expect(page.getByLabel('Autosave status')).toHaveText('Saved');
-  await page.evaluate(key => {
+
+  await page.evaluate((key) => {
     const state = JSON.parse(localStorage.getItem(key)!);
     state.progress.currentScreen = 'booking_preferences';
     state.progress.lastActiveScreen = 'booking_preferences';
@@ -27,23 +29,36 @@ test('confirmation mode and minimum notice save together and survive reopening',
   await page.reload();
   const card = page.getByRole('button', { name: /Confirmation & booking notice/ });
   await card.click();
+
   await expect(page.getByRole('radio', { name: /Automatically confirm appointments/ })).toBeChecked();
+
   const notice = page.getByRole('combobox', { name: 'How much notice do you need before an appointment?' });
+
   await expect(notice).toHaveValue('preset:120');
+
   await page.getByRole('radio', { name: /Review each request first/ }).check();
+
   await expect(notice).toHaveValue('preset:120');
+
   await notice.selectOption('preset:480');
+
   await expect(page.getByLabel('Autosave status')).toHaveText('Saved');
   await expect.poll(async () => page.evaluate(key => JSON.parse(localStorage.getItem(key)!).profile.bookingPreferences, STORAGE_KEY))
     .toMatchObject({ confirmationMode: 'request_approval', minimumNoticeMinutes: 480 });
+
   await page.reload();
   await card.click();
+
   await expect(page.getByRole('radio', { name: /Review each request first/ })).toBeChecked();
   await expect(notice).toHaveValue('preset:480');
+
   await page.screenshot({ path: testInfo.outputPath('booking-confirmation-and-notice.png'), fullPage: true });
   await page.getByRole('radio', { name: /Automatically confirm appointments/ }).check();
+
   await expect(notice).toHaveValue('preset:480');
+
   await page.getByRole('button', { name: 'Save and continue', exact: true }).click();
+
   await expect.poll(async () => page.evaluate(key => JSON.parse(localStorage.getItem(key)!).profile.bookingPreferences, STORAGE_KEY))
     .toMatchObject({ confirmationMode: 'instant', minimumNoticeMinutes: 480 });
   expect(errors).toEqual([]);
