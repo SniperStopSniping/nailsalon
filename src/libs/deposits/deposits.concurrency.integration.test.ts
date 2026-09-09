@@ -192,6 +192,7 @@ const LINEAGE_EMAIL = 'lineage.d5@example.invalid';
 const EXPECTED_EXECUTED_TESTS = 5;
 
 const BASE_SETTINGS: SalonSettings = {
+  bookingExperience: { policy: { enabled: false } },
   booking: {
     timezone: 'America/Toronto',
     slotIntervalMinutes: 15,
