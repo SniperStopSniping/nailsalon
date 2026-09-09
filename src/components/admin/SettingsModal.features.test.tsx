@@ -54,8 +54,8 @@ const ALL_MODULE_KEYS = [
 ] as const;
 
 /**
- * Salon B in the audit: `salon.features` is NULL, so only scheduleOverrides is
- * entitled and every other module comes back UPGRADE_REQUIRED.
+ * Legacy module responses may still report SMS as excluded. Credit-based SMS
+ * access must not inherit that retired plan lock or activation toggle.
  */
 function mockEndpoints(entitled: Partial<Record<string, boolean>>) {
   const entitledModules = Object.fromEntries(
@@ -84,6 +84,24 @@ function mockEndpoints(entitled: Partial<Record<string, boolean>>) {
     if (url.includes('/api/admin/settings/visibility')) {
       return Promise.resolve(new Response(JSON.stringify({
         data: { visibility: { staff: {} }, entitled: false },
+      }), { status: 200 }));
+    }
+
+    if (url.includes('/api/admin/salon/settings')) {
+      return Promise.resolve(new Response(JSON.stringify({
+        sms: {
+          senderLabel: 'Luster shared texting number',
+          availableCredits: 100,
+          detail: 'Luster has temporarily paused SMS sending. Your credits and preferences are saved.',
+        },
+        communications: {
+          sms: { enabled: false },
+          email: { enabled: true },
+          killSwitch: false,
+          quietHours: { enabled: true, start: '21:00', end: '09:00' },
+          reminders: { rules: [] },
+          events: {},
+        },
       }), { status: 200 }));
     }
 
@@ -121,7 +139,6 @@ describe('SettingsModal — Features view entitlement states', () => {
     });
 
     for (const label of [
-      'SMS Reminders',
       'Referrals',
       'Rewards',
       'Staff Earnings',
@@ -135,7 +152,10 @@ describe('SettingsModal — Features view entitlement states', () => {
 
     expect(
       screen.getAllByText('Not included in your plan yet'),
-    ).toHaveLength(8);
+    ).toHaveLength(7);
+
+    expect(screen.getByTestId('settings-sms-communications')).toHaveTextContent('Included on every plan');
+    expect(screen.queryByRole('button', { name: 'Toggle SMS Reminders' })).not.toBeInTheDocument();
 
     // The one entitled module stays a working toggle, not a locked row.
     expect(
@@ -181,5 +201,36 @@ describe('SettingsModal — Features view entitlement states', () => {
     expect(
       screen.getByText(/Locked features are not included in your current plan yet/i),
     ).toBeInTheDocument();
+  });
+
+  it('opens canonical SMS preferences on Free without upgrading or writing the legacy module toggle', async () => {
+    mockEndpoints({});
+    await openFeaturesView();
+    const user = userEvent.setup();
+
+    await user.click(screen.getByTestId('settings-sms-communications'));
+
+    expect(await screen.findByRole('heading', { name: 'Client communications' })).toBeInTheDocument();
+    expect(screen.getByText('100 SMS credits available. See Usage for details.')).toBeInTheDocument();
+    expect(screen.getByText(/Luster has temporarily paused SMS sending/)).toBeInTheDocument();
+    expect(screen.getByText(/SMS access is included with every plan/)).toBeInTheDocument();
+    expect(screen.queryByText('(Unavailable)')).not.toBeInTheDocument();
+
+    const smsPreference = screen.getByRole('checkbox', { name: 'Text messages to clients' });
+
+    expect(smsPreference).not.toBeChecked();
+    expect(smsPreference).toBeEnabled();
+
+    await user.click(smsPreference);
+    await user.click(screen.getByRole('button', { name: 'Save communication settings' }));
+
+    await screen.findByText('Saved');
+
+    const mutations = fetchMock.mock.calls.filter(([, init]) => init?.method && init.method !== 'GET');
+
+    expect(mutations).toHaveLength(1);
+    expect(mutations[0]?.[0]).toContain('/api/admin/salon/settings?salonSlug=salon-b');
+    expect(mutations[0]?.[1]?.method).toBe('PATCH');
+    expect(JSON.parse(mutations[0]?.[1]?.body)).toMatchObject({ communications: { sms: { enabled: true } } });
   });
 });

@@ -32,6 +32,7 @@ import { COMMUNICATION_TEMPLATES } from '@/libs/communicationTemplates';
 import { db } from '@/libs/DB';
 import { Env } from '@/libs/Env';
 import { readCommunicationControlUncached } from '@/libs/platformCommunicationControl';
+import { isReminderEligibleAppointment } from '@/libs/reminderEligibility';
 import { hasGlobalSuppression, normalizeConsentRecipient } from '@/libs/smsConsentShared';
 import { resolveSmsDestination } from '@/libs/smsDestination';
 import { calculateSmsSegments } from '@/libs/smsSegments';
@@ -107,11 +108,11 @@ async function appointmentStillActive(intent: CommunicationIntent, now = new Dat
     return true;
   }
   const rows = await db.execute(sql`
-    SELECT status, start_time, request_expires_at, cancel_reason FROM appointment
+    SELECT status, start_time, request_expires_at, confirmation_mode_snapshot, cancel_reason FROM appointment
     WHERE id = ${intent.appointmentId} AND salon_id = ${intent.salonId}
       AND deleted_at IS NULL LIMIT 1
   `);
-  const appointment = rows.rows[0] as { status: string; start_time: Date | string; request_expires_at: Date | string | null; cancel_reason: string | null } | undefined;
+  const appointment = rows.rows[0] as { status: string; start_time: Date | string; request_expires_at: Date | string | null; confirmation_mode_snapshot: string | null; cancel_reason: string | null } | undefined;
   if (!appointment) {
     return false;
   }
@@ -134,7 +135,7 @@ async function appointmentStillActive(intent: CommunicationIntent, now = new Dat
     return appointment.status === 'pending' && (!appointment.request_expires_at || new Date(appointment.request_expires_at).getTime() > now.getTime());
   }
   if (['appointment_reminder', 'manual_reminder'].includes(intent.eventType)) {
-    return appointment.status === 'confirmed' || (appointment.status === 'pending' && !appointment.request_expires_at);
+    return isReminderEligibleAppointment({ status: appointment.status, requestExpiresAt: appointment.request_expires_at, confirmationModeSnapshot: appointment.confirmation_mode_snapshot });
   }
   if (['booking_confirmation', 'booking_request_approved'].includes(intent.eventType)) {
     return appointment.status === 'confirmed';

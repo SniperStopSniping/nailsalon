@@ -415,7 +415,7 @@ export function SalonDetailPanel({ salonId, onClose, onDeleted }: SalonDetailPan
   const [showLocationForm, setShowLocationForm] = useState(false);
   const [showSlugModal, setShowSlugModal] = useState(false);
 
-  const setMarketingFeature = useCallback((key: 'smsReminders' | 'rewards' | 'referrals', value: boolean) => {
+  const setMarketingFeature = useCallback((key: 'rewards' | 'referrals', value: boolean) => {
     setFeatures(current => ({
       ...current,
       marketing: {
@@ -649,7 +649,6 @@ export function SalonDetailPanel({ salonId, onClose, onDeleted }: SalonDetailPan
     setFeatures(nextState.features);
   }, []);
 
-  const smsRemindersEntitled = resolveEntitlement(features, 'marketing', 'smsReminders');
   const rewardsEntitled = resolveEntitlement(features, 'marketing', 'rewards');
   const referralsEntitled = resolveEntitlement(features, 'marketing', 'referrals');
 
@@ -1283,32 +1282,13 @@ export function SalonDetailPanel({ salonId, onClose, onDeleted }: SalonDetailPan
                               </button>
                             </div>
 
-                            {/* SMS Reminders Toggle */}
-                            <div className="flex items-center justify-between py-2">
+                            {/* SMS access is included; sending preferences belong to the owner. */}
+                            <div className="flex items-center justify-between gap-4 py-2">
                               <div>
-                                <div className="text-sm font-medium text-gray-700">SMS Reminders</div>
-                                <div className="text-xs text-gray-500">Send SMS confirmations & reminders</div>
+                                <div className="text-sm font-medium text-gray-700">Luster SMS</div>
+                                <div className="text-xs text-gray-500">Texts use SMS credits. The owner manages texting and reminders in communication preferences.</div>
                               </div>
-                              <button
-                                type="button"
-                                role="switch"
-                                aria-checked={smsRemindersEntitled ? 'true' : 'false'}
-                                onClick={() => {
-                                  setMarketingFeature('smsReminders', !smsRemindersEntitled);
-                                  setSmsRemindersEnabled(!smsRemindersEntitled);
-                                  markDirty();
-                                }}
-                                aria-label="Toggle SMS reminders"
-                                className={`relative h-6 w-11 rounded-full transition-colors ${
-                                  smsRemindersEntitled ? 'bg-indigo-600' : 'bg-gray-200'
-                                }`}
-                              >
-                                <div
-                                  className={`absolute left-0.5 top-0.5 size-5 rounded-full bg-white shadow transition-transform ${
-                                    smsRemindersEntitled ? 'translate-x-5' : ''
-                                  }`}
-                                />
-                              </button>
+                              <span className="shrink-0 rounded-full bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-700">Included</span>
                             </div>
 
                             {/* Rewards Program Toggle */}

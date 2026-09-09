@@ -2,7 +2,7 @@
 
 This pass repairs communications only. It does not enable production SMS, change credentials, provision numbers, run production migrations, or authorize customer sends. The current code and deployment configuration govern behavior; older Gate A/B descriptions of a future dispatcher or native-only manual texting are obsolete.
 
-Operational follow-up: the existing Canadian sender and approved opt-out routing are configured. The repair is under review in [PR #170](https://github.com/SniperStopSniping/nailsalon/pull/170); production still runs `71f70ca`. The exact `afd1a65` Preview is READY and serves the app, with Clerk Development and Stripe Test-mode keys scoped only to this branch. Its database/schema checks pass through the approved existing migration `0075`; no SMS migration was added. Aggregate Preview health remains degraded by unconfigured test-environment integrations. The corrected marketing fixture passed full CI Vitest at `29fff5d`: 7,501 tests. A further focused usage-screen change now hides unavailable credit purchases; it requires its own fresh release checks and Preview. Current check results are recorded on the PR. Read-only production inspection matches `isla-nail-studio` to Daniela's reference address and hours. See `RESUME.md` and the [pilot checklist](TWILIO_PILOT_CHECKLIST.md). No live SMS pilot or production release has been authorized or performed.
+Operational follow-up (2026-09-09): the user approved releasing desktop layout PR #171, SMS plan-access PR #172 and booking-confirmation PR #173 together with SMS paused. Their histories are combined in PR #173 and require fresh combined CI and Preview verification before protected-main merge. Production remains v1.89.2 at `69b3b3456a9d08b0e8dbc51d8331ef5bdb607e4a` until that release. At 08:27 UTC, read-only checks confirmed the production environment and platform singleton both disable SMS. The disposable `luster-sms-pilot-20260909` business has exactly one verified non-expiring 100-credit starter grant, no reservations, clients, appointments, SMS intents or deliveries. Daniela remains the separately verified `isla-nail-studio`. No pilot recipient or carrier send is approved. See `RESUME.md` and the [pilot checklist](TWILIO_PILOT_CHECKLIST.md); these current facts supersede older setup snapshots below.
 
 ## Architecture and audit findings
 
@@ -22,6 +22,14 @@ Operational follow-up: the existing Canadian sender and approved opt-out routing
 
 Every queued text carries salon, optional appointment, canonical client ID in variables when applicable, type, recipient, dedupe identity, schedule and expiry. Rendering records the body, fingerprint, encoding and segment count; delivery records sender identity, provider SID, status, timestamps, error and credit settlement. No schema migration is required for this repair.
 
+### SMS access across plans
+
+Every plan, including Free, includes SMS access. The canonical entitlement resolver ignores historical paid-only `marketing.smsReminders` and flat `smsReminders` flags. Presets and legacy projections agree. Subscription prices, paid feature bundles, monthly credit allowances and Stripe catalog configuration are unchanged. SMS access does not turn sending on or mint credits.
+
+Settings → Features & plan links SMS to the existing Client communications preferences. There is no separate paid SMS entitlement or second owner toggle. An explicit save of `communications.sms.enabled` also aligns the legacy SMS module field used by salon/technician booking notifications, atomically within that salon's settings update. Unrelated preference edits preserve that field and all other module choices. Super-admin feature synchronization excludes SMS, and other-module updates merge only their submitted fields against live settings so they cannot undo a concurrent SMS choice. Existing salons are not automatically opted into texting.
+
+The availability display distinguishes a Luster-wide pause (`GLOBAL_SMS_DISABLED`), pending controlled-pilot access (`PILOT_NOT_ENABLED`), missing provider setup and insufficient credits. Historical `PLAN_NOT_ELIGIBLE` events remain readable as pilot-access blocks; that old code did not represent a subscription requirement. Public booking consent uses actual automatic-text readiness and acknowledges consent without promising a scheduled reminder.
+
 ### Initial 100 free credits
 
 Both authenticated initial-business onboarding paths now resolve the existing durable business identity and call `grantStarterCredits` inside the business-creation transaction. The helper already existed but had no runtime signup caller. Eligible new businesses receive one non-expiring 100-credit starter lot, regardless of plan. Retried setup and additional salons with the same business identity cannot multiply the allowance. A failed setup rolls the grant back with the business creation.
@@ -33,6 +41,16 @@ Paid credit sales are a separate activation gate. The current `stripePriceMap.ts
 Production metadata has no `BILLING_IDENTITY_HMAC_SECRET` or version. This optional keyed email link is not required for the verified-Clerk/salon starter grant, but continuity across a recreated owner account cannot be inferred without it. Preserve the existing fail-closed identity conflict checks.
 
 ## Owner workflow
+
+### Booking confirmation and notice
+
+Onboarding → Services & booking → **Confirmation & booking notice** and Settings → **Booking rules** write the same `settings.booking.confirmationMode` and `minimumNoticeMinutes`. Automatic confirmation (`instant`) is the default. Owners can explicitly choose `request_approval`; these new requests reserve the selected time and remain pending until the existing owner confirmation action is used. Hours, availability and minimum notice apply in both modes. Changing the mode does not reclassify existing appointments, and resuming an older onboarding draft preserves subsequent dashboard edits.
+
+New payment holds capture the booking-time mode in the existing appointment snapshot. Payment confirms an automatic booking but only submits a review-mode request. Legacy in-flight holds without a mode retain their existing completion behavior. New salon-wide pending requests have no automatic expiry and do not receive attendance reminders before approval. Existing expiring service requests retain their expiry rules. No schema migration or new messaging path is introduced.
+
+Customer page, deposit return/cancel page, initial/retried email, SMS lifecycle event and owner new-booking email use request/confirmed wording according to appointment state. A provider's `sent` email status is displayed as sent; it does not certify delivery. Historical `booking_confirmation` communication records are labelled **Booking receipt**, since older records may predate the wording repair.
+
+### Texting controls
 
 1. In Settings → Client texts & reminders, enable text messages. Check the reminder rules, salon timezone and quiet hours, then save. Existing per-event preferences remain respected by the server.
 2. In Integrations, check the texting identity and any blocker. A saved preference alone does not mean the sender, worker, or credits are ready.
@@ -93,7 +111,7 @@ Operational readiness is a configuration and saved-state check. It does not call
 
 ## Verification and remaining release gate
 
-Final local implementation verification on this branch: the full Vitest suite passed 7,484 tests across 642 files, with 175 skipped tests and one existing TODO; the appointment regression suite passed 105 tests. Typecheck, production build, secret scan and explicit lint of all 85 changed TypeScript files passed (zero lint errors, four existing warnings). General-suite skips include opt-in external-database/Redis checks; the relevant SMS PostgreSQL suites were run separately as described below. Subsequent CI and authorized Preview deployment evidence appears above; no production deployment or live Twilio send occurred.
+Original repair checkpoint verification: the full Vitest suite passed 7,484 tests across 642 files, with 175 skipped tests and one existing TODO; the appointment regression suite passed 105 tests. Typecheck, production build, secret scan and explicit lint of all 85 changed TypeScript files passed (zero lint errors, four existing warnings). General-suite skips include opt-in external-database/Redis checks; the relevant SMS PostgreSQL suites were run separately as described below. The subsequent approved v1.89.2 release passed full CI with 7,509 tests. Current SMS-access correction results are recorded in `RESUME.md`; no live Twilio pilot has occurred.
 
 Automated tests use isolated PGlite, mocked provider calls, and generated signed callback requests. They must not connect to a shared development/production database or text customer numbers. Twilio test credentials do not support `MessagingServiceSid` and do not trigger delivery callbacks, so they cannot prove this complete production path. [Twilio test-credential limitations](https://www.twilio.com/docs/iam/test-credentials).
 

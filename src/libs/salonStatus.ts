@@ -392,8 +392,9 @@ export const FEATURE_DEFAULTS = {
   photoUploads: true,
   clientProfiles: true,
   visibilityControls: true,
+  // Credit-funded SMS access is included on every plan; sending has its own gates.
+  smsReminders: true,
   // Pro tier (OFF by default)
-  smsReminders: false,
   rewards: false,
   referrals: false,
   scheduleOverrides: false,
@@ -430,7 +431,7 @@ export function resolveFeatures(features: SalonFeatures | null | undefined) {
     clientProfiles: features.clientProfiles ?? FEATURE_DEFAULTS.clientProfiles,
     visibilityControls: features.visibilityControls ?? FEATURE_DEFAULTS.visibilityControls,
     // Pro
-    smsReminders: features.smsReminders ?? FEATURE_DEFAULTS.smsReminders,
+    smsReminders: resolveEntitlement(features, 'marketing', 'smsReminders'),
     rewards: features.rewards ?? FEATURE_DEFAULTS.rewards,
     referrals: features.referrals ?? FEATURE_DEFAULTS.referrals,
     scheduleOverrides: features.scheduleOverrides ?? FEATURE_DEFAULTS.scheduleOverrides,
@@ -648,8 +649,8 @@ export async function getSalonFeatures(salonId: string): Promise<LegacyResolvedF
     photoUploads: featuresJson?.photoUploads ?? FEATURE_DEFAULTS.photoUploads,
     clientProfiles: featuresJson?.clientProfiles ?? FEATURE_DEFAULTS.clientProfiles,
     visibilityControls: featuresJson?.visibilityControls ?? FEATURE_DEFAULTS.visibilityControls,
-    // Pro - smsReminders/rewards/profilePage have legacy columns
-    smsReminders: getFeatureValue('smsReminders', salon.smsRemindersEnabled),
+    // SMS capability is independent of historical plan and sender toggles.
+    smsReminders: resolveEntitlement(featuresJson, 'marketing', 'smsReminders'),
     rewards: getFeatureValue('rewards', salon.rewardsEnabled),
     referrals: featuresJson?.referrals ?? FEATURE_DEFAULTS.referrals,
     scheduleOverrides: featuresJson?.scheduleOverrides ?? FEATURE_DEFAULTS.scheduleOverrides,

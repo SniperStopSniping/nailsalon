@@ -1748,7 +1748,7 @@ describe('L1 PR4 §14 — deposit priority over explicit request-approval activa
     }));
   }
 
-  it('an ACTIVE deposit policy wins: status is awaiting_payment, and NEITHER request_expires_at NOR confirmation_mode_snapshot is written', async () => {
+  it('an ACTIVE deposit policy wins: status is awaiting_payment, and the automatic confirmation choice is captured without a request expiry', async () => {
     seedPolicy(ACTIVE_POLICY);
     seedChargeReady(true);
     setClientSession(freshPhone());
@@ -1766,7 +1766,7 @@ describe('L1 PR4 §14 — deposit priority over explicit request-approval activa
 
     expect(row?.status).toBe('awaiting_payment');
     expect(row?.requestExpiresAt).toBeNull();
-    expect(row?.confirmationModeSnapshot).toBeNull();
+    expect(row?.confirmationModeSnapshot).toBe('instant');
   });
 
   it('with NO active deposit policy, the same service/slot activates explicit request-approval: status pending, requestExpiresAt and confirmationModeSnapshot set', async () => {

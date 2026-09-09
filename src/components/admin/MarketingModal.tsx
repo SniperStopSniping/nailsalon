@@ -1050,7 +1050,7 @@ export function MarketingModal({
                           <h3 className="text-[15px] font-semibold text-[var(--owner-ink)]">Channels</h3>
                           <div className="mt-2 space-y-2 text-[13px]">
                             <div className="flex items-center justify-between gap-3">
-                              <span className="text-[var(--owner-muted)]">Manual texting</span>
+                              <span className="text-[var(--owner-muted)]">Text from your phone</span>
                               <span className={`rounded-full px-2.5 py-1 text-[12px] font-medium ${smsCapableDevice ? 'bg-emerald-50 text-emerald-700' : 'bg-[var(--owner-ground)] text-[var(--owner-muted)]'}`}>
                                 {smsCapableDevice ? 'Ready' : 'Use your phone'}
                               </span>
@@ -1071,14 +1071,17 @@ export function MarketingModal({
                               </span>
                             </div>
                           </div>
-                          {(automaticStatus.label !== 'Ready' && automaticStatus.label !== 'Not available yet') && onOpenApp && (
+                          {automaticStatus.label !== 'Ready' && automaticStatus.detail && (
+                            <p className="mt-3 text-[13px] leading-relaxed text-[var(--owner-muted)]">{automaticStatus.detail}</p>
+                          )}
+                          {automaticStatus.label !== 'Loading…' && onOpenApp && (
                             <button
                               type="button"
                               data-testid="marketing-open-integrations"
                               onClick={() => onOpenApp('integrations')}
                               className="mt-3 w-full rounded-[12px] border border-[var(--owner-line)] p-2.5 text-[13px] font-semibold text-[var(--owner-ink)]"
                             >
-                              Finish texting setup in Integrations
+                              View texting status in Integrations
                             </button>
                           )}
                         </div>

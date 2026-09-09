@@ -19,7 +19,7 @@ export type SmsUnavailableReason =
   | 'SENDER_NOT_READY'
   | 'CONSENT_REQUIRED'
   | 'GLOBAL_OPT_OUT'
-  | 'PLAN_NOT_ELIGIBLE'
+  | 'PILOT_NOT_ENABLED'
   | 'PROVIDER_UNAVAILABLE'
   | 'RATE_LIMITED'
   | 'DESTINATION_NOT_SUPPORTED';
@@ -72,7 +72,7 @@ export type SharedSenderResolution =
   | {
     ready: false;
     mode: 'shared_luster';
-    reason: Extract<SmsUnavailableReason, 'GLOBAL_SMS_DISABLED' | 'SENDER_NOT_READY' | 'PLAN_NOT_ELIGIBLE'>;
+    reason: Extract<SmsUnavailableReason, 'GLOBAL_SMS_DISABLED' | 'SENDER_NOT_READY' | 'PILOT_NOT_ENABLED'>;
   };
 
 export function resolveSharedSenderReadiness(input: {
@@ -88,14 +88,17 @@ export function resolveSharedSenderReadiness(input: {
   // Unbuilt dependencies fail closed as ABSENCE, not as a hardcoded flag:
   // when Migration B lands, passing a real control row flips behavior
   // without touching this function.
-  if (config.platformControl === null || config.platformControl.smsEnabled !== true) {
+  if (config.platformControl === null) {
     return { ready: false, mode: 'shared_luster', reason: 'SENDER_NOT_READY' };
+  }
+  if (config.platformControl.smsEnabled !== true) {
+    return { ready: false, mode: 'shared_luster', reason: 'GLOBAL_SMS_DISABLED' };
   }
 
   // Controlled pilot mode: enabled with an empty allowlist means NOBODY,
   // never everybody.
   if (config.pilot.enabled && !config.pilot.allowlist.includes(input.salonSlug)) {
-    return { ready: false, mode: 'shared_luster', reason: 'PLAN_NOT_ELIGIBLE' };
+    return { ready: false, mode: 'shared_luster', reason: 'PILOT_NOT_ENABLED' };
   }
 
   if (

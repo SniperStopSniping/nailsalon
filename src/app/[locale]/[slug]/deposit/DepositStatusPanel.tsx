@@ -16,7 +16,7 @@ import { useSalon } from '@/providers/SalonProvider';
  * while, the hold is live.
  */
 
-type SessionState = 'awaiting_payment' | 'confirmed' | 'expired' | 'cancelled';
+type SessionState = 'awaiting_payment' | 'pending' | 'confirmed' | 'expired' | 'cancelled';
 
 type SessionStatus = {
   state: SessionState;
@@ -71,8 +71,15 @@ export function DepositStatusPanel({ variant }: { variant: 'return' | 'cancel' }
   if (loadState === 'unknown' || !status) {
     return (
       <p className="mt-3 text-sm leading-6 text-stone-600">
-        We could not find this payment. If you completed it, your confirmation will still arrive —
-        please contact the salon if you are unsure.
+        We could not find this payment. If you completed it, please contact the salon to check your booking.
+      </p>
+    );
+  }
+
+  if (status.state === 'pending') {
+    return (
+      <p className="mt-3 text-sm leading-6 text-stone-600">
+        Payment received — your request is awaiting salon approval. Your appointment is not confirmed yet.
       </p>
     );
   }

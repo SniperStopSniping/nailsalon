@@ -123,6 +123,7 @@ function settingsResponse(settings: RetentionSettings) {
 function installSuccessfulFetch(initialSettings = makeSettings(), options: {
   lusterReady?: boolean;
   legacyConnection?: boolean;
+  sms?: Record<string, unknown>;
 } = {}) {
   fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
@@ -143,7 +144,7 @@ function installSuccessfulFetch(initialSettings = makeSettings(), options: {
         data: {
           availability: { google: false, twilio: false, email: false, photos: false },
           google: { status: 'disconnected' },
-          ...(options.lusterReady
+          ...(options.lusterReady || options.sms
             ? {
                 sms: {
                   senderMode: 'shared_luster',
@@ -159,6 +160,7 @@ function installSuccessfulFetch(initialSettings = makeSettings(), options: {
                   detail: 'Luster SMS is ready and uses your SMS credits.',
                   workerConfigured: true,
                   quietHours: { enabled: false, start: '21:00', end: '09:00' },
+                  ...options.sms,
                 },
               }
             : {}),
@@ -231,6 +233,31 @@ describe('MarketingModal', () => {
     await renderMarketing();
 
     expect(screen.getByTestId('marketing-automatic-status')).toHaveTextContent('Ready');
+  });
+
+  it('explains a Luster sending pause without treating 100 credits as readiness or asking for setup', async () => {
+    const onOpenApp = vi.fn();
+    installSuccessfulFetch(makeSettings(), {
+      sms: {
+        providerReady: false,
+        automaticEnabled: false,
+        manualAvailable: false,
+        remindersEnabled: false,
+        blockingReason: 'GLOBAL_SMS_DISABLED',
+        detail: 'Luster has temporarily paused SMS sending. Your credits and preferences are saved.',
+      },
+    });
+    await renderMarketing({ onOpenApp });
+
+    expect(screen.getByTestId('marketing-automatic-status')).toHaveTextContent('Paused');
+    expect(screen.getByTestId('marketing-home-channels')).toHaveTextContent('Text from your phone');
+    expect(screen.getByText(/Luster has temporarily paused SMS sending/)).toBeInTheDocument();
+    expect(screen.queryByText(/finish texting setup/i)).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'View texting status in Integrations' }));
+
+    expect(onOpenApp).toHaveBeenCalledWith('integrations');
+    expect(fetchMock.mock.calls.some(([, init]) => init?.method && init.method !== 'GET')).toBe(false);
   });
 
   it('never reports a legacy salon-owned Twilio number as ready', async () => {

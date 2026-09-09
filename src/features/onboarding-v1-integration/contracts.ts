@@ -215,6 +215,7 @@ const profileSchema = z.object({
   }).strict(),
   bookingOnlyContact: z.boolean(),
   bookingPreferences: z.object({
+    confirmationMode: z.enum(['instant', 'request_approval']).optional(),
     minimumNoticeMinutes: z.number().int().min(0).max(525_600),
     newClientStatus: z.enum(['yes', 'no', 'ask_first', 'waitlist_only']).nullable(),
     visitMode: z.enum(['appointment_only', 'walk_ins_only', 'appointments_and_walk_ins']).nullable(),

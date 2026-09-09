@@ -463,10 +463,10 @@ export function AppointmentQuickEditSheet({
                       <div className="rounded-2xl border border-neutral-200 p-4">
                         <div className="flex items-start justify-between gap-4">
                           <div>
-                            <div className="text-sm font-semibold text-neutral-900">Client confirmation email</div>
+                            <div className="text-sm font-semibold text-neutral-900">{detail.appointment.status === 'pending' ? 'Client request email' : 'Client confirmation email'}</div>
                             <div className="mt-1 text-sm text-neutral-500">
                               {detail.confirmationDelivery?.status === 'sent'
-                                ? 'Delivered to the email on this appointment.'
+                                ? 'Sent to the email on this appointment.'
                                 : detail.confirmationDelivery?.status === 'failed'
                                   ? 'Delivery failed. Verify the address and resend.'
                                   : detail.confirmationDelivery
@@ -484,7 +484,7 @@ export function AppointmentQuickEditSheet({
                           disabled={saving || !detail.appointment.clientEmail || !onResendConfirmation}
                           className="mt-3 w-full rounded-xl border border-neutral-200 p-3 text-sm font-medium text-neutral-900 disabled:cursor-not-allowed disabled:opacity-50"
                         >
-                          Resend confirmation & management link
+                          {detail.appointment.status === 'pending' ? 'Resend request & management link' : 'Resend confirmation & management link'}
                         </button>
                       </div>
 
@@ -495,7 +495,7 @@ export function AppointmentQuickEditSheet({
                             {detail.communications?.map(delivery => (
                               <div key={`${delivery.channel}-${delivery.purpose}-${delivery.status}-${delivery.updatedAt}`} className="flex items-center justify-between gap-3 py-2 text-sm">
                                 <div>
-                                  <p className="font-medium capitalize text-neutral-800">{delivery.purpose.replaceAll('_', ' ')}</p>
+                                  <p className="font-medium capitalize text-neutral-800">{delivery.purpose === 'booking_confirmation' ? 'Booking receipt' : delivery.purpose.replaceAll('_', ' ')}</p>
                                   <p className="text-xs text-neutral-500">
                                     {delivery.channel.toUpperCase()}
                                     {' '}

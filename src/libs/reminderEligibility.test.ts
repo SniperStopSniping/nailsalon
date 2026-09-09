@@ -78,6 +78,7 @@ describe('reminderEligibleAppointmentCondition (PGlite)', () => {
   const ROWS = [
     { id: 'appt_confirmed', status: 'confirmed', requestExpiresAt: null },
     { id: 'appt_pending_legacy', status: 'pending', requestExpiresAt: null },
+    { id: 'appt_pending_salon_review', status: 'pending', requestExpiresAt: null, confirmationModeSnapshot: 'request_approval' },
     { id: 'appt_pending_explicit_future', status: 'pending', requestExpiresAt: new Date('2099-01-01T13:00:00Z') },
     { id: 'appt_pending_explicit_expired', status: 'pending', requestExpiresAt: new Date('2000-01-01T00:00:00Z') },
     { id: 'appt_in_progress', status: 'in_progress', requestExpiresAt: null },
@@ -107,6 +108,7 @@ describe('reminderEligibleAppointmentCondition (PGlite)', () => {
         endTime: new Date('2099-01-01T10:00:00Z'),
         status: row.status,
         requestExpiresAt: row.requestExpiresAt,
+        confirmationModeSnapshot: 'confirmationModeSnapshot' in row ? row.confirmationModeSnapshot : null,
         totalPrice: 5000,
         totalDurationMinutes: 60,
       });
@@ -131,6 +133,7 @@ describe('reminderEligibleAppointmentCondition (PGlite)', () => {
     // Anchor the specific rows this test exists to pin.
     expect(actualEligibleIds.has('appt_confirmed')).toBe(true);
     expect(actualEligibleIds.has('appt_pending_legacy')).toBe(true);
+    expect(actualEligibleIds.has('appt_pending_salon_review')).toBe(false);
     expect(actualEligibleIds.has('appt_pending_explicit_future')).toBe(false);
     expect(actualEligibleIds.has('appt_pending_explicit_expired')).toBe(false);
     expect(actualEligibleIds.has('appt_awaiting_payment')).toBe(false);

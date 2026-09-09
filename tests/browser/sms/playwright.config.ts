@@ -18,6 +18,7 @@ export default defineConfig({
     reuseExistingServer: false,
   },
   projects: [
+    { name: 'desktop-chromium', testMatch: 'settings.spec.ts', use: { ...devices['Desktop Chrome'], viewport: { width: 1440, height: 1000 } } },
     { name: 'mobile-chromium', use: { ...devices['Pixel 7'] } },
     { name: 'mobile-webkit', use: { ...devices['iPhone 13'] } },
   ],

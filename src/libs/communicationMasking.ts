@@ -44,6 +44,9 @@ const FRIENDLY_FAILURES: Record<string, string> = {
   REMINDER_RULE_CHANGED: 'Reminder settings changed, so this message was cancelled.',
   SALON_INACTIVE: 'Texting is unavailable while this salon is inactive.',
   GLOBAL_SMS_DISABLED: 'Text delivery is temporarily paused. Contact support.',
+  PILOT_NOT_ENABLED: 'This salon is waiting for access to the texting pilot.',
+  // Historical pilot blocks used a plan code; preserve their readable history.
+  PLAN_NOT_ELIGIBLE: 'This salon is waiting for access to the texting pilot.',
   NO_CREDITS: 'SMS credits were unavailable.',
   BLOCKED_NO_CREDIT: 'SMS credits were unavailable.',
   GLOBAL_OPT_OUT: 'This person has opted out of texts.',

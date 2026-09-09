@@ -101,9 +101,11 @@ export async function getSalonSmsReadiness(salonId: string): Promise<SmsOperatio
     providerReady = readiness.ready;
     if (!readiness.ready) {
       blockingReason = readiness.reason;
-      detail = readiness.reason === 'PLAN_NOT_ELIGIBLE'
-        ? 'Luster texting is not enabled for this salon yet. Contact support.'
-        : 'Luster texting is not switched on or its sender is not configured. Contact support to finish setup.';
+      detail = readiness.reason === 'GLOBAL_SMS_DISABLED'
+        ? 'Luster has temporarily paused text delivery for all salons. Texting is included in every plan, and your SMS credits remain available.'
+        : readiness.reason === 'PILOT_NOT_ENABLED'
+          ? 'Luster texting is in a controlled pilot. Your plan includes texting, but this salon is waiting for pilot access.'
+          : 'Luster texting setup is incomplete. Contact support to finish setup. Texting is included in every plan.';
     }
     const balance = await db.transaction(tx => computeAvailableBalance(tx, salonId, new Date()));
     availableCredits = balance.available;
@@ -132,7 +134,7 @@ export async function getSalonSmsReadiness(salonId: string): Promise<SmsOperatio
   }
   if (blockingReason === null && availableCredits !== null && availableCredits <= 0) {
     blockingReason = 'NO_CREDITS';
-    detail = 'No SMS credits are available. Add credits from Usage to resume texting.';
+    detail = 'No SMS credits are available. Check your balance and credit options in Usage.';
   }
   const available = blockingReason === null;
   return {

@@ -1,3 +1,110 @@
+# Approved combined release — 2026-09-09
+
+- The user explicitly approved releasing PRs #171, #172 and #173 together, with SMS kept paused. This supersedes the earlier release-approval boundaries in the historical checkpoints below. It does not approve pilot recipients, carrier sends, paid purchases or activating customer queues.
+- PR #173 now contains the complete histories of #171 and #172, preserving logical commits. Merge conflicts retain both onboarding and SMS browser gates, both public-booking regression matrices, all desktop CSS repairs and all SMS/booking-mode changes. No migrations or dependency changes are introduced.
+- Before integration, all 14 executable checks passed on each original PR head with no unresolved review threads. Fresh combined CI, exact-source Preview and protected-main verification remain required for this release.
+- Read-only production inspection at 08:27 UTC verified both `COMMUNICATIONS_SMS_ENABLED=false` and platform SMS disabled. Required database, Redis, cron and Twilio configuration names are present; no secret value was printed or copied.
+- The existing disposable `luster-sms-pilot-20260909` business has one verified non-expiring 100-credit starter grant and one ledger row; zero reserved segments, clients, appointments, SMS intents or deliveries. This closes the earlier grant-ledger inspection gap. No data or preference was changed.
+- Production still serves v1.89.2 / `69b3b3456a9d08b0e8dbc51d8331ef5bdb607e4a` at this checkpoint. Original user-owned checkout remains untouched. Final CI/Preview/production evidence will be maintained on PR #173 without committing solely to refresh completed-check timestamps.
+
+## Combined verification checkpoint
+
+- Full combined Vitest passed 7,605 tests (649 files; 175 skipped and one existing TODO). Selected coverage passed 935 tests; appointment regression 103; onboarding 1,341; confirmation browsers 3; SMS browsers 9. Existing owner/browser journeys passed 54 with four skips and the known Booking Page hub case passing on configured retry. Both builds, typecheck and lint passed.
+- Exact runtime Preview `d52848a` is READY and serves Luster; database and all schema checks pass, with Clerk/Stripe test-mode configuration. Branch-only Preview key mismatches were corrected using existing development configuration; the sensitive Stripe test secret was re-scoped from the completed PR170 branch without reading/changing it. Production settings are unchanged and SMS remains paused.
+- Combining #171 and #173 installed both root and prototype Playwright packages. The final desktop command still launched the root CLI against prototype imports, so Playwright rejected test registration. Use the prototype's existing `npx playwright` just like its confirmation-browser gate; retain the same cases, assertions and budgets. No runtime source changed.
+- The unchanged client-lifecycle migration test also hit its existing 5-second timeout, leaving a following reset blocked by a disposable-database deadlock. That gate must pass on fresh CI; no timeout or assertion is relaxed. Final results remain recorded on PR #173.
+
+---
+
+# Booking confirmation and onboarding — 2026-09-09
+
+Branch: `codex/booking-confirmation-onboarding-20260909`, from freshly fetched `origin/main` at `69b3b3456a9d08b0e8dbc51d8331ef5bdb607e4a` (released v1.89.2 / PR #170).
+Worktree: `/Users/me/nailsalon-worktrees/booking-confirmation-onboarding-20260909`.
+
+## Checkpoint 1 — canonical mode and booking notice
+
+- User requested automatic confirmation by default and a visible automatic/review choice beside minimum advance notice in onboarding. Minimum notice already existed and remains enforced by the current availability/booking path.
+- Added `settings.booking.confirmationMode` (`instant` default, `request_approval` optional) to the existing JSON settings contract. Onboarding's Confirmation & booking notice card and Settings → Booking rules edit the same values; old drafts resolve to automatic without changing notice. Reopening onboarding preserves later dashboard policy edits.
+- Removed the stale public confirmation-page dependency on `freeSoloEnabled`. New public appointments and payment holds capture the explicit booking-time mode in the existing appointment snapshot. Deposit payment cannot approve a request; legacy in-flight holds without a mode preserve their prior completion behavior. Existing appointments are not reclassified.
+- Initial/retried customer email, customer request/deposit wording, owner booking email, approval events and reminder eligibility follow appointment state. New review requests reserve their time without an automatic expiry and receive no attendance reminders before approval. Historical booking-confirmation records use the neutral Booking receipt label; email sent is not described as delivered.
+- The dashboard-edit regression also exposed a pre-existing preserved-policy schema error: the server-owned policy version was passed to a strict update schema. The resume path now validates only update fields and retains stored policy metadata.
+- No new schema, parallel messaging path, credentials, production changes or customer messages. Original dirty checkout is preserved. The superadmin deposit impersonation guard is untouched.
+
+## Verification checkpoint
+
+- Targeted canonical configuration, booking/deposit, customer email, dispatcher and reminder suites passed (215 tests before final owner/UI coverage additions).
+- Onboarding full suite: 118 files / 1,341 tests passed with two workers. An initial unbounded run hit parallel-load timeouts; no timeouts or assertions were relaxed.
+- Onboarding TypeScript passed after supplying two missing required callback props in existing test fixtures. Root TypeScript and scoped ESLint passed (six existing component-export warnings). Secret scan passed.
+- Desktop Chromium, Android Chromium and iPhone WebKit onboarding browser test: 3/3 passed, no retries, no external requests, no page errors. Exercises default, mode and notice changes, autosave, reopen and continue. This is isolated UI verification, not a live customer journey. CI runs the same suite and full onboarding tests.
+- Final approval/duplicate-action and guest-identity suites: 7 + 56 tests passed. Onboarding persistence: 41 tests passed, including retaining a later review-mode setting across resume.
+- Appointment regression: 8 files / 103 tests passed. Initial full root run was stopped after finding an old mock that forced pending status and several unrelated 5-second timeouts under local parallel load. The mock now returns the actual inserted status, with an explicit confirmed-mode assertion. Required full CI remains the release gate; no assertion or timeout was weakened.
+
+## Checkpoint 2 — payment-return consistency and review
+
+- Opened [PR #173](https://github.com/SniperStopSniping/nailsalon/pull/173); implementation checkpoint `e053d28198944ca2bb72fd2fdd6bc0af20b73120`.
+- The deposit session-status API previously mapped every paid deposit to confirmed, including pending requests and cancelled appointments. It now preserves those states without adding response fields or changing provider reconciliation/budgets. Both return/cancel panels describe a paid request as awaiting approval. Existing ICS status already correctly distinguishes tentative and confirmed.
+- Session-status, return-panel and ICS regression suites: 3 files / 19 tests passed. Complete changed-file ESLint passed after formatting the new prototype test/validation (12 existing warnings); root secret scan and both TypeScript checks passed earlier in this checkpoint. Full root and CI checks are still running.
+- No live deployment or provider send has occurred. The new browser checks cover local onboarding controls; they do not certify authenticated production or carrier delivery.
+
+## Checkpoint 3 — reconciliation regression
+
+- The real paid-session reconciliation test now covers automatic, explicit review and legacy holds. Its old assertion treated a legacy pending appointment as confirmed because the former endpoint conflated payment and appointment state.
+- All 14 reconciliation tests passed, including per-deposit provider-retrieval budgets. Together with the 19 status/panel/calendar tests, these cover the paid return path without provider calls. Final executable TypeScript and changed-source lint passed. Fresh full CI is required on this checkpoint.
+
+## Outstanding release and pilot boundary
+
+- Desktop layout PR #171 and SMS access/credits plan PR #172 remain unmerged and passed their required CI. The user added this booking task instead of approving their release. This branch starts from main, not those pending branches.
+- Main remains the previously approved PR #170 release. Last prior production inspection at 2026-09-09 04:07 UTC found SMS disabled in the environment and platform singleton. This pass has not rechecked or changed provider/production state.
+- No approval to merge/deploy this change or to send a pilot SMS. No approved pilot recipient. Provider delivery, STOP/START and live credit accounting still require the controlled pilot; do not certify customer rollout from these tests.
+
+# SMS credits and plan access correction — 2026-09-09
+
+Branch: `codex/sms-credit-plan-access-20260909`, clean worktree from latest `origin/main` release `69b3b34`.
+Worktree: `/Users/me/nailsalon-worktrees/sms-credit-plan-access-20260909`.
+
+## Current request and boundaries
+
+The user's pilot screenshots show 100 credits alongside unavailable texting and a paid-only SMS reminder lock. Correct this specific inconsistency: every plan includes SMS access and eligible new businesses receive 100 starter credits once. Preserve subscription prices, monthly allowances, other paid features, owner preferences, provider gates and the original dirty checkout. No live SMS, provider/configuration changes, production data updates, merge or deployment are authorized for this follow-up.
+
+## Findings and repair
+
+- The starter grant is already wired into both authenticated initial-business setup paths and is visible as 100 credits in the completed pilot account. It is once per durable business identity, not monthly or once per extra salon. No grant or billing schema change is needed here.
+- Legacy feature defaults/presets marked SMS as paid-only; Features & plan and the salon/technician booking notification capability gate used those flags. The main client SMS dispatcher already used credits and communications preferences. SMS capability is now included centrally even with old nested/flat false flags, and presets/projections agree. Other paid gates remain intact.
+- Features & plan now directs SMS to canonical Client communications. An explicit SMS-master save atomically aligns the old module alias; unrelated changes preserve it and concurrent sibling-module edits. Existing owner-off preferences are not bulk changed, and saving does not enqueue or send messages.
+- Global delivery pause, controlled-pilot exclusion and missing setup have distinct owner-facing explanations. Pilot exclusion no longer uses a plan-related failure code; historic records remain readable. Credit warnings no longer imply an upgrade is required or promise disabled email delivery.
+- Public booking consent follows actual automatic-SMS readiness; success acknowledges consent instead of guaranteeing a reminder.
+- Existing component browser harness covers Free Features → Client communications → explicit preference save with 100 credits and global pause; all APIs are intercepted. The CI browser gate runs it alongside the existing manual composer cases.
+
+## Delivery and pilot state
+
+- Prior PR #170 was approved, merged and released as v1.89.2 (`69b3b34`) with SMS disabled. Read-only production verification found healthy database/Redis/schema checks, successful dispatch/reminder cron calls and rejected unsigned Twilio callbacks. `COMMUNICATIONS_SMS_ENABLED=false` and the platform SMS control was false at 2026-09-09 04:07 UTC.
+- The authenticated separate test business `luster-sms-pilot-20260909` exists and shows 100 credits. Signup is complete. Grant-ledger/queue verification and approved test contacts remain outstanding; no recipient or actual send is approved. Do not consume Daniela's grant or import real customer data into the pilot.
+- Daniela's verified salon is `isla-nail-studio`, 880 Ellesmere Road, with Monday–Friday 10:00–19:00, Saturday 11:00–17:00 and Sunday closed. Historical missed-credit correction, if pursued, needs scoped identity/grant evidence and production safeguards. No historical credits or preferences were changed in this fix.
+- Existing sender ending 9444, Luster Messaging Service and approved Advanced Opt-Out remain the configured provider path. The different-account active number ending 9891 is untouched. Paid credit purchase activation is separately unconfigured; legitimate starter credits can support the pilot.
+- Separate desktop onboarding layout fix PR #171 (`b15486a`) has passed all CI checks and remains open, unreleased. Its heading/preview-width and five-stage progress rail repairs are not mixed into this branch.
+
+## Verification checkpoint
+
+Node 20.19.4, committed dependency lock, existing matching dependency installation reused through a task-owned symlink. No local environment file or provider secrets were copied. Unit/integration tests use isolated PGlite and mocked providers.
+
+- Focused provider/readiness/public booking/credit copy: 176 passed.
+- Core capability/presets/module API: 73 passed. Explicit preference reconciliation: 8 passed; adjacent settings tests: 113 passed.
+- Owner/super-admin UI: 131 passed. Appointment regression: 103 passed.
+- Component browsers: 9 passed without retries, covering desktop/Pixel/iPhone included-SMS settings plus the six existing mobile composer/history/failure cases. Screenshots were visually inspected; no overflow or unexpected requests/errors.
+- Final typecheck passed. Final explicit ESLint of all 45 changed/new TypeScript files passed with zero errors and seven existing warnings; diff and secret tree scans passed. Initial new fixture/reducer inference errors were corrected; the final fixture suites also passed 20 tests. The full local Vitest run completed: 647 files / 7,569 tests passed, 17 files / 175 tests skipped and one TODO; two files needed correction (one failed assertion and one suite import failure). Both were repaired and the final four-file rerun passed all 28 tests. The full local run was not repeated after those scoped fixes; final full CI remains required. No production build/deployment was run locally for this follow-up; required CI covers production builds and disposable PostgreSQL checks.
+
+## Checkpoint 2 — preserve SMS choices during other settings saves
+
+- The full-suite failure exposed a real super-admin `syncFeatureModules` side effect: universal SMS capability would have rewritten an existing owner SMS module to true. That sync now excludes SMS and preserves the live off/on/missing state. Emitted JSONB SQL is exercised with isolated PGlite, including a stale request snapshot. The route and adjacent deposit-entitlement checks passed 17 tests.
+- The other-module PUT endpoint now merges only the submitted fields against the live module object. A stale tab can no longer undo a concurrent canonical SMS preference change. Focused module/preference/deposit checks passed 32 tests, including both directions of SMS changes and unchanged other settings.
+- Booking pricing parity now mocks the new operational readiness server dependency, preserving its existing isolation. No test environment or database guard was bypassed. The final combined rerun (pricing parity, super-admin, module settings, SMS preference reconciliation) passed 28 tests.
+- Final typecheck and branch-wide lint passed after the preference fixes; zero lint errors, seven existing warnings.
+- Initial implementation commit: `ea13516`. Draft review: [PR #172](https://github.com/SniperStopSniping/nailsalon/pull/172). Final preference fixes and validation evidence are a separate checkpoint commit. Both PR #172 and the independent layout PR #171 require release authorization; customer/pilot SMS activation still requires approved recipients and explicit send approval.
+
+Older repair checkpoints below are historical; the current release and authorization status above supersedes their unreleased-state notes.
+
+---
+
 # Twilio communications reliability — 2026-09-08
 
 Branch: `codex/twilio-communications-reliability-20260908` from `origin/main` at `71f70ca`.
@@ -223,3 +330,12 @@ Repair the existing Twilio/communications system only. No broad product audit, p
 - Source review found that the publication status used by the older response is synchronized through a React effect, while the fixture released that response outside `act` immediately after a DOM check. The test now explicitly holds both POST responses: it resolves and flushes the newer salon response in awaited async `act`, verifies publication while the booking-page request remains pending, then resolves and flushes the older response and verifies the button settles. It preserves the successful completion wording, no resurrected draft banner and exactly one POST to each endpoint. Bootstrap/adoption dependencies are stable; no competing request or shared-message overwrite was demonstrated. This is a test-fixture synchronization repair, not a claimed application defect.
 - The affected file passes **66/66 tests with coverage**; scoped ESLint and diff checks are clean. Existing 10-second assertion and 15-second outer budgets remain unchanged. Fresh exact-head CI must pass before release approval is requested. Runtime code remains identical to verified Preview `26d1590`, so this test/docs checkpoint needs no additional deployment.
 - No protected-main merge, production deployment or data correction, provider change, charge, message or pilot activation occurred. The user's production-release and approved-recipient/send gates remain in force.
+
+## Desktop onboarding repair — September 9 pilot setup
+
+- The user supplied four desktop screenshots of the Quick Book Design screen with letter-by-letter headings, narrow actions, a tiny preview and Review wrapped below the progress rail. Created clean branch/worktree `codex/onboarding-desktop-layout-20260909` from latest `origin/main` **`69b3b34`**. The separately approved SMS-disabled release v1.89.2 is already live; its operational checkpoint remains in repair-branch commit **`3018fe7`** and [PR #170](https://github.com/SniperStopSniping/nailsalon/pull/170). This new layout fix has not been deployed or merged.
+- Reproduced the screenshot using the actual shared onboarding components/styles in the isolated loopback Vite harness. At 1280px, the Quick Book fixture's grid resolved to **`0px 1118px`**: the heading and preview had zero-width columns, while actions were 28px wide. A specific About-design rule defined one explicit column, but later generic desktop designer rules placed choices into an implicit second column and spanned the preview across rows. The separate progress defect was a hard-coded four-column grid for five rendered stages. These offending source files were unchanged by the SMS release; this is a focused onboarding defect exposed during the pilot journey.
+- Excluded `about_design` from the generic desktop sidebar placement rules so its existing full-width vertical flow remains authoritative. Other designer screens retain their established two-column behavior. Progress now creates one equal-width column per rendered stage. No content, selected layout, onboarding routing, account, billing or SMS logic changed. At 1280px, the corrected heading measured **720px**, preview **920px**, actions **1160px**, and all five progress items shared one row. Captured/visually reviewed the corrected 1440px desktop screen.
+- Added ten Playwright geometry regressions for Quick Book and one-page About design at **920, 1280, 1440, 390 and 320px**. The original 1280px case failed on readable widths/order/progress; corrected tests pass **10/10** with no retries. They check full-size preview, ordering, five-stage alignment, horizontal overflow and reachable action buttons, and block non-loopback requests. Wired the same test into the existing required CI test job after product E2E, reusing installed Chromium/root runtime dependencies and preserving test artifacts. The harness verifies shared onboarding layout; it is not a claim of a full authenticated production journey.
+- Validation: app **`npm run check-types`** passed with approved synthetic CI placeholders, **`npm run lint`** and explicit ESLint on the workflow/new test passed, and diff checks passed. Focused design/progress units passed **23/23**. The first broad prototype run reused production-root development dependencies and was not a valid prototype-suite gate: six suites lacked its `fake-indexeddb` dependency and two widget tests used a different user-event version. Installed the prototype's existing committed lockfile in this new worktree without changing manifests/locks or shared dependencies; the complete prototype suite then passed **1,341/1,341 tests across 118 files**. No application/test assertions were changed to clear those dependency-related failures.
+- The user has now completed the separate pilot account signup: read-only native UI shows authenticated workspace **`luster-sms-pilot-20260909`**, **100 SMS credits available**, and texting unavailable while production SMS remains disabled. The initial grant is visible in the owner UI; ledger/dedupe inspection is still pending. The earlier signup handoff is satisfied and must not be requested again. No approved recipient, pilot send approval, fixture appointment or activation is recorded; no real SMS was sent. Preserve Daniela's customer salon and the unrelated active number ending 9891.

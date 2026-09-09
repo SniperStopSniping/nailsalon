@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   buildBookingExperienceEntitlementInspection,
+  FEATURE_DEFAULTS,
   getBookingExperienceOverrideAuditId,
   getBookingExperienceOverrideState,
   getSubscriptionFeaturePlanDefault,
@@ -328,15 +329,38 @@ describe('subscription feature entitlements', () => {
 describe('legacy feature entitlement compatibility', () => {
   it('preserves nested, legacy, and default resolution behavior', () => {
     expect(resolveEntitlement(
-      { marketing: { smsReminders: true } },
+      { marketing: { referrals: true } },
       'marketing',
-      'smsReminders',
+      'referrals',
     )).toBe(true);
     expect(resolveEntitlement(
-      { smsReminders: true },
+      { referrals: true },
       'marketing',
-      'smsReminders',
+      'referrals',
     )).toBe(true);
-    expect(resolveEntitlement({}, 'marketing', 'smsReminders')).toBe(false);
+    expect(resolveEntitlement({}, 'marketing', 'referrals')).toBe(false);
+    expect(resolveEntitlement({ referrals: true, marketing: { referrals: false } }, 'marketing', 'referrals')).toBe(false);
+  });
+});
+
+describe('SMS access on every plan', () => {
+  it.each([
+    ['missing', undefined],
+    ['null', null],
+    ['free defaults', {}],
+    ['legacy Starter', { smsReminders: false }],
+    ['nested Free Solo', { marketing: { smsReminders: false } }],
+    ['both historical restrictions', { smsReminders: false, marketing: { smsReminders: false } }],
+    ['paid access', { smsReminders: true, marketing: { smsReminders: true } }],
+  ] as const)('includes SMS for %s without granting other paid features', (_label, features) => {
+    expect(resolveEntitlement(features, 'marketing', 'smsReminders')).toBe(true);
+    expect(resolveEntitlement(features, 'marketing', 'rewards')).toBe(false);
+    expect(resolveEntitlement(features, 'marketing', 'referrals')).toBe(false);
+    expect(resolveEntitlement(features, 'analytics', 'dashboard')).toBe(false);
+    expect(resolveEntitlement(features, 'money', 'deposits')).toBe(false);
+  });
+
+  it('reports the same included default to callers inspecting the default catalog', () => {
+    expect(FEATURE_DEFAULTS.marketing.smsReminders).toBe(true);
   });
 });

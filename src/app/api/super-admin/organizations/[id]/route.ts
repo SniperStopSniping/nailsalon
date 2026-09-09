@@ -503,7 +503,13 @@ export async function PUT(
     const updates: Partial<typeof salonSchema.$inferInsert> = { ...validatedUpdates };
 
     if (syncFeatureModules && requestedFeatures) {
-      const entitledModules = getEntitledModules(requestedFeatures);
+      // SMS capability is included on every plan. A super-admin feature save
+      // must never turn the owner's texting preference on or off as a side
+      // effect; only the canonical communications preference save aligns it.
+      const entitledModules = Object.fromEntries(
+        Object.entries(getEntitledModules(requestedFeatures))
+          .filter(([module]) => module !== 'smsReminders'),
+      );
       // Resolve the modules object from the live column at UPDATE time. A
       // request-start snapshot may predate an owner booking-page write; a
       // whole-settings replacement here would then erase that unrelated

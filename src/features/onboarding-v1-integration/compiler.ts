@@ -103,6 +103,7 @@ function presentationForSection(
   if (type === 'booking') {
     return {
       ...common,
+      confirmationMode: snapshot.profile.bookingPreferences.confirmationMode ?? 'instant',
       minimumNoticeMinutes: snapshot.profile.bookingPreferences.minimumNoticeMinutes,
     };
   }

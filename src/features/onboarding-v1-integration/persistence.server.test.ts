@@ -551,6 +551,7 @@ describe.sequential('account-backed onboarding persistence', () => {
     const owner = identity('canonical_booking_settings');
     const input = request('canonical_booking_settings');
     input.snapshot.profile.businessType = 'home_based';
+    input.snapshot.profile.bookingPreferences.confirmationMode = 'request_approval';
     input.snapshot.profile.bookingPreferences.minimumNoticeMinutes = 480;
     input.snapshot.profile.siteSlug = 'daniela-private-studio';
     input.snapshot.profile.siteSlugCustomized = true;
@@ -570,6 +571,7 @@ describe.sequential('account-backed onboarding persistence', () => {
     expect(salon).toMatchObject({
       settings: {
         booking: {
+          confirmationMode: 'request_approval',
           minimumNoticeMinutes: 480,
           timezone: 'America/Vancouver',
         },
@@ -1237,10 +1239,12 @@ describe.sequential('account-backed onboarding persistence', () => {
         .where(eq(schema.salonSchema.id, initial.data.salonId));
       const beforeSettings = beforeSalon!.settings as {
         bookingPage?: { draft?: Record<string, unknown> };
+        booking?: Record<string, unknown>;
       } & Record<string, unknown>;
       await database.update(schema.salonSchema).set({
         settings: {
           ...beforeSettings,
+          booking: { ...beforeSettings.booking, confirmationMode: 'request_approval' },
           bookingPage: {
             ...(beforeSettings.bookingPage ?? {}),
             draft: {
@@ -1273,12 +1277,14 @@ describe.sequential('account-backed onboarding persistence', () => {
         'your phone, email and Instagram',
         'your service prices, durations and visibility',
         'your booking page style, palette and layout',
+        'your policies and booking rules',
       ]));
 
       const [salon] = await database.select().from(schema.salonSchema)
         .where(eq(schema.salonSchema.id, initial.data.salonId));
 
       expect(salon).toMatchObject({ name: 'Renamed in the dashboard', phone: '+14165550111' });
+      expect(salon!.settings).toMatchObject({ booking: { confirmationMode: 'request_approval' } });
       expect(resolveBookingPageConfig(salon!.settings).draft).toMatchObject({
         sitePalettePreset: 'navy_ivory',
         siteStylePreset: 'luxury',

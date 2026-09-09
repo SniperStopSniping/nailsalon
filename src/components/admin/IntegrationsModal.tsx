@@ -32,7 +32,7 @@ import {
 } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 
-import { isNativeSmsCapableDevice, resolveAutomaticTextStatus, type SmsOperationalHealth } from '@/libs/textingStatus';
+import { isNativeSmsCapableDevice, resolveAutomaticTextStatus, resolveManualTextStatus, type SmsOperationalHealth } from '@/libs/textingStatus';
 
 type GoogleReadiness
   = | 'not_connected'
@@ -295,6 +295,7 @@ export function IntegrationsModal({
         : (health.google.readiness ?? 'not_connected'))
     : 'not_connected';
   const automaticText = resolveAutomaticTextStatus(health, smsModuleReason);
+  const manualText = resolveManualTextStatus(health);
   const emailReady = health?.availability.email === true;
   /**
    * PROVIDER ABSENCE IS NOT A DISCONNECTION. When Luster has no Google
@@ -785,15 +786,15 @@ export function IntegrationsModal({
               <div className="flex items-start justify-between gap-3">
                 <p className="text-[15px] font-semibold text-[var(--owner-ink)]">Text from Luster</p>
                 <StatusPill
-                  label={health?.sms?.manualAvailable ? 'Ready' : health ? 'Unavailable' : 'Loading…'}
-                  tone={health?.sms?.manualAvailable ? 'good' : 'muted'}
+                  label={manualText.label}
+                  tone={manualText.tone}
                 />
               </div>
               <p className="mt-1 text-sm text-[var(--owner-muted)]">
                 Send a client a text from their client profile or appointment. Messages use your salon’s
                 Luster texting identity and SMS credits, and appear in communication history with their delivery status.
               </p>
-              {health?.sms && <p className="mt-2 text-sm text-[var(--owner-muted)]">{health.sms.detail}</p>}
+              {manualText.detail && <p className="mt-2 text-sm text-[var(--owner-muted)]">{manualText.detail}</p>}
             </div>
 
             <div className={card} data-testid="native-texting-section">
@@ -838,7 +839,7 @@ export function IntegrationsModal({
                   </div>
                   <div>
                     <dt className="font-medium text-[var(--owner-ink)]">SMS credits</dt>
-                    <dd>{health.sms.availableCredits === null ? 'Luster SMS credit balance is unavailable. Contact support.' : `${health.sms.availableCredits} available. Details and top-ups are in Usage.`}</dd>
+                    <dd>{health.sms.availableCredits === null ? 'Luster SMS credit balance is unavailable. Contact support.' : `${health.sms.availableCredits} available. See Usage for balance and purchase availability.`}</dd>
                   </div>
                   <div>
                     <dt className="font-medium text-[var(--owner-ink)]">Quiet hours</dt>

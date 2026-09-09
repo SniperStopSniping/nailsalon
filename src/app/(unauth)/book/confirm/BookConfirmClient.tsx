@@ -1177,14 +1177,11 @@ const ConfirmContent = ({
   // What this button ACTUALLY does. A manual-confirmation salon stores a
   // `pending` request the owner still has to accept — nothing is held, and
   // promising "reserve this time" here is the promise the product then breaks.
-  // A deposit booking is excluded: that path holds the slot for the checkout
-  // window and has its own hold copy.
+  // A deposit is a payment requirement, not approval of the request.
   const estimatedDepositDueCents = bookingFinancialEstimate?.depositDueCents
     ?? depositDisclosure?.amountCents
     ?? 0;
-  const createsRequest = salonConfirmsManually
-    && !isReschedule
-    && estimatedDepositDueCents === 0;
+  const createsRequest = salonConfirmsManually && !isReschedule;
 
   // Explain only what is on screen. A booking with no deposit and no tax line
   // was being told how deposit credit interacts with a taxable subtotal, which
@@ -1255,7 +1252,9 @@ const ConfirmContent = ({
             {isReschedule
               ? 'Your current appointment stays booked until you confirm this new time.'
               : createsRequest
-                ? 'Nothing is booked yet. Send your request below and the salon will confirm it shortly.'
+                ? estimatedDepositDueCents > 0
+                  ? 'Pay the required deposit to send your request. The salon will review it before the appointment is confirmed.'
+                  : 'Nothing is booked yet. Send your request below for the salon to review.'
                 : 'Nothing is booked yet. Confirm below to reserve this time.'}
           </p>
         </motion.div>
@@ -1392,7 +1391,7 @@ const ConfirmContent = ({
           <SectionCard
             title={createsRequest ? 'Before you send your request' : 'Before you confirm'}
             description={createsRequest
-              ? 'This sends your request to the salon and blocks duplicate bookings using the same contact details. The time is not held until the salon confirms.'
+              ? 'This reserves the selected time while the salon reviews your request. Your appointment is confirmed only after the salon approves it.'
               : 'This will reserve the time above and block duplicate bookings using the same contact details.'}
             className="border-[var(--n5-border)] bg-[var(--n5-bg-card)]"
             contentClassName="grid gap-2 pt-0 sm:grid-cols-2"
@@ -1948,7 +1947,7 @@ const SuccessContent = ({
             <>
               {smsEnabled && smsConsentGranted && (
                 <p className="font-body text-xs text-[var(--n5-ink-muted)]">
-                  We&apos;ll text you before your visit
+                  You&apos;ve agreed to receive appointment updates by text.
                 </p>
               )}
               <p className="font-body mt-0.5 text-xs text-[var(--n5-ink-muted)]">

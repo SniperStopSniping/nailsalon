@@ -180,6 +180,40 @@ describe('SettingsModal — one writer per record', () => {
   });
 
   describe('minimum booking notice (AG-w2-settings-integrations-01)', () => {
+    it('defaults to automatic confirmation and saves review mode without changing notice', async () => {
+      open();
+      fireEvent.click(await screen.findByText('Booking rules'));
+      const mode = await screen.findByLabelText(/^Booking confirmation/);
+
+      expect(mode).toHaveValue('instant');
+
+      fireEvent.change(mode, { target: { value: 'request_approval' } });
+      fireEvent.click(screen.getByRole('button', { name: /save booking settings|save/i }));
+
+      await waitFor(() => {
+        expect(patchBodies('/api/admin/salon/settings')).toContainEqual(expect.objectContaining({
+          bookingConfig: expect.objectContaining({ confirmationMode: 'request_approval', minimumNoticeMinutes: 120 }),
+        }));
+      });
+    });
+
+    it('loads the saved review mode and keeps it when editing notice', async () => {
+      mockEndpoints({ confirmationMode: 'request_approval', minimumNoticeMinutes: 480 });
+      open();
+      fireEvent.click(await screen.findByText('Booking rules'));
+
+      expect(await screen.findByLabelText(/^Booking confirmation/)).toHaveValue('request_approval');
+
+      fireEvent.change(screen.getByTestId('minimum-notice-select'), { target: { value: '1440' } });
+      fireEvent.click(screen.getByRole('button', { name: /save booking settings|save/i }));
+
+      await waitFor(() => {
+        expect(patchBodies('/api/admin/salon/settings')).toContainEqual(expect.objectContaining({
+          bookingConfig: expect.objectContaining({ confirmationMode: 'request_approval', minimumNoticeMinutes: 1440 }),
+        }));
+      });
+    });
+
     it('shows the stored value on the Booking rules row and in the editor', async () => {
       open();
 

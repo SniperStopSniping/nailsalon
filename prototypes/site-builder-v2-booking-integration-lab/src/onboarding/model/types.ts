@@ -154,6 +154,7 @@ export type VisitMode =
 export type NewClientStatus = 'yes' | 'no' | 'ask_first' | 'waitlist_only';
 
 export type BookingPreferencesDraft = {
+  confirmationMode?: 'instant' | 'request_approval';
   visitMode: VisitMode | null;
   newClientStatus: NewClientStatus | null;
   minimumNoticeMinutes: number;

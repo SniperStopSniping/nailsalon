@@ -681,6 +681,13 @@ export async function PATCH(request: Request): Promise<Response> {
       after.communications = mergedCommunications;
       ensureNextSettings().communications = mergedCommunications;
       touchedSettingsKeys.push('communications');
+      if (updates.communications.sms?.enabled !== undefined) {
+        // The owner explicitly chose the canonical SMS master. Keep the old
+        // owner/technician notification gate aligned with that same choice.
+        // An unrelated settings or communications update never changes it.
+        before.modules = { smsReminders: currentSettings.modules?.smsReminders ?? null };
+        after.modules = { smsReminders: updates.communications.sms.enabled };
+      }
     }
 
     const currentPayments = readStoredPaymentsSettings(currentSettings);
@@ -1060,6 +1067,22 @@ export async function PATCH(request: Request): Promise<Response> {
       }
       if (touchedSettingsKeys.includes('communications')) {
         settingsExpression = sql`jsonb_set(${settingsExpression}, '{communications}', ${JSON.stringify(settingsToPersist.communications)}::jsonb)`;
+        if (updates.communications?.sms?.enabled !== undefined) {
+          // Merge only this legacy field against the LIVE module object, in
+          // the same tenant UPDATE as the canonical preference. Preserve
+          // concurrent changes to every other module and settings namespace.
+          settingsExpression = sql`jsonb_set(
+            ${settingsExpression},
+            '{modules}',
+            (
+              CASE
+                WHEN jsonb_typeof(${settingsExpression}->'modules') = 'object'
+                  THEN ${settingsExpression}->'modules'
+                ELSE '{}'::jsonb
+              END
+            ) || ${JSON.stringify({ smsReminders: updates.communications.sms.enabled })}::jsonb
+          )`;
+        }
       }
       if (touchedSettingsKeys.includes('payments') && updates.payments) {
         // Payments is written at SUB-PATH granularity, and `deposit` at FIELD

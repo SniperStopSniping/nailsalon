@@ -555,6 +555,29 @@ async function restoreBookingRetryAfterCapabilityCleanup(input: {
   });
 }
 
+function buildBookingEmailOpening(input: {
+  salonName: string;
+  clientName?: string;
+  serviceNames: string[];
+  date: string;
+  time: string;
+  isPending: boolean;
+}) {
+  const greetingText = input.clientName ? `Hi ${input.clientName},\n\n` : '';
+  const greetingHtml = input.clientName ? `<p>Hi ${escapeHtml(input.clientName)},</p>` : '';
+  const appointmentText = input.isPending
+    ? `We've received your request for ${input.serviceNames.join(', ')} with ${input.salonName} on ${input.date} at ${input.time}. The salon will review it before the appointment is confirmed.`
+    : `Your ${input.serviceNames.join(', ')} appointment with ${input.salonName} is confirmed for ${input.date} at ${input.time}.`;
+  const appointmentHtml = input.isPending
+    ? `<p>We've received your request for <strong>${escapeHtml(input.serviceNames.join(', '))}</strong> with ${escapeHtml(input.salonName)} on <strong>${escapeHtml(input.date)} at ${escapeHtml(input.time)}</strong>. The salon will review it before the appointment is confirmed.</p>`
+    : `<p>Your <strong>${escapeHtml(input.serviceNames.join(', '))}</strong> appointment with ${escapeHtml(input.salonName)} is confirmed for <strong>${escapeHtml(input.date)} at ${escapeHtml(input.time)}</strong>.</p>`;
+  return {
+    subject: `${input.salonName} booking ${input.isPending ? 'request received' : 'confirmed'}`,
+    appointmentText: `${greetingText}${appointmentText}`,
+    appointmentHtml: `${greetingHtml}${appointmentHtml}`,
+  };
+}
+
 export async function sendCustomerBookingConfirmationEmail(input: {
   salonName: string;
   clientName: string;
@@ -565,16 +588,7 @@ export async function sendCustomerBookingConfirmationEmail(input: {
   salonId: string;
   appointmentId: string;
   signal?: AbortSignal;
-  /**
-   * L1 PR4 §14 — the explicit-mode email split. True only for a new
-   * booking created under explicit request-approval activation (dark-gated,
-   * unreachable for any real salon today — see
-   * `requestApprovalReconciliation.server.ts`). Changes ONLY the subject
-   * line and the opening copy below, from "confirmed" to "received,
-   * pending the salon's review" — nothing about delivery, dedup, retry,
-   * customization, or financial-summary composition changes; every one of
-   * those stays byte-identical to the `false`/absent path.
-   */
+  /** Compatibility input; the current appointment row determines request/confirmed wording. */
   isExplicitRequestApproval?: boolean;
 }) {
   if (input.signal?.aborted) {
@@ -585,22 +599,8 @@ export async function sendCustomerBookingConfirmationEmail(input: {
   const { sendTransactionalEmailDetailed } = await import('@/libs/email');
   const date = formatDateInTimeZone(input.startTime, { weekday: 'long', month: 'long', day: 'numeric' }, input.timeZone);
   const time = formatTimeInTimeZone(input.startTime, {}, input.timeZone);
-  const subject = input.isExplicitRequestApproval
-    ? `${input.salonName} booking request received`
-    : `${input.salonName} booking confirmed`;
-  const appointmentText = input.isExplicitRequestApproval
-    ? [
-        `Hi ${input.clientName},`,
-        `We've received your request for ${input.serviceNames.join(', ')} with ${input.salonName} on ${date} at ${time}. The salon will review it and confirm shortly.`,
-      ].join('\n\n')
-    : [
-        `Hi ${input.clientName},`,
-        `Your ${input.serviceNames.join(', ')} appointment with ${input.salonName} is confirmed for ${date} at ${time}.`,
-      ].join('\n\n');
+  let isPending = false;
   const manageText = `View, reschedule, or cancel: ${input.manageUrl}`;
-  const appointmentHtml = input.isExplicitRequestApproval
-    ? `<p>Hi ${escapeHtml(input.clientName)},</p><p>We've received your request for <strong>${escapeHtml(input.serviceNames.join(', '))}</strong> with ${escapeHtml(input.salonName)} on <strong>${escapeHtml(date)} at ${escapeHtml(time)}</strong>. The salon will review it and confirm shortly.</p>`
-    : `<p>Hi ${escapeHtml(input.clientName)},</p><p>Your <strong>${escapeHtml(input.serviceNames.join(', '))}</strong> appointment with ${escapeHtml(input.salonName)} is confirmed for <strong>${escapeHtml(date)} at ${escapeHtml(time)}</strong>.</p>`;
   const manageHtml = `<p><a href="${escapeHtml(input.manageUrl)}">View, reschedule, or cancel your appointment</a></p>`;
   const deliveryId = crypto.randomUUID();
   const inserted = await db.insert(notificationDeliverySchema).values({
@@ -627,6 +627,7 @@ export async function sendCustomerBookingConfirmationEmail(input: {
       });
       return false;
     }
+    isPending = appointment?.status === 'pending';
     const currentCustomization = await loadCurrentBookingEmailCustomization(
       input.salonId,
     );
@@ -682,6 +683,14 @@ export async function sendCustomerBookingConfirmationEmail(input: {
     }).catch(() => undefined);
     return false;
   }
+  const { subject, appointmentText, appointmentHtml } = buildBookingEmailOpening({
+    salonName: input.salonName,
+    clientName: input.clientName,
+    serviceNames: input.serviceNames,
+    date,
+    time,
+    isPending,
+  });
   const emailInput = {
     to: recipient.email,
     subject,
@@ -850,9 +859,7 @@ export async function retryCustomerBookingConfirmationEmail(input: {
       expiresAt: new Date(row.appointment.endTime.getTime() + 30 * 24 * 60 * 60 * 1000),
     });
     const manageUrl = buildAppointmentManageUrl({ slug: row.salonSlug, customDomain: row.customDomain }, capability.token);
-    const appointmentText = `Your ${serviceNames.join(', ')} appointment with ${row.salonName} is confirmed for ${date} at ${time}.`;
     const manageText = `View, reschedule, or cancel: ${manageUrl}`;
-    const appointmentHtml = `<p>Your appointment with <strong>${escapeHtml(row.salonName)}</strong> is confirmed for <strong>${escapeHtml(date)} at ${escapeHtml(time)}</strong>.</p>`;
     const manageHtml = `<p><a href="${escapeHtml(manageUrl)}">View, reschedule, or cancel</a></p>`;
     const finalRecipient = await resolveAppointmentOperationalEmailRecipient({
       salonId: input.salonId,
@@ -881,9 +888,16 @@ export async function retryCustomerBookingConfirmationEmail(input: {
       salonId: input.salonId,
       appointmentId: input.appointmentId,
     });
+    const { subject, appointmentText, appointmentHtml } = buildBookingEmailOpening({
+      salonName: row.salonName,
+      serviceNames,
+      date,
+      time,
+      isPending: finalEligibility?.status === 'pending',
+    });
     emailInput = {
       to: finalRecipient.email,
-      subject: `${row.salonName} booking confirmed`,
+      subject,
       text: composeBookingConfirmationText({
         appointmentContent: [
           appointmentText,

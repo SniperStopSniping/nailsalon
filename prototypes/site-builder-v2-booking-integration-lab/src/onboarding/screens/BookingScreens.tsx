@@ -840,14 +840,25 @@ export function BookingPreferencesScreen({
 
         <BookingTaskCard
           complete={noticeComplete}
-          description="Choose how far ahead clients need to book."
+          description="Choose how appointments are confirmed and how far ahead clients need to book."
           id="notice"
           number={3}
           open={openTask === 'notice'}
-          summary={formatMinimumNoticeDuration(preferences.minimumNoticeMinutes)}
-          title="Booking notice"
+          summary={`${preferences.confirmationMode === 'request_approval' ? 'Review requests' : 'Automatic confirmation'} · ${formatMinimumNoticeDuration(preferences.minimumNoticeMinutes)} notice`}
+          title="Confirmation & booking notice"
           onToggle={() => setOpenTask(current => current === 'notice' ? null : 'notice')}
         >
+          <ChoiceGroup
+            legend="How should appointments be confirmed?"
+            name="booking-confirmation-mode"
+            options={[
+              { value: 'instant', label: 'Automatically confirm appointments', description: 'Recommended. Available times are confirmed when booked, or after any required online deposit is paid.' },
+              { value: 'request_approval', label: 'Review each request first', description: 'Reserve the selected time and confirm the appointment yourself. A paid deposit does not approve the request.' },
+            ]}
+            value={preferences.confirmationMode ?? 'instant'}
+            onChange={confirmationMode => onBookingPreferencesChange({ confirmationMode })}
+          />
+          <p className="onboarding-field__hint">Your opening hours, availability and minimum notice apply to both options. You can change this later in Settings → Booking.</p>
           <label className="onboarding-select-field">
             <span id={`${formId}-minimum-notice-label`}>How much notice do you need before an appointment?</span>
             <select
@@ -1043,6 +1054,11 @@ export function BookingPreferencesScreen({
                   <div>
                     <dt>Services</dt>
                     <dd>{servicesSummary}</dd>
+                    <Check aria-hidden="true" size={15} />
+                  </div>
+                  <div>
+                    <dt>Confirmation</dt>
+                    <dd>{preferences.confirmationMode === 'request_approval' ? 'Review each request first' : 'Automatic confirmation'}</dd>
                     <Check aria-hidden="true" size={15} />
                   </div>
                   <div>

@@ -117,17 +117,7 @@ export type BookingCommitEffectsContext = {
     googleCalendarEventId: string | null;
     updatedAt: Date;
     status?: string;
-    /**
-     * L1 PR4 §14 — true only for a NEW booking created under explicit
-     * request-approval activation (`resolveExplicitRequestApprovalActivation`,
-     * `requestApprovalReconciliation.server.ts`): dark-gated, unreachable for
-     * any real salon today. Optional and defaulted to falsy everywhere except
-     * the one route.ts call site that sets it — every other caller
-     * (reschedule, deposit confirmation, `loadBookingCommitEffectsContext`)
-     * is byte-identical. Read only by the customer confirmation email (step
-     * 5/8) to pick the "request received" copy instead of "confirmed"; no
-     * other effect branches on it.
-     */
+    /** Compatibility hint for callers without status; pending requests suppress reminders. */
     isExplicitRequestApproval?: boolean;
   };
   serviceNames: string[];
@@ -444,7 +434,7 @@ export async function runBookingCommitSideEffects(
       startTime: context.startTime.toISOString(),
       timeZone: context.timeZone,
       manageUrl: context.manageUrl,
-      ...(context.appointment.isExplicitRequestApproval ? { isExplicitRequestApproval: true } : {}),
+      ...((context.appointment.status === 'pending' || context.appointment.isExplicitRequestApproval) ? { isExplicitRequestApproval: true } : {}),
       ...(options.signal ? { signal: options.signal } : {}),
     });
   } catch {
@@ -501,7 +491,7 @@ export async function runBookingCommitSideEffects(
         appointmentId: context.appointment.id,
         eventType: context.originalAppointment
           ? 'appointment_rescheduled'
-          : context.appointment.isExplicitRequestApproval ? 'booking_request_received' : 'booking_confirmation',
+          : (context.appointment.status === 'pending' || context.appointment.isExplicitRequestApproval) ? 'booking_request_received' : 'booking_confirmation',
         transitionEventId: 'direct',
         clientPhone: context.smsConsentGranted ? context.clientPhone : null,
         clientEmail: null, // the existing email leg above owns this confirmation
@@ -512,7 +502,7 @@ export async function runBookingCommitSideEffects(
         smsEligible: communicationContext.smsEligible,
       });
       // An unapproved request must not create attendance reminders.
-      if (!context.appointment.isExplicitRequestApproval) {
+      if (context.appointment.status !== 'pending' && !context.appointment.isExplicitRequestApproval) {
         await materializeReminders({
           tx: db,
           salonId: context.salon.id,
@@ -573,6 +563,7 @@ export async function runBookingCommitSideEffects(
         }
       : null,
     appointmentId: context.appointment.id,
+    appointmentStatus: context.appointment.status,
     clientName: context.clientName ?? 'Guest',
     clientPhone: context.clientPhone,
     services: context.serviceNames,
@@ -720,7 +711,7 @@ export async function loadBookingCommitEffectsContext(
       googleCalendarEventId: appointment.googleCalendarEventId,
       updatedAt: appointment.updatedAt,
       status: appointment.status,
-      isExplicitRequestApproval: appointment.status === 'pending' && appointment.requestExpiresAt !== null,
+      isExplicitRequestApproval: appointment.status === 'pending',
     },
     serviceNames: serviceRows.map(row => row.name),
     technician: technician

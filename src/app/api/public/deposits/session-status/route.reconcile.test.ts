@@ -164,10 +164,17 @@ describe('poll reconciliation', () => {
     );
   });
 
-  it('CONFIRMS on a paid retrieval and reports the new state on the SAME response', async () => {
+  it.each([
+    { mode: 'instant', expected: 'confirmed' },
+    { mode: 'request_approval', expected: 'pending' },
+    { mode: null, expected: 'pending' },
+  ])('reports the actual appointment state after paid retrieval: %j', async ({ mode, expected }) => {
     // Re-reading after the reconciliation attempt is what lets the client see
     // their confirmation now rather than on the next poll.
     const hold = await seedHold();
+    await db.update(schema.appointmentSchema)
+      .set({ confirmationModeSnapshot: mode })
+      .where(eq(schema.appointmentSchema.id, hold.appointmentId));
     stripeMock.sessionsRetrieve.mockResolvedValue({
       id: hold.sessionId,
       payment_status: 'paid',
@@ -181,7 +188,7 @@ describe('poll reconciliation', () => {
     const body = await response.json();
 
     expect(response.status).toBe(200);
-    expect(body.state).toBe('confirmed');
+    expect(body.state).toBe(expected);
     expect((await readDeposit(hold.depositId))?.status).toBe('paid');
   });
 

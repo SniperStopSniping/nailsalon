@@ -402,6 +402,7 @@ export type SalonSettings = {
     bufferMinutes?: number;
     slotIntervalMinutes?: number;
     minimumNoticeMinutes?: number;
+    confirmationMode?: 'instant' | 'request_approval';
     currency?: string;
     timezone?: string;
     introPriceDefaultLabel?: string | null;

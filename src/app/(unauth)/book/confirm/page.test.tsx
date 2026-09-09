@@ -18,7 +18,7 @@ const {
   getLocationById,
   getSalonById,
   isRewardsEnabled,
-  isSmsEnabled,
+  getSalonSmsReadiness,
   resolveDraftSalonAccess,
   resolvePublicBookingTechnicianContext,
   resolvePublicRetentionCampaignPreview,
@@ -35,7 +35,7 @@ const {
   getLocationById: vi.fn(),
   getSalonById: vi.fn(),
   isRewardsEnabled: vi.fn(),
-  isSmsEnabled: vi.fn(),
+  getSalonSmsReadiness: vi.fn(),
   resolveDraftSalonAccess: vi.fn((): Promise<DraftSalonGateResult> => Promise.resolve({
     allowed: true,
     isPreviewingDraftSalon: false,
@@ -152,8 +152,9 @@ vi.mock('@/libs/salonStatus', () => ({
   checkSalonStatus,
   checkFeatureEnabled,
   isRewardsEnabled,
-  isSmsEnabled,
 }));
+
+vi.mock('@/libs/integrationHealth', () => ({ getSalonSmsReadiness }));
 
 vi.mock('@/libs/tenant', () => ({
   getPublicPageContext,
@@ -197,7 +198,7 @@ describe('BookConfirmPage directions fallback', () => {
     checkFeatureEnabled.mockResolvedValue({});
     getSalonById.mockResolvedValue({ id: 'salon_1', settings: null });
     isRewardsEnabled.mockResolvedValue(true);
-    isSmsEnabled.mockResolvedValue(true);
+    getSalonSmsReadiness.mockResolvedValue({ automaticEnabled: true });
     getClientSession.mockResolvedValue(null);
     getPrimaryLocation.mockResolvedValue({
       id: 'loc_primary',
@@ -252,6 +253,55 @@ describe('BookConfirmPage directions fallback', () => {
       effectiveTechnicianSelectionSource: null,
       shouldAutoSkipTech: false,
     });
+  });
+
+  it.each([
+    { confirmationMode: undefined, freeSoloEnabled: false, manual: false },
+    { confirmationMode: 'instant', freeSoloEnabled: false, manual: false },
+    { confirmationMode: 'request_approval', freeSoloEnabled: true, manual: true },
+    { confirmationMode: 'request_approval', freeSoloEnabled: false, manual: true },
+  ])('uses the saved confirmation mode instead of the plan flag: %j', async ({ confirmationMode, freeSoloEnabled, manual }) => {
+    const context = await getPublicPageContext();
+    getPublicPageContext.mockResolvedValue({ ...context, salon: { ...context.salon, freeSoloEnabled } });
+    getSalonById.mockResolvedValue({ id: 'salon_1', settings: { booking: { confirmationMode } } });
+
+    render(await BookConfirmPage({
+      searchParams: Promise.resolve({ salonSlug: 'salon-a', serviceIds: 'srv_1', techId: 'any', date: '2026-03-20', time: '10:00' }),
+    }));
+
+    expect(bookConfirmClientSpy).toHaveBeenCalledWith(expect.objectContaining({ salonConfirmsManually: manual }));
+  });
+
+  it.each([
+    { reason: 'GLOBAL_SMS_DISABLED', enabled: false },
+    { reason: 'PILOT_NOT_ENABLED', enabled: false },
+    { reason: 'SMS_DISABLED', enabled: false },
+    { reason: 'NO_CREDITS', enabled: false },
+    { reason: null, enabled: true },
+  ])('uses operational SMS readiness for public consent ($reason, $enabled)', async ({ reason, enabled }) => {
+    getSalonSmsReadiness.mockResolvedValue({
+      automaticEnabled: enabled,
+      blockingReason: reason,
+      availableCredits: 100,
+      detail: 'Owner-only setup detail',
+    });
+    const element = await BookConfirmPage({
+      searchParams: Promise.resolve({
+        salonSlug: 'salon-a',
+        serviceIds: 'srv_1',
+        techId: 'any',
+        date: '2026-03-20',
+        time: '10:00',
+      }),
+    });
+
+    render(element);
+
+    expect(getSalonSmsReadiness).toHaveBeenCalledWith('salon_1');
+    expect(bookConfirmClientSpy).toHaveBeenCalledWith(expect.objectContaining({ smsEnabled: enabled }));
+    expect(bookConfirmClientSpy.mock.calls[0]?.[0]).not.toHaveProperty('smsReadiness');
+    expect(bookConfirmClientSpy.mock.calls[0]?.[0]).not.toHaveProperty('availableCredits');
+    expect(JSON.stringify(bookConfirmClientSpy.mock.calls[0]?.[0])).not.toContain('Owner-only setup detail');
   });
 
   it('passes the primary active location to the confirmed screen instead of the stale salon root address', async () => {
@@ -570,7 +620,7 @@ describe('BookConfirmPage location privacy (locationDisplayMode) — Blocker 1',
     checkFeatureEnabled.mockResolvedValue({});
     getSalonById.mockResolvedValue({ id: 'salon_1', settings: null });
     isRewardsEnabled.mockResolvedValue(true);
-    isSmsEnabled.mockResolvedValue(true);
+    getSalonSmsReadiness.mockResolvedValue({ automaticEnabled: true });
     getClientSession.mockResolvedValue(null);
     getLocationById.mockResolvedValue(null);
     resolvePublicRetentionCampaignPreview.mockResolvedValue({ status: 'none', preview: null, message: null });
@@ -934,7 +984,7 @@ describe('BookConfirmPage deposit disclosure — dark', () => {
     checkFeatureEnabled.mockResolvedValue({});
     getSalonById.mockResolvedValue({ id: 'salon_1', settings: null });
     isRewardsEnabled.mockResolvedValue(true);
-    isSmsEnabled.mockResolvedValue(true);
+    getSalonSmsReadiness.mockResolvedValue({ automaticEnabled: true });
     getClientSession.mockResolvedValue(null);
     getPrimaryLocation.mockResolvedValue(null);
     getLocationById.mockResolvedValue(null);
@@ -1205,7 +1255,7 @@ describe('BookConfirmPage owner-preview gate', () => {
     getLocationById.mockResolvedValue(null);
     resolvePublicRetentionCampaignPreview.mockResolvedValue({ status: 'none', preview: null, message: null });
     isRewardsEnabled.mockResolvedValue(false);
-    isSmsEnabled.mockResolvedValue(false);
+    getSalonSmsReadiness.mockResolvedValue({ automaticEnabled: false });
     resolvePublicBookingTechnicianContext.mockResolvedValue({
       resolvedSelection: {
         mode: 'legacy',

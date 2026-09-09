@@ -647,6 +647,7 @@ type BookingConfigFormState = {
    * all (AG-w2-settings-integrations-01).
    */
   minimumNoticeMinutes: number;
+  confirmationMode: 'instant' | 'request_approval';
 };
 
 type BookingExperienceFormState = BookingExperience;
@@ -2377,6 +2378,7 @@ export function SettingsModal({
       firstVisitDiscountEnabled: false,
       clientChangeCutoffHours: 24,
       minimumNoticeMinutes: 120,
+      confirmationMode: 'instant',
     });
   const [featureLusterManicure, setFeatureLusterManicure] = useState(true);
   const [showServiceImages, setShowServiceImages] = useState(true);
@@ -2605,6 +2607,7 @@ export function SettingsModal({
         setBillingMode(data.billingMode ?? 'NONE');
         setSubscriptionStatus(data.subscriptionStatus ?? null);
         setBookingConfigForm({
+          confirmationMode: data.bookingConfig?.confirmationMode ?? 'instant',
           bufferMinutes: data.bookingConfig?.bufferMinutes ?? 10,
           slotIntervalMinutes: data.bookingConfig?.slotIntervalMinutes ?? 15,
           currency: data.bookingConfig?.currency ?? 'CAD',
@@ -2807,6 +2810,7 @@ export function SettingsModal({
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             bookingConfig: {
+              confirmationMode: bookingConfigForm.confirmationMode,
               bufferMinutes: bookingConfigForm.bufferMinutes,
               slotIntervalMinutes: bookingConfigForm.slotIntervalMinutes,
               currency: bookingConfigForm.currency,
@@ -2839,6 +2843,7 @@ export function SettingsModal({
         slotIntervalMinutes:
           data.bookingConfig?.slotIntervalMinutes
           ?? bookingConfigForm.slotIntervalMinutes,
+        confirmationMode: data.bookingConfig?.confirmationMode ?? bookingConfigForm.confirmationMode,
         currency: data.bookingConfig?.currency ?? bookingConfigForm.currency,
         timezone: data.bookingConfig?.timezone ?? bookingConfigForm.timezone,
         introPriceDefaultLabel:
@@ -4110,17 +4115,15 @@ export function SettingsModal({
               />
             </Section>
 
-            {hasEntitledModules && (
-              <Section title="Features">
-                <Row
-                  icon={Boxes}
-                  iconColor="bg-purple-500"
-                  label="Features & plan"
-                  onClick={() => openView('features')}
-                  isLast
-                />
-              </Section>
-            )}
+            <Section title="Features">
+              <Row
+                icon={Boxes}
+                iconColor="bg-purple-500"
+                label="Features & plan"
+                onClick={() => openView('features')}
+                isLast
+              />
+            </Section>
 
             {onOpenApp && (
               <Section
@@ -4417,6 +4420,29 @@ export function SettingsModal({
                         <span className="text-xs text-[var(--owner-muted)]">
                           Clients contact you inside this window. Use 0 to allow
                           changes anytime.
+                        </span>
+                      </label>
+
+                      <label className="flex flex-col gap-1">
+                        <span className="text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
+                          Booking confirmation
+                        </span>
+                        <select
+                          value={bookingConfigForm.confirmationMode}
+                          onChange={event => updateBookingConfigForm(prev => ({
+                            ...prev,
+                            confirmationMode: event.target.value as BookingConfigFormState['confirmationMode'],
+                          }))}
+                          className="h-11 rounded-[10px] border border-[var(--owner-line)] px-3 text-[15px] text-[var(--owner-ink)]"
+                        >
+                          <option value="instant">Automatically confirm appointments</option>
+                          <option value="request_approval">Review each request first</option>
+                        </select>
+                        <span className="text-xs text-[var(--owner-muted)]">
+                          {bookingConfigForm.confirmationMode === 'request_approval'
+                            ? 'New online bookings wait for your approval and reserve the selected time. Paying a deposit does not approve a request.'
+                            : 'New online bookings are confirmed when booked, or after any required online deposit is paid.'}
+                          {' Your hours, availability and minimum notice still apply. Existing appointments keep their status.'}
                         </span>
                       </label>
 
@@ -5346,14 +5372,6 @@ export function SettingsModal({
                 <label className="flex min-h-[44px] items-center justify-between gap-3">
                   <span className="text-[15px] text-[var(--owner-ink)]">
                     Text messages to clients
-                    {!bookingNotificationCapabilities.smsChannelAvailable && (
-                      <>
-                        {' '}
-                        <span className="text-[13px] text-[var(--owner-muted,#706267)]">
-                          (Unavailable)
-                        </span>
-                      </>
-                    )}
                   </span>
                   <input
                     type="checkbox"
@@ -5367,8 +5385,9 @@ export function SettingsModal({
                 </label>
                 <p className="text-[13px] leading-snug text-[var(--owner-muted,#706267)]">
                   Email confirmations and reminders are included with every plan.
-                  Text messages sent from Luster use Luster SMS credits.
-                  You can save preferences while texting setup is incomplete.
+                  SMS access is included with every plan and uses Luster SMS credits.
+                  New businesses receive 100 starter credits once.
+                  You can save preferences while texting is paused or setup is incomplete.
                 </p>
               </div>
             </Section>
@@ -5432,12 +5451,8 @@ export function SettingsModal({
                       }}
                     >
                       <option value="email">Email</option>
-                      <option value="sms">
-                        {bookingNotificationCapabilities.smsChannelAvailable ? 'Text' : 'Text (Unavailable)'}
-                      </option>
-                      <option value="both">
-                        {bookingNotificationCapabilities.smsChannelAvailable ? 'Email & text' : 'Email & text (Unavailable)'}
-                      </option>
+                      <option value="sms">Text</option>
+                      <option value="both">Email &amp; text</option>
                     </select>
                     <button
                       type="button"
@@ -5930,7 +5945,7 @@ export function SettingsModal({
           </Section>
         )}
 
-        {view === 'features' && hasEntitledModules && (
+        {view === 'features' && (
           <>
             {/* Modules (Step 16.3) */}
             <Section
@@ -5959,6 +5974,26 @@ export function SettingsModal({
                               const isLastRow = isLastGroup
                                 && moduleIndex === group.modules.length - 1;
                               const Icon = module.icon;
+
+                              if (module.key === 'smsReminders') {
+                                return (
+                                  <button
+                                    key={module.key}
+                                    type="button"
+                                    data-testid="settings-sms-communications"
+                                    onClick={() => openView('communications')}
+                                    className="flex min-h-11 w-full items-center gap-3 border-b border-[var(--owner-line)] px-4 py-3 text-left outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--owner-focus)]"
+                                  >
+                                    <MessageSquare aria-hidden="true" className="size-4 shrink-0 text-[var(--owner-accent)]" />
+                                    <span className="min-w-0 flex-1">
+                                      <span className="block text-[16px] text-[var(--owner-ink)]">SMS texts &amp; reminders</span>
+                                      <span className="block text-[12px] text-[var(--owner-muted)]">Included on every plan · Uses SMS credits</span>
+                                      <span className="block text-[12px] text-[var(--owner-muted)]">Manage preferences in Client communications</span>
+                                    </span>
+                                    <ChevronRight aria-hidden="true" className="size-4 shrink-0 text-[var(--owner-muted)]" />
+                                  </button>
+                                );
+                              }
 
                               // Entitled -> a live toggle. Not entitled -> a
                               // locked row naming the reason, so the category

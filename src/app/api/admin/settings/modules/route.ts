@@ -214,10 +214,9 @@ export async function PUT(request: Request): Promise<Response> {
       ...moduleUpdates,
     };
 
-    // Write ONLY `{modules}`, against the LIVE column value. The whole-object
-    // `.set({ settings })` this replaced was a read-modify-write from a
-    // request-start snapshot, so any setting saved concurrently by another admin
-    // surface — including a deposit amount — was silently reverted.
+    // Merge only the submitted switches into the LIVE module object. Another
+    // owner surface may have changed SMS since our request-start snapshot.
+    // Preserve that newer preference and every other settings namespace.
     const [updatedSalon] = await db
       .update(salonSchema)
       .set({
@@ -229,16 +228,21 @@ export async function PUT(request: Request): Promise<Response> {
               ELSE '{}'::jsonb
             END,
             '{modules}',
-            ${JSON.stringify(mergedModules)}::jsonb
+            (
+              CASE
+                WHEN jsonb_typeof(${salonSchema.settings}->'modules') = 'object'
+                  THEN ${salonSchema.settings}->'modules'
+                ELSE '{}'::jsonb
+              END
+            ) || ${JSON.stringify(moduleUpdates)}::jsonb
           )
         `,
       })
       .where(eq(salonSchema.id, salon.id))
       .returning();
 
-    // Derive the response from the PERSISTED row, not from the in-memory merge:
-    // after the conversion above the persisted value can differ from what this
-    // request intended to write in every key except `modules`.
+    // Derive the response from the PERSISTED row so it includes concurrent
+    // changes to switches this request did not update.
     const persistedSettings = (updatedSalon?.settings as SalonSettings | null | undefined)
       ?? ({ ...existingSettings, modules: mergedModules } satisfies SalonSettings);
 

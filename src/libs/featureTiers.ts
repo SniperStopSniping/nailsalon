@@ -22,6 +22,7 @@ import type { SalonFeatures } from '@/types/salonPolicy';
  * - Staff dashboard
  * - Photo uploads
  * - Client profiles
+ * - SMS access using Luster credits
  * - Visibility controls (admin can control what staff sees)
  */
 export const STARTER_FEATURES: SalonFeatures = {
@@ -31,8 +32,8 @@ export const STARTER_FEATURES: SalonFeatures = {
   photoUploads: true,
   clientProfiles: true,
   visibilityControls: true,
+  smsReminders: true,
   // Pro features OFF
-  smsReminders: false,
   rewards: false,
   referrals: false,
   scheduleOverrides: false,
@@ -54,7 +55,6 @@ export const STARTER_FEATURES: SalonFeatures = {
  * Pro Tier - Marketing & client management
  *
  * Includes Starter + marketing and client management features:
- * - SMS reminders
  * - Rewards/referral program
  * - Schedule overrides for staff
  * - Client flags (VIP, etc.)
@@ -68,8 +68,8 @@ export const PRO_FEATURES: SalonFeatures = {
   photoUploads: true,
   clientProfiles: true,
   visibilityControls: true,
-  // Pro features ON
   smsReminders: true,
+  // Pro features ON
   rewards: true,
   referrals: true,
   scheduleOverrides: true,
@@ -107,8 +107,8 @@ export const ELITE_FEATURES: SalonFeatures = {
   photoUploads: true,
   clientProfiles: true,
   visibilityControls: true,
-  // Pro features ON
   smsReminders: true,
+  // Pro features ON
   rewards: true,
   referrals: true,
   scheduleOverrides: true,
@@ -158,7 +158,11 @@ export function applyTierPreset(
 ): SalonFeatures {
   const preset = getTierPreset(tier);
   // MERGE: existing features + tier preset (preset wins on conflicts)
-  return { ...(existing ?? {}), ...preset };
+  return {
+    ...(existing ?? {}),
+    ...preset,
+    marketing: { ...existing?.marketing, smsReminders: true },
+  };
 }
 
 /**
@@ -185,7 +189,6 @@ export function detectCurrentTier(features: SalonFeatures | null | undefined): F
 
   // Check Pro
   const proKeys: (keyof SalonFeatures)[] = [
-    'smsReminders',
     'rewards',
     'referrals',
     'scheduleOverrides',

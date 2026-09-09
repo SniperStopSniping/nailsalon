@@ -594,7 +594,8 @@ body.onboarding-modal-open {
 .onboarding-stage-progress__list {
   display: grid;
   min-width: 0;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
   gap: 4px;
   margin: 0;
   padding: 0;
@@ -5541,24 +5542,25 @@ body:has(.onboarding-app) {
     grid-row: 1;
   }
 
-  .onboarding-screen--designer {
+  /* About/layout choices use the full-width, single-column flow above. */
+  .onboarding-screen--designer:not([data-screen="about_design"]) {
     display: grid;
     grid-template-columns: minmax(440px, 1.25fr) minmax(300px, 0.75fr);
     align-items: start;
     gap: 14px 28px;
   }
 
-  .onboarding-screen--designer > .onboarding-screen-heading,
-  .onboarding-screen--designer > .sticky-onboarding-actions {
+  .onboarding-screen--designer:not([data-screen="about_design"]) > .onboarding-screen-heading,
+  .onboarding-screen--designer:not([data-screen="about_design"]) > .sticky-onboarding-actions {
     grid-column: 1 / -1;
   }
 
-  .onboarding-screen--designer > .onboarding-designer-preview {
+  .onboarding-screen--designer:not([data-screen="about_design"]) > .onboarding-designer-preview {
     grid-column: 1;
     grid-row: 2 / span 4;
   }
 
-  .onboarding-screen--designer
+  .onboarding-screen--designer:not([data-screen="about_design"])
     > :not(
       .onboarding-screen-heading,
       .onboarding-designer-preview,

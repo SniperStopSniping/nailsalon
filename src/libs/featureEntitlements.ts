@@ -306,7 +306,7 @@ export const FEATURE_DEFAULTS: {
   // Luster L1 catalog domain — dark by default on every tier. Nothing reads
   // these until the behaviour they gate is built and separately enabled.
   catalog: { variantsV1: false, addOnGroupsV1: false, bookingModesV1: false },
-  marketing: { smsReminders: false, referrals: false, rewards: false },
+  marketing: { smsReminders: true, referrals: false, rewards: false },
   money: { staffEarnings: false, deposits: false },
   analytics: { dashboard: false, utilization: false },
   controls: { clientBlocking: false, clientFlags: false },
@@ -325,6 +325,14 @@ export function resolveEntitlement(
   group: string,
   key: string,
 ): boolean {
+  // SMS access is included on every plan and paid for with Luster credits.
+  // Historical plan presets stored false in both nested and flat fields;
+  // neither is an SMS subscription restriction anymore. This grants access
+  // only: owner preferences and the canonical sending gates remain separate.
+  if (group === 'marketing' && key === 'smsReminders') {
+    return true;
+  }
+
   const groupObj = features?.[group as keyof SalonFeatures];
   if (groupObj && typeof groupObj === 'object' && key in groupObj) {
     const value = (groupObj as Record<string, unknown>)[key];

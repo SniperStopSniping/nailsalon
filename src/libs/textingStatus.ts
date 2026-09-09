@@ -71,6 +71,12 @@ export function resolveAutomaticTextStatus(
     };
   }
   if (health.sms) {
+    if (health.sms.blockingReason === 'GLOBAL_SMS_DISABLED') {
+      return { label: 'Paused', tone: 'warn', detail: health.sms.detail };
+    }
+    if (health.sms.blockingReason === 'PILOT_NOT_ENABLED') {
+      return { label: 'Not available yet', tone: 'muted', detail: health.sms.detail };
+    }
     return {
       label: health.sms.automaticEnabled ? 'Ready' : health.sms.providerReady ? 'Paused' : 'Setup incomplete',
       tone: health.sms.automaticEnabled ? 'good' : 'warn',
@@ -82,4 +88,17 @@ export function resolveAutomaticTextStatus(
     tone: 'muted',
     detail: 'Luster texting readiness could not be verified. Refresh or contact support.',
   };
+}
+
+export function resolveManualTextStatus(health: TextingHealth | null): AutomaticTextStatus {
+  const status = resolveAutomaticTextStatus(health, null);
+  if (!health?.sms || !health.twilio || !health.availability || health.sms.senderMode === 'connected_byo') {
+    return status;
+  }
+  if (health.sms.manualAvailable) {
+    return { label: 'Ready', tone: 'good', detail: health.sms.detail };
+  }
+  return status.label === 'Ready'
+    ? { label: 'Paused', tone: 'warn', detail: health.sms.detail }
+    : status;
 }

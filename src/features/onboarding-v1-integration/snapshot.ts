@@ -194,6 +194,9 @@ export function createPersistableOnboardingDraft(
       about: state.profile.about,
       bookingOnlyContact: state.profile.bookingOnlyContact,
       bookingPreferences: {
+        ...(state.profile.bookingPreferences.confirmationMode
+          ? { confirmationMode: state.profile.bookingPreferences.confirmationMode }
+          : {}),
         minimumNoticeMinutes: state.profile.bookingPreferences.minimumNoticeMinutes,
         newClientStatus: state.profile.bookingPreferences.newClientStatus,
         visitMode: state.profile.bookingPreferences.visitMode,
