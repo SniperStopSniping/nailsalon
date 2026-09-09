@@ -80,7 +80,7 @@ export async function getSalonSmsReadiness(salonId: string): Promise<SmsOperatio
   let detail = '';
   let disabledEventTypes: string[] = [];
   const phoneNumber = candidateMode === 'connected_byo' ? connection?.phoneNumber ?? null : null;
-  const senderLabel = candidateMode === 'connected_byo' ? phoneNumber ?? 'Your connected Twilio sender' : 'Luster shared texting number';
+  const senderLabel = candidateMode === 'connected_byo' ? 'Retired texting connection' : 'Luster shared texting number';
   const workerConfigured = Boolean(process.env.CRON_SECRET);
   if (!salon) {
     blockingReason = 'SALON_NOT_FOUND';
@@ -89,7 +89,7 @@ export async function getSalonSmsReadiness(salonId: string): Promise<SmsOperatio
     providerReady = resolveByoSenderReadiness(connection, { authTokenPresent: Boolean(Env.TWILIO_AUTH_TOKEN) }).ready;
     if (!providerReady) {
       blockingReason = 'SENDER_NOT_READY';
-      detail = 'Your Twilio connection needs attention. Contact support to restore its texting identity.';
+      detail = 'Luster texts use SMS credits. This salon has a retired texting connection. Contact support before enabling Luster texting.';
     }
   } else {
     const control = await readCommunicationControlCached();
@@ -265,33 +265,22 @@ export async function getSalonIntegrationHealth(salonId: string) {
         && process.env.INTEGRATION_ENCRYPTION_KEY
         && process.env.OAUTH_STATE_SECRET,
       ),
-      twilio: Boolean(
-        process.env.TWILIO_CONNECT_APP_SID
-        && process.env.TWILIO_CONNECT_REDIRECT_URI
-        && process.env.TWILIO_AUTH_TOKEN,
-      ),
+      twilio: false,
       email: Boolean(process.env.RESEND_API_KEY && process.env.RESEND_FROM_EMAIL),
       photos: Boolean(
         process.env.CLOUDINARY_CLOUD_NAME
         && process.env.CLOUDINARY_API_KEY
         && process.env.CLOUDINARY_API_SECRET,
       ),
-      // NEW Twilio Connect onboarding is a separate permission from existing
-      // BYO continuity: the connect/provision routes 503 unless the flag is
-      // on, so the UI must stop offering an Authorize button that would fail.
-      twilioConnectOnboarding: Boolean(
-        process.env.TWILIO_CONNECT_APP_SID
-        && process.env.TWILIO_CONNECT_REDIRECT_URI
-        && process.env.TWILIO_AUTH_TOKEN
-        && process.env.SMS_BYO_MODE_ENABLED === 'true',
-      ),
+      // Salon-owned Twilio onboarding is permanently retired.
+      twilioConnectOnboarding: false,
     },
     // Capability-specific configuration flags (contract §11.8/§23). These are
     // ENV-PRESENCE indicators only, never operational readiness: the shared
     // sender stays dark until the platform communication control (Gate B)
     // enables it, and the two not-yet-built capabilities are hard false so no
-    // surface can claim an unbuilt component is ready. availability.twilio
-    // above keeps its legacy per-salon-Connect meaning untouched.
+    // surface can claim an unbuilt component is ready. The retired Connect
+    // capability remains false regardless of stale environment configuration.
     capabilities: {
       twilioVerifyConfigured: Boolean(
         process.env.TWILIO_ACCOUNT_SID
@@ -304,10 +293,7 @@ export async function getSalonIntegrationHealth(salonId: string) {
         && process.env.TWILIO_MESSAGING_SERVICE_SID,
       ),
       twilioMessagingServiceConfigured: Boolean(process.env.TWILIO_MESSAGING_SERVICE_SID),
-      twilioConnectConfigured: Boolean(
-        process.env.TWILIO_CONNECT_APP_SID
-        && process.env.TWILIO_CONNECT_REDIRECT_URI,
-      ),
+      twilioConnectConfigured: false,
       twilioStatusCallbackConfigured: Boolean(process.env.NEXT_PUBLIC_APP_URL),
       // Both shipped in Gate B: the dispatcher route exists (CRON_SECRET
       // gates invocation) and migration 0069 created the ledger. These are
@@ -343,7 +329,7 @@ export async function getSalonIntegrationHealth(salonId: string) {
       ? {
           status: twilio.status,
           phoneNumber: twilio.phoneNumber,
-          lastError: twilio.lastError ? 'Your Twilio connection needs attention. Contact support.' : null,
+          lastError: 'This texting connection is retired. Contact support before enabling Luster texting.',
           deauthorized: Boolean(twilio.deauthorizedAt) || twilio.status === 'deauthorized',
         }
       : {

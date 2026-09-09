@@ -6,7 +6,7 @@
 import path from 'node:path';
 
 import { PGlite } from '@electric-sql/pglite';
-import { sql } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/pglite';
 import { migrate } from 'drizzle-orm/pglite/migrator';
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -423,7 +423,7 @@ describe('intent lifecycle — leases, notAfter, supersession', () => {
 });
 
 describe('canonical SMS safety and recovery', () => {
-  it('uses a connected salon sender without platform credits or shared activation', async () => {
+  it('blocks a historical BYO sender without creating a delivery or bypassing credits', async () => {
     const { salonId, recipient } = await seedSalonWithConsent();
     await enableControl(false);
     envHolder.COMMUNICATIONS_SMS_ENABLED = undefined;
@@ -437,12 +437,16 @@ describe('canonical SMS safety and recovery', () => {
     const provider = vi.fn(async () => ({ sid: 'SM_byo_canonical' }));
     const { dispatchClaimedIntent } = await import('./communicationDispatcher');
 
-    expect(await dispatchClaimedIntent(await claimOne(salonId), provider, NOW)).toBe('sent');
-    expect(provider).toHaveBeenCalledWith(expect.objectContaining({ accountSid: 'AC11111111111111111111111111111111', from: '+14165559999', messagingServiceSid: null }));
+    expect(await dispatchClaimedIntent(await claimOne(salonId), provider, NOW)).toBe('deferred');
+    expect(provider).not.toHaveBeenCalled();
 
     const rows = await db.execute(sql`SELECT credit_reservation_id, settlement_state FROM notification_delivery WHERE salon_id = ${salonId}`);
 
-    expect(rows.rows[0]).toMatchObject({ credit_reservation_id: null, settlement_state: 'not_applicable' });
+    expect(rows.rows).toHaveLength(0);
+
+    const [retained] = await db.select().from(schema.salonTwilioConnectionSchema).where(eq(schema.salonTwilioConnectionSchema.salonId, salonId));
+
+    expect(retained?.status).toBe('active');
   });
 
   it('retains one delivery row when the owner retries a proven provider rejection', async () => {

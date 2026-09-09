@@ -1,37 +1,42 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('server-only', () => ({}));
+import { GET, POST } from './route';
 
-const envMock = vi.hoisted(() => ({
-  SMS_BYO_MODE_ENABLED: undefined as string | undefined,
-}));
+const { insert, fetchProvider } = vi.hoisted(() => ({ insert: vi.fn(), fetchProvider: vi.fn() }));
+vi.mock('@/libs/DB', () => ({ db: { insert } }));
 
-vi.mock('@/libs/Env', () => ({ Env: envMock }));
-vi.mock('@/libs/adminAuth', () => ({ requireAdminSalon: vi.fn() }));
-vi.mock('@/libs/DB', () => ({ db: {} }));
+describe('Twilio provision retirement', () => {
+  afterEach(() => vi.unstubAllEnvs());
 
-const { GET, POST } = await import('./route');
+  it.each([undefined, 'false', 'true'])('GET rejects onboarding even with the legacy flag %s', async (flag) => {
+    vi.stubEnv('SMS_BYO_MODE_ENABLED', flag);
+    vi.stubGlobal('fetch', fetchProvider);
+    try {
+      const response = await GET(new Request('https://luster.test/api/integrations/twilio/provision?salonSlug=isla&state=previously-signed&AccountSid=AC11111111111111111111111111111111', { method: 'GET' }));
 
-describe('twilio provision route — BYO onboarding dormancy', () => {
-  it('503s the number-preview GET while new BYO onboarding is dormant', async () => {
-    const response = await GET(
-      new Request('http://localhost/api/integrations/twilio/provision?salonSlug=x&areaCode=416'),
-    );
-
-    expect(response).toBeDefined();
-    expect(response!.status).toBe(503);
-    expect((await response!.json()).error).toBe('Twilio Connect onboarding is not available');
+      expect(response.status).toBe(410);
+      expect((await response.json()).error).toContain('Luster texting uses SMS credits');
+      expect(response.headers.get('location')).toBeNull();
+      expect(insert).not.toHaveBeenCalled();
+      expect(fetchProvider).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
-  it('503s the purchase POST while new BYO onboarding is dormant', async () => {
-    const response = await POST(
-      new Request('http://localhost/api/integrations/twilio/provision', {
-        method: 'POST',
-        body: JSON.stringify({ salonSlug: 'x', areaCode: '416' }),
-      }),
-    );
+  it.each([undefined, 'false', 'true'])('POST rejects onboarding even with the legacy flag %s', async (flag) => {
+    vi.stubEnv('SMS_BYO_MODE_ENABLED', flag);
+    vi.stubGlobal('fetch', fetchProvider);
+    try {
+      const response = await POST(new Request('https://luster.test/api/integrations/twilio/provision?salonSlug=isla&state=previously-signed&AccountSid=AC11111111111111111111111111111111', { method: 'POST' }));
 
-    expect(response).toBeDefined();
-    expect(response!.status).toBe(503);
+      expect(response.status).toBe(410);
+      expect((await response.json()).error).toContain('Luster texting uses SMS credits');
+      expect(response.headers.get('location')).toBeNull();
+      expect(insert).not.toHaveBeenCalled();
+      expect(fetchProvider).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });

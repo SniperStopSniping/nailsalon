@@ -2,25 +2,31 @@
 
 This pass repairs communications only. It does not enable production SMS, change credentials, provision numbers, run production migrations, or authorize customer sends. The current code and deployment configuration govern behavior; older Gate A/B descriptions of a future dispatcher or native-only manual texting are obsolete.
 
-Operational follow-up: the existing Canadian sender and approved opt-out routing are configured. The repair is under review in [PR #170](https://github.com/SniperStopSniping/nailsalon/pull/170); production still runs `71f70ca`. All GitHub CI passed at `623b0de`. The built `34b1101` Preview loads with existing Clerk Development and Stripe Test-mode keys scoped only to this branch. The user-approved existing Preview migration through `0075` passed, and its schema checks are ready; no SMS migration was added. Overall Preview health remains degraded because existing aggregate checks require unconfigured test-environment integrations, not because the database update failed. See `RESUME.md` checkpoints 5–12 and the [pilot checklist](TWILIO_PILOT_CHECKLIST.md). No live SMS pilot or production release has been authorized or performed.
+Operational follow-up: the existing Canadian sender and approved opt-out routing are configured. The repair is under review in [PR #170](https://github.com/SniperStopSniping/nailsalon/pull/170); production still runs `71f70ca`. All GitHub CI passed at `9304885`; subsequent starter-credit and platform-only changes need their own release checks. The built `34b1101` Preview loads with existing Clerk Development and Stripe Test-mode keys scoped only to this branch. The user-approved existing Preview migration through `0075` passed, and its schema checks are ready; no SMS migration was added. Overall Preview health remains degraded because existing aggregate checks require unconfigured test-environment integrations. The user disputed the selected Daniela workspace; match the provided business address/hours before any salon mutation. See `RESUME.md` and the [pilot checklist](TWILIO_PILOT_CHECKLIST.md). No live SMS pilot or production release has been authorized or performed.
 
 ## Architecture and audit findings
 
 | Area | Existing foundation | Defect repaired / operational boundary |
 | --- | --- | --- |
-| Configuration | Server-only `Env`, `smsSender`, guarded environments | Mode-first shared/BYO readiness; no fallback to a platform bare number when a salon connection is absent. |
-| Number identity | Luster shared Messaging Service; existing `salon_twilio_connection` | Existing BYO remains supported. New Connect/provisioning remains gated by `SMS_BYO_MODE_ENABLED`. Ordinary owners use the shared sender without entering secrets. |
+| Configuration | Server-only `Env`, `smsSender`, guarded environments | Platform Messaging Service required; account/number overrides are rejected before the provider call. Historical sender identities never silently switch. |
+| Number identity | Luster shared Messaging Service; historical `salon_twilio_connection` | Salon-owned Twilio onboarding and sending are retired. Connect/callback/provision routes return 410 even with stale enable flags. Owners use Luster credits without provider credentials. |
 | Outbound | `communication_intent` and `notification_delivery` | Appointment lifecycle and owner texts use durable intents; `twilioMessagingSend` is the single `messages.create` boundary. |
 | Booking | Transactional appointment writes, canonical management capabilities | Request, approval, confirmation, reschedule and cancellation have distinct SMS events/copy; texts are enqueued with business mutations. |
 | Reminders | Timezone/DST scheduling, stable rule IDs, cron | Canonical rules replace the separate BYO dual-window worker. Due-but-unsent reminders survive reconciliation; changed appointment/contact/settings are checked before send. |
 | Manual text | Client/appointment actions and retention records | Text opens a Luster composer. Server resolves salon/client/appointment; the browser cannot choose a recipient or sender. Explicit native promotional/directions drafts remain owner-recorded outreach. |
-| History | Usage intentions and native outreach timeline | Client and appointment SMS history shows provider status, readable failure, queue time, and safe retry. Usage distinguishes shared credits from BYO provider billing. |
+| History | Usage intentions and native outreach timeline | Client and appointment SMS history shows provider status, readable failure, queue time, and safe retry. Historical provider and settlement evidence stays intact. |
 | Delivery callbacks | Signed Twilio endpoint, monotonic status ranks | Account, message, recipient and sender are bound to delivery evidence; terminal failure refunds are idempotent. |
 | Inbound | Consent events and inbound metadata | Signed account/number/service attribution and provider-SID replay protection. STOP/START/HELP are supported; ordinary replies are not a two-way inbox. |
 | Recovery | Leases, unknown-outcome reconciliation, credit reservations | Retry reuses the original intent/delivery. Provider acceptance uncertainty never becomes an automatic resend. Callback evidence can settle and refund an unknown send. |
-| Settings | Existing communications JSON and Integrations | Shared/BYO identity, manual/automatic/reminder availability, pause, credits, quiet hours and blockers are shown from actual server gates. |
+| Settings | Existing communications JSON and Integrations | Luster identity, manual/automatic/reminder availability, pause, credits, quiet hours and blockers are shown from actual server gates. No salon Connect or number-purchase controls remain. |
 
 Every queued text carries salon, optional appointment, canonical client ID in variables when applicable, type, recipient, dedupe identity, schedule and expiry. Rendering records the body, fingerprint, encoding and segment count; delivery records sender identity, provider SID, status, timestamps, error and credit settlement. No schema migration is required for this repair.
+
+### Initial 100 free credits
+
+Both authenticated initial-business onboarding paths now resolve the existing durable business identity and call `grantStarterCredits` inside the business-creation transaction. The helper already existed but had no runtime signup caller. Eligible new businesses receive one non-expiring 100-credit starter lot, regardless of plan. Retried setup and additional salons with the same business identity cannot multiply the allowance. A failed setup rolls the grant back with the business creation.
+
+Existing salon edits, completed-onboarding replays and previously created businesses are not silently backfilled. Before correcting an older missed allowance, verify the exact salon/owner and prior `billing_starter_grant` evidence, then use the existing authorized credit workflow. A zero balance alone does not prove a missing grant: credits may already have been consumed. Credits count SMS segments, so long or Unicode messages can consume more than one credit. No production starter grant has been made during this setup pass.
 
 ## Owner workflow
 
@@ -60,11 +66,9 @@ In the 2026-09-08 setup, Twilio rejected removing a subscription's sole event wi
 
 Configure these values on the intended environment: server-only `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_MESSAGING_SERVICE_SID`, `LUSTER_SHORT_LINK_ORIGIN`, `REDIS_URL`, and `CRON_SECRET`, plus the public origin `NEXT_PUBLIC_APP_URL`. Shared texting needs a reachable Redis rate limiter and sufficient shared SMS credits. Keep `LUSTER_SMS_SENDER_IDENTITY` stable across phone-number changes; consent is keyed to the logical identity. Set `LUSTER_SHORT_LINK_ORIGIN` to a Luster-controlled origin serving this environment's `/a/<token>` route; it must not be a salon custom domain. The legacy fallback is `https://islanailsalon.com`, so disposable verification must explicitly override it. Production short-link origin length must fit the existing 31-character origin budget.
 
-Keep `COMMUNICATIONS_SMS_ENABLED` and `platform_communication_control.smsEnabled` off while setting up. Configure `SMS_PILOT_ENABLED=true` and `SMS_PILOT_SALON_ALLOWLIST` for the exact approved salon slug. Configure salon preferences and provide legitimate test credits through existing billing controls. Enable the environment switch only when setup is ready; enable platform control last, for the approved pilot. New BYO onboarding is independent and stays disabled unless deliberately needed.
+Keep `COMMUNICATIONS_SMS_ENABLED` and `platform_communication_control.smsEnabled` off while setting up. Configure `SMS_PILOT_ENABLED=true` and `SMS_PILOT_SALON_ALLOWLIST` for the exact approved salon slug. Configure salon preferences and provide legitimate test credits through existing billing controls. Enable the environment switch only when setup is ready; enable platform control last, for the approved pilot. Salon-owned Twilio accounts cannot be enabled by configuration.
 
-Existing BYO connections use the connected Account SID with the application's Twilio Connect Auth Token; they do not consume shared Luster credits or depend on the shared sender/pilot switch. Their own opt-out namespace remains isolated. [Twilio Connect authentication](https://www.twilio.com/docs/iam/connect).
-
-For existing BYO connections, configure the connected Messaging Service's incoming webhook and Advanced Opt-Out as above. A phone-number-only connection needs the number's incoming-message webhook set to the same inbound endpoint. Webhook validation may need to retrieve the known connected account's signing token through Connect authorization; revoked access or insufficient account-read permission fails closed. A failed or incomplete BYO connection remains attached to its own identity and never switches automatically to the shared sender.
+Historical BYO connection and delivery records remain available for signature verification and reconciliation, but their sender readiness always fails closed. Do not delete those records or silently convert their consent identity to Luster. Any historical connection requires an explicitly reviewed transition before that salon can send with Luster credits. The provider boundary rejects caller-selected accounts, bare numbers and non-platform Messaging Services. Historical webhook authentication retains the existing [Twilio Connect verification](https://www.twilio.com/docs/iam/connect) path where needed.
 
 ### What blocks texting
 
@@ -73,7 +77,7 @@ Settings and Integrations return the first applicable blocker; resolving it may 
 | Gate | Required condition |
 | --- | --- |
 | Shared sender | `COMMUNICATIONS_SMS_ENABLED=true`, enabled platform control, account/token/`MG…` values, and pilot eligibility when `SMS_PILOT_ENABLED=true`. An enabled pilot with an empty allowlist admits no salon. |
-| Connected sender | Existing connection is `active`, has a valid `AC…` account SID and a Messaging Service or number, and the application has its Connect Auth Token. New onboarding additionally requires `SMS_BYO_MODE_ENABLED=true` and the existing Connect app/redirect configuration. |
+| Historical connected sender | Retired and blocked. Neither an active stored row nor `SMS_BYO_MODE_ENABLED=true` authorizes a send or a new connection. Support must review any transition without changing historical evidence or consent silently. |
 | Delivery callbacks | `NEXT_PUBLIC_APP_URL` is an absolute HTTPS origin; HTTP is accepted only for localhost or `127.0.0.1` development. Missing or invalid configuration blocks the provider send. |
 | Shared sending controls | `REDIS_URL` is present; the rate limiter must also work when the dispatcher runs. |
 | Message worker | `CRON_SECRET` is present, and the deployed cron invokes the configured routes successfully. |

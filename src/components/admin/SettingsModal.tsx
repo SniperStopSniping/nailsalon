@@ -5313,7 +5313,7 @@ export function SettingsModal({
               <div className="rounded-xl border border-[var(--owner-line)] bg-[var(--owner-surface)] p-4 text-sm" role="status">
                 <p className="font-medium text-[var(--owner-ink)]">{smsReadiness.senderLabel}</p>
                 <p className="mt-1 text-[var(--owner-muted)]">{smsReadiness.detail}</p>
-                <p className="mt-1 text-[var(--owner-muted)]">{smsReadiness.availableCredits === null ? 'SMS usage is billed by your connected Twilio account.' : `${smsReadiness.availableCredits} SMS credits available. See Usage for details.`}</p>
+                <p className="mt-1 text-[var(--owner-muted)]">{smsReadiness.availableCredits === null ? 'Luster SMS credit balance is unavailable. Contact support.' : `${smsReadiness.availableCredits} SMS credits available. See Usage for details.`}</p>
               </div>
             )}
             {/* Preferences stay editable while a provider is unavailable. */}
@@ -5367,7 +5367,7 @@ export function SettingsModal({
                 </label>
                 <p className="text-[13px] leading-snug text-[var(--owner-muted,#706267)]">
                   Email confirmations and reminders are included with every plan.
-                  Text messages use Luster SMS credits or your connected Twilio account.
+                  Text messages sent from Luster use Luster SMS credits.
                   You can save preferences while texting setup is incomplete.
                 </p>
               </div>

@@ -109,7 +109,7 @@ describe('operational salon SMS health', () => {
     expect((await getSalonSmsReadiness('health-b')).blockingReason).toBe('NO_CREDITS');
   });
 
-  it('preserves a BYO sender identity and legacy master without charging shared credits', async () => {
+  it('blocks a legacy sender without changing its identity or implying separate billing', async () => {
     await database.insert(schema.salonTwilioConnectionSchema).values({
       salonId: 'health-b',
       status: 'active',
@@ -119,7 +119,7 @@ describe('operational salon SMS health', () => {
     await database.update(schema.salonSchema).set({ settings: null }).where(eq(schema.salonSchema.id, 'health-b'));
     env.COMMUNICATIONS_SMS_ENABLED = undefined;
 
-    expect(await getSalonSmsReadiness('health-b')).toMatchObject({ senderMode: 'connected_byo', providerReady: true, manualAvailable: true, phoneNumber: '+14165550199', availableCredits: null });
+    expect(await getSalonSmsReadiness('health-b')).toMatchObject({ senderMode: 'connected_byo', providerReady: false, manualAvailable: false, automaticEnabled: false, blockingReason: 'SENDER_NOT_READY', phoneNumber: '+14165550199', availableCredits: null });
     expect((await getSalonSmsReadiness('health-a')).phoneNumber).toBeNull();
   });
 

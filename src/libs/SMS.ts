@@ -8,7 +8,7 @@
  * - Cancellation confirmations
  *
  * Appointment operations enqueue durable communication intents. Legacy ancillary
- * sends fail closed unless the salon has its own active Twilio connection.
+ * sends fail closed; salon-owned Twilio sending is retired.
  * All SMS functions check the salon's smsRemindersEnabled toggle before sending.
  */
 
@@ -22,6 +22,7 @@ import { formatMoney } from '@/libs/formatMoney';
 import { buildSalonPublicUrl } from '@/libs/publicUrl';
 import { formatRewardDollars, REFERRAL_REFEREE_AMOUNT_CENTS } from '@/libs/rewardRules';
 import { isSmsEnabled } from '@/libs/salonStatus';
+import { resolveByoSenderReadiness } from '@/libs/smsSender';
 import { formatDateInTimeZone, formatTimeInTimeZone } from '@/libs/timeZone';
 import { buildStatusCallbackUrl, sendViaTwilio } from '@/libs/twilioMessagingSend';
 import { appointmentSchema, communicationConsentSchema, notificationDeliverySchema, salonTwilioConnectionSchema } from '@/models/Schema';
@@ -215,11 +216,11 @@ export function buildBookingFinancialSmsLines(
 // TWILIO CLIENT
 // =============================================================================
 
-/** Legacy non-appointment facades may only use the salon's own sender. */
+/** Legacy facades must never bypass platform credits or change sender identity. */
 async function getSalonTwilioSender(salonId: string) {
   const [connection] = await db.select().from(salonTwilioConnectionSchema)
     .where(and(eq(salonTwilioConnectionSchema.salonId, salonId), eq(salonTwilioConnectionSchema.status, 'active'))).limit(1);
-  if (!connection || !Env.TWILIO_AUTH_TOKEN || (!connection.messagingServiceSid && !connection.phoneNumber)) {
+  if (!connection || !resolveByoSenderReadiness(connection, { authTokenPresent: Boolean(Env.TWILIO_AUTH_TOKEN) }).ready) {
     return null;
   }
   return { accountSid: connection.connectAccountSid, messagingServiceSid: connection.messagingServiceSid, phoneNumber: connection.phoneNumber };

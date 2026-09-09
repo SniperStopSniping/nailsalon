@@ -5,14 +5,14 @@ import { GET } from './route';
 const { insert, fetchProvider } = vi.hoisted(() => ({ insert: vi.fn(), fetchProvider: vi.fn() }));
 vi.mock('@/libs/DB', () => ({ db: { insert } }));
 
-describe('Twilio connect retirement', () => {
+describe('Twilio callback retirement', () => {
   afterEach(() => vi.unstubAllEnvs());
 
   it.each([undefined, 'false', 'true'])('GET rejects onboarding even with the legacy flag %s', async (flag) => {
     vi.stubEnv('SMS_BYO_MODE_ENABLED', flag);
     vi.stubGlobal('fetch', fetchProvider);
     try {
-      const response = await GET(new Request('https://luster.test/api/integrations/twilio/connect?salonSlug=isla&state=previously-signed&AccountSid=AC11111111111111111111111111111111', { method: 'GET' }));
+      const response = await GET(new Request('https://luster.test/api/integrations/twilio/callback?salonSlug=isla&state=previously-signed&AccountSid=AC11111111111111111111111111111111', { method: 'GET' }));
 
       expect(response.status).toBe(410);
       expect((await response.json()).error).toContain('Luster texting uses SMS credits');

@@ -57,11 +57,18 @@ export function isNativeSmsCapableDevice(userAgent: string): boolean {
 
 export function resolveAutomaticTextStatus(
   health: TextingHealth | null,
-  smsModuleReason: ModuleReason | null,
+  _smsModuleReason: ModuleReason | null,
 ): AutomaticTextStatus {
   // A missing or malformed health payload must never claim any status.
   if (!health || !health.twilio || !health.availability) {
     return { label: 'Loading…', tone: 'muted', detail: '' };
+  }
+  if (health.sms?.senderMode === 'connected_byo' || (!health.sms && health.twilio.status !== 'disconnected')) {
+    return {
+      label: 'Setup incomplete',
+      tone: 'warn',
+      detail: 'This texting connection is retired. Luster texts use SMS credits. Contact support before enabling Luster texting.',
+    };
   }
   if (health.sms) {
     return {
@@ -70,48 +77,9 @@ export function resolveAutomaticTextStatus(
       detail: health.sms.detail,
     };
   }
-  const { twilio, availability } = health;
-  if (twilio.status === 'active' && twilio.phoneNumber) {
-    if (smsModuleReason === 'ENABLED') {
-      return {
-        label: 'Ready',
-        tone: 'good',
-        detail: `Automatic texts send from ${twilio.phoneNumber}.`,
-      };
-    }
-    return {
-      label: 'Setup incomplete',
-      tone: 'warn',
-      detail:
-        smsModuleReason === 'MODULE_DISABLED'
-          ? 'A number is connected, but SMS reminders are turned off in Settings.'
-          : 'A number is connected, but SMS reminders are not included in this salon’s plan.',
-    };
-  }
-  if (twilio.status === 'pending') {
-    return {
-      label: 'Setup incomplete',
-      tone: 'warn',
-      detail: 'Twilio is authorized. Choose a phone number to finish setup.',
-    };
-  }
-  if (twilio.status === 'deauthorized' || twilio.lastError) {
-    return {
-      label: 'Error',
-      tone: 'error',
-      detail: twilio.lastError || 'The Twilio connection was removed. Reconnect to resume automatic texts.',
-    };
-  }
-  if (!availability.twilio) {
-    return {
-      label: 'Not available yet',
-      tone: 'muted',
-      detail: 'Automatic texting is not offered on this Luster environment yet.',
-    };
-  }
   return {
-    label: 'Not connected',
+    label: 'Not available yet',
     tone: 'muted',
-    detail: 'Optional. Connect Twilio to send reminders automatically.',
+    detail: 'Luster texting readiness could not be verified. Refresh or contact support.',
   };
 }

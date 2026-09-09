@@ -7,7 +7,7 @@ import { SettingsModal } from './SettingsModal';
 const { fetchMock, refreshMock, capability } = vi.hoisted(() => ({
   fetchMock: vi.fn(),
   refreshMock: vi.fn(),
-  capability: { smsChannelAvailable: true },
+  capability: { smsChannelAvailable: true, sms: null as Record<string, unknown> | null },
 }));
 
 vi.mock('next/navigation', () => ({
@@ -71,6 +71,7 @@ const settingsPayload = () => ({
   ownerPhonePresent: true,
   ownerEmailPresent: true,
   smsChannelAvailable: capability.smsChannelAvailable,
+  sms: capability.sms,
   emailChannelAvailable: true,
   effectivePoints: { welcomeBonus: 0, profileCompletion: 0, referralReferee: 0, referralReferrer: 0 },
   defaults: { welcomeBonus: 0, profileCompletion: 0, referralReferee: 0, referralReferrer: 0 },
@@ -83,6 +84,7 @@ describe('SettingsModal communications view', () => {
     vi.clearAllMocks();
     fetchMock.mockReset();
     capability.smsChannelAvailable = true;
+    capability.sms = null;
     vi.stubGlobal('fetch', fetchMock);
     fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
       const url = typeof input === 'string' ? input : input.toString();
@@ -112,6 +114,37 @@ describe('SettingsModal communications view', () => {
     expect(screen.getByLabelText('Quiet hours end')).toHaveValue('09:00');
     // Save is disabled until something changes.
     expect(screen.getByRole('button', { name: /save communication settings/i })).toBeDisabled();
+  });
+
+  it.each([42, null])('describes Luster SMS credits with a balance of %s', async (availableCredits) => {
+    capability.sms = {
+      providerReady: availableCredits !== null,
+      senderMode: availableCredits === null ? 'disabled' : 'shared_luster',
+      senderLabel: availableCredits === null ? 'Retired texting connection' : 'Luster shared texting number',
+      phoneNumber: null,
+      blockingReason: availableCredits === null ? 'byo_retired' : null,
+      detail: availableCredits === null
+        ? 'Luster texts use SMS credits. This salon has a retired texting connection. Contact support before enabling Luster texting.'
+        : 'Texts send through Luster.',
+      smsEnabled: true,
+      automaticEnabled: availableCredits !== null,
+      manualAvailable: availableCredits !== null,
+      remindersEnabled: availableCredits !== null,
+      quietHours: { enabled: true, start: '21:00', end: '09:00' },
+      availableCredits,
+      workerConfigured: true,
+    };
+    await openCommunications();
+
+    expect(screen.getByText(/Text messages sent from Luster use Luster SMS credits\./)).toBeInTheDocument();
+    expect(screen.getByText(availableCredits === null
+      ? 'Luster SMS credit balance is unavailable. Contact support.'
+      : '42 SMS credits available. See Usage for details.')).toBeInTheDocument();
+    expect(screen.queryByText(/connected Twilio account/i)).not.toBeInTheDocument();
+
+    if (availableCredits === null) {
+      expect(screen.getByText(/Contact support before enabling Luster texting\./)).toBeInTheDocument();
+    }
   });
 
   it('editing marks the view dirty: leaving warns instead of silently discarding', async () => {

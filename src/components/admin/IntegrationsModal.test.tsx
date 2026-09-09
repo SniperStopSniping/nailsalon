@@ -47,11 +47,29 @@ function healthPayload(overrides: HealthOverrides = {}) {
 
 const fetchMock = vi.fn();
 
+function readySms(overrides: Record<string, unknown> = {}) {
+  return {
+    providerReady: true,
+    senderMode: 'shared_luster',
+    senderLabel: 'Luster shared texting number',
+    phoneNumber: null,
+    blockingReason: null,
+    detail: 'Texts send through Luster.',
+    smsEnabled: true,
+    automaticEnabled: true,
+    manualAvailable: true,
+    remindersEnabled: true,
+    quietHours: { enabled: true, start: '21:00', end: '09:00' },
+    availableCredits: 42,
+    workerConfigured: true,
+    ...overrides,
+  };
+}
+
 function mockEndpoints(options: {
   health?: HealthOverrides;
   smsReminders?: 'ENABLED' | 'MODULE_DISABLED' | 'UPGRADE_REQUIRED';
   onDisconnect?: () => void;
-  onProvision?: () => void;
 } = {}) {
   fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
@@ -69,25 +87,6 @@ function mockEndpoints(options: {
     if (url === '/api/integrations/google/disconnect' && init?.method === 'POST') {
       options.onDisconnect?.();
       return new Response(JSON.stringify({ data: { disconnected: true } }), { status: 200 });
-    }
-    if (url.startsWith('/api/integrations/twilio/provision')) {
-      if (init?.method === 'POST') {
-        options.onProvision?.();
-        return new Response(
-          JSON.stringify({ data: { phoneNumber: '+14165550188' } }),
-          { status: 200 },
-        );
-      }
-      return new Response(
-        JSON.stringify({
-          data: {
-            number: { phone_number: '+14165550188' },
-            monthlyPrice: '1.15',
-            currency: 'CAD',
-          },
-        }),
-        { status: 200 },
-      );
     }
     if (url.startsWith('/api/integrations/google/calendars')) {
       return new Response(
@@ -135,7 +134,7 @@ describe('IntegrationsModal', () => {
       expect(screen.getByTestId('integration-row-google')).toHaveTextContent('Not connected');
     });
 
-    expect(screen.getByTestId('integration-row-texting')).toHaveTextContent('Not connected');
+    expect(screen.getByTestId('integration-row-texting')).toHaveTextContent('Not available yet');
 
     expect(screen.getByTestId('integration-row-email')).toHaveTextContent('Ready');
     // No payments row: no client-payment integration exists.
@@ -157,7 +156,7 @@ describe('IntegrationsModal', () => {
     });
   });
 
-  it('manual texting works without Twilio on a phone; automatic stays Not connected', async () => {
+  it('distinguishes the phone composer from unavailable Luster texting', async () => {
     stubUserAgent('Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X)');
     mockEndpoints({ health: { twilio: { status: 'disconnected' } } });
 
@@ -166,12 +165,13 @@ describe('IntegrationsModal', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByTestId('automatic-texting-section')).toHaveTextContent('Not connected');
+      expect(screen.getByTestId('automatic-texting-section')).toHaveTextContent('Not available yet');
     });
 
     expect(screen.getByTestId('manual-texting-section')).toHaveTextContent('Unavailable');
-    expect(screen.getByTestId('native-texting-section')).toHaveTextContent(/no Twilio needed/i);
-    expect(screen.getByText('Authorize Twilio')).toBeInTheDocument();
+    expect(screen.getByTestId('native-texting-section')).toHaveTextContent(/own mobile number and mobile plan/i);
+    expect(screen.getByTestId('native-texting-section')).toHaveTextContent(/do not use Luster SMS credits/i);
+    expect(screen.queryByText('Authorize Twilio')).not.toBeInTheDocument();
   });
 
   it('flags manual texting as unsupported on a desktop browser', async () => {
@@ -189,9 +189,9 @@ describe('IntegrationsModal', () => {
     });
   });
 
-  it('does not report automatic texting Ready while setup is incomplete', async () => {
+  it('does not report automatic texting Ready while automatic messages are paused', async () => {
     mockEndpoints({
-      health: { twilio: { status: 'active', phoneNumber: '+14165550111' } },
+      health: { sms: readySms({ automaticEnabled: false, remindersEnabled: false, detail: 'Automatic texts are paused in Settings.' }) },
       smsReminders: 'MODULE_DISABLED',
     });
 
@@ -200,15 +200,15 @@ describe('IntegrationsModal', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByTestId('automatic-texting-section')).toHaveTextContent('Setup incomplete');
+      expect(screen.getByTestId('automatic-texting-section')).toHaveTextContent('Paused');
     });
 
     expect(screen.getByTestId('automatic-texting-section')).not.toHaveTextContent(/^Ready$/);
   });
 
-  it('reports automatic texting Ready only when the number and module are both live', async () => {
+  it('reports automatic texting Ready from canonical Luster SMS readiness', async () => {
     mockEndpoints({
-      health: { twilio: { status: 'active', phoneNumber: '+14165550111' } },
+      health: { sms: readySms() },
       smsReminders: 'ENABLED',
     });
 
@@ -220,7 +220,7 @@ describe('IntegrationsModal', () => {
       expect(screen.getByTestId('automatic-texting-section')).toHaveTextContent('Ready');
     });
 
-    expect(screen.getByTestId('automatic-texting-section')).toHaveTextContent('+14165550111');
+    expect(screen.getByTestId('automatic-texting-section')).toHaveTextContent('Luster shared texting number');
   });
 
   it('shows marketing email as unavailable with no toggle', async () => {
@@ -367,46 +367,48 @@ describe('IntegrationsModal', () => {
     });
   });
 
-  describe('buying a Twilio number', () => {
-    it('never provisions on a single tap and names the recurring charge in the confirmation', async () => {
-      const onProvision = vi.fn();
-      mockEndpoints({ health: { twilio: { status: 'pending' } }, onProvision });
+  it.each(['disconnected', 'pending', 'active'])(
+    'never offers Twilio authorization or number purchase for stale %s onboarding data',
+    async (status) => {
+      mockEndpoints({ health: {
+        twilio: { status, phoneNumber: status === 'active' ? '+14165550111' : null },
+        availability: { twilio: true, twilioConnectOnboarding: true },
+      } });
+      render(<IntegrationsModal onClose={vi.fn()} salonSlug="salon-a" initialView="texting" />);
+      await waitFor(() => expect(screen.getByTestId('manual-texting-section')).toHaveTextContent('Unavailable'));
 
-      render(
-        <IntegrationsModal onClose={vi.fn()} salonSlug="salon-a" initialView="texting" />,
-      );
+      expect(screen.queryByText('Authorize Twilio')).not.toBeInTheDocument();
+      expect(screen.queryByLabelText('Canadian area code')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('twilio-preview')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('twilio-provision')).not.toBeInTheDocument();
+      expect(screen.queryByRole('dialog', { name: /buy this phone number/i })).not.toBeInTheDocument();
+      expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/api/integrations/twilio/'))).toBe(false);
+    },
+  );
 
-      fireEvent.click(await screen.findByTestId('twilio-preview'));
+  it('shows retired texting connections as unavailable and does not invent a credit balance', async () => {
+    mockEndpoints({ health: {
+      twilio: { status: 'active', phoneNumber: '+14165550111' },
+      sms: readySms({
+        providerReady: false,
+        senderMode: 'disabled',
+        senderLabel: 'Retired texting connection',
+        blockingReason: 'byo_retired',
+        detail: 'Luster texts use SMS credits. This salon has a retired texting connection. Contact support before enabling Luster texting.',
+        automaticEnabled: false,
+        manualAvailable: false,
+        remindersEnabled: false,
+        availableCredits: null,
+      }),
+    } });
+    render(<IntegrationsModal onClose={vi.fn()} salonSlug="salon-a" initialView="texting" />);
+    await waitFor(() => expect(screen.getByTestId('automatic-texting-section')).toHaveTextContent('Retired texting connection'));
 
-      const buy = await screen.findByTestId('twilio-provision');
-
-      expect(onProvision).not.toHaveBeenCalled();
-
-      fireEvent.click(buy);
-
-      const dialog = await screen.findByTestId('confirm-dialog');
-
-      expect(dialog).toHaveTextContent('+14165550188');
-      expect(dialog).toHaveTextContent(/1\.15 CAD per month/i);
-      expect(dialog).toHaveTextContent(/your own Twilio account/i);
-      // Opening the confirmation must not have bought anything.
-      expect(onProvision).not.toHaveBeenCalled();
-
-      fireEvent.click(screen.getByTestId('confirm-dialog-cancel'));
-
-      await waitFor(() => {
-        expect(screen.queryByTestId('confirm-dialog')).not.toBeInTheDocument();
-      });
-
-      expect(onProvision).not.toHaveBeenCalled();
-
-      fireEvent.click(screen.getByTestId('twilio-provision'));
-      fireEvent.click(await screen.findByTestId('confirm-dialog-confirm'));
-
-      await waitFor(() => {
-        expect(onProvision).toHaveBeenCalledTimes(1);
-      });
-    });
+    expect(screen.getByTestId('manual-texting-section')).toHaveTextContent('Unavailable');
+    expect(screen.getByTestId('automatic-texting-section')).toHaveTextContent('Contact support before enabling Luster texting.');
+    expect(screen.getByText('Luster SMS credit balance is unavailable. Contact support.')).toBeInTheDocument();
+    expect(screen.queryByText(/billed by your Twilio account/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/0 available/i)).not.toBeInTheDocument();
   });
 
   it('separates connection health from when things send, and offers the way across', async () => {
@@ -435,21 +437,7 @@ describe('IntegrationsModal', () => {
     stubUserAgent('Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)');
     mockEndpoints({ health: {
       availability: { twilio: false, twilioConnectOnboarding: false },
-      sms: {
-        providerReady: true,
-        senderMode: 'shared_luster',
-        senderLabel: 'Luster shared texting number',
-        phoneNumber: null,
-        blockingReason: null,
-        detail: 'Texts send through Luster.',
-        smsEnabled: true,
-        automaticEnabled: true,
-        manualAvailable: true,
-        remindersEnabled: true,
-        quietHours: { enabled: true, start: '21:00', end: '09:00' },
-        availableCredits: 42,
-        workerConfigured: true,
-      },
+      sms: readySms(),
     } });
     render(<IntegrationsModal onClose={vi.fn()} salonSlug="salon-a" initialView="texting" />);
     await waitFor(() => expect(screen.getByTestId('manual-texting-section')).toHaveTextContent('Ready'));

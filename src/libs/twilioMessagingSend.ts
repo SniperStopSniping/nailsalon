@@ -58,13 +58,14 @@ export function buildStatusCallbackUrl(deliveryId: string): string | null {
  * toll-free swap changes no send-path code.
  */
 export const sendViaTwilio: ProviderSendFn = async (input) => {
-  const accountSid = input.accountSid ?? Env.TWILIO_ACCOUNT_SID;
+  const accountSid = Env.TWILIO_ACCOUNT_SID;
   const authToken = Env.TWILIO_AUTH_TOKEN;
   if (!accountSid || !authToken || !input.statusCallbackUrl) {
     // Provably pre-request: no client, no send — ordinary failure (release).
     throw new Error('SENDER_NOT_READY');
   }
-  if (!input.messagingServiceSid && !input.from) {
+  if (input.accountSid !== undefined || input.from !== undefined
+    || !Env.TWILIO_MESSAGING_SERVICE_SID || input.messagingServiceSid !== Env.TWILIO_MESSAGING_SERVICE_SID) {
     throw new Error('SENDER_NOT_READY');
   }
   const client = twilio(accountSid, authToken, { timeout: 30_000, autoRetry: false });
@@ -72,7 +73,7 @@ export const sendViaTwilio: ProviderSendFn = async (input) => {
     const message = await client.messages.create({
       to: input.to,
       body: input.body,
-      ...(input.messagingServiceSid ? { messagingServiceSid: input.messagingServiceSid } : { from: input.from! }),
+      messagingServiceSid: Env.TWILIO_MESSAGING_SERVICE_SID,
       ...(input.statusCallbackUrl ? { statusCallback: input.statusCallbackUrl } : {}),
     });
     return { sid: message.sid };

@@ -130,7 +130,7 @@ describe('SMS templates', () => {
     }));
   });
 
-  it('sends clean customer booking confirmations', async () => {
+  it('does not send legacy customer confirmations through a salon-owned account', async () => {
     queueSelectResults([{ status: 'granted' }], [{ connectAccountSid: 'AC00000000000000000000000000000000', messagingServiceSid: null, phoneNumber: '+14165559999', status: 'active' }]);
     await sendBookingConfirmationToClient('salon_1', {
       phone: '4165550198',
@@ -144,23 +144,7 @@ describe('SMS templates', () => {
       timeZone: 'America/Toronto',
     });
 
-    expect(create).toHaveBeenCalledWith(expect.objectContaining({
-      body: [
-        'Isla Nail Studio',
-        'Appointment confirmed',
-        '',
-        'Hi Bob,',
-        '',
-        'Gel Manicure with Daniela',
-        'Wed, Jun 10, 1:45 PM',
-        'Estimated appointment total: $40.00 CAD',
-        'Already paid: $0.00 CAD',
-        'Estimated remaining balance: $40.00 CAD',
-        '',
-        'Reply STOP to opt out. Reply to this text if you need help.',
-      ].join('\n'),
-      to: '+14165550198',
-    }));
+    expect(create).not.toHaveBeenCalled();
   });
 
   it('does not send customer appointment texts without salon-scoped consent', async () => {
@@ -182,46 +166,24 @@ describe('SMS templates', () => {
     expect(create).not.toHaveBeenCalled();
   });
 
-  it('uses the added-tax snapshot and reconciled deposit/payment totals in customer SMS', async () => {
-    queueSelectResults([{ status: 'granted' }], [{ connectAccountSid: 'AC00000000000000000000000000000000', messagingServiceSid: null, phoneNumber: '+14165559999', status: 'active' }]);
-
-    await sendBookingConfirmationToClient('salon_1', {
-      phone: '4165550198',
-      clientName: 'Bob',
-      appointmentId: 'appt_1',
-      salonName: 'Isla Nail Studio',
-      services: ['Gel Manicure'],
-      technicianName: 'Daniela',
-      startTime: '2026-06-10T17:45:00.000Z',
-      financialSummary: financialSummary({
-        serviceInvoiceTotalCents: 11_300,
-        totalDueCents: 11_300,
-        taxAmountCents: 1300,
-        taxLabel: 'HST',
-        taxMode: 'added',
-        taxApplied: true,
-        collectedDepositCents: 2000,
-        refundedDepositCents: 500,
-        depositCreditAppliedCents: 1500,
-        appointmentPaymentsCents: 1000,
-        amountAlreadyPaidCents: 2500,
-        balanceCents: 8800,
-        depositPresentationState: 'creditable',
-      }),
-    });
-
-    expect(create).toHaveBeenCalledWith(expect.objectContaining({
-      body: expect.stringContaining([
-        'Estimated HST (added): $13.00 CAD',
-        'Estimated appointment total: $113.00 CAD',
-        'Deposit paid: $20.00 CAD',
-        'Deposit refunded: $5.00 CAD',
-        'Deposit applied: -$15.00 CAD',
-        'Other payments: $10.00 CAD',
-        'Already paid: $25.00 CAD',
-        'Estimated remaining balance: $88.00 CAD',
-      ].join('\n')),
+  it('preserves tax and deposit presentation in SMS draft helpers', () => {
+    const lines = buildBookingFinancialSmsLines(financialSummary({
+      serviceInvoiceTotalCents: 11_300,
+      totalDueCents: 11_300,
+      taxAmountCents: 1300,
+      taxLabel: 'HST',
+      taxMode: 'added',
+      taxApplied: true,
+      collectedDepositCents: 2000,
+      refundedDepositCents: 500,
+      depositCreditAppliedCents: 1500,
+      appointmentPaymentsCents: 1000,
+      amountAlreadyPaidCents: 2500,
+      balanceCents: 8800,
+      depositPresentationState: 'creditable',
     }));
+
+    expect(lines).toEqual(expect.arrayContaining(['Estimated HST (added): $13.00 CAD', 'Estimated appointment total: $113.00 CAD', 'Deposit applied: -$15.00 CAD', 'Other payments: $10.00 CAD', 'Estimated remaining balance: $88.00 CAD']));
   });
 
   it('uses the frozen USD identity instead of a hardcoded dollar assumption', () => {
@@ -248,31 +210,17 @@ describe('SMS templates', () => {
     }))).toContain('Deposit retained: $20.00 CAD');
   });
 
-  it('suppresses every definitive amount when a deposit refund is unresolved', async () => {
-    queueSelectResults([{ status: 'granted' }], [{ connectAccountSid: 'AC00000000000000000000000000000000', messagingServiceSid: null, phoneNumber: '+14165559999', status: 'active' }]);
-
-    await sendBookingConfirmationToClient('salon_1', {
-      phone: '4165550198',
-      clientName: 'Bob',
-      appointmentId: 'appt_1',
-      salonName: 'Isla Nail Studio',
-      services: ['Gel Manicure'],
-      technicianName: 'Daniela',
-      startTime: '2026-06-10T17:45:00.000Z',
-      financialSummary: financialSummary({
-        collectedDepositCents: 4000,
-        depositCreditAppliedCents: 4000,
-        amountAlreadyPaidCents: 4000,
-        balanceCents: 0,
-        depositBlockedCode: 'DEPOSIT_REFUND_UNRESOLVED',
-        depositPresentationState: 'blocked',
-      }),
-    });
-
-    const body = create.mock.calls[0]![0].body as string;
+  it('suppresses definitive draft amounts when a deposit refund is unresolved', () => {
+    const body = buildBookingFinancialSmsLines(financialSummary({
+      collectedDepositCents: 4000,
+      depositCreditAppliedCents: 4000,
+      amountAlreadyPaidCents: 4000,
+      balanceCents: 0,
+      depositBlockedCode: 'DEPOSIT_REFUND_UNRESOLVED',
+      depositPresentationState: 'blocked',
+    })).join('\n');
 
     expect(body).toContain('Payment details: under review');
-    expect(body).toContain('Your final payment amount will be confirmed before collection.');
     expect(body).not.toMatch(/\$|Total:|Balance due:/u);
   });
 
@@ -319,7 +267,7 @@ describe('SMS templates', () => {
     );
   });
 
-  it('sends referral invite links on the salon custom domain', async () => {
+  it('rejects legacy referral sends instead of bypassing Luster credits', async () => {
     queueSelectResults([{ connectAccountSid: 'AC00000000000000000000000000000000', messagingServiceSid: null, phoneNumber: '+14165559999', status: 'active' }]);
     const sent = await sendReferralInvite('salon_1', {
       refereePhone: '2223334444',
@@ -329,16 +277,7 @@ describe('SMS templates', () => {
       referralId: 'ref_123',
     });
 
-    expect(sent).toBe(true);
-    expect(create).toHaveBeenCalledWith(expect.objectContaining({
-      body: expect.stringContaining('https://islanailsalon.com/referral/ref_123'),
-      to: '+12223334444',
-    }));
-    expect(create).toHaveBeenCalledWith(expect.objectContaining({
-      body: expect.stringContaining('Ava sent you $10 off your first appointment at Isla Nail Studio.'),
-    }));
-    expect(create).toHaveBeenCalledWith(expect.objectContaining({
-      body: expect.not.stringContaining('localhost'),
-    }));
+    expect(sent).toBe(false);
+    expect(create).not.toHaveBeenCalled();
   });
 });

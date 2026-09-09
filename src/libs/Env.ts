@@ -47,6 +47,7 @@ export const Env = createEnv({
     TWILIO_MESSAGING_SERVICE_SID: z.string().optional(),
     LUSTER_SMS_SENDER_IDENTITY: z.string().optional(),
     COMMUNICATIONS_SMS_ENABLED: z.enum(['true', 'false']).optional(),
+    // Accepted only for existing environment compatibility; cannot enable retired BYO.
     SMS_BYO_MODE_ENABLED: z.enum(['true', 'false']).optional(),
     SMS_PILOT_ENABLED: z.enum(['true', 'false']).optional(),
     SMS_PILOT_SALON_ALLOWLIST: z.string().optional(),

@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const mocks = vi.hoisted(() => ({ create: vi.fn(), twilio: vi.fn(), env: { TWILIO_ACCOUNT_SID: 'AC00000000000000000000000000000000' as string | undefined, TWILIO_AUTH_TOKEN: 'test-token' as string | undefined, NEXT_PUBLIC_APP_URL: 'https://app.test/' } }));
+const mocks = vi.hoisted(() => ({ create: vi.fn(), twilio: vi.fn(), env: { TWILIO_ACCOUNT_SID: 'AC00000000000000000000000000000000' as string | undefined, TWILIO_AUTH_TOKEN: 'test-token' as string | undefined, TWILIO_MESSAGING_SERVICE_SID: 'MG00000000000000000000000000000000', NEXT_PUBLIC_APP_URL: 'https://app.test/' } }));
 vi.mock('server-only', () => ({}));
 vi.mock('@/libs/Env', () => ({ Env: mocks.env }));
 vi.mock('twilio', () => ({ default: mocks.twilio }));
@@ -28,12 +28,17 @@ describe('canonical Twilio provider boundary', () => {
     expect(buildStatusCallbackUrl('nd 1')).toBe('https://app.test/api/integrations/twilio/status?deliveryId=nd%201');
   });
 
-  it('uses the explicit connected account and sender without the shared service', async () => {
+  it.each([
+    { accountSid: 'AC11111111111111111111111111111111' },
+    { from: '+14165559999' },
+    { messagingServiceSid: 'MG11111111111111111111111111111111' },
+    { messagingServiceSid: null },
+  ])('rejects non-platform sender overrides before any provider request: %j', async (override) => {
     const { sendViaSharedMessagingService } = await import('./twilioMessagingSend');
-    await sendViaSharedMessagingService({ ...input, messagingServiceSid: null, accountSid: 'AC11111111111111111111111111111111', from: '+14165559999' });
 
-    expect(mocks.create).toHaveBeenCalledWith(expect.objectContaining({ from: '+14165559999', to: input.to }));
-    expect(mocks.create.mock.calls[0]![0]).not.toHaveProperty('messagingServiceSid');
+    await expect(sendViaSharedMessagingService({ ...input, ...override })).rejects.toThrow('SENDER_NOT_READY');
+    expect(mocks.twilio).not.toHaveBeenCalled();
+    expect(mocks.create).not.toHaveBeenCalled();
   });
 
   it('fails before the provider when credentials are absent', async () => {
