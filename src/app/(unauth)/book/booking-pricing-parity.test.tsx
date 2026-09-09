@@ -22,7 +22,7 @@ const {
   getSalonById,
   getTechnicianById,
   isRewardsEnabled,
-  isSmsEnabled,
+  getSalonSmsReadiness,
   resolveDraftSalonAccess,
   resolvePublicBookingTechnicianContext,
   resolvePublicBookingSelection,
@@ -40,7 +40,7 @@ const {
   getSalonById: vi.fn(),
   getTechnicianById: vi.fn(),
   isRewardsEnabled: vi.fn(),
-  isSmsEnabled: vi.fn(),
+  getSalonSmsReadiness: vi.fn(),
   resolveDraftSalonAccess: vi.fn(() => Promise.resolve({
     allowed: true,
     isPreviewingDraftSalon: false,
@@ -131,8 +131,9 @@ vi.mock('@/libs/salonStatus', () => ({
   checkFeatureEnabled,
   checkSalonStatus,
   isRewardsEnabled,
-  isSmsEnabled,
 }));
+
+vi.mock('@/libs/integrationHealth', () => ({ getSalonSmsReadiness }));
 
 vi.mock('@/libs/tenant', () => ({
   getPublicPageContext,
@@ -275,7 +276,7 @@ describe('booking pricing parity', () => {
     checkFeatureEnabled.mockResolvedValue({});
     getSalonById.mockResolvedValue({ id: 'salon_1', settings: null });
     isRewardsEnabled.mockResolvedValue(true);
-    isSmsEnabled.mockResolvedValue(true);
+    getSalonSmsReadiness.mockResolvedValue({ automaticEnabled: true });
     getPrimaryLocation.mockResolvedValue(null);
     getLocationById.mockResolvedValue(null);
     getTechnicianById.mockResolvedValue({

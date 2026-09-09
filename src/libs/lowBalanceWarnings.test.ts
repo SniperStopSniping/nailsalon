@@ -28,6 +28,8 @@ const envHolder = vi.hoisted(() => ({
   BILLING_TOPUPS_ENABLED: undefined as string | undefined,
 }));
 vi.mock('@/libs/Env', () => ({ Env: envHolder }));
+const sendTransactionalEmailDetailed = vi.hoisted(() => vi.fn(async () => ({ sent: true })));
+vi.mock('@/libs/email', () => ({ sendTransactionalEmailDetailed }));
 vi.mock('@/libs/rateLimit', () => ({
   checkEndpointRateLimit: () => ({ allowed: true }),
   getClientIp: () => '127.0.0.1',
@@ -86,11 +88,33 @@ describe('masking (§10.4)', () => {
     // Unknown internal codes NEVER pass through.
     expect(friendlyFailureReason('TWILIO_30007_CARRIER_FILTERED')).toBe('This message could not be delivered.');
     expect(friendlyFailureReason('NO_CREDITS')).toBe('SMS credits were unavailable.');
+    expect(friendlyFailureReason('PILOT_NOT_ENABLED')).toBe('This salon is waiting for access to the texting pilot.');
+    expect(friendlyFailureReason('PLAN_NOT_ELIGIBLE')).toBe(friendlyFailureReason('PILOT_NOT_ENABLED'));
     expect(friendlyFailureReason(null)).toBeNull();
   });
 });
 
 describe('low-balance warnings (§10.3)', () => {
+  it.each(['20pct', '0'] as const)('directs the %s warning to credits without requiring a plan upgrade', async (tier) => {
+    const { sendLowBalanceWarningEmail } = await import('./lowBalanceWarnings');
+    sendTransactionalEmailDetailed.mockClear();
+    await sendLowBalanceWarningEmail({
+      salonId: 's_warning_copy',
+      ownerEmail: 'owner@example.invalid',
+      tier,
+      availableCredits: tier === '0' ? 0 : 20,
+    });
+
+    expect(sendTransactionalEmailDetailed).toHaveBeenCalledOnce();
+    expect(sendTransactionalEmailDetailed).toHaveBeenCalledWith(expect.objectContaining({
+      to: 'owner@example.invalid',
+      text: expect.stringContaining('Usage'),
+    }));
+    expect(sendTransactionalEmailDetailed).toHaveBeenCalledWith(expect.objectContaining({
+      text: expect.not.stringMatching(/upgrade|buy more|email confirmations and reminders continue/i),
+    }));
+  });
+
   it('warns exactly once per tier, moves only downward, resets on grant', async () => {
     const { evaluateLowBalanceWarnings } = await import('./lowBalanceWarnings');
     const { appendLotGrant } = await import('./billing/creditLedger');

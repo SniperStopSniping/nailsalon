@@ -146,15 +146,15 @@ export const sendLowBalanceWarningEmail: WarningEmailFn = async (input) => {
   const copy: Record<WarningTier, { subject: string; body: string }> = {
     '20pct': {
       subject: 'Your SMS credits are running low',
-      body: `You have ${input.availableCredits} SMS credits remaining. You can buy more or upgrade your plan from Settings.`,
+      body: `You have ${input.availableCredits} SMS credits remaining. Check your balance and credit options in Usage. Texting is included in every plan.`,
     },
     '10': {
       subject: 'Only a few SMS credits left',
-      body: `You have ${input.availableCredits} SMS credits remaining. Text reminders will pause when they run out; email keeps working.`,
+      body: `You have ${input.availableCredits} SMS credits remaining. Text messages will pause when they run out. Your email preferences are unchanged.`,
     },
     '0': {
       subject: 'SMS credits have run out',
-      body: 'Text reminders are paused. Email confirmations and reminders continue, and bookings are unaffected. Buy more credits or upgrade from Settings to resume texts.',
+      body: 'Text messages are paused. Your email preferences and bookings are unchanged. Check your balance and credit options in Usage to resume texts.',
     },
   };
   await sendTransactionalEmailDetailed({

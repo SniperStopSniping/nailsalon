@@ -39,8 +39,12 @@ export function SalonFeatureAccessManager({
             <div key={feature.key} className="flex gap-2 rounded-lg bg-white p-3">
               <LockKeyhole className="mt-0.5 shrink-0 text-emerald-700" size={15} />
               <div>
-                <p className="text-sm font-medium text-gray-900">{feature.label}</p>
+                <p className="flex flex-wrap items-center gap-2 text-sm font-medium text-gray-900">
+                  {feature.label}
+                  {feature.key === 'smsReminders' && <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700">Included</span>}
+                </p>
                 <p className="text-xs text-gray-500">{feature.description}</p>
+                {feature.key === 'smsReminders' && <p className="mt-1 text-xs text-gray-500">The owner manages texting and reminders in communication preferences.</p>}
               </div>
             </div>
           ))}

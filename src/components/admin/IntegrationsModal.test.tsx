@@ -168,7 +168,7 @@ describe('IntegrationsModal', () => {
       expect(screen.getByTestId('automatic-texting-section')).toHaveTextContent('Not available yet');
     });
 
-    expect(screen.getByTestId('manual-texting-section')).toHaveTextContent('Unavailable');
+    expect(screen.getByTestId('manual-texting-section')).toHaveTextContent('Not available yet');
     expect(screen.getByTestId('native-texting-section')).toHaveTextContent(/own mobile number and mobile plan/i);
     expect(screen.getByTestId('native-texting-section')).toHaveTextContent(/do not use Luster SMS credits/i);
     expect(screen.queryByText('Authorize Twilio')).not.toBeInTheDocument();
@@ -363,7 +363,7 @@ describe('IntegrationsModal', () => {
 
       // Nothing chargeable is offered when the provider is absent.
       expect(screen.queryByTestId('twilio-preview')).not.toBeInTheDocument();
-      expect(screen.getByTestId('manual-texting-section')).toHaveTextContent('Unavailable');
+      expect(screen.getByTestId('manual-texting-section')).toHaveTextContent('Not available yet');
     });
   });
 
@@ -375,7 +375,7 @@ describe('IntegrationsModal', () => {
         availability: { twilio: true, twilioConnectOnboarding: true },
       } });
       render(<IntegrationsModal onClose={vi.fn()} salonSlug="salon-a" initialView="texting" />);
-      await waitFor(() => expect(screen.getByTestId('manual-texting-section')).toHaveTextContent('Unavailable'));
+      await waitFor(() => expect(screen.getByTestId('manual-texting-section')).toHaveTextContent(status === 'disconnected' ? 'Not available yet' : 'Setup incomplete'));
 
       expect(screen.queryByText('Authorize Twilio')).not.toBeInTheDocument();
       expect(screen.queryByLabelText('Canadian area code')).not.toBeInTheDocument();
@@ -391,9 +391,9 @@ describe('IntegrationsModal', () => {
       twilio: { status: 'active', phoneNumber: '+14165550111' },
       sms: readySms({
         providerReady: false,
-        senderMode: 'disabled',
+        senderMode: 'connected_byo',
         senderLabel: 'Retired texting connection',
-        blockingReason: 'byo_retired',
+        blockingReason: 'SENDER_NOT_READY',
         detail: 'Luster texts use SMS credits. This salon has a retired texting connection. Contact support before enabling Luster texting.',
         automaticEnabled: false,
         manualAvailable: false,
@@ -404,7 +404,7 @@ describe('IntegrationsModal', () => {
     render(<IntegrationsModal onClose={vi.fn()} salonSlug="salon-a" initialView="texting" />);
     await waitFor(() => expect(screen.getByTestId('automatic-texting-section')).toHaveTextContent('Retired texting connection'));
 
-    expect(screen.getByTestId('manual-texting-section')).toHaveTextContent('Unavailable');
+    expect(screen.getByTestId('manual-texting-section')).toHaveTextContent('Setup incomplete');
     expect(screen.getByTestId('automatic-texting-section')).toHaveTextContent('Contact support before enabling Luster texting.');
     expect(screen.getByText('Luster SMS credit balance is unavailable. Contact support.')).toBeInTheDocument();
     expect(screen.queryByText(/billed by your Twilio account/i)).not.toBeInTheDocument();
@@ -455,5 +455,39 @@ describe('IntegrationsModal', () => {
 
     expect(screen.queryByText('Authorize Twilio')).not.toBeInTheDocument();
     expect(screen.queryByTestId('twilio-preview')).not.toBeInTheDocument();
+  });
+
+  it.each([
+    ['GLOBAL_SMS_DISABLED', 'Paused', 'Luster has temporarily paused SMS sending. Your credits and preferences are saved.'],
+    ['PILOT_NOT_ENABLED', 'Not available yet', 'Luster SMS is not available for this salon yet. Your credits and preferences are saved.'],
+  ])('keeps 100 credits separate from the %s sending restriction', async (blockingReason, label, detail) => {
+    const onOpenSettings = vi.fn();
+    mockEndpoints({
+      smsReminders: 'UPGRADE_REQUIRED',
+      health: {
+        sms: readySms({
+          providerReady: false,
+          automaticEnabled: false,
+          manualAvailable: false,
+          remindersEnabled: false,
+          availableCredits: 100,
+          blockingReason,
+          detail,
+        }),
+      },
+    });
+    render(<IntegrationsModal onClose={vi.fn()} salonSlug="salon-a" initialView="texting" onOpenSettings={onOpenSettings} />);
+    await waitFor(() => expect(screen.getByTestId('manual-texting-section')).toHaveTextContent(label));
+
+    expect(screen.getByTestId('automatic-texting-section')).toHaveTextContent(label);
+    expect(screen.getByTestId('automatic-texting-section')).toHaveTextContent('100 available');
+    expect(screen.getByTestId('manual-texting-section')).toHaveTextContent(detail);
+    expect(screen.queryByText(/upgrade required/i)).not.toBeInTheDocument();
+    expect(screen.queryByText('Authorize Twilio')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Manage texts and reminders in Settings' }));
+
+    expect(onOpenSettings).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls.some(([, init]) => init?.method && init.method !== 'GET')).toBe(false);
   });
 });

@@ -18,12 +18,13 @@ import {
 } from '@/libs/depositPolicy';
 import { getDepositPolicyForSalon } from '@/libs/depositPolicy.server';
 import { buildDirectionsDestination, resolveDirectionsLocation } from '@/libs/directions';
+import { getSalonSmsReadiness } from '@/libs/integrationHealth';
 import { resolveDraftSalonAccess } from '@/libs/ownerPreview';
 import { resolvePublicBookingTechnicianContext } from '@/libs/publicBookingTechnicians';
 import { resolvePublicRetentionCampaignPreview } from '@/libs/publicRetentionCampaign';
 import { getLocationById, getPrimaryLocation } from '@/libs/queries';
 import { applyLocationDisplayMode } from '@/libs/salonContent';
-import { buildTenantRedirectPath, checkFeatureEnabled, checkSalonStatus, isRewardsEnabled, isSmsEnabled } from '@/libs/salonStatus';
+import { buildTenantRedirectPath, checkFeatureEnabled, checkSalonStatus, isRewardsEnabled } from '@/libs/salonStatus';
 import {
   resolvePublicSalonPhone,
   resolveSharedSalonProfile,
@@ -396,10 +397,13 @@ export default async function BookConfirmPage(
   const depositFingerprint = buildDepositDisclosureFingerprint(depositCharge);
   const depositNoticeSuppressed = isDepositGovernedBySystem(depositPolicy);
 
-  // Rewards program state — points messaging is hidden when the program is off
-  const rewardsEnabled = await isRewardsEnabled(salon.id);
-  // SMS reminder state — "we'll text you" copy is hidden when reminders are off
-  const smsEnabled = await isSmsEnabled(salon.id);
+  const [rewardsEnabled, smsReadiness] = await Promise.all([
+    isRewardsEnabled(salon.id),
+    getSalonSmsReadiness(salon.id),
+  ]);
+  // Public consent is offered only when this salon can send automatic texts.
+  // Provider configuration and credit details stay on the server.
+  const smsEnabled = smsReadiness.automaticEnabled;
   const effectiveBookingFlow = resolvedTechnicianContext.shouldAutoSkipTech
     ? bookingFlow.filter(step => step !== 'tech')
     : bookingFlow;

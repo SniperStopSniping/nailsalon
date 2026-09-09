@@ -8,12 +8,12 @@ export const CORE_SALON_FEATURES = [
   { key: 'services', label: 'Services & pricing', description: 'Prices, durations, buffers, and availability' },
   { key: 'googleCalendar', label: 'Google Calendar access', description: 'Optional owner-connected calendar sync' },
   { key: 'email', label: 'Email confirmations', description: 'Booking confirmation and management links' },
+  { key: 'smsReminders', label: 'Luster SMS', description: 'Text clients and send appointment messages using SMS credits' },
 ] as const;
 
 export const OPTIONAL_SALON_FEATURES = [
   { key: 'analyticsDashboard', group: 'analytics', nestedKey: 'dashboard', label: 'Advanced analytics', description: 'Revenue, performance, and service-mix reporting' },
   { key: 'utilization', group: 'analytics', nestedKey: 'utilization', label: 'Utilization reporting', description: 'Booked capacity and technician utilization' },
-  { key: 'smsReminders', group: 'marketing', nestedKey: 'smsReminders', label: 'Twilio SMS reminders', description: 'Salon-funded confirmations and reminders' },
   { key: 'rewards', group: 'marketing', nestedKey: 'rewards', label: 'Rewards', description: 'Client loyalty points and rewards' },
   { key: 'referrals', group: 'marketing', nestedKey: 'referrals', label: 'Referrals', description: 'Client referral offers and tracking' },
   { key: 'scheduleOverrides', group: 'staff', nestedKey: 'scheduleOverrides', label: 'Schedule overrides', description: 'Advanced technician schedule exceptions' },
@@ -60,16 +60,20 @@ export function applySalonFeaturePreset(
   features: SalonFeatures | null | undefined,
   preset: SalonFeaturePreset,
 ): SalonFeatures {
-  return OPTIONAL_SALON_FEATURES.reduce(
+  return OPTIONAL_SALON_FEATURES.reduce<SalonFeatures>(
     (current, definition) => setOptionalSalonFeature(
       current,
       definition.key,
       !(DARK_CATALOG_FEATURE_KEYS as readonly string[]).includes(definition.key)
       && (
         preset === 'all_available'
-        || (preset === 'pro' && ['analyticsDashboard', 'smsReminders', 'clientFlags', 'clientBlocking'].includes(definition.key))
+        || (preset === 'pro' && ['analyticsDashboard', 'clientFlags', 'clientBlocking'].includes(definition.key))
       ),
     ),
-    features ?? {},
+    {
+      ...features,
+      smsReminders: true,
+      marketing: { ...features?.marketing, smsReminders: true },
+    },
   );
 }

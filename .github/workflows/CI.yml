@@ -654,6 +654,9 @@ jobs:
           npm test -- --maxWorkers=2 --minWorkers=1
           npx playwright test --config playwright.booking-preferences.config.ts
 
+      - name: Verify SMS components and plan access in desktop and mobile browsers
+        run: node node_modules/@playwright/test/cli.js test --config tests/browser/sms/playwright.config.ts --output=test-results/sms-components
+
       - name: Run storybook tests
         run: npm run test-storybook:ci
 

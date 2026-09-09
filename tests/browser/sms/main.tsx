@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { createRoot } from 'react-dom/client';
 
 import { LusterClientSms } from '@/components/admin/LusterClientSms';
+import { SettingsModal } from '@/components/admin/SettingsModal';
 
 export function SmsBrowserFixture() {
   const [open, setOpen] = useState(true);
@@ -22,4 +23,13 @@ export function SmsBrowserFixture() {
   );
 }
 
-createRoot(document.getElementById('root')!).render(<SmsBrowserFixture />);
+function SettingsBrowserFixture() {
+  return (
+    <main className="owner-workspace-theme mx-auto min-h-screen max-w-3xl bg-stone-50">
+      <SettingsModal salonSlug="sms-fixture" isFreeSolo userName="Test Owner" onClose={() => {}} />
+    </main>
+  );
+}
+
+const settingsFixture = new URLSearchParams(window.location.search).get('fixture') === 'settings';
+createRoot(document.getElementById('root')!).render(settingsFixture ? <SettingsBrowserFixture /> : <SmsBrowserFixture />);

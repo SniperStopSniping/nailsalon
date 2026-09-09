@@ -89,6 +89,34 @@ describe('operational salon SMS health', () => {
     expect(await getSalonSmsReadiness('health-a')).toMatchObject({ providerReady: false, manualAvailable: false, blockingReason: 'SENDER_NOT_READY' });
   });
 
+  it('explains a platform pause while preserving the free salon credit balance', async () => {
+    env.COMMUNICATIONS_SMS_ENABLED = undefined;
+
+    const health = await getSalonSmsReadiness('health-a');
+
+    expect(health).toMatchObject({ providerReady: false, manualAvailable: false, automaticEnabled: false, availableCredits: 42, blockingReason: 'GLOBAL_SMS_DISABLED' });
+    expect(health.detail).toContain('paused text delivery for all salons');
+    expect(health.detail).toContain('included in every plan');
+    expect(health.detail).not.toMatch(/upgrade|sender is not configured/i);
+
+    env.COMMUNICATIONS_SMS_ENABLED = 'true';
+    await database.update(schema.platformCommunicationControlSchema).set({ smsEnabled: false }).where(eq(schema.platformCommunicationControlSchema.id, 'singleton'));
+    __clearCommunicationControlCache();
+
+    expect((await getSalonSmsReadiness('health-a')).blockingReason).toBe('GLOBAL_SMS_DISABLED');
+  });
+
+  it('identifies pilot access separately from plan access without enabling the salon', async () => {
+    env.SMS_PILOT_ENABLED = 'true';
+    env.SMS_PILOT_SALON_ALLOWLIST = 'another-salon';
+
+    const health = await getSalonSmsReadiness('health-a');
+
+    expect(health).toMatchObject({ providerReady: false, manualAvailable: false, automaticEnabled: false, availableCredits: 42, blockingReason: 'PILOT_NOT_ENABLED' });
+    expect(health.detail).toContain('waiting for pilot access');
+    expect(health.detail).not.toMatch(/upgrade|not included/i);
+  });
+
   it('reports platform disable, unavailable worker, salon pause and credits honestly', async () => {
     env.COMMUNICATIONS_SMS_ENABLED = undefined;
 

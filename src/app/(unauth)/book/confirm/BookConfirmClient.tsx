@@ -1947,7 +1947,7 @@ const SuccessContent = ({
             <>
               {smsEnabled && smsConsentGranted && (
                 <p className="font-body text-xs text-[var(--n5-ink-muted)]">
-                  We&apos;ll text you before your visit
+                  You&apos;ve agreed to receive appointment updates by text.
                 </p>
               )}
               <p className="font-body mt-0.5 text-xs text-[var(--n5-ink-muted)]">

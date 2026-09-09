@@ -1,3 +1,14 @@
+# Approved combined release — 2026-09-09
+
+- The user explicitly approved releasing PRs #171, #172 and #173 together, with SMS kept paused. This supersedes the earlier release-approval boundaries in the historical checkpoints below. It does not approve pilot recipients, carrier sends, paid purchases or activating customer queues.
+- PR #173 now contains the complete histories of #171 and #172, preserving logical commits. Merge conflicts retain both onboarding and SMS browser gates, both public-booking regression matrices, all desktop CSS repairs and all SMS/booking-mode changes. No migrations or dependency changes are introduced.
+- Before integration, all 14 executable checks passed on each original PR head with no unresolved review threads. Fresh combined CI, exact-source Preview and protected-main verification remain required for this release.
+- Read-only production inspection at 08:27 UTC verified both `COMMUNICATIONS_SMS_ENABLED=false` and platform SMS disabled. Required database, Redis, cron and Twilio configuration names are present; no secret value was printed or copied.
+- The existing disposable `luster-sms-pilot-20260909` business has one verified non-expiring 100-credit starter grant and one ledger row; zero reserved segments, clients, appointments, SMS intents or deliveries. This closes the earlier grant-ledger inspection gap. No data or preference was changed.
+- Production still serves v1.89.2 / `69b3b3456a9d08b0e8dbc51d8331ef5bdb607e4a` at this checkpoint. Original user-owned checkout remains untouched. Final CI/Preview/production evidence will be maintained on PR #173 without committing solely to refresh completed-check timestamps.
+
+---
+
 # Booking confirmation and onboarding — 2026-09-09
 
 Branch: `codex/booking-confirmation-onboarding-20260909`, from freshly fetched `origin/main` at `69b3b3456a9d08b0e8dbc51d8331ef5bdb607e4a` (released v1.89.2 / PR #170).
@@ -38,6 +49,52 @@ Worktree: `/Users/me/nailsalon-worktrees/booking-confirmation-onboarding-2026090
 - Desktop layout PR #171 and SMS access/credits plan PR #172 remain unmerged and passed their required CI. The user added this booking task instead of approving their release. This branch starts from main, not those pending branches.
 - Main remains the previously approved PR #170 release. Last prior production inspection at 2026-09-09 04:07 UTC found SMS disabled in the environment and platform singleton. This pass has not rechecked or changed provider/production state.
 - No approval to merge/deploy this change or to send a pilot SMS. No approved pilot recipient. Provider delivery, STOP/START and live credit accounting still require the controlled pilot; do not certify customer rollout from these tests.
+
+# SMS credits and plan access correction — 2026-09-09
+
+Branch: `codex/sms-credit-plan-access-20260909`, clean worktree from latest `origin/main` release `69b3b34`.
+Worktree: `/Users/me/nailsalon-worktrees/sms-credit-plan-access-20260909`.
+
+## Current request and boundaries
+
+The user's pilot screenshots show 100 credits alongside unavailable texting and a paid-only SMS reminder lock. Correct this specific inconsistency: every plan includes SMS access and eligible new businesses receive 100 starter credits once. Preserve subscription prices, monthly allowances, other paid features, owner preferences, provider gates and the original dirty checkout. No live SMS, provider/configuration changes, production data updates, merge or deployment are authorized for this follow-up.
+
+## Findings and repair
+
+- The starter grant is already wired into both authenticated initial-business setup paths and is visible as 100 credits in the completed pilot account. It is once per durable business identity, not monthly or once per extra salon. No grant or billing schema change is needed here.
+- Legacy feature defaults/presets marked SMS as paid-only; Features & plan and the salon/technician booking notification capability gate used those flags. The main client SMS dispatcher already used credits and communications preferences. SMS capability is now included centrally even with old nested/flat false flags, and presets/projections agree. Other paid gates remain intact.
+- Features & plan now directs SMS to canonical Client communications. An explicit SMS-master save atomically aligns the old module alias; unrelated changes preserve it and concurrent sibling-module edits. Existing owner-off preferences are not bulk changed, and saving does not enqueue or send messages.
+- Global delivery pause, controlled-pilot exclusion and missing setup have distinct owner-facing explanations. Pilot exclusion no longer uses a plan-related failure code; historic records remain readable. Credit warnings no longer imply an upgrade is required or promise disabled email delivery.
+- Public booking consent follows actual automatic-SMS readiness; success acknowledges consent instead of guaranteeing a reminder.
+- Existing component browser harness covers Free Features → Client communications → explicit preference save with 100 credits and global pause; all APIs are intercepted. The CI browser gate runs it alongside the existing manual composer cases.
+
+## Delivery and pilot state
+
+- Prior PR #170 was approved, merged and released as v1.89.2 (`69b3b34`) with SMS disabled. Read-only production verification found healthy database/Redis/schema checks, successful dispatch/reminder cron calls and rejected unsigned Twilio callbacks. `COMMUNICATIONS_SMS_ENABLED=false` and the platform SMS control was false at 2026-09-09 04:07 UTC.
+- The authenticated separate test business `luster-sms-pilot-20260909` exists and shows 100 credits. Signup is complete. Grant-ledger/queue verification and approved test contacts remain outstanding; no recipient or actual send is approved. Do not consume Daniela's grant or import real customer data into the pilot.
+- Daniela's verified salon is `isla-nail-studio`, 880 Ellesmere Road, with Monday–Friday 10:00–19:00, Saturday 11:00–17:00 and Sunday closed. Historical missed-credit correction, if pursued, needs scoped identity/grant evidence and production safeguards. No historical credits or preferences were changed in this fix.
+- Existing sender ending 9444, Luster Messaging Service and approved Advanced Opt-Out remain the configured provider path. The different-account active number ending 9891 is untouched. Paid credit purchase activation is separately unconfigured; legitimate starter credits can support the pilot.
+- Separate desktop onboarding layout fix PR #171 (`b15486a`) has passed all CI checks and remains open, unreleased. Its heading/preview-width and five-stage progress rail repairs are not mixed into this branch.
+
+## Verification checkpoint
+
+Node 20.19.4, committed dependency lock, existing matching dependency installation reused through a task-owned symlink. No local environment file or provider secrets were copied. Unit/integration tests use isolated PGlite and mocked providers.
+
+- Focused provider/readiness/public booking/credit copy: 176 passed.
+- Core capability/presets/module API: 73 passed. Explicit preference reconciliation: 8 passed; adjacent settings tests: 113 passed.
+- Owner/super-admin UI: 131 passed. Appointment regression: 103 passed.
+- Component browsers: 9 passed without retries, covering desktop/Pixel/iPhone included-SMS settings plus the six existing mobile composer/history/failure cases. Screenshots were visually inspected; no overflow or unexpected requests/errors.
+- Final typecheck passed. Final explicit ESLint of all 45 changed/new TypeScript files passed with zero errors and seven existing warnings; diff and secret tree scans passed. Initial new fixture/reducer inference errors were corrected; the final fixture suites also passed 20 tests. The full local Vitest run completed: 647 files / 7,569 tests passed, 17 files / 175 tests skipped and one TODO; two files needed correction (one failed assertion and one suite import failure). Both were repaired and the final four-file rerun passed all 28 tests. The full local run was not repeated after those scoped fixes; final full CI remains required. No production build/deployment was run locally for this follow-up; required CI covers production builds and disposable PostgreSQL checks.
+
+## Checkpoint 2 — preserve SMS choices during other settings saves
+
+- The full-suite failure exposed a real super-admin `syncFeatureModules` side effect: universal SMS capability would have rewritten an existing owner SMS module to true. That sync now excludes SMS and preserves the live off/on/missing state. Emitted JSONB SQL is exercised with isolated PGlite, including a stale request snapshot. The route and adjacent deposit-entitlement checks passed 17 tests.
+- The other-module PUT endpoint now merges only the submitted fields against the live module object. A stale tab can no longer undo a concurrent canonical SMS preference change. Focused module/preference/deposit checks passed 32 tests, including both directions of SMS changes and unchanged other settings.
+- Booking pricing parity now mocks the new operational readiness server dependency, preserving its existing isolation. No test environment or database guard was bypassed. The final combined rerun (pricing parity, super-admin, module settings, SMS preference reconciliation) passed 28 tests.
+- Final typecheck and branch-wide lint passed after the preference fixes; zero lint errors, seven existing warnings.
+- Initial implementation commit: `ea13516`. Draft review: [PR #172](https://github.com/SniperStopSniping/nailsalon/pull/172). Final preference fixes and validation evidence are a separate checkpoint commit. Both PR #172 and the independent layout PR #171 require release authorization; customer/pilot SMS activation still requires approved recipients and explicit send approval.
+
+Older repair checkpoints below are historical; the current release and authorization status above supersedes their unreleased-state notes.
 
 ---
 
