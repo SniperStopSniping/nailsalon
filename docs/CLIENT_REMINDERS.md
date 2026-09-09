@@ -28,4 +28,4 @@ This change does not activate production purchases or create Stripe resources. C
 
 Checkout sends buyers to Stripe. Credit grants come only from verified payment evidence, never from visiting the success URL. An uncertain checkout creation remains blocked until its bounded expiry; it must not be blindly repeated with a new purchase.
 
-Relevant checks: `lowBalanceWarnings.test.ts`, `communicationMaterialization.test.ts`, `UsageBillingModal.test.tsx`, top-up checkout and Stripe billing webhook tests, `stripePriceMap.test.ts`, appointment regression, and the Client reminders test in `mobile-admin-appointment-sheet.e2e.ts`.
+Relevant checks: `lowBalanceWarnings.test.ts`, `communicationMaterialization.test.ts`, `UsageBillingModal.test.tsx`, top-up checkout and Stripe billing webhook tests, `stripePriceMap.test.ts`, appointment regression, and the Client reminders test in `booking-page-hub.e2e.ts`.

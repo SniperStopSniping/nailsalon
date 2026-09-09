@@ -5,7 +5,6 @@ import {
   createImpersonatedAdminRequestContext,
   ensureCalendarDayVisible,
   getStaffTechnicianProfile,
-  impersonateSalonAsSuperAdmin,
   openAdminAppointmentSheet,
   openAdminBookings,
 } from './support/appointment-ops';
@@ -19,85 +18,6 @@ import {
 } from './support/config';
 
 test.use({ storageState: authStatePaths.superAdmin });
-
-test('owner opens Client reminders, reviews charges and saves a one-hour rule @mobile-safari', async ({ page }) => {
-  test.slow();
-
-  await impersonateSalonAsSuperAdmin(page);
-  const settings = {
-    communications: {
-      sms: { enabled: true },
-      email: { enabled: true },
-      killSwitch: false,
-      quietHours: { enabled: true, start: '21:00', end: '09:00' },
-      events: {
-        booking_confirmation: { enabled: true, channels: 'both' },
-        appointment_reminder: { enabled: true, channels: 'both' },
-        appointment_cancelled: { enabled: true, channels: 'both' },
-        appointment_rescheduled: { enabled: true, channels: 'both' },
-      },
-      reminders: { rules: [{ id: 'fixture_day', offsetMinutes: 1440, channels: 'both', enabled: true }] },
-    },
-  };
-  let saved: { communications?: { reminders?: { rules?: Array<{ offsetMinutes: number }> } } } | null = null;
-  await page.route('**/api/admin/salon/settings?*', async (route) => {
-    if (route.request().method() === 'PATCH') {
-      saved = route.request().postDataJSON();
-      await route.fulfill({ json: { ...settings, ...saved } });
-      return;
-    }
-    await route.fulfill({ json: settings });
-  });
-  await page.route('**/api/admin/salon/communications/usage?*', route => route.fulfill({ json: {
-    data: {
-      salonId: 'fixture-salon',
-      usage: { availableCredits: 96, starterCredits: 96, purchasedCredits: 0, monthlyCredits: 0, bonusCredits: 0, monthlyAllowance: 0, resetsAt: null, blockedMessages: 0, pendingCredits: 0, plan: null },
-      creditPurchasesAvailable: false,
-      topupOffers: [],
-      nextCursor: null,
-      history: [
-        { id: 'confirmation', channel: 'sms', eventType: 'booking_confirmation', status: 'delivered', creditsUsed: 1, reminderLeadMinutes: null },
-        { id: 'day', channel: 'sms', eventType: 'appointment_reminder', status: 'canceled', creditsUsed: 0, reminderLeadMinutes: 1440 },
-        { id: 'hour', channel: 'sms', eventType: 'appointment_reminder', status: 'pending', creditsUsed: 0, reminderLeadMinutes: 60 },
-        { id: 'cancellation', channel: 'email', eventType: 'appointment_cancelled', status: 'sent', creditsUsed: 0, reminderLeadMinutes: null },
-      ].map(entry => ({ ...entry, recipient: '•••• 0199', scheduledFor: '2026-09-10T18:00:00.000Z', sentAt: null, failureReason: null })),
-    },
-  } }));
-  try {
-    await page.goto(`${appPath('/admin')}?salon=${encodeURIComponent(e2eConfig.salonSlug)}`, { waitUntil: 'domcontentloaded' });
-    await page.getByTestId('owner-nav-more').click();
-    await page.getByTestId('admin-app-tile-client-reminders').click();
-    const dialog = page.getByRole('dialog', { name: 'Client reminders' });
-
-    await expect(dialog).toBeVisible();
-    await expect(dialog.getByText('96 SMS credits remaining')).toBeVisible();
-    await expect(dialog.getByText('1 SMS credit charged')).toBeVisible();
-
-    await dialog.getByLabel('Filter message history').selectOption('24h');
-
-    await expect(dialog.getByText('No SMS credits charged')).toBeVisible();
-    await expect(dialog.getByRole('heading', { name: 'Confirmations', exact: true })).toHaveCount(0);
-
-    await dialog.getByRole('button', { name: 'Settings', exact: true }).click();
-    await dialog.getByLabel('Reminder 1 timing').selectOption('60');
-    await dialog.getByRole('button', { name: 'Save reminder settings' }).click();
-
-    await expect(dialog.getByText('Saved', { exact: true })).toBeVisible();
-    expect(saved?.communications?.reminders?.rules?.[0]?.offsetMinutes).toBe(60);
-
-    const box = await dialog.boundingBox();
-
-    expect(box).not.toBeNull();
-    expect(box!.x).toBeGreaterThanOrEqual(0);
-    expect(box!.x + box!.width).toBeLessThanOrEqual(page.viewportSize()!.width + 1);
-
-    await dialog.getByRole('button', { name: 'Close client reminders' }).click();
-
-    await expect(dialog).toHaveCount(0);
-  } finally {
-    await page.request.delete('/api/super-admin/impersonate');
-  }
-});
 
 async function cancelCreatedAppointment(appointmentId: string | null) {
   if (appointmentId) {
