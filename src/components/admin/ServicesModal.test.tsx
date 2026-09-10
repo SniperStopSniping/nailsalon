@@ -468,6 +468,7 @@ describe('ServicesModal', () => {
     ['null', null],
     ['malformed string', 'false'],
     ['malformed number', 0],
+    ['malformed object', {}],
   ])('fails open when showServiceImages is %s', async (_label, showServiceImages) => {
     mockRoutes({
       services: [],
