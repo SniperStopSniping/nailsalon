@@ -364,3 +364,16 @@ Base: `45badae1aebbd00844c8da4d39d091a88f23652a` (`origin/main` at task start)
 ## Next batch
 
 Implement More grid and compatibility routing, then add Team, Payments, and Rewards & Reviews hubs while reusing the existing editors and APIs.
+
+## Completion checkpoint
+
+- Implemented the requested ten-card More grid, moved Workspace Tour to the smaller Help entry, and preserved existing plan/module gates.
+- Added Team, Payments, and Rewards & Reviews hubs over the existing editors and APIs. Legacy Staff, Time-off, Rewards, Reviews, Settings payments, and Settings visibility deep links continue to resolve safely.
+- Replaced the Settings index with the six requested card homes and established the requested canonical cross-links. Business information is editable in Settings; Booking Page now edits only its draft/published presentation choices.
+- Removed the competing Marketing reminder editor, moved service-merchandising controls out of Booking Rules, split photo rules from social-posting entry points, and kept all existing save/API boundaries.
+- Detailed before→after map, implemented hierarchy, intentional sharing, verification results, and the one deferred reminder-scheduler question are in `docs/OWNER_DASHBOARD_IA_MIGRATION_MAP.md`.
+- Commits at this checkpoint: `e0756ff4` (migration map), `2d820a53` (More grid), `f375b14c` (canonical hubs/settings).
+- Focused tests passed 83/83, adjacent existing owner tests passed 110/110, and owner-page/policy tests passed 28/28. Scoped ESLint has zero errors. The only Booking Page route failure under the shared old dependencies is a React 18 warning for the pre-existing React 19 `inert` attribute.
+- A fresh dependency install was blocked by disk space; the older shared Next 14/React 18 dependency tree cannot run this Next 15/React 19 repository's `next typegen`. Direct TypeScript found no error in changed owner-dashboard files. Do not treat this as a clean central typecheck.
+- Local browser verification/screenshots remain unavailable because the clean worktree's dev server stopped at the Clerk isolation guard (`CLERK_KEYS_REQUIRED`). Do not copy credentials or relax provider isolation for this task.
+- No deploy, push, merge, migration, production/provider mutation, message, or payment occurred. The original checkout remains separate and preserved.

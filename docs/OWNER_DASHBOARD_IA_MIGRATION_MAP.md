@@ -70,3 +70,118 @@ Settings becomes six scan-friendly hubs: Business; Booking & Availability; Messa
 3. Booking Page presentation-vs-live-information split and Business canonical entry points.
 4. Photo/social split, Services labels/links, tests, browser verification, screenshots, and final documentation.
 
+## Implemented hierarchy
+
+```text
+Today · Calendar · Clients · Services · More
+
+More
+├── Booking Page
+│   ├── Layout
+│   ├── Style & Colours
+│   ├── Business Info Display
+│   ├── About & Website Text
+│   ├── Photos & Gallery → Portfolio
+│   ├── Policies Display → Settings policies / Payments
+│   └── Preview & Publish
+├── Marketing
+│   ├── Follow-ups
+│   ├── Retention
+│   ├── Campaigns (future placeholder)
+│   ├── Reviews
+│   ├── Results
+│   └── Social Posting → policy editor (social section)
+├── Analytics (existing reporting and entitlement)
+├── Team
+│   ├── Team Members
+│   ├── Schedules
+│   ├── Time Off
+│   │   ├── Requests
+│   │   └── Blocked Time
+│   ├── Services & Skills
+│   ├── Permissions
+│   └── Earnings
+├── Payments
+│   ├── Deposits
+│   ├── Payment Methods
+│   ├── Taxes
+│   └── Stripe / Payouts → Integrations
+├── Integrations
+│   ├── Google Calendar
+│   ├── Text messaging
+│   ├── Email
+│   └── Payments (when the existing Stripe connection is available)
+├── Rewards & Reviews
+│   ├── Rewards Program
+│   ├── Referrals
+│   ├── Reviews
+│   └── Offers
+├── Portfolio (existing reusable gallery)
+├── Settings
+│   ├── Business
+│   │   ├── Business Profile
+│   │   ├── Location & Arrival
+│   │   ├── Business Hours
+│   │   └── Branding & Social
+│   ├── Booking & Availability
+│   │   ├── Availability
+│   │   ├── Booking Rules
+│   │   ├── Client Policies
+│   │   ├── Booking Flow (existing plan gate)
+│   │   └── Smart Fit
+│   ├── Messages & Notifications
+│   │   ├── Client Messages
+│   │   ├── Appointment Reminders
+│   │   ├── Owner & Staff Alerts
+│   │   ├── Quiet Hours
+│   │   ├── Message Usage
+│   │   └── Delivery Setup → Integrations
+│   ├── Features
+│   ├── Account & Plan
+│   │   ├── Owner profile
+│   │   ├── Luster plan
+│   │   ├── Usage
+│   │   └── Luster subscription billing
+│   └── Advanced
+│       ├── Legacy Page Themes
+│       ├── Appointment Photo Rules → policy editor (photo section)
+│       ├── Section gallery (existing feature flag)
+│       ├── Terms of Service
+│       └── Privacy Policy
+├── Luster
+└── Help & workspace tour (small utility entry, not an app card)
+```
+
+## Implementation notes
+
+- The More grid now has the requested ten permanent apps. Workspace Tour remains functional through the smaller Help entry. Existing module/plan gates determine whether Analytics, Team, and the combined Rewards & Reviews app are shown; cards inside the combined app retain the separate Reviews and Rewards gates.
+- Legacy `?app=staff`, `?app=staff-ops`, `?app=rewards`, and `?app=reviews` links are accepted and open the matching view inside the new canonical app. Old Settings payment and staff-visibility deep links are replaced with Payments and Team → Permissions respectively.
+- Team, Payments, and Rewards & Reviews are navigation hubs over the existing Staff, settings-payment, Rewards, and Reviews components. They do not introduce parallel API models.
+- Booking Page uses presentation mode: current business values are read-only there, public visibility/address privacy remain draft/publish controls, and edit links lead to Settings. Settings uses business mode against the existing immediate-save APIs.
+- Settings subcards that share an existing atomic form intentionally open that one form rather than splitting its payload into new writers. Examples: Availability/Booking Rules, Client Messages/Appointment Reminders/Quiet Hours/Usage, and Business Profile/Business Hours.
+- Marketing no longer edits appointment reminder lead time and omits that legacy field from retention saves. The compatibility field remains stored because the existing manual reminder queue still reads it; moving that queue to the multi-rule communications model would change behavior and is deliberately outside this IA-only migration.
+- Feature entitlement toggles remain in Settings → Features. Fixed program offer facts moved to Rewards & Reviews → Offers and are not presented as editable values.
+- Service merchandising controls removed from Booking Rules now use the existing salon-settings data in Services → My Menu → Menu display & offers. The existing service-image control stays in Services.
+- The one policy payload is shown through two section-specific entry points (photo rules and social posting). Saving still uses the established policy API and preserves higher-level overrides.
+
+## Intentionally shared surfaces
+
+These are shared components or read-only summaries, not competing settings:
+
+1. Team cards reuse the same technician detail tabs and technician APIs.
+2. Payments cards reuse the same deposit/e-transfer/tax form and independent save boundaries.
+3. Business Profile and Business Hours open the same canonical business-record editor because its writers are already section-scoped.
+4. Booking Page displays current business values but cannot edit them; only presentation switches are editable there.
+5. Integrations owns Stripe readiness/setup while Payments links to it.
+6. Analytics and Team both show earnings context; Analytics remains the deeper reporting authority and Team retains technician-level earnings.
+
+## Verification and open questions
+
+- Focused IA/editor suites: 83/83 passed.
+- Existing Staff, Services, Integrations, and modal-host suites: 110/110 passed.
+- Owner page and policy chrome suites: 28/28 passed.
+- Admin page plus Booking Page route suites: 91/92 passed under the older shared React 18 dependency tree; the sole failure is React 18 warning about the pre-existing boolean `inert` iframe attribute used by this React 19 repository.
+- Scoped ESLint: zero errors; ten pre-existing warnings in touched legacy components.
+- The repository's normal `npm run check-types` could not run with the shared old dependency tree (`next typegen` is unavailable in Next 14). Direct TypeScript reported eight dependency/prototype errors and none in the changed owner-dashboard files.
+- Local browser/screenshots: not verified. The dev server correctly stopped at `CLERK_KEYS_REQUIRED`; no provider credentials or isolation settings were changed.
+- Future product question: decide whether the legacy single reminder-lead compatibility value should eventually be migrated into the multi-rule communications scheduler. That requires a separately scoped behavior/data migration.
