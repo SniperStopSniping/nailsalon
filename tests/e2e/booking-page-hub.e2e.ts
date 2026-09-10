@@ -112,7 +112,7 @@ for (const viewport of [{ width: 320, height: 568 }, { width: 375, height: 667 }
     await page.goto(hubUrl);
     await page.getByRole('link', { name: /Photos & Gallery/ }).click();
 
-    await expect(page.getByRole('heading', { name: 'Photos & Gallery', exact: true })).toBeVisible();
+    await expect(page.getByRole('heading', { level: 1, name: 'Photos & Gallery', exact: true })).toBeVisible();
     await expect(page.getByTestId('photos-gallery-media-controls')).toBeVisible();
     await expect(page.getByRole('link', { name: 'Manage Portfolio' })).toHaveAttribute('href', /app=portfolio/);
     await expect(page).toHaveURL(/panel=gallery/);
