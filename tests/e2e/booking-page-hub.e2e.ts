@@ -15,7 +15,7 @@ for (const viewport of [{ width: 320, height: 568 }, { width: 375, height: 667 }
     await page.goto(hubUrl);
 
     await expect(page.getByRole('heading', { name: 'Booking Page', exact: true })).toBeVisible();
-    await expect(page.getByRole('navigation', { name: 'Booking Page editors' }).getByRole('link')).toHaveCount(6);
+    await expect(page.getByRole('navigation', { name: 'Booking Page editors' }).getByRole('link')).toHaveCount(7);
     await expect(page.getByText(/^Live · /)).toBeVisible();
     expect(await noHorizontalOverflow()).toBe(true);
 
