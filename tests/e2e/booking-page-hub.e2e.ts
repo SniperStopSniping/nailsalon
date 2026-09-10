@@ -42,7 +42,7 @@ for (const viewport of [{ width: 320, height: 568 }, { width: 375, height: 667 }
 
     await expect(page.getByRole('heading', { name: 'Booking Page', exact: true })).toBeVisible();
 
-    await page.getByRole('link', { name: /Your Information Business details/ }).click();
+    await page.getByRole('link', { name: /Business Info Display/ }).click();
 
     // Actual saved values load into the accordions (owner-only route).
     await expect(page.getByTestId('information-business-name')).toHaveValue(e2eConfig.salonName);
