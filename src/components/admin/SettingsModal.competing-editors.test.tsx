@@ -228,6 +228,7 @@ describe('SettingsModal — one writer per record', () => {
       open();
 
       fireEvent.click(await screen.findByText('Booking & Availability'));
+
       expect(await screen.findByText('15 minute slots · 2 hours notice')).toBeInTheDocument();
 
       fireEvent.click(screen.getByText('Booking Rules'));
@@ -279,6 +280,7 @@ describe('SettingsModal — one writer per record', () => {
       open();
 
       fireEvent.click(await screen.findByText('Business'));
+
       expect(await screen.findByText('Branding & Social')).toBeInTheDocument();
       expect(screen.getByText('Booking messages and social links')).toBeInTheDocument();
       expect(screen.queryByText('Website layout & colours')).not.toBeInTheDocument();
