@@ -12,12 +12,14 @@
 import {
   getSalonPolicy,
   getSuperAdminPolicy,
+  patchSalonPolicy,
   upsertSalonPolicy,
 } from '@/core/appointments/policyRepo';
 import { resolveEffectivePolicy } from '@/core/appointments/policyResolver';
 import {
   normalizeSalonPolicyInput,
   SalonPolicyInputSchema,
+  SalonPolicyPatchSchema,
 } from '@/core/appointments/policySchemas';
 import { requireAdminSalonFromRequest } from '@/libs/adminAuth';
 
@@ -165,6 +167,102 @@ export async function PUT(request: Request): Promise<Response> {
     const superAdminPolicy = await getSuperAdminPolicy();
 
     // Compute effective policy
+    const effectivePolicy = resolveEffectivePolicy({
+      salon: {
+        requireBeforePhotoToStart: updated.requireBeforePhotoToStart as 'off' | 'optional' | 'required',
+        requireAfterPhotoToFinish: updated.requireAfterPhotoToFinish as 'off' | 'optional' | 'required',
+        requireAfterPhotoToPay: updated.requireAfterPhotoToPay as 'off' | 'optional' | 'required',
+        autoPostEnabled: updated.autoPostEnabled,
+        autoPostPlatforms: updated.autoPostPlatforms as Array<'instagram' | 'facebook' | 'tiktok'>,
+        autoPostIncludePrice: updated.autoPostIncludePrice,
+        autoPostIncludeColor: updated.autoPostIncludeColor,
+        autoPostIncludeBrand: updated.autoPostIncludeBrand,
+        autoPostAIcaptionEnabled: updated.autoPostAiCaptionEnabled,
+      },
+      superAdmin: {
+        requireBeforePhotoToStart: superAdminPolicy.requireBeforePhotoToStart as 'off' | 'optional' | 'required' | undefined,
+        requireAfterPhotoToFinish: superAdminPolicy.requireAfterPhotoToFinish as 'off' | 'optional' | 'required' | undefined,
+        requireAfterPhotoToPay: superAdminPolicy.requireAfterPhotoToPay as 'off' | 'optional' | 'required' | undefined,
+        autoPostEnabled: superAdminPolicy.autoPostEnabled ?? undefined,
+        autoPostAIcaptionEnabled: superAdminPolicy.autoPostAiCaptionEnabled ?? undefined,
+      },
+    });
+
+    return Response.json({
+      data: {
+        salonPolicy: {
+          requireBeforePhotoToStart: updated.requireBeforePhotoToStart,
+          requireAfterPhotoToFinish: updated.requireAfterPhotoToFinish,
+          requireAfterPhotoToPay: updated.requireAfterPhotoToPay,
+          autoPostEnabled: updated.autoPostEnabled,
+          autoPostPlatforms: updated.autoPostPlatforms,
+          autoPostIncludePrice: updated.autoPostIncludePrice,
+          autoPostIncludeColor: updated.autoPostIncludeColor,
+          autoPostIncludeBrand: updated.autoPostIncludeBrand,
+          autoPostAiCaptionEnabled: updated.autoPostAiCaptionEnabled,
+        },
+        effectivePolicy: {
+          requireBeforePhotoToStart: effectivePolicy.requireBeforePhotoToStart,
+          requireAfterPhotoToFinish: effectivePolicy.requireAfterPhotoToFinish,
+          requireAfterPhotoToPay: effectivePolicy.requireAfterPhotoToPay,
+          autoPostEnabled: effectivePolicy.autoPostEnabled,
+          autoPostPlatforms: effectivePolicy.autoPostPlatforms,
+          autoPostIncludePrice: effectivePolicy.autoPostIncludePrice,
+          autoPostIncludeColor: effectivePolicy.autoPostIncludeColor,
+          autoPostIncludeBrand: effectivePolicy.autoPostIncludeBrand,
+          autoPostAiCaptionEnabled: effectivePolicy.autoPostAIcaptionEnabled,
+        },
+        salonId: salon.id,
+        updatedAt: updated.updatedAt?.toISOString() ?? null,
+      },
+    });
+  } catch (error) {
+    console.error('Error updating salon policy:', error);
+    return Response.json(
+      {
+        error: {
+          code: 'INTERNAL_ERROR',
+          message: 'Failed to update policy',
+        },
+      } satisfies ErrorResponse,
+      { status: 500 },
+    );
+  }
+}
+
+// =============================================================================
+// PATCH /api/admin/policies
+// =============================================================================
+
+/**
+ * Partial policy updates for the section-specific owner screens. The
+ * repository writes only supplied columns atomically, preventing a stale
+ * Photo Rules screen from overwriting Social Posting (and vice versa).
+ */
+export async function PATCH(request: Request): Promise<Response> {
+  const { error, salon } = await requireAdminSalonFromRequest(request);
+  if (error || !salon) {
+    return error!;
+  }
+
+  try {
+    const body = await request.json();
+    const parsed = SalonPolicyPatchSchema.safeParse(body);
+    if (!parsed.success) {
+      return Response.json(
+        {
+          error: {
+            code: 'VALIDATION_ERROR',
+            message: 'Invalid policy data',
+            details: parsed.error.flatten(),
+          },
+        } satisfies ErrorResponse,
+        { status: 400 },
+      );
+    }
+
+    const updated = await patchSalonPolicy(undefined, salon.id, parsed.data);
+    const superAdminPolicy = await getSuperAdminPolicy();
     const effectivePolicy = resolveEffectivePolicy({
       salon: {
         requireBeforePhotoToStart: updated.requireBeforePhotoToStart as 'off' | 'optional' | 'required',

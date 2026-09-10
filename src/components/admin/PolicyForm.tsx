@@ -44,7 +44,7 @@ type PolicyFormProps = {
   initialSalonPolicy: SalonPolicy;
   superAdminPolicy: SuperAdminPolicy;
   salonName: string;
-  onSave: (policy: SalonPolicy) => Promise<void>;
+  onSave: (policy: Partial<SalonPolicy>) => Promise<void>;
   section?: 'all' | 'photos' | 'social';
 };
 
@@ -128,7 +128,24 @@ export function SalonPolicyForm({
     setSaving(true);
     setError(null);
     try {
-      await onSave(policy);
+      const ownedPolicy = section === 'photos'
+        ? {
+            requireAfterPhotoToFinish: policy.requireAfterPhotoToFinish,
+            requireAfterPhotoToPay: policy.requireAfterPhotoToPay,
+            requireBeforePhotoToStart: policy.requireBeforePhotoToStart,
+          }
+        : section === 'social'
+          ? {
+              autoPostAiCaptionEnabled: policy.autoPostAiCaptionEnabled,
+              autoPostEnabled: policy.autoPostEnabled,
+              autoPostIncludeBrand: policy.autoPostIncludeBrand,
+              autoPostIncludeColor: policy.autoPostIncludeColor,
+              autoPostIncludePrice: policy.autoPostIncludePrice,
+              autoPostPlatforms: policy.autoPostPlatforms,
+            }
+          : policy;
+
+      await onSave(ownedPolicy);
       setSaved(true);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to save');

@@ -1,16 +1,18 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { GET, PUT } from './route';
+import { GET, PATCH, PUT } from './route';
 
 const {
   requireAdminSalonFromRequest,
   getSalonPolicy,
   getSuperAdminPolicy,
+  patchSalonPolicy,
   upsertSalonPolicy,
 } = vi.hoisted(() => ({
   requireAdminSalonFromRequest: vi.fn(),
   getSalonPolicy: vi.fn(),
   getSuperAdminPolicy: vi.fn(),
+  patchSalonPolicy: vi.fn(),
   upsertSalonPolicy: vi.fn(),
 }));
 
@@ -21,6 +23,7 @@ vi.mock('@/libs/adminAuth', () => ({
 vi.mock('@/core/appointments/policyRepo', () => ({
   getSalonPolicy,
   getSuperAdminPolicy,
+  patchSalonPolicy,
   upsertSalonPolicy,
 }));
 
@@ -68,6 +71,7 @@ describe('admin policies active salon guard', () => {
     vi.clearAllMocks();
     getSalonPolicy.mockResolvedValue(salonPolicy);
     getSuperAdminPolicy.mockResolvedValue(superAdminPolicy);
+    patchSalonPolicy.mockResolvedValue(salonPolicy);
     upsertSalonPolicy.mockResolvedValue(salonPolicy);
   });
 
@@ -129,6 +133,64 @@ describe('admin policies active salon guard', () => {
 
     expect(response.status).toBe(200);
     expect(upsertSalonPolicy).toHaveBeenCalledWith(undefined, 'salon_active', expect.any(Object));
+  });
+
+  it('keeps concurrent photo and social updates isolated', async () => {
+    requireAdminSalonFromRequest.mockResolvedValue({
+      error: null,
+      salon: { id: 'salon_active', name: 'Active Salon' },
+      admin: { id: 'admin_1' },
+    });
+    const canonicalPolicy = { ...salonPolicy };
+    patchSalonPolicy.mockImplementation(async (_db, _salonId, patch) => {
+      Object.assign(canonicalPolicy, patch);
+      return { ...canonicalPolicy };
+    });
+
+    const [photoResponse, socialResponse] = await Promise.all([
+      PATCH(new Request('http://localhost/api/admin/policies', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ requireBeforePhotoToStart: 'optional' }),
+      })),
+      PATCH(new Request('http://localhost/api/admin/policies', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ autoPostEnabled: true }),
+      })),
+    ]);
+
+    expect(photoResponse.status).toBe(200);
+    expect(socialResponse.status).toBe(200);
+    expect(patchSalonPolicy).toHaveBeenCalledWith(
+      undefined,
+      'salon_active',
+      { requireBeforePhotoToStart: 'optional' },
+    );
+    expect(patchSalonPolicy).toHaveBeenCalledWith(
+      undefined,
+      'salon_active',
+      { autoPostEnabled: true },
+    );
+    expect(canonicalPolicy.requireBeforePhotoToStart).toBe('optional');
+    expect(canonicalPolicy.autoPostEnabled).toBe(true);
+  });
+
+  it('rejects an empty partial update', async () => {
+    requireAdminSalonFromRequest.mockResolvedValue({
+      error: null,
+      salon: { id: 'salon_active', name: 'Active Salon' },
+      admin: { id: 'admin_1' },
+    });
+
+    const response = await PATCH(new Request('http://localhost/api/admin/policies', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
+    }));
+
+    expect(response.status).toBe(400);
+    expect(patchSalonPolicy).not.toHaveBeenCalled();
   });
 
   // AG-security-tenancy-03 / AG-w2-settings-integrations-07: the URL's salon

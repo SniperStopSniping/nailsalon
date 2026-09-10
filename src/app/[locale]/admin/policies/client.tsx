@@ -86,13 +86,13 @@ export function SalonPoliciesClient({
   const section = requestedSection === 'photos' || requestedSection === 'social' ? requestedSection : 'all';
   const pageTitle = section === 'photos' ? 'Appointment Photo Rules' : section === 'social' ? 'Social Posting' : 'Photo & auto-post rules';
 
-  const handleSave = async (policy: SalonPolicy) => {
+  const handleSave = async (policy: Partial<SalonPolicy>) => {
     // The page may be showing a salon the active-salon cookie does not name,
     // so the write repeats the slug the page resolved instead of trusting it.
     const response = await fetch(
       `/api/admin/policies?salonSlug=${encodeURIComponent(salonSlug)}`,
       {
-        method: 'PUT',
+        method: section === 'all' ? 'PUT' : 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(policy),
       },

@@ -15,7 +15,7 @@ import {
 } from '@/models/Schema';
 
 import { DEFAULT_SALON_POLICY, DEFAULT_SUPER_ADMIN_POLICY } from './policyDefaults';
-import type { AutoPostPlatform, SalonPolicyInput, SuperAdminPolicyInput } from './policySchemas';
+import type { AutoPostPlatform, SalonPolicyInput, SalonPolicyPatch, SuperAdminPolicyInput } from './policySchemas';
 
 // =============================================================================
 // TYPES
@@ -274,6 +274,87 @@ export async function upsertSalonPolicy(
     autoPostAiCaptionEnabled: inserted!.autoPostAiCaptionEnabled ?? false,
     createdAt: inserted!.createdAt,
     updatedAt: inserted!.updatedAt,
+  };
+}
+
+/**
+ * Atomically updates only the supplied salon-policy columns. The insert side
+ * fills the established defaults for a salon without a row; the conflict side
+ * never rewrites omitted columns, so independently opened photo and social
+ * screens cannot restore each other's stale values.
+ */
+export async function patchSalonPolicy(
+  db = defaultDb,
+  salonId: string,
+  patch: SalonPolicyPatch,
+): Promise<SalonPolicyRow> {
+  const now = new Date();
+  const insertInput: SalonPolicyInput = {
+    ...DEFAULT_SALON_POLICY,
+    ...patch,
+    autoPostPlatforms: patch.autoPostPlatforms
+      ? [...new Set(patch.autoPostPlatforms)].sort() as AutoPostPlatform[]
+      : DEFAULT_SALON_POLICY.autoPostPlatforms,
+  };
+  const updateValues: Partial<typeof salonPoliciesSchema.$inferInsert> = {
+    updatedAt: now,
+  };
+
+  if (patch.requireBeforePhotoToStart !== undefined) {
+    updateValues.requireBeforePhotoToStart = patch.requireBeforePhotoToStart;
+  }
+  if (patch.requireAfterPhotoToFinish !== undefined) {
+    updateValues.requireAfterPhotoToFinish = patch.requireAfterPhotoToFinish;
+  }
+  if (patch.requireAfterPhotoToPay !== undefined) {
+    updateValues.requireAfterPhotoToPay = patch.requireAfterPhotoToPay;
+  }
+  if (patch.autoPostEnabled !== undefined) {
+    updateValues.autoPostEnabled = patch.autoPostEnabled;
+  }
+  if (patch.autoPostPlatforms !== undefined) {
+    updateValues.autoPostPlatforms = [...new Set(patch.autoPostPlatforms)].sort() as AutoPostPlatform[];
+  }
+  if (patch.autoPostIncludePrice !== undefined) {
+    updateValues.autoPostIncludePrice = patch.autoPostIncludePrice;
+  }
+  if (patch.autoPostIncludeColor !== undefined) {
+    updateValues.autoPostIncludeColor = patch.autoPostIncludeColor;
+  }
+  if (patch.autoPostIncludeBrand !== undefined) {
+    updateValues.autoPostIncludeBrand = patch.autoPostIncludeBrand;
+  }
+  if (patch.autoPostAiCaptionEnabled !== undefined) {
+    updateValues.autoPostAiCaptionEnabled = patch.autoPostAiCaptionEnabled;
+  }
+
+  const [updated] = await db
+    .insert(salonPoliciesSchema)
+    .values({
+      salonId,
+      ...insertInput,
+      createdAt: now,
+      updatedAt: now,
+    })
+    .onConflictDoUpdate({
+      target: salonPoliciesSchema.salonId,
+      set: updateValues,
+    })
+    .returning();
+
+  return {
+    salonId: updated!.salonId,
+    requireBeforePhotoToStart: updated!.requireBeforePhotoToStart ?? 'off',
+    requireAfterPhotoToFinish: updated!.requireAfterPhotoToFinish ?? 'off',
+    requireAfterPhotoToPay: updated!.requireAfterPhotoToPay ?? 'off',
+    autoPostEnabled: updated!.autoPostEnabled ?? false,
+    autoPostPlatforms: (updated!.autoPostPlatforms ?? []) as string[],
+    autoPostIncludePrice: updated!.autoPostIncludePrice ?? false,
+    autoPostIncludeColor: updated!.autoPostIncludeColor ?? false,
+    autoPostIncludeBrand: updated!.autoPostIncludeBrand ?? false,
+    autoPostAiCaptionEnabled: updated!.autoPostAiCaptionEnabled ?? false,
+    createdAt: updated!.createdAt,
+    updatedAt: updated!.updatedAt,
   };
 }
 
