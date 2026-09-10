@@ -168,7 +168,7 @@ describe('BookingPageOwnerSurface', () => {
 
     fireEvent.change(bio, { target: { value: 'Updated current owner biography' } });
     fireEvent.click(screen.getByRole('button', { name: 'Save & next step' }));
-    await waitFor(() => expect(pushMock).toHaveBeenCalledWith('/en/admin/booking-page?salon=salon-a&panel=policies&guided=1'));
+    await waitFor(() => expect(pushMock).toHaveBeenCalledWith('/en/admin/booking-page?salon=salon-a&panel=gallery&guided=1'));
 
     expect(content.draft.bio).toBe('Updated current owner biography');
     expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/api/onboarding'))).toBe(false);
@@ -189,7 +189,7 @@ describe('BookingPageOwnerSurface', () => {
     expect(screen.getByTestId('content-bio')).toHaveValue('Keep this edit');
   });
 
-  // AG-hub-publish-07 — the last action of a six-step review used to keep its
+  // AG-hub-publish-07 — the last action of the guided review used to keep its
   // label and merely go disabled while the queued writes drained, for 10-15 s.
   it('shows a pending state on the guided review while it drains queued writes', async () => {
     searchParamsMock.value = new URLSearchParams('salon=salon-a&panel=publish&guided=1');
@@ -248,7 +248,7 @@ describe('BookingPageOwnerSurface', () => {
     expect(config.draft.stylePack).toBe('default');
   });
 
-  it('speaks onboarding vocabulary for the legacy-only controls', async () => {
+  it('speaks onboarding vocabulary for the remaining legacy-only control and links photos to their canonical home', async () => {
     render(<BookingPageOwnerSurface />);
     await screen.findByTestId('content-bio');
 
@@ -256,8 +256,10 @@ describe('BookingPageOwnerSurface', () => {
     expect(screen.getByTestId('business-mode-option-solo')).toHaveTextContent('Independent nail tech');
     expect(screen.getByTestId('business-mode-option-team')).toHaveTextContent('Salon / studio');
     expect(screen.queryByText('Business mode')).not.toBeInTheDocument();
-    expect(screen.getByText('Profile photo link')).toBeVisible();
+    expect(screen.getByText('Website photos')).toBeVisible();
+    expect(screen.getByRole('link', { name: 'Manage Photos & Gallery' })).toHaveAttribute('href', '/en/admin/booking-page?salon=salon-a&panel=gallery');
     expect(screen.queryByText('Hero / profile image URL')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('content-hero-image-url')).not.toBeInTheDocument();
   });
 
   it('calls the duplicated address control what Your Information calls it, and links there', async () => {
@@ -672,8 +674,8 @@ describe('BookingPageOwnerSurface', () => {
     await waitFor(() => expect(screen.getByTestId('booking-page-preset-state'))
       .toHaveTextContent('Signature'));
 
-    expect(screen.getByTestId('content-hero-image-url'))
-      .toHaveValue('https://cdn.example.com/remote-hero.jpg');
+    expect(screen.getByTestId('legacy-website-photos'))
+      .toHaveAttribute('data-cover-url', 'https://cdn.example.com/remote-hero.jpg');
     expect(screen.getByTestId('content-specialty-line')).toHaveValue('Remote specialty');
     expect(screen.getByTestId('content-bio')).toHaveValue('Remote canonical bio');
     expect(screen.getByTestId('location-display-mode-city_only'))
@@ -1043,8 +1045,8 @@ describe('BookingPageOwnerSurface', () => {
       .toHaveAttribute('aria-pressed', 'true');
     expect(screen.getByTestId('location-display-mode-city-only-warning'))
       .toBeInTheDocument();
-    expect(screen.getByTestId('content-hero-image-url'))
-      .toHaveValue('https://cdn.example.com/newer.jpg');
+    expect(screen.getByTestId('legacy-website-photos'))
+      .toHaveAttribute('data-cover-url', 'https://cdn.example.com/newer.jpg');
     expect(screen.getByTestId('content-specialty-line')).toHaveValue('Newer specialty');
     expect(screen.getByTestId('content-bio'))
       .toHaveValue('A newer bio from another tab');
@@ -1580,7 +1582,7 @@ describe('BookingPageOwnerSurface', () => {
   it('warns that only the location name still shows under city_only (address/postal/phone are hidden), and clears the warning back to full_address', async () => {
     render(<BookingPageOwnerSurface />);
 
-    await screen.findByTestId('content-hero-image-url');
+    await screen.findByTestId('legacy-website-photos');
 
     // full_address is the fixture default — no warning yet (also proves the
     // assertion below isn't vacuously true for every render).
@@ -1609,7 +1611,7 @@ describe('BookingPageOwnerSurface', () => {
   it('warns in the no-panel control that the live site still uses the published mode', async () => {
     render(<BookingPageOwnerSurface />);
 
-    await screen.findByTestId('content-hero-image-url');
+    await screen.findByTestId('legacy-website-photos');
 
     // Draft and live both start at full_address — no warning yet.
     expect(screen.queryByTestId('location-display-mode-unpublished')).not.toBeInTheDocument();
