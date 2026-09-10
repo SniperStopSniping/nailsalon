@@ -150,13 +150,15 @@ function mockEndpoints(options: {
 async function openPaymentsView() {
   render(
     <SettingsModal
+      initialView="payments"
+      leafOnly
+      leafBackLabel="Payments"
       onClose={vi.fn()}
       salonSlug="salon-a"
       userName="Daniela"
       onOpenApp={vi.fn()}
     />,
   );
-  fireEvent.click(await screen.findByText('Payments & taxes'));
   await screen.findByText('Charge tax');
 }
 
@@ -168,20 +170,14 @@ describe('SettingsModal Payments & taxes', () => {
     mockEndpoints();
   });
 
-  it('shows stored tax settings in the index row value', async () => {
+  it('shows stored tax settings in the Payments editor', async () => {
     mockEndpoints({
       payments: { tax: { enabled: true, name: 'HST', rateBps: 1300 } },
     });
-    render(
-      <SettingsModal
-        onClose={vi.fn()}
-        salonSlug="salon-a"
-        userName="Daniela"
-        onOpenApp={vi.fn()}
-      />,
-    );
+    await openPaymentsView();
 
-    expect(await screen.findByText('HST 13%')).toBeInTheDocument();
+    expect(screen.getByTestId('payments-tax-name')).toHaveValue('HST');
+    expect(screen.getByTestId('payments-tax-rate')).toHaveValue('13');
   });
 
   it('hides tax fields until tax is enabled and reveals them on toggle', async () => {
@@ -337,13 +333,37 @@ describe('SettingsModal Payments & taxes', () => {
     await openPaymentsView();
 
     fireEvent.click(screen.getByTestId('payments-tax-enabled'));
-    fireEvent.click(screen.getByRole('button', { name: /settings/i }));
+    fireEvent.click(screen.getByRole('button', { name: 'Payments' }));
 
     expect(await screen.findByText(/unsaved changes/i)).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'Discard' }));
 
-    expect(await screen.findByText('Payments & taxes')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 1, name: 'Payments & taxes' })).toBeInTheDocument();
+  });
+
+  it('returns a discarded leaf edit to the Payments hub', async () => {
+    const onClose = vi.fn();
+    render(
+      <SettingsModal
+        initialView="payments"
+        leafOnly
+        leafBackLabel="Payments"
+        onClose={onClose}
+        salonSlug="salon-a"
+        userName="Daniela"
+      />,
+    );
+    await screen.findByText('Charge tax');
+
+    fireEvent.click(screen.getByTestId('payments-tax-enabled'));
+    fireEvent.click(screen.getByRole('button', { name: 'Payments' }));
+
+    expect(await screen.findByText(/unsaved changes/i)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Discard' }));
+
+    expect(onClose).toHaveBeenCalledOnce();
   });
 });
 
@@ -363,13 +383,15 @@ describe('SettingsModal Deposits card', () => {
     mockEndpoints(options);
     render(
       <SettingsModal
+        initialView="payments"
+        leafOnly
+        leafBackLabel="Payments"
         onClose={vi.fn()}
         salonSlug="salon-a"
         userName="Daniela"
         onOpenApp={vi.fn()}
       />,
     );
-    fireEvent.click(await screen.findByText('Payments & taxes'));
     await screen.findByText('Charge tax');
   }
 

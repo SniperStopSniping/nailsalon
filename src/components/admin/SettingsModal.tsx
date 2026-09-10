@@ -3695,7 +3695,6 @@ export function SettingsModal({
     }
   };
 
-  const hasEntitledModules = Object.values(entitledModules).some(Boolean);
   const hasClientPrograms
     = entitledModules.rewards || entitledModules.referrals;
 
@@ -3854,6 +3853,16 @@ export function SettingsModal({
     }
   };
 
+  const discardChanges = () => {
+    if (!leafOnly) {
+      goToIndex();
+      return;
+    }
+    setConfirmingLeave(false);
+    revertViewDrafts(view);
+    onClose();
+  };
+
   /** Back from a focused view; warns when the view holds unsaved edits. */
   const handleBack = () => {
     if (view === 'index') {
@@ -3974,7 +3983,7 @@ export function SettingsModal({
             </button>
             <button
               type="button"
-              onClick={goToIndex}
+              onClick={discardChanges}
               className="rounded-full bg-amber-600 px-3 py-1.5 text-xs font-semibold text-white"
             >
               Discard
@@ -5901,19 +5910,21 @@ export function SettingsModal({
           </>
         )}
 
-        {view === 'visibility' && hasEntitledModules && visibilityEntitled && (
-          <Section
-            title="Staff Visibility"
-            footer="Control what information staff can see in their dashboard. Changes take effect immediately."
-          >
-            {visibilityLoading
-              ? (
+        {view === 'visibility' && (
+          visibilityLoading
+            ? (
+                <Section title="Staff Visibility">
                   <div className="flex items-center justify-center py-8">
                     <div className="size-6 animate-spin rounded-full border-2 border-[var(--owner-accent)] border-t-transparent" />
                   </div>
-                )
-              : (
-                  <>
+                </Section>
+              )
+            : visibilityEntitled
+              ? (
+                  <Section
+                    title="Staff Visibility"
+                    footer="Control what information staff can see in their dashboard. Changes take effect immediately."
+                  >
                     <Row
                       icon={Eye}
                       iconColor="bg-[var(--owner-accent)]"
@@ -5976,9 +5987,17 @@ export function SettingsModal({
                         Saving...
                       </div>
                     )}
-                  </>
-                )}
-          </Section>
+                  </Section>
+                )
+              : (
+                  <Section footer="Your existing staff access rules are unchanged.">
+                    <LockedFeatureRow
+                      name="Staff Visibility"
+                      reason="Staff permissions are not included in your current plan."
+                      isLast
+                    />
+                  </Section>
+                )
         )}
 
         {view === 'account' && (

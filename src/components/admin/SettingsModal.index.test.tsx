@@ -141,6 +141,7 @@ function mockEndpoints(options: {
   bookingExperience?: BookingExperience;
   bookingExperienceEntitled?: boolean;
   bookingExperiencePatchResponse?: Promise<Response>;
+  visibilityEntitled?: boolean;
 } = {}) {
   let persistedBookingExperience
     = options.bookingExperience ?? DEFAULT_BOOKING_EXPERIENCE;
@@ -177,7 +178,10 @@ function mockEndpoints(options: {
 
     if (url.includes('/api/admin/settings/visibility?salonSlug=salon-a')) {
       return Promise.resolve(new Response(JSON.stringify({
-        data: { visibility: { staff: {} }, entitled: true },
+        data: {
+          visibility: { staff: {} },
+          entitled: options.visibilityEntitled ?? true,
+        },
       }), { status: 200 }));
     }
 
@@ -1378,5 +1382,27 @@ describe('SettingsModal index', () => {
     await screen.findByText('Appointment Photo Rules');
 
     expect(screen.queryByText(/section gallery/i)).not.toBeInTheDocument();
+  });
+
+  it('shows Team Permissions as locked instead of rendering a blank screen', async () => {
+    fetchMock.mockReset();
+    mockEndpoints({ visibilityEntitled: false });
+
+    render(
+      <SettingsModal
+        initialView="visibility"
+        leafOnly
+        leafBackLabel="Team"
+        onClose={vi.fn()}
+        salonSlug="salon-a"
+        userName="Daniela"
+      />,
+    );
+
+    const locked = await screen.findByTestId('locked-feature-staff-visibility');
+
+    expect(locked).toHaveTextContent('Staff Visibility');
+    expect(locked).toHaveTextContent('Staff permissions are not included in your current plan.');
+    expect(screen.getByText('Your existing staff access rules are unchanged.')).toBeInTheDocument();
   });
 });
