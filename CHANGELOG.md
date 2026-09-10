@@ -1,3 +1,20 @@
+# [1.91.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.90.0...v1.91.0) (2026-09-10)
+
+
+### Bug Fixes
+
+* **owner:** isolate photo and social policy writes ([1cca52e](https://github.com/SniperStopSniping/nailsalon/commit/1cca52ecf51986719f2edd40adb7fcb4e28cfd83))
+* **owner:** link booking info to canonical settings ([614a4d7](https://github.com/SniperStopSniping/nailsalon/commit/614a4d770a01c1d2a384110efa6853a484ff4b91))
+* **owner:** preserve hub back and locked states ([ef007c9](https://github.com/SniperStopSniping/nailsalon/commit/ef007c900128a1fe7a7af241777e3726161dcc5e))
+* **owner:** preserve untouched service offer settings ([d5ad640](https://github.com/SniperStopSniping/nailsalon/commit/d5ad640410b35edb54395c9a36bc5d0e3e00d1a0))
+* **owner:** restore automatic message reporting ([9299003](https://github.com/SniperStopSniping/nailsalon/commit/9299003280cc36d7db2f0c23e696414d8ac43a46))
+
+
+### Features
+
+* **owner:** establish canonical dashboard homes ([f375b14](https://github.com/SniperStopSniping/nailsalon/commit/f375b14c6420ef316fe2cacc633ba39c35a177fc))
+* **owner:** reorganize More app grid ([2d820a5](https://github.com/SniperStopSniping/nailsalon/commit/2d820a53e20d7291d87c703a6990493d37466715))
+
 # [1.90.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.89.3...v1.90.0) (2026-09-09)
 
 
