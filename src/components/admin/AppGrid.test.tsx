@@ -21,17 +21,18 @@ function contrastWithWhite(hex: string): number {
 }
 
 describe('AppGrid', () => {
-  it('puts Booking Page first and keeps the tour and Luster after the business tools', () => {
+  it('puts Booking Page first, keeps ten permanent apps, and moves the tour to Help', () => {
     render(<AppGrid onAppTap={vi.fn()} />);
     const buttons = screen.getAllByRole('button');
     const indexOf = (id: string) =>
       buttons.findIndex(button => button.dataset.testid === `admin-app-tile-${id}`);
 
     expect(buttons[0]).toHaveAttribute('data-testid', 'admin-app-tile-booking-page');
-    expect(indexOf('workspace-tour')).toBeGreaterThan(indexOf('portfolio'));
-    expect(indexOf('luster')).toBeGreaterThan(indexOf('workspace-tour'));
-    expect(indexOf('luster')).toBe(buttons.length - 1);
-    expect(screen.getByTestId('admin-app-tile-staff-ops')).toHaveTextContent('Time-off requests');
+    expect(APPS.filter(app => !['schedule', 'bookings', 'clients', 'services'].includes(app.id))).toHaveLength(10);
+    expect(screen.queryByTestId('admin-app-tile-workspace-tour')).not.toBeInTheDocument();
+    expect(screen.getByTestId('more-workspace-tour')).toHaveTextContent('Help & workspace tour');
+    expect(indexOf('luster')).toBeGreaterThan(indexOf('settings'));
+    expect(screen.getByTestId('admin-app-tile-team')).toHaveTextContent('Team');
   });
 
   it('shows the approved More apps, including the Integrations tile with its description', () => {
@@ -42,7 +43,7 @@ describe('AppGrid', () => {
       />,
     );
 
-    for (const id of ['luster', 'integrations', 'marketing', 'settings', 'analytics', 'reviews', 'rewards', 'staff', 'staff-ops', 'workspace-tour']) {
+    for (const id of ['booking-page', 'marketing', 'analytics', 'team', 'payments', 'integrations', 'rewards-reviews', 'portfolio', 'settings', 'luster']) {
       expect(screen.getByTestId(`admin-app-tile-${id}`)).toBeInTheDocument();
     }
 
@@ -50,15 +51,15 @@ describe('AppGrid', () => {
     // in particular has to read differently from Marketing → Reviews, which is
     // where the Google review *link* is configured (AG-w2-more-tools-05).
     expect(screen.getByTestId('admin-app-tile-integrations')).toHaveTextContent(
-      'Google Calendar, texting and email',
+      'Calendar, messaging and Stripe setup',
     );
     expect(screen.getByTestId('admin-app-tile-settings')).toHaveTextContent(
-      'Business, booking and payment setup',
+      'Business, booking and account setup',
     );
-    expect(screen.getByTestId('admin-app-tile-reviews')).toHaveTextContent(
-      'Google review rewards',
+    expect(screen.getByTestId('admin-app-tile-rewards-reviews')).toHaveTextContent(
+      'Loyalty, referrals and review rewards',
     );
-    expect(screen.getByTestId('admin-app-tile-workspace-tour')).toHaveTextContent(
+    expect(screen.getByTestId('more-workspace-tour')).toHaveTextContent(
       'Replay the five-step guide',
     );
   });
@@ -67,14 +68,14 @@ describe('AppGrid', () => {
     render(
       <AppGrid
         onAppTap={vi.fn()}
-        hiddenIds={['schedule', 'bookings', 'clients', 'services', 'analytics', 'rewards']}
+        hiddenIds={['schedule', 'bookings', 'clients', 'services', 'analytics', 'rewards-reviews']}
       />,
     );
 
     expect(screen.queryByTestId('admin-app-tile-schedule')).not.toBeInTheDocument();
     expect(screen.queryByTestId('admin-app-tile-clients')).not.toBeInTheDocument();
     expect(screen.queryByTestId('admin-app-tile-analytics')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('admin-app-tile-rewards')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('admin-app-tile-rewards-reviews')).not.toBeInTheDocument();
     expect(screen.getByTestId('admin-app-tile-integrations')).toBeInTheDocument();
   });
 
@@ -82,14 +83,14 @@ describe('AppGrid', () => {
     render(
       <AppGrid
         onAppTap={vi.fn()}
-        hiddenIds={['schedule', 'bookings', 'clients', 'services', 'analytics', 'rewards']}
+        hiddenIds={['schedule', 'bookings', 'clients', 'services', 'analytics', 'rewards-reviews']}
       />,
     );
 
     const locked = screen.getByTestId('more-locked-apps');
 
     expect(within(locked).getByTestId('locked-feature-analytics')).toHaveTextContent('Analytics');
-    expect(within(locked).getByTestId('locked-feature-rewards')).toHaveTextContent('Rewards');
+    expect(within(locked).getByTestId('locked-feature-rewards-reviews')).toHaveTextContent('Rewards & Reviews');
     expect(within(locked).getByTestId('locked-feature-analytics')).toHaveTextContent(
       /Not available for this salon yet/i,
     );
@@ -123,12 +124,12 @@ describe('AppGrid', () => {
       <AppGrid
         onAppTap={vi.fn()}
         hiddenIds={[]}
-        badges={{ marketing: 3, reviews: 0 }}
+        badges={{ 'marketing': 3, 'rewards-reviews': 0 }}
       />,
     );
 
     expect(screen.getByTestId('admin-app-tile-marketing')).toHaveTextContent('3');
-    expect(screen.getByTestId('admin-app-tile-reviews')).not.toHaveTextContent(/\d/);
+    expect(screen.getByTestId('admin-app-tile-rewards-reviews')).not.toHaveTextContent(/\d/);
   });
 
   it('keeps every icon chip dark enough for its white glyph', () => {

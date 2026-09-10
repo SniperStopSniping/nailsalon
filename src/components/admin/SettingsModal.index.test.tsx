@@ -141,6 +141,7 @@ function mockEndpoints(options: {
   bookingExperience?: BookingExperience;
   bookingExperienceEntitled?: boolean;
   bookingExperiencePatchResponse?: Promise<Response>;
+  visibilityEntitled?: boolean;
 } = {}) {
   let persistedBookingExperience
     = options.bookingExperience ?? DEFAULT_BOOKING_EXPERIENCE;
@@ -177,7 +178,10 @@ function mockEndpoints(options: {
 
     if (url.includes('/api/admin/settings/visibility?salonSlug=salon-a')) {
       return Promise.resolve(new Response(JSON.stringify({
-        data: { visibility: { staff: {} }, entitled: true },
+        data: {
+          visibility: { staff: {} },
+          entitled: options.visibilityEntitled ?? true,
+        },
       }), { status: 200 }));
     }
 
@@ -332,7 +336,7 @@ describe('SettingsModal index', () => {
     mockEndpoints();
   });
 
-  it('shows the grouped index with no inputs; tax appears only via the Payments & taxes row', async () => {
+  it('shows the six card-based settings homes with no editing controls', async () => {
     render(
       <SettingsModal
         onClose={vi.fn()}
@@ -342,28 +346,13 @@ describe('SettingsModal index', () => {
       />,
     );
 
-    expect(await screen.findByText('Location')).toBeInTheDocument();
-    // Renamed: the row is "Branding" (logo, page themes, social) now that
-    // website colour belongs to the Booking Page hub (AG-more-settings-06).
-    expect(screen.getByText('Branding')).toBeInTheDocument();
-    expect(screen.getByText('Booking rules')).toBeInTheDocument();
-    expect(screen.getByText('Booking policy')).toBeInTheDocument();
-    expect(screen.getByText('Booking & cancellation alerts')).toBeInTheDocument();
-    expect(await screen.findByText('Features & plan')).toBeInTheDocument();
-    expect(screen.getByText('Manage integrations')).toBeInTheDocument();
-    expect(screen.getByText('Terms of Service')).toBeInTheDocument();
-
-    // Payments & taxes is a navigation row on the index; the only tax mention
-    // is that row (default state "Tax off"). No editing controls leak onto the
-    // index, and deposits (not implemented) never appear.
-    expect(screen.getByText('Payments & taxes')).toBeInTheDocument();
-    expect(screen.getByText('Tax off')).toBeInTheDocument();
-
-    const taxMentions = screen.getAllByText(/tax/i);
-
-    expect(taxMentions.length).toBe(2); // the row label + its "Tax off" value
-    expect(screen.queryByText(/e-transfer/i)).not.toBeInTheDocument();
-    expect(screen.queryByText(/deposit/i)).not.toBeInTheDocument();
+    expect(await screen.findByText('Business')).toBeInTheDocument();
+    expect(screen.getByText('Booking & Availability')).toBeInTheDocument();
+    expect(screen.getByText('Messages & Notifications')).toBeInTheDocument();
+    expect(screen.getByText('Features')).toBeInTheDocument();
+    expect(screen.getByText('Account & Plan')).toBeInTheDocument();
+    expect(screen.getByText('Advanced')).toBeInTheDocument();
+    expect(screen.queryByText(/tax/i)).not.toBeInTheDocument();
 
     // The index holds navigation rows only, not editing inputs.
     expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
@@ -380,7 +369,8 @@ describe('SettingsModal index', () => {
       />,
     );
 
-    fireEvent.click(await screen.findByText('Manage integrations'));
+    fireEvent.click(await screen.findByText('Messages & Notifications'));
+    fireEvent.click(await screen.findByText('Delivery Setup'));
 
     expect(onOpenApp).toHaveBeenCalledWith('integrations');
     // No provider setup UI inside Settings.
@@ -391,6 +381,7 @@ describe('SettingsModal index', () => {
   it('wires the About rows to the real terms and privacy pages', async () => {
     render(<SettingsModal onClose={vi.fn()} salonSlug="salon-a" userName="Daniela" />);
 
+    fireEvent.click(await screen.findByText('Advanced'));
     fireEvent.click(await screen.findByText('Terms of Service'));
 
     expect(pushMock).toHaveBeenCalledWith('/en/terms');
@@ -403,7 +394,8 @@ describe('SettingsModal index', () => {
   it('warns before leaving a focused view with unsaved changes', async () => {
     render(<SettingsModal onClose={vi.fn()} salonSlug="salon-a" userName="Daniela" />);
 
-    fireEvent.click(await screen.findByText('Booking rules'));
+    fireEvent.click(await screen.findByText('Booking & Availability'));
+    fireEvent.click(await screen.findByText('Booking Rules'));
     const buffer = await screen.findByDisplayValue('10');
     fireEvent.change(buffer, { target: { value: '20' } });
 
@@ -414,18 +406,19 @@ describe('SettingsModal index', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Keep editing' }));
 
     expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
-    expect(screen.getByTestId('feature-luster-manicure-toggle')).toBeInTheDocument();
+    expect(screen.getByDisplayValue('20')).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: /settings/i }));
     fireEvent.click(await screen.findByRole('button', { name: 'Discard' }));
 
-    expect(await screen.findByText('Location')).toBeInTheDocument();
+    expect(await screen.findByText('Booking & Availability')).toBeInTheDocument();
   });
 
   it('keeps parking instructions in the Locations view as the single directions source', async () => {
     render(<SettingsModal onClose={vi.fn()} salonSlug="salon-a" userName="Daniela" />);
 
-    fireEvent.click(await screen.findByText('Location'));
+    fireEvent.click(await screen.findByText('Business'));
+    fireEvent.click(await screen.findByText('Location & Arrival'));
 
     const parking = await screen.findByDisplayValue('Free parking behind the salon.');
     fireEvent.change(parking, { target: { value: 'Park in the back.' } });
@@ -453,7 +446,8 @@ describe('SettingsModal index', () => {
 
     render(<SettingsModal onClose={vi.fn()} salonSlug="salon-a" userName="Daniela" />);
 
-    fireEvent.click(await screen.findByText('Branding'));
+    fireEvent.click(await screen.findByText('Business'));
+    fireEvent.click(await screen.findByText('Branding & Social'));
 
     expect(await screen.findByTestId('page-themes-settings')).toBeInTheDocument();
     // Website colour is authored in the Booking Page hub now; this screen only
@@ -495,7 +489,8 @@ describe('SettingsModal index', () => {
 
     render(<SettingsModal onClose={vi.fn()} salonSlug="salon-a" userName="Daniela" />);
 
-    fireEvent.click(await screen.findByText('Booking policy'));
+    fireEvent.click(await screen.findByText('Booking & Availability'));
+    fireEvent.click(await screen.findByText('Client Policies'));
 
     expect(await screen.findByRole('checkbox', {
       name: 'Enable booking policy',
@@ -538,7 +533,8 @@ describe('SettingsModal index', () => {
     const longPolicy = `${'Please contact the salon as soon as possible if you cannot attend. '.repeat(5)}Thank you.`;
     render(<SettingsModal onClose={vi.fn()} salonSlug="salon-a" userName="Daniela" />);
 
-    fireEvent.click(await screen.findByText('Booking policy'));
+    fireEvent.click(await screen.findByText('Booking & Availability'));
+    fireEvent.click(await screen.findByText('Client Policies'));
     await screen.findByTestId('booking-policy-preview');
 
     const requireAcknowledgment = screen.getByRole('checkbox', {
@@ -626,7 +622,8 @@ describe('SettingsModal index', () => {
   it('counts acknowledgment wording by Unicode code point and blocks oversized drafts', async () => {
     render(<SettingsModal onClose={vi.fn()} salonSlug="salon-a" userName="Daniela" />);
 
-    fireEvent.click(await screen.findByText('Booking policy'));
+    fireEvent.click(await screen.findByText('Booking & Availability'));
+    fireEvent.click(await screen.findByText('Client Policies'));
     const wording = await screen.findByRole('textbox', {
       name: 'Acknowledgment wording',
     });
@@ -651,7 +648,8 @@ describe('SettingsModal index', () => {
 
     render(<SettingsModal onClose={vi.fn()} salonSlug="salon-a" userName="Daniela" />);
 
-    fireEvent.click(await screen.findByText('Booking policy'));
+    fireEvent.click(await screen.findByText('Booking & Availability'));
+    fireEvent.click(await screen.findByText('Client Policies'));
     fireEvent.click(screen.getByRole('checkbox', {
       name: 'Require acknowledgment',
     }));
@@ -714,7 +712,8 @@ describe('SettingsModal index', () => {
 
     render(<SettingsModal onClose={vi.fn()} salonSlug="salon-a" userName="Daniela" />);
 
-    fireEvent.click(await screen.findByText('Branding'));
+    fireEvent.click(await screen.findByText('Business'));
+    fireEvent.click(await screen.findByText('Branding & Social'));
     await screen.findByTestId('booking-experience-preview');
 
     // The locked banner and the inactive-preview notice are gone entirely.
@@ -751,7 +750,8 @@ describe('SettingsModal index', () => {
 
     render(<SettingsModal onClose={vi.fn()} salonSlug="salon-a" userName="Daniela" />);
 
-    fireEvent.click(await screen.findByText('Booking policy'));
+    fireEvent.click(await screen.findByText('Booking & Availability'));
+    fireEvent.click(await screen.findByText('Client Policies'));
     await screen.findByTestId('booking-policy-preview');
 
     expect(screen.queryByTestId('booking-policy-locked')).not.toBeInTheDocument();
@@ -773,7 +773,8 @@ describe('SettingsModal index', () => {
   it('updates every appearance preview element from the unsaved draft', async () => {
     render(<SettingsModal onClose={vi.fn()} salonSlug="salon-a" userName="Daniela" />);
 
-    fireEvent.click(await screen.findByText('Branding'));
+    fireEvent.click(await screen.findByText('Business'));
+    fireEvent.click(await screen.findByText('Branding & Social'));
     await screen.findByTestId('booking-experience-preview');
 
     fireEvent.change(screen.getByRole('textbox', { name: 'Booking message' }), {
@@ -809,7 +810,8 @@ describe('SettingsModal index', () => {
   it('updates explicit quick facts and the canonical policy preview from an unsaved policy draft', async () => {
     render(<SettingsModal onClose={vi.fn()} salonSlug="salon-a" userName="Daniela" />);
 
-    fireEvent.click(await screen.findByText('Booking policy'));
+    fireEvent.click(await screen.findByText('Booking & Availability'));
+    fireEvent.click(await screen.findByText('Client Policies'));
     await screen.findByTestId('booking-policy-preview');
 
     fireEvent.click(screen.getByRole('checkbox', {
@@ -843,7 +845,8 @@ describe('SettingsModal index', () => {
 
     render(<SettingsModal onClose={vi.fn()} salonSlug="salon-a" userName="Daniela" />);
 
-    fireEvent.click(await screen.findByText('Booking policy'));
+    fireEvent.click(await screen.findByText('Booking & Availability'));
+    fireEvent.click(await screen.findByText('Client Policies'));
     fireEvent.change(await screen.findByRole('textbox', {
       name: 'Policy title',
     }), {
@@ -904,7 +907,8 @@ describe('SettingsModal index', () => {
 
     render(<SettingsModal onClose={vi.fn()} salonSlug="salon-a" userName="Daniela" />);
 
-    fireEvent.click(await screen.findByText('Branding'));
+    fireEvent.click(await screen.findByText('Business'));
+    fireEvent.click(await screen.findByText('Branding & Social'));
     await screen.findByDisplayValue('Welcome to online booking.');
 
     fireEvent.click(screen.getByRole('button', { name: 'Reset to Default' }));
@@ -950,7 +954,8 @@ describe('SettingsModal index', () => {
 
     render(<SettingsModal onClose={vi.fn()} salonSlug="salon-a" userName="Daniela" />);
 
-    fireEvent.click(await screen.findByText('Branding'));
+    fireEvent.click(await screen.findByText('Business'));
+    fireEvent.click(await screen.findByText('Branding & Social'));
     const bookingMessage = await screen.findByRole('textbox', {
       name: 'Booking message',
     });
@@ -1004,7 +1009,8 @@ describe('SettingsModal index', () => {
 
     render(<SettingsModal onClose={vi.fn()} salonSlug="salon-a" userName="Daniela" />);
 
-    fireEvent.click(await screen.findByText('Branding'));
+    fireEvent.click(await screen.findByText('Business'));
+    fireEvent.click(await screen.findByText('Branding & Social'));
     const bookingMessage = await screen.findByRole('textbox', {
       name: 'Booking message',
     });
@@ -1060,7 +1066,8 @@ describe('SettingsModal index', () => {
 
     render(<SettingsModal onClose={vi.fn()} salonSlug="salon-a" userName="Daniela" />);
 
-    fireEvent.click(await screen.findByText('Branding'));
+    fireEvent.click(await screen.findByText('Business'));
+    fireEvent.click(await screen.findByText('Branding & Social'));
     const bookingMessage = await screen.findByRole('textbox', {
       name: 'Booking message',
     });
@@ -1086,7 +1093,8 @@ describe('SettingsModal index', () => {
   it('guards unsaved booking-experience navigation and discards only the draft', async () => {
     render(<SettingsModal onClose={vi.fn()} salonSlug="salon-a" userName="Daniela" />);
 
-    fireEvent.click(await screen.findByText('Branding'));
+    fireEvent.click(await screen.findByText('Business'));
+    fireEvent.click(await screen.findByText('Branding & Social'));
     await screen.findByTestId('booking-experience-preview');
     fireEvent.change(screen.getByRole('textbox', { name: 'Booking message' }), {
       target: { value: 'Unsaved welcome' },
@@ -1100,7 +1108,8 @@ describe('SettingsModal index', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Discard' }));
 
-    fireEvent.click(await screen.findByText('Branding'));
+    fireEvent.click(await screen.findByText('Business'));
+    fireEvent.click(await screen.findByText('Branding & Social'));
 
     expect(
       await screen.findByRole('textbox', { name: 'Booking message' }),
@@ -1131,7 +1140,8 @@ describe('SettingsModal index', () => {
 
     render(<SettingsModal onClose={vi.fn()} salonSlug="salon-a" userName="Daniela" />);
 
-    fireEvent.click(await screen.findByText('Branding'));
+    fireEvent.click(await screen.findByText('Business'));
+    fireEvent.click(await screen.findByText('Branding & Social'));
     await screen.findByTestId('booking-experience-preview');
 
     fireEvent.change(screen.getByRole('textbox', { name: 'Instagram' }), {
@@ -1189,7 +1199,8 @@ describe('SettingsModal index', () => {
 
     render(<SettingsModal onClose={vi.fn()} salonSlug="salon-a" userName="Daniela" />);
 
-    fireEvent.click(await screen.findByText('Booking policy'));
+    fireEvent.click(await screen.findByText('Booking & Availability'));
+    fireEvent.click(await screen.findByText('Client Policies'));
     await screen.findByTestId('booking-policy-preview');
     fireEvent.change(screen.getByRole('textbox', { name: 'Policy title' }), {
       target: { value: 'Unsaved policy title' },
@@ -1224,7 +1235,8 @@ describe('SettingsModal index', () => {
 
     render(<SettingsModal onClose={vi.fn()} salonSlug="salon-a" userName="Daniela" />);
 
-    fireEvent.click(await screen.findByText('Branding'));
+    fireEvent.click(await screen.findByText('Business'));
+    fireEvent.click(await screen.findByText('Branding & Social'));
     await screen.findByTestId('booking-experience-preview');
     fireEvent.change(screen.getByRole('textbox', { name: 'Booking message' }), {
       target: { value: 'Keep this draft too' },
@@ -1252,8 +1264,7 @@ describe('SettingsModal index', () => {
   it('shows the stored owner email read-only and saves a name-only edit', async () => {
     render(<SettingsModal onClose={vi.fn()} salonSlug="salon-a" userName="Daniela" />);
 
-    fireEvent.click(await screen.findByTestId('settings-profile-card'));
-
+    fireEvent.click(await screen.findByText('Account & Plan'));
     const saveButton = await screen.findByRole('button', { name: /save profile/i });
 
     expect(saveButton).toBeDisabled();
@@ -1298,7 +1309,7 @@ describe('SettingsModal index', () => {
       />,
     );
 
-    fireEvent.click(await screen.findByTestId('settings-profile-card'));
+    fireEvent.click(await screen.findByText('Account & Plan'));
 
     expect(await screen.findByText('Cash / Offline billing enabled')).toBeInTheDocument();
     expect(screen.queryByTestId('manage-billing-button')).not.toBeInTheDocument();
@@ -1321,8 +1332,7 @@ describe('SettingsModal index', () => {
       />,
     );
 
-    fireEvent.click(await screen.findByTestId('settings-profile-card'));
-
+    fireEvent.click(await screen.findByText('Account & Plan'));
     const manageButton = await screen.findByTestId('manage-billing-button');
     fireEvent.click(manageButton);
 
@@ -1352,9 +1362,10 @@ describe('SettingsModal index', () => {
       />,
     );
 
-    fireEvent.click(await screen.findByText('Photo & auto-post rules'));
+    fireEvent.click(await screen.findByText('Advanced'));
+    fireEvent.click(await screen.findByText('Appointment Photo Rules'));
 
-    expect(pushMock).toHaveBeenCalledWith('/en/admin/policies?salon=salon-a');
+    expect(pushMock).toHaveBeenCalledWith('/en/admin/policies?salon=salon-a&section=photos');
   });
 
   it('keeps the dark Section Gallery out of Settings while its flag is off', async () => {
@@ -1367,8 +1378,31 @@ describe('SettingsModal index', () => {
       />,
     );
 
-    await screen.findByText('Photo & auto-post rules');
+    fireEvent.click(await screen.findByText('Advanced'));
+    await screen.findByText('Appointment Photo Rules');
 
     expect(screen.queryByText(/section gallery/i)).not.toBeInTheDocument();
+  });
+
+  it('shows Team Permissions as locked instead of rendering a blank screen', async () => {
+    fetchMock.mockReset();
+    mockEndpoints({ visibilityEntitled: false });
+
+    render(
+      <SettingsModal
+        initialView="visibility"
+        leafOnly
+        leafBackLabel="Team"
+        onClose={vi.fn()}
+        salonSlug="salon-a"
+        userName="Daniela"
+      />,
+    );
+
+    const locked = await screen.findByTestId('locked-feature-staff-visibility');
+
+    expect(locked).toHaveTextContent('Staff Visibility');
+    expect(locked).toHaveTextContent('Staff permissions are not included in your current plan.');
+    expect(screen.getByText('Your existing staff access rules are unchanged.')).toBeInTheDocument();
   });
 });

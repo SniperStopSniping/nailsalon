@@ -114,7 +114,7 @@ async function openFeaturesView() {
   const user = userEvent.setup();
   render(<SettingsModal onClose={vi.fn()} salonSlug="salon-b" userName="Daniela" />);
 
-  const row = await screen.findByText('Features & plan');
+  const row = await screen.findByText('Features');
   await user.click(row);
 
   return screen.findByText('Modules');

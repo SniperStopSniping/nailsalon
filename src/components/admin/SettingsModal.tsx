@@ -56,6 +56,7 @@ import {
 } from 'react';
 
 import { useOwnerAdminFeatureFlags } from '@/app/[locale]/admin/OwnerAdminFeatureFlags';
+import { BookingPageInformationEditor } from '@/components/admin/BookingPageInformationEditor';
 import { DialogShell } from '@/components/ui/dialog-shell';
 import { LockedFeatureRow } from '@/components/ui/locked-feature-row';
 import {
@@ -96,6 +97,21 @@ import { BookingFlowEditor } from './BookingFlowEditor';
 import { PageThemesSettings } from './PageThemesSettings';
 import { SmartFitSettingsCard } from './SmartFitSettingsCard';
 import { UsageBillingModal } from './UsageBillingModal';
+
+const BUSINESS_PROFILE_VISIBILITY = {
+  version: 1 as const,
+  showTechName: false,
+  showTechPhoto: false,
+  showLocation: false,
+  showHours: false,
+  showPhone: false,
+  showEmail: false,
+  showBookingPolicy: false,
+  showCancellationPolicy: false,
+  showReviews: false,
+  showInstagram: false,
+  showBio: false,
+};
 
 /**
  * Formats a Canadian postal code readably (`m5h2m9` → `M5H 2M9`). Values that
@@ -2018,6 +2034,11 @@ function ComparePlansModal({ isOpen, onClose }: ComparePlansModalProps) {
 
 type SettingsView
   = | 'index'
+  | 'business'
+  | 'business-profile'
+  | 'booking-availability'
+  | 'messages'
+  | 'advanced'
   | 'account'
   | 'location'
   | 'branding'
@@ -2038,6 +2059,11 @@ type SettingsView
  */
 const SETTINGS_VIEW_IDS: readonly SettingsView[] = [
   'index',
+  'business',
+  'business-profile',
+  'booking-availability',
+  'messages',
+  'advanced',
   'account',
   'location',
   'branding',
@@ -2060,7 +2086,12 @@ function normalizeSettingsView(value: string | null | undefined): SettingsView {
 
 const VIEW_TITLES: Record<SettingsView, string> = {
   'index': 'Settings',
-  'account': 'Account',
+  'business': 'Business',
+  'business-profile': 'Business Profile',
+  'booking-availability': 'Booking & Availability',
+  'messages': 'Messages & Notifications',
+  'advanced': 'Advanced',
+  'account': 'Account & Plan',
   'location': 'Location',
   'branding': 'Branding',
   'booking': 'Booking rules',
@@ -2073,6 +2104,28 @@ const VIEW_TITLES: Record<SettingsView, string> = {
   'features': 'Features & plan',
   'visibility': 'Staff visibility',
 };
+
+function SettingsCardGrid({ items }: { items: ReadonlyArray<{ title: string; description: string; icon: LucideIcon; onClick: () => void; status?: string }> }) {
+  return (
+    <div className="grid grid-cols-1 gap-3 px-4 pb-8 min-[420px]:grid-cols-2">
+      {items.map(({ title, description, icon: Icon, onClick, status }) => (
+        <button
+          key={title}
+          type="button"
+          onClick={onClick}
+          className="flex min-h-32 flex-col items-start rounded-2xl border border-[var(--owner-line)] bg-[var(--owner-surface)] p-4 text-left shadow-sm outline-none hover:bg-[var(--owner-blush)] focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)]"
+        >
+          <span className="flex size-11 items-center justify-center rounded-xl bg-[var(--owner-blush)] text-[var(--owner-accent)]">
+            <Icon aria-hidden="true" className="size-5" />
+          </span>
+          <span className="mt-3 text-[16px] font-semibold leading-tight text-[var(--owner-ink)]">{title}</span>
+          <span className="mt-1 text-[13px] leading-snug text-[var(--owner-muted)]">{description}</span>
+          {status ? <span className="mt-2 text-[12px] font-medium text-[var(--owner-accent)]">{status}</span> : null}
+        </button>
+      ))}
+    </div>
+  );
+}
 
 /** The settings GET's deposits block. Two launch gates plus a DIAGNOSTIC reason. */
 type DepositPolicyStatus = {
@@ -2198,6 +2251,12 @@ type SettingsModalProps = {
   onOpenApp?: (appId: string) => void;
   /** Whether the Analytics app (home of Smart Fit results) is available. */
   smartFitResultsAvailable?: boolean;
+  /** Render one existing editor inside its new canonical app hub. */
+  leafOnly?: boolean;
+  /** Label for Back when this editor is hosted by another app. */
+  leafBackLabel?: string;
+  /** Focus hint used by the Payments hub without creating another payment form. */
+  paymentFocus?: 'deposits' | 'methods' | 'taxes' | 'history';
 };
 
 export function SettingsModal({
@@ -2207,9 +2266,11 @@ export function SettingsModal({
   salonId = null,
   isFreeSolo = false,
   userName = 'Salon owner',
-  userInitials,
   onOpenApp,
   smartFitResultsAvailable = false,
+  leafOnly = false,
+  leafBackLabel = 'Back',
+  paymentFocus,
 }: SettingsModalProps) {
   const { salonSlug: providerSalonSlug } = useSalon();
   const salonSlug = explicitSalonSlug ?? providerSalonSlug ?? null;
@@ -2227,7 +2288,6 @@ export function SettingsModal({
     ? `/${locale}/admin/booking-page?salon=${encodeURIComponent(salonSlug)}`
     : null;
   const appearanceHubHref = bookingPageHubHref ? `${bookingPageHubHref}&panel=appearance` : undefined;
-  const informationHubHref = bookingPageHubHref ? `${bookingPageHubHref}&panel=information` : undefined;
 
   // View navigation state (index + focused editing views)
   const [view, setView] = useState<SettingsView>(
@@ -2380,8 +2440,6 @@ export function SettingsModal({
       minimumNoticeMinutes: 120,
       confirmationMode: 'instant',
     });
-  const [featureLusterManicure, setFeatureLusterManicure] = useState(true);
-  const [showServiceImages, setShowServiceImages] = useState(true);
   const [bookingNotificationsSaving, setBookingNotificationsSaving]
     = useState(false);
   const [bookingNotificationsSaved, setBookingNotificationsSaved]
@@ -2621,12 +2679,6 @@ export function SettingsModal({
           minimumNoticeMinutes:
             data.bookingConfig?.minimumNoticeMinutes ?? 120,
         });
-        setFeatureLusterManicure(
-          data.merchandising?.featureLusterManicure ?? true,
-        );
-        setShowServiceImages(
-          data.merchandising?.showServiceImages !== false,
-        );
         setSmsReadiness(data.sms ?? null);
         if (data.communications) {
           setCommunicationsForm({
@@ -2815,18 +2867,10 @@ export function SettingsModal({
               slotIntervalMinutes: bookingConfigForm.slotIntervalMinutes,
               currency: bookingConfigForm.currency,
               timezone: bookingConfigForm.timezone.trim(),
-              introPriceDefaultLabel:
-                bookingConfigForm.introPriceDefaultLabel.trim() || null,
-              firstVisitDiscountEnabled:
-                bookingConfigForm.firstVisitDiscountEnabled,
               clientChangeCutoffHours:
                 bookingConfigForm.clientChangeCutoffHours,
               minimumNoticeMinutes:
                 bookingConfigForm.minimumNoticeMinutes,
-            },
-            merchandising: {
-              featureLusterManicure,
-              showServiceImages,
             },
           }),
         },
@@ -2846,11 +2890,8 @@ export function SettingsModal({
         confirmationMode: data.bookingConfig?.confirmationMode ?? bookingConfigForm.confirmationMode,
         currency: data.bookingConfig?.currency ?? bookingConfigForm.currency,
         timezone: data.bookingConfig?.timezone ?? bookingConfigForm.timezone,
-        introPriceDefaultLabel:
-          data.bookingConfig?.introPriceDefaultLabel ?? '',
-        firstVisitDiscountEnabled:
-          data.bookingConfig?.firstVisitDiscountEnabled
-          ?? bookingConfigForm.firstVisitDiscountEnabled,
+        introPriceDefaultLabel: bookingConfigForm.introPriceDefaultLabel,
+        firstVisitDiscountEnabled: bookingConfigForm.firstVisitDiscountEnabled,
         clientChangeCutoffHours:
           data.bookingConfig?.clientChangeCutoffHours
           ?? bookingConfigForm.clientChangeCutoffHours,
@@ -2858,12 +2899,6 @@ export function SettingsModal({
           data.bookingConfig?.minimumNoticeMinutes
           ?? bookingConfigForm.minimumNoticeMinutes,
       });
-      setFeatureLusterManicure(
-        data.merchandising?.featureLusterManicure ?? featureLusterManicure,
-      );
-      setShowServiceImages(
-        data.merchandising?.showServiceImages !== false,
-      );
       setBookingConfigSaved(true);
       setBookingConfigDirty(false);
       router.refresh();
@@ -2875,10 +2910,8 @@ export function SettingsModal({
   }, [
     bookingConfigForm,
     bookingConfigSaving,
-    featureLusterManicure,
     router,
     salonSlug,
-    showServiceImages,
   ]);
 
   /** Field edits mark the payments view dirty so Back can warn about them. */
@@ -3662,13 +3695,8 @@ export function SettingsModal({
     }
   };
 
-  const hasEntitledModules = Object.values(entitledModules).some(Boolean);
   const hasClientPrograms
     = entitledModules.rewards || entitledModules.referrals;
-  const staffToolsAvailable
-    = !isFreeSolo
-    || entitledModules.scheduleOverrides
-    || entitledModules.staffEarnings;
 
   const saveCommunications = useCallback(async () => {
     if (!salonSlug || communicationsSaving) {
@@ -3825,6 +3853,16 @@ export function SettingsModal({
     }
   };
 
+  const discardChanges = () => {
+    if (!leafOnly) {
+      goToIndex();
+      return;
+    }
+    setConfirmingLeave(false);
+    revertViewDrafts(view);
+    onClose();
+  };
+
   /** Back from a focused view; warns when the view holds unsaved edits. */
   const handleBack = () => {
     if (view === 'index') {
@@ -3833,6 +3871,10 @@ export function SettingsModal({
     }
     if (currentViewDirty && !confirmingLeave) {
       setConfirmingLeave(true);
+      return;
+    }
+    if (leafOnly) {
+      onClose();
       return;
     }
     goToIndex();
@@ -3871,6 +3913,9 @@ export function SettingsModal({
   // The system Back/Forward gesture moves the URL without going through the
   // handlers above; follow it so the sheet shows the level the URL names.
   useEffect(() => {
+    if (leafOnly) {
+      return;
+    }
     if (urlView === viewRef.current) {
       return;
     }
@@ -3882,7 +3927,15 @@ export function SettingsModal({
     setView(urlView);
     // `revertViewDrafts` is re-created every render; the URL is the trigger.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [urlView]);
+  }, [leafOnly, urlView]);
+
+  useEffect(() => {
+    if (!leafOnly || view !== 'payments' || !paymentFocus || paymentFocus === 'history') {
+      return;
+    }
+    const sectionId = paymentFocus === 'methods' ? 'payments-methods' : `payments-${paymentFocus}`;
+    window.requestAnimationFrame(() => document.getElementById(sectionId)?.scrollIntoView({ block: 'start' }));
+  }, [leafOnly, paymentFocus, view]);
 
   return (
     <div
@@ -3896,7 +3949,7 @@ export function SettingsModal({
           leftAction={(
             <BackButton
               onClick={handleBack}
-              label={view === 'index' ? 'Dashboard' : 'Settings'}
+              label={leafOnly ? leafBackLabel : view === 'index' ? 'Dashboard' : 'Settings'}
             />
           )}
           transparent
@@ -3930,7 +3983,7 @@ export function SettingsModal({
             </button>
             <button
               type="button"
-              onClick={goToIndex}
+              onClick={discardChanges}
               className="rounded-full bg-amber-600 px-3 py-1.5 text-xs font-semibold text-white"
             >
               Discard
@@ -3942,219 +3995,75 @@ export function SettingsModal({
       {/* Scrollable Content */}
       <div className="overflow-y-auto pb-10">
         {view === 'index' && (
-          <>
-            {/* Profile Card → Account */}
-            <ProfileCard
-              name={userName}
-              initials={userInitials}
-              onClick={() => openView('account')}
+          <SettingsCardGrid items={[
+            { title: 'Business', description: 'Profile, address, hours and business branding', icon: MapPin, onClick: () => openView('business') },
+            { title: 'Booking & Availability', description: 'Availability, rules, policies, flow and Smart Fit', icon: CalendarClock, onClick: () => openView('booking-availability') },
+            { title: 'Messages & Notifications', description: 'Client messages, reminders, alerts and quiet hours', icon: MessageSquare, onClick: () => openView('messages') },
+            { title: 'Features', description: 'Turn included Luster modules on or off', icon: Boxes, onClick: () => openView('features') },
+            { title: 'Account & Plan', description: 'Owner profile, Luster plan, usage and billing', icon: User, onClick: () => openView('account') },
+            { title: 'Advanced', description: 'Legacy page themes and appointment photo rules', icon: Camera, onClick: () => openView('advanced') },
+          ]}
+          />
+        )}
+
+        {view === 'business' && (
+          <SettingsCardGrid items={[
+            { title: 'Business Profile', description: 'Business name, phone, email and public nail-tech identity', icon: User, onClick: () => openView('business-profile') },
+            { title: 'Location & Arrival', description: 'Salon address, parking and arrival instructions', icon: MapPin, onClick: () => openView('location') },
+            { title: 'Business Hours', description: 'Weekly salon hours and timezone', icon: CalendarClock, onClick: () => openView('business-profile') },
+            { title: 'Branding & Social', description: 'Booking messages and social links', icon: Palette, onClick: () => openView('branding') },
+          ]}
+          />
+        )}
+
+        {view === 'booking-availability' && (
+          <SettingsCardGrid items={[
+            { title: 'Availability', description: bookingConfigLoading ? 'Buffer, time slots and booking notice' : `${bookingConfigForm.slotIntervalMinutes} minute slots · ${formatMinimumNotice(bookingConfigForm.minimumNoticeMinutes)} notice`, icon: CalendarClock, onClick: () => openView('booking') },
+            { title: 'Booking Rules', description: 'Automatic confirmation or owner approval', icon: Check, onClick: () => openView('booking') },
+            { title: 'Client Policies', description: bookingExperienceLoading ? 'Policy wording and acknowledgments' : bookingExperienceDraft.policy.enabled ? 'Policy enabled' : 'Policy off', icon: Shield, onClick: () => openView('booking-policy') },
+            ...(!isFreeSolo ? [{ title: 'Booking Flow', description: 'Service, technician, date/time and confirmation order', icon: ListOrdered, onClick: () => openView('booking-flow') }] : []),
+            { title: 'Smart Fit', description: 'Fill useful schedule gaps with controlled discounts', icon: Gift, onClick: () => openView('smart-fit') },
+          ]}
+          />
+        )}
+
+        {view === 'messages' && (
+          <SettingsCardGrid items={[
+            { title: 'Client Messages', description: 'Email, SMS and pause controls for client updates', icon: MessageSquare, onClick: () => openView('communications') },
+            { title: 'Appointment Reminders', description: 'The one place to set reminder timing and channels', icon: CalendarClock, onClick: () => openView('communications') },
+            { title: 'Owner & Staff Alerts', description: 'New booking and cancellation alerts', icon: Bell, onClick: () => openView('notifications') },
+            { title: 'Quiet Hours', description: 'Hold client texts overnight', icon: CalendarClock, onClick: () => openView('communications') },
+            { title: 'Message Usage', description: 'SMS credits, usage and recent delivery history', icon: BarChart3, onClick: () => openView('communications') },
+            { title: 'Delivery Setup', description: 'Connection readiness lives in Integrations', icon: Plug, onClick: () => openWorkspaceApp('integrations') },
+          ]}
+          />
+        )}
+
+        {view === 'advanced' && (
+          <SettingsCardGrid items={[
+            { title: 'Legacy Page Themes', description: 'Existing themes for older booking and profile pages', icon: Palette, onClick: () => openView('branding') },
+            { title: 'Appointment Photo Rules', description: 'Before and after photo requirements', icon: Camera, onClick: () => router.push(`/${locale}/admin/policies${salonSlug ? `?salon=${encodeURIComponent(salonSlug)}&section=photos` : '?section=photos'}`) },
+            ...(sectionLibraryV1Enabled ? [{ title: 'Section gallery (preview)', description: 'Early look at new page sections', icon: LayoutTemplate, onClick: () => router.push(`/${locale}/admin/site-builder/section-gallery`) }] : []),
+            { title: 'Terms of Service', description: 'The terms for using Luster', icon: Boxes, onClick: () => router.push(`/${locale}/terms`) },
+            { title: 'Privacy Policy', description: 'How Luster handles information', icon: Shield, onClick: () => router.push(`/${locale}/privacy`) },
+          ]}
+          />
+        )}
+
+        {view === 'business-profile' && salonSlug && (
+          <div className="px-4 pb-8">
+            <BookingPageInformationEditor
+              addressPrivacy="city_only"
+              disabled={false}
+              draft={{ layout: 'quick_book', quickBookProfile: BUSINESS_PROFILE_VISIBILITY }}
+              liveAddressPrivacy="city_only"
+              locale={locale}
+              mode="business"
+              onAddressPrivacyChange={() => undefined}
+              onConfigPatch={() => undefined}
+              salonSlug={salonSlug}
             />
-
-            <Section title="Business">
-              {/*
-                The two rows used to be "Website layout & colours" and
-                "Branding & appearance" — near-synonyms, three rows apart, one
-                of which silently leaves Settings while the other edited a
-                second, live-immediate colour (AG-more-settings-06). Each now
-                says what it is and where it goes.
-              */}
-              <Row
-                icon={Palette}
-                iconColor="bg-[var(--owner-accent)]"
-                label="Website layout & colours"
-                value="Opens Booking Page"
-                onClick={() => router.push(`/${locale}/admin/website${salonSlug ? `?salon=${encodeURIComponent(salonSlug)}` : ''}`)}
-              />
-              <Row
-                icon={MapPin}
-                iconColor="bg-[var(--owner-accent)]"
-                label="Location"
-                value="Address, contact & hours"
-                onClick={() => openView('location')}
-              />
-              <Row
-                icon={Palette}
-                iconColor="bg-pink-500"
-                label="Branding"
-                value="Logo, page themes & social"
-                onClick={() => openView('branding')}
-              />
-              {/*
-                AG-w2-settings-integrations-15: /admin/policies had no entry
-                point anywhere in the workspace, so the only way to reach a
-                live write surface was a bookmark or a support instruction.
-                It is a Settings screen; it now has a Settings row.
-              */}
-              <Row
-                icon={Camera}
-                iconColor="bg-[var(--owner-accent)]"
-                label="Photo & auto-post rules"
-                value="Before & after photos, social posts"
-                onClick={() =>
-                  router.push(
-                    `/${locale}/admin/policies${salonSlug ? `?salon=${encodeURIComponent(salonSlug)}` : ''}`,
-                  )}
-                isLast={!sectionLibraryV1Enabled}
-              />
-              {/*
-                The Section Gallery is a dark-launched lab surface. It is only
-                offered when its flag is on, and it says so, so nobody lands
-                there from a stray URL expecting a finished feature.
-              */}
-              {sectionLibraryV1Enabled && (
-                <Row
-                  icon={LayoutTemplate}
-                  iconColor="bg-stone-600"
-                  label="Section gallery (preview)"
-                  value="Early look at new page sections"
-                  onClick={() => router.push(`/${locale}/admin/site-builder/section-gallery`)}
-                  isLast
-                />
-              )}
-            </Section>
-
-            <Section title="Booking">
-              <Row
-                icon={CalendarClock}
-                iconColor="bg-rose-600"
-                label="Booking rules"
-                value={
-                  bookingConfigLoading
-                    ? undefined
-                    : `${bookingConfigForm.slotIntervalMinutes} min · ${formatMinimumNotice(bookingConfigForm.minimumNoticeMinutes)} notice`
-                }
-                onClick={() => openView('booking')}
-              />
-              <Row
-                icon={Shield}
-                iconColor="bg-amber-600"
-                label="Booking policy"
-                value={
-                  bookingExperienceLoading
-                    ? undefined
-                    : bookingExperienceDraft.policy.enabled
-                      ? 'Enabled'
-                      : 'Off'
-                }
-                onClick={() => openView('booking-policy')}
-              />
-              {!isFreeSolo && (
-                <Row
-                  icon={ListOrdered}
-                  iconColor="bg-amber-500"
-                  label="Booking flow"
-                  onClick={() => openView('booking-flow')}
-                />
-              )}
-              <Row
-                icon={Gift}
-                iconColor="bg-teal-600"
-                label="Smart Fit discounts"
-                onClick={() => openView('smart-fit')}
-                isLast
-              />
-            </Section>
-
-            <Section title="Payments">
-              <Row
-                icon={CreditCard}
-                iconColor="bg-emerald-600"
-                label="Payments & taxes"
-                value={
-                  programsLoading
-                    ? undefined
-                    : paymentsForm.taxEnabled
-                      ? `${paymentsForm.taxName.trim() || 'Tax'} ${paymentsForm.taxRatePercent || '0'}%`
-                      : 'Tax off'
-                }
-                onClick={() => openView('payments')}
-                isLast
-              />
-            </Section>
-
-            {(hasEntitledModules || (onOpenApp && staffToolsAvailable)) && (
-              <Section title="Team">
-                {onOpenApp && staffToolsAvailable && (
-                  <Row
-                    icon={Users}
-                    iconColor="bg-stone-600"
-                    label="Staff & schedules"
-                    onClick={() => openWorkspaceApp('staff')}
-                    isLast={!(hasEntitledModules && visibilityEntitled)}
-                  />
-                )}
-                {hasEntitledModules && visibilityEntitled && (
-                  <Row
-                    icon={Eye}
-                    iconColor="bg-indigo-500"
-                    label="Staff visibility"
-                    onClick={() => openView('visibility')}
-                    isLast
-                  />
-                )}
-              </Section>
-            )}
-
-            <Section title="Notifications">
-              <Row
-                icon={Bell}
-                iconColor="bg-red-500"
-                label="Booking & cancellation alerts"
-                onClick={() => openView('notifications')}
-                isLast
-              />
-            </Section>
-
-            <Section title="Communications">
-              <Row
-                icon={MessageSquare}
-                iconColor="bg-[var(--owner-accent)]"
-                label="Client texts & reminders"
-                onClick={() => openView('communications')}
-                isLast
-              />
-            </Section>
-
-            <Section title="Features">
-              <Row
-                icon={Boxes}
-                iconColor="bg-purple-500"
-                label="Features & plan"
-                onClick={() => openView('features')}
-                isLast
-              />
-            </Section>
-
-            {onOpenApp && (
-              <Section
-                title="Integrations"
-                footer="Google Calendar, text messaging, and email are managed in the Integrations app."
-              >
-                <Row
-                  icon={Plug}
-                  iconColor="bg-[var(--owner-accent)]"
-                  label="Manage integrations"
-                  value="Calendar, text, email"
-                  onClick={() => openWorkspaceApp('integrations')}
-                  isLast
-                />
-              </Section>
-            )}
-
-            {/* Section: About */}
-            <Section title="About">
-              <Row label="Version" value="1.0.0" type="display" />
-              <Row
-                label="Terms of Service"
-                onClick={() => router.push(`/${locale}/terms`)}
-              />
-              <Row
-                label="Privacy Policy"
-                onClick={() => router.push(`/${locale}/privacy`)}
-                isLast
-              />
-            </Section>
-          </>
+          </div>
         )}
 
         {view === 'location' && salonSlug && (
@@ -4168,25 +4077,19 @@ export function SettingsModal({
             */}
             <Section
               title="Location, contact and hours"
-              footer="Your address, city and how much of it clients can see are all edited in one place, together with your business name, contact details and hours."
+              footer="Your actual address is saved in Business Profile. Booking Page controls only how much of it customers can see."
             >
               <div className="space-y-3 p-4" data-testid="settings-location-handoff">
                 <p className="text-sm text-[var(--owner-muted)]">
-                  Your salon address is part of your business details in Booking
-                  Page → Your Information.
+                  Your salon address is part of your canonical Business Profile.
                 </p>
                 <button
                   type="button"
-                  onClick={() => {
-                    if (informationHubHref) {
-                      router.push(informationHubHref);
-                    }
-                  }}
-                  disabled={!informationHubHref}
+                  onClick={() => openView('business-profile')}
                   className="inline-flex min-h-11 items-center gap-2 rounded-[10px] bg-[var(--owner-accent)] px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-[var(--owner-accent-strong)] disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   <MapPin className="size-4" />
-                  <span>Edit address &amp; privacy</span>
+                  <span>Edit salon address</span>
                 </button>
               </div>
             </Section>
@@ -4200,8 +4103,8 @@ export function SettingsModal({
         {view === 'branding' && (
           <>
             <Section
-              title="Page themes"
-              footer="Per-page themes for the client-facing pages. Your website's layout and colours live in Booking Page → Style & Colours."
+              title="Legacy Page Themes"
+              footer="Existing per-page themes for older client-facing pages. Booking Page → Style & Colours owns the current website design."
             >
               <PageThemesSettings className="overflow-visible rounded-[10px] bg-[var(--owner-surface)]" />
             </Section>
@@ -4527,96 +4430,11 @@ export function SettingsModal({
                         </select>
                       </label>
 
-                      <label className="flex flex-col gap-1 sm:col-span-2">
-                        <span className="text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
-                          Default intro label
-                        </span>
-                        <input
-                          type="text"
-                          value={bookingConfigForm.introPriceDefaultLabel}
-                          onChange={event =>
-                            updateBookingConfigForm(prev => ({
-                              ...prev,
-                              introPriceDefaultLabel: event.target.value,
-                            }))}
-                          className="h-11 rounded-[10px] border border-[var(--owner-line)] px-3 text-[15px] text-[var(--owner-ink)] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
-                          placeholder="Founding Client Price"
-                        />
-                      </label>
-
-                      <label className="flex items-start justify-between gap-3 rounded-[10px] border border-[var(--owner-line)] p-3 sm:col-span-2">
-                        <div className="space-y-1">
-                          <span className="text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
-                            First-visit offer
-                          </span>
-                          <p className="text-sm text-[var(--owner-muted)]">
-                            Offer 25% off for first-time clients automatically during
-                            booking.
-                          </p>
-                        </div>
-                        <input
-                          type="checkbox"
-                          checked={bookingConfigForm.firstVisitDiscountEnabled}
-                          onChange={event =>
-                            updateBookingConfigForm(prev => ({
-                              ...prev,
-                              firstVisitDiscountEnabled: event.target.checked,
-                            }))}
-                          className="mt-1 size-4 rounded border-gray-300 text-[var(--owner-accent)] focus:ring-[var(--owner-focus)]"
-                        />
-                      </label>
-
-                      <label className="flex items-start justify-between gap-3 rounded-[10px] border border-[var(--owner-line)] p-3 sm:col-span-2">
-                        <div className="space-y-1">
-                          <span className="text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
-                            Feature Luster Manicure
-                          </span>
-                          <p className="text-sm text-[var(--owner-muted)]">
-                            Show your active Luster Manicure first in Featured
-                            Services.
-                          </p>
-                        </div>
-                        <input
-                          type="checkbox"
-                          data-testid="feature-luster-manicure-toggle"
-                          checked={featureLusterManicure}
-                          onChange={(event) => {
-                            setFeatureLusterManicure(event.target.checked);
-                            setBookingConfigDirty(true);
-                            setBookingConfigSaved(false);
-                          }}
-                          className="mt-1 size-4 rounded border-gray-300 text-[var(--owner-accent)] focus:ring-[var(--owner-focus)]"
-                        />
-                      </label>
-
-                      <label className="flex items-start justify-between gap-3 rounded-[10px] border border-[var(--owner-line)] p-3 sm:col-span-2">
-                        <div className="space-y-1">
-                          <span className="text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
-                            Show service images
-                          </span>
-                          <p className="text-sm text-[var(--owner-muted)]">
-                            Show uploaded service images on your public booking
-                            page. Turning this off keeps uploads stored.
-                          </p>
-                        </div>
-                        <input
-                          type="checkbox"
-                          data-testid="show-service-images-toggle"
-                          checked={showServiceImages}
-                          onChange={(event) => {
-                            setShowServiceImages(event.target.checked);
-                            setBookingConfigDirty(true);
-                            setBookingConfigSaved(false);
-                          }}
-                          className="mt-1 size-4 rounded border-gray-300 text-[var(--owner-accent)] focus:ring-[var(--owner-focus)]"
-                        />
-                      </label>
                     </div>
 
                     <div className="flex items-center justify-between gap-3 border-t border-[var(--owner-line)] pt-3">
                       <div className="text-xs text-[var(--owner-muted)]">
-                        Applies to slot generation and intro badges when a service
-                        does not define its own label.
+                        Applies to new availability and bookings immediately.
                       </div>
                       <button
                         type="button"
@@ -4679,618 +4497,624 @@ export function SettingsModal({
 
         {view === 'payments' && (
           <>
-            <Section
-              title="Sales tax"
-              footer="Tax calculations and estimates are based on the settings you enter. Your business is responsible for registration, rates, tax treatment, filing, and remittance. Luster does not provide tax or accounting advice and does not file taxes for you. Tax stays off until you turn it on; completed appointments keep their original tax snapshot."
-            >
-              {programsLoading
-                ? (
-                    <div className="flex items-center justify-center py-8">
-                      <div className="size-6 animate-spin rounded-full border-2 border-[var(--owner-accent)] border-t-transparent" />
-                    </div>
-                  )
-                : (
-                    <div className="space-y-4 p-4">
-                      <label className="flex items-start justify-between gap-3 rounded-[10px] border border-[var(--owner-line)] p-3">
-                        <div className="space-y-1">
-                          <span className="text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
-                            Charge tax
-                          </span>
-                          <p className="text-sm text-[var(--owner-muted)]">
-                            Add tax at checkout when completing appointments.
-                          </p>
-                        </div>
-                        <input
-                          type="checkbox"
-                          data-testid="payments-tax-enabled"
-                          checked={paymentsForm.taxEnabled}
-                          onChange={event =>
-                            updatePaymentsForm(prev => ({
-                              ...prev,
-                              taxEnabled: event.target.checked,
-                            }))}
-                          className="mt-1 size-4 rounded border-gray-300 text-[var(--owner-accent)] focus:ring-[var(--owner-focus)]"
-                        />
-                      </label>
-
-                      {paymentsForm.taxEnabled && (
-                        <div className="grid gap-3 sm:grid-cols-2">
-                          <label className="flex flex-col gap-1">
+            <div id="payments-taxes" className="scroll-mt-24">
+              <Section
+                title="Sales tax"
+                footer="Tax calculations and estimates are based on the settings you enter. Your business is responsible for registration, rates, tax treatment, filing, and remittance. Luster does not provide tax or accounting advice and does not file taxes for you. Tax stays off until you turn it on; completed appointments keep their original tax snapshot."
+              >
+                {programsLoading
+                  ? (
+                      <div className="flex items-center justify-center py-8">
+                        <div className="size-6 animate-spin rounded-full border-2 border-[var(--owner-accent)] border-t-transparent" />
+                      </div>
+                    )
+                  : (
+                      <div className="space-y-4 p-4">
+                        <label className="flex items-start justify-between gap-3 rounded-[10px] border border-[var(--owner-line)] p-3">
+                          <div className="space-y-1">
                             <span className="text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
-                              Tax name
+                              Charge tax
                             </span>
-                            <input
-                              type="text"
-                              data-testid="payments-tax-name"
-                              value={paymentsForm.taxName}
-                              onChange={event =>
-                                updatePaymentsForm(prev => ({
-                                  ...prev,
-                                  taxName: event.target.value,
-                                }))}
-                              placeholder="HST"
-                              maxLength={40}
-                              className="h-11 rounded-[10px] border border-[var(--owner-line)] px-3 text-[15px] text-[var(--owner-ink)] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
-                            />
-                          </label>
+                            <p className="text-sm text-[var(--owner-muted)]">
+                              Add tax at checkout when completing appointments.
+                            </p>
+                          </div>
+                          <input
+                            type="checkbox"
+                            data-testid="payments-tax-enabled"
+                            checked={paymentsForm.taxEnabled}
+                            onChange={event =>
+                              updatePaymentsForm(prev => ({
+                                ...prev,
+                                taxEnabled: event.target.checked,
+                              }))}
+                            className="mt-1 size-4 rounded border-gray-300 text-[var(--owner-accent)] focus:ring-[var(--owner-focus)]"
+                          />
+                        </label>
 
-                          <label className="flex flex-col gap-1">
-                            <span className="text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
-                              Tax rate
-                            </span>
-                            <div className="relative">
+                        {paymentsForm.taxEnabled && (
+                          <div className="grid gap-3 sm:grid-cols-2">
+                            <label className="flex flex-col gap-1">
+                              <span className="text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
+                                Tax name
+                              </span>
                               <input
                                 type="text"
-                                inputMode="decimal"
-                                data-testid="payments-tax-rate"
-                                value={paymentsForm.taxRatePercent}
+                                data-testid="payments-tax-name"
+                                value={paymentsForm.taxName}
                                 onChange={event =>
                                   updatePaymentsForm(prev => ({
                                     ...prev,
-                                    taxRatePercent: event.target.value.replace(/[^0-9.]/g, ''),
+                                    taxName: event.target.value,
                                   }))}
-                                placeholder="13"
-                                className="h-11 w-full rounded-[10px] border border-[var(--owner-line)] px-3 pr-10 text-[15px] text-[var(--owner-ink)] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
+                                placeholder="HST"
+                                maxLength={40}
+                                className="h-11 rounded-[10px] border border-[var(--owner-line)] px-3 text-[15px] text-[var(--owner-ink)] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
                               />
-                              <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-xs font-medium text-[var(--owner-muted)]">
-                                %
-                              </span>
-                            </div>
-                          </label>
+                            </label>
 
-                          <div className="rounded-[10px] border border-[var(--owner-line)] p-3 sm:col-span-2">
-                            <span className="text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
-                              Reporting jurisdiction
-                            </span>
-                            <div className="mt-2 grid gap-3 sm:grid-cols-3">
-                              <label className="flex flex-col gap-1">
-                                <span className="text-xs text-[var(--owner-muted)]">Jurisdiction label</span>
-                                <input
-                                  type="text"
-                                  data-testid="payments-tax-jurisdiction"
-                                  value={paymentsForm.taxJurisdiction}
-                                  onChange={event =>
-                                    updatePaymentsForm(prev => ({
-                                      ...prev,
-                                      taxJurisdiction: event.target.value,
-                                    }))}
-                                  placeholder="Ontario HST"
-                                  maxLength={120}
-                                  className="h-11 rounded-[10px] border border-[var(--owner-line)] px-3 text-[15px] text-[var(--owner-ink)] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
-                                />
-                              </label>
-                              <label className="flex flex-col gap-1">
-                                <span className="text-xs text-[var(--owner-muted)]">Country code</span>
-                                <input
-                                  type="text"
-                                  data-testid="payments-tax-country"
-                                  value={paymentsForm.taxCountry}
-                                  onChange={event =>
-                                    updatePaymentsForm(prev => ({
-                                      ...prev,
-                                      taxCountry: event.target.value,
-                                    }))}
-                                  placeholder="CA"
-                                  maxLength={120}
-                                  className="h-11 rounded-[10px] border border-[var(--owner-line)] px-3 text-[15px] uppercase text-[var(--owner-ink)] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
-                                />
-                              </label>
-                              <label className="flex flex-col gap-1">
-                                <span className="text-xs text-[var(--owner-muted)]">Province / region code</span>
-                                <input
-                                  type="text"
-                                  data-testid="payments-tax-region"
-                                  value={paymentsForm.taxRegion}
-                                  onChange={event =>
-                                    updatePaymentsForm(prev => ({
-                                      ...prev,
-                                      taxRegion: event.target.value,
-                                    }))}
-                                  placeholder="ON"
-                                  maxLength={120}
-                                  className="h-11 rounded-[10px] border border-[var(--owner-line)] px-3 text-[15px] uppercase text-[var(--owner-ink)] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
-                                />
-                              </label>
-                            </div>
-                            <p className="mt-2 text-xs text-[var(--owner-muted)]">
-                              Used for reporting only. The reviewed Ontario estimate requires
-                              Canada (CA) and Ontario (ON); other or missing locations report
-                              forfeited deposits at their gross amount without an estimated tax component.
-                            </p>
-                          </div>
-
-                          <label className="flex items-start justify-between gap-3 rounded-[10px] border border-[var(--owner-line)] p-3 sm:col-span-2">
-                            <div className="space-y-1">
+                            <label className="flex flex-col gap-1">
                               <span className="text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
-                                Estimate tax included in forfeited deposits
+                                Tax rate
                               </span>
-                              <p className="text-sm text-[var(--owner-muted)]">
-                                Opt in to an estimated tax-inclusive component when a
-                                collected deposit is retained. This is an estimate from
-                                your settings, not a filing or remittance calculation.
-                              </p>
-                              <p className="text-xs text-[var(--owner-muted)]">
-                                {hasReviewedForfeitureTaxTreatment({
-                                  country: paymentsForm.taxCountry,
-                                  region: paymentsForm.taxRegion,
-                                })
-                                  ? 'The entered Canada / Ontario jurisdiction is reviewed for this estimate.'
-                                  : 'This jurisdiction is not reviewed; forfeitures remain gross-only even when opted in.'}
-                              </p>
-                            </div>
-                            <input
-                              type="checkbox"
-                              data-testid="payments-tax-forfeiture-estimate"
-                              checked={paymentsForm.forfeitureTaxEstimationEnabled}
-                              onChange={event =>
-                                updatePaymentsForm(prev => ({
-                                  ...prev,
-                                  forfeitureTaxEstimationEnabled: event.target.checked,
-                                }))}
-                              className="mt-1 size-4 rounded border-gray-300 text-[var(--owner-accent)] focus:ring-[var(--owner-focus)]"
-                            />
-                          </label>
+                              <div className="relative">
+                                <input
+                                  type="text"
+                                  inputMode="decimal"
+                                  data-testid="payments-tax-rate"
+                                  value={paymentsForm.taxRatePercent}
+                                  onChange={event =>
+                                    updatePaymentsForm(prev => ({
+                                      ...prev,
+                                      taxRatePercent: event.target.value.replace(/[^0-9.]/g, ''),
+                                    }))}
+                                  placeholder="13"
+                                  className="h-11 w-full rounded-[10px] border border-[var(--owner-line)] px-3 pr-10 text-[15px] text-[var(--owner-ink)] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
+                                />
+                                <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-xs font-medium text-[var(--owner-muted)]">
+                                  %
+                                </span>
+                              </div>
+                            </label>
 
-                          <label className="flex items-start justify-between gap-3 rounded-[10px] border border-[var(--owner-line)] p-3 sm:col-span-2">
-                            <div className="space-y-1">
+                            <div className="rounded-[10px] border border-[var(--owner-line)] p-3 sm:col-span-2">
                               <span className="text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
-                                Prices include tax
+                                Reporting jurisdiction
                               </span>
-                              <p className="text-sm text-[var(--owner-muted)]">
-                                On: your listed prices already include tax. Off: tax is
-                                added at checkout.
-                              </p>
-                            </div>
-                            <input
-                              type="checkbox"
-                              data-testid="payments-tax-inclusive"
-                              checked={paymentsForm.pricesIncludeTax}
-                              onChange={event =>
-                                updatePaymentsForm(prev => ({
-                                  ...prev,
-                                  pricesIncludeTax: event.target.checked,
-                                }))}
-                              className="mt-1 size-4 rounded border-gray-300 text-[var(--owner-accent)] focus:ring-[var(--owner-focus)]"
-                            />
-                          </label>
-
-                          <div className="rounded-[10px] border border-[var(--owner-line)] p-3 sm:col-span-2">
-                            <span className="text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
-                              Taxable by default
-                            </span>
-                            <div className="mt-2 space-y-2">
-                              {([
-                                ['taxServicesByDefault', 'Services'],
-                                ['taxAddOnsByDefault', 'Add-ons'],
-                                ['taxCustomByDefault', 'Custom items'],
-                              ] as const).map(([key, label]) => (
-                                <label key={key} className="flex items-center justify-between gap-3">
-                                  <span className="text-sm text-[var(--owner-muted)]">{label}</span>
-                                  <input
-                                    type="checkbox"
-                                    checked={paymentsForm[key]}
-                                    onChange={event =>
-                                      updatePaymentsForm(prev => ({
-                                        ...prev,
-                                        [key]: event.target.checked,
-                                      }))}
-                                    className="size-4 rounded border-gray-300 text-[var(--owner-accent)] focus:ring-[var(--owner-focus)]"
-                                  />
-                                </label>
-                              ))}
-                            </div>
-                            <p className="mt-2 text-xs text-[var(--owner-muted)]">
-                              You can still change tax on individual items at checkout.
-                            </p>
-                          </div>
-
-                          <div className="rounded-[10px] border border-[var(--owner-line)] p-3 sm:col-span-2">
-                            <span className="text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
-                              Scheduled rate change
-                            </span>
-                            <div className="mt-2 grid gap-3 sm:grid-cols-2">
-                              <label className="flex flex-col gap-1">
-                                <span className="text-xs text-[var(--owner-muted)]">New rate</span>
-                                <div className="relative">
+                              <div className="mt-2 grid gap-3 sm:grid-cols-3">
+                                <label className="flex flex-col gap-1">
+                                  <span className="text-xs text-[var(--owner-muted)]">Jurisdiction label</span>
                                   <input
                                     type="text"
-                                    inputMode="decimal"
-                                    data-testid="payments-tax-scheduled-rate"
-                                    value={paymentsForm.scheduledRatePercent}
+                                    data-testid="payments-tax-jurisdiction"
+                                    value={paymentsForm.taxJurisdiction}
                                     onChange={event =>
                                       updatePaymentsForm(prev => ({
                                         ...prev,
-                                        scheduledRatePercent: event.target.value.replace(/[^0-9.]/g, ''),
+                                        taxJurisdiction: event.target.value,
                                       }))}
-                                    placeholder="15"
-                                    className="h-11 w-full rounded-[10px] border border-[var(--owner-line)] px-3 pr-10 text-[15px] text-[var(--owner-ink)] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
+                                    placeholder="Ontario HST"
+                                    maxLength={120}
+                                    className="h-11 rounded-[10px] border border-[var(--owner-line)] px-3 text-[15px] text-[var(--owner-ink)] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
                                   />
-                                  <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-xs font-medium text-[var(--owner-muted)]">
-                                    %
-                                  </span>
-                                </div>
-                              </label>
-                              <label className="flex flex-col gap-1">
-                                <span className="text-xs text-[var(--owner-muted)]">Effective from</span>
-                                <input
-                                  type="date"
-                                  data-testid="payments-tax-scheduled-date"
-                                  value={paymentsForm.scheduledEffectiveFrom}
-                                  onChange={event =>
-                                    updatePaymentsForm(prev => ({
-                                      ...prev,
-                                      scheduledEffectiveFrom: event.target.value,
-                                    }))}
-                                  className="h-11 rounded-[10px] border border-[var(--owner-line)] px-3 text-[15px] text-[var(--owner-ink)] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
-                                />
-                              </label>
+                                </label>
+                                <label className="flex flex-col gap-1">
+                                  <span className="text-xs text-[var(--owner-muted)]">Country code</span>
+                                  <input
+                                    type="text"
+                                    data-testid="payments-tax-country"
+                                    value={paymentsForm.taxCountry}
+                                    onChange={event =>
+                                      updatePaymentsForm(prev => ({
+                                        ...prev,
+                                        taxCountry: event.target.value,
+                                      }))}
+                                    placeholder="CA"
+                                    maxLength={120}
+                                    className="h-11 rounded-[10px] border border-[var(--owner-line)] px-3 text-[15px] uppercase text-[var(--owner-ink)] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
+                                  />
+                                </label>
+                                <label className="flex flex-col gap-1">
+                                  <span className="text-xs text-[var(--owner-muted)]">Province / region code</span>
+                                  <input
+                                    type="text"
+                                    data-testid="payments-tax-region"
+                                    value={paymentsForm.taxRegion}
+                                    onChange={event =>
+                                      updatePaymentsForm(prev => ({
+                                        ...prev,
+                                        taxRegion: event.target.value,
+                                      }))}
+                                    placeholder="ON"
+                                    maxLength={120}
+                                    className="h-11 rounded-[10px] border border-[var(--owner-line)] px-3 text-[15px] uppercase text-[var(--owner-ink)] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
+                                  />
+                                </label>
+                              </div>
+                              <p className="mt-2 text-xs text-[var(--owner-muted)]">
+                                Used for reporting only. The reviewed Ontario estimate requires
+                                Canada (CA) and Ontario (ON); other or missing locations report
+                                forfeited deposits at their gross amount without an estimated tax component.
+                              </p>
                             </div>
-                            <p className="mt-2 text-xs text-[var(--owner-muted)]">
-                              Checkouts on or after this date use the new rate.
-                              Appointments completed earlier keep the old rate. Leave
-                              blank to cancel a scheduled change.
+
+                            <label className="flex items-start justify-between gap-3 rounded-[10px] border border-[var(--owner-line)] p-3 sm:col-span-2">
+                              <div className="space-y-1">
+                                <span className="text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
+                                  Estimate tax included in forfeited deposits
+                                </span>
+                                <p className="text-sm text-[var(--owner-muted)]">
+                                  Opt in to an estimated tax-inclusive component when a
+                                  collected deposit is retained. This is an estimate from
+                                  your settings, not a filing or remittance calculation.
+                                </p>
+                                <p className="text-xs text-[var(--owner-muted)]">
+                                  {hasReviewedForfeitureTaxTreatment({
+                                    country: paymentsForm.taxCountry,
+                                    region: paymentsForm.taxRegion,
+                                  })
+                                    ? 'The entered Canada / Ontario jurisdiction is reviewed for this estimate.'
+                                    : 'This jurisdiction is not reviewed; forfeitures remain gross-only even when opted in.'}
+                                </p>
+                              </div>
+                              <input
+                                type="checkbox"
+                                data-testid="payments-tax-forfeiture-estimate"
+                                checked={paymentsForm.forfeitureTaxEstimationEnabled}
+                                onChange={event =>
+                                  updatePaymentsForm(prev => ({
+                                    ...prev,
+                                    forfeitureTaxEstimationEnabled: event.target.checked,
+                                  }))}
+                                className="mt-1 size-4 rounded border-gray-300 text-[var(--owner-accent)] focus:ring-[var(--owner-focus)]"
+                              />
+                            </label>
+
+                            <label className="flex items-start justify-between gap-3 rounded-[10px] border border-[var(--owner-line)] p-3 sm:col-span-2">
+                              <div className="space-y-1">
+                                <span className="text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
+                                  Prices include tax
+                                </span>
+                                <p className="text-sm text-[var(--owner-muted)]">
+                                  On: your listed prices already include tax. Off: tax is
+                                  added at checkout.
+                                </p>
+                              </div>
+                              <input
+                                type="checkbox"
+                                data-testid="payments-tax-inclusive"
+                                checked={paymentsForm.pricesIncludeTax}
+                                onChange={event =>
+                                  updatePaymentsForm(prev => ({
+                                    ...prev,
+                                    pricesIncludeTax: event.target.checked,
+                                  }))}
+                                className="mt-1 size-4 rounded border-gray-300 text-[var(--owner-accent)] focus:ring-[var(--owner-focus)]"
+                              />
+                            </label>
+
+                            <div className="rounded-[10px] border border-[var(--owner-line)] p-3 sm:col-span-2">
+                              <span className="text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
+                                Taxable by default
+                              </span>
+                              <div className="mt-2 space-y-2">
+                                {([
+                                  ['taxServicesByDefault', 'Services'],
+                                  ['taxAddOnsByDefault', 'Add-ons'],
+                                  ['taxCustomByDefault', 'Custom items'],
+                                ] as const).map(([key, label]) => (
+                                  <label key={key} className="flex items-center justify-between gap-3">
+                                    <span className="text-sm text-[var(--owner-muted)]">{label}</span>
+                                    <input
+                                      type="checkbox"
+                                      checked={paymentsForm[key]}
+                                      onChange={event =>
+                                        updatePaymentsForm(prev => ({
+                                          ...prev,
+                                          [key]: event.target.checked,
+                                        }))}
+                                      className="size-4 rounded border-gray-300 text-[var(--owner-accent)] focus:ring-[var(--owner-focus)]"
+                                    />
+                                  </label>
+                                ))}
+                              </div>
+                              <p className="mt-2 text-xs text-[var(--owner-muted)]">
+                                You can still change tax on individual items at checkout.
+                              </p>
+                            </div>
+
+                            <div className="rounded-[10px] border border-[var(--owner-line)] p-3 sm:col-span-2">
+                              <span className="text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
+                                Scheduled rate change
+                              </span>
+                              <div className="mt-2 grid gap-3 sm:grid-cols-2">
+                                <label className="flex flex-col gap-1">
+                                  <span className="text-xs text-[var(--owner-muted)]">New rate</span>
+                                  <div className="relative">
+                                    <input
+                                      type="text"
+                                      inputMode="decimal"
+                                      data-testid="payments-tax-scheduled-rate"
+                                      value={paymentsForm.scheduledRatePercent}
+                                      onChange={event =>
+                                        updatePaymentsForm(prev => ({
+                                          ...prev,
+                                          scheduledRatePercent: event.target.value.replace(/[^0-9.]/g, ''),
+                                        }))}
+                                      placeholder="15"
+                                      className="h-11 w-full rounded-[10px] border border-[var(--owner-line)] px-3 pr-10 text-[15px] text-[var(--owner-ink)] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
+                                    />
+                                    <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-xs font-medium text-[var(--owner-muted)]">
+                                      %
+                                    </span>
+                                  </div>
+                                </label>
+                                <label className="flex flex-col gap-1">
+                                  <span className="text-xs text-[var(--owner-muted)]">Effective from</span>
+                                  <input
+                                    type="date"
+                                    data-testid="payments-tax-scheduled-date"
+                                    value={paymentsForm.scheduledEffectiveFrom}
+                                    onChange={event =>
+                                      updatePaymentsForm(prev => ({
+                                        ...prev,
+                                        scheduledEffectiveFrom: event.target.value,
+                                      }))}
+                                    className="h-11 rounded-[10px] border border-[var(--owner-line)] px-3 text-[15px] text-[var(--owner-ink)] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
+                                  />
+                                </label>
+                              </div>
+                              <p className="mt-2 text-xs text-[var(--owner-muted)]">
+                                Checkouts on or after this date use the new rate.
+                                Appointments completed earlier keep the old rate. Leave
+                                blank to cancel a scheduled change.
+                              </p>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+              </Section>
+            </div>
+
+            <div id="payments-methods" className="scroll-mt-24">
+              <Section
+                title="Interac e-Transfer"
+                footer="Manual instructions only — payments are confirmed by you when the transfer arrives. Luster never asks for or stores banking passwords, and cannot verify bank deposits."
+              >
+                {programsLoading
+                  ? (
+                      <div className="flex items-center justify-center py-8">
+                        <div className="size-6 animate-spin rounded-full border-2 border-[var(--owner-accent)] border-t-transparent" />
+                      </div>
+                    )
+                  : (
+                      <div className="space-y-4 p-4">
+                        <label className="flex items-start justify-between gap-3 rounded-[10px] border border-[var(--owner-line)] p-3">
+                          <div className="space-y-1">
+                            <span className="text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
+                              Accept e-Transfer
+                            </span>
+                            <p className="text-sm text-[var(--owner-muted)]">
+                              Show e-Transfer instructions at checkout.
                             </p>
                           </div>
-                        </div>
-                      )}
-                    </div>
-                  )}
-            </Section>
+                          <input
+                            type="checkbox"
+                            data-testid="payments-etransfer-enabled"
+                            checked={paymentsForm.etransferEnabled}
+                            onChange={event =>
+                              updatePaymentsForm(prev => ({
+                                ...prev,
+                                etransferEnabled: event.target.checked,
+                              }))}
+                            className="mt-1 size-4 rounded border-gray-300 text-[var(--owner-accent)] focus:ring-[var(--owner-focus)]"
+                          />
+                        </label>
 
-            <Section
-              title="Interac e-Transfer"
-              footer="Manual instructions only — payments are confirmed by you when the transfer arrives. Luster never asks for or stores banking passwords, and cannot verify bank deposits."
-            >
-              {programsLoading
-                ? (
-                    <div className="flex items-center justify-center py-8">
-                      <div className="size-6 animate-spin rounded-full border-2 border-[var(--owner-accent)] border-t-transparent" />
-                    </div>
-                  )
-                : (
-                    <div className="space-y-4 p-4">
-                      <label className="flex items-start justify-between gap-3 rounded-[10px] border border-[var(--owner-line)] p-3">
-                        <div className="space-y-1">
-                          <span className="text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
-                            Accept e-Transfer
-                          </span>
-                          <p className="text-sm text-[var(--owner-muted)]">
-                            Show e-Transfer instructions at checkout.
-                          </p>
-                        </div>
-                        <input
-                          type="checkbox"
-                          data-testid="payments-etransfer-enabled"
-                          checked={paymentsForm.etransferEnabled}
-                          onChange={event =>
-                            updatePaymentsForm(prev => ({
-                              ...prev,
-                              etransferEnabled: event.target.checked,
-                            }))}
-                          className="mt-1 size-4 rounded border-gray-300 text-[var(--owner-accent)] focus:ring-[var(--owner-focus)]"
-                        />
-                      </label>
-
-                      {paymentsForm.etransferEnabled && (
-                        <div className="grid gap-3 sm:grid-cols-2">
-                          <label className="flex flex-col gap-1">
-                            <span className="text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
-                              Recipient email or mobile
-                            </span>
-                            <input
-                              type="text"
-                              data-testid="payments-etransfer-recipient"
-                              value={paymentsForm.etransferRecipient}
-                              onChange={event =>
-                                updatePaymentsForm(prev => ({
-                                  ...prev,
-                                  etransferRecipient: event.target.value,
-                                }))}
-                              placeholder="pay@yoursalon.ca"
-                              maxLength={200}
-                              className="h-11 rounded-[10px] border border-[var(--owner-line)] px-3 text-[15px] text-[var(--owner-ink)] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
-                            />
-                          </label>
-
-                          <label className="flex flex-col gap-1">
-                            <span className="text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
-                              Display name
-                            </span>
-                            <input
-                              type="text"
-                              value={paymentsForm.etransferRecipientName}
-                              onChange={event =>
-                                updatePaymentsForm(prev => ({
-                                  ...prev,
-                                  etransferRecipientName: event.target.value,
-                                }))}
-                              placeholder="Your salon name"
-                              maxLength={120}
-                              className="h-11 rounded-[10px] border border-[var(--owner-line)] px-3 text-[15px] text-[var(--owner-ink)] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
-                            />
-                          </label>
-
-                          <label className="flex items-start justify-between gap-3 rounded-[10px] border border-[var(--owner-line)] p-3 sm:col-span-2">
-                            <div className="space-y-1">
+                        {paymentsForm.etransferEnabled && (
+                          <div className="grid gap-3 sm:grid-cols-2">
+                            <label className="flex flex-col gap-1">
                               <span className="text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
-                                Autodeposit is on
+                                Recipient email or mobile
                               </span>
-                              <p className="text-sm text-[var(--owner-muted)]">
-                                Informational only — shown to clients so they know no
-                                security question is needed.
-                              </p>
-                            </div>
-                            <input
-                              type="checkbox"
-                              checked={paymentsForm.etransferAutodeposit}
-                              onChange={event =>
-                                updatePaymentsForm(prev => ({
-                                  ...prev,
-                                  etransferAutodeposit: event.target.checked,
-                                }))}
-                              className="mt-1 size-4 rounded border-gray-300 text-[var(--owner-accent)] focus:ring-[var(--owner-focus)]"
-                            />
-                          </label>
+                              <input
+                                type="text"
+                                data-testid="payments-etransfer-recipient"
+                                value={paymentsForm.etransferRecipient}
+                                onChange={event =>
+                                  updatePaymentsForm(prev => ({
+                                    ...prev,
+                                    etransferRecipient: event.target.value,
+                                  }))}
+                                placeholder="pay@yoursalon.ca"
+                                maxLength={200}
+                                className="h-11 rounded-[10px] border border-[var(--owner-line)] px-3 text-[15px] text-[var(--owner-ink)] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
+                              />
+                            </label>
 
-                          <label className="flex flex-col gap-1 sm:col-span-2">
-                            <span className="text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
-                              Instructions
-                            </span>
-                            <textarea
-                              value={paymentsForm.etransferInstructions}
-                              onChange={event =>
-                                updatePaymentsForm(prev => ({
-                                  ...prev,
-                                  etransferInstructions: event.target.value,
-                                }))}
-                              rows={3}
-                              maxLength={1000}
-                              placeholder="Please include the appointment reference in the message field."
-                              className="rounded-[10px] border border-[var(--owner-line)] px-3 py-2 text-[15px] text-[var(--owner-ink)] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
-                            />
-                          </label>
-
-                          <label className="flex items-start justify-between gap-3 rounded-[10px] border border-[var(--owner-line)] p-3">
-                            <div className="space-y-1">
+                            <label className="flex flex-col gap-1">
                               <span className="text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
-                                Require reference
+                                Display name
                               </span>
-                              <p className="text-sm text-[var(--owner-muted)]">
-                                Ask clients to include the appointment reference.
-                              </p>
-                            </div>
-                            <input
-                              type="checkbox"
-                              checked={paymentsForm.etransferRequireReference}
-                              onChange={event =>
-                                updatePaymentsForm(prev => ({
-                                  ...prev,
-                                  etransferRequireReference: event.target.checked,
-                                }))}
-                              className="mt-1 size-4 rounded border-gray-300 text-[var(--owner-accent)] focus:ring-[var(--owner-focus)]"
-                            />
-                          </label>
+                              <input
+                                type="text"
+                                value={paymentsForm.etransferRecipientName}
+                                onChange={event =>
+                                  updatePaymentsForm(prev => ({
+                                    ...prev,
+                                    etransferRecipientName: event.target.value,
+                                  }))}
+                                placeholder="Your salon name"
+                                maxLength={120}
+                                className="h-11 rounded-[10px] border border-[var(--owner-line)] px-3 text-[15px] text-[var(--owner-ink)] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
+                              />
+                            </label>
 
-                          <label className="flex items-start justify-between gap-3 rounded-[10px] border border-[var(--owner-line)] p-3">
-                            <div className="space-y-1">
+                            <label className="flex items-start justify-between gap-3 rounded-[10px] border border-[var(--owner-line)] p-3 sm:col-span-2">
+                              <div className="space-y-1">
+                                <span className="text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
+                                  Autodeposit is on
+                                </span>
+                                <p className="text-sm text-[var(--owner-muted)]">
+                                  Informational only — shown to clients so they know no
+                                  security question is needed.
+                                </p>
+                              </div>
+                              <input
+                                type="checkbox"
+                                checked={paymentsForm.etransferAutodeposit}
+                                onChange={event =>
+                                  updatePaymentsForm(prev => ({
+                                    ...prev,
+                                    etransferAutodeposit: event.target.checked,
+                                  }))}
+                                className="mt-1 size-4 rounded border-gray-300 text-[var(--owner-accent)] focus:ring-[var(--owner-focus)]"
+                              />
+                            </label>
+
+                            <label className="flex flex-col gap-1 sm:col-span-2">
                               <span className="text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
-                                Payment QR page
+                                Instructions
                               </span>
-                              <p className="text-sm text-[var(--owner-muted)]">
-                                Let clients scan a QR code that opens payment
-                                instructions.
-                              </p>
-                            </div>
-                            <input
-                              type="checkbox"
-                              data-testid="payments-etransfer-qr"
-                              checked={paymentsForm.etransferQrEnabled}
-                              onChange={event =>
-                                updatePaymentsForm(prev => ({
-                                  ...prev,
-                                  etransferQrEnabled: event.target.checked,
-                                }))}
-                              className="mt-1 size-4 rounded border-gray-300 text-[var(--owner-accent)] focus:ring-[var(--owner-focus)]"
-                            />
-                          </label>
-                        </div>
-                      )}
+                              <textarea
+                                value={paymentsForm.etransferInstructions}
+                                onChange={event =>
+                                  updatePaymentsForm(prev => ({
+                                    ...prev,
+                                    etransferInstructions: event.target.value,
+                                  }))}
+                                rows={3}
+                                maxLength={1000}
+                                placeholder="Please include the appointment reference in the message field."
+                                className="rounded-[10px] border border-[var(--owner-line)] px-3 py-2 text-[15px] text-[var(--owner-ink)] outline-none transition-colors focus:border-[var(--owner-focus,#b85075)]"
+                              />
+                            </label>
 
-                    </div>
-                  )}
-            </Section>
+                            <label className="flex items-start justify-between gap-3 rounded-[10px] border border-[var(--owner-line)] p-3">
+                              <div className="space-y-1">
+                                <span className="text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
+                                  Require reference
+                                </span>
+                                <p className="text-sm text-[var(--owner-muted)]">
+                                  Ask clients to include the appointment reference.
+                                </p>
+                              </div>
+                              <input
+                                type="checkbox"
+                                checked={paymentsForm.etransferRequireReference}
+                                onChange={event =>
+                                  updatePaymentsForm(prev => ({
+                                    ...prev,
+                                    etransferRequireReference: event.target.checked,
+                                  }))}
+                                className="mt-1 size-4 rounded border-gray-300 text-[var(--owner-accent)] focus:ring-[var(--owner-focus)]"
+                              />
+                            </label>
 
-            <Section
-              title="Deposits"
-              footer="Deposits are salon-wide and a fixed amount. They are collected in Canadian dollars only."
-            >
-              {programsLoading
-                ? (
-                    <div className="flex items-center justify-center py-8">
-                      <div className="size-6 animate-spin rounded-full border-2 border-[var(--owner-accent)] border-t-transparent" />
-                    </div>
-                  )
-                : (
-                    <div className="space-y-4 p-4">
-                      {/*
+                            <label className="flex items-start justify-between gap-3 rounded-[10px] border border-[var(--owner-line)] p-3">
+                              <div className="space-y-1">
+                                <span className="text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
+                                  Payment QR page
+                                </span>
+                                <p className="text-sm text-[var(--owner-muted)]">
+                                  Let clients scan a QR code that opens payment
+                                  instructions.
+                                </p>
+                              </div>
+                              <input
+                                type="checkbox"
+                                data-testid="payments-etransfer-qr"
+                                checked={paymentsForm.etransferQrEnabled}
+                                onChange={event =>
+                                  updatePaymentsForm(prev => ({
+                                    ...prev,
+                                    etransferQrEnabled: event.target.checked,
+                                  }))}
+                                className="mt-1 size-4 rounded border-gray-300 text-[var(--owner-accent)] focus:ring-[var(--owner-focus)]"
+                              />
+                            </label>
+                          </div>
+                        )}
+
+                      </div>
+                    )}
+              </Section>
+            </div>
+
+            <div id="payments-deposits" className="scroll-mt-24">
+              <Section
+                title="Deposits"
+                footer="Deposits are salon-wide and a fixed amount. They are collected in Canadian dollars only."
+              >
+                {programsLoading
+                  ? (
+                      <div className="flex items-center justify-center py-8">
+                        <div className="size-6 animate-spin rounded-full border-2 border-[var(--owner-accent)] border-t-transparent" />
+                      </div>
+                    )
+                  : (
+                      <div className="space-y-4 p-4">
+                        {/*
                         TWO LAYERS. The launch gates are read off their OWN
                         booleans; the diagnostic reason is read off `reason`,
                         which by construction never carries either gate.
                       */}
-                      <p
-                        data-testid="deposits-status"
-                        className="rounded-[10px] border border-[var(--owner-line)] bg-[var(--owner-ground)] p-3 text-sm text-[var(--owner-muted)]"
-                      >
-                        {depositPolicy === null
-                          ? 'Checking your deposit setup...'
-                          : depositPolicy.collectionLive === false
-                            ? 'Deposits are not collected on Luster yet. Nothing here charges a client.'
-                            : !depositPolicy.entitled
-                                ? 'Deposits are not part of your plan yet, so nothing here charges a client.'
-                                : depositPolicy.active
-                                  ? 'Deposits are being collected on new bookings.'
-                                  : (depositPolicy.reason
-                                    && DEPOSIT_REASON_COPY[depositPolicy.reason])
-                                    || 'Deposits are not being collected yet.'}
-                      </p>
+                        <p
+                          data-testid="deposits-status"
+                          className="rounded-[10px] border border-[var(--owner-line)] bg-[var(--owner-ground)] p-3 text-sm text-[var(--owner-muted)]"
+                        >
+                          {depositPolicy === null
+                            ? 'Checking your deposit setup...'
+                            : depositPolicy.collectionLive === false
+                              ? 'Deposits are not collected on Luster yet. Nothing here charges a client.'
+                              : !depositPolicy.entitled
+                                  ? 'Deposits are not part of your plan yet, so nothing here charges a client.'
+                                  : depositPolicy.active
+                                    ? 'Deposits are being collected on new bookings.'
+                                    : (depositPolicy.reason
+                                      && DEPOSIT_REASON_COPY[depositPolicy.reason])
+                                      || 'Deposits are not being collected yet.'}
+                        </p>
 
-                      {/*
+                        {/*
                         AG-more-settings-02: the card used to describe the
                         prerequisite only as "switched on for your salon", and
                         the API's reason was never surfaced. Name both gates,
                         say who acts on each, and say plainly that a saved
                         choice is not a collected deposit.
                       */}
-                      {depositPolicy !== null && !depositPolicy.active && (
-                        <div
-                          data-testid="deposits-prerequisites"
-                          className="space-y-2 rounded-[10px] border border-[var(--owner-line,#dfd1d4)] bg-[var(--owner-blush,#f6e7ec)] p-3 text-sm leading-6 text-[var(--owner-ink,#30262a)]"
-                        >
-                          <p className="font-semibold">
-                            Two things have to be in place first
-                          </p>
-                          <ol className="list-decimal space-y-1 pl-5">
-                            <li>
-                              Deposits have to be enabled for your salon. Only
-                              Luster can do that &mdash; ask support to turn
-                              deposits on for your salon.
-                            </li>
-                            <li>
-                              Your own payment account has to be connected, so
-                              the deposit can be charged and paid out to you.
-                              When deposits are enabled, that appears as
-                              &ldquo;Payments&rdquo; in the Integrations app.
-                            </li>
-                          </ol>
-                          <p>
-                            Until both are done, what you set here is stored
-                            and waits. No client is asked for a deposit and no
-                            card is charged.
-                          </p>
-                        </div>
-                      )}
+                        {depositPolicy !== null && !depositPolicy.active && (
+                          <div
+                            data-testid="deposits-prerequisites"
+                            className="space-y-2 rounded-[10px] border border-[var(--owner-line,#dfd1d4)] bg-[var(--owner-blush,#f6e7ec)] p-3 text-sm leading-6 text-[var(--owner-ink,#30262a)]"
+                          >
+                            <p className="font-semibold">
+                              Two things have to be in place first
+                            </p>
+                            <ol className="list-decimal space-y-1 pl-5">
+                              <li>
+                                Deposits have to be enabled for your salon. Only
+                                Luster can do that &mdash; ask support to turn
+                                deposits on for your salon.
+                              </li>
+                              <li>
+                                Your own payment account has to be connected, so
+                                the deposit can be charged and paid out to you.
+                                When deposits are enabled, that appears as
+                                &ldquo;Payments&rdquo; in the Integrations app.
+                              </li>
+                            </ol>
+                            <p>
+                              Until both are done, what you set here is stored
+                              and waits. No client is asked for a deposit and no
+                              card is charged.
+                            </p>
+                          </div>
+                        )}
 
-                      {depositPolicy?.readinessStale && (
-                        <p
-                          data-testid="deposits-readiness-age"
-                          className="text-xs text-[var(--owner-muted)]"
-                        >
-                          {depositPolicy.readinessAgeMs === null
-                            ? 'Stripe status has not been confirmed yet.'
-                            : `Stripe status last confirmed ${Math.max(1, Math.round(depositPolicy.readinessAgeMs / 3_600_000))} hours ago.`}
-                        </p>
-                      )}
+                        {depositPolicy?.readinessStale && (
+                          <p
+                            data-testid="deposits-readiness-age"
+                            className="text-xs text-[var(--owner-muted)]"
+                          >
+                            {depositPolicy.readinessAgeMs === null
+                              ? 'Stripe status has not been confirmed yet.'
+                              : `Stripe status last confirmed ${Math.max(1, Math.round(depositPolicy.readinessAgeMs / 3_600_000))} hours ago.`}
+                          </p>
+                        )}
 
-                      <label className="flex items-start justify-between gap-3 rounded-[10px] border border-[var(--owner-line)] p-3">
-                        <div className="space-y-1">
+                        <label className="flex items-start justify-between gap-3 rounded-[10px] border border-[var(--owner-line)] p-3">
+                          <div className="space-y-1">
+                            <span className="text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
+                              Require a deposit
+                            </span>
+                            <p className="text-sm text-[var(--owner-muted)]">
+                              {depositPolicy?.active
+                                ? 'Clients are asked for this deposit as they book.'
+                                : 'Records that you want a deposit. Clients are only asked for one once the steps above are done.'}
+                            </p>
+                          </div>
+                          <input
+                            type="checkbox"
+                            data-testid="deposits-enabled"
+                            checked={depositEnabled}
+                            onChange={(event) => {
+                              setDepositEnabled(event.target.checked);
+                              setDepositEnabledDirty(true);
+                              setDepositSaved(false);
+                            }}
+                            className="mt-1 size-4 rounded border-gray-300 text-[var(--owner-accent)] focus:ring-[var(--owner-focus)]"
+                          />
+                        </label>
+
+                        <label className="flex flex-col gap-1">
                           <span className="text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
-                            Require a deposit
+                            Deposit amount
                           </span>
-                          <p className="text-sm text-[var(--owner-muted)]">
-                            {depositPolicy?.active
-                              ? 'Clients are asked for this deposit as they book.'
-                              : 'Records that you want a deposit. Clients are only asked for one once the steps above are done.'}
+                          <input
+                            type="text"
+                            inputMode="decimal"
+                            data-testid="deposits-amount"
+                            value={depositAmountInput}
+                            onChange={(event) => {
+                              setDepositAmountInput(event.target.value);
+                              setDepositAmountDirty(true);
+                              setDepositSaved(false);
+                            }}
+                            className="rounded-[10px] border border-[var(--owner-line)] px-3 py-2 text-sm"
+                          />
+                        </label>
+
+                        {depositAmountInput.trim() !== '' && (
+                          <p data-testid="deposits-clamp-notice" className="text-xs text-[var(--owner-muted)]">
+                            {depositCardNotices.clampNotice}
                           </p>
+                        )}
+
+                        {depositAmountExceedsRecommended && (
+                          <p data-testid="deposits-recommended-max" className="text-xs text-amber-700">
+                            {depositCardNotices.recommendedMaxNotice}
+                          </p>
+                        )}
+
+                        {depositCopyWarning && (
+                          <p data-testid="deposits-copy-warning" className="text-xs text-amber-700">
+                            {depositCopyWarning}
+                          </p>
+                        )}
+
+                        {depositError && (
+                          <p data-testid="deposits-error" role="alert" className="text-xs text-red-600">
+                            {depositError}
+                          </p>
+                        )}
+
+                        <div className="flex items-center justify-end gap-3 border-t border-[var(--owner-line)] pt-3">
+                          <button
+                            type="button"
+                            data-testid="deposits-save"
+                            onClick={() => void saveDeposit()}
+                            disabled={
+                              depositSaving
+                              || (!depositEnabledDirty && !depositAmountDirty)
+                            }
+                            className="inline-flex min-h-11 items-center justify-center gap-2 rounded-[10px] bg-[var(--owner-accent)] px-4 text-sm font-semibold text-white outline-none transition-colors hover:bg-[var(--owner-accent-strong)] focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)] disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            <Save className="size-4" />
+                            <span>{depositSaving ? 'Saving...' : 'Save deposits'}</span>
+                          </button>
                         </div>
-                        <input
-                          type="checkbox"
-                          data-testid="deposits-enabled"
-                          checked={depositEnabled}
-                          onChange={(event) => {
-                            setDepositEnabled(event.target.checked);
-                            setDepositEnabledDirty(true);
-                            setDepositSaved(false);
-                          }}
-                          className="mt-1 size-4 rounded border-gray-300 text-[var(--owner-accent)] focus:ring-[var(--owner-focus)]"
-                        />
-                      </label>
 
-                      <label className="flex flex-col gap-1">
-                        <span className="text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
-                          Deposit amount
-                        </span>
-                        <input
-                          type="text"
-                          inputMode="decimal"
-                          data-testid="deposits-amount"
-                          value={depositAmountInput}
-                          onChange={(event) => {
-                            setDepositAmountInput(event.target.value);
-                            setDepositAmountDirty(true);
-                            setDepositSaved(false);
-                          }}
-                          className="rounded-[10px] border border-[var(--owner-line)] px-3 py-2 text-sm"
-                        />
-                      </label>
-
-                      {depositAmountInput.trim() !== '' && (
-                        <p data-testid="deposits-clamp-notice" className="text-xs text-[var(--owner-muted)]">
-                          {depositCardNotices.clampNotice}
-                        </p>
-                      )}
-
-                      {depositAmountExceedsRecommended && (
-                        <p data-testid="deposits-recommended-max" className="text-xs text-amber-700">
-                          {depositCardNotices.recommendedMaxNotice}
-                        </p>
-                      )}
-
-                      {depositCopyWarning && (
-                        <p data-testid="deposits-copy-warning" className="text-xs text-amber-700">
-                          {depositCopyWarning}
-                        </p>
-                      )}
-
-                      {depositError && (
-                        <p data-testid="deposits-error" role="alert" className="text-xs text-red-600">
-                          {depositError}
-                        </p>
-                      )}
-
-                      <div className="flex items-center justify-end gap-3 border-t border-[var(--owner-line)] pt-3">
-                        <button
-                          type="button"
-                          data-testid="deposits-save"
-                          onClick={() => void saveDeposit()}
-                          disabled={
-                            depositSaving
-                            || (!depositEnabledDirty && !depositAmountDirty)
-                          }
-                          className="inline-flex min-h-11 items-center justify-center gap-2 rounded-[10px] bg-[var(--owner-accent)] px-4 text-sm font-semibold text-white outline-none transition-colors hover:bg-[var(--owner-accent-strong)] focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)] disabled:cursor-not-allowed disabled:opacity-50"
-                        >
-                          <Save className="size-4" />
-                          <span>{depositSaving ? 'Saving...' : 'Save deposits'}</span>
-                        </button>
+                        {depositSaved && (
+                          <div className="text-right text-xs font-medium text-green-600">
+                            Deposits saved.
+                          </div>
+                        )}
                       </div>
-
-                      {depositSaved && (
-                        <div className="text-right text-xs font-medium text-green-600">
-                          Deposits saved.
-                        </div>
-                      )}
-                    </div>
-                  )}
-            </Section>
+                    )}
+              </Section>
+            </div>
 
             {/*
               AG-more-settings-03: this save commits the Sales tax and Interac
@@ -6039,7 +5863,7 @@ export function SettingsModal({
             {hasClientPrograms && (
               <Section
                 title="Programs"
-                footer="Control reviews and rewards programs. Referral and review rewards are fixed platform offers; visit-earned points stay active."
+                footer="Control whether reviews and rewards programs are available. Offer values live in Rewards & Reviews."
               >
                 {programsLoading
                   ? (
@@ -6074,40 +5898,6 @@ export function SettingsModal({
                           isLast
                         />
 
-                        <div className="border-t border-[var(--owner-line)] px-4 py-3">
-                          <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">
-                            Active Offers
-                          </div>
-                          <div className="space-y-2 text-sm">
-                            <div className="flex justify-between">
-                              <span className="text-[var(--owner-muted)]">Referral reward</span>
-                              <span className="font-medium text-[var(--owner-ink)]">
-                                $10 for the referrer
-                              </span>
-                            </div>
-                            <div className="flex justify-between">
-                              <span className="text-[var(--owner-muted)]">Friend offer</span>
-                              <span className="font-medium text-[var(--owner-ink)]">
-                                $10 off first appointment
-                              </span>
-                            </div>
-                            <div className="flex justify-between">
-                              <span className="text-[var(--owner-muted)]">
-                                Google review reward
-                              </span>
-                              <span className="font-medium text-[var(--owner-ink)]">
-                                $10 off (manual grant)
-                              </span>
-                            </div>
-                            <div className="flex justify-between">
-                              <span className="text-[var(--owner-muted)]">Visit earning</span>
-                              <span className="font-medium text-[var(--owner-ink)]">
-                                20 points per $1 spent
-                              </span>
-                            </div>
-                          </div>
-                        </div>
-
                         {programsSaving && (
                           <div className="flex items-center justify-center py-2 text-xs text-[var(--owner-muted)]">
                             Saving...
@@ -6120,19 +5910,21 @@ export function SettingsModal({
           </>
         )}
 
-        {view === 'visibility' && hasEntitledModules && visibilityEntitled && (
-          <Section
-            title="Staff Visibility"
-            footer="Control what information staff can see in their dashboard. Changes take effect immediately."
-          >
-            {visibilityLoading
-              ? (
+        {view === 'visibility' && (
+          visibilityLoading
+            ? (
+                <Section title="Staff Visibility">
                   <div className="flex items-center justify-center py-8">
                     <div className="size-6 animate-spin rounded-full border-2 border-[var(--owner-accent)] border-t-transparent" />
                   </div>
-                )
-              : (
-                  <>
+                </Section>
+              )
+            : visibilityEntitled
+              ? (
+                  <Section
+                    title="Staff Visibility"
+                    footer="Control what information staff can see in their dashboard. Changes take effect immediately."
+                  >
                     <Row
                       icon={Eye}
                       iconColor="bg-[var(--owner-accent)]"
@@ -6195,9 +5987,17 @@ export function SettingsModal({
                         Saving...
                       </div>
                     )}
-                  </>
-                )}
-          </Section>
+                  </Section>
+                )
+              : (
+                  <Section footer="Your existing staff access rules are unchanged.">
+                    <LockedFeatureRow
+                      name="Staff Visibility"
+                      reason="Staff permissions are not included in your current plan."
+                      isLast
+                    />
+                  </Section>
+                )
         )}
 
         {view === 'account' && (
@@ -6290,11 +6090,11 @@ export function SettingsModal({
             </Section>
 
             <Section
-              title="Plan & billing"
+              title="Luster plan & billing"
               footer={
                 billingMode === 'STRIPE'
-                  ? 'Manage billing opens the secure Stripe portal to update payment details, view invoices, or cancel.'
-                  : 'This salon is billed offline. Contact Luster to change plans.'
+                  ? 'This is what your salon pays Luster. Manage billing opens the secure Stripe portal to update payment details, view invoices, or cancel.'
+                  : 'This is what your salon pays Luster. This salon is billed offline; contact Luster to change plans.'
               }
             >
               <div className="space-y-3 p-4">

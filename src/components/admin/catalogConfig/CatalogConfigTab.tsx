@@ -1,7 +1,7 @@
 'use client';
 
 /**
- * Luster L1 PR6 — the owner-facing "Catalog" tab inside ServicesModal.
+ * Advanced menu setup inside ServicesModal.
  *
  * LEGACY SIMPLICITY (HC1): nothing in this file fetches anything until the
  * owner actually opens this tab (ServicesModal only mounts it when

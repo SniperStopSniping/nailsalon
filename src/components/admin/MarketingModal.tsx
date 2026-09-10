@@ -46,6 +46,8 @@ type MarketingModalProps = {
     RetentionStage,
     'promo_6w' | 'promo_8w'
   > | null;
+  onManageReminders?: () => void;
+  onOpenSocialPosting?: () => void;
 };
 
 type AvailableService = {
@@ -470,7 +472,7 @@ function isMarketingView(value: string | null): value is MarketingView {
 const VIEW_TITLES: Record<MarketingView, string> = {
   home: 'Marketing',
   followups: 'Follow-ups',
-  campaigns: 'Campaigns',
+  campaigns: 'Retention',
   results: 'Results',
   reviews: 'Review settings',
 };
@@ -543,6 +545,8 @@ export function MarketingModal({
   onOpenApp,
   onOpenClient,
   onOpenNativeUrl,
+  onManageReminders,
+  onOpenSocialPosting,
 }: MarketingModalProps) {
   const { salonSlug } = useSalon();
   const searchParams = useSearchParams();
@@ -699,10 +703,14 @@ export function MarketingModal({
     setSaved(false);
     setSaveError(null);
     try {
+      // Appointment reminder timing has one editable home in Settings. Keep
+      // the legacy retention value server-side for compatibility, but never
+      // overwrite it when an owner saves marketing/retention changes.
+      const { reminderLeadHours: _legacyReminderLeadHours, ...marketingSettings } = settings;
       const response = await fetch(`/api/admin/retention/settings?salonSlug=${encodeURIComponent(salonSlug)}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(settings),
+        body: JSON.stringify(marketingSettings),
       });
       const payload = await response.json().catch(() => null) as SettingsResponse | null;
       const nextSettings = payload?.data?.settings;
@@ -940,13 +948,14 @@ export function MarketingModal({
     title: string;
     detail: string;
     status?: string;
-    onClick: () => void;
+    onClick?: () => void;
   }) => (
     <button
       type="button"
       data-testid={args.testId}
       onClick={args.onClick}
-      className="flex w-full items-center justify-between gap-3 rounded-[16px] bg-[var(--owner-surface)] p-4 text-left shadow-[0_4px_20px_rgba(0,0,0,0.04)]"
+      disabled={!args.onClick}
+      className="flex min-h-16 w-full items-center justify-between gap-3 rounded-[16px] bg-[var(--owner-surface)] p-4 text-left shadow-[0_4px_20px_rgba(0,0,0,0.04)] disabled:cursor-default disabled:opacity-70"
     >
       <div className="min-w-0">
         <div className="text-[16px] font-semibold text-[var(--owner-ink)]">{args.title}</div>
@@ -1026,10 +1035,16 @@ export function MarketingModal({
                         })}
                         {homeRow({
                           testId: 'marketing-home-campaigns',
-                          title: 'Campaigns',
+                          title: 'Retention',
                           detail: 'Win-back offers and follow-up timing.',
                           status: winbackConfigured ? 'Win-back on' : 'Not set up',
                           onClick: () => setView('campaigns'),
+                        })}
+                        {homeRow({
+                          testId: 'marketing-home-campaign-tools',
+                          title: 'Campaigns',
+                          detail: 'Future tools for broader client campaigns.',
+                          status: 'Coming later',
                         })}
                         {homeRow({
                           testId: 'marketing-home-results',
@@ -1040,10 +1055,17 @@ export function MarketingModal({
                         })}
                         {homeRow({
                           testId: 'marketing-home-reviews',
-                          title: 'Review settings',
+                          title: 'Reviews',
                           detail: 'Your Google review link, and asking clients for a review.',
                           status: settings.googleReviewUrl ? 'Link set' : 'Add link',
                           onClick: () => setView('reviews'),
+                        })}
+                        {homeRow({
+                          testId: 'marketing-home-social-posting',
+                          title: 'Social Posting',
+                          detail: 'Auto-post finished work and control captions.',
+                          status: 'Photo policy',
+                          onClick: onOpenSocialPosting,
                         })}
 
                         <div className={card} data-testid="marketing-home-channels">
@@ -1234,17 +1256,13 @@ export function MarketingModal({
                               error={validationErrors.defaultRebookDays}
                               onChange={value => updateSetting('defaultRebookDays', value)}
                             />
-                            <NumberField
-                              id="reminder-lead-hours"
-                              label="Appointment reminder"
-                              value={settings.reminderLeadHours}
-                              min={1}
-                              max={168}
-                              suffix="hours before"
-                              hint="Upcoming appointments appear in the reminder queue at this time."
-                              error={validationErrors.reminderLeadHours}
-                              onChange={value => updateSetting('reminderLeadHours', value)}
-                            />
+                            <div className="rounded-[14px] border border-[var(--owner-line)] p-3">
+                              <p className="text-[13px] font-semibold text-[var(--owner-ink)]">Appointment reminders</p>
+                              <p className="mt-1 text-[13px] text-[var(--owner-muted)]">
+                                Reminder timing is an operational message setting.
+                              </p>
+                              <button type="button" onClick={onManageReminders} className="mt-2 min-h-11 text-[13px] font-semibold text-[var(--owner-accent)] underline">Manage reminders →</button>
+                            </div>
                           </div>
                         </section>
 
@@ -1395,6 +1413,7 @@ export function MarketingModal({
                               ))}
                           </div>
                         </section>
+
                       </div>
                     )}
 

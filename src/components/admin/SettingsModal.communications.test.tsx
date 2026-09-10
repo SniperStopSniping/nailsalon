@@ -100,8 +100,8 @@ describe('SettingsModal communications view', () => {
 
   async function openCommunications() {
     render(<SettingsModal onClose={vi.fn()} salonSlug="salon-a" userName="Daniela" />);
-    const row = await screen.findByText('Client texts & reminders');
-    fireEvent.click(row);
+    fireEvent.click(await screen.findByText('Messages & Notifications'));
+    fireEvent.click(await screen.findByText('Client Messages'));
     await screen.findByText('Appointment reminders');
   }
 

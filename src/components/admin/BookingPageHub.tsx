@@ -12,15 +12,16 @@ import { useEffect, useRef, useState } from 'react';
 const PREVIEW_RETURN_HASH = '#preview-draft';
 
 const EDITORS = [
-  { id: 'layouts', title: 'Layouts', description: 'Site layout and booking menu', icon: LayoutTemplate },
+  { id: 'layouts', title: 'Layout', description: '22 website layouts and the booking menu', icon: LayoutTemplate },
   // Fonts are named here on purpose. Each style preset now carries its own
   // display typeface, and "the look you chose during setup" gave an owner
   // looking for their fonts nothing to aim at.
   { id: 'appearance', title: 'Style & Colours', description: 'Fonts, colours and overall look', icon: Palette },
-  { id: 'information', title: 'Your Information', description: 'Business details and public visibility', icon: UserRound },
+  { id: 'information', title: 'Business Info Display', description: 'Choose which saved business details customers see', icon: UserRound },
   { id: 'text', title: 'About & Website Text', description: 'Your introduction and bio', icon: Type },
-  { id: 'policies', title: 'Policies & Booking Rules', description: 'Client policies and booking settings', icon: ShieldCheck },
-  { id: 'gallery', title: 'Photos & Gallery', description: 'Your shared portfolio library', icon: Images },
+  { id: 'gallery', title: 'Photos & Gallery', description: 'Logo, profile, cover and shared Portfolio', icon: Images },
+  { id: 'policies', title: 'Policies Display', description: 'Show policies and open their canonical editor', icon: ShieldCheck },
+  { id: 'publish', title: 'Preview & Publish', description: 'Preview the draft, publish changes or view the live site', icon: Check },
 ] as const;
 
 export function BookingPageHub({

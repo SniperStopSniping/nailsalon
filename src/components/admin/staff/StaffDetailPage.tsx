@@ -81,6 +81,7 @@ type StaffDetailPageProps = {
   salonSlug: string | null;
   onBack: () => void;
   onUpdate?: () => void;
+  initialTab?: TabId;
 };
 
 // =============================================================================
@@ -100,8 +101,8 @@ const TABS: { id: TabId; label: string }[] = [
 // Component
 // =============================================================================
 
-export function StaffDetailPage({ staffId, salonSlug, onBack, onUpdate }: StaffDetailPageProps) {
-  const [activeTab, setActiveTab] = useState<TabId>('overview');
+export function StaffDetailPage({ staffId, salonSlug, onBack, onUpdate, initialTab = 'overview' }: StaffDetailPageProps) {
+  const [activeTab, setActiveTab] = useState<TabId>(initialTab);
   // Same source as the Reviews app; no reviews → no rating shown.
   const { byTechnician: reviewsByTechnician } = useTechnicianReviews(salonSlug);
   const reviewSummary = reviewsByTechnician[staffId] ?? null;
@@ -473,34 +474,32 @@ export function StaffDetailPage({ staffId, salonSlug, onBack, onUpdate }: StaffD
 
 function LoadingSkeleton({ onBack }: { onBack: () => void }) {
   return (
-    <>
-      <div className="border-b border-gray-200 bg-white">
-        <div className="flex items-center px-4 py-3">
-          <button
-            type="button"
-            onClick={onBack}
-            className="flex items-center text-[17px] text-[#007AFF]"
-          >
-            <ChevronLeft className="size-5" />
-            <span>Staff</span>
-          </button>
-        </div>
-        <div className="animate-pulse px-4 pb-4">
-          <div className="flex items-start gap-4">
-            <div className="size-20 rounded-full bg-gray-200" />
-            <div className="flex-1">
-              <div className="mb-2 h-6 w-32 rounded bg-gray-200" />
-              <div className="h-4 w-24 rounded bg-gray-100" />
-            </div>
-          </div>
-          <div className="mt-4 h-10 rounded-lg bg-gray-100" />
-        </div>
-        <div className="flex gap-4 border-t border-gray-100 px-4 py-3">
-          {[1, 2, 3, 4, 5, 6].map(i => (
-            <div key={i} className="h-4 w-16 rounded bg-gray-100" />
-          ))}
-        </div>
+    <div className="border-b border-gray-200 bg-white">
+      <div className="flex items-center px-4 py-3">
+        <button
+          type="button"
+          onClick={onBack}
+          className="flex items-center text-[17px] text-[#007AFF]"
+        >
+          <ChevronLeft className="size-5" />
+          <span>Staff</span>
+        </button>
       </div>
-    </>
+      <div className="animate-pulse px-4 pb-4">
+        <div className="flex items-start gap-4">
+          <div className="size-20 rounded-full bg-gray-200" />
+          <div className="flex-1">
+            <div className="mb-2 h-6 w-32 rounded bg-gray-200" />
+            <div className="h-4 w-24 rounded bg-gray-100" />
+          </div>
+        </div>
+        <div className="mt-4 h-10 rounded-lg bg-gray-100" />
+      </div>
+      <div className="flex gap-4 border-t border-gray-100 px-4 py-3">
+        {[1, 2, 3, 4, 5, 6].map(i => (
+          <div key={i} className="h-4 w-16 rounded bg-gray-100" />
+        ))}
+      </div>
+    </div>
   );
 }

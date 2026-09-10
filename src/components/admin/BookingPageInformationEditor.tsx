@@ -275,6 +275,7 @@ export function BookingPageInformationEditor({
   coverUpload,
   onUploadCover,
   onUseDefaultCover,
+  mode = 'legacy',
 }: {
   locale: string;
   salonSlug: string;
@@ -299,6 +300,8 @@ export function BookingPageInformationEditor({
   coverUpload?: { status: 'idle' | 'uploading' | 'error'; error: string | null; note: string | null };
   onUploadCover?: (file: File) => void;
   onUseDefaultCover?: () => void;
+  /** Booking Page owns display choices; Settings owns the editable business record. */
+  mode?: 'booking' | 'business' | 'legacy';
 }) {
   const [info, setInfo] = useState<SalonInformation | null>(null);
   const [loadState, setLoadState] = useState<'loading' | 'ready' | 'forbidden' | 'error'>('loading');
@@ -319,7 +322,8 @@ export function BookingPageInformationEditor({
   }, [addressPrivacy]);
   const query = `salonSlug=${encodeURIComponent(salonSlug)}`;
   const workspace = `/${locale}/admin?salon=${encodeURIComponent(salonSlug)}`;
-  const showSwitches = draft.layout === 'quick_book';
+  const showSwitches = mode !== 'business' && draft.layout === 'quick_book';
+  const showEditors = mode !== 'booking';
 
   const loadInformation = useCallback(async () => {
     try {
@@ -566,14 +570,20 @@ export function BookingPageInformationEditor({
 
   return (
     <section className="rounded-3xl border border-[var(--owner-line)] bg-[var(--owner-surface)] p-5 shadow-sm" data-testid="booking-page-information-editor">
-      <h2 className="text-lg font-semibold text-[var(--owner-ink)]">Your Information</h2>
+      <h2 className="text-lg font-semibold text-[var(--owner-ink)]">
+        {mode === 'booking' ? 'Business Info Display' : mode === 'business' ? 'Business Profile' : 'Your Information'}
+      </h2>
       <p className="mt-1 text-sm text-[var(--owner-muted)]" data-testid="information-publish-summary">
-        These are the details you saved during setup. Editing changes the same business record your live site and bookings use, so name, contact and hours go public as soon as you save them. Address privacy is the one setting here that waits in your draft until you publish; hiding a detail keeps it saved.
+        {mode === 'booking'
+          ? 'These are the current business values customers may see. Change what appears here; edit the actual business record in Settings. Display choices wait in your website draft until you publish.'
+          : mode === 'business'
+            ? 'This is the actual business record used by your live site and bookings. Name, contact, address and hours take effect as soon as each section is saved.'
+            : 'These are the details you saved during setup. Editing changes the same business record your live site and bookings use, so name, contact and hours go public as soon as you save them. Address privacy is the one setting here that waits in your draft until you publish; hiding a detail keeps it saved.'}
       </p>
 
       <div className="mt-4 divide-y divide-stone-200">
         <Accordion defaultOpen publishes="live" subtitle="Name, website address, nail tech, logo and photo" testId="information-identity" title="Business identity">
-          {editable && identity.values
+          {editable && identity.values && showEditors
             ? (
                 <form
                   className="space-y-4"
@@ -704,17 +714,34 @@ export function BookingPageInformationEditor({
                   {renderSwitches('Business identity')}
                 </form>
               )
-            : (
-                <>
-                  {renderFallback('Business identity')}
-                  {renderSwitches('Business identity')}
-                </>
-              )}
+            : editable && info
+              ? (
+                  <>
+                    <dl className="grid gap-2 text-sm">
+                      <div>
+                        <dt className="font-medium text-[var(--owner-muted)]">Business name</dt>
+                        <dd className="text-[var(--owner-ink)]">{info.salon.name}</dd>
+                      </div>
+                      <div>
+                        <dt className="font-medium text-[var(--owner-muted)]">Nail-tech name</dt>
+                        <dd className="text-[var(--owner-ink)]">{info.technician?.name ?? 'Managed in Team'}</dd>
+                      </div>
+                    </dl>
+                    <a className="mt-3 inline-flex min-h-11 items-center font-semibold text-[var(--owner-accent)] underline" href={`${workspace}&app=settings&view=business-profile`}>Edit business profile →</a>
+                    {renderSwitches('Business identity')}
+                  </>
+                )
+              : (
+                  <>
+                    {renderFallback('Business identity')}
+                    {renderSwitches('Business identity')}
+                  </>
+                )}
         </Accordion>
 
         <Accordion publishes="live-with-draft" subtitle="Address, city and how much of it clients can see" testId="information-location" title="Location">
           <>
-            {editable && location.values
+            {editable && location.values && showEditors
               ? (
                   <form
                     className="space-y-3"
@@ -752,46 +779,55 @@ export function BookingPageInformationEditor({
                     <StatusLine error={location.error} savedText="Address saved. It affects directions and bookings immediately." status={location.status} />
                   </form>
                 )
-              : renderFallback('Location')}
+              : editable && info
+                ? (
+                    <>
+                      <p className="text-sm text-[var(--owner-ink)]">{[info.location?.address, info.location?.city, info.location?.state, info.location?.zipCode].filter(Boolean).join(', ') || 'No salon address saved.'}</p>
+                      <a className="mt-3 inline-flex min-h-11 items-center font-semibold text-[var(--owner-accent)] underline" href={`${workspace}&app=settings&view=location`}>Edit salon address →</a>
+                    </>
+                  )
+                : renderFallback('Location')}
 
-            <fieldset className="mt-4 border-t border-[var(--owner-line)] pt-3" disabled={disabled}>
-              <legend className="text-sm font-semibold text-[var(--owner-ink)]">Address privacy</legend>
-              <p className="mb-2 text-xs text-[var(--owner-muted)]">Your exact address stays saved for bookings and directions either way. This choice applies to your website draft until you publish.</p>
-              <div role="radiogroup" aria-label="Address privacy">
-                {ADDRESS_PRIVACY_OPTIONS.map(option => (
-                  <label className={`mb-2 flex min-h-11 cursor-pointer items-start gap-3 rounded-xl border p-3 ${selectedAddressPrivacy === option.value ? 'border-[var(--owner-accent)] bg-[var(--owner-blush)]' : 'border-[var(--owner-line)]'}`} key={option.value}>
-                    <input
-                      checked={selectedAddressPrivacy === option.value}
-                      className="mt-1 size-5 shrink-0 accent-[var(--owner-accent)]"
-                      data-testid={`address-privacy-${option.value}`}
-                      name="address-privacy"
-                      onChange={() => {
-                        setSelectedAddressPrivacy(option.value);
-                        onAddressPrivacyChange(option.value);
-                      }}
-                      type="radio"
-                      value={option.value}
-                    />
-                    <span className="min-w-0">
-                      <span className="block text-sm font-semibold text-[var(--owner-ink)]">{option.label}</span>
-                      <span className="block text-xs text-[var(--owner-muted)]">{option.description}</span>
-                      <span className="mt-1 block text-[11px] uppercase tracking-wide text-[var(--owner-line-strong)]">{option.note}</span>
-                    </span>
-                  </label>
-                ))}
-              </div>
-              {liveAddressPrivacy !== addressPrivacy && (
-                <p className="text-xs text-amber-800" data-testid="address-privacy-unpublished">
-                  {`Your live site still uses “${draftPrivacyLabel}” until you publish.`}
-                </p>
-              )}
-            </fieldset>
+            {mode !== 'business' && (
+              <fieldset className="mt-4 border-t border-[var(--owner-line)] pt-3" disabled={disabled}>
+                <legend className="text-sm font-semibold text-[var(--owner-ink)]">Address privacy</legend>
+                <p className="mb-2 text-xs text-[var(--owner-muted)]">Your exact address stays saved for bookings and directions either way. This choice applies to your website draft until you publish.</p>
+                <div role="radiogroup" aria-label="Address privacy">
+                  {ADDRESS_PRIVACY_OPTIONS.map(option => (
+                    <label className={`mb-2 flex min-h-11 cursor-pointer items-start gap-3 rounded-xl border p-3 ${selectedAddressPrivacy === option.value ? 'border-[var(--owner-accent)] bg-[var(--owner-blush)]' : 'border-[var(--owner-line)]'}`} key={option.value}>
+                      <input
+                        checked={selectedAddressPrivacy === option.value}
+                        className="mt-1 size-5 shrink-0 accent-[var(--owner-accent)]"
+                        data-testid={`address-privacy-${option.value}`}
+                        name="address-privacy"
+                        onChange={() => {
+                          setSelectedAddressPrivacy(option.value);
+                          onAddressPrivacyChange(option.value);
+                        }}
+                        type="radio"
+                        value={option.value}
+                      />
+                      <span className="min-w-0">
+                        <span className="block text-sm font-semibold text-[var(--owner-ink)]">{option.label}</span>
+                        <span className="block text-xs text-[var(--owner-muted)]">{option.description}</span>
+                        <span className="mt-1 block text-[11px] uppercase tracking-wide text-[var(--owner-line-strong)]">{option.note}</span>
+                      </span>
+                    </label>
+                  ))}
+                </div>
+                {liveAddressPrivacy !== addressPrivacy && (
+                  <p className="text-xs text-amber-800" data-testid="address-privacy-unpublished">
+                    {`Your live site still uses “${draftPrivacyLabel}” until you publish.`}
+                  </p>
+                )}
+              </fieldset>
+            )}
             {renderSwitches('Location')}
           </>
         </Accordion>
 
         <Accordion publishes="live" subtitle="Phone, email, Instagram and how clients may reach you" testId="information-contact" title="Contact">
-          {editable && contact.values
+          {editable && contact.values && showEditors
             ? (
                 <form
                   className="space-y-3"
@@ -841,16 +877,37 @@ export function BookingPageInformationEditor({
                   {renderSwitches('Contact')}
                 </form>
               )
-            : (
-                <>
-                  {renderFallback('Contact')}
-                  {renderSwitches('Contact')}
-                </>
-              )}
+            : editable && info
+              ? (
+                  <>
+                    <dl className="grid gap-2 text-sm">
+                      <div>
+                        <dt className="font-medium text-[var(--owner-muted)]">Phone</dt>
+                        <dd>{info.salon.phone || 'Not saved'}</dd>
+                      </div>
+                      <div>
+                        <dt className="font-medium text-[var(--owner-muted)]">Email</dt>
+                        <dd>{info.salon.email || 'Not saved'}</dd>
+                      </div>
+                      <div>
+                        <dt className="font-medium text-[var(--owner-muted)]">Instagram</dt>
+                        <dd>{formatInstagramHandle(info.instagramHandle ?? info.instagram) || 'Not saved'}</dd>
+                      </div>
+                    </dl>
+                    <a className="mt-3 inline-flex min-h-11 items-center font-semibold text-[var(--owner-accent)] underline" href={`${workspace}&app=settings&view=business-profile`}>Edit contact details →</a>
+                    {renderSwitches('Contact')}
+                  </>
+                )
+              : (
+                  <>
+                    {renderFallback('Contact')}
+                    {renderSwitches('Contact')}
+                  </>
+                )}
         </Accordion>
 
         <Accordion publishes="live" subtitle="Weekly public hours and timezone" testId="information-hours" title="Hours">
-          {editable && hours.values
+          {editable && hours.values && showEditors
             ? (
                 <form
                   className="space-y-3"
@@ -899,12 +956,31 @@ export function BookingPageInformationEditor({
                   {renderSwitches('Hours')}
                 </form>
               )
-            : (
-                <>
-                  {renderFallback('Hours')}
-                  {renderSwitches('Hours')}
-                </>
-              )}
+            : editable && info
+              ? (
+                  <>
+                    <div className="space-y-1 text-sm">
+                      {WEEKDAYS.map(day => (
+                        <p className="flex justify-between gap-4" key={day}>
+                          <span className="capitalize text-[var(--owner-muted)]">{day}</span>
+                          <span>{info.businessHours?.[day] ? `${info.businessHours[day]!.open}–${info.businessHours[day]!.close}` : 'Closed'}</span>
+                        </p>
+                      ))}
+                      <p className="flex justify-between gap-4 border-t border-[var(--owner-line)] pt-2">
+                        <span className="text-[var(--owner-muted)]">Timezone</span>
+                        <span>{info.timezone}</span>
+                      </p>
+                    </div>
+                    <a className="mt-3 inline-flex min-h-11 items-center font-semibold text-[var(--owner-accent)] underline" href={`${workspace}&app=settings&view=business-profile`}>Edit business hours →</a>
+                    {renderSwitches('Hours')}
+                  </>
+                )
+              : (
+                  <>
+                    {renderFallback('Hours')}
+                    {renderSwitches('Hours')}
+                  </>
+                )}
         </Accordion>
 
         {showSwitches && (
@@ -914,8 +990,8 @@ export function BookingPageInformationEditor({
         )}
       </div>
       <p className="mt-3 text-xs text-[var(--owner-muted)]">
-        <a className="inline-flex min-h-11 items-center gap-1 font-semibold text-[var(--owner-accent)] underline" href={`${workspace}&app=settings`}>
-          Open all business settings
+        <a className="inline-flex min-h-11 items-center gap-1 font-semibold text-[var(--owner-accent)] underline" href={mode === 'business' ? `${workspace}&app=team` : `${workspace}&app=settings${mode === 'booking' ? '&view=business' : ''}`}>
+          {mode === 'business' ? 'Manage team profiles' : 'Open all business settings'}
           <ExternalLink aria-hidden="true" size={14} />
         </a>
       </p>

@@ -339,3 +339,52 @@ Repair the existing Twilio/communications system only. No broad product audit, p
 - Added ten Playwright geometry regressions for Quick Book and one-page About design at **920, 1280, 1440, 390 and 320px**. The original 1280px case failed on readable widths/order/progress; corrected tests pass **10/10** with no retries. They check full-size preview, ordering, five-stage alignment, horizontal overflow and reachable action buttons, and block non-loopback requests. Wired the same test into the existing required CI test job after product E2E, reusing installed Chromium/root runtime dependencies and preserving test artifacts. The harness verifies shared onboarding layout; it is not a claim of a full authenticated production journey.
 - Validation: app **`npm run check-types`** passed with approved synthetic CI placeholders, **`npm run lint`** and explicit ESLint on the workflow/new test passed, and diff checks passed. Focused design/progress units passed **23/23**. The first broad prototype run reused production-root development dependencies and was not a valid prototype-suite gate: six suites lacked its `fake-indexeddb` dependency and two widget tests used a different user-event version. Installed the prototype's existing committed lockfile in this new worktree without changing manifests/locks or shared dependencies; the complete prototype suite then passed **1,341/1,341 tests across 118 files**. No application/test assertions were changed to clear those dependency-related failures.
 - The user has now completed the separate pilot account signup: read-only native UI shows authenticated workspace **`luster-sms-pilot-20260909`**, **100 SMS credits available**, and texting unavailable while production SMS remains disabled. The initial grant is visible in the owner UI; ledger/dedupe inspection is still pending. The earlier signup handoff is satisfied and must not be requested again. No approved recipient, pilot send approval, fixture appointment or activation is recorded; no real SMS was sent. Preserve Daniela's customer salon and the unrelated active number ending 9891.
+
+---
+
+# Owner dashboard IA restructure — 2026-09-09
+
+Branch: `codex/owner-dashboard-ia-20260909`
+
+Base: `45badae1aebbd00844c8da4d39d091a88f23652a` (`origin/main` at task start)
+
+## Status
+
+- Read the completed owner-dashboard inventory from the original checkout.
+- Inspected current owner navigation, Settings, Booking Page, Marketing, Integrations, Team/staff, time off, rewards/reviews, Services, and photo/auto-post policy sources.
+- Wrote the canonical ownership and before→after migration map in `docs/OWNER_DASHBOARD_IA_MIGRATION_MAP.md`.
+- No application code changed at this checkpoint.
+
+## Safety
+
+- Original dirty checkout is preserved at `/Users/me/Desktop/nail-salon-copy2 copy 2`.
+- This task runs in the clean worktree `/Users/me/Desktop/luster-owner-dashboard-ia-20260909`.
+- Do not deploy, push, migrate, seed, or alter provider configuration.
+
+## Next batch
+
+Implement More grid and compatibility routing, then add Team, Payments, and Rewards & Reviews hubs while reusing the existing editors and APIs.
+
+## Completion checkpoint
+
+- Implemented the requested ten-card More grid, moved Workspace Tour to the smaller Help entry, and preserved existing plan/module gates.
+- Added Team, Payments, and Rewards & Reviews hubs over the existing editors and APIs. Legacy Staff, Time-off, Rewards, Reviews, Settings payments, and Settings visibility deep links continue to resolve safely.
+- Replaced the Settings index with the six requested card homes and established the requested canonical cross-links. Business information is editable in Settings; Booking Page now edits only its draft/published presentation choices.
+- Removed the competing Marketing reminder editor, moved service-merchandising controls out of Booking Rules, split photo rules from social-posting entry points, and kept all existing save/API boundaries.
+- Detailed before→after map, implemented hierarchy, intentional sharing, verification results, and the one deferred reminder-scheduler question are in `docs/OWNER_DASHBOARD_IA_MIGRATION_MAP.md`.
+- Commits at this checkpoint: `e0756ff4` (migration map), `2d820a53` (More grid), `f375b14c` (canonical hubs/settings).
+- Focused tests passed 83/83, adjacent existing owner tests passed 110/110, and owner-page/policy tests passed 28/28. Scoped ESLint has zero errors. The only Booking Page route failure under the shared old dependencies is a React 18 warning for the pre-existing React 19 `inert` attribute.
+- A fresh dependency install was blocked by disk space; the older shared Next 14/React 18 dependency tree cannot run this Next 15/React 19 repository's `next typegen`. Direct TypeScript found no error in changed owner-dashboard files. Do not treat this as a clean central typecheck.
+- Local browser verification/screenshots remain unavailable because the clean worktree's dev server stopped at the Clerk isolation guard (`CLERK_KEYS_REQUIRED`). Do not copy credentials or relax provider isolation for this task.
+- No deploy, push, merge, migration, production/provider mutation, message, or payment occurred. The original checkout remains separate and preserved.
+
+## Release-blocker repair checkpoint
+
+- Services now keeps its moved offer controls disabled until canonical salon settings load and submits only fields changed in the current editor. The regression proves changing only the intro label preserves both an enabled first-visit offer and featured manicure.
+- Appointment Photo Rules and Social Posting now submit section-owned partial updates. The policy API performs an atomic column-only upsert, so two open surfaces can save in either order without restoring hidden stale fields. The legacy full `PUT` remains available for the combined deep link.
+- Marketing → Results again shows the existing automatic appointment-message aggregate: rolling window plus channel/status/count for confirmations, reminders, and cancellations. No new reporting source was introduced.
+- Discarding an unsaved Payments leaf now returns through the Payments hub. Team → Permissions now shows an explicit locked explanation when staff visibility is not entitled instead of a blank screen.
+- Logical repair commits: `d5ad6404`, `1cca52ec`, `92990032`, `ef007c90`; test typing follow-up `a53f146f`.
+- Focused release suite: 12 files / 207 tests passed (Services, policy API/forms, Marketing, Payments, Team/Settings, More routing, modal host, admin deep links, and Booking Page hub). Changed TypeScript/TSX ESLint has zero errors and ten existing warnings; secret scan passed.
+- Local `npm run check-types` and `npm run build` remain environment-limited by the shared Next 14/React 18 dependency tree and missing explicit runtime environment. Direct TypeScript reports only known dependency/prototype errors and none in changed owner-dashboard files. Fresh protected CI with the committed Next 15/React 19 lockfile is the authoritative build/type gate.
+- The branch diff contains no migration/schema, authentication/tenant, provider configuration, dependency, or deployment-configuration changes. Production release remains pending protected PR checks and exact-SHA deployment verification.

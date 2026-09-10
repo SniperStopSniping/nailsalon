@@ -26,9 +26,11 @@ import {
 type StaffModalProps = {
   onClose: () => void;
   salonSlug: string | null;
+  initialTab?: 'overview' | 'schedule' | 'services' | 'clients' | 'earnings' | 'settings';
+  title?: string;
 };
 
-export function StaffModal({ onClose, salonSlug }: StaffModalProps) {
+export function StaffModal({ onClose, salonSlug, initialTab = 'overview', title = 'Team Members' }: StaffModalProps) {
   const [selectedStaffId, setSelectedStaffId] = useState<string | null>(null);
   const [showAddModal, setShowAddModal] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
@@ -58,7 +60,7 @@ export function StaffModal({ onClose, salonSlug }: StaffModalProps) {
       {/* Header */}
       <div className="sticky top-0 z-20 bg-[#F2F2F7]/80 backdrop-blur-md">
         <ModalHeader
-          title="Staff"
+          title={title}
           leftAction={<BackButton onClick={onClose} label="Back" />}
           rightAction={(
             <button
@@ -87,6 +89,7 @@ export function StaffModal({ onClose, salonSlug }: StaffModalProps) {
           <StaffDetailPage
             staffId={selectedStaffId}
             salonSlug={salonSlug}
+            initialTab={initialTab}
             onBack={handleBack}
             onUpdate={handleUpdate}
           />

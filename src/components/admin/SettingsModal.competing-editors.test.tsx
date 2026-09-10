@@ -171,6 +171,16 @@ function open() {
   render(<SettingsModal onClose={vi.fn()} salonSlug="salon-a" userName="Daniela" />);
 }
 
+async function openBookingRules() {
+  fireEvent.click(await screen.findByText('Booking & Availability'));
+  fireEvent.click(await screen.findByText('Booking Rules'));
+}
+
+async function openBusinessCard(card: 'Branding & Social' | 'Location & Arrival') {
+  fireEvent.click(await screen.findByText('Business'));
+  fireEvent.click(await screen.findByText(card));
+}
+
 describe('SettingsModal — one writer per record', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -182,7 +192,7 @@ describe('SettingsModal — one writer per record', () => {
   describe('minimum booking notice (AG-w2-settings-integrations-01)', () => {
     it('defaults to automatic confirmation and saves review mode without changing notice', async () => {
       open();
-      fireEvent.click(await screen.findByText('Booking rules'));
+      await openBookingRules();
       const mode = await screen.findByLabelText(/^Booking confirmation/);
 
       expect(mode).toHaveValue('instant');
@@ -200,7 +210,7 @@ describe('SettingsModal — one writer per record', () => {
     it('loads the saved review mode and keeps it when editing notice', async () => {
       mockEndpoints({ confirmationMode: 'request_approval', minimumNoticeMinutes: 480 });
       open();
-      fireEvent.click(await screen.findByText('Booking rules'));
+      await openBookingRules();
 
       expect(await screen.findByLabelText(/^Booking confirmation/)).toHaveValue('request_approval');
 
@@ -217,9 +227,11 @@ describe('SettingsModal — one writer per record', () => {
     it('shows the stored value on the Booking rules row and in the editor', async () => {
       open();
 
-      expect(await screen.findByText('15 min · 2 hours notice')).toBeInTheDocument();
+      fireEvent.click(await screen.findByText('Booking & Availability'));
 
-      fireEvent.click(screen.getByText('Booking rules'));
+      expect(await screen.findByText('15 minute slots · 2 hours notice')).toBeInTheDocument();
+
+      fireEvent.click(screen.getByText('Booking Rules'));
 
       expect(await screen.findByTestId('minimum-notice-select')).toHaveValue('120');
       expect(screen.getByTestId('minimum-notice-current')).toHaveTextContent('Now: 2 hours');
@@ -227,7 +239,7 @@ describe('SettingsModal — one writer per record', () => {
 
     it('writes settings.booking.minimumNoticeMinutes for a preset choice', async () => {
       open();
-      fireEvent.click(await screen.findByText('Booking rules'));
+      await openBookingRules();
       fireEvent.change(await screen.findByTestId('minimum-notice-select'), { target: { value: '1440' } });
       fireEvent.click(screen.getByRole('button', { name: /save booking settings|save/i }));
 
@@ -239,7 +251,7 @@ describe('SettingsModal — one writer per record', () => {
 
     it('accepts a custom value the presets do not offer', async () => {
       open();
-      fireEvent.click(await screen.findByText('Booking rules'));
+      await openBookingRules();
       fireEvent.change(await screen.findByTestId('minimum-notice-select'), { target: { value: 'custom' } });
       fireEvent.change(await screen.findByTestId('minimum-notice-custom'), { target: { value: '180' } });
 
@@ -256,7 +268,7 @@ describe('SettingsModal — one writer per record', () => {
     it('keeps a stored custom value selected instead of snapping to a preset', async () => {
       mockEndpoints({ minimumNoticeMinutes: 180 });
       open();
-      fireEvent.click(await screen.findByText('Booking rules'));
+      await openBookingRules();
 
       expect(await screen.findByTestId('minimum-notice-select')).toHaveValue('custom');
       expect(screen.getByTestId('minimum-notice-custom')).toHaveValue(180);
@@ -267,15 +279,17 @@ describe('SettingsModal — one writer per record', () => {
     it('names the two Business rows and where each one goes', async () => {
       open();
 
-      expect(await screen.findByText('Website layout & colours')).toBeInTheDocument();
-      expect(screen.getByText('Opens Booking Page')).toBeInTheDocument();
-      expect(screen.getByText('Branding')).toBeInTheDocument();
+      fireEvent.click(await screen.findByText('Business'));
+
+      expect(await screen.findByText('Branding & Social')).toBeInTheDocument();
+      expect(screen.getByText('Booking messages and social links')).toBeInTheDocument();
+      expect(screen.queryByText('Website layout & colours')).not.toBeInTheDocument();
       expect(screen.queryByText('Branding & appearance')).not.toBeInTheDocument();
     });
 
     it('replaces the free colour control with a link to the drafted palette', async () => {
       open();
-      fireEvent.click(await screen.findByText('Branding'));
+      await openBusinessCard('Branding & Social');
 
       const handoff = await screen.findByTestId('branding-colour-authority');
 
@@ -288,7 +302,7 @@ describe('SettingsModal — one writer per record', () => {
 
     it('never writes primaryColor from this screen, including on Reset', async () => {
       open();
-      fireEvent.click(await screen.findByText('Branding'));
+      await openBusinessCard('Branding & Social');
       fireEvent.click(await screen.findByRole('button', { name: /reset to default/i }));
       fireEvent.click(screen.getByRole('button', { name: /save booking experience/i }));
 
@@ -305,7 +319,7 @@ describe('SettingsModal — one writer per record', () => {
   describe('Instagram (AG-w2-information-parity-02)', () => {
     it('shows the stored URL as a bare handle with the shared helper text', async () => {
       open();
-      fireEvent.click(await screen.findByText('Branding'));
+      await openBusinessCard('Branding & Social');
 
       expect(await screen.findByTestId('branding-instagram')).toHaveValue('audit0905lacquer');
       expect(screen.getByTestId('branding-instagram-helper'))
@@ -314,7 +328,7 @@ describe('SettingsModal — one writer per record', () => {
 
     it('stores the canonical profile URL whether a handle or a link is typed', async () => {
       open();
-      fireEvent.click(await screen.findByText('Branding'));
+      await openBusinessCard('Branding & Social');
 
       const field = await screen.findByTestId('branding-instagram');
 
@@ -337,7 +351,7 @@ describe('SettingsModal — one writer per record', () => {
 
     it('explains an unusable value instead of silently storing it', async () => {
       open();
-      fireEvent.click(await screen.findByText('Branding'));
+      await openBusinessCard('Branding & Social');
       fireEvent.change(await screen.findByTestId('branding-instagram'), { target: { value: 'https://example.com/someone' } });
 
       expect(screen.getByTestId('branding-instagram-helper')).toHaveTextContent(/only your Instagram username/i);
@@ -347,7 +361,7 @@ describe('SettingsModal — one writer per record', () => {
   describe('address (source map §C1 row 1)', () => {
     it('keeps the row but hands the five address fields to Your Information', async () => {
       open();
-      fireEvent.click(await screen.findByText('Location'));
+      await openBusinessCard('Location & Arrival');
 
       expect(await screen.findByTestId('settings-location-handoff')).toBeInTheDocument();
       // The competing form is gone: no second copy of the address fields.
@@ -356,9 +370,16 @@ describe('SettingsModal — one writer per record', () => {
       // Parking & entry instructions live only here and stay.
       expect(await screen.findByDisplayValue('Free parking behind the salon.')).toBeInTheDocument();
 
-      fireEvent.click(screen.getByRole('button', { name: /edit address & privacy/i }));
+      fireEvent.click(screen.getByRole('button', { name: /edit salon address/i }));
 
-      expect(pushMock).toHaveBeenCalledWith('/en/admin/booking-page?salon=salon-a&panel=information');
+      expect(await screen.findByTestId('booking-page-information-editor')).toBeInTheDocument();
+      expect(pushMock).toHaveBeenLastCalledWith(
+        '/en/admin?salon=salon-a&app=settings&view=business-profile',
+        { scroll: false },
+      );
+      expect(pushMock).not.toHaveBeenCalledWith(
+        '/en/admin/booking-page?salon=salon-a&panel=information',
+      );
     });
   });
 });

@@ -56,6 +56,19 @@ export const SalonPolicyInputSchema = z.object({
 
 export type SalonPolicyInput = z.infer<typeof SalonPolicyInputSchema>;
 
+/**
+ * Section-owned owner updates. Unlike the historical PUT schema, omitted
+ * fields remain untouched; this is required now that photo rules and social
+ * posting are separate screens over the same database row.
+ */
+export const SalonPolicyPatchSchema = SalonPolicyInputSchema.partial()
+  .strict()
+  .refine(value => Object.keys(value).length > 0, {
+    message: 'At least one policy field is required',
+  });
+
+export type SalonPolicyPatch = z.infer<typeof SalonPolicyPatchSchema>;
+
 // =============================================================================
 // NORMALIZATION HELPER
 // =============================================================================

@@ -10,14 +10,13 @@ import { type FraudSignal, FraudSignalsModal } from '@/components/admin/FraudSig
 import { IntegrationsModal, type IntegrationsView } from '@/components/admin/IntegrationsModal';
 import { MarketingModal } from '@/components/admin/MarketingModal';
 import { NotificationsModal } from '@/components/admin/NotificationsModal';
+import { PaymentsModal } from '@/components/admin/PaymentsModal';
 import { PortfolioModal } from '@/components/admin/PortfolioModal';
-import { ReviewsModal } from '@/components/admin/ReviewsModal';
-import { RewardsModal } from '@/components/admin/RewardsModal';
+import { RewardsReviewsModal } from '@/components/admin/RewardsReviewsModal';
 import { ScheduleCalendarModal } from '@/components/admin/ScheduleCalendarModal';
 import { ServicesModal } from '@/components/admin/ServicesModal';
 import { SettingsModal } from '@/components/admin/SettingsModal';
-import { StaffModal } from '@/components/admin/StaffModal';
-import { StaffOpsModal } from '@/components/admin/StaffOpsModal';
+import { TeamModal } from '@/components/admin/TeamModal';
 import { WalkInModal } from '@/components/admin/WalkInModal';
 import { SalonProvider, useSalon } from '@/providers/SalonProvider';
 import type { RetentionStage } from '@/types/retention';
@@ -54,6 +53,8 @@ type AdminModalHostProps = {
   settingsInitialView?: string;
   integrationsNotice?: string | null;
   onOpenSettingsFromIntegrations?: () => void;
+  onManageReminders?: () => void;
+  onOpenSocialPosting?: () => void;
   showNotifications: boolean;
   setShowNotifications: (value: boolean) => void;
   showFraudSignals: boolean;
@@ -66,6 +67,8 @@ type AdminModalHostProps = {
   userInitial: string;
   /** Whether the Analytics app is available to this salon (module-gated). */
   analyticsAppAvailable?: boolean;
+  rewardsAvailable?: boolean;
+  reviewsAvailable?: boolean;
   analyticsProps: AnalyticsWidgetProps;
   fraudSignals: FraudSignal[];
   fraudSignalsTotalCount: number;
@@ -93,6 +96,8 @@ export function AdminModalHost({
   settingsInitialView,
   integrationsNotice,
   onOpenSettingsFromIntegrations,
+  onManageReminders,
+  onOpenSocialPosting,
   showNotifications,
   setShowNotifications,
   showFraudSignals,
@@ -104,6 +109,8 @@ export function AdminModalHost({
   userName,
   userInitial,
   analyticsAppAvailable = false,
+  rewardsAvailable = false,
+  reviewsAvailable = false,
   analyticsProps,
   fraudSignals,
   fraudSignalsTotalCount,
@@ -189,10 +196,24 @@ export function AdminModalHost({
       </AppModal>
 
       <AppModal
-        isOpen={activeModal === 'staff'}
+        isOpen={activeModal === 'team' || activeModal === 'staff' || activeModal === 'staff-ops'}
         onClose={onCloseModal}
       >
-        <StaffModal onClose={onCloseModal} salonSlug={activeSalonSlug} />
+        <TeamModal
+          onClose={onCloseModal}
+          salonSlug={activeSalonSlug}
+          salonId={activeSalonId}
+          isFreeSolo={isFreeSolo}
+          initialView={
+            activeModal === 'staff-ops'
+              ? 'time-off'
+              : activeModal === 'staff'
+                ? 'members'
+                : settingsInitialView === 'permissions'
+                  ? 'permissions'
+                  : 'home'
+          }
+        />
       </AppModal>
 
       <AppModal
@@ -202,7 +223,7 @@ export function AdminModalHost({
         <ServicesModal
           onClose={onCloseModal}
           salonSlug={activeSalonSlug}
-          onOpenStaff={onOpenApp ? () => onOpenApp('staff') : undefined}
+          onOpenStaff={onOpenApp ? () => onOpenApp('team') : undefined}
         />
       </AppModal>
 
@@ -216,6 +237,8 @@ export function AdminModalHost({
           salonName={activeSalonName ?? undefined}
           onOpenApp={onOpenApp}
           onOpenClient={onOpenMarketingClient}
+          onManageReminders={onManageReminders}
+          onOpenSocialPosting={onOpenSocialPosting}
         />
       </AppModal>
 
@@ -234,13 +257,6 @@ export function AdminModalHost({
       </AppModal>
 
       <AppModal
-        isOpen={activeModal === 'reviews'}
-        onClose={onCloseModal}
-      >
-        <ReviewsModal onClose={onCloseModal} />
-      </AppModal>
-
-      <AppModal
         isOpen={activeModal === 'portfolio'}
         onClose={onCloseModal}
       >
@@ -248,17 +264,28 @@ export function AdminModalHost({
       </AppModal>
 
       <AppModal
-        isOpen={activeModal === 'rewards'}
+        isOpen={activeModal === 'rewards-reviews' || activeModal === 'rewards' || activeModal === 'reviews'}
         onClose={onCloseModal}
       >
-        <RewardsModal onClose={onCloseModal} />
+        <RewardsReviewsModal
+          onClose={onCloseModal}
+          initialView={activeModal === 'reviews' && reviewsAvailable ? 'reviews' : activeModal === 'rewards' && rewardsAvailable ? 'rewards' : 'home'}
+          rewardsAvailable={rewardsAvailable}
+          reviewsAvailable={reviewsAvailable}
+        />
       </AppModal>
 
       <AppModal
-        isOpen={activeModal === 'staff-ops'}
+        isOpen={activeModal === 'payments'}
         onClose={onCloseModal}
       >
-        <StaffOpsModal onClose={onCloseModal} salonSlug={activeSalonSlug} />
+        <PaymentsModal
+          onClose={onCloseModal}
+          salonSlug={activeSalonSlug}
+          salonId={activeSalonId}
+          isFreeSolo={isFreeSolo}
+          onOpenIntegrations={onOpenApp ? () => onOpenApp('integrations') : undefined}
+        />
       </AppModal>
 
       <AppModal

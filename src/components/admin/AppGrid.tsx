@@ -31,8 +31,10 @@ import {
   BookOpen,
   Calendar,
   CalendarDays,
-  ClipboardList,
+  ChevronRight,
+  CreditCard,
   Gift,
+  HelpCircle,
   Images,
   LayoutTemplate,
   LogOut,
@@ -40,8 +42,6 @@ import {
   Scissors,
   Settings,
   Shield,
-  Sparkles,
-  Star,
   Users,
 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
@@ -68,14 +68,6 @@ type AppItem = {
 // live in the bottom navigation) but stay defined for tab-based modal routing.
 const APPS: AppItem[] = [
   {
-    id: 'luster',
-    name: 'Luster',
-    description: 'Products, offers and education',
-    icon: BookOpen,
-    iconFrom: '#4C1D2E',
-    iconTo: '#8B1538',
-  },
-  {
     // Luster UI/UX plan rev 3, PR 5 / section 10: "Booking Page becomes a
     // prominent destination inside More / the App Grid" — the one genuinely
     // new destination this PR adds, because booking-page appearance
@@ -90,36 +82,12 @@ const APPS: AppItem[] = [
     iconTo: '#A83A5F',
   },
   {
-    id: 'workspace-tour',
-    name: 'Workspace tour',
-    description: 'Replay the five-step guide',
-    icon: Sparkles,
-    iconFrom: '#8F3155',
-    iconTo: '#B8506F',
-  },
-  {
-    id: 'integrations',
-    name: 'Integrations',
-    description: 'Google Calendar, texting and email',
-    icon: Plug,
-    iconFrom: '#44403C',
-    iconTo: '#78716C',
-  },
-  {
     id: 'marketing',
     name: 'Marketing',
-    description: 'Promotions, reminders and retention',
+    description: 'Follow-ups, retention and reviews',
     icon: Bell,
     iconFrom: '#9F1239',
     iconTo: '#BB3E5F',
-  },
-  {
-    id: 'settings',
-    name: 'Settings',
-    description: 'Business, booking and payment setup',
-    icon: Settings,
-    iconFrom: '#292524',
-    iconTo: '#57534E',
   },
   {
     id: 'analytics',
@@ -130,36 +98,36 @@ const APPS: AppItem[] = [
     iconTo: '#A2570B',
   },
   {
-    id: 'reviews',
-    name: 'Review rewards',
-    description: 'Google review rewards',
-    icon: Star,
-    iconFrom: '#AD1457',
-    iconTo: '#D81B60',
-  },
-  {
-    id: 'rewards',
-    name: 'Rewards',
-    description: 'Client points and offers',
-    icon: Gift,
-    iconFrom: '#881337',
-    iconTo: '#B1414F',
-  },
-  {
-    id: 'staff',
-    name: 'Staff',
-    description: 'Team, schedules and permissions',
+    id: 'team',
+    name: 'Team',
+    description: 'People, schedules and time off',
     icon: Shield,
     iconFrom: '#4A4340',
     iconTo: '#6B6461',
   },
   {
-    id: 'staff-ops',
-    name: 'Time-off requests',
-    description: 'Approve or decline team time off',
-    icon: ClipboardList,
-    iconFrom: '#292524',
-    iconTo: '#5B514F',
+    id: 'payments',
+    name: 'Payments',
+    description: 'Deposits, payment methods and taxes',
+    icon: CreditCard,
+    iconFrom: '#70213F',
+    iconTo: '#A83A5F',
+  },
+  {
+    id: 'integrations',
+    name: 'Integrations',
+    description: 'Calendar, messaging and Stripe setup',
+    icon: Plug,
+    iconFrom: '#44403C',
+    iconTo: '#78716C',
+  },
+  {
+    id: 'rewards-reviews',
+    name: 'Rewards & Reviews',
+    description: 'Loyalty, referrals and review rewards',
+    icon: Gift,
+    iconFrom: '#881337',
+    iconTo: '#B1414F',
   },
   {
     id: 'schedule',
@@ -201,6 +169,22 @@ const APPS: AppItem[] = [
     iconFrom: '#7A2E10',
     iconTo: '#C2410C',
   },
+  {
+    id: 'settings',
+    name: 'Settings',
+    description: 'Business, booking and account setup',
+    icon: Settings,
+    iconFrom: '#292524',
+    iconTo: '#57534E',
+  },
+  {
+    id: 'luster',
+    name: 'Luster',
+    description: 'Products, offers and education',
+    icon: BookOpen,
+    iconFrom: '#4C1D2E',
+    iconTo: '#8B1538',
+  },
 ];
 
 /**
@@ -209,11 +193,7 @@ const APPS: AppItem[] = [
  * tiles last, the tour before the Luster brand page; everything else keeps its
  * declaration order.
  */
-const TILE_ORDER: Record<string, number> = {
-  'booking-page': -2,
-  'workspace-tour': 1,
-  'luster': 2,
-};
+const TILE_ORDER: Record<string, number> = {};
 
 /**
  * Apps that leave the grid because of a module entitlement rather than because
@@ -222,10 +202,8 @@ const TILE_ORDER: Record<string, number> = {
  */
 const ENTITLEMENT_LOCKABLE_APP_IDS = [
   'analytics',
-  'rewards',
-  'reviews',
-  'staff',
-  'staff-ops',
+  'rewards-reviews',
+  'team',
 ];
 
 /**
@@ -484,6 +462,30 @@ export function AppGrid({ theme = 'apple', badges = EMPTY_BADGES, onAppTap, hidd
           </div>
         </section>
       )}
+
+      <section className="mx-auto mt-6 w-full max-w-md" aria-labelledby="more-help-heading">
+        <h2
+          className="px-1 text-[13px] font-semibold uppercase tracking-[0.08em] text-[var(--owner-muted,#706267)]"
+          id="more-help-heading"
+        >
+          Help
+        </h2>
+        <button
+          type="button"
+          onClick={() => onAppTap?.('workspace-tour')}
+          className="mt-2 flex min-h-14 w-full items-center gap-3 rounded-2xl border border-[var(--owner-line,#dfd1d4)] bg-[var(--owner-surface,#fffdfb)] px-4 py-3 text-left shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-[var(--owner-focus,#b85075)]"
+          data-testid="more-workspace-tour"
+        >
+          <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-[var(--owner-blush,#f6e7ec)] text-[var(--owner-accent,#8f3155)]">
+            <HelpCircle aria-hidden="true" className="size-5" />
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block text-[15px] font-semibold text-[var(--owner-ink,#30262a)]">Help &amp; workspace tour</span>
+            <span className="block text-[13px] text-[var(--owner-muted,#706267)]">Replay the five-step guide</span>
+          </span>
+          <ChevronRight aria-hidden="true" className="size-4 text-[var(--owner-muted,#706267)]" />
+        </button>
+      </section>
 
       {account ? <AccountSection account={account} theme={theme} /> : null}
     </div>
