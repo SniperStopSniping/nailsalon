@@ -5,12 +5,24 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { SalonPolicyForm } from './PolicyForm';
 
-const initialPolicy = {
-  requireBeforePhotoToStart: 'off' as const,
-  requireAfterPhotoToFinish: 'off' as const,
-  requireAfterPhotoToPay: 'off' as const,
+type TestSalonPolicy = {
+  requireBeforePhotoToStart: 'off' | 'optional' | 'required';
+  requireAfterPhotoToFinish: 'off' | 'optional' | 'required';
+  requireAfterPhotoToPay: 'off' | 'optional' | 'required';
+  autoPostEnabled: boolean;
+  autoPostPlatforms: Array<'instagram' | 'facebook' | 'tiktok'>;
+  autoPostIncludePrice: boolean;
+  autoPostIncludeColor: boolean;
+  autoPostIncludeBrand: boolean;
+  autoPostAiCaptionEnabled: boolean;
+};
+
+const initialPolicy: TestSalonPolicy = {
+  requireBeforePhotoToStart: 'off',
+  requireAfterPhotoToFinish: 'off',
+  requireAfterPhotoToPay: 'off',
   autoPostEnabled: false,
-  autoPostPlatforms: [] as Array<'instagram' | 'facebook' | 'tiktok'>,
+  autoPostPlatforms: [],
   autoPostIncludePrice: true,
   autoPostIncludeColor: false,
   autoPostIncludeBrand: true,
@@ -29,10 +41,10 @@ describe('SalonPolicyForm section-owned saves', () => {
   it('keeps photo and social changes when both open surfaces save', async () => {
     const user = userEvent.setup();
     const canonicalPolicy = { ...initialPolicy };
-    const savePhotos = vi.fn(async (patch: Partial<typeof initialPolicy>) => {
+    const savePhotos = vi.fn(async (patch: Partial<TestSalonPolicy>) => {
       Object.assign(canonicalPolicy, patch);
     });
-    const saveSocial = vi.fn(async (patch: Partial<typeof initialPolicy>) => {
+    const saveSocial = vi.fn(async (patch: Partial<TestSalonPolicy>) => {
       Object.assign(canonicalPolicy, patch);
     });
 
