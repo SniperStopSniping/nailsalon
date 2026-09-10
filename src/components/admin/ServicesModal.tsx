@@ -184,11 +184,11 @@ type ServiceImageIntent = 'keep' | 'replace' | 'remove';
 
 type ServiceSavePhase
   = | 'idle'
-    | 'saving-details'
-    | 'preparing-image'
-    | 'uploading-image'
-    | 'finalizing-image'
-    | 'removing-image';
+  | 'saving-details'
+  | 'preparing-image'
+  | 'uploading-image'
+  | 'finalizing-image'
+  | 'removing-image';
 
 type ServiceImagePresignData = {
   strategy: 'cloudinary' | 'local';
@@ -1101,10 +1101,10 @@ function AddServiceDialog({
     = isPublicServiceCustomImageUrl(service?.imageUrl);
   const previewIsCustom
     = Boolean(stagedPreviewUrl)
-      || (hasPersistedCustomImage && imageIntent === 'keep');
+    || (hasPersistedCustomImage && imageIntent === 'keep');
   const previewImageUrl
     = stagedPreviewUrl
-      ?? resolveServiceCardImage({
+    ?? resolveServiceCardImage({
         imageUrl:
         hasPersistedImageValue && imageIntent === 'keep'
           ? service?.imageUrl
@@ -1115,7 +1115,7 @@ function AddServiceDialog({
       });
   const hasCurrentCustomImage
     = Boolean(stagedImageFile)
-      || (hasPersistedCustomImage && imageIntent === 'keep');
+    || (hasPersistedCustomImage && imageIntent === 'keep');
   const saveStatus = (() => {
     switch (savePhase) {
       case 'saving-details':
@@ -2788,7 +2788,7 @@ export function ServicesModal({ onClose, salonSlug, onOpenStaff }: ServicesModal
   const filteredServices = services.filter((service) => {
     const matchesCategory
       = activeCategory === 'all'
-        || resolveVisibleBookingCategory(service) === activeCategory;
+      || resolveVisibleBookingCategory(service) === activeCategory;
 
     return matchesCategory && matchesServiceQuery(service, menuQuery);
   });
