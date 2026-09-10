@@ -174,6 +174,24 @@ describe('BookingPageOwnerSurface', () => {
     expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/api/onboarding'))).toBe(false);
   });
 
+  it('releases guided navigation after Next reuses the page for the destination panel', async () => {
+    searchParamsMock.value = new URLSearchParams('salon=salon-a&panel=text&guided=1');
+    const { rerender } = render(<BookingPageOwnerSurface />);
+    const next = await screen.findByTestId('guided-review-next');
+
+    fireEvent.click(next);
+    await waitFor(() => expect(pushMock).toHaveBeenCalledWith('/en/admin/booking-page?salon=salon-a&panel=gallery&guided=1'));
+
+    expect(next).toHaveTextContent('Saving…');
+
+    searchParamsMock.value = new URLSearchParams('salon=salon-a&panel=gallery&guided=1');
+    rerender(<BookingPageOwnerSurface />);
+
+    await waitFor(() => expect(screen.getByTestId('guided-review-next')).toHaveTextContent('Save & next step'));
+
+    expect(screen.getByTestId('guided-review-next')).toBeEnabled();
+  });
+
   it('stays in the current editor when saving before navigation fails', async () => {
     searchParamsMock.value = new URLSearchParams('salon=salon-a&panel=text&guided=1');
     const originalFetch = fetchMock.getMockImplementation()!;

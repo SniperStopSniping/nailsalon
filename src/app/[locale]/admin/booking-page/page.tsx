@@ -337,6 +337,12 @@ export default function BookingPageOwnerSurface() {
   // AG-hub-publish-07: true from the tap until the destination takes over.
   const [navigationPending, setNavigationPending] = useState(false);
 
+  // Panel-to-panel guided navigation reuses this page component, so the
+  // destination query change—not an unmount—is what completes the move.
+  useEffect(() => {
+    setNavigationPending(false);
+  }, [panel]);
+
   // Phase A (draft/publish split): the salon's OWN publicationStatus — not
   // the booking-page config draft/live pair above. Drives whether
   // `SalonPublishBanner` renders at all; null while unknown/loading so the
@@ -716,8 +722,8 @@ export default function BookingPageOwnerSurface() {
    * six-step flow looked broken and invited a second tap.
    *
    * `navigationPending` stays true through `router.push` on purpose — the
-   * pending label must survive until the destination replaces this screen —
-   * and is only cleared when the navigation does NOT happen.
+   * pending label survives until the destination panel is observed. The
+   * panel-change effect above clears it when Next reuses this page instance.
    */
   async function navigateAfterSaving(destination: string) {
     if (presentationWritePendingRef.current || navigationPending) {
