@@ -124,7 +124,7 @@ function patchRequest(body: unknown, slug = 'salon-a') {
 function logoRequest(slug = 'salon-a', baselineLogoUrl = 'https://cdn.example/logo.png') {
   const body = new FormData();
   body.append('file', new File([
-    Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9ZqL8AAAAASUVORK5CYII=', 'base64'),
+    Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAAEUlEQVR4nGPYElDxH4QZYAwAV0wJ7dhY8PUAAAAASUVORK5CYII=', 'base64'),
   ], 'logo.png', { type: 'image/png' }));
   body.append('baselineLogoUrl', baselineLogoUrl);
   return request(`https://x.test/api/admin/salon/information?salonSlug=${slug}`, { body, method: 'POST' });
