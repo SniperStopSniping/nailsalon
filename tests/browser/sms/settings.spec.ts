@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 
-test('Features & plan opens included SMS credits and paused Client communications with a canonical save', async ({ page }) => {
+test('Features opens included SMS credits and paused Client communications with a canonical save', async ({ page }) => {
   const browserErrors: string[] = [];
   const unexpectedRequests: string[] = [];
   const mutations: Array<{ path: string; method: string; body: unknown }> = [];
@@ -95,7 +95,7 @@ test('Features & plan opens included SMS credits and paused Client communication
   await expect(page.getByRole('heading', { name: 'Settings', exact: true })).toBeVisible();
   await expect(page.locator('vite-error-overlay, [data-nextjs-dialog]')).toHaveCount(0);
 
-  await page.getByRole('button', { name: /Features & plan/ }).click();
+  await page.getByRole('button', { name: /^Features/ }).click();
   const smsEntry = page.getByTestId('settings-sms-communications');
 
   await expect(smsEntry).toContainText('Included on every plan · Uses SMS credits');
