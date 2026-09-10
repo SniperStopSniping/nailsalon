@@ -2150,8 +2150,18 @@ export function ServicesModal({ onClose, salonSlug, onOpenStaff }: ServicesModal
   const [showServiceImages, setShowServiceImages] = useState<boolean | null>(null);
   const [showServiceImagesSaving, setShowServiceImagesSaving] = useState(false);
   const [showServiceImagesError, setShowServiceImagesError] = useState<string | null>(null);
-  const [menuDisplay, setMenuDisplay] = useState({ introPriceDefaultLabel: '', firstVisitDiscountEnabled: false, featureLusterManicure: false });
-  const [menuDisplayDirty, setMenuDisplayDirty] = useState(false);
+  const [menuDisplay, setMenuDisplay] = useState<{
+    introPriceDefaultLabel: string;
+    firstVisitDiscountEnabled: boolean;
+    featureLusterManicure: boolean;
+  } | null>(null);
+  const [menuDisplayPatch, setMenuDisplayPatch] = useState<Partial<{
+    introPriceDefaultLabel: string;
+    firstVisitDiscountEnabled: boolean;
+    featureLusterManicure: boolean;
+  }>>({});
+  const [menuDisplayLoadState, setMenuDisplayLoadState] = useState<'loading' | 'ready' | 'error'>('loading');
+  const [menuDisplayError, setMenuDisplayError] = useState<string | null>(null);
   const [menuDisplaySaving, setMenuDisplaySaving] = useState(false);
   const [menuDisplaySaved, setMenuDisplaySaved] = useState(false);
   const showServiceImagesSaveInFlight = useRef(false);
@@ -2317,9 +2327,16 @@ export function ServicesModal({ onClose, salonSlug, onOpenStaff }: ServicesModal
 
     if (!salonSlug) {
       setShowServiceImages(true);
+      setMenuDisplay(null);
+      setMenuDisplayLoadState('error');
+      setMenuDisplayError('Menu settings are unavailable until a salon is selected.');
       return;
     }
     setShowServiceImages(null);
+    setMenuDisplay(null);
+    setMenuDisplayPatch({});
+    setMenuDisplayLoadState('loading');
+    setMenuDisplayError(null);
     let cancelled = false;
     const loadMerchandising = async () => {
       try {
@@ -2329,6 +2346,8 @@ export function ServicesModal({ onClose, salonSlug, onOpenStaff }: ServicesModal
         if (!response.ok) {
           if (!cancelled) {
             setShowServiceImages(true);
+            setMenuDisplayLoadState('error');
+            setMenuDisplayError('Menu display settings could not be loaded. Reload to try again.');
           }
           return;
         }
@@ -2343,18 +2362,33 @@ export function ServicesModal({ onClose, salonSlug, onOpenStaff }: ServicesModal
           setShowServiceImages(
             result?.merchandising?.showServiceImages !== false,
           );
-          setMenuDisplay({
-            introPriceDefaultLabel: result?.bookingConfig?.introPriceDefaultLabel ?? '',
-            firstVisitDiscountEnabled: result?.bookingConfig?.firstVisitDiscountEnabled ?? false,
-            featureLusterManicure: result?.merchandising?.featureLusterManicure ?? false,
-          });
-          setMenuDisplayDirty(false);
+          const introPriceDefaultLabel = result?.bookingConfig?.introPriceDefaultLabel;
+          const firstVisitDiscountEnabled = result?.bookingConfig?.firstVisitDiscountEnabled;
+          const featureLusterManicure = result?.merchandising?.featureLusterManicure;
+          if (
+            (typeof introPriceDefaultLabel === 'string' || introPriceDefaultLabel === null)
+            && typeof firstVisitDiscountEnabled === 'boolean'
+            && typeof featureLusterManicure === 'boolean'
+          ) {
+            setMenuDisplay({
+              introPriceDefaultLabel: introPriceDefaultLabel ?? '',
+              firstVisitDiscountEnabled,
+              featureLusterManicure,
+            });
+            setMenuDisplayPatch({});
+            setMenuDisplayLoadState('ready');
+          } else {
+            setMenuDisplayLoadState('error');
+            setMenuDisplayError('Menu display settings could not be loaded. Reload to try again.');
+          }
         }
       } catch {
         // Visibility follows the existing fail-open behavior if settings
         // cannot be loaded. Promo cards still stay hidden until known.
         if (!cancelled) {
           setShowServiceImages(true);
+          setMenuDisplayLoadState('error');
+          setMenuDisplayError('Menu display settings could not be loaded. Reload to try again.');
         }
       }
     };
@@ -2463,34 +2497,47 @@ export function ServicesModal({ onClose, salonSlug, onOpenStaff }: ServicesModal
   }, [salonSlug, showServiceImages]);
 
   const saveMenuDisplay = useCallback(async () => {
-    if (!salonSlug || !menuDisplayDirty || menuDisplaySaving) {
+    const changedFields = Object.keys(menuDisplayPatch);
+    if (!salonSlug || !menuDisplay || menuDisplayLoadState !== 'ready' || changedFields.length === 0 || menuDisplaySaving) {
       return;
     }
     setMenuDisplaySaving(true);
     setMenuDisplaySaved(false);
+    setMenuDisplayError(null);
     try {
+      const bookingConfig: {
+        introPriceDefaultLabel?: string | null;
+        firstVisitDiscountEnabled?: boolean;
+      } = {};
+      const merchandising: { featureLusterManicure?: boolean } = {};
+      if (Object.prototype.hasOwnProperty.call(menuDisplayPatch, 'introPriceDefaultLabel')) {
+        bookingConfig.introPriceDefaultLabel = menuDisplayPatch.introPriceDefaultLabel?.trim() || null;
+      }
+      if (typeof menuDisplayPatch.firstVisitDiscountEnabled === 'boolean') {
+        bookingConfig.firstVisitDiscountEnabled = menuDisplayPatch.firstVisitDiscountEnabled;
+      }
+      if (typeof menuDisplayPatch.featureLusterManicure === 'boolean') {
+        merchandising.featureLusterManicure = menuDisplayPatch.featureLusterManicure;
+      }
       const response = await fetch(`/api/admin/salon/settings?salonSlug=${encodeURIComponent(salonSlug)}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          bookingConfig: {
-            introPriceDefaultLabel: menuDisplay.introPriceDefaultLabel.trim() || null,
-            firstVisitDiscountEnabled: menuDisplay.firstVisitDiscountEnabled,
-          },
-          merchandising: { featureLusterManicure: menuDisplay.featureLusterManicure },
+          ...(Object.keys(bookingConfig).length > 0 ? { bookingConfig } : {}),
+          ...(Object.keys(merchandising).length > 0 ? { merchandising } : {}),
         }),
       });
       if (!response.ok) {
         throw new Error('Could not save menu display settings.');
       }
-      setMenuDisplayDirty(false);
+      setMenuDisplayPatch({});
       setMenuDisplaySaved(true);
     } catch (saveError) {
-      setShowServiceImagesError(saveError instanceof Error ? saveError.message : 'Could not save menu display settings.');
+      setMenuDisplayError(saveError instanceof Error ? saveError.message : 'Could not save menu display settings.');
     } finally {
       setMenuDisplaySaving(false);
     }
-  }, [menuDisplay, menuDisplayDirty, menuDisplaySaving, salonSlug]);
+  }, [menuDisplay, menuDisplayLoadState, menuDisplayPatch, menuDisplaySaving, salonSlug]);
 
   // One-tap Deactivate/Reactivate from the detail view: same PATCH contract as
   // the edit dialog, with every field unchanged except isActive.
@@ -2967,14 +3014,18 @@ export function ServicesModal({ onClose, salonSlug, onOpenStaff }: ServicesModal
           <details className="mx-4 mb-2 rounded-xl border border-[var(--owner-line)] bg-[var(--owner-surface)] px-3 py-2">
             <summary className="flex min-h-11 cursor-pointer items-center text-[14px] font-semibold text-[var(--owner-ink)]">Menu display &amp; offers</summary>
             <div className="space-y-3 border-t border-[var(--owner-line)] py-3">
+              {menuDisplayLoadState === 'loading' ? <p className="text-[13px] text-[var(--owner-muted)]" role="status">Loading saved menu settings…</p> : null}
+              {menuDisplayError ? <p className="text-[13px] text-red-700" role="alert">{menuDisplayError}</p> : null}
               <label className="block text-[13px] font-medium text-[var(--owner-ink)]">
                 Default intro label
                 <input
                   type="text"
-                  value={menuDisplay.introPriceDefaultLabel}
+                  value={menuDisplay?.introPriceDefaultLabel ?? ''}
+                  disabled={menuDisplayLoadState !== 'ready' || menuDisplaySaving}
                   onChange={(event) => {
-                    setMenuDisplay(current => ({ ...current, introPriceDefaultLabel: event.target.value }));
-                    setMenuDisplayDirty(true);
+                    const value = event.target.value;
+                    setMenuDisplay(current => current ? { ...current, introPriceDefaultLabel: value } : current);
+                    setMenuDisplayPatch(current => ({ ...current, introPriceDefaultLabel: value }));
                     setMenuDisplaySaved(false);
                   }}
                   className="mt-1 min-h-11 w-full rounded-xl border border-[var(--owner-line)] px-3 text-[15px]"
@@ -2988,10 +3039,12 @@ export function ServicesModal({ onClose, salonSlug, onOpenStaff }: ServicesModal
                 </span>
                 <input
                   type="checkbox"
-                  checked={menuDisplay.firstVisitDiscountEnabled}
+                  checked={menuDisplay?.firstVisitDiscountEnabled ?? false}
+                  disabled={menuDisplayLoadState !== 'ready' || menuDisplaySaving}
                   onChange={(event) => {
-                    setMenuDisplay(current => ({ ...current, firstVisitDiscountEnabled: event.target.checked }));
-                    setMenuDisplayDirty(true);
+                    const value = event.target.checked;
+                    setMenuDisplay(current => current ? { ...current, firstVisitDiscountEnabled: value } : current);
+                    setMenuDisplayPatch(current => ({ ...current, firstVisitDiscountEnabled: value }));
                     setMenuDisplaySaved(false);
                   }}
                   className="size-5 accent-[var(--owner-accent)]"
@@ -3004,10 +3057,12 @@ export function ServicesModal({ onClose, salonSlug, onOpenStaff }: ServicesModal
                 </span>
                 <input
                   type="checkbox"
-                  checked={menuDisplay.featureLusterManicure}
+                  checked={menuDisplay?.featureLusterManicure ?? false}
+                  disabled={menuDisplayLoadState !== 'ready' || menuDisplaySaving}
                   onChange={(event) => {
-                    setMenuDisplay(current => ({ ...current, featureLusterManicure: event.target.checked }));
-                    setMenuDisplayDirty(true);
+                    const value = event.target.checked;
+                    setMenuDisplay(current => current ? { ...current, featureLusterManicure: value } : current);
+                    setMenuDisplayPatch(current => ({ ...current, featureLusterManicure: value }));
                     setMenuDisplaySaved(false);
                   }}
                   className="size-5 accent-[var(--owner-accent)]"
@@ -3015,7 +3070,7 @@ export function ServicesModal({ onClose, salonSlug, onOpenStaff }: ServicesModal
               </label>
               <div className="flex items-center justify-end gap-3">
                 {menuDisplaySaved ? <span className="text-[12px] font-medium text-emerald-700">Saved</span> : null}
-                <button type="button" onClick={() => void saveMenuDisplay()} disabled={!menuDisplayDirty || menuDisplaySaving} className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-[var(--owner-accent)] px-4 text-[13px] font-semibold text-white disabled:opacity-50">
+                <button type="button" onClick={() => void saveMenuDisplay()} disabled={menuDisplayLoadState !== 'ready' || Object.keys(menuDisplayPatch).length === 0 || menuDisplaySaving} className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-[var(--owner-accent)] px-4 text-[13px] font-semibold text-white disabled:opacity-50">
                   <Save aria-hidden="true" className="size-4" />
                   {menuDisplaySaving ? 'Saving…' : 'Save menu display'}
                 </button>

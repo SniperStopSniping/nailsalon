@@ -42,7 +42,12 @@ type MockRoutes = {
     lusterPromoDismissed?: boolean;
     serviceLibraryIntroDismissed?: boolean;
   };
+  bookingConfig?: {
+    introPriceDefaultLabel?: string | null;
+    firstVisitDiscountEnabled?: boolean;
+  };
   settingsGetStatus?: number;
+  settingsGetResponse?: Promise<Response>;
   settingsPatch?: {
     status?: number;
     body?: unknown;
@@ -77,7 +82,7 @@ type MockRoutes = {
   imageDeleteFailure?: { status: number; message: string };
 };
 
-function mockRoutes({ services = [], merchandising = {}, settingsGetStatus = 200, settingsPatch, createdService, patchedService, servicesAfterRefresh, ownedTemplateKeys = [], addOns = [], activeTechnicianCount = 0, templateAddResult, patchFailure, reorderFailure, addOnsFailure, addOnsAfterRefresh, imageStrategy = 'local', imageResultService, imageFailureAt, imageFailure, imageDeleteFailure }: MockRoutes) {
+function mockRoutes({ services = [], merchandising = {}, bookingConfig = { introPriceDefaultLabel: 'Founding Client Price', firstVisitDiscountEnabled: true }, settingsGetStatus = 200, settingsGetResponse, settingsPatch, createdService, patchedService, servicesAfterRefresh, ownedTemplateKeys = [], addOns = [], activeTechnicianCount = 0, templateAddResult, patchFailure, reorderFailure, addOnsFailure, addOnsAfterRefresh, imageStrategy = 'local', imageResultService, imageFailureAt, imageFailure, imageDeleteFailure }: MockRoutes) {
   let addOnListCalls = 0;
   let serviceListCalls = 0;
   fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -250,8 +255,12 @@ function mockRoutes({ services = [], merchandising = {}, settingsGetStatus = 200
               },
         ), { status: settingsPatch?.status ?? 200 });
       }
+      if (settingsGetResponse) {
+        return settingsGetResponse;
+      }
       return new Response(JSON.stringify({
-        merchandising: { serviceLibraryIntroDismissed: true, ...merchandising },
+        bookingConfig,
+        merchandising: { featureLusterManicure: true, serviceLibraryIntroDismissed: true, ...merchandising },
       }), { status: settingsGetStatus });
     }
     if (url.startsWith('/api/salon/services/from-templates')) {
@@ -394,6 +403,64 @@ describe('ServicesModal', () => {
     expect(toggle).toHaveAccessibleDescription(
       'Images are hidden from clients. Your uploaded images are saved.',
     );
+  });
+
+  it('keeps moved offer controls disabled until canonical settings load', async () => {
+    let resolveSettings!: (response: Response) => void;
+    const settingsGetResponse = new Promise<Response>((resolve) => {
+      resolveSettings = resolve;
+    });
+    mockRoutes({ services: [], settingsGetResponse });
+
+    render(<ServicesModal onClose={() => {}} salonSlug="isla-nail-studio" />);
+    fireEvent.click(screen.getByText('Menu display & offers'));
+
+    expect(screen.getByRole('textbox', { name: 'Default intro label' })).toBeDisabled();
+    expect(screen.getByRole('checkbox', { name: /First-visit offer/ })).toBeDisabled();
+    expect(screen.getByRole('checkbox', { name: /Feature Luster Manicure/ })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Save menu display' })).toBeDisabled();
+
+    await act(async () => {
+      resolveSettings(new Response(JSON.stringify({
+        bookingConfig: { introPriceDefaultLabel: 'Founding Client Price', firstVisitDiscountEnabled: true },
+        merchandising: { featureLusterManicure: true, showServiceImages: true },
+      }), { status: 200 }));
+      await settingsGetResponse;
+    });
+
+    await waitFor(() => expect(screen.getByRole('textbox', { name: 'Default intro label' })).toBeEnabled());
+  });
+
+  it('saving only the intro label cannot disable untouched offers', async () => {
+    mockRoutes({
+      bookingConfig: { introPriceDefaultLabel: 'Founding Client Price', firstVisitDiscountEnabled: true },
+      merchandising: { featureLusterManicure: true, showServiceImages: true },
+      services: [],
+    });
+
+    render(<ServicesModal onClose={() => {}} salonSlug="isla-nail-studio" />);
+    fireEvent.click(screen.getByText('Menu display & offers'));
+
+    const introLabel = screen.getByRole('textbox', { name: 'Default intro label' });
+    await waitFor(() => expect(introLabel).toBeEnabled());
+
+    expect(screen.getByRole('checkbox', { name: /First-visit offer/ })).toBeChecked();
+    expect(screen.getByRole('checkbox', { name: /Feature Luster Manicure/ })).toBeChecked();
+
+    fireEvent.change(introLabel, { target: { value: 'New client price' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save menu display' }));
+
+    await waitFor(() => {
+      const patchCall = findCall((url, init) =>
+        url.startsWith('/api/admin/salon/settings') && init?.method === 'PATCH');
+
+      expect(JSON.parse(String((patchCall![1] as RequestInit).body))).toEqual({
+        bookingConfig: { introPriceDefaultLabel: 'New client price' },
+      });
+    });
+
+    expect(screen.getByRole('checkbox', { name: /First-visit offer/ })).toBeChecked();
+    expect(screen.getByRole('checkbox', { name: /Feature Luster Manicure/ })).toBeChecked();
   });
 
   it.each([
