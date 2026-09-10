@@ -442,10 +442,10 @@ function ProfileCard({
   const displayInitials
     = initials
     || name
-        .split(' ')
-        .map(n => n[0])
-        .join('')
-        .toUpperCase();
+      .split(' ')
+      .map(n => n[0])
+      .join('')
+      .toUpperCase();
 
   return (
     <button

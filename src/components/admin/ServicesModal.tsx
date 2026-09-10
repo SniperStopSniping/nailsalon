@@ -1105,14 +1105,14 @@ function AddServiceDialog({
   const previewImageUrl
     = stagedPreviewUrl
     ?? resolveServiceCardImage({
-        imageUrl:
+      imageUrl:
         hasPersistedImageValue && imageIntent === 'keep'
           ? service?.imageUrl
           : null,
-        templateKey: service?.templateKey ?? prefill?.templateKey ?? null,
-        bookingCategory,
-        name,
-      });
+      templateKey: service?.templateKey ?? prefill?.templateKey ?? null,
+      bookingCategory,
+      name,
+    });
   const hasCurrentCustomImage
     = Boolean(stagedImageFile)
     || (hasPersistedCustomImage && imageIntent === 'keep');
