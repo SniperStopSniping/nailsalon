@@ -783,7 +783,7 @@ export function BookingPageInformationEditor({
                 ? (
                     <>
                       <p className="text-sm text-[var(--owner-ink)]">{[info.location?.address, info.location?.city, info.location?.state, info.location?.zipCode].filter(Boolean).join(', ') || 'No salon address saved.'}</p>
-                      <a className="mt-3 inline-flex min-h-11 items-center font-semibold text-[var(--owner-accent)] underline" href={`${workspace}&app=settings&view=business-profile`}>Edit salon address →</a>
+                      <a className="mt-3 inline-flex min-h-11 items-center font-semibold text-[var(--owner-accent)] underline" href={`${workspace}&app=settings&view=location`}>Edit salon address →</a>
                     </>
                   )
                 : renderFallback('Location')}

@@ -157,6 +157,19 @@ describe('BookingPageInformationEditor', () => {
     expect(calls.some(call => call.url.includes('/api/admin/profile'))).toBe(false);
   });
 
+  it('keeps business values read-only in Booking Page and links to their canonical Settings homes', async () => {
+    renderEditor({ mode: 'booking' });
+
+    expect(await screen.findByText('Current Studio')).toBeVisible();
+    expect(screen.queryByTestId('information-business-name')).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /Edit business profile/ })).toHaveAttribute('href', '/en/admin?salon=salon-a&app=settings&view=business-profile');
+
+    await userEvent.click(screen.getByText('Location', { exact: true }));
+
+    expect(screen.queryByTestId('information-address-street')).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /Edit salon address/ })).toHaveAttribute('href', '/en/admin?salon=salon-a&app=settings&view=location');
+  });
+
   it('saves the business name through the salon writer and the nail tech name through the technician writer', async () => {
     renderEditor();
     const name = await screen.findByTestId('information-business-name');

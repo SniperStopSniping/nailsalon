@@ -6,7 +6,7 @@ import { appPath, authStatePaths, e2eConfig } from './support/config';
 test.use({ storageState: authStatePaths.superAdmin });
 
 for (const viewport of [{ width: 320, height: 568 }, { width: 375, height: 667 }, { width: 390, height: 844 }, { width: 430, height: 932 }]) {
-  test(`Booking Page hub opens focused editors at ${viewport.width}px @owner-preview-webkit`, async ({ browserName, page }) => {
+  test(`Booking Page hub opens focused editors at ${viewport.width}px @owner-preview-webkit`, async ({ page }) => {
     await page.setViewportSize(viewport);
     await impersonateSalonAsSuperAdmin(page);
     const hubUrl = `${appPath('/admin/website')}?salon=${encodeURIComponent(e2eConfig.salonSlug)}`;
@@ -44,77 +44,28 @@ for (const viewport of [{ width: 320, height: 568 }, { width: 375, height: 667 }
 
     await page.getByRole('link', { name: /Business Info Display/ }).click();
 
-    // Actual saved values load into the accordions (owner-only route).
-    await expect(page.getByTestId('information-business-name')).toHaveValue(e2eConfig.salonName);
-    await expect(page.getByTestId('information-public-url')).toContainText(e2eConfig.salonSlug);
+    // Booking Page presents the canonical business record without exposing a
+    // second editor. Owners follow the link to Settings for operational data.
+    const informationEditor = page.getByTestId('booking-page-information-editor');
+
+    await expect(informationEditor).toContainText(e2eConfig.salonName);
+    await expect(page.getByTestId('information-business-name')).toHaveCount(0);
+    await expect(page.getByRole('link', { name: /Edit business profile/ })).toHaveAttribute('href', /app=settings&view=business-profile/);
     expect(await noHorizontalOverflow()).toBe(true);
 
     await page.getByText('Contact', { exact: true }).click();
 
     await expect(page.getByRole('switch', { name: /Show phone/ })).toBeVisible();
-    await expect(page.getByTestId('information-phone')).not.toHaveValue('');
-
-    // Edit → save → the canonical value comes back from the same salon record.
-    // All eight viewport/project cases share ONE fixture salon and run in
-    // parallel, so only one case performs the write round-trip; the others
-    // would otherwise read each other's saves and restores.
-    const instagram = page.getByTestId('information-instagram');
-
-    await expect(instagram).toBeVisible();
-
-    if (viewport.width === 390 && browserName === 'chromium') {
-      // `fill()` replaces the value without producing the keystrokes React's
-      // controlled input needs to mark the section dirty, so Save stays
-      // correctly disabled and the click waits forever. Type it the way an
-      // owner does. Verified against the product: typing enables Save both
-      // for the first edit and for a second edit after a successful save.
-      // Saving re-renders this section, so a click that lands mid-render can
-      // lose the selection or the focus. Retry the whole select-and-type until
-      // the field settles on the value.
-      const retype = async (value: string) => {
-        await expect(async () => {
-          await instagram.click({ clickCount: 3 });
-          await instagram.pressSequentially(value, { delay: 15 });
-
-          await expect(instagram).toHaveValue(value, { timeout: 2_000 });
-        }).toPass({ timeout: 20_000 });
-      };
-      const originalInstagram = await instagram.inputValue();
-      // The probe handle must DIFFER from whatever is stored, or the form
-      // never becomes dirty and Save stays correctly disabled. A run that is
-      // interrupted between the write and the restore leaves the fixture
-      // holding the probe value, and a fixed constant would then make every
-      // later run wait on a button that can never enable.
-      const probeInstagram = originalInstagram === 'luster.e2e.fixture'
-        ? 'luster.e2e.fixture.alt'
-        : 'luster.e2e.fixture';
-      try {
-        await retype(probeInstagram);
-
-        await expect(page.getByTestId('information-save-contact')).toBeEnabled();
-
-        await page.getByTestId('information-save-contact').click();
-
-        // One normaliser stores the canonical URL and shows the bare handle (CP2).
-        await expect(instagram).toHaveValue(probeInstagram);
-      } finally {
-        await retype(originalInstagram);
-
-        await expect(page.getByTestId('information-save-contact')).toBeEnabled();
-
-        await page.getByTestId('information-save-contact').click();
-
-        await expect(page.getByTestId('information-contact').getByRole('status')).toContainText('Contact saved');
-        await expect(instagram).toHaveValue(originalInstagram);
-      }
-    }
+    await expect(page.getByTestId('information-phone')).toHaveCount(0);
+    await expect(page.getByRole('link', { name: /Edit contact details/ })).toHaveAttribute('href', /app=settings&view=business-profile/);
 
     await page.getByText('Location', { exact: true }).click();
 
     const privacyRadios = page.getByRole('radiogroup', { name: 'Address privacy' }).getByRole('radio');
 
     await expect(privacyRadios).toHaveCount(3);
-    await expect(page.getByTestId('information-address-street')).not.toHaveValue('');
+    await expect(page.getByTestId('information-address-street')).toHaveCount(0);
+    await expect(page.getByRole('link', { name: /Edit salon address/ })).toHaveAttribute('href', /app=settings&view=location/);
 
     // Toggle away from whatever is saved, prove it persists across a reload,
     // then restore the original choice in `finally`.
@@ -146,8 +97,9 @@ for (const viewport of [{ width: 320, height: 568 }, { width: 375, height: 667 }
 
     await page.getByText('Hours', { exact: true }).click();
 
-    await expect(page.getByTestId('information-timezone')).toBeVisible();
-    await expect(page.getByTestId('information-hours-monday-open-toggle')).toBeVisible();
+    await expect(page.getByTestId('information-timezone')).toHaveCount(0);
+    await expect(page.getByTestId('information-hours-monday-open-toggle')).toHaveCount(0);
+    await expect(page.getByRole('link', { name: /Edit business hours/ })).toHaveAttribute('href', /app=settings&view=business-profile/);
     expect(await noHorizontalOverflow()).toBe(true);
 
     // Photos & Gallery reuses the shared Portfolio library rather than a copy.
