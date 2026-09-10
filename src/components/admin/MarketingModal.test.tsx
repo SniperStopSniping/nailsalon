@@ -383,8 +383,8 @@ describe('MarketingModal', () => {
     expect(screen.getByTestId('campaign-revenue-promo_6w')).toHaveTextContent('$100.00');
     expect(results).toHaveTextContent('Tax collected (not revenue)');
     expect(results).toHaveTextContent('$13.00');
-    // Automatic block is honestly scoped to appointment messages.
-    expect(screen.getByTestId('marketing-results-automatic')).toHaveTextContent('not marketing');
+    // Operational appointment-message delivery belongs in Messages & Notifications.
+    expect(screen.queryByTestId('marketing-results-automatic')).not.toBeInTheDocument();
     // Unmeasurable outcomes never appear.
     expect(results).not.toHaveTextContent(/click/i);
     expect(results).toHaveTextContent(/cannot see Messages deliveries/i);

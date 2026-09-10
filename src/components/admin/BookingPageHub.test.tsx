@@ -13,13 +13,13 @@ describe('Booking Page hub', () => {
     expect(screen.getByRole('link', { name: 'Open live site' })).toHaveAttribute('href', 'https://another-studio.example/');
   });
 
-  it('shows six focused editors, the actual owner and an authenticated draft preview', () => {
+  it('shows seven focused editors, the actual owner and an authenticated draft preview', () => {
     render(<BookingPageHub {...props} />);
 
     expect(screen.getByText(props.salonName)).toBeVisible();
-    expect(screen.getByRole('navigation', { name: 'Booking Page editors' }).querySelectorAll('a')).toHaveLength(6);
+    expect(screen.getByRole('navigation', { name: 'Booking Page editors' }).querySelectorAll('a')).toHaveLength(7);
     expect(screen.getByRole('link', { name: 'Preview draft' })).toHaveAttribute('href', '/en/admin/booking-page/preview/another-studio');
-    expect(screen.getByRole('link', { name: /Layouts Site layout/ })).toHaveAttribute('href', '/en/admin/booking-page?salon=another-studio&panel=layouts');
+    expect(screen.getByRole('link', { name: /Layout 22 website layouts/ })).toHaveAttribute('href', '/en/admin/booking-page?salon=another-studio&panel=layouts');
     expect(screen.getByRole('link', { name: /Photos & Gallery/ })).toHaveAttribute('href', '/en/admin?salon=another-studio&app=portfolio');
     expect(screen.getByText('Live · All changes published')).toBeVisible();
     expect(screen.queryByText(/Daniela|Isla/)).not.toBeInTheDocument();
@@ -44,7 +44,7 @@ describe('Booking Page hub', () => {
     expect(screen.getByText('Publishing is owner only')).toBeVisible();
     // Everything else the collaborator legitimately uses stays put.
     expect(screen.getByRole('link', { name: 'Preview draft' })).toBeVisible();
-    expect(screen.getByRole('navigation', { name: 'Booking Page editors' }).querySelectorAll('a')).toHaveLength(6);
+    expect(screen.getByRole('navigation', { name: 'Booking Page editors' }).querySelectorAll('a')).toHaveLength(7);
   });
 
   it('keeps the publish CTA for the owner', () => {

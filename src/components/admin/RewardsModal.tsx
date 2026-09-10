@@ -26,6 +26,7 @@ import { BackButton, ModalHeader } from './AppModal';
 
 type RewardsModalProps = {
   onClose: () => void;
+  initialTab?: 'rewards' | 'referrals';
 };
 
 // Types
@@ -313,9 +314,9 @@ function LoadingSkeleton() {
   );
 }
 
-export function RewardsModal({ onClose }: RewardsModalProps) {
+export function RewardsModal({ onClose, initialTab = 'rewards' }: RewardsModalProps) {
   const { salonSlug } = useSalon();
-  const [activeTab, setActiveTab] = useState<'rewards' | 'referrals'>('rewards');
+  const [activeTab, setActiveTab] = useState<'rewards' | 'referrals'>(initialTab);
   const [rewards, setRewards] = useState<RewardData[]>([]);
   const [referrals, setReferrals] = useState<ReferralData[]>([]);
   const [loading, setLoading] = useState(true);

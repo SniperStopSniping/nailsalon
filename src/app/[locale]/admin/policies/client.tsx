@@ -8,7 +8,7 @@
  */
 
 import { ArrowLeft } from 'lucide-react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 
 import { AdminImpersonationBanner } from '@/components/admin/AdminImpersonationBanner';
 import { MetaStatusPanel } from '@/components/admin/MetaStatusPanel';
@@ -81,6 +81,10 @@ export function SalonPoliciesClient({
   locale,
 }: Props) {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const requestedSection = searchParams?.get('section');
+  const section = requestedSection === 'photos' || requestedSection === 'social' ? requestedSection : 'all';
+  const pageTitle = section === 'photos' ? 'Appointment Photo Rules' : section === 'social' ? 'Social Posting' : 'Photo & auto-post rules';
 
   const handleSave = async (policy: SalonPolicy) => {
     // The page may be showing a salon the active-salon cookie does not name,
@@ -122,7 +126,7 @@ export function SalonPoliciesClient({
       >
         <div className="mx-auto max-w-2xl p-4">
           <WorkspacePageHeader
-            title="Photo & auto-post rules"
+            title={pageTitle}
             subtitle={`Managing ${salonName}`}
             titleClassName="owner-title text-[22px] font-semibold tracking-tight text-[var(--owner-ink)]"
             subtitleClassName="text-[14px] text-[var(--owner-muted)]"
@@ -131,7 +135,7 @@ export function SalonPoliciesClient({
                 type="button"
                 onClick={() =>
                   router.push(
-                    `/${locale}/admin?salon=${encodeURIComponent(salonSlug)}`,
+                    `/${locale}/admin?salon=${encodeURIComponent(salonSlug)}&app=${section === 'social' ? 'marketing' : 'settings'}${section === 'photos' ? '&view=advanced' : ''}`,
                   )}
                 aria-label="Back to your workspace"
                 className="-ml-1 flex size-11 shrink-0 items-center justify-center rounded-full text-[var(--owner-accent)] outline-none transition-colors hover:bg-[var(--owner-blush)] focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)]"
@@ -154,14 +158,17 @@ export function SalonPoliciesClient({
             superAdminPolicy={superAdminPolicy}
             salonName={salonName}
             onSave={handleSave}
+            section={section}
           />
 
           {/* Meta Status Panel */}
-          <MetaStatusPanel
-            status={metaStatus}
-            latestFailure={latestFailure}
-            scope="salon"
-          />
+          {section !== 'photos' && (
+            <MetaStatusPanel
+              status={metaStatus}
+              latestFailure={latestFailure}
+              scope="salon"
+            />
+          )}
         </div>
       </div>
     </div>

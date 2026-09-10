@@ -152,7 +152,10 @@ const URL_APP_IDS = [
   'marketing',
   'reviews',
   'rewards',
+  'rewards-reviews',
   'staff-ops',
+  'team',
+  'payments',
   'integrations',
   // Photos & Gallery: the More tile and the Booking Page hub both open the
   // shared Portfolio library through this URL.
@@ -296,8 +299,10 @@ const AUTH_UNREACHABLE_MESSAGE
 const GATED_APP_MODULES: Partial<Record<string, ModuleKey[]>> = {
   'analytics': ['analyticsDashboard'],
   'rewards': ['rewards'],
+  'rewards-reviews': ['rewards'],
   'staff': ['scheduleOverrides', 'staffEarnings'],
   'staff-ops': ['scheduleOverrides', 'staffEarnings'],
+  'team': ['scheduleOverrides', 'staffEarnings'],
 };
 
 /** Explain a deep link to an app this salon cannot open, in the owner's words. */
@@ -305,7 +310,12 @@ function describeBlockedApp(
   appId: string,
   moduleReasons: Partial<Record<ModuleKey, ModuleReason>>,
 ): string {
-  const appName = APPS.find(app => app.id === appId)?.name ?? 'That app';
+  const legacyName = appId === 'staff' || appId === 'staff-ops'
+    ? 'Team'
+    : appId === 'rewards' || appId === 'reviews'
+      ? 'Rewards & Reviews'
+      : null;
+  const appName = APPS.find(app => app.id === appId)?.name ?? legacyName ?? 'That app';
   const turnedOff = (GATED_APP_MODULES[appId] ?? []).some(
     module => moduleReasons[module] === 'MODULE_DISABLED',
   );
@@ -414,9 +424,9 @@ function AdminDashboardContent() {
   const [blockedAppNotice, setBlockedAppNotice] = useState<string | null>(null);
   const activeDashboardSalonSlug
     = adminUser?.impersonation?.salonSlug
-    ?? requestedSalonSlug
-    ?? adminUser?.salons[0]?.slug
-    ?? null;
+      ?? requestedSalonSlug
+      ?? adminUser?.salons[0]?.slug
+      ?? null;
   const activeDashboardSalon = activeDashboardSalonSlug
     ? (adminUser?.salons.find(
         s => s.slug?.toLowerCase() === activeDashboardSalonSlug.toLowerCase(),
@@ -1208,8 +1218,11 @@ function AdminDashboardContent() {
     if (isFreeSolo) {
       hidden.push('reviews');
     }
+    if (!moduleIsEnabled('rewards') && isFreeSolo) {
+      hidden.push('rewards-reviews');
+    }
     if (isFreeSolo && !staffToolsEnabled) {
-      hidden.push('staff', 'staff-ops');
+      hidden.push('team', 'staff', 'staff-ops');
     }
     return hidden;
   }, [moduleReasons, isFreeSolo]);
@@ -1263,6 +1276,19 @@ function AdminDashboardContent() {
       return;
     }
     const appParam = searchParams.get('app');
+    const viewParam = searchParams.get('view');
+
+    // Keep old bookmarked Settings destinations working while giving each
+    // control one canonical app. Replace (rather than push) so Back does not
+    // return the owner to the retired duplicate location.
+    if (appParam === 'settings' && viewParam === 'payments') {
+      router.replace(buildAdminUrl('payments'));
+      return;
+    }
+    if (appParam === 'settings' && viewParam === 'visibility') {
+      router.replace(`${buildAdminUrl('team')}&view=permissions`);
+      return;
+    }
     // Salon notification emails deep-link to a single appointment. The
     // appointment id is part of the guard key so two alerts for different
     // appointments both open, even though they share ?app=bookings.
@@ -1632,8 +1658,9 @@ function AdminDashboardContent() {
 
   // Map badges to app grid format
   const appBadges: Record<string, number> = {
-    marketing: data.badges.marketing,
-    reviews: data.badges.reviews,
+    'marketing': data.badges.marketing,
+    'reviews': data.badges.reviews,
+    'rewards-reviews': data.badges.reviews,
   };
   // Staff data for analytics - use real data from API
   const avatarColors = [
@@ -1903,6 +1930,8 @@ function AdminDashboardContent() {
         activeSalonId={activeDashboardSalon?.id ?? null}
         onOpenApp={openAppViaUrl}
         analyticsAppAvailable={!hiddenAppIds.includes('analytics')}
+        rewardsAvailable={!hiddenAppIds.includes('rewards')}
+        reviewsAvailable={!hiddenAppIds.includes('reviews')}
         activeSalonName={activeDashboardSalon?.name ?? null}
         onOpenMarketingClient={(clientId) => {
           setInitialAppointmentId(null);
@@ -1935,7 +1964,9 @@ function AdminDashboardContent() {
           searchParams.get('google'),
           searchParams.get('twilio'),
         )}
-        onOpenSettingsFromIntegrations={() => openAppViaUrl('settings')}
+        onOpenSettingsFromIntegrations={() => router.push(`${buildAdminUrl('settings')}&view=communications`)}
+        onManageReminders={() => router.push(`${buildAdminUrl('settings')}&view=communications`)}
+        onOpenSocialPosting={() => router.push(`/${locale}/admin/policies${activeDashboardSalonSlug ? `?salon=${encodeURIComponent(activeDashboardSalonSlug)}&section=social` : '?section=social'}`)}
         showNotifications={showNotifications}
         setShowNotifications={setShowNotifications}
         showFraudSignals={showFraudSignals}

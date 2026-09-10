@@ -21,6 +21,7 @@ import {
   DollarSign,
   ImagePlus,
   Loader2,
+  Save,
   Scissors,
   Search,
   Sparkles,
@@ -183,11 +184,11 @@ type ServiceImageIntent = 'keep' | 'replace' | 'remove';
 
 type ServiceSavePhase
   = | 'idle'
-  | 'saving-details'
-  | 'preparing-image'
-  | 'uploading-image'
-  | 'finalizing-image'
-  | 'removing-image';
+    | 'saving-details'
+    | 'preparing-image'
+    | 'uploading-image'
+    | 'finalizing-image'
+    | 'removing-image';
 
 type ServiceImagePresignData = {
   strategy: 'cloudinary' | 'local';
@@ -1100,21 +1101,21 @@ function AddServiceDialog({
     = isPublicServiceCustomImageUrl(service?.imageUrl);
   const previewIsCustom
     = Boolean(stagedPreviewUrl)
-    || (hasPersistedCustomImage && imageIntent === 'keep');
+      || (hasPersistedCustomImage && imageIntent === 'keep');
   const previewImageUrl
     = stagedPreviewUrl
-    ?? resolveServiceCardImage({
-      imageUrl:
+      ?? resolveServiceCardImage({
+        imageUrl:
         hasPersistedImageValue && imageIntent === 'keep'
           ? service?.imageUrl
           : null,
-      templateKey: service?.templateKey ?? prefill?.templateKey ?? null,
-      bookingCategory,
-      name,
-    });
+        templateKey: service?.templateKey ?? prefill?.templateKey ?? null,
+        bookingCategory,
+        name,
+      });
   const hasCurrentCustomImage
     = Boolean(stagedImageFile)
-    || (hasPersistedCustomImage && imageIntent === 'keep');
+      || (hasPersistedCustomImage && imageIntent === 'keep');
   const saveStatus = (() => {
     switch (savePhase) {
       case 'saving-details':
@@ -2149,6 +2150,10 @@ export function ServicesModal({ onClose, salonSlug, onOpenStaff }: ServicesModal
   const [showServiceImages, setShowServiceImages] = useState<boolean | null>(null);
   const [showServiceImagesSaving, setShowServiceImagesSaving] = useState(false);
   const [showServiceImagesError, setShowServiceImagesError] = useState<string | null>(null);
+  const [menuDisplay, setMenuDisplay] = useState({ introPriceDefaultLabel: '', firstVisitDiscountEnabled: false, featureLusterManicure: false });
+  const [menuDisplayDirty, setMenuDisplayDirty] = useState(false);
+  const [menuDisplaySaving, setMenuDisplaySaving] = useState(false);
+  const [menuDisplaySaved, setMenuDisplaySaved] = useState(false);
   const showServiceImagesSaveInFlight = useRef(false);
   const showServiceImagesSaveAbort = useRef<AbortController | null>(null);
   const [activeTab, setActiveTab] = useState<'menu' | 'library' | 'addons' | 'catalog'>('menu');
@@ -2338,6 +2343,12 @@ export function ServicesModal({ onClose, salonSlug, onOpenStaff }: ServicesModal
           setShowServiceImages(
             result?.merchandising?.showServiceImages !== false,
           );
+          setMenuDisplay({
+            introPriceDefaultLabel: result?.bookingConfig?.introPriceDefaultLabel ?? '',
+            firstVisitDiscountEnabled: result?.bookingConfig?.firstVisitDiscountEnabled ?? false,
+            featureLusterManicure: result?.merchandising?.featureLusterManicure ?? false,
+          });
+          setMenuDisplayDirty(false);
         }
       } catch {
         // Visibility follows the existing fail-open behavior if settings
@@ -2450,6 +2461,36 @@ export function ServicesModal({ onClose, salonSlug, onOpenStaff }: ServicesModal
       }
     }
   }, [salonSlug, showServiceImages]);
+
+  const saveMenuDisplay = useCallback(async () => {
+    if (!salonSlug || !menuDisplayDirty || menuDisplaySaving) {
+      return;
+    }
+    setMenuDisplaySaving(true);
+    setMenuDisplaySaved(false);
+    try {
+      const response = await fetch(`/api/admin/salon/settings?salonSlug=${encodeURIComponent(salonSlug)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          bookingConfig: {
+            introPriceDefaultLabel: menuDisplay.introPriceDefaultLabel.trim() || null,
+            firstVisitDiscountEnabled: menuDisplay.firstVisitDiscountEnabled,
+          },
+          merchandising: { featureLusterManicure: menuDisplay.featureLusterManicure },
+        }),
+      });
+      if (!response.ok) {
+        throw new Error('Could not save menu display settings.');
+      }
+      setMenuDisplayDirty(false);
+      setMenuDisplaySaved(true);
+    } catch (saveError) {
+      setShowServiceImagesError(saveError instanceof Error ? saveError.message : 'Could not save menu display settings.');
+    } finally {
+      setMenuDisplaySaving(false);
+    }
+  }, [menuDisplay, menuDisplayDirty, menuDisplaySaving, salonSlug]);
 
   // One-tap Deactivate/Reactivate from the detail view: same PATCH contract as
   // the edit dialog, with every field unchanged except isActive.
@@ -2700,7 +2741,7 @@ export function ServicesModal({ onClose, salonSlug, onOpenStaff }: ServicesModal
   const filteredServices = services.filter((service) => {
     const matchesCategory
       = activeCategory === 'all'
-      || resolveVisibleBookingCategory(service) === activeCategory;
+        || resolveVisibleBookingCategory(service) === activeCategory;
 
     return matchesCategory && matchesServiceQuery(service, menuQuery);
   });
@@ -2861,7 +2902,7 @@ export function ServicesModal({ onClose, salonSlug, onOpenStaff }: ServicesModal
                 activeTab === 'catalog' ? 'bg-[var(--owner-surface)] text-[var(--owner-accent)] shadow-sm' : 'text-[var(--owner-muted)]'
               }`}
             >
-              Catalog
+              Menu Setup
             </button>
           </div>
         </div>
@@ -2922,6 +2963,66 @@ export function ServicesModal({ onClose, salonSlug, onOpenStaff }: ServicesModal
             {showServiceImagesSaving ? 'Saving service image visibility' : ''}
           </span>
         </div>
+        {activeTab === 'menu' && (
+          <details className="mx-4 mb-2 rounded-xl border border-[var(--owner-line)] bg-[var(--owner-surface)] px-3 py-2">
+            <summary className="flex min-h-11 cursor-pointer items-center text-[14px] font-semibold text-[var(--owner-ink)]">Menu display &amp; offers</summary>
+            <div className="space-y-3 border-t border-[var(--owner-line)] py-3">
+              <label className="block text-[13px] font-medium text-[var(--owner-ink)]">
+                Default intro label
+                <input
+                  type="text"
+                  value={menuDisplay.introPriceDefaultLabel}
+                  onChange={(event) => {
+                    setMenuDisplay(current => ({ ...current, introPriceDefaultLabel: event.target.value }));
+                    setMenuDisplayDirty(true);
+                    setMenuDisplaySaved(false);
+                  }}
+                  className="mt-1 min-h-11 w-full rounded-xl border border-[var(--owner-line)] px-3 text-[15px]"
+                  placeholder="Founding Client Price"
+                />
+              </label>
+              <label className="flex min-h-11 items-center justify-between gap-3 text-[13px]">
+                <span>
+                  <span className="block font-medium">First-visit offer</span>
+                  <span className="text-[12px] text-[var(--owner-muted)]">25% off for first-time clients</span>
+                </span>
+                <input
+                  type="checkbox"
+                  checked={menuDisplay.firstVisitDiscountEnabled}
+                  onChange={(event) => {
+                    setMenuDisplay(current => ({ ...current, firstVisitDiscountEnabled: event.target.checked }));
+                    setMenuDisplayDirty(true);
+                    setMenuDisplaySaved(false);
+                  }}
+                  className="size-5 accent-[var(--owner-accent)]"
+                />
+              </label>
+              <label className="flex min-h-11 items-center justify-between gap-3 text-[13px]">
+                <span>
+                  <span className="block font-medium">Feature Luster Manicure</span>
+                  <span className="text-[12px] text-[var(--owner-muted)]">Show the active Luster Manicure first</span>
+                </span>
+                <input
+                  type="checkbox"
+                  checked={menuDisplay.featureLusterManicure}
+                  onChange={(event) => {
+                    setMenuDisplay(current => ({ ...current, featureLusterManicure: event.target.checked }));
+                    setMenuDisplayDirty(true);
+                    setMenuDisplaySaved(false);
+                  }}
+                  className="size-5 accent-[var(--owner-accent)]"
+                />
+              </label>
+              <div className="flex items-center justify-end gap-3">
+                {menuDisplaySaved ? <span className="text-[12px] font-medium text-emerald-700">Saved</span> : null}
+                <button type="button" onClick={() => void saveMenuDisplay()} disabled={!menuDisplayDirty || menuDisplaySaving} className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-[var(--owner-accent)] px-4 text-[13px] font-semibold text-white disabled:opacity-50">
+                  <Save aria-hidden="true" className="size-4" />
+                  {menuDisplaySaving ? 'Saving…' : 'Save menu display'}
+                </button>
+              </div>
+            </div>
+          </details>
+        )}
         {activeTab === 'menu' && (
           <>
             {/* Owner search (AG-services-01). The client's copy of this menu and

@@ -34,7 +34,7 @@ import {
   disableBookingPagePreviewFrameInteraction,
   normalizeBookingPagePreviewFrame,
 } from '@/components/admin/bookingPagePreviewFrame';
-import { QuickBookProfileVisibilityCard } from '@/components/admin/QuickBookProfileVisibilityCard';
+import { QUICK_BOOK_VISIBILITY_OPTIONS, QuickBookProfileVisibilityCard, QuickBookVisibilitySwitch } from '@/components/admin/QuickBookProfileVisibilityCard';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import type { BookingPageBuilderOperation } from '@/libs/bookingPageBuilder';
 import type {
@@ -1159,6 +1159,7 @@ export default function BookingPageOwnerSurface() {
               draft={draft}
               liveAddressPrivacy={content.live.locationDisplayMode}
               locale={locale}
+              mode="booking"
               onAddressPrivacyChange={mode => void saveContentPatch({ locationDisplayMode: mode })}
               onConfigPatch={patch => void saveConfigPatch(patch)}
               onUploadCover={file => void uploadCover(file)}
@@ -1188,12 +1189,22 @@ export default function BookingPageOwnerSurface() {
 
           {panel === 'policies' && (
             <>
+              {draft.layout === 'quick_book' && (
+                <SectionCard title="Policies display" description="Choose which saved policies and real review information appear on Quick Book. These display choices wait for Publish.">
+                  <fieldset disabled={presentationPending} className="divide-y divide-[var(--owner-line)]">
+                    <legend className="sr-only">Policies shown publicly</legend>
+                    {QUICK_BOOK_VISIBILITY_OPTIONS.filter(option => ['showBookingPolicy', 'showCancellationPolicy', 'showReviews'].includes(option.key)).map(option => (
+                      <QuickBookVisibilitySwitch checked={draft.quickBookProfile[option.key]} key={option.key} onConfigPatch={patch => void saveConfigPatch(patch)} option={option} />
+                    ))}
+                  </fieldset>
+                </SectionCard>
+              )}
               <SectionCard title="Customer-facing policies" description="Review the policy wording and acknowledgment clients see. Policy wording does not enable automatic charges.">
                 <a className="inline-flex min-h-11 items-center rounded-xl border border-[var(--owner-line-strong)] px-4" href={`/${locale}/admin?salon=${encodeURIComponent(salonSlug)}&app=settings&view=booking-policy`}>Edit booking policy</a>
               </SectionCard>
               <SectionCard title="Operational booking settings" description="These settings affect booking logic directly. Saving here is separate from publishing website appearance.">
                 <a className="inline-flex min-h-11 items-center rounded-xl border border-[var(--owner-line-strong)] px-4" href={`/${locale}/admin?salon=${encodeURIComponent(salonSlug)}&app=settings&view=booking`}>Booking rules & availability</a>
-                <a className="mt-3 flex min-h-11 items-center rounded-xl border border-[var(--owner-line-strong)] px-4" href={`/${locale}/admin?salon=${encodeURIComponent(salonSlug)}&app=settings&view=payments`}>Payments & deposits</a>
+                <a className="mt-3 flex min-h-11 items-center rounded-xl border border-[var(--owner-line-strong)] px-4" href={`/${locale}/admin?salon=${encodeURIComponent(salonSlug)}&app=payments`}>Payments & deposits</a>
               </SectionCard>
             </>
           )}
