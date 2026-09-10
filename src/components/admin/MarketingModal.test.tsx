@@ -383,8 +383,13 @@ describe('MarketingModal', () => {
     expect(screen.getByTestId('campaign-revenue-promo_6w')).toHaveTextContent('$100.00');
     expect(results).toHaveTextContent('Tax collected (not revenue)');
     expect(results).toHaveTextContent('$13.00');
-    // Operational appointment-message delivery belongs in Messages & Notifications.
-    expect(screen.queryByTestId('marketing-results-automatic')).not.toBeInTheDocument();
+    // Preserve the existing aggregate of automatic confirmation, reminder and
+    // cancellation outcomes while keeping reminder configuration elsewhere.
+    expect(screen.getByTestId('marketing-results-automatic')).toHaveTextContent(
+      'Automatic appointment messages · last 30 days',
+    );
+    expect(screen.getByTestId('marketing-results-automatic')).toHaveTextContent('sms · delivered');
+    expect(screen.getByTestId('marketing-results-automatic')).toHaveTextContent('7');
     // Unmeasurable outcomes never appear.
     expect(results).not.toHaveTextContent(/click/i);
     expect(results).toHaveTextContent(/cannot see Messages deliveries/i);

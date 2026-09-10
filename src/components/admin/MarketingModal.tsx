@@ -1387,6 +1387,33 @@ export function MarketingModal({
                             ))}
                         </section>
 
+                        <section className={card} data-testid="marketing-results-automatic">
+                          <h3 className="text-[15px] font-semibold text-[var(--owner-ink)]">
+                            Automatic appointment messages · last
+                            {' '}
+                            {overview?.results.windowDays ?? 30}
+                            {' '}
+                            days
+                          </h3>
+                          <p className="mt-1 text-[12px] text-[var(--owner-muted)]">
+                            Confirmations, reminders and cancellations — not marketing.
+                          </p>
+                          <div className="mt-2 space-y-1.5 text-[13px] text-[var(--owner-muted)]">
+                            {(overview?.results.automatic.length ?? 0) === 0
+                              ? <p className="text-[13px] text-[var(--owner-muted)]">None in this window.</p>
+                              : overview?.results.automatic.map(row => (
+                                <div key={`${row.channel}-${row.status}`} className="flex items-center justify-between">
+                                  <span className="capitalize">
+                                    {row.channel}
+                                    {' · '}
+                                    {row.status}
+                                  </span>
+                                  <span className="font-semibold text-[var(--owner-ink)]">{row.count}</span>
+                                </div>
+                              ))}
+                          </div>
+                        </section>
+
                       </div>
                     )}
 
