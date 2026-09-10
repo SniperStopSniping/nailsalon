@@ -162,7 +162,8 @@ More
 - Marketing no longer edits appointment reminder lead time and omits that legacy field from retention saves. The compatibility field remains stored because the existing manual reminder queue still reads it; moving that queue to the multi-rule communications model would change behavior and is deliberately outside this IA-only migration.
 - Feature entitlement toggles remain in Settings → Features. Fixed program offer facts moved to Rewards & Reviews → Offers and are not presented as editable values.
 - Service merchandising controls removed from Booking Rules now use the existing salon-settings data in Services → My Menu → Menu display & offers. The existing service-image control stays in Services.
-- The one policy payload is shown through two section-specific entry points (photo rules and social posting). Saving still uses the established policy API and preserves higher-level overrides.
+- The one policy record is shown through two section-specific entry points (photo rules and social posting). Each screen now submits only its owned fields to an atomic partial-update path, while the established full update remains compatible with the combined legacy screen and higher-level overrides remain unchanged.
+- Marketing → Results retains the existing automatic appointment-message aggregate (window, channel, delivery status, and count). Reminder configuration still has one canonical editor in Messages & Notifications.
 
 ## Intentionally shared surfaces
 

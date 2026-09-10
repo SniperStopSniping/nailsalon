@@ -377,3 +377,14 @@ Implement More grid and compatibility routing, then add Team, Payments, and Rewa
 - A fresh dependency install was blocked by disk space; the older shared Next 14/React 18 dependency tree cannot run this Next 15/React 19 repository's `next typegen`. Direct TypeScript found no error in changed owner-dashboard files. Do not treat this as a clean central typecheck.
 - Local browser verification/screenshots remain unavailable because the clean worktree's dev server stopped at the Clerk isolation guard (`CLERK_KEYS_REQUIRED`). Do not copy credentials or relax provider isolation for this task.
 - No deploy, push, merge, migration, production/provider mutation, message, or payment occurred. The original checkout remains separate and preserved.
+
+## Release-blocker repair checkpoint
+
+- Services now keeps its moved offer controls disabled until canonical salon settings load and submits only fields changed in the current editor. The regression proves changing only the intro label preserves both an enabled first-visit offer and featured manicure.
+- Appointment Photo Rules and Social Posting now submit section-owned partial updates. The policy API performs an atomic column-only upsert, so two open surfaces can save in either order without restoring hidden stale fields. The legacy full `PUT` remains available for the combined deep link.
+- Marketing → Results again shows the existing automatic appointment-message aggregate: rolling window plus channel/status/count for confirmations, reminders, and cancellations. No new reporting source was introduced.
+- Discarding an unsaved Payments leaf now returns through the Payments hub. Team → Permissions now shows an explicit locked explanation when staff visibility is not entitled instead of a blank screen.
+- Logical repair commits: `d5ad6404`, `1cca52ec`, `92990032`, `ef007c90`; test typing follow-up `a53f146f`.
+- Focused release suite: 12 files / 207 tests passed (Services, policy API/forms, Marketing, Payments, Team/Settings, More routing, modal host, admin deep links, and Booking Page hub). Changed TypeScript/TSX ESLint has zero errors and ten existing warnings; secret scan passed.
+- Local `npm run check-types` and `npm run build` remain environment-limited by the shared Next 14/React 18 dependency tree and missing explicit runtime environment. Direct TypeScript reports only known dependency/prototype errors and none in changed owner-dashboard files. Fresh protected CI with the committed Next 15/React 19 lockfile is the authoritative build/type gate.
+- The branch diff contains no migration/schema, authentication/tenant, provider configuration, dependency, or deployment-configuration changes. Production release remains pending protected PR checks and exact-SHA deployment verification.
