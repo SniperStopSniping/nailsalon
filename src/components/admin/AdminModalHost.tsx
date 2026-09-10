@@ -219,6 +219,10 @@ export function AdminModalHost({
       <AppModal
         isOpen={activeModal === 'services'}
         onClose={onCloseModal}
+        // The menu is the owner's densest list. It keeps an always-visible
+        // Back control in its own header and the sheet keeps its drag handle,
+        // so it can spend the backdrop dismiss band on service rows instead.
+        topInset="tall"
       >
         <ServicesModal
           onClose={onCloseModal}

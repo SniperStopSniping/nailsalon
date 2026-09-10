@@ -38,12 +38,21 @@ export function AddOnCreateDialog({
   isOpen,
   salonSlug,
   services,
+  initialServiceIds,
   onClose,
   onCreated,
 }: {
   isOpen: boolean;
   salonSlug: string | null;
   services: AddOnCreateService[];
+  /**
+   * Services ticked when the sheet opens. Set when the owner reaches this
+   * dialog from inside one service ("Add-ons for Gel Manicure -> Create new
+   * add-on"), so the add-on they are plainly creating FOR that service comes
+   * back already offered with it. Still fully editable here — the owner can
+   * untick it or add more.
+   */
+  initialServiceIds?: string[];
   onClose: () => void;
   onCreated: (addOn: CreatedAddOn) => void;
 }) {
@@ -71,9 +80,12 @@ export function AddOnCreateDialog({
     setDurationMinutes('');
     setPriceDisplayText('');
     setIsActive(true);
-    setServiceIds([]);
+    setServiceIds(initialServiceIds ?? []);
     setSaving(false);
     setError(null);
+    // `initialServiceIds` is read once per open on purpose: re-syncing it
+    // would undo the owner's own ticks while the sheet is still open.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen]);
 
   if (!isOpen) {
