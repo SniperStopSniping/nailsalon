@@ -1,3 +1,10 @@
+# [1.92.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.91.0...v1.92.0) (2026-09-11)
+
+
+### Features
+
+* **owner:** rework the Services sheet for one-thumb mobile use ([0309ff3](https://github.com/SniperStopSniping/nailsalon/commit/0309ff36d04516a097d65eee5da4d59317943f9c))
+
 # [1.91.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.90.0...v1.91.0) (2026-09-10)
 
 
