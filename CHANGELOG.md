@@ -1,3 +1,12 @@
+## [1.92.1](https://github.com/SniperStopSniping/nailsalon/compare/v1.92.0...v1.92.1) (2026-09-11)
+
+
+### Bug Fixes
+
+* **integrations:** stop silently stranding owners after connecting Google ([e60e6a1](https://github.com/SniperStopSniping/nailsalon/commit/e60e6a14c8aaa230031f375bc0c89855a7be7b73))
+* **legal:** use next/link for the brand link on the legal pages ([7280347](https://github.com/SniperStopSniping/nailsalon/commit/7280347e71810bf1c68cd729a844dc5203da4f44))
+* **oauth:** satisfy Google OAuth verification prerequisites ([cb28b1c](https://github.com/SniperStopSniping/nailsalon/commit/cb28b1c730a162c1c000d2763d54ca1af943155e))
+
 # [1.92.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.91.0...v1.92.0) (2026-09-11)
 
 
