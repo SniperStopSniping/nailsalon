@@ -193,6 +193,8 @@ export function IntegrationsModal({
   const [destinationCalendarId, setDestinationCalendarId] = useState('primary');
   const [busyCalendarIds, setBusyCalendarIds] = useState<string[]>([]);
   const [calendarDirty, setCalendarDirty] = useState(false);
+  const [calendarError, setCalendarError] = useState<string | null>(null);
+  const [calendarReloadKey, setCalendarReloadKey] = useState(0);
   const [working, setWorking] = useState('');
   const [confirmingDisconnect, setConfirmingDisconnect] = useState(false);
 
@@ -234,10 +236,29 @@ export function IntegrationsModal({
     }
     let cancelled = false;
     (async () => {
-      const payload = await fetch(
+      setCalendarError(null);
+      // A token granted seconds ago can fail this call once. Silently leaving
+      // `calendars` empty is indistinguishable from "this account has no
+      // calendars", which strands the owner on the one step that completes
+      // setup, so retry once and surface a retry control on failure.
+      const load = () => fetch(
         `/api/integrations/google/calendars?salonSlug=${encodeURIComponent(salonSlug)}`,
-      ).then(response => response.json()).catch(() => null);
-      if (cancelled || !payload) {
+        { cache: 'no-store' },
+      ).then(response => (response.ok ? response.json() : null)).catch(() => null);
+      let payload = await load();
+      if (!payload && !cancelled) {
+        await new Promise((resolve) => {
+          setTimeout(resolve, 1200);
+        });
+        if (!cancelled) {
+          payload = await load();
+        }
+      }
+      if (cancelled) {
+        return;
+      }
+      if (!payload) {
+        setCalendarError('Your Google calendars could not be loaded. This can happen for a moment right after connecting.');
         return;
       }
       setCalendars(payload.data?.calendars || []);
@@ -248,7 +269,7 @@ export function IntegrationsModal({
     return () => {
       cancelled = true;
     };
-  }, [view, salonSlug, health?.google.status]);
+  }, [view, salonSlug, health?.google.status, calendarReloadKey]);
 
   async function saveCalendars() {
     setWorking('calendar');
@@ -644,6 +665,18 @@ export function IntegrationsModal({
                               save. Until you do, your main Google calendar blocks bookings automatically, but Google
                               Calendar isn’t fully set up.
                             </p>
+                          </div>
+                        )}
+                        {calendarError && (
+                          <div className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+                            <p>{calendarError}</p>
+                            <button
+                              type="button"
+                              className="mt-2 inline-flex min-h-11 items-center rounded-full bg-amber-900 px-4 py-1.5 text-xs font-semibold text-white"
+                              onClick={() => setCalendarReloadKey(key => key + 1)}
+                            >
+                              Retry
+                            </button>
                           </div>
                         )}
                         <label className="block text-sm">
