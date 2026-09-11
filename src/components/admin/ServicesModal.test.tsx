@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import React from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -65,6 +65,8 @@ type MockRoutes = {
   patchFailure?: { status: number; message: string };
   /** Non-2xx forces the collection reorder PATCH to fail. */
   reorderFailure?: { status: number; message: string };
+  /** Non-2xx forces PUT /api/salon/services/:id/add-ons to fail. */
+  serviceAddOnsFailure?: { status: number; message: string };
   /** Non-2xx forces the add-on LIST fetch to fail — e.g. the production 401. */
   addOnsFailure?: { status: number };
   /** Add-ons returned by the second and later list fetches (refresh checks). */
@@ -82,7 +84,7 @@ type MockRoutes = {
   imageDeleteFailure?: { status: number; message: string };
 };
 
-function mockRoutes({ services = [], merchandising = {}, bookingConfig = { introPriceDefaultLabel: 'Founding Client Price', firstVisitDiscountEnabled: true }, settingsGetStatus = 200, settingsGetResponse, settingsPatch, createdService, patchedService, servicesAfterRefresh, ownedTemplateKeys = [], addOns = [], activeTechnicianCount = 0, templateAddResult, patchFailure, reorderFailure, addOnsFailure, addOnsAfterRefresh, imageStrategy = 'local', imageResultService, imageFailureAt, imageFailure, imageDeleteFailure }: MockRoutes) {
+function mockRoutes({ services = [], merchandising = {}, bookingConfig = { introPriceDefaultLabel: 'Founding Client Price', firstVisitDiscountEnabled: true }, settingsGetStatus = 200, settingsGetResponse, settingsPatch, createdService, patchedService, servicesAfterRefresh, ownedTemplateKeys = [], addOns = [], activeTechnicianCount = 0, templateAddResult, patchFailure, reorderFailure, serviceAddOnsFailure, addOnsFailure, addOnsAfterRefresh, imageStrategy = 'local', imageResultService, imageFailureAt, imageFailure, imageDeleteFailure }: MockRoutes) {
   let addOnListCalls = 0;
   let serviceListCalls = 0;
   fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -271,6 +273,21 @@ function mockRoutes({ services = [], merchandising = {}, bookingConfig = { intro
       }
       return new Response(JSON.stringify({ data: { ownedTemplateKeys } }), { status: 200 });
     }
+    if (url.includes('/add-ons') && url.startsWith('/api/salon/services/') && init?.method === 'PUT') {
+      if (serviceAddOnsFailure) {
+        return new Response(
+          JSON.stringify({ error: { code: 'UPDATE_FAILED', message: serviceAddOnsFailure.message } }),
+          { status: serviceAddOnsFailure.status },
+        );
+      }
+      const submitted = JSON.parse(String(init.body)) as { addOnIds: string[] };
+      const serviceId = url.slice('/api/salon/services/'.length, url.lastIndexOf('/add-ons'));
+
+      return new Response(
+        JSON.stringify({ data: { serviceId, addOnIds: submitted.addOnIds } }),
+        { status: 200 },
+      );
+    }
     if (url === '/api/salon/services' && init?.method === 'PATCH') {
       if (reorderFailure) {
         return new Response(
@@ -336,6 +353,20 @@ function findCall(predicate: (url: string, init?: RequestInit) => boolean) {
   );
 }
 
+/**
+ * Menu-display settings (service images, intro label, first-visit offer) live
+ * on the Setup tab. They used to be pinned above every service on every tab,
+ * which cost the list ~120 px of permanent chrome on a phone.
+ */
+function openSetupTab() {
+  fireEvent.click(screen.getByTestId('services-tab-catalog'));
+}
+
+/** Ordering is an explicit mode rather than controls on every browsing row. */
+function enterReorderMode() {
+  fireEvent.click(screen.getByTestId('services-reorder-toggle'));
+}
+
 describe('ServicesModal', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -345,7 +376,7 @@ describe('ServicesModal', () => {
     vi.stubGlobal('fetch', fetchMock);
   });
 
-  it('renders the compact accessible service-images control between tabs and categories', async () => {
+  it('keeps the service-images control off the browsing tabs and available in Setup', async () => {
     mockRoutes({
       services: [],
       merchandising: {
@@ -356,6 +387,20 @@ describe('ServicesModal', () => {
 
     render(<ServicesModal onClose={() => {}} salonSlug="isla-nail-studio" />);
 
+    // A permanent settings card above the list cost the menu ~120 px of the
+    // sheet on every tab, including the two that have no services in them.
+    expect(screen.queryByTestId('service-images-visibility-row')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('services-tab-addons'));
+
+    expect(screen.queryByTestId('service-images-visibility-row')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('services-tab-library'));
+
+    expect(screen.queryByTestId('service-images-visibility-row')).not.toBeInTheDocument();
+
+    // Relocated, not removed — same control, same semantics.
+    openSetupTab();
     const toggle = screen.getByRole('switch', { name: 'Service images' });
     await waitFor(() => expect(toggle).toBeEnabled());
 
@@ -366,23 +411,42 @@ describe('ServicesModal', () => {
     expect(toggle).toHaveAttribute('aria-busy', 'false');
 
     const row = screen.getByTestId('service-images-visibility-row');
-    const tablist = screen.getByRole('tablist');
-    const categoryButton = screen.getByText('All').closest('button');
 
-    expect(tablist.compareDocumentPosition(row) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(categoryButton).not.toBeNull();
-    expect(row.compareDocumentPosition(categoryButton!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(row).toHaveClass('min-w-0');
     expect(row.firstElementChild).toHaveClass('min-w-0');
     expect(toggle).toHaveClass('w-12', 'shrink-0');
+    expect(screen.getByTestId('menu-display-settings')).toContainElement(row);
+  });
 
-    fireEvent.click(screen.getByTestId('services-tab-addons'));
+  it('opens My Menu straight onto search, filters and the service list', async () => {
+    mockRoutes({
+      services: [
+        {
+          id: 'svc_gel',
+          name: 'Gel Manicure',
+          price: 5500,
+          durationMinutes: 60,
+          category: 'manicure',
+          bookingCategory: 'manicure',
+          isActive: true,
+          assignedTechnicianCount: 1,
+        },
+      ],
+      merchandising: { lusterPromoDismissed: true, serviceLibraryIntroDismissed: true },
+    });
 
-    expect(screen.getByTestId('service-images-visibility-row')).toBeInTheDocument();
+    render(<ServicesModal onClose={() => {}} salonSlug="isla-nail-studio" />);
 
-    fireEvent.click(screen.getByTestId('services-tab-library'));
+    const row = await screen.findByTestId('service-row-svc_gel');
+    const search = screen.getByTestId('services-menu-search');
+    const allChip = screen.getByText('All').closest('button');
 
-    expect(screen.getByTestId('service-images-visibility-row')).toBeInTheDocument();
+    expect(allChip).not.toBeNull();
+    // Header -> tabs -> search -> category filters -> services, with nothing
+    // between the filters and the first service.
+    expect(search.compareDocumentPosition(allChip!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(allChip!.compareDocumentPosition(row) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.queryByTestId('service-images-visibility-row')).not.toBeInTheDocument();
   });
 
   it('renders an explicit service-images OFF state with upload-preservation copy', async () => {
@@ -396,6 +460,7 @@ describe('ServicesModal', () => {
 
     render(<ServicesModal onClose={() => {}} salonSlug="isla-nail-studio" />);
 
+    openSetupTab();
     const toggle = screen.getByRole('switch', { name: 'Service images' });
     await waitFor(() => expect(toggle).toBeEnabled());
 
@@ -413,7 +478,7 @@ describe('ServicesModal', () => {
     mockRoutes({ services: [], settingsGetResponse });
 
     render(<ServicesModal onClose={() => {}} salonSlug="isla-nail-studio" />);
-    fireEvent.click(screen.getByText('Menu display & offers'));
+    openSetupTab();
 
     expect(screen.getByRole('textbox', { name: 'Default intro label' })).toBeDisabled();
     expect(screen.getByRole('checkbox', { name: /First-visit offer/ })).toBeDisabled();
@@ -439,7 +504,7 @@ describe('ServicesModal', () => {
     });
 
     render(<ServicesModal onClose={() => {}} salonSlug="isla-nail-studio" />);
-    fireEvent.click(screen.getByText('Menu display & offers'));
+    openSetupTab();
 
     const introLabel = screen.getByRole('textbox', { name: 'Default intro label' });
     await waitFor(() => expect(introLabel).toBeEnabled());
@@ -480,6 +545,7 @@ describe('ServicesModal', () => {
 
     render(<ServicesModal onClose={() => {}} salonSlug="isla-nail-studio" />);
 
+    openSetupTab();
     const toggle = screen.getByRole('switch', { name: 'Service images' });
     await waitFor(() => expect(toggle).toBeEnabled());
 
@@ -495,6 +561,7 @@ describe('ServicesModal', () => {
 
     render(<ServicesModal onClose={() => {}} salonSlug="isla-nail-studio" />);
 
+    openSetupTab();
     const toggle = screen.getByRole('switch', { name: 'Service images' });
     await waitFor(() => expect(toggle).toBeEnabled());
 
@@ -512,6 +579,7 @@ describe('ServicesModal', () => {
 
     render(<ServicesModal onClose={() => {}} salonSlug="isla-nail-studio" />);
 
+    openSetupTab();
     const toggle = screen.getByRole('switch', { name: 'Service images' });
     await waitFor(() => expect(toggle).toBeEnabled());
     fireEvent.click(toggle);
@@ -546,6 +614,7 @@ describe('ServicesModal', () => {
 
     render(<ServicesModal onClose={() => {}} salonSlug="isla-nail-studio" />);
 
+    openSetupTab();
     const toggle = screen.getByRole('switch', { name: 'Service images' });
     await waitFor(() => expect(toggle).toBeEnabled());
     fireEvent.click(toggle);
@@ -576,6 +645,7 @@ describe('ServicesModal', () => {
 
     render(<ServicesModal onClose={() => {}} salonSlug="isla-nail-studio" />);
 
+    openSetupTab();
     const toggle = screen.getByRole('switch', { name: 'Service images' });
     await waitFor(() => expect(toggle).toBeEnabled());
     fireEvent.click(toggle);
@@ -603,6 +673,7 @@ describe('ServicesModal', () => {
 
     render(<ServicesModal onClose={() => {}} salonSlug="isla-nail-studio" />);
 
+    openSetupTab();
     const toggle = screen.getByRole('switch', { name: 'Service images' });
     await waitFor(() => expect(toggle).toBeEnabled());
     fireEvent.click(toggle);
@@ -629,6 +700,7 @@ describe('ServicesModal', () => {
 
     render(<ServicesModal onClose={() => {}} salonSlug="isla-nail-studio" />);
 
+    openSetupTab();
     const toggle = screen.getByRole('switch', { name: 'Service images' });
     await waitFor(() => expect(toggle).toBeEnabled());
     fireEvent.click(toggle);
@@ -677,7 +749,7 @@ describe('ServicesModal', () => {
     render(<ServicesModal onClose={() => {}} salonSlug="isla-nail-studio" />);
 
     expect(await screen.findByRole('button', { name: 'Add Service' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Add' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'New service' })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'Add Service' }));
 
@@ -960,7 +1032,7 @@ describe('ServicesModal', () => {
     render(<ServicesModal onClose={() => {}} salonSlug="isla-nail-studio" />);
 
     await screen.findByText('Signature Combo');
-    fireEvent.click(screen.getByRole('button', { name: 'Add' }));
+    fireEvent.click(screen.getByTestId('services-primary-add'));
 
     fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Spa Pedicure' } });
     fireEvent.change(screen.getByLabelText('Price'), { target: { value: '55' } });
@@ -1293,8 +1365,13 @@ describe('ServicesModal — service detail owner actions', () => {
     expect(screen.getByRole('button', { name: /^Pedicure 1$/i })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /^Combos 1$/i })).toBeInTheDocument();
 
+    // Scoped to the filter row: a service row is itself a button now (it has
+    // to be keyboard-reachable), and "Builder Gel Overlay" is a legitimate
+    // service NAME — what must never appear is a chip for the internal
+    // storage category.
+    const filters = within(screen.getByTestId('services-category-filters'));
     for (const banned of ['Builder Gel', 'Extensions', 'Hands', 'Feet', 'Gel & Natural']) {
-      expect(screen.queryByRole('button', { name: new RegExp(`^${banned}`, 'i') })).not.toBeInTheDocument();
+      expect(filters.queryByRole('button', { name: new RegExp(`^${banned}`, 'i') })).not.toBeInTheDocument();
     }
 
     // Filtering uses the same canonical grouping.
@@ -1385,14 +1462,28 @@ describe('ServicesModal — service detail owner actions', () => {
 
       const row = await screen.findByTestId('addon-row-addon_chrome');
 
-      // Library-parity meta: from-price, duration, kind and category badges.
+      // Library-parity meta: from-price, duration and category.
       expect(row).toHaveTextContent('Chrome');
       expect(row).toHaveTextContent('$10+');
       expect(row).toHaveTextContent('15 min');
-      expect(row).toHaveTextContent('Add-on');
       expect(row).toHaveTextContent('Nail art');
-      expect(row).toHaveTextContent('Offered with 1 service');
       expect(row).toHaveTextContent('Edit');
+
+      // No "Add-on" badge: the owner is already inside the Add-ons tab, so it
+      // repeated the tab heading on every row and cost list density.
+      expect(row).not.toHaveTextContent('Add-on');
+
+      // "Offered with N" is its own control now, so the owner can go straight
+      // from the list to the services that offer this add-on.
+      const offeredWith = screen.getByTestId('addon-row-services-addon_chrome');
+
+      expect(offeredWith).toHaveTextContent('Offered with 1 service');
+      expect(offeredWith.tagName).toBe('BUTTON');
+
+      fireEvent.click(offeredWith);
+
+      expect(await screen.findByRole('heading', { name: 'Edit Add-on' })).toBeInTheDocument();
+      expect(screen.getByTestId('addon-edit-service-svc_luster')).toBeChecked();
 
       // Inactive add-ons stay listed and counted so they can be revived.
       expect(screen.getByTestId('addon-row-inactive-addon_retired')).toHaveTextContent('Inactive');
@@ -1516,7 +1607,9 @@ describe('ServicesModal — service detail owner actions', () => {
       expect(await screen.findByTestId('addons-create-notice')).toHaveTextContent(
         'is on your add-on list',
       );
-      expect(await screen.findByTestId('addon-row-addon_created')).toHaveTextContent(
+      expect(await screen.findByTestId('addon-row-addon_created')).toBeInTheDocument();
+      // The "offered with" line is its own control beneath the row.
+      expect(screen.getByTestId('addon-row-services-addon_created')).toHaveTextContent(
         'Offered with 1 service',
       );
       expect(screen.getByText('1 services · 1 add-ons')).toBeInTheDocument();
@@ -2454,6 +2547,12 @@ describe('ServicesModal — My Menu search, ordering and creation truth', () => 
 
     expect(await screen.findByText('BIAB French')).toBeInTheDocument();
 
+    // Ordering controls are behind an explicit Reorder mode so browsing rows
+    // keep their width for the service name and price.
+    expect(screen.queryByTestId('service-row-move-up-svc_biab_french')).not.toBeInTheDocument();
+
+    enterReorderMode();
+
     // The first row cannot move up and the last cannot move down.
     expect(screen.getByTestId('service-row-move-up-svc_biab_short')).toBeDisabled();
     expect(screen.getByTestId('service-row-move-down-svc_gel_pedi')).toBeDisabled();
@@ -2495,6 +2594,7 @@ describe('ServicesModal — My Menu search, ordering and creation truth', () => 
     expect(await screen.findByText('BIAB French')).toBeInTheDocument();
 
     fireEvent.change(screen.getByTestId('services-menu-search'), { target: { value: 'biab' } });
+    enterReorderMode();
     fireEvent.click(screen.getByTestId('service-row-move-up-svc_biab_french'));
 
     // BIAB French jumps above BIAB Short (the row above it on screen) while
@@ -2526,6 +2626,7 @@ describe('ServicesModal — My Menu search, ordering and creation truth', () => 
 
     expect(await screen.findByText('BIAB French')).toBeInTheDocument();
 
+    enterReorderMode();
     fireEvent.click(screen.getByTestId('service-row-move-up-svc_biab_french'));
 
     expect(await screen.findByTestId('services-reorder-error')).toHaveTextContent(
@@ -2575,18 +2676,25 @@ describe('ServicesModal — My Menu search, ordering and creation truth', () => 
 
     render(<ServicesModal onClose={() => {}} salonSlug="nail-salon-no5" />);
 
-    // Full name, not "BIA…": the price column is capped and shrinkable, the
-    // name column takes the rest.
-    expect(await screen.findByText('BIAB Short')).toBeInTheDocument();
+    // Full name, not "BIA…". The amount a client is charged is the half that
+    // must never be clipped, so it is `shrink-0` and `whitespace-nowrap`; the
+    // marketing string underneath is the shrinkable half, and the name wraps
+    // rather than truncating.
+    const name = await screen.findByText('BIAB Short');
+
+    expect(name).toBeInTheDocument();
+    expect(name).toHaveClass('line-clamp-2');
+    expect(name).not.toHaveClass('truncate');
 
     const price = screen.getByTestId('service-row-price-svc_biab_short');
 
     expect(price).toHaveTextContent('$72.00');
-    expect(price.parentElement?.className).toContain('max-w-[104px]');
-    expect(price.parentElement?.className).toContain('shrink');
+    expect(price).toHaveClass('whitespace-nowrap');
+    expect(price.parentElement?.className).toContain('shrink-0');
     expect(screen.getByTestId('service-row-price-display-svc_biab_short')).toHaveTextContent(
       'from $72 (AUDIT-0905)',
     );
+    expect(screen.getByTestId('service-row-price-display-svc_biab_short')).toHaveClass('truncate');
 
     await act(async () => {});
   });
@@ -2639,7 +2747,7 @@ describe('ServicesModal — My Menu search, ordering and creation truth', () => 
       <ServicesModal onClose={() => {}} salonSlug="nail-salon-no5" onOpenStaff={() => {}} />,
     );
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Add' }));
+    fireEvent.click(await screen.findByTestId('services-primary-add'));
     fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'AUDIT-0905 Polish Change' } });
     fireEvent.change(screen.getByLabelText('Price'), { target: { value: '25' } });
     fireEvent.change(screen.getByLabelText('Duration'), { target: { value: '30' } });
@@ -2676,7 +2784,7 @@ describe('ServicesModal — My Menu search, ordering and creation truth', () => 
 
     expect(await screen.findByText('3 services · 0 add-ons')).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Add' }));
+    fireEvent.click(screen.getByTestId('services-primary-add'));
     fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'AUDIT-0905 Polish Change' } });
     fireEvent.change(screen.getByLabelText('Price'), { target: { value: '25' } });
     fireEvent.change(screen.getByLabelText('Duration'), { target: { value: '30' } });
@@ -2710,6 +2818,376 @@ describe('ServicesModal — My Menu search, ordering and creation truth', () => 
     expect(screen.getByTestId('service-category-internal-note')).toHaveTextContent(
       'Clients never see this label',
     );
+
+    await act(async () => {});
+  });
+});
+
+/**
+ * The service side of the service<->add-on relationship. Before this, an
+ * owner building "Gel Manicure" had no way to say "clients can add chrome to
+ * this" without leaving the service and editing each add-on in turn.
+ */
+describe('ServicesModal — add-ons from inside a service', () => {
+  const gelManicure = {
+    id: 'svc_gel',
+    name: 'Gel Manicure',
+    description: null,
+    descriptionItems: null,
+    price: 5500,
+    priceDisplayText: null,
+    isIntroPrice: false,
+    introPriceLabel: null,
+    durationMinutes: 60,
+    preparationBufferMinutes: 0,
+    cleanupBufferMinutes: 0,
+    category: 'manicure',
+    bookingCategory: 'manicure',
+    templateKey: null,
+    featuredOrder: null,
+    imageUrl: null,
+    isActive: true,
+    assignedTechnicianCount: 2,
+  };
+
+  const frenchTips = {
+    id: 'addon_french',
+    name: 'French Tips',
+    descriptionItems: null,
+    priceCents: 1000,
+    priceDisplayText: '$10+',
+    durationMinutes: 15,
+    category: 'nail_art',
+    pricingType: 'fixed',
+    unitLabel: null,
+    maxQuantity: null,
+    isActive: true,
+    compatibleServiceIds: ['svc_gel'],
+  };
+
+  const chrome = {
+    ...frenchTips,
+    id: 'addon_chrome',
+    name: 'Chrome — Hands',
+    priceDisplayText: null,
+    compatibleServiceIds: [],
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    fetchMock.mockReset();
+    prepareServiceImageMock.mockReset();
+    prepareServiceImageMock.mockImplementation(async (file: File) => file);
+    vi.stubGlobal('fetch', fetchMock);
+  });
+
+  async function openGelManicureDetail() {
+    fireEvent.click(await screen.findByTestId('service-row-svc_gel'));
+    return screen.findByTestId('service-addons-summary');
+  }
+
+  it('names the add-ons a service already offers, without opening a settings screen', async () => {
+    mockRoutes({
+      services: [gelManicure],
+      addOns: [frenchTips, chrome],
+      merchandising: { lusterPromoDismissed: true },
+    });
+
+    render(<ServicesModal onClose={() => {}} salonSlug="isla-nail-studio" />);
+
+    const summary = await openGelManicureDetail();
+
+    expect(summary).toHaveTextContent('Add-ons for this service');
+    expect(screen.getByTestId('service-addons-summary-names')).toHaveTextContent('French Tips');
+    expect(screen.getByTestId('service-addons-summary-manage')).toHaveTextContent('Manage add-ons');
+  });
+
+  it('invites the owner to add extras when a service offers none', async () => {
+    mockRoutes({
+      services: [gelManicure],
+      addOns: [{ ...frenchTips, compatibleServiceIds: [] }],
+      merchandising: { lusterPromoDismissed: true },
+    });
+
+    render(<ServicesModal onClose={() => {}} salonSlug="isla-nail-studio" />);
+
+    await openGelManicureDetail();
+
+    expect(screen.getByTestId('service-addons-summary-empty')).toHaveTextContent(
+      'Let clients choose extras with this appointment.',
+    );
+    expect(screen.getByTestId('service-addons-summary-manage')).toHaveTextContent('Choose add-ons');
+  });
+
+  it('writes the service side of the relationship and nothing else', async () => {
+    mockRoutes({
+      services: [gelManicure],
+      addOns: [frenchTips, chrome],
+      addOnsAfterRefresh: [
+        frenchTips,
+        { ...chrome, compatibleServiceIds: ['svc_gel'] },
+      ],
+      merchandising: { lusterPromoDismissed: true },
+    });
+
+    render(<ServicesModal onClose={() => {}} salonSlug="isla-nail-studio" />);
+
+    await openGelManicureDetail();
+    fireEvent.click(screen.getByTestId('service-addons-summary-manage'));
+
+    const picker = await screen.findByTestId('service-addon-picker');
+
+    expect(picker).toHaveTextContent('Add-ons for Gel Manicure');
+    expect(picker).toHaveTextContent('Clients can choose these extras after selecting Gel Manicure.');
+    // The extra price and extra duration are what the owner is deciding about.
+    expect(screen.getByTestId('service-addon-option-addon_chrome')).toHaveTextContent('+$10');
+    expect(screen.getByTestId('service-addon-option-addon_chrome')).toHaveTextContent('+15 min');
+    // Current state is pre-selected.
+    expect(screen.getByTestId('service-addon-option-addon_french')).toBeChecked();
+    expect(screen.getByTestId('service-addon-option-addon_chrome')).not.toBeChecked();
+
+    fireEvent.click(screen.getByTestId('service-addon-option-addon_chrome'));
+    fireEvent.click(screen.getByTestId('service-addon-picker-save'));
+
+    await waitFor(() => {
+      const call = findCall((url, init) =>
+        url === '/api/salon/services/svc_gel/add-ons' && init?.method === 'PUT');
+
+      expect(call).toBeTruthy();
+      expect(JSON.parse(String((call![1] as RequestInit).body))).toEqual({
+        salonSlug: 'isla-nail-studio',
+        addOnIds: ['addon_french', 'addon_chrome'],
+      });
+    });
+
+    // No add-on record was edited — only the relationship.
+    expect(findCall((url, init) =>
+      url.startsWith('/api/salon/add-ons/') && init?.method === 'PATCH')).toBeUndefined();
+    expect(findCall((url, init) =>
+      url === '/api/salon/add-ons' && init?.method === 'POST')).toBeUndefined();
+
+    await waitFor(() => {
+      expect(screen.getByTestId('service-addons-summary-names')).toHaveTextContent('Chrome — Hands');
+    });
+
+    await act(async () => {});
+  });
+
+  it('writes nothing when the owner backs out of the picker', async () => {
+    mockRoutes({
+      services: [gelManicure],
+      addOns: [frenchTips, chrome],
+      merchandising: { lusterPromoDismissed: true },
+    });
+
+    render(<ServicesModal onClose={() => {}} salonSlug="isla-nail-studio" />);
+
+    await openGelManicureDetail();
+    fireEvent.click(screen.getByTestId('service-addons-summary-manage'));
+
+    // Untick the one it has, then cancel.
+    fireEvent.click(await screen.findByTestId('service-addon-option-addon_french'));
+    fireEvent.click(screen.getByTestId('service-addon-option-addon_chrome'));
+    fireEvent.click(screen.getByTestId('service-addon-picker-cancel'));
+
+    await waitFor(() => {
+      expect(screen.queryByTestId('service-addon-picker')).not.toBeInTheDocument();
+    });
+
+    expect(findCall((url, init) =>
+      url.includes('/add-ons') && init?.method === 'PUT')).toBeUndefined();
+    // The stored relationship is exactly as it was.
+    expect(screen.getByTestId('service-addons-summary-names')).toHaveTextContent('French Tips');
+
+    await act(async () => {});
+  });
+
+  it('keeps the service readable when the relationship save is refused', async () => {
+    mockRoutes({
+      services: [gelManicure],
+      addOns: [frenchTips, chrome],
+      serviceAddOnsFailure: { status: 400, message: 'One or more selected add-ons do not belong to this salon.' },
+      merchandising: { lusterPromoDismissed: true },
+    });
+
+    render(<ServicesModal onClose={() => {}} salonSlug="isla-nail-studio" />);
+
+    await openGelManicureDetail();
+    fireEvent.click(screen.getByTestId('service-addons-summary-manage'));
+    fireEvent.click(await screen.findByTestId('service-addon-option-addon_chrome'));
+    fireEvent.click(screen.getByTestId('service-addon-picker-save'));
+
+    expect(await screen.findByTestId('service-addon-picker-error')).toHaveTextContent(
+      'One or more selected add-ons do not belong to this salon.',
+    );
+    // Still open, so the owner can retry rather than losing the selection.
+    expect(screen.getByTestId('service-addon-picker')).toBeInTheDocument();
+    expect(screen.getByTestId('service-addon-option-addon_chrome')).toBeChecked();
+
+    await act(async () => {});
+  });
+
+  it('offers a new add-on under the service it was created from', async () => {
+    mockRoutes({
+      services: [gelManicure],
+      addOns: [frenchTips],
+      merchandising: { lusterPromoDismissed: true },
+    });
+
+    render(<ServicesModal onClose={() => {}} salonSlug="isla-nail-studio" />);
+
+    await openGelManicureDetail();
+    fireEvent.click(screen.getByTestId('service-addons-summary-manage'));
+    fireEvent.click(await screen.findByTestId('service-addon-picker-create'));
+
+    // The service the owner is plainly creating this FOR comes pre-ticked.
+    expect(await screen.findByTestId('addon-create-service-svc_gel')).toBeChecked();
+
+    await act(async () => {});
+  });
+
+  it('carries add-ons chosen during creation onto the service that gets created', async () => {
+    mockRoutes({
+      services: [],
+      addOns: [frenchTips, chrome],
+      createdService: { ...gelManicure, id: 'svc_new' },
+      merchandising: { lusterPromoDismissed: true, serviceLibraryIntroDismissed: true },
+    });
+
+    render(<ServicesModal onClose={() => {}} salonSlug="isla-nail-studio" />);
+
+    fireEvent.click(await screen.findByTestId('services-primary-add'));
+
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Gel Manicure' } });
+    fireEvent.change(screen.getByLabelText('Price'), { target: { value: '55' } });
+    fireEvent.change(screen.getByLabelText('Duration'), { target: { value: '60' } });
+
+    // Add-ons are optional and sit with the essentials, not in an advanced pane.
+    const formSummary = screen.getByTestId('service-form-addons');
+
+    expect(formSummary).toHaveTextContent('Optional');
+    expect(formSummary).toHaveTextContent('Choose extras clients can book with this service.');
+
+    fireEvent.click(screen.getByTestId('service-form-addons-manage'));
+
+    const picker = await screen.findByTestId('service-addon-picker');
+
+    expect(picker).toHaveTextContent('Add-ons for Gel Manicure');
+
+    fireEvent.click(screen.getByTestId('service-addon-option-addon_chrome'));
+    fireEvent.click(screen.getByTestId('service-addon-picker-save'));
+
+    // Still a draft: nothing is written before the service exists.
+    await waitFor(() => {
+      expect(screen.queryByTestId('service-addon-picker')).not.toBeInTheDocument();
+    });
+
+    expect(findCall((url, init) => url.includes('/add-ons') && init?.method === 'PUT')).toBeUndefined();
+    expect(screen.getByTestId('service-form-addons-names')).toHaveTextContent('Chrome — Hands');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save Service' }));
+
+    await waitFor(() => {
+      const call = findCall((url, init) =>
+        url === '/api/salon/services/svc_new/add-ons' && init?.method === 'PUT');
+
+      expect(call).toBeTruthy();
+      expect(JSON.parse(String((call![1] as RequestInit).body))).toEqual({
+        salonSlug: 'isla-nail-studio',
+        addOnIds: ['addon_chrome'],
+      });
+    });
+
+    // Order matters: the service has to exist before anything binds to it.
+    const createIndex = fetchMock.mock.calls.findIndex(([input, init]) =>
+      String(input) === '/api/salon/services' && (init as RequestInit | undefined)?.method === 'POST');
+    const bindIndex = fetchMock.mock.calls.findIndex(([input, init]) =>
+      String(input) === '/api/salon/services/svc_new/add-ons' && (init as RequestInit | undefined)?.method === 'PUT');
+
+    expect(createIndex).toBeGreaterThanOrEqual(0);
+    expect(bindIndex).toBeGreaterThan(createIndex);
+
+    await act(async () => {});
+  });
+
+  it('says so when a service saved but its chosen add-ons did not', async () => {
+    mockRoutes({
+      services: [],
+      addOns: [chrome],
+      createdService: { ...gelManicure, id: 'svc_new' },
+      serviceAddOnsFailure: { status: 500, message: 'Failed to save add-ons for this service' },
+      merchandising: { lusterPromoDismissed: true, serviceLibraryIntroDismissed: true },
+    });
+
+    render(<ServicesModal onClose={() => {}} salonSlug="isla-nail-studio" />);
+
+    fireEvent.click(await screen.findByTestId('services-primary-add'));
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Gel Manicure' } });
+    fireEvent.change(screen.getByLabelText('Price'), { target: { value: '55' } });
+    fireEvent.change(screen.getByLabelText('Duration'), { target: { value: '60' } });
+    fireEvent.click(screen.getByTestId('service-form-addons-manage'));
+    fireEvent.click(await screen.findByTestId('service-addon-option-addon_chrome'));
+    fireEvent.click(screen.getByTestId('service-addon-picker-save'));
+    fireEvent.click(screen.getByRole('button', { name: 'Save Service' }));
+
+    // The service IS saved. Dropping the extras silently would be a partial
+    // result the owner never finds out about.
+    expect(await screen.findByTestId('service-operation-notice')).toHaveTextContent(
+      'was saved, but its add-ons could not be attached',
+    );
+
+    await act(async () => {});
+  });
+
+  it('discards a creation draft when the owner backs out', async () => {
+    mockRoutes({
+      services: [],
+      addOns: [chrome],
+      merchandising: { lusterPromoDismissed: true, serviceLibraryIntroDismissed: true },
+    });
+
+    render(<ServicesModal onClose={() => {}} salonSlug="isla-nail-studio" />);
+
+    fireEvent.click(await screen.findByTestId('services-primary-add'));
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Gel Manicure' } });
+    fireEvent.click(screen.getByTestId('service-form-addons-manage'));
+    fireEvent.click(await screen.findByTestId('service-addon-option-addon_chrome'));
+    fireEvent.click(screen.getByTestId('service-addon-picker-save'));
+
+    expect(screen.getByTestId('service-form-addons-names')).toHaveTextContent('Chrome — Hands');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+
+    // Nothing was written, and the next create starts clean.
+    expect(findCall((url, init) => url.includes('/add-ons') && init?.method === 'PUT')).toBeUndefined();
+
+    fireEvent.click(screen.getByTestId('services-primary-add'));
+
+    expect(screen.getByTestId('service-form-addons-empty')).toBeInTheDocument();
+
+    await act(async () => {});
+  });
+
+  it('names the header action for what each tab creates', async () => {
+    mockRoutes({
+      services: [gelManicure],
+      addOns: [frenchTips],
+      merchandising: { lusterPromoDismissed: true, serviceLibraryIntroDismissed: true },
+    });
+
+    render(<ServicesModal onClose={() => {}} salonSlug="isla-nail-studio" />);
+
+    expect(await screen.findByTestId('services-primary-add')).toHaveTextContent('Service');
+
+    fireEvent.click(screen.getByTestId('services-tab-addons'));
+
+    expect(screen.getByTestId('services-primary-add')).toHaveTextContent('Add-on');
+    // One create action, not a header button plus a competing panel CTA.
+    expect(screen.queryByTestId('addons-create-open')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('services-primary-add'));
+
+    expect(await screen.findByTestId('addon-create-dialog')).toBeInTheDocument();
 
     await act(async () => {});
   });

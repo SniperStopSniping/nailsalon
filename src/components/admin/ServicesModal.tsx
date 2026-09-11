@@ -14,6 +14,7 @@
 
 import { motion } from 'framer-motion';
 import {
+  ArrowUpDown,
   ChevronDown,
   ChevronRight,
   ChevronUp,
@@ -21,6 +22,7 @@ import {
   DollarSign,
   ImagePlus,
   Loader2,
+  Plus,
   Save,
   Scissors,
   Search,
@@ -31,6 +33,8 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react
 
 import { AdminDetailCard } from '@/components/admin/AdminDetailCard';
 import { CatalogConfigTab } from '@/components/admin/catalogConfig/CatalogConfigTab';
+import { ServiceAddOnPicker } from '@/components/admin/serviceAddOns/ServiceAddOnPicker';
+import { ServiceAddOnSummary } from '@/components/admin/serviceAddOns/ServiceAddOnSummary';
 import { AsyncStatePanel } from '@/components/ui/async-state-panel';
 import { Button } from '@/components/ui/button';
 import { DialogShell } from '@/components/ui/dialog-shell';
@@ -288,7 +292,12 @@ function CategoryTabs({
 }) {
   return (
     <div className="px-4 pb-3">
-      <div className="scrollbar-hide flex gap-2 overflow-x-auto pb-1">
+      <div
+        data-testid="services-category-filters"
+        role="group"
+        aria-label="Filter services by category"
+        className="scrollbar-hide flex gap-2 overflow-x-auto pb-1"
+      >
         {CATEGORIES.map((cat) => {
           const isActive = active === cat.id;
           const count
@@ -302,7 +311,7 @@ function CategoryTabs({
               type="button"
               onClick={() => onChange(cat.id)}
               className={`
-                flex items-center gap-2 whitespace-nowrap rounded-full px-4 py-2 text-[14px]
+                flex min-h-11 items-center gap-2 whitespace-nowrap rounded-full px-4 py-2 text-[14px]
                 font-medium transition-all
                 ${
             isActive
@@ -333,6 +342,7 @@ function ServiceRow({
   service,
   isLast,
   showNotBookable,
+  reorderMode,
   canMoveUp,
   canMoveDown,
   reorderBusy,
@@ -344,6 +354,8 @@ function ServiceRow({
   isLast: boolean;
   /** Active service with no eligible technician — hidden from booking. */
   showNotBookable: boolean;
+  /** Ordering is an explicit mode, so browsing rows stay wide (AG-services-03). */
+  reorderMode: boolean;
   canMoveUp: boolean;
   canMoveDown: boolean;
   reorderBusy: boolean;
@@ -358,131 +370,147 @@ function ServiceRow({
   const hasOwnImage = !isUnusablePublicServiceImageUrl(service.imageUrl);
   const displayPrice = formatCurrency(service.price);
 
-  return (
-    <motion.div
-      initial={{ opacity: 0, x: -10 }}
-      animate={{ opacity: 1, x: 0 }}
-      data-testid={`service-row-${service.id}`}
-      className="flex min-h-[72px] cursor-pointer items-center pl-4 transition-colors active:bg-[var(--owner-ground)]"
-      onClick={onClick}
-    >
-      {/* Thumbnail */}
-      {hasOwnImage
-        ? (
-            <div className="mr-3 size-12 shrink-0 overflow-hidden rounded-[12px] bg-[var(--owner-ground)] shadow-sm">
-              {/* Service artwork can be a local /uploads path in development, which
-                  next/image is not configured to optimize inside this modal. */}
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={service.imageUrl ?? ''}
-                alt=""
-                loading="lazy"
-                data-testid={`service-row-image-${service.id}`}
-                className="size-full object-cover"
-              />
-            </div>
-          )
-        : (
-            <div
-              data-testid={`service-row-image-fallback-${service.id}`}
-              className={`size-12 shrink-0 rounded-[12px] ${CATEGORY_PLACEHOLDER_CLASS} mr-3 flex items-center justify-center shadow-sm`}
-            >
-              <Scissors className="size-6 text-white" />
-            </div>
-          )}
+  const thumbnail = hasOwnImage
+    ? (
+        <div className="size-11 shrink-0 overflow-hidden rounded-[12px] bg-[var(--owner-ground)] shadow-sm">
+          {/* Service artwork can be a local /uploads path in development, which
+              next/image is not configured to optimize inside this modal. */}
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={service.imageUrl ?? ''}
+            alt=""
+            loading="lazy"
+            data-testid={`service-row-image-${service.id}`}
+            className="size-full object-cover"
+          />
+        </div>
+      )
+    : (
+        <div
+          data-testid={`service-row-image-fallback-${service.id}`}
+          className={`size-11 shrink-0 rounded-[12px] ${CATEGORY_PLACEHOLDER_CLASS} flex items-center justify-center shadow-sm`}
+        >
+          <Scissors className="size-5 text-white" />
+        </div>
+      );
 
-      {/* Content */}
+  const divider = !isLast ? 'border-b border-[var(--owner-line)]' : '';
+
+  if (reorderMode) {
+    return (
       <div
-        className={`flex flex-1 items-center justify-between gap-2 py-3 pr-2 ${!isLast ? 'border-b border-[var(--owner-line)]' : ''}`}
+        data-testid={`service-row-${service.id}`}
+        className={`flex min-h-[60px] items-center gap-3 px-3 py-2 ${divider}`}
       >
-        <div className="min-w-0 flex-1">
-          <div className="truncate text-[17px] font-semibold text-[var(--owner-ink)]">
+        {thumbnail}
+        <div className="min-w-0 flex-1 overflow-hidden">
+          <div className="truncate text-[15px] font-semibold text-[var(--owner-ink)]">
             {service.name}
           </div>
-          <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[13px] text-[var(--owner-muted)]">
-            <span className="flex shrink-0 items-center gap-1 whitespace-nowrap">
-              <Clock className="size-3" />
-              {formatDuration(service.durationMinutes)}
-            </span>
-            <span className="shrink-0 whitespace-nowrap rounded-full bg-[var(--owner-ground)] px-2 py-0.5 text-[12px]">
-              {BOOKING_CATEGORY_META[resolveVisibleBookingCategory(service)].label}
-            </span>
-            {!service.isActive && (
-              <span
-                data-testid={`service-row-inactive-${service.id}`}
-                className="shrink-0 rounded-full bg-gray-200 px-2 py-0.5 text-[12px] text-[var(--owner-muted)]"
-              >
-                Inactive
-              </span>
-            )}
-            {showNotBookable && (
-              <span
-                data-testid={`service-row-not-bookable-${service.id}`}
-                className="shrink-0 rounded-full bg-amber-100 px-2 py-0.5 text-[12px] text-amber-700"
-              >
-                Not bookable
-              </span>
-            )}
-          </div>
-        </div>
-
-        {/* Price column. Capped and shrinkable so a long "price display text"
-            can never win the flex negotiation against the service name
-            (AG-w2-services-02), and the real amount stays the headline even
-            when a display string exists (AG-w2-services-03). */}
-        <div className="flex min-w-0 max-w-[104px] shrink flex-col items-end">
-          <div
-            data-testid={`service-row-price-${service.id}`}
-            className="max-w-full truncate text-[17px] font-semibold text-emerald-700"
-          >
+          <div className="truncate text-[12px] text-[var(--owner-muted)]">
             {displayPrice}
           </div>
-          {service.priceDisplayText && (
-            <div
-              data-testid={`service-row-price-display-${service.id}`}
-              title={service.priceDisplayText}
-              className="max-w-full truncate text-[11px] leading-4 text-[var(--owner-muted)]"
-            >
-              {service.priceDisplayText}
-            </div>
-          )}
         </div>
-
-        {/* Reorder (AG-services-03). Buttons rather than a drag handle: they
-            work with a screen reader, with a keyboard and with one thumb on a
-            390 px phone, which HTML5 drag-and-drop does not. */}
-        <div className="flex shrink-0 flex-col items-center">
+        {/* Buttons rather than a drag handle: they work with a screen reader,
+            with a keyboard and with one thumb on a 390 px phone, which HTML5
+            drag-and-drop does not. */}
+        <div className="flex shrink-0 items-center gap-1">
           <button
             type="button"
             data-testid={`service-row-move-up-${service.id}`}
             aria-label={`Move ${service.name} up`}
             disabled={!canMoveUp || reorderBusy}
-            onClick={(event) => {
-              event.stopPropagation();
-              onMoveUp();
-            }}
-            className="flex size-7 items-center justify-center rounded-md text-[var(--owner-muted)] transition-colors hover:bg-[var(--owner-ground)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)] disabled:opacity-30"
+            onClick={onMoveUp}
+            className="flex size-11 items-center justify-center rounded-xl border border-[var(--owner-line)] bg-[var(--owner-surface)] text-[var(--owner-ink)] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)] active:bg-[var(--owner-ground)] disabled:opacity-30"
           >
-            <ChevronUp className="size-4" />
+            <ChevronUp className="size-5" />
           </button>
           <button
             type="button"
             data-testid={`service-row-move-down-${service.id}`}
             aria-label={`Move ${service.name} down`}
             disabled={!canMoveDown || reorderBusy}
-            onClick={(event) => {
-              event.stopPropagation();
-              onMoveDown();
-            }}
-            className="flex size-7 items-center justify-center rounded-md text-[var(--owner-muted)] transition-colors hover:bg-[var(--owner-ground)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)] disabled:opacity-30"
+            onClick={onMoveDown}
+            className="flex size-11 items-center justify-center rounded-xl border border-[var(--owner-line)] bg-[var(--owner-surface)] text-[var(--owner-ink)] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)] active:bg-[var(--owner-ground)] disabled:opacity-30"
           >
-            <ChevronDown className="size-4" />
+            <ChevronDown className="size-5" />
           </button>
         </div>
-
-        <ChevronRight className="size-4 shrink-0 text-[var(--owner-line-strong)]" />
       </div>
-    </motion.div>
+    );
+  }
+
+  return (
+    <motion.button
+      type="button"
+      initial={{ opacity: 0, x: -10 }}
+      animate={{ opacity: 1, x: 0 }}
+      data-testid={`service-row-${service.id}`}
+      className={`flex min-h-[64px] w-full cursor-pointer items-start gap-3 px-3 py-2.5 text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--owner-focus)] active:bg-[var(--owner-ground)] ${divider}`}
+      onClick={onClick}
+    >
+      {thumbnail}
+
+      {/* Name + meta. `overflow-hidden` is load-bearing: the meta chips below
+          are `whitespace-nowrap`, so without it a chip wider than this column
+          paints straight over the price instead of being clipped
+          (AG-w2-services-02). */}
+      <div className="min-w-0 flex-1 overflow-hidden">
+        {/* Wraps to two lines rather than truncating at half a word: on a
+            390 px phone "Gel Manicure + Gel Pedicure" is unreadable clipped. */}
+        <div className="line-clamp-2 break-words text-[15px] font-semibold leading-5 text-[var(--owner-ink)]">
+          {service.name}
+        </div>
+        <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[12px] leading-4 text-[var(--owner-muted)]">
+          <span className="flex shrink-0 items-center gap-1 whitespace-nowrap">
+            <Clock className="size-3" />
+            {formatDuration(service.durationMinutes)}
+          </span>
+          <span className="max-w-full shrink truncate whitespace-nowrap rounded-full bg-[var(--owner-ground)] px-2 py-0.5">
+            {BOOKING_CATEGORY_META[resolveVisibleBookingCategory(service)].label}
+          </span>
+          {!service.isActive && (
+            <span
+              data-testid={`service-row-inactive-${service.id}`}
+              className="shrink-0 rounded-full bg-gray-200 px-2 py-0.5 text-[var(--owner-muted)]"
+            >
+              Inactive
+            </span>
+          )}
+          {showNotBookable && (
+            <span
+              data-testid={`service-row-not-bookable-${service.id}`}
+              className="shrink-0 rounded-full bg-amber-100 px-2 py-0.5 text-amber-700"
+            >
+              Not bookable
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* Price column. `shrink-0` on the amount so the number a client is
+          charged is never the thing that gets clipped (AG-w2-services-03);
+          the marketing string underneath is the shrinkable half. */}
+      <div className="flex shrink-0 flex-col items-end pl-1">
+        <div
+          data-testid={`service-row-price-${service.id}`}
+          className="whitespace-nowrap text-[15px] font-semibold tabular-nums text-emerald-700"
+        >
+          {displayPrice}
+        </div>
+        {service.priceDisplayText && (
+          <div
+            data-testid={`service-row-price-display-${service.id}`}
+            title={service.priceDisplayText}
+            className="max-w-[92px] truncate text-[11px] leading-4 text-[var(--owner-muted)]"
+          >
+            {service.priceDisplayText}
+          </div>
+        )}
+      </div>
+
+      <ChevronRight className="mt-0.5 size-4 shrink-0 text-[var(--owner-line-strong)]" />
+    </motion.button>
   );
 }
 
@@ -526,6 +554,10 @@ function AddServiceDialog({
   service,
   prefill,
   nextFeaturedOrder,
+  addOnSummaryNames,
+  addOnSummaryBusy,
+  onManageAddOns,
+  onDraftNameChange,
   onClose,
   onSaved,
 }: {
@@ -536,6 +568,15 @@ function AddServiceDialog({
   prefill?: ServicePrefill | null;
   /** Position assigned when the owner turns featuring on. */
   nextFeaturedOrder: number;
+  /**
+   * Add-ons this service will offer — the saved set when editing, the
+   * unsaved draft when creating.
+   */
+  addOnSummaryNames: string[];
+  addOnSummaryBusy: boolean;
+  onManageAddOns: () => void;
+  /** Lets the picker title itself with the name being typed. */
+  onDraftNameChange: (name: string) => void;
   onClose: () => void;
   onSaved: (
     service: ServiceData,
@@ -1159,135 +1200,6 @@ function AddServiceDialog({
           </p>
         </div>
 
-        <fieldset
-          className="space-y-3 rounded-2xl border border-[var(--owner-line)] p-3"
-          disabled={saving}
-          aria-describedby={imageError ? 'service-image-error' : 'service-image-help'}
-        >
-          <legend className="px-1 text-sm font-semibold text-[var(--owner-ink)]">
-            Service image
-          </legend>
-          <div className="overflow-hidden rounded-xl border border-[var(--owner-line)] bg-[var(--owner-ground)]">
-            {/* A native img can preview browser blob URLs selected before save. */}
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={previewImageUrl}
-              alt={
-                previewIsCustom
-                  ? `Preview of custom image for ${name.trim() || 'this service'}`
-                  : `Built-in booking artwork preview for ${name.trim() || 'this service'}`
-              }
-              data-testid="service-image-preview"
-              className="aspect-[16/9] w-full object-cover"
-            />
-          </div>
-          <p
-            id="service-image-help"
-            className="text-xs leading-5 text-[var(--owner-muted)]"
-          >
-            {previewIsCustom
-              ? 'Custom image. Replacing or removing it takes effect only when you save.'
-              : imageIntent === 'remove'
-                ? 'The custom image will be removed when you update. Built-in booking artwork will remain.'
-                : 'Built-in booking artwork is shown until you add a custom image.'}
-          </p>
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp"
-            onChange={handleImageSelection}
-            className="sr-only"
-            aria-label="Service image"
-            aria-invalid={Boolean(imageError)}
-            aria-describedby={imageError ? 'service-image-error' : 'service-image-help'}
-          />
-          <div className="flex flex-wrap gap-2">
-            <Button
-              type="button"
-              variant="brandSoft"
-              size="pillSm"
-              onClick={() => fileInputRef.current?.click()}
-              disabled={saving}
-            >
-              <ImagePlus className="mr-2 size-4" />
-              {hasCurrentCustomImage ? 'Replace image' : 'Add image'}
-            </Button>
-            {imageIntent === 'remove'
-              ? (
-                  <Button
-                    type="button"
-                    variant="brandSoft"
-                    size="pillSm"
-                    onClick={handleUndoImageRemoval}
-                    disabled={saving}
-                  >
-                    Undo removal
-                  </Button>
-                )
-              : (
-                  <Button
-                    type="button"
-                    variant="brandSoft"
-                    size="pillSm"
-                    onClick={handleRemoveImage}
-                    disabled={saving || (!stagedImageFile && !hasPersistedCustomImage)}
-                  >
-                    <Trash2 className="mr-2 size-4" />
-                    Remove image
-                  </Button>
-                )}
-          </div>
-          {imageError && (
-            <p
-              id="service-image-error"
-              role="alert"
-              className="text-sm text-red-600"
-            >
-              {imageError}
-            </p>
-          )}
-        </fieldset>
-
-        <div className="grid grid-cols-2 gap-3">
-          <label className="block">
-            <span className="mb-1.5 block text-sm font-medium text-[var(--owner-ink)]">
-              Preparation buffer
-            </span>
-            <input
-              type="number"
-              min="0"
-              max="120"
-              step="5"
-              inputMode="numeric"
-              value={preparationBufferMinutes}
-              disabled={saving}
-              onChange={event =>
-                setPreparationBufferMinutes(event.target.value)}
-              className="h-11 w-full rounded-xl border border-[var(--owner-line)] px-3 text-sm outline-none transition focus:border-[var(--owner-accent)]"
-            />
-          </label>
-          <label className="block">
-            <span className="mb-1.5 block text-sm font-medium text-[var(--owner-ink)]">
-              Cleanup buffer
-            </span>
-            <input
-              type="number"
-              min="0"
-              max="120"
-              step="5"
-              inputMode="numeric"
-              value={cleanupBufferMinutes}
-              disabled={saving}
-              onChange={event => setCleanupBufferMinutes(event.target.value)}
-              className="h-11 w-full rounded-xl border border-[var(--owner-line)] px-3 text-sm outline-none transition focus:border-[var(--owner-accent)]"
-            />
-          </label>
-          <p className="col-span-2 text-xs leading-5 text-[var(--owner-muted)]">
-            Luster reserves the larger of the salon-wide buffer or these service
-            buffers after the client duration, preventing back-to-back overlap.
-          </p>
-        </div>
-
         <label className="block">
           <span className="mb-1.5 block text-sm font-medium text-[var(--owner-ink)]">
             Name
@@ -1296,7 +1208,10 @@ function AddServiceDialog({
             type="text"
             value={name}
             disabled={saving}
-            onChange={event => setName(event.target.value)}
+            onChange={(event) => {
+              setName(event.target.value);
+              onDraftNameChange(event.target.value);
+            }}
             placeholder="BIAB Short"
             className="h-11 w-full rounded-xl border border-[var(--owner-line)] px-3 text-sm outline-none transition focus:border-[var(--owner-accent)]"
           />
@@ -1402,105 +1317,261 @@ function AddServiceDialog({
           </span>
         </label>
 
-        <label className="flex items-center justify-between rounded-xl border border-[var(--owner-line)] p-3">
-          <span>
-            <span className="block text-sm font-medium text-[var(--owner-ink)]">
-              ⭐ Feature this service
-            </span>
-            <span className="block text-xs text-[var(--owner-muted)]">
-              {isFeatured && service?.featuredOrder != null
-                ? `Featured — position ${service.featuredOrder}`
-                : 'Show it in Featured Services on your booking page.'}
-            </span>
-          </span>
-          <input
-            type="checkbox"
-            data-testid="service-featured-toggle"
-            checked={isFeatured}
-            disabled={saving}
-            onChange={event => setIsFeatured(event.target.checked)}
-            className="size-4"
-          />
-        </label>
+        {/* Add-ons sit directly after the essentials (name, price, duration,
+            category) and before the less-common controls. Never a
+            prerequisite: the service saves whether or not any are chosen. */}
+        <ServiceAddOnSummary
+          testId="service-form-addons"
+          assignedNames={addOnSummaryNames}
+          optional
+          busy={addOnSummaryBusy}
+          disabled={saving}
+          onManage={onManageAddOns}
+        />
 
-        <label className="block">
-          <span className="mb-1.5 block text-sm font-medium text-[var(--owner-ink)]">
-            Description items
-          </span>
-          <textarea
-            value={description}
-            disabled={saving}
-            onChange={event => setDescription(event.target.value)}
-            rows={3}
-            placeholder={
-              'One benefit per line\nDry manicure\nDetailed cuticle work'
-            }
-            className="w-full rounded-xl border border-[var(--owner-line)] px-3 py-2 text-sm outline-none transition focus:border-[var(--owner-accent)]"
-          />
-        </label>
-
-        <label className="block">
-          <span className="mb-1.5 block text-sm font-medium text-[var(--owner-ink)]">
-            Price display text
-          </span>
-          <input
-            type="text"
-            value={priceDisplayText}
-            disabled={saving}
-            onChange={event => setPriceDisplayText(event.target.value)}
-            placeholder="$70+"
-            className="h-11 w-full rounded-xl border border-[var(--owner-line)] px-3 text-sm outline-none transition focus:border-[var(--owner-accent)]"
-          />
-        </label>
-
-        <label className="flex items-center justify-between rounded-xl border border-[var(--owner-line)] p-3">
-          <span className="text-sm font-medium text-[var(--owner-ink)]">
-            Intro pricing badge
-          </span>
-          <input
-            type="checkbox"
-            checked={isIntroPrice}
-            disabled={saving}
-            onChange={event => setIsIntroPrice(event.target.checked)}
-            className="size-4"
-          />
-        </label>
-
-        {service && (
-          <label className="flex items-center justify-between rounded-xl border border-[var(--owner-line)] p-3">
-            <span>
-              <span className="block text-sm font-medium text-[var(--owner-ink)]">
-                Bookable
-              </span>
-              <span className="block text-xs text-[var(--owner-muted)]">
-                Turn off to hide this service without deleting history.
-              </span>
-            </span>
-            <input
-              type="checkbox"
-              checked={isActive}
+        {/* Everything a nail tech does NOT have to decide to put a service
+            on their menu. Collapsed while creating so the primary flow is
+            name, price, duration, category; open by default while editing,
+            where the owner came specifically to change one of these. */}
+        <details
+          className="rounded-2xl border border-[var(--owner-line)] px-3 py-1"
+          data-testid="service-form-advanced"
+          open={Boolean(service)}
+        >
+          <summary className="flex min-h-11 cursor-pointer items-center text-sm font-semibold text-[var(--owner-ink)]">
+            Photo, buffers &amp; display options
+          </summary>
+          <div className="space-y-4 border-t border-[var(--owner-line)] py-3">
+            <fieldset
+              className="space-y-3 rounded-2xl border border-[var(--owner-line)] p-3"
               disabled={saving}
-              onChange={event => setIsActive(event.target.checked)}
-              className="size-4"
-            />
-          </label>
-        )}
+              aria-describedby={imageError ? 'service-image-error' : 'service-image-help'}
+            >
+              <legend className="px-1 text-sm font-semibold text-[var(--owner-ink)]">
+                Service image
+              </legend>
+              <div className="overflow-hidden rounded-xl border border-[var(--owner-line)] bg-[var(--owner-ground)]">
+                {/* A native img can preview browser blob URLs selected before save. */}
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={previewImageUrl}
+                  alt={
+                    previewIsCustom
+                      ? `Preview of custom image for ${name.trim() || 'this service'}`
+                      : `Built-in booking artwork preview for ${name.trim() || 'this service'}`
+                  }
+                  data-testid="service-image-preview"
+                  className="aspect-[16/9] w-full object-cover"
+                />
+              </div>
+              <p
+                id="service-image-help"
+                className="text-xs leading-5 text-[var(--owner-muted)]"
+              >
+                {previewIsCustom
+                  ? 'Custom image. Replacing or removing it takes effect only when you save.'
+                  : imageIntent === 'remove'
+                    ? 'The custom image will be removed when you update. Built-in booking artwork will remain.'
+                    : 'Built-in booking artwork is shown until you add a custom image.'}
+              </p>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp"
+                onChange={handleImageSelection}
+                className="sr-only"
+                aria-label="Service image"
+                aria-invalid={Boolean(imageError)}
+                aria-describedby={imageError ? 'service-image-error' : 'service-image-help'}
+              />
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  variant="brandSoft"
+                  size="pillSm"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={saving}
+                >
+                  <ImagePlus className="mr-2 size-4" />
+                  {hasCurrentCustomImage ? 'Replace image' : 'Add image'}
+                </Button>
+                {imageIntent === 'remove'
+                  ? (
+                      <Button
+                        type="button"
+                        variant="brandSoft"
+                        size="pillSm"
+                        onClick={handleUndoImageRemoval}
+                        disabled={saving}
+                      >
+                        Undo removal
+                      </Button>
+                    )
+                  : (
+                      <Button
+                        type="button"
+                        variant="brandSoft"
+                        size="pillSm"
+                        onClick={handleRemoveImage}
+                        disabled={saving || (!stagedImageFile && !hasPersistedCustomImage)}
+                      >
+                        <Trash2 className="mr-2 size-4" />
+                        Remove image
+                      </Button>
+                    )}
+              </div>
+              {imageError && (
+                <p
+                  id="service-image-error"
+                  role="alert"
+                  className="text-sm text-red-600"
+                >
+                  {imageError}
+                </p>
+              )}
+            </fieldset>
 
-        {isIntroPrice && (
-          <label className="block">
-            <span className="mb-1.5 block text-sm font-medium text-[var(--owner-ink)]">
-              Intro label
-            </span>
-            <input
-              type="text"
-              value={introPriceLabel}
-              disabled={saving}
-              onChange={event => setIntroPriceLabel(event.target.value)}
-              placeholder="Founding Client Price"
-              className="h-11 w-full rounded-xl border border-[var(--owner-line)] px-3 text-sm outline-none transition focus:border-[var(--owner-accent)]"
-            />
-          </label>
-        )}
+            <div className="grid grid-cols-2 gap-3">
+              <label className="block">
+                <span className="mb-1.5 block text-sm font-medium text-[var(--owner-ink)]">
+                  Preparation buffer
+                </span>
+                <input
+                  type="number"
+                  min="0"
+                  max="120"
+                  step="5"
+                  inputMode="numeric"
+                  value={preparationBufferMinutes}
+                  disabled={saving}
+                  onChange={event =>
+                    setPreparationBufferMinutes(event.target.value)}
+                  className="h-11 w-full rounded-xl border border-[var(--owner-line)] px-3 text-sm outline-none transition focus:border-[var(--owner-accent)]"
+                />
+              </label>
+              <label className="block">
+                <span className="mb-1.5 block text-sm font-medium text-[var(--owner-ink)]">
+                  Cleanup buffer
+                </span>
+                <input
+                  type="number"
+                  min="0"
+                  max="120"
+                  step="5"
+                  inputMode="numeric"
+                  value={cleanupBufferMinutes}
+                  disabled={saving}
+                  onChange={event => setCleanupBufferMinutes(event.target.value)}
+                  className="h-11 w-full rounded-xl border border-[var(--owner-line)] px-3 text-sm outline-none transition focus:border-[var(--owner-accent)]"
+                />
+              </label>
+              <p className="col-span-2 text-xs leading-5 text-[var(--owner-muted)]">
+                Luster reserves the larger of the salon-wide buffer or these service
+                buffers after the client duration, preventing back-to-back overlap.
+              </p>
+            </div>
+
+            <label className="flex items-center justify-between rounded-xl border border-[var(--owner-line)] p-3">
+              <span>
+                <span className="block text-sm font-medium text-[var(--owner-ink)]">
+                  ⭐ Feature this service
+                </span>
+                <span className="block text-xs text-[var(--owner-muted)]">
+                  {isFeatured && service?.featuredOrder != null
+                    ? `Featured — position ${service.featuredOrder}`
+                    : 'Show it in Featured Services on your booking page.'}
+                </span>
+              </span>
+              <input
+                type="checkbox"
+                data-testid="service-featured-toggle"
+                checked={isFeatured}
+                disabled={saving}
+                onChange={event => setIsFeatured(event.target.checked)}
+                className="size-4"
+              />
+            </label>
+
+            <label className="block">
+              <span className="mb-1.5 block text-sm font-medium text-[var(--owner-ink)]">
+                Description items
+              </span>
+              <textarea
+                value={description}
+                disabled={saving}
+                onChange={event => setDescription(event.target.value)}
+                rows={3}
+                placeholder={
+                  'One benefit per line\nDry manicure\nDetailed cuticle work'
+                }
+                className="w-full rounded-xl border border-[var(--owner-line)] px-3 py-2 text-sm outline-none transition focus:border-[var(--owner-accent)]"
+              />
+            </label>
+
+            <label className="block">
+              <span className="mb-1.5 block text-sm font-medium text-[var(--owner-ink)]">
+                Price display text
+              </span>
+              <input
+                type="text"
+                value={priceDisplayText}
+                disabled={saving}
+                onChange={event => setPriceDisplayText(event.target.value)}
+                placeholder="$70+"
+                className="h-11 w-full rounded-xl border border-[var(--owner-line)] px-3 text-sm outline-none transition focus:border-[var(--owner-accent)]"
+              />
+            </label>
+
+            <label className="flex items-center justify-between rounded-xl border border-[var(--owner-line)] p-3">
+              <span className="text-sm font-medium text-[var(--owner-ink)]">
+                Intro pricing badge
+              </span>
+              <input
+                type="checkbox"
+                checked={isIntroPrice}
+                disabled={saving}
+                onChange={event => setIsIntroPrice(event.target.checked)}
+                className="size-4"
+              />
+            </label>
+
+            {service && (
+              <label className="flex items-center justify-between rounded-xl border border-[var(--owner-line)] p-3">
+                <span>
+                  <span className="block text-sm font-medium text-[var(--owner-ink)]">
+                    Bookable
+                  </span>
+                  <span className="block text-xs text-[var(--owner-muted)]">
+                    Turn off to hide this service without deleting history.
+                  </span>
+                </span>
+                <input
+                  type="checkbox"
+                  checked={isActive}
+                  disabled={saving}
+                  onChange={event => setIsActive(event.target.checked)}
+                  className="size-4"
+                />
+              </label>
+            )}
+
+            {isIntroPrice && (
+              <label className="block">
+                <span className="mb-1.5 block text-sm font-medium text-[var(--owner-ink)]">
+                  Intro label
+                </span>
+                <input
+                  type="text"
+                  value={introPriceLabel}
+                  disabled={saving}
+                  onChange={event => setIntroPriceLabel(event.target.value)}
+                  placeholder="Founding Client Price"
+                  className="h-11 w-full rounded-xl border border-[var(--owner-line)] px-3 text-sm outline-none transition focus:border-[var(--owner-accent)]"
+                />
+              </label>
+            )}
+          </div>
+        </details>
 
         {error && (
           <div role="alert" className="rounded-2xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-600">
@@ -1601,7 +1672,7 @@ function LusterPromoCard({
           aria-label="Dismiss"
           data-testid="luster-promo-dismiss"
           onClick={onDismiss}
-          className="shrink-0 text-[13px] font-medium text-[var(--owner-muted)]"
+          className="-mx-2 inline-flex min-h-11 shrink-0 items-center rounded-full px-2 text-[13px] font-medium text-[var(--owner-muted)]"
         >
           Not now
         </button>
@@ -1627,6 +1698,10 @@ function LusterPromoCard({
 function ServiceDetail({
   service,
   activeTechnicianCount,
+  assignedAddOnNames,
+  addOnsLoading,
+  addOnError,
+  onManageAddOns,
   onOpenStaff,
   onBack,
   onEdit,
@@ -1636,6 +1711,11 @@ function ServiceDetail({
 }: {
   service: ServiceData;
   activeTechnicianCount: number;
+  /** Add-ons currently offered under this service, in add-on list order. */
+  assignedAddOnNames: string[];
+  addOnsLoading: boolean;
+  addOnError: string | null;
+  onManageAddOns: () => void;
   onOpenStaff?: () => void;
   onBack: () => void;
   onEdit: () => void;
@@ -1809,6 +1889,18 @@ function ServiceDetail({
                 )}
           </AdminDetailCard>
         )}
+
+        {/* Add-ons. Above the owner actions and outside any advanced
+            disclosure: which extras a client can add is everyday menu work,
+            and it was previously invisible from the service entirely. */}
+        <div className="mt-4">
+          <ServiceAddOnSummary
+            assignedNames={assignedAddOnNames}
+            busy={addOnsLoading}
+            error={addOnError}
+            onManage={onManageAddOns}
+          />
+        </div>
 
         {/* Owner actions */}
         <div className="mt-4 space-y-2">
@@ -2137,6 +2229,26 @@ export function ServicesModal({ onClose, salonSlug, onOpenStaff }: ServicesModal
   const [menuQuery, setMenuQuery] = useState('');
   const [reorderBusy, setReorderBusy] = useState(false);
   const [reorderError, setReorderError] = useState<string | null>(null);
+  const [reorderMode, setReorderMode] = useState(false);
+  /**
+   * Which service the "Add-ons for <service>" picker is editing, and the
+   * add-on ids chosen but not yet written. Nothing here touches the server
+   * until Save, so backing out leaves the stored relationship untouched.
+   */
+  const [addOnPickerServiceId, setAddOnPickerServiceId] = useState<string | null>(null);
+  const [addOnPickerSaving, setAddOnPickerSaving] = useState(false);
+  const [addOnPickerError, setAddOnPickerError] = useState<string | null>(null);
+  const [serviceAddOnError, setServiceAddOnError] = useState<string | null>(null);
+  /**
+   * Add-ons chosen inside the CREATE form, before the service exists. Held as
+   * a draft because there is no service id to bind them to yet; written by
+   * `persistServiceAddOns` immediately after the create call returns one.
+   */
+  const [draftAddOnIds, setDraftAddOnIds] = useState<string[]>([]);
+  const [draftAddOnPickerOpen, setDraftAddOnPickerOpen] = useState(false);
+  const [draftServiceName, setDraftServiceName] = useState('');
+  /** Set while the add-on creator was opened from inside a service picker. */
+  const [addOnCreateForServiceId, setAddOnCreateForServiceId] = useState<string | null>(null);
   const [selectedService, setSelectedService] = useState<ServiceData | null>(
     null,
   );
@@ -2803,6 +2915,113 @@ export function ServicesModal({ onClose, salonSlug, onOpenStaff }: ServicesModal
     categoryCounts[visibleCategory] = (categoryCounts[visibleCategory] || 0) + 1;
   }
 
+  /**
+   * serviceId -> the add-ons offered under it, derived from the SAME
+   * `compatibleServiceIds` the Add-ons tab renders. Both directions read one
+   * source, so a change made from either side shows up in the other as soon
+   * as the add-on list is refetched — there is no second store to drift.
+   */
+  const addOnsByServiceId = new Map<string, AddOnData[]>();
+  for (const addOn of addOns) {
+    for (const serviceId of addOn.compatibleServiceIds ?? []) {
+      const existing = addOnsByServiceId.get(serviceId);
+      if (existing) {
+        existing.push(addOn);
+      } else {
+        addOnsByServiceId.set(serviceId, [addOn]);
+      }
+    }
+  }
+
+  const addOnPickerService = addOnPickerServiceId
+    ? services.find(service => service.id === addOnPickerServiceId) ?? null
+    : null;
+
+  /**
+   * Write the service side of the relationship. A dedicated endpoint rather
+   * than N add-on PATCHes: the add-on editor's schema requires an add-on's
+   * whole row, so driving it from here would rewrite each add-on's own price
+   * and active state as a side effect of retargeting one service.
+   */
+  const persistServiceAddOns = useCallback(
+    async (serviceId: string, addOnIds: string[]): Promise<boolean> => {
+      if (!salonSlug) {
+        setAddOnPickerError('Select a salon before choosing add-ons.');
+        return false;
+      }
+      const response = await fetch(
+        `/api/salon/services/${encodeURIComponent(serviceId)}/add-ons`,
+        {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ salonSlug, addOnIds }),
+        },
+      );
+      if (!response.ok) {
+        const result = await response.json().catch(() => null);
+        throw new Error(
+          result?.error?.message ?? 'Add-ons for this service could not be saved.',
+        );
+      }
+      return true;
+    },
+    [salonSlug],
+  );
+
+  const handleSaveServiceAddOns = useCallback(
+    async (addOnIds: string[]) => {
+      if (!addOnPickerServiceId) {
+        return;
+      }
+      setAddOnPickerSaving(true);
+      setAddOnPickerError(null);
+      try {
+        await persistServiceAddOns(addOnPickerServiceId, addOnIds);
+        // Refetch rather than patch local state: the response of record for
+        // "which services offer this add-on" is the add-on list, and the
+        // Add-ons tab has to agree with what was just written.
+        await fetchAddOns();
+        setServiceAddOnError(null);
+        setAddOnPickerServiceId(null);
+      } catch (saveError) {
+        setAddOnPickerError(
+          saveError instanceof Error
+            ? saveError.message
+            : 'Add-ons for this service could not be saved.',
+        );
+      } finally {
+        setAddOnPickerSaving(false);
+      }
+    },
+    [addOnPickerServiceId, persistServiceAddOns, fetchAddOns],
+  );
+
+  /**
+   * The header's single create action, per tab. `null` on Menu Setup, which
+   * configures existing records rather than creating them.
+   */
+  const primaryAddAction: { label: string; ariaLabel: string; onClick: () => void } | null
+    = activeTab === 'addons'
+      ? {
+          label: 'Add-on',
+          ariaLabel: 'New add-on',
+          onClick: () => {
+            setAddOnNotice(null);
+            setAddOnCreateForServiceId(null);
+            setShowAddOnCreate(true);
+          },
+        }
+      : activeTab === 'catalog'
+        ? null
+        : {
+            label: 'Service',
+            ariaLabel: 'New service',
+            onClick: () => {
+              setAddDialogPrefill(null);
+              setShowAddDialog(true);
+            },
+          };
+
   const getTabScroller = useCallback(
     () =>
       servicesRootRef.current?.closest<HTMLElement>(
@@ -2823,6 +3042,9 @@ export function ServicesModal({ onClose, salonSlug, onOpenStaff }: ServicesModal
       if (scroller) {
         tabScrollOffsets.current[renderedTabRef.current] = scroller.scrollTop;
       }
+      // Reorder is a My Menu mode. Leaving the tab in it would strand the
+      // owner in a list whose rows no longer open.
+      setReorderMode(false);
       setActiveTab(next);
     },
     [getTabScroller],
@@ -2890,14 +3112,20 @@ export function ServicesModal({ onClose, salonSlug, onOpenStaff }: ServicesModal
             addOnsError ? 'add-ons unavailable' : `${addOns.length} add-ons`
           }`}
           leftAction={<BackButton onClick={onClose} label="Back" />}
-          rightAction={(
+          rightAction={primaryAddAction && (
+            /* One primary create action per tab, named for what it makes.
+               A generic "Add" that always opened the SERVICE form was wrong
+               on the Add-ons tab, and competed with that tab's own CTA. */
             <button
               type="button"
-              onClick={() => setShowAddDialog(true)}
+              onClick={primaryAddAction.onClick}
               disabled={!salonSlug}
-              className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-full px-2 text-[17px] font-medium text-[var(--owner-accent)] outline-none transition-opacity focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)] active:opacity-50 disabled:text-[var(--owner-muted)] disabled:opacity-60"
+              data-testid="services-primary-add"
+              aria-label={primaryAddAction.ariaLabel}
+              className="-mr-1 inline-flex min-h-11 items-center justify-center gap-0.5 whitespace-nowrap rounded-full px-1 text-[15px] font-semibold text-[var(--owner-accent)] outline-none transition-opacity focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)] active:opacity-50 disabled:text-[var(--owner-muted)] disabled:opacity-60"
             >
-              Add
+              <Plus aria-hidden="true" className="size-4" />
+              {primaryAddAction.label}
             </button>
           )}
         />
@@ -2909,7 +3137,7 @@ export function ServicesModal({ onClose, salonSlug, onOpenStaff }: ServicesModal
               aria-selected={activeTab === 'menu'}
               data-testid="services-tab-menu"
               onClick={() => selectTab('menu')}
-              className={`min-h-11 rounded-full px-2 text-[13px] font-semibold outline-none transition-all focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)] ${
+              className={`min-h-11 whitespace-nowrap rounded-full px-1 text-[13px] font-semibold outline-none transition-all focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)] ${
                 activeTab === 'menu' ? 'bg-[var(--owner-surface)] text-[var(--owner-accent)] shadow-sm' : 'text-[var(--owner-muted)]'
               }`}
             >
@@ -2921,7 +3149,7 @@ export function ServicesModal({ onClose, salonSlug, onOpenStaff }: ServicesModal
               aria-selected={activeTab === 'addons'}
               data-testid="services-tab-addons"
               onClick={() => selectTab('addons')}
-              className={`min-h-11 rounded-full px-2 text-[13px] font-semibold outline-none transition-all focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)] ${
+              className={`min-h-11 whitespace-nowrap rounded-full px-1 text-[13px] font-semibold outline-none transition-all focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)] ${
                 activeTab === 'addons' ? 'bg-[var(--owner-surface)] text-[var(--owner-accent)] shadow-sm' : 'text-[var(--owner-muted)]'
               }`}
             >
@@ -2933,7 +3161,7 @@ export function ServicesModal({ onClose, salonSlug, onOpenStaff }: ServicesModal
               aria-selected={activeTab === 'library'}
               data-testid="services-tab-library"
               onClick={() => selectTab('library')}
-              className={`min-h-11 rounded-full px-2 text-[13px] font-semibold outline-none transition-all focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)] ${
+              className={`min-h-11 whitespace-nowrap rounded-full px-1 text-[13px] font-semibold outline-none transition-all focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)] ${
                 activeTab === 'library' ? 'bg-[var(--owner-surface)] text-[var(--owner-accent)] shadow-sm' : 'text-[var(--owner-muted)]'
               }`}
             >
@@ -2945,139 +3173,14 @@ export function ServicesModal({ onClose, salonSlug, onOpenStaff }: ServicesModal
               aria-selected={activeTab === 'catalog'}
               data-testid="services-tab-catalog"
               onClick={() => selectTab('catalog')}
-              className={`min-h-11 rounded-full px-2 text-[13px] font-semibold outline-none transition-all focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)] ${
+              className={`min-h-11 whitespace-nowrap rounded-full px-1 text-[13px] font-semibold outline-none transition-all focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)] ${
                 activeTab === 'catalog' ? 'bg-[var(--owner-surface)] text-[var(--owner-accent)] shadow-sm' : 'text-[var(--owner-muted)]'
               }`}
             >
-              Menu Setup
+              Setup
             </button>
           </div>
         </div>
-        <div
-          data-testid="service-images-visibility-row"
-          className="mx-4 mb-2 flex min-w-0 items-center justify-between gap-3 rounded-xl border border-[var(--owner-line)] bg-[var(--owner-surface)] px-3 py-2"
-        >
-          <div className="min-w-0">
-            <p
-              id="service-images-visibility-label"
-              className="text-[14px] font-semibold leading-5 text-[var(--owner-ink)]"
-            >
-              Service images
-            </p>
-            <p
-              id="service-images-visibility-description"
-              className="text-[12px] leading-4 text-[var(--owner-muted)]"
-            >
-              {showServiceImages === false
-                ? 'Images are hidden from clients. Your uploaded images are saved.'
-                : 'Show images on your public booking page.'}
-            </p>
-            {showServiceImagesError && (
-              <p
-                role="alert"
-                data-testid="service-images-visibility-error"
-                className="mt-1 text-[12px] leading-4 text-red-700"
-              >
-                {showServiceImagesError}
-              </p>
-            )}
-          </div>
-          <button
-            type="button"
-            role="switch"
-            aria-checked={showServiceImages ?? true}
-            aria-busy={showServiceImagesSaving}
-            aria-labelledby="service-images-visibility-label"
-            aria-describedby="service-images-visibility-description"
-            disabled={showServiceImages === null || showServiceImagesSaving || !salonSlug}
-            data-testid="services-show-service-images-toggle"
-            onClick={() => void handleShowServiceImagesChange()}
-            className={`relative h-7 w-12 shrink-0 rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)] focus-visible:ring-offset-2 disabled:cursor-wait disabled:opacity-60 ${
-              showServiceImages !== false ? 'bg-[var(--owner-accent)]' : 'bg-gray-300'
-            }`}
-          >
-            <span
-              aria-hidden="true"
-              className={`absolute left-1 top-1 size-5 rounded-full bg-[var(--owner-surface)] shadow-sm transition-transform ${
-                showServiceImages !== false ? 'translate-x-5' : 'translate-x-0'
-              }`}
-            />
-            <span className="sr-only">
-              Toggle service images
-            </span>
-          </button>
-          <span className="sr-only" role="status" aria-live="polite">
-            {showServiceImagesSaving ? 'Saving service image visibility' : ''}
-          </span>
-        </div>
-        {activeTab === 'menu' && (
-          <details className="mx-4 mb-2 rounded-xl border border-[var(--owner-line)] bg-[var(--owner-surface)] px-3 py-2">
-            <summary className="flex min-h-11 cursor-pointer items-center text-[14px] font-semibold text-[var(--owner-ink)]">Menu display &amp; offers</summary>
-            <div className="space-y-3 border-t border-[var(--owner-line)] py-3">
-              {menuDisplayLoadState === 'loading' ? <p className="text-[13px] text-[var(--owner-muted)]" role="status">Loading saved menu settings…</p> : null}
-              {menuDisplayError ? <p className="text-[13px] text-red-700" role="alert">{menuDisplayError}</p> : null}
-              <label className="block text-[13px] font-medium text-[var(--owner-ink)]">
-                Default intro label
-                <input
-                  type="text"
-                  value={menuDisplay?.introPriceDefaultLabel ?? ''}
-                  disabled={menuDisplayLoadState !== 'ready' || menuDisplaySaving}
-                  onChange={(event) => {
-                    const value = event.target.value;
-                    setMenuDisplay(current => current ? { ...current, introPriceDefaultLabel: value } : current);
-                    setMenuDisplayPatch(current => ({ ...current, introPriceDefaultLabel: value }));
-                    setMenuDisplaySaved(false);
-                  }}
-                  className="mt-1 min-h-11 w-full rounded-xl border border-[var(--owner-line)] px-3 text-[15px]"
-                  placeholder="Founding Client Price"
-                />
-              </label>
-              <label className="flex min-h-11 items-center justify-between gap-3 text-[13px]">
-                <span>
-                  <span className="block font-medium">First-visit offer</span>
-                  <span className="text-[12px] text-[var(--owner-muted)]">25% off for first-time clients</span>
-                </span>
-                <input
-                  type="checkbox"
-                  checked={menuDisplay?.firstVisitDiscountEnabled ?? false}
-                  disabled={menuDisplayLoadState !== 'ready' || menuDisplaySaving}
-                  onChange={(event) => {
-                    const value = event.target.checked;
-                    setMenuDisplay(current => current ? { ...current, firstVisitDiscountEnabled: value } : current);
-                    setMenuDisplayPatch(current => ({ ...current, firstVisitDiscountEnabled: value }));
-                    setMenuDisplaySaved(false);
-                  }}
-                  className="size-5 accent-[var(--owner-accent)]"
-                />
-              </label>
-              <label className="flex min-h-11 items-center justify-between gap-3 text-[13px]">
-                <span>
-                  <span className="block font-medium">Feature Luster Manicure</span>
-                  <span className="text-[12px] text-[var(--owner-muted)]">Show the active Luster Manicure first</span>
-                </span>
-                <input
-                  type="checkbox"
-                  checked={menuDisplay?.featureLusterManicure ?? false}
-                  disabled={menuDisplayLoadState !== 'ready' || menuDisplaySaving}
-                  onChange={(event) => {
-                    const value = event.target.checked;
-                    setMenuDisplay(current => current ? { ...current, featureLusterManicure: value } : current);
-                    setMenuDisplayPatch(current => ({ ...current, featureLusterManicure: value }));
-                    setMenuDisplaySaved(false);
-                  }}
-                  className="size-5 accent-[var(--owner-accent)]"
-                />
-              </label>
-              <div className="flex items-center justify-end gap-3">
-                {menuDisplaySaved ? <span className="text-[12px] font-medium text-emerald-700">Saved</span> : null}
-                <button type="button" onClick={() => void saveMenuDisplay()} disabled={menuDisplayLoadState !== 'ready' || Object.keys(menuDisplayPatch).length === 0 || menuDisplaySaving} className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-[var(--owner-accent)] px-4 text-[13px] font-semibold text-white disabled:opacity-50">
-                  <Save aria-hidden="true" className="size-4" />
-                  {menuDisplaySaving ? 'Saving…' : 'Save menu display'}
-                </button>
-              </div>
-            </div>
-          </details>
-        )}
         {activeTab === 'menu' && (
           <>
             {/* Owner search (AG-services-01). The client's copy of this menu and
@@ -3145,29 +3248,21 @@ export function ServicesModal({ onClose, salonSlug, onOpenStaff }: ServicesModal
 
       {/* Content — display:none while a detail is open so the detail owns the
           flow slot below the sticky chrome (list state stays mounted). */}
-      <div className={`flex-1 overflow-y-auto pb-10 ${selectedService ? 'hidden' : ''}`}>
+      {/* `pt-3` is the fix for content butting against the header: every tab
+          passes through this one node, and a row scrolled to the top used to
+          land flush against the opaque sticky chrome with no gutter at all.
+          `scroll-pt-3` keeps programmatic scrolls honouring the same gutter.
+          `min-h-0` stops this flex child from being squeezed to zero height on
+          a short (landscape) viewport, which used to hide the list entirely. */}
+      <div className={`min-h-0 flex-1 scroll-pt-3 overflow-y-auto pb-10 pt-3 ${selectedService ? 'hidden' : ''}`}>
         {activeTab === 'addons' && (
           <div className="px-4 pb-4" data-testid="addons-tab-panel">
-            <div className="mb-3 flex items-start justify-between gap-3">
-              <p className="text-[13px] leading-relaxed text-[var(--owner-muted)]">
-                Add-ons appear for clients after they pick a compatible base
-                service — they are never listed as standalone services.
-              </p>
-              <Button
-                type="button"
-                variant="ownerPrimary"
-                size="pillSm"
-                className="shrink-0"
-                data-testid="addons-create-open"
-                disabled={!salonSlug}
-                onClick={() => {
-                  setAddOnNotice(null);
-                  setShowAddOnCreate(true);
-                }}
-              >
-                New add-on
-              </Button>
-            </div>
+            {/* The header's "+ Add-on" is this tab's create action. A second
+                large CTA here competed with it for the same job. */}
+            <p className="mb-3 text-[13px] leading-relaxed text-[var(--owner-muted)]">
+              Add-ons appear for clients after they pick a compatible base
+              service — they are never listed as standalone services.
+            </p>
             {addOnNotice && (
               <InlineFeedback
                 tone="success"
@@ -3244,58 +3339,74 @@ export function ServicesModal({ onClose, salonSlug, onOpenStaff }: ServicesModal
                   : (
                       <div className="overflow-hidden rounded-[18px] border border-[var(--owner-line)] bg-[var(--owner-surface)]">
                         {addOns.map((addOn, index) => (
-                          <button
+                          /* A row, not a single button: "Offered with N
+                             services" is its own control, and a button cannot
+                             legally nest inside a button. */
+                          <div
                             key={addOn.id}
-                            type="button"
-                            data-testid={`addon-row-${addOn.id}`}
-                            onClick={() => setEditingAddOn(addOn)}
-                            className={`flex w-full items-center justify-between px-4 py-3 text-left transition-colors active:bg-[var(--owner-ground)] ${
+                            className={
                               index < addOns.length - 1 ? 'border-b border-[var(--owner-line)]' : ''
-                            }`}
+                            }
                           >
-                            <span className="min-w-0 flex-1">
-                              <span className="block truncate text-[15px] font-semibold text-[var(--owner-ink)]">
-                                {addOn.name}
-                              </span>
-                              {/* Same meta line the Service Library uses, so the
-                                  two lists read as one system. */}
-                              <span className="mt-0.5 flex flex-wrap items-center gap-2 text-[12px] text-[var(--owner-muted)]">
-                                <span>{addOn.priceDisplayText || formatCurrency(addOn.priceCents)}</span>
-                                <span>·</span>
-                                <span>{formatDuration(addOn.durationMinutes)}</span>
-                                <span className="rounded-full bg-[var(--owner-ground)] px-2 py-0.5 text-[11px]">
-                                  Add-on
+                            <button
+                              type="button"
+                              data-testid={`addon-row-${addOn.id}`}
+                              onClick={() => setEditingAddOn(addOn)}
+                              className="flex w-full items-start justify-between gap-3 px-4 pb-1.5 pt-3 text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--owner-focus)] active:bg-[var(--owner-ground)]"
+                            >
+                              <span className="min-w-0 flex-1 overflow-hidden">
+                                <span className="block text-[15px] font-semibold leading-5 text-[var(--owner-ink)]">
+                                  {addOn.name}
                                 </span>
-                                <span className="rounded-full bg-[var(--owner-ground)] px-2 py-0.5 text-[11px] text-[var(--owner-muted)]">
-                                  {ADD_ON_CATEGORY_LABELS[addOn.category] ?? addOn.category}
+                                {/* No "Add-on" badge: the owner is already
+                                    inside the Add-ons tab, so it repeated the
+                                    heading on every row and cost density. */}
+                                <span className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[12px] leading-4 text-[var(--owner-muted)]">
+                                  <span className="whitespace-nowrap">{addOn.priceDisplayText || formatCurrency(addOn.priceCents)}</span>
+                                  <span aria-hidden="true">·</span>
+                                  <span className="whitespace-nowrap">{formatDuration(addOn.durationMinutes)}</span>
+                                  <span className="max-w-full shrink truncate rounded-full bg-[var(--owner-ground)] px-2 py-0.5 text-[11px] text-[var(--owner-muted)]">
+                                    {ADD_ON_CATEGORY_LABELS[addOn.category] ?? addOn.category}
+                                  </span>
+                                  {addOn.pricingType === 'per_unit' && (
+                                    <span className="shrink-0 whitespace-nowrap rounded-full bg-[var(--owner-ground)] px-2 py-0.5">
+                                      per
+                                      {' '}
+                                      {addOn.unitLabel ?? 'unit'}
+                                    </span>
+                                  )}
+                                  {!addOn.isActive && (
+                                    <span
+                                      data-testid={`addon-row-inactive-${addOn.id}`}
+                                      className="shrink-0 rounded-full bg-gray-200 px-2 py-0.5 text-[var(--owner-muted)]"
+                                    >
+                                      Inactive
+                                    </span>
+                                  )}
                                 </span>
-                                {addOn.pricingType === 'per_unit' && (
-                                  <span className="rounded-full bg-[var(--owner-ground)] px-2 py-0.5">
-                                    per
-                                    {' '}
-                                    {addOn.unitLabel ?? 'unit'}
-                                  </span>
-                                )}
-                                {!addOn.isActive && (
-                                  <span
-                                    data-testid={`addon-row-inactive-${addOn.id}`}
-                                    className="rounded-full bg-gray-200 px-2 py-0.5 text-[var(--owner-muted)]"
-                                  >
-                                    Inactive
-                                  </span>
-                                )}
                               </span>
-                              <span className="mt-0.5 block truncate text-[12px] text-[var(--owner-muted)]">
+                              <span className="flex shrink-0 items-center gap-2 pt-0.5">
+                                <span className="text-[13px] font-medium text-[var(--owner-accent)]">Edit</span>
+                                <ChevronRight className="size-4 text-[var(--owner-line-strong)]" />
+                              </span>
+                            </button>
+                            {/* The other direction of the same relationship the
+                                service picker writes. Both open the one
+                                `service_add_on` rule set — never a copy. */}
+                            <button
+                              type="button"
+                              data-testid={`addon-row-services-${addOn.id}`}
+                              onClick={() => setEditingAddOn(addOn)}
+                              className="flex min-h-11 w-full items-center gap-1 px-4 pb-2 text-left text-[12px] font-medium text-[var(--owner-accent)] outline-none transition-colors focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--owner-focus)] active:bg-[var(--owner-ground)]"
+                            >
+                              <span className="truncate underline underline-offset-2">
                                 {addOn.compatibleServiceIds?.length
                                   ? `Offered with ${addOn.compatibleServiceIds.length} ${addOn.compatibleServiceIds.length === 1 ? 'service' : 'services'}`
                                   : 'Not offered with any service yet'}
                               </span>
-                            </span>
-                            <span className="ml-3 flex shrink-0 items-center gap-2">
-                              <span className="text-[13px] font-medium text-[var(--owner-accent)]">Edit</span>
-                              <ChevronRight className="size-4 text-[var(--owner-line-strong)]" />
-                            </span>
-                          </button>
+                              <ChevronRight aria-hidden="true" className="size-3.5 shrink-0" />
+                            </button>
+                          </div>
                         ))}
                       </div>
                     )}
@@ -3315,6 +3426,144 @@ export function ServicesModal({ onClose, salonSlug, onOpenStaff }: ServicesModal
             }}
             onDone={() => selectTab('menu')}
           />
+        )}
+        {/* Menu display settings, relocated out of the sticky chrome. `px-4`
+            matches CatalogConfigTab's own gutter below it: the moved cards
+            used to inherit their inset from the full-bleed chrome, which this
+            content region does not provide. */}
+        {activeTab === 'catalog' && (
+          <div className="mb-3 space-y-2 px-4" data-testid="menu-display-settings">
+            <div className="px-1">
+              <h3 className="text-[15px] font-semibold text-[var(--owner-ink)]">Menu display &amp; offers</h3>
+              <p className="mt-0.5 text-[12px] leading-4 text-[var(--owner-muted)]">
+                How your menu looks to clients. These used to sit above every
+                service; they live here so the menu itself opens straight onto
+                your services.
+              </p>
+            </div>
+            <div
+              data-testid="service-images-visibility-row"
+              className="flex min-w-0 items-center justify-between gap-3 rounded-xl border border-[var(--owner-line)] bg-[var(--owner-surface)] px-3 py-2"
+            >
+              <div className="min-w-0">
+                <p
+                  id="service-images-visibility-label"
+                  className="text-[14px] font-semibold leading-5 text-[var(--owner-ink)]"
+                >
+                  Service images
+                </p>
+                <p
+                  id="service-images-visibility-description"
+                  className="text-[12px] leading-4 text-[var(--owner-muted)]"
+                >
+                  {showServiceImages === false
+                    ? 'Images are hidden from clients. Your uploaded images are saved.'
+                    : 'Show images on your public booking page.'}
+                </p>
+                {showServiceImagesError && (
+                  <p
+                    role="alert"
+                    data-testid="service-images-visibility-error"
+                    className="mt-1 text-[12px] leading-4 text-red-700"
+                  >
+                    {showServiceImagesError}
+                  </p>
+                )}
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={showServiceImages ?? true}
+                aria-busy={showServiceImagesSaving}
+                aria-labelledby="service-images-visibility-label"
+                aria-describedby="service-images-visibility-description"
+                disabled={showServiceImages === null || showServiceImagesSaving || !salonSlug}
+                data-testid="services-show-service-images-toggle"
+                onClick={() => void handleShowServiceImagesChange()}
+                className={`relative h-7 w-12 shrink-0 rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)] focus-visible:ring-offset-2 disabled:cursor-wait disabled:opacity-60 ${
+                  showServiceImages !== false ? 'bg-[var(--owner-accent)]' : 'bg-gray-300'
+                }`}
+              >
+                <span
+                  aria-hidden="true"
+                  className={`absolute left-1 top-1 size-5 rounded-full bg-[var(--owner-surface)] shadow-sm transition-transform ${
+                    showServiceImages !== false ? 'translate-x-5' : 'translate-x-0'
+                  }`}
+                />
+                <span className="sr-only">
+                  Toggle service images
+                </span>
+              </button>
+              <span className="sr-only" role="status" aria-live="polite">
+                {showServiceImagesSaving ? 'Saving service image visibility' : ''}
+              </span>
+            </div>
+            <div className="rounded-xl border border-[var(--owner-line)] bg-[var(--owner-surface)] px-3 py-2">
+              <div className="space-y-3 py-1">
+                {menuDisplayLoadState === 'loading' ? <p className="text-[13px] text-[var(--owner-muted)]" role="status">Loading saved menu settings…</p> : null}
+                {menuDisplayError ? <p className="text-[13px] text-red-700" role="alert">{menuDisplayError}</p> : null}
+                <label className="block text-[13px] font-medium text-[var(--owner-ink)]">
+                  Default intro label
+                  <input
+                    type="text"
+                    value={menuDisplay?.introPriceDefaultLabel ?? ''}
+                    disabled={menuDisplayLoadState !== 'ready' || menuDisplaySaving}
+                    onChange={(event) => {
+                      const value = event.target.value;
+                      setMenuDisplay(current => current ? { ...current, introPriceDefaultLabel: value } : current);
+                      setMenuDisplayPatch(current => ({ ...current, introPriceDefaultLabel: value }));
+                      setMenuDisplaySaved(false);
+                    }}
+                    className="mt-1 min-h-11 w-full rounded-xl border border-[var(--owner-line)] px-3 text-[15px]"
+                    placeholder="Founding Client Price"
+                  />
+                </label>
+                <label className="flex min-h-11 items-center justify-between gap-3 text-[13px]">
+                  <span>
+                    <span className="block font-medium">First-visit offer</span>
+                    <span className="text-[12px] text-[var(--owner-muted)]">25% off for first-time clients</span>
+                  </span>
+                  <input
+                    type="checkbox"
+                    checked={menuDisplay?.firstVisitDiscountEnabled ?? false}
+                    disabled={menuDisplayLoadState !== 'ready' || menuDisplaySaving}
+                    onChange={(event) => {
+                      const value = event.target.checked;
+                      setMenuDisplay(current => current ? { ...current, firstVisitDiscountEnabled: value } : current);
+                      setMenuDisplayPatch(current => ({ ...current, firstVisitDiscountEnabled: value }));
+                      setMenuDisplaySaved(false);
+                    }}
+                    className="size-5 accent-[var(--owner-accent)]"
+                  />
+                </label>
+                <label className="flex min-h-11 items-center justify-between gap-3 text-[13px]">
+                  <span>
+                    <span className="block font-medium">Feature Luster Manicure</span>
+                    <span className="text-[12px] text-[var(--owner-muted)]">Show the active Luster Manicure first</span>
+                  </span>
+                  <input
+                    type="checkbox"
+                    checked={menuDisplay?.featureLusterManicure ?? false}
+                    disabled={menuDisplayLoadState !== 'ready' || menuDisplaySaving}
+                    onChange={(event) => {
+                      const value = event.target.checked;
+                      setMenuDisplay(current => current ? { ...current, featureLusterManicure: value } : current);
+                      setMenuDisplayPatch(current => ({ ...current, featureLusterManicure: value }));
+                      setMenuDisplaySaved(false);
+                    }}
+                    className="size-5 accent-[var(--owner-accent)]"
+                  />
+                </label>
+                <div className="flex items-center justify-end gap-3">
+                  {menuDisplaySaved ? <span className="text-[12px] font-medium text-emerald-700">Saved</span> : null}
+                  <button type="button" onClick={() => void saveMenuDisplay()} disabled={menuDisplayLoadState !== 'ready' || Object.keys(menuDisplayPatch).length === 0 || menuDisplaySaving} className="inline-flex min-h-11 items-center gap-2 rounded-xl bg-[var(--owner-accent)] px-4 text-[13px] font-semibold text-white disabled:opacity-50">
+                    <Save aria-hidden="true" className="size-4" />
+                    {menuDisplaySaving ? 'Saving…' : 'Save menu display'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
         )}
         {activeTab === 'catalog' && (
           <CatalogConfigTab salonSlug={salonSlug} />
@@ -3376,25 +3625,60 @@ export function ServicesModal({ onClose, salonSlug, onOpenStaff }: ServicesModal
                     />
                   )
               : (
-                  <ListSurface className="mx-4 rounded-[10px]">
-                    {filteredServices.map((service, index) => (
-                      <ServiceRow
-                        key={service.id}
-                        service={service}
-                        isLast={index === filteredServices.length - 1}
-                        showNotBookable={isHiddenFromBooking(service)}
-                        canMoveUp={index > 0}
-                        canMoveDown={index < filteredServices.length - 1}
-                        reorderBusy={reorderBusy}
-                        onMoveUp={() => void handleReorder(service.id, 'up', filteredServiceIds)}
-                        onMoveDown={() => void handleReorder(service.id, 'down', filteredServiceIds)}
-                        onClick={() => {
-                          setSelectedService(service);
-                          setToggleActiveError(null);
-                        }}
-                      />
-                    ))}
-                  </ListSurface>
+                  <>
+                    {/* Ordering is a deliberate mode, not permanent row
+                        furniture: two 28 px chevrons on every row cost the
+                        service name ~40 px of an already-tight 390 px phone,
+                        and an owner reorders their menu far less often than
+                        they read it. The controls, the handler and the
+                        persisted order are unchanged — only when they show. */}
+                    <div className="mx-4 mb-2 flex items-center justify-between gap-3">
+                      <span className="text-[12px] font-medium text-[var(--owner-muted)]">
+                        {reorderMode
+                          ? 'Move services into the order clients see.'
+                          : `${filteredServices.length} ${filteredServices.length === 1 ? 'service' : 'services'}`}
+                      </span>
+                      <Button
+                        type="button"
+                        variant={reorderMode ? 'ownerPrimary' : 'ownerSecondary'}
+                        size="pillSm"
+                        className="shrink-0"
+                        data-testid="services-reorder-toggle"
+                        aria-pressed={reorderMode}
+                        disabled={reorderBusy || filteredServices.length < 2}
+                        onClick={() => setReorderMode(current => !current)}
+                      >
+                        {reorderMode
+                          ? 'Done'
+                          : (
+                              <>
+                                <ArrowUpDown aria-hidden="true" className="mr-1.5 size-4" />
+                                Reorder
+                              </>
+                            )}
+                      </Button>
+                    </div>
+                    <ListSurface className="mx-4 rounded-[10px]">
+                      {filteredServices.map((service, index) => (
+                        <ServiceRow
+                          key={service.id}
+                          service={service}
+                          isLast={index === filteredServices.length - 1}
+                          showNotBookable={isHiddenFromBooking(service)}
+                          reorderMode={reorderMode}
+                          canMoveUp={index > 0}
+                          canMoveDown={index < filteredServices.length - 1}
+                          reorderBusy={reorderBusy}
+                          onMoveUp={() => void handleReorder(service.id, 'up', filteredServiceIds)}
+                          onMoveDown={() => void handleReorder(service.id, 'down', filteredServiceIds)}
+                          onClick={() => {
+                            setSelectedService(service);
+                            setToggleActiveError(null);
+                          }}
+                        />
+                      ))}
+                    </ListSurface>
+                  </>
                 ))}
         {/* Promotional nudges sit BELOW the menu (AG-services-05): stacked above
             it they filled the whole first screen of a 390x844 phone, so the
@@ -3422,7 +3706,7 @@ export function ServicesModal({ onClose, salonSlug, onOpenStaff }: ServicesModal
                   setLibraryIntroDismissed(true);
                   void patchMerchandising({ serviceLibraryIntroDismissed: true });
                 }}
-                className="text-[13px] font-medium text-[var(--owner-muted)]"
+                className="-mx-2 inline-flex min-h-11 items-center rounded-full px-2 text-[13px] font-medium text-[var(--owner-muted)]"
               >
                 Not now
               </button>
@@ -3454,6 +3738,14 @@ export function ServicesModal({ onClose, salonSlug, onOpenStaff }: ServicesModal
         <ServiceDetail
           service={selectedService}
           activeTechnicianCount={activeTechnicianCount}
+          assignedAddOnNames={(addOnsByServiceId.get(selectedService.id) ?? []).map(addOn => addOn.name)}
+          addOnsLoading={addOnsLoading}
+          addOnError={addOnsError ?? serviceAddOnError}
+          onManageAddOns={() => {
+            setAddOnPickerError(null);
+            setServiceAddOnError(null);
+            setAddOnPickerServiceId(selectedService.id);
+          }}
           onOpenStaff={onOpenStaff}
           onBack={() => {
             setSelectedService(null);
@@ -3466,6 +3758,59 @@ export function ServicesModal({ onClose, salonSlug, onOpenStaff }: ServicesModal
         />
       )}
 
+      {/* "Add-ons for <service>" — the service side of the relationship.
+          Rendered for an existing service (picker bound to a service id) and
+          for the create form's draft, which has no service id yet. */}
+      <ServiceAddOnPicker
+        isOpen={Boolean(addOnPickerService)}
+        serviceName={addOnPickerService?.name ?? ''}
+        addOns={addOns}
+        addOnsLoading={addOnsLoading}
+        addOnsError={addOnsError}
+        initialSelectedIds={
+          addOnPickerService
+            ? (addOnsByServiceId.get(addOnPickerService.id) ?? []).map(addOn => addOn.id)
+            : []
+        }
+        saving={addOnPickerSaving}
+        error={addOnPickerError}
+        onCreateNew={() => {
+          setAddOnCreateForServiceId(addOnPickerServiceId);
+          setAddOnPickerServiceId(null);
+          setAddOnNotice(null);
+          setShowAddOnCreate(true);
+        }}
+        onCancel={() => {
+          setAddOnPickerServiceId(null);
+          setAddOnPickerError(null);
+        }}
+        onSave={ids => void handleSaveServiceAddOns(ids)}
+      />
+
+      <ServiceAddOnPicker
+        isOpen={draftAddOnPickerOpen}
+        serviceName={draftServiceName || 'this service'}
+        addOns={addOns}
+        addOnsLoading={addOnsLoading}
+        addOnsError={addOnsError}
+        initialSelectedIds={draftAddOnIds}
+        saving={false}
+        error={null}
+        onCreateNew={() => {
+          setAddOnCreateForServiceId(null);
+          setDraftAddOnPickerOpen(false);
+          setAddOnNotice(null);
+          setShowAddOnCreate(true);
+        }}
+        onCancel={() => setDraftAddOnPickerOpen(false)}
+        onSave={(ids) => {
+          // Draft only. Nothing is written until the service itself saves and
+          // has an id to bind to.
+          setDraftAddOnIds(ids);
+          setDraftAddOnPickerOpen(false);
+        }}
+      />
+
       <AddOnCreateDialog
         isOpen={showAddOnCreate}
         salonSlug={salonSlug}
@@ -3474,11 +3819,26 @@ export function ServicesModal({ onClose, salonSlug, onOpenStaff }: ServicesModal
           name: service.name,
           isActive: service.isActive,
         }))}
-        onClose={() => setShowAddOnCreate(false)}
+        initialServiceIds={addOnCreateForServiceId ? [addOnCreateForServiceId] : undefined}
+        onClose={() => {
+          setShowAddOnCreate(false);
+          // Reopen the picker the owner came from, so "create then keep
+          // choosing" is one continuous flow rather than a dead end.
+          if (addOnCreateForServiceId) {
+            setAddOnPickerServiceId(addOnCreateForServiceId);
+            setAddOnCreateForServiceId(null);
+          }
+        }}
         onCreated={(created) => {
           setShowAddOnCreate(false);
           setAddOnNotice(`“${created.name}” is on your add-on list.`);
-          void fetchAddOns();
+          const returnToServiceId = addOnCreateForServiceId;
+          setAddOnCreateForServiceId(null);
+          void fetchAddOns().then(() => {
+            if (returnToServiceId) {
+              setAddOnPickerServiceId(returnToServiceId);
+            }
+          });
         }}
       />
 
@@ -3499,10 +3859,34 @@ export function ServicesModal({ onClose, salonSlug, onOpenStaff }: ServicesModal
         service={editingService}
         prefill={addDialogPrefill}
         nextFeaturedOrder={nextFeaturedOrder}
+        addOnSummaryNames={
+          editingService
+            ? (addOnsByServiceId.get(editingService.id) ?? []).map(addOn => addOn.name)
+            : addOns
+              .filter(addOn => draftAddOnIds.includes(addOn.id))
+              .map(addOn => addOn.name)
+        }
+        addOnSummaryBusy={addOnsLoading}
+        onManageAddOns={() => {
+          setAddOnPickerError(null);
+          if (editingService) {
+            // Existing service: the picker writes the real relationship.
+            setAddOnPickerServiceId(editingService.id);
+          } else {
+            // Not saved yet, so there is no id to bind to. Collect a draft.
+            setDraftAddOnPickerOpen(true);
+          }
+        }}
+        onDraftNameChange={setDraftServiceName}
         onClose={() => {
           setShowAddDialog(false);
           setEditingService(null);
           setAddDialogPrefill(null);
+          // Backing out of a create discards the draft. It was never written,
+          // so no existing add-on assignment can be disturbed by cancelling.
+          setDraftAddOnIds([]);
+          setDraftAddOnPickerOpen(false);
+          setDraftServiceName('');
         }}
         onSaved={(savedService, options) => {
           setShowAddDialog(false);
@@ -3544,6 +3928,33 @@ export function ServicesModal({ onClose, salonSlug, onOpenStaff }: ServicesModal
             });
           } else {
             setOperationNotice(null);
+          }
+          // Add-ons chosen during creation are written only now, against the
+          // id the create call just returned. Reported separately (like an
+          // image failure) rather than swallowed: the service IS saved, so
+          // silently dropping the extras would be a stale, partial result.
+          const pendingAddOnIds = editingService ? [] : draftAddOnIds;
+          setDraftAddOnIds([]);
+          setDraftAddOnPickerOpen(false);
+          setDraftServiceName('');
+          if (pendingAddOnIds.length > 0) {
+            void (async () => {
+              try {
+                await persistServiceAddOns(savedService.id, pendingAddOnIds);
+                await fetchAddOns();
+              } catch (addOnError) {
+                setServiceAddOnError(
+                  addOnError instanceof Error
+                    ? `${savedService.name} was saved, but its add-ons were not: ${addOnError.message}`
+                    : `${savedService.name} was saved, but its add-ons were not.`,
+                );
+                setOperationNotice({
+                  tone: 'warning',
+                  assignmentRequired: false,
+                  message: `“${savedService.name}” was saved, but its add-ons could not be attached. Open the service and choose them again.`,
+                });
+              }
+            })();
           }
           void fetchServices();
           void fetchOwnedTemplateKeys();

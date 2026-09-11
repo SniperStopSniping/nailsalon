@@ -40,6 +40,25 @@ type AppModalProps = {
   title?: string;
   /** Whether the modal itself can be dragged down to dismiss */
   allowDragToDismiss?: boolean;
+  /**
+   * How much backdrop stays visible above the sheet.
+   *
+   * `'comfortable'` (the default, unchanged for every existing caller) keeps a
+   * thumb-sized >= 44 px band so tap-outside-to-dismiss is a real target.
+   *
+   * `'tall'` trades that band for working height. Only appropriate for a
+   * content-dense sheet that carries its OWN always-visible dismissal
+   * affordances — the drag handle plus an in-header Back control — so
+   * dismissal never depends on hitting the backdrop.
+   */
+  topInset?: 'comfortable' | 'tall';
+};
+
+const SHEET_TOP_INSET: Record<'comfortable' | 'tall', string> = {
+  comfortable: 'max(calc(env(safe-area-inset-top, 0px) + 12px), 44px)',
+  // Roughly 2 mm of backdrop on a phone. Never under the notch: the safe-area
+  // inset is added, not replaced, so a device reporting one still clears it.
+  tall: 'max(calc(env(safe-area-inset-top, 0px) + 8px), 10px)',
 };
 
 export function AppModal({
@@ -48,6 +67,7 @@ export function AppModal({
   children,
   title,
   allowDragToDismiss = true,
+  topInset = 'comfortable',
 }: AppModalProps) {
   const controls = useAnimation();
   const dragControls = useDragControls();
@@ -140,16 +160,17 @@ export function AppModal({
             }
             onDragEnd={allowDragToDismiss ? handleDragEnd : undefined}
             style={{
-              // A 12 px strip is not a dismissal target on a phone. Inset the
-              // sheet far enough to leave a thumb-sized (>= 44 px) band of
-              // backdrop, which is what the tap-outside affordance promises.
-              top: 'max(calc(env(safe-area-inset-top, 0px) + 12px), 44px)',
+              top: SHEET_TOP_INSET[topInset],
               paddingBottom: 'env(safe-area-inset-bottom, 0px)',
             }}
           >
-            {/* Drag Handle — the only surface that starts the dismiss gesture */}
+            {/* Drag Handle — the only surface that starts the dismiss gesture.
+                A tall sheet keeps the same grabbable band (the padding is what
+                the thumb lands on) but paints a slimmer pill, so the handle
+                reads as trim rather than as wasted chrome. */}
             <div
-              className={`flex justify-center pb-2 pt-3 ${allowDragToDismiss ? 'cursor-grab touch-none active:cursor-grabbing' : ''}`}
+              data-testid="app-modal-drag-handle"
+              className={`flex justify-center ${topInset === 'tall' ? 'pb-1.5 pt-2' : 'pb-2 pt-3'} ${allowDragToDismiss ? 'cursor-grab touch-none active:cursor-grabbing' : ''}`}
               onPointerDown={allowDragToDismiss ? event => dragControls.start(event) : undefined}
             >
               <div className="h-1 w-9 rounded-full bg-[var(--owner-line-strong)]" />
@@ -218,7 +239,11 @@ export function ModalHeader({
         always the heading of the screen underneath.
       */}
       <div className="flex h-[52px] items-center justify-between gap-2 px-4">
-        <div className="flex w-20 shrink-0 justify-start">{leftAction}</div>
+        {/* `min-w-[80px]` rather than a fixed `w-20`: a back label longer than
+            80 px ("‹ Services" in the service detail) overflowed the fixed
+            track and printed through the title beside it. Growing the side
+            track instead makes the title — which already truncates — yield. */}
+        <div className="flex min-w-[80px] shrink-0 justify-start">{leftAction}</div>
         <div className="flex min-w-0 flex-1 flex-col items-center">
           <span className="owner-title w-full truncate text-center text-[19px] font-semibold leading-none text-[var(--owner-ink)]">
             {title}
@@ -229,7 +254,7 @@ export function ModalHeader({
             </span>
           )}
         </div>
-        <div className="flex w-20 shrink-0 justify-end">{rightAction}</div>
+        <div className="flex min-w-[80px] shrink-0 justify-end">{rightAction}</div>
       </div>
     </div>
   );
