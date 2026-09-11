@@ -724,7 +724,7 @@ describe('OnboardingV1Integration rendered account-save flow', () => {
 
     expect(await screen.findByRole('heading', { name: 'Choose a different website URL' })).toBeVisible();
     expect(screen.getByRole('link', { name: 'Log in to edit my existing salon' })).toHaveAttribute('href', '/en/admin');
-    expect(screen.getByRole('link', { name: /Contact support/u })).toHaveAttribute('href', 'mailto:support@islanailsalon.com');
+    expect(screen.getByRole('link', { name: /Contact support/u })).toHaveAttribute('href', 'mailto:support@lustergel.app');
 
     await userEvent.setup().click(screen.getByRole('button', { name: 'Change my URL' }));
 

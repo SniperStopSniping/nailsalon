@@ -35,7 +35,7 @@ if (
 }
 
 export const emailChannel = new EmailAlertChannel('email-channel-1', {
-  address: process.env.CHECKLY_ALERT_EMAIL || 'support@islanailsalon.com',
+  address: process.env.CHECKLY_ALERT_EMAIL || 'support@lustergel.app',
   ...sendDefaults,
 });
 

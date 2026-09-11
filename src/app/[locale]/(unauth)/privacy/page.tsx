@@ -25,7 +25,23 @@ export default function PrivacyPage() {
           title: 'Google Calendar data',
           paragraphs: [
             'When a salon owner connects Google Calendar, Luster reads calendar lists and free/busy information and creates or updates Luster-linked appointment events. Calendar access is used only to prevent booking conflicts and keep appointments synchronized.',
-            'Google refresh tokens are encrypted. Access is scoped to the connected salon, and Calendar data is not sold or used for advertising.',
+            'Google refresh tokens are encrypted at rest. Access is scoped to the connected salon, and Calendar data is not sold, transferred for advertising, or used to train generalized artificial intelligence or machine learning models.',
+            'When a salon owner authorizes Google Calendar, Luster also stores the email address and the Google account identifier of the connected account, so the workspace can show which calendar is linked and refresh access without asking the owner to reconnect.',
+          ],
+        },
+        {
+          title: 'Google API Services Limited Use',
+          paragraphs: [
+            'Luster’s use and transfer of information received from Google APIs to any other app adheres to the Google API Services User Data Policy, including the Limited Use requirements.',
+            'Luster requests only the narrowest Calendar permissions needed: reading the list of calendars an owner is subscribed to, reading free and busy times, and creating or updating the events Luster itself manages. Luster does not request the full Google Calendar scope.',
+            'Human access to Google user data is limited to the cases the Limited Use requirements permit: with the owner’s explicit consent, for security purposes, to comply with applicable law, or where the data has been aggregated and anonymized for internal operations.',
+          ],
+        },
+        {
+          title: 'Deleting Google data',
+          paragraphs: [
+            'A salon owner can disconnect Google Calendar at any time from the Luster workspace. Disconnecting revokes Luster’s access and deletes the stored refresh token, the connected account email, and the connected account identifier.',
+            'Owners may also revoke Luster’s access directly from their Google Account permissions page. To request deletion of a Luster workspace and the salon records associated with it, email support@lustergel.app.',
           ],
         },
         {

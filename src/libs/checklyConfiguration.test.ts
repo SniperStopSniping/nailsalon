@@ -75,7 +75,7 @@ describe('Checkly environment targets', () => {
     expect(config).toContain('sendFailure: true');
     expect(config).toContain('sendRecovery: true');
     expect(config).toContain(
-      'process.env.CHECKLY_ALERT_EMAIL || \'support@islanailsalon.com\'',
+      'process.env.CHECKLY_ALERT_EMAIL || \'support@lustergel.app\'',
     );
   });
 });

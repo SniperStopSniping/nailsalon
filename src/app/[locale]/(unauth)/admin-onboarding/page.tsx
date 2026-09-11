@@ -267,7 +267,7 @@ function AdminOnboardingContent() {
         <p className="text-sm text-slate-500">
           Need help?
           {' '}
-          <a href="mailto:support@islanailsalon.com" className="font-medium text-slate-700 hover:underline">
+          <a href="mailto:support@lustergel.app" className="font-medium text-slate-700 hover:underline">
             Contact support
           </a>
         </p>
