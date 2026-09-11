@@ -2024,7 +2024,7 @@ function ComparePlansModal({ isOpen, onClose }: ComparePlansModalProps) {
           </p>
 
           <p className="mt-6 text-center text-xs text-[var(--owner-muted)]">
-            To change plans, contact Luster at support@islanailsalon.com
+            To change plans, contact Luster at support@lustergel.app
           </p>
         </div>
       </motion.div>

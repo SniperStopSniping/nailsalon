@@ -13,6 +13,7 @@ export function LusterHome({
 }) {
   const prefix = locale === 'fr' ? '/fr' : '/en';
   const copy = locale === 'fr' ? fr.LusterHome : en.LusterHome;
+  const legal = locale === 'fr' ? fr.Footer : en.Footer;
 
   return (
     <main className="min-h-screen bg-[#fffaf7] text-stone-950">
@@ -43,7 +44,7 @@ export function LusterHome({
                   </Link>
                 )
               : (
-                  <a href="mailto:support@islanailsalon.com?subject=Luster%20booking%20invite" className="inline-flex min-h-12 items-center justify-center rounded-full border border-stone-300 bg-white px-6 py-3.5 text-center font-bold">
+                  <a href="mailto:support@lustergel.app?subject=Luster%20booking%20invite" className="inline-flex min-h-12 items-center justify-center rounded-full border border-stone-300 bg-white px-6 py-3.5 text-center font-bold">
                     {copy.request_invite}
                   </a>
                 )}
@@ -66,6 +67,17 @@ export function LusterHome({
           ))}
         </div>
       </section>
+
+      <footer className="mx-auto max-w-6xl border-t border-rose-100 px-5 py-8 sm:px-8">
+        <div className="flex flex-col gap-3 text-sm text-stone-500 sm:flex-row sm:items-center sm:justify-between">
+          <p>Luster</p>
+          <nav className="flex flex-wrap gap-5">
+            <Link href="/privacy" className="inline-flex min-h-11 items-center font-semibold underline underline-offset-4 hover:text-stone-800">{legal.privacy_policy}</Link>
+            <Link href="/terms" className="inline-flex min-h-11 items-center font-semibold underline underline-offset-4 hover:text-stone-800">{legal.terms_of_service}</Link>
+            <a href="mailto:support@lustergel.app" className="inline-flex min-h-11 items-center font-semibold underline underline-offset-4 hover:text-stone-800">support@lustergel.app</a>
+          </nav>
+        </div>
+      </footer>
     </main>
   );
 }

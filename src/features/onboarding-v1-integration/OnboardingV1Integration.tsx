@@ -1139,7 +1139,7 @@ function OnboardingIntegrationController({
               <div className="onboarding-integration-action-stack">
                 <button className="onboarding-integration-primary" type="button" onClick={editBusinessUrl}>Change my URL</button>
                 <a className="onboarding-integration-secondary" href={`/${locale}/admin`}>Log in to edit my existing salon</a>
-                <a className="onboarding-integration-text-action" href="mailto:support@islanailsalon.com">Can’t access your account? Contact support</a>
+                <a className="onboarding-integration-text-action" href="mailto:support@lustergel.app">Can’t access your account? Contact support</a>
               </div>
             </section>
           </OwnerSurface>

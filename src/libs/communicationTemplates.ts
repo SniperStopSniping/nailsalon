@@ -144,7 +144,7 @@ export const SHARED_SENDER_STOP_DISCLOSURE
 export const ADVANCED_OPT_OUT_COPY = {
   stopConfirmation:
     'Luster: You have unsubscribed from Luster appointment texts. Your appointment was not cancelled. Use your appointment link or contact the salon to make changes.',
-  helpResponse: 'Luster appointment texts. Support: support@islanailsalon.com. Reply STOP to unsubscribe.',
+  helpResponse: 'Luster appointment texts. Support: support@lustergel.app. Reply STOP to unsubscribe.',
 } as const;
 
 export type TemplateVariables = Record<string, string>;

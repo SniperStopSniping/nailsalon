@@ -20,7 +20,7 @@ export function LusterLegalPage({
     <main className="min-h-screen bg-[#F8F3F0] px-5 py-10 text-stone-900">
       <article className="mx-auto max-w-3xl overflow-hidden rounded-[32px] border border-rose-100 bg-white shadow-[0_24px_70px_rgba(76,29,46,0.08)]">
         <header className="bg-gradient-to-br from-[#4C1D2E] via-[#8B1538] to-[#D6A34A] px-6 py-10 text-white sm:px-10">
-          <a href="/owner" className="inline-flex items-center gap-2 text-sm font-semibold text-rose-100">
+          <a href="/" className="inline-flex items-center gap-2 text-sm font-semibold text-rose-100">
             <Sparkles size={17} />
             Luster
           </a>
@@ -43,7 +43,7 @@ export function LusterLegalPage({
             </section>
           ))}
           <footer className="border-t border-stone-100 pt-6 text-sm text-stone-500">
-            Questions can be sent to the Luster support address shown in the application or Google authorization screen.
+            Questions, data access requests, and deletion requests can be sent to support@lustergel.app.
           </footer>
         </div>
       </article>
