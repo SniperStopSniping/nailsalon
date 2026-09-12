@@ -34,6 +34,7 @@ import {
   OwnerWorkspaceNav,
   type OwnerWorkspaceTab,
 } from '@/components/admin/OwnerWorkspaceNav';
+import { LuckyCharmLoader } from '@/components/loading/LuckyCharmLoader';
 import { buttonVariants } from '@/components/ui/buttonVariants';
 import { WorkspacePageHeader } from '@/components/ui/workspace-page-header';
 import { formatMoney } from '@/libs/formatMoney';
@@ -1576,15 +1577,13 @@ function AdminDashboardContent() {
   // 1) Auth check phase - never show dashboard UI here
   if (authLoading) {
     return (
-      <div className="owner-workspace-theme flex min-h-screen items-center justify-center bg-[var(--owner-ground)]" data-theme-scope="owner">
-        <div
-          className="flex flex-col items-center gap-3"
-          data-testid="admin-auth-loading"
-          role="status"
-        >
-          <div className="size-8 animate-spin rounded-full border-2 border-[var(--owner-line)] border-t-[var(--owner-accent)]" />
-          <p className="text-[13px] text-[var(--owner-muted)]">Checking your session…</p>
-        </div>
+      <div
+        className="owner-workspace-theme min-h-screen"
+        data-testid="admin-auth-loading"
+        data-theme-scope="owner"
+        role="status"
+      >
+        <LuckyCharmLoader />
       </div>
     );
   }

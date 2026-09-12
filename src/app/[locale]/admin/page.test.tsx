@@ -1101,7 +1101,8 @@ describe('AdminDashboardPage', () => {
     const loading = screen.getByTestId('admin-auth-loading');
 
     expect(loading).toHaveAttribute('role', 'status');
-    expect(loading).toHaveTextContent('Checking your session…');
+    expect(loading).toHaveTextContent('Getting your studio ready…');
+    expect(loading).toHaveTextContent('+$65sample');
     expect(screen.queryByText('Let’s reconnect your account')).not.toBeInTheDocument();
 
     await act(async () => {
