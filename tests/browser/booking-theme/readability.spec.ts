@@ -32,7 +32,7 @@ test('week navigation and full calendar preserve date selection and keyboard acc
   await expect(days).toHaveCount(7);
 });
 
-test('confirmation keyboard order includes reading preferences before Edit', async ({ page, browserName }) => {
+test('confirmation keyboard order includes reading preferences before Back', async ({ page, browserName }) => {
   // macOS WebKit uses Option-Tab to traverse all clickable controls.
   const nextControlKey = browserName === 'webkit' && process.platform === 'darwin' ? 'Alt+Tab' : 'Tab';
   await page.goto('/?step=confirm&count=1');
@@ -45,7 +45,7 @@ test('confirmation keyboard order includes reading preferences before Edit', asy
 
   await page.keyboard.press(nextControlKey);
 
-  const edit = page.getByRole('button', { name: 'Edit', exact: true });
+  const edit = page.getByRole('button', { name: 'Back', exact: true });
 
   await expect(edit).toBeFocused();
   await expect.poll(() => edit.evaluate(element => getComputedStyle(element).outlineStyle)).not.toBe('none');

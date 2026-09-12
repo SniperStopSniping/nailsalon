@@ -2,19 +2,19 @@
 
 The confirmation page keeps the salon's current onboarding palette and fonts.
 Supporting copy and labels now use the stronger primary ink, including card
-headings in the dark palette. Inputs have 48px targets, 16px text, stronger
-borders and visible keyboard focus. Appointment details use dividers instead
-of nested boxes. A restrained brand accent and calendar icon distinguish
-reviewing an appointment from an already-confirmed booking.
+headings in the dark palette. Following owner feedback, the existing rounded
+cards, inputs, fonts and shadows are preserved. Keyboard focus remains visible.
 
-The redundant instruction beneath “Appointment summary” is removed; all
-instant-booking, request, reschedule, deposit, policy and consent copy remains.
-The shared receipt summary also gets the flatter rows and text-reflow fix.
+The header uses “Back”, reduces vertical padding and removes the large
+pre-booking icon. Instant-booking copy is shortened to “Not booked yet. Confirm
+below to reserve your time.” Request, reschedule, deposit, policy and consent
+copy remains unchanged. The reading toggle keeps its own compact row for text
+enlargement. The shared receipt summary retains its cards and text-reflow fix.
 Availability and payment logic are unchanged.
 
 ## Design evidence
 
-- [Figma layout study](https://www.figma.com/design/CFsAgvjjShZs0KqnFLwMfw?node-id=4-2): captured product styling with reusable input instances; a design reference, not a live production screenshot.
+- [Earlier Figma layout study](https://www.figma.com/design/CFsAgvjjShZs0KqnFLwMfw?node-id=4-2): superseded by the owner's preference to preserve the existing cards; not the final implementation or live production.
 - [Mobbin / Fresha review and confirm](https://mobbin.com/screens/0ef6b0b2-ed22-4c29-bb2c-74719882f58f): appointment grouping, restrained dividers and clear final action informed this pass.
 - [Mobile implementation](mobile.png)
 - [Desktop implementation](desktop.png)
@@ -26,8 +26,8 @@ synthetic local data and fallback fonts, without creating an appointment.
 
 - Confirmation unit tests: 93 passed.
 - Appointment regression: 103 passed.
-- Booking browser contrast/readability/confirmation suite: 102 passed across
-  desktop Chromium, mobile Chromium and mobile WebKit.
+- Current confirmation/readability browser suite: 52 passed on desktop Chromium
+  and mobile WebKit. Earlier broader contrast suite: 102 passed.
 - Follow-up coverage checks all eight palettes, field focus and 320/375/1280px
   layouts, including 200% text reflow. A discovered duration-badge overflow was
   fixed rather than suppressing overflow.

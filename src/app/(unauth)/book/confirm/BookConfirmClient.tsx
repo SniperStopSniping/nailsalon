@@ -6,6 +6,7 @@ import {
   AlertCircle,
   Calendar,
   Check,
+  ChevronLeft,
   Home,
   Info,
   MapPin,
@@ -630,7 +631,7 @@ const BookingCard = ({
           ? 'You’re all set — here are your appointment details.'
           : resultStatus === 'pending'
             ? 'Your request was sent — these details are awaiting salon approval.'
-            : undefined}
+            : 'Review the details below before you confirm.'}
         className="border-[var(--n5-border)] bg-[var(--n5-bg-card)]"
         headerClassName="booking-review-summary-header"
         actions={(
@@ -1211,7 +1212,7 @@ const ConfirmContent = ({
     <div className="booking-confirm-page min-h-screen bg-[var(--n5-bg-page)]" style={{ fontFamily: n5.fontBody }}>
       <nav
         data-public-surface="bookingProgressHeader"
-        className="sticky top-0 z-40 flex items-center justify-between border-b px-5 py-3 backdrop-blur-md"
+        className="sticky top-0 z-40 flex items-center justify-between border-b px-5 py-0 backdrop-blur-md"
         style={{
           backgroundColor: 'color-mix(in srgb, var(--n5-bg-page) 80%, transparent)',
           borderColor: 'var(--n5-border-muted)',
@@ -1226,7 +1227,8 @@ const ConfirmContent = ({
           }}
           className="font-body inline-flex min-h-11 min-w-11 items-center text-sm font-medium text-[var(--n5-ink-muted)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 disabled:cursor-not-allowed disabled:opacity-60"
         >
-          Edit
+          <ChevronLeft aria-hidden="true" className="mr-1 size-4" />
+          Back
         </button>
         <span className="font-heading text-lg font-semibold tracking-tight text-[var(--n5-ink-main)]">
           Confirm
@@ -1234,26 +1236,12 @@ const ConfirmContent = ({
         <div className="w-11" />
       </nav>
 
-      <main aria-busy={isSubmitting} className="mx-auto max-w-lg space-y-5 px-5 pb-10 pt-6">
+      <main aria-busy={isSubmitting} className="mx-auto max-w-lg space-y-5 px-5 pb-10 pt-3">
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           className="text-center"
         >
-          <motion.div
-            initial={{ scale: 0 }}
-            animate={{ scale: 1 }}
-            transition={{ delay: 0.2, type: 'spring', stiffness: 200 }}
-            className="mx-auto mb-3 flex size-12 items-center justify-center"
-            style={{
-              backgroundColor: 'color-mix(in srgb, var(--n5-accent) 10%, transparent)',
-              borderRadius: n5.radiusPill,
-            }}
-          >
-            {isSubmitting
-              ? <RefreshCw aria-hidden="true" className="size-6 animate-spin text-[var(--n5-accent)]" />
-              : <Calendar aria-hidden="true" className="size-6 text-[var(--n5-accent)]" strokeWidth={2} />}
-          </motion.div>
           <h1 className="font-heading mb-2 text-2xl font-bold text-[var(--n5-ink-main)]">
             Review your appointment
           </h1>
@@ -1264,7 +1252,7 @@ const ConfirmContent = ({
                 ? estimatedDepositDueCents > 0
                   ? 'Pay the required deposit to send your request. The salon will review it before the appointment is confirmed.'
                   : 'Nothing is booked yet. Send your request below for the salon to review.'
-                : 'Nothing is booked yet. Confirm below to reserve this time.'}
+                : 'Not booked yet. Confirm below to reserve your time.'}
           </p>
         </motion.div>
 

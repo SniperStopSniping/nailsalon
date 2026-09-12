@@ -8,15 +8,15 @@ for (const palette of CUSTOMER_SITE_PALETTE_PRESETS) {
     const name = page.getByRole('textbox', { name: 'Customer name' });
 
     await expect(name).toBeVisible();
-    await expect(name).toHaveCSS('font-size', '16px');
-    await expect(name).toHaveCSS('min-height', '48px');
 
     await name.focus();
 
     await expect(name).toHaveCSS('outline-style', 'solid');
     await expect(page.locator('.booking-detail-row')).toHaveCount(2);
-    await expect(page.locator('.booking-detail-row').first()).toHaveCSS('border-top-width', '0px');
-    await expect(page.getByText('Nothing is booked yet. Confirm below to reserve this time.')).toBeVisible();
+    await expect(page.locator('.booking-detail-row').first()).toHaveCSS('border-top-width', '1px');
+    await expect(page.getByText('Not booked yet. Confirm below to reserve your time.')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Back', exact: true })).toBeVisible();
+    await expect(page.locator('main > div').first().locator('svg')).toHaveCount(0);
 
     const colors = await page.locator('.booking-confirm-page').evaluate((element) => {
       const style = getComputedStyle(element);
