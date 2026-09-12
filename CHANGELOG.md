@@ -1,3 +1,10 @@
+# [1.93.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.92.1...v1.93.0) (2026-09-12)
+
+
+### Features
+
+* add Luster Lucky Charm loading lab ([#182](https://github.com/SniperStopSniping/nailsalon/issues/182)) ([f85c273](https://github.com/SniperStopSniping/nailsalon/commit/f85c2738f3546e744932cbf38d68643982a9ab50))
+
 ## [1.92.1](https://github.com/SniperStopSniping/nailsalon/compare/v1.92.0...v1.92.1) (2026-09-11)
 
 
