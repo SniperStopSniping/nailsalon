@@ -19,6 +19,7 @@ import {
   uuid,
 } from 'drizzle-orm/pg-core';
 
+export * from './depositShadowSchema';
 export {
   ADD_ON_CATEGORIES,
   type AddOnCategory,

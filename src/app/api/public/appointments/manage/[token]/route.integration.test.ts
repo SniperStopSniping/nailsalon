@@ -53,7 +53,8 @@ async function seedAppointmentWithToken(
 ) {
   appointmentCounter += 1;
   const id = `appt_manage_${appointmentCounter}`;
-  const startTime = new Date(Date.UTC(2026, 8, 1 + appointmentCounter, 18, 0, 0));
+  // Keep retry-provider fixtures eligible after the original September 2026 dates pass.
+  const startTime = new Date(Date.UTC(2099, 8, 1 + appointmentCounter, 18, 0, 0));
   await db.insert(schema.appointmentSchema).values({
     id,
     salonId: SALON_ID,

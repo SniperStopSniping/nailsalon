@@ -332,6 +332,8 @@ jobs:
               # Quick Book design system — widens the onboarding media role
               # list to include `cover`. Additive constraint change only.
               migrations/0075_onboarding_cover_media_role.sql) ;;
+              # D6-R1 inactive foundation — shadow evidence only.
+              migrations/0076_deposit_shadow_evidence.sql) ;;
               migrations/meta/_journal.json) ;;
               vercel.json) ;;
               *)
@@ -416,6 +418,8 @@ jobs:
               0074_onboarding_account_site_foundation) ;;
               # Quick Book design system — onboarding cover media role.
               0075_onboarding_cover_media_role) ;;
+              # D6-R1 inactive foundation — shadow evidence only.
+              0076_deposit_shadow_evidence) ;;
               *)
                 echo "::error::Unauthorized migration journal entries: $tag"
                 exit 1
@@ -1019,6 +1023,7 @@ jobs:
       LUSTER_DISPOSABLE_DATABASE: 'true'
       D5_CONCURRENCY_REQUIRED: 'true'
       D6_CONCURRENCY_REQUIRED: 'true'
+      D6_R1_CONCURRENCY_REQUIRED: 'true'
       BILLING_PLAN_ENV: test
       CLERK_SECRET_KEY: ci-placeholder-not-a-secret
       NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_test_Y2kubHVzdGVyLmludmFsaWQk
@@ -1056,9 +1061,15 @@ jobs:
           LUSTER_DISPOSABLE_POSTGRES_NETWORK: ${{ job.services.postgres.network }}
         run: |
           set -euo pipefail
-          npm run test:deposits:pg | tee d5-postgres-concurrency.log
+          npx vitest run --no-file-parallelism \
+            src/libs/deposits/deposits.concurrency.integration.test.ts \
+            src/libs/deposits/deposits.d5Calendar.concurrency.integration.test.ts \
+            | tee d5-postgres-concurrency.log
           grep -Fqx \
             'D5_REAL_POSTGRES_TESTS_EXECUTED=5 D5_REAL_POSTGRES_TESTS_SKIPPED=0' \
+            d5-postgres-concurrency.log
+          grep -Fqx \
+            'D5_REAL_POSTGRES_TESTS_EXECUTED=3 D5_REAL_POSTGRES_TESTS_SKIPPED=0' \
             d5-postgres-concurrency.log
 
       - name: Run all D6/D6.1 real-PostgreSQL money races and prove zero skips
@@ -1070,10 +1081,14 @@ jobs:
           set -euo pipefail
           npx vitest run --no-file-parallelism \
             src/libs/deposits/depositRefund.concurrency.integration.test.ts \
+            src/libs/deposits/shadow.concurrency.integration.test.ts \
             src/libs/queries.clientStats.concurrency.integration.test.ts \
             | tee d6-postgres-concurrency.log
           grep -Fqx \
             'D6_REAL_POSTGRES_TESTS_EXECUTED=10 D6_REAL_POSTGRES_TESTS_SKIPPED=0' \
+            d6-postgres-concurrency.log
+          grep -Fqx \
+            'D6_R1_POSTGRES_TESTS_EXECUTED=32 D6_R1_POSTGRES_TESTS_SKIPPED=0' \
             d6-postgres-concurrency.log
           grep -Fqx \
             'D6_1_CLIENT_STATS_POSTGRES_TESTS_EXECUTED=1 D6_1_CLIENT_STATS_POSTGRES_TESTS_SKIPPED=0' \

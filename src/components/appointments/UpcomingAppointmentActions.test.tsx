@@ -464,7 +464,10 @@ describe('UpcomingAppointmentActions', () => {
       }
     });
 
-    expect(screen.queryByTestId('appointment-reminder-due')).not.toBeInTheDocument();
+    // Request dispatch can precede response handling and the resulting React update.
+    await waitFor(() => {
+      expect(screen.queryByTestId('appointment-reminder-due')).not.toBeInTheDocument();
+    });
   });
 
   it('shows Directions only when the appointment has a usable location', () => {

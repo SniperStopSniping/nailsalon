@@ -39,6 +39,8 @@ import {
   type RecoveryResult,
   runLateDepositRecovery,
 } from '@/libs/deposits/lateDepositRecovery';
+import { isShadowEvent, projectShadowEvent } from '@/libs/deposits/shadowProjection';
+import { captureShadowReceipt } from '@/libs/deposits/shadowStore';
 import { Env } from '@/libs/Env';
 import { EXPECTED_STRIPE_API_VERSION, stripe } from '@/libs/stripe';
 import { dispatchAccountWebhook } from '@/libs/stripeConnect/accountWebhookDispatch';
@@ -134,6 +136,20 @@ export async function POST(request: NextRequest) {
       tags: { webhook: 'stripe-connect' },
     });
     return new Response('Signature verification failed', { status: 400 });
+  }
+
+  // R1 independent evidence: verified receipt remains replayable after legacy completion/retention.
+  // Capture failure propagates before a 2xx or legacy money dispatch. No shadow financial processing here.
+  if (isShadowEvent(event.type)) {
+    await captureShadowReceipt({
+      eventId: event.id,
+      eventType: event.type,
+      account: event.account ?? null,
+      livemode: event.livemode,
+      providerCreated: event.created ?? null,
+      apiVersion: event.api_version ?? null,
+      projection: projectShadowEvent(event.type, event.data.object),
+    });
   }
 
   const projection = (() => {
