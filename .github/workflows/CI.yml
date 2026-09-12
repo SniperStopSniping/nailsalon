@@ -303,6 +303,8 @@ jobs:
               # revision and site cleanup, in child-before-parent order.
               # Strictly additive over the Discover PR1 postimage above.
               e62b6f637ee0c90f995657c15dd7ea4138bc102f) ;;
+              # Review requests: add the tenant-scoped review_request purge step.
+              3c824ab5a65b2376af76d105f9fb5f555b22b1ff) ;;
               *)
                 echo "::error::Unauthorized change outside the reviewed salon-purge postimages."
                 printf 'actual blob: %s\n' "$salon_purge_blob"
@@ -332,6 +334,8 @@ jobs:
               # Quick Book design system — widens the onboarding media role
               # list to include `cover`. Additive constraint change only.
               migrations/0075_onboarding_cover_media_role.sql) ;;
+              # One-time review requests, disabled by default and without backfill.
+              migrations/0076_review_requests.sql) ;;
               migrations/meta/_journal.json) ;;
               vercel.json) ;;
               *)
@@ -416,6 +420,7 @@ jobs:
               0074_onboarding_account_site_foundation) ;;
               # Quick Book design system — onboarding cover media role.
               0075_onboarding_cover_media_role) ;;
+              0076_review_requests) ;;
               *)
                 echo "::error::Unauthorized migration journal entries: $tag"
                 exit 1
