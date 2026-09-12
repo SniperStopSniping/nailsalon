@@ -447,6 +447,83 @@
   color: var(--theme-title-text, #202020);
 }
 
+/* Confirmation is a reading/form surface: reserve the salon colour for
+   accents, and keep operational text strong without requiring a toggle. */
+.booking-confirm-page {
+  --n5-ink-muted: var(--n5-ink-main);
+}
+
+.booking-confirm-page main {
+  line-height: 1.55;
+}
+
+.booking-confirm-page .text-neutral-500,
+.booking-confirm-page .text-neutral-900 {
+  color: var(--n5-ink-main);
+}
+
+.booking-review-summary-header {
+  flex-wrap: wrap;
+}
+
+.booking-review-summary-header > :first-child {
+  flex-basis: 7rem;
+}
+
+.booking-confirm-page :where(h1, h3, p, label, button) {
+  overflow-wrap: anywhere;
+}
+
+.booking-confirm-page .text-\[10px\] {
+  font-size: 0.75rem;
+  letter-spacing: 0.06em;
+}
+
+.booking-confirm-page .booking-review-summary > div {
+  border-top: 3px solid var(--n5-accent);
+  box-shadow: 0 4px 16px color-mix(in srgb, var(--n5-ink-main) 5%, transparent);
+}
+
+.booking-review-summary .booking-detail-row {
+  border-width: 0 0 1px;
+  border-radius: 0;
+  background: transparent !important;
+  padding-inline: 0;
+}
+
+.booking-review-summary .booking-detail-row:last-child {
+  border-bottom: 0;
+}
+
+.booking-review-summary .booking-artist-row {
+  border: 0;
+  padding-inline: 0;
+  flex-wrap: wrap;
+}
+
+.booking-confirm-page :where(label, p.text-xs) {
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+
+.booking-confirm-page input:not([type='checkbox']) {
+  min-height: 48px;
+  margin-top: 0.5rem;
+  background: var(--n5-bg-card);
+  border-color: color-mix(in srgb, var(--n5-ink-main) 55%, var(--n5-bg-card));
+  font-size: 1rem;
+  font-weight: 400;
+}
+
+.booking-confirm-page :where(input, button, a):focus-visible {
+  outline: 2px solid var(--n5-accent);
+  outline-offset: 3px;
+}
+
+.booking-confirm-page main > :last-child button {
+  min-height: 48px;
+}
+
 .booking-reading-toolbar button {
   display: flex;
   flex-wrap: wrap;

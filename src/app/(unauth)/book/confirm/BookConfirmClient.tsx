@@ -536,7 +536,7 @@ const SummaryRow = ({
   detail?: string | null;
 }) => (
   <div
-    className="flex items-start gap-3 rounded-2xl border px-4 py-3"
+    className="booking-detail-row flex items-start gap-3 rounded-2xl border px-4 py-3"
     style={{
       borderColor: 'var(--n5-border-muted)',
       backgroundColor: 'color-mix(in srgb, var(--n5-bg-card) 72%, var(--n5-bg-page))',
@@ -623,15 +623,16 @@ const BookingCard = ({
   };
 
   return (
-    <motion.div className="relative z-10 w-full">
+    <motion.div className="booking-review-summary relative z-10 w-full">
       <SectionCard
         title="Appointment summary"
         description={resultStatus === 'confirmed'
           ? 'You’re all set — here are your appointment details.'
           : resultStatus === 'pending'
             ? 'Your request was sent — these details are awaiting salon approval.'
-            : 'Review the details below before you confirm.'}
+            : undefined}
         className="border-[var(--n5-border)] bg-[var(--n5-bg-card)]"
+        headerClassName="booking-review-summary-header"
         actions={(
           <div className="text-right">
             <p className="font-body text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--n5-ink-muted)]">
@@ -644,7 +645,7 @@ const BookingCard = ({
         )}
         contentClassName="space-y-3"
       >
-        <div className="flex items-center gap-3 rounded-2xl border px-4 py-3" style={{ borderColor: 'var(--n5-border-muted)' }}>
+        <div className="booking-artist-row flex items-center gap-3 rounded-2xl border px-4 py-3" style={{ borderColor: 'var(--n5-border-muted)' }}>
           {technician
             ? (
                 <div
@@ -1207,7 +1208,7 @@ const ConfirmContent = ({
   ].filter(Boolean).join(' ');
 
   return (
-    <div className="min-h-screen bg-[var(--n5-bg-page)]" style={{ fontFamily: n5.fontBody }}>
+    <div className="booking-confirm-page min-h-screen bg-[var(--n5-bg-page)]" style={{ fontFamily: n5.fontBody }}>
       <nav
         data-public-surface="bookingProgressHeader"
         className="sticky top-0 z-40 flex items-center justify-between border-b px-5 py-3 backdrop-blur-md"
@@ -1251,7 +1252,7 @@ const ConfirmContent = ({
           >
             {isSubmitting
               ? <RefreshCw aria-hidden="true" className="size-6 animate-spin text-[var(--n5-accent)]" />
-              : <Check aria-hidden="true" className="size-6 text-[var(--n5-accent)]" strokeWidth={2.5} />}
+              : <Calendar aria-hidden="true" className="size-6 text-[var(--n5-accent)]" strokeWidth={2} />}
           </motion.div>
           <h1 className="font-heading mb-2 text-2xl font-bold text-[var(--n5-ink-main)]">
             Review your appointment
