@@ -1,3 +1,10 @@
+## [1.95.1](https://github.com/SniperStopSniping/nailsalon/compare/v1.95.0...v1.95.1) (2026-09-12)
+
+
+### Bug Fixes
+
+* **lab:** close the three remaining builder freeze findings ([d46bee5](https://github.com/SniperStopSniping/nailsalon/commit/d46bee5a0a5527fa4d7ec423df23eb8c2a7093fa))
+
 # [1.95.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.94.0...v1.95.0) (2026-09-12)
 
 
