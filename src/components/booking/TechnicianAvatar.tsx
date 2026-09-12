@@ -44,6 +44,7 @@ export function TechnicianAvatar({
           )
         : (
             <div
+              data-booking-avatar-fallback
               className={cn(
                 'flex size-full items-center justify-center bg-gradient-to-br from-[#a18cd1] to-[#fbc2eb] text-white',
                 fallbackClassName,

@@ -6,6 +6,11 @@ import {
 } from '@/libs/bookingExperience';
 import type { BookingPageConfigSide } from '@/libs/bookingPageConfig';
 import { resolveBookingPageContent } from '@/libs/bookingPageContent';
+import {
+  getCustomerSitePresentationCssVariables,
+  resolveCustomerSitePalettePreset,
+  resolveCustomerSiteStylePreset,
+} from '@/libs/customerSitePresentation';
 import type { PageAppearanceResult } from '@/libs/pageAppearance';
 import type {
   SalonContentAddOnInput,
@@ -149,6 +154,22 @@ export function PublicSalonPageShell({
     ? getBookingExperienceCssVariables(bookingExperience.primaryColor)
     : {};
   const hasBookingColorOverride = Object.keys(bookingExperienceStyles).length > 0;
+  // Use the already-authorized draft/live side, exactly as the service page
+  // does. Never read the draft independently or activate premium overrides.
+  const hasSitePresentation = pageName.startsWith('book-')
+    && (bookingPage?.siteStylePreset !== undefined || bookingPage?.sitePalettePreset !== undefined);
+  const sitePalette = hasSitePresentation
+    ? resolveCustomerSitePalettePreset(bookingPage?.sitePalettePreset)
+    : undefined;
+  const siteStyle = hasSitePresentation
+    ? resolveCustomerSiteStylePreset(bookingPage?.siteStylePreset)
+    : undefined;
+  const bookingStyles = {
+    ...bookingExperienceStyles,
+    ...(hasSitePresentation
+      ? getCustomerSitePresentationCssVariables({ palettePreset: sitePalette, stylePreset: siteStyle })
+      : {}),
+  };
 
   // Post-launch privacy fix: resolved HERE, unconditionally, for every
   // caller — not threaded in by each page.tsx — so `locationDisplayMode`
@@ -205,11 +226,14 @@ export function PublicSalonPageShell({
         themeKey={appearance.themeKey}
         pageName={pageName}
       >
-        {hasBookingColorOverride
+        {hasBookingColorOverride || hasSitePresentation
           ? (
               <div
                 data-booking-experience-theme={pageName}
-                style={bookingExperienceStyles as CSSProperties}
+                data-customer-booking-theme={hasSitePresentation ? pageName : undefined}
+                data-customer-site-palette={sitePalette}
+                data-customer-site-style={siteStyle}
+                style={bookingStyles as CSSProperties}
               >
                 {children}
               </div>
