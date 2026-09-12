@@ -1,3 +1,10 @@
+# [1.95.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.94.0...v1.95.0) (2026-09-12)
+
+
+### Features
+
+* use lucky charm for session loading ([#183](https://github.com/SniperStopSniping/nailsalon/issues/183)) ([90ceee0](https://github.com/SniperStopSniping/nailsalon/commit/90ceee07fba9e5355e38cc840a5d8f3a2470eb93))
+
 # [1.94.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.93.0...v1.94.0) (2026-09-12)
 
 
