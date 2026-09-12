@@ -3,6 +3,7 @@
  *
  * GET   /api/admin/salon/information?salonSlug=xxx — the current canonical values.
  * PATCH /api/admin/salon/information?salonSlug=xxx — targeted owner edits.
+ * POST  /api/admin/salon/information?salonSlug=xxx — a direct business-logo upload.
  *
  * Every write lands on the SAME rows onboarding created — `salon`, the primary
  * `salon_location`, `settings.sharedProfile` and
@@ -21,7 +22,13 @@
  * the salon row plus the primary location, exactly as onboarding writes them.
  */
 
-import { and, eq, sql } from 'drizzle-orm';
+import { randomBytes } from 'node:crypto';
+import { mkdir, writeFile } from 'node:fs/promises';
+import path from 'node:path';
+
+import { v2 as cloudinary } from 'cloudinary';
+import { and, eq, isNull, sql } from 'drizzle-orm';
+import sharp from 'sharp';
 import { z } from 'zod';
 
 import type { AdminWithSalons } from '@/libs/adminAuth';
@@ -30,6 +37,7 @@ import { logAuditEvent } from '@/libs/auditLog';
 import { resolveBookingConfigFromSettings } from '@/libs/bookingConfig';
 import { bookingExperienceAppearanceUpdateSchema, resolveBookingExperience } from '@/libs/bookingExperience';
 import { resolveBookingPageContent } from '@/libs/bookingPageContent';
+import { isCloudinaryConfigured } from '@/libs/Cloudinary';
 import { db } from '@/libs/DB';
 import { resolveInstagramInput, toInstagramHandle } from '@/libs/instagramHandle';
 import { buildSalonTenantPublicUrl } from '@/libs/publicUrl';
@@ -39,6 +47,10 @@ import { resolveWeeklySchedule } from '@/libs/weeklySchedule';
 import { type Salon, salonLocationSchema, salonSchema } from '@/models/Schema';
 
 export const dynamic = 'force-dynamic';
+
+const MAX_LOGO_BYTES = 5 * 1024 * 1024;
+const MAX_LOGO_EDGE = 1200;
+const ACCEPTED_LOGO_MIME_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
 
 const WEEKDAYS = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'] as const;
 type Weekday = (typeof WEEKDAYS)[number];
@@ -167,6 +179,51 @@ type AuthorizedSalon = { ok: true; salon: Salon; admin: AdminWithSalons } | { ok
 
 function error(status: number, code: string, message: string, details?: unknown): Response {
   return Response.json({ error: { code, message, ...(details ? { details } : {}) } }, { status });
+}
+
+async function prepareLogoImage(input: Buffer): Promise<Buffer> {
+  return sharp(input, { failOn: 'error', limitInputPixels: 40_000_000 })
+    .rotate()
+    .resize({ width: MAX_LOGO_EDGE, height: MAX_LOGO_EDGE, fit: 'inside', withoutEnlargement: true })
+    .webp({ alphaQuality: 100, quality: 90 })
+    .toBuffer();
+}
+
+async function storeLogo(salonId: string, data: Buffer): Promise<string> {
+  const token = randomBytes(8).toString('hex');
+  if (isCloudinaryConfigured()) {
+    const uploaded = await new Promise<{ secure_url: string }>((resolve, reject) => {
+      cloudinary.uploader
+        .upload_stream(
+          {
+            folder: `salons/${salonId}/brand`,
+            overwrite: false,
+            public_id: `logo_${token}`,
+            resource_type: 'image',
+          },
+          (uploadError, result) => {
+            if (uploadError || !result) {
+              reject(new Error(uploadError?.message ?? 'Logo upload returned no result'));
+              return;
+            }
+            resolve({ secure_url: result.secure_url });
+          },
+        )
+        .end(data);
+    });
+    return uploaded.secure_url;
+  }
+
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error('IMAGE_STORAGE_UNAVAILABLE');
+  }
+
+  const relativeDirectory = path.join('uploads', 'logo', salonId);
+  const absoluteDirectory = path.join(process.cwd(), 'public', relativeDirectory);
+  const fileName = `logo_${token}.webp`;
+  await mkdir(absoluteDirectory, { recursive: true });
+  await writeFile(path.join(absoluteDirectory, fileName), data);
+  return `/${path.posix.join(relativeDirectory.replaceAll(path.sep, '/'), fileName)}`;
 }
 
 /**
@@ -417,4 +474,83 @@ export async function PATCH(request: Request): Promise<Response> {
   });
 
   return Response.json({ data: await buildInformation(updatedSalon) });
+}
+
+/**
+ * Uploads a business logo without first creating a nail-work Portfolio item.
+ * The logo is an immediately-live salon identity field. A baseline compare
+ * prevents a slower upload from replacing a newer choice made in another tab.
+ */
+export async function POST(request: Request): Promise<Response> {
+  const resolved = await resolveOwnerSalon(request);
+  if (!resolved.ok) {
+    return resolved.error;
+  }
+  const { salon, admin } = resolved;
+
+  const contentLength = Number(request.headers.get('content-length') ?? '0');
+  if (Number.isFinite(contentLength) && contentLength > MAX_LOGO_BYTES + 64 * 1024) {
+    return error(413, 'FILE_TOO_LARGE', 'Logos must be 5 MB or smaller.');
+  }
+
+  let formData: FormData;
+  try {
+    formData = await request.formData();
+  } catch {
+    return error(400, 'INVALID_REQUEST', 'Expected an image upload.');
+  }
+  const file = formData.get('file');
+  const baselineField = formData.get('baselineLogoUrl');
+  if (!(file instanceof File)) {
+    return error(400, 'INVALID_REQUEST', 'Choose an image to upload.');
+  }
+  if (typeof baselineField !== 'string') {
+    return error(400, 'INVALID_REQUEST', 'The current logo value is required.');
+  }
+  if (!ACCEPTED_LOGO_MIME_TYPES.has(file.type)) {
+    return error(400, 'UNSUPPORTED_MEDIA_TYPE', 'Only JPEG, PNG and WebP images are allowed.');
+  }
+  if (file.size > MAX_LOGO_BYTES) {
+    return error(413, 'FILE_TOO_LARGE', 'Logos must be 5 MB or smaller.');
+  }
+
+  let prepared: Buffer;
+  try {
+    prepared = await prepareLogoImage(Buffer.from(await file.arrayBuffer()));
+  } catch {
+    return error(400, 'UNREADABLE_IMAGE', 'That file could not be read as an image. Try a JPEG, PNG or WebP image.');
+  }
+
+  let logoUrl: string;
+  try {
+    logoUrl = await storeLogo(salon.id, prepared);
+  } catch (storageError) {
+    console.error('Logo upload storage failed', storageError);
+    return error(502, 'STORAGE_UNAVAILABLE', 'The logo could not be stored right now. Your current logo is unchanged.');
+  }
+
+  const baselineLogoUrl = baselineField || null;
+  const [updated] = await db
+    .update(salonSchema)
+    .set({ logoUrl, updatedAt: new Date() })
+    .where(and(
+      eq(salonSchema.id, salon.id),
+      baselineLogoUrl === null ? isNull(salonSchema.logoUrl) : eq(salonSchema.logoUrl, baselineLogoUrl),
+    ))
+    .returning();
+  if (!updated?.logoUrl) {
+    return error(409, 'STALE_LOGO', 'Your logo changed while this image was uploading, so the newer choice was kept.');
+  }
+
+  void logAuditEvent({
+    salonId: salon.id,
+    actorType: 'admin',
+    actorId: admin.id,
+    action: 'settings_updated',
+    entityType: 'salon',
+    entityId: salon.id,
+    metadata: { fields: ['logoUrl'], logoUpload: true },
+  });
+
+  return Response.json({ data: { logoUrl: updated.logoUrl } });
 }

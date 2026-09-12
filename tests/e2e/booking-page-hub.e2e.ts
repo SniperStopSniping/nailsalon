@@ -21,8 +21,13 @@ for (const viewport of [{ width: 320, height: 568 }, { width: 375, height: 667 }
 
     await page.goto(`${editorUrl}&panel=text&guided=1`);
 
-    await expect(page.getByText('Guided review · Step 2 of 6 · Your current saved setup')).toBeVisible();
+    await expect(page.getByText('Guided review · Step 2 of 7 · Your current saved setup')).toBeVisible();
     await expect(page.getByTestId('booking-page-publish')).toHaveCount(0);
+
+    await page.getByRole('button', { name: 'Save & next step' }).click();
+
+    await expect(page.getByRole('heading', { level: 1, name: 'Photos & Gallery', exact: true })).toBeVisible();
+    await expect(page).toHaveURL(/panel=gallery&guided=1/);
 
     await page.getByRole('button', { name: 'Save & next step' }).click();
 
@@ -102,11 +107,14 @@ for (const viewport of [{ width: 320, height: 568 }, { width: 375, height: 667 }
     await expect(page.getByRole('link', { name: /Edit business hours/ })).toHaveAttribute('href', /app=settings&view=business-profile/);
     expect(await noHorizontalOverflow()).toBe(true);
 
-    // Photos & Gallery reuses the shared Portfolio library rather than a copy.
+    // Photos & Gallery owns the three public image roles and links onward to
+    // the reusable nail-work Portfolio without turning it into a logo store.
     await page.goto(hubUrl);
     await page.getByRole('link', { name: /Photos & Gallery/ }).click();
 
-    await expect(page.getByTestId('app-modal-panel').getByText('Portfolio', { exact: true })).toBeVisible();
-    await expect(page).toHaveURL(/app=portfolio/);
+    await expect(page.getByRole('heading', { level: 1, name: 'Photos & Gallery', exact: true })).toBeVisible();
+    await expect(page.getByTestId('photos-gallery-media-controls')).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Manage Portfolio' })).toHaveAttribute('href', /app=portfolio/);
+    await expect(page).toHaveURL(/panel=gallery/);
   });
 }

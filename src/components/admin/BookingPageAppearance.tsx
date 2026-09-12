@@ -12,7 +12,6 @@ import { SERVICE_MENU_LAYOUTS } from '@/libs/serviceMenuLayout';
 import {
   BookingPageLayoutChooser,
   type BookingPagePresentationPreview,
-  type CoverUploadState,
 } from './BookingPageLayoutChooser';
 
 const names: Record<string, string> = {
@@ -99,8 +98,6 @@ function PresetSpecimen({ tokens, value }: { tokens: Record<string, string>; val
   );
 }
 
-const IDLE_COVER_UPLOAD: CoverUploadState = { status: 'idle', error: null, note: null };
-
 export function BookingPageAppearance({
   draft,
   disabled,
@@ -109,9 +106,7 @@ export function BookingPageAppearance({
   content = null,
   presentationPreview = null,
   onContentChange,
-  onUploadCover,
-  coverUpload = IDLE_COVER_UPLOAD,
-  informationHref = null,
+  photosHref = null,
   textHref = null,
   portfolioHref = null,
 }: {
@@ -123,9 +118,7 @@ export function BookingPageAppearance({
   content?: BookingPageContentSide | null;
   presentationPreview?: BookingPagePresentationPreview | null;
   onContentChange?: (patch: BookingPageContentPatch) => void;
-  onUploadCover?: (file: File) => void;
-  coverUpload?: CoverUploadState;
-  informationHref?: string | null;
+  photosHref?: string | null;
   textHref?: string | null;
   portfolioHref?: string | null;
 }) {
@@ -147,13 +140,11 @@ export function BookingPageAppearance({
       {mode === 'layouts' && draft.layout === 'quick_book' && (
         <BookingPageLayoutChooser
           content={content}
-          coverUpload={coverUpload}
           disabled={disabled}
           draft={draft}
-          informationHref={informationHref}
           onConfigPatch={onChange}
           onContentPatch={patch => onContentChange?.(patch)}
-          onUploadCover={file => onUploadCover?.(file)}
+          photosHref={photosHref}
           portfolioHref={portfolioHref}
           preview={presentationPreview}
           textHref={textHref}

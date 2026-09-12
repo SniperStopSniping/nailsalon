@@ -79,10 +79,9 @@ import { getI18nPath } from '@/utils/Helpers';
  *    AG-w2-information-parity-03) but under the canonical name, and it links
  *    to the panel that owns the rest of the address.
  *
- * The remaining legacy-only controls (business type, profile photo) have no
- * panel to defer to, so they were relabelled in onboarding's vocabulary
- * instead of removed — deleting the only editor for a saved field is an
- * owner decision, not a cohesion fix.
+ * Business type remains legacy-only. Website images now defer to the
+ * Photos & Gallery panel so the old route cannot become a second editor for
+ * the cover-photo field.
  */
 const BUSINESS_MODE_OPTIONS: Array<{ id: BusinessMode; label: string; description: string }> = [
   { id: 'solo', label: 'Independent nail tech', description: 'I work on my own — one calendar.' },
@@ -125,6 +124,7 @@ type BookingPageApiResponse = {
 const DRAFT_PANEL_SUBTITLE = 'Changes here save to your draft. Nothing goes live until you publish.';
 
 const PANEL_SUBTITLES: Record<string, string> = {
+  gallery: 'Logo and profile changes save immediately. Cover changes stay in your website draft until you publish.',
   information: 'Saved changes apply immediately. This is the business record your live site and bookings already use.',
   policies: 'These links open settings that save immediately. Nothing here waits for a publish.',
 };
@@ -301,8 +301,8 @@ export default function BookingPageOwnerSurface() {
   const params = useParams();
   const searchParams = useSearchParams();
   const requestedPanel = searchParams.get('panel');
-  const panel = ['layouts', 'appearance', 'information', 'text', 'policies', 'publish'].includes(requestedPanel ?? '') ? requestedPanel : null;
-  const reviewPanels = ['information', 'text', 'policies', 'layouts', 'appearance', 'publish'];
+  const panel = ['layouts', 'appearance', 'information', 'text', 'gallery', 'policies', 'publish'].includes(requestedPanel ?? '') ? requestedPanel : null;
+  const reviewPanels = ['information', 'text', 'gallery', 'policies', 'layouts', 'appearance', 'publish'];
   const reviewIndex = searchParams.get('guided') === '1' && panel ? reviewPanels.indexOf(panel) : -1;
   const show = (name: string) => !panel || panel === name;
   const locale = String(params?.locale || 'en');
@@ -336,6 +336,12 @@ export default function BookingPageOwnerSurface() {
   const [actionMessage, setActionMessage] = useState<string | null>(null);
   // AG-hub-publish-07: true from the tap until the destination takes over.
   const [navigationPending, setNavigationPending] = useState(false);
+
+  // Panel-to-panel guided navigation reuses this page component, so the
+  // destination query change—not an unmount—is what completes the move.
+  useEffect(() => {
+    setNavigationPending(false);
+  }, [panel]);
 
   // Phase A (draft/publish split): the salon's OWN publicationStatus — not
   // the booking-page config draft/live pair above. Drives whether
@@ -716,8 +722,8 @@ export default function BookingPageOwnerSurface() {
    * six-step flow looked broken and invited a second tap.
    *
    * `navigationPending` stays true through `router.push` on purpose — the
-   * pending label must survive until the destination replaces this screen —
-   * and is only cleared when the navigation does NOT happen.
+   * pending label survives until the destination panel is observed. The
+   * panel-change effect above clears it when Next reuses this page instance.
    */
   async function navigateAfterSaving(destination: string) {
     if (presentationWritePendingRef.current || navigationPending) {
@@ -1053,7 +1059,7 @@ export default function BookingPageOwnerSurface() {
         <div className="mt-6 flex flex-wrap items-start justify-between gap-4">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.25em] text-[var(--owner-accent)]">Booking Page</p>
-            <h1 className="mt-2 text-3xl font-semibold">{({ layouts: 'Layouts', appearance: 'Style & Colours', information: 'Your Information', text: 'About & Website Text', policies: 'Policies & Booking Rules', publish: 'Review & Publish' } as Record<string, string>)[panel ?? ''] ?? 'Layout, style and content'}</h1>
+            <h1 className="mt-2 text-3xl font-semibold">{({ layouts: 'Layouts', appearance: 'Style & Colours', information: 'Business Info Display', text: 'About & Website Text', gallery: 'Photos & Gallery', policies: 'Policies & Booking Rules', publish: 'Review & Publish' } as Record<string, string>)[panel ?? ''] ?? 'Layout, style and content'}</h1>
             <p className="mt-2 text-[var(--owner-muted)]" data-testid="booking-page-panel-subtitle">{PANEL_SUBTITLES[panel ?? ''] ?? DRAFT_PANEL_SUBTITLE}</p>
             {reviewIndex >= 0 && (
               <p className="mt-2 text-sm font-semibold text-[var(--owner-accent)]">
@@ -1170,17 +1176,34 @@ export default function BookingPageOwnerSurface() {
             />
           )}
 
+          {panel === 'gallery' && salonSlug && (
+            <BookingPageInformationEditor
+              addressPrivacy={content.draft.locationDisplayMode}
+              coverUpload={coverUpload}
+              coverUrl={content.draft.heroImageUrl}
+              coverUsedByLayout={getQuickBookLayout(draft.quickBookLayout ?? 'clean_card').cover}
+              disabled={presentationPending}
+              draft={draft}
+              liveAddressPrivacy={content.live.locationDisplayMode}
+              locale={locale}
+              mode="gallery"
+              onAddressPrivacyChange={() => undefined}
+              onConfigPatch={() => undefined}
+              onUploadCover={file => void uploadCover(file)}
+              onUseDefaultCover={() => void saveCoverChoice({ heroImageUrl: null })}
+              salonSlug={salonSlug}
+            />
+          )}
+
           {(panel === 'layouts' || panel === 'appearance') && (
             <BookingPageAppearance
               content={content?.draft ?? null}
-              coverUpload={coverUpload}
               disabled={presentationPending}
               draft={draft}
-              informationHref={salonSlug ? `/${locale}/admin/booking-page?salon=${encodeURIComponent(salonSlug)}&panel=information` : null}
               mode={panel}
               onChange={patch => void saveConfigPatch(patch)}
               onContentChange={patch => void (Object.prototype.hasOwnProperty.call(patch, 'heroImageUrl') ? saveCoverChoice(patch) : saveContentPatch(patch))}
-              onUploadCover={file => void uploadCover(file)}
+              photosHref={salonSlug ? `/${locale}/admin/booking-page?salon=${encodeURIComponent(salonSlug)}&panel=gallery` : null}
               portfolioHref={salonSlug ? `/${locale}/admin?salon=${encodeURIComponent(salonSlug)}&app=portfolio` : null}
               presentationPreview={presentationPreview}
               textHref={salonSlug ? `/${locale}/admin/booking-page?salon=${encodeURIComponent(salonSlug)}&panel=text` : null}
@@ -1265,26 +1288,10 @@ export default function BookingPageOwnerSurface() {
             <SectionCard title="About & Website Text" description="Edit the introduction and bio used by your customer site.">
               <div className="space-y-4">
                 {!panel && (
-                  <div>
-                    <label className="block">
-                      <span className="text-sm font-medium text-[var(--owner-ink)]">Profile photo link</span>
-                      <span className="mt-0.5 block text-xs text-[var(--owner-muted)]">The photo at the top of your booking page — the one setup called your profile photo. Paste the address of a photo you have already uploaded.</span>
-                      <input
-                        type="url"
-                        data-testid="content-hero-image-url"
-                        disabled={presentationPending}
-                        value={heroImageDraft}
-                        onChange={event => updateContentTextDraft(
-                          'heroImageUrl',
-                          event.target.value,
-                          setHeroImageDraft,
-                        )}
-                        onBlur={() => void saveContentPatch({ heroImageUrl: heroImageDraft.trim() === '' ? null : heroImageDraft.trim() })}
-                        placeholder="https://…"
-                        className="mt-1 w-full rounded-xl border border-[var(--owner-line)] px-3 py-2 text-sm"
-                      />
-                    </label>
-                    <a className="mt-2 inline-flex text-sm font-semibold text-[var(--owner-accent)] underline" href={`/${locale}/admin?salon=${encodeURIComponent(salonSlug)}&app=portfolio`}>Photos &amp; Gallery</a>
+                  <div className="rounded-xl border border-[var(--owner-line)] p-3" data-cover-url={heroImageDraft} data-testid="legacy-website-photos">
+                    <p className="text-sm font-medium text-[var(--owner-ink)]">Website photos</p>
+                    <p className="mt-0.5 text-xs text-[var(--owner-muted)]">Logo, profile and cover photos have one home.</p>
+                    <a className="mt-2 inline-flex min-h-11 items-center text-sm font-semibold text-[var(--owner-accent)] underline" href={`/${locale}/admin/booking-page?salon=${encodeURIComponent(salonSlug)}&panel=gallery`}>Manage Photos &amp; Gallery</a>
                   </div>
                 )}
 

@@ -173,7 +173,8 @@ test('the Layouts panel offers every family with truthful default-image guidance
       await expect(page.getByTestId('quick-book-cover-default-note')).toContainText(/default cover/iu);
     }
 
-    await expect(page.getByTestId('quick-book-cover-upload')).toBeAttached();
+    await expect(page.getByRole('link', { name: /cover in Photos & Gallery/ })).toHaveAttribute('href', /panel=gallery/);
+    await expect(page.getByTestId('quick-book-cover-upload')).toHaveCount(0);
     await expect(page.getByTestId('quick-book-layout-cover-text')).toBeVisible();
 
     await testInfo.attach(`layouts-panel-${testInfo.project.name}-${page.viewportSize()?.width ?? 0}`, {

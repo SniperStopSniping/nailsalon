@@ -20,7 +20,7 @@ describe('Booking Page hub', () => {
     expect(screen.getByRole('navigation', { name: 'Booking Page editors' }).querySelectorAll('a')).toHaveLength(7);
     expect(screen.getByRole('link', { name: 'Preview draft' })).toHaveAttribute('href', '/en/admin/booking-page/preview/another-studio');
     expect(screen.getByRole('link', { name: /Layout 22 website layouts/ })).toHaveAttribute('href', '/en/admin/booking-page?salon=another-studio&panel=layouts');
-    expect(screen.getByRole('link', { name: /Photos & Gallery/ })).toHaveAttribute('href', '/en/admin?salon=another-studio&app=portfolio');
+    expect(screen.getByRole('link', { name: /Photos & Gallery/ })).toHaveAttribute('href', '/en/admin/booking-page?salon=another-studio&panel=gallery');
     expect(screen.getByText('Live · All changes published')).toBeVisible();
     expect(screen.queryByText(/Daniela|Isla/)).not.toBeInTheDocument();
   });

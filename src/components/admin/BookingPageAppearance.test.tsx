@@ -48,6 +48,22 @@ describe('Booking Page appearance', () => {
     expect(onChange).toHaveBeenLastCalledWith({ serviceMenuLayout: 'editorial_price_list' });
   });
 
+  it('shows saved image status in Layouts but sends replacement to Photos & Gallery', () => {
+    const draft = resolveBookingPageConfig({}).draft;
+    render(
+      <BookingPageAppearance
+        disabled={false}
+        draft={draft}
+        mode="layouts"
+        onChange={vi.fn()}
+        photosHref="/en/admin/booking-page?salon=salon-a&panel=gallery"
+      />,
+    );
+
+    expect(screen.getByRole('link', { name: 'Add a cover in Photos & Gallery' })).toHaveAttribute('href', '/en/admin/booking-page?salon=salon-a&panel=gallery');
+    expect(screen.queryByTestId('quick-book-cover-upload')).not.toBeInTheDocument();
+  });
+
   // AG-hub-publish-04
   it('paints every palette card with its ground, button and accent colours, not one stop', () => {
     const draft = resolveBookingPageConfig({}).draft;
