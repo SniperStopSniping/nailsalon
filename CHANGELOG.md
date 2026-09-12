@@ -1,3 +1,11 @@
+## [1.95.2](https://github.com/SniperStopSniping/nailsalon/compare/v1.95.1...v1.95.2) (2026-09-12)
+
+
+### Bug Fixes
+
+* **booking:** carry saved onboarding palettes through the booking flow ([#185](https://github.com/SniperStopSniping/nailsalon/issues/185)) ([58c49c9](https://github.com/SniperStopSniping/nailsalon/commit/58c49c98201a7de67181db4b146cc5a2e393f324))
+* **onboarding:** unblock cover photo saving and retries ([#186](https://github.com/SniperStopSniping/nailsalon/issues/186)) ([9dc4197](https://github.com/SniperStopSniping/nailsalon/commit/9dc4197800a3ae8d492860b272ee8a4df384729a))
+
 ## [1.95.1](https://github.com/SniperStopSniping/nailsalon/compare/v1.95.0...v1.95.1) (2026-09-12)
 
 
