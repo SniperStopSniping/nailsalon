@@ -161,6 +161,12 @@ describe('StarterChooser copy and accessibility', () => {
       act(() => vi.advanceTimersByTime(duration));
 
       expect(demo).toHaveAttribute('data-scene', String((index + 1) % 9));
+
+      if (index === 7) {
+        expect(demo.querySelector('img')).toHaveAttribute('src', expect.stringContaining('luster-instagram-profile.jpg'));
+        expect(demo.querySelector('img')).toHaveAttribute('alt', 'Screenshot of Luster’s Instagram profile, @lustergel.app');
+        expect(demo).toHaveTextContent('Screenshot, not a live page');
+      }
     });
 
     expect(onChoose).not.toHaveBeenCalled();

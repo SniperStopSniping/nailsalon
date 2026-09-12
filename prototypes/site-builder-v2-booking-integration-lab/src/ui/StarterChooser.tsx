@@ -14,6 +14,12 @@ import {
   type StarterSectionDefinition,
 } from '../model/starters';
 import type { OriginStarter } from '../model/types';
+import lusterInstagramScreenshot from '../onboarding/fixtures/assets/luster-instagram-profile.jpg';
+
+const lusterInstagramAsset = lusterInstagramScreenshot as string | { src: string };
+const lusterInstagramSrc = typeof lusterInstagramAsset === 'string'
+  ? lusterInstagramAsset
+  : lusterInstagramAsset.src;
 
 type StarterChooserProps = {
   onChoose: (starter: OriginStarter) => void;
@@ -775,18 +781,9 @@ function YourDesignDemo({ reducedMotion, pageVisible }: { reducedMotion: boolean
               )
             : frame === 8
               ? (
-                  <div className="final-design-demo__profile">
-                    <Instagram size={28} />
-                    <small>Instagram · Example destination</small>
-                    <strong>@lustergel.app</strong>
-                    <span className="final-design-demo__avatar">L</span>
-                    <span>Luster</span>
-                    <div className="final-design-demo__profile-grid">
-                      <i />
-                      <i />
-                      <i />
-                    </div>
-                    <small>Opens here in the demo only</small>
+                  <div className="final-design-demo__instagram-capture">
+                    <img alt="Screenshot of Luster’s Instagram profile, @lustergel.app" src={lusterInstagramSrc} width={591} height={1280} />
+                    <small>Instagram · Screenshot, not a live page</small>
                   </div>
                 )
               : (

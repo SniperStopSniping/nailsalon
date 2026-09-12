@@ -1,5 +1,14 @@
 # Your Design starting-card walkthrough
 
+## Owner-supplied Instagram screenshot
+
+The final automatic scene now displays the owner's supplied screenshot of
+`@lustergel.app`, copied unchanged to `src/onboarding/fixtures/assets/luster-instagram-profile.jpg`.
+It replaces the illustrative profile. The full screenshot fits without cropping;
+a caption identifies it as a screenshot, not a live page. No external request,
+account connection, or real tab opening was added. Counts/text are the supplied
+snapshot, not independently verified current Instagram data.
+
 ## Automatic watch-only update (current candidate)
 
 Supersedes the hands-on demo below. No viewer input is needed. A nine-scene loop
