@@ -621,7 +621,8 @@
   [data-booking-readability] *,
   [data-booking-readability] *::before,
   [data-booking-readability] *::after {
-    transition-duration: 0.01ms !important;
+    /* A near-zero transition still exposes a stale opacity frame in WebKit. */
+    transition: none !important;
     animation-duration: 0.01ms !important;
     scroll-behavior: auto !important;
   }

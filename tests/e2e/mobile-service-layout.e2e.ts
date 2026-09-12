@@ -345,6 +345,15 @@ async function walkReadOnlyBookingTargets(page: Page): Promise<void> {
   await expectSingleBookingMain(page);
 
   await expectPracticalBookingTargets(page);
+  await expectReducedMotionControl(page.getByRole('button', { name: 'Previous week' }));
+  await expectReducedMotionControl(page.getByRole('button', { name: 'Next week' }));
+  await expectNoTargetOverlap([
+    page.getByRole('button', { name: 'Previous week' }),
+    page.getByRole('button', { name: 'Next week' }),
+  ]);
+  await expectNoTargetOverlap(await page.locator('[data-testid^="calendar-day-"]:not([disabled])').all());
+  await page.getByRole('button', { name: 'View full calendar' }).click();
+  await expectPracticalBookingTargets(page);
   await expectReducedMotionControl(page.getByRole('button', { name: 'Previous month' }));
   await expectReducedMotionControl(page.getByRole('button', { name: 'Next month' }));
   await expectNoTargetOverlap([

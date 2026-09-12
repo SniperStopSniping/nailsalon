@@ -116,6 +116,26 @@ for (const width of [320, 375]) {
   });
 }
 
+test('reduced motion makes opacity changes immediate without a stale transition frame', async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.goto('/?count=1');
+  const summary = page.getByTestId('booking-summary-card');
+
+  await expect(summary).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Next week' })).toHaveCSS('transition-property', 'none');
+
+  const concealed = await summary.evaluate((element) => {
+    element.style.transition = 'opacity 300ms ease 100ms';
+    // Force the starting computed style before reproducing the preview's
+    // opacity-zero negative control in the same frame.
+    const initialOpacity = getComputedStyle(element).opacity;
+    element.style.opacity = '0';
+    return { initialOpacity, opacity: getComputedStyle(element).opacity };
+  });
+
+  expect(concealed).toEqual({ initialOpacity: '1', opacity: '0' });
+});
+
 test('the reading preference stays usable on the confirmed receipt', async ({ page }, info) => {
   await page.goto('/?palette=black_champagne&step=confirm');
   await page.getByRole('button', { name: 'Easier to read Off' }).click();
