@@ -335,7 +335,8 @@ jobs:
               # list to include `cover`. Additive constraint change only.
               migrations/0075_onboarding_cover_media_role.sql) ;;
               # One-time review requests, disabled by default and without backfill.
-              migrations/0076_review_requests.sql) ;;
+              migrations/0076_deposit_shadow_evidence.sql) ;;
+              migrations/0077_review_requests.sql) ;;
               migrations/meta/_journal.json) ;;
               vercel.json) ;;
               *)
@@ -420,7 +421,8 @@ jobs:
               0074_onboarding_account_site_foundation) ;;
               # Quick Book design system — onboarding cover media role.
               0075_onboarding_cover_media_role) ;;
-              0076_review_requests) ;;
+              0076_deposit_shadow_evidence) ;;
+              0077_review_requests) ;;
               *)
                 echo "::error::Unauthorized migration journal entries: $tag"
                 exit 1

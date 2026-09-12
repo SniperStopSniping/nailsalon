@@ -22,7 +22,7 @@ credits, rate limits, logging, leases, and unknown-outcome reconciliation. Unsen
 requests use the current review link/template; accepted messages preserve their
 body snapshot. Delivery failures display a failed state and never enable resending.
 
-Migration `0076_review_requests.sql` adds client suppression/reset fields, review
+Migration `0077_review_requests.sql` adds client suppression/reset fields, review
 settings to `salon_retention_settings`, and `review_request`. Apply using the guarded
 database runbook before running new application code. No production migration is
 included in this implementation.
