@@ -8,12 +8,12 @@ import {
 } from '../../custom-design/integration/CustomDesignAssetProvider';
 import { CustomDesignImageManager } from '../../custom-design/integration/CustomDesignImageManager';
 import { HotspotEditor } from '../../custom-design/integration/HotspotEditor';
-import { normalizeCustomDesignHexColor } from '../../custom-design/model/settings';
 import type {
   CustomDesignUploadFailure,
   CustomDesignUploadStatus,
 } from '../../custom-design/integration/ui-types';
 import { formatCustomDesignUploadSummary } from '../../custom-design/integration/upload-summary';
+import { normalizeCustomDesignHexColor } from '../../custom-design/model/settings';
 import type { CustomDesignSectionInstance, SiteBuilderDocument } from '../../model';
 import {
   getCustomDesignInternalTargets,
@@ -1118,7 +1118,7 @@ export function CanvaDialog({
   );
   const hotspotAsset = hotspotImage
     ? toCustomDesignOwnerAssetMap(hotspotAssetPairs)[hotspotImage.assetId]
-      ?? { status: 'loading' as const }
+    ?? { status: 'loading' as const }
     : { status: 'loading' as const };
 
   useEffect(() => {

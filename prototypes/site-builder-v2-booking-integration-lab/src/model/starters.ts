@@ -412,14 +412,14 @@ const createStarterPage = (
               },
             },
           }
-      : createLibrarySectionInstance(section.sectionType, idFactory, {
-        ...(section.galleryPresentationOwner !== undefined
-          ? { galleryPresentationOwner: section.galleryPresentationOwner }
-          : {}),
-        ...(section.label !== undefined ? { label: section.label } : {}),
-        order: sectionOrder,
-        ...(section.preset !== undefined ? { presetId: section.preset } : {}),
-      }),
+        : createLibrarySectionInstance(section.sectionType, idFactory, {
+          ...(section.galleryPresentationOwner !== undefined
+            ? { galleryPresentationOwner: section.galleryPresentationOwner }
+            : {}),
+          ...(section.label !== undefined ? { label: section.label } : {}),
+          order: sectionOrder,
+          ...(section.preset !== undefined ? { presetId: section.preset } : {}),
+        }),
   ),
 });
 
