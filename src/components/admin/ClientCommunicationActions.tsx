@@ -11,8 +11,6 @@ import {
   MessageCircle,
   Phone,
   RotateCcw,
-  Smile,
-  Star,
 } from 'lucide-react';
 import {
   type ReactNode,
@@ -23,6 +21,7 @@ import {
 } from 'react';
 
 import { LusterClientSms } from '@/components/admin/LusterClientSms';
+import { ReviewRequestAction } from '@/components/appointments/ReviewRequestAction';
 import { Button } from '@/components/ui/button';
 import { InlineFeedback } from '@/components/ui/inline-feedback';
 import {
@@ -362,8 +361,6 @@ export function ClientCommunicationActions({
   client,
   upcomingAppointment,
   lastCompletedAppointment,
-  completedAppointmentCount,
-  hasGoogleReview,
   onBookAppointment,
   onOpenPromotionSettings,
   onOpenNativeUrl = openNativeUrl,
@@ -380,8 +377,6 @@ export function ClientCommunicationActions({
   };
   upcomingAppointment?: CommunicationAppointment | null;
   lastCompletedAppointment?: CommunicationAppointment | null;
-  completedAppointmentCount: number;
-  hasGoogleReview: boolean;
   onBookAppointment: () => void;
   onOpenPromotionSettings?: (stage: PromotionSettingsStage) => void;
   onOpenNativeUrl?: (href: string) => void;
@@ -409,8 +404,6 @@ export function ClientCommunicationActions({
   const [history, setHistory] = useState<CommunicationHistoryItem[]>([]);
   const [retentionStage, setRetentionStage] = useState<RetentionStage | null>(null);
   const [reminderDue, setReminderDue] = useState<AppointmentReminderItem | null>(null);
-  const [reviewRecorded, setReviewRecorded] = useState(hasGoogleReview);
-  const [markingReviewed, setMarkingReviewed] = useState(false);
   const [smsComposerOpen, setSmsComposerOpen] = useState(false);
 
   const loadSupportData = useCallback(async () => {
@@ -479,10 +472,6 @@ export function ClientCommunicationActions({
   useEffect(() => {
     void loadSupportData();
   }, [loadSupportData]);
-
-  useEffect(() => {
-    setReviewRecorded(hasGoogleReview);
-  }, [hasGoogleReview]);
 
   const baseContext = useMemo<ClientSmsContext>(() => {
     const directionsLocation = resolveDirectionsLocation(
@@ -584,10 +573,10 @@ export function ClientCommunicationActions({
           return href ? { href, body: serverDraft.body } : null;
         })()
       : composeClientSmsDraft({
-        kind,
-        context: { ...baseContext, appointment },
-        platform,
-      });
+          kind,
+          context: { ...baseContext, appointment },
+          platform,
+        });
 
     if (!draft) {
       setActionError(
@@ -829,45 +818,6 @@ export function ClientCommunicationActions({
     }
   }, [recordOutreach, retentionStage]);
 
-  const markAlreadyReviewed = useCallback(async () => {
-    if (!lastCompletedAppointment) {
-      return;
-    }
-    setMarkingReviewed(true);
-    setActionError(null);
-    try {
-      const response = await fetch(
-        `/api/appointments/${encodeURIComponent(lastCompletedAppointment.id)}/review-followup?salonSlug=${encodeURIComponent(salonSlug)}`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ action: 'already_reviewed' }),
-        },
-      );
-      const payload = await response.json().catch(() => null);
-      if (!response.ok || payload?.data?.clientHasGoogleReview !== true) {
-        throw new Error(payload?.error?.message || 'The review status could not be updated.');
-      }
-      setReviewRecorded(true);
-      void recordOutreach({
-        kind: 'google_review',
-        label: 'Google review',
-        messageSnapshot: 'Client already reviewed; no request sent.',
-        appointmentId: lastCompletedAppointment.id,
-      }, 'dismissed').catch(() => {
-        setActionError('Review status was saved, but the communication timeline could not be updated.');
-      });
-    } catch (error) {
-      setActionError(
-        error instanceof Error
-          ? error.message
-          : 'The review status could not be updated.',
-      );
-    } finally {
-      setMarkingReviewed(false);
-    }
-  }, [lastCompletedAppointment, recordOutreach, salonSlug]);
-
   const resolveReminderAlert = useCallback(async (
     status: Extract<ClientCommunicationStatus, 'snoozed' | 'dismissed'>,
   ) => {
@@ -925,17 +875,6 @@ export function ClientCommunicationActions({
   const dialDigits = normalizePhone(client.phone);
   const callHref = dialDigits.length >= 7 ? `tel:${dialDigits}` : null;
   const mailtoHref = emailHref(client.email);
-
-  const reviewDisabled = completedAppointmentCount < 1
-    || !supportData.settings.googleReviewUrl
-    || reviewRecorded;
-  const reviewDisabledTitle = completedAppointmentCount < 1
-    ? 'Available after a completed appointment'
-    : reviewRecorded
-      ? 'This client is already marked as reviewed'
-      : !supportData.settings.googleReviewUrl
-          ? 'Add a Google review link in Promotion Settings'
-          : undefined;
 
   return (
     <div className="mt-4 w-full" data-testid="client-communication-actions">
@@ -1095,39 +1034,18 @@ export function ClientCommunicationActions({
               label="Directions"
               onClick={() => openDraft('directions', 'Directions', null)}
             />
-            <ActionButton
-              icon={<Smile size={15} />}
-              label="Satisfaction text"
-              disabled={completedAppointmentCount < 1}
-              title={completedAppointmentCount < 1 ? 'Available after a completed appointment' : undefined}
-              onClick={() => openDraft('satisfaction', 'Satisfaction question', null)}
-            />
-            <ActionButton
-              icon={<Star size={15} />}
-              label="Google review"
-              disabled={reviewDisabled || supportLoading}
-              title={reviewDisabledTitle}
-              onClick={() => openDraft('google_review', 'Google review request', null)}
-            />
           </div>
         </details>
       </div>
 
-      {completedAppointmentCount > 0 && (
-        <div className="mt-2 text-left text-xs text-stone-500">
-          {reviewRecorded
-            ? 'Google review already recorded — review requests are suppressed.'
-            : (
-                <button
-                  type="button"
-                  className="font-semibold text-stone-600 underline disabled:opacity-50"
-                  disabled={markingReviewed}
-                  onClick={() => void markAlreadyReviewed()}
-                >
-                  {markingReviewed ? 'Saving review status…' : 'Client already reviewed? Mark it'}
-                </button>
-              )}
-        </div>
+      {lastCompletedAppointment && (
+        <ReviewRequestAction
+          appointmentId={lastCompletedAppointment.id}
+          salonSlug={salonSlug}
+          timeZone={supportData.timeZone ?? 'America/Toronto'}
+          appointmentStatus="completed"
+          className="mt-3"
+        />
       )}
 
       {actionError && (

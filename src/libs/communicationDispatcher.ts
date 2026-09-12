@@ -104,6 +104,10 @@ async function hasSalonTransactionalConsent(salonId: string, recipient: string, 
  * the message. Non-appointment intents pass through.
  */
 async function appointmentStillActive(intent: CommunicationIntent, now = new Date()): Promise<boolean> {
+  if (intent.eventType === 'review_request') {
+    const { reviewRequestSendContext } = await import('@/libs/reviewRequests.server');
+    return (await reviewRequestSendContext(intent.salonId, intent.id)) !== null;
+  }
   if (intent.appointmentId === null) {
     return true;
   }
@@ -321,13 +325,13 @@ export async function dispatchClaimedIntent(
   const readiness = mode === 'connected_byo' && connection
     ? resolveByoSenderReadiness(connection, { authTokenPresent: !!Env.TWILIO_AUTH_TOKEN })
     : resolveSharedSenderReadiness({
-      salonSlug: salon.slug,
-      config: {
-        ...envConfig,
-        platformControl: control === null ? null : { smsEnabled: control.smsEnabled },
-        creditReservation: { available: true },
-      },
-    });
+        salonSlug: salon.slug,
+        config: {
+          ...envConfig,
+          platformControl: control === null ? null : { smsEnabled: control.smsEnabled },
+          creditReservation: { available: true },
+        },
+      });
   if (!readiness.ready) {
     await deferIntent(intent.id, `SENDER_UNAVAILABLE:${readiness.reason}`, now);
     return 'deferred';
@@ -357,6 +361,15 @@ export async function dispatchClaimedIntent(
     return 'suppressed';
   }
   let variables = intent.variables;
+  if (intent.eventType === 'review_request') {
+    const { reviewRequestSendContext } = await import('@/libs/reviewRequests.server');
+    const review = await reviewRequestSendContext(intent.salonId, intent.id);
+    if (!review) {
+      await transitionIntent(intent.id, { to: 'suppressed', lastError: 'REVIEW_NO_LONGER_ELIGIBLE' }, now);
+      return 'suppressed';
+    }
+    variables = { ...variables, message: review.message };
+  }
   if (intent.appointmentId && intent.templateKey.endsWith('_shortlink') && variables.manageUrl
     && !/\/a\/[\w-]{22}$/.test(variables.manageUrl)) {
     // Retain the capability URL on the intent under a row lock, so retries
@@ -542,7 +555,10 @@ export async function dispatchClaimedIntent(
     return 'deferred';
   }
 
-  if (!(await appointmentStillActive(intent, finalNow))) {
+  const finalReview = intent.eventType === 'review_request'
+    ? await (await import('@/libs/reviewRequests.server')).reviewRequestSendContext(intent.salonId, intent.id)
+    : undefined;
+  if (!(await appointmentStillActive(intent, finalNow)) || (intent.eventType === 'review_request' && finalReview?.message !== variables.message)) {
     // Final pre-provider appointment recheck: the reservation releases and
     // the provider is never called — same linearization posture as STOP.
     if (reservation.reservationId) {

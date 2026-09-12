@@ -4,6 +4,7 @@ import { CalendarPlus, Clock3, Mail, MapPin, UserRound, X } from 'lucide-react';
 import Image from 'next/image';
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
+import { ReviewRequestAction } from '@/components/appointments/ReviewRequestAction';
 import { UpcomingAppointmentActions } from '@/components/appointments/UpcomingAppointmentActions';
 import { buttonVariants } from '@/components/ui/buttonVariants';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
@@ -209,8 +210,8 @@ export function AppointmentQuickEditSheet({
   // owner still sees the booked subtotal, always labelled as an estimate.
   const estimatedFinancial
     = financial?.state === 'under_review'
-    && typeof financial.bookedTotalCents === 'number'
-    && typeof financial.currency === 'string'
+      && typeof financial.bookedTotalCents === 'number'
+      && typeof financial.currency === 'string'
       ? { bookedTotalCents: financial.bookedTotalCents, currency: financial.currency }
       : null;
   // Line-item amounts (add-ons, service options, projected subtotal) are booked
@@ -408,6 +409,16 @@ export function AppointmentQuickEditSheet({
                           }}
                           onCancelAppointment={() => setPendingConfirm('cancel')}
                           onReminderSent={onReminderSent}
+                        />
+                      )}
+
+                      {detail.appointment.salonSlug && !['cancelled', 'no_show'].includes(detail.appointment.status) && (
+                        <ReviewRequestAction
+                          appointmentId={detail.appointment.id}
+                          salonSlug={detail.appointment.salonSlug}
+                          timeZone={detail.appointment.timeZone}
+                          appointmentStatus={detail.appointment.status}
+                          className="mt-4"
                         />
                       )}
 

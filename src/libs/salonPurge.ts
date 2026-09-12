@@ -50,6 +50,7 @@ import {
   onboardingSiteRevisionSchema,
   onboardingSiteSchema,
   referralSchema,
+  reviewRequestSchema,
   reviewSchema,
   rewardSchema,
   salonClientSchema,
@@ -284,6 +285,13 @@ function readRows(result: unknown): Record<string, unknown>[] {
  * Read the `reason` on each step before moving one.
  */
 export const SALON_PURGE_PLAN: PurgeStep[] = [
+  deleteStep({
+    table: 'review_request',
+    group: 'appointments',
+    target: reviewRequestSchema,
+    reason: 'Review request evidence is scoped to the salon being purged.',
+    where: (_tx, salonId) => eq(reviewRequestSchema.salonId, salonId),
+  }),
   deleteStep({
     table: 'fraud_signal',
     group: 'appointments',

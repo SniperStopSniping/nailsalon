@@ -140,7 +140,7 @@ export function serializeSmsHistory(
         : ['suppressed', 'expired'].includes(intent.status)
             ? 'failed'
             : intent.status === 'canceled' ? 'cancelled' : intent.status;
-  const canRetry = Boolean(intent.variables.clientId) && intent.status === 'failed' && intent.lastError === 'PROVIDER_SYNC_REJECT'
+  const canRetry = intent.eventType !== 'review_request' && Boolean(intent.variables.clientId) && intent.status === 'failed' && intent.lastError === 'PROVIDER_SYNC_REJECT'
     && Boolean(delivery?.retryable && !delivery.providerMessageId && delivery.settlementState === 'not_applicable')
     && intent.notAfter.getTime() > Date.now();
   return {
@@ -175,6 +175,9 @@ export async function retryClientSms(input: { salonId: string; clientId: string;
     )).for('update').limit(1);
     if (!intent) {
       throw new ClientMessagingError('MESSAGE_NOT_FOUND', 'Message not found for this client.', 404);
+    }
+    if (intent.eventType === 'review_request') {
+      throw new ClientMessagingError('RETRY_UNSAFE', 'Review requests cannot be resent.', 409);
     }
     // A repeated retry click only observes the same queued attempt.
     if (['pending', 'claimed', 'sending'].includes(intent.status)) {

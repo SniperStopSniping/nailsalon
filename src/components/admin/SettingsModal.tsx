@@ -41,6 +41,7 @@ import {
   RotateCcw,
   Save,
   Shield,
+  Star,
   User,
   Users,
   X,
@@ -95,6 +96,7 @@ import type {
 import { BackButton, ModalHeader } from './AppModal';
 import { BookingFlowEditor } from './BookingFlowEditor';
 import { PageThemesSettings } from './PageThemesSettings';
+import { ReviewRequestSettings } from './ReviewRequestSettings';
 import { SmartFitSettingsCard } from './SmartFitSettingsCard';
 import { UsageBillingModal } from './UsageBillingModal';
 
@@ -441,11 +443,11 @@ function ProfileCard({
 }: ProfileCardProps) {
   const displayInitials
     = initials
-    || name
-      .split(' ')
-      .map(n => n[0])
-      .join('')
-      .toUpperCase();
+      || name
+        .split(' ')
+        .map(n => n[0])
+        .join('')
+        .toUpperCase();
 
   return (
     <button
@@ -805,8 +807,8 @@ function getBookingExperienceSaveError(responseBody: unknown): string {
     && !Array.isArray(response.error)
   )
     ? normalizeBookingExperienceSaveError(
-      (response.error as { message?: unknown }).message,
-    )
+        (response.error as { message?: unknown }).message,
+      )
     : null;
 
   return (
@@ -2034,23 +2036,24 @@ function ComparePlansModal({ isOpen, onClose }: ComparePlansModalProps) {
 
 type SettingsView
   = | 'index'
-  | 'business'
-  | 'business-profile'
-  | 'booking-availability'
-  | 'messages'
-  | 'advanced'
-  | 'account'
-  | 'location'
-  | 'branding'
-  | 'booking'
-  | 'booking-policy'
-  | 'booking-flow'
-  | 'smart-fit'
-  | 'payments'
-  | 'notifications'
-  | 'communications'
-  | 'features'
-  | 'visibility';
+    | 'business'
+    | 'business-profile'
+    | 'booking-availability'
+    | 'messages'
+    | 'advanced'
+    | 'account'
+    | 'location'
+    | 'branding'
+    | 'booking'
+    | 'booking-policy'
+    | 'booking-flow'
+    | 'smart-fit'
+    | 'payments'
+    | 'notifications'
+    | 'communications'
+    | 'review-requests'
+    | 'features'
+    | 'visibility';
 
 /**
  * AG-10: settings sub-views live in the URL as `?app=settings&view=<id>` so the
@@ -2074,6 +2077,7 @@ const SETTINGS_VIEW_IDS: readonly SettingsView[] = [
   'payments',
   'notifications',
   'communications',
+  'review-requests',
   'features',
   'visibility',
 ];
@@ -2101,6 +2105,7 @@ const VIEW_TITLES: Record<SettingsView, string> = {
   'payments': 'Payments & taxes',
   'notifications': 'Notifications',
   'communications': 'Client communications',
+  'review-requests': 'Review requests',
   'features': 'Features & plan',
   'visibility': 'Staff visibility',
 };
@@ -2934,7 +2939,7 @@ export function SettingsModal({
       const scheduledBps = percentStringToBps(paymentsForm.scheduledRatePercent);
       const hasScheduledChange
         = paymentsForm.scheduledRatePercent.trim() !== ''
-        && paymentsForm.scheduledEffectiveFrom.trim() !== '';
+          && paymentsForm.scheduledEffectiveFrom.trim() !== '';
       const response = await fetch(
         `/api/admin/salon/settings?salonSlug=${salonSlug}`,
         {
@@ -2998,7 +3003,7 @@ export function SettingsModal({
   const depositAmountCentsPreview = parseDepositDollarsToCents(depositAmountInput);
   const depositAmountExceedsRecommended
     = depositAmountCentsPreview !== null
-    && depositAmountCentsPreview > DEPOSIT_RECOMMENDED_MAX_CENTS;
+      && depositAmountCentsPreview > DEPOSIT_RECOMMENDED_MAX_CENTS;
 
   /**
    * Its OWN save action: the payments handler above sends tax and e-Transfer
@@ -4031,6 +4036,7 @@ export function SettingsModal({
           <SettingsCardGrid items={[
             { title: 'Client Messages', description: 'Email, SMS and pause controls for client updates', icon: MessageSquare, onClick: () => openView('communications') },
             { title: 'Appointment Reminders', description: 'The one place to set reminder timing and channels', icon: CalendarClock, onClick: () => openView('communications') },
+            { title: 'Review requests', description: 'Ask clients for one Google review after a completed appointment', icon: Star, onClick: () => openView('review-requests') },
             { title: 'Owner & Staff Alerts', description: 'New booking and cancellation alerts', icon: Bell, onClick: () => openView('notifications') },
             { title: 'Quiet Hours', description: 'Hold client texts overnight', icon: CalendarClock, onClick: () => openView('communications') },
             { title: 'Message Usage', description: 'SMS credits, usage and recent delivery history', icon: BarChart3, onClick: () => openView('communications') },
@@ -4974,7 +4980,7 @@ export function SettingsModal({
                                     ? 'Deposits are being collected on new bookings.'
                                     : (depositPolicy.reason
                                       && DEPOSIT_REASON_COPY[depositPolicy.reason])
-                                      || 'Deposits are not being collected yet.'}
+                                    || 'Deposits are not being collected yet.'}
                         </p>
 
                         {/*
@@ -5155,6 +5161,10 @@ export function SettingsModal({
               </div>
             )}
           </>
+        )}
+
+        {view === 'review-requests' && salonSlug && (
+          <ReviewRequestSettings salonSlug={salonSlug} />
         )}
 
         {view === 'communications' && (
@@ -5498,12 +5508,12 @@ export function SettingsModal({
                                   (option) => {
                                     const smsUnavailable
                                   = option.value === 'sms'
-                                  || option.value === 'both'
+                                    || option.value === 'both'
                                     ? !bookingNotificationCapabilities.smsChannelAvailable
                                     : false;
                                     const emailUnavailable
                                   = option.value === 'email'
-                                  || option.value === 'both'
+                                    || option.value === 'both'
                                     ? !bookingNotificationCapabilities.emailChannelAvailable
                                     : false;
                                     const disabled
@@ -5579,7 +5589,7 @@ export function SettingsModal({
                                 {OWNER_NOTIFICATION_CHANNEL_OPTIONS.map((option) => {
                                   const disabled
                                     = !bookingNotificationCapabilities.smsChannelAvailable
-                                    || !bookingNotificationCapabilities.ownerPhonePresent;
+                                      || !bookingNotificationCapabilities.ownerPhonePresent;
 
                                   return (
                                     <option

@@ -11,6 +11,12 @@ import { AppointmentQuickEditSheet } from './AppointmentQuickEditSheet';
 // editing tests independent of its background delivery-status requests.
 vi.mock('@/components/admin/LusterClientSms', () => ({ LusterClientSms: () => null }));
 
+// ReviewRequestAction owns its status-fetch and confirmation behavior. These
+// sheet-layout tests stay focused on quick-edit behavior.
+vi.mock('@/components/appointments/ReviewRequestAction', () => ({
+  ReviewRequestAction: () => null,
+}));
+
 vi.mock('next/image', () => ({
   default: (props: React.ImgHTMLAttributes<HTMLImageElement>) => React.createElement('img', {
     alt: props.alt,
