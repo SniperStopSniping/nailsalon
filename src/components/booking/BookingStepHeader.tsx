@@ -56,7 +56,7 @@ export function BookingStepHeader({
             type="button"
             onClick={onBack}
             aria-label="Go back"
-            className="z-10 flex size-11 items-center justify-center rounded-full transition-all duration-200 hover:bg-white/60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 active:scale-95 motion-reduce:transition-none motion-reduce:active:transform-none"
+            className="z-10 flex size-[44px] shrink-0 items-center justify-center rounded-full transition-all duration-200 hover:bg-white/60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 active:scale-95 motion-reduce:transition-none motion-reduce:active:transform-none"
           >
             <svg width="22" height="22" viewBox="0 0 20 20" fill="none" aria-hidden="true">
               <path d="M12.5 15L7.5 10L12.5 5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
@@ -70,7 +70,7 @@ export function BookingStepHeader({
             isEditorialSalonName
               ? `${playfairDisplay.className} text-[1.36rem] font-normal tracking-wider sm:text-[1.58rem]`
               : 'text-base font-semibold tracking-tight sm:text-lg'
-          } ${isFirstStep ? 'w-full text-center' : 'absolute left-1/2 -translate-x-1/2'} leading-none`}
+          } ${isFirstStep ? 'w-full text-center' : 'min-w-0 flex-1 pr-[44px] text-center'} break-words leading-snug`}
           style={{ color: themeVars.accent }}
         >
           {salonName}
@@ -91,7 +91,7 @@ export function BookingStepHeader({
       )}
 
       <div
-        className="mb-3 flex items-center justify-center gap-1.5"
+        className="mb-3 flex flex-wrap items-center justify-center gap-1.5"
         style={{
           opacity: mounted ? 1 : 0,
           transition: 'opacity 300ms ease-out 50ms',
@@ -102,14 +102,14 @@ export function BookingStepHeader({
           const isPastStep = i + 1 < currentIdx;
           return (
             <div key={step} className="flex items-center gap-1.5">
-              <div className={`flex items-center gap-1 ${isCurrentStep ? 'opacity-100' : 'opacity-40'}`}>
+              <div className="flex items-center gap-1" aria-current={isCurrentStep ? 'step' : undefined}>
                 <div
                   data-testid={`booking-step-marker-${step}`}
                   className="flex size-5 items-center justify-center rounded-full text-[10px] font-semibold leading-none sm:size-6 sm:text-xs"
                   style={{
                     backgroundColor: isPastStep
                       ? `var(--booking-brand-primary, ${themeVars.accent})`
-                      : isCurrentStep ? `var(--booking-brand-primary, ${themeVars.primary})` : themeVars.borderMuted,
+                      : isCurrentStep ? `var(--booking-brand-primary, ${themeVars.primary})` : themeVars.surfaceAlt,
                     color: isPastStep
                       ? 'var(--booking-brand-foreground, white)'
                       : isCurrentStep ? 'var(--booking-brand-foreground, #171717)' : themeVars.secondaryText,
@@ -119,7 +119,7 @@ export function BookingStepHeader({
                 </div>
                 <span
                   data-testid={`booking-step-label-${step}`}
-                  className={`text-[10px] font-medium leading-none tracking-tight sm:text-xs ${isCurrentStep ? 'text-neutral-900' : 'text-neutral-500'}`}
+                  className={`text-xs font-medium leading-snug ${isCurrentStep ? 'text-neutral-900' : 'text-neutral-600'}`}
                 >
                   {getStepLabel(step)}
                 </span>
@@ -139,7 +139,7 @@ export function BookingStepHeader({
         }}
       >
         <h1 className="text-[1.7rem] font-bold tracking-tight text-neutral-900 sm:text-2xl">{title}</h1>
-        {description && <div className="mt-0.5 text-[13px] leading-[1.35] text-neutral-500 sm:text-sm">{description}</div>}
+        {description && <div className="mt-1 text-sm leading-relaxed text-neutral-600">{description}</div>}
       </div>
     </div>
   );

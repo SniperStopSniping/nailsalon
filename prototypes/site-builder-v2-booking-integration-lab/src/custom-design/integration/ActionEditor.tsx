@@ -128,6 +128,7 @@ type ActionEditorProps = {
   internalTargets?: readonly CustomDesignInternalPageOption[];
   onChange: (action: CustomDesignAction | null) => void;
   onValidityChange?: (valid: boolean) => void;
+  typePicker?: 'select' | 'buttons';
 };
 
 /**
@@ -142,6 +143,7 @@ export function ActionEditor({
   internalTargets = EMPTY_INTERNAL_TARGETS,
   onChange,
   onValidityChange,
+  typePicker = 'select',
 }: ActionEditorProps) {
   const generatedId = useId();
   const controlId = idPrefix ?? `custom-design-action-${generatedId}`;
@@ -174,26 +176,43 @@ export function ActionEditor({
   return (
     <fieldset className="custom-design-action-editor" disabled={disabled}>
       <legend>Action</legend>
-      <label htmlFor={`${controlId}-type`}>What should happen?</label>
-      <select
-        id={`${controlId}-type`}
-        value={draft.type}
-        onChange={(event) => {
-          const type = event.target.value as CustomDesignActionType;
-          const next = {
-            ...draft,
-            type,
-            ...(type === 'internal' && !draft.internalPageId
-              ? { internalPageId: internalTargets[0]?.id ?? '' }
-              : {}),
-          };
-          updateDraft(next);
-        }}
-      >
-        {options.map(option => (
-          <option key={option.type} value={option.type}>{option.label}</option>
-        ))}
-      </select>
+      {typePicker === 'select' ? <label htmlFor={`${controlId}-type`}>What should happen?</label> : null}
+      {typePicker === 'buttons'
+        ? (
+            <div className="custom-design-action-types" role="group" aria-label="Link type">
+              {options.map(option => (
+                <button
+                  aria-pressed={draft.type === option.type}
+                  key={option.type}
+                  type="button"
+                  onClick={() => updateDraft({ ...draft, type: option.type })}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+          )
+        : (
+            <select
+              id={`${controlId}-type`}
+              value={draft.type}
+              onChange={(event) => {
+                const type = event.target.value as CustomDesignActionType;
+                const next = {
+                  ...draft,
+                  type,
+                  ...(type === 'internal' && !draft.internalPageId
+                    ? { internalPageId: internalTargets[0]?.id ?? '' }
+                    : {}),
+                };
+                updateDraft(next);
+              }}
+            >
+              {options.map(option => (
+                <option key={option.type} value={option.type}>{option.label}</option>
+              ))}
+            </select>
+          )}
 
       {draft.type === 'directions'
         ? (

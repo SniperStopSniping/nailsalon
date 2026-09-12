@@ -67,6 +67,7 @@ const keyboardDelta = (
 
 type HotspotOverlayProps = {
   areas: readonly CustomDesignInteractiveArea[];
+  compact?: boolean;
   renderedHeight: number;
   renderedWidth: number;
   selectedAreaId?: string;
@@ -93,6 +94,7 @@ type HotspotOverlayProps = {
 
 export function HotspotOverlay({
   areas,
+  compact = false,
   onKeyboardMove,
   onKeyboardResize,
   onMoveStart,
@@ -106,6 +108,7 @@ export function HotspotOverlay({
     <div
       aria-label="Clickable area editor"
       className="custom-design-hotspot-editor"
+      data-compact={compact ? 'true' : 'false'}
       data-testid="custom-design-hotspot-editor"
       role="group"
     >
@@ -161,6 +164,7 @@ export function HotspotOverlay({
             <div
               aria-label={`Clickable area: ${area.accessibleLabel}`}
               className="custom-design-hotspot-editor__area"
+              data-appearance={area.appearance}
               data-review-status={area.reviewStatus}
               data-selected={selected ? 'true' : 'false'}
               data-edge-bottom={nearBottomEdge ? 'true' : 'false'}
@@ -190,7 +194,7 @@ export function HotspotOverlay({
                 <span>{area.accessibleLabel}</span>
               </button>
               {selected
-                ? RESIZE_HANDLES.map(handle => (
+                ? RESIZE_HANDLES.filter(handle => !compact || handle.includes('_')).map(handle => (
                   <button
                     aria-label={`Resize ${area.accessibleLabel} from ${handleLabel(handle)}`}
                     className="custom-design-hotspot-editor__resize"
@@ -213,7 +217,7 @@ export function HotspotOverlay({
                   />
                 ))
                 : null}
-              {selected && onKeyboardResize
+              {selected && onKeyboardResize && !compact
                 ? (
                     <div
                       aria-label={`Resize clickable area: ${area.accessibleLabel}`}

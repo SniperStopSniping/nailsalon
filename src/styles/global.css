@@ -428,3 +428,202 @@
 .owner-theme-scope .font-sans {
   font-family: var(--owner-font-body);
 }
+
+/* Visitor-owned reading preference; never changes the salon's stored palette.
+   Keep brand buttons intact while removing tint behind operational copy. */
+[data-booking-readability] {
+  background: var(--theme-background, #fff);
+  color: var(--theme-title-text, #202020);
+}
+
+.booking-reading-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  max-width: 620px;
+  margin-inline: auto;
+  padding: 0.25rem 1rem;
+  padding-top: max(0.25rem, env(safe-area-inset-top));
+  background: var(--theme-background, #fff);
+  color: var(--theme-title-text, #202020);
+}
+
+.booking-reading-toolbar button {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  min-height: 44px;
+  padding: 0.5rem;
+  border-radius: 0.5rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.booking-reading-toolbar button:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
+}
+
+.booking-reading-switch {
+  display: inline-flex;
+  align-items: center;
+  width: 36px;
+  height: 22px;
+  padding: 3px;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+}
+
+.booking-reading-switch > span {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.booking-reading-toolbar button[aria-pressed='true'] .booking-reading-switch {
+  background: #202020;
+  color: white;
+  border-color: #202020;
+  justify-content: flex-end;
+}
+
+[data-booking-readability] .booking-header-safe-top {
+  padding-top: 0.25rem;
+}
+
+[data-booking-readability='easy'],
+[data-booking-readability='easy'] [data-customer-site-style] {
+  --theme-background: #fff !important;
+  --theme-card-background: #fff !important;
+  --theme-surface-alt: #f3f3f3 !important;
+  --theme-input-background: #fff !important;
+  --theme-title-text: #202020 !important;
+  --theme-accent: #202020 !important;
+  --theme-taupe: #454545 !important;
+  --theme-border-muted: #767676 !important;
+  --theme-card-border: #767676 !important;
+  --customer-site-ink: #202020 !important;
+  --customer-site-muted: #454545 !important;
+  --customer-site-body-font: ui-sans-serif, system-ui, sans-serif !important;
+  --customer-site-heading-font: ui-sans-serif, system-ui, sans-serif !important;
+  --n5-font-heading: ui-sans-serif, system-ui, sans-serif !important;
+  --n5-font-body: ui-sans-serif, system-ui, sans-serif !important;
+  --n5-bg-page: #fff !important;
+  --n5-bg-card: #fff !important;
+  --n5-bg-surface: #f3f3f3 !important;
+  --n5-bg-highlight: #f3f3f3 !important;
+  --n5-bg-selected: #f3f3f3 !important;
+  --n5-ink-main: #202020 !important;
+  --n5-ink-muted: #454545 !important;
+  --n5-accent: #202020 !important;
+  --n5-ink-inverse: #fff !important;
+  --n5-border: #767676 !important;
+  --n5-border-muted: #767676 !important;
+  --n5-button-secondary-bg: #fff !important;
+  --n5-button-secondary-text: #202020 !important;
+  --n5-button-ghost-text: #454545 !important;
+  --booking-today-background: #fff !important;
+  --booking-today-foreground: #202020 !important;
+  --booking-today-ring: inset 0 0 0 1px #202020 !important;
+  color: #202020;
+  background: #fff;
+}
+
+[data-booking-readability='easy'] :where(main) {
+  background: #fff !important;
+}
+
+[data-booking-readability='easy'] :where(h1, h2, h3, p, span, div, button, input, label, select, textarea) {
+  font-family: ui-sans-serif, system-ui, sans-serif !important;
+  letter-spacing: normal !important;
+  text-shadow: none !important;
+}
+
+[data-booking-readability='easy'] :where(p, label, input, select, textarea, button, .text-xs, .text-sm) {
+  font-size: max(1rem, 1em);
+  line-height: 1.5;
+}
+
+[data-booking-readability='easy'] :where(.truncate) {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+[data-booking-readability='easy'] :where(.opacity-40, .opacity-50, .opacity-60, .opacity-70, .opacity-80) {
+  opacity: 1;
+}
+
+[data-booking-readability='easy'] :where(button, input, select, textarea):focus {
+  outline: 3px solid #202020 !important;
+  outline-offset: 3px;
+  box-shadow: 0 0 0 3px #fff !important;
+}
+
+[data-booking-readability='easy'] [data-testid^='calendar-day-'][aria-pressed='true'] {
+  border: 2px solid #202020;
+}
+
+[data-booking-readability='easy'] [data-testid^='time-slot-'] {
+  border-color: #202020 !important;
+}
+
+[data-booking-readability] .booking-week-day:disabled {
+  background-image: repeating-linear-gradient(135deg, transparent 0 5px, color-mix(in srgb, currentColor 7%, transparent) 5px 6px);
+}
+
+[data-booking-readability='easy'] .booking-week-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.25rem;
+}
+
+.booking-month-grid button {
+  min-width: 0;
+}
+
+/* Reflow instead of squeezing/clipping the appointment details when the
+   visitor enlarges browser text. rem-based queries respond to text size. */
+@container booking-summary (max-width: 16rem) {
+  .booking-summary-content {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .booking-summary-content > div {
+    text-align: left;
+  }
+}
+
+@container booking-time (max-width: 12rem) {
+  .booking-preparation {
+    flex-direction: column;
+  }
+
+  [data-public-surface='timeSelectionControls'] .grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  [data-testid^='time-slot-'] {
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+}
+
+@media (max-width: 359px) {
+  .booking-week-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 0.25rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-booking-readability] *,
+  [data-booking-readability] *::before,
+  [data-booking-readability] *::after {
+    /* A near-zero transition still exposes a stale opacity frame in WebKit. */
+    transition: none !important;
+    animation-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

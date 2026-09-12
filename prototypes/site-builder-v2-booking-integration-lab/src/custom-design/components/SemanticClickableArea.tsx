@@ -61,7 +61,7 @@ export function SemanticClickableArea({
   return (
     <SemanticAction
       accessibleLabel={area.accessibleLabel}
-      className="custom-design-area-link"
+      className={`custom-design-area-link${area.appearance === 'button' ? ' custom-design-area-link--button' : ''}`}
       getScrollPosition={getScrollPosition}
       resolution={resolution}
       style={geometryStyle(area)}

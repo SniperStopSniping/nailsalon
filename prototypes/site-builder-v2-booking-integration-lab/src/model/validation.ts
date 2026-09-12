@@ -520,6 +520,7 @@ const validateRootShape = (
   }
   if (
     value.originStarter !== 'quick_book'
+    && value.originStarter !== 'your_design'
     && value.originStarter !== 'one_page'
     && value.originStarter !== 'multi_page'
   ) {

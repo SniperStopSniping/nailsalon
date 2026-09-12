@@ -27,20 +27,20 @@ const EXPECTED_STARTERS: ReadonlyArray<{
     title: 'Quick Book',
   },
   {
-    cta: 'Start with One-page',
-    description: 'Show your whole business on one scrolling page.',
-    id: 'one_page',
-    included: 'Welcome · Gallery · About · Services & Booking · Reviews · Before You Book · Visit & Contact',
+    cta: 'Start with Your Design',
+    description: 'Use your Canva design, AI artwork, or your own image.',
+    id: 'your_design',
+    included: 'Your Design · Services & Booking · Visit & Contact',
     includesLabel: 'Includes',
-    title: 'One-page website',
+    title: 'Your Design',
   },
   {
-    cta: 'Start with Multi-page',
+    cta: 'Start with Full Website',
     description: 'Give each part of your business its own page and navigation link.',
     id: 'multi_page',
     included: 'Home · Services & Booking · Gallery · About · Contact',
     includesLabel: 'Includes pages',
-    title: 'Multi-page website',
+    title: 'Full Website',
   },
 ];
 
@@ -120,7 +120,7 @@ function getPreview(starterId: OriginStarter) {
 }
 
 function expectOnlyPreviewActive(starterId: OriginStarter | null) {
-  for (const starter of EXPECTED_STARTERS) {
+  for (const starter of EXPECTED_STARTERS.filter(starter => starter.id !== 'your_design')) {
     expect(getPreview(starter.id)).toHaveAttribute(
       'data-preview-active',
       starter.id === starterId ? 'true' : 'false',
@@ -148,6 +148,79 @@ afterEach(() => {
 });
 
 describe('StarterChooser copy and accessibility', () => {
+  it('automatically types, places, previews and loops without choosing a starter', () => {
+    vi.useFakeTimers();
+    const onChoose = vi.fn();
+    render(<StarterChoiceGrid onChoose={onChoose} />);
+    const demo = screen.getByTestId('design-automatic-demo');
+
+    expect(demo).toHaveAttribute('data-scene', '0');
+
+    const durations = [2200, 2400, 2000, 3000, 2200, 2200, 2200, 2200, 3000];
+    durations.forEach((duration, index) => {
+      act(() => vi.advanceTimersByTime(duration));
+
+      expect(demo).toHaveAttribute('data-scene', String((index + 1) % 9));
+
+      if (index === 7) {
+        expect(demo.querySelector('img')).toHaveAttribute('src', expect.stringContaining('luster-instagram-profile.jpg'));
+        expect(demo.querySelector('img')).toHaveAttribute('alt', 'Screenshot of Luster’s Instagram profile, @lustergel.app');
+        expect(demo).toHaveTextContent('Screenshot, not a live page');
+      }
+    });
+
+    expect(onChoose).not.toHaveBeenCalled();
+    expect(demo.querySelector('a, input')).toBeNull();
+    expect(within(demo).getAllByRole('button')).toHaveLength(1);
+
+    fireEvent.click(within(demo).getByRole('button', { name: 'Pause demo' }));
+    act(() => vi.advanceTimersByTime(30000));
+
+    expect(demo).toHaveAttribute('data-scene', '0');
+
+    fireEvent.click(within(demo).getByRole('button', { name: 'Play demo' }));
+    act(() => vi.advanceTimersByTime(2200));
+
+    expect(demo).toHaveAttribute('data-scene', '1');
+
+    visibilityState = 'hidden';
+    act(() => document.dispatchEvent(new Event('visibilitychange')));
+    act(() => vi.advanceTimersByTime(30000));
+
+    expect(demo).toHaveAttribute('data-scene', '1');
+  });
+
+  it('stops the demonstration off-screen and resumes when visible', () => {
+    vi.useFakeTimers();
+    render(<StarterChoiceGrid onChoose={vi.fn()} />);
+    const demo = screen.getByTestId('design-automatic-demo');
+    const observer = TestIntersectionObserver.instances.find(candidate => candidate.observed.has(demo));
+
+    expect(observer).toBeDefined();
+
+    act(() => observer?.emit([{ ratio: 0, target: demo }]));
+    act(() => vi.advanceTimersByTime(30000));
+
+    expect(demo).toHaveAttribute('data-scene', '0');
+
+    act(() => observer?.emit([{ ratio: 1, target: demo }]));
+    act(() => vi.advanceTimersByTime(2200));
+
+    expect(demo).toHaveAttribute('data-scene', '1');
+  });
+
+  it('keeps a useful still demonstration for reduced motion', () => {
+    vi.useFakeTimers();
+    render(<StarterChoiceGrid onChoose={vi.fn()} reducedMotion />);
+    const demo = screen.getByTestId('design-automatic-demo');
+    act(() => vi.advanceTimersByTime(30000));
+
+    expect(demo).toHaveAttribute('data-scene', '7');
+    expect(demo).toHaveAttribute('data-playing', 'false');
+    expect(demo).toHaveTextContent('Upload → choose Instagram');
+    expect(within(demo).queryByRole('button')).toBeNull();
+  });
+
   it('uses the exact owner-friendly copy and removes technical starter-count badges', () => {
     render(<StarterChooser onChoose={vi.fn()} />);
 
@@ -159,24 +232,28 @@ describe('StarterChooser copy and accessibility', () => {
     for (const starter of EXPECTED_STARTERS) {
       const card = getCard(starter.title);
       const copy = card.querySelector<HTMLElement>('.final-starter-card__copy');
-      const preview = getPreview(starter.id);
+      const preview = starter.id === 'your_design' ? null : getPreview(starter.id);
 
       expect(within(card).getByText(starter.description)).toBeVisible();
       expect(within(card).getByText(starter.includesLabel)).toBeVisible();
       expect(within(card).getByText(starter.included)).toBeVisible();
       expect(within(card).getByText(starter.cta)).toBeVisible();
       expect(copy).not.toBeNull();
-      expect(copy?.nextElementSibling).toBe(preview);
-      expect(preview).toHaveAttribute('aria-hidden', 'true');
-      expect(preview.querySelectorAll('a, button, input, select, textarea, [tabindex]').length).toBe(0);
+
+      if (preview) {
+        expect(copy?.nextElementSibling).toBe(preview);
+        expect(preview).toHaveAttribute('aria-hidden', 'true');
+        expect(preview.querySelectorAll('a, button, input, select, textarea, [tabindex]').length).toBe(0);
+      }
+
       expect(card.querySelectorAll('button, a, input, select, textarea').length).toBe(0);
       expect(card).toHaveAccessibleName(
-        `${starter.title} ${starter.description} ${starter.includesLabel} ${starter.included} ${starter.cta}`,
+        `${starter.title} ${starter.description} ${starter.includesLabel} ${starter.included} ${starter.id === 'your_design' ? 'Upload your image, choose what happens when clients tap, then draw a box around that part of your design. Booking stays underneath. ' : ''}${starter.cta}`,
       );
       expect(card).not.toHaveAccessibleName(/Luster Nail Studio|Toronto nail artist/);
     }
 
-    expect(screen.getAllByRole('button')).toHaveLength(3);
+    expect(screen.getAllByRole('button', { name: /Start with/u })).toHaveLength(3);
     // Product cards explain their real content without exposing technical counts.
     expect(screen.queryByText(/Starts with \d+ (?:sections|pages)/)).not.toBeInTheDocument();
     expect(screen.getByText('Nothing is permanent.')).toBeVisible();
@@ -196,7 +273,7 @@ describe('StarterChooser copy and accessibility', () => {
 
     const logos = document.querySelectorAll('.final-starter-preview__logo');
 
-    expect(logos).toHaveLength(3);
+    expect(logos).toHaveLength(2);
 
     logos.forEach((logo) => {
       expect(logo).toHaveAttribute('data-media-role', 'logo');
@@ -210,7 +287,7 @@ describe('StarterChooser copy and accessibility', () => {
   it('derives every poster, scene, and navigation label from the universal starter definitions', () => {
     render(<StarterChoiceGrid onChoose={vi.fn()} reducedMotion />);
 
-    for (const starter of EXPECTED_STARTERS) {
+    for (const starter of EXPECTED_STARTERS.filter(starter => starter.id !== 'your_design')) {
       const pages = getStarterPageDefinitions(starter.id);
       // Scenes and the structure line exclude composition chrome
       // (`summary: false`), matching the definitions' documented contract.
@@ -225,13 +302,13 @@ describe('StarterChooser copy and accessibility', () => {
       expect(preview).toHaveAttribute('data-starter-structure', structure.join('|'));
       expect(preview).toHaveAttribute('data-starter-navigation', navigation.join('|'));
       expect(preview.querySelectorAll('[data-preview-scene]')).toHaveLength(
-        starter.id === 'multi_page' ? pages.length : structure.length,
+        starter.id === 'your_design' ? 0 : starter.id === 'multi_page' ? pages.length : structure.length,
       );
 
       for (const item of starter.id === 'multi_page'
         ? pages.map(page => page.previewLabel ?? page.name)
         : structure) {
-        expect(preview.textContent).toContain(item);
+        expect(starter.id === 'your_design' ? getCard(starter.title).textContent : preview.textContent).toContain(item);
       }
     }
   });
@@ -248,14 +325,26 @@ describe('StarterChooser copy and accessibility', () => {
       />,
     );
 
-    for (const starter of EXPECTED_STARTERS) {
+    for (const starter of EXPECTED_STARTERS.filter(starter => starter.id !== 'your_design')) {
       const preview = getPreview(starter.id);
 
       expect(preview).toHaveTextContent(longName);
       expect(preview).toHaveTextContent('Mia Torres');
       expect(preview).toHaveTextContent('Hamilton, Ontario');
-      expect(preview).toHaveTextContent('Russian Manicure + French');
-      expect(preview).toHaveTextContent('1 hr 45 min · From $80');
+
+      if (starter.id === 'your_design') {
+        expect(preview).toHaveAttribute('data-preview-type', 'design-walkthrough');
+        expect(preview).toHaveTextContent('Upload your image');
+        expect(preview).toHaveTextContent('Make something clickable');
+        expect(preview).toHaveTextContent('Clients tap to connect');
+        expect(preview).toHaveTextContent('Draw a box around your Instagram');
+        expect(preview).toHaveTextContent('Book appointment');
+        expect(preview).not.toHaveTextContent('From $80');
+      } else {
+        expect(preview).toHaveTextContent('Russian Manicure + French');
+        expect(preview).toHaveTextContent('1 hr 45 min · From $80');
+      }
+
       expect(preview).not.toHaveTextContent('Luster Nail Studio');
       expect(preview).not.toHaveTextContent('Toronto');
       expect(preview.querySelector('.final-starter-preview__identity > b'))
@@ -288,7 +377,7 @@ describe('StarterChooser copy and accessibility', () => {
 
     expect(onChoose).toHaveBeenLastCalledWith('quick_book');
 
-    const multiPage = getCard('Multi-page website');
+    const multiPage = getCard('Full Website');
     act(() => multiPage.focus());
     await user.keyboard('{Enter}');
 
@@ -303,18 +392,18 @@ describe('StarterChooser preview playback', () => {
     render(<StarterChooser onChoose={vi.fn()} />);
 
     const quickBook = getCard('Quick Book');
-    const onePage = getCard('One-page website');
-    const multiPage = getCard('Multi-page website');
+    const onePage = getCard('Your Design');
+    const multiPage = getCard('Full Website');
     expectOnlyPreviewActive(null);
 
     fireEvent.mouseEnter(quickBook);
     expectOnlyPreviewActive('quick_book');
 
     fireEvent.mouseEnter(onePage);
-    expectOnlyPreviewActive('one_page');
+    expectOnlyPreviewActive('your_design');
     fireEvent.mouseLeave(onePage);
     act(() => vi.advanceTimersByTime(179));
-    expectOnlyPreviewActive('one_page');
+    expectOnlyPreviewActive('your_design');
     act(() => vi.advanceTimersByTime(1));
     expectOnlyPreviewActive(null);
 
@@ -336,8 +425,8 @@ describe('StarterChooser preview playback', () => {
     expect(observer).toBeDefined();
 
     const quickBook = getCard('Quick Book');
-    const onePage = getCard('One-page website');
-    const multiPage = getCard('Multi-page website');
+    const onePage = getCard('Your Design');
+    const multiPage = getCard('Full Website');
     act(() => observer?.emit([
       { ratio: 0.72, target: quickBook },
       { ratio: 0.42, target: onePage },
@@ -350,7 +439,7 @@ describe('StarterChooser preview playback', () => {
       { ratio: 0.84, target: onePage },
       { ratio: 0.12, target: multiPage },
     ]));
-    expectOnlyPreviewActive('one_page');
+    expectOnlyPreviewActive('your_design');
 
     act(() => observer?.emit([
       { ratio: 0.2, target: quickBook },
@@ -414,15 +503,15 @@ describe('StarterChooser preview playback', () => {
     render(<StarterChooser onChoose={onChoose} />);
 
     fireEvent.mouseEnter(getCard('Quick Book'));
-    act(() => getCard('One-page website').focus());
+    act(() => getCard('Your Design').focus());
     expectOnlyPreviewActive(null);
-    for (const starter of EXPECTED_STARTERS) {
+    for (const starter of EXPECTED_STARTERS.filter(starter => starter.id !== 'your_design')) {
       expect(getPreview(starter.id)).toHaveAttribute('data-preview-state', 'poster');
       expect(getPreview(starter.id).querySelector('[data-preview-poster]')).toBeVisible();
       expect(screen.getByText(starter.description)).toBeVisible();
     }
 
-    await user.click(getCard('Multi-page website'));
+    await user.click(getCard('Full Website'));
 
     expect(onChoose).toHaveBeenCalledWith('multi_page');
   });
