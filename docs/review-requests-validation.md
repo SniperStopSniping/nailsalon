@@ -16,8 +16,9 @@ cluster used the repository's static target guard, server expectation, live
 session attestation, and a `BEGIN READ ONLY` / `ROLLBACK` transaction. It confirmed
 the exact Stripe hash/timestamp is applied, `deposit_shadow_state` exists, and
 `review_request` is absent. No rows, services, Stripe files, branches, or worktrees
-were changed. Review migration execution so far was limited to disposable CI
-PostgreSQL and PGlite. Shared Development/Preview/Production ledgers have not been
+were changed. Review migration execution was limited to disposable CI
+PostgreSQL, PGlite, and a separate task-owned IPv6 loopback PostgreSQL cluster.
+That cluster also attested the exact review hash/timestamp above. Shared Development/Preview/Production ledgers have not been
 independently verified.
 
 The current Drizzle PostgreSQL migrator selects migrations using
@@ -60,3 +61,29 @@ the separate mocked-provider integration suite, not by sending browser messages.
 
 See the PR handoff for the exact tested head, executed test counts, browser
 artifacts, and unresolved gates. A test's presence is not evidence it passed.
+
+
+## Executed local browser evidence
+
+The real application iPhone WebKit run passed all four tests (two review journeys
+plus existing authentication setup and teardown) in 12.3 seconds. It used the
+existing super-admin password login and salon impersonation, real settings and
+review APIs, and the real completion API. The completion checkout UI itself and
+interactive Clerk sign-in were not part of this test. No dispatcher was invoked.
+Screenshots cover the saved owner settings, actual recipient preview, and queued
+appointment action. The cancelled request and intent remain in the database;
+the action returns to manual eligibility because that request was proven unsent.
+
+The independent component browser suite passed four tests across mobile Chromium
+and iPhone WebKit. It uses production components/CSS with synthetic intercepted
+APIs. It covers edited message/link previews, confirmation, exactly one Send now
+POST, refreshed sent/suppressed feedback, credit-blocked and failed explanations,
+44px buttons and no horizontal overflow. Screenshots were visually inspected.
+This suite found the hidden credit-blocking explanation; that display was repaired.
+
+The local application database was bound only to `::1:55432`, separate from
+Stripe's `127.0.0.1:55432`. The launcher used IPv6-first DNS with family fallback
+disabled, and the existing disposable-target guard plus live identity attestation
+before migrations/seeding. Only synthetic reserved-range clients were created;
+Twilio credentials were absent and `COMMUNICATIONS_SMS_ENABLED=false`. Automation
+was disabled after testing. No hosted database or real client was contacted.

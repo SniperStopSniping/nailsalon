@@ -68,6 +68,7 @@ test('isolated owner completes and queues one review through the real APIs @mobi
   const clientId = `review-e2e-client-${suffix}`;
   const appointmentId = `review-e2e-appointment-${suffix}`;
   const historicalId = `review-e2e-historical-${suffix}`;
+  const technicianId = `review-e2e-technician-${suffix}`;
   let phone = '';
   let salonId = '';
   try {
@@ -81,10 +82,10 @@ test('isolated owner completes and queues one review through the real APIs @mobi
     await database.query(`UPDATE salon SET settings = jsonb_set(COALESCE(settings, '{}'::jsonb), '{communications}', '{"sms":{"enabled":true}}'::jsonb) WHERE id = $1`, [salonId]);
     await database.query(`INSERT INTO salon_client (id, salon_id, full_name, phone) VALUES ($1, $2, 'Sarah Review Fixture', $3)`, [clientId, salonId, phone]);
     await database.query(`INSERT INTO communication_consent (id, salon_id, recipient, channel, purpose, status, source, wording_version) VALUES ($1, $2, $3, 'sms', 'appointment_transactional', 'granted', 'test', 'test-v1')`, [`review-e2e-consent-${suffix}`, salonId, phone]);
+    await database.query('INSERT INTO technician (id, salon_id, name, is_active) VALUES ($1, $2, \'Review Fixture Tech\', true)', [technicianId, salonId]);
     const start = new Date();
-    start.setMinutes(0, 0, 0);
     const end = new Date(start.getTime() + 3_600_000);
-    await database.query(`INSERT INTO appointment (id, salon_id, salon_client_id, client_name, client_phone, start_time, end_time, status, total_price, total_duration_minutes, technician_id) VALUES ($1, $2, $3, 'Sarah Review Fixture', $4, $5, $6, 'confirmed', 0, 60, 'tech_daniela')`, [appointmentId, salonId, clientId, phone, start, end]);
+    await database.query(`INSERT INTO appointment (id, salon_id, salon_client_id, client_name, client_phone, start_time, end_time, status, total_price, total_duration_minutes, technician_id) VALUES ($1, $2, $3, 'Sarah Review Fixture', $4, $5, $6, 'confirmed', 0, 60, $7)`, [appointmentId, salonId, clientId, phone, start, end, technicianId]);
     await database.query(`INSERT INTO appointment (id, salon_id, salon_client_id, client_name, client_phone, start_time, end_time, completed_at, status, total_price, total_duration_minutes) VALUES ($1, $2, $3, 'Sarah Review Fixture', $4, $5, $6, $6, 'completed', 0, 60)`, [historicalId, salonId, clientId, phone, new Date(start.getTime() - 172_800_000), new Date(start.getTime() - 86_400_000)]);
     await impersonateSalonAsSuperAdmin(page);
     await page.goto(`${appPath('/admin')}?salon=${encodeURIComponent(e2eConfig.salonSlug)}&app=settings&view=review-requests`);
@@ -92,10 +93,10 @@ test('isolated owner completes and queues one review through the real APIs @mobi
 
     await expect(panel).toBeVisible();
 
-    await panel.getByLabel('Google review link', { exact: true }).fill('https://g.page/r/review-fixture/review');
+    await panel.getByLabel('Google review link', { exact: true }).fill(`https://g.page/r/review-fixture-${suffix}/review`);
     await panel.getByLabel('Message', { exact: true }).fill('Hi {{firstName}}! Thank you for visiting {{businessName}}. Share a Google review: {{reviewLink}}');
 
-    await expect(panel.getByText('Share a Google review:', { exact: false })).toBeVisible();
+    await expect(panel.locator('p').filter({ hasText: 'Share a Google review:' })).toBeVisible();
 
     await panel.getByRole('checkbox', { name: 'Automatically request reviews' }).uncheck();
     await panel.getByRole('button', { name: 'Save review settings' }).click();
@@ -157,12 +158,19 @@ test('isolated owner completes and queues one review through the real APIs @mobi
 
     const status = await page.request.get(`/api/appointments/${appointmentId}/review-request?salonSlug=${e2eConfig.salonSlug}`);
 
-    expect((await status.json()).data.status).toBe('cancelled');
+    // Proven-unsent cancellation frees manual eligibility while retaining history.
+    expect((await status.json()).data.status).toBe('eligible');
+
+    const cancelled = await database.query('SELECT r.status AS request_status, i.status AS intent_status FROM review_request r JOIN communication_intent i ON i.id = r.intent_id WHERE r.client_id = $1', [clientId]);
+
+    expect(cancelled.rows).toEqual([{ request_status: 'cancelled', intent_status: 'canceled' }]);
   } finally {
     // Keep history on the disposable database; always leave automation disabled.
     if (salonId) {
       await database.query('UPDATE salon_retention_settings SET automatic_review_requests = false WHERE salon_id = $1', [salonId]);
+      await database.query('UPDATE appointment SET status = \'cancelled\' WHERE id = $1 AND salon_id = $2 AND status = \'confirmed\'', [appointmentId, salonId]);
     }
+    await database.query('UPDATE technician SET is_active = false WHERE id = $1', [technicianId]);
     await database.end();
   }
 });
