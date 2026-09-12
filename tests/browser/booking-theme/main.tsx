@@ -23,8 +23,9 @@ const count = Number(query.get('count') ?? 3);
 const available = count === 1 ? ['13:45'] : count === 3 ? ['13:45', '14:00', '14:15'] : timeChoices.slice(0, count);
 window.fetch = async (input) => {
   if (String(input).startsWith('/api/appointments/availability')) {
+    const requestedDate = new URL(String(input), window.location.origin).searchParams.get('date') ?? date;
     return Response.json({
-      slots: available.map(time => ({ time, startTime: `${date}T${time}:00-04:00`, availability: 'available' })),
+      slots: available.map(time => ({ time, startTime: `${requestedDate}T${time}:00-04:00`, availability: 'available' })),
       visibleSlots: [...available, '11:00', '11:15'],
       bookedSlots: ['11:00', '11:15'],
       blockedDurationMinutes: common.totalDuration + 10,

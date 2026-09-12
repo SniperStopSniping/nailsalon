@@ -622,8 +622,10 @@ export async function selectBookableSlotFromApi(
   for (let attempt = 0; attempt < 12; attempt += 1) {
     const dayButton = page.getByTestId(targetDayTestId);
     if (await dayButton.isVisible().catch(() => false)) {
-      const dayEnabled = await dayButton.isEnabled().catch(() => false);
-      if (dayEnabled) {
+      const daySelected = await dayButton.getAttribute('aria-pressed') === 'true';
+      if (!daySelected) {
+        await expect(dayButton).toBeEnabled();
+
         const availabilityResponsePromise = page.waitForResponse(response => (
           availabilityRequestMatches({
             url: response.url(),
@@ -645,7 +647,10 @@ export async function selectBookableSlotFromApi(
       const loadingCard = page.getByText('Checking live availability');
       await loadingCard.waitFor({ state: 'hidden', timeout: 20_000 }).catch(() => {});
 
-      await expect(dayButton).toBeDisabled({ timeout: 20_000 });
+      // Selection is an accessible pressed state, not a disabled control.
+      // Re-clicking the selected date intentionally makes no new request.
+      await expect(dayButton).toHaveAttribute('aria-pressed', 'true', { timeout: 20_000 });
+      await expect(dayButton).toBeEnabled();
 
       const preferredSlotButton = page.getByTestId(`time-slot-${slot.time}`);
       const preferredSlotIsEnabled = await preferredSlotButton
@@ -669,6 +674,12 @@ export async function selectBookableSlotFromApi(
         ...slot,
         time: selectedSlotTestId?.replace('time-slot-', '') ?? slot.time,
       };
+    }
+
+    const fullCalendarButton = page.getByRole('button', { name: 'View full calendar' });
+    if (await fullCalendarButton.isVisible().catch(() => false)) {
+      await fullCalendarButton.click();
+      continue;
     }
 
     const nextMonthButton = page.getByRole('button', { name: /next month/i });

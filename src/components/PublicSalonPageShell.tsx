@@ -1,5 +1,6 @@
 import type { CSSProperties } from 'react';
 
+import { BookingReadingPreferences } from '@/components/booking/BookingReadingPreferences';
 import {
   getBookingExperienceCssVariables,
   resolveBookingExperience,
@@ -235,10 +236,10 @@ export function PublicSalonPageShell({
                 data-customer-site-style={siteStyle}
                 style={bookingStyles as CSSProperties}
               >
-                {children}
+                <BookingReadingPreferences>{children}</BookingReadingPreferences>
               </div>
             )
-          : children}
+          : pageName.startsWith('book-') ? <BookingReadingPreferences>{children}</BookingReadingPreferences> : children}
       </PageThemeWrapper>
     </SalonProvider>
   );

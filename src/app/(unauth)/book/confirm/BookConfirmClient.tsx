@@ -1210,7 +1210,7 @@ const ConfirmContent = ({
     <div className="min-h-screen bg-[var(--n5-bg-page)]" style={{ fontFamily: n5.fontBody }}>
       <nav
         data-public-surface="bookingProgressHeader"
-        className="fixed inset-x-0 top-0 z-40 flex items-center justify-between border-b px-5 pb-2 pt-12 backdrop-blur-md"
+        className="sticky top-0 z-40 flex items-center justify-between border-b px-5 py-3 backdrop-blur-md"
         style={{
           backgroundColor: 'color-mix(in srgb, var(--n5-bg-page) 80%, transparent)',
           borderColor: 'var(--n5-border-muted)',
@@ -1233,7 +1233,7 @@ const ConfirmContent = ({
         <div className="w-11" />
       </nav>
 
-      <main aria-busy={isSubmitting} className="mx-auto max-w-lg space-y-5 px-5 pb-10 pt-28">
+      <main aria-busy={isSubmitting} className="mx-auto max-w-lg space-y-5 px-5 pb-10 pt-6">
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
@@ -1739,7 +1739,7 @@ const SuccessContent = ({
       {/* Navbar */}
       <nav
         data-public-surface="bookingProgressHeader"
-        className="fixed inset-x-0 top-0 z-40 flex items-center justify-between border-b px-5 pb-2 pt-12 backdrop-blur-md"
+        className="sticky top-0 z-40 flex items-center justify-between border-b px-5 py-3 backdrop-blur-md"
         style={{
           backgroundColor: 'color-mix(in srgb, var(--n5-bg-page) 80%, transparent)',
           borderColor: 'var(--n5-border-muted)',
@@ -1753,7 +1753,7 @@ const SuccessContent = ({
       </nav>
 
       {/* Main Content */}
-      <main className="mx-auto max-w-lg space-y-5 px-5 pb-10 pt-28">
+      <main className="mx-auto max-w-lg space-y-5 px-5 pb-10 pt-6">
         <div data-testid="booking-result-receipt" className="space-y-5">
           <motion.header
             initial={{ opacity: 0, y: 20 }}

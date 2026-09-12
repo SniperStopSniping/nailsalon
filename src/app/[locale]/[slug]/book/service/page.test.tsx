@@ -91,6 +91,7 @@ const {
 vi.mock('next/navigation', () => ({
   notFound,
   redirect: redirectMock,
+  useParams: () => ({ locale: 'en', slug: 'salon-a' }),
 }));
 
 // DB boundary that `resolveOwnerPreviewContext`
