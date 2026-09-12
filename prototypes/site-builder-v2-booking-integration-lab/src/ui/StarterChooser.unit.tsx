@@ -171,7 +171,7 @@ describe('StarterChooser copy and accessibility', () => {
       expect(preview.querySelectorAll('a, button, input, select, textarea, [tabindex]').length).toBe(0);
       expect(card.querySelectorAll('button, a, input, select, textarea').length).toBe(0);
       expect(card).toHaveAccessibleName(
-        `${starter.title} ${starter.description} ${starter.includesLabel} ${starter.included} ${starter.cta}`,
+        `${starter.title} ${starter.description} ${starter.includesLabel} ${starter.included} ${starter.id === 'your_design' ? 'Upload your image, choose what happens when clients tap, then draw a box around that part of your design. Booking stays underneath. ' : ''}${starter.cta}`,
       );
       expect(card).not.toHaveAccessibleName(/Luster Nail Studio|Toronto nail artist/);
     }
@@ -225,13 +225,13 @@ describe('StarterChooser copy and accessibility', () => {
       expect(preview).toHaveAttribute('data-starter-structure', structure.join('|'));
       expect(preview).toHaveAttribute('data-starter-navigation', navigation.join('|'));
       expect(preview.querySelectorAll('[data-preview-scene]')).toHaveLength(
-        starter.id === 'multi_page' ? pages.length : structure.length,
+        starter.id === 'your_design' ? 0 : starter.id === 'multi_page' ? pages.length : structure.length,
       );
 
       for (const item of starter.id === 'multi_page'
         ? pages.map(page => page.previewLabel ?? page.name)
         : structure) {
-        expect(preview.textContent).toContain(item);
+        expect(starter.id === 'your_design' ? getCard(starter.title).textContent : preview.textContent).toContain(item);
       }
     }
   });
@@ -254,8 +254,20 @@ describe('StarterChooser copy and accessibility', () => {
       expect(preview).toHaveTextContent(longName);
       expect(preview).toHaveTextContent('Mia Torres');
       expect(preview).toHaveTextContent('Hamilton, Ontario');
-      expect(preview).toHaveTextContent('Russian Manicure + French');
-      expect(preview).toHaveTextContent('1 hr 45 min · From $80');
+
+      if (starter.id === 'your_design') {
+        expect(preview).toHaveAttribute('data-preview-type', 'design-walkthrough');
+        expect(preview).toHaveTextContent('Upload your image');
+        expect(preview).toHaveTextContent('Make something clickable');
+        expect(preview).toHaveTextContent('Clients tap to connect');
+        expect(preview).toHaveTextContent('Draw a box around your Instagram');
+        expect(preview).toHaveTextContent('Book appointment');
+        expect(preview).not.toHaveTextContent('From $80');
+      } else {
+        expect(preview).toHaveTextContent('Russian Manicure + French');
+        expect(preview).toHaveTextContent('1 hr 45 min · From $80');
+      }
+
       expect(preview).not.toHaveTextContent('Luster Nail Studio');
       expect(preview).not.toHaveTextContent('Toronto');
       expect(preview.querySelector('.final-starter-preview__identity > b'))

@@ -412,7 +412,7 @@ export function HotspotEditor({
       initialFocusSelector="[data-hotspot-add]:not(:disabled)"
       onClose={onCancel}
       open={open}
-      title="Link areas"
+      title="Make your design clickable"
       variant="sheet"
     >
       <div className="custom-design-owner-hotspot-session">
@@ -440,14 +440,14 @@ export function HotspotEditor({
           >
             <Plus aria-hidden="true" size={18} />
             {' '}
-            Add link
+            Add another clickable area
           </button>
         </div>
 
         {addingLink && !placingLink
           ? (
               <section className="custom-design-owner-hotspot-details">
-                <h3>What should this button do?</h3>
+                <h3>What should happen when clients tap?</h3>
                 <ActionEditor
                   key="new-link"
                   action={newAction}
@@ -459,7 +459,7 @@ export function HotspotEditor({
                 <button className="primary-button" disabled={!newAction || asset.status !== 'ready'} type="button" onClick={() => setPlacingLink(true)}>
                   Place button on design
                 </button>
-                <button type="button" onClick={() => setAddingLink(false)}>Cancel new link</button>
+                <button type="button" onClick={() => setAddingLink(false)}>Cancel</button>
               </section>
             )
           : null}

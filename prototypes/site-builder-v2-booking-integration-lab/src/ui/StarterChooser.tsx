@@ -1,4 +1,4 @@
-import { ArrowRight, CalendarDays, FileUp, Sparkles } from 'lucide-react';
+import { ArrowRight, CalendarDays, FileUp, Instagram, Sparkles } from 'lucide-react';
 import {
   type CSSProperties,
   useCallback,
@@ -54,7 +54,7 @@ type StarterPreviewDefinition = {
   navigationItems: readonly string[];
   poster: PreviewPosterContent;
   posterState: string;
-  previewType: 'continuous-scroll' | 'page-switch' | 'short-scroll';
+  previewType: 'continuous-scroll' | 'design-walkthrough' | 'page-switch' | 'short-scroll';
   scenes: readonly PreviewScene[];
 };
 
@@ -263,25 +263,25 @@ const createStarterPreview = (starter: OriginStarter): StarterPreviewDefinition 
         ? 'A focused path from services to booking.'
         : starter === 'your_design'
           ? 'Your artwork, followed by booking.'
-        : starter === 'one_page'
-          ? 'Your whole studio, all in one place.'
-          : 'A home page with separate destinations.',
+          : starter === 'one_page'
+            ? 'Your whole studio, all in one place.'
+            : 'A home page with separate destinations.',
       items: posterItems,
       kind: posterKind,
       label: starter === 'quick_book'
         ? 'Booking-focused page'
         : starter === 'your_design'
           ? 'Artwork-led booking page'
-        : starter === 'one_page'
-          ? 'One continuous page'
-          : 'Five connected pages',
+          : starter === 'one_page'
+            ? 'One continuous page'
+            : 'Five connected pages',
     },
     posterState: starter === 'quick_book'
       ? 'booking-summary'
       : starter === 'one_page'
         ? 'page-overview'
         : 'site-map',
-    previewType,
+    previewType: starter === 'your_design' ? 'design-walkthrough' : previewType,
     scenes,
   };
 };
@@ -686,34 +686,82 @@ export function StarterPreview({
         definition={definition}
         logoUrl={logoUrl}
       />
-      <span className="final-starter-preview__viewport">
-        <PreviewPoster
-          businessName={resolvedBusinessName}
-          ownerName={ownerName}
-          poster={definition.poster}
-          publicLocation={publicLocation}
-        />
-        <span className="final-starter-preview__motion">
-          <span className="final-starter-preview__track">
-            {definition.scenes.map(scene => (
-              <span
-                className={`final-starter-preview__scene is-${scene.kind}`}
-                data-navigation-state={scene.navigation}
-                data-preview-scene={scene.id}
-                data-scene-duration-ms={scene.durationMs}
-                key={scene.id}
-              >
-                <PreviewSceneContent
-                  businessName={resolvedBusinessName}
-                  ownerName={ownerName}
-                  publicLocation={publicLocation}
-                  scene={scene}
-                />
+      {starterId === 'your_design'
+        ? (
+            <span className="final-design-demo" data-preview-poster="design-walkthrough">
+              <span className="final-design-demo__steps">
+                <span>
+                  <b>1</b>
+                  {' '}
+                  Upload your image
+                </span>
+                <span>
+                  <b>2</b>
+                  {' '}
+                  Make something clickable
+                </span>
+                <span>
+                  <b>3</b>
+                  {' '}
+                  Clients tap to connect
+                </span>
               </span>
-            ))}
-          </span>
-        </span>
-      </span>
+              <span className="final-design-demo__artwork">
+                <small>YOUR DESIGN, NOW A BOOKING PAGE</small>
+                <strong>{resolvedBusinessName}</strong>
+                <span className="final-design-demo__tagline">Beautiful nails. Your signature style.</span>
+                <span className="final-design-demo__instagram">
+                  <Instagram size={18} />
+                  {' '}
+                  @yourstudio
+                  <span className="final-design-demo__outline">
+                    <i />
+                    <i />
+                    <i />
+                    <i />
+                  </span>
+                </span>
+                <small>Draw a box around your Instagram</small>
+              </span>
+              <span className="final-design-demo__booking">
+                <CalendarDays size={14} />
+                {' '}
+                Book appointment
+              </span>
+              <span className="final-design-demo__note">Example design · Your image stays yours</span>
+              <span className="visually-hidden">{[ownerName, publicLocation].filter(Boolean).join(' · ')}</span>
+            </span>
+          )
+        : (
+            <span className="final-starter-preview__viewport">
+              <PreviewPoster
+                businessName={resolvedBusinessName}
+                ownerName={ownerName}
+                poster={definition.poster}
+                publicLocation={publicLocation}
+              />
+              <span className="final-starter-preview__motion">
+                <span className="final-starter-preview__track">
+                  {definition.scenes.map(scene => (
+                    <span
+                      className={`final-starter-preview__scene is-${scene.kind}`}
+                      data-navigation-state={scene.navigation}
+                      data-preview-scene={scene.id}
+                      data-scene-duration-ms={scene.durationMs}
+                      key={scene.id}
+                    >
+                      <PreviewSceneContent
+                        businessName={resolvedBusinessName}
+                        ownerName={ownerName}
+                        publicLocation={publicLocation}
+                        scene={scene}
+                      />
+                    </span>
+                  ))}
+                </span>
+              </span>
+            </span>
+          )}
     </span>
   );
 }
@@ -786,6 +834,7 @@ export function StarterChoiceGrid({
                   <small>{starter.includesLabel}</small>
                   <span>{starter.includedItems.join(' · ')}</span>
                 </span>
+                {starter.id === 'your_design' ? <span className="visually-hidden">Upload your image, choose what happens when clients tap, then draw a box around that part of your design. Booking stays underneath.</span> : null}
                 <span className="final-starter-card__action">
                   {actionLabel}
                   {' '}

@@ -511,8 +511,8 @@ test('renders a semantic booking hotspot, cancels activation after a swipe, and 
 
   const settings = customDesignSettings(page);
   const row = settings.locator('[data-image-item-id]').first();
-  await row.getByRole('button', { name: 'Add link', exact: true }).click();
-  const hotspot = page.getByRole('dialog', { name: 'Link areas' });
+  await row.getByRole('button', { name: 'Make something clickable', exact: true }).click();
+  const hotspot = page.getByRole('dialog', { name: 'Make your design clickable' });
   await hotspot.getByRole('button', { name: 'Place button on design' }).click();
   await hotspot.getByRole('button', { name: 'Place in centre' }).click();
   await hotspot.getByLabel('Accessible label').fill('Start booking from artwork');
@@ -661,9 +661,9 @@ test('keeps poster and normalized hotspot geometry safe across the required view
 
   const settings = customDesignSettings(page);
   await settings.locator('[data-image-item-id]').first()
-    .getByRole('button', { name: 'Add link', exact: true })
+    .getByRole('button', { name: 'Make something clickable', exact: true })
     .click();
-  const hotspot = page.getByRole('dialog', { name: 'Link areas' });
+  const hotspot = page.getByRole('dialog', { name: 'Make your design clickable' });
   await hotspot.getByRole('button', { name: 'Place button on design' }).click();
   await hotspot.getByRole('button', { name: 'Place in centre' }).click();
   await hotspot.getByLabel('Accessible label').fill('Responsive booking area');

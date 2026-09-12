@@ -187,7 +187,7 @@ function SortableImageRow({
               <button type="button" onClick={onLinkAreas}>
                 <Link2 aria-hidden="true" size={16} />
                 {' '}
-                {image.interactiveAreas.length > 0 ? 'Edit links' : 'Add link'}
+                {image.interactiveAreas.length > 0 ? 'Edit clickable areas' : 'Make something clickable'}
               </button>
             )
           : null}
