@@ -37,16 +37,19 @@ import type {
 
 const EMPTY_INTERNAL_TARGETS: readonly CustomDesignInternalPageOption[] = [];
 
-const DEFAULT_GEOMETRIES: readonly CustomDesignNormalizedRect[] = [
-  { x: 8, y: 8, width: 30, height: 12 },
-  { x: 62, y: 8, width: 30, height: 12 },
-  { x: 8, y: 30, width: 30, height: 12 },
-  { x: 62, y: 30, width: 30, height: 12 },
-  { x: 8, y: 52, width: 30, height: 12 },
-  { x: 62, y: 52, width: 30, height: 12 },
-  { x: 8, y: 74, width: 30, height: 12 },
-  { x: 62, y: 74, width: 30, height: 12 },
-];
+const actionLabel = (action: CustomDesignAction): string => {
+  switch (action.type) {
+    case 'instagram': return `Instagram @${action.destination.username}`;
+    case 'call': return `Call ${action.destination.phoneNumber}`;
+    case 'text': return `Text ${action.destination.phoneNumber}`;
+    case 'email': return `Email ${action.destination.email}`;
+    case 'start_booking': return 'Book appointment';
+    case 'directions': return 'Get directions';
+    case 'internal': return 'Open page or section';
+    case 'website':
+    case 'custom_url': return 'Visit website';
+  }
+};
 
 // A 320px customer viewport retains roughly 280px for site content after the
 // frozen Preview gutters. Warn against that primary mobile experience even
@@ -193,7 +196,11 @@ export function HotspotEditor({
   const [invalidActionIds, setInvalidActionIds] = useState<Set<string>>(() => new Set());
   const [renderedSize, setRenderedSize] = useState({ height: 0, width: 0 });
   const [interactionWarning, setInteractionWarning] = useState('');
-  const [placingAreaId, setPlacingAreaId] = useState<string | null>(null);
+  const [addingLink, setAddingLink] = useState(() => !image?.interactiveAreas.length);
+  const [placingLink, setPlacingLink] = useState(false);
+  const [newAction, setNewAction] = useState<CustomDesignAction | null>({ type: 'start_booking' });
+  const [zoomed, setZoomed] = useState(false);
+  const [preciseControls, setPreciseControls] = useState(false);
   const areasRef = useRef(areas);
   areasRef.current = areas;
   const imageElementRef = useRef<HTMLImageElement>(null);
@@ -208,7 +215,11 @@ export function HotspotEditor({
     setSelectedAreaId(image?.interactiveAreas[0]?.id ?? null);
     setInvalidActionIds(new Set());
     setInteractionWarning('');
-    setPlacingAreaId(null);
+    setAddingLink(!image?.interactiveAreas.length);
+    setPlacingLink(false);
+    setNewAction({ type: 'start_booking' });
+    setZoomed(false);
+    setPreciseControls(false);
   }, [baselineKey]);
 
   useEffect(() => () => pointerCleanupRef.current?.(), []);
@@ -226,7 +237,7 @@ export function HotspotEditor({
     const observer = new ResizeObserver(measure);
     observer.observe(element);
     return () => observer.disconnect();
-  }, [asset.status, image?.assetId, open]);
+  }, [addingLink, asset.status, image?.assetId, open, placingLink]);
 
   const selectedArea = areas.find(area => area.id === selectedAreaId) ?? null;
   const issues = useMemo(
@@ -330,31 +341,35 @@ export function HotspotEditor({
     window.addEventListener('pointercancel', end);
   };
 
-  const addArea = () => {
-    if (areas.length >= CUSTOM_DESIGN_MAX_AREAS_PER_IMAGE) {
+  const placeArea = (centerX: number, centerY: number) => {
+    if (!newAction || areas.length >= CUSTOM_DESIGN_MAX_AREAS_PER_IMAGE) {
       return;
     }
-    const geometry = DEFAULT_GEOMETRIES.find(candidate =>
-      !areas.some(area => rectanglesHaveInteriorOverlap(area.geometry, candidate)));
-    if (!geometry) {
-      setInteractionWarning('Make room for another link area before adding one.');
-      return;
-    }
+    const width = 40;
+    const height = Math.min(12, 44 / Math.max(renderedSize.height, 1) * 100);
+    const geometry = canonicalizeNormalizedRect({
+      x: Math.max(0, Math.min(100 - width, centerX - width / 2)),
+      y: Math.max(0, Math.min(100 - height, centerY - height / 2)),
+      width,
+      height,
+    }).rect;
     const id = createAreaId?.() ?? idFactory('area');
     const area: CustomDesignInteractiveArea = {
       id,
-      accessibleLabel: 'New link area',
-      action: { type: 'start_booking' },
+      accessibleLabel: actionLabel(newAction).slice(0, 200),
+      action: newAction,
+      appearance: 'button',
       geometry: { ...geometry },
-      labelConfirmed: false,
+      labelConfirmed: true,
       reviewStatus: 'approved',
       semanticOrder: areas.length,
-      validationStatus: 'invalid',
+      validationStatus: 'valid',
     };
     setAreas(current => [...current, area]);
     setSelectedAreaId(id);
-    setPlacingAreaId(id);
-    setInteractionWarning('Tap the design where this link should go. You can fine-tune it afterward.');
+    setPlacingLink(false);
+    setAddingLink(false);
+    setInteractionWarning('Drag the button into place. Adjust its corners to fit your printed text or icon.');
   };
 
   const changeSelectedAction = (action: CustomDesignAction | null) => {
@@ -376,7 +391,7 @@ export function HotspotEditor({
   };
 
   const commit = () => {
-    if (!image || issues.length > 0) {
+    if (!image || addingLink || placingLink || issues.length > 0) {
       return;
     }
     const committed = withValidationStatuses(areas, invalidActionIds)
@@ -393,7 +408,7 @@ export function HotspotEditor({
 
   return (
     <Dialog
-      description="Draw over a button, social handle, address, or link already shown in your design."
+      description="Make the text and icons in your artwork clickable. Your design stays visible inside each button."
       initialFocusSelector="[data-hotspot-add]:not(:disabled)"
       onClose={onCancel}
       open={open}
@@ -402,7 +417,7 @@ export function HotspotEditor({
     >
       <div className="custom-design-owner-hotspot-session">
         <div className="custom-design-owner-hotspot-toolbar">
-          <p>
+          <p aria-live="polite">
             {areas.length}
             {' '}
             of
@@ -414,91 +429,131 @@ export function HotspotEditor({
           <button
             className="primary-button"
             data-hotspot-add
-            disabled={!readyAssetUrl || areas.length >= CUSTOM_DESIGN_MAX_AREAS_PER_IMAGE}
+            disabled={addingLink || !readyAssetUrl || areas.length >= CUSTOM_DESIGN_MAX_AREAS_PER_IMAGE}
             type="button"
-            onClick={addArea}
+            onClick={() => {
+              setAddingLink(true);
+              setPlacingLink(false);
+              setInteractionWarning('');
+              setNewAction({ type: 'start_booking' });
+            }}
           >
             <Plus aria-hidden="true" size={18} />
             {' '}
-            Add link area
+            Add link
           </button>
         </div>
 
-        {readyAssetUrl && image
+        {addingLink && !placingLink
           ? (
-              <div className="custom-design-owner-hotspot-stage-wrap">
-                <div className="custom-design-owner-hotspot-stage">
-                  <img
-                    ref={imageElementRef}
-                    alt="Design being edited"
-                    height={image.height}
-                    src={readyAssetUrl}
-                    width={image.width}
-                    onClick={(event) => {
-                      if (!placingAreaId) {
-                        return;
-                      }
-                      const area = areasRef.current.find(candidate => candidate.id === placingAreaId);
-                      if (!area) {
-                        setPlacingAreaId(null);
-                        return;
-                      }
-                      const rect = event.currentTarget.getBoundingClientRect();
-                      const centerX = ((event.clientX - rect.left) / rect.width) * 100;
-                      const centerY = ((event.clientY - rect.top) / rect.height) * 100;
-                      tryGeometry(placingAreaId, {
-                        ...area.geometry,
-                        x: Math.max(0, Math.min(100 - area.geometry.width, centerX - area.geometry.width / 2)),
-                        y: Math.max(0, Math.min(100 - area.geometry.height, centerY - area.geometry.height / 2)),
-                      });
-                      setPlacingAreaId(null);
-                      setInteractionWarning('Confirm the accessible label and action for this area.');
-                    }}
-                    onLoad={(event) => {
-                      const rect = event.currentTarget.getBoundingClientRect();
-                      setRenderedSize({ height: rect.height, width: rect.width });
-                    }}
-                  />
-                  <HotspotOverlay
-                    areas={displayAreas}
-                    renderedHeight={renderedSize.height}
-                    renderedWidth={renderedSize.width}
-                    selectedAreaId={selectedAreaId ?? undefined}
-                    onKeyboardMove={(areaId, delta) => {
-                      const area = areas.find(candidate => candidate.id === areaId);
-                      if (area) {
-                        tryGeometry(areaId, moveNormalizedRect(
-                          area.geometry,
-                          delta,
-                          renderedSize,
-                        ).rect);
-                      }
-                    }}
-                    onKeyboardResize={(areaId, handle, delta) => {
-                      const area = areas.find(candidate => candidate.id === areaId);
-                      if (area) {
-                        tryGeometry(areaId, resizeNormalizedRect(
-                          area.geometry,
-                          handle,
-                          delta,
-                          renderedSize,
-                        ).rect);
-                      }
-                    }}
-                    onMoveStart={(areaId, event) => startPointerSession(areaId, event)}
-                    onResizeStart={(areaId, handle, event) =>
-                      startPointerSession(areaId, event, handle)}
-                    onSelect={setSelectedAreaId}
-                  />
-                </div>
+              <section className="custom-design-owner-hotspot-details">
+                <h3>What should this button do?</h3>
+                <ActionEditor
+                  key="new-link"
+                  action={newAction}
+                  internalTargets={internalTargets}
+                  onChange={setNewAction}
+                  typePicker="buttons"
+                />
+                <p>Next, put the button around the matching text or icon in your design.</p>
+                <button className="primary-button" disabled={!newAction || asset.status !== 'ready'} type="button" onClick={() => setPlacingLink(true)}>
+                  Place button on design
+                </button>
+                <button type="button" onClick={() => setAddingLink(false)}>Cancel new link</button>
+              </section>
+            )
+          : null}
+
+        {(!addingLink || placingLink) && readyAssetUrl && image
+          ? (
+              <div className="custom-design-owner-placement-bar">
+                <p role="status">{placingLink ? 'Tap the text or icon you want to make clickable.' : 'Drag to move. Use the corners to resize.'}</p>
+                <button aria-pressed={zoomed} type="button" onClick={() => setZoomed(current => !current)}>{zoomed ? 'Fit design' : 'Zoom in'}</button>
+                {!placingLink ? <button aria-pressed={preciseControls} type="button" onClick={() => setPreciseControls(current => !current)}>More resize controls</button> : null}
+                {placingLink ? <button type="button" onClick={() => placeArea(50, 50)}>Place in centre</button> : null}
               </div>
             )
-          : (
-              <div className="custom-design-owner-missing-recovery">
-                <strong>This design file isn’t available in this browser.</strong>
-                <p>Replace it before editing link positions. Your existing labels and actions remain saved.</p>
-              </div>
-            )}
+          : null}
+
+        {addingLink && !placingLink
+          ? null
+          : readyAssetUrl && image
+            ? (
+                <div className="custom-design-owner-hotspot-stage-wrap" data-zoomed={zoomed ? 'true' : 'false'}>
+                  <div className="custom-design-owner-hotspot-stage" data-placing={placingLink ? 'true' : 'false'}>
+                    <img
+                      ref={imageElementRef}
+                      alt="Design being edited"
+                      height={image.height}
+                      src={readyAssetUrl}
+                      width={image.width}
+                      onLoad={(event) => {
+                        const rect = event.currentTarget.getBoundingClientRect();
+                        setRenderedSize({ height: rect.height, width: rect.width });
+                      }}
+                    />
+                    {placingLink
+                      ? (
+                          <button
+                            aria-label="Place button here"
+                            className="custom-design-owner-placement-surface"
+                            type="button"
+                            onClick={(event) => {
+                              const rect = imageElementRef.current?.getBoundingClientRect();
+                              if (!rect?.width || !rect.height) {
+                                return;
+                              }
+                              // Native keyboard activation places centrally; pointers
+                              // use the actual artwork coordinates at the current zoom.
+                              placeArea(
+                                event.detail === 0 ? 50 : ((event.clientX - rect.left) / rect.width) * 100,
+                                event.detail === 0 ? 50 : ((event.clientY - rect.top) / rect.height) * 100,
+                              );
+                            }}
+                          />
+                        )
+                      : null}
+                    <HotspotOverlay
+                      areas={displayAreas}
+                      compact={!preciseControls}
+                      renderedHeight={renderedSize.height}
+                      renderedWidth={renderedSize.width}
+                      selectedAreaId={!placingLink ? selectedAreaId ?? undefined : undefined}
+                      onKeyboardMove={(areaId, delta) => {
+                        const area = areas.find(candidate => candidate.id === areaId);
+                        if (area) {
+                          tryGeometry(areaId, moveNormalizedRect(
+                            area.geometry,
+                            delta,
+                            renderedSize,
+                          ).rect);
+                        }
+                      }}
+                      onKeyboardResize={(areaId, handle, delta) => {
+                        const area = areas.find(candidate => candidate.id === areaId);
+                        if (area) {
+                          tryGeometry(areaId, resizeNormalizedRect(
+                            area.geometry,
+                            handle,
+                            delta,
+                            renderedSize,
+                          ).rect);
+                        }
+                      }}
+                      onMoveStart={(areaId, event) => startPointerSession(areaId, event)}
+                      onResizeStart={(areaId, handle, event) =>
+                        startPointerSession(areaId, event, handle)}
+                      onSelect={setSelectedAreaId}
+                    />
+                  </div>
+                </div>
+              )
+            : (
+                <div className="custom-design-owner-missing-recovery">
+                  <strong>This design file isn’t available in this browser.</strong>
+                  <p>Replace it before editing link positions. Your existing labels and actions remain saved.</p>
+                </div>
+              )}
 
         {interactionWarning
           ? (
@@ -510,7 +565,7 @@ export function HotspotEditor({
             )
           : null}
 
-        {selectedArea
+        {!addingLink && selectedArea
           ? (
               <section className="custom-design-owner-hotspot-details">
                 <div className="custom-design-owner-section-heading">
@@ -555,6 +610,17 @@ export function HotspotEditor({
                       labelConfirmed: false,
                     }))}
                   />
+                </label>
+                <label className="custom-design-owner-check">
+                  <input
+                    checked={selectedArea.appearance === 'button'}
+                    type="checkbox"
+                    onChange={event => updateArea(selectedArea.id, area => ({
+                      ...area,
+                      appearance: event.target.checked ? 'button' : undefined,
+                    }))}
+                  />
+                  Show as a raised button
                 </label>
                 <label className="custom-design-owner-check">
                   <input
@@ -633,12 +699,14 @@ export function HotspotEditor({
                   : null}
               </section>
             )
-          : (
-              <div className="custom-design-owner-hotspot-empty">
-                <Link2 aria-hidden="true" size={22} />
-                <p>Add an area, then give it a label and action.</p>
-              </div>
-            )}
+          : !addingLink
+              ? (
+                  <div className="custom-design-owner-hotspot-empty">
+                    <Link2 aria-hidden="true" size={22} />
+                    <p>Add a link to make part of your design clickable.</p>
+                  </div>
+                )
+              : null}
 
         {issues.length > 0
           ? (
@@ -653,7 +721,7 @@ export function HotspotEditor({
           <button type="button" onClick={onCancel}>Cancel</button>
           <button
             className="primary-button"
-            disabled={!image || !readyAssetUrl || issues.length > 0}
+            disabled={!image || !readyAssetUrl || addingLink || placingLink || issues.length > 0}
             type="button"
             onClick={commit}
           >

@@ -364,6 +364,20 @@ describe('CustomDesignOwnerEditor', () => {
 });
 
 describe('HotspotEditor bounded session', () => {
+  it('opts an existing link into raised styling without changing its destination or position', async () => {
+    installBrowserStubs();
+    const user = userEvent.setup();
+    const onCommit = vi.fn();
+    render(<HotspotEditor asset={assets['asset-page-1']} image={makeImage('page-1', { interactiveAreas: [makeArea()] })} onCancel={vi.fn()} onCommit={onCommit} open />);
+
+    expect(screen.getByRole('checkbox', { name: 'Show as a raised button' })).not.toBeChecked();
+
+    await user.click(screen.getByRole('checkbox', { name: 'Show as a raised button' }));
+    await user.click(screen.getByRole('button', { name: 'Done' }));
+
+    expect(onCommit).toHaveBeenCalledWith('page-1', [{ ...makeArea(), appearance: 'button' }]);
+  });
+
   it('places a new link area where the owner taps the design', async () => {
     installBrowserStubs();
     const user = userEvent.setup();
@@ -390,18 +404,24 @@ describe('HotspotEditor bounded session', () => {
         open
       />,
     );
+    await user.click(screen.getByRole('button', { name: 'Instagram' }));
+
+    expect(screen.getByRole('button', { name: 'Place button on design' })).toBeDisabled();
+
+    await user.type(screen.getByRole('textbox', { name: 'Instagram username' }), 'Klawsby_Ke');
+    await user.click(screen.getByRole('button', { name: 'Place button on design' }));
     const design = screen.getByRole('img', { name: 'Design being edited' });
     fireEvent.load(design);
 
-    await user.click(screen.getByRole('button', { name: 'Add link area' }));
+    expect(screen.getByText(/Tap the text or icon/)).toBeVisible();
 
-    expect(screen.getByText(/Tap the design where this link should go/)).toBeVisible();
-    fireEvent.click(design, { clientX: 80, clientY: 150 });
+    fireEvent.click(screen.getByRole('button', { name: 'Place button here' }), { clientX: 80, clientY: 150, detail: 1 });
 
-    expect(screen.getByText('Confirm the accessible label and action for this area.')).toBeVisible();
+    expect(screen.getByRole('checkbox', { name: 'Show as a raised button' })).toBeChecked();
     expect(screen.getByRole('button', {
-      name: 'Move clickable area: New link area',
-    }).parentElement).toHaveStyle({ left: '65%', top: '69%' });
+      name: 'Move clickable area: Instagram @Klawsby_Ke',
+    }).parentElement).toHaveStyle({ left: '60%', top: '69%' });
+    expect(screen.getByRole('button', { name: 'Done' })).toBeEnabled();
   });
 
   it('cancels without committing and commits one complete session on Done', async () => {
@@ -557,6 +577,7 @@ describe('HotspotEditor bounded session', () => {
 
     expect(screen.getByRole('button', { name: 'Done' })).toBeEnabled();
 
+    await user.click(screen.getByRole('button', { name: 'More resize controls' }));
     await user.click(screen.getByRole('button', { name: 'Make Book this service wider' }));
     await user.click(screen.getByRole('button', { name: 'Make Book this service taller' }));
 

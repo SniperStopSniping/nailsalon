@@ -511,9 +511,10 @@ test('renders a semantic booking hotspot, cancels activation after a swipe, and 
 
   const settings = customDesignSettings(page);
   const row = settings.locator('[data-image-item-id]').first();
-  await row.getByRole('button', { name: 'Link areas' }).click();
+  await row.getByRole('button', { name: 'Add link', exact: true }).click();
   const hotspot = page.getByRole('dialog', { name: 'Link areas' });
-  await hotspot.getByRole('button', { name: 'Add link area' }).click();
+  await hotspot.getByRole('button', { name: 'Place button on design' }).click();
+  await hotspot.getByRole('button', { name: 'Place in centre' }).click();
   await hotspot.getByLabel('Accessible label').fill('Start booking from artwork');
   await hotspot.getByLabel('I confirm this label explains the action').check();
 
@@ -532,6 +533,8 @@ test('renders a semantic booking hotspot, cancels activation after a swipe, and 
   await expect(area).toBeVisible();
   await expect(area).toHaveCSS('touch-action', 'pan-y pinch-zoom');
   await expect(area).toHaveCSS('position', 'absolute');
+  await expect(area).toHaveClass(/custom-design-area-link--button/);
+  await expect(area).not.toHaveCSS('box-shadow', 'none');
 
   await page.evaluate(() => {
     const scope = window as typeof window & {
@@ -658,10 +661,11 @@ test('keeps poster and normalized hotspot geometry safe across the required view
 
   const settings = customDesignSettings(page);
   await settings.locator('[data-image-item-id]').first()
-    .getByRole('button', { name: 'Link areas' })
+    .getByRole('button', { name: 'Add link', exact: true })
     .click();
   const hotspot = page.getByRole('dialog', { name: 'Link areas' });
-  await hotspot.getByRole('button', { name: 'Add link area' }).click();
+  await hotspot.getByRole('button', { name: 'Place button on design' }).click();
+  await hotspot.getByRole('button', { name: 'Place in centre' }).click();
   await hotspot.getByLabel('Accessible label').fill('Responsive booking area');
   await hotspot.getByLabel('I confirm this label explains the action').check();
   await hotspot.getByRole('button', { name: 'Done' }).click();

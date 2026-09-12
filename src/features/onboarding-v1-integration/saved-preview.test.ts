@@ -181,6 +181,7 @@ describe('createSavedSitePreviewModel', () => {
         id: 'custom-image',
         interactiveAreas: [{
           accessibleLabel: 'Jump to Booking',
+          appearance: 'button',
           action: {
             destination: { pageId: document.pages[0]!.id, sectionId: booking.id },
             type: 'internal',
@@ -271,6 +272,7 @@ describe('createSavedSitePreviewModel', () => {
       destination: { pageId: document.pages[0]!.id, sectionId: booking.id },
       type: 'internal',
     });
+    expect(savedCustom.settings.images[0]?.interactiveAreas[0]?.appearance).toBe('button');
     expect(model.media).toEqual(expect.arrayContaining([
       expect.objectContaining({
         assetId: 'server-custom-media',

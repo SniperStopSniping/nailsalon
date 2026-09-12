@@ -23,6 +23,19 @@ const area = (
 });
 
 describe('owner hotspot overlay', () => {
+  it('uses four corners and a full-area move target in compact button mode', () => {
+    render(<HotspotOverlay areas={[area({ appearance: 'button' })]} compact renderedHeight={500} renderedWidth={500} selectedAreaId="area-small" onKeyboardResize={vi.fn()} />);
+
+    expect(screen.getByRole('group', { name: 'Clickable area editor' })).toHaveAttribute('data-compact', 'true');
+    expect(screen.getByRole('group', { name: 'Clickable area: Instagram profile' })).toHaveAttribute('data-appearance', 'button');
+    expect(screen.getAllByRole('button', { name: /Resize Instagram profile from/ })).toHaveLength(4);
+    expect(screen.queryByRole('button', { name: /Make .* wider/ })).not.toBeInTheDocument();
+
+    const move = screen.getByRole('button', { name: 'Move clickable area: Instagram profile' });
+
+    expect(move).toBeEnabled();
+  });
+
   it('shows labelled move and resize controls at normalized geometry', () => {
     render(
       <HotspotOverlay
