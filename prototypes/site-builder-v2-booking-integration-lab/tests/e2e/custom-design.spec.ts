@@ -581,9 +581,7 @@ test('renders a semantic booking hotspot, cancels activation after a swipe, and 
   await expect.poll(() => previewFrame.evaluate(element => (
     element as HTMLElement & { __customDesignScrollCalls?: number[] }
   ).__customDesignScrollCalls?.length ?? 0)).toBe(1);
-  await expect.poll(() => page.evaluate(() => (
-    document.activeElement?.closest('[data-section-type]')?.getAttribute('data-section-type')
-  ))).toBe('booking');
+  await expect(page.getByRole('heading', { name: 'Book an appointment', exact: true })).toBeFocused();
 
   await previewFrame.evaluate((element) => {
     const frame = element as HTMLElement & {
