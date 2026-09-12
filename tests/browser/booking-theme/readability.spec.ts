@@ -19,6 +19,7 @@ test('week navigation and full calendar preserve date selection and keyboard acc
   await page.keyboard.press('Enter');
 
   await expect(page.getByTestId('calendar-day-2026-09-19')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByTestId('calendar-day-2026-09-19')).toBeEnabled();
 
   await expect(page.getByText('Only 1 opening available')).toBeVisible();
 
@@ -29,6 +30,25 @@ test('week navigation and full calendar preserve date selection and keyboard acc
 
   await expect(page.getByTestId('calendar-day-2026-10-21')).toHaveAttribute('aria-pressed', 'true');
   await expect(days).toHaveCount(7);
+});
+
+test('confirmation keyboard order includes reading preferences before Edit', async ({ page, browserName }) => {
+  // macOS WebKit uses Option-Tab to traverse all clickable controls.
+  const nextControlKey = browserName === 'webkit' && process.platform === 'darwin' ? 'Alt+Tab' : 'Tab';
+  await page.goto('/?step=confirm&count=1');
+
+  await expect(page.getByRole('button', { name: 'Easier to read Off' })).toBeVisible();
+
+  await page.keyboard.press(nextControlKey);
+
+  await expect(page.getByRole('button', { name: 'Easier to read Off' })).toBeFocused();
+
+  await page.keyboard.press(nextControlKey);
+
+  const edit = page.getByRole('button', { name: 'Edit', exact: true });
+
+  await expect(edit).toBeFocused();
+  await expect.poll(() => edit.evaluate(element => getComputedStyle(element).outlineStyle)).not.toBe('none');
 });
 
 for (const palette of CUSTOMER_SITE_PALETTE_PRESETS) {
