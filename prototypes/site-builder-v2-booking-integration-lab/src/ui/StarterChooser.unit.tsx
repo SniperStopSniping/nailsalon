@@ -120,7 +120,7 @@ function getPreview(starterId: OriginStarter) {
 }
 
 function expectOnlyPreviewActive(starterId: OriginStarter | null) {
-  for (const starter of EXPECTED_STARTERS) {
+  for (const starter of EXPECTED_STARTERS.filter(starter => starter.id !== 'your_design')) {
     expect(getPreview(starter.id)).toHaveAttribute(
       'data-preview-active',
       starter.id === starterId ? 'true' : 'false',
@@ -148,6 +148,34 @@ afterEach(() => {
 });
 
 describe('StarterChooser copy and accessibility', () => {
+  it('lets owners try clickable artwork without choosing a starter', async () => {
+    const user = userEvent.setup();
+    const onChoose = vi.fn();
+    render(<StarterChoiceGrid onChoose={onChoose} reducedMotion />);
+    const demo = screen.getByRole('region', { name: 'Try making a design clickable' });
+    await user.click(within(demo).getByRole('button', { name: 'Try with example image' }));
+    await user.click(within(demo).getByRole('button', { name: 'Make something clickable' }));
+    await user.click(within(demo).getByRole('button', { name: 'Instagram' }));
+    act(() => within(demo).getByRole('button', { name: 'Put a button around @yourstudio' }).focus());
+    await user.keyboard('{Enter}');
+
+    expect(within(demo).getByText(/Button added!/u)).toBeVisible();
+
+    await user.click(within(demo).getByRole('button', { name: 'Test Instagram button' }));
+
+    expect(within(demo).getByText(/It works!/u)).toBeVisible();
+    expect(demo.querySelector('a')).toBeNull();
+    expect(onChoose).not.toHaveBeenCalled();
+
+    await user.click(within(demo).getByRole('button', { name: 'Try again' }));
+
+    expect(within(demo).getByRole('button', { name: 'Try with example image' })).toBeVisible();
+
+    await user.click(getCard('Your Design'));
+
+    expect(onChoose).toHaveBeenCalledWith('your_design');
+  });
+
   it('uses the exact owner-friendly copy and removes technical starter-count badges', () => {
     render(<StarterChooser onChoose={vi.fn()} />);
 
@@ -159,16 +187,20 @@ describe('StarterChooser copy and accessibility', () => {
     for (const starter of EXPECTED_STARTERS) {
       const card = getCard(starter.title);
       const copy = card.querySelector<HTMLElement>('.final-starter-card__copy');
-      const preview = getPreview(starter.id);
+      const preview = starter.id === 'your_design' ? null : getPreview(starter.id);
 
       expect(within(card).getByText(starter.description)).toBeVisible();
       expect(within(card).getByText(starter.includesLabel)).toBeVisible();
       expect(within(card).getByText(starter.included)).toBeVisible();
       expect(within(card).getByText(starter.cta)).toBeVisible();
       expect(copy).not.toBeNull();
-      expect(copy?.nextElementSibling).toBe(preview);
-      expect(preview).toHaveAttribute('aria-hidden', 'true');
-      expect(preview.querySelectorAll('a, button, input, select, textarea, [tabindex]').length).toBe(0);
+
+      if (preview) {
+        expect(copy?.nextElementSibling).toBe(preview);
+        expect(preview).toHaveAttribute('aria-hidden', 'true');
+        expect(preview.querySelectorAll('a, button, input, select, textarea, [tabindex]').length).toBe(0);
+      }
+
       expect(card.querySelectorAll('button, a, input, select, textarea').length).toBe(0);
       expect(card).toHaveAccessibleName(
         `${starter.title} ${starter.description} ${starter.includesLabel} ${starter.included} ${starter.id === 'your_design' ? 'Upload your image, choose what happens when clients tap, then draw a box around that part of your design. Booking stays underneath. ' : ''}${starter.cta}`,
@@ -176,7 +208,7 @@ describe('StarterChooser copy and accessibility', () => {
       expect(card).not.toHaveAccessibleName(/Luster Nail Studio|Toronto nail artist/);
     }
 
-    expect(screen.getAllByRole('button')).toHaveLength(3);
+    expect(screen.getAllByRole('button', { name: /Start with/u })).toHaveLength(3);
     // Product cards explain their real content without exposing technical counts.
     expect(screen.queryByText(/Starts with \d+ (?:sections|pages)/)).not.toBeInTheDocument();
     expect(screen.getByText('Nothing is permanent.')).toBeVisible();
@@ -196,7 +228,7 @@ describe('StarterChooser copy and accessibility', () => {
 
     const logos = document.querySelectorAll('.final-starter-preview__logo');
 
-    expect(logos).toHaveLength(3);
+    expect(logos).toHaveLength(2);
 
     logos.forEach((logo) => {
       expect(logo).toHaveAttribute('data-media-role', 'logo');
@@ -210,7 +242,7 @@ describe('StarterChooser copy and accessibility', () => {
   it('derives every poster, scene, and navigation label from the universal starter definitions', () => {
     render(<StarterChoiceGrid onChoose={vi.fn()} reducedMotion />);
 
-    for (const starter of EXPECTED_STARTERS) {
+    for (const starter of EXPECTED_STARTERS.filter(starter => starter.id !== 'your_design')) {
       const pages = getStarterPageDefinitions(starter.id);
       // Scenes and the structure line exclude composition chrome
       // (`summary: false`), matching the definitions' documented contract.
@@ -248,7 +280,7 @@ describe('StarterChooser copy and accessibility', () => {
       />,
     );
 
-    for (const starter of EXPECTED_STARTERS) {
+    for (const starter of EXPECTED_STARTERS.filter(starter => starter.id !== 'your_design')) {
       const preview = getPreview(starter.id);
 
       expect(preview).toHaveTextContent(longName);
@@ -428,7 +460,7 @@ describe('StarterChooser preview playback', () => {
     fireEvent.mouseEnter(getCard('Quick Book'));
     act(() => getCard('Your Design').focus());
     expectOnlyPreviewActive(null);
-    for (const starter of EXPECTED_STARTERS) {
+    for (const starter of EXPECTED_STARTERS.filter(starter => starter.id !== 'your_design')) {
       expect(getPreview(starter.id)).toHaveAttribute('data-preview-state', 'poster');
       expect(getPreview(starter.id).querySelector('[data-preview-poster]')).toBeVisible();
       expect(screen.getByText(starter.description)).toBeVisible();

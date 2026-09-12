@@ -728,7 +728,7 @@ describe('StartingPointScreen', () => {
 
     const logos = document.querySelectorAll('.final-starter-preview__logo');
 
-    expect(logos).toHaveLength(3);
+    expect(logos).toHaveLength(2);
 
     for (const logo of logos) {
       expect(logo).toHaveAttribute('data-media-role', 'logo');
@@ -897,7 +897,7 @@ describe('StartingPointScreen', () => {
     await user.tab();
     const previews = screen.getAllByTestId(/starter-preview-/u);
 
-    expect(previews).toHaveLength(3);
+    expect(previews).toHaveLength(2);
 
     for (const preview of previews) {
       expect(preview).toHaveAttribute('data-preview-active', 'false');

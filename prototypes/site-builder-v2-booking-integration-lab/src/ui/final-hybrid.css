@@ -358,6 +358,70 @@ body[data-editor-shell='final-hybrid'] summary:focus-visible {
   100% { opacity: 1; }
 }
 
+.final-starter-card__choose {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.final-design-demo--interactive {
+  margin: 0 14px 14px;
+  border: 1px solid #e3d6db;
+  border-radius: 14px;
+  width: calc(100% - 28px);
+}
+
+.final-design-demo__coach {
+  min-height: 66px;
+  margin: 0;
+  padding: 12px;
+  border-radius: 10px;
+  background: #f5e6eb;
+  color: #652743;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.final-design-demo__controls { display: grid; min-height: 48px; align-items: center; }
+.final-design-demo__controls > span { font-size: 12px; line-height: 1.5; }
+.final-design-demo__controls > button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 48px;
+  border: 0;
+  border-radius: 9px;
+  background: #8f365a;
+  color: white;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.final-design-demo--interactive .final-design-demo__instagram {
+  min-height: 48px;
+  padding: 8px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: inherit;
+  font-family: inherit;
+  opacity: 1;
+}
+
+.final-design-demo--interactive .final-design-demo__instagram:enabled { cursor: pointer; }
+.final-design-demo--interactive .final-design-demo__instagram:enabled:not([data-placed="true"]) { outline: 2px dashed #8f365a; outline-offset: 3px; }
+.final-design-demo__restart { min-height: 44px; border: 0; background: transparent; color: #8f365a; text-decoration: underline; cursor: pointer; }
+.final-design-demo--interactive button:focus-visible,
+.final-starter-card__choose:focus-visible { outline: 3px solid #652743; outline-offset: 3px; }
+
 .final-starter-preview__header {
   display: flex;
   min-width: 0;

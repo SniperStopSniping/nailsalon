@@ -1,5 +1,28 @@
 # Your Design starting-card walkthrough
 
+## Interactive review update
+
+The passive illustration below is superseded by a hands-on, browser-local demo.
+Try with example image → Make something clickable → Instagram → tap the printed
+handle → tap the resulting button as a customer. Each action updates a short hint.
+The last step simulates opening Instagram; no real website opens. Try again and
+reload reset only the ephemeral demo, not the saved onboarding draft.
+
+The Your Design selection button and demo are separate siblings, avoiding nested
+buttons and accidental onboarding advancement. Controls are at least 44px high;
+keyboard focus follows the next action, hints are announced, and there is no
+motion dependency. This is a teaching example, not a replacement uploader or
+hotspot editor. Actual uploads, area adjustment, booking and saved drafts are unchanged.
+
+Verified the full sequence on a 390px mobile viewport and replay/placement on a
+1440px desktop viewport with the in-app browser. Captures are in
+`/tmp/luster-interactive-demo/mobile.png` and `desktop.png`. The 20 focused chooser
+and starting-screen tests passed; the 20 unrelated booking tests were filtered
+out, not claimed as passing. The Playwright regression was updated; its standalone
+runner and the full real-upload journey were not rerun for this demo-only change.
+
+## Previous passive candidate (historical)
+
 Local review only. No push, merge, deployment, or salon-data mutation.
 
 ## Focused change

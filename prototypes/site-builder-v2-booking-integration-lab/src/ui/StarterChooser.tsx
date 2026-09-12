@@ -686,83 +686,121 @@ export function StarterPreview({
         definition={definition}
         logoUrl={logoUrl}
       />
-      {starterId === 'your_design'
-        ? (
-            <span className="final-design-demo" data-preview-poster="design-walkthrough">
-              <span className="final-design-demo__steps">
-                <span>
-                  <b>1</b>
-                  {' '}
-                  Upload your image
-                </span>
-                <span>
-                  <b>2</b>
-                  {' '}
-                  Make something clickable
-                </span>
-                <span>
-                  <b>3</b>
-                  {' '}
-                  Clients tap to connect
-                </span>
+      <span className="final-starter-preview__viewport">
+        <PreviewPoster
+          businessName={resolvedBusinessName}
+          ownerName={ownerName}
+          poster={definition.poster}
+          publicLocation={publicLocation}
+        />
+        <span className="final-starter-preview__motion">
+          <span className="final-starter-preview__track">
+            {definition.scenes.map(scene => (
+              <span
+                className={`final-starter-preview__scene is-${scene.kind}`}
+                data-navigation-state={scene.navigation}
+                data-preview-scene={scene.id}
+                data-scene-duration-ms={scene.durationMs}
+                key={scene.id}
+              >
+                <PreviewSceneContent
+                  businessName={resolvedBusinessName}
+                  ownerName={ownerName}
+                  publicLocation={publicLocation}
+                  scene={scene}
+                />
               </span>
-              <span className="final-design-demo__artwork">
-                <small>YOUR DESIGN, NOW A BOOKING PAGE</small>
-                <strong>{resolvedBusinessName}</strong>
-                <span className="final-design-demo__tagline">Beautiful nails. Your signature style.</span>
-                <span className="final-design-demo__instagram">
-                  <Instagram size={18} />
-                  {' '}
-                  @yourstudio
-                  <span className="final-design-demo__outline">
-                    <i />
-                    <i />
-                    <i />
-                    <i />
-                  </span>
-                </span>
-                <small>Draw a box around your Instagram</small>
-              </span>
-              <span className="final-design-demo__booking">
-                <CalendarDays size={14} />
-                {' '}
-                Book appointment
-              </span>
-              <span className="final-design-demo__note">Example design · Your image stays yours</span>
-              <span className="visually-hidden">{[ownerName, publicLocation].filter(Boolean).join(' · ')}</span>
-            </span>
-          )
-        : (
-            <span className="final-starter-preview__viewport">
-              <PreviewPoster
-                businessName={resolvedBusinessName}
-                ownerName={ownerName}
-                poster={definition.poster}
-                publicLocation={publicLocation}
-              />
-              <span className="final-starter-preview__motion">
-                <span className="final-starter-preview__track">
-                  {definition.scenes.map(scene => (
-                    <span
-                      className={`final-starter-preview__scene is-${scene.kind}`}
-                      data-navigation-state={scene.navigation}
-                      data-preview-scene={scene.id}
-                      data-scene-duration-ms={scene.durationMs}
-                      key={scene.id}
-                    >
-                      <PreviewSceneContent
-                        businessName={resolvedBusinessName}
-                        ownerName={ownerName}
-                        publicLocation={publicLocation}
-                        scene={scene}
-                      />
-                    </span>
-                  ))}
-                </span>
-              </span>
-            </span>
-          )}
+            ))}
+          </span>
+        </span>
+      </span>
     </span>
+  );
+}
+
+function YourDesignDemo() {
+  const [step, setStep] = useState<'upload' | 'action' | 'destination' | 'place' | 'preview' | 'tested'>('upload');
+  const demoRef = useRef<HTMLElement>(null);
+  const previousStep = useRef(step);
+  useEffect(() => {
+    if (previousStep.current !== step) {
+      demoRef.current?.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus({ preventScroll: true });
+      previousStep.current = step;
+    }
+  }, [step]);
+  const hints = {
+    upload: 'Try it with this example. Later, you’ll upload your own Canva or AI design as an image.',
+    action: 'Your image is in. Let’s make the Instagram already in the design clickable.',
+    destination: 'Choose what happens when a client taps. For this example, choose Instagram.',
+    place: 'Tap @yourstudio below. We’ll put a button around that part of the design.',
+    preview: 'Button added! In the real editor, drag its corners to adjust the fit. Now tap it as a client would.',
+    tested: 'That would open your Instagram! Your artwork stays the same, and clients can now tap it.',
+  };
+  const placed = step === 'preview' || step === 'tested';
+  return (
+    <section aria-label="Try making a design clickable" className="final-design-demo final-design-demo--interactive" data-testid="design-interactive-demo" ref={demoRef}>
+      <span className="final-design-demo__note">Try it here · Example only</span>
+      <p aria-live="polite" className="final-design-demo__coach">{hints[step]}</p>
+      <div className="final-design-demo__artwork">
+        <small>EXAMPLE DESIGN</small>
+        <strong>Your nail studio</strong>
+        <span className="final-design-demo__tagline">Beautiful nails. Your signature style.</span>
+        <button
+          aria-label={placed ? 'Test Instagram button' : 'Put a button around @yourstudio'}
+          className="final-design-demo__instagram"
+          data-placed={placed}
+          disabled={step !== 'place' && step !== 'preview'}
+          type="button"
+          onClick={() => setStep(step === 'place' ? 'preview' : 'tested')}
+        >
+          <Instagram aria-hidden="true" size={18} />
+          {' '}
+          @yourstudio
+          {placed
+            ? (
+                <span aria-hidden="true" className="final-design-demo__outline">
+                  <i />
+                  <i />
+                  <i />
+                  <i />
+                </span>
+              )
+            : null}
+        </button>
+        <small>{step === 'place' ? '↑ Tap your Instagram here' : placed ? 'Your design is now clickable' : 'Already part of your design'}</small>
+      </div>
+      <div className="final-design-demo__controls">
+        {step === 'upload'
+          ? (
+              <button type="button" onClick={() => setStep('action')}>
+                <FileUp aria-hidden="true" size={18} />
+                {' '}
+                Try with example image
+              </button>
+            )
+          : null}
+        {step === 'action' ? <button type="button" onClick={() => setStep('destination')}>Make something clickable</button> : null}
+        {step === 'destination'
+          ? (
+              <button type="button" onClick={() => setStep('place')}>
+                <Instagram aria-hidden="true" size={18} />
+                {' '}
+                Instagram
+              </button>
+            )
+          : null}
+        {step === 'place' ? <span>In your own design, you can link Instagram, calls, email, booking and more.</span> : null}
+        {step === 'preview' ? <span>Customer Preview · Tap the Instagram button above</span> : null}
+        {step === 'tested' ? <span role="status">✓ It works! No website opened during this demo.</span> : null}
+      </div>
+      <span aria-hidden="true" className="final-design-demo__booking">
+        <CalendarDays size={14} />
+        {' '}
+        Book appointment
+      </span>
+      <small className="final-design-demo__note">Your real booking button stays underneath.</small>
+      {step !== 'upload' ? <button className="final-design-demo__restart" type="button" onClick={() => setStep('upload')}>Try again</button> : null}
+    </section>
   );
 }
 
@@ -803,10 +841,10 @@ export function StarterChoiceGrid({
             : selectedStarter
               ? `Switch to ${starter.title}`
               : starter.cta;
-          return (
+          const choice = (
             <button
               aria-pressed={selected}
-              className="final-starter-card"
+              className={starter.id === 'your_design' ? 'final-starter-card__choose' : 'final-starter-card'}
               data-committing={committingStarter === starter.id ? 'true' : undefined}
               data-preview-active={previewActive ? 'true' : 'false'}
               data-selected={selected ? 'true' : 'false'}
@@ -841,19 +879,31 @@ export function StarterChoiceGrid({
                   <ArrowRight aria-hidden="true" size={18} />
                 </span>
               </span>
-              <StarterPreview
-                active={previewActive}
-                businessName={businessName}
-                definition={starter.preview}
-                logoUrl={logoUrl}
-                ownerName={ownerName}
-                pageVisible={playback.pageVisible}
-                publicLocation={publicLocation}
-                reducedMotion={playback.prefersReducedMotion}
-                starterId={starter.id}
-              />
+              {starter.id !== 'your_design'
+                ? (
+                    <StarterPreview
+                      active={previewActive}
+                      businessName={businessName}
+                      definition={starter.preview}
+                      logoUrl={logoUrl}
+                      ownerName={ownerName}
+                      pageVisible={playback.pageVisible}
+                      publicLocation={publicLocation}
+                      reducedMotion={playback.prefersReducedMotion}
+                      starterId={starter.id}
+                    />
+                  )
+                : null}
             </button>
           );
+          return starter.id === 'your_design'
+            ? (
+                <div className="final-starter-card" data-selected={selected ? 'true' : 'false'} key={starter.id}>
+                  {choice}
+                  <YourDesignDemo />
+                </div>
+              )
+            : choice;
         })}
       </div>
 
