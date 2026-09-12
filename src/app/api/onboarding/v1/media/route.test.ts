@@ -106,7 +106,7 @@ const uploadRequest = ({
   role = 'logo',
 }: {
   localItemId?: string;
-  role?: 'logo' | 'profile' | 'gallery';
+  role?: 'logo' | 'profile' | 'gallery' | 'cover';
 } = {}) => {
   const form = new FormData();
   form.set('altText', role === 'logo' ? 'Isla Nail Studio logo' : 'Daniela portrait');
@@ -156,7 +156,7 @@ beforeAll(async () => {
        snapshot_fingerprint, document_version, document, document_fingerprint)
     VALUES
       ('${REVISION_ID}', '${SALON_ID}', '${SITE_ID}', 1, '${ADMIN_ID}', 1,
-       '{"profile":{"logoItemId":"logo-item","profilePhotoItemId":"profile-item"}}',
+       '{"profile":{"logoItemId":"logo-item","profilePhotoItemId":"profile-item","coverPhotoItemId":"logo-item"}}',
        'snapshot-fingerprint', 1, '{}', 'document-fingerprint')
   `);
 }, 60_000);
@@ -346,6 +346,21 @@ describe('POST /api/onboarding/v1/media', () => {
 
     await db.delete(schema.technicianSchema)
       .where(eq(schema.technicianSchema.id, 'technician_media_route_second'));
+  });
+
+  it.each(['logo', 'cover'] as const)('retries a failed %s projection without uploading the private photo again', async (role) => {
+    await db.update(schema.onboardingSiteMediaSchema).set({ role }).where(eq(schema.onboardingSiteMediaSchema.id, MEDIA_ID));
+    canonical.saveMedia.mockRejectedValueOnce(new Error('Temporary image provider failure'));
+
+    expect((await POST(uploadRequest({ role }))).status).toBe(422);
+    expect((await POST(uploadRequest({ role }))).status).toBe(200);
+    expect(storage.saveFile).toHaveBeenCalledOnce();
+    expect(canonical.saveMedia).toHaveBeenCalledTimes(2);
+
+    const [media] = await db.select().from(schema.onboardingSiteMediaSchema)
+      .where(eq(schema.onboardingSiteMediaSchema.id, MEDIA_ID));
+
+    expect(media?.metadata.canonicalPublicUrl).toBe(`https://images.example/${role}/${MEDIA_ID}.webp`);
   });
 
   it('is idempotent after the declared media row is ready', async () => {
@@ -654,19 +669,21 @@ describe('POST /api/onboarding/v1/media', () => {
     expect(storage.readFile).not.toHaveBeenCalled();
   });
 
-  it('requires owner authorization when finalizing media verification', async () => {
-    expect((await POST(uploadRequest())).status).toBe(200);
+  it.each(['logo', 'cover'] as const)('uploads and verifies %s with owner authorization', async (role) => {
+    await db.update(schema.onboardingSiteMediaSchema).set({ role }).where(eq(schema.onboardingSiteMediaSchema.id, MEDIA_ID));
+
+    expect((await POST(uploadRequest({ role }))).status).toBe(200);
 
     authorization.authorize.mockClear();
 
-    const response = await VERIFY(new Request(
+    const request = new Request(
       'http://localhost/api/onboarding/v1/media/verify',
       {
         body: JSON.stringify({
           expected: [{
             localItemId: 'logo-item',
             order: 0,
-            role: 'logo',
+            role,
             serverMediaId: MEDIA_ID,
           }],
           siteId: SITE_ID,
@@ -675,9 +692,16 @@ describe('POST /api/onboarding/v1/media', () => {
         headers: { 'Content-Type': 'application/json' },
         method: 'POST',
       },
-    ));
+    );
+    const response = await VERIFY(request.clone());
 
     expect(response.status).toBe(200);
     expect(authorization.authorize).toHaveBeenCalledWith(SITE_ID, { ownerOnly: true });
+
+    storage.readFile.mockClear();
+    holder.authorized = { ...holder.authorized!, salonId: 'other_salon' };
+
+    expect((await VERIFY(request)).status).toBe(409);
+    expect(storage.readFile).not.toHaveBeenCalled();
   });
 });
