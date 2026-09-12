@@ -159,9 +159,12 @@ describe('the deposit hold-writer module boundary (§14 test 21, closing leg)', 
       'src/libs/deposits/depositLifecycle.ts',
       'src/libs/deposits/holdWriters.ts',
       'src/libs/deposits/lateDepositRecovery.ts',
+      'src/libs/deposits/shadowDeadline.ts',
+      'src/libs/deposits/shadowStore.ts',
     ]);
     expect(stripeImporters).toEqual([
       'src/libs/deposits/depositRefund.ts',
+      'src/libs/deposits/shadowObserver.ts',
     ]);
     expect(transactionOpeners.filter(file => stripeImporters.includes(file))).toEqual([]);
   });
