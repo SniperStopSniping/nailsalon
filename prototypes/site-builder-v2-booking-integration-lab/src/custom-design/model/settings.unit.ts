@@ -47,6 +47,23 @@ const image = (
 });
 
 describe('Custom Design model and settings validation', () => {
+  it('round-trips opt-in button styling without restyling legacy areas', () => {
+    const settings = {
+      ...createDefaultCustomDesignSettings(),
+      images: [image('styled', { interactiveAreas: [area({ appearance: 'button' })] })],
+    };
+
+    expect(parseCustomDesignSettings(JSON.parse(JSON.stringify(settings))))
+      .toEqual(settings);
+
+    const legacy = { ...settings, images: [image('legacy', { interactiveAreas: [area()] })] };
+
+    expect(parseCustomDesignSettings(legacy)).toEqual(legacy);
+    expect(validateCustomDesignImageMetadata(image('unsafe-style', {
+      interactiveAreas: [{ ...area(), appearance: 'url(javascript:alert(1))' } as unknown as CustomDesignInteractiveArea],
+    })).success).toBe(false);
+  });
+
   it('creates migration-safe recommended defaults', () => {
     const settings = createDefaultCustomDesignSettings();
 

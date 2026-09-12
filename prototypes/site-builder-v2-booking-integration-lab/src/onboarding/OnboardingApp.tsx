@@ -173,9 +173,10 @@ function AccountGateBridge({ onOpen }: { onOpen: () => void }) {
 }
 
 const STARTER_LABELS: Record<StarterId, string> = {
-  multi_page: 'Multi-page website',
+  multi_page: 'Full Website',
   one_page: 'One-page website',
   quick_book: 'Quick Book',
+  your_design: 'Your Design',
 };
 
 const continueFrom = (state: OnboardingLabState): OnboardingLabState => {
@@ -1057,12 +1058,28 @@ export function OnboardingApp({
       setError(result.message);
       return;
     }
+    const starterCustomDesignSectionId = starter === 'your_design'
+      ? result.document.pages.flatMap(page => page.sections).find(
+        section => section.sectionType === 'custom_design',
+      )?.id ?? null
+      : null;
     onboarding.updateState(current => continueFrom(recordOnboardingEvent({
       ...current,
+      canva: starter === 'your_design'
+        ? {
+            ...current.canva,
+            customDesignSectionId: starterCustomDesignSectionId,
+            displayMode: 'poster',
+            placement: 'before_booking',
+          }
+        : current.canva,
       recipe: {
         ...current.recipe,
         starter,
         starterDocumentSiteId: result.document.siteId,
+        wantsCanvaFromWelcome: starter === 'your_design'
+          ? true
+          : current.recipe.wantsCanvaFromWelcome,
       },
       reviewOptions: {
         ...current.reviewOptions,
@@ -1080,6 +1097,9 @@ export function OnboardingApp({
       replaceVisual: true,
     });
     setStartingSiteRevealActive(true);
+    if (starter === 'your_design') {
+      setCanvaOpen(true);
+    }
     setError('');
   };
 
@@ -1104,6 +1124,9 @@ export function OnboardingApp({
       canva: {
         ...current.canva,
         customDesignSectionId: result.customDesignSectionId,
+        ...(pendingStarter === 'your_design'
+          ? { displayMode: 'poster' as const, placement: 'before_booking' as const }
+          : {}),
       },
       recipe: {
         ...current.recipe,
@@ -1111,6 +1134,9 @@ export function OnboardingApp({
         starterDocumentSiteId: result.document.siteId,
       },
     }, { starter: pendingStarter, type: 'starter_selected' })));
+    if (pendingStarter === 'your_design') {
+      setCanvaOpen(true);
+    }
     setPendingStarter(null);
     setError('');
   };
@@ -1459,19 +1485,9 @@ export function OnboardingApp({
           <StartingPointScreen
             businessName={onboarding.state.profile.businessName}
             canGoBack={onboarding.state.progress.screenHistory.length > 1}
-            canvaIntentNoted={onboarding.state.recipe.wantsCanvaFromWelcome}
             location={onboarding.state.profile.location}
             logoUrl={starterLogoUrl ?? undefined}
             onBack={goBack}
-            onCanvaIntent={() => {
-              onboarding.updateState(current => ({
-                ...current,
-                recipe: {
-                  ...current.recipe,
-                  wantsCanvaFromWelcome: !current.recipe.wantsCanvaFromWelcome,
-                },
-              }));
-            }}
             onChooseStarter={selectStarter}
             ownerName={onboarding.state.profile.ownerName}
             reducedMotion={onboarding.state.reviewOptions.reducedMotion}

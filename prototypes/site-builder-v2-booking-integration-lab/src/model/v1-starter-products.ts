@@ -127,6 +127,9 @@ const getAllowedTypesForPage = (
       ? ['hero', 'booking', 'gallery', 'visit_us']
       : [];
   }
+  if (document.originStarter === 'your_design') {
+    return role === 'home' ? ['booking', 'visit_us'] : [];
+  }
   if (document.originStarter === 'one_page') {
     return role === 'home'
       ? [

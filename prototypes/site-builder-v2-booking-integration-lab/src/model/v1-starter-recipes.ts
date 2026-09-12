@@ -7,6 +7,7 @@ import {
 import type { SitePlanOptionalToggles } from './site-plan';
 import {
   createBookingSectionInstance,
+  createCustomDesignSectionInstance,
   createLibrarySectionInstance,
   getSectionLabel,
 } from './starters';
@@ -44,7 +45,7 @@ export type V1StarterRecipeContext = {
 type DesiredSection = {
   label?: string;
   presetId?: string;
-  type: LibrarySectionType | 'booking';
+  type: LibrarySectionType | 'booking' | 'custom_design';
 };
 
 type DesiredPage = {
@@ -73,6 +74,11 @@ const LEGACY_RECIPE_SHAPES: Record<OriginStarter, readonly {
     name: 'Home',
     slug: '',
     types: ['announcement_bar', 'hero', 'featured_services', 'booking', 'final_cta', 'footer'],
+  }],
+  your_design: [{
+    name: 'Home',
+    slug: '',
+    types: ['booking', 'visit_us'],
   }],
   one_page: [{
     name: 'Home',
@@ -423,6 +429,18 @@ const desiredRecipe = (
     }];
   }
 
+  if (document.originStarter === 'your_design') {
+    return [{
+      name: 'Home',
+      sections: [
+        { type: 'custom_design' },
+        { type: 'booking' },
+        { label: 'Visit & Contact', type: 'visit_us' },
+      ],
+      slug: '',
+    }];
+  }
+
   return [
     { name: 'Home', sections: [{ label: 'Welcome', type: 'hero' }, ...reviews], slug: '' },
     {
@@ -511,6 +529,20 @@ const createDesiredSection = (
   const idFactory: IdFactory = () => stableId;
   if (desired.type === 'booking') {
     return createBookingSectionInstance(idFactory, { order, showFeatured: false });
+  }
+  if (desired.type === 'custom_design') {
+    const section = createCustomDesignSectionInstance(idFactory, { order });
+    return {
+      ...section,
+      settings: {
+        ...section.settings,
+        cta: {
+          label: 'Book appointment',
+          placement: { type: 'after_all' },
+          type: 'book_now',
+        },
+      },
+    };
   }
   return createLibrarySectionInstance(desired.type, idFactory, {
     ...(desired.type === 'gallery'

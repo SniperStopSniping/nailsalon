@@ -63,7 +63,8 @@ describe('StartingPreviewScreen', () => {
   it.each([
     ['quick_book', 'Quick Book'],
     ['one_page', 'One-page website'],
-    ['multi_page', 'Multi-page website'],
+    ['your_design', 'Your Design'],
+    ['multi_page', 'Full Website'],
   ] as const)('labels the selected %s starter without starter-specific questions', (
     starter,
     label,
