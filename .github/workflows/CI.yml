@@ -1082,6 +1082,7 @@ jobs:
           npx vitest run --no-file-parallelism \
             src/libs/deposits/depositRefund.concurrency.integration.test.ts \
             src/libs/deposits/shadow.concurrency.integration.test.ts \
+            src/libs/deposits/shadow.repair.integration.test.ts \
             src/libs/queries.clientStats.concurrency.integration.test.ts \
             | tee d6-postgres-concurrency.log
           grep -Fqx \
@@ -1089,6 +1090,9 @@ jobs:
             d6-postgres-concurrency.log
           grep -Fqx \
             'D6_R1_POSTGRES_TESTS_EXECUTED=32 D6_R1_POSTGRES_TESTS_SKIPPED=0' \
+            d6-postgres-concurrency.log
+          grep -Fqx \
+            'D6_R1_REPAIR_POSTGRES_TESTS_EXECUTED=21 D6_R1_REPAIR_POSTGRES_TESTS_SKIPPED=0' \
             d6-postgres-concurrency.log
           grep -Fqx \
             'D6_1_CLIENT_STATS_POSTGRES_TESTS_EXECUTED=1 D6_1_CLIENT_STATS_POSTGRES_TESTS_SKIPPED=0' \

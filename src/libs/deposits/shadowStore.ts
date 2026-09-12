@@ -4,10 +4,10 @@ import { type SQL, sql } from 'drizzle-orm';
 
 import { db } from '@/libs/DB';
 
-import { depositsTransaction, type DepositsTransactionHandle } from './depositsTransaction';
+import { depositsTransaction } from './depositsTransaction';
 import { assessObservation, type Observation, type ReceiptProjection } from './shadowProjection';
 
-type Executor = Pick<DepositsTransactionHandle, 'execute'>;
+type Executor = { execute: (query: SQL) => PromiseLike<{ rows: unknown[] }> };
 async function rows<T>(executor: Executor, query: SQL): Promise<T[]> {
   return (await executor.execute(query)).rows as T[];
 }
@@ -25,6 +25,8 @@ type Binding = {
   prior_refund_ids: string[];
   refund_requested_at: Date | null;
   refund_status: string | null;
+  status: string;
+  refunded_at: Date | null;
   refund_key_epoch: number;
   refund_requested_by: string | null;
   refund_requested_by_role: string | null;
@@ -48,8 +50,8 @@ export type ShadowClaim = {
 
 // Missing payment identities still share this evidence-admission lock. All shadow
 // receipt/finalization paths acquire it before appointment/deposit locks; legacy never uses it.
-async function lockEvidenceAccount(tx: Executor, account: string | null, livemode: boolean) {
-  await tx.execute(sql`SET LOCAL lock_timeout='1000ms'`);
+async function lockEvidenceAccount(tx: Executor, account: string | null, livemode: boolean, lockTimeoutMs = 1000) {
+  await tx.execute(sql`SELECT set_config('lock_timeout',${String(lockTimeoutMs)},true)`);
   await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${`d6r1:${account ?? 'unknown'}`} || ${String(livemode)},0))`);
 }
 
@@ -91,6 +93,27 @@ export async function enrollShadowDeposit(salonId: string, depositId: string, li
   });
 }
 
+function hasLegacyRefundEvidence(d: Binding): boolean {
+  return d.refund_requested_at !== null || d.refund_status !== null
+    || d.stripe_refund_id !== null
+    || d.status === 'refunded' || d.refunded_at !== null;
+}
+
+async function retainLegacyShadowCommand(tx: Executor, d: Binding, livemode: boolean) {
+  const id = `legacy:${d.id}`;
+  await tx.execute(sql`INSERT INTO deposit_shadow_command
+      (id,salon_id,deposit_id,account,livemode,payment_intent_id,currency,requested_at,actor_id,actor_role,evidence)
+      VALUES (${id},${d.salon_id},${d.id},${d.stripe_account_id},${livemode},${d.stripe_payment_intent_id},
+        ${d.currency},${d.refund_requested_at},${d.refund_requested_by},${d.refund_requested_by_role},
+        ${json({ source: 'legacy_columns', status: d.refund_status, providerRefundId: d.stripe_refund_id, depositStatus: d.status, refundedAt: d.refunded_at })})
+      ON CONFLICT(id) DO NOTHING`);
+  await tx.execute(sql`INSERT INTO deposit_shadow_attempt
+      (id,command_id,ordinal,provider_refund_id,evidence)
+      VALUES (${`${id}:${d.refund_key_epoch}`},${id},${d.refund_key_epoch},${d.stripe_refund_id},
+        ${json({ source: 'legacy_columns', requestShape: 'unknown', keyEpoch: d.refund_key_epoch, priorRefundIds: d.prior_refund_ids, status: d.refund_status })})
+      ON CONFLICT(command_id,ordinal) DO NOTHING`);
+}
+
 /** Preserve known legacy provenance without guessing an omitted request body or authorizing execution. */
 export async function importLegacyShadowCommand(salonId: string, depositId: string, livemode: boolean) {
   if (!await enrollShadowDeposit(salonId, depositId, livemode)) {
@@ -98,7 +121,7 @@ export async function importLegacyShadowCommand(salonId: string, depositId: stri
   }
   return depositsTransaction(db, async (tx) => {
     const d = await lockPayment(tx, salonId, depositId);
-    if (!d || (!d.refund_requested_at && !d.refund_status && !d.stripe_refund_id)) {
+    if (!d || !hasLegacyRefundEvidence(d)) {
       return false;
     }
     const [s] = await rows(tx, sql`SELECT deposit_id FROM deposit_shadow_state WHERE salon_id=${salonId}
@@ -106,18 +129,7 @@ export async function importLegacyShadowCommand(salonId: string, depositId: stri
     if (!s) {
       return false;
     }
-    const id = `legacy:${depositId}`;
-    await tx.execute(sql`INSERT INTO deposit_shadow_command
-      (id,salon_id,deposit_id,account,livemode,payment_intent_id,currency,requested_at,actor_id,actor_role,evidence)
-      VALUES (${id},${salonId},${depositId},${d.stripe_account_id},${livemode},${d.stripe_payment_intent_id},
-        ${d.currency},${d.refund_requested_at},${d.refund_requested_by},${d.refund_requested_by_role},
-        ${json({ source: 'legacy_columns', status: d.refund_status, providerRefundId: d.stripe_refund_id })})
-      ON CONFLICT(id) DO NOTHING`);
-    await tx.execute(sql`INSERT INTO deposit_shadow_attempt
-      (id,command_id,ordinal,provider_refund_id,evidence)
-      VALUES (${`${id}:${d.refund_key_epoch}`},${id},${d.refund_key_epoch},${d.stripe_refund_id},
-        ${json({ source: 'legacy_columns', requestShape: 'unknown', keyEpoch: d.refund_key_epoch, priorRefundIds: d.prior_refund_ids, status: d.refund_status })})
-      ON CONFLICT(command_id,ordinal) DO NOTHING`);
+    await retainLegacyShadowCommand(tx, d, livemode);
     await tx.execute(sql`UPDATE deposit_shadow_state SET certificate=NULL,cursor=NULL,generation=generation+1,
       reason='legacy_operation_unknown',next_due_at=now() WHERE salon_id=${salonId} AND deposit_id=${depositId}`);
     return true;
@@ -194,39 +206,73 @@ export async function captureShadowReceipt(receipt: ShadowReceipt): Promise<void
   });
 }
 
+function retryableContention(error: unknown): boolean {
+  // Drizzle may wrap the driver error. Never treat an arbitrary persistence or
+  // admission error as successfully replayed work.
+  for (let cause = error, depth = 0; cause && typeof cause === 'object' && depth < 4; depth += 1) {
+    const detail = cause as { code?: string; cause?: unknown };
+    if (['55P03', '40P01', '40001', '57014'].includes(detail.code ?? '')) {
+      return true;
+    }
+    cause = detail.cause;
+  }
+  return false;
+}
+
+/** Each worker statement uses the remaining shared budget, including lock waits. */
+async function boundedShadowTransaction<T>(deadline: number, work: (tx: Executor) => Promise<T>): Promise<T> {
+  return depositsTransaction(db, async (tx) => {
+    const timed: Executor = {
+      async execute(query) {
+        if (Date.now() >= deadline) {
+          throw Object.assign(new Error('shadow_worker_deadline'), { code: '57014' });
+        }
+        await tx.execute(sql`SELECT set_config('statement_timeout',${String(Math.max(1, deadline - Date.now()))},true)`);
+        return tx.execute(query);
+      },
+    };
+    const result = await work(timed);
+    if (Date.now() >= deadline) {
+      throw Object.assign(new Error('shadow_worker_deadline'), { code: '57014' });
+    }
+    return result;
+  });
+}
+
 /** Local recovery does not depend on Stripe event retention or legacy status. */
-export async function replayShadowReceipts(limit = 50): Promise<number> {
-  const pending = await rows<{
-    event_id: string;
-    event_type: string;
-    account: string | null;
-    livemode: boolean;
-    provider_created: number | null;
-    api_version: string | null;
-    projection: ReceiptProjection;
-  }>(db, sql`SELECT * FROM (SELECT r.*,row_number() OVER
+export async function replayShadowReceipts(limit = 50, deadline = Date.now() + 10_000): Promise<number> {
+  if (Date.now() >= deadline) {
+    return 0;
+  }
+  const pending = await boundedShadowTransaction(deadline, async (tx) => {
+    return rows<{
+      event_id: string;
+      event_type: string;
+      account: string | null;
+      livemode: boolean;
+      provider_created: number | null;
+      api_version: string | null;
+      projection: ReceiptProjection;
+    }>(tx, sql`SELECT * FROM (SELECT r.*,row_number() OVER
       (PARTITION BY account,livemode ORDER BY next_due_at,event_id) AS fair_rank
     FROM deposit_shadow_receipt r WHERE generation IS NULL AND next_due_at<=now()) due
     ORDER BY fair_rank,next_due_at,event_id LIMIT ${Math.min(200, Math.max(1, limit))}`);
+  }).catch((error: unknown) => {
+    if (!retryableContention(error)) {
+      throw error;
+    }
+    return [];
+  });
+  let attempted = 0;
   for (const r of pending) {
-    await depositsTransaction(db, async (tx) => {
-      await lockEvidenceAccount(tx, r.account, r.livemode);
-      const state = await routeReceipt(tx, {
-        eventId: r.event_id,
-        eventType: r.event_type,
-        account: r.account,
-        livemode: r.livemode,
-        providerCreated: r.provider_created,
-        apiVersion: r.api_version,
-        projection: r.projection,
-      });
-      if (state) {
-        await lockPayment(tx, state.salon_id, state.deposit_id);
-      }
-      const locked = await rows(tx, sql`SELECT event_id FROM deposit_shadow_receipt
-        WHERE event_id=${r.event_id} AND generation IS NULL FOR UPDATE SKIP LOCKED`);
-      if (locked.length) {
-        await invalidateReceipt(tx, {
+    if (Date.now() >= deadline) {
+      break;
+    }
+    attempted += 1;
+    try {
+      await boundedShadowTransaction(deadline, async (tx) => {
+        await lockEvidenceAccount(tx, r.account, r.livemode, Math.min(100, Math.max(1, deadline - Date.now())));
+        const state = await routeReceipt(tx, {
           eventId: r.event_id,
           eventType: r.event_type,
           account: r.account,
@@ -235,18 +281,58 @@ export async function replayShadowReceipts(limit = 50): Promise<number> {
           apiVersion: r.api_version,
           projection: r.projection,
         });
+        if (state) {
+          await lockPayment(tx, state.salon_id, state.deposit_id);
+        }
+        const locked = await rows(tx, sql`SELECT event_id FROM deposit_shadow_receipt
+        WHERE event_id=${r.event_id} AND generation IS NULL FOR UPDATE SKIP LOCKED`);
+        if (locked.length) {
+          await invalidateReceipt(tx, {
+            eventId: r.event_id,
+            eventType: r.event_type,
+            account: r.account,
+            livemode: r.livemode,
+            providerCreated: r.provider_created,
+            apiVersion: r.api_version,
+            projection: r.projection,
+          });
+        }
+      });
+    } catch (error) {
+      if (!retryableContention(error)) {
+        throw error;
       }
-    });
+      // The admission row is already durable. Defer its consumer progress only;
+      // no evidence lock, completion or legacy-event mutation belongs here.
+      // If even the receipt row is locked, leave it due for the next invocation.
+      if (Date.now() < deadline) {
+        try {
+          await boundedShadowTransaction(deadline, async (tx) => {
+            await tx.execute(sql`WITH available AS (SELECT event_id FROM deposit_shadow_receipt
+              WHERE event_id=${r.event_id} AND generation IS NULL FOR UPDATE SKIP LOCKED)
+              UPDATE deposit_shadow_receipt r SET attempts=attempts+1,
+                next_due_at=now()+interval '1 second',reason=COALESCE(reason,'replay_contention')
+              FROM available a WHERE r.event_id=a.event_id AND r.generation IS NULL`);
+          });
+        } catch (deferError) {
+          if (!retryableContention(deferError)) {
+            throw deferError;
+          }
+        }
+      }
+    }
   }
-  return pending.length;
+  return attempted;
 }
 
 /** Filter before LIMIT, take fair rounds across tenants/accounts/classes, then SKIP LOCKED. */
-export async function claimShadowWork(limit: number, deadline: number): Promise<ShadowClaim[]> {
-  if (deadline - Date.now() < 1000) {
+export async function claimShadowWork(limit: number, deadline: number, observationReserveMs = 0): Promise<ShadowClaim[]> {
+  const claimDeadline = deadline - observationReserveMs;
+  if (deadline - Date.now() < 1000 || Date.now() >= claimDeadline) {
     return [];
   }
-  const claims = await depositsTransaction(db, async tx => rows<ShadowClaim>(tx, sql`
+  return boundedShadowTransaction(claimDeadline, async (tx) => {
+    const claims = await rows<ShadowClaim>(tx, sql`
     WITH service AS (
       SELECT salon_id,account,livemode,work_class,max(last_claimed_at) AS class_served
       FROM deposit_shadow_state GROUP BY salon_id,account,livemode,work_class
@@ -270,18 +356,25 @@ export async function claimShadowWork(limit: number, deadline: number): Promise<
       lease_until=to_timestamp(${deadline / 1000}),next_due_at=to_timestamp(${deadline / 1000}),
       attempts=attempts+1
       FROM candidates c WHERE s.deposit_id=c.deposit_id
-        AND s.engine='legacy' AND s.next_due_at<=now() AND (s.lease_until IS NULL OR s.lease_until<=now()) RETURNING s.*`));
-  // Snapshot financial state outside the claim lock, then enforce it under finalization locks.
-  for (const claim of claims) {
-    const [d] = await rows<{ fingerprint: string }>(db, sql`SELECT md5(to_jsonb(d)::text) AS fingerprint
+        AND s.engine='legacy' AND s.next_due_at<=now() AND (s.lease_until IS NULL OR s.lease_until<=now()) RETURNING s.*`);
+    // Read legacy state without financial row locks; finalization checks it under
+    // the common lock. A claim deadline failure rolls back service accounting too.
+    for (const claim of claims) {
+      const [d] = await rows<{ fingerprint: string }>(tx, sql`SELECT md5(to_jsonb(d)::text) AS fingerprint
       FROM appointment_deposit d WHERE salon_id=${claim.salon_id} AND id=${claim.deposit_id}`);
-    claim.legacy_fingerprint = d?.fingerprint ?? null;
-    if (claim.cursor?.legacyFingerprint !== claim.legacy_fingerprint || claim.cursor?.generation !== claim.generation) {
-      claim.cursor = null;
+      claim.legacy_fingerprint = d?.fingerprint ?? null;
+      if (claim.cursor?.legacyFingerprint !== claim.legacy_fingerprint || claim.cursor?.generation !== claim.generation) {
+        claim.cursor = null;
+      }
+      claim.deadline = deadline;
     }
-    claim.deadline = deadline;
-  }
-  return claims;
+    return claims;
+  }).catch((error: unknown) => {
+    if (!retryableContention(error)) {
+      throw error;
+    }
+    return [];
+  });
 }
 
 export async function knownShadowRefundIds(claim: ShadowClaim): Promise<string[]> {
@@ -303,19 +396,29 @@ export async function finalizeShadowObservation(
   observation: Observation | null,
   failure: string | null = null,
 ): Promise<'accepted' | 'incomplete' | 'stale'> {
-  return depositsTransaction(db, async (tx) => {
+  return boundedShadowTransaction(claim.deadline, async (tx) => {
     await lockEvidenceAccount(tx, claim.account, claim.livemode);
-    await tx.execute(sql`SELECT set_config('statement_timeout',${String(Math.max(1, claim.deadline - Date.now()))},true)`);
     const d = await lockPayment(tx, claim.salon_id, claim.deposit_id);
     const [s] = await rows<ShadowClaim & { engine: string; lease_valid: boolean }>(tx, sql`
       SELECT *,lease_until>now() AS lease_valid FROM deposit_shadow_state
       WHERE deposit_id=${claim.deposit_id} AND salon_id=${claim.salon_id} FOR UPDATE`);
-    const binding = await rows(tx, sql`SELECT id FROM salon_stripe_account
-      WHERE salon_id=${claim.salon_id} AND stripe_account_id=${claim.account} AND livemode=${claim.livemode}
-        AND revocation_cause IS DISTINCT FROM 'deauthorized'
-        AND NOT EXISTS (SELECT 1 FROM salon_stripe_account other WHERE other.salon_id=${claim.salon_id}
-          AND other.stripe_account_id=${claim.account} AND other.livemode<>${claim.livemode}) FOR SHARE`);
-    const valid = d && s && binding.length > 0 && s.engine === 'legacy' && s.fence === claim.fence
+    // Binding writers do not take our advisory lock. SHARE blocks both their
+    // updates and insert phantoms until this short finalization commits; row
+    // locks alone cannot protect a historical-only account from reassignment.
+    // No provider calls occur here. lock_timeout bounds binding DML contention.
+    await tx.execute(sql`LOCK TABLE salon_stripe_account IN SHARE MODE`);
+    const bindings = await rows<{ salon_id: string; livemode: boolean; revoked_at: Date | null; revocation_cause: string | null }>(tx, sql`
+      SELECT salon_id,livemode,revoked_at,revocation_cause FROM salon_stripe_account
+      WHERE stripe_account_id=${claim.account}`);
+    // Match the original-account lifecycle rule across ALL history, including
+    // rebound and deauthorization. A legitimate live reauthorization may recover
+    // the same pair; a historical local unlink cannot mask deauthorization.
+    const bindingValid = bindings.length > 0
+      && bindings.every(b => b.salon_id === claim.salon_id && b.livemode === claim.livemode)
+      && (bindings.some(b => b.revoked_at === null)
+        || (!bindings.some(b => b.revocation_cause === 'deauthorized')
+          && bindings.some(b => b.revocation_cause === 'revoked_local')));
+    const valid = d && s && bindingValid && s.engine === 'legacy' && s.fence === claim.fence
       && s.generation === claim.generation && s.version === claim.version && s.lease_valid
       && Date.now() < claim.deadline && d.fingerprint === claim.legacy_fingerprint
       && d.stripe_account_id === claim.account && d.stripe_payment_intent_id === claim.payment_intent_id
@@ -358,6 +461,12 @@ export async function finalizeShadowObservation(
     const known = await rows<{ object_id: string }>(tx, sql`SELECT object_id FROM deposit_shadow_object
       WHERE deposit_id=${claim.deposit_id} AND salon_id=${claim.salon_id} AND account=${claim.account}
         AND livemode=${claim.livemode} AND kind='refund'`);
+    // Discovery of an ID-less historical return must survive future legacy
+    // column changes or purge, even when explicit import was never invoked.
+    // This is the same immutable, non-dispatchable legacy evidence record.
+    if (!d.stripe_refund_id && (d.status === 'refunded' || d.refunded_at !== null)) {
+      await retainLegacyShadowCommand(tx, d, claim.livemode);
+    }
     const uncertain = await rows(tx, sql`SELECT id FROM deposit_shadow_command
       WHERE salon_id=${claim.salon_id} AND deposit_id=${claim.deposit_id}
         AND obligation_state<>'satisfied_by_verified_returns' LIMIT 1`);
@@ -392,7 +501,7 @@ export async function finalizeShadowObservation(
       (id,salon_id,deposit_id,account,livemode,cycle_id,generation,version,fence,reason,evidence)
       VALUES (${crypto.randomUUID()},${claim.salon_id},${claim.deposit_id},${claim.account},${claim.livemode},
         ${cycleId},${claim.generation},${version},${claim.fence},${reason},
-        ${json({ observation, failure, legacyFingerprint: d.fingerprint })})`);
+        ${json({ observation, failure, legacyFingerprint: d.fingerprint, legacyRefundEvidence: { depositStatus: d.status, refundedAt: d.refunded_at, refundStatus: d.refund_status, providerRefundId: d.stripe_refund_id } })})`);
     const identityConflict = !assessment.identityValid || reason === 'provider_scope_conflict';
     if (observation && !identityConflict) {
       const objects = [
@@ -474,17 +583,19 @@ export async function shadowDiagnostics(salonId: string, after = '', limit = 50)
       count(*) FILTER(WHERE original_recorded_amount_cents IS NULL)::int AS unknown_amounts,
       sum(original_recorded_amount_cents)::text AS original_recorded_amount_cents
     FROM principal GROUP BY recorded_currency ORDER BY recorded_currency NULLS LAST`);
+  const receiptScope = sql`r.salon_id=${salonId} OR (r.salon_id IS NULL
+    AND EXISTS (SELECT 1 FROM salon_stripe_account b WHERE b.salon_id=${salonId}
+      AND b.stripe_account_id=r.account AND b.livemode=r.livemode)
+    AND NOT EXISTS (SELECT 1 FROM salon_stripe_account b WHERE b.stripe_account_id=r.account
+      AND (b.salon_id<>${salonId} OR b.livemode<>r.livemode)))`;
   const [receiptCounts] = await rows(db, sql`SELECT count(*)::int AS total,
     count(*) FILTER(WHERE completed_at IS NULL)::int AS pending,min(received_at) FILTER(WHERE completed_at IS NULL) AS oldest_pending_at
-    FROM deposit_shadow_receipt r WHERE r.salon_id=${salonId} OR (r.salon_id IS NULL AND EXISTS
-      (SELECT 1 FROM salon_stripe_account b WHERE b.salon_id=${salonId} AND b.stripe_account_id=r.account AND b.livemode=r.livemode))`);
+    FROM deposit_shadow_receipt r WHERE ${receiptScope}`);
   const receipts = await rows(db, sql`SELECT event_id,event_type,reason,received_at,next_due_at,completed_at,
       projection->>'amount' AS reported_amount_cents,projection->>'currency' AS reported_currency,
       'signed_receipt_unverified_principal' AS amount_source,
       'implementation_reviewer' AS action_owner,'inspect_retained_evidence_no_financial_action' AS next_safe_step
-    FROM deposit_shadow_receipt r WHERE r.event_id>${after} AND (r.salon_id=${salonId}
-      OR (r.salon_id IS NULL AND EXISTS (SELECT 1 FROM salon_stripe_account b WHERE b.salon_id=${salonId}
-        AND b.stripe_account_id=r.account AND b.livemode=r.livemode)))
+    FROM deposit_shadow_receipt r WHERE r.event_id>${after} AND (${receiptScope})
     ORDER BY event_id LIMIT ${Math.min(200, Math.max(1, limit))}`);
   return { counts, items, principalByCurrency, receiptCounts, receipts };
 }

@@ -152,11 +152,6 @@ export function assessObservation(input: {
     identityValid = false;
   }
   for (const refund of o.refunds) {
-    if (ids.has(refund.id)) {
-      reason = 'duplicate_refund';
-      continue;
-    }
-    ids.add(refund.id);
     if (!providerId(refund.id) || refund.chargeId !== o.collection.id
       || refund.paymentIntentId !== input.paymentIntentId || refund.currency !== input.currency
       || minorUnits(refund.amount) === null || refund.amount === 0) {
@@ -164,6 +159,13 @@ export function assessObservation(input: {
       identityValid = false;
       continue;
     }
+    // A repeated ID does not grant the later occurrence the first one's identity.
+    if (ids.has(refund.id)) {
+      identityValid = false;
+      reason = 'duplicate_refund';
+      continue;
+    }
+    ids.add(refund.id);
     if (refund.status === 'succeeded') {
       succeeded += refund.amount;
     } else if (refund.status === 'pending' || refund.status === 'requires_action') {

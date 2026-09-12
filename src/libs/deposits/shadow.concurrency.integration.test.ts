@@ -620,11 +620,15 @@ END $$`);
 
       expect((await POST(signed(unrelated))).status).toBe(200);
     } finally {
-      await depositsTransaction(db, tx => tx.execute(sql.raw(migration)));
+      await depositsTransaction(db, async (tx) => {
+        await tx.execute(sql.raw(migration));
+      });
     }
 
     expect((await db.execute(sql`SELECT to_jsonb(d) AS row FROM appointment_deposit d WHERE id=${d.id}`)).rows[0]!.row).toEqual(before);
-    await expect(depositsTransaction(db, tx => tx.execute(sql.raw(migration)))).rejects.toThrow();
+    await expect(depositsTransaction(db, async (tx) => {
+      await tx.execute(sql.raw(migration));
+    })).rejects.toThrow();
 
     const tables = [schema.depositShadowStateSchema, schema.depositShadowReceiptSchema, schema.depositShadowCommandSchema, schema.depositShadowAttemptSchema, schema.depositShadowObjectSchema, schema.depositShadowObservationSchema];
     for (const table of tables) {

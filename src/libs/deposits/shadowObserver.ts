@@ -353,11 +353,27 @@ export async function observeShadowClaim(claim: ShadowClaim, provider: ShadowPro
 
 /** Explicitly invoked only; no hosted cron calls R1. Legacy money remains the sole financial authority. */
 export async function runShadowObservationBatch(input: { limit: number; deadline: number; provider?: ShadowProvider }) {
-  await replayShadowReceipts(input.limit);
-  const claims = await claimShadowWork(input.limit, input.deadline);
-  const results = [];
-  for (const claim of claims) {
-    results.push(await observeShadowClaim(claim, input.provider));
-  }
-  return { claimed: claims.length, results };
+  // Reserve a useful provider opportunity and finalization time. Replay cannot
+  // spend an entire batch waiting on a different account's receipt lock.
+  const observationMinimumMs = FINALIZATION_RESERVE_MS + 1_100;
+  const replayDeadline = Math.min(Date.now() + 1000, input.deadline - observationMinimumMs);
+  await replayShadowReceipts(input.limit, replayDeadline);
+  const limit = Math.min(100, Math.max(1, input.limit));
+  let reserved = 0;
+  const results: Array<Awaited<ReturnType<typeof observeShadowClaim>>> = [];
+  // Bounded lanes claim just in time, one item per actual observation attempt.
+  // A slow account occupies one lane, not a whole preclaimed batch. Unstarted
+  // tenants keep their service priority for the next invocation.
+  const worker = async () => {
+    while (reserved < limit && input.deadline - Date.now() >= observationMinimumMs) {
+      reserved += 1;
+      const [claim] = await claimShadowWork(1, input.deadline, observationMinimumMs);
+      if (!claim) {
+        return;
+      }
+      results.push(await observeShadowClaim(claim, input.provider));
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(4, limit) }, worker));
+  return { claimed: results.length, results };
 }
