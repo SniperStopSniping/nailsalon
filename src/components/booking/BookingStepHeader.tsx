@@ -107,8 +107,12 @@ export function BookingStepHeader({
                   data-testid={`booking-step-marker-${step}`}
                   className="flex size-5 items-center justify-center rounded-full text-[10px] font-semibold leading-none sm:size-6 sm:text-xs"
                   style={{
-                    backgroundColor: isPastStep ? themeVars.accent : isCurrentStep ? themeVars.primary : '#d4d4d4',
-                    color: isPastStep ? 'white' : isCurrentStep ? '#171717' : '#525252',
+                    backgroundColor: isPastStep
+                      ? `var(--booking-brand-primary, ${themeVars.accent})`
+                      : isCurrentStep ? `var(--booking-brand-primary, ${themeVars.primary})` : themeVars.borderMuted,
+                    color: isPastStep
+                      ? 'var(--booking-brand-foreground, white)'
+                      : isCurrentStep ? 'var(--booking-brand-foreground, #171717)' : themeVars.secondaryText,
                   }}
                 >
                   {isPastStep ? '✓' : i + 1}

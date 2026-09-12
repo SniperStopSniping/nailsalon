@@ -31,7 +31,8 @@ export function BookingSummaryCard({
       data-testid="booking-summary-card"
       className="mb-6 overflow-hidden border-0 shadow-xl"
       style={{
-        background: `linear-gradient(to bottom right, ${themeVars.accent}, color-mix(in srgb, ${themeVars.accent} 70%, black))`,
+        background: `var(--booking-summary-background, linear-gradient(to bottom right, ${themeVars.accent}, color-mix(in srgb, ${themeVars.accent} 70%, black)))`,
+        color: 'var(--booking-summary-foreground, white)',
         opacity: mounted ? 1 : 0,
         transform: mounted ? 'translateY(0) scale(1)' : 'translateY(10px) scale(0.97)',
         transition: 'opacity 300ms ease-out 100ms, transform 300ms ease-out 100ms',
@@ -48,20 +49,20 @@ export function BookingSummaryCard({
             />
           )}
           <div className="min-w-0 flex-1">
-            <div className="mb-0.5 text-xs text-white/70">{label}</div>
-            <div data-testid="booking-summary-service" className="truncate text-base font-bold text-white">{serviceNames || 'Service'}</div>
-            <div data-testid="booking-summary-duration" className="text-sm font-medium" style={{ color: themeVars.primary }}>
+            <div className="mb-0.5 text-xs opacity-80">{label}</div>
+            <div data-testid="booking-summary-service" className="truncate text-base font-bold">{serviceNames || 'Service'}</div>
+            <div data-testid="booking-summary-duration" className="text-sm font-medium" style={{ color: `var(--booking-summary-detail, ${themeVars.primary})` }}>
               {technician ? `with ${technician.name} · ` : ''}
               {formatDuration(totalDuration)}
             </div>
             {locationName && (
-              <div data-testid="booking-summary-location" className="mt-0.5 truncate text-xs text-white/75">
+              <div data-testid="booking-summary-location" className="mt-0.5 truncate text-xs opacity-80">
                 {locationName}
               </div>
             )}
           </div>
           <div className="text-right">
-            <div data-testid="booking-summary-price" className="text-2xl font-bold text-white">
+            <div data-testid="booking-summary-price" className="text-2xl font-bold">
               $
               {totalPrice}
             </div>

@@ -424,7 +424,7 @@ const PolicyCard = ({
         <div
           className={`flex shrink-0 items-center justify-center rounded-full text-[var(--n5-accent)] ${isCompact ? 'size-8' : 'size-9'}`}
           style={{
-            backgroundColor: 'color-mix(in srgb, var(--n5-accent) 12%, white)',
+            backgroundColor: 'color-mix(in srgb, var(--n5-accent) 12%, var(--n5-bg-card))',
           }}
         >
           <ShieldCheck aria-hidden="true" className={isCompact ? 'size-4' : 'size-[18px]'} />
@@ -539,14 +539,14 @@ const SummaryRow = ({
     className="flex items-start gap-3 rounded-2xl border px-4 py-3"
     style={{
       borderColor: 'var(--n5-border-muted)',
-      backgroundColor: 'color-mix(in srgb, var(--n5-bg-card) 72%, white)',
+      backgroundColor: 'color-mix(in srgb, var(--n5-bg-card) 72%, var(--n5-bg-page))',
     }}
   >
     <div
       className="flex size-10 shrink-0 items-center justify-center"
       style={{
         borderRadius: n5.radiusMd,
-        backgroundColor: 'color-mix(in srgb, var(--n5-accent) 12%, white)',
+        backgroundColor: 'color-mix(in srgb, var(--n5-accent) 12%, var(--n5-bg-card))',
         color: 'var(--n5-accent)',
       }}
     >
@@ -664,7 +664,7 @@ const BookingCard = ({
                   className="flex size-12 shrink-0 items-center justify-center"
                   style={{
                     borderRadius: n5.radiusPill,
-                    backgroundColor: 'color-mix(in srgb, var(--n5-accent) 12%, white)',
+                    backgroundColor: 'color-mix(in srgb, var(--n5-accent) 12%, var(--n5-bg-card))',
                   }}
                 >
                   <User className="size-5 text-[var(--n5-accent)]" />
@@ -681,7 +681,7 @@ const BookingCard = ({
           <div
             className="shrink-0 rounded-full px-3 py-1 text-xs font-semibold"
             style={{
-              backgroundColor: 'color-mix(in srgb, var(--n5-accent) 10%, white)',
+              backgroundColor: 'color-mix(in srgb, var(--n5-accent) 10%, var(--n5-bg-card))',
               color: 'var(--n5-accent)',
             }}
           >

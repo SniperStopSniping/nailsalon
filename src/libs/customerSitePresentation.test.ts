@@ -9,6 +9,30 @@ import {
 } from './customerSitePresentation';
 
 describe('customerSitePresentation', () => {
+  it.each(CUSTOMER_SITE_PALETTE_PRESETS)('maps %s into both booking token families with readable buttons', (palettePreset) => {
+    const tokens = getCustomerSitePresentationCssVariables({ palettePreset, stylePreset: 'modern' });
+
+    expect(tokens['--n5-bg-page']).toBe(tokens['--theme-background']);
+    expect(tokens['--n5-bg-card']).toBe(tokens['--theme-card-background']);
+    expect(tokens['--n5-ink-main']).toBe(tokens['--theme-title-text']);
+    expect(tokens['--n5-ink-muted']).toBe(tokens['--theme-taupe']);
+    expect(tokens['--n5-button-primary-bg']).toBe(tokens['--booking-brand-primary']);
+    expect(tokens['--n5-ink-inverse']).toBe(tokens['--booking-brand-foreground']);
+    expect(tokens['--booking-summary-detail']).toBe(tokens['--booking-summary-foreground']);
+
+    const luminance = (hex: string) => {
+      const channels = [1, 3, 5].map((offset) => {
+        const channel = Number.parseInt(hex.slice(offset, offset + 2), 16) / 255;
+        return channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4;
+      });
+      return channels[0]! * 0.2126 + channels[1]! * 0.7152 + channels[2]! * 0.0722;
+    };
+    const background = luminance(tokens['--booking-brand-primary']!);
+    const foreground = luminance(tokens['--booking-brand-foreground']!);
+
+    expect((Math.max(background, foreground) + 0.05) / (Math.min(background, foreground) + 0.05)).toBeGreaterThanOrEqual(4.5);
+  });
+
   it('resolves every supported style and palette without coupling either choice', () => {
     expect(CUSTOMER_SITE_STYLE_PRESETS).toHaveLength(6);
     expect(CUSTOMER_SITE_PALETTE_PRESETS).toHaveLength(8);
