@@ -150,6 +150,21 @@ describe('review request production', () => {
     expect(requests[0]).toMatchObject({ source: 'manual', scheduledFor: expect.any(Date) });
   });
 
+  it('uses the same one-request slot when an automatic request is followed by Send now', async () => {
+    const fixture = await seed();
+    const { scheduleReviewRequest } = await import('./reviewRequests.server');
+    await scheduleReviewRequest(db, fixture.salonId, fixture.appointmentId);
+    await scheduleReviewRequest(db, fixture.salonId, fixture.appointmentId, false);
+
+    const requests = await rows(fixture.salonId);
+    const [intent] = await db.select().from(schema.communicationIntentSchema)
+      .where(eq(schema.communicationIntentSchema.id, requests[0]!.intentId));
+
+    expect(requests).toHaveLength(1);
+    expect(requests[0]).toMatchObject({ source: 'automatic' });
+    expect(intent).toMatchObject({ status: 'pending', scheduledFor: expect.any(Date) });
+  });
+
   it('uses tenant scoping and the unique slot across concurrent appointment completion replays', async () => {
     const fixture = await seed();
     const secondAppointmentId = `${fixture.appointmentId}-second`;

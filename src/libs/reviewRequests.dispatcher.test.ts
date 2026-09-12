@@ -41,7 +41,7 @@ beforeEach(() => {
 
 afterAll(async () => client.close());
 
-async function seedReview() {
+async function seedReview(input: { credits?: boolean } = {}) {
   sequence += 1;
   const salonId = `review-dispatch-salon-${sequence}`;
   const clientId = `review-dispatch-client-${sequence}`;
@@ -85,17 +85,19 @@ async function seedReview() {
     reviewRequestDelayMinutes: 60,
   });
   const { appendLotGrant, lockCreditAccount } = await import('./billing/creditLedger');
-  await db.transaction(async (tx) => {
-    await lockCreditAccount(tx, salonId);
-    await appendLotGrant(tx, {
-      salonId,
-      bucket: 'purchased',
-      amount: 10,
-      expiresAt: null,
-      idempotencyKey: `review-dispatch-credit-${sequence}`,
-      reason: 'test',
+  if (input.credits !== false) {
+    await db.transaction(async (tx) => {
+      await lockCreditAccount(tx, salonId);
+      await appendLotGrant(tx, {
+        salonId,
+        bucket: 'purchased',
+        amount: 10,
+        expiresAt: null,
+        idempotencyKey: `review-dispatch-credit-${sequence}`,
+        reason: 'test',
+      });
     });
-  });
+  }
   const { scheduleReviewRequest } = await import('./reviewRequests.server');
   await scheduleReviewRequest(db, salonId, appointmentId, false);
   const [request] = await db.select().from(schema.reviewRequestSchema)
@@ -172,5 +174,72 @@ describe('review requests through the dispatcher', () => {
 
     expect(await dispatchClaimedIntent(intent, provider, new Date())).toBe('suppressed');
     expect(provider).not.toHaveBeenCalled();
+  });
+
+  it('suppresses a scheduled review when transactional consent is revoked before delivery', async () => {
+    const fixture = await seedReview();
+    const intent = await claim(fixture.request.intentId);
+    await db.insert(schema.communicationConsentSchema).values({
+      id: `review-dispatch-revoked-${sequence}`,
+      salonId: fixture.salonId,
+      recipient: fixture.recipient,
+      channel: 'sms',
+      purpose: 'appointment_transactional',
+      status: 'revoked',
+      source: 'test',
+      wordingVersion: 'test-v1',
+      revokedAt: new Date('2040-01-01T00:00:00.000Z'),
+      createdAt: new Date('2040-01-01T00:00:00.000Z'),
+    });
+    const provider = vi.fn(async () => ({ sid: 'SM_must_not_send' }));
+    const { dispatchClaimedIntent } = await import('./communicationDispatcher');
+
+    expect(await dispatchClaimedIntent(intent, provider, new Date())).toBe('suppressed');
+    expect(provider).not.toHaveBeenCalled();
+  });
+
+  it('suppresses a scheduled review when a shared-sender STOP arrives before delivery', async () => {
+    const fixture = await seedReview();
+    const intent = await claim(fixture.request.intentId);
+    await db.insert(schema.smsGlobalConsentEventSchema).values({
+      id: `review-dispatch-stop-${sequence}`,
+      senderIdentity: 'luster_shared_v1',
+      recipient: fixture.recipient,
+      state: 'suppressed',
+      source: 'twilio_inbound',
+      occurredAt: new Date(),
+    });
+    const provider = vi.fn(async () => ({ sid: 'SM_must_not_send' }));
+    const { dispatchClaimedIntent } = await import('./communicationDispatcher');
+
+    expect(await dispatchClaimedIntent(intent, provider, new Date())).toBe('suppressed');
+    expect(provider).not.toHaveBeenCalled();
+  });
+
+  it('keeps a no-credit review request scheduled with an honest status', async () => {
+    const fixture = await seedReview({ credits: false });
+    const intent = await claim(fixture.request.intentId);
+    const provider = vi.fn(async () => ({ sid: 'SM_must_not_send' }));
+    const { dispatchClaimedIntent } = await import('./communicationDispatcher');
+    const { getAppointmentReviewState } = await import('./reviewRequests.server');
+
+    expect(await dispatchClaimedIntent(intent, provider, new Date())).toBe('blocked_no_credit');
+    expect(provider).not.toHaveBeenCalled();
+    await expect(getAppointmentReviewState(fixture.salonId, fixture.appointmentId))
+      .resolves.toMatchObject({ status: 'scheduled', reason: 'Add SMS credits to send this review request.' });
+  });
+
+  it('records a provider rejection as failed instead of claiming the review was sent', async () => {
+    const fixture = await seedReview();
+    const intent = await claim(fixture.request.intentId);
+    const provider = vi.fn(async () => {
+      throw new Error('PROVIDER_REJECTED');
+    });
+    const { dispatchClaimedIntent } = await import('./communicationDispatcher');
+    const { getAppointmentReviewState } = await import('./reviewRequests.server');
+
+    expect(await dispatchClaimedIntent(intent, provider, new Date())).toBe('failed');
+    await expect(getAppointmentReviewState(fixture.salonId, fixture.appointmentId))
+      .resolves.toMatchObject({ status: 'failed', reason: 'The review request could not be sent. It will not be retried automatically.' });
   });
 });

@@ -662,6 +662,9 @@ jobs:
       - name: Verify SMS components and plan access in desktop and mobile browsers
         run: node node_modules/@playwright/test/cli.js test --config tests/browser/sms/playwright.config.ts --output=test-results/sms-components
 
+      - name: Verify review previews and delivery states in mobile browsers
+        run: node node_modules/playwright/cli.js test --config tests/browser/reviews/playwright.config.ts --output=test-results/review-components
+
       - name: Run storybook tests
         run: npm run test-storybook:ci
 
@@ -672,7 +675,7 @@ jobs:
         env:
           LUSTER_DISPOSABLE_POSTGRES_CONTAINER_ID: ${{ job.services.postgres.id }}
           LUSTER_DISPOSABLE_POSTGRES_NETWORK: ${{ job.services.postgres.network }}
-        run: npm run test:e2e -- tests/e2e/mobile-staff-uiqi.e2e.ts tests/e2e/booking-layout-variants.e2e.ts tests/e2e/account-gate-contrast.e2e.ts tests/e2e/booking-page-hub.e2e.ts
+        run: npm run test:e2e -- tests/e2e/mobile-staff-uiqi.e2e.ts tests/e2e/booking-layout-variants.e2e.ts tests/e2e/account-gate-contrast.e2e.ts tests/e2e/booking-page-hub.e2e.ts tests/e2e/review-requests.e2e.ts
 
       - name: Run E2E with trusted-main Percy coverage
         if: github.event_name == 'push'
@@ -682,9 +685,9 @@ jobs:
           LUSTER_DISPOSABLE_POSTGRES_NETWORK: ${{ job.services.postgres.network }}
         run: |
           if [ -n "$PERCY_TOKEN" ]; then
-            npx percy exec -- npm run test:e2e -- tests/e2e/mobile-staff-uiqi.e2e.ts tests/e2e/booking-layout-variants.e2e.ts tests/e2e/account-gate-contrast.e2e.ts tests/e2e/booking-page-hub.e2e.ts
+            npx percy exec -- npm run test:e2e -- tests/e2e/mobile-staff-uiqi.e2e.ts tests/e2e/booking-layout-variants.e2e.ts tests/e2e/account-gate-contrast.e2e.ts tests/e2e/booking-page-hub.e2e.ts tests/e2e/review-requests.e2e.ts
           else
-            npm run test:e2e -- tests/e2e/mobile-staff-uiqi.e2e.ts tests/e2e/booking-layout-variants.e2e.ts tests/e2e/account-gate-contrast.e2e.ts tests/e2e/booking-page-hub.e2e.ts
+            npm run test:e2e -- tests/e2e/mobile-staff-uiqi.e2e.ts tests/e2e/booking-layout-variants.e2e.ts tests/e2e/account-gate-contrast.e2e.ts tests/e2e/booking-page-hub.e2e.ts tests/e2e/review-requests.e2e.ts
           fi
 
       - name: Verify onboarding desktop and phone geometry

@@ -72,7 +72,7 @@ export function ReviewRequestAction({ appointmentId, salonSlug, timeZone, appoin
   }, [request]);
   const canConfirm = isCompleted && (request?.status === 'eligible' || request?.status === 'scheduled');
   const disabled = loading || sending || !canConfirm;
-  const description = request?.status === 'sent' && request.sentAt ? `Sent ${formatDate(request.sentAt, timeZone)}` : request?.status === 'scheduled' && request.scheduledFor ? `Scheduled for ${formatDate(request.scheduledFor, timeZone)}` : request?.status === 'suppressed' ? 'This client has review requests turned off.' : request?.status === 'failed' ? request.reason || 'This review request could not be sent.' : request?.status === 'cancelled' ? request.reason || 'This review request was cancelled.' : !isCompleted ? 'Available after this appointment is completed.' : request?.reason;
+  const description = request?.status === 'sent' && request.sentAt ? `Sent ${formatDate(request.sentAt, timeZone)}` : request?.status === 'scheduled' && request.scheduledFor ? [request.reason, `Scheduled for ${formatDate(request.scheduledFor, timeZone)}`].filter(Boolean).join(' ') : request?.status === 'suppressed' ? 'This client has review requests turned off.' : request?.status === 'failed' ? request.reason || 'This review request could not be sent.' : request?.status === 'cancelled' ? request.reason || 'This review request was cancelled.' : !isCompleted ? 'Available after this appointment is completed.' : request?.reason;
   const openReviewSettings = () => {
     const url = new URL(window.location.href);
     url.searchParams.set('app', 'settings');

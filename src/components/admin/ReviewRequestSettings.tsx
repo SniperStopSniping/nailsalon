@@ -142,13 +142,7 @@ export function ReviewRequestSettings({ salonSlug }: { salonSlug: string }) {
         </div>
         <textarea id="review-message" value={draft.messageTemplate} onChange={event => setDraft({ ...draft, messageTemplate: event.target.value })} rows={5} className="mt-2 w-full rounded-xl border border-[var(--owner-line)] bg-white px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[var(--owner-focus)]" />
         <p className="mt-2 text-xs text-[var(--owner-muted)]">
-          Use
-          {'{{firstName}}'}
-          ,
-          {'{{businessName}}'}
-          , and
-          {'{{reviewLink}}'}
-          .
+          {'Use {{firstName}}, {{businessName}}, and {{reviewLink}}.'}
         </p>
         <div className="mt-4 rounded-xl bg-[var(--owner-blush)] p-3">
           <p className="text-xs font-semibold uppercase tracking-wide text-[var(--owner-muted)]">Preview</p>
