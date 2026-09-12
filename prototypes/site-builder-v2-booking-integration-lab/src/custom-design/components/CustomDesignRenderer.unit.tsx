@@ -109,6 +109,27 @@ const finishImageLoad = (accessibleName: string): HTMLImageElement => {
 };
 
 describe('Custom Design customer renderer', () => {
+  it('renders raised buttons as named links while preserving geometry and legacy styling', () => {
+    const settings = makeSettings({
+      images: [makeImage('buttons', {
+        interactiveAreas: [makeArea({ appearance: 'button' })],
+      })],
+    });
+    const { rerender } = render(<CustomDesignRenderer settings={settings} resolveAction={resolveAction} resolveAsset={readyAsset} />);
+    finishImageLoad('Branded policy page buttons');
+    const link = screen.getByRole('link', { name: 'Visit the nail studio website' });
+
+    expect(link).toHaveClass('custom-design-area-link--button');
+    expect(link).toHaveStyle({ left: '10%', top: '20%', width: '30%', height: '12%' });
+    expect(link).toHaveAttribute('href', 'https://example.com/');
+    expect(link).toHaveAttribute('rel', 'noopener noreferrer');
+    expect(link).toBeEmptyDOMElement();
+
+    rerender(<CustomDesignRenderer settings={{ ...settings, images: [makeImage('buttons', { interactiveAreas: [makeArea()] })] }} resolveAction={resolveAction} resolveAsset={readyAsset} />);
+
+    expect(link).not.toHaveClass('custom-design-area-link--button');
+  });
+
   it.each([
     ['poster', 'seamless'],
     ['contained', 'small'],

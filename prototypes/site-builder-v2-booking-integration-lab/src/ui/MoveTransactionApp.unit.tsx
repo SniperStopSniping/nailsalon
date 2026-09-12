@@ -29,7 +29,7 @@ async function chooseQuickBook(user: ReturnType<typeof userEvent.setup>): Promis
 }
 
 async function chooseMultiPage(user: ReturnType<typeof userEvent.setup>): Promise<void> {
-  await user.click(screen.getByRole('button', { name: /Multi-page website/ }));
+  await user.click(screen.getByRole('button', { name: /Full Website/ }));
   await screen.findByTestId('final-hybrid-editor');
   await waitFor(() => expect(window.localStorage.getItem(SITE_BUILDER_STORAGE_KEY)).not.toBeNull());
   await user.click(screen.getByRole('button', { name: 'Open Pages & Structure for Home' }));

@@ -75,6 +75,10 @@ const expectStarterShape = (
         'visit_us',
       ]],
     },
+    your_design: {
+      names: ['Home'],
+      sections: [['booking', 'visit_us']],
+    },
   }[starter];
 
   expect(document.originStarter).toBe(starter);

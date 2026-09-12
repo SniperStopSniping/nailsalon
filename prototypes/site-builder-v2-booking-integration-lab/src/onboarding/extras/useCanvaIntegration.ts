@@ -780,6 +780,10 @@ export const useCanvaIntegration = ({
     (input: SaveCanvaSettingsInput) => saveCanvaSettings(lab, input),
     [lab],
   );
+  const updateSettings = useCallback((
+    sectionId: string,
+    update: (settings: CustomDesignSettings) => CustomDesignSettings,
+  ) => updateCanvaSettings(lab, sectionId, update), [lab]);
 
   return {
     addCanvaDesign,
@@ -790,6 +794,7 @@ export const useCanvaIntegration = ({
     replaceImage,
     saveSettings,
     storageError,
+    updateSettings,
   };
 };
 
