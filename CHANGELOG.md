@@ -1,3 +1,11 @@
+# [1.94.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.93.0...v1.94.0) (2026-09-12)
+
+
+### Features
+
+* **booking:** prioritize available appointment times ([e631b18](https://github.com/SniperStopSniping/nailsalon/commit/e631b180ab03ca12c715d05ea705473fe3057b50))
+* **booking:** prioritize available appointment times ([#181](https://github.com/SniperStopSniping/nailsalon/issues/181)) ([f9a403d](https://github.com/SniperStopSniping/nailsalon/commit/f9a403dc116370c01750aec05119e10ffb605a18))
+
 # [1.93.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.92.1...v1.93.0) (2026-09-12)
 
 
