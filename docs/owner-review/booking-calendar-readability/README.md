@@ -61,6 +61,7 @@ Real React booking screens and shared theme CSS, using isolated synthetic appoin
 - `npm run lint`: passed, no errors; three existing confirmation fast-refresh warnings. Explicit ESLint on the final-polish files also passed.
 - `npm run security:check-secrets` and `git diff --check`: passed.
 - No booking-engine tests were weakened.
+- Release-gate repair: full CI exposed a pre-existing manage-link integration fixture using fixed September 2026 appointment dates. Once those dates passed, the real confirmation-retry eligibility guard correctly rejected the appointment while the test waited for a provider call. The fixture now creates future dates relative to the clock; all **23 integration tests passed**, with concurrency assertions and timeouts unchanged. No production retry or availability code changed.
 
 Browser coverage includes all eight onboarding palettes, available-only slots, zero/one/three/many openings, week/month navigation, year rollover (unit), selected-date semantics, keyboard focus, 44px date targets, 320px/375px overflow, 200% root text sizing, long preparation copy, saved preferences across screens, and computed 4.5:1 contrast for key time-screen text/control pairs in both modes.
 
@@ -81,4 +82,5 @@ Additional evidence: [320px with 200% text sizing](mobile-320-text-200.png). The
 - `src/app/[locale]/[slug]/book/service/page.test.tsx` — supply the route-params mock consumed by the new shared client control; existing preview-isolation assertions retained.
 - `tests/browser/booking-theme/main.tsx` — synthetic start timestamps follow the date requested by the real component.
 - `tests/browser/booking-theme/readability.spec.ts` and `contrast.spec.ts` — new browser regressions/evidence.
+- `src/app/api/public/appointments/manage/[token]/route.integration.test.ts` — prevent the existing future-appointment concurrency fixture from expiring with the wall clock; test assertions unchanged.
 - This review report and screenshots.
