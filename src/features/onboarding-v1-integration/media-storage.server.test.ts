@@ -32,7 +32,7 @@ describe('development onboarding media storage', () => {
     await rm(mediaRoot, { force: true, recursive: true });
   });
 
-  it('validates and atomically normalizes a role-owned image outside the repository', async () => {
+  it.each(['logo', 'cover'] as const)('normalizes, reads and deletes a tenant-owned %s outside the repository', async (role) => {
     const input = await sharp({
       create: {
         background: '#9b3658',
@@ -43,7 +43,7 @@ describe('development onboarding media storage', () => {
     }).png().toBuffer();
     const stored = await saveOnboardingMediaFile({
       file: new File([Uint8Array.from(input)], 'logo.png', { type: 'image/png' }),
-      role: 'logo',
+      role,
       revisionId: 'revision_test_1',
       salonId: 'salon_test_1',
       siteId: 'site_test_1',
@@ -57,8 +57,12 @@ describe('development onboarding media storage', () => {
       storageProvider: 'development_local',
       width: 48,
     });
-    expect(stored.storageKey).toContain('/logo/');
+    expect(stored.storageKey).toContain(`/${role}/`);
     expect((await readOnboardingMediaFile(stored.storageKey, owner)).byteLength).toBeGreaterThan(0);
+    await expect(readOnboardingMediaFile(stored.storageKey, { salonId: 'other_salon' }))
+      .rejects.toMatchObject({ code: 'INVALID_MEDIA_OWNER' });
+    await expect(deleteOnboardingMediaFiles([stored.storageKey], owner)).resolves.toEqual({ failed: 0, removed: 1 });
+    await expect(readOnboardingMediaFile(stored.storageKey, owner)).rejects.toMatchObject({ code: 'ENOENT' });
   });
 
   it('rejects a mismatched signature rather than trusting the MIME label', async () => {

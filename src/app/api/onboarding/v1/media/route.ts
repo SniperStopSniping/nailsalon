@@ -9,6 +9,7 @@ import {
 } from '@/features/onboarding-v1-integration/canonical-profile-media.server';
 import { promoteCurrentDraftCanonicalIdentityMedia } from '@/features/onboarding-v1-integration/canonical-profile-media-lifecycle.server';
 import { isOnboardingV1IntegrationEnabled } from '@/features/onboarding-v1-integration/config.server';
+import { ONBOARDING_SITE_MEDIA_ROLES } from '@/features/onboarding-v1-integration/contracts';
 import { authorizeOnboardingSite } from '@/features/onboarding-v1-integration/media-authorization.server';
 import { ONBOARDING_MEDIA_MAX_FILE_BYTES, ONBOARDING_MEDIA_MAX_REQUEST_BYTES } from '@/features/onboarding-v1-integration/media-limits';
 import { OnboardingMediaRequestTooLarge, readOnboardingMediaForm } from '@/features/onboarding-v1-integration/media-request.server';
@@ -40,7 +41,7 @@ const uploadFieldsSchema = z.object({
   localItemId: z.string().trim().min(1).max(160),
   mimeType: z.enum(['image/jpeg', 'image/png', 'image/webp']),
   order: z.coerce.number().int().min(0).max(1_000),
-  role: z.enum(['profile', 'logo', 'gallery', 'custom_design', 'cover']),
+  role: z.enum(ONBOARDING_SITE_MEDIA_ROLES),
   siteId: z.string().uuid(),
   siteRevision: z.coerce.number().int().positive(),
 }).strict();
@@ -199,10 +200,7 @@ export async function POST(request: Request): Promise<Response> {
 
     if (storedFileReadable) {
       if (
-        (
-          manifestItem.role !== 'logo'
-          && manifestItem.role !== 'profile'
-        )
+        !isCanonicalIdentityRole(manifestItem.role)
         || typeof manifestItem.metadata.canonicalPublicUrl === 'string'
       ) {
         return Response.json(mediaResponse(manifestItem));
