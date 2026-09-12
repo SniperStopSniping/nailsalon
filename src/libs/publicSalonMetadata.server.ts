@@ -6,8 +6,8 @@ import {
   buildPublicSalonMetadata,
   type PublicSalonMetadataInput,
 } from '@/libs/publicSalonMetadata';
-import { getSalonBySlug } from '@/libs/queries';
 import { buildSalonTenantPublicUrl } from '@/libs/publicUrl';
+import { getSalonBySlug } from '@/libs/queries';
 
 /**
  * Server side of `publicSalonMetadata`: resolve the salon from the route slug
