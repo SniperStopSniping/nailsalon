@@ -210,8 +210,8 @@ export function AppointmentQuickEditSheet({
   // owner still sees the booked subtotal, always labelled as an estimate.
   const estimatedFinancial
     = financial?.state === 'under_review'
-      && typeof financial.bookedTotalCents === 'number'
-      && typeof financial.currency === 'string'
+    && typeof financial.bookedTotalCents === 'number'
+    && typeof financial.currency === 'string'
       ? { bookedTotalCents: financial.bookedTotalCents, currency: financial.currency }
       : null;
   // Line-item amounts (add-ons, service options, projected subtotal) are booked

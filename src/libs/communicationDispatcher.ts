@@ -325,13 +325,13 @@ export async function dispatchClaimedIntent(
   const readiness = mode === 'connected_byo' && connection
     ? resolveByoSenderReadiness(connection, { authTokenPresent: !!Env.TWILIO_AUTH_TOKEN })
     : resolveSharedSenderReadiness({
-        salonSlug: salon.slug,
-        config: {
-          ...envConfig,
-          platformControl: control === null ? null : { smsEnabled: control.smsEnabled },
-          creditReservation: { available: true },
-        },
-      });
+      salonSlug: salon.slug,
+      config: {
+        ...envConfig,
+        platformControl: control === null ? null : { smsEnabled: control.smsEnabled },
+        creditReservation: { available: true },
+      },
+    });
   if (!readiness.ready) {
     await deferIntent(intent.id, `SENDER_UNAVAILABLE:${readiness.reason}`, now);
     return 'deferred';
