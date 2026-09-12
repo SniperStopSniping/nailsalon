@@ -31,7 +31,10 @@ function LusterMark() {
       <div className={styles.charm}>
         <div className={styles.charmDepth} />
         <div className={styles.charmFace}>
-          <span className={styles.mark}>L</span>
+          <span className={styles.mark}>
+            <span>Luster</span>
+            <small>Gel</small>
+          </span>
           <span className={styles.charmGlint} />
         </div>
       </div>
