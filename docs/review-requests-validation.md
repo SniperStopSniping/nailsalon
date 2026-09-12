@@ -66,7 +66,9 @@ artifacts, and unresolved gates. A test's presence is not evidence it passed.
 ## Executed local browser evidence
 
 The real application iPhone WebKit run passed all four tests (two review journeys
-plus existing authentication setup and teardown) in 12.3 seconds. It used the
+plus existing authentication setup and teardown) in 13.0 seconds. The hardened test rejects external browser
+targets and verifies the application can read its fresh attested fixture before
+changing settings. It used the
 existing super-admin password login and salon impersonation, real settings and
 review APIs, and the real completion API. The completion checkout UI itself and
 interactive Clerk sign-in were not part of this test. No dispatcher was invoked.

@@ -51,11 +51,18 @@ test('review settings require explicit automation opt-in @mobile-safari', async 
   expect(settings.automaticEnabled).toBe(true);
 });
 
-test('isolated owner completes and queues one review through the real APIs @mobile-safari', async ({ page }, testInfo) => {
+test('isolated owner completes and queues one review through the real APIs @mobile-safari', async ({ page, baseURL }, testInfo) => {
   test.slow();
 
   // This test writes only to the independently attested disposable CI database.
   // No dispatcher is invoked, and provider credentials must remain absent.
+  expect(process.env.E2E_BASE_URL || '', 'Real-write review tests require the managed local app server.').toBe('');
+
+  const browserTarget = new URL(baseURL!);
+
+  expect(browserTarget.protocol).toBe('http:');
+  expect(['localhost', '127.0.0.1', '[::1]']).toContain(browserTarget.hostname);
+
   const target = requireDisposableDatabaseTarget(process.env);
 
   expect(process.env.E2E_USE_REAL_TWILIO).not.toBe('true');
@@ -88,6 +95,12 @@ test('isolated owner completes and queues one review through the real APIs @mobi
     await database.query(`INSERT INTO appointment (id, salon_id, salon_client_id, client_name, client_phone, start_time, end_time, status, total_price, total_duration_minutes, technician_id) VALUES ($1, $2, $3, 'Sarah Review Fixture', $4, $5, $6, 'confirmed', 0, 60, $7)`, [appointmentId, salonId, clientId, phone, start, end, technicianId]);
     await database.query(`INSERT INTO appointment (id, salon_id, salon_client_id, client_name, client_phone, start_time, end_time, completed_at, status, total_price, total_duration_minutes) VALUES ($1, $2, $3, 'Sarah Review Fixture', $4, $5, $6, $6, 'completed', 0, 60)`, [historicalId, salonId, clientId, phone, new Date(start.getTime() - 172_800_000), new Date(start.getTime() - 86_400_000)]);
     await impersonateSalonAsSuperAdmin(page);
+    // Prove the application reads this fresh attested fixture before settings writes.
+    const fixtureResponse = await page.request.get(`/api/appointments/${appointmentId}/review-request?salonSlug=${e2eConfig.salonSlug}`);
+
+    expect(fixtureResponse.ok(), await fixtureResponse.text()).toBe(true);
+    expect((await fixtureResponse.json()).data.clientId).toBe(clientId);
+
     await page.goto(`${appPath('/admin')}?salon=${encodeURIComponent(e2eConfig.salonSlug)}&app=settings&view=review-requests`);
     const panel = page.getByTestId('review-request-settings');
 
