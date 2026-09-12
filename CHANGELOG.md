@@ -1,3 +1,10 @@
+# [1.96.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.95.2...v1.96.0) (2026-09-12)
+
+
+### Features
+
+* **booking:** compact calendar and polished accessible reading mode ([#187](https://github.com/SniperStopSniping/nailsalon/issues/187)) ([5bb93dc](https://github.com/SniperStopSniping/nailsalon/commit/5bb93dc51c44f6314a12baa9f10132e4e8fab1a6))
+
 ## [1.95.2](https://github.com/SniperStopSniping/nailsalon/compare/v1.95.1...v1.95.2) (2026-09-12)
 
 
