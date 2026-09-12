@@ -42,7 +42,8 @@ export type StarterSectionDefinition =
     galleryPresentationOwner?: GalleryPresentationOwner;
     summary?: boolean;
   }
-  | { previewLabel: string; sectionType: 'booking'; summary?: boolean };
+  | { previewLabel: string; sectionType: 'booking'; summary?: boolean }
+  | { previewLabel: string; sectionType: 'custom_design'; summary?: boolean };
 
 export type StarterPageDefinition = {
   name: string;
@@ -74,6 +75,19 @@ const STARTER_PAGES: Record<OriginStarter, readonly StarterPageDefinition[]> = {
         previewLabel: 'Nail work',
         sectionType: 'gallery',
       },
+      {
+        label: 'Visit & Contact',
+        previewLabel: 'Visit & Contact',
+        sectionType: 'visit_us',
+      },
+    ],
+    slug: '',
+  }],
+  your_design: [{
+    name: 'Home',
+    sections: [
+      { previewLabel: 'Your Design', sectionType: 'custom_design' },
+      { previewLabel: 'Services & Booking', sectionType: 'booking' },
       {
         label: 'Visit & Contact',
         previewLabel: 'Visit & Contact',
@@ -386,6 +400,18 @@ const createStarterPage = (
   sections: definition.sections.map((section, sectionOrder) =>
     section.sectionType === 'booking'
       ? createBookingSectionInstance(idFactory, { order: sectionOrder, showFeatured: false })
+      : section.sectionType === 'custom_design'
+        ? {
+            ...createCustomDesignSectionInstance(idFactory, { order: sectionOrder }),
+            settings: {
+              ...createDefaultCustomDesignSettings(),
+              cta: {
+                label: 'Book appointment',
+                placement: { type: 'after_all' },
+                type: 'book_now',
+              },
+            },
+          }
       : createLibrarySectionInstance(section.sectionType, idFactory, {
         ...(section.galleryPresentationOwner !== undefined
           ? { galleryPresentationOwner: section.galleryPresentationOwner }

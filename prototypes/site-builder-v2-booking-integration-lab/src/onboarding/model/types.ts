@@ -284,7 +284,7 @@ export type SitePalettePresetId =
   | 'monochrome'
   | 'black_champagne';
 
-export type StarterId = 'quick_book' | 'one_page' | 'multi_page';
+export type StarterId = 'quick_book' | 'your_design' | 'one_page' | 'multi_page';
 
 /**
  * Quick Book-specific presentation choices retained for draft compatibility.

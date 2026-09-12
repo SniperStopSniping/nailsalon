@@ -7,13 +7,18 @@ import {
   useCustomDesignAssetRepository,
 } from '../../custom-design/integration/CustomDesignAssetProvider';
 import { CustomDesignImageManager } from '../../custom-design/integration/CustomDesignImageManager';
+import { HotspotEditor } from '../../custom-design/integration/HotspotEditor';
+import { normalizeCustomDesignHexColor } from '../../custom-design/model/settings';
 import type {
   CustomDesignUploadFailure,
   CustomDesignUploadStatus,
 } from '../../custom-design/integration/ui-types';
 import { formatCustomDesignUploadSummary } from '../../custom-design/integration/upload-summary';
 import type { CustomDesignSectionInstance, SiteBuilderDocument } from '../../model';
-import { toCustomDesignOwnerAssetMap } from '../../ui/custom-design-adapters';
+import {
+  getCustomDesignInternalTargets,
+  toCustomDesignOwnerAssetMap,
+} from '../../ui/custom-design-adapters';
 import { Dialog } from '../../ui/Dialog';
 import {
   CANVA_UPLOADS_UNAVAILABLE_MESSAGE,
@@ -818,6 +823,7 @@ type CanvaManagerProps = {
   onImageOrderDraftChange: (ids: readonly string[]) => void;
   onOrderCommitted: (section: CustomDesignSectionInstance) => void;
   onRequestRemoveAll: () => void;
+  onEditAreas: (imageItemId: string) => void;
   onUpload: (files: readonly File[]) => void;
   onUpdate?: OnboardingStateUpdater;
   persistedPlacement: CanvaPlacement;
@@ -833,6 +839,7 @@ function CanvaManager({
   onImageOrderDraftChange,
   onOrderCommitted,
   onRequestRemoveAll,
+  onEditAreas,
   onUpload,
   onUpdate,
   persistedPlacement,
@@ -900,6 +907,7 @@ function CanvaManager({
       onCommitImageOrder={(ids) => {
         applyManagerResult(controller.reorderImages(section.id, ids));
       }}
+      onEditAreas={onEditAreas}
       onImageOrderDraftChange={onImageOrderDraftChange}
       onRemoveImage={(imageId) => {
         if (section.settings.images.length === 1) {
@@ -1056,6 +1064,7 @@ export function CanvaDialog({
   const [files, setFiles] = useState<File[]>([]);
   const [displayMode, setDisplayMode] = useState<CanvaDisplayMode>(state.canva.displayMode);
   const [placement, setPlacement] = useState<CanvaPlacement>(state.canva.placement);
+  const [backgroundColor, setBackgroundColor] = useState('#FFF8F5');
   const [pending, setPending] = useState(false);
   const [error, setError] = useState('');
   const [removeAllPending, setRemoveAllPending] = useState(false);
@@ -1083,6 +1092,7 @@ export function CanvaDialog({
         }
       : undefined
   ));
+  const [hotspotImageItemId, setHotspotImageItemId] = useState<string | null>(null);
   const uploadStatusRef = useRef<CanvaFeedbackStatus | undefined>(uploadStatus);
   const setUploadStatus = (status: CanvaFeedbackStatus | undefined) => {
     uploadStatusRef.current = status;
@@ -1096,6 +1106,20 @@ export function CanvaDialog({
     ? locateOnboardingCustomDesign(document, state.canva.customDesignSectionId)
     : null;
   const section = located?.pageId ? located.section : null;
+  const internalTargets = useMemo(
+    () => document ? getCustomDesignInternalTargets(document) : [],
+    [document],
+  );
+  const hotspotImage = section?.settings.images.find(
+    image => image.id === hotspotImageItemId,
+  ) ?? null;
+  const hotspotAssetPairs = useCustomDesignAssetMap(
+    hotspotImage ? [hotspotImage.assetId] : [],
+  );
+  const hotspotAsset = hotspotImage
+    ? toCustomDesignOwnerAssetMap(hotspotAssetPairs)[hotspotImage.assetId]
+      ?? { status: 'loading' as const }
+    : { status: 'loading' as const };
 
   useEffect(() => {
     if (!open) {
@@ -1108,6 +1132,9 @@ export function CanvaDialog({
     wasOpenRef.current = true;
     setDisplayMode(section?.settings.displayMode ?? state.canva.displayMode);
     setPlacement(state.canva.placement);
+    setBackgroundColor(section?.settings.background.mode === 'custom'
+      ? section.settings.background.color
+      : '#FFF8F5');
     setError('');
     setRemoveAllPending(false);
     setOrderDismissPending(false);
@@ -1338,7 +1365,7 @@ export function CanvaDialog({
                 </div>
               )
             : null}
-          <p>Export your Canva design as PNG, JPG or WebP. You can upload up to 10 pages.</p>
+          <p>Choose exported PNG, JPG or WebP artwork. You can upload up to 10 pages.</p>
           {section && controller
             ? (
                 <CanvaManager
@@ -1347,6 +1374,7 @@ export function CanvaDialog({
                   onImageOrderDraftChange={updateImageOrderDraft}
                   onOrderCommitted={acceptCommittedOrder}
                   onRequestRemoveAll={() => setRemoveAllPending(true)}
+                  onEditAreas={setHotspotImageItemId}
                   onUpload={(selectedFiles) => {
                     void runUpload(selectedFiles);
                   }}
@@ -1412,6 +1440,73 @@ export function CanvaDialog({
               </label>
             ))}
           </fieldset>
+          {section && controller
+            ? (
+                <fieldset className="onboarding-layout-choice">
+                  <legend>Background</legend>
+                  <label>
+                    <input
+                      checked={section.settings.background.mode === 'site'}
+                      name="canva-background"
+                      type="radio"
+                      onChange={() => {
+                        const result = controller.updateSettings(section.id, settings => ({
+                          ...settings,
+                          background: { mode: 'site' },
+                        }));
+                        if (result.success && result.section) {
+                          syncCanvaDraft(onUpdate, result.section, displayMode, placement);
+                        }
+                      }}
+                    />
+                    <span>Match site</span>
+                  </label>
+                  <label>
+                    <input
+                      checked={section.settings.background.mode === 'custom'}
+                      name="canva-background"
+                      type="radio"
+                      onChange={() => {
+                        const color = normalizeCustomDesignHexColor(backgroundColor);
+                        if (!color) {
+                          return;
+                        }
+                        const result = controller.updateSettings(section.id, settings => ({
+                          ...settings,
+                          background: { color, mode: 'custom' },
+                        }));
+                        if (result.success && result.section) {
+                          syncCanvaDraft(onUpdate, result.section, displayMode, placement);
+                        }
+                      }}
+                    />
+                    <span>Custom colour</span>
+                  </label>
+                  <label>
+                    <span className="visually-hidden">Custom background colour</span>
+                    <input
+                      aria-label="Custom background colour"
+                      type="color"
+                      value={normalizeCustomDesignHexColor(backgroundColor) ?? '#FFF8F5'}
+                      onChange={(event) => {
+                        const color = event.target.value.toUpperCase();
+                        setBackgroundColor(color);
+                        if (section.settings.background.mode !== 'custom') {
+                          return;
+                        }
+                        const result = controller.updateSettings(section.id, settings => ({
+                          ...settings,
+                          background: { color, mode: 'custom' },
+                        }));
+                        if (result.success && result.section) {
+                          syncCanvaDraft(onUpdate, result.section, displayMode, placement);
+                        }
+                      }}
+                    />
+                  </label>
+                </fieldset>
+              )
+            : null}
           <fieldset className="onboarding-layout-choice">
             <legend>Placement</legend>
             <label>
@@ -1516,6 +1611,30 @@ export function CanvaDialog({
           </footer>
         </div>
       </Dialog>
+      <HotspotEditor
+        asset={hotspotAsset}
+        image={hotspotImage}
+        internalTargets={internalTargets}
+        open={open && hotspotImage !== null}
+        onCancel={() => setHotspotImageItemId(null)}
+        onCommit={(imageItemId, areas) => {
+          if (!section || !controller) {
+            return;
+          }
+          const result = controller.updateSettings(section.id, settings => ({
+            ...settings,
+            images: settings.images.map(image => image.id === imageItemId
+              ? { ...image, interactiveAreas: [...areas] }
+              : image),
+          }));
+          if (result.success && result.section) {
+            syncCanvaDraft(onUpdate, result.section, result.section.settings.displayMode, placement);
+            setHotspotImageItemId(null);
+          } else {
+            setError(result.failure?.message ?? 'The link areas could not be saved.');
+          }
+        }}
+      />
       <Dialog
         description="You changed the order of your uploaded design pages."
         initialFocusSelector="[data-canva-order-keep-editing]"

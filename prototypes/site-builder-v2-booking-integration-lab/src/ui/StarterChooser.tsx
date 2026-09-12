@@ -33,7 +33,7 @@ type PreviewScene = {
   heading: string;
   id: string;
   items?: readonly PreviewItem[];
-  kind: 'about' | 'booking' | 'contact' | 'gallery' | 'hero' | 'reviews' | 'services';
+  kind: 'about' | 'booking' | 'contact' | 'custom_design' | 'gallery' | 'hero' | 'reviews' | 'services';
   navigation?: string;
   structureLabels: readonly string[];
 };
@@ -112,6 +112,13 @@ const STARTER_CHOICE_COPY: Record<OriginStarter, StarterChoiceCopy> = {
     includesLabel: 'Includes',
     title: 'Quick Book',
   },
+  your_design: {
+    cta: 'Start with Your Design',
+    description: 'Use your Canva design, AI artwork, or your own image.',
+    id: 'your_design',
+    includesLabel: 'Includes',
+    title: 'Your Design',
+  },
   one_page: {
     cta: 'Start with One-page',
     description: 'Show your whole business on one scrolling page.',
@@ -120,16 +127,19 @@ const STARTER_CHOICE_COPY: Record<OriginStarter, StarterChoiceCopy> = {
     title: 'One-page website',
   },
   multi_page: {
-    cta: 'Start with Multi-page',
+    cta: 'Start with Full Website',
     description: 'Give each part of your business its own page and navigation link.',
     id: 'multi_page',
     includesLabel: 'Includes pages',
-    title: 'Multi-page website',
+    title: 'Full Website',
   },
 };
 
 const getSceneKind = (labels: readonly string[]): PreviewScene['kind'] => {
   const normalized = labels.join(' ').toLocaleLowerCase();
+  if (normalized.includes('your design')) {
+    return 'custom_design';
+  }
   if (normalized.includes('service') || normalized.includes('booking')) {
     return 'services';
   }
@@ -156,6 +166,8 @@ const getSceneCopy = (
   heading: string,
 ): Pick<PreviewScene, 'action' | 'body' | 'eyebrow' | 'heading' | 'items'> => {
   switch (kind) {
+    case 'custom_design':
+      return { body: 'Your exported artwork appears here, above booking.', heading };
     case 'services':
       return {
         action: 'Book an appointment',
@@ -238,7 +250,7 @@ const createStarterPreview = (starter: OriginStarter): StarterPreviewDefinition 
       : 'page-switch';
 
   return {
-    durationMs: starter === 'quick_book' ? 4_800 : starter === 'one_page' ? 5_800 : 7_000,
+    durationMs: starter === 'quick_book' ? 4_800 : starter === 'multi_page' ? 7_000 : 5_800,
     finalFrame: scenes.at(-1)?.id ?? 'site',
     ...(starter === 'quick_book' ? { middleDistance: '-33.3333%' } : {}),
     motionDistance: starter === 'multi_page' ? '8px' : '-66.6667%',
@@ -249,6 +261,8 @@ const createStarterPreview = (starter: OriginStarter): StarterPreviewDefinition 
         : {}),
       heading: starter === 'quick_book'
         ? 'A focused path from services to booking.'
+        : starter === 'your_design'
+          ? 'Your artwork, followed by booking.'
         : starter === 'one_page'
           ? 'Your whole studio, all in one place.'
           : 'A home page with separate destinations.',
@@ -256,6 +270,8 @@ const createStarterPreview = (starter: OriginStarter): StarterPreviewDefinition 
       kind: posterKind,
       label: starter === 'quick_book'
         ? 'Booking-focused page'
+        : starter === 'your_design'
+          ? 'Artwork-led booking page'
         : starter === 'one_page'
           ? 'One continuous page'
           : 'Five connected pages',
@@ -271,7 +287,7 @@ const createStarterPreview = (starter: OriginStarter): StarterPreviewDefinition 
 };
 
 export const STARTER_CHOICES: readonly StarterChoiceDefinition[] = (
-  ['quick_book', 'one_page', 'multi_page'] as const
+  ['quick_book', 'your_design', 'multi_page'] as const
 ).map(starter => ({
   ...STARTER_CHOICE_COPY[starter],
   includedItems: getIncludedItems(starter),

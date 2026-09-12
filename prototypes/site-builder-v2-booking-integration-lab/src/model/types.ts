@@ -27,7 +27,7 @@ export const SITE_BUILDER_SCHEMA_VERSION = 2 as const;
 
 export const LEGACY_SITE_BUILDER_SCHEMA_VERSION = 1 as const;
 
-export type OriginStarter = 'quick_book' | 'one_page' | 'multi_page';
+export type OriginStarter = 'quick_book' | 'your_design' | 'one_page' | 'multi_page';
 
 export type SectionNumber =
   | '01'

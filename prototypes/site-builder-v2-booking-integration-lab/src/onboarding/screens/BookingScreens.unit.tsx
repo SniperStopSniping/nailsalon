@@ -719,7 +719,7 @@ describe('StartingPointScreen', () => {
       'Salon intro · Services & Booking · Nail work · Visit & Contact',
     )).toBeVisible();
     expect(screen.getByText(
-      'Welcome · Gallery · About · Services & Booking · Reviews · Before You Book · Visit & Contact',
+      'Your Design · Services & Booking · Visit & Contact',
     )).toBeVisible();
     expect(screen.getByText(
       'Home · Services & Booking · Gallery · About · Contact',
@@ -735,10 +735,10 @@ describe('StartingPointScreen', () => {
       expect(logo).toHaveAttribute('src', 'data:image/png;base64,logo');
     }
 
-    expect(screen.queryByText(/custom design/i)).not.toBeInTheDocument();
+    expect(screen.getByText('Your Design · Services & Booking · Visit & Contact')).toBeVisible();
 
-    await user.click(screen.getByRole('button', { name: /Start with One-page/ }));
-    await waitFor(() => expect(onChooseStarter).toHaveBeenCalledWith('one_page'));
+    await user.click(screen.getByRole('button', { name: /Start with Your Design/ }));
+    await waitFor(() => expect(onChooseStarter).toHaveBeenCalledWith('your_design'));
   });
 
   it('plays one commit beat for a first choice and ignores double activation', async () => {
@@ -753,14 +753,14 @@ describe('StartingPointScreen', () => {
       />,
     );
 
-    const onePage = screen.getByRole('button', { name: /Start with One-page/ });
+    const onePage = screen.getByRole('button', { name: /Start with Your Design/ });
     await user.click(onePage);
 
     expect(onePage).toHaveAttribute('data-committing', 'true');
     expect(onChooseStarter).not.toHaveBeenCalled();
 
     await user.click(screen.getByRole('button', { name: /Start with Quick Book/ }));
-    await waitFor(() => expect(onChooseStarter).toHaveBeenCalledWith('one_page'));
+    await waitFor(() => expect(onChooseStarter).toHaveBeenCalledWith('your_design'));
 
     expect(onChooseStarter).toHaveBeenCalledOnce();
   });
@@ -778,7 +778,7 @@ describe('StartingPointScreen', () => {
       />,
     );
 
-    await user.click(screen.getByRole('button', { name: /Start with Multi-page/ }));
+    await user.click(screen.getByRole('button', { name: /Start with Full Website/ }));
 
     expect(onChooseStarter).toHaveBeenCalledWith('multi_page');
 
@@ -844,7 +844,7 @@ describe('StartingPointScreen', () => {
         canGoBack
         onBack={onBack}
         onChooseStarter={vi.fn()}
-        selectedStarter="one_page"
+        selectedStarter="your_design"
       />,
     );
 
@@ -911,12 +911,12 @@ describe('StartingPointScreen', () => {
         businessName="Isla Nail Studio"
         onBack={vi.fn()}
         onChooseStarter={vi.fn()}
-        selectedStarter="one_page"
+        selectedStarter="your_design"
       />,
     );
 
     const current = screen.getByRole('button', {
-      name: /Current starting point.*One-page website/u,
+      name: /Current starting point.*Your Design/u,
     });
 
     expect(current).toHaveAttribute('aria-pressed', 'true');

@@ -27,20 +27,20 @@ const EXPECTED_STARTERS: ReadonlyArray<{
     title: 'Quick Book',
   },
   {
-    cta: 'Start with One-page',
-    description: 'Show your whole business on one scrolling page.',
-    id: 'one_page',
-    included: 'Welcome · Gallery · About · Services & Booking · Reviews · Before You Book · Visit & Contact',
+    cta: 'Start with Your Design',
+    description: 'Use your Canva design, AI artwork, or your own image.',
+    id: 'your_design',
+    included: 'Your Design · Services & Booking · Visit & Contact',
     includesLabel: 'Includes',
-    title: 'One-page website',
+    title: 'Your Design',
   },
   {
-    cta: 'Start with Multi-page',
+    cta: 'Start with Full Website',
     description: 'Give each part of your business its own page and navigation link.',
     id: 'multi_page',
     included: 'Home · Services & Booking · Gallery · About · Contact',
     includesLabel: 'Includes pages',
-    title: 'Multi-page website',
+    title: 'Full Website',
   },
 ];
 
@@ -288,7 +288,7 @@ describe('StarterChooser copy and accessibility', () => {
 
     expect(onChoose).toHaveBeenLastCalledWith('quick_book');
 
-    const multiPage = getCard('Multi-page website');
+    const multiPage = getCard('Full Website');
     act(() => multiPage.focus());
     await user.keyboard('{Enter}');
 
@@ -303,18 +303,18 @@ describe('StarterChooser preview playback', () => {
     render(<StarterChooser onChoose={vi.fn()} />);
 
     const quickBook = getCard('Quick Book');
-    const onePage = getCard('One-page website');
-    const multiPage = getCard('Multi-page website');
+    const onePage = getCard('Your Design');
+    const multiPage = getCard('Full Website');
     expectOnlyPreviewActive(null);
 
     fireEvent.mouseEnter(quickBook);
     expectOnlyPreviewActive('quick_book');
 
     fireEvent.mouseEnter(onePage);
-    expectOnlyPreviewActive('one_page');
+    expectOnlyPreviewActive('your_design');
     fireEvent.mouseLeave(onePage);
     act(() => vi.advanceTimersByTime(179));
-    expectOnlyPreviewActive('one_page');
+    expectOnlyPreviewActive('your_design');
     act(() => vi.advanceTimersByTime(1));
     expectOnlyPreviewActive(null);
 
@@ -336,8 +336,8 @@ describe('StarterChooser preview playback', () => {
     expect(observer).toBeDefined();
 
     const quickBook = getCard('Quick Book');
-    const onePage = getCard('One-page website');
-    const multiPage = getCard('Multi-page website');
+    const onePage = getCard('Your Design');
+    const multiPage = getCard('Full Website');
     act(() => observer?.emit([
       { ratio: 0.72, target: quickBook },
       { ratio: 0.42, target: onePage },
@@ -350,7 +350,7 @@ describe('StarterChooser preview playback', () => {
       { ratio: 0.84, target: onePage },
       { ratio: 0.12, target: multiPage },
     ]));
-    expectOnlyPreviewActive('one_page');
+    expectOnlyPreviewActive('your_design');
 
     act(() => observer?.emit([
       { ratio: 0.2, target: quickBook },
@@ -414,7 +414,7 @@ describe('StarterChooser preview playback', () => {
     render(<StarterChooser onChoose={onChoose} />);
 
     fireEvent.mouseEnter(getCard('Quick Book'));
-    act(() => getCard('One-page website').focus());
+    act(() => getCard('Your Design').focus());
     expectOnlyPreviewActive(null);
     for (const starter of EXPECTED_STARTERS) {
       expect(getPreview(starter.id)).toHaveAttribute('data-preview-state', 'poster');
@@ -422,7 +422,7 @@ describe('StarterChooser preview playback', () => {
       expect(screen.getByText(starter.description)).toBeVisible();
     }
 
-    await user.click(getCard('Multi-page website'));
+    await user.click(getCard('Full Website'));
 
     expect(onChoose).toHaveBeenCalledWith('multi_page');
   });
