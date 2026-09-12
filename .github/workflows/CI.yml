@@ -303,6 +303,8 @@ jobs:
               # revision and site cleanup, in child-before-parent order.
               # Strictly additive over the Discover PR1 postimage above.
               e62b6f637ee0c90f995657c15dd7ea4138bc102f) ;;
+              # Review requests: add the tenant-scoped review_request purge step.
+              3c824ab5a65b2376af76d105f9fb5f555b22b1ff) ;;
               *)
                 echo "::error::Unauthorized change outside the reviewed salon-purge postimages."
                 printf 'actual blob: %s\n' "$salon_purge_blob"
@@ -332,6 +334,8 @@ jobs:
               # Quick Book design system — widens the onboarding media role
               # list to include `cover`. Additive constraint change only.
               migrations/0075_onboarding_cover_media_role.sql) ;;
+              # One-time review requests, disabled by default and without backfill.
+              migrations/0076_review_requests.sql) ;;
               migrations/meta/_journal.json) ;;
               vercel.json) ;;
               *)
@@ -416,6 +420,7 @@ jobs:
               0074_onboarding_account_site_foundation) ;;
               # Quick Book design system — onboarding cover media role.
               0075_onboarding_cover_media_role) ;;
+              0076_review_requests) ;;
               *)
                 echo "::error::Unauthorized migration journal entries: $tag"
                 exit 1
@@ -657,6 +662,9 @@ jobs:
       - name: Verify SMS components and plan access in desktop and mobile browsers
         run: node node_modules/@playwright/test/cli.js test --config tests/browser/sms/playwright.config.ts --output=test-results/sms-components
 
+      - name: Verify review previews and delivery states in mobile browsers
+        run: node node_modules/playwright/cli.js test --config tests/browser/reviews/playwright.config.ts --output=test-results/review-components
+
       - name: Run storybook tests
         run: npm run test-storybook:ci
 
@@ -667,7 +675,7 @@ jobs:
         env:
           LUSTER_DISPOSABLE_POSTGRES_CONTAINER_ID: ${{ job.services.postgres.id }}
           LUSTER_DISPOSABLE_POSTGRES_NETWORK: ${{ job.services.postgres.network }}
-        run: npm run test:e2e -- tests/e2e/mobile-staff-uiqi.e2e.ts tests/e2e/booking-layout-variants.e2e.ts tests/e2e/account-gate-contrast.e2e.ts tests/e2e/booking-page-hub.e2e.ts
+        run: npm run test:e2e -- tests/e2e/mobile-staff-uiqi.e2e.ts tests/e2e/booking-layout-variants.e2e.ts tests/e2e/account-gate-contrast.e2e.ts tests/e2e/booking-page-hub.e2e.ts tests/e2e/review-requests.e2e.ts
 
       - name: Run E2E with trusted-main Percy coverage
         if: github.event_name == 'push'
@@ -677,9 +685,9 @@ jobs:
           LUSTER_DISPOSABLE_POSTGRES_NETWORK: ${{ job.services.postgres.network }}
         run: |
           if [ -n "$PERCY_TOKEN" ]; then
-            npx percy exec -- npm run test:e2e -- tests/e2e/mobile-staff-uiqi.e2e.ts tests/e2e/booking-layout-variants.e2e.ts tests/e2e/account-gate-contrast.e2e.ts tests/e2e/booking-page-hub.e2e.ts
+            npx percy exec -- npm run test:e2e -- tests/e2e/mobile-staff-uiqi.e2e.ts tests/e2e/booking-layout-variants.e2e.ts tests/e2e/account-gate-contrast.e2e.ts tests/e2e/booking-page-hub.e2e.ts tests/e2e/review-requests.e2e.ts
           else
-            npm run test:e2e -- tests/e2e/mobile-staff-uiqi.e2e.ts tests/e2e/booking-layout-variants.e2e.ts tests/e2e/account-gate-contrast.e2e.ts tests/e2e/booking-page-hub.e2e.ts
+            npm run test:e2e -- tests/e2e/mobile-staff-uiqi.e2e.ts tests/e2e/booking-layout-variants.e2e.ts tests/e2e/account-gate-contrast.e2e.ts tests/e2e/booking-page-hub.e2e.ts tests/e2e/review-requests.e2e.ts
           fi
 
       - name: Verify onboarding desktop and phone geometry

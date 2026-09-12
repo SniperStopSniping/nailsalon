@@ -370,6 +370,18 @@ async function seedSalon(salonId: string, suffix: string, dayOffset: number): Pr
     siteId: id('onboarding_site'),
   });
 
+  await db.insert(schema.reviewRequestSchema).values({
+    id: id('review_request'),
+    salonId,
+    clientId: id('sclient'),
+    appointmentId: id('appt'),
+    recipient: '4165550199',
+    source: 'manual',
+    intentId: id('review_intent'),
+    completedAt: new Date('2026-08-01T14:00:00Z'),
+    scheduledFor: new Date('2026-08-01T15:00:00Z'),
+  });
+
   // Migration 0052 backup tables: no foreign keys, so they are invisible to any
   // FK-derived plan and only a seeded row proves the purge covers them.
   await db.execute(
