@@ -5,9 +5,10 @@ import { type SQL, sql } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 
 import { depositsTransaction } from './depositsTransaction';
+import { boundedShadowTransaction, isShadowDeadlineError, type ShadowExecutor } from './shadowDeadline';
 import { assessObservation, type Observation, type ReceiptProjection } from './shadowProjection';
 
-type Executor = { execute: (query: SQL) => PromiseLike<{ rows: unknown[] }> };
+type Executor = ShadowExecutor;
 async function rows<T>(executor: Executor, query: SQL): Promise<T[]> {
   return (await executor.execute(query)).rows as T[];
 }
@@ -211,32 +212,12 @@ function retryableContention(error: unknown): boolean {
   // admission error as successfully replayed work.
   for (let cause = error, depth = 0; cause && typeof cause === 'object' && depth < 4; depth += 1) {
     const detail = cause as { code?: string; cause?: unknown };
-    if (['55P03', '40P01', '40001', '57014'].includes(detail.code ?? '')) {
+    if (['55P03', '40P01', '40001', '57014', '25P03'].includes(detail.code ?? '')) {
       return true;
     }
     cause = detail.cause;
   }
   return false;
-}
-
-/** Each worker statement uses the remaining shared budget, including lock waits. */
-async function boundedShadowTransaction<T>(deadline: number, work: (tx: Executor) => Promise<T>): Promise<T> {
-  return depositsTransaction(db, async (tx) => {
-    const timed: Executor = {
-      async execute(query) {
-        if (Date.now() >= deadline) {
-          throw Object.assign(new Error('shadow_worker_deadline'), { code: '57014' });
-        }
-        await tx.execute(sql`SELECT set_config('statement_timeout',${String(Math.max(1, deadline - Date.now()))},true)`);
-        return tx.execute(query);
-      },
-    };
-    const result = await work(timed);
-    if (Date.now() >= deadline) {
-      throw Object.assign(new Error('shadow_worker_deadline'), { code: '57014' });
-    }
-    return result;
-  });
 }
 
 /** Local recovery does not depend on Stripe event retention or legacy status. */
@@ -377,18 +358,20 @@ export async function claimShadowWork(limit: number, deadline: number, observati
   });
 }
 
-export async function knownShadowRefundIds(claim: ShadowClaim): Promise<string[]> {
-  const found = await rows<{ object_id: string }>(db, sql`SELECT object_id FROM deposit_shadow_object
+export async function knownShadowRefundIds(claim: ShadowClaim, deadline = claim.deadline): Promise<string[]> {
+  return boundedShadowTransaction(Math.min(deadline, claim.deadline), async (tx) => {
+    const found = await rows<{ object_id: string }>(tx, sql`SELECT object_id FROM deposit_shadow_object
     WHERE salon_id=${claim.salon_id} AND deposit_id=${claim.deposit_id} AND account=${claim.account}
       AND livemode=${claim.livemode} AND kind='refund'`);
-  const [legacy] = await rows<{ stripe_refund_id: string | null; prior_refund_ids: string[] }>(db, sql`
+    const [legacy] = await rows<{ stripe_refund_id: string | null; prior_refund_ids: string[] }>(tx, sql`
     SELECT stripe_refund_id,prior_refund_ids FROM appointment_deposit
     WHERE salon_id=${claim.salon_id} AND id=${claim.deposit_id}`);
-  const receipts = await rows<{ object_id: string }>(db, sql`SELECT projection->>'objectId' AS object_id
+    const receipts = await rows<{ object_id: string }>(tx, sql`SELECT projection->>'objectId' AS object_id
     FROM deposit_shadow_receipt WHERE salon_id=${claim.salon_id} AND deposit_id=${claim.deposit_id}
       AND account=${claim.account} AND livemode=${claim.livemode} AND projection->>'kind'='refund'
       AND projection->>'objectId' IS NOT NULL`);
-  return [...new Set([...receipts.map(r => r.object_id), ...found.map(r => r.object_id), ...(legacy?.prior_refund_ids ?? []), ...(legacy?.stripe_refund_id ? [legacy.stripe_refund_id] : [])])];
+    return [...new Set([...receipts.map(r => r.object_id), ...found.map(r => r.object_id), ...(legacy?.prior_refund_ids ?? []), ...(legacy?.stripe_refund_id ? [legacy.stripe_refund_id] : [])])];
+  });
 }
 
 export async function finalizeShadowObservation(
@@ -550,6 +533,13 @@ export async function finalizeShadowObservation(
       throw new Error('observation_deadline');
     }
     return reason === null ? 'accepted' : 'incomplete';
+  }).catch((error: unknown) => {
+    if (!isShadowDeadlineError(error)) {
+      throw error;
+    }
+    // Expiration rolled back (or PostgreSQL terminated) the transaction. The
+    // durable lease remains reclaimable; a resumed worker cannot certify.
+    return 'stale' as const;
   });
 }
 

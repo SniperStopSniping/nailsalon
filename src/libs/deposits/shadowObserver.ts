@@ -261,7 +261,7 @@ export async function observeShadowClaim(claim: ShadowClaim, provider: ShadowPro
       }
       let knownRefundsResolved = true;
       if (progress.refundsComplete) {
-        const known = await knownShadowRefundIds(claim);
+        const known = await knownShadowRefundIds(claim, ctx.deadline);
         checkBudget(ctx);
         for (const id of known) {
           if (!progress.refunds.some(refund => refund.id === id)) {
