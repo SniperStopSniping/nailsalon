@@ -364,6 +364,46 @@ describe('CustomDesignOwnerEditor', () => {
 });
 
 describe('HotspotEditor bounded session', () => {
+  it('places a new link area where the owner taps the design', async () => {
+    installBrowserStubs();
+    const user = userEvent.setup();
+    const rect = {
+      bottom: 200,
+      height: 200,
+      left: 0,
+      right: 100,
+      top: 0,
+      width: 100,
+      x: 0,
+      y: 0,
+      toJSON: () => ({}),
+    };
+    vi.spyOn(HTMLImageElement.prototype, 'getBoundingClientRect')
+      .mockReturnValue(rect as DOMRect);
+    render(
+      <HotspotEditor
+        asset={assets['asset-page-1']}
+        createAreaId={() => 'area-new'}
+        image={makeImage('page-1', { interactiveAreas: [] })}
+        onCancel={vi.fn()}
+        onCommit={vi.fn()}
+        open
+      />,
+    );
+    const design = screen.getByRole('img', { name: 'Design being edited' });
+    fireEvent.load(design);
+
+    await user.click(screen.getByRole('button', { name: 'Add link area' }));
+
+    expect(screen.getByText(/Tap the design where this link should go/)).toBeVisible();
+    fireEvent.click(design, { clientX: 80, clientY: 150 });
+
+    expect(screen.getByText('Confirm the accessible label and action for this area.')).toBeVisible();
+    expect(screen.getByRole('button', {
+      name: 'Move clickable area: New link area',
+    }).parentElement).toHaveStyle({ left: '65%', top: '69%' });
+  });
+
   it('cancels without committing and commits one complete session on Done', async () => {
     installBrowserStubs();
     const user = userEvent.setup();

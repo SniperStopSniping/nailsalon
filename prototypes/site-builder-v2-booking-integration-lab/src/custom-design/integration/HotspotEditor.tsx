@@ -193,6 +193,7 @@ export function HotspotEditor({
   const [invalidActionIds, setInvalidActionIds] = useState<Set<string>>(() => new Set());
   const [renderedSize, setRenderedSize] = useState({ height: 0, width: 0 });
   const [interactionWarning, setInteractionWarning] = useState('');
+  const [placingAreaId, setPlacingAreaId] = useState<string | null>(null);
   const areasRef = useRef(areas);
   areasRef.current = areas;
   const imageElementRef = useRef<HTMLImageElement>(null);
@@ -207,6 +208,7 @@ export function HotspotEditor({
     setSelectedAreaId(image?.interactiveAreas[0]?.id ?? null);
     setInvalidActionIds(new Set());
     setInteractionWarning('');
+    setPlacingAreaId(null);
   }, [baselineKey]);
 
   useEffect(() => () => pointerCleanupRef.current?.(), []);
@@ -351,7 +353,8 @@ export function HotspotEditor({
     };
     setAreas(current => [...current, area]);
     setSelectedAreaId(id);
-    setInteractionWarning('Confirm the accessible label and action for this area.');
+    setPlacingAreaId(id);
+    setInteractionWarning('Tap the design where this link should go. You can fine-tune it afterward.');
   };
 
   const changeSelectedAction = (action: CustomDesignAction | null) => {
@@ -431,6 +434,26 @@ export function HotspotEditor({
                     height={image.height}
                     src={readyAssetUrl}
                     width={image.width}
+                    onClick={(event) => {
+                      if (!placingAreaId) {
+                        return;
+                      }
+                      const area = areasRef.current.find(candidate => candidate.id === placingAreaId);
+                      if (!area) {
+                        setPlacingAreaId(null);
+                        return;
+                      }
+                      const rect = event.currentTarget.getBoundingClientRect();
+                      const centerX = ((event.clientX - rect.left) / rect.width) * 100;
+                      const centerY = ((event.clientY - rect.top) / rect.height) * 100;
+                      tryGeometry(placingAreaId, {
+                        ...area.geometry,
+                        x: Math.max(0, Math.min(100 - area.geometry.width, centerX - area.geometry.width / 2)),
+                        y: Math.max(0, Math.min(100 - area.geometry.height, centerY - area.geometry.height / 2)),
+                      });
+                      setPlacingAreaId(null);
+                      setInteractionWarning('Confirm the accessible label and action for this area.');
+                    }}
                     onLoad={(event) => {
                       const rect = event.currentTarget.getBoundingClientRect();
                       setRenderedSize({ height: rect.height, width: rect.width });
