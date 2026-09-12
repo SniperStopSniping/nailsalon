@@ -600,7 +600,11 @@ describe('customer manage-link cancellation', () => {
   });
 
   it('lets one real delivery-row claim invoke a booking retry provider', async () => {
-    const { appointmentId } = await seedAppointmentWithToken();
+    const startTime = new Date(Date.now() + 60 * 60 * 1000);
+    const { appointmentId } = await seedAppointmentWithToken({
+      startTime,
+      endTime: new Date(startTime.getTime() + 60 * 60 * 1000),
+    });
     const deliveryId = `delivery_booking_retry_${appointmentId}`;
     await db.insert(schema.notificationDeliverySchema).values({
       id: deliveryId,
@@ -640,7 +644,13 @@ describe('customer manage-link cancellation', () => {
       appointmentId,
       deliveryId,
     });
-    await providerEntered;
+    const firstWinnerOutcome = await Promise.race([
+      providerEntered.then(() => 'provider-entered' as const),
+      winner.then(() => 'winner-completed' as const),
+    ]);
+
+    expect(firstWinnerOutcome).toBe('provider-entered');
+
     const loser = await retryCustomerBookingConfirmationEmail({
       salonId: SALON_ID,
       appointmentId,

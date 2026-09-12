@@ -826,6 +826,39 @@ describe('OnboardingV1Integration rendered account-save flow', () => {
     ]);
   });
 
+  it('continues past a failed cover upload without retrying or losing the saved site', async () => {
+    const user = userEvent.setup();
+    mocks.auth.isSignedIn = true;
+    mocks.userState.user = verifiedClerkUser();
+    mocks.claim.mockResolvedValue({ status: 'saved', value: savedSite });
+    mocks.status.mockResolvedValue({ claim: savedSite });
+    mocks.claimMedia.mockResolvedValue({
+      failures: [{
+        assetId: 'cover-asset',
+        fileName: 'IMG_7373.jpeg',
+        message: 'Your cover photo could not be saved. Your local copy is still safe.',
+        role: 'cover',
+      }],
+      verifiedRevision: 1,
+    });
+
+    const view = render(<OnboardingV1Integration authProviders={ALL_PROVIDERS} locale="en" />);
+    await user.click(await screen.findByRole('button', { name: 'Continue with my site saved' }));
+    await user.click(await screen.findByRole('button', { name: 'Choose how to start' }));
+    view.unmount();
+    render(<OnboardingV1Integration authProviders={ALL_PROVIDERS} locale="en" />);
+
+    expect(await screen.findByRole('heading', { name: 'Choose how you want to start' })).toBeVisible();
+    expect(mocks.claim).toHaveBeenCalledTimes(1);
+    expect(mocks.claimMedia).toHaveBeenCalledTimes(1);
+    expect(loadOnboardingIntegrationFlow()).toMatchObject({
+      mediaComplete: false,
+      mediaFailures: [expect.objectContaining({ assetId: 'cover-asset' })],
+      phase: 'plans',
+      savedSite: { siteId: savedSite.siteId },
+    });
+  });
+
   it('retains a successful core claim when media finalization must be retried', async () => {
     const user = userEvent.setup();
     mocks.auth.isSignedIn = true;

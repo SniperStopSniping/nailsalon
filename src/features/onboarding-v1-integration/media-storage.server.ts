@@ -7,6 +7,7 @@ import path from 'node:path';
 import { cloudinary, isCloudinaryConfigured } from '@/libs/Cloudinary';
 import sharp from '@/libs/safeSharp.server';
 
+import { ONBOARDING_SITE_MEDIA_ROLES } from './contracts';
 import type { OnboardingMediaRole } from './media-claim-client';
 import { ONBOARDING_MEDIA_MAX_FILE_BYTES } from './media-limits';
 
@@ -14,10 +15,10 @@ const MAX_BYTES = ONBOARDING_MEDIA_MAX_FILE_BYTES;
 const MAX_PIXELS = 40_000_000;
 const ALLOWED_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
 const SAFE_ID = /^[\w-]{1,160}$/;
-const ROLES = new Set(['profile', 'logo', 'gallery', 'custom_design']);
+const ROLES = new Set<string>(ONBOARDING_SITE_MEDIA_ROLES);
 const CLOUD_PREFIX = 'cloudinary_authenticated:';
-const CLOUD_KEY = /^salons\/([\w-]{1,160})\/onboarding-sites\/([\w-]{1,160})\/revisions\/([\w-]{1,160})\/(profile|logo|gallery|custom_design)\/([a-f0-9]{32})$/;
-const LOCAL_KEY = /^([\w-]{1,160})\/([\w-]{1,160})\/([\w-]{1,160})\/(profile|logo|gallery|custom_design)\/([a-f0-9]{32})\.webp$/;
+const CLOUD_KEY = /^salons\/([\w-]{1,160})\/onboarding-sites\/([\w-]{1,160})\/revisions\/([\w-]{1,160})\/(profile|logo|gallery|custom_design|cover)\/([a-f0-9]{32})$/;
+const LOCAL_KEY = /^([\w-]{1,160})\/([\w-]{1,160})\/([\w-]{1,160})\/(profile|logo|gallery|custom_design|cover)\/([a-f0-9]{32})\.webp$/;
 
 export type OnboardingMediaStorageProvider = 'cloudinary_authenticated' | 'development_local';
 export type OnboardingMediaStorageOwner = { salonId: string; siteId?: string };
