@@ -148,32 +148,71 @@ afterEach(() => {
 });
 
 describe('StarterChooser copy and accessibility', () => {
-  it('lets owners try clickable artwork without choosing a starter', async () => {
-    const user = userEvent.setup();
+  it('automatically types, places, previews and loops without choosing a starter', () => {
+    vi.useFakeTimers();
     const onChoose = vi.fn();
-    render(<StarterChoiceGrid onChoose={onChoose} reducedMotion />);
-    const demo = screen.getByRole('region', { name: 'Try making a design clickable' });
-    await user.click(within(demo).getByRole('button', { name: 'Try with example image' }));
-    await user.click(within(demo).getByRole('button', { name: 'Make something clickable' }));
-    await user.click(within(demo).getByRole('button', { name: 'Instagram' }));
-    act(() => within(demo).getByRole('button', { name: 'Put a button around @yourstudio' }).focus());
-    await user.keyboard('{Enter}');
+    render(<StarterChoiceGrid onChoose={onChoose} />);
+    const demo = screen.getByTestId('design-automatic-demo');
 
-    expect(within(demo).getByText(/Button added!/u)).toBeVisible();
+    expect(demo).toHaveAttribute('data-scene', '0');
 
-    await user.click(within(demo).getByRole('button', { name: 'Test Instagram button' }));
+    const durations = [2200, 2400, 2000, 3000, 2200, 2200, 2200, 2200, 3000];
+    durations.forEach((duration, index) => {
+      act(() => vi.advanceTimersByTime(duration));
 
-    expect(within(demo).getByText(/It works!/u)).toBeVisible();
-    expect(demo.querySelector('a')).toBeNull();
+      expect(demo).toHaveAttribute('data-scene', String((index + 1) % 9));
+    });
+
     expect(onChoose).not.toHaveBeenCalled();
+    expect(demo.querySelector('a, input')).toBeNull();
+    expect(within(demo).getAllByRole('button')).toHaveLength(1);
 
-    await user.click(within(demo).getByRole('button', { name: 'Try again' }));
+    fireEvent.click(within(demo).getByRole('button', { name: 'Pause demo' }));
+    act(() => vi.advanceTimersByTime(30000));
 
-    expect(within(demo).getByRole('button', { name: 'Try with example image' })).toBeVisible();
+    expect(demo).toHaveAttribute('data-scene', '0');
 
-    await user.click(getCard('Your Design'));
+    fireEvent.click(within(demo).getByRole('button', { name: 'Play demo' }));
+    act(() => vi.advanceTimersByTime(2200));
 
-    expect(onChoose).toHaveBeenCalledWith('your_design');
+    expect(demo).toHaveAttribute('data-scene', '1');
+
+    visibilityState = 'hidden';
+    act(() => document.dispatchEvent(new Event('visibilitychange')));
+    act(() => vi.advanceTimersByTime(30000));
+
+    expect(demo).toHaveAttribute('data-scene', '1');
+  });
+
+  it('stops the demonstration off-screen and resumes when visible', () => {
+    vi.useFakeTimers();
+    render(<StarterChoiceGrid onChoose={vi.fn()} />);
+    const demo = screen.getByTestId('design-automatic-demo');
+    const observer = TestIntersectionObserver.instances.find(candidate => candidate.observed.has(demo));
+
+    expect(observer).toBeDefined();
+
+    act(() => observer?.emit([{ ratio: 0, target: demo }]));
+    act(() => vi.advanceTimersByTime(30000));
+
+    expect(demo).toHaveAttribute('data-scene', '0');
+
+    act(() => observer?.emit([{ ratio: 1, target: demo }]));
+    act(() => vi.advanceTimersByTime(2200));
+
+    expect(demo).toHaveAttribute('data-scene', '1');
+  });
+
+  it('keeps a useful still demonstration for reduced motion', () => {
+    vi.useFakeTimers();
+    render(<StarterChoiceGrid onChoose={vi.fn()} reducedMotion />);
+    const demo = screen.getByTestId('design-automatic-demo');
+    act(() => vi.advanceTimersByTime(30000));
+
+    expect(demo).toHaveAttribute('data-scene', '7');
+    expect(demo).toHaveAttribute('data-playing', 'false');
+    expect(demo).toHaveTextContent('Upload → choose Instagram');
+    expect(within(demo).queryByRole('button')).toBeNull();
   });
 
   it('uses the exact owner-friendly copy and removes technical starter-count badges', () => {

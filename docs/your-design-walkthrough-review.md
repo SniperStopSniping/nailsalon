@@ -1,5 +1,30 @@
 # Your Design starting-card walkthrough
 
+## Automatic watch-only update (current candidate)
+
+Supersedes the hands-on demo below. No viewer input is needed. A nine-scene loop
+shows choosing an exported image, making it clickable, choosing Instagram,
+typing `lustergel.app`, placing and fitting the rectangle, saving/previewing,
+tapping the printed handle, and an explicitly simulated Instagram destination.
+The sequence then repeats. No real external URL opens and no provider profile is
+fetched or represented as verified. Pointer movement and tap rings illustrate actions.
+
+Only Pause/Play is interactive inside this demonstration. It pauses off-screen
+and while the browser page is hidden, and reduced-motion users get a useful still
+summary. Animated content is hidden from screen readers in favor of one static
+description, avoiding repeated announcements. The actual uploader/editor and
+onboarding state are unchanged; the demo uses only transient component state.
+
+Browser inspection confirmed automatic advancement and username typing on
+mobile/desktop. Captures: `/tmp/luster-autoplay-demo/mobile.png` and `desktop.png`.
+Playwright test updated; standalone runner and full real-upload journey not rerun
+for this illustration. Tests cover looping, pause, off-screen and reduced motion.
+22 focused tests passed (20 unrelated booking tests deliberately filtered out).
+Prototype typecheck and root lint passed; lint retained six existing warnings.
+
+Screenshot writes initially failed from low disk space. Removed only this task’s
+rebuildable, untracked prototype `dist` output (6 MB); no source or drafts removed.
+
 ## Interactive review update
 
 The passive illustration below is superseded by a hands-on, browser-local demo.

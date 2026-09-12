@@ -718,88 +718,148 @@ export function StarterPreview({
   );
 }
 
-function YourDesignDemo() {
-  const [step, setStep] = useState<'upload' | 'action' | 'destination' | 'place' | 'preview' | 'tested'>('upload');
+const DESIGN_DEMO_SCENES = [
+  { hint: '💡 Let’s bring your design to life.', label: 'Choose images', duration: 2200 },
+  { hint: 'Your image is uploaded. Now make part of it clickable.', label: 'Make something clickable', duration: 2400 },
+  { hint: 'Choose what happens when a client taps.', label: 'Instagram', duration: 2000 },
+  { hint: 'Enter your Instagram username.', label: 'Place button on design', duration: 3000 },
+  { hint: 'Tap the Instagram already printed in your design.', label: 'Tap to place', duration: 2200 },
+  { hint: 'Adjust the corners to fit your design.', label: 'Done', duration: 2200 },
+  { hint: 'Save your design, then open customer Preview.', label: 'Save design → Preview', duration: 2200 },
+  { hint: 'Now a client can tap your Instagram button.', label: 'Customer Preview', duration: 2200 },
+  { hint: 'Your Instagram opens. Same artwork, now clickable!', label: 'Instagram opens · Demo', duration: 3000 },
+] as const;
+
+function YourDesignDemo({ reducedMotion, pageVisible }: { reducedMotion: boolean; pageVisible: boolean }) {
+  const [sceneIndex, setSceneIndex] = useState(0);
+  const [paused, setPaused] = useState(false);
+  const [visible, setVisible] = useState(true);
   const demoRef = useRef<HTMLElement>(null);
-  const previousStep = useRef(step);
   useEffect(() => {
-    if (previousStep.current !== step) {
-      demoRef.current?.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus({ preventScroll: true });
-      previousStep.current = step;
+    if (!demoRef.current || typeof IntersectionObserver === 'undefined') {
+      return;
     }
-  }, [step]);
-  const hints = {
-    upload: 'Try it with this example. Later, you’ll upload your own Canva or AI design as an image.',
-    action: 'Your image is in. Let’s make the Instagram already in the design clickable.',
-    destination: 'Choose what happens when a client taps. For this example, choose Instagram.',
-    place: 'Tap @yourstudio below. We’ll put a button around that part of the design.',
-    preview: 'Button added! In the real editor, drag its corners to adjust the fit. Now tap it as a client would.',
-    tested: 'That would open your Instagram! Your artwork stays the same, and clients can now tap it.',
-  };
-  const placed = step === 'preview' || step === 'tested';
+    const observer = new IntersectionObserver(([entry]) => setVisible(Boolean(entry?.isIntersecting)), { threshold: 0 });
+    observer.observe(demoRef.current);
+    return () => observer.disconnect();
+  }, []);
+  const scene = DESIGN_DEMO_SCENES[sceneIndex]!;
+  const playing = visible && pageVisible && !paused && !reducedMotion;
+  useEffect(() => {
+    if (!playing) {
+      return;
+    }
+    const timer = window.setTimeout(() => setSceneIndex(current => (current + 1) % DESIGN_DEMO_SCENES.length), scene.duration);
+    return () => window.clearTimeout(timer);
+  }, [playing, scene.duration, sceneIndex]);
+  const frame = reducedMotion ? 7 : sceneIndex;
+  const placed = frame >= 5;
   return (
-    <section aria-label="Try making a design clickable" className="final-design-demo final-design-demo--interactive" data-testid="design-interactive-demo" ref={demoRef}>
-      <span className="final-design-demo__note">Try it here · Example only</span>
-      <p aria-live="polite" className="final-design-demo__coach">{hints[step]}</p>
-      <div className="final-design-demo__artwork">
-        <small>EXAMPLE DESIGN</small>
-        <strong>Your nail studio</strong>
-        <span className="final-design-demo__tagline">Beautiful nails. Your signature style.</span>
-        <button
-          aria-label={placed ? 'Test Instagram button' : 'Put a button around @yourstudio'}
-          className="final-design-demo__instagram"
-          data-placed={placed}
-          disabled={step !== 'place' && step !== 'preview'}
-          type="button"
-          onClick={() => setStep(step === 'place' ? 'preview' : 'tested')}
-        >
-          <Instagram aria-hidden="true" size={18} />
-          {' '}
-          @yourstudio
-          {placed
+    <section aria-label="Watch your design become clickable" className="final-design-demo final-design-demo--automatic" data-testid="design-automatic-demo" data-scene={frame} data-playing={playing} ref={demoRef}>
+      <span className="final-design-demo__note">Watch how it works · Example only</span>
+      <span className="visually-hidden">Upload an exported image. Choose Make something clickable, then Instagram. Enter your username, tap its location on your image, adjust the rectangle, and save. In customer Preview, tapping the button opens Instagram. This demonstration never opens an external website or changes your draft.</span>
+      <div aria-hidden="true" className="final-design-demo__film" key={frame}>
+        <p className="final-design-demo__coach">{reducedMotion ? 'Upload → choose Instagram → enter your username → outline it → Preview.' : scene.hint}</p>
+        <div className="final-design-demo__screen">
+          {frame === 0
             ? (
-                <span aria-hidden="true" className="final-design-demo__outline">
-                  <i />
-                  <i />
-                  <i />
-                  <i />
-                </span>
+                <div className="final-design-demo__upload">
+                  <FileUp size={32} />
+                  <strong>Your Canva or AI design</strong>
+                  <span className="final-design-demo__file">✦ my-design.png</span>
+                  <span className="final-design-demo__fake-button final-design-demo__target">
+                    Choose images
+                    <span className="final-design-demo__pointer">↖</span>
+                  </span>
+                </div>
               )
-            : null}
-        </button>
-        <small>{step === 'place' ? '↑ Tap your Instagram here' : placed ? 'Your design is now clickable' : 'Already part of your design'}</small>
+            : frame === 8
+              ? (
+                  <div className="final-design-demo__profile">
+                    <Instagram size={28} />
+                    <small>Instagram · Example destination</small>
+                    <strong>@lustergel.app</strong>
+                    <span className="final-design-demo__avatar">L</span>
+                    <span>Luster</span>
+                    <div className="final-design-demo__profile-grid">
+                      <i />
+                      <i />
+                      <i />
+                    </div>
+                    <small>Opens here in the demo only</small>
+                  </div>
+                )
+              : (
+                  <>
+                    <div className="final-design-demo__artwork">
+                      <small>YOUR UPLOADED DESIGN</small>
+                      <strong>Your nail studio</strong>
+                      <span className="final-design-demo__tagline">Beautiful nails. Your signature style.</span>
+                      <span className="final-design-demo__instagram">
+                        <Instagram size={18} />
+                        {' '}
+                        @lustergel.app
+                        {placed || frame === 4
+                          ? (
+                              <span className="final-design-demo__outline" data-fitting={frame === 5}>
+                                <i />
+                                <i />
+                                <i />
+                                <i />
+                              </span>
+                            )
+                          : null}
+                        {frame === 4 || frame === 5 || frame === 7 ? <span className="final-design-demo__pointer">↖</span> : null}
+                      </span>
+                    </div>
+                    {frame === 2 || frame === 3
+                      ? (
+                          <div className="final-design-demo__sheet">
+                            <strong>What should happen when clients tap?</strong>
+                            {frame === 2
+                              ? (
+                                  <>
+                                    <span className="final-design-demo__fake-button final-design-demo__target">
+                                      <Instagram size={18} />
+                                      {' '}
+                                      Instagram
+                                      <span className="final-design-demo__pointer">↖</span>
+                                    </span>
+                                    <small>Call · Email · Book appointment · Website</small>
+                                  </>
+                                )
+                              : (
+                                  <>
+                                    <small>Instagram username</small>
+                                    <span className="final-design-demo__input"><span>lustergel.app</span></span>
+                                    <span className="final-design-demo__fake-button">Place button on design</span>
+                                  </>
+                                )}
+                          </div>
+                        )
+                      : null}
+                    {frame === 1 || frame === 5 || frame === 6
+                      ? (
+                          <span className="final-design-demo__fake-button final-design-demo__target">
+                            {scene.label}
+                            <span className="final-design-demo__pointer">↖</span>
+                          </span>
+                        )
+                      : null}
+                    {frame === 7 ? <small className="final-design-demo__note">Customer Preview · Tap opens Instagram</small> : null}
+                    <span className="final-design-demo__booking">
+                      <CalendarDays size={14} />
+                      {' '}
+                      Book appointment
+                    </span>
+                  </>
+                )}
+        </div>
       </div>
-      <div className="final-design-demo__controls">
-        {step === 'upload'
-          ? (
-              <button type="button" onClick={() => setStep('action')}>
-                <FileUp aria-hidden="true" size={18} />
-                {' '}
-                Try with example image
-              </button>
-            )
-          : null}
-        {step === 'action' ? <button type="button" onClick={() => setStep('destination')}>Make something clickable</button> : null}
-        {step === 'destination'
-          ? (
-              <button type="button" onClick={() => setStep('place')}>
-                <Instagram aria-hidden="true" size={18} />
-                {' '}
-                Instagram
-              </button>
-            )
-          : null}
-        {step === 'place' ? <span>In your own design, you can link Instagram, calls, email, booking and more.</span> : null}
-        {step === 'preview' ? <span>Customer Preview · Tap the Instagram button above</span> : null}
-        {step === 'tested' ? <span role="status">✓ It works! No website opened during this demo.</span> : null}
+      <div className="final-design-demo__playback">
+        <span aria-hidden="true">{reducedMotion ? 'Your design + real booking' : `${sceneIndex + 1} / ${DESIGN_DEMO_SCENES.length} · Repeats automatically`}</span>
+        {!reducedMotion ? <button type="button" onClick={() => setPaused(current => !current)}>{paused ? 'Play demo' : 'Pause demo'}</button> : null}
       </div>
-      <span aria-hidden="true" className="final-design-demo__booking">
-        <CalendarDays size={14} />
-        {' '}
-        Book appointment
-      </span>
-      <small className="final-design-demo__note">Your real booking button stays underneath.</small>
-      {step !== 'upload' ? <button className="final-design-demo__restart" type="button" onClick={() => setStep('upload')}>Try again</button> : null}
     </section>
   );
 }
@@ -900,7 +960,7 @@ export function StarterChoiceGrid({
             ? (
                 <div className="final-starter-card" data-selected={selected ? 'true' : 'false'} key={starter.id}>
                   {choice}
-                  <YourDesignDemo />
+                  <YourDesignDemo pageVisible={playback.pageVisible} reducedMotion={playback.prefersReducedMotion} />
                 </div>
               )
             : choice;
