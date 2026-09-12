@@ -259,7 +259,7 @@ describe('review request production', () => {
     expect((await rows(fixture.salonId))[0]).toMatchObject({ status: 'cancelled' });
   });
 
-  it('honors an existing manually marked-sent Google review without treating prepared copy as delivery', async () => {
+  it('honors an existing manually marked-sent Google review', async () => {
     const fixture = await seed();
     const { scheduleReviewRequest, getAppointmentReviewState } = await import('./reviewRequests.server');
     await db.insert(schema.clientCommunicationSchema).values({ id: 'legacy-marked-review', salonId: fixture.salonId, salonClientId: fixture.clientId, kind: 'google_review', status: 'marked_sent', markedSentAt: new Date(), messageSnapshot: 'Previously sent review request' });

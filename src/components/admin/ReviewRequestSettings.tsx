@@ -169,7 +169,7 @@ export function ReviewRequestSettings({ salonSlug }: { salonSlug: string }) {
       {error && <p role="alert" className="text-sm text-red-700">{error}</p>}
       <button type="button" disabled={!changed || saving} onClick={() => void save()} className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-[var(--owner-accent)] px-4 text-sm font-semibold text-white disabled:opacity-50">
         <Save className="size-4" />
-        {saving ? 'Saving…' : saved ? 'Saved' : 'Save review settings'}
+        {saving ? 'Saving…' : saved && !changed ? 'Saved' : 'Save review settings'}
       </button>
     </div>
   );
