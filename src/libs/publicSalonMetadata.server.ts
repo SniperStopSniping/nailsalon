@@ -7,6 +7,7 @@ import {
   type PublicSalonMetadataInput,
 } from '@/libs/publicSalonMetadata';
 import { getSalonBySlug } from '@/libs/queries';
+import { buildSalonTenantPublicUrl } from '@/libs/publicUrl';
 
 /**
  * Server side of `publicSalonMetadata`: resolve the salon from the route slug
@@ -45,6 +46,10 @@ async function loadPublicSalonMetadataInput(
     state: salon.state ?? null,
     zipCode: salon.zipCode ?? null,
     locationDisplayMode: live.locationDisplayMode,
+    publicUrl: buildSalonTenantPublicUrl('/', {
+      slug: salon.slug,
+      customDomain: salon.customDomain,
+    }, locale),
   };
 }
 
