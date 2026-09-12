@@ -80,6 +80,31 @@ type DisplayTimeSlot = {
   smartFit?: CustomerSmartFitOffer | null;
 };
 
+function DaypartIcon({ period }: { period: DisplayTimeSlot['period'] }) {
+  if (period === 'evening') {
+    return (
+      <svg aria-hidden="true" className="size-4" viewBox="0 0 20 20" fill="none">
+        <path d="M15.75 12.2A6.4 6.4 0 0 1 7.8 4.25 6.4 6.4 0 1 0 15.75 12.2Z" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    );
+  }
+
+  if (period === 'morning') {
+    return (
+      <svg aria-hidden="true" className="size-4" viewBox="0 0 20 20" fill="none">
+        <path d="M3 14.5h14M5.5 12a4.5 4.5 0 0 1 9 0M10 2.5v2M4.7 6.7 3.3 5.3M15.3 6.7l1.4-1.4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    );
+  }
+
+  return (
+    <svg aria-hidden="true" className="size-4" viewBox="0 0 20 20" fill="none">
+      <circle cx="10" cy="10" r="3.25" stroke="currentColor" strokeWidth="1.8" />
+      <path d="M10 2v2M10 16v2M2 10h2M16 10h2M4.35 4.35l1.4 1.4M14.25 14.25l1.4 1.4M15.65 4.35l-1.4 1.4M5.75 14.25l-1.4 1.4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+    </svg>
+  );
+}
+
 type AvailabilitySlot = {
   time: string;
   startTime?: string | null;
@@ -354,6 +379,7 @@ export function BookTimeClient({
   const [availabilityError, setAvailabilityError] = useState<AvailabilityError | null>(null);
   const [findingNextAvailable, setFindingNextAvailable] = useState(false);
   const [nextAvailableMessage, setNextAvailableMessage] = useState<string | null>(null);
+  const [selectedTime, setSelectedTime] = useState<string | null>(null);
 
   // Refs for smooth scrolling to time slot sections
   const smartFitSlotsRef = useRef<HTMLDivElement>(null);
@@ -556,6 +582,7 @@ export function BookTimeClient({
           && data.slots.some((slot: { availability?: string }) => slot.availability === 'available');
         if (hasAvailableSlot) {
           allowTodayAutoAdvanceRef.current = false;
+          setSelectedTime(null);
           setSelectedDate(candidate);
           setCurrentMonth(candidate.getMonth());
           setCurrentYear(candidate.getFullYear());
@@ -771,8 +798,13 @@ export function BookTimeClient({
     ? `Only ${availableTimeCount} ${availableTimeCount === 1 ? 'opening' : 'openings'} left today`
     : `${availableTimeCount} times available`;
   const timeGridClassName = availableTimeCount === 1
-    ? 'grid grid-cols-1 gap-2 p-4'
-    : 'grid grid-cols-2 gap-2 p-4 sm:grid-cols-3';
+    ? 'grid grid-cols-1 gap-2.5'
+    : 'grid grid-cols-2 gap-2.5 sm:grid-cols-3';
+  const timeGroups = [
+    { key: 'morning' as const, label: 'Morning', ref: morningSlotsRef, slots: morningSlots },
+    { key: 'afternoon' as const, label: 'Afternoon', ref: afternoonSlotsRef, slots: afternoonSlots },
+    { key: 'evening' as const, label: 'Evening', ref: eveningSlotsRef, slots: eveningSlots },
+  ].filter(group => group.slots.length > 0);
 
   const monthNames = [
     'January',
@@ -852,6 +884,7 @@ export function BookTimeClient({
     scrollTargetDateRef.current = nextDateKey;
 
     // Update selected date (triggers fetch → loadingSlots → useEffect scroll)
+    setSelectedTime(null);
     setSelectedDate(dateAtMidnight);
     syncSelectedDateToUrl(nextDateKey);
   };
@@ -866,6 +899,8 @@ export function BookTimeClient({
     if (!nextStep) {
       return;
     }
+
+    setSelectedTime(slot.time);
 
     // One nearby Smart Fit suggestion (P7.3): derived only from the loaded
     // availability response for this exact date/technician/location context,
@@ -974,7 +1009,7 @@ export function BookTimeClient({
         background: `linear-gradient(to bottom, color-mix(in srgb, ${themeVars.background} 95%, white), ${themeVars.background}, color-mix(in srgb, ${themeVars.background} 95%, ${themeVars.primaryDark}))`,
       }}
     >
-      <div className="mx-auto flex w-full max-w-[430px] flex-col px-4 pb-10">
+      <div className="mx-auto flex w-full max-w-[430px] flex-col px-4 pb-10 sm:max-w-[620px]">
         <BookingStepHeader
           salonName={salonName}
           mounted={mounted}
@@ -1013,7 +1048,7 @@ export function BookTimeClient({
           ref={calendarRef}
           tabIndex={-1}
           aria-label="Choose an appointment date"
-          className="mb-4 overflow-hidden rounded-2xl bg-white shadow-[0_4px_20px_rgba(0,0,0,0.06)] max-[339px]:-mx-3"
+          className="mb-4 overflow-hidden rounded-3xl bg-white shadow-[0_12px_32px_-22px_rgba(63,43,36,0.34)] max-[339px]:-mx-3"
           style={{
             borderWidth: '1px',
             borderStyle: 'solid',
@@ -1088,9 +1123,8 @@ export function BookTimeClient({
                     ? `${monthNames[date.getMonth()]} ${date.getDate()} — closed`
                     : undefined}
                   title={isClosed ? 'The salon is closed on this day' : undefined}
-                  className="h-11 min-w-11 rounded-xl text-sm font-semibold transition-all duration-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 motion-reduce:transition-none"
+                  className="h-11 min-w-11 rounded-full text-sm font-semibold transition-all duration-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 motion-reduce:transition-none"
                   style={{
-                    transform: isSelected ? 'scale(1.1)' : undefined,
                     zIndex: isSelected ? 10 : undefined,
                     background: isSelected
                       ? `linear-gradient(to bottom right, ${themeVars.primary}, ${themeVars.primaryDark})`
@@ -1107,7 +1141,7 @@ export function BookTimeClient({
                             ? 'white'
                             : '#404040',
                     textDecoration: isClosed && !isPast ? 'line-through' : undefined,
-                    boxShadow: isSelected ? '0 10px 15px -3px rgb(0 0 0 / 0.1)' : undefined,
+                    boxShadow: isSelected ? `0 0 0 3px color-mix(in srgb, ${themeVars.primary} 22%, transparent)` : undefined,
                     cursor: isUnselectable ? 'not-allowed' : 'pointer',
                     opacity: loadingSlots && !isSelected ? 0.6 : undefined,
                   }}
@@ -1168,24 +1202,52 @@ export function BookTimeClient({
         )}
 
         {(noSlotsAvailable || allSlotsBooked) && !availabilityError && (
-          <StateCard
-            tone="warning"
-            className="mb-4"
-            contentClassName="py-4"
-            icon="⏰"
-            title={`No openings on ${selectedDate ? formatSelectedDate(selectedDate) : 'this date'}`}
-            description={nextAvailableMessage || 'Try another date to find the next available appointment.'}
-            action={(
-              <div className="mt-2 flex flex-col items-center gap-2 sm:flex-row sm:justify-center">
-                <button type="button" onClick={() => void findNextAvailableDate()} disabled={findingNextAvailable} className="min-h-11 rounded-full bg-amber-900 px-5 py-2.5 text-sm font-semibold text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 disabled:opacity-60">
-                  {findingNextAvailable ? 'Checking the next 30 days…' : 'Find next available'}
-                </button>
-                <button type="button" onClick={handleChooseAnotherDate} className="min-h-11 rounded-full border border-amber-900 px-5 py-2.5 text-sm font-semibold text-amber-950 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2">
-                  Choose another date
-                </button>
-              </div>
-            )}
-          />
+          <section
+            aria-labelledby="no-openings-title"
+            className="mb-4 rounded-[1.75rem] border bg-white px-5 py-6 text-center shadow-[0_16px_40px_-28px_rgba(63,43,36,0.42)]"
+            style={{ borderColor: themeVars.cardBorder }}
+          >
+            <div
+              className="mx-auto flex size-12 items-center justify-center rounded-2xl"
+              style={{ backgroundColor: themeVars.surfaceAlt, color: themeVars.accent }}
+            >
+              <svg aria-hidden="true" className="size-5" viewBox="0 0 24 24" fill="none">
+                <path d="M7 3v3M17 3v3M4 9h16M6.5 20h11a2.5 2.5 0 0 0 2.5-2.5v-11A2.5 2.5 0 0 0 17.5 4h-11A2.5 2.5 0 0 0 4 6.5v11A2.5 2.5 0 0 0 6.5 20Z" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+                <path d="m9.5 12.5 5 5M14.5 12.5l-5 5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+              </svg>
+            </div>
+            <h2
+              id="no-openings-title"
+              className="mx-auto mt-4 max-w-md text-[1.35rem] font-semibold leading-tight tracking-[-0.02em]"
+              style={{ color: themeVars.titleText, fontFamily: 'var(--n5-font-heading)' }}
+            >
+              No openings on
+              {' '}
+              {selectedDate ? formatSelectedDate(selectedDate) : 'this date'}
+            </h2>
+            <p className="mx-auto mt-2 max-w-sm text-sm leading-6" style={{ color: themeVars.secondaryText }}>
+              {nextAvailableMessage || 'Try another date to find the next available appointment.'}
+            </p>
+            <div className="mt-5 flex flex-col gap-2.5 sm:flex-row sm:justify-center">
+              <button
+                type="button"
+                onClick={() => void findNextAvailableDate()}
+                disabled={findingNextAvailable}
+                className="min-h-12 rounded-2xl px-5 py-3 text-sm font-semibold text-white shadow-sm transition-transform hover:-translate-y-0.5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 active:translate-y-0 disabled:opacity-60 motion-reduce:transform-none"
+                style={{ backgroundColor: themeVars.accent }}
+              >
+                {findingNextAvailable ? 'Checking the next 30 days…' : 'Find next available'}
+              </button>
+              <button
+                type="button"
+                onClick={handleChooseAnotherDate}
+                className="min-h-12 rounded-2xl border bg-white px-5 py-3 text-sm font-semibold focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
+                style={{ borderColor: themeVars.borderMuted, color: themeVars.titleText }}
+              >
+                Choose another date
+              </button>
+            </div>
+          </section>
         )}
 
         {/* Time Selection - Only shows when date is selected and has available slots */}
@@ -1209,252 +1271,209 @@ export function BookTimeClient({
             )}
 
             {!loadingSlots && (
-              <div className="rounded-2xl border border-amber-100 bg-amber-50 px-4 py-3 text-sm leading-5 text-amber-950">
-                Your service takes
-                {' '}
-                <strong>{totalDuration >= 60 ? `${Math.floor(totalDuration / 60)}h ${totalDuration % 60 ? `${totalDuration % 60}m` : ''}`.trim() : `${totalDuration}m`}</strong>
-                {availabilityBufferMinutes > 0 ? ` plus ${availabilityBufferMinutes} minutes of preparation time` : ''}
-                .
+              <div
+                className="flex items-start gap-3 rounded-2xl border bg-white/75 px-4 py-3 text-[13px] leading-5"
+                style={{ borderColor: themeVars.cardBorder, color: themeVars.titleText }}
+              >
+                <span
+                  aria-hidden="true"
+                  className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-xl"
+                  style={{ backgroundColor: themeVars.surfaceAlt, color: themeVars.accent }}
+                >
+                  <svg className="size-4" viewBox="0 0 20 20" fill="none">
+                    <circle cx="10" cy="10" r="7" stroke="currentColor" strokeWidth="1.6" />
+                    <path d="M10 6v4l2.5 1.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                </span>
+                <p className="min-w-0 pt-1">
+                  Your service takes
+                  {' '}
+                  <strong>{totalDuration >= 60 ? `${Math.floor(totalDuration / 60)}h ${totalDuration % 60 ? `${totalDuration % 60}m` : ''}`.trim() : `${totalDuration}m`}</strong>
+                  {availabilityBufferMinutes > 0 ? ` plus ${availabilityBufferMinutes} minutes of preparation time` : ''}
+                  .
+                </p>
               </div>
             )}
 
             {!loadingSlots && (
-              <div className="flex items-center justify-between gap-3 rounded-2xl border border-neutral-200 bg-white px-4 py-3 shadow-[0_4px_20px_rgba(0,0,0,0.04)]">
-                <div className="min-w-0">
-                  <p className="text-xs font-bold uppercase tracking-[0.14em] text-neutral-500">{formatSelectedDate(selectedDate)}</p>
-                  <p className="mt-1 text-base font-bold text-neutral-950" aria-live="polite">{availabilityCountCopy}</p>
-                </div>
-                <button type="button" onClick={handleChooseAnotherDate} className="min-h-11 shrink-0 rounded-full px-3 text-sm font-semibold underline decoration-neutral-300 underline-offset-4 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2">
-                  Check another date
-                </button>
-              </div>
-            )}
-
-            {/* Smart Fit qualifying times (P7.3) — server-derived offers only */}
-            {hasSmartFitSlots && !loadingSlots && (
               <section
-                data-public-surface="smartFitAvailabilitySection"
-                ref={smartFitSlotsRef}
-                tabIndex={-1}
-                aria-label={SMART_FIT_SECTION_TITLE}
-                className="scroll-mt-4 overflow-hidden rounded-2xl bg-white shadow-[0_4px_20px_rgba(0,0,0,0.06)]"
-                style={{
-                  borderWidth: '1px',
-                  borderStyle: 'solid',
-                  borderColor: `color-mix(in srgb, ${themeVars.primary} 45%, ${themeVars.cardBorder})`,
-                }}
+                aria-labelledby="availability-heading"
+                className="overflow-hidden rounded-[1.75rem] border bg-white shadow-[0_16px_40px_-28px_rgba(63,43,36,0.42)]"
+                style={{ borderColor: themeVars.cardBorder }}
               >
-                <div className="border-b border-neutral-100 px-5 py-3">
-                  <div className="flex items-center gap-2">
-                    <span className="text-xl" aria-hidden="true">✨</span>
-                    <h3 className="text-sm font-bold text-neutral-900">{SMART_FIT_SECTION_TITLE}</h3>
-                  </div>
-                  <p className="mt-1 text-xs leading-5 text-neutral-500">{SMART_FIT_SECTION_DESCRIPTION}</p>
+                <div className="px-5 pb-4 pt-5 sm:px-6">
+                  <p className="text-[11px] font-bold uppercase tracking-[0.18em]" style={{ color: themeVars.secondaryText }}>
+                    {formatSelectedDate(selectedDate)}
+                  </p>
+                  <h2
+                    id="availability-heading"
+                    className="mt-1 text-[1.45rem] font-semibold leading-tight -tracking-wide"
+                    style={{ color: themeVars.titleText, fontFamily: 'var(--n5-font-heading)' }}
+                    aria-live="polite"
+                  >
+                    {availabilityCountCopy}
+                  </h2>
                 </div>
-                <div className={availableTimeCount === 1 ? timeGridClassName : 'grid grid-cols-2 gap-2 p-4'}>
-                  {smartFitSlots.map((slot) => {
-                    const offer = slot.smartFit;
-                    if (!offer) {
-                      return null;
-                    }
-                    return (
-                      <button
-                        key={slot.time}
-                        type="button"
-                        data-testid={`smart-fit-slot-${slot.time}`}
-                        onClick={() => handleTimeSelect(slot)}
-                        aria-label={`${formatTime12h(slot.time)} — ${SMART_FIT_BADGE_LABEL}: save ${formatMoney(offer.discountAmountCents)}. ${formatMoney(offer.discountedPriceCents)} instead of ${formatMoney(offer.originalPriceCents)}.`}
-                        className="min-h-11 min-w-0 rounded-xl p-3 text-left transition-all duration-200 hover:scale-[1.02] hover:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 active:scale-95"
-                        style={{
-                          borderWidth: '1px',
-                          borderStyle: 'solid',
-                          borderColor: `color-mix(in srgb, ${themeVars.primary} 35%, transparent)`,
-                          background: `linear-gradient(to bottom right, ${themeVars.surfaceAlt}, ${themeVars.highlightBackground})`,
-                        }}
+
+                {/* Smart Fit qualifying times (P7.3) — server-derived offers only */}
+                {hasSmartFitSlots && (
+                  <div
+                    data-public-surface="smartFitAvailabilitySection"
+                    ref={smartFitSlotsRef}
+                    tabIndex={-1}
+                    role="region"
+                    aria-label={SMART_FIT_SECTION_TITLE}
+                    className="scroll-mt-4 border-t p-5 sm:px-6"
+                    style={{
+                      borderColor: `color-mix(in srgb, ${themeVars.primary} 32%, ${themeVars.cardBorder})`,
+                      backgroundColor: `color-mix(in srgb, ${themeVars.highlightBackground} 55%, white)`,
+                    }}
+                  >
+                    <div className="flex items-start gap-3">
+                      <span
+                        aria-hidden="true"
+                        className="flex size-8 shrink-0 items-center justify-center rounded-xl"
+                        style={{ backgroundColor: `color-mix(in srgb, ${themeVars.primary} 18%, white)`, color: themeVars.accent }}
                       >
-                        <span aria-hidden="true" className="block min-w-0">
-                          <span className="flex flex-wrap items-center justify-between gap-x-1 gap-y-0.5">
-                            <span className="text-sm font-bold text-neutral-800">{formatTime12h(slot.time)}</span>
-                            <span
-                              className="shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold text-neutral-900"
-                              style={{
-                                backgroundColor: `color-mix(in srgb, ${themeVars.primary} 24%, white)`,
-                              }}
-                            >
-                              {SMART_FIT_BADGE_LABEL}
+                        <svg className="size-4" viewBox="0 0 20 20" fill="none">
+                          <path d="M10 2.5c.55 3.65 2.35 5.45 6 6-3.65.55-5.45 2.35-6 6-.55-3.65-2.35-5.45-6-6 3.65-.55 5.45-2.35 6-6Z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round" />
+                        </svg>
+                      </span>
+                      <div>
+                        <h3 className="text-sm font-bold" style={{ color: themeVars.titleText }}>{SMART_FIT_SECTION_TITLE}</h3>
+                        <p className="mt-0.5 text-xs leading-5" style={{ color: themeVars.secondaryText }}>{SMART_FIT_SECTION_DESCRIPTION}</p>
+                      </div>
+                    </div>
+                    <div className={`${timeGridClassName} mt-4`}>
+                      {smartFitSlots.map((slot) => {
+                        const offer = slot.smartFit;
+                        if (!offer) {
+                          return null;
+                        }
+                        const isSelectedTime = selectedTime === slot.time;
+                        return (
+                          <button
+                            key={slot.time}
+                            type="button"
+                            data-testid={`smart-fit-slot-${slot.time}`}
+                            data-selected={isSelectedTime ? 'true' : 'false'}
+                            onClick={() => handleTimeSelect(slot)}
+                            aria-label={`${isSelectedTime ? 'Selected. ' : ''}${formatTime12h(slot.time)} — ${SMART_FIT_BADGE_LABEL}: save ${formatMoney(offer.discountAmountCents)}. ${formatMoney(offer.discountedPriceCents)} instead of ${formatMoney(offer.originalPriceCents)}.`}
+                            className="min-h-[60px] min-w-0 rounded-2xl border p-3 text-left transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-selected-ring)] focus-visible:ring-offset-2 active:translate-y-0 motion-reduce:transform-none"
+                            style={{
+                              borderColor: isSelectedTime ? themeVars.accent : `color-mix(in srgb, ${themeVars.primary} 42%, ${themeVars.cardBorder})`,
+                              background: isSelectedTime ? themeVars.selectedBackground : themeVars.cardBackground,
+                            }}
+                          >
+                            <span aria-hidden="true" className="block min-w-0">
+                              <span className="flex flex-wrap items-center justify-between gap-x-1 gap-y-0.5">
+                                <span className="text-sm font-bold" style={{ color: themeVars.titleText }}>{formatTime12h(slot.time)}</span>
+                                <span
+                                  className="shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold"
+                                  style={{ backgroundColor: `color-mix(in srgb, ${themeVars.primary} 22%, white)`, color: themeVars.titleText }}
+                                >
+                                  {SMART_FIT_BADGE_LABEL}
+                                </span>
+                              </span>
+                              <span className="mt-1 block text-xs font-semibold text-emerald-700">
+                                {`Save ${formatMoney(offer.discountAmountCents)}`}
+                              </span>
+                              <span className="mt-1 flex flex-wrap items-baseline gap-x-1.5">
+                                <span className="text-base font-bold" style={{ color: themeVars.titleText }}>{formatMoney(offer.discountedPriceCents)}</span>
+                                <s className="text-xs font-medium" style={{ color: themeVars.secondaryText }}>{formatMoney(offer.originalPriceCents)}</s>
+                              </span>
                             </span>
-                          </span>
-                          <span className="mt-1 block text-xs font-semibold text-emerald-700">
-                            {`Save ${formatMoney(offer.discountAmountCents)}`}
-                          </span>
-                          <span className="mt-1 flex flex-wrap items-baseline gap-x-1.5">
-                            <span className="text-base font-bold text-neutral-900">{formatMoney(offer.discountedPriceCents)}</span>
-                            <s className="text-xs font-medium text-neutral-600">{formatMoney(offer.originalPriceCents)}</s>
-                          </span>
-                        </span>
-                      </button>
-                    );
-                  })}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
+                {hasSmartFitSlots && timeGroups.length > 0 && (
+                  <h3 className="border-t px-5 pt-5 text-sm font-bold sm:px-6" style={{ borderColor: themeVars.cardBorder, color: themeVars.titleText }}>
+                    {SMART_FIT_OTHER_TIMES_TITLE}
+                  </h3>
+                )}
+
+                {timeGroups.map(group => (
+                  <div
+                    key={group.key}
+                    ref={group.ref}
+                    tabIndex={-1}
+                    role="region"
+                    aria-label={`${group.label} times`}
+                    className="scroll-mt-4 border-t p-5 sm:px-6"
+                    style={{ borderColor: themeVars.cardBorder }}
+                  >
+                    <div className="mb-3.5 flex items-center gap-2.5">
+                      <span
+                        aria-hidden="true"
+                        className="flex size-8 items-center justify-center rounded-xl"
+                        style={{ backgroundColor: themeVars.surfaceAlt, color: themeVars.accent }}
+                      >
+                        <DaypartIcon period={group.key} />
+                      </span>
+                      <h3 className="text-xs font-bold uppercase tracking-[0.16em]" style={{ color: themeVars.titleText }}>
+                        {group.label}
+                      </h3>
+                    </div>
+                    <div className={availableTimeCount === 1 ? timeGridClassName : group.slots.length === 1 ? 'grid grid-cols-1 gap-2.5 sm:grid-cols-3' : timeGridClassName}>
+                      {group.slots.map((slot, index) => {
+                        const isSelectedTime = selectedTime === slot.time;
+                        const isSoleOpening = availableTimeCount === 1;
+                        return (
+                          <button
+                            key={slot.time}
+                            type="button"
+                            data-testid={`time-slot-${slot.time}`}
+                            data-selected={isSelectedTime ? 'true' : 'false'}
+                            onClick={() => handleTimeSelect(slot)}
+                            aria-label={`${formatTime12h(slot.time)}${isSelectedTime ? ', selected' : ''}`}
+                            className={`relative flex ${isSoleOpening ? 'min-h-[60px] justify-between px-5 text-base text-white' : 'min-h-[52px] justify-center px-3 text-sm'} items-center rounded-2xl border font-bold transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-selected-ring)] focus-visible:ring-offset-2 active:translate-y-0 motion-reduce:transform-none`}
+                            style={{
+                              animationDelay: `${index * 30}ms`,
+                              background: isSoleOpening || isSelectedTime ? themeVars.accent : themeVars.surfaceAlt,
+                              borderColor: isSoleOpening || isSelectedTime ? themeVars.accent : themeVars.borderMuted,
+                              boxShadow: isSelectedTime ? `0 0 0 3px color-mix(in srgb, ${themeVars.primary} 30%, transparent)` : undefined,
+                              color: isSoleOpening || isSelectedTime ? 'white' : themeVars.titleText,
+                            }}
+                          >
+                            <span>{formatTime12h(slot.time)}</span>
+                            {isSoleOpening && (
+                              <span aria-hidden="true" className="flex items-center gap-1.5 text-xs font-semibold text-white/75">
+                                Choose
+                                <svg className="size-4" viewBox="0 0 16 16" fill="none">
+                                  <path d="m6 3 5 5-5 5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+                                </svg>
+                              </span>
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
+
+                <div
+                  className="border-t px-5 py-4 text-center sm:px-6"
+                  style={{ borderColor: themeVars.cardBorder, backgroundColor: themeVars.surfaceAlt }}
+                >
+                  {availableTimeCount === 1 && (
+                    <p className="mb-3 text-sm font-medium" style={{ color: themeVars.secondaryText }}>
+                      No other times available today.
+                    </p>
+                  )}
+                  <button
+                    type="button"
+                    onClick={handleChooseAnotherDate}
+                    className="min-h-11 w-full rounded-2xl border bg-white px-5 py-2.5 text-sm font-semibold transition-colors hover:bg-white/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-selected-ring)] focus-visible:ring-offset-2 sm:w-auto"
+                    style={{ borderColor: themeVars.borderMuted, color: themeVars.titleText }}
+                  >
+                    Check another date
+                  </button>
                 </div>
               </section>
-            )}
-
-            {/* Heading over the remaining regular times, only alongside the
-                Smart Fit section — the legacy layout stays heading-free */}
-            {hasSmartFitSlots && !loadingSlots && (morningSlots.length > 0 || afternoonSlots.length > 0 || eveningSlots.length > 0) && (
-              <h3 className="pt-1 text-sm font-bold text-neutral-900">{SMART_FIT_OTHER_TIMES_TITLE}</h3>
-            )}
-
-            {/* Morning Times */}
-            {morningSlots.length > 0 && !loadingSlots && (
-              <div
-                ref={morningSlotsRef}
-                tabIndex={-1}
-                role="region"
-                aria-label="Morning times"
-                className="scroll-mt-4 overflow-hidden rounded-2xl bg-white shadow-[0_4px_20px_rgba(0,0,0,0.06)]"
-                style={{
-                  borderWidth: '1px',
-                  borderStyle: 'solid',
-                  borderColor: themeVars.cardBorder,
-                }}
-              >
-                <div className="flex items-center gap-2 border-b border-neutral-100 px-5 py-3">
-                  <span className="text-xl">🌅</span>
-                  <span className="text-sm font-bold text-neutral-900">Morning</span>
-                  <span className="text-xs text-neutral-400">Earlier time slots</span>
-                </div>
-                <div className={timeGridClassName}>
-                  {morningSlots.map((slot, i) => {
-                    return (
-                      <button
-                        key={slot.time}
-                        type="button"
-                        data-testid={`time-slot-${slot.time}`}
-                        onClick={() => handleTimeSelect(slot)}
-                        className="relative min-h-11 rounded-xl px-2 py-3 text-sm font-bold text-neutral-900 transition-all duration-200 hover:scale-105 hover:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 active:scale-95"
-                        style={{
-                          borderWidth: '1px',
-                          borderStyle: 'solid',
-                          borderColor: `color-mix(in srgb, ${themeVars.primary} 35%, transparent)`,
-                          background: `linear-gradient(to bottom right, ${themeVars.surfaceAlt}, ${themeVars.highlightBackground})`,
-                          animationDelay: `${i * 30}ms`,
-                        }}
-                        onMouseEnter={(e) => {
-                          e.currentTarget.style.background = `linear-gradient(to bottom right, ${themeVars.primary}, ${themeVars.primaryDark})`;
-                        }}
-                        onMouseLeave={(e) => {
-                          e.currentTarget.style.background = `linear-gradient(to bottom right, ${themeVars.surfaceAlt}, ${themeVars.highlightBackground})`;
-                        }}
-                      >
-                        {formatTime12h(slot.time)}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-
-            {/* Afternoon Times */}
-            {afternoonSlots.length > 0 && !loadingSlots && (
-              <div
-                ref={afternoonSlotsRef}
-                tabIndex={-1}
-                role="region"
-                aria-label="Afternoon times"
-                className="overflow-hidden rounded-2xl bg-white shadow-[0_4px_20px_rgba(0,0,0,0.06)]"
-                style={{
-                  borderWidth: '1px',
-                  borderStyle: 'solid',
-                  borderColor: themeVars.cardBorder,
-                }}
-              >
-                <div className="flex items-center gap-2 border-b border-neutral-100 px-5 py-3">
-                  <span className="text-xl">☀️</span>
-                  <span className="text-sm font-bold text-neutral-900">Afternoon</span>
-                  <span className="text-xs text-neutral-400">Later time slots</span>
-                </div>
-                <div className={timeGridClassName}>
-                  {afternoonSlots.map((slot, i) => {
-                    return (
-                      <button
-                        key={slot.time}
-                        type="button"
-                        data-testid={`time-slot-${slot.time}`}
-                        onClick={() => handleTimeSelect(slot)}
-                        className="relative min-h-11 rounded-xl px-2 py-3 text-sm font-bold text-neutral-900 transition-all duration-200 hover:scale-105 hover:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 active:scale-95"
-                        style={{
-                          borderWidth: '1px',
-                          borderStyle: 'solid',
-                          borderColor: `color-mix(in srgb, ${themeVars.primary} 35%, transparent)`,
-                          background: `linear-gradient(to bottom right, ${themeVars.surfaceAlt}, ${themeVars.highlightBackground})`,
-                          animationDelay: `${(i + morningSlots.length) * 30}ms`,
-                        }}
-                        onMouseEnter={(e) => {
-                          e.currentTarget.style.background = `linear-gradient(to bottom right, ${themeVars.primary}, ${themeVars.primaryDark})`;
-                        }}
-                        onMouseLeave={(e) => {
-                          e.currentTarget.style.background = `linear-gradient(to bottom right, ${themeVars.surfaceAlt}, ${themeVars.highlightBackground})`;
-                        }}
-                      >
-                        {formatTime12h(slot.time)}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-
-            {/* Evening Times */}
-            {eveningSlots.length > 0 && !loadingSlots && (
-              <div
-                ref={eveningSlotsRef}
-                tabIndex={-1}
-                role="region"
-                aria-label="Evening times"
-                className="overflow-hidden rounded-2xl bg-white shadow-[0_4px_20px_rgba(0,0,0,0.06)]"
-                style={{
-                  borderWidth: '1px',
-                  borderStyle: 'solid',
-                  borderColor: themeVars.cardBorder,
-                }}
-              >
-                <div className="flex items-center gap-2 border-b border-neutral-100 px-5 py-3">
-                  <span className="text-xl" aria-hidden="true">🌙</span>
-                  <span className="text-sm font-bold text-neutral-900">Evening</span>
-                  <span className="text-xs text-neutral-400">Later time slots</span>
-                </div>
-                <div className={timeGridClassName}>
-                  {eveningSlots.map((slot, i) => (
-                    <button
-                      key={slot.time}
-                      type="button"
-                      data-testid={`time-slot-${slot.time}`}
-                      onClick={() => handleTimeSelect(slot)}
-                      className="relative min-h-11 rounded-xl px-2 py-3 text-sm font-bold text-neutral-900 transition-all duration-200 hover:scale-105 hover:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 active:scale-95"
-                      style={{
-                        borderWidth: '1px',
-                        borderStyle: 'solid',
-                        borderColor: `color-mix(in srgb, ${themeVars.primary} 35%, transparent)`,
-                        background: `linear-gradient(to bottom right, ${themeVars.surfaceAlt}, ${themeVars.highlightBackground})`,
-                        animationDelay: `${(i + morningSlots.length + afternoonSlots.length) * 30}ms`,
-                      }}
-                      onMouseEnter={(event) => {
-                        event.currentTarget.style.background = `linear-gradient(to bottom right, ${themeVars.primary}, ${themeVars.primaryDark})`;
-                      }}
-                      onMouseLeave={(event) => {
-                        event.currentTarget.style.background = `linear-gradient(to bottom right, ${themeVars.surfaceAlt}, ${themeVars.highlightBackground})`;
-                      }}
-                    >
-                      {formatTime12h(slot.time)}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {availableTimeCount === 1 && !loadingSlots && (
-              <p className="text-center text-sm font-medium text-neutral-600">No other times available today.</p>
             )}
           </div>
         )}

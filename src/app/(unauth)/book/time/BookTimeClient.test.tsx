@@ -372,10 +372,14 @@ describe('BookTimeClient', () => {
       expect(screen.getByText('No other times available today.')).toBeInTheDocument();
       expect(screen.queryByRole('button', { name: '11:00 AM' })).not.toBeInTheDocument();
       expect(screen.queryByText('Unavailable')).not.toBeInTheDocument();
-      expect(opening).toHaveClass('min-h-11');
+      expect(opening).toHaveClass('min-h-[60px]');
+      expect(opening).toHaveAttribute('data-selected', 'false');
+      expect(opening).toHaveAttribute('aria-label', '1:45 PM');
 
       fireEvent.click(opening);
 
+      expect(opening).toHaveAttribute('data-selected', 'true');
+      expect(opening).toHaveAttribute('aria-label', '1:45 PM, selected');
       expect(routerPush).toHaveBeenCalledWith(expect.stringContaining('time=13%3A45'));
     });
 
