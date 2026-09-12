@@ -1204,6 +1204,7 @@ export function BookTimeClient({
         {(noSlotsAvailable || allSlotsBooked) && !availabilityError && (
           <section
             aria-labelledby="no-openings-title"
+            data-public-surface="timeSelectionControls"
             className="mb-4 rounded-[1.75rem] border bg-white px-5 py-6 text-center shadow-[0_16px_40px_-28px_rgba(63,43,36,0.42)]"
             style={{ borderColor: themeVars.cardBorder }}
           >
@@ -1298,6 +1299,7 @@ export function BookTimeClient({
             {!loadingSlots && (
               <section
                 aria-labelledby="availability-heading"
+                data-public-surface="timeSelectionControls"
                 className="overflow-hidden rounded-[1.75rem] border bg-white shadow-[0_16px_40px_-28px_rgba(63,43,36,0.42)]"
                 style={{ borderColor: themeVars.cardBorder }}
               >

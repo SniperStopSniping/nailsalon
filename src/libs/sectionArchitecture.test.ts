@@ -36,6 +36,7 @@ const EXPECTED_NON_CONTENT_SURFACES = [
   'appointmentSummaryCard',
   'bookingProgressHeader',
   'serviceSelectionControls',
+  'timeSelectionControls',
   'smartFitAvailabilitySection',
   'confirmationPolicyDisclosure',
   'depositDisclosure',
