@@ -2,7 +2,7 @@ import { and, eq } from 'drizzle-orm';
 import { z } from 'zod';
 
 import { isOnboardingV1IntegrationEnabled } from '@/features/onboarding-v1-integration/config.server';
-import { ONBOARDING_SITE_MEDIA_MAX_ITEMS } from '@/features/onboarding-v1-integration/contracts';
+import { ONBOARDING_SITE_MEDIA_MAX_ITEMS, ONBOARDING_SITE_MEDIA_ROLES } from '@/features/onboarding-v1-integration/contracts';
 import { authorizeOnboardingSite } from '@/features/onboarding-v1-integration/media-authorization.server';
 import { readOnboardingMediaFile } from '@/features/onboarding-v1-integration/media-storage.server';
 import { db } from '@/libs/DB';
@@ -14,7 +14,7 @@ const verifySchema = z.object({
   expected: z.array(z.object({
     localItemId: z.string().trim().min(1).max(160),
     order: z.number().int().min(0).max(1_000),
-    role: z.enum(['profile', 'logo', 'gallery', 'custom_design']),
+    role: z.enum(ONBOARDING_SITE_MEDIA_ROLES),
     serverMediaId: z.string().uuid(),
   }).strict()).max(ONBOARDING_SITE_MEDIA_MAX_ITEMS),
   siteId: z.string().uuid(),

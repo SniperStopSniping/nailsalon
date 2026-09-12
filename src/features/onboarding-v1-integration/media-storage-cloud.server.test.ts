@@ -79,7 +79,7 @@ afterEach(() => {
 });
 
 describe('production authenticated onboarding media', () => {
-  it.each(['logo', 'profile', 'gallery', 'custom_design'] as const)(
+  it.each(['logo', 'profile', 'gallery', 'custom_design', 'cover'] as const)(
     'stores sanitized %s bytes under an immutable authenticated tenant/site/revision key',
     async (role) => {
       const saved = await saveOnboardingMediaFile({ ...common, file, role });
@@ -101,6 +101,18 @@ describe('production authenticated onboarding media', () => {
       expect(metadata.exif).toBeUndefined();
       expect(metadata.icc).toBeUndefined();
       expect(JSON.stringify(saved)).not.toContain('cloudinary.com');
+      await expect(readOnboardingMediaFile(saved.storageKey, owner)).resolves.toEqual(Buffer.from('private-image'));
+
+      for (const wrongOwner of [
+        { salonId: 'other_salon', siteId: owner.siteId },
+        { salonId: owner.salonId, siteId: 'other_site' },
+      ]) {
+        await expect(readOnboardingMediaFile(saved.storageKey, wrongOwner)).rejects.toMatchObject({ code: 'INVALID_MEDIA_OWNER' });
+        await expect(deleteOnboardingMediaFile(saved.storageKey, wrongOwner)).rejects.toMatchObject({ code: 'INVALID_MEDIA_OWNER' });
+      }
+      await deleteOnboardingMediaFile(saved.storageKey, owner);
+
+      expect(provider.objects.has(publicId)).toBe(false);
     },
   );
 
