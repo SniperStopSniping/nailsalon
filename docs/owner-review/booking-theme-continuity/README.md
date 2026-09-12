@@ -55,7 +55,7 @@ the fixture can advance from an empty Saturday to Monday because Sunday is close
 
 ## Checks
 
-- Focused initial run: 182 tests passed. Additional shell coverage: 24 passed.
+- `npm run test`: 183 tests passed (including 24 shell tests).
 - Affected dependency suite: 863 passed, 10 skipped; the skipped PostgreSQL
   lifecycle concurrency lane needs a separately attested disposable database.
 - Appointment regression: 103 passed.
@@ -66,7 +66,7 @@ the fixture can advance from an empty Saturday to Monday because Sunday is close
 - `npm run check-types`: passed using approved non-secret CI placeholders.
   Initial runs without explicit environment configuration were rejected by the
   repository guard; no guard was bypassed.
-- Focused ESLint: no errors; existing confirmation Fast Refresh warnings and
+- `npm run lint` and focused ESLint: no errors; existing confirmation Fast Refresh warnings and
   fixture-only lint warnings remain.
 - Secret leak scan and `git diff --check`: passed.
 

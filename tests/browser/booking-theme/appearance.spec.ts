@@ -113,5 +113,11 @@ test('the confirmed receipt retains the chosen palette', async ({ page }, testIn
   await expect(page.getByRole('heading', { name: 'Appointment confirmed' })).toHaveCSS('color', 'rgb(255, 247, 232)');
   await expect(page.locator('[data-customer-booking-theme]')).toHaveAttribute('data-customer-site-palette', 'black_champagne');
 
+  // Full-page WebKit captures retain the fixed header at the current scroll
+  // offset. Start at the top so review evidence shows its actual placement.
+  await page.evaluate(() => window.scrollTo(0, 0));
+
+  await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(0);
+
   await page.screenshot({ path: testInfo.outputPath('black-champagne-receipt.png'), fullPage: true, animations: 'disabled' });
 });
