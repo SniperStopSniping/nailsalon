@@ -499,6 +499,18 @@ export function App() {
     if (!editingBooking) setSettingsTemporarilyHidden(false);
   }, [editingBooking]);
 
+  // Booking settings belong to the selected section. The moment the owner
+  // selects something else, the settings surface stops editing Booking rather
+  // than staying open over a section it no longer describes.
+  useEffect(() => {
+    if (!editingBooking || selectedSectionId === editingBooking.id) {
+      return;
+    }
+    bookingSettingsNativeSelectRef.current = null;
+    bookingSettingsTriggerRef.current = null;
+    setEditingSectionId(null);
+  }, [editingBooking, selectedSectionId]);
+
   useEffect(() => {
     const pendingFocus = pendingMoveFocusRef.current;
     if (

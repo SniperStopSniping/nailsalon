@@ -2519,10 +2519,21 @@ body[data-editor-shell='final-hybrid'] .dialog-panel--context-panel .form-hint {
   padding-bottom: 64px;
 }
 
+/* A sticky action bar has to take up real space at the end of the scrolling
+   body, or short dialogs render their last line underneath it with no scroll
+   left to recover it. */
+body[data-editor-shell='final-hybrid'] .dialog-body:has(.dialog-actions) {
+  padding-bottom: 0;
+}
+
+body[data-editor-shell='final-hybrid'] .dialog-body:has(.booking-protection-dialog-content) {
+  padding-bottom: calc(24px + env(safe-area-inset-bottom));
+}
+
 body[data-editor-shell='final-hybrid'] .dialog-actions {
   position: sticky;
   bottom: 0;
-  margin: 18px -16px calc(-24px - env(safe-area-inset-bottom));
+  margin: 18px -16px 0;
   padding: 12px 16px calc(12px + env(safe-area-inset-bottom));
   border-top: 1px solid rgba(66, 45, 47, 0.1);
   background: rgba(255, 253, 250, 0.97);
@@ -3151,6 +3162,13 @@ body[data-editor-shell='final-hybrid'] .toast {
     box-shadow: 0 26px 80px rgba(62, 41, 46, 0.11);
   }
 
+  .final-hybrid-app {
+    /* The settings rail is a column, never an overlay: the drawer narrows with
+       the viewport so the canvas beside it stays wide enough to judge. */
+    --final-settings-drawer: clamp(300px, 33vw, 420px);
+    --final-settings-rail: calc(var(--final-settings-drawer) + 26px);
+  }
+
   .final-booking-settings-drawer {
     position: fixed;
     z-index: 34;
@@ -3158,7 +3176,7 @@ body[data-editor-shell='final-hybrid'] .toast {
     right: 14px;
     bottom: 14px;
     display: flex;
-    width: min(430px, calc(100vw - 28px));
+    width: min(var(--final-settings-drawer), calc(100vw - 28px));
     min-height: 0;
     flex-direction: column;
     overflow: hidden;
@@ -3250,8 +3268,22 @@ body[data-editor-shell='final-hybrid'] .toast {
     box-shadow: 0 6px 14px rgba(48, 31, 36, 0.08);
   }
 
+  .final-hybrid-app.has-booking-settings .final-canvas-shell {
+    width: calc(100% - var(--final-settings-rail));
+    padding-right: clamp(10px, 1.4vw, 18px);
+    padding-left: clamp(14px, 2vw, 28px);
+  }
+
+  .final-hybrid-app.has-booking-settings .final-canvas-frame {
+    width: min(1040px, 100%);
+  }
+
+  .final-hybrid-app.has-booking-settings .final-booking-settings-drawer {
+    box-shadow: 0 16px 46px rgba(48, 31, 36, 0.12);
+  }
+
   .final-hybrid-app.has-booking-settings .final-selected-toolbar {
-    right: min(462px, calc(100vw - 300px));
+    right: calc(var(--final-settings-rail) + 8px);
   }
 
   @media (max-width: 1179px) {
@@ -3600,24 +3632,6 @@ body[data-editor-shell='final-hybrid'] .toast {
     grid-column: 3;
   }
 
-  .final-hybrid-app.has-booking-settings .final-canvas-shell {
-    width: calc(100% - 446px);
-    padding-right: 18px;
-    padding-left: 28px;
-  }
-
-  .final-hybrid-app.has-booking-settings .final-canvas-frame {
-    width: min(1040px, 100%);
-  }
-
-  .final-hybrid-app.has-booking-settings .final-booking-settings-drawer {
-    width: 420px;
-    box-shadow: 0 16px 46px rgba(48, 31, 36, 0.12);
-  }
-
-  .final-hybrid-app.has-booking-settings .final-selected-toolbar {
-    right: 454px;
-  }
 }
 
 @media (prefers-reduced-motion: reduce) {

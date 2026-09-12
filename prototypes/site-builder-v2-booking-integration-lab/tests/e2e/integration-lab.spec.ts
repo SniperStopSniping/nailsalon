@@ -670,12 +670,13 @@ test('desktop Booking settings use a non-overlapping column and retain the canva
     await expect(topbar.getByRole('button', { name: 'Redo' })).toBeVisible();
     await expect(topbar.getByRole('button', { name: 'More site options' })).toBeVisible();
 
-    if (width >= 1180) {
-      const canvasBox = await page.locator('.final-canvas-frame').boundingBox();
-      expect(canvasBox).not.toBeNull();
-      if (canvasBox && settingsBox) {
-        expect(canvasBox.x + canvasBox.width).toBeLessThanOrEqual(settingsBox.x + 1);
-      }
+    // The canvas keeps its own column at every desktop width, not just the
+    // widest ones, so prices and durations are never hidden under the panel.
+    const canvasBox = await page.locator('.final-canvas-frame').boundingBox();
+    expect(canvasBox).not.toBeNull();
+    if (canvasBox && settingsBox) {
+      expect(canvasBox.x + canvasBox.width).toBeLessThanOrEqual(settingsBox.x + 1);
+      expect(canvasBox.width).toBeGreaterThanOrEqual(500);
     }
 
     for (const [layout] of LAYOUTS) {
