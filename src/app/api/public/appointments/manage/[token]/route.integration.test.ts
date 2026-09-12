@@ -53,7 +53,9 @@ async function seedAppointmentWithToken(
 ) {
   appointmentCounter += 1;
   const id = `appt_manage_${appointmentCounter}`;
-  const startTime = new Date(Date.UTC(2026, 8, 1 + appointmentCounter, 18, 0, 0));
+  // Confirmation retries intentionally reject past appointments. Keep the
+  // fixture future-dated so this concurrency test cannot expire with the calendar.
+  const startTime = new Date(Date.now() + (appointmentCounter + 1) * 24 * 60 * 60 * 1000);
   await db.insert(schema.appointmentSchema).values({
     id,
     salonId: SALON_ID,

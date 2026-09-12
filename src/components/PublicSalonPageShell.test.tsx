@@ -169,7 +169,7 @@ describe('booking palette continuity', () => {
       </PublicSalonPageShell>,
     );
 
-    expect(screen.getByTestId('palette-child').parentElement).toHaveAttribute('data-customer-site-palette', 'sage_stone');
+    expect(screen.getByTestId('palette-child').closest('[data-customer-booking-theme]')).toHaveAttribute('data-customer-site-palette', 'sage_stone');
   });
 
   it('previews the supplied draft palette and preserves service-page precedence over a legacy brand accent', () => {
@@ -188,8 +188,11 @@ describe('booking palette continuity', () => {
     );
 
     expect(screen.getByTestId('owner-preview-banner')).toBeInTheDocument();
-    expect(screen.getByTestId('palette-child').parentElement?.style.getPropertyValue('--booking-brand-primary')).toBe('#294d73');
-    expect(screen.getByTestId('palette-child').parentElement?.style.getPropertyValue('--n5-button-primary-bg')).toBe('#294d73');
+
+    const wrapper = screen.getByTestId('palette-child').closest<HTMLElement>('[data-customer-booking-theme]');
+
+    expect(wrapper?.style.getPropertyValue('--booking-brand-primary')).toBe('#294d73');
+    expect(wrapper?.style.getPropertyValue('--n5-button-primary-bg')).toBe('#294d73');
   });
 
   it('updates the palette with the supplied salon and never leaks a previous salon’s colours', () => {
@@ -206,8 +209,10 @@ describe('booking palette continuity', () => {
     const { rerender } = render(shell('sage_stone', 'salon-a'));
     rerender(shell('black_champagne', 'salon-b'));
 
-    expect(screen.getByTestId('palette-child').parentElement).toHaveAttribute('data-customer-site-palette', 'black_champagne');
-    expect(screen.getByTestId('palette-child').parentElement?.style.getPropertyValue('--n5-bg-page')).toBe('#151315');
+    const wrapper = screen.getByTestId('palette-child').closest<HTMLElement>('[data-customer-booking-theme]');
+
+    expect(wrapper).toHaveAttribute('data-customer-site-palette', 'black_champagne');
+    expect(wrapper?.style.getPropertyValue('--n5-bg-page')).toBe('#151315');
   });
 
   it.each(['book-datetime', 'book-confirm', 'profile'])('leaves legacy and non-booking %s appearance alone', (pageName) => {
