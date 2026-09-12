@@ -24,6 +24,7 @@ import {
   splitSmartFitSlots,
   syncSmartFitSuggestionDismissal,
 } from '@/libs/smartFitCustomer';
+import { bookingReadingCopy } from '@/locales/bookingReading';
 import { useSalon } from '@/providers/SalonProvider';
 import { themeVars } from '@/theme';
 
@@ -368,6 +369,22 @@ export function BookTimeClient({
   const [currentMonth, setCurrentMonth] = useState(initialCalendarDate.getMonth());
   const [currentYear, setCurrentYear] = useState(initialCalendarDate.getFullYear());
   const [selectedDate, setSelectedDate] = useState<Date | null>(initialCalendarDate);
+  const [showFullCalendar, setShowFullCalendar] = useState(false);
+  const [weekStart, setWeekStart] = useState(restoredCalendarDate ?? today);
+  const calendarCopy = bookingReadingCopy(params.locale === 'fr' ? 'fr' : 'en');
+
+  // Keep externally restored/next-available dates visible. Browsing a week
+  // itself never selects a date or requests a second availability calculation.
+  useEffect(() => {
+    if (!selectedDate) {
+      return;
+    }
+    setWeekStart((start) => {
+      const end = new Date(start);
+      end.setDate(end.getDate() + 6);
+      return selectedDate < start || selectedDate > end ? selectedDate : start;
+    });
+  }, [selectedDate]);
   const [visibleSlots, setVisibleSlots] = useState<AvailabilitySlot[]>([]);
   const [bookedSlots, setBookedSlots] = useState<string[]>([]);
   const [availabilityBufferMinutes, setAvailabilityBufferMinutes] = useState(0);
@@ -769,7 +786,22 @@ export function BookTimeClient({
     target?.focus();
   }, [availabilityError, loadingSlots, mounted, visibleSlots]);
 
-  const calendarDays = generateCalendarDays(currentYear, currentMonth);
+  const calendarDays = showFullCalendar
+    ? generateCalendarDays(currentYear, currentMonth)
+    : Array.from({ length: 7 }, (_, offset) => {
+      const date = new Date(weekStart);
+      date.setDate(date.getDate() + offset);
+      return { key: getDateKey(date), date };
+    });
+  const calendarLocale = params.locale === 'fr' ? 'fr-CA' : 'en-US';
+  const weekEnd = new Date(weekStart);
+  weekEnd.setDate(weekEnd.getDate() + 6);
+  const weekLabel = new Intl.DateTimeFormat(calendarLocale, { month: 'short', day: 'numeric' }).formatRange(weekStart, weekEnd);
+  const moveWeek = (direction: number) => {
+    const next = new Date(weekStart);
+    next.setDate(next.getDate() + direction * 7);
+    setWeekStart(next < today ? today : next);
+  };
 
   // Filter time slots for display
   const availableTimeSet = new Set(filterPastTimeSlots(visibleSlots.map(slot => slot.time), selectedDate, salonTimeZone));
@@ -805,21 +837,6 @@ export function BookTimeClient({
     { key: 'afternoon' as const, label: 'Afternoon', ref: afternoonSlotsRef, slots: afternoonSlots },
     { key: 'evening' as const, label: 'Evening', ref: eveningSlotsRef, slots: eveningSlots },
   ].filter(group => group.slots.length > 0);
-
-  const monthNames = [
-    'January',
-    'February',
-    'March',
-    'April',
-    'May',
-    'June',
-    'July',
-    'August',
-    'September',
-    'October',
-    'November',
-    'December',
-  ];
 
   const dayNames = [
     { key: 'sunday', label: 'S' },
@@ -1006,6 +1023,8 @@ export function BookTimeClient({
     <main
       className="min-h-screen"
       style={{
+        containerType: 'inline-size',
+        containerName: 'booking-time',
         background: `linear-gradient(to bottom, color-mix(in srgb, ${themeVars.background} 95%, white), ${themeVars.background}, color-mix(in srgb, ${themeVars.background} 95%, ${themeVars.primaryDark}))`,
       }}
     >
@@ -1033,7 +1052,7 @@ export function BookTimeClient({
           technician={technician}
         />
 
-        <p className="mb-4 text-center text-xs font-medium text-neutral-500">
+        <p className="mb-4 text-center text-sm font-medium leading-relaxed text-neutral-600">
           {minimumNoticeMinutes === undefined
             ? 'Available times reflect the salon’s booking notice.'
             : getMinimumNoticeCustomerCopy(minimumNoticeMinutes)}
@@ -1047,6 +1066,7 @@ export function BookTimeClient({
         <div
           ref={calendarRef}
           tabIndex={-1}
+          role="group"
           aria-label="Choose an appointment date"
           className="mb-4 overflow-hidden rounded-3xl bg-white shadow-[0_12px_32px_-22px_rgba(63,43,36,0.34)] max-[339px]:-mx-3"
           style={{
@@ -1058,30 +1078,28 @@ export function BookTimeClient({
             transition: 'opacity 300ms ease-out 200ms, transform 300ms ease-out 200ms',
           }}
         >
-          {/* Month Navigation */}
-          <div className="flex items-center justify-between border-b border-neutral-100 px-5 py-4">
+          <div className="flex items-center justify-between border-b border-neutral-100 px-3 py-2">
             <button
               type="button"
-              onClick={handlePrevMonth}
-              aria-label="Previous month"
-              className="flex size-11 items-center justify-center rounded-full transition-all hover:bg-neutral-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 active:scale-95 motion-reduce:transition-none motion-reduce:active:transform-none"
+              onClick={showFullCalendar ? handlePrevMonth : () => moveWeek(-1)}
+              disabled={showFullCalendar ? new Date(currentYear, currentMonth, 1) <= new Date(today.getFullYear(), today.getMonth(), 1) : weekStart <= today}
+              aria-label={showFullCalendar ? calendarCopy.previousMonth : calendarCopy.previousWeek}
+              className="flex size-[44px] shrink-0 items-center justify-center rounded-full transition-all hover:bg-neutral-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 active:scale-95 disabled:opacity-40 motion-reduce:transition-none motion-reduce:active:transform-none"
             >
               <svg width="18" height="18" viewBox="0 0 16 16" fill="none" aria-hidden="true">
                 <path d="M10 12L6 8L10 4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
               </svg>
             </button>
 
-            <div className="text-lg font-bold text-neutral-900">
-              {monthNames[currentMonth]}
-              {' '}
-              {currentYear}
+            <div aria-live="polite" className="min-w-0 break-words px-1 text-center text-base font-bold text-neutral-900">
+              {showFullCalendar ? new Intl.DateTimeFormat(calendarLocale, { month: 'long', year: 'numeric' }).format(new Date(currentYear, currentMonth, 1)) : weekLabel}
             </div>
 
             <button
               type="button"
-              onClick={handleNextMonth}
-              aria-label="Next month"
-              className="flex size-11 items-center justify-center rounded-full transition-all hover:bg-neutral-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 active:scale-95 motion-reduce:transition-none motion-reduce:active:transform-none"
+              onClick={showFullCalendar ? handleNextMonth : () => moveWeek(1)}
+              aria-label={showFullCalendar ? calendarCopy.nextMonth : calendarCopy.nextWeek}
+              className="flex size-[44px] shrink-0 items-center justify-center rounded-full transition-all hover:bg-neutral-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 active:scale-95 motion-reduce:transition-none motion-reduce:active:transform-none"
             >
               <svg width="18" height="18" viewBox="0 0 16 16" fill="none" aria-hidden="true">
                 <path d="M6 4L10 8L6 12" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
@@ -1090,16 +1108,18 @@ export function BookTimeClient({
           </div>
 
           {/* Day Names */}
-          <div className="grid grid-cols-7 px-4 pt-3 max-[339px]:px-0">
-            {dayNames.map(day => (
-              <div key={day.key} className="py-2 text-center text-xs font-bold text-neutral-400">
-                {day.label}
-              </div>
-            ))}
-          </div>
+          {showFullCalendar && (
+            <div className="grid grid-cols-7 px-4 pt-3 max-[339px]:px-0">
+              {dayNames.map(day => (
+                <div key={day.key} className="py-2 text-center text-xs font-bold text-neutral-400">
+                  {day.label}
+                </div>
+              ))}
+            </div>
+          )}
 
           {/* Calendar Grid */}
-          <div className="grid grid-cols-7 px-4 pb-4 max-[339px]:px-0">
+          <div className={showFullCalendar ? 'booking-month-grid grid grid-cols-7 px-4 pb-4 max-[339px]:px-0' : 'booking-week-grid grid grid-cols-7 px-2 py-3'}>
             {calendarDays.map(({ key, date }) => {
               if (!date) {
                 return <div key={key} className="h-11" />;
@@ -1111,6 +1131,10 @@ export function BookTimeClient({
               const isClosed = isClosedDay(date, closedWeekdaySet);
               const isUnselectable = Boolean(isPast || isClosed);
 
+              if (isPast) {
+                return <div key={key} aria-hidden="true" className="h-11" />;
+              }
+
               return (
                 <button
                   key={date.toISOString()}
@@ -1118,12 +1142,12 @@ export function BookTimeClient({
                   data-testid={`calendar-day-${getDateKey(date)}`}
                   data-closed={isClosed ? 'true' : undefined}
                   onClick={() => handleDateSelect(date)}
-                  disabled={Boolean(isUnselectable || isSelected)}
-                  aria-label={isClosed
-                    ? `${monthNames[date.getMonth()]} ${date.getDate()} — closed`
-                    : undefined}
+                  disabled={isUnselectable}
+                  aria-pressed={Boolean(isSelected)}
+                  aria-current={isToday ? 'date' : undefined}
+                  aria-label={`${new Intl.DateTimeFormat(calendarLocale, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' }).format(date)}${isClosed ? ` — ${calendarCopy.closed}` : ''}`}
                   title={isClosed ? 'The salon is closed on this day' : undefined}
-                  className="h-11 min-w-11 rounded-full text-sm font-semibold transition-all duration-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 motion-reduce:transition-none"
+                  className={showFullCalendar ? 'h-11 min-w-11 rounded-full text-sm font-semibold transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2' : 'booking-week-day flex min-h-16 min-w-0 flex-col items-center justify-center gap-1 rounded-xl py-2 font-semibold focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2'}
                   style={{
                     zIndex: isSelected ? 10 : undefined,
                     background: isSelected
@@ -1145,7 +1169,6 @@ export function BookTimeClient({
                       ? `0 0 0 3px color-mix(in srgb, ${themeVars.primary} 22%, transparent)`
                       : isToday && !isClosed ? 'var(--booking-today-ring, none)' : undefined,
                     cursor: isUnselectable ? 'not-allowed' : 'pointer',
-                    opacity: loadingSlots && !isSelected ? 0.6 : undefined,
                   }}
                   onMouseEnter={(e) => {
                     if (!isUnselectable && !isSelected && !isToday) {
@@ -1158,25 +1181,39 @@ export function BookTimeClient({
                     }
                   }}
                 >
-                  {date.getDate()}
+                  {!showFullCalendar && <span className="text-xs">{new Intl.DateTimeFormat(calendarLocale, { weekday: 'short' }).format(date)}</span>}
+                  <span className={showFullCalendar ? undefined : 'text-lg'}>{date.getDate()}</span>
                 </button>
               );
             })}
           </div>
 
-          {closedWeekdaySet.size > 0 && closedWeekdaySet.size < 7
-            ? (
-                <p
-                  data-testid="calendar-closed-legend"
-                  className="border-t border-neutral-100 px-5 py-2.5 text-center text-xs font-medium text-neutral-500"
-                >
-                  <span className="mr-1.5 align-middle text-neutral-400 line-through">00</span>
-                  Closed —
-                  {' '}
-                  {closedWeekdayNames.join(', ')}
-                </p>
-              )
-            : null}
+          <div className="flex flex-wrap items-center justify-center gap-x-2 border-t border-neutral-100 px-3">
+            {closedWeekdaySet.size > 0 && closedWeekdaySet.size < 7 && (
+              <p data-testid="calendar-closed-legend" className="flex-1 py-2 text-center text-xs font-medium text-neutral-600">
+                Closed —
+                {' '}
+                {closedWeekdayNames.join(', ')}
+              </p>
+            )}
+            <button
+              type="button"
+              aria-expanded={showFullCalendar}
+              className="min-h-11 rounded-lg px-4 text-sm font-semibold underline underline-offset-4 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
+              onClick={() => {
+                if (!showFullCalendar) {
+                  setCurrentMonth(weekStart.getMonth());
+                  setCurrentYear(weekStart.getFullYear());
+                } else {
+                  setWeekStart(selectedDate ?? today);
+                }
+                setShowFullCalendar(value => !value);
+              }}
+            >
+              {showFullCalendar ? calendarCopy.showWeek : calendarCopy.fullCalendar}
+            </button>
+          </div>
+
         </div>
 
         {/* No slots available message */}
@@ -1275,7 +1312,7 @@ export function BookTimeClient({
 
             {!loadingSlots && (
               <div
-                className="flex items-start gap-3 rounded-2xl border bg-white/75 px-4 py-3 text-[13px] leading-5"
+                className="booking-preparation flex items-start gap-3 rounded-2xl border bg-white/75 px-4 py-3 text-[13px] leading-5"
                 style={{ borderColor: themeVars.cardBorder, color: themeVars.titleText }}
               >
                 <span

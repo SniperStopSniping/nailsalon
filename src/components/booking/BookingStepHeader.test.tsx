@@ -26,10 +26,10 @@ describe('BookingStepHeader', () => {
     expect(screen.getByTestId('booking-step-header')).toBeInTheDocument();
     expect(screen.getByTestId('booking-salon-name')).toHaveClass('text-base');
     expect(screen.getByTestId('booking-step-marker-service')).toHaveClass('size-5', 'text-[10px]');
-    expect(screen.getByTestId('booking-step-label-service')).toHaveClass('text-[10px]');
+    expect(screen.getByTestId('booking-step-label-service')).toHaveClass('text-xs');
     expect(screen.getByTestId('booking-step-label-tech')).toHaveTextContent('Artist');
     expect(screen.getByRole('heading', { name: 'Choose Your Service' })).toHaveClass('text-[1.7rem]');
-    expect(screen.getByText('Pick your main service, then add optional extras.')).toHaveClass('text-[13px]');
+    expect(screen.getByText('Pick your main service, then add optional extras.')).toHaveClass('text-sm');
   });
 
   it('renders the editorial salon name treatment with an announcement slot when requested', () => {

@@ -99,6 +99,73 @@ describe('BookTimeClient', () => {
     vi.useRealTimers();
   });
 
+  describe('compact date presentation', () => {
+    const renderCalendar = () => {
+      fetchMock.mockImplementation(() => Promise.resolve(new Response(JSON.stringify({
+        slots: [{ time: '13:45', startTime: '2026-03-14T13:45:00-04:00' }],
+        visibleSlots: ['13:45'],
+        bookedSlots: [],
+      }), { status: 200 })));
+      return render(<BookTimeClient services={[{ id: 'srv_1', name: 'Gel', price: 65, duration: 60 }]} totalPrice={65} totalDuration={60} technician={null} bookingFlow={['service', 'time', 'confirm']} />);
+    };
+
+    it('shows seven days, no past dates and a keyboard-operable selected date', async () => {
+      renderCalendar();
+      await screen.findByRole('button', { name: '1:45 PM' });
+
+      expect(screen.getAllByTestId(/^calendar-day-/)).toHaveLength(7);
+      expect(screen.queryByTestId('calendar-day-2026-03-13')).not.toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Previous week' })).toBeDisabled();
+      expect(screen.getByTestId('calendar-day-2026-03-14')).toHaveAttribute('aria-pressed', 'true');
+      expect(screen.getByTestId('calendar-day-2026-03-14')).toBeEnabled();
+    });
+
+    it('browses weeks without changing the selected date or fetching availability', async () => {
+      renderCalendar();
+      await screen.findByRole('button', { name: '1:45 PM' });
+      const calls = fetchMock.mock.calls.length;
+      fireEvent.click(screen.getByRole('button', { name: 'Next week' }));
+
+      expect(screen.getByTestId('calendar-day-2026-03-21')).toBeEnabled();
+      expect(fetchMock).toHaveBeenCalledTimes(calls);
+
+      fireEvent.click(screen.getByRole('button', { name: 'Previous week' }));
+
+      expect(screen.getByTestId('calendar-day-2026-03-14')).toHaveAttribute('aria-pressed', 'true');
+
+      fireEvent.click(screen.getByTestId('calendar-day-2026-03-16'));
+      await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining('date=2026-03-16'), { cache: 'no-store' }));
+
+      expect(screen.getByTestId('calendar-day-2026-03-16')).toHaveAttribute('aria-pressed', 'true');
+    });
+
+    it('offers a full month without past appointment choices and retains a far-date selection', async () => {
+      renderCalendar();
+      await screen.findByRole('button', { name: '1:45 PM' });
+      fireEvent.click(screen.getByRole('button', { name: 'Full calendar' }));
+
+      expect(screen.getByRole('button', { name: 'Show one week' })).toHaveAttribute('aria-expanded', 'true');
+      expect(screen.getByRole('button', { name: 'Previous month' })).toBeDisabled();
+      expect(screen.queryByTestId('calendar-day-2026-03-13')).not.toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole('button', { name: 'Next month' }));
+      fireEvent.click(screen.getByTestId('calendar-day-2026-04-22'));
+      fireEvent.click(screen.getByRole('button', { name: 'Show one week' }));
+
+      expect(screen.getAllByTestId(/^calendar-day-/)).toHaveLength(7);
+      expect(screen.getByTestId('calendar-day-2026-04-22')).toHaveAttribute('aria-pressed', 'true');
+    });
+
+    it('keeps a restored date visible when the week crosses the year boundary', async () => {
+      searchParamsState.value += '&date=2026-12-31';
+      renderCalendar();
+      await screen.findByRole('button', { name: '1:45 PM' });
+
+      expect(screen.getByTestId('calendar-day-2026-12-31')).toHaveAttribute('aria-pressed', 'true');
+      expect(screen.getByTestId('calendar-day-2027-01-06')).toBeEnabled();
+    });
+  });
+
   it('does not loop availability fetches after the initial render settles', async () => {
     fetchMock.mockImplementation(() => Promise.resolve(new Response(JSON.stringify({
       visibleSlots: ['09:00', '09:30'],
@@ -942,7 +1009,7 @@ describe('BookTimeClient', () => {
       const closedSunday = screen.getByTestId('calendar-day-2026-03-15');
 
       expect(closedSunday).toBeDisabled();
-      expect(closedSunday).toHaveAttribute('aria-label', 'March 15 — closed');
+      expect(closedSunday).toHaveAccessibleName('Sunday, March 15, 2026 — closed');
       expect(closedSunday).toHaveAttribute('data-closed', 'true');
 
       const openMonday = screen.getByTestId('calendar-day-2026-03-16');

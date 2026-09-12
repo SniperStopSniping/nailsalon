@@ -31,6 +31,8 @@ export function BookingSummaryCard({
       data-testid="booking-summary-card"
       className="mb-6 overflow-hidden border-0 shadow-xl"
       style={{
+        containerType: 'inline-size',
+        containerName: 'booking-summary',
         background: `var(--booking-summary-background, linear-gradient(to bottom right, ${themeVars.accent}, color-mix(in srgb, ${themeVars.accent} 70%, black)))`,
         color: 'var(--booking-summary-foreground, white)',
         opacity: mounted ? 1 : 0,
@@ -39,7 +41,7 @@ export function BookingSummaryCard({
       }}
     >
       <CardContent className="px-5 py-4">
-        <div className="flex items-center gap-4">
+        <div className="booking-summary-content flex items-center gap-4">
           {technician && (
             <TechnicianAvatar
               name={technician.name}
@@ -49,14 +51,14 @@ export function BookingSummaryCard({
             />
           )}
           <div className="min-w-0 flex-1">
-            <div className="mb-0.5 text-xs opacity-80">{label}</div>
-            <div data-testid="booking-summary-service" className="truncate text-base font-bold">{serviceNames || 'Service'}</div>
+            <div className="mb-0.5 text-sm">{label}</div>
+            <div data-testid="booking-summary-service" className="break-words text-base font-bold">{serviceNames || 'Service'}</div>
             <div data-testid="booking-summary-duration" className="text-sm font-medium" style={{ color: `var(--booking-summary-detail, ${themeVars.primary})` }}>
               {technician ? `with ${technician.name} · ` : ''}
               {formatDuration(totalDuration)}
             </div>
             {locationName && (
-              <div data-testid="booking-summary-location" className="mt-0.5 truncate text-xs opacity-80">
+              <div data-testid="booking-summary-location" className="mt-0.5 break-words text-sm">
                 {locationName}
               </div>
             )}
