@@ -26,7 +26,7 @@ for (const material of materials) {
   await page.goto(origin, { waitUntil: 'networkidle' });
   await page.getByRole('button', { name: material.button }).click();
   await page.getByRole('button', { name: 'Replay' }).click();
-  await page.waitForTimeout(3300);
+  await page.waitForTimeout(3900);
 
   const video = page.video();
   await context.close();

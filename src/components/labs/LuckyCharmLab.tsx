@@ -20,7 +20,7 @@ const MATERIALS: Array<{ id: Material; label: string; note: string }> = [
 
 const SPEEDS: Record<Speed, { duration: number; label: string }> = {
   fast: { duration: 500, label: 'Fast · 0.5s' },
-  normal: { duration: 2400, label: 'Normal · 2.4s' },
+  normal: { duration: 3000, label: 'Normal · 3s' },
   long: { duration: 10000, label: 'Long · 10s' },
 };
 
@@ -236,7 +236,7 @@ export function LuckyCharmLab() {
         <div className={styles.timelineNote}>
           <span>0.5s</span>
           <i />
-          <span>2.4s</span>
+          <span>3s</span>
           <i />
           <span>10s</span>
           <p>Fast exits immediately. Normal completes the reward. Long settles into one calm idle—no fake repeat bookings.</p>
