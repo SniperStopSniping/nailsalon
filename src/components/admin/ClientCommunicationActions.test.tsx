@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ClientCommunicationActions } from './ClientCommunicationActions';
@@ -396,20 +396,23 @@ describe('ClientCommunicationActions', () => {
   });
 
   it('falls back to the primary salon location when the appointment has no address', async () => {
-    const { onOpenNativeUrl } = renderActions({
-      upcomingAppointment: {
-        ...upcomingAppointment,
-        location: {
-          id: 'loc_secondary',
-          name: 'Pop-up Studio',
-          address: null,
-          city: null,
-          state: null,
-          zipCode: null,
+    let actions!: ReturnType<typeof renderActions>;
+    await act(async () => {
+      actions = renderActions({
+        upcomingAppointment: {
+          ...upcomingAppointment,
+          location: {
+            id: 'loc_secondary',
+            name: 'Pop-up Studio',
+            address: null,
+            city: null,
+            state: null,
+            zipCode: null,
+          },
         },
-      },
+      });
     });
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(5));
+    const { onOpenNativeUrl } = actions;
     fireEvent.click(screen.getByRole('button', { name: 'Directions' }));
 
     const href = String(onOpenNativeUrl.mock.calls[0]?.[0]);

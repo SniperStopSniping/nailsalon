@@ -233,7 +233,7 @@ describe('smsSender source hygiene (mechanical dark-by-default proof)', () => {
     expect(source).not.toContain('SMS_BYO_MODE_ENABLED');
   });
 
-  it('limits provider-mode imports to reviewed send and historical webhook boundaries', async () => {
+  it('limits provider-mode imports to reviewed send, eligibility, and historical webhook boundaries', async () => {
     const { execFileSync } = await import('node:child_process');
     const grep = (() => {
       try {
@@ -256,6 +256,8 @@ describe('smsSender source hygiene (mechanical dark-by-default proof)', () => {
       'src/libs/SMS.ts',
       'src/libs/communicationDispatcher.ts',
       'src/libs/integrationHealth.ts',
+      // Reads only the canonical sender identity for pre-enqueue STOP checks.
+      'src/libs/reviewRequests.server.ts',
     ]);
   });
 });
