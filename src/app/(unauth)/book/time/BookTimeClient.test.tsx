@@ -336,6 +336,97 @@ describe('BookTimeClient', () => {
     expect(fetchMock).toHaveBeenCalledTimes(callsBeforeRetry + 1);
   });
 
+  describe('available-times presentation', () => {
+    const renderTimeStep = (totalDuration = 60) => render(
+      <BookTimeClient
+        services={[{ id: 'srv_1', name: 'Gel', price: 65, duration: totalDuration }]}
+        totalPrice={65}
+        totalDuration={totalDuration}
+        technician={{ id: 'tech_1', name: 'Taylor', imageUrl: '/tech.jpg' }}
+        bookingFlow={['service', 'tech', 'time', 'confirm']}
+      />,
+    );
+
+    const mockAvailability = (
+      visibleSlots: string[],
+      bookedSlots: string[] = [],
+      blockedDurationMinutes = 60,
+      visibleDurationMinutes = 60,
+    ) => {
+      fetchMock.mockResolvedValue(new Response(JSON.stringify({
+        visibleSlots,
+        bookedSlots,
+        blockedDurationMinutes,
+        visibleDurationMinutes,
+      }), { status: 200 }));
+    };
+
+    it('shows only canonical bookable slots and truthful singular scarcity copy', async () => {
+      mockAvailability(['11:00', '11:15', '13:45', '15:45'], ['11:00', '11:15', '15:45']);
+
+      renderTimeStep();
+
+      const opening = await screen.findByRole('button', { name: '1:45 PM' });
+
+      expect(screen.getByText('Only 1 opening left today')).toBeInTheDocument();
+      expect(screen.getByText('No other times available today.')).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: '11:00 AM' })).not.toBeInTheDocument();
+      expect(screen.queryByText('Unavailable')).not.toBeInTheDocument();
+      expect(opening).toHaveClass('min-h-11');
+
+      fireEvent.click(opening);
+
+      expect(routerPush).toHaveBeenCalledWith(expect.stringContaining('time=13%3A45'));
+    });
+
+    it.each([
+      { times: ['09:30', '13:45'], copy: 'Only 2 openings left today' },
+      { times: ['09:30', '13:45', '18:15'], copy: 'Only 3 openings left today' },
+      { times: ['09:00', '09:30', '10:00', '13:00', '14:00', '18:00'], copy: '6 times available' },
+    ])('uses count copy from the canonical slots', async ({ times, copy }) => {
+      mockAvailability(times);
+
+      renderTimeStep();
+
+      expect(await screen.findByText(copy)).toBeInTheDocument();
+      expect(screen.getAllByTestId(/^time-slot-/)).toHaveLength(times.length);
+    });
+
+    it('omits empty dayparts and separates evening availability', async () => {
+      mockAvailability(['13:45', '18:15']);
+
+      renderTimeStep();
+
+      expect(await screen.findByRole('region', { name: 'Afternoon times' })).toBeInTheDocument();
+      expect(screen.getByRole('region', { name: 'Evening times' })).toBeInTheDocument();
+      expect(screen.queryByRole('region', { name: 'Morning times' })).not.toBeInTheDocument();
+    });
+
+    it('shows the intentional zero-availability state without appointment choices', async () => {
+      searchParamsState.value = 'serviceIds=srv_1&techId=tech_1&date=2026-03-20';
+      mockAvailability([]);
+
+      renderTimeStep();
+
+      expect(await screen.findByText('No openings on Friday, Mar 20')).toBeInTheDocument();
+      expect(screen.getByText('Try another date to find the next available appointment.')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Find next available' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Choose another date' })).toBeInTheDocument();
+      expect(screen.queryByTestId(/^time-slot-/)).not.toBeInTheDocument();
+    });
+
+    it('keeps a long preparation message concise and customer-facing', async () => {
+      mockAvailability(['13:45'], [], 190, 180);
+
+      renderTimeStep(180);
+
+      expect(await screen.findByText(/Your service takes/)).toHaveTextContent(
+        'Your service takes 3h plus 10 minutes of preparation time.',
+      );
+      expect(screen.queryByText(/Times marked unavailable/)).not.toBeInTheDocument();
+    });
+  });
+
   describe('Smart Fit presentation (P7.3)', () => {
     const SMART_FIT_ANNOTATION = {
       eligible: true,

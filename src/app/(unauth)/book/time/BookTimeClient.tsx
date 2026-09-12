@@ -76,7 +76,7 @@ const EMPTY_CLOSED_WEEKDAYS: number[] = [];
 type DisplayTimeSlot = {
   time: string;
   startTime: string | null;
-  period: 'morning' | 'afternoon';
+  period: 'morning' | 'afternoon' | 'evening';
   smartFit?: CustomerSmartFitOffer | null;
 };
 
@@ -105,7 +105,11 @@ function toDisplaySlots(slots: AvailabilitySlot[]): DisplayTimeSlot[] {
     return {
       time,
       startTime: slot.startTime ?? null,
-      period: Number.parseInt(hour, 10) < 12 ? 'morning' : 'afternoon',
+      period: Number.parseInt(hour, 10) < 12
+        ? 'morning'
+        : Number.parseInt(hour, 10) < 18
+          ? 'afternoon'
+          : 'evening',
       smartFit: slot.smartFit ?? null,
     };
   });
@@ -353,8 +357,10 @@ export function BookTimeClient({
 
   // Refs for smooth scrolling to time slot sections
   const smartFitSlotsRef = useRef<HTMLDivElement>(null);
+  const calendarRef = useRef<HTMLDivElement>(null);
   const morningSlotsRef = useRef<HTMLDivElement>(null);
   const afternoonSlotsRef = useRef<HTMLDivElement>(null);
+  const eveningSlotsRef = useRef<HTMLDivElement>(null);
 
   // Set when this mount follows a stale Smart Fit response on the confirm
   // step: once the refreshed availability renders, focus the time list.
@@ -701,7 +707,7 @@ export function BookTimeClient({
 
       // Find the first available section ref (Smart Fit section preferred,
       // then morning, then afternoon)
-      const targetRef = smartFitSlotsRef.current ?? morningSlotsRef.current ?? afternoonSlotsRef.current;
+      const targetRef = smartFitSlotsRef.current ?? morningSlotsRef.current ?? afternoonSlotsRef.current ?? eveningSlotsRef.current;
       if (!targetRef) {
         // No slots rendered - don't scroll
         return;
@@ -732,7 +738,7 @@ export function BookTimeClient({
       return;
     }
     staleRefreshFocusRef.current = false;
-    const target = smartFitSlotsRef.current ?? morningSlotsRef.current ?? afternoonSlotsRef.current;
+    const target = smartFitSlotsRef.current ?? morningSlotsRef.current ?? afternoonSlotsRef.current ?? eveningSlotsRef.current;
     target?.focus();
   }, [availabilityError, loadingSlots, mounted, visibleSlots]);
 
@@ -745,15 +751,28 @@ export function BookTimeClient({
   // Check if a slot is booked
   const isSlotBooked = (time: string) => bookedSlots.includes(time);
 
+  // The bookable presentation is derived from the same canonical response
+  // used by selection. Slots the server reports as booked remain impossible
+  // to choose, but no longer create a wall of disabled controls.
+  const bookableTimeSlots = availableTimeSlots.filter(slot => !isSlotBooked(slot.time));
+
   // Smart Fit grouping (P7.3): server-marked qualifying slots surface in their
   // own section first; every other slot keeps the existing morning/afternoon
   // presentation. With no qualifying slots this is exactly the legacy split.
-  const { smartFitSlots, regularSlots } = splitSmartFitSlots(availableTimeSlots, {
+  const { smartFitSlots, regularSlots } = splitSmartFitSlots(bookableTimeSlots, {
     isSlotUnavailable: slot => isSlotBooked(slot.time),
   });
   const hasSmartFitSlots = smartFitSlots.length > 0;
   const morningSlots = regularSlots.filter(s => s.period === 'morning');
   const afternoonSlots = regularSlots.filter(s => s.period === 'afternoon');
+  const eveningSlots = regularSlots.filter(s => s.period === 'evening');
+  const availableTimeCount = bookableTimeSlots.length;
+  const availabilityCountCopy = availableTimeCount <= 3
+    ? `Only ${availableTimeCount} ${availableTimeCount === 1 ? 'opening' : 'openings'} left today`
+    : `${availableTimeCount} times available`;
+  const timeGridClassName = availableTimeCount === 1
+    ? 'grid grid-cols-1 gap-2 p-4'
+    : 'grid grid-cols-2 gap-2 p-4 sm:grid-cols-3';
 
   const monthNames = [
     'January',
@@ -939,9 +958,14 @@ export function BookTimeClient({
     return `${days[date.getDay()]}, ${months[date.getMonth()]} ${date.getDate()}`;
   };
 
+  const handleChooseAnotherDate = () => {
+    calendarRef.current?.focus();
+    calendarRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  };
+
   // Check if there are no available slots at all for today
   const noSlotsAvailable = selectedDate && availableTimeSlots.length === 0;
-  const allSlotsBooked = selectedDate && availableTimeSlots.length > 0 && availableTimeSlots.every(s => isSlotBooked(s.time));
+  const allSlotsBooked = selectedDate && availableTimeSlots.length > 0 && bookableTimeSlots.length === 0;
 
   return (
     <main
@@ -986,6 +1010,9 @@ export function BookTimeClient({
 
         {/* Calendar Card */}
         <div
+          ref={calendarRef}
+          tabIndex={-1}
+          aria-label="Choose an appointment date"
           className="mb-4 overflow-hidden rounded-2xl bg-white shadow-[0_4px_20px_rgba(0,0,0,0.06)] max-[339px]:-mx-3"
           style={{
             borderWidth: '1px',
@@ -1146,14 +1173,17 @@ export function BookTimeClient({
             className="mb-4"
             contentClassName="py-4"
             icon="⏰"
-            title={noSlotsAvailable
-              ? 'No bookable times remain for this day.'
-              : 'This day is fully booked.'}
-            description={nextAvailableMessage || 'Choose another date or let Luster find the next opening.'}
+            title={`No openings on ${selectedDate ? formatSelectedDate(selectedDate) : 'this date'}`}
+            description={nextAvailableMessage || 'Try another date to find the next available appointment.'}
             action={(
-              <button type="button" onClick={() => void findNextAvailableDate()} disabled={findingNextAvailable} className="mt-2 min-h-11 rounded-full bg-amber-900 px-5 py-2.5 text-sm font-semibold text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 disabled:opacity-60">
-                {findingNextAvailable ? 'Checking the next 30 days…' : 'Find next available'}
-              </button>
+              <div className="mt-2 flex flex-col items-center gap-2 sm:flex-row sm:justify-center">
+                <button type="button" onClick={() => void findNextAvailableDate()} disabled={findingNextAvailable} className="min-h-11 rounded-full bg-amber-900 px-5 py-2.5 text-sm font-semibold text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 disabled:opacity-60">
+                  {findingNextAvailable ? 'Checking the next 30 days…' : 'Find next available'}
+                </button>
+                <button type="button" onClick={handleChooseAnotherDate} className="min-h-11 rounded-full border border-amber-900 px-5 py-2.5 text-sm font-semibold text-amber-950 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2">
+                  Choose another date
+                </button>
+              </div>
             )}
           />
         )}
@@ -1184,7 +1214,19 @@ export function BookTimeClient({
                 {' '}
                 <strong>{totalDuration >= 60 ? `${Math.floor(totalDuration / 60)}h ${totalDuration % 60 ? `${totalDuration % 60}m` : ''}`.trim() : `${totalDuration}m`}</strong>
                 {availabilityBufferMinutes > 0 ? ` plus ${availabilityBufferMinutes} minutes of preparation time` : ''}
-                . Times marked unavailable overlap existing schedule time.
+                .
+              </div>
+            )}
+
+            {!loadingSlots && (
+              <div className="flex items-center justify-between gap-3 rounded-2xl border border-neutral-200 bg-white px-4 py-3 shadow-[0_4px_20px_rgba(0,0,0,0.04)]">
+                <div className="min-w-0">
+                  <p className="text-xs font-bold uppercase tracking-[0.14em] text-neutral-500">{formatSelectedDate(selectedDate)}</p>
+                  <p className="mt-1 text-base font-bold text-neutral-950" aria-live="polite">{availabilityCountCopy}</p>
+                </div>
+                <button type="button" onClick={handleChooseAnotherDate} className="min-h-11 shrink-0 rounded-full px-3 text-sm font-semibold underline decoration-neutral-300 underline-offset-4 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2">
+                  Check another date
+                </button>
               </div>
             )}
 
@@ -1209,7 +1251,7 @@ export function BookTimeClient({
                   </div>
                   <p className="mt-1 text-xs leading-5 text-neutral-500">{SMART_FIT_SECTION_DESCRIPTION}</p>
                 </div>
-                <div className="grid grid-cols-2 gap-2 p-4">
+                <div className={availableTimeCount === 1 ? timeGridClassName : 'grid grid-cols-2 gap-2 p-4'}>
                   {smartFitSlots.map((slot) => {
                     const offer = slot.smartFit;
                     if (!offer) {
@@ -1222,7 +1264,7 @@ export function BookTimeClient({
                         data-testid={`smart-fit-slot-${slot.time}`}
                         onClick={() => handleTimeSelect(slot)}
                         aria-label={`${formatTime12h(slot.time)} — ${SMART_FIT_BADGE_LABEL}: save ${formatMoney(offer.discountAmountCents)}. ${formatMoney(offer.discountedPriceCents)} instead of ${formatMoney(offer.originalPriceCents)}.`}
-                        className="min-w-0 rounded-xl p-3 text-left transition-all duration-200 hover:scale-[1.02] hover:shadow-md active:scale-95"
+                        className="min-h-11 min-w-0 rounded-xl p-3 text-left transition-all duration-200 hover:scale-[1.02] hover:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 active:scale-95"
                         style={{
                           borderWidth: '1px',
                           borderStyle: 'solid',
@@ -1259,7 +1301,7 @@ export function BookTimeClient({
 
             {/* Heading over the remaining regular times, only alongside the
                 Smart Fit section — the legacy layout stays heading-free */}
-            {hasSmartFitSlots && !loadingSlots && (morningSlots.length > 0 || afternoonSlots.length > 0) && (
+            {hasSmartFitSlots && !loadingSlots && (morningSlots.length > 0 || afternoonSlots.length > 0 || eveningSlots.length > 0) && (
               <h3 className="pt-1 text-sm font-bold text-neutral-900">{SMART_FIT_OTHER_TIMES_TITLE}</h3>
             )}
 
@@ -1282,49 +1324,30 @@ export function BookTimeClient({
                   <span className="text-sm font-bold text-neutral-900">Morning</span>
                   <span className="text-xs text-neutral-400">Earlier time slots</span>
                 </div>
-                <div className="grid grid-cols-3 gap-2 p-4">
+                <div className={timeGridClassName}>
                   {morningSlots.map((slot, i) => {
-                    const booked = isSlotBooked(slot.time);
                     return (
                       <button
                         key={slot.time}
                         type="button"
                         data-testid={`time-slot-${slot.time}`}
                         onClick={() => handleTimeSelect(slot)}
-                        disabled={booked}
-                        className={`relative rounded-xl px-2 py-3 text-sm font-bold transition-all duration-200 ${
-                          booked
-                            ? 'cursor-not-allowed opacity-50'
-                            : 'text-neutral-800 hover:scale-105 hover:text-neutral-900 hover:shadow-md active:scale-95'
-                        }`}
+                        className="relative min-h-11 rounded-xl px-2 py-3 text-sm font-bold text-neutral-900 transition-all duration-200 hover:scale-105 hover:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 active:scale-95"
                         style={{
                           borderWidth: '1px',
                           borderStyle: 'solid',
-                          borderColor: booked
-                            ? '#e5e5e5'
-                            : `color-mix(in srgb, ${themeVars.primary} 20%, transparent)`,
-                          background: booked
-                            ? '#f5f5f5'
-                            : `linear-gradient(to bottom right, ${themeVars.surfaceAlt}, ${themeVars.highlightBackground})`,
+                          borderColor: `color-mix(in srgb, ${themeVars.primary} 35%, transparent)`,
+                          background: `linear-gradient(to bottom right, ${themeVars.surfaceAlt}, ${themeVars.highlightBackground})`,
                           animationDelay: `${i * 30}ms`,
                         }}
                         onMouseEnter={(e) => {
-                          if (!booked) {
-                            e.currentTarget.style.background = `linear-gradient(to bottom right, ${themeVars.primary}, ${themeVars.primaryDark})`;
-                          }
+                          e.currentTarget.style.background = `linear-gradient(to bottom right, ${themeVars.primary}, ${themeVars.primaryDark})`;
                         }}
                         onMouseLeave={(e) => {
-                          if (!booked) {
-                            e.currentTarget.style.background = `linear-gradient(to bottom right, ${themeVars.surfaceAlt}, ${themeVars.highlightBackground})`;
-                          }
+                          e.currentTarget.style.background = `linear-gradient(to bottom right, ${themeVars.surfaceAlt}, ${themeVars.highlightBackground})`;
                         }}
                       >
                         {formatTime12h(slot.time)}
-                        {booked && (
-                          <span className="absolute -right-1 -top-1 rounded-full bg-red-500 px-1.5 py-0.5 text-[10px] font-bold text-white">
-                            Unavailable
-                          </span>
-                        )}
                       </button>
                     );
                   })}
@@ -1351,54 +1374,87 @@ export function BookTimeClient({
                   <span className="text-sm font-bold text-neutral-900">Afternoon</span>
                   <span className="text-xs text-neutral-400">Later time slots</span>
                 </div>
-                <div className="grid grid-cols-3 gap-2 p-4">
+                <div className={timeGridClassName}>
                   {afternoonSlots.map((slot, i) => {
-                    const booked = isSlotBooked(slot.time);
                     return (
                       <button
                         key={slot.time}
                         type="button"
                         data-testid={`time-slot-${slot.time}`}
                         onClick={() => handleTimeSelect(slot)}
-                        disabled={booked}
-                        className={`relative rounded-xl px-2 py-3 text-sm font-bold transition-all duration-200 ${
-                          booked
-                            ? 'cursor-not-allowed opacity-50'
-                            : 'text-neutral-800 hover:scale-105 hover:text-neutral-900 hover:shadow-md active:scale-95'
-                        }`}
+                        className="relative min-h-11 rounded-xl px-2 py-3 text-sm font-bold text-neutral-900 transition-all duration-200 hover:scale-105 hover:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 active:scale-95"
                         style={{
                           borderWidth: '1px',
                           borderStyle: 'solid',
-                          borderColor: booked
-                            ? '#e5e5e5'
-                            : `color-mix(in srgb, ${themeVars.primary} 20%, transparent)`,
-                          background: booked
-                            ? '#f5f5f5'
-                            : `linear-gradient(to bottom right, ${themeVars.surfaceAlt}, ${themeVars.highlightBackground})`,
+                          borderColor: `color-mix(in srgb, ${themeVars.primary} 35%, transparent)`,
+                          background: `linear-gradient(to bottom right, ${themeVars.surfaceAlt}, ${themeVars.highlightBackground})`,
                           animationDelay: `${(i + morningSlots.length) * 30}ms`,
                         }}
                         onMouseEnter={(e) => {
-                          if (!booked) {
-                            e.currentTarget.style.background = `linear-gradient(to bottom right, ${themeVars.primary}, ${themeVars.primaryDark})`;
-                          }
+                          e.currentTarget.style.background = `linear-gradient(to bottom right, ${themeVars.primary}, ${themeVars.primaryDark})`;
                         }}
                         onMouseLeave={(e) => {
-                          if (!booked) {
-                            e.currentTarget.style.background = `linear-gradient(to bottom right, ${themeVars.surfaceAlt}, ${themeVars.highlightBackground})`;
-                          }
+                          e.currentTarget.style.background = `linear-gradient(to bottom right, ${themeVars.surfaceAlt}, ${themeVars.highlightBackground})`;
                         }}
                       >
                         {formatTime12h(slot.time)}
-                        {booked && (
-                          <span className="absolute -right-1 -top-1 rounded-full bg-red-500 px-1.5 py-0.5 text-[10px] font-bold text-white">
-                            Unavailable
-                          </span>
-                        )}
                       </button>
                     );
                   })}
                 </div>
               </div>
+            )}
+
+            {/* Evening Times */}
+            {eveningSlots.length > 0 && !loadingSlots && (
+              <div
+                ref={eveningSlotsRef}
+                tabIndex={-1}
+                role="region"
+                aria-label="Evening times"
+                className="overflow-hidden rounded-2xl bg-white shadow-[0_4px_20px_rgba(0,0,0,0.06)]"
+                style={{
+                  borderWidth: '1px',
+                  borderStyle: 'solid',
+                  borderColor: themeVars.cardBorder,
+                }}
+              >
+                <div className="flex items-center gap-2 border-b border-neutral-100 px-5 py-3">
+                  <span className="text-xl" aria-hidden="true">🌙</span>
+                  <span className="text-sm font-bold text-neutral-900">Evening</span>
+                  <span className="text-xs text-neutral-400">Later time slots</span>
+                </div>
+                <div className={timeGridClassName}>
+                  {eveningSlots.map((slot, i) => (
+                    <button
+                      key={slot.time}
+                      type="button"
+                      data-testid={`time-slot-${slot.time}`}
+                      onClick={() => handleTimeSelect(slot)}
+                      className="relative min-h-11 rounded-xl px-2 py-3 text-sm font-bold text-neutral-900 transition-all duration-200 hover:scale-105 hover:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 active:scale-95"
+                      style={{
+                        borderWidth: '1px',
+                        borderStyle: 'solid',
+                        borderColor: `color-mix(in srgb, ${themeVars.primary} 35%, transparent)`,
+                        background: `linear-gradient(to bottom right, ${themeVars.surfaceAlt}, ${themeVars.highlightBackground})`,
+                        animationDelay: `${(i + morningSlots.length + afternoonSlots.length) * 30}ms`,
+                      }}
+                      onMouseEnter={(event) => {
+                        event.currentTarget.style.background = `linear-gradient(to bottom right, ${themeVars.primary}, ${themeVars.primaryDark})`;
+                      }}
+                      onMouseLeave={(event) => {
+                        event.currentTarget.style.background = `linear-gradient(to bottom right, ${themeVars.surfaceAlt}, ${themeVars.highlightBackground})`;
+                      }}
+                    >
+                      {formatTime12h(slot.time)}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {availableTimeCount === 1 && !loadingSlots && (
+              <p className="text-center text-sm font-medium text-neutral-600">No other times available today.</p>
             )}
           </div>
         )}
