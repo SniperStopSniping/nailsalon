@@ -1127,21 +1127,23 @@ export function BookTimeClient({
                   style={{
                     zIndex: isSelected ? 10 : undefined,
                     background: isSelected
-                      ? `linear-gradient(to bottom right, ${themeVars.primary}, ${themeVars.primaryDark})`
+                      ? `var(--booking-brand-primary, linear-gradient(to bottom right, ${themeVars.primary}, ${themeVars.primaryDark}))`
                       : isToday && !isClosed
-                        ? themeVars.accent
+                        ? `var(--booking-today-background, ${themeVars.accent})`
                         : undefined,
                     color: isPast
-                      ? '#d4d4d4'
+                      ? themeVars.borderMuted
                       : isSelected
-                        ? '#171717'
+                        ? 'var(--booking-brand-foreground, #171717)'
                         : isClosed
-                          ? '#a3a3a3'
+                          ? themeVars.secondaryText
                           : isToday
-                            ? 'white'
-                            : '#404040',
+                            ? 'var(--booking-today-foreground, white)'
+                            : themeVars.titleText,
                     textDecoration: isClosed && !isPast ? 'line-through' : undefined,
-                    boxShadow: isSelected ? `0 0 0 3px color-mix(in srgb, ${themeVars.primary} 22%, transparent)` : undefined,
+                    boxShadow: isSelected
+                      ? `0 0 0 3px color-mix(in srgb, ${themeVars.primary} 22%, transparent)`
+                      : isToday && !isClosed ? 'var(--booking-today-ring, none)' : undefined,
                     cursor: isUnselectable ? 'not-allowed' : 'pointer',
                     opacity: loadingSlots && !isSelected ? 0.6 : undefined,
                   }}
@@ -1235,7 +1237,7 @@ export function BookTimeClient({
                 onClick={() => void findNextAvailableDate()}
                 disabled={findingNextAvailable}
                 className="min-h-12 rounded-2xl px-5 py-3 text-sm font-semibold text-white shadow-sm transition-transform hover:-translate-y-0.5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 active:translate-y-0 disabled:opacity-60 motion-reduce:transform-none"
-                style={{ backgroundColor: themeVars.accent }}
+                style={{ backgroundColor: `var(--booking-brand-primary, ${themeVars.accent})`, color: 'var(--booking-brand-foreground, white)' }}
               >
                 {findingNextAvailable ? 'Checking the next 30 days…' : 'Find next available'}
               </button>
@@ -1435,15 +1437,15 @@ export function BookTimeClient({
                             className={`relative flex ${isSoleOpening ? 'min-h-[60px] justify-between px-5 text-base text-white' : 'min-h-[52px] justify-center px-3 text-sm'} items-center rounded-2xl border font-bold transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--theme-selected-ring)] focus-visible:ring-offset-2 active:translate-y-0 motion-reduce:transform-none`}
                             style={{
                               animationDelay: `${index * 30}ms`,
-                              background: isSoleOpening || isSelectedTime ? themeVars.accent : themeVars.surfaceAlt,
-                              borderColor: isSoleOpening || isSelectedTime ? themeVars.accent : themeVars.borderMuted,
+                              background: isSoleOpening || isSelectedTime ? `var(--booking-brand-primary, ${themeVars.accent})` : themeVars.surfaceAlt,
+                              borderColor: isSoleOpening || isSelectedTime ? `var(--booking-brand-state-border, ${themeVars.accent})` : themeVars.borderMuted,
                               boxShadow: isSelectedTime ? `0 0 0 3px color-mix(in srgb, ${themeVars.primary} 30%, transparent)` : undefined,
-                              color: isSoleOpening || isSelectedTime ? 'white' : themeVars.titleText,
+                              color: isSoleOpening || isSelectedTime ? 'var(--booking-brand-foreground, white)' : themeVars.titleText,
                             }}
                           >
                             <span>{formatTime12h(slot.time)}</span>
                             {isSoleOpening && (
-                              <span aria-hidden="true" className="flex items-center gap-1.5 text-xs font-semibold text-white/75">
+                              <span aria-hidden="true" className="flex items-center gap-1.5 text-xs font-semibold opacity-80">
                                 Choose
                                 <svg className="size-4" viewBox="0 0 16 16" fill="none">
                                   <path d="m6 3 5 5-5 5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />

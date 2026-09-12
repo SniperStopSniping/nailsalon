@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { PublicSalonPageShell } from '@/components/PublicSalonPageShell';
 import { resolveBookingPageContent } from '@/libs/bookingPageContent';
+import { CUSTOMER_SITE_PALETTE_PRESETS, getCustomerSitePresentationCssVariables } from '@/libs/customerSitePresentation';
 import { useSalon } from '@/providers/SalonProvider';
 
 // SalonProvider pulls its `BOOKING_PAGE_CONFIG_SIDE_DEFAULTS` fallback value
@@ -128,6 +129,102 @@ function SalonContentPlaceProbe() {
     </div>
   );
 }
+
+describe('booking palette continuity', () => {
+  it.each(CUSTOMER_SITE_PALETTE_PRESETS)('shares %s across every booking step', (palette) => {
+    const expected = getCustomerSitePresentationCssVariables({ palettePreset: palette, stylePreset: 'modern' });
+    for (const pageName of ['book-service', 'book-technician', 'book-datetime', 'book-confirm']) {
+      const { unmount } = render(
+        <PublicSalonPageShell
+          appearance={{ mode: 'theme', themeKey: 'espresso' }}
+          pageName={pageName}
+          salon={baseSalon}
+          bookingPage={{ ...liveBookingPageSide, sitePalettePreset: palette, siteStylePreset: 'modern' }}
+        >
+          <div data-testid="palette-child" />
+        </PublicSalonPageShell>,
+      );
+      const wrapper = screen.getByTestId('palette-child').closest('[data-customer-booking-theme]') as HTMLElement;
+
+      expect(wrapper).toHaveAttribute('data-customer-site-palette', palette);
+      expect(wrapper).toHaveAttribute('data-customer-booking-theme', pageName);
+
+      for (const [token, value] of Object.entries(expected)) {
+        expect(wrapper.style.getPropertyValue(token), `${pageName}: ${token}`).toBe(value);
+      }
+      unmount();
+    }
+  });
+
+  it('uses only the resolved live side, not a different palette in the stored draft', () => {
+    const settings = { bookingPage: { draft: { sitePalettePreset: 'black_champagne' } } } as unknown as NonNullable<typeof baseSalon.settings>;
+    render(
+      <PublicSalonPageShell
+        appearance={{ mode: 'custom', themeKey: null }}
+        pageName="book-datetime"
+        salon={{ ...baseSalon, settings }}
+        bookingPage={{ ...liveBookingPageSide, sitePalettePreset: 'sage_stone' }}
+      >
+        <div data-testid="palette-child" />
+      </PublicSalonPageShell>,
+    );
+
+    expect(screen.getByTestId('palette-child').parentElement).toHaveAttribute('data-customer-site-palette', 'sage_stone');
+  });
+
+  it('previews the supplied draft palette and preserves service-page precedence over a legacy brand accent', () => {
+    render(
+      <PublicSalonPageShell
+        appearance={{ mode: 'theme', themeKey: 'espresso' }}
+        pageName="book-confirm"
+        salon={{ ...baseSalon, settings: { bookingExperience: { primaryColor: '#ff00ff' } } as typeof baseSalon.settings }}
+        bookingPage={{ ...draftBookingPageSide, sitePalettePreset: 'navy_ivory' }}
+        isPreviewingDraftConfig
+        ownerPreview={{ isPreviewing: true, actorType: 'owner' }}
+        previewBannerVariant="draft-config"
+      >
+        <div data-testid="palette-child" />
+      </PublicSalonPageShell>,
+    );
+
+    expect(screen.getByTestId('owner-preview-banner')).toBeInTheDocument();
+    expect(screen.getByTestId('palette-child').parentElement?.style.getPropertyValue('--booking-brand-primary')).toBe('#294d73');
+    expect(screen.getByTestId('palette-child').parentElement?.style.getPropertyValue('--n5-button-primary-bg')).toBe('#294d73');
+  });
+
+  it('updates the palette with the supplied salon and never leaks a previous salon’s colours', () => {
+    const shell = (palette: 'sage_stone' | 'black_champagne', id: string) => (
+      <PublicSalonPageShell
+        appearance={{ mode: 'custom', themeKey: null }}
+        pageName="book-confirm"
+        salon={{ ...baseSalon, id }}
+        bookingPage={{ ...liveBookingPageSide, sitePalettePreset: palette }}
+      >
+        <div data-testid="palette-child" />
+      </PublicSalonPageShell>
+    );
+    const { rerender } = render(shell('sage_stone', 'salon-a'));
+    rerender(shell('black_champagne', 'salon-b'));
+
+    expect(screen.getByTestId('palette-child').parentElement).toHaveAttribute('data-customer-site-palette', 'black_champagne');
+    expect(screen.getByTestId('palette-child').parentElement?.style.getPropertyValue('--n5-bg-page')).toBe('#151315');
+  });
+
+  it.each(['book-datetime', 'book-confirm', 'profile'])('leaves legacy and non-booking %s appearance alone', (pageName) => {
+    render(
+      <PublicSalonPageShell
+        appearance={{ mode: 'custom', themeKey: null }}
+        pageName={pageName}
+        salon={baseSalon}
+        bookingPage={pageName === 'profile' ? { ...liveBookingPageSide, sitePalettePreset: 'black_champagne' } : liveBookingPageSide}
+      >
+        <div data-testid="palette-child" />
+      </PublicSalonPageShell>,
+    );
+
+    expect(screen.getByTestId('palette-child').closest('[data-customer-booking-theme]')).toBeNull();
+  });
+});
 
 describe('PublicSalonPageShell owner-preview wiring', () => {
   it('does not render a preview banner and exposes the live bookingPage side by default', () => {

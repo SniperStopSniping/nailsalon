@@ -248,15 +248,23 @@
    * colours never inherit a customer's style or palette. Legacy salons have
    * no data attribute and retain their existing tenant theme unchanged.
    */
-  .service-page-viewport[data-customer-site-style] {
+  :is(.service-page-viewport[data-customer-site-style], [data-customer-booking-theme]) {
     color: var(--customer-site-ink);
     font-family: var(--customer-site-body-font);
   }
 
-  .service-page-viewport[data-customer-site-style] :where(h1, h2, h3) {
-    color: var(--customer-site-ink);
+  :is(.service-page-viewport[data-customer-site-style], [data-customer-booking-theme]) :where(h1, h2, h3) {
     font-family: var(--customer-site-heading-font);
     letter-spacing: var(--customer-site-heading-tracking, normal);
+  }
+
+  .service-page-viewport[data-customer-site-style] :where(h1, h2, h3) {
+    color: var(--customer-site-ink);
+  }
+
+  :is(.service-page-viewport[data-customer-site-style], [data-customer-booking-theme]) [data-booking-avatar-fallback] {
+    background: var(--theme-card-background);
+    color: var(--customer-site-ink);
   }
 
   /*
@@ -273,24 +281,24 @@
     line-height: var(--customer-site-heading-leading, 1.1);
   }
 
-  .service-page-viewport[data-customer-site-style] :where(.text-neutral-950, .text-neutral-900, .text-neutral-800) {
+  :is(.service-page-viewport[data-customer-site-style], [data-customer-booking-theme]) :where(.text-neutral-950, .text-neutral-900, .text-neutral-800) {
     color: var(--customer-site-ink);
   }
 
-  .service-page-viewport[data-customer-site-style]
+  :is(.service-page-viewport[data-customer-site-style], [data-customer-booking-theme])
     :where(.text-neutral-700, .text-neutral-600, .text-neutral-500, .text-neutral-400) {
     color: var(--customer-site-muted);
   }
 
-  .service-page-viewport[data-customer-site-style] :where(.bg-white) {
+  :is(.service-page-viewport[data-customer-site-style], [data-customer-booking-theme]) :where(.bg-white, .bg-white\/75, .bg-white\/70, .bg-white\/50) {
     background-color: var(--theme-card-background);
   }
 
-  .service-page-viewport[data-customer-site-style] :where(.bg-neutral-50, .bg-neutral-100) {
+  :is(.service-page-viewport[data-customer-site-style], [data-customer-booking-theme]) :where(.bg-neutral-50, .bg-neutral-100) {
     background-color: var(--theme-surface-alt);
   }
 
-  .service-page-viewport[data-customer-site-style]
+  :is(.service-page-viewport[data-customer-site-style], [data-customer-booking-theme])
     :where(.border-neutral-100, .border-neutral-200, .border-neutral-300) {
     border-color: var(--theme-card-border);
   }

@@ -236,7 +236,7 @@ export function BookTechClient({
                   transform: isSelected ? 'scale(1.02)' : undefined,
                   background: isSelected
                     ? `linear-gradient(to bottom right, color-mix(in srgb, ${themeVars.primary} 30%, transparent), color-mix(in srgb, ${themeVars.primaryDark} 20%, transparent))`
-                    : 'white',
+                    : themeVars.cardBackground,
                   boxShadow: isSelected
                     ? '0 20px 25px -5px rgb(0 0 0 / 0.1)'
                     : '0 4px 20px rgba(0,0,0,0.06)',
@@ -253,10 +253,11 @@ export function BookTechClient({
                   <div
                     className="absolute right-3 top-3 z-10 flex size-7 items-center justify-center rounded-full shadow-lg"
                     style={{
-                      background: `linear-gradient(to bottom right, ${themeVars.primary}, ${themeVars.primaryDark})`,
+                      background: `var(--booking-brand-primary, linear-gradient(to bottom right, ${themeVars.primary}, ${themeVars.primaryDark}))`,
+                      color: 'var(--booking-brand-foreground, white)',
                     }}
                   >
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" className="text-white">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
                       <path d="M20 6L9 17l-5-5" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
                     </svg>
                   </div>
