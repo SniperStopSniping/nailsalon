@@ -826,8 +826,9 @@ export function BookTimeClient({
   const afternoonSlots = regularSlots.filter(s => s.period === 'afternoon');
   const eveningSlots = regularSlots.filter(s => s.period === 'evening');
   const availableTimeCount = bookableTimeSlots.length;
+  const isSelectedDateToday = selectedDate?.toDateString() === today.toDateString();
   const availabilityCountCopy = availableTimeCount <= 3
-    ? `Only ${availableTimeCount} ${availableTimeCount === 1 ? 'opening' : 'openings'} left today`
+    ? `Only ${availableTimeCount} ${availableTimeCount === 1 ? 'opening' : 'openings'} ${isSelectedDateToday ? 'left today' : 'available'}`
     : `${availableTimeCount} times available`;
   const timeGridClassName = availableTimeCount === 1
     ? 'grid grid-cols-1 gap-2.5'
@@ -1033,9 +1034,7 @@ export function BookTimeClient({
           salonName={salonName}
           mounted={mounted}
           title="Pick Your Time"
-          description={selectedDate
-            ? `${formatSelectedDate(selectedDate)} · Tap another date to change`
-            : 'Select a day that works for you'}
+          description={calendarCopy.dateHelp}
           bookingFlow={bookingFlow}
           currentStep="time"
           isFirstStep={isFirstStep}
@@ -1068,7 +1067,7 @@ export function BookTimeClient({
           tabIndex={-1}
           role="group"
           aria-label="Choose an appointment date"
-          className="mb-4 overflow-hidden rounded-3xl bg-white shadow-[0_12px_32px_-22px_rgba(63,43,36,0.34)] max-[339px]:-mx-3"
+          className="mb-3 overflow-hidden rounded-3xl bg-white max-[339px]:-mx-3"
           style={{
             borderWidth: '1px',
             borderStyle: 'solid',
@@ -1244,7 +1243,7 @@ export function BookTimeClient({
           <section
             aria-labelledby="no-openings-title"
             data-public-surface="timeSelectionControls"
-            className="mb-4 rounded-[1.75rem] border bg-white px-5 py-6 text-center shadow-[0_16px_40px_-28px_rgba(63,43,36,0.42)]"
+            className="mb-4 rounded-[1.75rem] border bg-white px-5 py-6 text-center"
             style={{ borderColor: themeVars.cardBorder }}
           >
             <div
@@ -1339,10 +1338,10 @@ export function BookTimeClient({
               <section
                 aria-labelledby="availability-heading"
                 data-public-surface="timeSelectionControls"
-                className="overflow-hidden rounded-[1.75rem] border bg-white shadow-[0_16px_40px_-28px_rgba(63,43,36,0.42)]"
+                className="overflow-hidden rounded-[1.75rem] border bg-white"
                 style={{ borderColor: themeVars.cardBorder }}
               >
-                <div className="px-5 pb-4 pt-5 sm:px-6">
+                <div className="px-5 py-4 sm:px-6">
                   <p className="text-[11px] font-bold uppercase tracking-[0.18em]" style={{ color: themeVars.secondaryText }}>
                     {formatSelectedDate(selectedDate)}
                   </p>
@@ -1502,7 +1501,7 @@ export function BookTimeClient({
                 >
                   {availableTimeCount === 1 && (
                     <p className="mb-3 text-sm font-medium" style={{ color: themeVars.secondaryText }}>
-                      No other times available today.
+                      {isSelectedDateToday ? 'No other times available today.' : 'No other times available on this date.'}
                     </p>
                   )}
                   <button

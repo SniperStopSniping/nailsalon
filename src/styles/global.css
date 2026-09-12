@@ -465,9 +465,28 @@
   outline-offset: 2px;
 }
 
-.booking-reading-toolbar button[aria-pressed='true'] {
-  text-decoration: underline;
-  text-underline-offset: 4px;
+.booking-reading-switch {
+  display: inline-flex;
+  align-items: center;
+  width: 36px;
+  height: 22px;
+  padding: 3px;
+  border: 1px solid currentColor;
+  border-radius: 999px;
+}
+
+.booking-reading-switch > span {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.booking-reading-toolbar button[aria-pressed='true'] .booking-reading-switch {
+  background: #202020;
+  color: white;
+  border-color: #202020;
+  justify-content: flex-end;
 }
 
 [data-booking-readability] .booking-header-safe-top {

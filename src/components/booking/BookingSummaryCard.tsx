@@ -29,7 +29,7 @@ export function BookingSummaryCard({
     <Card
       data-public-surface="appointmentSummaryCard"
       data-testid="booking-summary-card"
-      className="mb-6 overflow-hidden border-0 shadow-xl"
+      className="mb-4 overflow-hidden border-0 shadow-[0_6px_18px_-12px_rgba(30,20,25,0.3)]"
       style={{
         containerType: 'inline-size',
         containerName: 'booking-summary',

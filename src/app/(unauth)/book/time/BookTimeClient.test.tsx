@@ -137,12 +137,15 @@ describe('BookTimeClient', () => {
       await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining('date=2026-03-16'), { cache: 'no-store' }));
 
       expect(screen.getByTestId('calendar-day-2026-03-16')).toHaveAttribute('aria-pressed', 'true');
+      expect(await screen.findByText('Only 1 opening available')).toBeInTheDocument();
+      expect(screen.getByText('No other times available on this date.')).toBeInTheDocument();
+      expect(screen.queryByText('Only 1 opening left today')).not.toBeInTheDocument();
     });
 
     it('offers a full month without past appointment choices and retains a far-date selection', async () => {
       renderCalendar();
       await screen.findByRole('button', { name: '1:45 PM' });
-      fireEvent.click(screen.getByRole('button', { name: 'Full calendar' }));
+      fireEvent.click(screen.getByRole('button', { name: 'View full calendar' }));
 
       expect(screen.getByRole('button', { name: 'Show one week' })).toHaveAttribute('aria-expanded', 'true');
       expect(screen.getByRole('button', { name: 'Previous month' })).toBeDisabled();

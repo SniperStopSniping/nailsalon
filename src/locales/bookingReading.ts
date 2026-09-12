@@ -9,7 +9,8 @@ const en = {
   nextWeek: 'Next week',
   previousMonth: 'Previous month',
   nextMonth: 'Next month',
-  fullCalendar: 'Full calendar',
+  fullCalendar: 'View full calendar',
+  dateHelp: 'Choose a date, then a time.',
   showWeek: 'Show one week',
   closed: 'closed',
 };
@@ -23,7 +24,8 @@ const fr: typeof en = {
   nextWeek: 'Semaine suivante',
   previousMonth: 'Mois précédent',
   nextMonth: 'Mois suivant',
-  fullCalendar: 'Calendrier complet',
+  fullCalendar: 'Voir le calendrier complet',
+  dateHelp: 'Choisissez une date, puis une heure.',
   showWeek: 'Afficher une semaine',
   closed: 'fermé',
 };

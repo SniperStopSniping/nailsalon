@@ -20,7 +20,9 @@ test('week navigation and full calendar preserve date selection and keyboard acc
 
   await expect(page.getByTestId('calendar-day-2026-09-19')).toHaveAttribute('aria-pressed', 'true');
 
-  await page.getByRole('button', { name: 'Full calendar' }).click();
+  await expect(page.getByText('Only 1 opening available')).toBeVisible();
+
+  await page.getByRole('button', { name: 'View full calendar' }).click();
   await page.getByRole('button', { name: 'Next month' }).click();
   await page.getByTestId('calendar-day-2026-10-21').click();
   await page.getByRole('button', { name: 'Show one week' }).click();
@@ -93,7 +95,7 @@ for (const width of [320, 375]) {
     await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     await expect(prep).toBeVisible();
 
-    await page.getByRole('button', { name: 'Full calendar' }).click();
+    await page.getByRole('button', { name: 'View full calendar' }).click();
 
     await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     await expect(page.getByTestId('calendar-day-2026-09-12')).toHaveAttribute('aria-pressed', 'true');

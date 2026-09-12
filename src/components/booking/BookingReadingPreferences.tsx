@@ -46,9 +46,9 @@ export function BookingReadingPreferences({ children }: { children: ReactNode })
             }
           }}
         >
-          <span aria-hidden="true">Aa</span>
           {copy.easierToRead}
-          <span>{easyReading ? copy.readingOn : copy.readingOff}</span>
+          <span className="booking-reading-switch" aria-hidden="true"><span /></span>
+          <span className="sr-only">{easyReading ? copy.readingOn : copy.readingOff}</span>
         </button>
         <span id={helpId} className="sr-only">{copy.readingHelp}</span>
       </div>

@@ -2,7 +2,7 @@
 
 ## Delivery status
 
-Local review candidate only. Not pushed, merged, published, or deployed.
+Release candidate. The owner has authorized publication; merge and production release remain gated on required CI and preview verification. The pull request records the final release outcome and production SHA.
 
 - Worktree: `/Users/me/nailsalon-worktrees/booking-calendar-readability-20260912`
 - Branch: `codex/booking-calendar-readability-20260912`
@@ -20,6 +20,7 @@ The preceding release shipped palette continuity through the booking screens, bu
 - At 375px the standard week fits in one row. At 320px, or with easier reading enabled, the seven days wrap to avoid tiny targets. Very large browser text reflows the summary and time choices rather than clipping them.
 - Closed weekdays remain disabled using the same existing salon-rule input. Browsing a week does not select a date or fetch an alternative availability result. Choosing a date still invokes the existing canonical request.
 - The appointment summary no longer truncates the service/location or fades its supporting text. Progress labels are larger and no longer faded.
+- Final polish: lighter appointment-summary shadow, flat bordered calendar/time cards, tighter availability spacing, “Choose a date, then a time.” guidance, and a clearer “View full calendar” action.
 
 ## Easier to read
 
@@ -29,9 +30,11 @@ The preference is stored under `luster:booking-reading:v1` in the visitor's brow
 
 Confirmation/receipt navigation stays in normal document flow with sticky positioning so it cannot cover the reading control.
 
-## Availability and preparation (unchanged)
+The reading control has a visible on/off switch treatment while retaining native button semantics, `aria-pressed`, an accessible state label, and a 44px target.
 
-- One opening: “Only 1 opening left today”. Two or three: “Only 2/3 openings left today”. Four or more: “N times available”. Counts continue to use the canonical bookable results, including the existing past-time/booked-slot protections.
+## Availability and preparation
+
+- For the current salon date: “Only 1 opening left today” or “Only 2/3 openings left today”. Future dates use “Only 1 opening available” or “Only 2/3 openings available”, never “today”. Four or more: “N times available”. Counts continue to use the canonical bookable results, including the existing past-time/booked-slot protections. The one-opening footer is likewise date-aware.
 - No openings: the existing intentional date-specific empty state and next-available/choose-another-date recovery remain. No unavailable-time grid is added.
 - Preparation copy still reports service duration plus the actual returned preparation buffer. No scheduling-engine explanation is reintroduced.
 - No changes to availability calculations, minimum notice, salon timezone, locations, technicians, durations, buffers, holds, payments, booking policies, capacity, or schema.
@@ -51,17 +54,17 @@ Real React booking screens and shared theme CSS, using isolated synthetic appoin
 ## Verification
 
 - Affected Vitest graph: **418 passed**, 19 suites (`npx vitest related --run` with the changed production TS/TSX entry points).
-- Appointment regression: **103 passed** (`npm run test:appointment-regression`).
-- Changed-file unit selection: **187 passed** (`npm run test`); new preference tests are additionally covered by the affected graph above.
-- Browser suite: **114 passed** across desktop Chromium, mobile Chromium, and mobile WebKit (`npx playwright test --config tests/browser/booking-theme/playwright.config.ts`), plus **3 passed** for the subsequently added easier-reading receipt test.
+- Initial implementation appointment regression: **103 passed** (`npm run test:appointment-regression`). The final-polish rerun under heavy host load passed 102/103 with the unchanged first reminder-reconciliation test hitting its existing five-second timeout; an isolated rerun reproduced the timeout. An initial parallel run also exposed a reminder-UI timing failure which passed on the serial rerun. No reminder code or test threshold was changed; required full CI remains a release gate.
+- Final-polish changed-file unit selection: **171 passed**, seven suites (`npm run test`); the initial implementation's wider graph is recorded above.
+- Final-polish browser suite: **117 passed** across desktop Chromium, mobile Chromium, and mobile WebKit (`npx playwright test --config tests/browser/booking-theme/playwright.config.ts`). Screenshots below were refreshed from this run.
 - `npm run check-types`: passed, using CI-only placeholder credentials rather than real provider secrets.
-- `npm run lint`: passed, no errors; 11 existing confirmation/fixture warnings. Explicit ESLint on the new files also passed.
-- `npm run security:check-secrets` and `git diff --check`: passed. Final screenshot retakes: 3 passed after the desktop toolbar background polish.
+- `npm run lint`: passed, no errors; three existing confirmation fast-refresh warnings. Explicit ESLint on the final-polish files also passed.
+- `npm run security:check-secrets` and `git diff --check`: passed.
 - No booking-engine tests were weakened.
 
 Browser coverage includes all eight onboarding palettes, available-only slots, zero/one/three/many openings, week/month navigation, year rollover (unit), selected-date semantics, keyboard focus, 44px date targets, 320px/375px overflow, 200% root text sizing, long preparation copy, saved preferences across screens, and computed 4.5:1 contrast for key time-screen text/control pairs in both modes.
 
-This is targeted accessibility verification, not a claim of complete WCAG conformance. Full repository CI, a deployed preview, a real-device assistive-technology audit, production build, and live production booking have not been run for this candidate. No production credentials or services were needed.
+This is targeted accessibility verification, not a claim of complete WCAG conformance. A real-device assistive-technology audit and a real appointment submission are not part of this release verification. Automated booking submissions use isolated fixtures only. Full repository CI/builds, preview results, and read-only production verification are recorded on the pull request before declaring the release live.
 
 Additional evidence: [320px with 200% text sizing](mobile-320-text-200.png). The React/Next.js guidance informed the client-only preference restoration, shared server/client boundary, and reflow checks; browser verification was performed before handoff.
 
