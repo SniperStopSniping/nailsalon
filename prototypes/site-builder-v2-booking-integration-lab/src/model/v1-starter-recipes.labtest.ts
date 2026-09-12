@@ -35,6 +35,11 @@ const LEGACY_SHAPES: Record<OriginStarter, readonly {
     slug: '',
     types: ['announcement_bar', 'hero', 'featured_services', 'booking', 'final_cta', 'footer'],
   }],
+  your_design: [{
+    name: 'Home',
+    slug: '',
+    types: ['custom_design', 'booking', 'visit_us'],
+  }],
   one_page: [{
     name: 'Home',
     slug: '',

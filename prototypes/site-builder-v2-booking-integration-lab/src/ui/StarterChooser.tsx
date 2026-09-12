@@ -1,4 +1,4 @@
-import { ArrowRight, CalendarDays, FileUp, Sparkles } from 'lucide-react';
+import { ArrowRight, CalendarDays, FileUp, Instagram, Sparkles } from 'lucide-react';
 import {
   type CSSProperties,
   useCallback,
@@ -14,6 +14,12 @@ import {
   type StarterSectionDefinition,
 } from '../model/starters';
 import type { OriginStarter } from '../model/types';
+import lusterInstagramScreenshot from '../onboarding/fixtures/assets/luster-instagram-profile.jpg';
+
+const lusterInstagramAsset = lusterInstagramScreenshot as string | { src: string };
+const lusterInstagramSrc = typeof lusterInstagramAsset === 'string'
+  ? lusterInstagramAsset
+  : lusterInstagramAsset.src;
 
 type StarterChooserProps = {
   onChoose: (starter: OriginStarter) => void;
@@ -33,7 +39,7 @@ type PreviewScene = {
   heading: string;
   id: string;
   items?: readonly PreviewItem[];
-  kind: 'about' | 'booking' | 'contact' | 'gallery' | 'hero' | 'reviews' | 'services';
+  kind: 'about' | 'booking' | 'contact' | 'custom_design' | 'gallery' | 'hero' | 'reviews' | 'services';
   navigation?: string;
   structureLabels: readonly string[];
 };
@@ -54,7 +60,7 @@ type StarterPreviewDefinition = {
   navigationItems: readonly string[];
   poster: PreviewPosterContent;
   posterState: string;
-  previewType: 'continuous-scroll' | 'page-switch' | 'short-scroll';
+  previewType: 'continuous-scroll' | 'design-walkthrough' | 'page-switch' | 'short-scroll';
   scenes: readonly PreviewScene[];
 };
 
@@ -112,6 +118,13 @@ const STARTER_CHOICE_COPY: Record<OriginStarter, StarterChoiceCopy> = {
     includesLabel: 'Includes',
     title: 'Quick Book',
   },
+  your_design: {
+    cta: 'Start with Your Design',
+    description: 'Use your Canva design, AI artwork, or your own image.',
+    id: 'your_design',
+    includesLabel: 'Includes',
+    title: 'Your Design',
+  },
   one_page: {
     cta: 'Start with One-page',
     description: 'Show your whole business on one scrolling page.',
@@ -120,16 +133,19 @@ const STARTER_CHOICE_COPY: Record<OriginStarter, StarterChoiceCopy> = {
     title: 'One-page website',
   },
   multi_page: {
-    cta: 'Start with Multi-page',
+    cta: 'Start with Full Website',
     description: 'Give each part of your business its own page and navigation link.',
     id: 'multi_page',
     includesLabel: 'Includes pages',
-    title: 'Multi-page website',
+    title: 'Full Website',
   },
 };
 
 const getSceneKind = (labels: readonly string[]): PreviewScene['kind'] => {
   const normalized = labels.join(' ').toLocaleLowerCase();
+  if (normalized.includes('your design')) {
+    return 'custom_design';
+  }
   if (normalized.includes('service') || normalized.includes('booking')) {
     return 'services';
   }
@@ -156,6 +172,8 @@ const getSceneCopy = (
   heading: string,
 ): Pick<PreviewScene, 'action' | 'body' | 'eyebrow' | 'heading' | 'items'> => {
   switch (kind) {
+    case 'custom_design':
+      return { body: 'Your exported artwork appears here, above booking.', heading };
     case 'services':
       return {
         action: 'Book an appointment',
@@ -238,7 +256,7 @@ const createStarterPreview = (starter: OriginStarter): StarterPreviewDefinition 
       : 'page-switch';
 
   return {
-    durationMs: starter === 'quick_book' ? 4_800 : starter === 'one_page' ? 5_800 : 7_000,
+    durationMs: starter === 'quick_book' ? 4_800 : starter === 'multi_page' ? 7_000 : 5_800,
     finalFrame: scenes.at(-1)?.id ?? 'site',
     ...(starter === 'quick_book' ? { middleDistance: '-33.3333%' } : {}),
     motionDistance: starter === 'multi_page' ? '8px' : '-66.6667%',
@@ -249,29 +267,33 @@ const createStarterPreview = (starter: OriginStarter): StarterPreviewDefinition 
         : {}),
       heading: starter === 'quick_book'
         ? 'A focused path from services to booking.'
-        : starter === 'one_page'
-          ? 'Your whole studio, all in one place.'
-          : 'A home page with separate destinations.',
+        : starter === 'your_design'
+          ? 'Your artwork, followed by booking.'
+          : starter === 'one_page'
+            ? 'Your whole studio, all in one place.'
+            : 'A home page with separate destinations.',
       items: posterItems,
       kind: posterKind,
       label: starter === 'quick_book'
         ? 'Booking-focused page'
-        : starter === 'one_page'
-          ? 'One continuous page'
-          : 'Five connected pages',
+        : starter === 'your_design'
+          ? 'Artwork-led booking page'
+          : starter === 'one_page'
+            ? 'One continuous page'
+            : 'Five connected pages',
     },
     posterState: starter === 'quick_book'
       ? 'booking-summary'
       : starter === 'one_page'
         ? 'page-overview'
         : 'site-map',
-    previewType,
+    previewType: starter === 'your_design' ? 'design-walkthrough' : previewType,
     scenes,
   };
 };
 
 export const STARTER_CHOICES: readonly StarterChoiceDefinition[] = (
-  ['quick_book', 'one_page', 'multi_page'] as const
+  ['quick_book', 'your_design', 'multi_page'] as const
 ).map(starter => ({
   ...STARTER_CHOICE_COPY[starter],
   includedItems: getIncludedItems(starter),
@@ -702,6 +724,143 @@ export function StarterPreview({
   );
 }
 
+const DESIGN_DEMO_SCENES = [
+  { hint: '💡 Let’s bring your design to life.', label: 'Choose images', duration: 2200 },
+  { hint: 'Your image is uploaded. Now make part of it clickable.', label: 'Make something clickable', duration: 2400 },
+  { hint: 'Choose what happens when a client taps.', label: 'Instagram', duration: 2000 },
+  { hint: 'Enter your Instagram username.', label: 'Place button on design', duration: 3000 },
+  { hint: 'Tap the Instagram already printed in your design.', label: 'Tap to place', duration: 2200 },
+  { hint: 'Adjust the corners to fit your design.', label: 'Done', duration: 2200 },
+  { hint: 'Save your design, then open customer Preview.', label: 'Save design → Preview', duration: 2200 },
+  { hint: 'Now a client can tap your Instagram button.', label: 'Customer Preview', duration: 2200 },
+  { hint: 'Your Instagram opens. Same artwork, now clickable!', label: 'Instagram opens · Demo', duration: 3000 },
+] as const;
+
+function YourDesignDemo({ reducedMotion, pageVisible }: { reducedMotion: boolean; pageVisible: boolean }) {
+  const [sceneIndex, setSceneIndex] = useState(0);
+  const [paused, setPaused] = useState(false);
+  const [visible, setVisible] = useState(true);
+  const demoRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    if (!demoRef.current || typeof IntersectionObserver === 'undefined') {
+      return;
+    }
+    const observer = new IntersectionObserver(([entry]) => setVisible(Boolean(entry?.isIntersecting)), { threshold: 0 });
+    observer.observe(demoRef.current);
+    return () => observer.disconnect();
+  }, []);
+  const scene = DESIGN_DEMO_SCENES[sceneIndex]!;
+  const playing = visible && pageVisible && !paused && !reducedMotion;
+  useEffect(() => {
+    if (!playing) {
+      return;
+    }
+    const timer = window.setTimeout(() => setSceneIndex(current => (current + 1) % DESIGN_DEMO_SCENES.length), scene.duration);
+    return () => window.clearTimeout(timer);
+  }, [playing, scene.duration, sceneIndex]);
+  const frame = reducedMotion ? 7 : sceneIndex;
+  const placed = frame >= 5;
+  return (
+    <section aria-label="Watch your design become clickable" className="final-design-demo final-design-demo--automatic" data-testid="design-automatic-demo" data-scene={frame} data-playing={playing} ref={demoRef}>
+      <span className="final-design-demo__note">Watch how it works · Example only</span>
+      <span className="visually-hidden">Upload an exported image. Choose Make something clickable, then Instagram. Enter your username, tap its location on your image, adjust the rectangle, and save. In customer Preview, tapping the button opens Instagram. This demonstration never opens an external website or changes your draft.</span>
+      <div aria-hidden="true" className="final-design-demo__film" key={frame}>
+        <p className="final-design-demo__coach">{reducedMotion ? 'Upload → choose Instagram → enter your username → outline it → Preview.' : scene.hint}</p>
+        <div className="final-design-demo__screen">
+          {frame === 0
+            ? (
+                <div className="final-design-demo__upload">
+                  <FileUp size={32} />
+                  <strong>Your Canva or AI design</strong>
+                  <span className="final-design-demo__file">✦ my-design.png</span>
+                  <span className="final-design-demo__fake-button final-design-demo__target">
+                    Choose images
+                    <span className="final-design-demo__pointer">↖</span>
+                  </span>
+                </div>
+              )
+            : frame === 8
+              ? (
+                  <div className="final-design-demo__instagram-capture">
+                    <img alt="Screenshot of Luster’s Instagram profile, @lustergel.app" src={lusterInstagramSrc} width={591} height={1280} />
+                    <small>Instagram · Screenshot, not a live page</small>
+                  </div>
+                )
+              : (
+                  <>
+                    <div className="final-design-demo__artwork">
+                      <small>YOUR UPLOADED DESIGN</small>
+                      <strong>Your nail studio</strong>
+                      <span className="final-design-demo__tagline">Beautiful nails. Your signature style.</span>
+                      <span className="final-design-demo__instagram">
+                        <Instagram size={18} />
+                        {' '}
+                        @lustergel.app
+                        {placed || frame === 4
+                          ? (
+                              <span className="final-design-demo__outline" data-fitting={frame === 5}>
+                                <i />
+                                <i />
+                                <i />
+                                <i />
+                              </span>
+                            )
+                          : null}
+                        {frame === 4 || frame === 5 || frame === 7 ? <span className="final-design-demo__pointer">↖</span> : null}
+                      </span>
+                    </div>
+                    {frame === 2 || frame === 3
+                      ? (
+                          <div className="final-design-demo__sheet">
+                            <strong>What should happen when clients tap?</strong>
+                            {frame === 2
+                              ? (
+                                  <>
+                                    <span className="final-design-demo__fake-button final-design-demo__target">
+                                      <Instagram size={18} />
+                                      {' '}
+                                      Instagram
+                                      <span className="final-design-demo__pointer">↖</span>
+                                    </span>
+                                    <small>Call · Email · Book appointment · Website</small>
+                                  </>
+                                )
+                              : (
+                                  <>
+                                    <small>Instagram username</small>
+                                    <span className="final-design-demo__input"><span>lustergel.app</span></span>
+                                    <span className="final-design-demo__fake-button">Place button on design</span>
+                                  </>
+                                )}
+                          </div>
+                        )
+                      : null}
+                    {frame === 1 || frame === 5 || frame === 6
+                      ? (
+                          <span className="final-design-demo__fake-button final-design-demo__target">
+                            {scene.label}
+                            <span className="final-design-demo__pointer">↖</span>
+                          </span>
+                        )
+                      : null}
+                    {frame === 7 ? <small className="final-design-demo__note">Customer Preview · Tap opens Instagram</small> : null}
+                    <span className="final-design-demo__booking">
+                      <CalendarDays size={14} />
+                      {' '}
+                      Book appointment
+                    </span>
+                  </>
+                )}
+        </div>
+      </div>
+      <div className="final-design-demo__playback">
+        <span aria-hidden="true">{reducedMotion ? 'Your design + real booking' : `${sceneIndex + 1} / ${DESIGN_DEMO_SCENES.length} · Repeats automatically`}</span>
+        {!reducedMotion ? <button type="button" onClick={() => setPaused(current => !current)}>{paused ? 'Play demo' : 'Pause demo'}</button> : null}
+      </div>
+    </section>
+  );
+}
+
 export type StarterChoiceGridProps = {
   businessName?: string;
   committingStarter?: OriginStarter | null;
@@ -739,10 +898,10 @@ export function StarterChoiceGrid({
             : selectedStarter
               ? `Switch to ${starter.title}`
               : starter.cta;
-          return (
+          const choice = (
             <button
               aria-pressed={selected}
-              className="final-starter-card"
+              className={starter.id === 'your_design' ? 'final-starter-card__choose' : 'final-starter-card'}
               data-committing={committingStarter === starter.id ? 'true' : undefined}
               data-preview-active={previewActive ? 'true' : 'false'}
               data-selected={selected ? 'true' : 'false'}
@@ -770,25 +929,38 @@ export function StarterChoiceGrid({
                   <small>{starter.includesLabel}</small>
                   <span>{starter.includedItems.join(' · ')}</span>
                 </span>
+                {starter.id === 'your_design' ? <span className="visually-hidden">Upload your image, choose what happens when clients tap, then draw a box around that part of your design. Booking stays underneath.</span> : null}
                 <span className="final-starter-card__action">
                   {actionLabel}
                   {' '}
                   <ArrowRight aria-hidden="true" size={18} />
                 </span>
               </span>
-              <StarterPreview
-                active={previewActive}
-                businessName={businessName}
-                definition={starter.preview}
-                logoUrl={logoUrl}
-                ownerName={ownerName}
-                pageVisible={playback.pageVisible}
-                publicLocation={publicLocation}
-                reducedMotion={playback.prefersReducedMotion}
-                starterId={starter.id}
-              />
+              {starter.id !== 'your_design'
+                ? (
+                    <StarterPreview
+                      active={previewActive}
+                      businessName={businessName}
+                      definition={starter.preview}
+                      logoUrl={logoUrl}
+                      ownerName={ownerName}
+                      pageVisible={playback.pageVisible}
+                      publicLocation={publicLocation}
+                      reducedMotion={playback.prefersReducedMotion}
+                      starterId={starter.id}
+                    />
+                  )
+                : null}
             </button>
           );
+          return starter.id === 'your_design'
+            ? (
+                <div className="final-starter-card" data-selected={selected ? 'true' : 'false'} key={starter.id}>
+                  {choice}
+                  <YourDesignDemo pageVisible={playback.pageVisible} reducedMotion={playback.prefersReducedMotion} />
+                </div>
+              )
+            : choice;
         })}
       </div>
 

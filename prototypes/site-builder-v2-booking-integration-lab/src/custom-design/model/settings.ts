@@ -144,6 +144,7 @@ const parseInteractiveArea = (
     !isRecord(value)
     || !hasOnlyKeys(value, [
       'id',
+      'appearance',
       'geometry',
       'semanticOrder',
       'accessibleLabel',
@@ -168,6 +169,7 @@ const parseInteractiveArea = (
   const review = parseReview(value);
   if (
     !id
+    || (value.appearance !== undefined && value.appearance !== 'button')
     || !geometry
     || semanticOrder === null
     || accessibleLabel === null
@@ -187,6 +189,7 @@ const parseInteractiveArea = (
   }
   return {
     id,
+    ...(value.appearance === 'button' ? { appearance: 'button' as const } : {}),
     geometry,
     semanticOrder,
     accessibleLabel,

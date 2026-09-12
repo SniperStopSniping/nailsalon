@@ -307,7 +307,8 @@ describe('OnboardingApp handoff boundaries', () => {
       '.final-starter-preview__logo[data-media-role="logo"]',
     );
 
-    expect(logos).toHaveLength(3);
+    // Your Design shows the example walkthrough instead of a site header.
+    expect(logos).toHaveLength(2);
 
     for (const logo of logos) {
       expect(logo).toHaveAttribute('src', 'https://example.test/isla-wordmark.png');
@@ -961,20 +962,20 @@ describe('OnboardingApp handoff boundaries', () => {
     expect(current).toHaveAttribute('aria-pressed', 'true');
 
     await user.click(screen.getByRole('button', {
-      name: /Switch to One-page website/u,
+      name: /Switch to Your Design/u,
     }));
     const confirmation = screen.getByRole('dialog', {
-      name: 'Switch to One-page website?',
+      name: 'Switch to Your Design?',
     });
 
     expect(confirmation).toHaveTextContent(
-      'Switching to One-page website keeps your business information, About details, policies, style choices, photos, Gallery draft, Canva design, and onboarding progress saved. We’ll replace only the starting page structure.',
+      'Switching to Your Design keeps your business information, About details, policies, style choices, photos, Gallery draft, Canva design, and onboarding progress saved. We’ll replace only the starting page structure.',
     );
     expect(within(confirmation).getByRole('button', { name: 'Keep current' }))
       .toBeVisible();
 
     await user.click(within(confirmation).getByRole('button', {
-      name: 'Switch to One-page website',
+      name: 'Switch to Your Design',
     }));
 
     expect(await screen.findByRole('heading', {
@@ -990,7 +991,7 @@ describe('OnboardingApp handoff boundaries', () => {
       expect(savedOnboarding.status).toBe('loaded');
       expect(savedOnboarding.state.profile.about.shortBio)
         .toBe(state.profile.about.shortBio);
-      expect(savedOnboarding.state.recipe.starter).toBe('one_page');
+      expect(savedOnboarding.state.recipe.starter).toBe('your_design');
       expect(savedOnboarding.state.progress.currentScreen)
         .toBe('business');
 
@@ -1001,17 +1002,13 @@ describe('OnboardingApp handoff boundaries', () => {
       expect(savedDocument.success).toBe(true);
 
       if (savedDocument.success) {
-        expect(savedDocument.document.originStarter).toBe('one_page');
-        // This fixture has no Gallery or real Reviews, so the locked One-page
-        // recipe persists only the five customer-ready responsibilities.
-        // Shell navigation and the footer remain automatic.
+        expect(savedDocument.document.originStarter).toBe('your_design');
+        // The design is followed by native Booking and Visit & Contact.
         expect(savedDocument.document.pages[0]?.sections.map(
           section => section.sectionType,
         )).toEqual([
-          'hero',
-          'about',
+          'custom_design',
           'booking',
-          'policies',
           'visit_us',
         ]);
       }
@@ -1039,7 +1036,7 @@ describe('OnboardingApp handoff boundaries', () => {
         <RealLabHarness />
       </FeedbackProvider>,
     );
-    await user.click(screen.getByRole('button', { name: /Start with One-page/u }));
+    await user.click(screen.getByRole('button', { name: /Start with Quick Book/u }));
 
     expect(await screen.findByRole('heading', {
       name: 'Let’s start with your business',

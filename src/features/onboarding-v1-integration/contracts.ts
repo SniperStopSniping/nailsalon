@@ -332,7 +332,7 @@ const siteRecipeSchema = z.object({
     showTechName: z.boolean(),
     showTechPhoto: z.boolean(),
   }).strict().default({ ...DEFAULT_QUICK_BOOK_PROFILE_VISIBILITY }),
-  starter: z.enum(['quick_book', 'one_page', 'multi_page']),
+  starter: z.enum(['quick_book', 'your_design', 'one_page', 'multi_page']),
   stylePresetId: z.enum(ONBOARDING_STYLE_PRESET_IDS),
 }).strict();
 
@@ -582,7 +582,7 @@ export const onboardingCompiledSiteDocumentSchema = z.object({
   siteId: nonEmptyText(160),
   siteName: nonEmptyText(80),
   sourceSnapshotVersion: z.literal(ONBOARDING_SITE_SNAPSHOT_VERSION),
-  starter: z.enum(['quick_book', 'one_page', 'multi_page']),
+  starter: z.enum(['quick_book', 'your_design', 'one_page', 'multi_page']),
   stylePresetId: z.enum(ONBOARDING_STYLE_PRESET_IDS),
 }).strict();
 

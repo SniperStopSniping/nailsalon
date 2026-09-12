@@ -1238,9 +1238,10 @@ type StartingPreviewScreenProps = {
 };
 
 const STARTER_LABELS: Record<StarterId, string> = {
-  multi_page: 'Multi-page website',
+  multi_page: 'Full Website',
   one_page: 'One-page website',
   quick_book: 'Quick Book',
+  your_design: 'Your Design',
 };
 
 export function StartingPreviewScreen({

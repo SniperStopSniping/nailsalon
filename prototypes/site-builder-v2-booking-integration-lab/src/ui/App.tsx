@@ -244,8 +244,9 @@ const findSection = (document: SiteBuilderDocument, sectionId: string | null): S
 
 const starterLabel = (starter: OriginStarter): string => ({
   quick_book: 'Quick Book',
+  your_design: 'Your Design',
   one_page: 'One-page website',
-  multi_page: 'Multi-page website',
+  multi_page: 'Full Website',
 })[starter];
 
 const restoreOuterEditorTop = () => {

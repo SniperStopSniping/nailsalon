@@ -511,9 +511,10 @@ test('renders a semantic booking hotspot, cancels activation after a swipe, and 
 
   const settings = customDesignSettings(page);
   const row = settings.locator('[data-image-item-id]').first();
-  await row.getByRole('button', { name: 'Link areas' }).click();
-  const hotspot = page.getByRole('dialog', { name: 'Link areas' });
-  await hotspot.getByRole('button', { name: 'Add link area' }).click();
+  await row.getByRole('button', { name: 'Make something clickable', exact: true }).click();
+  const hotspot = page.getByRole('dialog', { name: 'Make your design clickable' });
+  await hotspot.getByRole('button', { name: 'Place button on design' }).click();
+  await hotspot.getByRole('button', { name: 'Place in centre' }).click();
   await hotspot.getByLabel('Accessible label').fill('Start booking from artwork');
   await hotspot.getByLabel('I confirm this label explains the action').check();
 
@@ -532,21 +533,21 @@ test('renders a semantic booking hotspot, cancels activation after a swipe, and 
   await expect(area).toBeVisible();
   await expect(area).toHaveCSS('touch-action', 'pan-y pinch-zoom');
   await expect(area).toHaveCSS('position', 'absolute');
+  await expect(area).toHaveClass(/custom-design-area-link--button/);
+  await expect(area).not.toHaveCSS('box-shadow', 'none');
 
-  await page.evaluate(() => {
-    const scope = window as typeof window & {
-      __customDesignScrollCalls?: string[];
-      __customDesignScrollIntoView?: typeof Element.prototype.scrollIntoView;
+  const previewFrame = page.locator('.onboarding-preview-frame');
+  await previewFrame.evaluate((element) => {
+    const frame = element as HTMLElement & {
+      __customDesignScrollCalls?: number[];
+      __customDesignScrollTo?: typeof element.scrollTo;
     };
-    scope.__customDesignScrollCalls = [];
-    scope.__customDesignScrollIntoView = Element.prototype.scrollIntoView;
-    Element.prototype.scrollIntoView = function customDesignScrollProbe() {
-      scope.__customDesignScrollCalls?.push(
-        (this as HTMLElement).dataset.sectionType
-        ?? (this as HTMLElement).dataset.sectionId
-        ?? this.tagName,
-      );
-    };
+    frame.__customDesignScrollCalls = [];
+    frame.__customDesignScrollTo = frame.scrollTo;
+    frame.scrollTo = ((options: ScrollToOptions) => {
+      frame.__customDesignScrollCalls?.push(options.top ?? 0);
+      frame.__customDesignScrollTo?.(options);
+    }) as typeof frame.scrollTo;
   });
 
   await area.evaluate((element) => {
@@ -571,46 +572,27 @@ test('renders a semantic booking hotspot, cancels activation after a swipe, and 
     }));
   });
 
-  await expect.poll(() => page.evaluate(() => (
-    window as typeof window & { __customDesignScrollCalls?: string[] }
+  await expect.poll(() => previewFrame.evaluate(element => (
+    element as HTMLElement & { __customDesignScrollCalls?: number[] }
   ).__customDesignScrollCalls?.length ?? 0)).toBe(0);
 
-  await area.evaluate((element) => {
-    const pointer = (type: string) => element.dispatchEvent(new PointerEvent(type, {
-      bubbles: true,
-      button: 0,
-      cancelable: true,
-      clientX: 100,
-      clientY: 100,
-      isPrimary: true,
-      pointerId: 13,
-    }));
-    pointer('pointerdown');
-    pointer('pointerup');
-    element.dispatchEvent(new MouseEvent('click', {
-      bubbles: true,
-      cancelable: true,
-      detail: 1,
-    }));
-  });
+  await area.click();
 
-  await expect.poll(() => page.evaluate(() => (
-    window as typeof window & { __customDesignScrollCalls?: string[] }
+  await expect.poll(() => previewFrame.evaluate(element => (
+    element as HTMLElement & { __customDesignScrollCalls?: number[] }
   ).__customDesignScrollCalls?.length ?? 0)).toBe(1);
-  await expect.poll(() => page.evaluate(() => (
-    window as typeof window & { __customDesignScrollCalls?: string[] }
-  ).__customDesignScrollCalls?.[0])).toMatch(/booking|section_/i);
+  await expect(page.getByRole('heading', { name: 'Book an appointment', exact: true })).toBeFocused();
 
-  await page.evaluate(() => {
-    const scope = window as typeof window & {
-      __customDesignScrollCalls?: string[];
-      __customDesignScrollIntoView?: typeof Element.prototype.scrollIntoView;
+  await previewFrame.evaluate((element) => {
+    const frame = element as HTMLElement & {
+      __customDesignScrollCalls?: number[];
+      __customDesignScrollTo?: typeof element.scrollTo;
     };
-    if (scope.__customDesignScrollIntoView) {
-      Element.prototype.scrollIntoView = scope.__customDesignScrollIntoView;
+    if (frame.__customDesignScrollTo) {
+      frame.scrollTo = frame.__customDesignScrollTo;
     }
-    delete scope.__customDesignScrollCalls;
-    delete scope.__customDesignScrollIntoView;
+    delete frame.__customDesignScrollCalls;
+    delete frame.__customDesignScrollTo;
   });
 
   await page.getByRole('button', { name: 'Back to editor' }).click();
@@ -658,10 +640,11 @@ test('keeps poster and normalized hotspot geometry safe across the required view
 
   const settings = customDesignSettings(page);
   await settings.locator('[data-image-item-id]').first()
-    .getByRole('button', { name: 'Link areas' })
+    .getByRole('button', { name: 'Make something clickable', exact: true })
     .click();
-  const hotspot = page.getByRole('dialog', { name: 'Link areas' });
-  await hotspot.getByRole('button', { name: 'Add link area' }).click();
+  const hotspot = page.getByRole('dialog', { name: 'Make your design clickable' });
+  await hotspot.getByRole('button', { name: 'Place button on design' }).click();
+  await hotspot.getByRole('button', { name: 'Place in centre' }).click();
   await hotspot.getByLabel('Accessible label').fill('Responsive booking area');
   await hotspot.getByLabel('I confirm this label explains the action').check();
   await hotspot.getByRole('button', { name: 'Done' }).click();

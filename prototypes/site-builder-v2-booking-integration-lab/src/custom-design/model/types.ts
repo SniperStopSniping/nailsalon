@@ -86,6 +86,8 @@ export type CustomDesignAreaReviewReason =
 
 export type CustomDesignInteractiveArea = {
   id: string;
+  /** Omitted for legacy, visually transparent link areas. */
+  appearance?: 'button';
   geometry: CustomDesignNormalizedRect;
   semanticOrder: number;
   accessibleLabel: string;
