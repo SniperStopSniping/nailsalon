@@ -1,3 +1,20 @@
+# [1.97.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.96.0...v1.97.0) (2026-09-12)
+
+
+### Bug Fixes
+
+* place design links from owner taps ([e78650d](https://github.com/SniperStopSniping/nailsalon/commit/e78650da0f7ac7c700f8a59ba965d1d500355d39))
+* show actual Luster Instagram screenshot in demo ([8ee7ca4](https://github.com/SniperStopSniping/nailsalon/commit/8ee7ca4cb369d532b77b08c97e35ed1b6a210cd5))
+
+
+### Features
+
+* add hands-on clickable design tutorial ([a2ff171](https://github.com/SniperStopSniping/nailsalon/commit/a2ff1713ffa447951624dd2ddd80e06377603ccc))
+* add Your Design onboarding starter ([98c069a](https://github.com/SniperStopSniping/nailsalon/commit/98c069ab2cd454faac9c2b94f16f0a5a6b648ff3))
+* autoplay clickable design onboarding demo ([4abb1b5](https://github.com/SniperStopSniping/nailsalon/commit/4abb1b582a9334e4ef38d130084ce373fd537339))
+* explain clickable designs in starter preview ([3982f9f](https://github.com/SniperStopSniping/nailsalon/commit/3982f9f19227ca22db7ef469bec134e55287696c))
+* make design links raised buttons ([c1bb426](https://github.com/SniperStopSniping/nailsalon/commit/c1bb4265ee8eec4004c6011490ee1251d1335df3))
+
 # [1.96.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.95.2...v1.96.0) (2026-09-12)
 
 
