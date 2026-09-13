@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
+import { buildNativeSmsUrl, detectNativeSmsPlatform } from '@/libs/clientSmsComposer';
 import { COMMUNICATION_TEMPLATES } from '@/libs/communicationTemplates';
 import { RETENTION_DATA_CHANGED_EVENT } from '@/libs/dashboardEvents';
 import { calculateSmsSegments } from '@/libs/smsSegments';
@@ -46,6 +47,10 @@ const EVENTS: Record<string, string> = {
   appointment_cancelled: 'Appointment cancelled',
 };
 
+function openNativeUrl(href: string): void {
+  window.location.assign(href);
+}
+
 export function LusterClientSms({
   salonSlug,
   salonName,
@@ -53,6 +58,12 @@ export function LusterClientSms({
   appointmentId,
   historyAppointmentId,
   composerOpen,
+  composerTitle = 'Write a message',
+  initialDraft = '',
+  recipientPhone,
+  onOpenNativeUrl = openNativeUrl,
+  onPhoneDraftOpened,
+  onSent,
   onClose,
   showHistory = true,
 }: {
@@ -62,6 +73,12 @@ export function LusterClientSms({
   appointmentId?: string;
   historyAppointmentId?: string;
   composerOpen: boolean;
+  composerTitle?: string;
+  initialDraft?: string;
+  recipientPhone?: string;
+  onOpenNativeUrl?: (href: string) => void;
+  onPhoneDraftOpened?: (message: string) => void;
+  onSent?: (message: string) => void;
   onClose: () => void;
   showHistory?: boolean;
 }) {
@@ -76,9 +93,26 @@ export function LusterClientSms({
   const [uncertain, setUncertain] = useState(false);
   const inFlight = useRef(false);
   const requestId = useRef<string | null>(null);
+  const openedDraftRef = useRef<string | null>(null);
   const endpoint = `/api/admin/clients/${encodeURIComponent(clientId)}/messages`;
   const query = `salonSlug=${encodeURIComponent(salonSlug)}${historyAppointmentId ? `&appointmentId=${encodeURIComponent(historyAppointmentId)}` : ''}`;
   const segments = calculateSmsSegments(COMMUNICATION_TEMPLATES.client_manual_text!.render({ salonName, message: draft.trim() })).segments;
+
+  useEffect(() => {
+    if (!composerOpen) {
+      openedDraftRef.current = null;
+      return;
+    }
+    if (openedDraftRef.current === initialDraft) {
+      return;
+    }
+    openedDraftRef.current = initialDraft;
+    setDraft(initialDraft);
+    setError(null);
+    setNotice(null);
+    setUncertain(false);
+    requestId.current = null;
+  }, [composerOpen, initialDraft]);
 
   const load = useCallback(async (signal?: AbortSignal) => {
     try {
@@ -159,6 +193,7 @@ export function LusterClientSms({
       setNotice(payload.data.created === false
         ? 'This text was already recorded. Current delivery status appears below.'
         : 'Text queued. Delivery updates appear below.');
+      onSent?.(draft.trim());
       if (!retryId) {
         setDraft('');
         requestId.current = null;
@@ -176,15 +211,69 @@ export function LusterClientSms({
     }
   }
 
+  function openPhoneDraft() {
+    const href = buildNativeSmsUrl({
+      phone: recipientPhone ?? '',
+      body: draft.trim(),
+      platform: detectNativeSmsPlatform(window.navigator.userAgent),
+    });
+    if (!href) {
+      setError('Open this client on a phone to use the Messages app. You can still copy the message.');
+      return;
+    }
+    setError(null);
+    onPhoneDraftOpened?.(draft.trim());
+    onOpenNativeUrl(href);
+  }
+
+  const historyPanel = showHistory && (
+    <details className="rounded-2xl border border-stone-200 bg-stone-50 p-3" open>
+      <summary className="min-h-8 cursor-pointer text-sm font-semibold text-stone-800">SMS history</summary>
+      <Button type="button" variant="ghost" className="min-h-11" onClick={() => void load()}>Refresh delivery status</Button>
+      {loading && <p className="text-xs text-stone-500" role="status">Loading messages…</p>}
+      {loadError && <p className="text-sm text-red-800" role="alert">{loadError}</p>}
+      {!loading && !loadError && history.length === 0 && <p className="text-xs text-stone-500">No Luster texts for this client yet.</p>}
+      <ol className="mt-2 space-y-2">
+        {history.map(item => (
+          <li key={item.id} className="rounded-xl bg-white p-3">
+            <div className="flex items-start justify-between gap-3 text-xs font-semibold text-stone-800">
+              <span>{EVENTS[item.eventType] ?? 'Appointment text'}</span>
+              <span role="status">{LABELS[item.status] ?? item.status}</span>
+            </div>
+            <p className="mt-1 text-xs text-stone-500">
+              {item.recipient}
+              {' '}
+              ·
+              {' '}
+              {new Date(item.createdAt).toLocaleString('en-CA')}
+            </p>
+            {item.message && <p className="mt-2 whitespace-pre-wrap break-words text-sm text-stone-700">{item.message}</p>}
+            {item.status === 'queued' && (
+              <p className="mt-2 text-xs text-stone-500">
+                Scheduled for
+                {' '}
+                {new Date(item.scheduledFor).toLocaleString('en-CA')}
+              </p>
+            )}
+            {item.failureReason && <p className="mt-2 text-xs text-amber-800">{item.failureReason}</p>}
+            {item.status === 'checking_delivery' && <p className="mt-2 text-xs text-amber-800">The provider result is being checked. A second text will not be sent automatically.</p>}
+            {item.canRetry && <Button type="button" variant="secondary" className="mt-2 min-h-11" disabled={sending} onClick={() => void send(item.id)}>Retry text</Button>}
+          </li>
+        ))}
+      </ol>
+    </details>
+  );
+
   return (
     <section className="mt-3 space-y-3 text-left" aria-label="Luster SMS" data-testid="luster-client-sms">
       {composerOpen && (
-        <div className="rounded-2xl border border-rose-100 bg-white p-4" role="region" aria-label="Text client through Luster">
+        <div className="fixed inset-0 z-[70] flex min-h-0 flex-col overflow-y-auto bg-white px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-[max(1rem,env(safe-area-inset-top))] sm:absolute sm:inset-4 sm:rounded-2xl sm:border sm:border-rose-100 sm:p-4" role="dialog" aria-modal="true" aria-label={composerTitle} data-testid="client-message-composer">
           <div className="flex items-center justify-between gap-3">
-            <h3 className="text-sm font-semibold text-stone-900">Text through Luster</h3>
-            <Button type="button" variant="ghost" disabled={sending} onClick={onClose}>Close</Button>
+            <h3 className="text-lg font-semibold text-stone-900">{composerTitle}</h3>
+            <Button type="button" variant="ghost" aria-label="Close" disabled={sending} onClick={onClose}>Back</Button>
           </div>
-          <p className="mt-1 text-xs text-stone-600">{loading ? 'Checking texting availability…' : sms?.senderLabel ?? 'Texting status unavailable'}</p>
+          <p className="mt-1 text-xs text-stone-600">Edit this message for this client. Your saved template will not change.</p>
+          <p className="mt-1 text-xs text-stone-600">{loading ? 'Checking Luster texting availability…' : sms?.senderLabel ?? 'Luster texting status unavailable'}</p>
           {sms && !sms.manualAvailable && <p className="mt-2 text-sm text-amber-800" role="status">{sms.detail}</p>}
           <label className="mt-3 block text-sm font-medium text-stone-800" htmlFor={`sms-${clientId}`}>Message</label>
           <textarea
@@ -211,50 +300,20 @@ export function LusterClientSms({
             {sms?.senderMode === 'shared_luster' ? ' Each segment uses one SMS credit.' : ''}
           </p>
           <p className="mt-2 text-xs text-stone-500">Texts respect consent and quiet hours. Replies are not an inbox; clients should use their appointment link or call the salon for changes.</p>
-          <Button type="button" className="mt-3 min-h-11" disabled={sending || loading || (!sms?.manualAvailable && !uncertain) || !draft.trim() || segments > 10} onClick={() => void send()}>
-            {sending ? 'Sending…' : uncertain ? 'Retry same request' : 'Send text'}
-          </Button>
+          <div className="mt-auto grid gap-2 border-t border-stone-200 bg-white pt-3 sm:mt-4 sm:grid-cols-2">
+            <Button type="button" variant="secondary" className="min-h-12" disabled={sending || !draft.trim()} onClick={openPhoneDraft}>
+              Send from my phone · no Luster credits
+            </Button>
+            <Button type="button" aria-label={sending ? 'Sending…' : uncertain ? 'Retry same request' : 'Send text'} className="min-h-12" disabled={sending || loading || (!sms?.manualAvailable && !uncertain) || !draft.trim() || segments > 10} onClick={() => void send()}>
+              {sending ? 'Sending…' : uncertain ? 'Retry same request' : `Send with Luster · ${segments} ${segments === 1 ? 'credit' : 'credits'}`}
+            </Button>
+          </div>
+          {historyPanel}
         </div>
       )}
       {error && <p className="rounded-xl bg-red-50 p-3 text-sm text-red-800" role="alert">{error}</p>}
       {notice && <p className="rounded-xl bg-emerald-50 p-3 text-sm text-emerald-800" role="status">{notice}</p>}
-      {showHistory && (
-        <details className="rounded-2xl border border-stone-200 bg-stone-50 p-3" open>
-          <summary className="min-h-8 cursor-pointer text-sm font-semibold text-stone-800">SMS history</summary>
-          <Button type="button" variant="ghost" className="min-h-11" onClick={() => void load()}>Refresh delivery status</Button>
-          {loading && <p className="text-xs text-stone-500" role="status">Loading messages…</p>}
-          {loadError && <p className="text-sm text-red-800" role="alert">{loadError}</p>}
-          {!loading && !loadError && history.length === 0 && <p className="text-xs text-stone-500">No Luster texts for this client yet.</p>}
-          <ol className="mt-2 space-y-2">
-            {history.map(item => (
-              <li key={item.id} className="rounded-xl bg-white p-3">
-                <div className="flex items-start justify-between gap-3 text-xs font-semibold text-stone-800">
-                  <span>{EVENTS[item.eventType] ?? 'Appointment text'}</span>
-                  <span role="status">{LABELS[item.status] ?? item.status}</span>
-                </div>
-                <p className="mt-1 text-xs text-stone-500">
-                  {item.recipient}
-                  {' '}
-                  ·
-                  {' '}
-                  {new Date(item.createdAt).toLocaleString('en-CA')}
-                </p>
-                {item.message && <p className="mt-2 whitespace-pre-wrap break-words text-sm text-stone-700">{item.message}</p>}
-                {item.status === 'queued' && (
-                  <p className="mt-2 text-xs text-stone-500">
-                    Scheduled for
-                    {' '}
-                    {new Date(item.scheduledFor).toLocaleString('en-CA')}
-                  </p>
-                )}
-                {item.failureReason && <p className="mt-2 text-xs text-amber-800">{item.failureReason}</p>}
-                {item.status === 'checking_delivery' && <p className="mt-2 text-xs text-amber-800">The provider result is being checked. A second text will not be sent automatically.</p>}
-                {item.canRetry && <Button type="button" variant="secondary" className="mt-2 min-h-11" disabled={sending} onClick={() => void send(item.id)}>Retry text</Button>}
-              </li>
-            ))}
-          </ol>
-        </details>
-      )}
+      {!composerOpen && historyPanel}
     </section>
   );
 }

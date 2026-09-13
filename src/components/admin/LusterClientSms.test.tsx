@@ -6,8 +6,18 @@ import { LusterClientSms } from './LusterClientSms';
 const fetchMock = vi.fn();
 const sms = { manualAvailable: true, senderLabel: 'Luster messaging number', senderMode: 'shared_luster' };
 const response = (data: unknown, status = 200) => new Response(JSON.stringify(data), { status });
-function renderComposer() {
-  render(<LusterClientSms salonSlug="test-salon" salonName="Test Salon" clientId="client-test" composerOpen onClose={vi.fn()} />);
+function renderComposer(overrides: Partial<React.ComponentProps<typeof LusterClientSms>> = {}) {
+  render(
+    <LusterClientSms
+      salonSlug="test-salon"
+      salonName="Test Salon"
+      clientId="client-test"
+      recipientPhone="4165551234"
+      composerOpen
+      onClose={vi.fn()}
+      {...overrides}
+    />,
+  );
 }
 
 beforeEach(() => {
@@ -30,12 +40,13 @@ describe('Luster SMS composer', () => {
 
   it('queues only one send for double clicks and shows queued rather than delivered', async () => {
     let resolveSend: (value: Response) => void = () => {};
+    const onSent = vi.fn();
     fetchMock.mockImplementation((_url, init) => init?.method === 'POST'
       ? new Promise<Response>((resolve) => {
         resolveSend = resolve;
       })
       : Promise.resolve(response({ data: { sms, history: [] } })));
-    renderComposer();
+    renderComposer({ onSent });
     await screen.findByText('Luster messaging number');
     fireEvent.change(screen.getByLabelText('Message'), { target: { value: 'Please call the salon about your appointment.' } });
     const send = screen.getByRole('button', { name: 'Send text' });
@@ -48,6 +59,7 @@ describe('Luster SMS composer', () => {
 
     expect(await screen.findByText('Text queued. Delivery updates appear below.')).toBeVisible();
     expect(screen.queryByText('Delivered')).not.toBeInTheDocument();
+    expect(onSent).toHaveBeenCalledWith('Please call the salon about your appointment.');
   });
 
   it('reuses the identical request id and body after an ambiguous network result', async () => {
@@ -69,6 +81,26 @@ describe('Luster SMS composer', () => {
     expect(sends[0]![1].body).toBe(sends[1]![1].body);
 
     await screen.findByText('Text queued. Delivery updates appear below.');
+  });
+
+  it('prefills a contextual draft and opens the phone composer without using Luster', async () => {
+    const onOpenNativeUrl = vi.fn();
+    const onPhoneDraftOpened = vi.fn();
+    renderComposer({
+      composerTitle: 'Send Google review link',
+      initialDraft: 'Hi Ava, please review us: https://g.page/review',
+      onOpenNativeUrl,
+      onPhoneDraftOpened,
+    });
+
+    expect(await screen.findByRole('dialog', { name: 'Send Google review link' })).toBeVisible();
+    expect(screen.getByLabelText('Message')).toHaveValue('Hi Ava, please review us: https://g.page/review');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Send from my phone · no Luster credits' }));
+
+    expect(onPhoneDraftOpened).toHaveBeenCalledWith('Hi Ava, please review us: https://g.page/review');
+    expect(onOpenNativeUrl).toHaveBeenCalledWith(expect.stringContaining('sms:4165551234'));
+    expect(fetchMock.mock.calls.some(([, init]) => init?.method === 'POST')).toBe(false);
   });
 
   it('shows terminal delivery failures and allows only server-approved retry', async () => {

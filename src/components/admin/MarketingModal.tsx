@@ -3,11 +3,11 @@
 import {
   BellRing,
   Check,
+  Edit3,
   Gift,
   Loader2,
   RefreshCw,
   Save,
-  Star,
 } from 'lucide-react';
 import { useSearchParams } from 'next/navigation';
 import {
@@ -19,11 +19,15 @@ import {
   useState,
 } from 'react';
 
+import { CommunicationSettingsPanel } from '@/components/admin/CommunicationSettingsPanel';
+import { LusterClientSms } from '@/components/admin/LusterClientSms';
+import { MarketingMessageComposer } from '@/components/admin/MarketingMessageComposer';
+import { ReviewRequestSettings } from '@/components/admin/ReviewRequestSettings';
 import { DialogShell } from '@/components/ui/dialog-shell';
-import { buildClientSmsMessage, buildNativeSmsUrl, detectNativeSmsPlatform } from '@/libs/clientSmsComposer';
+import { buildClientSmsMessage } from '@/libs/clientSmsComposer';
 import { formatMoney } from '@/libs/formatMoney';
 import { firstNameForMessage, formatPromotionOffer, renderPromotionMessage } from '@/libs/promotionMessage';
-import { isNativeSmsCapableDevice, type ModuleReason, resolveAutomaticTextStatus, type TextingHealth } from '@/libs/textingStatus';
+import { type ModuleReason, resolveAutomaticTextStatus, type TextingHealth } from '@/libs/textingStatus';
 import { useSalon } from '@/providers/SalonProvider';
 import type {
   RetentionPromotionSettings,
@@ -461,17 +465,19 @@ function PromotionEditor({
 // shared resolver as the Integrations app; Results show only measurable facts.
 // =============================================================================
 
-type MarketingView = 'home' | 'followups' | 'campaigns' | 'results' | 'reviews';
+type MarketingView = 'home' | 'compose' | 'followups' | 'messages' | 'campaigns' | 'results' | 'reviews';
 
-const MARKETING_VIEWS: MarketingView[] = ['home', 'followups', 'campaigns', 'results', 'reviews'];
+const MARKETING_VIEWS: MarketingView[] = ['home', 'compose', 'followups', 'messages', 'campaigns', 'results', 'reviews'];
 
 function isMarketingView(value: string | null): value is MarketingView {
   return value !== null && (MARKETING_VIEWS as string[]).includes(value);
 }
 
 const VIEW_TITLES: Record<MarketingView, string> = {
-  home: 'Marketing',
+  home: 'Marketing & Messages',
+  compose: 'Write a message',
   followups: 'Follow-ups',
+  messages: 'Message settings',
   campaigns: 'Retention',
   results: 'Results',
   reviews: 'Review settings',
@@ -542,10 +548,8 @@ export function MarketingModal({
   onClose,
   initialPromotionStage = null,
   salonName = 'your salon',
-  onOpenApp,
   onOpenClient,
   onOpenNativeUrl,
-  onManageReminders,
   onOpenSocialPosting,
 }: MarketingModalProps) {
   const { salonSlug } = useSalon();
@@ -577,19 +581,11 @@ export function MarketingModal({
   const [links, setLinks] = useState<TodayLinks>({ bookingUrl: null, timeZone: null });
   const [textingHealth, setTextingHealth] = useState<TextingHealth | null>(null);
   const [smsModuleReason, setSmsModuleReason] = useState<ModuleReason | null>(null);
-  const [smsCapableDevice, setSmsCapableDevice] = useState(true);
   const [preview, setPreview] = useState<PreviewState | null>(null);
   const [preparing, setPreparing] = useState<string | null>(null);
   const [pendingAsk, setPendingAsk] = useState<{ item: FollowupItem; label: string; body: string } | null>(null);
   const [recordingStatus, setRecordingStatus] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
-  const [copied, setCopied] = useState<string | null>(null);
-
-  const openNative = onOpenNativeUrl ?? ((href: string) => window.location.assign(href));
-
-  useEffect(() => {
-    setSmsCapableDevice(isNativeSmsCapableDevice(navigator.userAgent ?? ''));
-  }, []);
 
   const loadSettings = useCallback(async () => {
     if (!salonSlug) {
@@ -850,36 +846,6 @@ export function MarketingModal({
     }
   }, [salonSlug, preparing, salonName, links, settings, recordOutreach]);
 
-  const openPreviewMessage = useCallback(async (editedBody: string) => {
-    if (!preview) {
-      return;
-    }
-    const href = buildNativeSmsUrl({
-      phone: preview.item.phone,
-      body: editedBody,
-      platform: detectNativeSmsPlatform(navigator.userAgent),
-    });
-    if (!href) {
-      setActionError('This client does not have a valid mobile number.');
-      return;
-    }
-    try {
-      // Recorded as PREPARED only — opening the composer proves nothing about
-      // sending or delivery. The follow-up question below records the outcome.
-      await recordOutreach({
-        clientId: preview.item.clientId,
-        kind: preview.kind,
-        status: 'prepared',
-        messageSnapshot: editedBody,
-      });
-    } catch {
-      // Fire-and-forget: the app switch to Messages may interrupt this write.
-    }
-    setPendingAsk({ item: preview.item, label: preview.label, body: editedBody });
-    setPreview(null);
-    openNative(href);
-  }, [preview, recordOutreach, openNative]);
-
   const finishPendingAsk = useCallback(async (status: 'marked_sent' | 'not_sent') => {
     if (!pendingAsk || recordingStatus) {
       return;
@@ -911,16 +877,6 @@ export function MarketingModal({
     }
   }, [recordOutreach, loadOverview]);
 
-  const copyText = useCallback(async (label: string, value: string) => {
-    try {
-      await navigator.clipboard.writeText(value);
-      setCopied(label);
-      setTimeout(() => setCopied(current => (current === label ? null : current)), 2000);
-    } catch {
-      setActionError('Could not copy to the clipboard.');
-    }
-  }, []);
-
   // ---------------------------------------------------------------------------
   // Derived
   // ---------------------------------------------------------------------------
@@ -932,11 +888,13 @@ export function MarketingModal({
   const winbackConfigured = Boolean(
     settings?.sixWeekPromotion.enabled || settings?.eightWeekPromotion.enabled,
   );
-  const markedSent30d = overview
-    ? overview.results.outreach
-      .filter(row => row.status === 'marked_sent')
-      .reduce((sum, row) => sum + row.count, 0)
-    : null;
+  let markedSent30d: number | null = null;
+  if (overview) {
+    markedSent30d = overview.results.outreach.reduce(
+      (sum, row) => row.status === 'marked_sent' ? sum + row.count : sum,
+      0,
+    );
+  }
   const redeemedTotal = overview
     ? overview.results.campaigns.reduce((sum, row) => sum + row.redeemed, 0)
     : null;
@@ -977,7 +935,7 @@ export function MarketingModal({
           leftAction={(
             <BackButton
               onClick={view === 'home' ? onClose : () => setView('home')}
-              label={view === 'home' ? 'Back' : 'Marketing'}
+              label={view === 'home' ? 'Back' : 'Marketing & Messages'}
             />
           )}
         />
@@ -1019,32 +977,46 @@ export function MarketingModal({
 
                     {view === 'home' && (
                       <div className="space-y-3" data-testid="marketing-home">
-                        <div className="rounded-[18px] bg-gradient-to-br from-[var(--owner-accent)] to-[var(--owner-accent-strong)] p-4 text-white shadow-sm">
-                          <h2 className="text-[18px] font-semibold">Grow your bookings</h2>
-                          <p className="mt-1 text-[13px] leading-relaxed text-white/85">
-                            Follow up with clients, fill open time and promote your services.
-                          </p>
-                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setView('compose')}
+                          className="flex min-h-20 w-full items-center gap-3 rounded-[18px] bg-gradient-to-br from-[var(--owner-accent)] to-[var(--owner-accent-strong)] p-4 text-left text-white shadow-sm active:opacity-90"
+                          data-testid="marketing-write-message-action"
+                        >
+                          <span className="flex size-11 shrink-0 items-center justify-center rounded-full bg-white/15">
+                            <Edit3 className="size-5" aria-hidden="true" />
+                          </span>
+                          <span>
+                            <span className="block text-[18px] font-semibold">Write a message</span>
+                            <span className="mt-1 block text-[13px] leading-relaxed text-white/85">Choose a client, write or use a saved message, then send your way.</span>
+                          </span>
+                        </button>
 
-                        {homeRow({
-                          testId: 'marketing-home-followups',
-                          title: 'Follow-ups',
-                          detail: 'Clients worth a personal text today.',
-                          status: followupCount === null ? '…' : `${followupCount} due`,
-                          onClick: () => setView('followups'),
-                        })}
+                        <button
+                          type="button"
+                          data-testid="marketing-home-followups"
+                          onClick={() => setView('followups')}
+                          className="flex min-h-16 w-full items-center justify-between gap-3 rounded-[16px] border border-rose-100 bg-rose-50 p-4 text-left"
+                        >
+                          <span>
+                            <span className="block text-[16px] font-semibold text-[var(--owner-ink)]">Follow-ups due</span>
+                            <span className="mt-0.5 block text-[13px] text-[var(--owner-muted)]">Review clients ready for a personal message.</span>
+                          </span>
+                          <span className="shrink-0 rounded-full bg-white px-2.5 py-1 text-[12px] font-semibold text-[var(--owner-accent)]">{followupCount === null ? '…' : `${followupCount} due`}</span>
+                        </button>
                         {homeRow({
                           testId: 'marketing-home-campaigns',
-                          title: 'Retention',
-                          detail: 'Win-back offers and follow-up timing.',
-                          status: winbackConfigured ? 'Win-back on' : 'Not set up',
+                          title: 'Follow-up settings',
+                          detail: 'Rebooking timing, win-back offers and saved wording.',
+                          status: winbackConfigured ? 'Set up' : 'Not set up',
                           onClick: () => setView('campaigns'),
                         })}
                         {homeRow({
-                          testId: 'marketing-home-campaign-tools',
-                          title: 'Campaigns',
-                          detail: 'Future tools for broader client campaigns.',
-                          status: 'Coming later',
+                          testId: 'marketing-home-appointment-messages',
+                          title: 'Appointment messages',
+                          detail: 'Confirmations, reminders, cancellations and channels.',
+                          status: 'Manage',
+                          onClick: () => setView('messages'),
                         })}
                         {homeRow({
                           testId: 'marketing-home-results',
@@ -1055,8 +1027,8 @@ export function MarketingModal({
                         })}
                         {homeRow({
                           testId: 'marketing-home-reviews',
-                          title: 'Reviews',
-                          detail: 'Your Google review link, and asking clients for a review.',
+                          title: 'Google reviews',
+                          detail: 'Your review link, saved message and automatic requests.',
                           status: settings.googleReviewUrl ? 'Link set' : 'Add link',
                           onClick: () => setView('reviews'),
                         })}
@@ -1068,46 +1040,26 @@ export function MarketingModal({
                           onClick: onOpenSocialPosting,
                         })}
 
-                        <div className={card} data-testid="marketing-home-channels">
-                          <h3 className="text-[15px] font-semibold text-[var(--owner-ink)]">Channels</h3>
-                          <div className="mt-2 space-y-2 text-[13px]">
-                            <div className="flex items-center justify-between gap-3">
-                              <span className="text-[var(--owner-muted)]">Text from your phone</span>
-                              <span className={`rounded-full px-2.5 py-1 text-[12px] font-medium ${smsCapableDevice ? 'bg-emerald-50 text-emerald-700' : 'bg-[var(--owner-ground)] text-[var(--owner-muted)]'}`}>
-                                {smsCapableDevice ? 'Ready' : 'Use your phone'}
-                              </span>
-                            </div>
-                            <div className="flex items-center justify-between gap-3">
-                              <span className="text-[var(--owner-muted)]">Automatic texting</span>
-                              <span
-                                data-testid="marketing-automatic-status"
-                                className={`rounded-full px-2.5 py-1 text-[12px] font-medium ${automaticStatus.tone === 'good' ? 'bg-emerald-50 text-emerald-700' : automaticStatus.tone === 'error' ? 'bg-red-50 text-red-700' : automaticStatus.tone === 'warn' ? 'bg-amber-50 text-amber-800' : 'bg-[var(--owner-ground)] text-[var(--owner-muted)]'}`}
-                              >
-                                {automaticStatus.label}
-                              </span>
-                            </div>
-                            <div className="flex items-center justify-between gap-3">
-                              <span className="text-[var(--owner-muted)]">Marketing email</span>
-                              <span className="rounded-full bg-[var(--owner-ground)] px-2.5 py-1 text-[12px] font-medium text-[var(--owner-muted)]">
-                                Not available yet
-                              </span>
-                            </div>
-                          </div>
-                          {automaticStatus.label !== 'Ready' && automaticStatus.detail && (
-                            <p className="mt-3 text-[13px] leading-relaxed text-[var(--owner-muted)]">{automaticStatus.detail}</p>
-                          )}
-                          {automaticStatus.label !== 'Loading…' && onOpenApp && (
-                            <button
-                              type="button"
-                              data-testid="marketing-open-integrations"
-                              onClick={() => onOpenApp('integrations')}
-                              className="mt-3 w-full rounded-[12px] border border-[var(--owner-line)] p-2.5 text-[13px] font-semibold text-[var(--owner-ink)]"
-                            >
-                              View texting status in Integrations
-                            </button>
-                          )}
-                        </div>
+                        {homeRow({
+                          testId: 'marketing-home-texting-settings',
+                          title: 'Texting settings',
+                          detail: automaticStatus.detail || 'Credits, quiet hours, pause controls and delivery setup.',
+                          status: automaticStatus.label === 'Ready' ? 'Luster texting ready' : automaticStatus.label,
+                          onClick: () => setView('messages'),
+                        })}
                       </div>
+                    )}
+
+                    {view === 'compose' && salonSlug && (
+                      <MarketingMessageComposer
+                        salonSlug={salonSlug}
+                        salonName={salonName}
+                        googleReviewUrl={settings.googleReviewUrl}
+                      />
+                    )}
+
+                    {view === 'messages' && salonSlug && (
+                      <CommunicationSettingsPanel salonSlug={salonSlug} />
                     )}
 
                     {view === 'followups' && (
@@ -1261,7 +1213,7 @@ export function MarketingModal({
                               <p className="mt-1 text-[13px] text-[var(--owner-muted)]">
                                 Reminder timing is an operational message setting.
                               </p>
-                              <button type="button" onClick={onManageReminders} className="mt-2 min-h-11 text-[13px] font-semibold text-[var(--owner-accent)] underline">Manage reminders →</button>
+                              <button type="button" onClick={() => setView('messages')} className="mt-2 min-h-11 text-[13px] font-semibold text-[var(--owner-accent)] underline">Manage reminders →</button>
                             </div>
                           </div>
                         </section>
@@ -1419,55 +1371,12 @@ export function MarketingModal({
 
                     {view === 'reviews' && (
                       <div className="space-y-4" data-testid="marketing-reviews">
-                        <section className={card}>
-                          <div className="mb-4 flex items-center gap-2">
-                            <Star className="size-5 text-amber-500" />
-                            <h2 className="text-[18px] font-semibold text-[var(--owner-ink)]">Review settings</h2>
-                          </div>
-                          <div className="space-y-5">
-                            <label htmlFor="google-review-url" className="block">
-                              <span className="flex items-center gap-2 text-[15px] font-semibold text-[var(--owner-ink)]">
-                                <Star className="size-4 text-amber-500" />
-                                Direct Google review link
-                              </span>
-                              <input
-                                id="google-review-url"
-                                type="url"
-                                inputMode="url"
-                                autoCapitalize="none"
-                                autoCorrect="off"
-                                value={settings.googleReviewUrl || ''}
-                                aria-label="Direct Google review link"
-                                aria-invalid={Boolean(validationErrors.googleReviewUrl)}
-                                aria-describedby={validationErrors.googleReviewUrl ? 'google-review-url-error' : 'google-review-url-hint'}
-                                onChange={event => updateSetting('googleReviewUrl', event.target.value.trim() || null)}
-                                className="mt-2 w-full rounded-[12px] border border-[var(--owner-line)] p-3 text-[16px] text-[var(--owner-ink)] outline-none focus:border-[var(--owner-accent)] focus:ring-2 focus:ring-[var(--owner-focus)]"
-                                placeholder="https://g.page/r/…/review"
-                              />
-                              <span id="google-review-url-hint" className="mt-1.5 block text-[12px] leading-relaxed text-[var(--owner-muted)]">
-                                The Google review button remains disabled until this link is configured.
-                              </span>
-                              <FieldError id="google-review-url-error" message={validationErrors.googleReviewUrl} />
-                            </label>
-
-                            <p className="text-[12px] leading-relaxed text-[var(--owner-muted)]">
-                              Review requests are texts you review and send yourself from a
-                              client’s profile. Opening the composer is never counted as a
-                              sent request, and Luster never claims a Google review was
-                              posted — clients can tell you, and you record it on their
-                              profile.
-                            </p>
-                            <p className="text-[12px] leading-relaxed text-[var(--owner-muted)]">
-                              Parking &amp; entry instructions live in Settings → Locations, so
-                              directions stay in one place.
-                            </p>
-                          </div>
-                        </section>
+                        {salonSlug && <ReviewRequestSettings salonSlug={salonSlug} />}
                       </div>
                     )}
                   </div>
 
-                  {(view === 'campaigns' || view === 'reviews') && (
+                  {view === 'campaigns' && (
                     <div className="absolute inset-x-0 bottom-0 z-20 border-t border-[var(--owner-line)] bg-[var(--owner-surface)] px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-3 backdrop-blur-md">
                       {(saveError || saved) && (
                         <div className={`mb-2 flex items-center justify-center gap-2 text-center text-[13px] font-medium ${saved ? 'text-emerald-700' : 'text-red-700'}`} role={saveError ? 'alert' : 'status'}>
@@ -1490,101 +1399,41 @@ export function MarketingModal({
               )
             : null}
 
-      {/* Message preview — editable draft with friendly insertion chips */}
-      <DialogShell
-        isOpen={preview !== null}
-        onClose={() => setPreview(null)}
-        closeOnBackdrop={false}
-        alignClassName="items-end justify-center p-0 sm:items-center sm:p-4"
-        maxWidthClassName="max-w-md"
-        contentClassName="max-h-[90vh] touch-pan-y overflow-y-auto overscroll-contain rounded-t-2xl bg-[var(--owner-surface)] p-4 supports-[height:100dvh]:max-h-[90dvh] sm:rounded-2xl"
-        contentTestId="marketing-message-preview"
-      >
-        {preview && (
-          <div role="dialog" aria-modal="true" aria-labelledby="marketing-preview-title">
-            <h3 id="marketing-preview-title" className="text-[17px] font-semibold text-[var(--owner-ink)]">
-              Review and text
-            </h3>
-            <p className="mt-0.5 text-[13px] text-[var(--owner-muted)]">
-              {preview.item.clientName || 'Client'}
-              {' · '}
-              {preview.item.phone}
-            </p>
-            <textarea
-              value={preview.body}
-              data-testid="marketing-preview-message"
-              onChange={event => setPreview(current => current ? { ...current, body: event.target.value } : current)}
-              rows={6}
-              className="mt-3 w-full rounded-[12px] border border-[var(--owner-line)] p-3 text-[15px] leading-relaxed text-[var(--owner-ink)]"
-            />
-            <div className="mt-2 flex flex-wrap gap-1.5">
-              {preview.insertions.map(insertion => (
-                <button
-                  key={insertion.label}
-                  type="button"
-                  data-testid={`marketing-insert-${insertion.label.toLowerCase().replaceAll(' ', '-')}`}
-                  onClick={() => setPreview(current => current
-                    ? { ...current, body: `${current.body.replace(/\s+$/, '')} ${insertion.value}` }
-                    : current)}
-                  className="rounded-full bg-[var(--owner-ground)] px-2.5 py-1 text-[12px] font-medium text-[var(--owner-muted)]"
-                >
-                  +
-                  {' '}
-                  {insertion.label}
-                </button>
-              ))}
-            </div>
-            <p className="mt-2 text-[12px] leading-relaxed text-[var(--owner-muted)]">
-              Your phone’s Messages app will open with this message ready to
-              review. Nothing sends until you press send.
-            </p>
-            {!smsCapableDevice && (
-              <div className="mt-3 rounded-[12px] bg-[var(--owner-ground)] p-3" data-testid="marketing-desktop-fallback">
-                <p className="text-[12px] text-[var(--owner-muted)]">
-                  This browser can’t open a Messages app. Copy the details below or
-                  open Luster on your phone.
-                </p>
-                <div className="mt-2 flex gap-2">
-                  <button
-                    type="button"
-                    data-testid="marketing-copy-phone"
-                    onClick={() => void copyText('phone', preview.item.phone)}
-                    className="flex-1 rounded-[10px] border border-[var(--owner-line)] p-2 text-[13px] font-medium text-[var(--owner-ink)]"
-                  >
-                    {copied === 'phone' ? 'Copied' : 'Copy phone'}
-                  </button>
-                  <button
-                    type="button"
-                    data-testid="marketing-copy-message"
-                    onClick={() => void copyText('message', preview.body)}
-                    className="flex-1 rounded-[10px] border border-[var(--owner-line)] p-2 text-[13px] font-medium text-[var(--owner-ink)]"
-                  >
-                    {copied === 'message' ? 'Copied' : 'Copy message'}
-                  </button>
-                </div>
-              </div>
-            )}
-            <div className="mt-4 flex gap-2">
-              <button
-                type="button"
-                data-testid="marketing-preview-cancel"
-                onClick={() => setPreview(null)}
-                className="flex-1 rounded-[12px] border border-[var(--owner-line)] p-3 text-[15px] font-medium text-[var(--owner-muted)]"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                data-testid="marketing-preview-open"
-                onClick={() => void openPreviewMessage(preview.body)}
-                className="flex-[1.4] rounded-[12px] bg-[var(--owner-accent)] p-3 text-[15px] font-semibold text-white"
-              >
-                Open text message
-              </button>
-            </div>
-          </div>
-        )}
-      </DialogShell>
+      {preview && salonSlug && (
+        <LusterClientSms
+          salonSlug={salonSlug}
+          salonName={salonName}
+          clientId={preview.item.clientId}
+          recipientPhone={preview.item.phone}
+          composerOpen
+          composerTitle={`Text ${preview.item.clientName || 'client'}`}
+          initialDraft={preview.body}
+          onOpenNativeUrl={onOpenNativeUrl}
+          onPhoneDraftOpened={(message) => {
+            const current = preview;
+            setPendingAsk({ item: current.item, label: current.label, body: message });
+            setPreview(null);
+            void recordOutreach({
+              clientId: current.item.clientId,
+              kind: current.kind,
+              status: 'prepared',
+              messageSnapshot: message,
+            }).catch(() => {});
+          }}
+          onSent={(message) => {
+            const current = preview;
+            setPreview(null);
+            void recordOutreach({
+              clientId: current.item.clientId,
+              kind: current.kind,
+              status: 'marked_sent',
+              messageSnapshot: message,
+            }).then(() => loadOverview()).catch(() => {});
+          }}
+          onClose={() => setPreview(null)}
+          showHistory={false}
+        />
+      )}
 
       {/* "Did you send?" — opening the composer is a decision point, not proof */}
       <DialogShell

@@ -51,6 +51,41 @@ test('review settings require explicit automation opt-in @mobile-safari', async 
   expect(settings.automaticEnabled).toBe(true);
 });
 
+test('client profile keeps the Google review action visible above More actions @mobile-safari', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.route('**/api/admin/review-requests/settings?**', route => route.fulfill({ json: { data: {
+    googleReviewUrl: 'https://g.page/r/test/review',
+    automaticEnabled: false,
+    delayMinutes: 60,
+    messageTemplate: 'Hi {{firstName}}, please review {{businessName}}: {{reviewLink}}',
+    businessName: 'Luster Test Salon',
+  } } }));
+  await impersonateSalonAsSuperAdmin(page);
+  await page.goto(`${appPath('/admin')}?salon=${encodeURIComponent(e2eConfig.salonSlug)}&app=clients`);
+  const firstClient = page.getByTestId('clients-directory-scroll').locator('button').first();
+
+  await expect(firstClient).toBeVisible();
+
+  await firstClient.click();
+  const action = page.getByRole('button', { name: 'Send Google review link', exact: true });
+
+  await expect(action).toBeVisible();
+  await expect(action.locator('xpath=ancestor::details')).toHaveCount(0);
+
+  const bounds = await action.boundingBox();
+
+  expect(bounds).not.toBeNull();
+  expect(bounds!.width).toBeLessThanOrEqual(390);
+  expect(bounds!.height).toBeGreaterThanOrEqual(44);
+
+  await action.click();
+
+  await expect(page.getByRole('dialog', { name: 'Send Google review link' })).toBeVisible();
+  await expect(page.getByLabel('Message')).toHaveValue(/https:\/\//);
+  await expect(page.getByRole('button', { name: 'Send text', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Send from my phone · no Luster credits' })).toBeVisible();
+});
+
 test('isolated owner completes and queues one review through the real APIs @mobile-safari', async ({ page, baseURL }, testInfo) => {
   test.slow();
 
