@@ -35,7 +35,7 @@ describe('Luster SMS composer', () => {
 
     fireEvent.change(screen.getByLabelText('Message'), { target: { value: 'Hello' } });
 
-    expect(screen.getByRole('button', { name: 'Send text', exact: true })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Send text' })).toBeDisabled();
   });
 
   it('queues only one send for double clicks and shows queued rather than delivered', async () => {
@@ -49,7 +49,7 @@ describe('Luster SMS composer', () => {
     renderComposer({ onSent });
     await screen.findByText('Luster messaging number');
     fireEvent.change(screen.getByLabelText('Message'), { target: { value: 'Please call the salon about your appointment.' } });
-    const send = screen.getByRole('button', { name: 'Send text', exact: true });
+    const send = screen.getByRole('button', { name: 'Send text' });
     fireEvent.click(send);
     fireEvent.click(send);
 
@@ -73,7 +73,7 @@ describe('Luster SMS composer', () => {
     renderComposer();
     await screen.findByText('Luster messaging number');
     fireEvent.change(screen.getByLabelText('Message'), { target: { value: 'Please call about your visit.' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Send text', exact: true }));
+    fireEvent.click(screen.getByRole('button', { name: 'Send text' }));
     fireEvent.click(await screen.findByRole('button', { name: 'Retry same request' }));
     await waitFor(() => expect(fetchMock.mock.calls.filter(([, init]) => init?.method === 'POST')).toHaveLength(2));
     const sends = fetchMock.mock.calls.filter(([, init]) => init?.method === 'POST');
