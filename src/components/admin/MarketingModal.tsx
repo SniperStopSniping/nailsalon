@@ -888,11 +888,13 @@ export function MarketingModal({
   const winbackConfigured = Boolean(
     settings?.sixWeekPromotion.enabled || settings?.eightWeekPromotion.enabled,
   );
-  const markedSent30d = overview
-    ? overview.results.outreach
-        .filter(row => row.status === 'marked_sent')
-        .reduce((sum, row) => sum + row.count, 0)
-    : null;
+  let markedSent30d: number | null = null;
+  if (overview) {
+    markedSent30d = overview.results.outreach.reduce(
+      (sum, row) => row.status === 'marked_sent' ? sum + row.count : sum,
+      0,
+    );
+  }
   const redeemedTotal = overview
     ? overview.results.campaigns.reduce((sum, row) => sum + row.redeemed, 0)
     : null;

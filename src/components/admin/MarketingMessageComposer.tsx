@@ -96,15 +96,15 @@ export function MarketingMessageComposer({
       `${client.fullName ?? ''} ${client.phone}`.toLocaleLowerCase().includes(query));
   }, [clients, search]);
 
-  const draft = selectedClient && choice === 'google_review'
-    && reviewSettings.googleReviewUrl
-    ? renderReviewMessage({
-        template: reviewSettings.messageTemplate,
-        clientName: selectedClient.fullName,
-        businessName: reviewSettings.businessName,
-        reviewLink: reviewSettings.googleReviewUrl,
-      })
-    : '';
+  let draft = '';
+  if (selectedClient && choice === 'google_review' && reviewSettings.googleReviewUrl) {
+    draft = renderReviewMessage({
+      template: reviewSettings.messageTemplate,
+      clientName: selectedClient.fullName,
+      businessName: reviewSettings.businessName,
+      reviewLink: reviewSettings.googleReviewUrl,
+    });
+  }
 
   return (
     <div className="space-y-4" data-testid="marketing-write-message">

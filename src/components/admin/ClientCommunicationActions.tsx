@@ -582,20 +582,21 @@ export function ClientCommunicationActions({
     serverDraft?: ReminderFallback,
   ) => {
     const platform = detectNativeSmsPlatform(window.navigator.userAgent);
-    const draft = serverDraft
-      ? (() => {
-          const href = buildNativeSmsUrl({
-            phone: serverDraft.phone,
-            body: serverDraft.body,
-            platform,
-          });
-          return href ? { href, body: serverDraft.body } : null;
-        })()
-      : composeClientSmsDraft({
-          kind,
-          context: { ...baseContext, appointment },
-          platform,
-        });
+    let draft: { body: string; href: string } | null;
+    if (serverDraft) {
+      const href = buildNativeSmsUrl({
+        phone: serverDraft.phone,
+        body: serverDraft.body,
+        platform,
+      });
+      draft = href ? { href, body: serverDraft.body } : null;
+    } else {
+      draft = composeClientSmsDraft({
+        kind,
+        context: { ...baseContext, appointment },
+        platform,
+      });
+    }
 
     if (!draft) {
       setActionError(
@@ -641,14 +642,15 @@ export function ClientCommunicationActions({
       );
       return;
     }
-    const body = kind === 'google_review' && supportData.settings.googleReviewUrl
-      ? renderReviewMessage({
-          template: supportData.reviewMessageTemplate,
-          clientName: client.fullName,
-          businessName: supportData.reviewBusinessName ?? salonName,
-          reviewLink: supportData.settings.googleReviewUrl,
-        })
-      : prepared.body;
+    let body = prepared.body;
+    if (kind === 'google_review' && supportData.settings.googleReviewUrl) {
+      body = renderReviewMessage({
+        template: supportData.reviewMessageTemplate,
+        clientName: client.fullName,
+        businessName: supportData.reviewBusinessName ?? salonName,
+        reviewLink: supportData.settings.googleReviewUrl,
+      });
+    }
     setComposerTitle(title);
     setComposerDraft(kind === 'text' ? '' : body);
     setComposerOutreach(kind === 'text'
