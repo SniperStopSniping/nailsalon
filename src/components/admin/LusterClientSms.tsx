@@ -226,13 +226,51 @@ export function LusterClientSms({
     onOpenNativeUrl(href);
   }
 
+  const historyPanel = showHistory && (
+    <details className="rounded-2xl border border-stone-200 bg-stone-50 p-3" open>
+      <summary className="min-h-8 cursor-pointer text-sm font-semibold text-stone-800">SMS history</summary>
+      <Button type="button" variant="ghost" className="min-h-11" onClick={() => void load()}>Refresh delivery status</Button>
+      {loading && <p className="text-xs text-stone-500" role="status">Loading messages…</p>}
+      {loadError && <p className="text-sm text-red-800" role="alert">{loadError}</p>}
+      {!loading && !loadError && history.length === 0 && <p className="text-xs text-stone-500">No Luster texts for this client yet.</p>}
+      <ol className="mt-2 space-y-2">
+        {history.map(item => (
+          <li key={item.id} className="rounded-xl bg-white p-3">
+            <div className="flex items-start justify-between gap-3 text-xs font-semibold text-stone-800">
+              <span>{EVENTS[item.eventType] ?? 'Appointment text'}</span>
+              <span role="status">{LABELS[item.status] ?? item.status}</span>
+            </div>
+            <p className="mt-1 text-xs text-stone-500">
+              {item.recipient}
+              {' '}
+              ·
+              {' '}
+              {new Date(item.createdAt).toLocaleString('en-CA')}
+            </p>
+            {item.message && <p className="mt-2 whitespace-pre-wrap break-words text-sm text-stone-700">{item.message}</p>}
+            {item.status === 'queued' && (
+              <p className="mt-2 text-xs text-stone-500">
+                Scheduled for
+                {' '}
+                {new Date(item.scheduledFor).toLocaleString('en-CA')}
+              </p>
+            )}
+            {item.failureReason && <p className="mt-2 text-xs text-amber-800">{item.failureReason}</p>}
+            {item.status === 'checking_delivery' && <p className="mt-2 text-xs text-amber-800">The provider result is being checked. A second text will not be sent automatically.</p>}
+            {item.canRetry && <Button type="button" variant="secondary" className="mt-2 min-h-11" disabled={sending} onClick={() => void send(item.id)}>Retry text</Button>}
+          </li>
+        ))}
+      </ol>
+    </details>
+  );
+
   return (
     <section className="mt-3 space-y-3 text-left" aria-label="Luster SMS" data-testid="luster-client-sms">
       {composerOpen && (
-        <div className="fixed inset-0 z-[70] flex min-h-0 flex-col overflow-hidden bg-white px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-[max(1rem,env(safe-area-inset-top))] sm:absolute sm:inset-4 sm:rounded-2xl sm:border sm:border-rose-100 sm:p-4" role="dialog" aria-modal="true" aria-label={composerTitle} data-testid="client-message-composer">
+        <div className="fixed inset-0 z-[70] flex min-h-0 flex-col overflow-y-auto bg-white px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-[max(1rem,env(safe-area-inset-top))] sm:absolute sm:inset-4 sm:rounded-2xl sm:border sm:border-rose-100 sm:p-4" role="dialog" aria-modal="true" aria-label={composerTitle} data-testid="client-message-composer">
           <div className="flex items-center justify-between gap-3">
             <h3 className="text-lg font-semibold text-stone-900">{composerTitle}</h3>
-            <Button type="button" variant="ghost" disabled={sending} onClick={onClose}>Back</Button>
+            <Button type="button" variant="ghost" aria-label="Close" disabled={sending} onClick={onClose}>Back</Button>
           </div>
           <p className="mt-1 text-xs text-stone-600">Edit this message for this client. Your saved template will not change.</p>
           <p className="mt-1 text-xs text-stone-600">{loading ? 'Checking Luster texting availability…' : sms?.senderLabel ?? 'Luster texting status unavailable'}</p>
@@ -266,51 +304,16 @@ export function LusterClientSms({
             <Button type="button" variant="secondary" className="min-h-12" disabled={sending || !draft.trim()} onClick={openPhoneDraft}>
               Send from my phone · no Luster credits
             </Button>
-            <Button type="button" className="min-h-12" disabled={sending || loading || (!sms?.manualAvailable && !uncertain) || !draft.trim() || segments > 10} onClick={() => void send()}>
+            <Button type="button" aria-label={sending ? 'Sending…' : uncertain ? 'Retry same request' : 'Send text'} className="min-h-12" disabled={sending || loading || (!sms?.manualAvailable && !uncertain) || !draft.trim() || segments > 10} onClick={() => void send()}>
               {sending ? 'Sending…' : uncertain ? 'Retry same request' : `Send with Luster · ${segments} ${segments === 1 ? 'credit' : 'credits'}`}
             </Button>
           </div>
+          {historyPanel}
         </div>
       )}
       {error && <p className="rounded-xl bg-red-50 p-3 text-sm text-red-800" role="alert">{error}</p>}
       {notice && <p className="rounded-xl bg-emerald-50 p-3 text-sm text-emerald-800" role="status">{notice}</p>}
-      {showHistory && (
-        <details className="rounded-2xl border border-stone-200 bg-stone-50 p-3" open>
-          <summary className="min-h-8 cursor-pointer text-sm font-semibold text-stone-800">SMS history</summary>
-          <Button type="button" variant="ghost" className="min-h-11" onClick={() => void load()}>Refresh delivery status</Button>
-          {loading && <p className="text-xs text-stone-500" role="status">Loading messages…</p>}
-          {loadError && <p className="text-sm text-red-800" role="alert">{loadError}</p>}
-          {!loading && !loadError && history.length === 0 && <p className="text-xs text-stone-500">No Luster texts for this client yet.</p>}
-          <ol className="mt-2 space-y-2">
-            {history.map(item => (
-              <li key={item.id} className="rounded-xl bg-white p-3">
-                <div className="flex items-start justify-between gap-3 text-xs font-semibold text-stone-800">
-                  <span>{EVENTS[item.eventType] ?? 'Appointment text'}</span>
-                  <span role="status">{LABELS[item.status] ?? item.status}</span>
-                </div>
-                <p className="mt-1 text-xs text-stone-500">
-                  {item.recipient}
-                  {' '}
-                  ·
-                  {' '}
-                  {new Date(item.createdAt).toLocaleString('en-CA')}
-                </p>
-                {item.message && <p className="mt-2 whitespace-pre-wrap break-words text-sm text-stone-700">{item.message}</p>}
-                {item.status === 'queued' && (
-                  <p className="mt-2 text-xs text-stone-500">
-                    Scheduled for
-                    {' '}
-                    {new Date(item.scheduledFor).toLocaleString('en-CA')}
-                  </p>
-                )}
-                {item.failureReason && <p className="mt-2 text-xs text-amber-800">{item.failureReason}</p>}
-                {item.status === 'checking_delivery' && <p className="mt-2 text-xs text-amber-800">The provider result is being checked. A second text will not be sent automatically.</p>}
-                {item.canRetry && <Button type="button" variant="secondary" className="mt-2 min-h-11" disabled={sending} onClick={() => void send(item.id)}>Retry text</Button>}
-              </li>
-            ))}
-          </ol>
-        </details>
-      )}
+      {!composerOpen && historyPanel}
     </section>
   );
 }
