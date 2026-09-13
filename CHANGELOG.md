@@ -1,3 +1,16 @@
+# [1.98.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.97.2...v1.98.0) (2026-09-13)
+
+
+### Bug Fixes
+
+* **reviews:** restore save label when settings change ([445b36f](https://github.com/SniperStopSniping/nailsalon/commit/445b36fd068df41c7ac72e03b3b14c894c5288b1))
+* **reviews:** verify mobile requests and expose blocked delivery status ([ae79d62](https://github.com/SniperStopSniping/nailsalon/commit/ae79d6290d73b67129c54311c1053ad999a25d13))
+
+
+### Features
+
+* **reviews:** add one-time automatic and manual review requests ([9fb7dba](https://github.com/SniperStopSniping/nailsalon/commit/9fb7dbaf7f7b6c8125b3fc1bb6addf8fcd6c43f1))
+
 ## [1.97.2](https://github.com/SniperStopSniping/nailsalon/compare/v1.97.1...v1.97.2) (2026-09-13)
 
 
