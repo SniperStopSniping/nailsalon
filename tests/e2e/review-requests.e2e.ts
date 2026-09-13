@@ -51,6 +51,38 @@ test('review settings require explicit automation opt-in @mobile-safari', async 
   expect(settings.automaticEnabled).toBe(true);
 });
 
+test('client profile keeps the Google review action visible above More actions @mobile-safari', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await impersonateSalonAsSuperAdmin(page);
+  await page.route('**/api/appointments/*/review-request?**', async (route) => {
+    await route.fulfill({ json: { data: {
+      status: 'eligible',
+      reason: null,
+      scheduledFor: null,
+      sentAt: null,
+      message: 'Please leave a review: https://g.page/r/test/review',
+      phone: '4165550201',
+      clientId: 'review-preview-client',
+    } } });
+  });
+  await page.goto(`${appPath('/admin')}?salon=${encodeURIComponent(e2eConfig.salonSlug)}&app=clients`);
+  const firstClient = page.getByTestId('clients-directory-scroll').locator('button').first();
+
+  await expect(firstClient).toBeVisible();
+
+  await firstClient.click();
+  const action = page.getByRole('button', { name: 'Send Google review link', exact: true });
+
+  await expect(action).toBeVisible();
+  await expect(action.locator('xpath=ancestor::details')).toHaveCount(0);
+
+  const bounds = await action.boundingBox();
+
+  expect(bounds).not.toBeNull();
+  expect(bounds!.width).toBeLessThanOrEqual(390);
+  expect(bounds!.height).toBeGreaterThanOrEqual(44);
+});
+
 test('isolated owner completes and queues one review through the real APIs @mobile-safari', async ({ page, baseURL }, testInfo) => {
   test.slow();
 
