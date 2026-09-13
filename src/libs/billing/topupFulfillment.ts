@@ -15,7 +15,7 @@ import { and, eq, inArray } from 'drizzle-orm';
 
 import { fulfillTopupPurchase, reverseTopup } from '@/libs/billing/creditGrants';
 import { db } from '@/libs/DB';
-import { smsTopupPurchaseSchema } from '@/models/Schema';
+import { billingCheckoutAttemptSchema, salonSchema, smsTopupPurchaseSchema } from '@/models/Schema';
 
 /**
  * checkout.session.completed with purpose sms_topup. Paid evidence moves the
@@ -56,21 +56,49 @@ export async function applyTopupSessionCompleted(input: {
       topupPurchaseId: purchase.id,
       now: input.now,
     });
+    if (fulfilled) {
+      await tx.update(billingCheckoutAttemptSchema).set({ status: 'completed' })
+        .where(and(
+          eq(billingCheckoutAttemptSchema.stripeCheckoutSessionId, input.sessionId),
+          eq(billingCheckoutAttemptSchema.purpose, 'sms_topup'),
+          eq(billingCheckoutAttemptSchema.salonId, purchase.salonId!),
+          inArray(billingCheckoutAttemptSchema.status, ['creating', 'checkout_created']),
+        ));
+    }
     return { fulfilled };
   });
 }
 
 /** checkout.session.expired: an unfulfilled purchase row parks as expired. */
 export async function applyTopupSessionExpired(sessionId: string): Promise<{ expired: boolean }> {
-  const updated = await db
-    .update(smsTopupPurchaseSchema)
-    .set({ status: 'expired' })
-    .where(and(
-      eq(smsTopupPurchaseSchema.stripeCheckoutSessionId, sessionId),
-      inArray(smsTopupPurchaseSchema.status, ['checkout_created']),
-    ))
-    .returning();
-  return { expired: updated.length === 1 };
+  return db.transaction(async (tx) => {
+    const [binding] = await tx.select().from(smsTopupPurchaseSchema)
+      .where(eq(smsTopupPurchaseSchema.stripeCheckoutSessionId, sessionId));
+    if (!binding) {
+      // Like completion, delivery can precede the checkout's binding commit.
+      throw new Error('TOPUP_PURCHASE_NOT_FOUND');
+    }
+    if (binding.salonId === null) {
+      return { expired: false };
+    }
+    await tx.select({ id: salonSchema.id }).from(salonSchema)
+      .where(eq(salonSchema.id, binding.salonId)).for('no key update');
+    const [purchase] = await tx.select().from(smsTopupPurchaseSchema)
+      .where(eq(smsTopupPurchaseSchema.id, binding.id)).for('update');
+    if (!purchase || purchase.grantLedgerId || !['checkout_created', 'expired'].includes(purchase.status)) {
+      return { expired: false };
+    }
+    await tx.update(smsTopupPurchaseSchema).set({ status: 'expired' })
+      .where(eq(smsTopupPurchaseSchema.id, purchase.id));
+    await tx.update(billingCheckoutAttemptSchema).set({ status: 'expired' })
+      .where(and(
+        eq(billingCheckoutAttemptSchema.stripeCheckoutSessionId, sessionId),
+        eq(billingCheckoutAttemptSchema.salonId, binding.salonId),
+        eq(billingCheckoutAttemptSchema.purpose, 'sms_topup'),
+        inArray(billingCheckoutAttemptSchema.status, ['creating', 'checkout_created']),
+      ));
+    return { expired: true };
+  });
 }
 
 /**

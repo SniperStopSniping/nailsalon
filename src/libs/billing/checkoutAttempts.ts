@@ -18,6 +18,8 @@ import { and, eq, inArray, lt } from 'drizzle-orm';
 import {
   billingCheckoutAttemptSchema,
   billingSubscriptionSchema,
+  salonSchema,
+  smsTopupPurchaseSchema,
 } from '@/models/Schema';
 
 import type { BillingDbTransaction } from './creditLedger';
@@ -30,7 +32,7 @@ export function deriveStripeIdempotencyKey(attemptId: string): string {
 
 export type BeginAttemptResult =
   | { ok: true; attemptId: string; stripeIdempotencyKey: string; reused: boolean }
-  | { ok: false; reason: 'ACTIVE_SUBSCRIPTION_EXISTS' };
+  | { ok: false; reason: 'ACTIVE_SUBSCRIPTION_EXISTS' | 'CHECKOUT_IN_PROGRESS' | 'CHECKOUT_PENDING_RECONCILIATION' };
 
 export async function beginCheckoutAttempt(
   tx: BillingDbTransaction,
@@ -44,6 +46,51 @@ export async function beginCheckoutAttempt(
   },
 ): Promise<BeginAttemptResult> {
   const now = input.now ?? new Date();
+
+  if (input.purpose === 'sms_topup') {
+    // Every top-up creator shares this lock. Never hold it across Stripe I/O.
+    const [salon] = await tx.select({ id: salonSchema.id }).from(salonSchema)
+      .where(eq(salonSchema.id, input.salonId)).for('no key update');
+    if (!salon) {
+      throw new Error('SALON_NOT_FOUND');
+    }
+    const active = await tx.select().from(billingCheckoutAttemptSchema)
+      .where(and(
+        eq(billingCheckoutAttemptSchema.salonId, input.salonId),
+        eq(billingCheckoutAttemptSchema.purpose, 'sms_topup'),
+        inArray(billingCheckoutAttemptSchema.status, ['creating', 'checkout_created']),
+      ));
+    if (active.length > 1) {
+      return { ok: false, reason: 'CHECKOUT_PENDING_RECONCILIATION' };
+    }
+    const existing = active[0];
+    if (existing) {
+      const [purchase] = existing.stripeCheckoutSessionId === null
+        ? []
+        : await tx.select()
+          .from(smsTopupPurchaseSchema).where(and(
+            eq(smsTopupPurchaseSchema.salonId, input.salonId),
+            eq(smsTopupPurchaseSchema.stripeCheckoutSessionId, existing.stripeCheckoutSessionId),
+          ));
+      // A grant remains payment evidence after refunds/disputes. Paid alone
+      // is not fulfillment, and local TTL is never evidence of remote expiry.
+      if (purchase?.grantLedgerId || purchase?.status === 'expired') {
+        await tx.update(billingCheckoutAttemptSchema)
+          .set({ status: purchase.status === 'expired' ? 'expired' : 'completed' })
+          .where(eq(billingCheckoutAttemptSchema.id, existing.id));
+      } else {
+        if (existing.topupOfferKey !== input.topupOfferKey) {
+          return { ok: false, reason: 'CHECKOUT_IN_PROGRESS' };
+        }
+        return {
+          ok: true,
+          attemptId: existing.id,
+          stripeIdempotencyKey: existing.stripeIdempotencyKey,
+          reused: true,
+        };
+      }
+    }
+  }
 
   if (input.purpose === 'plan_subscription') {
     const live = await tx
@@ -59,12 +106,13 @@ export async function beginCheckoutAttempt(
     }
   }
 
-  // Supersede attempts past their TTL, then reuse any still-active one.
+  // Subscription TTL must never release a top-up with an unknown outcome.
   await tx
     .update(billingCheckoutAttemptSchema)
     .set({ status: 'expired' })
     .where(and(
       eq(billingCheckoutAttemptSchema.salonId, input.salonId),
+      eq(billingCheckoutAttemptSchema.purpose, 'plan_subscription'),
       inArray(billingCheckoutAttemptSchema.status, ['creating', 'checkout_created']),
       lt(billingCheckoutAttemptSchema.expiresAt, now),
     ));

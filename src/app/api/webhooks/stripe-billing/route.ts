@@ -188,8 +188,11 @@ async function handleEvent(event: Stripe.Event): Promise<{
     }
     case 'checkout.session.expired': {
       const session = event.data.object as Stripe.Checkout.Session;
-      await applyCheckoutSessionExpired({ sessionId: session.id });
-      await applyTopupSessionExpired(session.id);
+      if (session.metadata?.purpose === 'sms_topup') {
+        await applyTopupSessionExpired(session.id);
+      } else {
+        await applyCheckoutSessionExpired({ sessionId: session.id });
+      }
       return { status: 'processed' };
     }
     case 'customer.subscription.created':

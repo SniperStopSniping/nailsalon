@@ -1193,7 +1193,7 @@ jobs:
           node-version: 20.x
           cache: npm
       - run: HUSKY=0 npm ci
-      - run: npx vitest run --no-file-parallelism 'src/libs/billing/creditReservation.concurrency.integration.test.ts'
+      - run: npx vitest run --no-file-parallelism 'src/libs/billing/creditReservation.concurrency.integration.test.ts' 'src/app/api/billing/checkout/topup/route.concurrency.integration.test.ts'
 
   booking-entitlement-override-postgres:
     name: Booking entitlement override PostgreSQL concurrency
