@@ -402,7 +402,7 @@ describe('MarketingModal', () => {
     await screen.findByRole('dialog', { name: 'Text Ava Client' });
 
     expect(screen.getByRole('button', { name: 'Send from my phone · no Luster credits' })).toBeVisible();
-    expect(screen.getByRole('button', { name: /Send with Luster/ })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Send text' })).toBeVisible();
   });
 
   it('win-back texting for an unconfigured offer routes to Campaigns instead of failing silently', async () => {
