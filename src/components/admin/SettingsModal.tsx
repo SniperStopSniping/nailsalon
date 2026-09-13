@@ -41,6 +41,7 @@ import {
   RotateCcw,
   Save,
   Shield,
+  Star,
   User,
   Users,
   X,
@@ -95,6 +96,7 @@ import type {
 import { BackButton, ModalHeader } from './AppModal';
 import { BookingFlowEditor } from './BookingFlowEditor';
 import { PageThemesSettings } from './PageThemesSettings';
+import { ReviewRequestSettings } from './ReviewRequestSettings';
 import { SmartFitSettingsCard } from './SmartFitSettingsCard';
 import { UsageBillingModal } from './UsageBillingModal';
 
@@ -2049,6 +2051,7 @@ type SettingsView
   | 'payments'
   | 'notifications'
   | 'communications'
+  | 'review-requests'
   | 'features'
   | 'visibility';
 
@@ -2074,6 +2077,7 @@ const SETTINGS_VIEW_IDS: readonly SettingsView[] = [
   'payments',
   'notifications',
   'communications',
+  'review-requests',
   'features',
   'visibility',
 ];
@@ -2101,6 +2105,7 @@ const VIEW_TITLES: Record<SettingsView, string> = {
   'payments': 'Payments & taxes',
   'notifications': 'Notifications',
   'communications': 'Client communications',
+  'review-requests': 'Review requests',
   'features': 'Features & plan',
   'visibility': 'Staff visibility',
 };
@@ -4031,6 +4036,7 @@ export function SettingsModal({
           <SettingsCardGrid items={[
             { title: 'Client Messages', description: 'Email, SMS and pause controls for client updates', icon: MessageSquare, onClick: () => openView('communications') },
             { title: 'Appointment Reminders', description: 'The one place to set reminder timing and channels', icon: CalendarClock, onClick: () => openView('communications') },
+            { title: 'Review requests', description: 'Ask clients for one Google review after a completed appointment', icon: Star, onClick: () => openView('review-requests') },
             { title: 'Owner & Staff Alerts', description: 'New booking and cancellation alerts', icon: Bell, onClick: () => openView('notifications') },
             { title: 'Quiet Hours', description: 'Hold client texts overnight', icon: CalendarClock, onClick: () => openView('communications') },
             { title: 'Message Usage', description: 'SMS credits, usage and recent delivery history', icon: BarChart3, onClick: () => openView('communications') },
@@ -5155,6 +5161,10 @@ export function SettingsModal({
               </div>
             )}
           </>
+        )}
+
+        {view === 'review-requests' && salonSlug && (
+          <ReviewRequestSettings salonSlug={salonSlug} />
         )}
 
         {view === 'communications' && (

@@ -1,7 +1,13 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ClientCommunicationActions } from './ClientCommunicationActions';
+
+// The review action has its own API-state tests. Keep retention-action tests
+// independent of its background request.
+vi.mock('@/components/appointments/ReviewRequestAction', () => ({
+  ReviewRequestAction: () => null,
+}));
 
 const fetchMock = vi.fn();
 let retentionData: Record<string, unknown>;
@@ -40,8 +46,6 @@ function renderActions(overrides: Partial<React.ComponentProps<typeof ClientComm
       client={{ id: 'client_1', fullName: 'Ava Nguyen', phone: '4165551234' }}
       upcomingAppointment={upcomingAppointment}
       lastCompletedAppointment={{ ...upcomingAppointment, id: 'appt_old' }}
-      completedAppointmentCount={1}
-      hasGoogleReview={false}
       onBookAppointment={vi.fn()}
       onOpenNativeUrl={onOpenNativeUrl}
       {...overrides}
@@ -150,8 +154,6 @@ describe('ClientCommunicationActions', () => {
       'Send reminder',
       'Appointment details',
       'Directions',
-      'Satisfaction text',
-      'Google review',
       'Book',
     ]) {
       expect(screen.getByRole('button', { name: label })).toBeInTheDocument();
@@ -161,9 +163,8 @@ describe('ClientCommunicationActions', () => {
     expect(screen.getByRole('link', { name: 'Call' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Email' })).toBeInTheDocument();
 
-    await waitFor(() => {
-      expect(screen.getByRole('button', { name: 'Google review' })).toBeEnabled();
-    });
+    expect(screen.queryByRole('button', { name: 'Satisfaction text' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Google review' })).not.toBeInTheDocument();
   });
 
   it('gives Call a tel: target and Email a mailto: target', async () => {
@@ -395,22 +396,23 @@ describe('ClientCommunicationActions', () => {
   });
 
   it('falls back to the primary salon location when the appointment has no address', async () => {
-    const { onOpenNativeUrl } = renderActions({
-      upcomingAppointment: {
-        ...upcomingAppointment,
-        location: {
-          id: 'loc_secondary',
-          name: 'Pop-up Studio',
-          address: null,
-          city: null,
-          state: null,
-          zipCode: null,
+    let actions!: ReturnType<typeof renderActions>;
+    await act(async () => {
+      actions = renderActions({
+        upcomingAppointment: {
+          ...upcomingAppointment,
+          location: {
+            id: 'loc_secondary',
+            name: 'Pop-up Studio',
+            address: null,
+            city: null,
+            state: null,
+            zipCode: null,
+          },
         },
-      },
+      });
     });
-    // The requests starting does not mean their JSON has reached React state.
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Google review' })).toBeEnabled());
-
+    const { onOpenNativeUrl } = actions;
     fireEvent.click(screen.getByRole('button', { name: 'Directions' }));
 
     const href = String(onOpenNativeUrl.mock.calls[0]?.[0]);
@@ -489,31 +491,6 @@ describe('ClientCommunicationActions', () => {
     });
 
     expect(screen.queryByTestId('client-reminder-alert')).not.toBeInTheDocument();
-  });
-
-  it('disables review outreach until there is a completed appointment', async () => {
-    renderActions({ completedAppointmentCount: 0 });
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(5));
-
-    expect(screen.getByRole('button', { name: 'Satisfaction text' })).toBeDisabled();
-    expect(screen.getByRole('button', { name: 'Google review' })).toBeDisabled();
-  });
-
-  it('suppresses future review requests when the tech marks a client already reviewed', async () => {
-    renderActions();
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Google review' })).toBeEnabled());
-
-    fireEvent.click(screen.getByRole('button', { name: 'Client already reviewed? Mark it' }));
-
-    await waitFor(() => {
-      expect(fetchMock).toHaveBeenCalledWith(
-        '/api/appointments/appt_old/review-followup?salonSlug=isla',
-        expect.objectContaining({ method: 'POST' }),
-      );
-      expect(screen.getByRole('button', { name: 'Google review' })).toBeDisabled();
-    });
-
-    expect(screen.getByText(/review already recorded/i)).toBeInTheDocument();
   });
 
   it('prepares a secure configured win-back offer and shows honest history', async () => {

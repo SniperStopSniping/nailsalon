@@ -19,6 +19,7 @@ import {
   uuid,
 } from 'drizzle-orm/pg-core';
 
+export * from './depositShadowSchema';
 export {
   ADD_ON_CATEGORIES,
   type AddOnCategory,
@@ -1259,6 +1260,8 @@ export const salonClientSchema = pgTable(
 
     // Google review tracking (client-level source of truth).
     // Once true, the post-appointment review prompt is suppressed for this client.
+    reviewRequestsSuppressed: boolean('review_requests_suppressed').notNull().default(false),
+    reviewRequestsEligibleAfter: timestamp('review_requests_eligible_after', { mode: 'date', withTimezone: true }),
     hasGoogleReview: boolean('has_google_review').notNull().default(false),
     googleReviewMarkedAt: timestamp('google_review_marked_at', { mode: 'date' }),
     googleReviewMarkedBy: text('google_review_marked_by'), // technician id who marked it
@@ -1438,6 +1441,10 @@ export const salonRetentionSettingsSchema = pgTable(
       .references(() => salonSchema.id, { onDelete: 'cascade' }),
     defaultRebookDays: integer('default_rebook_days').notNull().default(21),
     reminderLeadHours: integer('reminder_lead_hours').notNull().default(24),
+    automaticReviewRequests: boolean('automatic_review_requests').notNull().default(false),
+    reviewRequestsEnabledAt: timestamp('review_requests_enabled_at', { mode: 'date', withTimezone: true }),
+    reviewRequestDelayMinutes: integer('review_request_delay_minutes').notNull().default(60),
+    reviewRequestMessage: text('review_request_message'),
     googleReviewUrl: text('google_review_url'),
     parkingInstructions: text('parking_instructions'),
     sixWeekPromotion: jsonb('six_week_promotion')
@@ -4201,6 +4208,7 @@ export const COMMUNICATION_EVENT_TYPES = [
   'appointment_reminder',
   'manual_reminder',
   'manual_text',
+  'review_request',
   'owner_new_booking',
   'owner_appointment_cancelled',
   'tech_new_booking',
@@ -5045,3 +5053,23 @@ export type OnboardingDraftClaim = typeof onboardingDraftClaimSchema.$inferSelec
 export type NewOnboardingDraftClaim = typeof onboardingDraftClaimSchema.$inferInsert;
 export type OnboardingSiteMedia = typeof onboardingSiteMediaSchema.$inferSelect;
 export type NewOnboardingSiteMedia = typeof onboardingSiteMediaSchema.$inferInsert;
+
+// A durable business record; delivery state lives on the existing intent.
+export const reviewRequestSchema = pgTable('review_request', {
+  id: text('id').primaryKey(),
+  salonId: text('salon_id').notNull().references(() => salonSchema.id, { onDelete: 'cascade' }),
+  clientId: text('client_id').notNull(),
+  appointmentId: text('appointment_id'),
+  recipient: text('recipient').notNull(),
+  source: text('source').$type<'automatic' | 'manual'>().notNull(),
+  status: text('status').$type<'scheduled' | 'cancelled'>().notNull().default('scheduled'),
+  intentId: text('intent_id').notNull().unique(),
+  completedAt: timestamp('completed_at', { mode: 'date', withTimezone: true }).notNull(),
+  scheduledFor: timestamp('scheduled_for', { mode: 'date', withTimezone: true }).notNull(),
+  cancelledAt: timestamp('cancelled_at', { mode: 'date', withTimezone: true }),
+  createdAt: timestamp('created_at', { mode: 'date', withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { mode: 'date', withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),
+}, table => ({
+  clientOnce: uniqueIndex('review_request_client_once').on(table.salonId, table.clientId).where(sql`${table.status} <> 'cancelled'`),
+  phoneOnce: uniqueIndex('review_request_phone_once').on(table.salonId, table.recipient).where(sql`${table.status} <> 'cancelled'`),
+}));
