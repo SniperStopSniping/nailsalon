@@ -447,6 +447,38 @@
   color: var(--theme-title-text, #202020);
 }
 
+/* Confirmation is a reading/form surface: reserve the salon colour for
+   accents, and keep operational text strong without requiring a toggle. */
+.booking-confirm-page {
+  --n5-ink-muted: var(--n5-ink-main);
+}
+
+.booking-confirm-page .text-neutral-500,
+.booking-confirm-page .text-neutral-900 {
+  color: var(--n5-ink-main);
+}
+
+.booking-review-summary-header {
+  flex-wrap: wrap;
+}
+
+.booking-review-summary-header > :first-child {
+  flex-basis: 7rem;
+}
+
+.booking-confirm-page :where(h1, h3, p, label, button) {
+  overflow-wrap: anywhere;
+}
+
+.booking-review-summary .booking-artist-row {
+  flex-wrap: wrap;
+}
+
+.booking-confirm-page :where(input, button, a):focus-visible {
+  outline: 2px solid var(--n5-accent);
+  outline-offset: 3px;
+}
+
 .booking-reading-toolbar button {
   display: flex;
   flex-wrap: wrap;
