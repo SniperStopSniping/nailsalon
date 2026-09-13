@@ -82,7 +82,7 @@ test('client profile keeps the Google review action visible above More actions @
 
   await expect(page.getByRole('dialog', { name: 'Send Google review link' })).toBeVisible();
   await expect(page.getByLabel('Message')).toHaveValue(/https:\/\//);
-  await expect(page.getByRole('button', { name: /Send with Luster/ })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Send text', exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Send from my phone · no Luster credits' })).toBeVisible();
 });
 
