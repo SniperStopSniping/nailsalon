@@ -111,9 +111,9 @@ describe('OnboardingWorkspaceHandoff', () => {
       expect(link).toHaveAttribute('href', '/en/admin/booking-page?salon=isla');
     });
 
-    expect(screen.getByText('Website created')).toBeInTheDocument();
-    expect(screen.getByText('Booking page ready')).toBeInTheDocument();
-    expect(screen.getByText('Services added')).toBeInTheDocument();
+    expect(screen.queryByText('Website created')).not.toBeInTheDocument();
+    expect(screen.queryByText('Booking page ready')).not.toBeInTheDocument();
+    expect(screen.queryByText('Services added')).not.toBeInTheDocument();
     expect(screen.getByText('Connect Google Calendar')).toBeInTheDocument();
     expect(screen.getByText('Not connected')).toBeInTheDocument();
     expect(screen.getByText('Needs attention')).toBeInTheDocument();
@@ -123,6 +123,47 @@ describe('OnboardingWorkspaceHandoff', () => {
     fireEvent.click(screen.getAllByRole('button', { name: /Take (a quick )?tour/i })[0]!);
 
     expect(onTakeTour).toHaveBeenCalledTimes(1);
+  });
+
+  it('removes completed items after a setup modal closes', async () => {
+    const beforeService = {
+      ...handoff,
+      setup: {
+        ...handoff.setup,
+        googleCalendar: 'complete' as const,
+        servicesAdded: false,
+        shareLink: 'complete' as const,
+      },
+    };
+    fetchMock
+      .mockResolvedValueOnce(new Response(JSON.stringify({ data: beforeService }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ data: handoff }), { status: 200 }));
+    const onTakeTour = vi.fn();
+    const { rerender } = render(
+      <OnboardingWorkspaceHandoff
+        locale="en"
+        onTakeTour={onTakeTour}
+        refreshKey="services"
+        salonSlug="isla"
+      />,
+    );
+
+    expect(await screen.findByRole('link', { name: /Services added/i })).toBeInTheDocument();
+    expect(screen.queryByText('Connect Google Calendar')).not.toBeInTheDocument();
+    expect(screen.queryByText('Share booking link')).not.toBeInTheDocument();
+
+    rerender(
+      <OnboardingWorkspaceHandoff
+        locale="en"
+        onTakeTour={onTakeTour}
+        refreshKey={null}
+        salonSlug="isla"
+      />,
+    );
+
+    await waitFor(() => expect(screen.queryByText('Services added')).not.toBeInTheDocument());
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
   it('opens server-backed setup on a new device with no local recovery record', async () => {
