@@ -110,7 +110,7 @@ export function BookingPageHub({
           {EDITORS.map(({ id, title, description, icon: Icon }) => (
             <a
               className="min-w-0 rounded-2xl border border-[var(--owner-line)] bg-[var(--owner-surface)] p-4 shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)]"
-              href={id === 'gallery' ? `${workspace}&app=portfolio` : `${editor}&panel=${id}`}
+              href={`${editor}&panel=${id}`}
               key={id}
             >
               <span className="mb-3 inline-flex size-11 items-center justify-center rounded-xl bg-[var(--owner-blush)] text-[var(--owner-accent)]"><Icon aria-hidden="true" size={22} /></span>

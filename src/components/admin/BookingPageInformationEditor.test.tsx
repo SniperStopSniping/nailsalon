@@ -54,6 +54,7 @@ describe('BookingPageInformationEditor', () => {
   let calls: FetchCall[];
   let current: SalonInformation;
   let failPatch: boolean;
+  let failPost: boolean;
   let ownerForbidden: boolean;
   let emptyPortfolio: boolean;
 
@@ -61,19 +62,32 @@ describe('BookingPageInformationEditor', () => {
     calls = [];
     current = information();
     failPatch = false;
+    failPost = false;
     ownerForbidden = false;
     emptyPortfolio = false;
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       const method = init?.method ?? 'GET';
       const body = init?.body instanceof FormData
-        ? { file: (init.body.get('file') as File | null)?.name ?? null, salonSlug: init.body.get('salonSlug') }
+        ? {
+            baselineLogoUrl: init.body.get('baselineLogoUrl'),
+            file: (init.body.get('file') as File | null)?.name ?? null,
+            salonSlug: init.body.get('salonSlug'),
+          }
         : typeof init?.body === 'string' ? JSON.parse(init.body) : null;
       calls.push({ url, method, body });
 
       if (url.startsWith('/api/admin/salon/information')) {
         if (ownerForbidden) {
           return new Response(JSON.stringify({ error: { code: 'OWNER_REQUIRED', message: 'Only the salon owner can change business information' } }), { status: 403 });
+        }
+        if (method === 'POST') {
+          if (failPost) {
+            current = { ...current, salon: { ...current.salon, logoUrl: 'https://cdn.example/newer-logo.webp' } };
+            return new Response(JSON.stringify({ error: { code: 'LOGO_CHANGED', message: 'The logo changed while this upload was processing. Try again.' } }), { status: 409 });
+          }
+          current = { ...current, salon: { ...current.salon, logoUrl: 'https://cdn.example/uploaded-logo.webp' } };
+          return new Response(JSON.stringify({ data: { logoUrl: current.salon.logoUrl } }), { status: 200 });
         }
         if (method === 'PATCH') {
           if (failPatch) {
@@ -168,6 +182,15 @@ describe('BookingPageInformationEditor', () => {
 
     expect(screen.queryByTestId('information-address-street')).not.toBeInTheDocument();
     expect(screen.getByRole('link', { name: /Edit salon address/ })).toHaveAttribute('href', '/en/admin?salon=salon-a&app=settings&view=location');
+  });
+
+  it('keeps public photo controls out of Business Profile and links to their canonical Booking Page home', async () => {
+    renderEditor({ mode: 'business' });
+
+    expect(await screen.findByTestId('business-profile-photo-summary')).toBeVisible();
+    expect(screen.queryByTestId('information-logo-upload')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('information-tech-photo')).not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Manage photos →' })).toHaveAttribute('href', '/en/admin/booking-page?salon=salon-a&panel=gallery');
   });
 
   it('saves the business name through the salon writer and the nail tech name through the technician writer', async () => {
@@ -331,10 +354,10 @@ describe('BookingPageInformationEditor', () => {
   });
 
   it('assigns a logo from the existing portfolio and uploads the tech photo through the Staff route, never swapping the two', async () => {
-    renderEditor();
-    await screen.findByTestId('information-business-name');
+    renderEditor({ mode: 'gallery' });
+    await screen.findByTestId('photos-gallery-media-controls');
 
-    await userEvent.click(screen.getByRole('button', { name: 'Choose a logo' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Choose existing image' }));
     await userEvent.click(await screen.findByRole('button', { name: 'Chrome set' }));
 
     await waitFor(() => expect(screen.getByAltText('Current business logo')).toHaveAttribute('src', 'https://cdn.example/photo-1.jpg'));
@@ -350,6 +373,56 @@ describe('BookingPageInformationEditor', () => {
 
     expect(avatarCall).toMatchObject({ method: 'POST', body: { file: 'me.png', salonSlug: 'salon-a' } });
     expect(screen.getByAltText('Current business logo')).toHaveAttribute('src', 'https://cdn.example/photo-1.jpg');
+  });
+
+  it('uploads a new logo directly without adding it to Portfolio', async () => {
+    renderEditor({ mode: 'gallery' });
+    const upload = await screen.findByTestId('information-logo-upload');
+
+    await userEvent.upload(upload, new File(['logo'], 'studio.png', { type: 'image/png' }));
+
+    await waitFor(() => expect(screen.getByAltText('Current business logo')).toHaveAttribute('src', 'https://cdn.example/uploaded-logo.webp'));
+
+    expect(calls.find(call => call.method === 'POST' && call.url.startsWith('/api/admin/salon/information'))).toEqual({
+      body: { baselineLogoUrl: '', file: 'studio.png', salonSlug: null },
+      method: 'POST',
+      url: '/api/admin/salon/information?salonSlug=salon-a',
+    });
+    expect(calls.some(call => call.method !== 'GET' && call.url.startsWith('/api/admin/portfolio'))).toBe(false);
+  });
+
+  it('refreshes the canonical logo after a stale upload conflict', async () => {
+    failPost = true;
+    renderEditor({ mode: 'gallery' });
+    const upload = await screen.findByTestId('information-logo-upload');
+
+    await userEvent.upload(upload, new File(['logo'], 'studio.png', { type: 'image/png' }));
+
+    expect(await screen.findByText('The logo changed while this upload was processing. Try again.')).toBeInTheDocument();
+    expect(screen.getByAltText('Current business logo')).toHaveAttribute('src', 'https://cdn.example/newer-logo.webp');
+    expect(calls.filter(call => call.method === 'GET' && call.url.startsWith('/api/admin/salon/information'))).toHaveLength(2);
+  });
+
+  it('keeps cover replacement and the nail-work Portfolio together without merging their records', async () => {
+    const onUploadCover = vi.fn();
+    const onUseDefaultCover = vi.fn();
+    renderEditor({
+      coverUpload: { error: null, note: null, status: 'idle' },
+      coverUrl: 'https://cdn.example/cover.webp',
+      mode: 'gallery',
+      onUploadCover,
+      onUseDefaultCover,
+    });
+
+    const coverUpload = await screen.findByTestId('information-cover-upload');
+    await userEvent.upload(coverUpload, new File(['cover'], 'cover.png', { type: 'image/png' }));
+
+    expect(onUploadCover).toHaveBeenCalledWith(expect.objectContaining({ name: 'cover.png' }));
+
+    await userEvent.click(screen.getByTestId('information-cover-use-default'));
+
+    expect(onUseDefaultCover).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole('link', { name: 'Manage Portfolio' })).toHaveAttribute('href', '/en/admin?salon=salon-a&app=portfolio');
   });
 
   it('falls back to read-only saved values and visibility switches for a non-owner admin', async () => {
@@ -395,8 +468,8 @@ describe('BookingPageInformationEditor', () => {
     // (AG-w2-information-parity-04).
     emptyPortfolio = true;
     current = information({ salon: { ...information().salon, logoUrl: 'https://cdn.example/onboarding-logo.webp' } });
-    renderEditor();
-    await screen.findByTestId('information-business-name');
+    renderEditor({ mode: 'gallery' });
+    await screen.findByTestId('photos-gallery-media-controls');
 
     await userEvent.click(screen.getByTestId('information-logo-choose'));
 
@@ -406,8 +479,8 @@ describe('BookingPageInformationEditor', () => {
 
   it('makes removing the logo reversible instead of a one-way door', async () => {
     current = information({ salon: { ...information().salon, logoUrl: 'https://cdn.example/onboarding-logo.webp' } });
-    renderEditor();
-    await screen.findByTestId('information-business-name');
+    renderEditor({ mode: 'gallery' });
+    await screen.findByTestId('photos-gallery-media-controls');
 
     await userEvent.click(screen.getByTestId('information-logo-remove'));
 
