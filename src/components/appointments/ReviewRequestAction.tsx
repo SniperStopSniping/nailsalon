@@ -14,15 +14,19 @@ function formatDate(value: string, timeZone: string) {
   return new Intl.DateTimeFormat('en-CA', { timeZone, month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }).format(new Date(value));
 }
 
-export function ReviewRequestAction({ appointmentId, salonSlug, timeZone, appointmentStatus, className = '' }: { appointmentId: string; salonSlug: string; timeZone: string; appointmentStatus: string; className?: string }) {
+export function ReviewRequestAction({ appointmentId, salonSlug, timeZone, appointmentStatus, className = '', actionLabel = 'Request review' }: { appointmentId?: string; actionLabel?: string; salonSlug: string; timeZone: string; appointmentStatus: string; className?: string }) {
   const [request, setRequest] = useState<ReviewRequest | null>(null);
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const inFlight = useRef(false);
-  const endpoint = `/api/appointments/${encodeURIComponent(appointmentId)}/review-request?salonSlug=${encodeURIComponent(salonSlug)}`;
+  const endpoint = `/api/appointments/${encodeURIComponent(appointmentId ?? '')}/review-request?salonSlug=${encodeURIComponent(salonSlug)}`;
   const load = useCallback(async (signal?: AbortSignal) => {
+    if (!appointmentId) {
+      setLoading(false);
+      return;
+    }
     try {
       const response = await fetch(endpoint, { cache: 'no-store', signal }); const payload = await response.json().catch(() => null); if (!response.ok) {
         throw new Error(payload?.error?.message || 'Could not check review request status.');
@@ -38,14 +42,14 @@ export function ReviewRequestAction({ appointmentId, salonSlug, timeZone, appoin
         setLoading(false);
       }
     }
-  }, [endpoint]);
+  }, [appointmentId, endpoint]);
   useEffect(() => {
     const controller = new AbortController(); void load(controller.signal); return () => controller.abort();
   }, [load]);
   const isCompleted = appointmentStatus === 'completed';
   const label = useMemo(() => {
     if (!request) {
-      return 'Request review';
+      return actionLabel;
     }
     if (request.status === 'sent') {
       return 'Review requested';
@@ -68,11 +72,11 @@ export function ReviewRequestAction({ appointmentId, salonSlug, timeZone, appoin
     if (request.status === 'not_eligible') {
       return 'Review request unavailable';
     }
-    return 'Request review';
-  }, [request]);
-  const canConfirm = isCompleted && (request?.status === 'eligible' || request?.status === 'scheduled');
+    return actionLabel;
+  }, [actionLabel, request]);
+  const canConfirm = Boolean(appointmentId) && isCompleted && (request?.status === 'eligible' || request?.status === 'scheduled');
   const disabled = loading || sending || !canConfirm;
-  const description = request?.status === 'sent' && request.sentAt ? `Sent ${formatDate(request.sentAt, timeZone)}` : request?.status === 'scheduled' && request.scheduledFor ? [request.reason, `Scheduled for ${formatDate(request.scheduledFor, timeZone)}`].filter(Boolean).join(' ') : request?.status === 'suppressed' ? 'This client has review requests turned off.' : request?.status === 'failed' ? request.reason || 'This review request could not be sent.' : request?.status === 'cancelled' ? request.reason || 'This review request was cancelled.' : !isCompleted ? 'Available after this appointment is completed.' : request?.reason;
+  const description = !appointmentId ? 'Available after a completed appointment is recorded for this client.' : request?.status === 'sent' && request.sentAt ? `Sent ${formatDate(request.sentAt, timeZone)}` : request?.status === 'scheduled' && request.scheduledFor ? [request.reason, `Scheduled for ${formatDate(request.scheduledFor, timeZone)}`].filter(Boolean).join(' ') : request?.status === 'suppressed' ? 'This client has review requests turned off.' : request?.status === 'failed' ? request.reason || 'This review request could not be sent.' : request?.status === 'cancelled' ? request.reason || 'This review request was cancelled.' : !isCompleted ? 'Available after this appointment is completed.' : request?.reason;
   const openReviewSettings = () => {
     const url = new URL(window.location.href);
     url.searchParams.set('app', 'settings');
@@ -98,13 +102,13 @@ export function ReviewRequestAction({ appointmentId, salonSlug, timeZone, appoin
   return (
     <>
       <div className={`rounded-2xl border border-neutral-200 p-4 ${className}`} data-testid="appointment-review-request-action">
-        <div className="flex items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <div className="text-sm font-semibold text-neutral-900">Review request</div>
             {description && <p className="mt-1 text-xs text-neutral-500">{description}</p>}
           </div>
-          <button type="button" disabled={disabled} onClick={() => setConfirming(true)} className="inline-flex min-h-11 shrink-0 items-center gap-2 rounded-xl border border-rose-200 bg-white px-3 text-sm font-semibold text-rose-800 shadow-sm disabled:cursor-not-allowed disabled:border-neutral-200 disabled:bg-neutral-100 disabled:text-neutral-400">
-            <span className="flex size-7 items-center justify-center rounded-full bg-rose-50">{sending || loading ? <LoaderCircle className="size-4 animate-spin" /> : request?.status === 'sent' ? <Check className="size-4" /> : <Star className="size-4" />}</span>
+          <button type="button" disabled={disabled} onClick={() => setConfirming(true)} className="inline-flex min-h-11 max-w-full items-center gap-2 rounded-xl border border-rose-200 bg-white px-3 text-sm font-semibold text-rose-800 shadow-sm disabled:cursor-not-allowed disabled:border-neutral-200 disabled:bg-neutral-100 disabled:text-neutral-400">
+            <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-rose-50">{sending || loading ? <LoaderCircle className="size-4 animate-spin" /> : request?.status === 'sent' ? <Check className="size-4" /> : <Star className="size-4" />}</span>
             {label}
           </button>
         </div>

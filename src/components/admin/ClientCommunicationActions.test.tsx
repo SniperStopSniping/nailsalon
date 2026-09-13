@@ -6,7 +6,9 @@ import { ClientCommunicationActions } from './ClientCommunicationActions';
 // The review action has its own API-state tests. Keep retention-action tests
 // independent of its background request.
 vi.mock('@/components/appointments/ReviewRequestAction', () => ({
-  ReviewRequestAction: () => null,
+  ReviewRequestAction: ({ actionLabel, appointmentId }: { actionLabel: string; appointmentId?: string }) => (
+    <button type="button" data-testid="profile-review-action" data-appointment-id={appointmentId}>{actionLabel}</button>
+  ),
 }));
 
 const fetchMock = vi.fn();
@@ -165,6 +167,25 @@ describe('ClientCommunicationActions', () => {
 
     expect(screen.queryByRole('button', { name: 'Satisfaction text' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Google review' })).not.toBeInTheDocument();
+  });
+
+  it('shows the Google review action outside More actions even without completed visits', async () => {
+    renderActions({ lastCompletedAppointment: null });
+    const reviewAction = screen.getByRole('button', { name: 'Send Google review link' });
+
+    expect(reviewAction).toBeVisible();
+    expect(reviewAction.closest('details')).toBeNull();
+    expect(reviewAction).not.toHaveAttribute('data-appointment-id');
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+  });
+
+  it('uses the last completed appointment for the visible review action', async () => {
+    renderActions();
+
+    expect(screen.getByTestId('profile-review-action')).toHaveAttribute('data-appointment-id', 'appt_old');
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
   });
 
   it('gives Call a tel: target and Email a mailto: target', async () => {

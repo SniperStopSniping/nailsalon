@@ -119,7 +119,29 @@ test('owner mobile navigation opens visible top-aligned workspaces and day detai
 
     await expect(firstClient).toBeVisible();
 
+    await page.route('**/api/appointments/*/review-request?**', async (route) => {
+      await route.fulfill({ json: { data: {
+        status: 'eligible',
+        reason: null,
+        scheduledFor: null,
+        sentAt: null,
+        message: 'Please leave a review: https://g.page/r/test/review',
+        phone: '4165550201',
+        clientId: 'review-preview-client',
+      } } });
+    });
     await firstClient.click();
+
+    const reviewAction = page.getByRole('button', { name: 'Send Google review link', exact: true });
+
+    await expect(reviewAction).toBeVisible();
+    await expect(reviewAction.locator('xpath=ancestor::details')).toHaveCount(0);
+
+    const reviewBounds = await reviewAction.boundingBox();
+
+    expect(reviewBounds).not.toBeNull();
+    expect(reviewBounds!.width).toBeLessThanOrEqual(390);
+    expect(reviewBounds!.height).toBeGreaterThanOrEqual(44);
 
     const editClientAction = page.getByTestId('edit-client-action');
 

@@ -573,10 +573,10 @@ export function ClientCommunicationActions({
           return href ? { href, body: serverDraft.body } : null;
         })()
       : composeClientSmsDraft({
-        kind,
-        context: { ...baseContext, appointment },
-        platform,
-      });
+          kind,
+          context: { ...baseContext, appointment },
+          platform,
+        });
 
     if (!draft) {
       setActionError(
@@ -987,6 +987,16 @@ export function ClientCommunicationActions({
           />
         </div>
 
+        <ReviewRequestAction
+          key={lastCompletedAppointment?.id ?? client.id}
+          appointmentId={lastCompletedAppointment?.id}
+          salonSlug={salonSlug}
+          timeZone={supportData.timeZone ?? 'America/Toronto'}
+          appointmentStatus={lastCompletedAppointment ? 'completed' : 'unavailable'}
+          actionLabel="Send Google review link"
+          className="mt-2 bg-white"
+        />
+
         <details className="mt-2 rounded-2xl border border-stone-200 bg-white/90 p-2 text-left">
           <summary className="min-h-11 cursor-pointer p-2 text-sm font-semibold text-stone-700">
             More actions
@@ -1037,16 +1047,6 @@ export function ClientCommunicationActions({
           </div>
         </details>
       </div>
-
-      {lastCompletedAppointment && (
-        <ReviewRequestAction
-          appointmentId={lastCompletedAppointment.id}
-          salonSlug={salonSlug}
-          timeZone={supportData.timeZone ?? 'America/Toronto'}
-          appointmentStatus="completed"
-          className="mt-3"
-        />
-      )}
 
       {actionError && (
         <div role="alert" className="mt-2 rounded-xl bg-red-50 px-3 py-2 text-left text-xs text-red-800">
