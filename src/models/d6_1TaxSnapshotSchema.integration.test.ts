@@ -358,10 +358,14 @@ describe('migration 0068 — D6.1 invoice and tax snapshot foundation', () => {
     const upgradeDb = drizzle(upgradeClient);
     const migrationsFolder = path.join(process.cwd(), 'migrations');
     const migrations = readMigrationFiles({ migrationsFolder });
+    const migrator = upgradeDb as unknown as {
+      dialect: { migrate: (items: typeof migrations, session: unknown, config: { migrationsFolder: string }) => Promise<void> };
+      session: unknown;
+    };
 
     try {
-      await upgradeDb.dialect.migrate(migrations.slice(0, existingCount), upgradeDb.session, { migrationsFolder });
-      await upgradeDb.dialect.migrate(migrations, upgradeDb.session, { migrationsFolder });
+      await migrator.dialect.migrate(migrations.slice(0, existingCount), migrator.session, { migrationsFolder });
+      await migrator.dialect.migrate(migrations, migrator.session, { migrationsFolder });
 
       const rows = await upgradeClient.query<{ hash: string; created_at: string }>(
         'SELECT hash, created_at FROM drizzle.__drizzle_migrations ORDER BY created_at, id',
