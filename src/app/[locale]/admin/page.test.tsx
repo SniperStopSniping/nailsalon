@@ -155,6 +155,7 @@ vi.mock('@/components/admin/onboarding/OnboardingWorkspaceHandoff', () => ({
     onAvailabilityChange?: (available: boolean) => void;
     onHandoffChange?: (handoff: unknown) => void;
     onResolutionChange?: (resolution: 'absent' | 'available' | 'error') => void;
+    refreshKey?: string | null;
   }) => {
     handoffComponentSpy(props);
     return (
@@ -1196,6 +1197,62 @@ describe('AdminDashboardPage', () => {
 
     expect(routerMock.push).toHaveBeenLastCalledWith('/en/admin/website?salon=salon-b');
     expect(screen.queryByText(/Checking your saved website/i)).not.toBeInTheDocument();
+  });
+
+  it('refreshes the onboarding checklist when a setup modal closes', async () => {
+    fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
+      const url = String(input);
+
+      if (url.startsWith('/api/admin/auth/me')) {
+        return new Response(JSON.stringify({
+          user: {
+            id: 'admin_1',
+            name: 'Admin User',
+            isSuperAdmin: false,
+            impersonation: null,
+            salons: [
+              { id: 'sal_b', slug: 'salon-b', name: 'Salon B', status: 'active', role: 'owner' },
+            ],
+          },
+        }), { status: 200 });
+      }
+      if (url === '/api/admin/auth/set-active-salon') {
+        return new Response(JSON.stringify({ ok: true }), { status: 200 });
+      }
+      if (url === '/api/admin/fraud-signals') {
+        return new Response(JSON.stringify({ data: { signals: [], unresolvedCount: 0 } }), { status: 200 });
+      }
+      if (url === '/api/admin/settings/modules?salonSlug=salon-b') {
+        return new Response(JSON.stringify({
+          data: { modules: {}, entitledModules: {}, moduleReasons: {} },
+        }), { status: 200 });
+      }
+
+      throw new Error(`Unhandled fetch: ${url}`);
+    });
+
+    render(<AdminDashboardPage />);
+
+    await screen.findByTestId('owner-today-workspace');
+    await waitFor(() => expect(handoffComponentSpy.mock.calls.at(-1)?.[0]).toMatchObject({
+      refreshKey: null,
+    }));
+
+    fireEvent.click(screen.getByTestId('owner-nav-services'));
+
+    await waitFor(() => expect(handoffComponentSpy.mock.calls.at(-1)?.[0]).toMatchObject({
+      refreshKey: 'services',
+    }));
+
+    const modalProps = adminModalHostSpy.mock.calls.at(-1)?.[0] as {
+      onCloseModal?: () => void;
+    };
+
+    act(() => modalProps.onCloseModal?.());
+
+    await waitFor(() => expect(handoffComponentSpy.mock.calls.at(-1)?.[0]).toMatchObject({
+      refreshKey: null,
+    }));
   });
 
   it('explains a deep link to an app this salon cannot open instead of dropping it', async () => {
