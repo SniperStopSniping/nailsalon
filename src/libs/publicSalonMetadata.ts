@@ -34,6 +34,7 @@ export type PublicSalonMetadataInput = {
   state: string | null;
   zipCode: string | null;
   locationDisplayMode: LocationDisplayMode;
+  publicUrl: string;
 };
 
 function trimmed(value: string | null | undefined): string | null {
@@ -41,14 +42,18 @@ function trimmed(value: string | null | undefined): string | null {
   return next || null;
 }
 
-/**
- * A cover saved by the local upload path is a root-relative `/uploads/...`
- * file. Link unfurlers need an absolute URL and this module has no origin,
- * so only absolute cover URLs reach the social/JSON-LD image slots.
- */
-function absoluteImageUrl(value: string | null | undefined): string | null {
+function absoluteImageUrl(value: string | null | undefined, publicUrl: string): string | null {
   const candidate = trimmed(value);
-  return candidate && /^https?:\/\//iu.test(candidate) ? candidate : null;
+  if (!candidate) {
+    return null;
+  }
+
+  try {
+    const url = new URL(candidate, publicUrl);
+    return /^https?:$/iu.test(url.protocol) ? url.toString() : null;
+  } catch {
+    return null;
+  }
 }
 
 /** One sentence, from the owner's own words, never fabricated. */
@@ -75,8 +80,9 @@ export function buildPublicSalonMetadata(input: PublicSalonMetadataInput): Metad
   const cityLabel = resolvePublicCityLabel(input);
   const title = `${input.salonName} · Book online`;
   const description = resolveDescription(input, cityLabel);
-  const image = trimmed(input.logoUrl) ?? absoluteImageUrl(input.heroImageUrl);
-  const canonical = `/${input.locale}/${input.slug}`;
+  const image = absoluteImageUrl(input.heroImageUrl, input.publicUrl)
+    ?? absoluteImageUrl(input.logoUrl, input.publicUrl);
+  const canonical = input.publicUrl;
 
   return {
     title,
@@ -118,7 +124,8 @@ export function buildPublicSalonJsonLd(input: PublicSalonMetadataInput): Record<
   const postalCode = trimmed(redacted.zipCode);
   const city = trimmed(redacted.city);
   const region = trimmed(redacted.state);
-  const image = trimmed(input.logoUrl) ?? absoluteImageUrl(input.heroImageUrl);
+  const image = absoluteImageUrl(input.heroImageUrl, input.publicUrl)
+    ?? absoluteImageUrl(input.logoUrl, input.publicUrl);
   const hasAddress = Boolean(street || city || region || postalCode);
 
   return {
@@ -126,7 +133,7 @@ export function buildPublicSalonJsonLd(input: PublicSalonMetadataInput): Record<
     '@type': 'NailSalon',
     'name': input.salonName,
     'description': resolveDescription(input, cityLabel),
-    'url': `/${input.locale}/${input.slug}`,
+    'url': input.publicUrl,
     ...(image ? { image, logo: image } : {}),
     ...(hasAddress
       ? {

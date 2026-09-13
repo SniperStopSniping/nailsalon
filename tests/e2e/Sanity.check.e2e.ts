@@ -67,7 +67,7 @@ test.describe('Sanity', () => {
         waitUntil: 'domcontentloaded',
       });
 
-      await expect(page.getByText('Luster', { exact: true })).toBeVisible();
+      await expect(page.getByRole('main').getByText('Luster', { exact: true })).toBeVisible();
       await expect(
         page.getByRole('heading', { name: /salon owner sign in/i }),
       ).toBeVisible();
