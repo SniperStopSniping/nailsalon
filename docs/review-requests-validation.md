@@ -1,44 +1,29 @@
 # Review requests validation and migration coordination
 
-## Migration allocation blocker
+## Migration allocation
 
-At validation, fetched `origin/main` was
-`adf041f4a2da8b832ede4060bf7617d7f9d0a899`, ending at migration 0075.
-Both pending migrations allocate index 76 and timestamp `1787476392670`:
+`origin/main` ends at migration 0075. Stripe D6-R1 has an immutable 0076
+identity that was already attested in its isolated PostgreSQL ledger:
 
-| Branch | Migration | SHA256 |
-| --- | --- | --- |
-| `codex/review-requests` | `0076_review_requests` | `e29f8ccd755e19c938086186d04c816c710eaefc90ef2a5b42a36f464366a5fd` |
-| `agent/d6-r1-targeted-repair-20260912` at `e2c4057464b1e57b36ced4ebce37ee85f80fc67a` | `0076_deposit_shadow_evidence` | `3626d5427a18d1762ae6e4807cb9a31f8dc093c22cc700b7a6a712a4945f1765` |
+| Order | Migration | Journal timestamp | SHA256 |
+| --- | --- | --- | --- |
+| 0076 | `0076_deposit_shadow_evidence` | `1787476392670` | `3626d5427a18d1762ae6e4807cb9a31f8dc093c22cc700b7a6a712a4945f1765` |
+| 0077 | `0077_review_requests` | `1787562792670` | `e29f8ccd755e19c938086186d04c816c710eaefc90ef2a5b42a36f464366a5fd` |
 
-A read-only ledger/catalog query against the Stripe task's loopback PostgreSQL
-cluster used the repository's static target guard, server expectation, live
-session attestation, and a `BEGIN READ ONLY` / `ROLLBACK` transaction. It confirmed
-the exact Stripe hash/timestamp is applied, `deposit_shadow_state` exists, and
-`review_request` is absent. No rows, services, Stripe files, branches, or worktrees
-were changed. Review migration execution was limited to disposable CI
-PostgreSQL, PGlite, and a separate task-owned IPv6 loopback PostgreSQL cluster.
-That cluster also attested the exact review hash/timestamp above. Shared Development/Preview/Production ledgers have not been
-independently verified.
+This branch imports the exact Stripe 0076 SQL as a SQL-only prerequisite. It
+does not import Stripe runtime code, schema mappings, jobs, or provider paths.
+The Review SQL is unchanged apart from its forward-only identity. The journal
+now has 78 entries. CI and preview-fixture guards pin the new final identity,
+and the D6.1 migration test verifies the exact Stripe SHA256 before Review 0077.
 
-The current Drizzle PostgreSQL migrator selects migrations using
-`lastLedger.created_at < migration.when`. Renaming a file alone does not resolve
-this collision. Applying either current definition after the other can silently
-skip its SQL.
-
-Required coordination before integration/application:
-
-1. Preserve Stripe's applied 0076 SQL/hash/timestamp.
-2. Confirm retained shared/hosted ledger state and agree Stripe-first integration.
-3. Then allocate Review 0077 with a unique later journal timestamp, updating its
-   journal, fixture counts, CI pins, and docs while preserving its SQL content.
-4. Do not apply Review 0077 before Stripe 0076; a subsequently added older Stripe
-   timestamp would also be skipped.
-5. If Review's original identity exists on a retained shared database, stop and
-   review explicit ledger/schema reconciliation instead of renumbering it.
-
-No allocation was changed during this validation. PR #188 remains draft; this is
-an application/merge blocker, not permission to apply either migration.
+The PostgreSQL migrator selects by journal timestamp. The increasing 0076 then
+0077 order therefore works for a database at 0075 and for a database that has
+already recorded the Stripe 0076 identity. Do not apply 0077 to a retained
+database carrying the abandoned `0076_review_requests` ledger identity: that
+requires explicit ledger/schema reconciliation. Shared Development, Preview,
+and Production ledgers remain outside this branch and must be checked under the
+database runbook before application. This PR remains draft and does not apply a
+migration anywhere.
 
 ## Safety test evidence
 

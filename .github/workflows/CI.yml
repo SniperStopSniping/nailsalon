@@ -334,8 +334,10 @@ jobs:
               # Quick Book design system — widens the onboarding media role
               # list to include `cover`. Additive constraint change only.
               migrations/0075_onboarding_cover_media_role.sql) ;;
+              # D6-R1 immutable, SQL-only deposit evidence prerequisite.
+              migrations/0076_deposit_shadow_evidence.sql) ;;
               # One-time review requests, disabled by default and without backfill.
-              migrations/0076_review_requests.sql) ;;
+              migrations/0077_review_requests.sql) ;;
               migrations/meta/_journal.json) ;;
               vercel.json) ;;
               *)
@@ -374,6 +376,28 @@ jobs:
             if [ "$migration_0068_blob" != "ea99188b3e4a55730ee10f372b731ddfc1930124" ]; then
               echo "::error::Migration 0068 does not match the reviewed D6.1 postimage."
               printf 'actual blob: %s\n' "$migration_0068_blob"
+              exit 1
+            fi
+          fi
+
+          # The Stripe D6-R1 prerequisite is a reviewed immutable SQL packet.
+          # Review Requests follows it as 0077; changing this SQL would corrupt
+          # an already-recorded migration identity on Stripe's ledger.
+          if ! git diff --quiet "$base" -- migrations/0076_deposit_shadow_evidence.sql; then
+            if git cat-file -e "$base:migrations/0076_deposit_shadow_evidence.sql" 2>/dev/null; then
+              echo "::error::Migration 0076 is already shipped and is immutable."
+              exit 1
+            fi
+            migration_0076_status="$(git diff --name-status "$base" -- migrations/0076_deposit_shadow_evidence.sql)"
+            if [ "$migration_0076_status" != $'A\tmigrations/0076_deposit_shadow_evidence.sql' ]; then
+              echo "::error::Migration 0076 must be introduced as one new file."
+              printf 'actual status: %s\n' "$migration_0076_status"
+              exit 1
+            fi
+            migration_0076_sha256="$(sha256sum migrations/0076_deposit_shadow_evidence.sql | awk '{print $1}')"
+            if [ "$migration_0076_sha256" != "3626d5427a18d1762ae6e4807cb9a31f8dc093c22cc700b7a6a712a4945f1765" ]; then
+              echo "::error::Migration 0076 does not match the reviewed Stripe D6-R1 postimage."
+              printf 'actual SHA256: %s\n' "$migration_0076_sha256"
               exit 1
             fi
           fi
@@ -420,7 +444,8 @@ jobs:
               0074_onboarding_account_site_foundation) ;;
               # Quick Book design system — onboarding cover media role.
               0075_onboarding_cover_media_role) ;;
-              0076_review_requests) ;;
+              0076_deposit_shadow_evidence) ;;
+              0077_review_requests) ;;
               *)
                 echo "::error::Unauthorized migration journal entries: $tag"
                 exit 1
