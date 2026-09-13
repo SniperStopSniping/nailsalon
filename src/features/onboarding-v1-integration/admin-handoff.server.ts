@@ -14,10 +14,6 @@ import {
   serviceSchema,
 } from '@/models/Schema';
 
-import {
-  ADD_ON_PRODUCTION_MAPPINGS,
-  SERVICE_MENU_PRODUCTION_MAPPINGS,
-} from '../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/integrations/contracts/service-menu-production-mapping';
 import type { OnboardingCompiledSiteDocument } from './contracts';
 import { getSavedOnboardingSitePreviewUrl } from './urls';
 
@@ -46,10 +42,10 @@ export function hasVisibleBookingSection(
 }
 
 export function deriveOnboardingSiteHandoff(input: {
-  activeServiceSourceIds: readonly string[];
   canEditSetup: boolean;
   document: OnboardingCompiledSiteDocument;
   googleReadiness: string;
+  hasActiveServices: boolean;
   locale: string;
   paymentsStatus: string;
   salon: HandoffSalon;
@@ -59,20 +55,9 @@ export function deriveOnboardingSiteHandoff(input: {
     id: string;
     planIntent: 'founding_interest' | 'free' | 'monthly_interest' | null;
     revision: number;
-    serviceMenuApplied: boolean;
     status: string;
   };
 }): OnboardingSiteHandoff {
-  const selectedServiceIds = input.document.serviceSelection.selectedServiceIds;
-  const activeServiceSourceIds = new Set(input.activeServiceSourceIds);
-  for (const mapping of [
-    ...SERVICE_MENU_PRODUCTION_MAPPINGS,
-    ...ADD_ON_PRODUCTION_MAPPINGS,
-  ]) {
-    if (activeServiceSourceIds.has(mapping.productionCanonicalId)) {
-      activeServiceSourceIds.add(mapping.labServiceId);
-    }
-  }
   const googleCalendar = integrationStatus(
     input.googleReadiness === 'ready',
     input.googleReadiness === 'not_connected',
@@ -97,9 +82,7 @@ export function deriveOnboardingSiteHandoff(input: {
     setup: {
       googleCalendar,
       payments,
-      servicesAdded: input.site.serviceMenuApplied
-        && selectedServiceIds.length > 0
-        && selectedServiceIds.every(serviceId => activeServiceSourceIds.has(serviceId)),
+      servicesAdded: input.hasActiveServices,
       shareLink,
     },
     site: {
@@ -132,7 +115,6 @@ export async function getOnboardingSiteHandoff(input: {
         id: onboardingSiteSchema.id,
         planIntent: onboardingSiteSchema.planIntent,
         revision: onboardingSiteRevisionSchema.revision,
-        serviceMenuApplied: onboardingSiteSchema.serviceMenuApplied,
         status: onboardingSiteSchema.status,
       })
       .from(onboardingSiteSchema)
@@ -151,14 +133,14 @@ export async function getOnboardingSiteHandoff(input: {
       .limit(1),
     db
       .select({
-        onboardingSourceServiceId: serviceSchema.onboardingSourceServiceId,
-        templateKey: serviceSchema.templateKey,
+        id: serviceSchema.id,
       })
       .from(serviceSchema)
       .where(and(
         eq(serviceSchema.salonId, input.salon.id),
         eq(serviceSchema.isActive, true),
-      )),
+      ))
+      .limit(1),
     getSalonIntegrationHealth(input.salon.id),
   ]);
   const site = siteRows[0];
@@ -167,13 +149,10 @@ export async function getOnboardingSiteHandoff(input: {
   }
 
   return deriveOnboardingSiteHandoff({
-    activeServiceSourceIds: [...new Set(services.flatMap(item => [
-      item.onboardingSourceServiceId,
-      item.templateKey,
-    ].filter((value): value is string => Boolean(value))))],
     canEditSetup: input.canEditSetup,
     document: site.document,
     googleReadiness: health.google.readiness,
+    hasActiveServices: services.length > 0,
     locale: input.locale,
     paymentsStatus: health.stripeConnect.status,
     salon: input.salon,

@@ -116,6 +116,7 @@ export function OnboardingWorkspaceHandoff({
   onHandoffChange,
   onResolutionChange,
   onTakeTour,
+  refreshKey,
   salonSlug,
 }: {
   focusWelcome?: boolean;
@@ -124,6 +125,7 @@ export function OnboardingWorkspaceHandoff({
   onHandoffChange?: (handoff: OnboardingSiteHandoff | null) => void;
   onResolutionChange?: (resolution: OnboardingHandoffResolution) => void;
   onTakeTour: () => void;
+  refreshKey?: string | null;
   salonSlug: string;
 }) {
   const { userId } = useAuth();
@@ -214,7 +216,7 @@ export function OnboardingWorkspaceHandoff({
       onResolutionChange?.('error');
     });
     return () => controller.abort();
-  }, [loadHandoff, onAvailabilityChange, onHandoffChange, onResolutionChange]);
+  }, [loadHandoff, onAvailabilityChange, onHandoffChange, onResolutionChange, refreshKey]);
 
   useEffect(() => {
     if (!focusWelcome || !handoff?.handoff.showWelcome) {
@@ -225,7 +227,7 @@ export function OnboardingWorkspaceHandoff({
 
   const checklist = useMemo(() => {
     if (!handoff) {
-      return { done: [] as ChecklistItem[], next: [] as ChecklistItem[] };
+      return [] as ChecklistItem[];
     }
     const core: ChecklistItem[] = [
       {
@@ -272,10 +274,7 @@ export function OnboardingWorkspaceHandoff({
         ...integrationPresentation('share', handoff.setup.shareLink),
       },
     ];
-    return {
-      done: core.filter(item => item.status === 'complete'),
-      next: [...core.filter(item => item.status !== 'complete'), ...next],
-    };
+    return [...core, ...next].filter(item => item.status !== 'complete');
   }, [canChangeSetup, handoff, locale, salonSlug]);
 
   if (!handoff || handoffSalonSlug !== salonSlug) {
@@ -428,36 +427,27 @@ export function OnboardingWorkspaceHandoff({
           <ExternalLink aria-hidden="true" className="text-[var(--owner-muted)]" size={16} />
         </a>
 
-        {checklist.done.length > 0
+        {checklist.length > 0
           ? (
-              <div className="mt-5">
-                <h3 className="text-sm font-semibold text-[var(--owner-ink)]">Done</h3>
+              <div className="mt-5 border-t border-[var(--owner-line)] pt-5">
+                <h3 className="text-sm font-semibold text-[var(--owner-ink)]">Whenever you’re ready</h3>
                 <div className="mt-1 divide-y divide-[var(--owner-line)]">
-                  {checklist.done.map(item => (
-                    <ChecklistRow icon={MonitorSmartphone} item={item} key={item.label} />
-                  ))}
+                  {checklist.map((item) => {
+                    const icon = item.label.includes('Calendar')
+                      ? CalendarCheck
+                      : item.label.includes('payment')
+                        ? CreditCard
+                        : item.label.includes('link')
+                          ? Link2
+                          : item.label.includes('Service')
+                            ? Settings2
+                            : MonitorSmartphone;
+                    return <ChecklistRow icon={icon} item={item} key={item.label} />;
+                  })}
                 </div>
               </div>
             )
           : null}
-
-        <div className="mt-5 border-t border-[var(--owner-line)] pt-5">
-          <h3 className="text-sm font-semibold text-[var(--owner-ink)]">Whenever you’re ready</h3>
-          <div className="mt-1 divide-y divide-[var(--owner-line)]">
-            {checklist.next.map((item) => {
-              const icon = item.label.includes('Calendar')
-                ? CalendarCheck
-                : item.label.includes('payment')
-                  ? CreditCard
-                  : item.label.includes('link')
-                    ? Link2
-                    : item.label.includes('Service')
-                      ? Settings2
-                      : MonitorSmartphone;
-              return <ChecklistRow icon={icon} item={item} key={item.label} />;
-            })}
-          </div>
-        </div>
       </section>
     </div>
   );
