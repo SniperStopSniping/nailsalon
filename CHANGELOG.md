@@ -1,3 +1,11 @@
+## [1.97.2](https://github.com/SniperStopSniping/nailsalon/compare/v1.97.1...v1.97.2) (2026-09-13)
+
+
+### Bug Fixes
+
+* **booking:** polish confirmation readability and layout ([90d2494](https://github.com/SniperStopSniping/nailsalon/commit/90d249488ed2170179b06d31d689c7ab2562369d))
+* **booking:** preserve confirmation cards and compact review header ([429dc63](https://github.com/SniperStopSniping/nailsalon/commit/429dc63652fdfb41af5de3ef33f7f5e4f3e78d32))
+
 ## [1.97.1](https://github.com/SniperStopSniping/nailsalon/compare/v1.97.0...v1.97.1) (2026-09-13)
 
 
