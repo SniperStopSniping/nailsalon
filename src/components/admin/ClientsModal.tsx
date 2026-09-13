@@ -35,6 +35,7 @@ import {
   EditClientDialog,
   type EditClientValue,
 } from '@/components/admin/EditClientDialog';
+import { ReviewRequestSuppression } from '@/components/admin/ReviewRequestSuppression';
 import { AppointmentQuickEditSheet } from '@/components/appointments/AppointmentQuickEditSheet';
 import { CheckoutSheet } from '@/components/appointments/CheckoutSheet';
 import { AsyncStatePanel } from '@/components/ui/async-state-panel';
@@ -1827,8 +1828,6 @@ function ClientDetail({
           }}
           upcomingAppointment={upcomingAppointments[0] ?? null}
           lastCompletedAppointment={pastAppointments[0] ?? null}
-          completedAppointmentCount={pastAppointments.length}
-          hasGoogleReview={profile?.hasGoogleReview ?? false}
           onOpenPromotionSettings={onOpenPromotionSettings}
           profileLayout
           showHistory={activeSection === 'activity'}
@@ -1846,6 +1845,8 @@ function ClientDetail({
             });
           }}
         />
+
+        {profile && <ReviewRequestSuppression salonSlug={salonSlug} clientId={profile.id} />}
 
         {activeSection === 'overview' && (
           <div className="my-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
@@ -1963,7 +1964,7 @@ function ClientDetail({
                             aria-label="Preferred artist"
                             value={preferredTechnicianIdDraft}
                             onChange={event => setPreferredTechnicianIdDraft(event.target.value)}
-                            className="w-full rounded-xl border border-[var(--owner-line,#dfd1d4)] bg-white px-3 py-2.5 text-[15px] text-[var(--owner-ink,#30262a)] focus:outline-none focus:ring-2 focus:ring-[var(--owner-focus,#b85075)]/40"
+                            className="focus:ring-[var(--owner-focus,#b85075)]/40 w-full rounded-xl border border-[var(--owner-line,#dfd1d4)] bg-white px-3 py-2.5 text-[15px] text-[var(--owner-ink,#30262a)] focus:outline-none focus:ring-2"
                             disabled={techniciansLoading}
                           >
                             <option value="">No preference</option>
@@ -2266,7 +2267,7 @@ function ClientDetail({
                                         onChange={event => setProblemClientReasonDraft(event.target.value)}
                                         rows={3}
                                         placeholder="Why is this client flagged?"
-                                        className="mt-3 w-full rounded-xl border border-[var(--owner-line,#dfd1d4)] bg-white px-3 py-2.5 text-[14px] text-[var(--owner-ink,#30262a)] placeholder:text-[var(--owner-muted,#706267)] focus:outline-none focus:ring-2 focus:ring-[var(--owner-focus,#b85075)]/40"
+                                        className="focus:ring-[var(--owner-focus,#b85075)]/40 mt-3 w-full rounded-xl border border-[var(--owner-line,#dfd1d4)] bg-white px-3 py-2.5 text-[14px] text-[var(--owner-ink,#30262a)] placeholder:text-[var(--owner-muted,#706267)] focus:outline-none focus:ring-2"
                                       />
                                     )}
                                   </div>
@@ -2294,7 +2295,7 @@ function ClientDetail({
                                         onChange={event => setBlockedReasonDraft(event.target.value)}
                                         rows={3}
                                         placeholder="Why is this client blocked?"
-                                        className="mt-3 w-full rounded-xl border border-[var(--owner-line,#dfd1d4)] bg-white px-3 py-2.5 text-[14px] text-[var(--owner-ink,#30262a)] placeholder:text-[var(--owner-muted,#706267)] focus:outline-none focus:ring-2 focus:ring-[var(--owner-focus,#b85075)]/40"
+                                        className="focus:ring-[var(--owner-focus,#b85075)]/40 mt-3 w-full rounded-xl border border-[var(--owner-line,#dfd1d4)] bg-white px-3 py-2.5 text-[14px] text-[var(--owner-ink,#30262a)] placeholder:text-[var(--owner-muted,#706267)] focus:outline-none focus:ring-2"
                                       />
                                     )}
                                   </div>
@@ -3165,7 +3166,7 @@ export function ClientsModal({
 
   return (
     <div className="relative flex min-h-full w-full flex-col bg-[var(--owner-ground,#f8f2ed)] font-sans text-[var(--owner-ink,#30262a)]">
-      <div className="sticky top-0 z-20 bg-[var(--owner-ground,#f8f2ed)]/85 backdrop-blur-md">
+      <div className="bg-[var(--owner-ground,#f8f2ed)]/85 sticky top-0 z-20 backdrop-blur-md">
         <ModalHeader
           title={showHub ? 'Client Insights' : 'Clients'}
           subtitle={showHub ? 'Client health and follow-up' : `${totalClients} total`}

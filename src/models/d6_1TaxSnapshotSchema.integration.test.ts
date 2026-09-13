@@ -1,8 +1,10 @@
+import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 
 import { PGlite } from '@electric-sql/pglite';
 import { getTableColumns, sql } from 'drizzle-orm';
+import { readMigrationFiles } from 'drizzle-orm/migrator';
 import { drizzle } from 'drizzle-orm/pglite';
 import { migrate } from 'drizzle-orm/pglite/migrator';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
@@ -327,16 +329,53 @@ describe('migration 0068 — D6.1 invoice and tax snapshot foundation', () => {
     expect(rows).toEqual([{ convalidated: true }]);
   });
 
-  it('pins the next journal identity and migration count', () => {
+  it('pins the immutable Stripe prerequisite before the Review migration', () => {
     const journal = JSON.parse(
       readFileSync(path.join(process.cwd(), 'migrations/meta/_journal.json'), 'utf8'),
     ) as { entries: { idx: number; when: number; tag: string }[] };
 
-    expect(journal.entries).toHaveLength(76);
-    expect(journal.entries.at(-1)).toMatchObject({
-      idx: 75,
-      when: 1787389992670,
-      tag: '0075_onboarding_cover_media_role',
+    expect(journal.entries).toHaveLength(78);
+    expect(journal.entries.at(-2)).toMatchObject({
+      idx: 76,
+      when: 1787476392670,
+      tag: '0076_deposit_shadow_evidence',
     });
+    expect(journal.entries.at(-1)).toMatchObject({
+      idx: 77,
+      when: 1787562792670,
+      tag: '0077_review_requests',
+    });
+    expect(createHash('sha256')
+      .update(readFileSync(path.join(process.cwd(), 'migrations/0076_deposit_shadow_evidence.sql')))
+      .digest('hex')).toBe('3626d5427a18d1762ae6e4807cb9a31f8dc093c22cc700b7a6a712a4945f1765');
   });
+
+  it.each([
+    [76, '0075'],
+    [77, 'Stripe 0076'],
+  ])('upgrades a %s ledger through Review 0077', async (existingCount) => {
+    const upgradeClient = new PGlite();
+    const upgradeDb = drizzle(upgradeClient);
+    const migrationsFolder = path.join(process.cwd(), 'migrations');
+    const migrations = readMigrationFiles({ migrationsFolder });
+    const migrator = upgradeDb as unknown as {
+      dialect: { migrate: (items: typeof migrations, session: unknown, config: { migrationsFolder: string }) => Promise<void> };
+      session: unknown;
+    };
+
+    try {
+      await migrator.dialect.migrate(migrations.slice(0, existingCount), migrator.session, { migrationsFolder });
+      await migrator.dialect.migrate(migrations, migrator.session, { migrationsFolder });
+
+      const rows = await upgradeClient.query<{ hash: string; created_at: string }>(
+        'SELECT hash, created_at FROM drizzle.__drizzle_migrations ORDER BY created_at, id',
+      );
+
+      expect(rows.rows).toHaveLength(78);
+      expect(Number(rows.rows.at(-2)?.created_at)).toBe(1787476392670);
+      expect(Number(rows.rows.at(-1)?.created_at)).toBe(1787562792670);
+    } finally {
+      await upgradeClient.close();
+    }
+  }, 30_000);
 });

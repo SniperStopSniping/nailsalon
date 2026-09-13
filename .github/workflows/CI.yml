@@ -303,6 +303,8 @@ jobs:
               # revision and site cleanup, in child-before-parent order.
               # Strictly additive over the Discover PR1 postimage above.
               e62b6f637ee0c90f995657c15dd7ea4138bc102f) ;;
+              # Review requests: add the tenant-scoped review_request purge step.
+              3c824ab5a65b2376af76d105f9fb5f555b22b1ff) ;;
               *)
                 echo "::error::Unauthorized change outside the reviewed salon-purge postimages."
                 printf 'actual blob: %s\n' "$salon_purge_blob"
@@ -332,6 +334,10 @@ jobs:
               # Quick Book design system — widens the onboarding media role
               # list to include `cover`. Additive constraint change only.
               migrations/0075_onboarding_cover_media_role.sql) ;;
+              # D6-R1 immutable, SQL-only deposit evidence prerequisite.
+              migrations/0076_deposit_shadow_evidence.sql) ;;
+              # One-time review requests, disabled by default and without backfill.
+              migrations/0077_review_requests.sql) ;;
               migrations/meta/_journal.json) ;;
               vercel.json) ;;
               *)
@@ -370,6 +376,28 @@ jobs:
             if [ "$migration_0068_blob" != "ea99188b3e4a55730ee10f372b731ddfc1930124" ]; then
               echo "::error::Migration 0068 does not match the reviewed D6.1 postimage."
               printf 'actual blob: %s\n' "$migration_0068_blob"
+              exit 1
+            fi
+          fi
+
+          # The Stripe D6-R1 prerequisite is a reviewed immutable SQL packet.
+          # Review Requests follows it as 0077; changing this SQL would corrupt
+          # an already-recorded migration identity on Stripe's ledger.
+          if ! git diff --quiet "$base" -- migrations/0076_deposit_shadow_evidence.sql; then
+            if git cat-file -e "$base:migrations/0076_deposit_shadow_evidence.sql" 2>/dev/null; then
+              echo "::error::Migration 0076 is already shipped and is immutable."
+              exit 1
+            fi
+            migration_0076_status="$(git diff --name-status "$base" -- migrations/0076_deposit_shadow_evidence.sql)"
+            if [ "$migration_0076_status" != $'A\tmigrations/0076_deposit_shadow_evidence.sql' ]; then
+              echo "::error::Migration 0076 must be introduced as one new file."
+              printf 'actual status: %s\n' "$migration_0076_status"
+              exit 1
+            fi
+            migration_0076_sha256="$(sha256sum migrations/0076_deposit_shadow_evidence.sql | awk '{print $1}')"
+            if [ "$migration_0076_sha256" != "3626d5427a18d1762ae6e4807cb9a31f8dc093c22cc700b7a6a712a4945f1765" ]; then
+              echo "::error::Migration 0076 does not match the reviewed Stripe D6-R1 postimage."
+              printf 'actual SHA256: %s\n' "$migration_0076_sha256"
               exit 1
             fi
           fi
@@ -416,6 +444,8 @@ jobs:
               0074_onboarding_account_site_foundation) ;;
               # Quick Book design system — onboarding cover media role.
               0075_onboarding_cover_media_role) ;;
+              0076_deposit_shadow_evidence) ;;
+              0077_review_requests) ;;
               *)
                 echo "::error::Unauthorized migration journal entries: $tag"
                 exit 1
@@ -657,6 +687,9 @@ jobs:
       - name: Verify SMS components and plan access in desktop and mobile browsers
         run: node node_modules/@playwright/test/cli.js test --config tests/browser/sms/playwright.config.ts --output=test-results/sms-components
 
+      - name: Verify review previews and delivery states in mobile browsers
+        run: node node_modules/playwright/cli.js test --config tests/browser/reviews/playwright.config.ts --output=test-results/review-components
+
       - name: Run storybook tests
         run: npm run test-storybook:ci
 
@@ -667,7 +700,7 @@ jobs:
         env:
           LUSTER_DISPOSABLE_POSTGRES_CONTAINER_ID: ${{ job.services.postgres.id }}
           LUSTER_DISPOSABLE_POSTGRES_NETWORK: ${{ job.services.postgres.network }}
-        run: npm run test:e2e -- tests/e2e/mobile-staff-uiqi.e2e.ts tests/e2e/booking-layout-variants.e2e.ts tests/e2e/account-gate-contrast.e2e.ts tests/e2e/booking-page-hub.e2e.ts
+        run: npm run test:e2e -- tests/e2e/mobile-staff-uiqi.e2e.ts tests/e2e/booking-layout-variants.e2e.ts tests/e2e/account-gate-contrast.e2e.ts tests/e2e/booking-page-hub.e2e.ts tests/e2e/review-requests.e2e.ts
 
       - name: Run E2E with trusted-main Percy coverage
         if: github.event_name == 'push'
@@ -677,9 +710,9 @@ jobs:
           LUSTER_DISPOSABLE_POSTGRES_NETWORK: ${{ job.services.postgres.network }}
         run: |
           if [ -n "$PERCY_TOKEN" ]; then
-            npx percy exec -- npm run test:e2e -- tests/e2e/mobile-staff-uiqi.e2e.ts tests/e2e/booking-layout-variants.e2e.ts tests/e2e/account-gate-contrast.e2e.ts tests/e2e/booking-page-hub.e2e.ts
+            npx percy exec -- npm run test:e2e -- tests/e2e/mobile-staff-uiqi.e2e.ts tests/e2e/booking-layout-variants.e2e.ts tests/e2e/account-gate-contrast.e2e.ts tests/e2e/booking-page-hub.e2e.ts tests/e2e/review-requests.e2e.ts
           else
-            npm run test:e2e -- tests/e2e/mobile-staff-uiqi.e2e.ts tests/e2e/booking-layout-variants.e2e.ts tests/e2e/account-gate-contrast.e2e.ts tests/e2e/booking-page-hub.e2e.ts
+            npm run test:e2e -- tests/e2e/mobile-staff-uiqi.e2e.ts tests/e2e/booking-layout-variants.e2e.ts tests/e2e/account-gate-contrast.e2e.ts tests/e2e/booking-page-hub.e2e.ts tests/e2e/review-requests.e2e.ts
           fi
 
       - name: Verify onboarding desktop and phone geometry

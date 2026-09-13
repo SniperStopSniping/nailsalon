@@ -1307,6 +1307,9 @@ export async function PATCH(request: Request, props: { params: Promise<{ id: str
       }
       await tx.insert(appointmentAuditLogSchema).values(auditRows);
 
+      const { scheduleReviewRequest } = await import('@/libs/reviewRequests.server');
+      await scheduleReviewRequest(tx, existingAppointment.salonId, appointmentId);
+
       // NOTE: client stats (visits/spend/points) are recomputed AFTER this
       // transaction commits — see handleSuccessfulCompletion. Doing it here
       // would read the not-yet-committed 'completed' row on a separate
