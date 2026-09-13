@@ -1884,6 +1884,7 @@ function AdminDashboardContent() {
                         locale={locale}
                         onAvailabilityChange={setOnboardingHandoffAvailable}
                         onTakeTour={() => setShowOnboardingTour(true)}
+                        refreshKey={activeModal}
                         salonSlug={activeDashboardSalonSlug}
                       />
                     )
