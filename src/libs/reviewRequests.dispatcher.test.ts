@@ -52,7 +52,13 @@ async function seedReview(input: { credits?: boolean } = {}) {
     id: salonId,
     slug: salonId,
     name: 'Dispatch Review Salon',
-    settings: { communications: { sms: { enabled: true } }, booking: { timezone: 'America/Toronto' } } as never,
+    settings: {
+      communications: {
+        sms: { enabled: true },
+        quietHours: { enabled: false, start: '21:00', end: '09:00' },
+      },
+      booking: { timezone: 'America/Toronto' },
+    } as never,
   });
   await db.insert(schema.salonClientSchema).values({ id: clientId, salonId, fullName: 'Sarah Client', phone: recipient });
   await db.insert(schema.communicationConsentSchema).values({
