@@ -104,7 +104,7 @@ export function ReviewRequestSettings({ salonSlug }: { salonSlug: string }) {
   return (
     <div className="space-y-6 px-4 pb-8 pt-2" data-testid="review-request-settings">
       <div>
-        <p className="text-sm text-[var(--owner-muted)]">Ask clients for one Google review after a completed appointment.</p>
+        <p className="text-sm text-[var(--owner-muted)]">Set the Google link and message used for automatic and one-time review requests.</p>
       </div>
       <div className="rounded-[14px] border border-[var(--owner-line)] bg-[var(--owner-surface)] p-4 shadow-sm">
         <label className="block text-[15px] font-semibold text-[var(--owner-ink)]" htmlFor="google-review-link">Google review link</label>
@@ -121,7 +121,7 @@ export function ReviewRequestSettings({ salonSlug }: { salonSlug: string }) {
         <label className="flex min-h-11 cursor-pointer items-center justify-between gap-3">
           <span>
             <span className="block text-[15px] font-semibold text-[var(--owner-ink)]">Automatically request reviews</span>
-            <span className="mt-1 block text-xs text-[var(--owner-muted)]">Send clients a one-time review request after a completed appointment.</span>
+            <span className="mt-1 block text-xs text-[var(--owner-muted)]">Send clients one review request after each visit.</span>
           </span>
           <input aria-label="Automatically request reviews" type="checkbox" checked={draft.automaticEnabled} onChange={event => setDraft({ ...draft, automaticEnabled: event.target.checked })} className="size-5 accent-[var(--owner-accent)]" />
         </label>

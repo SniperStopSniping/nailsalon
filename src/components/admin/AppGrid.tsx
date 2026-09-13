@@ -83,8 +83,8 @@ const APPS: AppItem[] = [
   },
   {
     id: 'marketing',
-    name: 'Marketing',
-    description: 'Follow-ups, retention and reviews',
+    name: 'Marketing & Messages',
+    description: 'Text clients, follow up and manage reviews',
     icon: Bell,
     iconFrom: '#9F1239',
     iconTo: '#BB3E5F',

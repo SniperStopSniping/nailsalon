@@ -133,6 +133,17 @@ function installSuccessfulFetch(initialSettings = makeSettings(), options: {
     if (url.startsWith('/api/admin/retention/settings')) {
       return settingsResponse(initialSettings);
     }
+    if (url.startsWith('/api/admin/review-requests/settings')) {
+      return jsonResponse({
+        data: {
+          googleReviewUrl: initialSettings.googleReviewUrl,
+          automaticEnabled: false,
+          delayMinutes: 60,
+          messageTemplate: 'Hi {{firstName}}, review {{businessName}}: {{reviewLink}}',
+          businessName: 'Luster Demo Studio',
+        },
+      });
+    }
     if (url.startsWith('/api/admin/marketing')) {
       return jsonResponse({ data: OVERVIEW });
     }
@@ -173,6 +184,41 @@ function installSuccessfulFetch(initialSettings = makeSettings(), options: {
     if (url.startsWith('/api/admin/settings/modules')) {
       return jsonResponse({
         data: { moduleReasons: { smsReminders: options.lusterReady ? 'ENABLED' : 'MODULE_DISABLED' } },
+      });
+    }
+    if (url.startsWith('/api/admin/salon/settings')) {
+      return jsonResponse({
+        sms: options.sms ?? null,
+        communications: {
+          email: { enabled: true },
+          sms: { enabled: options.lusterReady === true },
+          killSwitch: false,
+          quietHours: { enabled: true, start: '21:00', end: '09:00' },
+          reminders: { rules: [] },
+          events: {},
+        },
+      });
+    }
+    if (url.startsWith('/api/admin/clients/') && url.includes('/messages')) {
+      return jsonResponse({
+        data: {
+          history: [],
+          sms: {
+            senderMode: 'shared_luster',
+            senderLabel: 'Luster texting number',
+            providerReady: true,
+            automaticEnabled: true,
+            manualAvailable: true,
+            smsEnabled: true,
+            remindersEnabled: true,
+            availableCredits: 100,
+            phoneNumber: null,
+            blockingReason: null,
+            detail: 'Luster SMS is ready.',
+            workerConfigured: true,
+            quietHours: { enabled: false, start: '21:00', end: '09:00' },
+          },
+        },
       });
     }
     if (url.startsWith('/api/admin/retention/campaigns') && init?.method === 'POST') {
@@ -216,14 +262,11 @@ describe('MarketingModal', () => {
     installSuccessfulFetch();
     await renderMarketing();
 
-    expect(screen.getByText('Grow your bookings')).toBeInTheDocument();
-    expect(screen.getByText('Follow up with clients, fill open time and promote your services.')).toBeInTheDocument();
+    expect(screen.getByText('Write a message')).toBeInTheDocument();
+    expect(screen.getByText('Choose a client, write or use a saved message, then send your way.')).toBeInTheDocument();
     expect(screen.getByTestId('marketing-home-followups')).toHaveTextContent('2 due');
     expect(screen.getByTestId('marketing-home-results')).toHaveTextContent('3 sent · 2 redeemed');
-    // Channel truth: automatic not ready, marketing email honestly absent.
-    expect(screen.getByTestId('marketing-automatic-status')).toHaveTextContent('Not available yet');
-    expect(screen.getByTestId('marketing-home-channels')).toHaveTextContent('Marketing email');
-    expect(screen.getByTestId('marketing-home-channels')).toHaveTextContent('Not available yet');
+    expect(screen.getByTestId('marketing-home-texting-settings')).toHaveTextContent('Not available yet');
     // No email marketing toggle exists anywhere.
     expect(screen.queryByRole('checkbox', { name: /email/i })).not.toBeInTheDocument();
   });
@@ -232,11 +275,10 @@ describe('MarketingModal', () => {
     installSuccessfulFetch(makeSettings(), { lusterReady: true });
     await renderMarketing();
 
-    expect(screen.getByTestId('marketing-automatic-status')).toHaveTextContent('Ready');
+    expect(screen.getByTestId('marketing-home-texting-settings')).toHaveTextContent('Luster texting ready');
   });
 
-  it('explains a Luster sending pause without treating 100 credits as readiness or asking for setup', async () => {
-    const onOpenApp = vi.fn();
+  it('explains a Luster sending pause and opens its settings in this workspace', async () => {
     installSuccessfulFetch(makeSettings(), {
       sms: {
         providerReady: false,
@@ -247,25 +289,34 @@ describe('MarketingModal', () => {
         detail: 'Luster has temporarily paused SMS sending. Your credits and preferences are saved.',
       },
     });
-    await renderMarketing({ onOpenApp });
+    await renderMarketing();
 
-    expect(screen.getByTestId('marketing-automatic-status')).toHaveTextContent('Paused');
-    expect(screen.getByTestId('marketing-home-channels')).toHaveTextContent('Text from your phone');
+    expect(screen.getByTestId('marketing-home-texting-settings')).toHaveTextContent('Paused');
     expect(screen.getByText(/Luster has temporarily paused SMS sending/)).toBeInTheDocument();
     expect(screen.queryByText(/finish texting setup/i)).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: 'View texting status in Integrations' }));
+    fireEvent.click(screen.getByTestId('marketing-home-texting-settings'));
 
-    expect(onOpenApp).toHaveBeenCalledWith('integrations');
+    expect(await screen.findByTestId('communication-settings-panel')).toBeInTheDocument();
     expect(fetchMock.mock.calls.some(([, init]) => init?.method && init.method !== 'GET')).toBe(false);
+  });
+
+  it('keeps appointment message settings inside Marketing & Messages', async () => {
+    installSuccessfulFetch();
+    await renderMarketing();
+
+    fireEvent.click(screen.getByTestId('marketing-home-appointment-messages'));
+
+    expect(await screen.findByTestId('communication-settings-panel')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Appointment reminders' })).toBeVisible();
   });
 
   it('never reports a legacy salon-owned Twilio number as ready', async () => {
     installSuccessfulFetch(makeSettings(), { legacyConnection: true });
     await renderMarketing();
 
-    expect(screen.getByTestId('marketing-automatic-status')).toHaveTextContent('Setup incomplete');
-    expect(screen.getByTestId('marketing-automatic-status')).not.toHaveTextContent('Ready');
+    expect(screen.getByTestId('marketing-home-texting-settings')).toHaveTextContent('Setup incomplete');
+    expect(screen.getByTestId('marketing-home-texting-settings')).not.toHaveTextContent('Luster texting ready');
   });
 
   it('follow-up rows show reason, last service, consent and honest channel', async () => {
@@ -296,21 +347,20 @@ describe('MarketingModal', () => {
     fireEvent.click(screen.getByTestId('marketing-home-followups'));
     fireEvent.click(await screen.findByTestId('followup-review-text-sclient_1'));
 
-    const preview = await screen.findByTestId('marketing-message-preview');
+    const preview = await screen.findByRole('dialog', { name: 'Text Ava Client' });
 
-    expect(preview).toHaveTextContent('4165550111');
-    expect(preview).toHaveClass('touch-pan-y', 'overflow-y-auto', 'overscroll-contain');
-    expect(screen.getByText(/Messages app will open with this message ready to review/i)).toBeInTheDocument();
+    expect(preview).toBeVisible();
+    expect(screen.getByText(/saved template will not change/i)).toBeInTheDocument();
 
     // Editable message with prefilled, fully-resolved copy (no {placeholders}).
-    const textarea = screen.getByTestId('marketing-preview-message') as HTMLTextAreaElement;
+    const textarea = screen.getByLabelText('Message') as HTMLTextAreaElement;
 
     expect(textarea.value).toContain('Ava');
     expect(textarea.value).toContain('Luster Demo Studio');
     expect(textarea.value).not.toMatch(/\{\w+\}/);
 
     fireEvent.change(textarea, { target: { value: `${textarea.value} See you soon!` } });
-    fireEvent.click(screen.getByTestId('marketing-preview-open'));
+    fireEvent.click(screen.getByRole('button', { name: 'Send from my phone · no Luster credits' }));
 
     // Prefilled recipient + edited body reach the native composer URL.
     await waitFor(() => expect(openNative).toHaveBeenCalledTimes(1));
@@ -344,17 +394,15 @@ describe('MarketingModal', () => {
     });
   });
 
-  it('offers a desktop fallback with copy actions instead of pretending sms links work', async () => {
+  it('offers both deliberate send paths in the shared composer', async () => {
     installSuccessfulFetch();
     await renderMarketing();
     fireEvent.click(screen.getByTestId('marketing-home-followups'));
     fireEvent.click(await screen.findByTestId('followup-review-text-sclient_1'));
-    await screen.findByTestId('marketing-message-preview');
+    await screen.findByRole('dialog', { name: 'Text Ava Client' });
 
-    // jsdom's user agent is not a phone → the fallback renders.
-    expect(screen.getByTestId('marketing-desktop-fallback')).toBeInTheDocument();
-    expect(screen.getByTestId('marketing-copy-phone')).toBeInTheDocument();
-    expect(screen.getByTestId('marketing-copy-message')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Send from my phone · no Luster credits' })).toBeVisible();
+    expect(screen.getByRole('button', { name: /Send with Luster/ })).toBeVisible();
   });
 
   it('win-back texting for an unconfigured offer routes to Campaigns instead of failing silently', async () => {
@@ -463,19 +511,16 @@ describe('MarketingModal', () => {
     expect(fetchMock.mock.calls.filter(([, init]) => (init as RequestInit | undefined)?.method === 'PATCH')).toHaveLength(0);
   });
 
-  it('reviews keep the manual workflow honest and never duplicate directions', async () => {
+  it('reviews use the shared automatic-review settings editor', async () => {
     installSuccessfulFetch();
     await renderMarketing();
     fireEvent.click(screen.getByTestId('marketing-home-reviews'));
 
-    const reviews = await screen.findByTestId('marketing-reviews');
-
-    expect(screen.getByLabelText(/Direct Google review link/)).toHaveValue('https://g.page/r/salon-a/review');
-    expect(reviews).toHaveTextContent(/never counted as a sent request/i);
-    expect(reviews).toHaveTextContent(/never claims a Google review was posted/i);
-    // Directions/parking live in Settings → Locations only.
-    expect(reviews).toHaveTextContent(/Settings → Locations/);
-    expect(screen.queryByLabelText(/Parking/)).not.toBeInTheDocument();
+    expect(await screen.findByTestId('marketing-reviews')).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('/api/admin/review-requests/settings'),
+      expect.objectContaining({ cache: 'no-store' }),
+    );
   });
 
   it('shows a load error and retries the settings request', async () => {

@@ -3,14 +3,6 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ClientCommunicationActions } from './ClientCommunicationActions';
 
-// The review action has its own API-state tests. Keep retention-action tests
-// independent of its background request.
-vi.mock('@/components/appointments/ReviewRequestAction', () => ({
-  ReviewRequestAction: ({ actionLabel, appointmentId }: { actionLabel: string; appointmentId?: string }) => (
-    <button type="button" data-testid="profile-review-action" data-appointment-id={appointmentId}>{actionLabel}</button>
-  ),
-}));
-
 const fetchMock = vi.fn();
 let retentionData: Record<string, unknown>;
 let retentionSettings: Record<string, unknown>;
@@ -80,6 +72,15 @@ describe('ClientCommunicationActions', () => {
         return Promise.resolve(jsonResponse({
           data: {
             settings: retentionSettings,
+          },
+        }));
+      }
+      if (url.startsWith('/api/admin/review-requests/settings')) {
+        return Promise.resolve(jsonResponse({
+          data: {
+            googleReviewUrl: retentionSettings.googleReviewUrl,
+            messageTemplate: 'Hi {{firstName}}, please review {{businessName}} here: {{reviewLink}}',
+            businessName: 'Isla Nail Studio',
           },
         }));
       }
@@ -175,17 +176,21 @@ describe('ClientCommunicationActions', () => {
 
     expect(reviewAction).toBeVisible();
     expect(reviewAction.closest('details')).toBeNull();
-    expect(reviewAction).not.toHaveAttribute('data-appointment-id');
+    expect(reviewAction).toHaveAttribute('data-testid', 'client-google-review-link');
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
   });
 
-  it('uses the last completed appointment for the visible review action', async () => {
+  it('opens a review composer without using an appointment', async () => {
     renderActions();
 
-    expect(screen.getByTestId('profile-review-action')).toHaveAttribute('data-appointment-id', 'appt_old');
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Send Google review link' })).toBeEnabled());
+    fireEvent.click(screen.getByRole('button', { name: 'Send Google review link' }));
 
-    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    expect(screen.getByRole('dialog', { name: 'Send Google review link' })).toBeVisible();
+    expect((screen.getByLabelText('Message') as HTMLTextAreaElement).value).toContain(
+      'Hi Ava, please review Isla Nail Studio here: https://g.page/r/isla/review',
+    );
   });
 
   it('gives Call a tel: target and Email a mailto: target', async () => {
@@ -247,7 +252,7 @@ describe('ClientCommunicationActions', () => {
         },
       },
     });
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(5));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(6));
 
     fireEvent.click(screen.getByRole('button', { name: 'Appointment details' }));
 
@@ -271,7 +276,7 @@ describe('ClientCommunicationActions', () => {
         },
       },
     });
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(5));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(6));
 
     fireEvent.click(screen.getByRole('button', { name: 'Appointment details' }));
 
@@ -284,10 +289,10 @@ describe('ClientCommunicationActions', () => {
 
   it('opens the Luster composer without handing the client to a personal phone app', async () => {
     const { onOpenNativeUrl } = renderActions();
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(5));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(6));
     fireEvent.click(screen.getByRole('button', { name: 'Text' }));
 
-    expect(screen.getByRole('region', { name: 'Text client through Luster' })).toBeInTheDocument();
+    expect(screen.getByRole('dialog', { name: 'Text client' })).toBeInTheDocument();
     expect(onOpenNativeUrl).not.toHaveBeenCalled();
     expect(screen.queryByRole('dialog', { name: 'Confirm text status' })).not.toBeInTheDocument();
   });
@@ -302,7 +307,7 @@ describe('ClientCommunicationActions', () => {
         phone: '+1 (647) 555-0198',
       },
     });
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(5));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(6));
 
     expect(screen.getByRole('link', { name: 'Call' }))
       .toHaveAttribute('href', 'tel:6475550198');
@@ -313,7 +318,7 @@ describe('ClientCommunicationActions', () => {
 
   it('uses the smart reminder endpoint and opens its manual draft when Twilio is unavailable', async () => {
     const { onOpenNativeUrl } = renderActions();
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(5));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(6));
 
     fireEvent.click(screen.getByRole('button', { name: 'Send reminder' }));
 
@@ -355,7 +360,7 @@ describe('ClientCommunicationActions', () => {
       sentAt: '2026-07-18T12:00:00.000Z',
     };
     const { onOpenNativeUrl } = renderActions();
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(5));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(6));
 
     fireEvent.click(screen.getByRole('button', { name: 'Send reminder' }));
 
@@ -370,7 +375,7 @@ describe('ClientCommunicationActions', () => {
       reason: 'DUPLICATE_SUPPRESSED',
     };
     const { onOpenNativeUrl } = renderActions();
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(5));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(6));
 
     fireEvent.click(screen.getByRole('button', { name: 'Send reminder' }));
 
@@ -397,7 +402,7 @@ describe('ClientCommunicationActions', () => {
         },
       },
     });
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(5));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(6));
 
     fireEvent.click(screen.getByRole('button', { name: 'Directions' }));
 

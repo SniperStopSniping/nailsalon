@@ -11,6 +11,7 @@ import {
   MessageCircle,
   Phone,
   RotateCcw,
+  Star,
 } from 'lucide-react';
 import {
   type ReactNode,
@@ -21,7 +22,6 @@ import {
 } from 'react';
 
 import { LusterClientSms } from '@/components/admin/LusterClientSms';
-import { ReviewRequestAction } from '@/components/appointments/ReviewRequestAction';
 import { Button } from '@/components/ui/button';
 import { InlineFeedback } from '@/components/ui/inline-feedback';
 import {
@@ -36,6 +36,7 @@ import { notifyRetentionDataChanged } from '@/libs/dashboardEvents';
 import { resolveDirectionsLocation } from '@/libs/directions';
 import { isValidPhone, normalizePhone } from '@/libs/phone';
 import { firstNameForMessage, renderPromotionMessage } from '@/libs/promotionMessage';
+import { DEFAULT_REVIEW_MESSAGE, renderReviewMessage } from '@/libs/reviewRequests';
 import {
   type ClientCommunicationKind,
   type ClientCommunicationStatus,
@@ -92,6 +93,8 @@ type ReminderFallback = {
 
 type SupportData = {
   settings: RetentionSettings;
+  reviewMessageTemplate: string;
+  reviewBusinessName: string | null;
   location: SalonLocation | null;
   bookingUrl: string | null;
   timeZone: string | null;
@@ -166,6 +169,8 @@ const DEFAULT_SUPPORT_DATA: SupportData = {
       singleUse: true,
     },
   },
+  reviewMessageTemplate: DEFAULT_REVIEW_MESSAGE,
+  reviewBusinessName: null,
   location: null,
   bookingUrl: null,
   timeZone: null,
@@ -254,7 +259,7 @@ const ACTION_SURFACE_BASE
 
 /** Wide row: used inside "More actions", where labels are long. */
 const ACTION_ROW_CLASS
-  = `${ACTION_SURFACE_BASE} min-h-12 gap-2 px-3 py-2 text-left text-[13px]`;
+  = `${ACTION_SURFACE_BASE} min-h-12 w-full gap-2 px-3 py-2 text-left text-[13px]`;
 
 /**
  * Compact square: the four primary contact actions stay on ONE row at 320px so
@@ -405,6 +410,9 @@ export function ClientCommunicationActions({
   const [retentionStage, setRetentionStage] = useState<RetentionStage | null>(null);
   const [reminderDue, setReminderDue] = useState<AppointmentReminderItem | null>(null);
   const [smsComposerOpen, setSmsComposerOpen] = useState(false);
+  const [composerTitle, setComposerTitle] = useState('Write a message');
+  const [composerDraft, setComposerDraft] = useState('');
+  const [composerOutreach, setComposerOutreach] = useState<PendingOutreach | null>(null);
 
   const loadSupportData = useCallback(async () => {
     if (!salonSlug) {
@@ -416,17 +424,19 @@ export function ClientCommunicationActions({
     setSupportFailureDismissed(false);
     try {
       const query = `salonSlug=${encodeURIComponent(salonSlug)}`;
-      const [settingsResponse, locationResponse, todayResponse, retentionResponse] = await Promise.all([
+      const [settingsResponse, locationResponse, todayResponse, retentionResponse, reviewSettingsResponse] = await Promise.all([
         fetch(`/api/admin/retention/settings?${query}`, { cache: 'no-store' }),
         fetch(`/api/admin/location?${query}`, { cache: 'no-store' }),
         fetch(`/api/admin/today?${query}`, { cache: 'no-store' }),
         fetch(`/api/admin/retention?${query}&clientId=${encodeURIComponent(client.id)}`, { cache: 'no-store' }),
+        fetch(`/api/admin/review-requests/settings?${query}`, { cache: 'no-store' }),
       ]);
-      const [settingsPayload, locationPayload, todayPayload, retentionPayload] = await Promise.all([
+      const [settingsPayload, locationPayload, todayPayload, retentionPayload, reviewSettingsPayload] = await Promise.all([
         settingsResponse.json().catch(() => null),
         locationResponse.json().catch(() => null),
         todayResponse.json().catch(() => null),
         retentionResponse.json().catch(() => null),
+        reviewSettingsResponse.json().catch(() => null),
       ]);
 
       if (!settingsResponse.ok) {
@@ -440,7 +450,16 @@ export function ClientCommunicationActions({
         settings: {
           ...DEFAULT_SUPPORT_DATA.settings,
           ...(settingsPayload?.data?.settings ?? {}),
+          googleReviewUrl: reviewSettingsResponse.ok
+            ? reviewSettingsPayload?.data?.googleReviewUrl ?? settingsPayload?.data?.settings?.googleReviewUrl ?? null
+            : settingsPayload?.data?.settings?.googleReviewUrl ?? null,
         },
+        reviewMessageTemplate: reviewSettingsResponse.ok
+          ? reviewSettingsPayload?.data?.messageTemplate ?? DEFAULT_REVIEW_MESSAGE
+          : DEFAULT_REVIEW_MESSAGE,
+        reviewBusinessName: reviewSettingsResponse.ok
+          ? reviewSettingsPayload?.data?.businessName ?? null
+          : null,
         location: locationResponse.ok ? (locationPayload?.data?.location ?? null) : null,
         bookingUrl: todayResponse.ok ? (todayPayload?.data?.links?.bookingUrl ?? null) : null,
         timeZone: todayResponse.ok ? (todayPayload?.data?.timeZone ?? null) : null,
@@ -603,6 +622,45 @@ export function ClientCommunicationActions({
     });
     onOpenNativeUrl(draft.href);
   }, [baseContext, onOpenNativeUrl, recordOutreach]);
+
+  const openSharedComposer = useCallback((
+    title: string,
+    kind: ClientSmsMessageKind = 'text',
+    appointment: ClientSmsAppointment | null = null,
+  ) => {
+    const prepared = composeClientSmsDraft({
+      kind,
+      context: { ...baseContext, appointment },
+      platform: detectNativeSmsPlatform(window.navigator.userAgent),
+    });
+    if (!prepared) {
+      setActionError(
+        kind === 'google_review'
+          ? 'Add your Google review link in Marketing & Messages first.'
+          : 'This client needs a valid mobile number before a text can be prepared.',
+      );
+      return;
+    }
+    const body = kind === 'google_review' && supportData.settings.googleReviewUrl
+      ? renderReviewMessage({
+          template: supportData.reviewMessageTemplate,
+          clientName: client.fullName,
+          businessName: supportData.reviewBusinessName ?? salonName,
+          reviewLink: supportData.settings.googleReviewUrl,
+        })
+      : prepared.body;
+    setComposerTitle(title);
+    setComposerDraft(kind === 'text' ? '' : body);
+    setComposerOutreach(kind === 'text'
+      ? null
+      : {
+          kind: MESSAGE_KIND_TO_OUTREACH[kind],
+          label: title,
+          messageSnapshot: body,
+        });
+    setActionError(null);
+    setSmsComposerOpen(true);
+  }, [baseContext, client.fullName, salonName, supportData]);
 
   const openAppointmentDraft = useCallback(async (
     kind: 'appointment_reminder' | 'appointment_details',
@@ -969,7 +1027,7 @@ export function ClientCommunicationActions({
             disabled={!canText}
             title={canText ? undefined : NO_MOBILE_REASON}
             testId="client-text-action"
-            onClick={() => setSmsComposerOpen(true)}
+            onClick={() => openSharedComposer('Text client')}
           />
           <ContactActionLink
             icon={<Phone size={15} />}
@@ -987,14 +1045,13 @@ export function ClientCommunicationActions({
           />
         </div>
 
-        <ReviewRequestAction
-          key={lastCompletedAppointment?.id ?? client.id}
-          appointmentId={lastCompletedAppointment?.id}
-          salonSlug={salonSlug}
-          timeZone={supportData.timeZone ?? 'America/Toronto'}
-          appointmentStatus={lastCompletedAppointment ? 'completed' : 'unavailable'}
-          actionLabel="Send Google review link"
-          className="mt-2 bg-white"
+        <ActionButton
+          icon={<Star size={15} />}
+          label="Send Google review link"
+          disabled={supportLoading || !canText}
+          title={!canText ? NO_MOBILE_REASON : undefined}
+          testId="client-google-review-link"
+          onClick={() => openSharedComposer('Send Google review link', 'google_review')}
         />
 
         <details className="mt-2 rounded-2xl border border-stone-200 bg-white/90 p-2 text-left">
@@ -1180,7 +1237,22 @@ export function ClientCommunicationActions({
         clientId={client.id}
         appointmentId={upcomingAppointment?.id}
         composerOpen={smsComposerOpen}
-        onClose={() => setSmsComposerOpen(false)}
+        composerTitle={composerTitle}
+        initialDraft={composerDraft}
+        recipientPhone={client.phone}
+        onOpenNativeUrl={onOpenNativeUrl}
+        onPhoneDraftOpened={(message) => {
+          if (!composerOutreach) {
+            return;
+          }
+          const outreach = { ...composerOutreach, messageSnapshot: message };
+          setPendingOutreach(outreach);
+          void recordOutreach(outreach, 'prepared').catch(() => {});
+        }}
+        onClose={() => {
+          setSmsComposerOpen(false);
+          setComposerOutreach(null);
+        }}
         showHistory={showHistory}
       />
 
