@@ -1,3 +1,10 @@
+## [1.97.1](https://github.com/SniperStopSniping/nailsalon/compare/v1.97.0...v1.97.1) (2026-09-13)
+
+
+### Bug Fixes
+
+* hide completed onboarding checklist items ([3465b96](https://github.com/SniperStopSniping/nailsalon/commit/3465b96de136970866020bc8164523daa37be217))
+
 # [1.97.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.96.0...v1.97.0) (2026-09-12)
 
 
