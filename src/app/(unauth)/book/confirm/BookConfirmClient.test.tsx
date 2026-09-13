@@ -292,7 +292,7 @@ describe('BookConfirmClient', () => {
     expect(screen.getByLabelText('Customer name')).toBeDisabled();
     expect(screen.getByLabelText('Customer email')).toBeDisabled();
     expect(screen.getByLabelText('Customer phone')).toBeDisabled();
-    expect(screen.getByRole('button', { name: 'Edit' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Back' })).toBeDisabled();
     expect(screen.getByRole('button', { name: /change time or services/i })).toBeDisabled();
     expect(confirm).toBeDisabled();
 
@@ -2245,7 +2245,7 @@ describe('BookConfirmClient deposit disclosure', () => {
     const instant = renderClient();
 
     expect(screen.getByRole('button', { name: 'Confirm appointment · $65' })).toBeInTheDocument();
-    expect(screen.getByText('Nothing is booked yet. Confirm below to reserve this time.')).toBeInTheDocument();
+    expect(screen.getByText('Not booked yet. Confirm below to reserve your time.')).toBeInTheDocument();
 
     instant.unmount();
 

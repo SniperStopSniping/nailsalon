@@ -377,7 +377,7 @@ async function walkReadOnlyBookingTargets(page: Page): Promise<void> {
   await expectPracticalBookingTargets(page);
   await expectNoPageHorizontalOverflow(page);
 
-  const edit = page.getByRole('button', { name: 'Edit', exact: true });
+  const back = page.getByRole('button', { name: 'Back', exact: true });
   await page.evaluate(() => {
     if (document.activeElement instanceof HTMLElement) {
       document.activeElement.blur();
@@ -389,8 +389,8 @@ async function walkReadOnlyBookingTargets(page: Page): Promise<void> {
 
   await page.keyboard.press('Tab');
 
-  await expect(edit).toBeFocused();
-  await expect.poll(() => edit.evaluate(element => window.getComputedStyle(element).outlineStyle)).not.toBe('none');
+  await expect(back).toBeFocused();
+  await expect.poll(() => back.evaluate(element => window.getComputedStyle(element).outlineStyle)).not.toBe('none');
 }
 
 const ACCESSIBILITY_VIEWPORTS = [

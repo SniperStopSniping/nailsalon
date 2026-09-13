@@ -23,6 +23,7 @@ function input(overrides: Partial<PublicSalonMetadataInput> = {}): PublicSalonMe
     state: 'ON',
     zipCode: PRIVATE_POSTAL_CODE,
     locationDisplayMode: 'full_address',
+    publicUrl: 'https://booking.example.com/en/lacquer-lab-studio',
     ...overrides,
   };
 }
@@ -36,10 +37,10 @@ describe('public salon metadata', () => {
     expect(metadata.openGraph?.title).toBe('Lacquer Lab Studio · Book online');
     expect(metadata.openGraph).toMatchObject({
       siteName: 'Lacquer Lab Studio',
-      url: '/en/lacquer-lab-studio',
-      images: [{ url: 'https://cdn.example.com/logo.png', alt: 'Lacquer Lab Studio' }],
+      url: 'https://booking.example.com/en/lacquer-lab-studio',
+      images: [{ url: 'https://cdn.example.com/hero.jpg', alt: 'Lacquer Lab Studio' }],
     });
-    expect(metadata.alternates?.canonical).toBe('/en/lacquer-lab-studio');
+    expect(metadata.alternates?.canonical).toBe('https://booking.example.com/en/lacquer-lab-studio');
   });
 
   it('falls back through bio, then a city sentence, and never invents copy', () => {
@@ -51,14 +52,27 @@ describe('public salon metadata', () => {
       .toBe('Book an appointment with Lacquer Lab Studio.');
   });
 
-  it('uses the hero image only when there is no logo, and downgrades the card without either', () => {
-    expect(buildPublicSalonMetadata(input({ logoUrl: null })).openGraph?.images)
-      .toEqual([{ url: 'https://cdn.example.com/hero.jpg', alt: 'Lacquer Lab Studio' }]);
+  it('prefers the cover, resolves uploaded paths, and falls back to the logo', () => {
+    expect(buildPublicSalonMetadata(input({ heroImageUrl: '/uploads/cover/salon/cover.webp' })).openGraph?.images)
+      .toEqual([{
+        url: 'https://booking.example.com/uploads/cover/salon/cover.webp',
+        alt: 'Lacquer Lab Studio',
+      }]);
+    expect(buildPublicSalonMetadata(input({ heroImageUrl: null })).openGraph?.images)
+      .toEqual([{ url: 'https://cdn.example.com/logo.png', alt: 'Lacquer Lab Studio' }]);
+
+    expect(buildPublicSalonMetadata(input({ logoUrl: '/uploads/logo.webp', heroImageUrl: null })).openGraph?.images)
+      .toEqual([{ url: 'https://booking.example.com/uploads/logo.webp', alt: 'Lacquer Lab Studio' }]);
 
     const bare = buildPublicSalonMetadata(input({ logoUrl: null, heroImageUrl: null }));
 
     expect(bare.openGraph?.images).toBeUndefined();
     expect((bare.twitter as { card?: string } | undefined)?.card).toBe('summary');
+  });
+
+  it('ignores unsafe image protocols', () => {
+    expect(buildPublicSalonMetadata(input({ logoUrl: null, heroImageUrl: 'data:image/png;base64,abc' })).openGraph?.images)
+      .toBeUndefined();
   });
 
   it('publishes the street address in JSON-LD ONLY under full_address', () => {
