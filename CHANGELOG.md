@@ -1,3 +1,11 @@
+# [1.104.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.103.0...v1.104.0) (2026-09-14)
+
+
+### Features
+
+* **billing:** p3b webhook processing lease and top-up session hardening ([e757240](https://github.com/SniperStopSniping/nailsalon/commit/e757240428c9d940d7bc4f3a98c6dd5b431590fc)), closes [#176](https://github.com/SniperStopSniping/nailsalon/issues/176) [#195](https://github.com/SniperStopSniping/nailsalon/issues/195) [#195](https://github.com/SniperStopSniping/nailsalon/issues/195)
+* **billing:** p3c transactional audit trail ([090f324](https://github.com/SniperStopSniping/nailsalon/commit/090f324f800e93beddd1251f08dfaa3be33ab9a3))
+
 # [1.103.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.102.0...v1.103.0) (2026-09-14)
 
 
