@@ -97,10 +97,20 @@ function useBrokenImage(url: string | null): [boolean, () => void, RefObject<HTM
 
 function Logo({ name, src }: { name: string; src: string | null }) {
   const [broken, markBroken, imageRef] = useBrokenImage(src);
+  const [wideLogoSrc, setWideLogoSrc] = useState<string | null>(null);
   return src && !broken
     ? (
-        <span className="qb-logo" data-qb-block="logo">
-          <img alt={`${name} logo`} onError={markBroken} ref={imageRef} src={src} />
+        <span className="qb-logo" data-qb-block="logo" data-qb-logo-shape={wideLogoSrc === src ? 'wide' : 'square'}>
+          <img
+            alt={`${name} logo`}
+            onError={markBroken}
+            onLoad={(event) => {
+              const { naturalHeight, naturalWidth } = event.currentTarget;
+              setWideLogoSrc(naturalHeight > 0 && naturalWidth / naturalHeight >= 1.5 ? src : null);
+            }}
+            ref={imageRef}
+            src={src}
+          />
         </span>
       )
     : (
