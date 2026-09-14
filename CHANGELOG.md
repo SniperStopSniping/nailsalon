@@ -1,3 +1,10 @@
+# [1.102.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.101.0...v1.102.0) (2026-09-14)
+
+
+### Features
+
+* **billing:** p6 automatic-tax architecture and rate-protection resolver ([b2c2fff](https://github.com/SniperStopSniping/nailsalon/commit/b2c2fff8a29ae57c252edc9e76e4b01f6e5085e4))
+
 # [1.101.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.100.0...v1.101.0) (2026-09-14)
 
 
