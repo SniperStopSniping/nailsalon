@@ -206,6 +206,117 @@ describe('canonical profile media draft-to-live lifecycle', () => {
     expect(media.save).toHaveBeenCalledTimes(2);
   });
 
+  it('does not restore onboarding identity media over newer dashboard choices', async () => {
+    const salonId = 'canonical_media_dashboard_replacement';
+    const dashboardLogo = 'https://cdn.example/dashboard-logo.webp';
+    const dashboardProfile = 'https://cdn.example/dashboard-profile.webp';
+    const dashboardCover = 'https://cdn.example/dashboard-cover.webp';
+    const { revisionId, siteId } = await seedSalon({
+      coverPhotoItemId: 'cover-onboarding',
+      logoItemId: 'logo-onboarding',
+      profilePhotoItemId: 'profile-onboarding',
+      salonId,
+      settings: {
+        bookingPageContent: {
+          draft: { heroImageUrl: dashboardCover },
+          live: { heroImageUrl: 'https://cdn.example/previous-live-cover.webp' },
+          version: 1,
+        },
+      },
+    });
+    for (const role of ['logo', 'profile', 'cover'] as const) {
+      const mediaId = `media-${role}-dashboard-replacement`;
+      await insertReadyMedia({
+        id: mediaId,
+        localItemId: `${role}-onboarding`,
+        metadata: {
+          canonicalPublicUrl: `https://images.example/${role}/${mediaId}.webp`,
+          canonicalStorageKey: `canonical/${role}/${mediaId}`,
+          canonicalStorageProvider: 'cloudinary',
+        },
+        revisionId,
+        role,
+        salonId,
+        siteId,
+      });
+    }
+    await database.update(schema.salonSchema).set({ logoUrl: dashboardLogo })
+      .where(eq(schema.salonSchema.id, salonId));
+    await database.update(schema.technicianSchema).set({ avatarUrl: dashboardProfile })
+      .where(eq(schema.technicianSchema.id, `technician_${salonId}`));
+
+    await synchronizeBookingPageLifecycle(salonId, 'publish');
+
+    const [salon] = await database.select({
+      logoUrl: schema.salonSchema.logoUrl,
+      settings: schema.salonSchema.settings,
+    }).from(schema.salonSchema).where(eq(schema.salonSchema.id, salonId));
+    const [technician] = await database.select({ avatarUrl: schema.technicianSchema.avatarUrl })
+      .from(schema.technicianSchema)
+      .where(eq(schema.technicianSchema.id, `technician_${salonId}`));
+    const content = (salon?.settings as { bookingPageContent?: {
+      draft?: { heroImageUrl?: string | null };
+      live?: { heroImageUrl?: string | null };
+    }; } | null)?.bookingPageContent;
+
+    expect(salon?.logoUrl).toBe(dashboardLogo);
+    expect(technician?.avatarUrl).toBe(dashboardProfile);
+    expect(content?.draft?.heroImageUrl).toBe(dashboardCover);
+    expect(content?.live?.heroImageUrl).toBe(dashboardCover);
+  });
+
+  it('does not resurrect onboarding identity media removed from the dashboard', async () => {
+    const salonId = 'canonical_media_dashboard_removal';
+    const { revisionId, siteId } = await seedSalon({
+      coverPhotoItemId: 'cover-onboarding',
+      logoItemId: 'logo-onboarding',
+      profilePhotoItemId: 'profile-onboarding',
+      salonId,
+      settings: {
+        bookingPageContent: {
+          draft: { heroImageUrl: null },
+          live: { heroImageUrl: 'https://images.example/cover/media-cover-onboarding.webp' },
+          version: 1,
+        },
+      },
+    });
+    for (const role of ['logo', 'profile', 'cover'] as const) {
+      const mediaId = `media-${role}-dashboard-removal`;
+      await insertReadyMedia({
+        id: mediaId,
+        localItemId: `${role}-onboarding`,
+        metadata: {
+          canonicalPublicUrl: `https://images.example/${role}/${mediaId}.webp`,
+          canonicalStorageKey: `canonical/${role}/${mediaId}`,
+          canonicalStorageProvider: 'cloudinary',
+        },
+        revisionId,
+        role,
+        salonId,
+        siteId,
+      });
+    }
+
+    await synchronizeBookingPageLifecycle(salonId, 'publish');
+
+    const [salon] = await database.select({
+      logoUrl: schema.salonSchema.logoUrl,
+      settings: schema.salonSchema.settings,
+    }).from(schema.salonSchema).where(eq(schema.salonSchema.id, salonId));
+    const [technician] = await database.select({ avatarUrl: schema.technicianSchema.avatarUrl })
+      .from(schema.technicianSchema)
+      .where(eq(schema.technicianSchema.id, `technician_${salonId}`));
+    const content = (salon?.settings as { bookingPageContent?: {
+      draft?: { heroImageUrl?: string | null };
+      live?: { heroImageUrl?: string | null };
+    }; } | null)?.bookingPageContent;
+
+    expect(salon?.logoUrl).toBeNull();
+    expect(technician?.avatarUrl).toBeNull();
+    expect(content?.draft?.heroImageUrl).toBeNull();
+    expect(content?.live?.heroImageUrl).toBeNull();
+  });
+
   it('clears only prior onboarding-managed identity roles when the latest draft removes them', async () => {
     const salonId = 'canonical_media_remove';
     const oldLogo = {

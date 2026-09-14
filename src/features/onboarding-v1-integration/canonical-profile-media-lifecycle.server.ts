@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { and, eq, or } from 'drizzle-orm';
+import { and, eq, isNull, or } from 'drizzle-orm';
 
 import {
   type CanonicalOnboardingProfileMedia,
@@ -27,6 +27,8 @@ type CanonicalMediaTransaction = Parameters<Parameters<typeof db.transaction>[0]
 type IdentityMediaRow = typeof onboardingSiteMediaSchema.$inferSelect;
 
 type PreparedRole = {
+  baselineUrl: string | null;
+  canApplyProjection: boolean;
   expectedLocalItemId: string | null;
   generated: boolean;
   mediaId: string | null;
@@ -198,6 +200,13 @@ async function preparePromotion(input: {
       );
     }
 
+    const baselineUrl = role === 'logo'
+      ? salon.logoUrl
+      : role === 'cover'
+        ? currentCoverUrl
+        : technicianId
+          ? activeTechnicians.find(technician => technician.id === technicianId)?.avatarUrl ?? null
+          : null;
     const previous = role === 'logo'
       ? salon.logoUrl && managedByUrl.has(salon.logoUrl)
         ? [managedByUrl.get(salon.logoUrl)!]
@@ -228,6 +237,15 @@ async function preparePromotion(input: {
     // establish ownership, and a later manual Product replacement wins.
     const removeCanonical = expectedLocalItemId === null && previous.length > 0;
     roles.push({
+      baselineUrl,
+      // A new, not-yet-projected onboarding image may initialize an empty
+      // canonical field. Once this exact image has been projected, however,
+      // a null field means the owner removed it from the dashboard and Publish
+      // must not resurrect it. Non-null dashboard replacements are likewise
+      // outside the onboarding media ledger and remain authoritative.
+      canApplyProjection: baselineUrl === null
+        ? existingProjection === null
+        : managedByUrl.has(baselineUrl),
       expectedLocalItemId,
       generated: Boolean(media && !existingProjection),
       mediaId: media?.id ?? null,
@@ -326,12 +344,22 @@ export const applyPreparedCanonicalProfileMediaPromotion = async (
         ? (['draft', 'live'] as const)
         : (['draft'] as const);
       if (role.projection) {
-        await setBookingPageContentHeroImageInTransaction(
-          tx,
-          prepared.salonId,
-          role.projection.publicUrl,
-          sides,
-        );
+        const [current] = await tx.select({ settings: salonSchema.settings })
+          .from(salonSchema)
+          .where(eq(salonSchema.id, prepared.salonId))
+          .for('update')
+          .limit(1);
+        if (
+          role.canApplyProjection
+          && currentCanonicalCoverUrl(current?.settings ?? null) === role.baselineUrl
+        ) {
+          await setBookingPageContentHeroImageInTransaction(
+            tx,
+            prepared.salonId,
+            role.projection.publicUrl,
+            sides,
+          );
+        }
       } else if (role.removeCanonical) {
         const [current] = await tx.select({ settings: salonSchema.settings })
           .from(salonSchema)
@@ -343,10 +371,15 @@ export const applyPreparedCanonicalProfileMediaPromotion = async (
         }
       }
     } else if (role.role === 'logo') {
-      if (role.projection) {
+      if (role.projection && role.canApplyProjection) {
         await tx.update(salonSchema).set({
           logoUrl: role.projection.publicUrl,
-        }).where(eq(salonSchema.id, prepared.salonId));
+        }).where(and(
+          eq(salonSchema.id, prepared.salonId),
+          role.baselineUrl === null
+            ? isNull(salonSchema.logoUrl)
+            : eq(salonSchema.logoUrl, role.baselineUrl),
+        ));
       } else if (role.removeCanonical) {
         for (const previous of role.previous) {
           await tx.update(salonSchema).set({ logoUrl: null }).where(and(
@@ -355,13 +388,16 @@ export const applyPreparedCanonicalProfileMediaPromotion = async (
           ));
         }
       }
-    } else if (role.projection && role.technicianId) {
+    } else if (role.projection && role.technicianId && role.canApplyProjection) {
       await tx.update(technicianSchema).set({
         avatarUrl: role.projection.publicUrl,
       }).where(and(
         eq(technicianSchema.id, role.technicianId),
         eq(technicianSchema.salonId, prepared.salonId),
         eq(technicianSchema.isActive, true),
+        role.baselineUrl === null
+          ? isNull(technicianSchema.avatarUrl)
+          : eq(technicianSchema.avatarUrl, role.baselineUrl),
       ));
     } else if (!role.projection && role.removeCanonical && role.technicianId) {
       for (const previous of role.previous) {
