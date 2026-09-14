@@ -3340,6 +3340,11 @@ export const AUDIT_LOG_ACTIONS = [
   'billing_topup_reversed',
   'billing_subscription_projected',
   'billing_subscription_refund_applied',
+  // P8a operator backfill (G22, §20 step 6, §21 step 9): the one-time starter
+  // grant applied out-of-band to a pre-existing salon via
+  // POST /api/super-admin/billing/starter-grant (mode: 'apply'), never the
+  // live onboarding path. Appended, never reordered.
+  'billing_starter_grant_backfilled',
 ] as const;
 export type AuditLogAction = (typeof AUDIT_LOG_ACTIONS)[number];
 

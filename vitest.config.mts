@@ -15,7 +15,12 @@ export default defineConfig({
   plugins: [react(), tsconfigPaths()],
   test: {
     globals: true, // This is needed by @testing-library to be cleaned up after each test
-    include: ['src/**/*.test.{js,jsx,ts,tsx}'],
+    include: [
+      'src/**/*.test.{js,jsx,ts,tsx}',
+      // P8a operator-script pure guard tests (scripts/lib/billingScriptGuards.ts)
+      // live beside the scripts they guard, not under src/.
+      'scripts/**/*.test.{js,ts}',
+    ],
     coverage: {
       include: ['src/**/*'],
       exclude: ['src/**/*.stories.{js,jsx,ts,tsx}', '**/*.d.ts'],
