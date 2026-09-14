@@ -1,34 +1,61 @@
 /**
- * Billing Stripe-event claim machinery — Gate C2 (contract §8.2).
+ * Billing Stripe-event claim machinery — Gate C2 (contract §8.2), hardened
+ * in P3b (re-derived from PR #176's ideas on top of #195's state machine).
  *
  * `billing_stripe_event` (Migration A, inert through Gate B) becomes the
  * idempotency backbone of /api/webhooks/stripe-billing:
  *
  *   claim     INSERT … ON CONFLICT (event_id) DO NOTHING RETURNING — exactly
  *             one delivery of a Stripe event ever processes; replays exit 200.
- *   reclaim   a failed_retryable row past its backoff becomes processable
- *             again by THIS delivery (CAS on status), so Stripe's retry
- *             schedule drives recovery with no cron.
+ *   reclaim   a failed_retryable row past its backoff, OR a `processing` row
+ *             whose PROCESSING LEASE has lapsed (its worker crashed or timed
+ *             out without ever writing a terminal status), becomes
+ *             processable again by THIS delivery, so Stripe's retry schedule
+ *             (or a redelivery arriving after the lease) drives recovery
+ *             with no cron.
+ *   in_flight a `processing` row still WITHIN its lease is a live concurrent
+ *             delivery, not a terminal replay — the route answers 503 so
+ *             Stripe redelivers later, instead of acknowledging a delivery
+ *             nobody actually finished.
  *   poison    the 8th failed attempt parks the event for a human (Sentry) and
  *             returns 200 so Stripe stops retrying a poison pill.
  *
+ * Every terminal write (`resolveBillingEvent`/`failBillingEvent`) is
+ * CAS-fenced on `(status = 'processing', attempts = <the claimer's value>)`:
+ * only the worker that CURRENTLY owns the row may move it to a terminal
+ * status. If another worker reclaimed the row (our lease lapsed while we
+ * were still mid-flight), our late write is a no-op — the newer owner's
+ * outcome is never overwritten.
+ *
  * Financial effects NEVER rely on event ordering (§8.3): every handler is
  * idempotent on object-derived keys, and this table only guarantees each
- * event id runs to a terminal status exactly once.
+ * event id runs to a terminal status exactly once (races over who reaches
+ * that terminal status first do not double-run the FINANCIAL effect, since
+ * handlers guard themselves independently).
  */
 
 import 'server-only';
 
-import { and, eq, lte, sql } from 'drizzle-orm';
+import { and, eq, lt, lte, sql } from 'drizzle-orm';
 
 import { db } from '@/libs/DB';
 import { billingStripeEventSchema } from '@/models/Schema';
 
 export const BILLING_EVENT_MAX_ATTEMPTS = 8;
 
+/**
+ * How long a claim owns a row before another delivery may reclaim it. Must
+ * comfortably exceed the slowest realistic handler run (a handful of Stripe
+ * calls plus a few DB transactions) while staying short enough that a
+ * genuinely crashed worker's event recovers well within Stripe's own retry
+ * cadence.
+ */
+export const BILLING_EVENT_PROCESSING_LEASE_MS = 5 * 60 * 1000;
+
 export type BillingEventClaim =
   | { claimed: true; attempts: number }
-  | { claimed: false; reason: 'already_processed' | 'in_flight' };
+  | { claimed: false; reason: 'already_processed' }
+  | { claimed: false; reason: 'in_flight'; leaseExpiresAt: Date };
 
 /**
  * Claim an event id for processing. Extracted object ids are persisted at
@@ -96,17 +123,48 @@ export async function claimBillingEvent(input: {
     return { claimed: true, attempts: reclaimed[0]!.attempts };
   }
 
+  // P3b: a `processing` row whose lease has LAPSED means the worker that
+  // claimed it crashed, timed out, or was killed before ever writing a
+  // terminal status — nothing will ever CAS it out of `processing`
+  // otherwise. `updated_at` is bumped by the table's own BEFORE UPDATE
+  // trigger on every write (including this one), so reclaiming refreshes
+  // the lease clock for the new owner exactly like a fresh claim would.
+  const reclaimedLease = await db
+    .update(billingStripeEventSchema)
+    .set({
+      status: 'processing',
+      attempts: sql`${billingStripeEventSchema.attempts} + 1`,
+      lastError: null,
+    })
+    .where(and(
+      eq(billingStripeEventSchema.eventId, input.eventId),
+      eq(billingStripeEventSchema.status, 'processing'),
+      lt(billingStripeEventSchema.updatedAt, new Date(now.getTime() - BILLING_EVENT_PROCESSING_LEASE_MS)),
+    ))
+    .returning();
+  if (reclaimedLease.length === 1) {
+    return { claimed: true, attempts: reclaimedLease[0]!.attempts };
+  }
+
   const [existing] = await db
-    .select({ status: billingStripeEventSchema.status })
+    .select({ status: billingStripeEventSchema.status, updatedAt: billingStripeEventSchema.updatedAt })
     .from(billingStripeEventSchema)
     .where(eq(billingStripeEventSchema.eventId, input.eventId))
     .limit(1);
-  return {
-    claimed: false,
-    reason: existing?.status === 'processing' || existing?.status === 'failed_retryable'
-      ? 'in_flight'
-      : 'already_processed',
-  };
+  // A `processing` row reaching this point is, by construction, STILL within
+  // its lease (a lapsed one would have been reclaimed above) — a genuine
+  // concurrent delivery, distinct from a terminal replay. A failed_retryable
+  // row not yet past its own backoff stays classified with the terminal
+  // replay (unchanged §8.2 behaviour): Stripe's own retry cadence, not this
+  // route, decides when that redelivery is worth a fresh look.
+  if (existing?.status === 'processing') {
+    return {
+      claimed: false,
+      reason: 'in_flight',
+      leaseExpiresAt: new Date(existing.updatedAt.getTime() + BILLING_EVENT_PROCESSING_LEASE_MS),
+    };
+  }
+  return { claimed: false, reason: 'already_processed' };
 }
 
 /**
@@ -181,45 +239,73 @@ export async function recordBillingEventPriceId(eventId: string, priceId: string
     .where(eq(billingStripeEventSchema.eventId, eventId));
 }
 
-/** Terminal success / classification statuses. */
+/**
+ * Terminal success / classification statuses. CAS-fenced (P3b): only writes
+ * when the row is STILL `processing` under the exact `attempts` value the
+ * caller claimed — the only way that can be false is another worker having
+ * reclaimed this event id after our own processing lease lapsed (§ above).
+ * Returns whether the write actually landed so the caller (the route) can
+ * tell a genuine terminal write from a lost race and never double-report.
+ */
 export async function resolveBillingEvent(
   eventId: string,
+  attempts: number,
   status: 'processed' | 'ignored_unhandled' | 'ignored_livemode_mismatch' | 'ignored_foreign' | 'superseded_stale' | 'held_anomaly',
   detail?: string,
-): Promise<void> {
-  await db
+): Promise<{ written: boolean }> {
+  const updated = await db
     .update(billingStripeEventSchema)
     .set({ status, processedAt: new Date(), ...(detail !== undefined ? { lastError: detail.slice(0, 500) } : {}) })
-    .where(eq(billingStripeEventSchema.eventId, eventId));
+    .where(and(
+      eq(billingStripeEventSchema.eventId, eventId),
+      eq(billingStripeEventSchema.status, 'processing'),
+      eq(billingStripeEventSchema.attempts, attempts),
+    ))
+    .returning();
+  return { written: updated.length === 1 };
 }
 
 /**
  * Handler failure: exponential backoff (1m, 2m, 4m, … capped at 1h) until
  * the poison threshold, matching Stripe's own retry cadence closely enough
  * that the reclaim path is always eligible when the retry arrives.
+ *
+ * `poisoned` reflects the CALLER's own attempts count against the threshold
+ * — it answers "does MY delivery count as the poisoning one", independent
+ * of whether this write actually lands (see `written`, P3b's CAS fence:
+ * another worker may have already reclaimed and resolved this event id
+ * after our lease lapsed, in which case this write is correctly a no-op and
+ * the caller must not report a fresh poison over a race it lost).
  */
 export async function failBillingEvent(input: {
   eventId: string;
   attempts: number;
   error: string;
   now?: Date;
-}): Promise<{ poisoned: boolean }> {
+}): Promise<{ poisoned: boolean; written: boolean }> {
   const now = input.now ?? new Date();
+  const cas = and(
+    eq(billingStripeEventSchema.eventId, input.eventId),
+    eq(billingStripeEventSchema.status, 'processing'),
+    eq(billingStripeEventSchema.attempts, input.attempts),
+  );
   if (input.attempts >= BILLING_EVENT_MAX_ATTEMPTS) {
-    await db
+    const updated = await db
       .update(billingStripeEventSchema)
       .set({ status: 'poisoned', lastError: input.error.slice(0, 500), processedAt: now })
-      .where(eq(billingStripeEventSchema.eventId, input.eventId));
-    return { poisoned: true };
+      .where(cas)
+      .returning();
+    return { poisoned: true, written: updated.length === 1 };
   }
   const backoffMs = Math.min(60_000 * 2 ** (input.attempts - 1), 60 * 60 * 1000);
-  await db
+  const updated = await db
     .update(billingStripeEventSchema)
     .set({
       status: 'failed_retryable',
       lastError: input.error.slice(0, 500),
       availableAt: new Date(now.getTime() + backoffMs),
     })
-    .where(eq(billingStripeEventSchema.eventId, input.eventId));
-  return { poisoned: false };
+    .where(cas)
+    .returning();
+  return { poisoned: false, written: updated.length === 1 };
 }

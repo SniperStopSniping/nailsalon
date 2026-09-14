@@ -13,6 +13,16 @@
  * created under the attempt-derived idempotency key. Fulfillment happens
  * exclusively in the stripe-billing webhook on verified payment evidence —
  * the success page is never authoritative.
+ *
+ * P3b: the resolved Stripe Price is re-verified live (active, one-time, cad,
+ * the offer's own amount) BEFORE TX1 — a stale or misconfigured price map
+ * entry fails the request with nothing written rather than silently
+ * collecting the wrong amount. The session also carries `payment_intent_data`
+ * metadata (so a refund/dispute event's PaymentIntent alone still identifies
+ * the purchase) and an `expires_at` derived from the PERSISTED attempt's
+ * `expiresAt` — the attempt TTL stays the single source of truth for how
+ * long a checkout may sit unresolved; only Stripe's own [30min, 24h] session
+ * bound is enforced here as a clamp, never a second TTL.
  */
 import * as Sentry from '@sentry/nextjs';
 import { and, eq, inArray } from 'drizzle-orm';
@@ -31,7 +41,23 @@ import { checkEndpointRateLimit, getClientIp, rateLimitResponse } from '@/libs/r
 import { stripe } from '@/libs/stripe';
 import { billingCheckoutAttemptSchema, salonSchema, smsTopupPurchaseSchema } from '@/models/Schema';
 
-const CHECKOUT_SESSION_TTL_MS = 55 * 60 * 1000;
+// Stripe's own hard bound on Checkout Session `expires_at`: it must be
+// between 30 minutes and 24 hours from the moment Stripe processes the
+// create request. The checkout ATTEMPT's own `expiresAt` (§8.5,
+// CHECKOUT_ATTEMPT_TTL_MS = 1h) is the real source of truth for how long an
+// unresolved top-up stays reservable; this is only a clamp so a request that
+// races close to the attempt's TTL (or, in principle, a future longer TTL)
+// can never hand Stripe an out-of-range value.
+const STRIPE_SESSION_EXPIRES_AT_MIN_SECONDS = 30 * 60;
+const STRIPE_SESSION_EXPIRES_AT_MAX_SECONDS = 24 * 60 * 60;
+
+function clampStripeSessionExpiresAt(attemptExpiresAt: Date, now: Date): number {
+  const nowSeconds = Math.floor(now.getTime() / 1000);
+  const attemptSeconds = Math.floor(attemptExpiresAt.getTime() / 1000);
+  const minSeconds = nowSeconds + STRIPE_SESSION_EXPIRES_AT_MIN_SECONDS;
+  const maxSeconds = nowSeconds + STRIPE_SESSION_EXPIRES_AT_MAX_SECONDS;
+  return Math.min(Math.max(attemptSeconds, minSeconds), maxSeconds);
+}
 
 const requestSchema = z
   .object({
@@ -100,6 +126,31 @@ export async function POST(request: NextRequest) {
       throw error;
     }
 
+    // P3b: verify the resolved price LIVE, before any durable write — a
+    // stale env-mapped price id (rotated/archived in Stripe, or simply
+    // pointing at the wrong amount) must never silently create an attempt or
+    // purchase row for the wrong number of cents.
+    let verifiedPrice: Awaited<ReturnType<typeof stripe.prices.retrieve>>;
+    try {
+      verifiedPrice = await stripe.prices.retrieve(stripePriceId);
+    } catch (error) {
+      Sentry.captureException(error, { tags: { endpoint: 'billing/checkout-topup' }, extra: { stripePriceId } });
+      return errorJson(503, 'PRICE_UNVERIFIED', 'The top-up price could not be verified.');
+    }
+    if (
+      verifiedPrice.active !== true
+      || verifiedPrice.type !== 'one_time'
+      || verifiedPrice.currency !== 'cad'
+      || verifiedPrice.unit_amount !== offer.priceCents
+    ) {
+      Sentry.captureMessage('billing.topup_price_mismatch', {
+        level: 'error',
+        tags: { endpoint: 'billing/checkout-topup' },
+        extra: { stripePriceId, offerKey: offer.key },
+      });
+      return errorJson(503, 'PRICE_MISMATCH', 'The configured top-up price no longer matches the offer.');
+    }
+
     const now = new Date();
     const reservation = await db.transaction(async (tx) => {
       const attempt = await beginCheckoutAttempt(tx, {
@@ -137,6 +188,9 @@ export async function POST(request: NextRequest) {
         reused: attempt.reused,
         existingSessionId: attemptRow?.stripeCheckoutSessionId ?? null,
         purchaseId,
+        // §8.5 CHECKOUT_ATTEMPT_TTL_MS — the single source of truth the
+        // Stripe session's own `expires_at` is clamped against below.
+        expiresAt: attemptRow!.expiresAt,
       };
     });
     const pending = () => errorJson(409, 'CHECKOUT_PENDING_RECONCILIATION', 'Your checkout is pending verification. Another checkout cannot be started yet.');
@@ -229,13 +283,29 @@ export async function POST(request: NextRequest) {
           line_items: [{ price: stripePriceId, quantity: 1 }],
           success_url: `${baseUrl}/admin?topup=success`,
           cancel_url: `${baseUrl}/admin?topup=cancelled`,
-          expires_at: Math.floor((now.getTime() + CHECKOUT_SESSION_TTL_MS) / 1000),
+          // P3b: derived from the PERSISTED attempt's own expiresAt (clamped
+          // into Stripe's required [30min, 24h] session window) rather than
+          // a second, independent TTL constant.
+          expires_at: clampStripeSessionExpiresAt(reservation.expiresAt, now),
           metadata: {
             purpose: 'sms_topup',
             salonId,
             topupOfferKey: offer.key,
             purchaseId: reservation.purchaseId,
             attemptId: reservation.attemptId,
+          },
+          // P3b: a refund/dispute event only ever carries the PaymentIntent
+          // (never the Checkout Session id) — this metadata lets a future
+          // reconciliation path identify the purchase directly off the
+          // PaymentIntent without relying solely on the payment_intent_id
+          // backfill applyTopupSessionCompleted performs today.
+          payment_intent_data: {
+            metadata: {
+              purpose: 'sms_topup',
+              salonId,
+              purchaseId: reservation.purchaseId,
+              attemptId: reservation.attemptId,
+            },
           },
         },
         { idempotencyKey: reservation.stripeIdempotencyKey },

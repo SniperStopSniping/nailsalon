@@ -14,6 +14,7 @@ import { drizzle } from 'drizzle-orm/pglite';
 import { migrate } from 'drizzle-orm/pglite/migrator';
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { getTopupOffer } from '@/libs/billing/topupOffers';
 import * as schema from '@/models/Schema';
 
 vi.mock('server-only', () => ({}));
@@ -66,16 +67,25 @@ const stripeMock = vi.hoisted(() => ({
   // CUMULATIVE amount_refunded — the Refund object alone never carries it.
   charges: { retrieve: vi.fn() },
   invoices: { retrieve: vi.fn() },
+  // P3b: the checkout route re-verifies the resolved price live before
+  // writing anything.
+  prices: { retrieve: vi.fn() },
 }));
 vi.mock('@/libs/stripe', () => ({ stripe: stripeMock }));
 vi.mock('@sentry/nextjs', () => ({ captureException: vi.fn(), captureMessage: vi.fn() }));
 
-const priceMapHolder = vi.hoisted(() => ({ priceId: 'price_topup_resolved' as string | null }));
+// `lastOfferKey` records the offer resolveStripePriceIdForTopup was just
+// asked to resolve (always called immediately before the P3b price-retrieve
+// check, single-threaded within one request) so the DEFAULT prices.retrieve
+// mock below can synthesize a Price that genuinely matches whichever offer
+// the request is buying, without every existing test needing its own mock.
+const priceMapHolder = vi.hoisted(() => ({ priceId: 'price_topup_resolved' as string | null, lastOfferKey: null as string | null }));
 vi.mock('@/libs/billing/stripePriceMap', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/libs/billing/stripePriceMap')>();
   return {
     ...actual,
     resolveStripePriceIdForTopup: (key: string) => {
+      priceMapHolder.lastOfferKey = key;
       if (priceMapHolder.priceId === null) {
         throw new actual.BillingCatalogError('PRICE_UNCONFIGURED', `unconfigured: ${key}`);
       }
@@ -97,14 +107,29 @@ beforeEach(() => {
   envHolder.BILLING_TOPUPS_ENABLED = 'true';
   envHolder.BILLING_TAX_COLLECTION_ENABLED = undefined;
   priceMapHolder.priceId = 'price_topup_resolved';
+  priceMapHolder.lastOfferKey = null;
   stripeMock.checkout.sessions.create.mockReset();
   stripeMock.checkout.sessions.retrieve.mockReset();
   stripeMock.charges.retrieve.mockReset();
   stripeMock.invoices.retrieve.mockReset();
+  stripeMock.prices.retrieve.mockReset();
   stripeMock.checkout.sessions.create.mockImplementation(async () => ({
     id: `cs_topup_${Math.random().toString(36).slice(2, 8)}`,
     url: 'https://checkout.stripe.test/topup',
   }));
+  // P3b default: a live, ACTIVE, one-time, cad price matching whichever
+  // offer the request just resolved — existing tests exercise the ordinary
+  // (verified) path without needing their own mock.
+  stripeMock.prices.retrieve.mockImplementation(async (id: string) => {
+    const offer = priceMapHolder.lastOfferKey ? getTopupOffer(priceMapHolder.lastOfferKey) : null;
+    return {
+      id,
+      active: true,
+      type: 'one_time',
+      currency: 'cad',
+      unit_amount: offer?.priceCents ?? null,
+    };
+  });
   adminHolder.allowed = true;
   adminHolder.deniedSalonIds = new Set();
 });
@@ -213,6 +238,132 @@ describe('top-up checkout (§9.2)', () => {
     expect(stripeMock.checkout.sessions.create).not.toHaveBeenCalled();
     expect(await attemptRows('s_t_mapping')).toHaveLength(0);
     expect(await purchaseRows('s_t_mapping')).toHaveLength(0);
+  });
+
+  // P3b — pre-reservation live price verification.
+  describe('P3b — pre-reservation Stripe price verification', () => {
+    it('an INACTIVE resolved price is rejected as PRICE_MISMATCH before writing anything', async () => {
+      await seedSalon('s_t_price_inactive');
+      stripeMock.prices.retrieve.mockResolvedValueOnce({
+        id: 'price_topup_resolved',
+        active: false,
+        type: 'one_time',
+        currency: 'cad',
+        unit_amount: 599,
+      });
+
+      const response = await postCheckout({ salonId: 's_t_price_inactive', topupOfferKey: 'topup_100_paid_2026_08' });
+
+      expect(response.status).toBe(503);
+      expect((await response.json()).error.code).toBe('PRICE_MISMATCH');
+      expect(stripeMock.checkout.sessions.create).not.toHaveBeenCalled();
+      expect(await attemptRows('s_t_price_inactive')).toHaveLength(0);
+      expect(await purchaseRows('s_t_price_inactive')).toHaveLength(0);
+    });
+
+    it('a RECURRING resolved price is rejected as PRICE_MISMATCH before writing anything', async () => {
+      await seedSalon('s_t_price_recurring');
+      stripeMock.prices.retrieve.mockResolvedValueOnce({
+        id: 'price_topup_resolved',
+        active: true,
+        type: 'recurring',
+        currency: 'cad',
+        unit_amount: 599,
+      });
+
+      const response = await postCheckout({ salonId: 's_t_price_recurring', topupOfferKey: 'topup_100_paid_2026_08' });
+
+      expect(response.status).toBe(503);
+      expect((await response.json()).error.code).toBe('PRICE_MISMATCH');
+      expect(await attemptRows('s_t_price_recurring')).toHaveLength(0);
+      expect(await purchaseRows('s_t_price_recurring')).toHaveLength(0);
+    });
+
+    it('a WRONG-CURRENCY resolved price is rejected as PRICE_MISMATCH before writing anything', async () => {
+      await seedSalon('s_t_price_currency');
+      stripeMock.prices.retrieve.mockResolvedValueOnce({
+        id: 'price_topup_resolved',
+        active: true,
+        type: 'one_time',
+        currency: 'usd',
+        unit_amount: 599,
+      });
+
+      const response = await postCheckout({ salonId: 's_t_price_currency', topupOfferKey: 'topup_100_paid_2026_08' });
+
+      expect(response.status).toBe(503);
+      expect((await response.json()).error.code).toBe('PRICE_MISMATCH');
+      expect(await attemptRows('s_t_price_currency')).toHaveLength(0);
+      expect(await purchaseRows('s_t_price_currency')).toHaveLength(0);
+    });
+
+    it('a WRONG-AMOUNT resolved price is rejected as PRICE_MISMATCH before writing anything', async () => {
+      await seedSalon('s_t_price_amount');
+      // topup_100_paid_2026_08 is 599¢ — the retrieved price reports 1¢.
+      stripeMock.prices.retrieve.mockResolvedValueOnce({
+        id: 'price_topup_resolved',
+        active: true,
+        type: 'one_time',
+        currency: 'cad',
+        unit_amount: 1,
+      });
+
+      const response = await postCheckout({ salonId: 's_t_price_amount', topupOfferKey: 'topup_100_paid_2026_08' });
+
+      expect(response.status).toBe(503);
+      expect((await response.json()).error.code).toBe('PRICE_MISMATCH');
+      expect(await attemptRows('s_t_price_amount')).toHaveLength(0);
+      expect(await purchaseRows('s_t_price_amount')).toHaveLength(0);
+    });
+
+    it('a retrieval error is rejected as PRICE_UNVERIFIED before writing anything', async () => {
+      await seedSalon('s_t_price_unverified');
+      stripeMock.prices.retrieve.mockRejectedValueOnce(new Error('Stripe unavailable'));
+
+      const response = await postCheckout({ salonId: 's_t_price_unverified', topupOfferKey: 'topup_100_paid_2026_08' });
+
+      expect(response.status).toBe(503);
+      expect((await response.json()).error.code).toBe('PRICE_UNVERIFIED');
+      expect(stripeMock.checkout.sessions.create).not.toHaveBeenCalled();
+      expect(await attemptRows('s_t_price_unverified')).toHaveLength(0);
+      expect(await purchaseRows('s_t_price_unverified')).toHaveLength(0);
+    });
+
+    it('a VERIFIED price proceeds normally, and the session carries payment_intent_data metadata plus an attempt-derived expires_at', async () => {
+      await seedSalon('s_t_price_verified');
+      const before = Math.floor(Date.now() / 1000);
+      const response = await postCheckout({ salonId: 's_t_price_verified', topupOfferKey: 'topup_100_paid_2026_08' });
+
+      expect(response.status).toBe(200);
+
+      const params = stripeMock.checkout.sessions.create.mock.calls[0]![0];
+      const [attempt] = await attemptRows('s_t_price_verified');
+      const [purchase] = await purchaseRows('s_t_price_verified');
+
+      expect(params.payment_intent_data).toEqual({
+        metadata: {
+          purpose: 'sms_topup',
+          salonId: 's_t_price_verified',
+          purchaseId: purchase!.id,
+          attemptId: attempt!.id,
+        },
+      });
+
+      // The attempt's own TTL (§8.5, 1h) is comfortably inside Stripe's
+      // [30min, 24h] window, so expires_at should land close to it, never
+      // clamped in this ordinary case.
+      const expectedExpiresAt = Math.floor(attempt!.expiresAt.getTime() / 1000);
+
+      expect(params.expires_at).toBe(expectedExpiresAt);
+      expect(params.expires_at).toBeGreaterThanOrEqual(before + 30 * 60);
+      expect(params.expires_at).toBeLessThanOrEqual(before + 24 * 60 * 60);
+      // Not independently exercised here: the persisted attempt's TTL
+      // (CHECKOUT_ATTEMPT_TTL_MS, §8.5) is fixed at 1h and is not
+      // caller-controllable through this route, so a fresh reservation can
+      // never actually reach either the 30-minute floor or the 24-hour
+      // ceiling this clamp defends — those bounds are simple, direct
+      // Math.min/Math.max arithmetic against Stripe's own documented limits.
+    });
   });
 
   it('rejects an unauthorized request before reserving a purchase or calling Stripe', async () => {

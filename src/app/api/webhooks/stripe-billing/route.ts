@@ -141,25 +141,53 @@ export async function POST(request: Request): Promise<Response> {
 
   const claim = await claimBillingEvent(extracted);
   if (!claim.claimed) {
-    // Replay or concurrent delivery: acknowledged, never reprocessed.
+    if (claim.reason === 'in_flight') {
+      // P3b: a DIFFERENT delivery currently owns this event id, still within
+      // its processing lease — this is a live concurrent delivery, not a
+      // terminal replay. 503 so Stripe redelivers later instead of getting
+      // an ack for work nobody actually finished; Retry-After points past
+      // the lease so the redelivery has a real chance of landing after the
+      // in-flight owner resolves it (or its lease lapses and it reclaims).
+      const retryAfterSeconds = Math.max(
+        5,
+        Math.ceil((claim.leaseExpiresAt.getTime() - Date.now()) / 1000),
+      );
+      return Response.json(
+        { error: { code: 'BILLING_EVENT_PENDING' } },
+        { status: 503, headers: { 'Retry-After': String(retryAfterSeconds) } },
+      );
+    }
+    // Terminal replay (or a failed_retryable row not yet past its own
+    // backoff): acknowledged, never reprocessed.
     return Response.json({ received: true, deduplicated: true });
   }
   if (!HANDLED_TYPES.has(event.type)) {
-    await resolveBillingEvent(event.id, 'ignored_unhandled');
+    const { written } = await resolveBillingEvent(event.id, claim.attempts, 'ignored_unhandled');
+    reportIfCasLost(written, event);
     return Response.json({ received: true, ignored: 'unhandled_type' });
   }
 
   try {
     const outcome = await handleEvent(event);
-    await resolveBillingEvent(event.id, outcome.status, outcome.detail);
+    const { written } = await resolveBillingEvent(event.id, claim.attempts, outcome.status, outcome.detail);
+    reportIfCasLost(written, event);
     return Response.json({ received: true, outcome: outcome.status });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'HANDLER_FAILED';
-    const { poisoned } = await failBillingEvent({
+    const { poisoned, written } = await failBillingEvent({
       eventId: event.id,
       attempts: claim.attempts,
       error: message,
     });
+    if (!written) {
+      // P3b lost CAS: another worker reclaimed this event id (our lease
+      // lapsed while this delivery was still mid-flight) and has already
+      // written — or will write — its own terminal outcome. That outcome
+      // stands untouched; acknowledge so Stripe does not keep retrying a
+      // slot this delivery no longer owns.
+      reportIfCasLost(false, event);
+      return Response.json({ received: true, outcome: 'cas_lost' });
+    }
     if (poisoned) {
       Sentry.captureException(error, {
         tags: { endpoint: 'webhooks/stripe-billing', eventType: event.type },
@@ -170,6 +198,17 @@ export async function POST(request: Request): Promise<Response> {
     }
     return Response.json({ error: { code: 'HANDLER_RETRYABLE', message } }, { status: 500 });
   }
+}
+
+/** P3b: a lost CAS on a terminal write means another worker reclaimed this event id after our lease lapsed. Alert once so an unexpectedly slow handler (the only way this can happen) gets noticed, without failing the request — the newer owner's outcome already stands. */
+function reportIfCasLost(written: boolean, event: Stripe.Event): void {
+  if (written) {
+    return;
+  }
+  Sentry.captureMessage('billing.event_cas_lost', {
+    level: 'warning',
+    extra: { eventId: event.id, eventType: event.type },
+  });
 }
 
 /**

@@ -49,6 +49,9 @@ vi.mock('@sentry/nextjs', () => ({ captureException: vi.fn(), captureMessage: vi
 
 const stripeMock = vi.hoisted(() => ({
   checkout: { sessions: { create: vi.fn(), retrieve: vi.fn() } },
+  // P3b: the route re-verifies the resolved price live before writing
+  // anything — always resolved to the single price id this suite uses.
+  prices: { retrieve: vi.fn() },
 }));
 vi.mock('@/libs/stripe', () => ({ stripe: stripeMock }));
 
@@ -137,6 +140,15 @@ suite('top-up checkout — real-lock concurrency', () => {
     fulfillmentGate.wait = null;
     stripeMock.checkout.sessions.create.mockReset();
     stripeMock.checkout.sessions.retrieve.mockReset();
+    stripeMock.prices.retrieve.mockReset();
+    // P3b: every suite fixture buys 'topup_100_paid_2026_08' (599¢) — a
+    // live, ACTIVE, one-time, cad price matching it every time.
+    stripeMock.prices.retrieve.mockImplementation(async () => ({
+      active: true,
+      type: 'one_time',
+      currency: 'cad',
+      unit_amount: 599,
+    }));
   });
 
   afterAll(async () => {
