@@ -1,3 +1,10 @@
+## [1.104.2](https://github.com/SniperStopSniping/nailsalon/compare/v1.104.1...v1.104.2) (2026-09-14)
+
+
+### Bug Fixes
+
+* **booking:** keep landscape logos rectangular ([7aebc45](https://github.com/SniperStopSniping/nailsalon/commit/7aebc45a1a69a7c873517a32bf68be705dfd571e))
+
 ## [1.104.1](https://github.com/SniperStopSniping/nailsalon/compare/v1.104.0...v1.104.1) (2026-09-14)
 
 
