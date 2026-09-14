@@ -137,17 +137,17 @@ Hard ordering rules:
 
 | Phase | Status | PR | Merge SHA | Owner sign-off / date | Notes |
 |---|---|---|---|---|---|
-| P0 | PR opened | (this PR) | | | plan + Gate C record committed |
-| P1 | not started | | | | boot-time validator edit; verify `/api/health` after deploy |
-| P2 | not started | | | | |
-| P3a | not started | | | | |
-| P3b | not started | | | | ports PR #176 items 1/3/4 |
-| P3c | not started | | | | adds a checkout postimage hash |
-| P4 | not started | | | | registration half needs D3 |
-| P5a | not started | | | | blocked on D1 |
-| P5b | not started | | | | live portal route; explicit D18 |
-| P6 | not started | | | | env-keyed price carrier (D19) |
-| P7 | not started | | | | blocked on D4/D5 |
+| P0 | merged | #200 | 8ec51c6f | owner-authorized execution 2026-09-14 | plan + Gate C record committed |
+| P1 | merged | #202 | e5882910 | 2026-09-14 | boot-time validator edit; `/api/health` verified after deploy |
+| P2 | merged | #201 | af264739 | 2026-09-14 | tests only |
+| P3a | merged | #204 | e71dfbf5 | 2026-09-14 | includes G42 foreign-event guard and D2 refund rollback |
+| P3b | not started | | | | ports PR #176 items 1/3/4; scheduled after P7 |
+| P3c | not started | | | | adds a checkout postimage hash; scheduled after P3b |
+| P4 | PR opened | (this PR) | | | code half only — cron registration parked on D3; drift demo in billing-gate-c-record.md §3 |
+| P5a | merged | #205 | 3ed304b7 | 2026-09-14 | proceeded under owner instruction "do not merge #176 wholesale"; #176 UI half must rebase on it |
+| P5b | parked | | | | live portal route; needs explicit D18 approval |
+| P6 | ready (unpushed) | | | | tax architecture + rate-protection resolver; env-keyed price carrier PARKED (D19a) |
+| P7 | PR opened | #206 | | | proceeded under owner "through P7"; cards stay informational while dark |
 | P8a | not started | | | | |
 | P8b | not started | | | | D6 |
 | P8c | not started | | | | = D1 billing half; Gate D authorization required |
