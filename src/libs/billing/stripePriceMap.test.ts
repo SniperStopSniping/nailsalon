@@ -29,6 +29,30 @@ describe('stripePriceMap', () => {
     }
   });
 
+  it('resolves a configured id for the current env only, using resolveStripeIdFromTable directly (G31 — will not break when real IDs land)', () => {
+    // A fake table shaped exactly like OFFER_PRICE_IDS/TOPUP_PRICE_IDS but
+    // with a real-looking configured id (>= 8 alnum chars after the
+    // `price_`/`coupon_`/`promo_` prefix) for ONE environment at a time.
+    const table = {
+      pro_2026_08_monthly: { dev: 'price_dev12345678', test: null, prod: null },
+      topup_100_paid_2026_08: { dev: null, test: 'price_test87654321', prod: null },
+      founding_annual_2026: { dev: null, test: null, prod: 'coupon_prodABCDEFGH' },
+    };
+
+    expect(resolveStripeIdFromTable(table, 'dev', 'pro_2026_08_monthly')).toBe('price_dev12345678');
+    expect(resolveStripeIdFromTable(table, 'test', 'topup_100_paid_2026_08')).toBe('price_test87654321');
+    expect(resolveStripeIdFromTable(table, 'prod', 'founding_annual_2026')).toBe('coupon_prodABCDEFGH');
+
+    // Cross-env invisibility holds for every configured row, not just the
+    // single-key fixture in the neighbouring test.
+    expect(() => resolveStripeIdFromTable(table, 'test', 'pro_2026_08_monthly')).toThrow(/PRICE_UNCONFIGURED/);
+    expect(() => resolveStripeIdFromTable(table, 'prod', 'pro_2026_08_monthly')).toThrow(/PRICE_UNCONFIGURED/);
+    expect(() => resolveStripeIdFromTable(table, 'dev', 'topup_100_paid_2026_08')).toThrow(/PRICE_UNCONFIGURED/);
+    expect(() => resolveStripeIdFromTable(table, 'prod', 'topup_100_paid_2026_08')).toThrow(/PRICE_UNCONFIGURED/);
+    expect(() => resolveStripeIdFromTable(table, 'dev', 'founding_annual_2026')).toThrow(/PRICE_UNCONFIGURED/);
+    expect(() => resolveStripeIdFromTable(table, 'test', 'founding_annual_2026')).toThrow(/PRICE_UNCONFIGURED/);
+  });
+
   it('cannot observe another environment column — a prod-only value is invisible to dev/test', () => {
     const table = {
       starter_2026_08_annual: { dev: null, test: null, prod: 'price_live1234567890' },

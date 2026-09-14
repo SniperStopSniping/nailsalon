@@ -348,6 +348,64 @@ describe('founding effects are gated on PAID evidence (§3.9)', () => {
   });
 });
 
+describe('annual renewal failure (§6.8, §8.4)', () => {
+  it('invoice.payment_failed on an annual renewal sets past_due, leaves paid_through UNTOUCHED, and the engine grants nothing beyond it', async () => {
+    const { projectSubscriptionSnapshot, applyInvoicePaymentSucceeded, applyInvoicePaymentFailed } = await projection();
+    const { evaluateSubscriptionWindows } = await import('./creditGrants');
+    await seedSalon('s_annual_fail');
+
+    await projectSubscriptionSnapshot({
+      snapshot: {
+        ...snapshot({ salonId: 's_annual_fail', id: 'sub_annual_fail' }),
+        metadata: { salonId: 's_annual_fail', billingOfferKey: 'pro_2026_08_annual' },
+      },
+      eventCreated: T0,
+      eventId: 'evt_af_create',
+    });
+
+    // The first annual term is paid in full — one year of entitlement.
+    const firstTermEnd = new Date('2027-09-01T10:00:00.000Z');
+    await applyInvoicePaymentSucceeded({
+      stripeSubscriptionId: 'sub_annual_fail',
+      paidPeriodEnd: firstTermEnd,
+      eventCreated: new Date(T0.getTime() + 1000),
+      eventId: 'evt_af_paid',
+      now: new Date(T0.getTime() + 1000),
+    });
+
+    let [row] = await db.select().from(schema.billingSubscriptionSchema)
+      .where(eq(schema.billingSubscriptionSchema.stripeSubscriptionId, 'sub_annual_fail'));
+
+    expect(row!.paidThrough.getTime()).toBe(firstTermEnd.getTime());
+
+    // A year later, the ANNUAL RENEWAL invoice fails.
+    const renewalAttempt = new Date('2027-09-01T11:00:00.000Z');
+    const failed = await applyInvoicePaymentFailed({
+      stripeSubscriptionId: 'sub_annual_fail',
+      eventCreated: renewalAttempt,
+      eventId: 'evt_af_failed',
+    });
+
+    expect(failed.applied).toBe(true);
+
+    [row] = await db.select().from(schema.billingSubscriptionSchema)
+      .where(eq(schema.billingSubscriptionSchema.stripeSubscriptionId, 'sub_annual_fail'));
+
+    expect(row!.status).toBe('past_due');
+    // paid_through is entitlement math and is never touched by a failure.
+    expect(row!.paidThrough.getTime()).toBe(firstTermEnd.getTime());
+
+    // The window engine — the ONLY granter — must not extend entitlement
+    // past the (unchanged) paid_through boundary.
+    const summary = await evaluateSubscriptionWindows({
+      subscriptionId: row!.id,
+      now: new Date('2027-09-05T00:00:00.000Z'),
+    });
+
+    expect(summary.granted).toBe(0);
+  });
+});
+
 describe('§2.3 duplicate-subscription policy', () => {
   it('classifies active, cancel-scheduled, canceled-but-prepaid and expired shapes', async () => {
     const { classifySubscriptionEligibility } = await projection();

@@ -35,9 +35,12 @@ const envHolder = vi.hoisted(() => ({
 }));
 vi.mock('@/libs/Env', () => ({ Env: envHolder }));
 
-const adminHolder = vi.hoisted(() => ({ allowed: true }));
+// `deniedSalonIds` simulates requireAdmin's real per-salon membership check
+// (adminAuth.ts:443-454): an admin authenticated for one salon is refused a
+// FOREIGN salonId, distinct from the blanket `allowed=false` case below.
+const adminHolder = vi.hoisted(() => ({ allowed: true, deniedSalonIds: new Set<string>() }));
 vi.mock('@/libs/adminAuth', () => ({
-  requireAdmin: vi.fn(async () => adminHolder.allowed
+  requireAdmin: vi.fn(async (salonId: string) => (adminHolder.allowed && !adminHolder.deniedSalonIds.has(salonId))
     ? { ok: true, admin: { clerkUserId: 'user_topup' } }
     : { ok: false, response: new Response('forbidden', { status: 403 }) }),
 }));
@@ -95,6 +98,7 @@ beforeEach(() => {
     url: 'https://checkout.stripe.test/topup',
   }));
   adminHolder.allowed = true;
+  adminHolder.deniedSalonIds = new Set();
 });
 
 const postCheckout = async (body: unknown) => {
@@ -213,6 +217,29 @@ describe('top-up checkout (§9.2)', () => {
     expect(stripeMock.checkout.sessions.create).not.toHaveBeenCalled();
     expect(await attemptRows('s_t_forbidden')).toHaveLength(0);
     expect(await purchaseRows('s_t_forbidden')).toHaveLength(0);
+  });
+
+  it('an admin of a DIFFERENT salon is refused a foreign salonId before reserving a purchase or calling Stripe (§17 cross-salon isolation)', async () => {
+    // Approach: this file already stubs @/libs/adminAuth globally. It is
+    // extended here (see `deniedSalonIds` above) to key off the requested
+    // salonId, mirroring requireAdmin's real per-salon membership check
+    // (adminAuth.ts:443-454) rather than the blanket allow/deny used by the
+    // generic unauthorized case above.
+    await seedSalon('s_t_cross_owner');
+    await seedSalon('s_t_cross_target');
+    adminHolder.deniedSalonIds.add('s_t_cross_target');
+
+    const response = await postCheckout({ salonId: 's_t_cross_target', topupOfferKey: 'topup_100_paid_2026_08' });
+
+    expect(response.status).toBe(403);
+    expect(stripeMock.checkout.sessions.create).not.toHaveBeenCalled();
+    expect(await attemptRows('s_t_cross_target')).toHaveLength(0);
+    expect(await purchaseRows('s_t_cross_target')).toHaveLength(0);
+
+    // The admin's own salon remains unaffected.
+    const own = await postCheckout({ salonId: 's_t_cross_owner', topupOfferKey: 'topup_100_paid_2026_08' });
+
+    expect(own.status).toBe(200);
   });
 
   it('precreates the durable purchase and creates the session under the attempt key', async () => {
