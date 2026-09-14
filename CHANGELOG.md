@@ -1,3 +1,10 @@
+# [1.110.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.109.0...v1.110.0) (2026-09-14)
+
+
+### Features
+
+* **reminders:** clearer SMS credit usage and reminder history grouping (from PR [#176](https://github.com/SniperStopSniping/nailsalon/issues/176)) ([b7a83e6](https://github.com/SniperStopSniping/nailsalon/commit/b7a83e6626125380d9a3c7b33c22bd84c60922c9))
+
 # [1.109.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.108.0...v1.109.0) (2026-09-14)
 
 
