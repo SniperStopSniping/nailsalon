@@ -161,6 +161,26 @@ export async function recordIgnoredBillingEvent(
     .onConflictDoNothing({ target: billingStripeEventSchema.eventId });
 }
 
+/**
+ * Populate `price_id` on an ALREADY-CLAIMED row once it becomes known (§4,
+ * G02). Subscription events carry their price id in the event body itself,
+ * so the route passes it straight into `claimBillingEvent` above. Top-up
+ * checkout-session events only learn their price id from a `sessions.retrieve`
+ * expansion the route performs AFTER claiming (a Stripe call is too heavy to
+ * place before the claim, which must stay a cheap, synchronous-shaped guard
+ * against concurrent delivery) — this backfills the same column for those.
+ * A no-op when the price id is still unknown (never overwrites with null).
+ */
+export async function recordBillingEventPriceId(eventId: string, priceId: string | null): Promise<void> {
+  if (priceId === null) {
+    return;
+  }
+  await db
+    .update(billingStripeEventSchema)
+    .set({ priceId })
+    .where(eq(billingStripeEventSchema.eventId, eventId));
+}
+
 /** Terminal success / classification statuses. */
 export async function resolveBillingEvent(
   eventId: string,

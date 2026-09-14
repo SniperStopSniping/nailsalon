@@ -11,7 +11,7 @@ import { PGlite } from '@electric-sql/pglite';
 import { eq, sql } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/pglite';
 import { migrate } from 'drizzle-orm/pglite/migrator';
-import { beforeAll, describe, expect, it, vi } from 'vitest';
+import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import * as schema from '@/models/Schema';
 
@@ -30,6 +30,17 @@ const envHolder = vi.hoisted(() => ({
 }));
 vi.mock('@/libs/Env', () => ({ Env: envHolder }));
 
+// G02: default to the REAL (all-placeholder ⇒ always-null) reverse lookup;
+// individual tests override `resolvedOfferKey` to simulate a CONFIGURED map.
+const priceMapHolder = vi.hoisted(() => ({ resolvedOfferKey: null as string | null }));
+vi.mock('@/libs/billing/stripePriceMap', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/libs/billing/stripePriceMap')>();
+  return {
+    ...actual,
+    resolveBillingOfferFromStripePriceId: (_priceId: string) => priceMapHolder.resolvedOfferKey,
+  };
+});
+
 let db: ReturnType<typeof drizzle<typeof schema>>;
 
 beforeAll(async () => {
@@ -37,6 +48,10 @@ beforeAll(async () => {
   db = drizzle(client, { schema });
   await migrate(db, { migrationsFolder: path.join(process.cwd(), 'migrations') });
   holder.db = db;
+});
+
+beforeEach(() => {
+  priceMapHolder.resolvedOfferKey = null;
 });
 
 const events = () => import('./billingStripeEvents');
@@ -56,6 +71,7 @@ function snapshot(over: Partial<import('./billingSubscriptionProjection').Stripe
     status: over.status ?? 'active',
     cancelAtPeriodEnd: over.cancelAtPeriodEnd ?? false,
     currentPeriodStart: over.currentPeriodStart ?? T0,
+    priceId: over.priceId ?? null,
     metadata: {
       salonId: over.salonId,
       billingOfferKey: 'pro_2026_08_monthly',
@@ -252,6 +268,245 @@ describe('subscription projection (§8.3/§8.4)', () => {
 
     expect(row!.billingOfferKey).toBe('starter_2026_08_monthly');
     expect(row!.pendingOfferKey).toBeNull();
+  });
+});
+
+describe('G02 — Stripe Price ↔ offer-metadata cross-check', () => {
+  it('an unconfigured price map (reverse lookup null) never holds and logs AT MOST ONCE per process, not per event', async () => {
+    const { projectSubscriptionSnapshot } = await projection();
+    await seedSalon('s_price_unconf_1');
+    await seedSalon('s_price_unconf_2');
+    const infoSpy = vi.spyOn(console, 'info').mockImplementation(() => {});
+
+    try {
+      // priceMapHolder.resolvedOfferKey stays null (the REAL, all-placeholder
+      // behaviour) — two DISTINCT subscriptions (one live subscription per
+      // salon is enforced), each carrying a price id.
+      const first = await projectSubscriptionSnapshot({
+        snapshot: snapshot({ salonId: 's_price_unconf_1', id: 'sub_price_unconf_1', priceId: 'price_unresolvable_1' }),
+        eventCreated: T0,
+        eventId: 'evt_price_unconf_1',
+      });
+      const second = await projectSubscriptionSnapshot({
+        snapshot: snapshot({ salonId: 's_price_unconf_2', id: 'sub_price_unconf_2', priceId: 'price_unresolvable_2' }),
+        eventCreated: T0,
+        eventId: 'evt_price_unconf_2',
+      });
+
+      expect(first).toEqual({ applied: true, kind: 'created' });
+      expect(second).toEqual({ applied: true, kind: 'created' });
+      expect(infoSpy).toHaveBeenCalledTimes(1);
+    } finally {
+      infoSpy.mockRestore();
+    }
+  });
+
+  it('a CONFIGURED map resolving a DIFFERENT offer than metadata claims is a held anomaly, never a state write', async () => {
+    const { projectSubscriptionSnapshot } = await projection();
+    await seedSalon('s_price_mismatch');
+    priceMapHolder.resolvedOfferKey = 'elite_2026_08_monthly'; // metadata says pro_2026_08_monthly
+
+    const outcome = await projectSubscriptionSnapshot({
+      snapshot: snapshot({ salonId: 's_price_mismatch', id: 'sub_price_mismatch', priceId: 'price_configured_elite' }),
+      eventCreated: T0,
+      eventId: 'evt_price_mismatch',
+    });
+
+    expect(outcome).toEqual({ applied: false, anomaly: 'PRICE_OFFER_MISMATCH' });
+
+    const rows = await db.select().from(schema.billingSubscriptionSchema)
+      .where(eq(schema.billingSubscriptionSchema.stripeSubscriptionId, 'sub_price_mismatch'));
+
+    expect(rows).toHaveLength(0);
+  });
+
+  it('a CONFIGURED map resolving the SAME offer as metadata is not an anomaly', async () => {
+    const { projectSubscriptionSnapshot } = await projection();
+    await seedSalon('s_price_match');
+    priceMapHolder.resolvedOfferKey = 'pro_2026_08_monthly'; // matches metadata
+
+    const outcome = await projectSubscriptionSnapshot({
+      snapshot: snapshot({ salonId: 's_price_match', id: 'sub_price_match', priceId: 'price_configured_pro' }),
+      eventCreated: T0,
+      eventId: 'evt_price_match',
+    });
+
+    expect(outcome).toEqual({ applied: true, kind: 'created' });
+  });
+});
+
+describe('G10 — full subscription refund stops future grants (§6.7)', () => {
+  async function seedActiveSubscription(salonId: string, over: Partial<typeof schema.billingSubscriptionSchema.$inferInsert> = {}) {
+    await seedSalon(salonId);
+    const id = `bsub_${salonId}`;
+    await db.insert(schema.billingSubscriptionSchema).values({
+      id,
+      salonId,
+      stripeSubscriptionId: `sub_${salonId}`,
+      stripeCustomerId: `cus_${salonId}`,
+      planDefinitionKey: 'pro_2026_08',
+      billingOfferKey: 'pro_2026_08_monthly',
+      billingCadence: 'monthly',
+      status: 'active',
+      paidThrough: T0_PLUS_MONTH,
+      creditCycleAnchor: T0,
+      ...over,
+    });
+    return id;
+  }
+
+  it('lowers paid_through to the refunded period start and NEVER raises it', async () => {
+    const { applySubscriptionFullRefund } = await projection();
+    await seedActiveSubscription('s_refund_lower');
+    const refundedPeriodStart = T0; // strictly before the seeded paid_through
+
+    const result = await applySubscriptionFullRefund({
+      stripeSubscriptionId: 'sub_s_refund_lower',
+      refundId: 're_lower_1',
+      refundedPeriodStart,
+      eventCreated: T0,
+      eventId: 'evt_refund_lower',
+    });
+
+    expect(result).toEqual({ applied: true, lowered: true });
+
+    const [row] = await db.select().from(schema.billingSubscriptionSchema)
+      .where(eq(schema.billingSubscriptionSchema.stripeSubscriptionId, 'sub_s_refund_lower'));
+
+    expect(row!.paidThrough.getTime()).toBe(refundedPeriodStart.getTime());
+
+    // A HIGHER refundedPeriodStart than the current paid_through must never raise it.
+    const raiseAttempt = await applySubscriptionFullRefund({
+      stripeSubscriptionId: 'sub_s_refund_lower',
+      refundId: 're_lower_2',
+      refundedPeriodStart: T0_PLUS_MONTH,
+      eventCreated: T0,
+      eventId: 'evt_refund_raise_attempt',
+    });
+
+    expect(raiseAttempt).toEqual({ applied: true, lowered: false });
+
+    const [afterRaiseAttempt] = await db.select().from(schema.billingSubscriptionSchema)
+      .where(eq(schema.billingSubscriptionSchema.stripeSubscriptionId, 'sub_s_refund_lower'));
+
+    expect(afterRaiseAttempt!.paidThrough.getTime()).toBe(refundedPeriodStart.getTime());
+  });
+
+  it('replaying the SAME refund (or an equal/older evidence) is a pure no-op', async () => {
+    const { applySubscriptionFullRefund } = await projection();
+    await seedActiveSubscription('s_refund_replay');
+
+    const first = await applySubscriptionFullRefund({
+      stripeSubscriptionId: 'sub_s_refund_replay',
+      refundId: 're_replay_1',
+      refundedPeriodStart: T0,
+      eventCreated: T0,
+      eventId: 'evt_refund_replay_1',
+    });
+
+    expect(first).toEqual({ applied: true, lowered: true });
+
+    // Same refund id, replayed — and even a SECOND, unrelated event carrying
+    // the identical evidence — both converge to a no-op.
+    const replay = await applySubscriptionFullRefund({
+      stripeSubscriptionId: 'sub_s_refund_replay',
+      refundId: 're_replay_1',
+      refundedPeriodStart: T0,
+      eventCreated: T0,
+      eventId: 'evt_refund_replay_1_retry',
+    });
+    const secondEvent = await applySubscriptionFullRefund({
+      stripeSubscriptionId: 'sub_s_refund_replay',
+      refundId: 're_replay_2',
+      refundedPeriodStart: T0,
+      eventCreated: T0,
+      eventId: 'evt_refund_replay_2',
+    });
+
+    expect(replay).toEqual({ applied: true, lowered: false });
+    expect(secondEvent).toEqual({ applied: true, lowered: false });
+
+    const [row] = await db.select().from(schema.billingSubscriptionSchema)
+      .where(eq(schema.billingSubscriptionSchema.stripeSubscriptionId, 'sub_s_refund_replay'));
+
+    expect(row!.paidThrough.getTime()).toBe(T0.getTime());
+  });
+
+  it('a missing subscription is a clean no-op, never an error', async () => {
+    const { applySubscriptionFullRefund } = await projection();
+    const result = await applySubscriptionFullRefund({
+      stripeSubscriptionId: 'sub_does_not_exist',
+      refundId: 're_missing',
+      refundedPeriodStart: T0,
+      eventCreated: T0,
+      eventId: 'evt_refund_missing',
+    });
+
+    expect(result).toEqual({ applied: false, lowered: false });
+  });
+
+  it('a window ALREADY granted before the refund stays granted; the NEXT window records skipped_unpaid instead of being granted (§6.8: full refund after prior windows consumed)', async () => {
+    const { projectSubscriptionSnapshot, applyInvoicePaymentSucceeded, applySubscriptionFullRefund } = await projection();
+    const { evaluateSubscriptionWindows } = await import('./creditGrants');
+    await seedSalon('s_refund_window');
+    await projectSubscriptionSnapshot({
+      snapshot: snapshot({ salonId: 's_refund_window', id: 'sub_refund_window' }),
+      eventCreated: T0,
+      eventId: 'evt_refund_window_create',
+    });
+    const twoMonthsOut = new Date('2026-11-01T10:00:00.000Z');
+    // Paid two full months upfront: covers window 0 [T0, T0+1mo) AND
+    // window 1 [T0+1mo, T0+2mo) fully.
+    await applyInvoicePaymentSucceeded({
+      stripeSubscriptionId: 'sub_refund_window',
+      paidPeriodEnd: twoMonthsOut,
+      eventCreated: new Date(T0.getTime() + 1000),
+      eventId: 'evt_refund_window_paid',
+      now: new Date(T0.getTime() + 15 * 24 * 3600_000), // inside window 0 — grants it
+    });
+
+    const [subscriptionAfterWindow0] = await db.select().from(schema.billingSubscriptionSchema)
+      .where(eq(schema.billingSubscriptionSchema.stripeSubscriptionId, 'sub_refund_window'));
+    const windowsAfterWindow0 = await db.select().from(schema.billingCreditWindowSchema)
+      .where(eq(schema.billingCreditWindowSchema.billingSubscriptionId, subscriptionAfterWindow0!.id));
+
+    expect(windowsAfterWindow0).toHaveLength(1);
+    expect(windowsAfterWindow0[0]).toMatchObject({ creditCycleIndex: 0, status: 'granted' });
+
+    // Full refund covers exactly window 1's allowance: paid_through drops
+    // back to window 1's start (T0_PLUS_MONTH), leaving window 0 untouched.
+    const refundResult = await applySubscriptionFullRefund({
+      stripeSubscriptionId: 'sub_refund_window',
+      refundId: 're_window_1',
+      refundedPeriodStart: T0_PLUS_MONTH,
+      eventCreated: new Date(T0.getTime() + 2000),
+      eventId: 'evt_refund_window_refund',
+    });
+
+    expect(refundResult).toEqual({ applied: true, lowered: true });
+
+    // Evaluate again from inside window 1's range: it must record
+    // skipped_unpaid, NOT granted — even though paid_through covered it
+    // before the refund. Window 0's grant is untouched (never clawed back).
+    const summary = await evaluateSubscriptionWindows({
+      subscriptionId: subscriptionAfterWindow0!.id,
+      now: new Date(T0.getTime() + 45 * 24 * 3600_000), // inside window 1
+    });
+
+    expect(summary.skippedUnpaid).toBe(1);
+    expect(summary.granted).toBe(0);
+
+    const windowsAfterRefund = await db.select().from(schema.billingCreditWindowSchema)
+      .where(eq(schema.billingCreditWindowSchema.billingSubscriptionId, subscriptionAfterWindow0!.id));
+    const window0 = windowsAfterRefund.find(w => w.creditCycleIndex === 0);
+    const window1 = windowsAfterRefund.find(w => w.creditCycleIndex === 1);
+
+    expect(window0).toMatchObject({ status: 'granted' }); // prior grant untouched
+    expect(window1).toMatchObject({ status: 'skipped_unpaid' });
+
+    // The purchased/granted monthly total reflects ONLY window 0's 400
+    // credits — the refund prevented window 1 from ever minting its own.
+    expect(await monthlyLedger('s_refund_window')).toBe(400);
   });
 });
 

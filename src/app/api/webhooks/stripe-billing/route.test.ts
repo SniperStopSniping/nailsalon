@@ -45,14 +45,31 @@ const stripeMock = vi.hoisted(() => ({
     }),
   },
   subscriptions: {
-    retrieve: vi.fn(async () => {
+    retrieve: vi.fn(async (): Promise<{ id: string; metadata: Record<string, string | undefined> }> => {
       throw new Error('NO_REFETCH_IN_TEST');
     }),
   },
+  // G01/G10/G42: refund.updated and dispute events resolve their charge (and
+  // an invoice's own subscription) through these — unset by default; each
+  // test that needs them supplies its own resolved value.
+  charges: { retrieve: vi.fn() },
+  invoices: { retrieve: vi.fn() },
+  checkout: { sessions: { retrieve: vi.fn() } },
 }));
 vi.mock('@/libs/stripe', () => ({ stripe: stripeMock }));
 const sentryHolder = vi.hoisted(() => ({ captureMessage: vi.fn(), captureException: vi.fn() }));
 vi.mock('@sentry/nextjs', () => sentryHolder);
+
+// G02: default to the REAL (all-placeholder ⇒ always-null) reverse lookup;
+// individual tests override `resolvedOfferKey` to simulate a CONFIGURED map.
+const priceMapHolder = vi.hoisted(() => ({ resolvedOfferKey: null as string | null }));
+vi.mock('@/libs/billing/stripePriceMap', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/libs/billing/stripePriceMap')>();
+  return {
+    ...actual,
+    resolveBillingOfferFromStripePriceId: (_priceId: string) => priceMapHolder.resolvedOfferKey,
+  };
+});
 
 let db: ReturnType<typeof drizzle<typeof schema>>;
 
@@ -68,6 +85,10 @@ beforeEach(() => {
   envHolder.BILLING_PLAN_ENV = 'test';
   sentryHolder.captureMessage.mockClear();
   sentryHolder.captureException.mockClear();
+  stripeMock.charges.retrieve.mockReset();
+  stripeMock.invoices.retrieve.mockReset();
+  stripeMock.checkout.sessions.retrieve.mockReset();
+  priceMapHolder.resolvedOfferKey = null;
 });
 
 const post = async (body: unknown, signature = 'sig_valid') => {
@@ -274,15 +295,249 @@ describe('stripe-billing webhook pipeline', () => {
     expect(row!.attempts).toBe(2);
   });
 
-  it('holds subscription-charge refunds and disputes for a human, never guessing at money', async () => {
-    const event = stripeEvent('charge.refunded', { id: 'ch_route_1', payment_intent: 'pi_route_1' });
-    const response = await post(event);
+  // G42 — foreign-event classification: matches neither a top-up purchase
+  // nor a local subscription invoice/charge.
+  describe('G42 — foreign platform events are ignored, never held or thrown', () => {
+    it('a charge.refunded matching no top-up purchase and no local subscription is ignored as foreign, not held', async () => {
+      const event = stripeEvent('charge.refunded', { id: 'ch_route_1', payment_intent: 'pi_route_1' });
+      const response = await post(event);
 
-    expect(response.status).toBe(200);
+      expect(response.status).toBe(200);
 
-    const [row] = (await eventRows()).filter(entry => entry.eventId === event.id);
+      const [row] = (await eventRows()).filter(entry => entry.eventId === event.id);
 
-    expect(row!.status).toBe('held_anomaly');
+      expect(row!.status).toBe('ignored_foreign');
+      expect(row!.lastError).toBe('FOREIGN_CHARGE');
+      expect(sentryHolder.captureMessage).not.toHaveBeenCalled();
+    });
+
+    it('an invoice.payment_succeeded for a subscription this billing track never created (no purpose=plan_subscription metadata) is ignored as foreign, never thrown or retried', async () => {
+      stripeMock.subscriptions.retrieve.mockResolvedValueOnce({
+        id: 'sub_legacy_flow',
+        metadata: {}, // no purpose='plan_subscription' stamp — not ours
+      });
+      const event = stripeEvent('invoice.payment_succeeded', {
+        id: 'in_legacy_flow',
+        subscription: 'sub_legacy_flow',
+        lines: { data: [{ period: { start: 1_780_000_000, end: 1_780_000_000 + 30 * 24 * 3600 } }] },
+      });
+      const response = await post(event);
+
+      expect(response.status).toBe(200); // never a 500 — no throw, no retry
+
+      const [row] = (await eventRows()).filter(entry => entry.eventId === event.id);
+
+      expect(row!.status).toBe('ignored_foreign');
+      expect(row!.lastError).toBe('FOREIGN_INVOICE');
+      expect(row!.attempts).toBe(1); // claimed once, resolved once — never poisoned
+      expect(sentryHolder.captureMessage).not.toHaveBeenCalled();
+      expect(sentryHolder.captureException).not.toHaveBeenCalled();
+    });
+
+    it('an invoice.payment_failed for a subscription with no local projection is ignored as foreign', async () => {
+      const event = stripeEvent('invoice.payment_failed', {
+        id: 'in_legacy_failed',
+        subscription: 'sub_legacy_failed_flow',
+      });
+      const response = await post(event);
+
+      expect(response.status).toBe(200);
+
+      const [row] = (await eventRows()).filter(entry => entry.eventId === event.id);
+
+      expect(row!.status).toBe('ignored_foreign');
+      expect(row!.lastError).toBe('FOREIGN_INVOICE');
+      expect(sentryHolder.captureMessage).not.toHaveBeenCalled();
+    });
+  });
+
+  // G02 — Stripe Price ↔ offer-metadata cross-check, exercised end-to-end
+  // through the route (unit-level coverage lives in billingSubscriptionProjection.test.ts).
+  describe('G02 — price cross-check (pipeline)', () => {
+    it('a CONFIGURED map resolving a DIFFERENT offer than metadata holds the event and writes no subscription row', async () => {
+      priceMapHolder.resolvedOfferKey = 'elite_2026_08_monthly';
+      await db.insert(schema.salonSchema).values({ id: 's_route_price_mismatch', name: 's', slug: 's-route-price-mismatch' });
+      const event = stripeEvent('customer.subscription.created', {
+        id: 'sub_route_price_mismatch',
+        customer: 'cus_price_mismatch',
+        status: 'active',
+        cancel_at_period_end: false,
+        current_period_start: 1_780_000_000,
+        metadata: { purpose: 'plan_subscription', salonId: 's_route_price_mismatch', billingOfferKey: 'pro_2026_08_monthly' },
+        items: { data: [{ price: { id: 'price_configured_elite' } }] },
+      });
+      const response = await post(event);
+
+      expect(response.status).toBe(200);
+
+      const [row] = (await eventRows()).filter(entry => entry.eventId === event.id);
+
+      expect(row!.status).toBe('held_anomaly');
+      expect(row!.lastError).toBe('PRICE_OFFER_MISMATCH');
+      // G02: the price id is populated on the claimed row even though the
+      // cross-check ultimately holds the event.
+      expect(row!.priceId).toBe('price_configured_elite');
+      expect(sentryHolder.captureMessage).toHaveBeenCalledWith('billing.event_held_anomaly', {
+        level: 'warning',
+        extra: { eventId: event.id, eventType: 'customer.subscription.created', detail: 'PRICE_OFFER_MISMATCH' },
+      });
+
+      const [subscription] = await db.select().from(schema.billingSubscriptionSchema)
+        .where(eq(schema.billingSubscriptionSchema.stripeSubscriptionId, 'sub_route_price_mismatch'));
+
+      expect(subscription).toBeUndefined();
+    });
+  });
+
+  // G10 — subscription refunds/disputes (§6.7, §6.8 vectors).
+  describe('G10 — subscription refunds and disputes (§6.7/§6.8)', () => {
+    async function seedLocalSubscription(salonId: string, stripeSubscriptionId: string, over: Partial<typeof schema.billingSubscriptionSchema.$inferInsert> = {}) {
+      await db.insert(schema.salonSchema).values({ id: salonId, name: salonId, slug: salonId });
+      await db.insert(schema.billingSubscriptionSchema).values({
+        id: `bsub_${salonId}`,
+        salonId,
+        stripeSubscriptionId,
+        stripeCustomerId: `cus_${salonId}`,
+        planDefinitionKey: 'pro_2026_08',
+        billingOfferKey: 'pro_2026_08_annual',
+        billingCadence: 'annual',
+        status: 'active',
+        paidThrough: new Date('2027-09-01T10:00:00.000Z'),
+        creditCycleAnchor: new Date('2026-09-01T10:00:00.000Z'),
+        ...over,
+      });
+    }
+
+    it('a PARTIAL subscription refund is held for a human, never automated (§6.8: partial stays held)', async () => {
+      await seedLocalSubscription('s_route_partial', 'sub_route_partial');
+      stripeMock.invoices.retrieve.mockResolvedValueOnce({
+        id: 'in_route_partial',
+        subscription: 'sub_route_partial',
+        lines: { data: [{ period: { start: 1_780_000_000, end: 1_780_000_000 + 30 * 24 * 3600 } }] },
+      });
+      const event = stripeEvent('charge.refunded', {
+        id: 'ch_route_partial',
+        payment_intent: 'pi_route_partial',
+        invoice: 'in_route_partial',
+        amount: 10000,
+        amount_refunded: 3000, // partial — not full
+        refunds: { data: [{ id: 're_route_partial' }] },
+      });
+      const response = await post(event);
+
+      expect(response.status).toBe(200);
+
+      const [row] = (await eventRows()).filter(entry => entry.eventId === event.id);
+
+      expect(row!.status).toBe('held_anomaly');
+      expect(row!.lastError).toBe('SUBSCRIPTION_CHARGE_PARTIAL_REFUND');
+      expect(sentryHolder.captureMessage).toHaveBeenCalled();
+
+      const [subscription] = await db.select().from(schema.billingSubscriptionSchema)
+        .where(eq(schema.billingSubscriptionSchema.stripeSubscriptionId, 'sub_route_partial'));
+
+      expect(subscription!.paidThrough.toISOString()).toBe('2027-09-01T10:00:00.000Z'); // untouched
+    });
+
+    it('a dispute during a prepaid annual term is held for a human; grants stay untouched (§6.8)', async () => {
+      await seedLocalSubscription('s_route_dispute', 'sub_route_dispute');
+      stripeMock.charges.retrieve.mockResolvedValueOnce({
+        id: 'ch_route_dispute_charge',
+        invoice: 'in_route_dispute',
+        amount: 10000,
+        amount_refunded: 0,
+        payment_intent: 'pi_route_dispute',
+      });
+      stripeMock.invoices.retrieve.mockResolvedValueOnce({
+        id: 'in_route_dispute',
+        subscription: 'sub_route_dispute',
+        lines: { data: [{ period: { start: 1_780_000_000, end: 1_780_000_000 + 365 * 24 * 3600 } }] },
+      });
+      const event = stripeEvent('charge.dispute.created', {
+        id: 'dp_route_annual',
+        payment_intent: 'pi_route_dispute',
+        charge: 'ch_route_dispute_charge',
+      });
+      const response = await post(event);
+
+      expect(response.status).toBe(200);
+
+      const [row] = (await eventRows()).filter(entry => entry.eventId === event.id);
+
+      expect(row!.status).toBe('held_anomaly');
+      expect(row!.lastError).toBe('CHARGE_EVENT_HELD_FOR_REVIEW');
+      expect(sentryHolder.captureMessage).toHaveBeenCalled();
+
+      const [subscription] = await db.select().from(schema.billingSubscriptionSchema)
+        .where(eq(schema.billingSubscriptionSchema.stripeSubscriptionId, 'sub_route_dispute'));
+
+      expect(subscription!.paidThrough.toISOString()).toBe('2027-09-01T10:00:00.000Z'); // grants unchanged
+    });
+
+    it('charge.refunded then refund.updated for the SAME full refund lower paid_through only ONCE (single Sentry alert, G01 dedup)', async () => {
+      await seedLocalSubscription('s_route_full_refund', 'sub_route_full_refund');
+      const periodStart = 1_780_000_000;
+      const periodEnd = periodStart + 365 * 24 * 3600;
+      stripeMock.invoices.retrieve.mockResolvedValue({
+        id: 'in_route_full',
+        subscription: 'sub_route_full_refund',
+        lines: { data: [{ period: { start: periodStart, end: periodEnd } }] },
+      });
+      const chargeEvent = stripeEvent('charge.refunded', {
+        id: 'ch_route_full',
+        payment_intent: 'pi_route_full',
+        invoice: 'in_route_full',
+        amount: 10000,
+        amount_refunded: 10000, // full
+        refunds: { data: [{ id: 're_route_full' }] },
+      });
+      const chargeResponse = await post(chargeEvent);
+
+      expect(chargeResponse.status).toBe(200);
+
+      let [row] = (await eventRows()).filter(entry => entry.eventId === chargeEvent.id);
+
+      expect(row!.status).toBe('processed');
+      expect(sentryHolder.captureMessage).toHaveBeenCalledTimes(1);
+      expect(sentryHolder.captureMessage).toHaveBeenCalledWith('billing.subscription_refunded', expect.objectContaining({
+        extra: expect.objectContaining({ stripeSubscriptionId: 'sub_route_full_refund' }),
+      }));
+
+      let [subscription] = await db.select().from(schema.billingSubscriptionSchema)
+        .where(eq(schema.billingSubscriptionSchema.stripeSubscriptionId, 'sub_route_full_refund'));
+
+      expect(subscription!.paidThrough.getTime()).toBe(periodStart * 1000);
+
+      // The refund.updated event for the SAME underlying refund arrives next.
+      stripeMock.charges.retrieve.mockResolvedValueOnce({
+        id: 'ch_route_full',
+        invoice: 'in_route_full',
+        amount: 10000,
+        amount_refunded: 10000,
+        payment_intent: 'pi_route_full',
+      });
+      const refundUpdatedEvent = stripeEvent('refund.updated', {
+        id: 're_route_full',
+        charge: 'ch_route_full',
+        payment_intent: 'pi_route_full',
+        amount: 10000,
+      });
+      const refundResponse = await post(refundUpdatedEvent);
+
+      expect(refundResponse.status).toBe(200);
+
+      [row] = (await eventRows()).filter(entry => entry.eventId === refundUpdatedEvent.id);
+
+      expect(row!.status).toBe('processed');
+      // No SECOND alert — applySubscriptionFullRefund's MIN semantics make
+      // this a pure no-op regardless of delivery order.
+      expect(sentryHolder.captureMessage).toHaveBeenCalledTimes(1);
+
+      [subscription] = await db.select().from(schema.billingSubscriptionSchema)
+        .where(eq(schema.billingSubscriptionSchema.stripeSubscriptionId, 'sub_route_full_refund'));
+
+      expect(subscription!.paidThrough.getTime()).toBe(periodStart * 1000); // unchanged
+    });
   });
 
   // G03 — every held_anomaly outcome alerts exactly once.
