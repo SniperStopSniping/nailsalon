@@ -97,6 +97,7 @@ describe('GET /api/health', () => {
     delete process.env.BILLING_SUBSCRIPTIONS_ENABLED;
     delete process.env.BILLING_TOPUPS_ENABLED;
     delete process.env.PUBLIC_PRICING_ENABLED;
+    delete process.env.BILLING_TAX_COLLECTION_ENABLED;
     delete process.env.STRIPE_BILLING_WEBHOOK_SECRET;
     // vitest-setup.ts sets this to 'test' for every run; re-asserted here so
     // the billing.planEnvMatchesRuntime fixtures are deterministic even if a
@@ -507,6 +508,17 @@ describe('GET /api/health', () => {
     it('reports dark: false once the billing webhook secret is provisioned', async () => {
       executeMock.mockResolvedValue([{ '?column?': 1 }]);
       process.env.STRIPE_BILLING_WEBHOOK_SECRET = 'whsec_billing';
+
+      const body = await (await GET()).json();
+
+      expect(body.billing.dark).toBe(false);
+    });
+
+    // G14 — automatic-tax architecture (§3.7): the new flag is part of the
+    // same dark-posture computation as the three switches and the secret.
+    it('reports dark: false once BILLING_TAX_COLLECTION_ENABLED is enabled, with every other control at its default', async () => {
+      executeMock.mockResolvedValue([{ '?column?': 1 }]);
+      process.env.BILLING_TAX_COLLECTION_ENABLED = 'true';
 
       const body = await (await GET()).json();
 

@@ -281,6 +281,7 @@ export async function GET(): Promise<Response> {
   const billingDark = process.env.BILLING_SUBSCRIPTIONS_ENABLED !== 'true'
     && process.env.BILLING_TOPUPS_ENABLED !== 'true'
     && process.env.PUBLIC_PRICING_ENABLED !== 'true'
+    && process.env.BILLING_TAX_COLLECTION_ENABLED !== 'true'
     && !process.env.STRIPE_BILLING_WEBHOOK_SECRET;
   // Never let a health probe throw: an unresolved/conflicting runtime
   // environment reads as a mismatch, exactly like a real misprovisioning

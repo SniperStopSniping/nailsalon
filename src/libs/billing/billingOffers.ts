@@ -106,6 +106,22 @@ export function getActiveOffersForFamily(family: PlanFamily): BillingOffer[] {
 }
 
 /**
+ * The offer for a given plan + cadence, regardless of
+ * `activeForNewSubscriptions` (a retired/grandfathered offer still resolves
+ * here — only `listActiveBillingOffers()` filters those out). The rate-
+ * protection successor walk (`rateProtection.ts`, §3.9) needs the full
+ * catalogue, not just what is purchasable today.
+ */
+export function getOfferForPlanAndCadence(
+  planDefinitionKey: string,
+  cadence: string,
+): BillingOffer | null {
+  return Object.values(BILLING_OFFERS).find(
+    offer => offer.planDefinitionKey === planDefinitionKey && offer.cadence === cadence,
+  ) ?? null;
+}
+
+/**
  * Public-safe projection for pricing surfaces. No Stripe identifiers exist
  * on BillingOffer at all, so this projection cannot leak them.
  */

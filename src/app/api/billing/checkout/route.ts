@@ -273,10 +273,18 @@ export async function POST(request: NextRequest) {
       session = await stripe.checkout.sessions.create(
         {
           mode: 'subscription',
+          // G14 automatic-tax architecture (§3.7): the flag stays unset in
+          // every environment, so `enabled` is structurally false — this is
+          // the architecture, not live tax collection. Address collection is
+          // required either way so a later flip has the evidence it needs.
+          automatic_tax: { enabled: Env.BILLING_TAX_COLLECTION_ENABLED === 'true' },
+          billing_address_collection: 'required',
           // Reuse the known customer; otherwise let Checkout create one —
-          // this route never pre-creates provider objects.
+          // this route never pre-creates provider objects. `customer_update`
+          // is only valid alongside an existing `customer` id (Stripe
+          // rejects it otherwise).
           ...(salon.stripeCustomerId
-            ? { customer: salon.stripeCustomerId }
+            ? { customer: salon.stripeCustomerId, customer_update: { address: 'auto' } }
             : { customer_email: salon.stripeCustomerEmail ?? salon.ownerEmail ?? undefined }),
           line_items: [{ price: stripePriceId, quantity: 1 }],
           ...(stripeCouponId !== null

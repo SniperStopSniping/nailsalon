@@ -296,6 +296,8 @@ jobs:
               ce148781b0f8b28aa2b94f9f623b06869871337f) ;;
               # + §2.3 typed duplicate-subscription refusals.
               90b8019c1d545de917763ffb9d983f6eb5f04edd) ;;
+              # + P6 automatic-tax architecture (collection dark).
+              7499a6d0a128b47971927f796e68f13b1888885d) ;;
               *)
                 echo "::error::src/app/api/billing/checkout/route.ts must match a reviewed postimage."
                 printf 'actual blob: %s\n' "$checkout_blob"
