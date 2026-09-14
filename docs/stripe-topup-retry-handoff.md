@@ -47,13 +47,19 @@ Final validation on Node 20.19.4:
   simultaneous initial requests, tenant independence, and deterministic
   expiry/fulfillment lock compatibility.
 - `npm run check-types`: passed with the repository's synthetic CI provider
-  placeholders. Scoped ESLint and `npm run lint`: passed.
+  placeholders. Scoped ESLint and `npm run lint`: passed. The repository-wide
+  `npm run lint:all` remains blocked by 1,122 pre-existing errors in unrelated
+  docs, prototypes, tests, and source; this phase did not modify them.
   `npm run security:check-secrets -- --tree`: passed (2,534 tracked files).
 - `npm run test:all -- --maxWorkers=1 --minWorkers=1`: **7,752 passed, 178
   skipped by environment guards, 1 documented todo; 663 files passed and 18
   skipped**. The single worker bounds temporary-disk pressure without changing
   suite coverage.
-- Browser tests/build/remote CI/preview were not run. This phase changes no browser UI. No branch push, deployment, merge or activation was performed.
+- A clean Node 20.19.4 `npm ci` completed from the committed lockfile, followed
+  by a successful production `npm run build` with inert CI provider
+  placeholders. Exact-head remote CI and preview/browser evidence are recorded
+  in the pull request because adding their results here would change the SHA
+  they validated.
 
 ### Pre-existing reminder-test race
 
@@ -76,8 +82,7 @@ Evidence from an untouched detached `origin/main` worktree at `77231193`:
 - Ten repeated candidate runs passed, and the corrected test passed in the
   complete Vitest suite.
 
-Fresh `npm ci` initially failed during the earlier disk-exhaustion incident.
-Final checks used an existing compatible Next 15.5.25 dependency tree through
-a local ignored symlink, without changing the lockfile. Every disposable
-PostgreSQL cluster created for these tests was stopped and removed. No
-user-owned files or services were cleaned up.
+The final clean install replaced only the task worktree's ignored dependency
+symlink and did not change the lockfile. Every disposable PostgreSQL cluster
+created for these tests was stopped and removed. No user-owned files or
+services were cleaned up.
