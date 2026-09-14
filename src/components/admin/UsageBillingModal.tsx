@@ -33,6 +33,13 @@ type UsagePayload = {
       status: string;
       paidThrough: string;
       cancelAtPeriodEnd: boolean;
+      /** §6.5a owner-facing status truth (G18) — plain English, never null when plan is set. */
+      entitlement: {
+        status: string;
+        paidThrough: string | null;
+        grantsEligible: boolean;
+        label: string;
+      };
     } | null;
   };
   creditPurchasesAvailable?: boolean;
@@ -51,9 +58,37 @@ type UsagePayload = {
   nextCursor: string | null;
 };
 
+type TopupItem = {
+  id: string;
+  offerKey: string;
+  credits: number;
+  priceCents: number;
+  currency: string;
+  status: 'pending' | 'fulfilled' | 'expired' | 'refunded' | 'disputed' | 'reversed';
+  holdState: 'held' | null;
+  createdAt: string;
+  fulfilledAt: string | null;
+  reversedAt: string | null;
+};
+
+type TopupsPayload = {
+  available: boolean;
+  items: TopupItem[];
+  nextCursor: string | null;
+};
+
 type UsageBillingModalProps = {
   salonSlug: string;
   onClose: () => void;
+};
+
+const TOPUP_STATUS_LABELS: Record<TopupItem['status'], string> = {
+  pending: 'Pending',
+  fulfilled: 'Fulfilled',
+  expired: 'Expired',
+  refunded: 'Refunded',
+  disputed: 'Disputed',
+  reversed: 'Reversed',
 };
 
 const EVENT_LABELS: Record<string, string> = {
@@ -127,6 +162,77 @@ export function UsageBillingModal({ salonSlug, onClose }: UsageBillingModalProps
       cancelled = true;
     };
   }, [salonSlug]);
+
+  // --- Top-ups tab (G17) ---------------------------------------------------
+  const [topups, setTopups] = useState<TopupItem[] | null>(null);
+  const [topupsAvailable, setTopupsAvailable] = useState<boolean | null>(null);
+  const [topupsCursor, setTopupsCursor] = useState<string | null>(null);
+  const [topupsLoading, setTopupsLoading] = useState(false);
+  const [topupsLoadingMore, setTopupsLoadingMore] = useState(false);
+  const [topupsError, setTopupsError] = useState<string | null>(null);
+  const salonIdForTopups = data?.salonId ?? null;
+
+  useEffect(() => {
+    if (salonIdForTopups === null) {
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      setTopupsLoading(true);
+      setTopupsError(null);
+      try {
+        const response = await fetch(`/api/billing/topups?salonId=${salonIdForTopups}&limit=20`);
+        if (!response.ok) {
+          throw new Error('topups fetch failed');
+        }
+        const body: TopupsPayload = await response.json();
+        if (!cancelled) {
+          setTopupsAvailable(body.available);
+          setTopups(body.items);
+          setTopupsCursor(body.nextCursor);
+        }
+      } catch {
+        if (!cancelled) {
+          setTopupsAvailable(false);
+          setTopups([]);
+          setTopupsCursor(null);
+          setTopupsError('Could not load top-up history. Please try again.');
+        }
+      } finally {
+        if (!cancelled) {
+          setTopupsLoading(false);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // Fetches exactly once per salon — "Load more" below drives every
+    // subsequent page, never a re-fetch loop.
+  }, [salonIdForTopups]);
+
+  const loadMoreTopups = useCallback(async () => {
+    if (salonIdForTopups === null || topupsCursor === null || topupsLoadingMore) {
+      return;
+    }
+    try {
+      setTopupsLoadingMore(true);
+      setTopupsError(null);
+      const response = await fetch(
+        `/api/billing/topups?salonId=${salonIdForTopups}&limit=20&cursor=${encodeURIComponent(topupsCursor)}`,
+      );
+      if (!response.ok) {
+        throw new Error('topups fetch failed');
+      }
+      const body: TopupsPayload = await response.json();
+      setTopups(current => [...(current ?? []), ...body.items]);
+      setTopupsCursor(body.nextCursor);
+    } catch {
+      setTopupsError('Could not load more top-ups. Please try again.');
+    } finally {
+      setTopupsLoadingMore(false);
+    }
+  }, [salonIdForTopups, topupsCursor, topupsLoadingMore]);
 
   const openPortal = useCallback(async () => {
     if (portalLoading) {
@@ -213,6 +319,23 @@ export function UsageBillingModal({ salonSlug, onClose }: UsageBillingModalProps
 
           {usage && (
             <>
+              {/* §6.5a status banner (G18): above the credit meter whenever a
+                  subscription exists and its status is not the ordinary
+                  "active" case — amber when it also stops new grants. */}
+              {usage.plan !== null && usage.plan.entitlement.status !== 'active' && (
+                <p
+                  role="status"
+                  aria-live="polite"
+                  className={
+                    usage.plan.entitlement.grantsEligible
+                      ? 'rounded-lg bg-blue-50 p-3 text-[14px] text-blue-800'
+                      : 'rounded-lg bg-amber-50 p-3 text-[14px] text-amber-800'
+                  }
+                >
+                  {usage.plan.entitlement.label}
+                </p>
+              )}
+
               {/* §10.2: one primary number first. */}
               <section aria-labelledby="credits-heading" className="space-y-2">
                 <h3 id="credits-heading" className="sr-only">SMS credits</h3>
@@ -319,6 +442,58 @@ export function UsageBillingModal({ salonSlug, onClose }: UsageBillingModalProps
                 : (
                     <p className="text-[14px] text-gray-600">Credit purchases are not available yet.</p>
                   )}
+
+              {/* Top-ups (G17): purchase history read back from the
+                  dark-gated /api/billing/topups route. */}
+              <section aria-labelledby="topups-heading" className="space-y-2">
+                <h3 id="topups-heading" className="text-[15px] font-medium text-gray-900">Top-ups</h3>
+                {topupsLoading && (
+                  <p role="status" aria-live="polite" className="text-[14px] text-gray-500">Loading top-ups…</p>
+                )}
+                {!topupsLoading && topupsAvailable === false && (
+                  <p className="text-[14px] text-gray-600">Top-up history is not available yet.</p>
+                )}
+                {!topupsLoading && topupsAvailable === true && (
+                  <>
+                    {(topups ?? []).length === 0
+                      ? <p className="text-[14px] text-gray-500">No top-ups yet.</p>
+                      : (
+                          <ul className="divide-y divide-gray-100">
+                            {(topups ?? []).map(item => (
+                              <li key={item.id} className="space-y-0.5 py-2 text-[14px]">
+                                <div className="flex items-center justify-between">
+                                  <span className="text-gray-900">
+                                    {item.credits}
+                                    {' '}
+                                    credits — $
+                                    {(item.priceCents / 100).toFixed(2)}
+                                  </span>
+                                  <span className="text-gray-500">{TOPUP_STATUS_LABELS[item.status]}</span>
+                                </div>
+                                <div className="flex items-center justify-between text-gray-500">
+                                  <span>{new Date(item.createdAt).toLocaleDateString()}</span>
+                                  {item.holdState === 'held' && (
+                                    <span className="text-amber-700">held — being reconciled</span>
+                                  )}
+                                </div>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                    {topupsError && <p role="status" aria-live="polite" className="text-[13px] text-red-600">{topupsError}</p>}
+                    {topupsCursor !== null && (
+                      <button
+                        type="button"
+                        onClick={loadMoreTopups}
+                        disabled={topupsLoadingMore}
+                        className="rounded-lg border border-gray-300 px-3 py-2 text-[14px] font-medium text-gray-800 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-950 disabled:opacity-40 motion-reduce:transition-none"
+                      >
+                        {topupsLoadingMore ? 'Loading…' : 'Load more'}
+                      </button>
+                    )}
+                  </>
+                )}
+              </section>
 
               <section aria-labelledby="history-heading" className="space-y-2">
                 <h3 id="history-heading" className="text-[15px] font-medium text-gray-900">Recent messages</h3>

@@ -34,6 +34,7 @@ import {
   OwnerWorkspaceNav,
   type OwnerWorkspaceTab,
 } from '@/components/admin/OwnerWorkspaceNav';
+import { UsageBillingModal } from '@/components/admin/UsageBillingModal';
 import { LuckyCharmLoader } from '@/components/loading/LuckyCharmLoader';
 import { buttonVariants } from '@/components/ui/buttonVariants';
 import { WorkspacePageHeader } from '@/components/ui/workspace-page-header';
@@ -423,6 +424,12 @@ function AdminDashboardContent() {
   );
   // Explains a deep link to an app this salon cannot open (entitlement-gated).
   const [blockedAppNotice, setBlockedAppNotice] = useState<string | null>(null);
+  // Top-up checkout return (G19, §8.5 UX): the top-up Checkout redirects to
+  // /admin?topup=success|cancelled and nothing read it before P5a.
+  const [topupNotice, setTopupNotice] = useState<string | null>(null);
+  const [showTopupUsageBilling, setShowTopupUsageBilling] = useState(false);
+  const [pollingTopupFulfillment, setPollingTopupFulfillment] = useState(false);
+  const handledTopupReturnRef = useRef(false);
   const activeDashboardSalonSlug
     = adminUser?.impersonation?.salonSlug
     ?? requestedSalonSlug
@@ -436,6 +443,79 @@ function AdminDashboardContent() {
   const activeDashboardSalonName = activeDashboardSalon?.name ?? null;
   const activeDashboardSalonStatus = activeDashboardSalon?.status ?? null;
   const isFreeSolo = activeDashboardSalon?.freeSoloEnabled === true;
+
+  // G19 (top-up half, §8.5 UX): read ?topup=success|cancelled exactly once,
+  // show a non-authoritative notice, and strip the param so a reload never
+  // repeats it. Independent of the ?app= state machine above — it never
+  // touches activeModal.
+  useEffect(() => {
+    if (handledTopupReturnRef.current) {
+      return;
+    }
+    const topupParam = searchParams.get('topup');
+    if (topupParam !== 'success' && topupParam !== 'cancelled') {
+      return;
+    }
+    handledTopupReturnRef.current = true;
+    if (topupParam === 'success') {
+      setTopupNotice('Payment received — credits usually arrive within a minute.');
+      setShowTopupUsageBilling(true);
+      setPollingTopupFulfillment(true);
+    } else {
+      setTopupNotice('Checkout cancelled — nothing was charged.');
+    }
+    const url = new URL(window.location.href);
+    url.searchParams.delete('topup');
+    window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`);
+  }, [searchParams]);
+
+  // Poll the top-up purchase history every 5s (up to 60s) until the newest
+  // purchase reads back as fulfilled — the success redirect itself is never
+  // authoritative (fulfilment happens only from verified webhook evidence).
+  useEffect(() => {
+    if (!pollingTopupFulfillment || !activeDashboardSalon?.id) {
+      return;
+    }
+    const salonId = activeDashboardSalon.id;
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const deadline = Date.now() + 60_000;
+    const poll = async () => {
+      if (cancelled) {
+        return;
+      }
+      try {
+        const response = await fetch(`/api/billing/topups?salonId=${encodeURIComponent(salonId)}&limit=1`);
+        if (response.ok) {
+          const body = await response.json();
+          if (body?.items?.[0]?.status === 'fulfilled') {
+            if (!cancelled) {
+              setPollingTopupFulfillment(false);
+            }
+            return;
+          }
+        }
+      } catch {
+        // Best-effort: keep polling until the deadline below.
+      }
+      if (cancelled) {
+        return;
+      }
+      if (Date.now() >= deadline) {
+        setPollingTopupFulfillment(false);
+        return;
+      }
+      timer = setTimeout(poll, 5000);
+    };
+    timer = setTimeout(poll, 5000);
+    return () => {
+      cancelled = true;
+      if (timer) {
+        clearTimeout(timer);
+      }
+    };
+  }, [pollingTopupFulfillment, activeDashboardSalon?.id]);
+
   useEffect(() => {
     setOnboardingHandoffAvailable(false);
     setBlockedAppNotice(null);
@@ -1840,6 +1920,24 @@ function AdminDashboardContent() {
           </div>
         )}
 
+        {/* Returned from top-up Checkout (G19, §8.5 UX) — non-authoritative. */}
+        {topupNotice && (
+          <div
+            className="mx-4 mt-2 flex items-start gap-3 rounded-lg border border-blue-200 bg-blue-50 p-3"
+            data-testid="topup-return-notice"
+            role="status"
+          >
+            <p className="flex-1 text-sm text-blue-800">{topupNotice}</p>
+            <button
+              type="button"
+              onClick={() => setTopupNotice(null)}
+              className="shrink-0 rounded-lg px-2 py-1 text-sm font-medium text-blue-900 underline underline-offset-2"
+            >
+              Dismiss
+            </button>
+          </div>
+        )}
+
         {workspaceTab === 'more'
           ? (
               <div
@@ -2006,6 +2104,15 @@ function AdminDashboardContent() {
           setFraudSignalsTotalCount(prev => Math.max(0, prev - 1));
         }}
       />
+
+      {/* Opened by a top-up Checkout return (G19) — same modal the Account &
+          Plan view opens, driven here by page state instead of a click. */}
+      {showTopupUsageBilling && activeDashboardSalonSlug && (
+        <UsageBillingModal
+          salonSlug={activeDashboardSalonSlug}
+          onClose={() => setShowTopupUsageBilling(false)}
+        />
+      )}
 
       <NewAppointmentModal
         isOpen={newAppointmentDate !== null}
