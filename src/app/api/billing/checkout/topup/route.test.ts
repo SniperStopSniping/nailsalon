@@ -552,12 +552,38 @@ describe('top-up fulfillment through the webhook (§9.3-§9.5)', () => {
       metadata: { purpose: 'sms_topup', salonId: 's_t_unpaid_retry' },
     }));
 
+    const [attemptBefore] = await attemptRows('s_t_unpaid_retry');
+    const [purchaseBefore] = await purchaseRows('s_t_unpaid_retry');
+    const creditAccountBefore = await db.select().from(schema.smsCreditAccountSchema)
+      .where(eq(schema.smsCreditAccountSchema.salonId, 's_t_unpaid_retry'));
+    const creditLedgerBefore = await db.select().from(schema.smsCreditLedgerSchema)
+      .where(eq(schema.smsCreditLedgerSchema.salonId, 's_t_unpaid_retry'));
+    const sentry = await import('@sentry/nextjs');
+    const captureCountBefore = vi.mocked(sentry.captureException).mock.calls.length;
+
+    stripeMock.checkout.sessions.retrieve.mockResolvedValue(retrievedTopupSession({
+      id: data.sessionId,
+      salonId: 's_t_unpaid_retry',
+      topupOfferKey: 'topup_100_paid_2026_08',
+      attemptId: attemptBefore!.id,
+      purchaseId: purchaseBefore!.id,
+      status: 'complete',
+    }));
+
     const retry = await postCheckout({ salonId: 's_t_unpaid_retry', topupOfferKey: 'topup_100_paid_2026_08' });
 
     expect(retry.status).toBe(409);
     expect((await retry.json()).error.code).toBe('CHECKOUT_PENDING_RECONCILIATION');
     expect(stripeMock.checkout.sessions.create).toHaveBeenCalledTimes(1);
-    expect(await purchaseRows('s_t_unpaid_retry')).toHaveLength(1);
+    expect(stripeMock.checkout.sessions.retrieve).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(sentry.captureException)).toHaveBeenCalledTimes(captureCountBefore);
+    expect(await attemptRows('s_t_unpaid_retry')).toEqual([attemptBefore]);
+    expect(await purchaseRows('s_t_unpaid_retry')).toEqual([purchaseBefore]);
+    expect(await db.select().from(schema.smsCreditAccountSchema)
+      .where(eq(schema.smsCreditAccountSchema.salonId, 's_t_unpaid_retry'))).toEqual(creditAccountBefore);
+    expect(await db.select().from(schema.smsCreditLedgerSchema)
+      .where(eq(schema.smsCreditLedgerSchema.salonId, 's_t_unpaid_retry'))).toEqual(creditLedgerBefore);
+    expect(creditLedgerBefore).toHaveLength(0);
   });
 
   it('allows a later top-up after verified fulfillment', async () => {
