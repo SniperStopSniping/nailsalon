@@ -1,3 +1,10 @@
+## [1.104.1](https://github.com/SniperStopSniping/nailsalon/compare/v1.104.0...v1.104.1) (2026-09-14)
+
+
+### Bug Fixes
+
+* **media:** preserve dashboard images on publish ([95ca22d](https://github.com/SniperStopSniping/nailsalon/commit/95ca22d78654b291f10b140c4f3d8ecda57991b0))
+
 # [1.104.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.103.0...v1.104.0) (2026-09-14)
 
 
