@@ -43,6 +43,9 @@ const ACTIVE_PLAN: PlanOverride = {
 function usageResponse(overrides: {
   creditPurchasesAvailable?: boolean;
   plan?: PlanOverride;
+  pendingCredits?: number;
+  history?: Array<Record<string, unknown>>;
+  nextCursor?: string | null;
 } = {}) {
   // Distinguish "key omitted -> default true" from "key present but
   // explicitly undefined" (simulating an older/mixed deployment payload) —
@@ -68,9 +71,10 @@ function usageResponse(overrides: {
         monthlyAllowance: 400,
         resetsAt: '2026-09-01T00:00:00.000Z',
         blockedMessages: 2,
+        pendingCredits: overrides.pendingCredits ?? 0,
         plan: overrides.plan !== undefined ? overrides.plan : ACTIVE_PLAN,
       },
-      history: [{
+      history: overrides.history ?? [{
         id: 'ci_1',
         channel: 'sms',
         eventType: 'appointment_reminder',
@@ -79,9 +83,10 @@ function usageResponse(overrides: {
         scheduledFor: '2026-08-30T13:00:00.000Z',
         sentAt: null,
         creditsUsed: 0,
+        reminderLeadMinutes: null,
         failureReason: 'SMS credits were unavailable.',
       }],
-      nextCursor: null,
+      nextCursor: 'nextCursor' in overrides ? overrides.nextCursor : null,
     },
   }), { status: 200 });
 }
@@ -215,6 +220,131 @@ describe('UsageBillingModal', () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ salonId: 'salon_1', topupOfferKey: 'topup_100_paid_2026_08' }),
     });
+  });
+});
+
+describe('message history grouping and net SMS credit clarity (ported from PR #176)', () => {
+  beforeEach(() => {
+    fetchMock.mockReset();
+    vi.stubGlobal('fetch', fetchMock);
+  });
+
+  const historyFixture = [
+    {
+      id: 'ci_confirm',
+      channel: 'sms',
+      eventType: 'booking_confirmation',
+      recipient: '•••• 0100',
+      status: 'delivered',
+      scheduledFor: '2026-08-29T13:00:00.000Z',
+      sentAt: '2026-08-29T13:00:05.000Z',
+      creditsUsed: 1,
+      reminderLeadMinutes: null,
+      failureReason: null,
+    },
+    {
+      id: 'ci_24h',
+      channel: 'sms',
+      eventType: 'appointment_reminder',
+      recipient: '•••• 0101',
+      status: 'delivered',
+      scheduledFor: '2026-08-29T13:00:00.000Z',
+      sentAt: '2026-08-29T13:00:05.000Z',
+      creditsUsed: 2,
+      reminderLeadMinutes: 1440,
+      failureReason: null,
+    },
+    {
+      id: 'ci_1h',
+      channel: 'sms',
+      eventType: 'appointment_reminder',
+      recipient: '•••• 0102',
+      status: 'canceled',
+      scheduledFor: '2026-08-29T13:00:00.000Z',
+      sentAt: null,
+      creditsUsed: 0,
+      reminderLeadMinutes: 60,
+      failureReason: null,
+    },
+    {
+      id: 'ci_cancel',
+      channel: 'email',
+      eventType: 'appointment_cancelled',
+      recipient: 'c•••@example.com',
+      status: 'sent',
+      scheduledFor: '2026-08-29T13:05:00.000Z',
+      sentAt: '2026-08-29T13:05:05.000Z',
+      creditsUsed: 0,
+      reminderLeadMinutes: null,
+      failureReason: null,
+    },
+  ];
+
+  function mockFetchForHistory(overrides: Parameters<typeof usageResponse>[0] = {}) {
+    fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.startsWith('/api/admin/salon/communications/usage')) {
+        return url.includes('cursor=')
+          ? usageResponse({ ...overrides, history: [historyFixture[3]!], nextCursor: null })
+          : usageResponse(overrides);
+      }
+      if (url.startsWith('/api/billing/topups')) {
+        return topupsResponse({ available: true, items: [] });
+      }
+      throw new Error(`Unexpected fetch: ${url}`);
+    });
+  }
+
+  it('groups history into confirmation/24h/1h/cancellation sections and labels net credit charges', async () => {
+    mockFetchForHistory({ history: historyFixture, pendingCredits: 3 });
+    render(<UsageBillingModal salonSlug="salon-a" onClose={vi.fn()} />);
+
+    await screen.findByRole('heading', { name: 'Confirmations' });
+
+    expect(screen.getByRole('heading', { name: '24-hour reminders' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '1-hour reminders' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Cancellations' })).toBeInTheDocument();
+    // Net SMS credit charges (§ clearer usage) — never a synonym for "sent".
+    expect(screen.getByText('1 SMS credit charged')).toBeInTheDocument();
+    expect(screen.getByText('2 SMS credits charged')).toBeInTheDocument();
+    expect(screen.getByText('No SMS credits charged')).toBeInTheDocument();
+    expect(screen.getByText('Email included · no SMS credits')).toBeInTheDocument();
+    // Credits held for texts that are queued/sending but not yet settled.
+    expect(screen.getByText(/3\s+credits are\s+set aside for texts being sent\./)).toBeInTheDocument();
+  });
+
+  it('filters to one category at a time without losing the other groups from the DOM permanently', async () => {
+    mockFetchForHistory({ history: historyFixture });
+    render(<UsageBillingModal salonSlug="salon-a" onClose={vi.fn()} />);
+    await screen.findByRole('heading', { name: 'Confirmations' });
+
+    fireEvent.change(screen.getByLabelText('Filter message history'), { target: { value: '24h' } });
+
+    expect(screen.getByRole('heading', { name: '24-hour reminders' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Confirmations' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: '1-hour reminders' })).not.toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText('Filter message history'), { target: { value: 'all' } });
+
+    expect(screen.getByRole('heading', { name: 'Confirmations' })).toBeInTheDocument();
+  });
+
+  it('loads another page of message history on demand, appending rather than replacing', async () => {
+    mockFetchForHistory({ history: [historyFixture[0]!], nextCursor: 'CURSOR_1' });
+    render(<UsageBillingModal salonSlug="salon-a" onClose={vi.fn()} />);
+
+    await screen.findByText('•••• 0100');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Load more' }));
+
+    await waitFor(() => {
+      expect(screen.getByText('c•••@example.com')).toBeInTheDocument();
+    });
+
+    // The first page's row is still there — "Load more" appends.
+    expect(screen.getByText('•••• 0100')).toBeInTheDocument();
+    // Its nextCursor was null, so the button is gone.
+    expect(screen.queryByRole('button', { name: 'Load more' })).not.toBeInTheDocument();
   });
 });
 

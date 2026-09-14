@@ -216,6 +216,8 @@ export async function materializeReminders(
   const now = input.now ?? new Date();
   const allowedChannels = resolveEventChannels(input.settings, 'appointment_reminder')
     .filter(channel => (channel === 'sms' ? input.smsEligible && input.clientPhone : input.clientEmail));
+  const activeRules = resolveActiveReminderRules(input.settings);
+  const leadMinutesByRuleId = new Map(activeRules.map(rule => [rule.id, rule.offsetMinutes]));
   const planned = planReminders({
     salonId: input.salonId,
     appointmentId: input.appointmentId,
@@ -223,7 +225,7 @@ export async function materializeReminders(
     appointmentUpdatedAt: input.appointmentUpdatedAt,
     timeZone: input.timeZone,
     quietHours: input.settings.quietHours,
-    rules: resolveActiveReminderRules(input.settings),
+    rules: activeRules,
     allowedChannels,
     smsEnabled: input.settings.sms.enabled,
     emailEnabled: input.settings.email.enabled,
@@ -256,7 +258,12 @@ export async function materializeReminders(
       destinationCountry: plan.channel === 'sms' ? 'CA' : null,
       templateKey: template.templateKey,
       templateVersion: template.templateVersion,
-      variables: input.variables,
+      // Persist the lead time on this intent. Existing history without this
+      // value keeps the neutral “Appointment reminder” label.
+      variables: {
+        ...input.variables,
+        reminderLeadMinutes: String(leadMinutesByRuleId.get(plan.ruleId) ?? ''),
+      },
       ruleId: plan.ruleId,
       startRevision: input.appointmentStart.toISOString(),
       schedulingRevision: plan.schedulingRevision,
