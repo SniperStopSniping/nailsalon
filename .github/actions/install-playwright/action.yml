@@ -1,0 +1,110 @@
+name: Install Playwright safely
+description: Install OS dependencies and browsers with bounded retries and process cleanup
+runs:
+  using: composite
+  steps:
+    - name: Install Playwright OS dependencies
+      shell: bash
+      run: |
+        # GitHub points apt at azure.archive.ubuntu.com, which is
+        # intermittently unreachable from the runner. apt's default
+        # per-request timeout turns that into an hours-long stall before it
+        # falls back to archive.ubuntu.com -- which the same run reaches
+        # successfully. Non-fatal: a speed-up, not a requirement.
+        printf 'Acquire::http::Timeout "15";\nAcquire::https::Timeout "15";\nAcquire::Retries "2";\n' \
+          | sudo tee /etc/apt/apt.conf.d/99-ci-fast-mirror-failover >/dev/null \
+          || echo "warning: could not write apt timeout config; continuing without it"
+
+        # The invariant that actually matters between attempts is not "a
+        # signal was sent" but "no process still holds an apt/dpkg lock".
+        # Assert that directly, and fail loudly rather than starting an
+        # attempt that cannot possibly succeed.
+        assert_apt_unlocked() {
+          for _ in $(seq 1 20); do
+            if ! sudo fuser /var/lib/apt/lists/lock /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock >/dev/null 2>&1; then
+              return 0
+            fi
+            sudo pkill -KILL -x apt-get 2>/dev/null || true
+            sudo pkill -KILL -x apt 2>/dev/null || true
+            sudo pkill -KILL -x dpkg 2>/dev/null || true
+            sleep 3
+          done
+          echo "apt/dpkg locks are STILL held after reaping; refusing to continue."
+          sudo fuser -v /var/lib/apt/lists/lock /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock || true
+          return 1
+        }
+
+        # Runs install-deps in its own session so the watchdog can signal the
+        # entire process GROUP. The child records its own pgid, so this works
+        # whether or not setsid forks. This is what guarantees no privileged
+        # apt child outlives a failed attempt.
+        run_deps_bounded() {
+          limit="$1"
+          pgid_file="$(mktemp)"
+          setsid --fork --wait bash -c \
+            'ps -o pgid= -p $$ | tr -d " " > "$1"; exec npx playwright install-deps' _ "$pgid_file" &
+          wrapper_pid=$!
+          waited=0
+          while kill -0 "$wrapper_pid" 2>/dev/null; do
+            if [ "$waited" -ge "$limit" ]; then
+              pgid="$(tr -d '[:space:]' < "$pgid_file" 2>/dev/null || true)"
+              echo "install-deps exceeded ${limit}s; killing its whole process group (${pgid:-unknown})"
+              if [ -n "$pgid" ]; then
+                sudo kill -TERM "-${pgid}" 2>/dev/null || true
+                sleep 5
+                sudo kill -KILL "-${pgid}" 2>/dev/null || true
+              fi
+              wait "$wrapper_pid" 2>/dev/null || true
+              return 124
+            fi
+            sleep 2
+            waited=$((waited + 2))
+          done
+          wait "$wrapper_pid"
+        }
+
+        for attempt in 1 2; do
+          echo "::group::Playwright OS dependency attempt ${attempt}/2"
+          status=0
+          run_deps_bounded 480 || status=$?
+          echo "::endgroup::"
+          if [ "${status}" -eq 0 ]; then
+            echo "Playwright OS dependencies installed on attempt ${attempt}."
+            exit 0
+          fi
+          echo "Attempt ${attempt} failed with status ${status}."
+          # A second attempt is permitted ONLY once the machine is provably
+          # clean. If anything still holds a lock, stop here -- retrying into
+          # a held lock is exactly the CI #497 failure.
+          if ! assert_apt_unlocked; then
+            exit 1
+          fi
+          sudo dpkg --configure -a || true
+        done
+        echo "Playwright OS dependencies did not install in 2 bounded attempts."
+        exit 1
+
+    - name: Install Playwright browsers
+      shell: bash
+      run: |
+        # Unprivileged download into ~/.cache/ms-playwright: no apt, no sudo,
+        # no global locks, no privileged children. Bounding the direct child
+        # is sufficient here, which is why retrying this half is safe.
+        for attempt in 1 2 3; do
+          echo "::group::Playwright browser attempt ${attempt}/3"
+          status=0
+          timeout --kill-after=30 300 npx playwright install || status=$?
+          echo "::endgroup::"
+          if [ "${status}" -eq 0 ]; then
+            echo "Playwright browsers installed on attempt ${attempt}."
+            exit 0
+          fi
+          if [ "${status}" -eq 124 ]; then
+            echo "Attempt ${attempt} exceeded the 300s cap and was terminated."
+          else
+            echo "Attempt ${attempt} failed with exit status ${status}."
+          fi
+          sleep 10
+        done
+        echo "Playwright browsers did not install in 3 bounded attempts."
+        exit 1
