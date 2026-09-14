@@ -1,3 +1,10 @@
+## [1.98.2](https://github.com/SniperStopSniping/nailsalon/compare/v1.98.1...v1.98.2) (2026-09-14)
+
+
+### Bug Fixes
+
+* **booking:** improve public header logo sizing ([286a470](https://github.com/SniperStopSniping/nailsalon/commit/286a470ae4699d629799973ab974f31878014d63))
+
 ## [1.98.1](https://github.com/SniperStopSniping/nailsalon/compare/v1.98.0...v1.98.1) (2026-09-14)
 
 
