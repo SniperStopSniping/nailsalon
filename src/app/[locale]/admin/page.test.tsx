@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import React from 'react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import AdminDashboardPage from './page';
 
@@ -12,6 +12,7 @@ const {
   searchParamGet,
   adminModalHostSpy,
   appGridSpy,
+  usageBillingModalSpy,
   newAppointmentModalSpy,
   handoffComponentSpy,
   ownerTodayWorkspaceSpy,
@@ -41,6 +42,7 @@ const {
     searchParamGet: vi.fn<(key: string) => string | null>((key: string) => (key === 'salon' ? 'salon-b' : null)),
     adminModalHostSpy: vi.fn(),
     appGridSpy: vi.fn(),
+    usageBillingModalSpy: vi.fn(),
     newAppointmentModalSpy: vi.fn(),
     handoffComponentSpy: vi.fn(),
     ownerTodayWorkspaceSpy: vi.fn(),
@@ -78,6 +80,13 @@ vi.mock('next/navigation', () => ({
 
 vi.mock('./OwnerAdminFeatureFlags', () => ({
   useOwnerAdminFeatureFlags: () => ownerAdminFeatureFlags,
+}));
+
+vi.mock('@/components/admin/UsageBillingModal', () => ({
+  UsageBillingModal: (props: unknown) => {
+    usageBillingModalSpy(props);
+    return <div data-testid="usage-billing-modal" />;
+  },
 }));
 
 vi.mock('@/components/admin/AdminModalHost', () => ({
@@ -1542,6 +1551,154 @@ describe('AdminDashboardPage', () => {
       act(() => hostProps.onCloseModal());
 
       expect(routerReplace).toHaveBeenLastCalledWith('/en/admin?salon=salon-b');
+    });
+  });
+
+  describe('topup checkout return (G19)', () => {
+    afterEach(() => {
+      window.history.pushState(null, '', '/');
+    });
+
+    function mockOwnerSession(salonSlug = 'salon-b') {
+      fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
+        const url = String(input);
+
+        if (url.startsWith('/api/admin/auth/me')) {
+          return new Response(JSON.stringify({
+            user: {
+              id: 'admin_1',
+              name: 'Admin User',
+              isSuperAdmin: false,
+              impersonation: null,
+              salons: [
+                { id: 'sal_b', slug: salonSlug, name: 'Salon B', status: 'active', role: 'owner' },
+              ],
+            },
+          }), { status: 200 });
+        }
+        if (url === '/api/admin/auth/set-active-salon') {
+          return new Response(JSON.stringify({ ok: true }), { status: 200 });
+        }
+        if (url === '/api/admin/fraud-signals') {
+          return new Response(JSON.stringify({ data: { signals: [], unresolvedCount: 0 } }), { status: 200 });
+        }
+        if (url === `/api/admin/settings/modules?salonSlug=${salonSlug}`) {
+          return new Response(JSON.stringify({
+            data: { modules: {}, entitledModules: {}, moduleReasons: {} },
+          }), { status: 200 });
+        }
+        if (url.startsWith('/api/billing/topups')) {
+          return new Response(JSON.stringify({ available: true, items: [{ status: 'pending' }], nextCursor: null }), { status: 200 });
+        }
+
+        throw new Error(`Unhandled fetch: ${url}`);
+      });
+    }
+
+    it('success: shows the notice, opens the Usage & billing modal, and strips ?topup=', async () => {
+      searchParamGet.mockImplementation((key: string) => {
+        if (key === 'salon') {
+          return 'salon-b';
+        }
+        return key === 'topup' ? 'success' : null;
+      });
+      mockOwnerSession();
+      window.history.pushState(null, '', '/en/admin?salon=salon-b&topup=success');
+
+      render(<AdminDashboardPage />);
+
+      expect(await screen.findByTestId('topup-return-notice')).toHaveTextContent(
+        'Payment received — credits usually arrive within a minute.',
+      );
+      expect(await screen.findByTestId('usage-billing-modal')).toBeInTheDocument();
+      expect(usageBillingModalSpy).toHaveBeenCalledWith(expect.objectContaining({ salonSlug: 'salon-b' }));
+
+      // A reload must not repeat the notice/modal: the param is gone.
+      await waitFor(() => {
+        expect(window.location.search).not.toContain('topup=');
+      });
+
+      expect(window.location.search).toContain('salon=salon-b');
+    });
+
+    it('cancelled: shows the notice, never opens the modal, and strips ?topup=', async () => {
+      searchParamGet.mockImplementation((key: string) => {
+        if (key === 'salon') {
+          return 'salon-b';
+        }
+        return key === 'topup' ? 'cancelled' : null;
+      });
+      mockOwnerSession();
+      window.history.pushState(null, '', '/en/admin?salon=salon-b&topup=cancelled');
+
+      render(<AdminDashboardPage />);
+
+      expect(await screen.findByTestId('topup-return-notice')).toHaveTextContent(
+        'Checkout cancelled — nothing was charged.',
+      );
+      expect(screen.queryByTestId('usage-billing-modal')).not.toBeInTheDocument();
+      expect(fetchMock.mock.calls.some(([url]) => String(url).startsWith('/api/billing/topups'))).toBe(false);
+
+      await waitFor(() => {
+        expect(window.location.search).not.toContain('topup=');
+      });
+    });
+
+    it('success: polls /api/billing/topups every 5s until the newest purchase is fulfilled, then stops', async () => {
+      searchParamGet.mockImplementation((key: string) => {
+        if (key === 'salon') {
+          return 'salon-b';
+        }
+        return key === 'topup' ? 'success' : null;
+      });
+      let topupsCallCount = 0;
+      fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.startsWith('/api/admin/auth/me')) {
+          return new Response(JSON.stringify({
+            user: {
+              id: 'admin_1',
+              name: 'Admin User',
+              isSuperAdmin: false,
+              impersonation: null,
+              salons: [{ id: 'sal_b', slug: 'salon-b', name: 'Salon B', status: 'active', role: 'owner' }],
+            },
+          }), { status: 200 });
+        }
+        if (url === '/api/admin/auth/set-active-salon') {
+          return new Response(JSON.stringify({ ok: true }), { status: 200 });
+        }
+        if (url === '/api/admin/fraud-signals') {
+          return new Response(JSON.stringify({ data: { signals: [], unresolvedCount: 0 } }), { status: 200 });
+        }
+        if (url === '/api/admin/settings/modules?salonSlug=salon-b') {
+          return new Response(JSON.stringify({ data: { modules: {}, entitledModules: {}, moduleReasons: {} } }), { status: 200 });
+        }
+        if (url.startsWith('/api/billing/topups')) {
+          topupsCallCount += 1;
+          const status = topupsCallCount >= 2 ? 'fulfilled' : 'pending';
+          return new Response(JSON.stringify({ available: true, items: [{ status }], nextCursor: null }), { status: 200 });
+        }
+        throw new Error(`Unhandled fetch: ${url}`);
+      });
+
+      // Fake timers interact badly with the auth/session bootstrap's own
+      // async state updates in this harness (React's act-environment
+      // detection trips even restricted to setTimeout/clearTimeout), so
+      // this proves the poll is *scheduled* correctly — exactly one 5000ms
+      // timer, requested only after the modal (and so the salon id) is
+      // available — rather than fast-forwarding through it.
+      const setTimeoutSpy = vi.spyOn(window, 'setTimeout');
+      render(<AdminDashboardPage />);
+      await screen.findByTestId('usage-billing-modal');
+
+      await waitFor(() => {
+        expect(setTimeoutSpy.mock.calls.some(([, delay]) => delay === 5000)).toBe(true);
+      });
+
+      expect(topupsCallCount).toBe(0);
+
+      setTimeoutSpy.mockRestore();
     });
   });
 });
