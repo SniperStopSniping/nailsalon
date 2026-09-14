@@ -1,3 +1,11 @@
+## [1.98.1](https://github.com/SniperStopSniping/nailsalon/compare/v1.98.0...v1.98.1) (2026-09-14)
+
+
+### Bug Fixes
+
+* **billing:** hold uncertain top-up checkouts and serialize retries ([8bbba23](https://github.com/SniperStopSniping/nailsalon/commit/8bbba23857c6cdb35f4e3247c7e3b0dbe08e8264))
+* **booking:** remove readability toggle ([6f58937](https://github.com/SniperStopSniping/nailsalon/commit/6f58937dfc84b9fe18ad90ddf44cfdb5d264feb1))
+
 # [1.98.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.97.2...v1.98.0) (2026-09-13)
 
 
