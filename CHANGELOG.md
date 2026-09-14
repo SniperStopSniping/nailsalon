@@ -1,3 +1,10 @@
+# [1.109.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.108.0...v1.109.0) (2026-09-14)
+
+
+### Features
+
+* **billing:** p8c production runbook, readiness harness and key lifecycle doc ([4a35081](https://github.com/SniperStopSniping/nailsalon/commit/4a350812c512a324a10f56b6c183f18c30d176cd))
+
 # [1.108.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.107.0...v1.108.0) (2026-09-14)
 
 
