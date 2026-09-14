@@ -1,3 +1,15 @@
+# [1.99.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.98.4...v1.99.0) (2026-09-14)
+
+
+### Bug Fixes
+
+* **media:** centralize photo management and reuse server uploads ([3bbf96a](https://github.com/SniperStopSniping/nailsalon/commit/3bbf96a7eca2f2ddd4d258f52c68bf80bd71faf8))
+
+
+### Features
+
+* **billing:** p5a owner surface truth ([1459a21](https://github.com/SniperStopSniping/nailsalon/commit/1459a2155fedbf31354ba31493d8a345a2185fdb))
+
 ## [1.98.4](https://github.com/SniperStopSniping/nailsalon/compare/v1.98.3...v1.98.4) (2026-09-14)
 
 
