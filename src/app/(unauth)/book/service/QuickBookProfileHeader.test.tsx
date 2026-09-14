@@ -288,7 +288,7 @@ describe('QuickBookProfileHeader', () => {
   it.each([
     ['clean_card', 'quick-book-logo'],
     ['clean_card_pro', null],
-  ] as const)('uses a compact rectangular frame for a wide logo in %s', async (layout, legacyTestId) => {
+  ] as const)('uses a compact rectangular frame for a landscape logo in %s', async (layout, legacyTestId) => {
     render(
       <QuickBookProfileHeader
         profile={FULL_PROFILE}
@@ -300,8 +300,11 @@ describe('QuickBookProfileHeader', () => {
 
     const image = screen.getByAltText('Isla Nail Studio With A Deliberately Long Name logo');
     Object.defineProperties(image, {
-      naturalHeight: { configurable: true, value: 80 },
-      naturalWidth: { configurable: true, value: 320 },
+      // The live Isla logo is 894×600 (1.49:1). It is clearly landscape but
+      // used to miss the old 1.5 cutoff by less than one percent and fall back
+      // to the square frame.
+      naturalHeight: { configurable: true, value: 600 },
+      naturalWidth: { configurable: true, value: 894 },
     });
     fireEvent.load(image);
 
