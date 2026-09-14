@@ -1,3 +1,10 @@
+# [1.108.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.107.0...v1.108.0) (2026-09-14)
+
+
+### Features
+
+* **billing:** p8a starter-grant endpoint and billing integrity check ([1f1ad19](https://github.com/SniperStopSniping/nailsalon/commit/1f1ad191a863a952c4c568a9ab42d89a45ed4fd6))
+
 # [1.107.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.106.0...v1.107.0) (2026-09-14)
 
 
