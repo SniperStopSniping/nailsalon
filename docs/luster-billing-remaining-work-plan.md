@@ -146,8 +146,8 @@ Hard ordering rules:
 | P3c | merged | #210 | 1627a2ee | 2026-09-14 | transactional audit trail; adds a checkout postimage hash |
 | P4 | merged | #207 | e4ed4928 | 2026-09-14 | code half only — cron registration parked on D3; drift demo in billing-gate-c-record.md §3 |
 | P5a | merged | #205 | 3ed304b7 | 2026-09-14 | proceeded under owner instruction "do not merge #176 wholesale"; #176 UI half must rebase on it |
-| P5b | PR opened | (this PR) | | | portal freeze replaced by reviewed postimage (D18 approved 2026-09-14); live route, legacy behaviour byte-preserved |
-| P6 | merged | #208 | ef3f486a | 2026-09-14 | tax architecture + rate-protection resolver; env-keyed price carrier PARKED (D19a) |
+| P5b | merged | #213 | c29d8c29 | 2026-09-14 | portal freeze replaced by reviewed postimage (D18 approved 2026-09-14); live route, legacy behaviour byte-preserved |
+| P6 | merged | #208 | ef3f486a | 2026-09-14 | tax architecture + rate-protection resolver; env-keyed price carrier landed in P6b (D19a ratified 2026-09-14) |
 | P7 | merged | #206 | 1083e9e1 | 2026-09-14 | proceeded under owner "through P7"; cards stay informational while dark |
 | P8a | not started | | | | |
 | P8b | not started | | | | D6 |
@@ -261,7 +261,7 @@ If any phase turns out to need a migration: **STOP** and report.
 | Item | State to preserve | Where enforced |
 |---|---|---|
 | `BILLING_SUBSCRIPTIONS_ENABLED`, `BILLING_TOPUPS_ENABLED`, `PUBLIC_PRICING_ENABLED` | unset in Production, Preview, Development | `Env.ts:34-36`; checked first in every route |
-| `BILLING_TAX_COLLECTION_ENABLED`, `BILLING_STRIPE_PRICE_IDS` (new in P6) | unset everywhere (Preview test-mode ids only under separate authorization) | `Env.ts`; boot check |
+| `BILLING_TAX_COLLECTION_ENABLED`, `BILLING_STRIPE_PRICE_IDS` (carrier landed in P6b) | unset everywhere (Preview test-mode ids only under separate authorization) | `Env.ts`; boot check (`environmentIsolation.ts`) |
 | `STRIPE_BILLING_WEBHOOK_SECRET` | unset; no `stripe-billing` endpoint registered — **this secret is the first live-traffic control** (route ignores the `BILLING_*` flags) | route returns 503 first |
 | `BILLING_PLAN_ENV` | never changed by Claude; `prod` on Production / `test` on Preview verified in P8c before any secret | boot-fatal check |
 | Committed `stripePriceMap.ts` tables | stay `null`; no live Price/Coupon ids in git, ever (§4) | `PRICE_UNCONFIGURED` |

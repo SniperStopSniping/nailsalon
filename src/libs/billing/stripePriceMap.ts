@@ -16,6 +16,13 @@
  * configuration step (contract §20); committing a live identifier here is
  * forbidden. Resolution of a placeholder throws PRICE_UNCONFIGURED, so no
  * checkout path can silently proceed against unconfigured commerce.
+ *
+ * P6b (owner decision D19a, ratified 2026-09-14): real Stripe Price/Coupon
+ * identifiers live ONLY in the per-environment env carrier
+ * (`BILLING_STRIPE_PRICE_IDS`, see stripePriceCarrier.ts and contract §4,
+ * §12). Every resolver below consults that carrier FIRST and falls back to
+ * the committed (forever-null) tables below when it has no entry — those
+ * tables are NOT edited by this change and never will carry a live id.
  */
 
 import 'server-only';
@@ -24,6 +31,7 @@ import { Env } from '@/libs/Env';
 
 import type { BillingOfferKey } from './billingOffers';
 import type { PromotionKey } from './promotions';
+import { getStripePriceCarrier, isConfiguredStripeId } from './stripePriceCarrier';
 import type { TopupOfferKey } from './topupOffers';
 
 export type BillingCatalogErrorCode = 'PRICE_UNCONFIGURED' | 'UNKNOWN_CATALOG_KEY';
@@ -71,18 +79,6 @@ const PROMOTION_COUPON_IDS: Record<PromotionKey, StripeIdByEnv> = Object.freeze(
 });
 
 /**
- * A configured identifier must look like a real Stripe ID. Empty strings,
- * whitespace and boilerplate placeholders (e.g. 'price_123') are treated as
- * unconfigured so a copy-paste placeholder can never reach checkout.
- */
-function isConfiguredStripeId(value: string | null): value is string {
-  if (value === null) {
-    return false;
-  }
-  return /^(?:price|coupon|promo)_[A-Za-z0-9]{8,}$/.test(value);
-}
-
-/**
  * Pure resolution over an explicit table + environment column. Exported for
  * tests, which prove column isolation with fixture tables (a dev resolution
  * can never observe a prod value). Application code uses the Env-bound
@@ -109,14 +105,26 @@ function billingEnv(): 'dev' | 'test' | 'prod' {
 }
 
 export function resolveStripePriceIdForOffer(key: BillingOfferKey): string {
+  const carrier = getStripePriceCarrier();
+  if (carrier && Object.prototype.hasOwnProperty.call(carrier.offers, key)) {
+    return carrier.offers[key]!;
+  }
   return resolveStripeIdFromTable(OFFER_PRICE_IDS, billingEnv(), key);
 }
 
 export function resolveStripePriceIdForTopup(key: TopupOfferKey): string {
+  const carrier = getStripePriceCarrier();
+  if (carrier && Object.prototype.hasOwnProperty.call(carrier.topups, key)) {
+    return carrier.topups[key]!;
+  }
   return resolveStripeIdFromTable(TOPUP_PRICE_IDS, billingEnv(), key);
 }
 
 export function resolveStripeCouponIdForPromotion(key: PromotionKey): string {
+  const carrier = getStripePriceCarrier();
+  if (carrier && Object.prototype.hasOwnProperty.call(carrier.coupons, key)) {
+    return carrier.coupons[key]!;
+  }
   return resolveStripeIdFromTable(PROMOTION_COUPON_IDS, billingEnv(), key);
 }
 
@@ -141,10 +149,36 @@ function reverseLookup<K extends string>(
   return null;
 }
 
+function reverseLookupCarrier<K extends string>(
+  carrierMap: Record<string, string>,
+  priceId: string,
+): K | null {
+  for (const [key, id] of Object.entries(carrierMap)) {
+    if (id === priceId) {
+      return key as K;
+    }
+  }
+  return null;
+}
+
 export function resolveBillingOfferFromStripePriceId(priceId: string): BillingOfferKey | null {
+  const carrier = getStripePriceCarrier();
+  if (carrier) {
+    const fromCarrier = reverseLookupCarrier<BillingOfferKey>(carrier.offers, priceId);
+    if (fromCarrier !== null) {
+      return fromCarrier;
+    }
+  }
   return reverseLookup(OFFER_PRICE_IDS, priceId);
 }
 
 export function resolveTopupOfferFromStripePriceId(priceId: string): TopupOfferKey | null {
+  const carrier = getStripePriceCarrier();
+  if (carrier) {
+    const fromCarrier = reverseLookupCarrier<TopupOfferKey>(carrier.topups, priceId);
+    if (fromCarrier !== null) {
+      return fromCarrier;
+    }
+  }
   return reverseLookup(TOPUP_PRICE_IDS, priceId);
 }
