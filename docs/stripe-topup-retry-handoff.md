@@ -60,6 +60,10 @@ Final validation on Node 20.19.4:
   placeholders. Exact-head remote CI and preview/browser evidence are recorded
   in the pull request because adding their results here would change the SHA
   they validated.
+- The first PR run exposed a CI manifest omission: the protected billing-path
+  allowlist rejected the top-up concurrency test that the workflow itself runs.
+  A workflow-only correction authorizes that exact test path; it changes no
+  assertion or production behavior.
 
 ### Pre-existing reminder-test race
 

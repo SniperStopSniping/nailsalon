@@ -253,6 +253,7 @@ jobs:
               src/app/api/billing/reconcile/route.ts) ;;
               src/app/api/billing/reconcile/route.test.ts) ;;
               src/app/api/billing/checkout/topup/route.ts) ;;
+              src/app/api/billing/checkout/topup/route.concurrency.integration.test.ts) ;;
               src/app/api/billing/checkout/topup/route.test.ts) ;;
               *)
                 echo "::error::Unauthorized change under src/app/api/billing: $file"
