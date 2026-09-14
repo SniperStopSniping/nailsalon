@@ -115,3 +115,18 @@ Recorded for owner ratification only. Nothing below is implemented until the own
 ## 5. P8c artefacts
 
 P8c (docs + dark readiness harness only, Gate D authorized 2026-09-14; no execution, no Stripe resource, no env value, no migration) delivered: `docs/BILLING_PRODUCTION_RUNBOOK.md`, `docs/BILLING_IDENTITY_KEY_LIFECYCLE.md`, `src/libs/billing/readinessCheck.ts` + `scripts/billing-readiness-check.ts` (+ the `HANDLED_TYPES` extraction into `src/libs/billing/billingWebhookEvents.ts`). D10 (retention horizon) and D11 (seven §12 publication approvals) remain OPEN/PENDING, documented with no default per plan §6.
+
+## 6. Round-2 execution record (2026-09-14)
+
+Owner approvals 2026-09-14: D19a (carrier), D3 (crons), D18 (portal postimage), D1 (#176 split), Gate D for P8a + P8c. NOT approved: D10, D11. No contract amendment (D19c–d deferred).
+
+| PR | Phase | Merge SHA | Dark posture |
+|---|---|---|---|
+| #213 | P5b | c29d8c29 | live portal route; legacy behaviour byte-preserved; no switch |
+| #214 | P6b | 2ca9381d | `BILLING_STRIPE_PRICE_IDS` parser + boot rejection; unset everywhere |
+| #216 | P4b | 4103c165 | two crons registered; routes answer `200 skipped` while dark |
+| #215 | CI | acd89097 | explicit test budgets only; no test skipped |
+| #221 | CI | b3091376 | remaining client-lifecycle replay budgets + top-up expiry probe budget; no test skipped |
+| #219 | P8a | b7797bde | super-admin starter-grant endpoint + integrity CLI; ledger modules untouched |
+| #220 | P8c | c7550855 | runbook, key-lifecycle doc, readiness harness; no execution |
+| #218 | D1 salvage | 6ac4d674 | client-reminders UI only; no billing files |
