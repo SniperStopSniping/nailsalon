@@ -1,3 +1,10 @@
+# [1.107.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.106.0...v1.107.0) (2026-09-14)
+
+
+### Features
+
+* **billing:** p4b register billing crons dark (D3) ([51df2c6](https://github.com/SniperStopSniping/nailsalon/commit/51df2c6cd543517949d10dd98398fe56da780429))
+
 # [1.106.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.105.0...v1.106.0) (2026-09-14)
 
 
