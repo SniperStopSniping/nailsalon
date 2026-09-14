@@ -77,8 +77,8 @@ function ProfileLogo({ compact = false, name, src }: {
     <div
       className={`relative shrink-0 overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-sm ${isWide
         ? compact
-          ? 'h-12 w-[7.5rem] min-[360px]:h-16 min-[360px]:w-36 sm:h-[4.5rem] sm:w-40'
-          : 'h-16 w-40 sm:h-[4.5rem] sm:w-44'
+          ? 'h-[3.125rem] w-20 min-[360px]:h-[4.25rem] min-[360px]:w-[6.5rem] sm:h-[4.75rem] sm:w-[7.25rem]'
+          : 'h-[4.25rem] w-[6.5rem] sm:h-[4.75rem] sm:w-[7.25rem]'
         : `sm:size-[4.5rem] ${compact ? 'size-12 min-[360px]:size-16' : 'size-16'}`}`}
       data-logo-shape={isWide ? 'wide' : 'square'}
       data-testid="quick-book-logo"
@@ -89,7 +89,7 @@ function ProfileLogo({ compact = false, name, src }: {
         width={72}
         height={72}
         unoptimized
-        className="size-full object-contain p-1"
+        className={`size-full object-contain ${isWide ? 'p-0.5' : 'p-1'}`}
         onLoad={(event) => {
           const { naturalHeight, naturalWidth } = event.currentTarget;
           setWideLogoSrc(naturalHeight > 0 && naturalWidth / naturalHeight >= 1.5 ? src : null);
