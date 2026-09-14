@@ -15,14 +15,15 @@
  * the success page is never authoritative.
  */
 import * as Sentry from '@sentry/nextjs';
-import { eq } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 import { type NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 
 import { requireAdmin } from '@/libs/adminAuth';
-import { beginCheckoutAttempt, failAttempt, markAttemptCheckoutCreated } from '@/libs/billing/checkoutAttempts';
+import { beginCheckoutAttempt, markAttemptCheckoutCreated } from '@/libs/billing/checkoutAttempts';
 import { resolveTopupAudienceForLegacyPlan } from '@/libs/billing/legacyPlanAdapter';
 import { BillingCatalogError, resolveStripePriceIdForTopup } from '@/libs/billing/stripePriceMap';
+import { applyTopupSessionExpired } from '@/libs/billing/topupFulfillment';
 import { getTopupOffer } from '@/libs/billing/topupOffers';
 import { db } from '@/libs/DB';
 import { Env } from '@/libs/Env';
@@ -108,11 +109,17 @@ export async function POST(request: NextRequest) {
         now,
       });
       if (!attempt.ok) {
-        return { kind: 'conflict' as const };
+        return { kind: 'conflict' as const, reason: attempt.reason };
       }
-      // Precreate the durable purchase record (§9.2): the webhook fulfills
-      // against THIS row on verified payment evidence, snapshotting the
-      // offer, credits and price at purchase time.
+      const [attemptRow] = await tx.select().from(billingCheckoutAttemptSchema)
+        .where(and(
+          eq(billingCheckoutAttemptSchema.id, attempt.attemptId),
+          eq(billingCheckoutAttemptSchema.salonId, salonId),
+        )).limit(1);
+      if (attempt.reused) {
+        return { kind: 'existing' as const, attempt: attemptRow! };
+      }
+      // Only the creator of the durable attempt creates a purchase or calls Stripe.
       const purchaseId = `stp_${crypto.randomUUID()}`;
       await tx.insert(smsTopupPurchaseSchema).values({
         id: purchaseId,
@@ -122,12 +129,7 @@ export async function POST(request: NextRequest) {
         amountCents: offer.priceCents,
         currency: 'cad',
         status: 'checkout_created',
-      }).onConflictDoNothing();
-      const [attemptRow] = await tx
-        .select({ stripeCheckoutSessionId: billingCheckoutAttemptSchema.stripeCheckoutSessionId })
-        .from(billingCheckoutAttemptSchema)
-        .where(eq(billingCheckoutAttemptSchema.id, attempt.attemptId))
-        .limit(1);
+      });
       return {
         kind: 'reserved' as const,
         attemptId: attempt.attemptId,
@@ -137,12 +139,71 @@ export async function POST(request: NextRequest) {
         purchaseId,
       };
     });
+    const pending = () => errorJson(409, 'CHECKOUT_PENDING_RECONCILIATION', 'Your checkout is pending verification. Another checkout cannot be started yet.');
     if (reservation.kind === 'conflict') {
+      if (reservation.reason === 'CHECKOUT_PENDING_RECONCILIATION') {
+        Sentry.captureMessage('Multiple unresolved top-up attempts', {
+          level: 'error',
+          tags: { endpoint: 'billing/checkout-topup' },
+          extra: { salonId },
+        });
+        return pending();
+      }
       return errorJson(409, 'CHECKOUT_IN_PROGRESS', 'Another checkout is already in progress for this salon.');
     }
-    if (reservation.reused && reservation.existingSessionId !== null) {
-      const existing = await stripe.checkout.sessions.retrieve(reservation.existingSessionId);
-      return NextResponse.json({ data: { sessionId: existing.id, url: existing.url, reused: true } });
+    if (reservation.kind === 'existing') {
+      const attempt = reservation.attempt;
+      if (!attempt.stripeCheckoutSessionId) {
+        return pending();
+      }
+      try {
+        const existing = await stripe.checkout.sessions.retrieve(attempt.stripeCheckoutSessionId);
+        if (existing.id !== attempt.stripeCheckoutSessionId || existing.mode !== 'payment'
+          || existing.metadata?.purpose !== 'sms_topup' || existing.metadata.salonId !== salonId
+          || existing.metadata.topupOfferKey !== attempt.topupOfferKey
+          || existing.metadata.attemptId !== attempt.id) {
+          return pending();
+        }
+        const [purchase] = await db.select().from(smsTopupPurchaseSchema)
+          .where(and(
+            eq(smsTopupPurchaseSchema.salonId, salonId),
+            eq(smsTopupPurchaseSchema.stripeCheckoutSessionId, existing.id),
+          ));
+        if (!purchase || existing.metadata.purchaseId !== purchase.id || purchase.topupOfferKey !== attempt.topupOfferKey) {
+          return pending();
+        }
+        if (existing.status === 'expired') {
+          await applyTopupSessionExpired(existing.id);
+          return errorJson(409, 'CHECKOUT_IN_PROGRESS', 'The previous checkout expired. Retry to start a new checkout.');
+        }
+        if (existing.status !== 'open' || !existing.url) {
+          return pending();
+        }
+        // Recheck after remote I/O: a webhook may have resolved this attempt.
+        const reusable = await db.transaction(async (tx) => {
+          await tx.select({ id: salonSchema.id }).from(salonSchema)
+            .where(eq(salonSchema.id, salonId)).for('no key update');
+          const [current] = await tx.select().from(billingCheckoutAttemptSchema)
+            .where(and(
+              eq(billingCheckoutAttemptSchema.id, attempt.id),
+              eq(billingCheckoutAttemptSchema.salonId, salonId),
+              inArray(billingCheckoutAttemptSchema.status, ['creating', 'checkout_created']),
+            ));
+          const [currentPurchase] = await tx.select().from(smsTopupPurchaseSchema)
+            .where(and(
+              eq(smsTopupPurchaseSchema.id, purchase.id),
+              eq(smsTopupPurchaseSchema.salonId, salonId),
+            ));
+          return current?.stripeCheckoutSessionId === existing.id
+            && currentPurchase?.status === 'checkout_created' && !currentPurchase.grantLedgerId;
+        });
+        return reusable
+          ? NextResponse.json({ data: { sessionId: existing.id, url: existing.url, reused: true } })
+          : pending();
+      } catch (error) {
+        Sentry.captureException(error, { tags: { endpoint: 'billing/checkout-topup' } });
+        return pending();
+      }
     }
 
     const baseUrl = Env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
@@ -169,25 +230,35 @@ export async function POST(request: NextRequest) {
         { idempotencyKey: reservation.stripeIdempotencyKey },
       );
     } catch (error) {
-      await db.transaction(async (tx) => {
-        await failAttempt(tx, { attemptId: reservation.attemptId });
-        await tx.update(smsTopupPurchaseSchema)
-          .set({ status: 'canceled' })
-          .where(eq(smsTopupPurchaseSchema.id, reservation.purchaseId));
-      });
-      Sentry.captureException(error, { tags: { endpoint: 'billing/checkout-topup' } });
-      return errorJson(502, 'CHECKOUT_CREATE_FAILED', 'The payment provider rejected the checkout request.');
+      // Even a provider error may follow remote creation. Preserve creating
+      // indefinitely; a fresh idempotency key could open a second checkout.
+      Sentry.captureException(error, { tags: { endpoint: 'billing/checkout-topup' }, extra: { attemptId: reservation.attemptId } });
+      return pending();
     }
 
-    await db.transaction(async (tx) => {
-      await markAttemptCheckoutCreated(tx, {
-        attemptId: reservation.attemptId,
-        stripeCheckoutSessionId: session.id,
+    try {
+      await db.transaction(async (tx) => {
+        const result = await markAttemptCheckoutCreated(tx, {
+          attemptId: reservation.attemptId,
+          stripeCheckoutSessionId: session.id,
+        });
+        if (!result.updated) {
+          throw new Error('TOPUP_SESSION_BINDING_CONFLICT');
+        }
+        const updated = await tx.update(smsTopupPurchaseSchema)
+          .set({ stripeCheckoutSessionId: session.id })
+          .where(and(
+            eq(smsTopupPurchaseSchema.id, reservation.purchaseId),
+            eq(smsTopupPurchaseSchema.salonId, salonId),
+          )).returning();
+        if (updated.length !== 1) {
+          throw new Error('TOPUP_PURCHASE_BINDING_MISSING');
+        }
       });
-      await tx.update(smsTopupPurchaseSchema)
-        .set({ stripeCheckoutSessionId: session.id })
-        .where(eq(smsTopupPurchaseSchema.id, reservation.purchaseId));
-    });
+    } catch (error) {
+      Sentry.captureException(error, { tags: { endpoint: 'billing/checkout-topup' }, extra: { attemptId: reservation.attemptId, sessionId: session.id } });
+      return pending();
+    }
     return NextResponse.json({
       data: {
         sessionId: session.id,

@@ -35,8 +35,11 @@ const envHolder = vi.hoisted(() => ({
 }));
 vi.mock('@/libs/Env', () => ({ Env: envHolder }));
 
+const adminHolder = vi.hoisted(() => ({ allowed: true }));
 vi.mock('@/libs/adminAuth', () => ({
-  requireAdmin: vi.fn(async () => ({ ok: true, admin: { clerkUserId: 'user_topup' } })),
+  requireAdmin: vi.fn(async () => adminHolder.allowed
+    ? { ok: true, admin: { clerkUserId: 'user_topup' } }
+    : { ok: false, response: new Response('forbidden', { status: 403 }) }),
 }));
 vi.mock('@/libs/rateLimit', () => ({
   checkEndpointRateLimit: () => ({ allowed: true }),
@@ -86,10 +89,12 @@ beforeEach(() => {
   envHolder.BILLING_TOPUPS_ENABLED = 'true';
   priceMapHolder.priceId = 'price_topup_resolved';
   stripeMock.checkout.sessions.create.mockReset();
+  stripeMock.checkout.sessions.retrieve.mockReset();
   stripeMock.checkout.sessions.create.mockImplementation(async () => ({
     id: `cs_topup_${Math.random().toString(36).slice(2, 8)}`,
     url: 'https://checkout.stripe.test/topup',
   }));
+  adminHolder.allowed = true;
 });
 
 const postCheckout = async (body: unknown) => {
@@ -123,6 +128,32 @@ async function seedSalon(id: string, plan: string | null = 'single_salon') {
 const purchaseRows = (salonId: string) =>
   db.select().from(schema.smsTopupPurchaseSchema)
     .where(eq(schema.smsTopupPurchaseSchema.salonId, salonId));
+
+const attemptRows = (salonId: string) =>
+  db.select().from(schema.billingCheckoutAttemptSchema)
+    .where(eq(schema.billingCheckoutAttemptSchema.salonId, salonId));
+
+const retrievedTopupSession = (input: {
+  id: string;
+  salonId: string;
+  topupOfferKey: string;
+  attemptId?: string;
+  purchaseId?: string;
+  status?: string;
+  url?: string | null;
+}) => ({
+  id: input.id,
+  mode: 'payment',
+  status: input.status ?? 'open',
+  url: input.url ?? 'https://checkout.stripe.test/topup',
+  metadata: {
+    purpose: 'sms_topup',
+    salonId: input.salonId,
+    topupOfferKey: input.topupOfferKey,
+    ...(input.attemptId ? { attemptId: input.attemptId } : {}),
+    ...(input.purchaseId ? { purchaseId: input.purchaseId } : {}),
+  },
+});
 
 const purchasedBalance = async (salonId: string) => {
   const rows = await db.execute(sql`
@@ -159,6 +190,31 @@ describe('top-up checkout (§9.2)', () => {
     expect(response.status).toBe(400);
   });
 
+  it('rejects an unconfigured price before reserving a purchase or calling Stripe', async () => {
+    priceMapHolder.priceId = null;
+    await seedSalon('s_t_mapping');
+
+    const response = await postCheckout({ salonId: 's_t_mapping', topupOfferKey: 'topup_100_paid_2026_08' });
+
+    expect(response.status).toBe(503);
+    expect((await response.json()).error.code).toBe('PRICE_UNCONFIGURED');
+    expect(stripeMock.checkout.sessions.create).not.toHaveBeenCalled();
+    expect(await attemptRows('s_t_mapping')).toHaveLength(0);
+    expect(await purchaseRows('s_t_mapping')).toHaveLength(0);
+  });
+
+  it('rejects an unauthorized request before reserving a purchase or calling Stripe', async () => {
+    adminHolder.allowed = false;
+    await seedSalon('s_t_forbidden');
+
+    const response = await postCheckout({ salonId: 's_t_forbidden', topupOfferKey: 'topup_100_paid_2026_08' });
+
+    expect(response.status).toBe(403);
+    expect(stripeMock.checkout.sessions.create).not.toHaveBeenCalled();
+    expect(await attemptRows('s_t_forbidden')).toHaveLength(0);
+    expect(await purchaseRows('s_t_forbidden')).toHaveLength(0);
+  });
+
   it('precreates the durable purchase and creates the session under the attempt key', async () => {
     await seedSalon('s_t_ok');
     const response = await postCheckout({ salonId: 's_t_ok', topupOfferKey: 'topup_250_paid_2026_08' });
@@ -183,6 +239,255 @@ describe('top-up checkout (§9.2)', () => {
 
     expect(params.mode).toBe('payment');
     expect(params.metadata.purpose).toBe('sms_topup');
+  });
+
+  it('reuses one bound, verified open session for a retry of the same offer', async () => {
+    await seedSalon('s_t_retry');
+    const first = await postCheckout({ salonId: 's_t_retry', topupOfferKey: 'topup_100_paid_2026_08' });
+    const firstBody = await first.json();
+    const [attempt] = await attemptRows('s_t_retry');
+    const [purchase] = await purchaseRows('s_t_retry');
+    stripeMock.checkout.sessions.retrieve.mockResolvedValue(retrievedTopupSession({
+      id: firstBody.data.sessionId,
+      salonId: 's_t_retry',
+      topupOfferKey: 'topup_100_paid_2026_08',
+      attemptId: attempt!.id,
+      purchaseId: purchase!.id,
+    }));
+
+    const second = await postCheckout({ salonId: 's_t_retry', topupOfferKey: 'topup_100_paid_2026_08' });
+    const body = await second.json();
+
+    expect(second.status).toBe(200);
+    expect(body.data).toMatchObject({ sessionId: firstBody.data.sessionId, reused: true });
+    expect(stripeMock.checkout.sessions.create).toHaveBeenCalledTimes(1);
+    expect(stripeMock.checkout.sessions.retrieve).toHaveBeenCalledTimes(1);
+    expect(await attemptRows('s_t_retry')).toHaveLength(1);
+    expect(await purchaseRows('s_t_retry')).toHaveLength(1);
+  });
+
+  it('holds a different offer behind an unresolved top-up without calling Stripe again', async () => {
+    await seedSalon('s_t_conflict');
+    await postCheckout({ salonId: 's_t_conflict', topupOfferKey: 'topup_100_paid_2026_08' });
+
+    const response = await postCheckout({ salonId: 's_t_conflict', topupOfferKey: 'topup_250_paid_2026_08' });
+
+    expect(response.status).toBe(409);
+    expect((await response.json()).error.code).toBe('CHECKOUT_IN_PROGRESS');
+    expect(stripeMock.checkout.sessions.create).toHaveBeenCalledTimes(1);
+    expect(await purchaseRows('s_t_conflict')).toHaveLength(1);
+  });
+
+  it('reports multiple pre-existing unresolved attempts as an anomaly without selecting one', async () => {
+    await seedSalon('s_t_multiple');
+    const expiresAt = new Date('2020-01-01T00:00:00.000Z');
+    await db.insert(schema.billingCheckoutAttemptSchema).values([
+      {
+        id: 'bca_multiple_1',
+        salonId: 's_t_multiple',
+        purpose: 'sms_topup',
+        topupOfferKey: 'topup_100_paid_2026_08',
+        status: 'creating',
+        stripeIdempotencyKey: 'billing-attempt:bca_multiple_1',
+        expiresAt,
+      },
+      {
+        id: 'bca_multiple_2',
+        salonId: 's_t_multiple',
+        purpose: 'sms_topup',
+        topupOfferKey: 'topup_100_paid_2026_08',
+        status: 'checkout_created',
+        stripeIdempotencyKey: 'billing-attempt:bca_multiple_2',
+        expiresAt,
+      },
+    ]);
+
+    const response = await postCheckout({ salonId: 's_t_multiple', topupOfferKey: 'topup_100_paid_2026_08' });
+
+    expect(response.status).toBe(409);
+    expect((await response.json()).error.code).toBe('CHECKOUT_PENDING_RECONCILIATION');
+    expect(stripeMock.checkout.sessions.create).not.toHaveBeenCalled();
+    expect(await attemptRows('s_t_multiple')).toHaveLength(2);
+  });
+
+  it('holds an uncertain provider-create outcome for reconciliation and never creates a replacement', async () => {
+    await seedSalon('s_t_create_unknown');
+    stripeMock.checkout.sessions.create.mockRejectedValueOnce(new Error('connection dropped after submit'));
+
+    const first = await postCheckout({ salonId: 's_t_create_unknown', topupOfferKey: 'topup_100_paid_2026_08' });
+
+    expect(first.status).toBe(409);
+    expect((await first.json()).error.code).toBe('CHECKOUT_PENDING_RECONCILIATION');
+    expect(await attemptRows('s_t_create_unknown')).toHaveLength(1);
+    expect(await purchaseRows('s_t_create_unknown')).toHaveLength(1);
+
+    const retry = await postCheckout({ salonId: 's_t_create_unknown', topupOfferKey: 'topup_100_paid_2026_08' });
+
+    expect(retry.status).toBe(409);
+    expect((await retry.json()).error.code).toBe('CHECKOUT_PENDING_RECONCILIATION');
+    expect(stripeMock.checkout.sessions.create).toHaveBeenCalledTimes(1);
+  });
+
+  it('holds a remotely-created session when the local binding transaction fails', async () => {
+    await seedSalon('s_t_bind_unknown');
+    const attempts = await import('@/libs/billing/checkoutAttempts');
+    const binding = vi.spyOn(attempts, 'markAttemptCheckoutCreated')
+      .mockRejectedValueOnce(new Error('local binding unavailable'));
+
+    try {
+      const first = await postCheckout({ salonId: 's_t_bind_unknown', topupOfferKey: 'topup_100_paid_2026_08' });
+
+      expect(first.status).toBe(409);
+      expect((await first.json()).error.code).toBe('CHECKOUT_PENDING_RECONCILIATION');
+
+      const [attempt] = await attemptRows('s_t_bind_unknown');
+      const [purchase] = await purchaseRows('s_t_bind_unknown');
+
+      expect(attempt).toMatchObject({ status: 'creating', stripeCheckoutSessionId: null });
+      expect(purchase).toMatchObject({ status: 'checkout_created', stripeCheckoutSessionId: null });
+
+      const retry = await postCheckout({ salonId: 's_t_bind_unknown', topupOfferKey: 'topup_100_paid_2026_08' });
+
+      expect(retry.status).toBe(409);
+      expect((await retry.json()).error.code).toBe('CHECKOUT_PENDING_RECONCILIATION');
+      expect(stripeMock.checkout.sessions.create).toHaveBeenCalledTimes(1);
+      expect(await purchaseRows('s_t_bind_unknown')).toHaveLength(1);
+    } finally {
+      binding.mockRestore();
+    }
+  });
+
+  it('holds a bound checkout when its Stripe retrieval fails or its evidence is invalid', async () => {
+    await seedSalon('s_t_retrieve_unknown');
+    const first = await postCheckout({ salonId: 's_t_retrieve_unknown', topupOfferKey: 'topup_100_paid_2026_08' });
+    const { data } = await first.json();
+    const [purchase] = await purchaseRows('s_t_retrieve_unknown');
+    stripeMock.checkout.sessions.retrieve.mockRejectedValueOnce(new Error('Stripe unavailable'));
+
+    const retrievalFailure = await postCheckout({ salonId: 's_t_retrieve_unknown', topupOfferKey: 'topup_100_paid_2026_08' });
+
+    expect(retrievalFailure.status).toBe(409);
+    expect((await retrievalFailure.json()).error.code).toBe('CHECKOUT_PENDING_RECONCILIATION');
+
+    stripeMock.checkout.sessions.retrieve.mockResolvedValueOnce(retrievedTopupSession({
+      id: data.sessionId,
+      salonId: 's_t_retrieve_unknown',
+      topupOfferKey: 'topup_100_paid_2026_08',
+      attemptId: 'bca_wrong_attempt',
+      purchaseId: purchase!.id,
+    }));
+    const invalidEvidence = await postCheckout({ salonId: 's_t_retrieve_unknown', topupOfferKey: 'topup_100_paid_2026_08' });
+
+    expect(invalidEvidence.status).toBe(409);
+    expect((await invalidEvidence.json()).error.code).toBe('CHECKOUT_PENDING_RECONCILIATION');
+    expect(stripeMock.checkout.sessions.create).toHaveBeenCalledTimes(1);
+    expect(await purchaseRows('s_t_retrieve_unknown')).toHaveLength(1);
+  });
+
+  it('permits a new checkout only after Stripe verifies the prior session expired', async () => {
+    await seedSalon('s_t_verified_expiry');
+    const first = await postCheckout({ salonId: 's_t_verified_expiry', topupOfferKey: 'topup_100_paid_2026_08' });
+    const firstBody = await first.json();
+    const [attempt] = await attemptRows('s_t_verified_expiry');
+    const [purchase] = await purchaseRows('s_t_verified_expiry');
+    stripeMock.checkout.sessions.retrieve.mockResolvedValueOnce(retrievedTopupSession({
+      id: firstBody.data.sessionId,
+      salonId: 's_t_verified_expiry',
+      topupOfferKey: 'topup_100_paid_2026_08',
+      attemptId: attempt!.id,
+      purchaseId: purchase!.id,
+      status: 'expired',
+      url: null,
+    }));
+
+    const expiryObservation = await postCheckout({ salonId: 's_t_verified_expiry', topupOfferKey: 'topup_100_paid_2026_08' });
+
+    expect(expiryObservation.status).toBe(409);
+    expect((await expiryObservation.json()).error.code).toBe('CHECKOUT_IN_PROGRESS');
+
+    const replacement = await postCheckout({ salonId: 's_t_verified_expiry', topupOfferKey: 'topup_100_paid_2026_08' });
+
+    expect(replacement.status).toBe(200);
+    expect(stripeMock.checkout.sessions.create).toHaveBeenCalledTimes(2);
+    expect(await purchaseRows('s_t_verified_expiry')).toHaveLength(2);
+  });
+
+  it('never lets subscription-attempt TTL cleanup release an unresolved top-up', async () => {
+    await seedSalon('s_t_ttl_isolated');
+    const first = await postCheckout({ salonId: 's_t_ttl_isolated', topupOfferKey: 'topup_100_paid_2026_08' });
+    const firstBody = await first.json();
+    const [topupAttempt] = await attemptRows('s_t_ttl_isolated');
+    const [purchase] = await purchaseRows('s_t_ttl_isolated');
+    await db.update(schema.billingCheckoutAttemptSchema)
+      .set({ expiresAt: new Date('2020-01-01T00:00:00.000Z') })
+      .where(eq(schema.billingCheckoutAttemptSchema.id, topupAttempt!.id));
+
+    const { beginCheckoutAttempt } = await import('@/libs/billing/checkoutAttempts');
+    await db.transaction(tx => beginCheckoutAttempt(tx, {
+      salonId: 's_t_ttl_isolated',
+      purpose: 'plan_subscription',
+      billingOfferKey: 'pro_2026_08_monthly',
+      now: new Date('2027-01-01T00:00:00.000Z'),
+    }));
+
+    const [afterSubscriptionCleanup] = (await attemptRows('s_t_ttl_isolated'))
+      .filter(row => row.id === topupAttempt!.id);
+
+    expect(afterSubscriptionCleanup).toMatchObject({ status: 'checkout_created' });
+
+    const { applyCheckoutSessionExpired } = await import('@/libs/billing/billingSubscriptionProjection');
+    const subscriptionExpiry = await applyCheckoutSessionExpired({ sessionId: firstBody.data.sessionId });
+
+    expect(subscriptionExpiry).toMatchObject({ attemptExpired: false, claimReleased: false });
+
+    const [afterSubscriptionExpiry] = (await attemptRows('s_t_ttl_isolated'))
+      .filter(row => row.id === topupAttempt!.id);
+
+    expect(afterSubscriptionExpiry).toMatchObject({ status: 'checkout_created' });
+
+    stripeMock.checkout.sessions.retrieve.mockResolvedValueOnce(retrievedTopupSession({
+      id: firstBody.data.sessionId,
+      salonId: 's_t_ttl_isolated',
+      topupOfferKey: 'topup_100_paid_2026_08',
+      attemptId: topupAttempt!.id,
+      purchaseId: purchase!.id,
+    }));
+    const retry = await postCheckout({ salonId: 's_t_ttl_isolated', topupOfferKey: 'topup_100_paid_2026_08' });
+
+    expect(retry.status).toBe(200);
+    expect((await retry.json()).data.reused).toBe(true);
+    expect(stripeMock.checkout.sessions.create).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps an expiry webhook retryable when it arrives before checkout binding', async () => {
+    await seedSalon('s_t_early_expiry');
+    const earlyExpiry = webhookEvent('checkout.session.expired', {
+      id: 'cs_t_early_expiry',
+      metadata: { purpose: 'sms_topup', salonId: 's_t_early_expiry' },
+    });
+    let earlyResponse: Response | undefined;
+    stripeMock.checkout.sessions.create.mockImplementationOnce(async () => {
+      earlyResponse = await postWebhook(earlyExpiry);
+      return { id: 'cs_t_early_expiry', url: 'https://checkout.stripe.test/topup' };
+    });
+
+    const checkout = await postCheckout({ salonId: 's_t_early_expiry', topupOfferKey: 'topup_100_paid_2026_08' });
+
+    expect(checkout.status).toBe(200);
+    expect(earlyResponse!.status).toBe(500);
+
+    // The webhook worker deliberately backs off failed delivery. Make the
+    // existing event eligible so this unit proof can exercise redelivery.
+    await db.update(schema.billingStripeEventSchema)
+      .set({ availableAt: new Date(0) })
+      .where(eq(schema.billingStripeEventSchema.eventId, earlyExpiry.id));
+    const replay = await postWebhook(earlyExpiry);
+
+    expect(replay.status).toBe(200);
+
+    const [purchase] = await purchaseRows('s_t_early_expiry');
+
+    expect(purchase!.status).toBe('expired');
   });
 });
 
@@ -236,11 +541,87 @@ describe('top-up fulfillment through the webhook (§9.3-§9.5)', () => {
     expect(purchase!.stripePaymentIntentId).toBe('pi_unpaid');
   });
 
+  it('keeps an unpaid completion pending and does not create a replacement checkout', async () => {
+    await seedSalon('s_t_unpaid_retry');
+    const checkout = await postCheckout({ salonId: 's_t_unpaid_retry', topupOfferKey: 'topup_100_paid_2026_08' });
+    const { data } = await checkout.json();
+    await postWebhook(webhookEvent('checkout.session.completed', {
+      id: data.sessionId,
+      payment_status: 'unpaid',
+      payment_intent: 'pi_unpaid_retry',
+      metadata: { purpose: 'sms_topup', salonId: 's_t_unpaid_retry' },
+    }));
+
+    const [attemptBefore] = await attemptRows('s_t_unpaid_retry');
+    const [purchaseBefore] = await purchaseRows('s_t_unpaid_retry');
+    const creditAccountBefore = await db.select().from(schema.smsCreditAccountSchema)
+      .where(eq(schema.smsCreditAccountSchema.salonId, 's_t_unpaid_retry'));
+    const creditLedgerBefore = await db.select().from(schema.smsCreditLedgerSchema)
+      .where(eq(schema.smsCreditLedgerSchema.salonId, 's_t_unpaid_retry'));
+    const sentry = await import('@sentry/nextjs');
+    const captureCountBefore = vi.mocked(sentry.captureException).mock.calls.length;
+
+    stripeMock.checkout.sessions.retrieve.mockResolvedValue(retrievedTopupSession({
+      id: data.sessionId,
+      salonId: 's_t_unpaid_retry',
+      topupOfferKey: 'topup_100_paid_2026_08',
+      attemptId: attemptBefore!.id,
+      purchaseId: purchaseBefore!.id,
+      status: 'complete',
+    }));
+
+    const retry = await postCheckout({ salonId: 's_t_unpaid_retry', topupOfferKey: 'topup_100_paid_2026_08' });
+
+    expect(retry.status).toBe(409);
+    expect((await retry.json()).error.code).toBe('CHECKOUT_PENDING_RECONCILIATION');
+    expect(stripeMock.checkout.sessions.create).toHaveBeenCalledTimes(1);
+    expect(stripeMock.checkout.sessions.retrieve).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(sentry.captureException)).toHaveBeenCalledTimes(captureCountBefore);
+    expect(await attemptRows('s_t_unpaid_retry')).toEqual([attemptBefore]);
+    expect(await purchaseRows('s_t_unpaid_retry')).toEqual([purchaseBefore]);
+    expect(await db.select().from(schema.smsCreditAccountSchema)
+      .where(eq(schema.smsCreditAccountSchema.salonId, 's_t_unpaid_retry'))).toEqual(creditAccountBefore);
+    expect(await db.select().from(schema.smsCreditLedgerSchema)
+      .where(eq(schema.smsCreditLedgerSchema.salonId, 's_t_unpaid_retry'))).toEqual(creditLedgerBefore);
+    expect(creditLedgerBefore).toHaveLength(0);
+  });
+
+  it('allows a later top-up after verified fulfillment', async () => {
+    await buyAndPay('s_t_fulfilled_retry');
+
+    const next = await postCheckout({ salonId: 's_t_fulfilled_retry', topupOfferKey: 'topup_100_paid_2026_08' });
+
+    expect(next.status).toBe(200);
+    expect(stripeMock.checkout.sessions.create).toHaveBeenCalledTimes(2);
+    expect(await purchaseRows('s_t_fulfilled_retry')).toHaveLength(2);
+  });
+
+  it('does not undo fulfilled credits when a signed expiry webhook arrives late', async () => {
+    const { sessionId } = await buyAndPay('s_t_late_expiry');
+
+    const lateExpiry = await postWebhook(webhookEvent('checkout.session.expired', {
+      id: sessionId,
+      metadata: { purpose: 'sms_topup', salonId: 's_t_late_expiry' },
+    }));
+
+    expect(lateExpiry.status).toBe(200);
+    expect(await purchasedBalance('s_t_late_expiry')).toBe(100);
+
+    const [purchase] = await purchaseRows('s_t_late_expiry');
+    const [attempt] = await attemptRows('s_t_late_expiry');
+
+    expect(purchase).toMatchObject({ status: 'fulfilled' });
+    expect(attempt).toMatchObject({ status: 'completed' });
+  });
+
   it('an expired session parks the purchase', async () => {
     await seedSalon('s_t_exp');
     const checkout = await postCheckout({ salonId: 's_t_exp', topupOfferKey: 'topup_100_paid_2026_08' });
     const { data } = await checkout.json();
-    await postWebhook(webhookEvent('checkout.session.expired', { id: data.sessionId }));
+    await postWebhook(webhookEvent('checkout.session.expired', {
+      id: data.sessionId,
+      metadata: { purpose: 'sms_topup', salonId: 's_t_exp' },
+    }));
     const [purchase] = await purchaseRows('s_t_exp');
 
     expect(purchase!.status).toBe('expired');

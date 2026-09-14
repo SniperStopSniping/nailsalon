@@ -334,6 +334,7 @@ export async function applyCheckoutSessionExpired(input: {
       .set({ status: 'expired' })
       .where(and(
         eq(billingCheckoutAttemptSchema.stripeCheckoutSessionId, input.sessionId),
+        eq(billingCheckoutAttemptSchema.purpose, 'plan_subscription'),
         inArray(billingCheckoutAttemptSchema.status, ['creating', 'checkout_created']),
       ))
       .returning();

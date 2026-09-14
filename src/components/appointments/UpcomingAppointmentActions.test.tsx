@@ -464,7 +464,9 @@ describe('UpcomingAppointmentActions', () => {
       }
     });
 
-    expect(screen.queryByTestId('appointment-reminder-due')).not.toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.queryByTestId('appointment-reminder-due')).not.toBeInTheDocument();
+    });
   });
 
   it('shows Directions only when the appointment has a usable location', () => {
