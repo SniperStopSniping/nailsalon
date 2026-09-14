@@ -22,12 +22,16 @@
  * makes no Stripe call and touches the database only for the purge, and
  * responds `200 { skipped: 'BILLING_DISABLED', purged }`.
  *
- * Registration in `vercel.json` is a separate owner decision (plan D3) —
- * NOT taken. This route is deliberately unregistered as a cron in this
- * gate: it only runs when invoked explicitly (e.g. by an operator, or by a
- * future authorized cron entry), and the `200 skipped` contract above is
- * exactly what an unauthorized-but-registered cron would observe once
- * D3 is answered.
+ * REGISTERED in `vercel.json` (P4b, plan D3 ratified 2026-09-14, §20 runbook
+ * step): Vercel invokes this on a `17 * * * *` schedule and authenticates
+ * with `Authorization: Bearer <CRON_SECRET>` (accepted by
+ * `isAuthorizedCronRequest`, `src/libs/billing/cronAuth.ts`). Registration
+ * does not change the dark contract above: while both switches are unset,
+ * every invocation still runs ONLY the unconditional G13 payload purge and
+ * answers `200 { skipped: 'BILLING_DISABLED', purged }` — no Stripe call.
+ * Registration's only inherent cost is the ~one pooled DB connection +
+ * `SELECT 1` that `src/libs/DB.ts` performs on module load for any cold
+ * start — a property of that module, not of this route.
  */
 import * as Sentry from '@sentry/nextjs';
 import { asc, gt, sql } from 'drizzle-orm';

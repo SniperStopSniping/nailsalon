@@ -13,11 +13,17 @@
  * responds `200 { skipped: 'BILLING_DISABLED' }` while
  * BILLING_SUBSCRIPTIONS_ENABLED is unset — no DB read beyond the auth check.
  *
- * DELIBERATELY NOT REGISTERED in vercel.json: registering this (or the
- * sibling reconcile route) as a cron is an owner decision (plan D3, §20
- * runbook step) that has NOT been taken. Until then this route only runs
- * when invoked explicitly, and evaluating windows is grant-correct whenever
- * it runs (idempotent keys; missed evaluations skip, never backfill).
+ * REGISTERED in `vercel.json` (P4b, plan D3 ratified 2026-09-14, §20 runbook
+ * step): Vercel invokes this every 15 minutes and authenticates
+ * with `Authorization: Bearer <CRON_SECRET>` (accepted by
+ * `isAuthorizedCronRequest`, `src/libs/billing/cronAuth.ts`). Registration
+ * does not change the dark contract above: while the switch is unset every
+ * invocation is still a pure `200 skipped` with no DB read beyond the auth
+ * check and no Stripe call. Registration's only inherent cost is the ~one
+ * pooled DB connection + `SELECT 1` that `src/libs/DB.ts` performs on module
+ * load for any cold start — a property of that module, not of this route.
+ * Evaluating windows stays grant-correct whenever it runs regardless of
+ * schedule drift (idempotent keys; missed evaluations skip, never backfill).
  */
 import { and, asc, gt, inArray, isNull, lte, or } from 'drizzle-orm';
 

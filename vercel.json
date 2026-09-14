@@ -21,6 +21,14 @@
       "schedule": "*/5 * * * *"
     },
     {
+      "path": "/api/billing/windows/evaluate",
+      "schedule": "*/15 * * * *"
+    },
+    {
+      "path": "/api/billing/reconcile",
+      "schedule": "17 * * * *"
+    },
+    {
       "path": "/api/communications/dispatch",
       "schedule": "*/5 * * * *"
     }

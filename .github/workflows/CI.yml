@@ -520,6 +520,9 @@ jobs:
               /api/deposits/holds/reap) ;;
               /api/deposits/reconcile) ;;
               /api/communications/dispatch) ;;
+              # D3 (2026-09-14): billing crons, dark until BILLING_* switches flip
+              /api/billing/windows/evaluate) ;;
+              /api/billing/reconcile) ;;
               *)
                 echo "::error::Unauthorized vercel.json cron entry: $cron"
                 exit 1
