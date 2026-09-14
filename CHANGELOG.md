@@ -1,3 +1,10 @@
+# [1.105.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.104.2...v1.105.0) (2026-09-14)
+
+
+### Features
+
+* **billing:** p5b billing portal resolves new-track customers (D18) ([df032d2](https://github.com/SniperStopSniping/nailsalon/commit/df032d29a654c97c4420c38251be01d16c63decf))
+
 ## [1.104.2](https://github.com/SniperStopSniping/nailsalon/compare/v1.104.1...v1.104.2) (2026-09-14)
 
 
