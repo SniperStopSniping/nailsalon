@@ -21,6 +21,24 @@ The current billing webhook does not handle `checkout.session.async_payment_succ
 
 Route regressions cover duplicate/reused attempts, offer conflicts, tenant and dark-switch rejection, mapping checks, uncertain provider responses, binding failure, metadata mismatch, expiry, early webhook delivery, fulfillment, refunds and disputes. A guarded disposable-Postgres suite exercises genuine overlapping requests and lock compatibility; the existing PostgreSQL CI job includes it.
 
+### Completed-but-unpaid guard evidence
+
+Astra found that the original completed-but-unpaid retry test reached the
+route's exception fallback because `checkout.sessions.retrieve` had no valid
+mocked response. Test-only commit
+`50f9c2963942a57d4ecebd7a6f38dd51eb986550` corrects that proof without
+changing production code:
+
+- Stripe retrieval returns a valid `status: 'complete'`, unpaid Checkout
+  Session bound to the persisted tenant, offer, attempt, purchase, and session.
+- The retry returns `409 CHECKOUT_PENDING_RECONCILIATION` after one session
+  creation and one retrieval.
+- The error-capture call count is unchanged, proving the catch fallback did not
+  produce the pending response.
+- Attempt, purchase, credit-account, and credit-ledger state are captured before
+  the retry and asserted unchanged afterward; the ledger remains empty.
+- The focused billing battery passes all 77 tests.
+
 Final validation on Node 20.19.4:
 
 - Focused billing suite: **77 passed** across top-up route (24), subscription checkout (16), billing webhook (7), subscription projection (7), credit grants (23). Command: `npx vitest run --no-file-parallelism src/app/api/billing/checkout/topup/route.test.ts src/app/api/billing/checkout/route.test.ts src/app/api/webhooks/stripe-billing/route.test.ts src/libs/billing/billingSubscriptionProjection.test.ts src/libs/billing/creditGrants.test.ts`.
