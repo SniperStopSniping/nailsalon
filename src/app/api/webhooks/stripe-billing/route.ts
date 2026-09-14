@@ -46,6 +46,7 @@ import {
   applyTopupDisputeCreated,
   applyTopupSessionCompleted,
   applyTopupSessionExpired,
+  buildTopupVerifiedEvidence,
   isTopupEvidenceMismatchReason,
   type TopupVerifiedEvidence,
 } from '@/libs/billing/topupFulfillment';
@@ -169,21 +170,6 @@ export async function POST(request: Request): Promise<Response> {
     }
     return Response.json({ error: { code: 'HANDLER_RETRYABLE', message } }, { status: 500 });
   }
-}
-
-/** G02: retrieve a top-up session's verified evidence — only meaningful once payment_status is 'paid'; the event body itself never carries line items. */
-async function buildTopupVerifiedEvidence(sessionId: string): Promise<TopupVerifiedEvidence> {
-  const retrieved = await stripe.checkout.sessions.retrieve(sessionId, {
-    expand: ['line_items', 'payment_intent'],
-  });
-  return {
-    amountTotal: retrieved.amount_total ?? null,
-    currency: retrieved.currency ?? null,
-    metadataSalonId: retrieved.metadata?.salonId ?? null,
-    metadataPurchaseId: retrieved.metadata?.purchaseId ?? null,
-    metadataAttemptId: retrieved.metadata?.attemptId ?? null,
-    priceId: retrieved.line_items?.data?.[0]?.price?.id ?? null,
-  };
 }
 
 /**

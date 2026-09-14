@@ -12,10 +12,12 @@
 import 'server-only';
 
 import { and, eq, inArray } from 'drizzle-orm';
+import type Stripe from 'stripe';
 
 import { fulfillTopupPurchase, reverseTopup } from '@/libs/billing/creditGrants';
 import { resolveTopupOfferFromStripePriceId } from '@/libs/billing/stripePriceMap';
 import { db } from '@/libs/DB';
+import { stripe } from '@/libs/stripe';
 import { billingCheckoutAttemptSchema, salonSchema, smsTopupPurchaseSchema } from '@/models/Schema';
 
 /**
@@ -47,6 +49,38 @@ export const TOPUP_EVIDENCE_MISMATCH_REASONS = new Set([
 
 export function isTopupEvidenceMismatchReason(reason: string | undefined): boolean {
   return reason !== undefined && TOPUP_EVIDENCE_MISMATCH_REASONS.has(reason);
+}
+
+/**
+ * G02/G06: retrieve a top-up Checkout Session WITH the line-items + payment
+ * intent expansion the event body never carries. Moved here (from the
+ * stripe-billing webhook route, P3a) so P4's held-attempt reconciler
+ * (`topupReconciliation.ts`) can retrieve the SAME shape of evidence the
+ * webhook uses — one Stripe call serves both the fulfillment decision (paid?
+ * expired? open?) and the evidence cross-check below.
+ */
+export async function retrieveTopupCheckoutSession(sessionId: string): Promise<Stripe.Checkout.Session> {
+  return stripe.checkout.sessions.retrieve(sessionId, {
+    expand: ['line_items', 'payment_intent'],
+  });
+}
+
+/** Pure extraction — shared by the webhook (which already knows payment_status='paid') and the reconciler (which learns it from the very same retrieve). */
+export function extractTopupVerifiedEvidenceFromSession(session: Stripe.Checkout.Session): TopupVerifiedEvidence {
+  return {
+    amountTotal: session.amount_total ?? null,
+    currency: session.currency ?? null,
+    metadataSalonId: session.metadata?.salonId ?? null,
+    metadataPurchaseId: session.metadata?.purchaseId ?? null,
+    metadataAttemptId: session.metadata?.attemptId ?? null,
+    priceId: session.line_items?.data?.[0]?.price?.id ?? null,
+  };
+}
+
+/** G02: retrieve a top-up session's verified evidence — only meaningful once payment_status is 'paid'; the event body itself never carries line items. */
+export async function buildTopupVerifiedEvidence(sessionId: string): Promise<TopupVerifiedEvidence> {
+  const retrieved = await retrieveTopupCheckoutSession(sessionId);
+  return extractTopupVerifiedEvidenceFromSession(retrieved);
 }
 
 // G02: logged AT MOST ONCE per process — see the identical rationale on the
