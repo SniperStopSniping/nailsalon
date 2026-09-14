@@ -1,7 +1,8 @@
 'use client';
 
 /**
- * Your Information (Booking Page hub → focused editor, `panel=information`).
+ * Canonical business information and public-photo editors used by the
+ * Booking Page and Settings hubs.
  *
  * Four accordions — Business identity, Location, Contact, Hours — each showing
  * the ACTUAL saved value, an editor that writes to the canonical authority, and
@@ -14,7 +15,8 @@
  *   - nail-tech name     → PUT  /api/admin/technicians/[id]   (never /api/admin/profile,
  *                          which is the signed-in owner's PRIVATE account)
  *   - profile photo      → POST /api/admin/technicians/[id]/avatar (existing upload path)
- *   - logo picker        → GET  /api/admin/portfolio (existing media library)
+ *   - direct logo upload → POST /api/admin/salon/information
+ *   - logo picker        → GET  /api/admin/portfolio (optional existing-image reuse)
  *   - street address     → PATCH /api/admin/location
  *   - address privacy    → booking-page content draft (`locationDisplayMode`), published later
  *   - timezone           → PATCH /api/admin/salon/settings (`bookingConfig.timezone`)
@@ -26,6 +28,7 @@
 import { ExternalLink } from 'lucide-react';
 import { type ChangeEvent, useCallback, useEffect, useRef, useState } from 'react';
 
+import { prepareOnboardingMediaUpload } from '@/features/onboarding-v1-integration/media-upload-preparation';
 import type { BookingPageConfigSide } from '@/libs/bookingPageConfig';
 import type { LocationDisplayMode } from '@/libs/bookingPageContent';
 import {
@@ -34,6 +37,7 @@ import {
   INSTAGRAM_FIELD_LABEL,
   toInstagramHandle,
 } from '@/libs/instagramHandle';
+import { validateServiceImageFile } from '@/libs/serviceImageClient';
 
 import {
   QUICK_BOOK_VISIBILITY_GROUPS,
@@ -154,6 +158,12 @@ const fieldClass = 'mt-1 w-full min-h-11 rounded-xl border border-[var(--owner-l
 const labelClass = 'block text-sm font-medium text-[var(--owner-ink)]';
 const primaryButtonClass = 'inline-flex min-h-11 items-center justify-center rounded-xl bg-[var(--owner-accent)] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50';
 const secondaryButtonClass = 'inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-[var(--owner-line-strong)] bg-[var(--owner-surface)] px-4 py-2 text-sm font-semibold text-[var(--owner-ink)] disabled:opacity-50';
+
+/** Keeps every public-photo request below the serverless multipart limit. */
+async function preparePublicMediaFile(file: File): Promise<File> {
+  const validated = validateServiceImageFile(file);
+  return prepareOnboardingMediaUpload(validated, validated.name);
+}
 
 /**
  * Publish semantics per accordion. Three of the four write the canonical
@@ -300,8 +310,8 @@ export function BookingPageInformationEditor({
   coverUpload?: { status: 'idle' | 'uploading' | 'error'; error: string | null; note: string | null };
   onUploadCover?: (file: File) => void;
   onUseDefaultCover?: () => void;
-  /** Booking Page owns display choices; Settings owns the editable business record. */
-  mode?: 'booking' | 'business' | 'legacy';
+  /** Booking Page owns display choices and public photos; Settings owns the editable business record. */
+  mode?: 'booking' | 'business' | 'gallery' | 'legacy';
 }) {
   const [info, setInfo] = useState<SalonInformation | null>(null);
   const [loadState, setLoadState] = useState<'loading' | 'ready' | 'forbidden' | 'error'>('loading');
@@ -322,8 +332,8 @@ export function BookingPageInformationEditor({
   }, [addressPrivacy]);
   const query = `salonSlug=${encodeURIComponent(salonSlug)}`;
   const workspace = `/${locale}/admin?salon=${encodeURIComponent(salonSlug)}`;
-  const showSwitches = mode !== 'business' && draft.layout === 'quick_book';
-  const showEditors = mode !== 'booking';
+  const showSwitches = mode !== 'business' && mode !== 'gallery' && draft.layout === 'quick_book';
+  const showEditors = mode !== 'booking' && mode !== 'gallery';
 
   const loadInformation = useCallback(async () => {
     try {
@@ -487,12 +497,45 @@ export function BookingPageInformationEditor({
     }
   };
 
+  const uploadLogo = async (file: File | null) => {
+    if (!file || !info) {
+      return;
+    }
+    setMediaStatus({ status: 'saving', error: null });
+    try {
+      const prepared = await preparePublicMediaFile(file);
+      const body = new FormData();
+      body.append('file', prepared);
+      body.append('baselineLogoUrl', info.salon.logoUrl ?? '');
+      const payload = await requestJson<{ data: { logoUrl: string } }>(`/api/admin/salon/information?${query}`, { method: 'POST', body });
+      setInfo(current => (current ? { ...current, salon: { ...current.salon, logoUrl: payload.data.logoUrl } } : current));
+      setRemovedLogoUrl(null);
+      setMediaStatus({ status: 'saved', error: null });
+    } catch (uploadError) {
+      const error = uploadError instanceof Error ? uploadError.message : 'Could not upload the logo.';
+      // A stale-baseline conflict means another surface saved a newer logo
+      // while this upload was in flight. Refresh before allowing a retry so
+      // the next upload is based on the latest canonical value.
+      await loadInformation();
+      setMediaStatus({ status: 'error', error });
+    }
+  };
+
   const chooseCoverFile = (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     event.target.value = '';
-    if (file && onUploadCover) {
-      onUploadCover(file);
+    if (!file || !onUploadCover) {
+      return;
     }
+    void (async () => {
+      setMediaStatus({ status: 'saving', error: null });
+      try {
+        onUploadCover(await preparePublicMediaFile(file));
+        setMediaStatus({ status: 'idle', error: null });
+      } catch (uploadError) {
+        setMediaStatus({ status: 'error', error: uploadError instanceof Error ? uploadError.message : 'Could not prepare the cover photo.' });
+      }
+    })();
   };
 
   const uploadProfilePhoto = async (file: File | null) => {
@@ -501,8 +544,9 @@ export function BookingPageInformationEditor({
     }
     setMediaStatus({ status: 'saving', error: null });
     try {
+      const prepared = await preparePublicMediaFile(file);
       const body = new FormData();
-      body.append('file', file);
+      body.append('file', prepared);
       body.append('salonSlug', salonSlug);
       const payload = await requestJson<{ data?: { avatarUrl?: string | null } }>(`/api/admin/technicians/${encodeURIComponent(info.technician.id)}/avatar`, { method: 'POST', body });
       const avatarUrl = payload.data?.avatarUrl ?? null;
@@ -510,6 +554,27 @@ export function BookingPageInformationEditor({
       setMediaStatus({ status: 'saved', error: null });
     } catch (uploadError) {
       setMediaStatus({ status: 'error', error: uploadError instanceof Error ? uploadError.message : 'Could not upload the photo.' });
+    }
+  };
+
+  const removeProfilePhoto = async () => {
+    if (!info?.technician?.avatarUrl) {
+      return;
+    }
+    setMediaStatus({ status: 'saving', error: null });
+    try {
+      await requestJson(
+        `/api/admin/technicians/${encodeURIComponent(info.technician.id)}/avatar?${query}`,
+        { method: 'DELETE' },
+      );
+      setInfo(current => (
+        current && current.technician
+          ? { ...current, technician: { ...current.technician, avatarUrl: null } }
+          : current
+      ));
+      setMediaStatus({ status: 'saved', error: null });
+    } catch (removeError) {
+      setMediaStatus({ status: 'error', error: removeError instanceof Error ? removeError.message : 'Could not remove the profile photo.' });
     }
   };
 
@@ -568,6 +633,135 @@ export function BookingPageInformationEditor({
     return choices;
   })();
 
+  const mediaControls = editable && info
+    ? (
+        <>
+          <div className="grid gap-5 sm:grid-cols-2" data-testid="photos-gallery-media-controls">
+            <div>
+              <span className={labelClass}>Business logo</span>
+              {info.salon.logoUrl
+                ? <img alt="Current business logo" className="mt-2 size-24 rounded-xl border border-[var(--owner-line)] object-contain" src={info.salon.logoUrl} />
+                : <p className="mt-1 text-sm text-[var(--owner-muted)]">No logo saved.</p>}
+              <div className="mt-2 flex flex-wrap gap-2">
+                <label className={`${secondaryButtonClass} cursor-pointer`}>
+                  {mediaStatus.status === 'saving' ? 'Uploading…' : info.salon.logoUrl ? 'Replace logo' : 'Upload logo'}
+                  <input
+                    accept="image/*,.heic,.heif"
+                    className="sr-only"
+                    data-testid="information-logo-upload"
+                    disabled={disabled || mediaStatus.status === 'saving'}
+                    onChange={(event) => {
+                      const file = event.target.files?.[0] ?? null;
+                      event.target.value = '';
+                      void uploadLogo(file);
+                    }}
+                    type="file"
+                  />
+                </label>
+                <button className={secondaryButtonClass} data-testid="information-logo-choose" disabled={disabled || mediaStatus.status === 'saving'} onClick={() => void openLogoPicker()} type="button">Choose existing image</button>
+                {info.salon.logoUrl && <button className={secondaryButtonClass} data-testid="information-logo-remove" disabled={disabled || mediaStatus.status === 'saving'} onClick={() => void saveLogo(null)} type="button">Remove logo</button>}
+                {!info.salon.logoUrl && removedLogoUrl && (
+                  <button className={secondaryButtonClass} data-testid="information-logo-undo" disabled={disabled || mediaStatus.status === 'saving'} onClick={() => void saveLogo(removedLogoUrl)} type="button">Undo remove</button>
+                )}
+              </div>
+              <p className="mt-1 text-xs text-[var(--owner-muted)]">Upload a logo directly here, or reuse one of your existing images. A direct logo upload is not added to your nail-work Portfolio.</p>
+              {logoPicker.open && (
+                <div className="mt-2 rounded-xl border border-[var(--owner-line)] p-2" role="group" aria-label="Choose an existing logo image">
+                  {logoPicker.loading && <p className="text-sm text-[var(--owner-muted)]">Loading your images…</p>}
+                  {logoPicker.error && <p className="text-sm text-red-700">{logoPicker.error}</p>}
+                  {!logoPicker.loading && logoChoices.length === 0 && <p className="text-sm text-[var(--owner-muted)]">No existing images to choose from. Upload a logo above instead.</p>}
+                  <div className="grid grid-cols-3 gap-2">
+                    {logoChoices.map(choice => (
+                      <button className={`aspect-square min-h-11 overflow-hidden rounded-lg border ${choice.imageUrl === info.salon.logoUrl ? 'border-[var(--owner-accent)]' : 'border-[var(--owner-line)]'}`} data-testid={`information-logo-option-${choice.id}`} key={choice.id} onClick={() => void saveLogo(choice.imageUrl)} type="button">
+                        <img alt={choice.altText} className="size-full object-cover" src={choice.imageUrl} />
+                      </button>
+                    ))}
+                  </div>
+                  <button className={`${secondaryButtonClass} mt-2`} onClick={() => setLogoPicker(current => ({ ...current, open: false }))} type="button">Close</button>
+                </div>
+              )}
+            </div>
+
+            <div>
+              <span className={labelClass}>Nail-tech profile photo</span>
+              {info.technician?.avatarUrl
+                ? <img alt="Current nail tech" className="mt-2 size-24 rounded-full border border-[var(--owner-line)] object-cover" src={info.technician.avatarUrl} />
+                : <p className="mt-1 text-sm text-[var(--owner-muted)]">{info.technician ? 'No profile photo saved.' : 'Team photos are managed per nail tech in Team.'}</p>}
+              {info.technician && (
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <label className={`${secondaryButtonClass} cursor-pointer`}>
+                    {info.technician.avatarUrl ? 'Replace profile photo' : 'Upload profile photo'}
+                    <input
+                      accept="image/*,.heic,.heif"
+                      className="sr-only"
+                      data-testid="information-tech-photo"
+                      disabled={disabled || mediaStatus.status === 'saving'}
+                      onChange={(event) => {
+                        const file = event.target.files?.[0] ?? null;
+                        event.target.value = '';
+                        void uploadProfilePhoto(file);
+                      }}
+                      type="file"
+                    />
+                  </label>
+                  {info.technician.avatarUrl && <button className={secondaryButtonClass} data-testid="information-tech-photo-remove" disabled={disabled || mediaStatus.status === 'saving'} onClick={() => void removeProfilePhoto()} type="button">Remove profile photo</button>}
+                </div>
+              )}
+              <p className="mt-1 text-xs text-[var(--owner-muted)]">This is the same photo used by your Team profile. Profile-led website layouts can show it; it is never used as your logo.</p>
+            </div>
+
+            {onUploadCover && (
+              <div className="sm:col-span-2" data-testid="information-cover">
+                <span className={labelClass}>Cover photo · optional</span>
+                <p className="mt-0.5 text-xs text-[var(--owner-muted)]">A large photo of your work or studio, used in selected layouts.</p>
+                {coverUrl
+                  ? <img alt="Current cover" className="mt-2 h-28 w-48 rounded-xl border border-[var(--owner-line)] object-cover" src={coverUrl} />
+                  : (
+                      <p className="mt-1 text-sm text-[var(--owner-muted)]" data-testid="information-cover-default-note">
+                        Using a default cover. It appears in cover-photo layouts until you replace it.
+                      </p>
+                    )}
+                {coverUrl && coverUsedByLayout === false && <p className="mt-1 text-xs text-[var(--owner-muted)]">Your cover is saved. Your current layout does not display it.</p>}
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <label className={`${secondaryButtonClass} cursor-pointer`}>
+                    {coverUpload?.status === 'uploading' ? 'Uploading…' : coverUrl ? 'Replace cover' : 'Upload cover'}
+                    <input
+                      accept="image/*,.heic,.heif"
+                      className="sr-only"
+                      data-testid="information-cover-upload"
+                      disabled={disabled || coverUpload?.status === 'uploading'}
+                      onChange={chooseCoverFile}
+                      type="file"
+                    />
+                  </label>
+                  {coverUrl && onUseDefaultCover && <button className={secondaryButtonClass} data-testid="information-cover-use-default" disabled={disabled} onClick={onUseDefaultCover} type="button">Use default cover</button>}
+                </div>
+                {coverUpload?.status === 'error' && coverUpload.error && <p className="mt-1 text-sm text-red-700" role="alert">{coverUpload.error}</p>}
+                {coverUpload?.note && <p className="mt-1 text-xs text-[var(--owner-muted)]">{coverUpload.note}</p>}
+                <p className="mt-1 text-xs text-[var(--owner-muted)]">Cover changes stay in your booking-page draft and go live when you publish. Reposition the image and edit cover writing in Layout.</p>
+              </div>
+            )}
+          </div>
+          <StatusLine error={mediaStatus.error} savedText="Image saved" status={mediaStatus.status} />
+        </>
+      )
+    : renderFallback('Business identity');
+
+  if (mode === 'gallery') {
+    return (
+      <section className="rounded-3xl border border-[var(--owner-line)] bg-[var(--owner-surface)] p-5 shadow-sm" data-testid="booking-page-information-editor">
+        <h2 className="text-lg font-semibold text-[var(--owner-ink)]">Photos &amp; Gallery</h2>
+        <p className="mt-1 text-sm text-[var(--owner-muted)]" data-testid="information-publish-summary">Your logo and profile photo update everywhere as soon as they save. Your cover stays in the website draft until you publish.</p>
+        <div className="mt-5">{mediaControls}</div>
+        <div className="mt-6 rounded-2xl border border-[var(--owner-line)] bg-[var(--owner-ground)] p-4" data-testid="photos-gallery-portfolio">
+          <h3 className="font-semibold text-[var(--owner-ink)]">Nail-work Portfolio</h3>
+          <p className="mt-1 text-sm text-[var(--owner-muted)]">Upload and organize reusable photos of your nail work for your profile and Luster Discover.</p>
+          <a className={`${secondaryButtonClass} mt-3`} href={`${workspace}&app=portfolio`}>Manage Portfolio</a>
+        </div>
+      </section>
+    );
+  }
+
   return (
     <section className="rounded-3xl border border-[var(--owner-line)] bg-[var(--owner-surface)] p-5 shadow-sm" data-testid="booking-page-information-editor">
       <h2 className="text-lg font-semibold text-[var(--owner-ink)]">
@@ -624,93 +818,19 @@ export function BookingPageInformationEditor({
                   </div>
                   <StatusLine error={identity.error} status={identity.status} />
 
-                  <div className="grid gap-4 border-t border-[var(--owner-line)] pt-4 sm:grid-cols-2">
-                    <div>
-                      <span className={labelClass}>Business logo</span>
+                  <div className="border-t border-[var(--owner-line)] pt-4" data-testid="business-profile-photo-summary">
+                    <p className="text-sm font-semibold text-[var(--owner-ink)]">Public photos</p>
+                    <div className="mt-2 flex items-center gap-3">
                       {info.salon.logoUrl
-                        ? <img alt="Current business logo" className="mt-2 size-20 rounded-xl border border-[var(--owner-line)] object-contain" src={info.salon.logoUrl} />
-                        : <p className="mt-1 text-sm text-[var(--owner-muted)]">No logo saved.</p>}
-                      <div className="mt-2 flex flex-wrap gap-2">
-                        <button className={secondaryButtonClass} data-testid="information-logo-choose" disabled={disabled} onClick={() => void openLogoPicker()} type="button">Choose a logo</button>
-                        {info.salon.logoUrl && <button className={secondaryButtonClass} data-testid="information-logo-remove" disabled={disabled} onClick={() => void saveLogo(null)} type="button">Remove logo</button>}
-                        {!info.salon.logoUrl && removedLogoUrl && (
-                          <button className={secondaryButtonClass} data-testid="information-logo-undo" disabled={disabled} onClick={() => void saveLogo(removedLogoUrl)} type="button">Undo remove</button>
-                        )}
-                      </div>
-                      <p className="mt-1 text-xs text-[var(--owner-muted)]">Your setup logo stays available here. To use a different image, add it in Photos &amp; Gallery first, then pick it. The logo is never swapped with the nail tech photo.</p>
-                      {logoPicker.open && (
-                        <div className="mt-2 rounded-xl border border-[var(--owner-line)] p-2" role="group" aria-label="Choose a logo">
-                          {logoPicker.loading && <p className="text-sm text-[var(--owner-muted)]">Loading your images…</p>}
-                          {logoPicker.error && <p className="text-sm text-red-700">{logoPicker.error}</p>}
-                          {!logoPicker.loading && logoChoices.length === 0 && (
-                            <p className="text-sm text-[var(--owner-muted)]">
-                              No images to choose from yet.
-                              {' '}
-                              <a className="font-semibold text-[var(--owner-accent)] underline" href={`${workspace}&app=portfolio`}>Add one in Photos &amp; Gallery</a>
-                              , then come back here.
-                            </p>
-                          )}
-                          <div className="grid grid-cols-3 gap-2">
-                            {logoChoices.map(choice => (
-                              <button className={`aspect-square min-h-11 overflow-hidden rounded-lg border ${choice.imageUrl === info.salon.logoUrl ? 'border-[var(--owner-accent)]' : 'border-[var(--owner-line)]'}`} data-testid={`information-logo-option-${choice.id}`} key={choice.id} onClick={() => void saveLogo(choice.imageUrl)} type="button">
-                                <img alt={choice.altText} className="size-full object-cover" src={choice.imageUrl} />
-                              </button>
-                            ))}
-                          </div>
-                          <button className={`${secondaryButtonClass} mt-2`} onClick={() => setLogoPicker(current => ({ ...current, open: false }))} type="button">Close</button>
-                        </div>
-                      )}
-                    </div>
-                    <div>
-                      <span className={labelClass}>Nail tech photo</span>
+                        ? <img alt="Current business logo" className="size-16 rounded-xl border border-[var(--owner-line)] object-contain" src={info.salon.logoUrl} />
+                        : <span className="flex size-16 items-center justify-center rounded-xl border border-dashed border-[var(--owner-line)] text-center text-xs text-[var(--owner-muted)]">No logo</span>}
                       {info.technician?.avatarUrl
-                        ? <img alt="Current nail tech" className="mt-2 size-20 rounded-full border border-[var(--owner-line)] object-cover" src={info.technician.avatarUrl} />
-                        : <p className="mt-1 text-sm text-[var(--owner-muted)]">{info.technician ? 'No photo saved.' : 'Managed per nail tech in Staff.'}</p>}
-                      {info.technician && (
-                        <label className={`${secondaryButtonClass} mt-2 cursor-pointer`}>
-                          Upload photo
-                          <input accept="image/jpeg,image/png,image/webp" className="sr-only" data-testid="information-tech-photo" disabled={disabled} onChange={event => void uploadProfilePhoto(event.target.files?.[0] ?? null)} type="file" />
-                        </label>
-                      )}
-                      <p className="mt-1 text-xs text-[var(--owner-muted)]">Uses the same Staff photo upload. It is never used as the logo. Profile-led layouts show a default illustration until you add a photo.</p>
+                        ? <img alt="Current nail tech" className="size-16 rounded-full border border-[var(--owner-line)] object-cover" src={info.technician.avatarUrl} />
+                        : <span className="flex size-16 items-center justify-center rounded-full border border-dashed border-[var(--owner-line)] text-center text-xs text-[var(--owner-muted)]">No profile photo</span>}
                     </div>
-                    {onUploadCover && (
-                      <div data-testid="information-cover">
-                        <span className={labelClass}>Cover photo · optional</span>
-                        <p className="mt-0.5 text-xs text-[var(--owner-muted)]">A large photo of your work or studio, used in selected layouts.</p>
-                        {coverUrl
-                          ? <img alt="Current cover" className="mt-2 h-20 w-36 rounded-xl border border-[var(--owner-line)] object-cover" src={coverUrl} />
-                          : (
-                              <p className="mt-1 text-sm text-[var(--owner-muted)]" data-testid="information-cover-default-note">
-                                Using a default cover. It appears in cover-photo layouts until you replace it, and clients can see it in the meantime.
-                              </p>
-                            )}
-                        {coverUrl && coverUsedByLayout === false && (
-                          <p className="mt-1 text-xs text-[var(--owner-muted)]">Your cover is saved. Your current layout does not display it.</p>
-                        )}
-                        <div className="mt-2 flex flex-wrap gap-2">
-                          <label className={`${secondaryButtonClass} cursor-pointer`}>
-                            {coverUpload?.status === 'uploading' ? 'Uploading…' : coverUrl ? 'Replace cover' : 'Upload cover'}
-                            <input
-                              accept="image/jpeg,image/png,image/webp"
-                              className="sr-only"
-                              data-testid="information-cover-upload"
-                              disabled={disabled || coverUpload?.status === 'uploading'}
-                              onChange={chooseCoverFile}
-                              type="file"
-                            />
-                          </label>
-                          {coverUrl && onUseDefaultCover && (
-                            <button className={secondaryButtonClass} data-testid="information-cover-use-default" disabled={disabled} onClick={onUseDefaultCover} type="button">Use default cover</button>
-                          )}
-                        </div>
-                        {coverUpload?.status === 'error' && coverUpload.error && <p className="mt-1 text-sm text-red-700" role="alert">{coverUpload.error}</p>}
-                        {coverUpload?.note && <p className="mt-1 text-xs text-[var(--owner-muted)]">{coverUpload.note}</p>}
-                        <p className="mt-1 text-xs text-[var(--owner-muted)]">Saves to your booking-page draft; it goes live when you publish. Reposition it and choose cover writing in Layouts.</p>
-                      </div>
-                    )}
+                    <p className="mt-2 text-xs text-[var(--owner-muted)]">Logo, profile and cover photos are managed together on your Booking Page.</p>
+                    <a className="mt-2 inline-flex min-h-11 items-center font-semibold text-[var(--owner-accent)] underline" href={`/${locale}/admin/booking-page?salon=${encodeURIComponent(salonSlug)}&panel=gallery`}>Manage photos →</a>
                   </div>
-                  <StatusLine error={mediaStatus.error} savedText="Image saved" status={mediaStatus.status} />
                   {renderSwitches('Business identity')}
                 </form>
               )

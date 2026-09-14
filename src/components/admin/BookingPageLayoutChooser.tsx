@@ -1,24 +1,24 @@
 'use client';
 
 /**
- * Layouts panel — choose a Quick Book site layout and manage the images it
- * uses, all from the owner's current draft.
+ * Layouts panel — choose a Quick Book site layout and see how the saved
+ * website images fit it, all from the owner's current draft.
  *
  * Every card is a miniature of the real composition rendered from the same
  * registry and the same image-state rules as the public page, so a thumbnail
  * can never promise an image the published page will not show. Selecting a
- * card writes ONLY `quickBookLayout` to the draft; uploads, focal points,
- * cover writing, visibility, palette and style are separate saved settings
- * that survive every switch.
+ * card writes ONLY `quickBookLayout` to the draft; image uploads live in
+ * Photos & Gallery, while focal points, cover writing, visibility, palette
+ * and style remain separate presentation settings that survive every switch.
  *
- * The contextual "Images for this layout" block edits the SAME assignments
- * the Your Information panel edits (technician photo visibility, cover
- * photo), never a per-layout copy.
+ * The contextual "Images for this layout" block may change presentation
+ * choices such as visibility and focal points, but links to Photos & Gallery
+ * for logo, profile-photo and cover-photo replacement.
  */
 import '../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/quick-book/quick-book-presentation.css';
 
 import { Info, Upload } from 'lucide-react';
-import { type ChangeEvent, type CSSProperties, useEffect, useId, useState } from 'react';
+import { type CSSProperties, useEffect, useState } from 'react';
 
 import { QuickBookLayoutPoster } from '@/components/customer-site/QuickBookPresentation';
 import type { BookingPageConfigSide, BookingPageDraftPatch } from '@/libs/bookingPageConfig';
@@ -59,16 +59,12 @@ type BookingPageLayoutChooserProps = {
   preview: BookingPagePresentationPreview | null;
   disabled: boolean;
   /** Links to the canonical editors that own each record. */
-  informationHref: string | null;
+  photosHref: string | null;
   textHref: string | null;
   portfolioHref: string | null;
-  coverUpload: CoverUploadState;
   onConfigPatch: (patch: BookingPageDraftPatch) => void;
   onContentPatch: (patch: BookingPageContentPatch) => void;
-  onUploadCover: (file: File) => void;
 };
-
-const IMAGE_ACCEPT = 'image/jpeg,image/png,image/webp';
 
 const buttonClass = 'inline-flex min-h-11 items-center gap-2 rounded-xl border border-[var(--owner-line-strong)] bg-[var(--owner-surface)] px-4 py-2 text-sm font-semibold text-[var(--owner-ink)] disabled:opacity-50';
 const linkClass = 'font-semibold text-[var(--owner-accent)] underline';
@@ -218,18 +214,15 @@ export function BookingPageLayoutChooser({
   content,
   preview,
   disabled,
-  informationHref,
+  photosHref,
   textHref,
   portfolioHref,
-  coverUpload,
   onConfigPatch,
   onContentPatch,
-  onUploadCover,
 }: BookingPageLayoutChooserProps) {
   const selectedId = draft.quickBookLayout ?? 'clean_card';
   const selected = getQuickBookLayout(selectedId);
   const tokens = presentationTokens(draft);
-  const coverInputId = useId();
   const [coverTextDraft, setCoverTextDraft] = useState(content?.coverText ?? '');
   useEffect(() => {
     setCoverTextDraft(content?.coverText ?? '');
@@ -239,14 +232,6 @@ export function BookingPageLayoutChooser({
   const portraitShown = draft.quickBookProfile.showTechPhoto && hasCustomPortrait;
   const coverUrl = content?.heroImageUrl ?? null;
   const galleryIds = content?.galleryPhotoIds ?? [];
-
-  const chooseFile = (event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    event.target.value = '';
-    if (file) {
-      onUploadCover(file);
-    }
-  };
 
   const toggleGalleryPhoto = (id: string) => {
     const next = galleryIds.includes(id)
@@ -305,10 +290,10 @@ export function BookingPageLayoutChooser({
               : (
                   <p className="text-sm text-[var(--owner-muted)]">
                     No logo saved, so your business name is shown on its own.
-                    {informationHref && (
+                    {photosHref && (
                       <>
                         {' '}
-                        <a className={linkClass} href={informationHref}>Add a logo in Your Information</a>
+                        <a className={linkClass} href={photosHref}>Add a logo in Photos &amp; Gallery</a>
                         .
                       </>
                     )}
@@ -342,7 +327,7 @@ export function BookingPageLayoutChooser({
                       <button className={buttonClass} data-testid="quick-book-portrait-use-default" onClick={() => onConfigPatch({ quickBookProfile: { showTechPhoto: false } })} type="button">
                         {selected.portrait === 'essential' ? 'Use default illustration instead' : 'Hide my photo'}
                       </button>
-                      {informationHref && <a className={buttonClass} href={informationHref}>Replace photo</a>}
+                      {photosHref && <a className={buttonClass} href={photosHref}>Replace photo</a>}
                     </div>
                     {preview?.technicianPhotoUrl && (
                       <FocalPointControl disabled={disabled} id="quick-book-portrait" imageUrl={preview.technicianPhotoUrl} label="Reposition your photo" onCommit={value => onContentPatch({ portraitFocalPoint: value })} shape="circle" value={content?.portraitFocalPoint ?? null} />
@@ -362,10 +347,10 @@ export function BookingPageLayoutChooser({
                     <div className="mt-2 flex flex-wrap gap-2">
                       {hasCustomPortrait
                         ? <button className={buttonClass} data-testid="quick-book-portrait-show" onClick={() => onConfigPatch({ quickBookProfile: { showTechPhoto: true } })} type="button">Show my photo</button>
-                        : informationHref && (
-                          <a className={buttonClass} href={informationHref}>
+                        : photosHref && (
+                          <a className={buttonClass} href={photosHref}>
                             <Upload aria-hidden="true" className="size-4" />
-                            Add your photo in Your Information
+                            Add your photo in Photos &amp; Gallery
                           </a>
                         )}
                     </div>
@@ -382,7 +367,7 @@ export function BookingPageLayoutChooser({
             <p className="mt-2 text-sm text-[var(--owner-muted)]" data-testid="quick-book-cover-unused-note">Your cover is saved. This layout does not display it.</p>
           )}
           {!selected.cover && !coverUrl && (
-            <p className="mt-2 text-sm text-[var(--owner-muted)]">This layout does not use a cover photo. Choose a cover-photo layout to add one.</p>
+            <p className="mt-2 text-sm text-[var(--owner-muted)]">This layout does not use a cover photo. You can still add one for other layouts.</p>
           )}
           {selected.cover && (
             <>
@@ -399,27 +384,12 @@ export function BookingPageLayoutChooser({
                       <span>Using a default cover. It appears in cover-photo layouts until you replace it, and clients can see it in the meantime.</span>
                     </p>
                   )}
-              <div className="mt-2 flex flex-wrap gap-2">
-                <label className={`${buttonClass} cursor-pointer`} htmlFor={coverInputId}>
-                  <Upload aria-hidden="true" className="size-4" />
-                  {coverUpload.status === 'uploading' ? 'Uploading…' : coverUrl ? 'Replace cover' : 'Upload a cover'}
-                  <input accept={IMAGE_ACCEPT} className="sr-only" data-testid="quick-book-cover-upload" disabled={disabled || coverUpload.status === 'uploading'} id={coverInputId} onChange={chooseFile} type="file" />
-                </label>
-                {coverUrl && (
-                  <button className={buttonClass} data-testid="quick-book-cover-use-default" onClick={() => onContentPatch({ heroImageUrl: null })} type="button">Use default cover</button>
-                )}
-              </div>
-              {coverUpload.status === 'error' && coverUpload.error && (
-                <p className="mt-2 text-sm text-red-700" role="alert">{coverUpload.error}</p>
-              )}
-              {coverUpload.note && (
-                <p className="mt-2 text-sm text-[var(--owner-muted)]">{coverUpload.note}</p>
-              )}
               {coverUrl && (
                 <FocalPointControl disabled={disabled} id="quick-book-cover" imageUrl={coverUrl} label="Reposition your cover" onCommit={value => onContentPatch({ coverFocalPoint: value })} shape="wide" value={content?.coverFocalPoint ?? null} />
               )}
             </>
           )}
+          {photosHref && <a className={`${buttonClass} mt-2`} href={photosHref}>{coverUrl ? 'Replace cover in Photos & Gallery' : 'Add a cover in Photos & Gallery'}</a>}
         </div>
 
         {/* Cover writing */}

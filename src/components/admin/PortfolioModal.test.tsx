@@ -6,6 +6,10 @@ import { PortfolioModal } from './PortfolioModal';
 
 const fetchMock = vi.fn();
 
+vi.mock('@/features/onboarding-v1-integration/media-upload-preparation', () => ({
+  prepareOnboardingMediaUpload: vi.fn(async (file: File) => file),
+}));
+
 vi.mock('@/providers/SalonProvider', () => ({
   useSalon: () => ({ salonSlug: 'salon-a' }),
 }));
@@ -134,5 +138,45 @@ describe('PortfolioModal upload failure', () => {
     await user.click(screen.getByTestId('portfolio-upload-error-dismiss'));
 
     expect(screen.queryByTestId('portfolio-upload-error')).not.toBeInTheDocument();
+  });
+
+  it.each([
+    [503, { error: { code: 'IMAGE_STORAGE_FAILED', message: 'The photo service could not store this image.' } }, 'could not store'],
+    [500, null, 'photo server'],
+    [413, null, 'too large'],
+    [400, { error: { code: 'IMAGE_TOO_SMALL', message: 'Portfolio photos must be at least 400px on each side.' } }, '400px'],
+  ])('reports HTTP %s accurately without blaming the connection', async (status, payload, expected) => {
+    fetchMock.mockImplementation((_input, init) => Promise.resolve(init?.method === 'POST'
+      ? new Response(payload ? JSON.stringify(payload) : 'upstream error', { status })
+      : Response.json(portfolioPayload)));
+    const user = userEvent.setup();
+    render(<PortfolioModal onClose={vi.fn()} />);
+    await screen.findByRole('button', { name: 'Delete Cherry ombré manicure' });
+    await user.click(screen.getByRole('checkbox'));
+    await user.upload(document.querySelector<HTMLInputElement>('input[type="file"]')!, new File(['photo'], 'photo.jpg', { type: 'image/jpeg' }));
+    const error = await screen.findByTestId('portfolio-upload-error');
+
+    expect(error).toHaveTextContent(expected);
+    expect(error).not.toHaveTextContent('connection');
+  });
+
+  it('uploads via the tenant-scoped server route with rights, then refreshes the shared library', async () => {
+    fetchMock.mockImplementation((_input, init) => Promise.resolve(Response.json(init?.method === 'POST'
+      ? { photo: { id: 'created' } }
+      : portfolioPayload)));
+    const user = userEvent.setup();
+    render(<PortfolioModal onClose={vi.fn()} />);
+    await screen.findByRole('button', { name: 'Delete Cherry ombré manicure' });
+    await user.click(screen.getByRole('checkbox'));
+    await user.upload(document.querySelector<HTMLInputElement>('input[type="file"]')!, new File(['photo'], 'photo.jpg', { type: 'image/jpeg' }));
+    await waitFor(() => expect(fetchMock.mock.calls.filter(([, init]) => init?.method === 'POST')).toHaveLength(1));
+    const [url, request] = fetchMock.mock.calls.find(([, init]) => init?.method === 'POST')!;
+
+    expect(url).toBe('/api/admin/portfolio/upload?salonSlug=salon-a');
+    expect(request.body.get('publicationRightsConfirmed')).toBe('true');
+    expect(request.body.get('file')).toBeInstanceOf(File);
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes('cloudinary.com'))).toBe(false);
+
+    await waitFor(() => expect(screen.queryByTestId('portfolio-upload-error')).not.toBeInTheDocument());
   });
 });

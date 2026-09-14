@@ -7,6 +7,8 @@ const {
   getActiveLocationsBySalonId,
   getTechniciansBySalonId,
   logAuditEvent,
+  deleteCanonicalOnboardingProfileMedia,
+  saveCanonicalOnboardingProfileMedia,
   updateSet,
   setUpdateResult,
   db,
@@ -29,6 +31,8 @@ const {
     getActiveLocationsBySalonId: vi.fn(),
     getTechniciansBySalonId: vi.fn(),
     logAuditEvent: vi.fn(),
+    deleteCanonicalOnboardingProfileMedia: vi.fn(),
+    saveCanonicalOnboardingProfileMedia: vi.fn(),
     updateSet,
     setUpdateResult,
     db,
@@ -36,6 +40,7 @@ const {
 });
 
 vi.mock('server-only', () => ({}));
+vi.mock('node:fs/promises', () => ({ mkdir: vi.fn(), writeFile: vi.fn() }));
 vi.mock('@/libs/adminAuth', async () => ({
   ...(await vi.importActual<typeof import('@/libs/adminAuth')>('@/libs/adminAuth')),
   requireAdmin,
@@ -43,8 +48,12 @@ vi.mock('@/libs/adminAuth', async () => ({
 vi.mock('@/libs/auditLog', () => ({ logAuditEvent }));
 vi.mock('@/libs/DB', () => ({ db }));
 vi.mock('@/libs/queries', () => ({ getSalonBySlug, getActiveLocationsBySalonId, getTechniciansBySalonId }));
+vi.mock('@/features/onboarding-v1-integration/canonical-profile-media.server', () => ({
+  deleteCanonicalOnboardingProfileMedia,
+  saveCanonicalOnboardingProfileMedia,
+}));
 
-import { GET, PATCH } from './route';
+import { GET, PATCH, POST } from './route';
 
 const PRIVATE_ADDRESS = '123 Private Street';
 
@@ -120,13 +129,28 @@ function patchRequest(body: unknown, slug = 'salon-a') {
   });
 }
 
+function logoRequest(slug = 'salon-a', baselineLogoUrl = 'https://cdn.example/logo.png') {
+  const body = new FormData();
+  body.append('file', new File([
+    Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAAEUlEQVR4nGPYElDxH4QZYAwAV0wJ7dhY8PUAAAAASUVORK5CYII=', 'base64'),
+  ], 'logo.png', { type: 'image/png' }));
+  body.append('baselineLogoUrl', baselineLogoUrl);
+  return request(`https://x.test/api/admin/salon/information?salonSlug=${slug}`, { body, method: 'POST' });
+}
+
 describe('admin salon information route', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     setUpdateResult([salon({ name: 'Renamed Studio' })]);
+    saveCanonicalOnboardingProfileMedia.mockResolvedValue({
+      publicUrl: 'https://cdn.example/onboarding-profile/logo.webp',
+      storageKey: 'salon_1/logo.webp',
+      storageProvider: 'cloudinary',
+    });
     getSalonBySlug.mockResolvedValue(salon());
     getActiveLocationsBySalonId.mockResolvedValue([primaryLocation]);
     getTechniciansBySalonId.mockResolvedValue([{ id: 'tech_1', name: 'Daniela', avatarUrl: null }]);
+    deleteCanonicalOnboardingProfileMedia.mockResolvedValue(undefined);
     requireAdmin.mockResolvedValue({
       ok: true,
       admin: { id: 'admin_1', isSuperAdmin: false, salons: [{ salonId: 'salon_1', role: 'owner' }] },
@@ -157,6 +181,16 @@ describe('admin salon information route', () => {
       expect(response.status).toBe(403);
       expect(updateSet).not.toHaveBeenCalled();
       expect(getActiveLocationsBySalonId).not.toHaveBeenCalled();
+    });
+
+    it('does not upload a logo across the tenant guard', async () => {
+      requireAdmin.mockResolvedValue({ ok: false, response: new Response('Forbidden', { status: 403 }) });
+
+      const response = await POST(logoRequest());
+
+      expect(response.status).toBe(403);
+      expect(updateSet).not.toHaveBeenCalled();
+      expect(saveCanonicalOnboardingProfileMedia).not.toHaveBeenCalled();
     });
 
     it('denies a non-owner admin membership', async () => {
@@ -352,6 +386,74 @@ describe('admin salon information route', () => {
 
       expect(response.status).toBe(404);
       expect(logAuditEvent).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('POST logo upload', () => {
+    it('stores a logo outside Portfolio and atomically replaces the current salon logo', async () => {
+      setUpdateResult([{ logoUrl: 'https://cdn.example/onboarding-profile/logo.webp' }]);
+
+      const response = await POST(logoRequest());
+
+      expect(response.status).toBe(200);
+      expect(updateSet).toHaveBeenCalledTimes(1);
+      expect(updateSet.mock.calls[0]![0].logoUrl).toBe('https://cdn.example/onboarding-profile/logo.webp');
+      expect(saveCanonicalOnboardingProfileMedia).toHaveBeenCalledWith(expect.objectContaining({
+        role: 'logo',
+        salonId: 'salon_1',
+      }));
+      expect(await response.json()).toEqual({ data: { logoUrl: 'https://cdn.example/onboarding-profile/logo.webp' } });
+      expect(logAuditEvent).toHaveBeenCalledWith(expect.objectContaining({
+        action: 'settings_updated',
+        entityType: 'salon',
+        metadata: { fields: ['logoUrl'], logoUpload: true },
+        salonId: 'salon_1',
+      }));
+    });
+
+    it('keeps a newer logo when an older upload finishes late', async () => {
+      setUpdateResult([]);
+
+      const response = await POST(logoRequest());
+
+      expect(response.status).toBe(409);
+      expect((await response.json()).error.code).toBe('STALE_LOGO');
+      expect(logAuditEvent).not.toHaveBeenCalled();
+      expect(deleteCanonicalOnboardingProfileMedia).toHaveBeenCalledWith(expect.objectContaining({
+        publicUrl: 'https://cdn.example/onboarding-profile/logo.webp',
+      }));
+    });
+
+    it('cleans up a newly stored logo if persisting the salon row fails', async () => {
+      updateSet.mockImplementationOnce(() => {
+        throw new Error('database unavailable');
+      });
+      const logError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+
+      try {
+        const response = await POST(logoRequest());
+
+        expect(response.status).toBe(500);
+        expect((await response.json()).error.code).toBe('PERSISTENCE_FAILED');
+        expect(deleteCanonicalOnboardingProfileMedia).toHaveBeenCalledWith(expect.objectContaining({
+          publicUrl: 'https://cdn.example/onboarding-profile/logo.webp',
+        }));
+        expect(logAuditEvent).not.toHaveBeenCalled();
+      } finally {
+        logError.mockRestore();
+      }
+    });
+
+    it('rejects a non-image without writing', async () => {
+      const body = new FormData();
+      body.append('file', new File(['not an image'], 'logo.txt', { type: 'text/plain' }));
+      body.append('baselineLogoUrl', 'https://cdn.example/logo.png');
+
+      const response = await POST(request('https://x.test/api/admin/salon/information?salonSlug=salon-a', { body, method: 'POST' }));
+
+      expect(response.status).toBe(400);
+      expect((await response.json()).error.code).toBe('UNSUPPORTED_MEDIA_TYPE');
+      expect(updateSet).not.toHaveBeenCalled();
     });
   });
 });

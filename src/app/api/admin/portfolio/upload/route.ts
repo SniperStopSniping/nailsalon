@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+import { ONBOARDING_MEDIA_MAX_FILE_BYTES } from '@/features/onboarding-v1-integration/media-limits';
+import { OnboardingMediaRequestTooLarge, readOnboardingMediaForm } from '@/features/onboarding-v1-integration/media-request.server';
 import { logAuditEvent } from '@/libs/auditLog';
 import { requirePortfolioAdmin } from '@/libs/portfolioAdminContext.server';
 import {
@@ -11,6 +13,7 @@ import {
   PORTFOLIO_IMAGE_MAX_BYTES,
   portfolioImageFormatForContentType,
   PortfolioImageValidationError,
+  uploadPortfolioImage,
   verifyCloudinaryPortfolioImage,
   verifyPortfolioFinalizeToken,
 } from '@/libs/portfolioImageStorage.server';
@@ -71,6 +74,9 @@ function limitResponse(usage: { stored: number; max: number }): Response {
 
 /** Authorize one upload and hand back a signed, app-scoped Cloudinary target. */
 export async function POST(request: Request): Promise<Response> {
+  if (request.headers.get('content-type')?.startsWith('multipart/form-data')) {
+    return uploadMultipart(request);
+  }
   let body: unknown;
 
   try {
@@ -128,6 +134,81 @@ export async function POST(request: Request): Promise<Response> {
 
     throw uploadError;
   }
+}
+
+/** Same bounded multipart transport as onboarding; Portfolio keeps its own ownership and rows. */
+async function uploadMultipart(request: Request): Promise<Response> {
+  const { error, context } = await requirePortfolioAdmin(new URL(request.url).searchParams.get('salonSlug'));
+  if (error) {
+    return error;
+  }
+  const failure = (status: number, code: string, message: string) => Response.json({ error: { code, message } }, { status });
+  let form: FormData;
+  try {
+    form = await readOnboardingMediaForm(request);
+  } catch (error) {
+    return error instanceof OnboardingMediaRequestTooLarge
+      ? failure(413, 'FILE_TOO_LARGE', 'This photo is too large to send. Choose a smaller photo.')
+      : failure(400, 'INVALID_BODY', 'Choose an image to upload.');
+  }
+  if (form.get('publicationRightsConfirmed') !== 'true') {
+    return failure(400, 'PUBLICATION_RIGHTS_REQUIRED', PUBLICATION_RIGHTS_TEXT);
+  }
+  const file = form.get('file');
+  if (!(file instanceof File)) {
+    return failure(400, 'INVALID_BODY', 'Choose an image to upload.');
+  }
+  if (file.size > ONBOARDING_MEDIA_MAX_FILE_BYTES) {
+    return failure(413, 'FILE_TOO_LARGE', 'This photo is too large to send. Choose a smaller photo.');
+  }
+  let stored: Awaited<ReturnType<typeof uploadPortfolioImage>>;
+  try {
+    const capacity = await canAcceptPortfolioUpload(context.salon.id);
+    if (!capacity.allowed) {
+      return limitResponse(capacity);
+    }
+    stored = await uploadPortfolioImage({ file, salonId: context.salon.id });
+  } catch (error) {
+    if (error instanceof PortfolioImageValidationError) {
+      return failure(error.code.startsWith('IMAGE_STORAGE') ? 503 : 400, error.code, error.message);
+    }
+    return failure(500, 'UPLOAD_FAILED', 'The server could not prepare this upload. Please try again.');
+  }
+
+  let created: Awaited<ReturnType<typeof createPortfolioPhoto>>;
+  try {
+    created = await createPortfolioPhoto({
+      salonId: context.salon.id,
+      cloudinaryPublicId: stored.publicId,
+      locationId: null,
+      technicianId: null,
+      altText: null,
+      imageUrl: stored.imageUrl,
+      originalWidth: stored.width,
+      originalHeight: stored.height,
+      mimeType: 'image/webp',
+      fileSizeBytes: stored.bytes,
+      publicationRightsConfirmedBy: context.actorId,
+    });
+  } catch (error) {
+    await deletePortfolioImage({ publicId: stored.publicId, salonId: context.salon.id }).catch(() => {});
+    if (error instanceof PortfolioLimitError) {
+      return limitResponse(error);
+    }
+    return failure(500, 'PHOTO_SAVE_FAILED', 'The photo could not be saved to your portfolio. Please try again.');
+  }
+  // Once the row exists, an ancillary failure must never delete its image.
+  await markPortfolioImageActive({ publicId: stored.publicId, salonId: context.salon.id }).catch(() => {});
+  await logAuditEvent({
+    salonId: context.salon.id,
+    actorType: 'admin',
+    actorId: context.actorId,
+    action: 'portfolio_photo_created',
+    entityType: 'salon_portfolio_photo',
+    entityId: created.id,
+    metadata: { publicationRightsVersion: PUBLICATION_RIGHTS_VERSION },
+  }).catch(() => {});
+  return Response.json({ photo: created }, { status: 201 });
 }
 
 /**
