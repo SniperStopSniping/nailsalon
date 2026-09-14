@@ -1,3 +1,10 @@
+# [1.100.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.99.0...v1.100.0) (2026-09-14)
+
+
+### Features
+
+* **billing:** p3a webhook completeness and foreign-event safety ([d8efdfc](https://github.com/SniperStopSniping/nailsalon/commit/d8efdfc522f1f253b98330912f9d51ca19e9e4a9))
+
 # [1.99.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.98.4...v1.99.0) (2026-09-14)
 
 
