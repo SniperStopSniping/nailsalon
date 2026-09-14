@@ -6,6 +6,7 @@
 **Governing contract:** [luster-billing-communications-rev-2-2.md](luster-billing-communications-rev-2-2.md) (Rev 2.2). `§` below refers to it.
 **Authorization status:** Gates A–C are merged. **Gate D / D1 is NOT authorized** — phase P8c below *is* the billing half of D1 and will not start without explicit Gate D authorization. **Production configuration, Stripe resource creation, env switch flips, cron registration (D3) and every activation step are NOT authorized.** Phases P0–P8b are dark code/test work: they change no production behaviour while the switches stay unset, with two explicitly flagged exceptions (P1 edits a boot-time validator; P5b edits the live Billing-Portal route).
 **Nothing was implemented, and no code, migration, Stripe configuration, production data or live service was modified while producing this plan.**
+**Execution record (2026-09-14):** every authorized phase is merged — P0 #200, P1 #202, P2 #201, P3a #204, P3b #209, P3c #210, P4 #207 (code half), P5a #205, P6 #208 (tax + rate protection), P7 #206. Production at the P3b merge reports `billing.dark: true` and `planEnvMatchesRuntime: true`. Nothing was enabled: no switch, secret, Stripe resource, cron registration, env value or production data changed. **Parked pending owner decisions:** D3 (cron registration), P5b/D18 (portal freeze replacement), D19a (env-keyed price carrier — no activation carrier for Stripe IDs exists yet), P8a–c/Gate D, P9/D19c–d, D10, D11 (seven publication approvals), D1 ratification of the PR #176 split. Non-billing CI note: the client-lifecycle migration and dispatcher/appointment concurrency suites hit 5–10 s timeouts on several runs (non-required jobs); reruns pass.
 
 How to use this file: a fresh session reads §1–§3 (state), checks §6 for decisions still `OPEN` that block the next phase, executes the next phase under §8, and updates §5.0 in the same PR.
 
@@ -142,7 +143,7 @@ Hard ordering rules:
 | P2 | merged | #201 | af264739 | 2026-09-14 | tests only |
 | P3a | merged | #204 | e71dfbf5 | 2026-09-14 | includes G42 foreign-event guard and D2 refund rollback |
 | P3b | merged | #209 | 6a315a5f | 2026-09-14 | processing lease + CAS + top-up price sanity check |
-| P3c | PR opened | (this PR) | | | transactional audit trail; adds a checkout postimage hash |
+| P3c | merged | #210 | 1627a2ee | 2026-09-14 | transactional audit trail; adds a checkout postimage hash |
 | P4 | merged | #207 | e4ed4928 | 2026-09-14 | code half only — cron registration parked on D3; drift demo in billing-gate-c-record.md §3 |
 | P5a | merged | #205 | 3ed304b7 | 2026-09-14 | proceeded under owner instruction "do not merge #176 wholesale"; #176 UI half must rebase on it |
 | P5b | parked | | | | live portal route; needs explicit D18 approval |
