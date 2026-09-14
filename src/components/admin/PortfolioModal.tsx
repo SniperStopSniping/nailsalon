@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { InlineFeedback } from '@/components/ui/inline-feedback';
+import { prepareOnboardingMediaUpload } from '@/features/onboarding-v1-integration/media-upload-preparation';
 import {
   ASSIGNABLE_DISCOVER_NAIL_LENGTHS,
   ASSIGNABLE_DISCOVER_SERVICE_FAMILIES,
@@ -13,6 +14,7 @@ import {
   type DiscoverServiceFamily,
   discoverServiceFamilyLabel,
 } from '@/libs/discoverTaxonomy';
+import { validateServiceImageFile } from '@/libs/serviceImageClient';
 import { useSalon } from '@/providers/SalonProvider';
 
 import { BackButton, ModalHeader } from './AppModal';
@@ -226,13 +228,8 @@ export function PortfolioModal({ onClose }: PortfolioModalProps) {
   const [uploading, setUploading] = useState(false);
 
   /**
-   * Presign → upload to Cloudinary → finalize.
-   *
-   * The browser never picks the public id and never talks to our database:
-   * it receives a signed, app-scoped target, and the server re-derives every
-   * fact about the file from Cloudinary's own decoded metadata at finalize.
-   * Publication rights are confirmed before the upload is authorized, and the
-   * durable record is written with the row.
+   * Reuse onboarding's bounded transport preparation; the server decodes,
+   * stores and persists through Portfolio's existing tenant/rights boundary.
    */
   const uploadFiles = useCallback(
     async (files: FileList) => {
@@ -245,97 +242,37 @@ export function PortfolioModal({ onClose }: PortfolioModalProps) {
 
       try {
         for (const file of Array.from(files)) {
-          const presignResponse = await fetch('/api/admin/portfolio/upload', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              salonSlug,
-              contentType: file.type,
-              fileSize: file.size,
-              publicationRightsConfirmed: true,
-            }),
-          });
-
-          const presign = (await presignResponse.json()) as {
-            upload?: Record<string, string | number | boolean>;
-            error?: { code?: string; message?: string };
-          };
-
-          if (!presignResponse.ok || !presign.upload) {
-            setActionError({
-              message: uploadErrorMessage(
-                presign.error?.code,
-                presign.error?.message,
-                'That photo could not be uploaded.',
-              ),
-              source: 'upload',
-            });
-            break;
-          }
-
-          const upload = presign.upload;
+          const prepared = await prepareOnboardingMediaUpload(validateServiceImageFile(file), file.name);
           const form = new FormData();
-
-          form.append('file', file);
-          form.append('api_key', String(upload.apiKey));
-          form.append('timestamp', String(upload.timestamp));
-          form.append('signature', String(upload.signature));
-          form.append('upload_preset', String(upload.uploadPreset));
-          form.append('public_id', String(upload.publicId));
-          form.append('overwrite', 'false');
-          form.append('type', 'upload');
-          form.append('tags', String(upload.tags));
-          form.append('context', String(upload.context));
-
-          const cloudinaryResponse = await fetch(String(upload.uploadUrl), {
-            method: 'POST',
-            body: form,
-          });
-
-          if (!cloudinaryResponse.ok) {
-            setActionError({
-              message: 'That photo could not be uploaded. Check your connection and try again.',
-              source: 'upload',
+          form.append('file', prepared);
+          form.append('publicationRightsConfirmed', 'true');
+          let response: Response;
+          try {
+            response = await fetch(`/api/admin/portfolio/upload?salonSlug=${encodeURIComponent(salonSlug)}`, {
+              method: 'POST',
+              body: form,
             });
-            break;
+          } catch {
+            throw new Error('The upload connection was interrupted. Check your connection, then reload your portfolio before retrying.');
           }
-
-          const asset = (await cloudinaryResponse.json()) as { asset_id?: string };
-
-          const finalizeResponse = await fetch('/api/admin/portfolio/upload', {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              salonSlug,
-              assetId: asset.asset_id,
-              publicId: upload.publicId,
-              finalizeToken: upload.finalizeToken,
-              timestamp: upload.timestamp,
-              publicationRightsConfirmed: true,
-            }),
-          });
-
-          if (!finalizeResponse.ok) {
-            const payload = (await finalizeResponse.json()) as {
-              error?: { code?: string; message?: string };
-            };
-
-            setActionError({
-              message: uploadErrorMessage(
-                payload.error?.code,
-                payload.error?.message,
-                'That photo could not be saved.',
-              ),
-              source: 'upload',
-            });
-            break;
+          const payload = await response.json().catch(() => null);
+          if (!response.ok) {
+            throw new Error(uploadErrorMessage(payload?.error?.code, payload?.error?.message, response.status === 413
+              ? 'This photo is too large to send. Choose a smaller photo.'
+              : response.status === 401 || response.status === 403
+                ? 'Your upload permission changed. Refresh and sign in again.'
+                : 'The photo server could not complete the upload. Please try again later.'));
+          }
+          if (!payload?.photo?.id) {
+            throw new Error('The server did not confirm this upload. Reload your portfolio before retrying.');
           }
         }
-
+      } catch (error) {
+        setActionError({ message: error instanceof Error ? error.message : 'This photo could not be prepared for upload.', source: 'upload' });
+      } finally {
         // The refresh still runs (photos that did upload must appear), but it
         // can no longer clear the failure: `load()` only owns `loadError`.
         await load();
-      } finally {
         setUploading(false);
 
         if (fileInputRef.current) {

@@ -3,6 +3,7 @@
  *
  * GET   /api/admin/salon/information?salonSlug=xxx — the current canonical values.
  * PATCH /api/admin/salon/information?salonSlug=xxx — targeted owner edits.
+ * POST  /api/admin/salon/information?salonSlug=xxx — a direct business-logo upload.
  *
  * Every write lands on the SAME rows onboarding created — `salon`, the primary
  * `salon_location`, `settings.sharedProfile` and
@@ -21,9 +22,24 @@
  * the salon row plus the primary location, exactly as onboarding writes them.
  */
 
-import { and, eq, sql } from 'drizzle-orm';
+import { randomUUID } from 'node:crypto';
+
+import { and, eq, isNull, sql } from 'drizzle-orm';
 import { z } from 'zod';
 
+import {
+  type CanonicalOnboardingProfileMedia,
+  deleteCanonicalOnboardingProfileMedia,
+  saveCanonicalOnboardingProfileMedia,
+} from '@/features/onboarding-v1-integration/canonical-profile-media.server';
+import {
+  ONBOARDING_MEDIA_MAX_FILE_BYTES,
+  ONBOARDING_MEDIA_MAX_REQUEST_BYTES,
+} from '@/features/onboarding-v1-integration/media-limits';
+import {
+  OnboardingMediaRequestTooLarge,
+  readOnboardingMediaForm,
+} from '@/features/onboarding-v1-integration/media-request.server';
 import type { AdminWithSalons } from '@/libs/adminAuth';
 import { formatPhoneE164, requireAdmin } from '@/libs/adminAuth';
 import { logAuditEvent } from '@/libs/auditLog';
@@ -34,11 +50,15 @@ import { db } from '@/libs/DB';
 import { resolveInstagramInput, toInstagramHandle } from '@/libs/instagramHandle';
 import { buildSalonTenantPublicUrl } from '@/libs/publicUrl';
 import { getActiveLocationsBySalonId, getSalonBySlug, getTechniciansBySalonId } from '@/libs/queries';
+import sharp from '@/libs/safeSharp.server';
 import { resolveSharedSalonProfile } from '@/libs/sharedSalonProfile';
 import { resolveWeeklySchedule } from '@/libs/weeklySchedule';
 import { type Salon, salonLocationSchema, salonSchema } from '@/models/Schema';
 
 export const dynamic = 'force-dynamic';
+
+const MAX_LOGO_EDGE = 1200;
+const ACCEPTED_LOGO_MIME_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
 
 const WEEKDAYS = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'] as const;
 type Weekday = (typeof WEEKDAYS)[number];
@@ -167,6 +187,19 @@ type AuthorizedSalon = { ok: true; salon: Salon; admin: AdminWithSalons } | { ok
 
 function error(status: number, code: string, message: string, details?: unknown): Response {
   return Response.json({ error: { code, message, ...(details ? { details } : {}) } }, { status });
+}
+
+async function prepareLogoImage(input: Buffer): Promise<Buffer> {
+  const image = sharp(input, { failOn: 'error', limitInputPixels: 40_000_000 });
+  const metadata = await image.metadata();
+  if (!['jpeg', 'png', 'webp'].includes(metadata.format ?? '') || (metadata.pages ?? 1) > 1) {
+    throw new Error('Unsupported decoded image format');
+  }
+  return image
+    .rotate()
+    .resize({ width: MAX_LOGO_EDGE, height: MAX_LOGO_EDGE, fit: 'inside', withoutEnlargement: true })
+    .webp({ alphaQuality: 100, quality: 90 })
+    .toBuffer();
 }
 
 /**
@@ -417,4 +450,110 @@ export async function PATCH(request: Request): Promise<Response> {
   });
 
   return Response.json({ data: await buildInformation(updatedSalon) });
+}
+
+/**
+ * Uploads a business logo without first creating a nail-work Portfolio item.
+ * The logo is an immediately-live salon identity field. A baseline compare
+ * prevents a slower upload from replacing a newer choice made in another tab.
+ */
+export async function POST(request: Request): Promise<Response> {
+  const resolved = await resolveOwnerSalon(request);
+  if (!resolved.ok) {
+    return resolved.error;
+  }
+  const { salon, admin } = resolved;
+
+  const contentLength = Number(request.headers.get('content-length') ?? '0');
+  if (Number.isFinite(contentLength) && contentLength > ONBOARDING_MEDIA_MAX_REQUEST_BYTES) {
+    return error(413, 'FILE_TOO_LARGE', 'This logo is too large to send. Choose a smaller image.');
+  }
+
+  let formData: FormData;
+  try {
+    formData = await readOnboardingMediaForm(request);
+  } catch (requestError) {
+    if (requestError instanceof OnboardingMediaRequestTooLarge) {
+      return error(413, 'FILE_TOO_LARGE', 'This logo is too large to send. Choose a smaller image.');
+    }
+    return error(400, 'INVALID_REQUEST', 'Expected an image upload.');
+  }
+  const file = formData.get('file');
+  const baselineField = formData.get('baselineLogoUrl');
+  if (!(file instanceof File)) {
+    return error(400, 'INVALID_REQUEST', 'Choose an image to upload.');
+  }
+  if (typeof baselineField !== 'string') {
+    return error(400, 'INVALID_REQUEST', 'The current logo value is required.');
+  }
+  if (!ACCEPTED_LOGO_MIME_TYPES.has(file.type)) {
+    return error(400, 'UNSUPPORTED_MEDIA_TYPE', 'Only JPEG, PNG and WebP images are allowed.');
+  }
+  if (file.size > ONBOARDING_MEDIA_MAX_FILE_BYTES) {
+    return error(413, 'FILE_TOO_LARGE', 'This logo is too large to send. Choose a smaller image.');
+  }
+
+  let prepared: Buffer;
+  try {
+    prepared = await prepareLogoImage(Buffer.from(await file.arrayBuffer()));
+  } catch {
+    return error(400, 'UNREADABLE_IMAGE', 'That file could not be read as an image. Try a JPEG, PNG or WebP image.');
+  }
+
+  let storedMedia: CanonicalOnboardingProfileMedia;
+  try {
+    // Identity media is stored through the same canonical projection helper
+    // that onboarding uses. It selects the configured production provider and
+    // preserves the development-only fallback without introducing another
+    // Cloudinary path or credential contract for logo uploads.
+    storedMedia = await saveCanonicalOnboardingProfileMedia({
+      bytes: prepared,
+      mediaId: randomUUID(),
+      role: 'logo',
+      salonId: salon.id,
+    });
+  } catch (storageError) {
+    console.error('Logo upload storage failed', storageError);
+    return error(502, 'STORAGE_UNAVAILABLE', 'The logo could not be stored right now. Your current logo is unchanged.');
+  }
+
+  const discardStoredMedia = async () => {
+    await deleteCanonicalOnboardingProfileMedia(storedMedia).catch((cleanupError: unknown) => {
+      console.error('Uncommitted logo upload cleanup failed', cleanupError);
+    });
+  };
+  const baselineLogoUrl = baselineField || null;
+  let updated: typeof salonSchema.$inferSelect | undefined;
+  try {
+    [updated] = await db
+      .update(salonSchema)
+      .set({ logoUrl: storedMedia.publicUrl, updatedAt: new Date() })
+      .where(and(
+        eq(salonSchema.id, salon.id),
+        baselineLogoUrl === null ? isNull(salonSchema.logoUrl) : eq(salonSchema.logoUrl, baselineLogoUrl),
+      ))
+      .returning();
+  } catch (persistenceError) {
+    await discardStoredMedia();
+    console.error('Logo upload persistence failed', persistenceError);
+    return error(500, 'PERSISTENCE_FAILED', 'The logo could not be saved. Your current logo is unchanged.');
+  }
+  if (!updated?.logoUrl) {
+    // The file was created only for this request and was never made
+    // canonical, so a CAS loss can safely clean it up before returning.
+    await discardStoredMedia();
+    return error(409, 'STALE_LOGO', 'Your logo changed while this image was uploading, so the newer choice was kept.');
+  }
+
+  void logAuditEvent({
+    salonId: salon.id,
+    actorType: 'admin',
+    actorId: admin.id,
+    action: 'settings_updated',
+    entityType: 'salon',
+    entityId: salon.id,
+    metadata: { fields: ['logoUrl'], logoUpload: true },
+  });
+
+  return Response.json({ data: { logoUrl: updated.logoUrl } });
 }

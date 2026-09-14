@@ -5,6 +5,7 @@ import { createHmac, timingSafeEqual } from 'node:crypto';
 import { nanoid } from 'nanoid';
 
 import { cloudinary, isCloudinaryConfigured } from '@/libs/Cloudinary';
+import sharp from '@/libs/safeSharp.server';
 import { serviceImageDeploymentScope } from '@/libs/serviceImageDeploymentScope.server';
 
 /**
@@ -76,6 +77,72 @@ export class PortfolioImageValidationError extends Error {
     this.code = code;
     this.managedAssetId = managedAssetId;
   }
+}
+
+/** Use the same server-upload transport as profile/cover media, with no preset. */
+export async function uploadPortfolioImage({ file, salonId }: {
+  file: File;
+  salonId: string;
+}): Promise<{ publicId: string; imageUrl: string; width: number; height: number; bytes: number }> {
+  assertSafeId(salonId, 'salon id');
+  portfolioImageFormatForContentType(file.type);
+  if (file.size === 0 || file.size > PORTFOLIO_IMAGE_MAX_BYTES) {
+    throw new PortfolioImageValidationError('FILE_TOO_LARGE', 'Choose a non-empty photo under 10 MB.');
+  }
+  if (!isCloudinaryConfigured()) {
+    throw new PortfolioImageValidationError('IMAGE_STORAGE_UNAVAILABLE', 'Photo storage is currently unavailable. Please try again later.');
+  }
+  let prepared;
+  try {
+    const source = sharp(Buffer.from(await file.arrayBuffer()), {
+      failOn: 'error',
+      limitInputPixels: PORTFOLIO_IMAGE_MAX_PIXELS,
+    });
+    const metadata = await source.metadata();
+    if (!['jpeg', 'png', 'webp'].includes(metadata.format ?? '') || (metadata.pages ?? 1) > 1) {
+      throw new PortfolioImageValidationError('INVALID_FILE_TYPE', 'Choose a still JPG, PNG, or WebP photo.');
+    }
+    if (!metadata.width || !metadata.height
+      || metadata.width > PORTFOLIO_IMAGE_MAX_DIMENSION || metadata.height > PORTFOLIO_IMAGE_MAX_DIMENSION) {
+      throw new PortfolioImageValidationError('IMAGE_TOO_LARGE', 'This photo exceeds the supported image dimensions.');
+    }
+    if (metadata.width < PORTFOLIO_IMAGE_MIN_DIMENSION || metadata.height < PORTFOLIO_IMAGE_MIN_DIMENSION) {
+      throw new PortfolioImageValidationError('IMAGE_TOO_SMALL', 'Portfolio photos must be at least 400px on each side.');
+    }
+    // Rotate once and re-encode without EXIF/GPS. The stored image is always WebP.
+    prepared = await source.rotate().webp({ quality: 86 }).toBuffer({ resolveWithObject: true });
+    if (prepared.data.byteLength > PORTFOLIO_IMAGE_MAX_BYTES) {
+      throw new PortfolioImageValidationError('FILE_TOO_LARGE', 'This photo is too large after processing. Choose a smaller photo.');
+    }
+  } catch (error) {
+    if (error instanceof PortfolioImageValidationError) {
+      throw error;
+    }
+    throw new PortfolioImageValidationError('INVALID_IMAGE', 'This photo could not be decoded safely. Choose another JPG, PNG, or WebP.');
+  }
+  const publicId = generatePortfolioImagePublicId({ salonId, format: 'webp' });
+  const imageUrl = await new Promise<string>((resolve, reject) => {
+    cloudinary.uploader.upload_stream({
+      public_id: publicId,
+      overwrite: false,
+      resource_type: 'image',
+      type: 'upload',
+      tags: portfolioImagePendingTag(),
+      context: `luster_image_state=pending|luster_salon_id=${salonId}|luster_deployment_scope=${serviceImageDeploymentScope()}`,
+    }, (error, asset) => {
+      if (error || !asset?.secure_url) {
+        reject(new PortfolioImageValidationError('IMAGE_STORAGE_FAILED', 'The photo service could not store this image. Please try again later.'));
+        return;
+      }
+      resolve(asset.secure_url);
+    }).end(prepared.data);
+  }).catch((error: unknown) => {
+    if (error instanceof PortfolioImageValidationError) {
+      throw error;
+    }
+    throw new PortfolioImageValidationError('IMAGE_STORAGE_FAILED', 'The photo service could not store this image. Please try again later.');
+  });
+  return { publicId, imageUrl, width: prepared.info.width, height: prepared.info.height, bytes: prepared.data.byteLength };
 }
 
 function assertSafeId(value: string, label: string): void {
