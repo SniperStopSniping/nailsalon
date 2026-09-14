@@ -1,0 +1,336 @@
+# Luster Billing Track — Remaining Work Plan (canonical handoff)
+
+**Planned:** 2026-09-13/14 · **Planner:** Claude Fable 5.1 (lead) + 131 delegated read-only inspection, verification and review agents (§11)
+**Baseline audited:** `origin/main` @ `1b6ffeb3291682a7e2242444ccf70575e43eb042` (merge of PR #195). Main moved to `9c95e70b` (v1.98.3; PRs #196–#198, booking logo/readability) between planning and execution start on 2026-09-14; none touches a billing path, so this plan applies unchanged.
+**Execution authorization (owner, 2026-09-14):** execute unblocked phases through P7 sequentially in small dark PRs and merge when required gates pass. Still NOT authorized: P8 (Gate D), P9, proposed contract amendments (D19), unresolved owner decisions (D3 cron registration, D10, D11, explicit D18 freeze replacements). Progress is tracked in §5.0 and in [billing-gate-c-record.md](billing-gate-c-record.md).
+**Governing contract:** [luster-billing-communications-rev-2-2.md](luster-billing-communications-rev-2-2.md) (Rev 2.2). `§` below refers to it.
+**Authorization status:** Gates A–C are merged. **Gate D / D1 is NOT authorized** — phase P8c below *is* the billing half of D1 and will not start without explicit Gate D authorization. **Production configuration, Stripe resource creation, env switch flips, cron registration (D3) and every activation step are NOT authorized.** Phases P0–P8b are dark code/test work: they change no production behaviour while the switches stay unset, with two explicitly flagged exceptions (P1 edits a boot-time validator; P5b edits the live Billing-Portal route).
+**Nothing was implemented, and no code, migration, Stripe configuration, production data or live service was modified while producing this plan.**
+
+How to use this file: a fresh session reads §1–§3 (state), checks §6 for decisions still `OPEN` that block the next phase, executes the next phase under §8, and updates §5.0 in the same PR.
+
+---
+
+## 1. Verified baseline facts
+
+| Fact | Value / evidence |
+|---|---|
+| Merged contract PRs | A1 #109, A2 #110, B1 #111 (+ repair #118), B2 #112, B3 #113, C1 #117, C2 #120, C3 #121, C4 #122 (all 2026-08-17); top-up retry safety #195 (2026-09-14, no migration) |
+| Base/head/tree SHAs for C1–C4 | only in the GitHub PR bodies of #117/#120/#121/#122; recoverable from git regardless (merge commit: first parent = base, second parent = head, `git rev-parse <head>^{tree}`) |
+| Migration tail / pins | `0077_review_requests`, 78 journal entries; `scripts/preview-service-image-fixtures.ts:29-30` pins `FINAL_MIGRATION='0077_review_requests'`, `MIGRATION_COUNT=78`; Migration A = `0069`, Migration B = `0070` |
+| Billing tables | all 13 §13 Migration-A tables exist, are ORM-mapped in `src/models/Schema.ts`, and are in `SALON_PURGE_PLAN` / `EXPECTED_INCOMING_FOREIGN_KEYS` |
+| Crons (`vercel.json`) | 6 entries, **none billing**. `/api/billing/windows/evaluate` and `/api/billing/reconcile` exist, are `CRON_SECRET`-gated, and are deliberately unregistered (route headers cite §20; `windows/evaluate/route.ts:9-15` also records that appending to `vercel.json` rewrites the previous entry's closing brace and trips the additive guard) |
+| Dark switches | `BILLING_SUBSCRIPTIONS_ENABLED`, `BILLING_TOPUPS_ENABLED`, `PUBLIC_PRICING_ENABLED`, `STRIPE_BILLING_WEBHOOK_SECRET` all optional/unset (`src/libs/Env.ts:34-39`); consumers test `=== 'true'` and reject before any Stripe call. **The billing webhook is gated only by the secret** (`stripe-billing/route.ts:76-79`), not by the `BILLING_*_ENABLED` flags. `BILLING_PLAN_ENV` is hard-required (`Env.ts:29`) and boot-validated by `src/instrumentation.ts` via `assertEnvironmentIsolation` |
+| Live billing code paths (NOT dark) | `grantStarterCredits` (`src/libs/billing/creditGrants.ts:42`) runs inside the live onboarding transactions (`src/app/api/onboarding/luster/route.ts:423`, `src/features/onboarding-v1-integration/persistence.server.ts:1984`); `src/libs/billing/creditLedger.ts` and `creditReservation.ts` serve live SMS sends; `/api/billing/portal` and `/api/webhooks/stripe/route.ts` (legacy) serve live legacy-flow customers |
+| Stripe IDs | every row of `src/libs/billing/stripePriceMap.ts:50-72` is `null` for dev/test/prod; resolution throws `PRICE_UNCONFIGURED`; isolation is structural (`stripePriceMap.ts:10-12`: the env column is selected only from `BILLING_PLAN_ENV`) |
+| Founding promotion | `founding_annual_2026`, 40%-off-once, window `startsAt/endsAt/maximumRedemptions` all `null` ⇒ closed (`src/libs/billing/promotions.ts`) |
+| Stripe API pin | `'2024-06-20'` (`src/libs/stripe.ts:36`, canary `stripe.pin.test.ts`) |
+| Production `/api/health` (2026-09-14 02:30Z) | `status ok`, `gitSha 077bb75`, `schemaDrift ready`, `stripeEnv true`, `stripeConnectEnv true`, `cronSecretConfigured true`, `twilioEnv false`. Public and unauthenticated; exposes **no** billing switch state |
+| CI protections (`.github/workflows/CI.yml:207-475`) | byte-frozen: `src/app/api/webhooks/stripe/route.ts`, `src/app/api/billing/portal` (`:219-221`); `src/app/api/billing/checkout/route.ts` must match a reviewed postimage blob hash (`:264-276`); only 8 enumerated paths may change under `src/app/api/billing` — new files (routes **or tests**) fail closed unless added to the case list (`:248-262`); `vercel.json` + `migrations/` are additive-only (any `-` line fails, `:351-359`) and new cron paths must be in the cron case list (`:462-475`); `src/libs/salonPurge.ts` additive + blob-pinned; dependency manifests pinned |
+| PG concurrency suites in CI | job `SMS credit ledger PostgreSQL concurrency` runs exactly two files (`CI.yml:~1197`): `creditReservation.concurrency.integration.test.ts` + `checkout/topup/route.concurrency.integration.test.ts`. Both suites `describe.skip` themselves without `CONCURRENCY_TEST_DATABASE_URL` + `SMS_CREDIT_LEDGER_DISPOSABLE_DATABASE_CONFIRMED=true`, so a run without the env is vacuously green |
+| CI at baseline | run 34796277685 at `1b6ffeb3` failed on the unrelated `Booking entitlement override PostgreSQL concurrency` job (one-off; green before and after); Release skipped for that SHA; main green again at `077bb75b` (v1.98.1) |
+| Open PRs overlapping billing | **#176** `feat: add Client reminders and clearer SMS credit usage` (Codex, 2026-09-09, base `45badae1`, `CONFLICTING`, 28 files, +1658/−190). See §10 |
+
+---
+
+## 2. What is complete on `main` (verified by code reading)
+
+- **Catalogue (A1, §3–§4):** `planDefinitions/billingOffers/promotions/topupOffers/stripePriceMap/legacyPlanAdapter` with exact §3.1–§3.5 numbers, 40%-off-once math and the required rejection vectors, public projections free of Stripe IDs, `BILLING_PLAN_ENV`-scoped price tables.
+- **Schema (B1, §13):** Migration A complete; append-only ledger trigger; bucket CHECK incl. `delivery_recovery`; low-balance dedupe columns; identity/link/starter-grant/promotion-claim/counter tables; `billing_stripe_event`; `sms_topup_purchase`.
+- **Credit engine (B1 + #118, §7.1–7.3, §7.8):** spend order, virtual expiry, settle-on-accept reservations, terminal-failure refunds incl. `delivery_recovery`, starter grant once-per-business (identity + HMAC fallback, rotation-safe; multi-salon single grant proven at `creditReservation.concurrency.integration.test.ts:212-229`), promotion claim reserve-before-checkout lifecycle, top-up fulfilment + cumulative-evidence refund/dispute reversal, upgrade-diff cumulative fix, low-balance warning tiers/epochs (email + in-app, never SMS), no auto-recharge.
+- **Credit windows (§6.1–§6.5b):** anchor-clamped engine, half-open `[start,end)` with `paid_through >= window_end` (all four §6.8 boundary vectors asserted at `creditWindows.test.ts:99-107`), late-payment single grant, missed windows skipped never backfilled, durable `billing_credit_window`, §6.5a grant-eligible statuses, `trialing` anomaly.
+- **Stripe billing webhook (C2, §8.1–§8.4 mostly):** dedicated secret, fail-closed when unset, claim/reclaim/poison (8 attempts), livemode gate vs `BILLING_PLAN_ENV`, strict `<` staleness fence, authoritative re-fetch on `customer.subscription.updated`, 10 handled event types, replay-safe; `invoice.payment_succeeded` extends `paid_through` and never grants directly; in-process window evaluation after each applied projection (`billingSubscriptionProjection.ts:276`).
+- **Checkout (C2/C3/#195, §8.5):** subscription route with attempt serialisation, `ACTIVE_SUBSCRIPTION_EXISTS`, claim-before-checkout, server-derived idempotency keys, disclosure payload; top-up route with per-salon `FOR NO KEY UPDATE` lock, verified session reuse, `409 CHECKOUT_IN_PROGRESS` / `409 CHECKOUT_PENDING_RECONCILIATION` holds, atomic expiry; PG concurrency suite for both.
+- **Reconciliation/scheduler routes (C2, §8.6 partial):** `/api/billing/reconcile` (status + cancelAtPeriodEnd drift, duplicate-remote-subscription Sentry alert) and `/api/billing/windows/evaluate` (window grants + `expireStaleClaims`), both `CRON_SECRET` + switch gated.
+- **Dark switches (§12):** enforced server-side before any Stripe call; pricing route `notFound()` unless `PUBLIC_PRICING_ENABLED`; `'pricing'` reserved segment; boot-time environment isolation blocks live keys on preview.
+- **Owner UI (C4):** Settings → Account & Plan (status, working "Manage billing" portal button for legacy-column customers), `UsageBillingModal` (credit meter, plan summary, Buy More top-ups via the server-authoritative route, masked message history), usage API (tenant-guarded, masked, cursor pagination), super-admin aggregate API.
+- **Tests:** 20 billing test files; no unconditional `skip/todo` (the two PG suites are environment-gated); §17/§18 coverage broad for catalogue, ledger, grants, claims, webhook idempotency, checkout attempts, dark switches, concurrency races.
+- **Security posture:** no client-supplied Stripe IDs/amounts; `requireAdmin(salonId)` membership check; webhook signature + livemode; preview cannot resolve prod mappings; no cross-tenant read/write path found in checkout/topup/portal/usage.
+
+---
+
+## 3. Canonical gap register (deduplicated, adversarially verified, panel-reviewed)
+
+Severity is relative to the **dark** state: `A` = must land before the named switch/secret is ever enabled; `B` = required for pilot/paid launch; `C` = quality/cleanup.
+
+| ID | Gap | Contract | Sev | Evidence | Phase |
+|---|---|---|---|---|---|
+| G01 | `refund.updated` absent from `HANDLED_TYPES` | §8.4 | A (secret) | `stripe-billing/route.ts:49-60` | P3a |
+| G02 | No Stripe Price ↔ offer-metadata cross-check; reverse lookups have zero callers; snapshot carries no price id; top-up sessions need `retrieve(…, {expand:['line_items','payment_intent']})` because the event payload has no line items; `claimBillingEvent` already accepts an unused `priceId` (`billingStripeEvents.ts:69`) | §8.4, §4 | A (secret) | `billingSubscriptionProjection.ts:55-93`, `stripePriceMap.ts:144-150`, route `toSnapshot()` :63-72, :152-167 | P3a |
+| G03 | `held_anomaly` on subscription-metadata/plan/status and invoice-without-periods paths writes no Sentry | §8.4 | A | route.ts:220-239 vs :288/:308/:317 | P1 |
+| G04 | Event claimed (DB insert) before the livemode gate; §8.2 order is verify → livemode → claim | §8.2 | C | route.ts:96-116 | P1 |
+| G05 | `checkout.session.async_payment_succeeded/failed` unhandled (not in §8.4; delayed-settlement methods leave top-ups held) | handoff doc | B (top-ups) | `docs/stripe-topup-retry-handoff.md:18` | P3a (+D8) |
+| G06 | No resolver for held top-up attempts; `/api/billing/reconcile` never reads `sms_topup_purchase`; "held" is a request-time reason, not a persisted status (query must be defined) | §8.5, §7.8 | A (`BILLING_TOPUPS_ENABLED`) | `checkoutAttempts.ts:34-35,57-64`, `topup/route.ts:142-144` | P4 |
+| G07 | `/api/billing/windows/evaluate` unscheduled: the only periodic granter (annual months 2–12 and any month without a Stripe event) **and the only caller of `expireStaleClaims`** (§7.3 rule 7) | §6.4, §7.3 | A (`BILLING_SUBSCRIPTIONS_ENABLED`) | `vercel.json`; `windows/evaluate/route.ts:9-15,49`; `promotionClaims.ts:150` | P4 + D3 |
+| G08 | `/api/billing/reconcile` unscheduled; diffs only `status`+`cancelAtPeriodEnd`; `limit(100)` no cursor; duplicate-remote alert untested; gated solely on `BILLING_SUBSCRIPTIONS_ENABLED` | §8.6, §8.5 | A | `reconcile/route.ts:51-58,88-91,124-129` | P4 |
+| G09 | `expireLapsedLots` exported but never called | §7.2 | C | `creditGrants.ts:508` | P4 |
+| G10 | §6.7 "full refund ⇒ future grants stop" (unhedged MUST) not automated; subscription-charge refunds/disputes only held for a human; window engine keeps granting after a refund | §6.7, §6.8 | A (`BILLING_SUBSCRIPTIONS_ENABLED`) | route.ts:268-321; `windows/evaluate/route.ts:50-59` | P3a (+D2) |
+| G11 | No audit rows in the billing track; `checkout_session_created` exists in `AUDIT_LOG_ACTIONS` (`Schema.ts:3246`, no DB CHECK — index only) with zero callers; `logAuditEvent` writes via global `db`, not the caller's `tx` (`auditLog.ts:76-95`) | §8.5, §17 | A | grep `logAuditEvent` in billing paths = 0 | P3c |
+| G12 | `creditLedger/creditGrants/creditReservation` have zero Sentry/log/metric hooks; §19 zero-tolerance budgets unobservable — **these are live modules**; a suppressed duplicate starter claim is *expected* live behaviour (`creditGrants.ts:35-40,56-62`), not an anomaly | §19 | B (pilot) | 0 hits in the three modules | P8a (integrity script, not live-path Sentry) |
+| G13 | `billing_stripe_event.payload_purge_after` set (`billingStripeEvents.ts:71-72`) but nothing purges; payloads accumulate from the moment the secret is provisioned, before any switch flips | §7.3 retention | A (secret) | grep `payloadPurgeAfter` = writer only | P4 (unconditional purge) |
+| G14 | No `automatic_tax` / `billing_address_collection` / `tax_id_collection` on either Checkout Session (§3.7 architecture MUST; live collection stays off) | §3.7 | B (paid launch) | `checkout/route.ts:271-296`, `topup/route.ts:209-225` | P6 |
+| G15 | `rate_protected_through` written once and displayed, never read to select the protected offer for a service period | §3.9 | B (before any repricing / plan-change flow) | `billingSubscriptionProjection.ts:218-261`, usage route :86,:126 | P6 |
+| G16 | §5 `describeBillingState()` is a stub (`describeLegacyBillingState` hardcodes `billingPlanDefinitionKey: null`, zero callers) | §5 | C | `legacyPlanAdapter.ts:50-57` | P5a |
+| G17 | No top-up purchase history API/view; nothing reads `sms_topup_purchase` back to the owner (C3 "purchase history + topups view") | §15 C3 | B | grep `smsTopupPurchaseSchema` readers = writers only | P5a |
+| G18 | Usage API filters subscription to `active/past_due/canceled`; `unpaid/incomplete/incomplete_expired/paused` render as "No subscription"; UI never renders `plan.status` | §6.5a | B | `usage/route.ts:91`, `UsageBillingModal.tsx:278-285` | P5a |
+| G19 | `?billing=…` / `?topup=…` return params produced by checkout routes but read by nothing (silent return) | §8.5 UX | B | `checkout/route.ts:287`, `topup/route.ts:219` | P5a (top-up) / P7 (subscription) |
+| G20 | `UsageBillingModal` "Manage billing" posts `{ salonId: undefined, salonSlug }`; portal requires `salonId` ⇒ always 400 | defect | A (live UI bug) | `UsageBillingModal.tsx:131-149`, `portal/route.ts:38-49` | P1 |
+| G21 | No UI calls `POST /api/billing/checkout`; disclosure never shown; `ComparePlansModal` still rendered as a "contact support" dead end (§15 C2 said delete) | §15 C2, §8.5, §3.9 | B (any real subscription) | `SettingsModal.tsx:1952,6187` | P7 (D4, D5) |
+| G22 | No operational path to grant starter credits to a pre-existing salon (Isla); `grantStarterCredits` only reachable from two new-salon onboarding transactions | §20 step 6, §21 step 9, §3.1 | B (pilot blocker) | `creditGrants.ts:42`; callers in §1 | P8a |
+| G23 | No operator visibility of billing switch state; `/api/super-admin/communications` has no UI; held attempts not listable | §15 C4, §20 | B | `super-admin/system/page.tsx`, health route | P1 (`billingDark` boolean) + P8b (panel) |
+| G24 | Legacy `/api/webhooks/stripe` `checkout.session.completed` handler is purpose-blind: sets `billingMode=STRIPE` + customer/subscription ids on the salon for any session with `salonId` metadata (incl. `sms_topup` payment-mode sessions) if the legacy endpoint receives those events; route byte-frozen **and contract-frozen** (§5, §8.1, §24) | §5, §8.1, §24 | A (activation precondition) | `webhooks/stripe/route.ts:133-179`, `CI.yml:219-221` | ops filtering in P8c runbook (D7); code guard BLOCKED (P9, D19) |
+| G25 | `requireDistinctStripeWebhookSecrets()` never checks `STRIPE_BILLING_WEBHOOK_SECRET`; **runs at boot** via `assertProviderEnvironmentIsolation` (`environmentIsolation.ts:301-306,338`; `instrumentation.ts:11`) so a defective fix fails production boot | §8.1 | A | as cited | P1 (with negative vectors) |
+| G26 | Portal route returns raw `error.message`; no dark switch; byte-frozen; **live** | §12 | C | `portal/route.ts:101-113` | P5b (D9, D18) |
+| G27 | `CRON_SECRET` compared with `===` (not constant-time) | hardening | C | `reconcile/route.ts:29-37`, `windows/evaluate/route.ts:25-33` | P1 |
+| G28 | Rate limiting in-memory per instance, trusts `x-forwarded-for` | hardening | C | `src/libs/rateLimit.ts` | deferred |
+| G29 | §7.3 documentation absent: HMAC key lifecycle and anti-abuse retention horizon + deletion process; no identity-link purge policy | §7.3 | B (pilot) | only `TWILIO_COMMUNICATIONS_RUNBOOK.md:41` mentions the secret | P8c (D10) |
+| G30 | Gate C exit "reconciliation drift-report demonstrated" was **not met** when Gate C merged; no owner report in repo; PR SHAs only on GitHub | §16, §14 | C (owner notice) | `docs/owner-review/` has no billing entry | P0 + P4 |
+| G31 | Test debt: grant-level seed of `paid_through == window_start` (title at `creditGrants.test.ts:104` over-claims; engine level is covered); `unpaid`, `incomplete`, `incomplete_expired`, `paused`, `canceled`-past-`paid_through` and explicit `past_due` fixtures; annual parity + annual cancellation with prepaid windows; annual renewal failure; owner-transfer identity; retired-offer checkout rejection; cross-salon 403 on checkout/topup routes; reconcile duplicate-alert; subscription refund/dispute scenarios (with P3a behaviour); +tag/dot at grant level; `stripePriceMap.test.ts:19-30` placeholder assertion will break when real IDs land | §6.8, §17 | B | as cited | P2 (+P3a, P4) |
+| G32 | Rev-1 boilerplate still in tree (dead): `src/templates/Pricing.tsx`, `src/features/billing/PricingCard.tsx`/`PricingInformation.tsx`, `AppConfig.PricingPlanList` (invented limits, `$79/$199`, `price_123`), `src/types/Subscription.ts`, `PLAN_ID`, i18n namespaces `Pricing/PricingPlan/Billing/BillingOptions/CheckoutConfirmation`; `guardBillingOr402` unwired; **deletion is deferred by §24** | §12 risk, §24 | C | `AppConfig.ts:62-107`, `featureGating.ts:553-606` | BLOCKED (P9, D15/D19) |
+| G33 | Billing surfaces hardcoded English; `fr` locale live | i18n | C | no `useTranslations` | deferred (D12) |
+| G34 | `BILLING_PLAN_ENV` hard-required; Preview/Production provisioning attested only by an ops note; it is the livemode gate's sole input (`stripe-billing/route.ts:99`) and a boot-fatal check | §12 | A (secret) | `Env.ts:29`, `environmentIsolation.ts:356-364` | P1 (`planEnvMatchesRuntime`) + §9 |
+| G35 | PR #176 conflicts with main and re-implements top-up/webhook safety that #195 landed | — | B (blocks P5/P7 UI files) | §10 | pre-P5 (D1) |
+| G36 | Stripe Customer Portal configuration is not a named §20 step; Portal plan-switching would bypass the catalogue and trip G02 | §20 | ops | `portal/route.ts:92` | P8c (D16) |
+| G37 | Stripe Products/Prices (tax-exclusive), 40%-off-once Coupon, top-up Prices, `stripe-billing` endpoint + secret not created | §20 step 1 | authorization | `stripePriceMap.ts` all null | activation only |
+| G38 | §12 publication approvals outstanding — **seven** conditions: (1) feature matrix, (2) tax (accountant), (3) refund/cancellation terms, (4) founding promotion window/cap, (5) renewal-disclosure copy, (6) shared-number consent/STOP copy (ratified 2026-08-17 per contract lines 264/441 and pinned as `SHARED_SENDER_STOP_DISCLOSURE`, `communicationTemplates.ts:132`, but not yet used by any live call site), (7) Canada-only launch language (no artifact anywhere) | §12, §23 | owner | — | D11 |
+| G39 | `scripts/preview-service-image-fixtures.ts` pins not in the CI allowlist (enforced only via `full-vitest`) | §13 | C | `CI.yml` | note only; no billing migration planned |
+| G40 | Stripe IDs can only enter via committed source tables; §4 forbids committing live IDs, so activation has no clean carrier (PR #176 prototyped an env map for top-ups only, single-env shape) | §4, §12, §20 | A (secret/topups) | `stripePriceMap.ts:50-72` | P6 (+D19) |
+| G41 | **Billing Portal cannot serve new-track subscriptions:** the new domain writes only `billing_subscription.stripe_customer_id` (`billingSubscriptionProjection.ts:109,144`); the portal reads only legacy `salon.stripeCustomerId` (`portal/route.ts:61,75,93` ⇒ `400 NO_BILLING_ACCOUNT`), which §5 reserves to the legacy webhook; §8.5's `ACTIVE_SUBSCRIPTION_EXISTS` hand-off ("Manage it in the Billing Portal", `checkout/route.ts:243-246`) is therefore inoperative | §8.5, §5 | A (`BILLING_SUBSCRIPTIONS_ENABLED`) | as cited | P5b (D18) |
+| G42 | **New endpoint receiving foreign platform events:** `invoice.payment_succeeded/failed` arms have no ownership guard and throw `SUBSCRIPTION_NOT_PROJECTED` for legacy-flow invoices (8 retries → poisoned + Sentry, forever); `charge.refunded`/`charge.dispute.*` for deposit/legacy charges fall to `held_anomaly` + Sentry per event | §8.4 | A (secret) | `stripe-billing/route.ts:225-251,264-321` | P3a |
+
+Dropped after verification (do not re-chase): "multi-salon single grant untested"; "ComparePlansModal never existed"; "CI red at head"; "async payments violate the contract"; "§6.8 boundary vectors title-only" (engine level covers all four; only the grant-level `window_start` seed is missing).
+
+Contract-text drifts that are **not** gaps: `describeBillingState` ⇒ `describeLegacyBillingState` (but see G16); `getPublicOffers` ⇒ `getPublicBillingOffers`; `email_hmac_v{N}` ⇒ `link_type='email_hmac'` + `hmac_key_version` (deliberate, migration 0069:167-171); `billing_business_identity.notes` ⇒ `note`; `UsageBillingModal` shipped in C4 not C2.
+
+---
+
+## 4. Dependencies and order
+
+| Phase | Depends on phases | Depends on decisions | Why it sits here |
+|---|---|---|---|
+| P0 | — | — | stable record before any code moves |
+| P1 | — | — | tiny, dark-safe; but edits a boot-time validator (verify health after deploy) |
+| P2 | — | — | tests only; raises the safety net before behaviour changes |
+| P3a | P1 | D2 (default ok), D8 (default ok) | every `stripe-billing/route.ts` change must precede secret provisioning |
+| P3b | P3a | — | re-cuts the claim/lease machinery #195 sits on; own review |
+| P3c | P3a | D18 (postimage add, default ok) | audit rows need the tx-aware helper first |
+| P4 | P3a | **D3 (BLOCKING for the registration half only)** | reconciler must see `paid_through` drift and resolve held top-ups before any switch |
+| P5a | P4 | **D1 (BLOCKING)** | rewrites files PR #176 also rewrites |
+| P5b | P5a | **D18 explicit (portal freeze amendment)** | live route; must not regress legacy customers |
+| P6 | P3a | D19 (default ok) | price carrier must exist before the secret or top-ups can be proposed |
+| P7 | P5a, P6 | **D4, D5 (BLOCKING)** | product decision on self-serve scope |
+| P8a | P4 | — | scripts/observability, dark |
+| P8b | P8a | D6 | super-admin panel |
+| P8c | P8a | **Gate D authorization (BLOCKING)** | this is D1's billing half |
+| P9 | — | **D7/D15/D19 owner-ratified contract amendment (BLOCKING)** | edits contract-frozen files |
+
+Hard ordering rules:
+1. **P1, P3a–c land before `STRIPE_BILLING_WEBHOOK_SECRET` is provisioned.** The secret — not the `BILLING_*_ENABLED` flags — is the first live-traffic control: once set, the route processes events and grants credits in-process.
+2. **P4 and P6 land before the secret or either `BILLING_*_ENABLED` flag.** Without P4 the reconciler cannot see `paid_through` drift, nothing resolves held top-ups, and nothing purges payloads; without P6 the price cross-check is inert and top-up offers resolve to nothing.
+3. **D1 before P5a/P7.** 4. **P5b (portal) before `BILLING_SUBSCRIPTIONS_ENABLED`** (G41). 5. **P8a before any pilot sequence** (starter grant, G22). 6. **P9 only after an owner-ratified contract amendment**; never on a default.
+
+---
+
+## 5. Implementation phases (each = one PR from a fresh worktree off `origin/main`; no migration anywhere)
+
+### 5.0 Phase status (update in the completing PR; a split phase gets one row per part)
+
+| Phase | Status | PR | Merge SHA | Owner sign-off / date | Notes |
+|---|---|---|---|---|---|
+| P0 | PR opened | (this PR) | | | plan + Gate C record committed |
+| P1 | not started | | | | boot-time validator edit; verify `/api/health` after deploy |
+| P2 | not started | | | | |
+| P3a | not started | | | | |
+| P3b | not started | | | | ports PR #176 items 1/3/4 |
+| P3c | not started | | | | adds a checkout postimage hash |
+| P4 | not started | | | | registration half needs D3 |
+| P5a | not started | | | | blocked on D1 |
+| P5b | not started | | | | live portal route; explicit D18 |
+| P6 | not started | | | | env-keyed price carrier (D19) |
+| P7 | not started | | | | blocked on D4/D5 |
+| P8a | not started | | | | |
+| P8b | not started | | | | D6 |
+| P8c | not started | | | | = D1 billing half; Gate D authorization required |
+| P9 | BLOCKED | | | | contract amendment required |
+
+If any phase turns out to need a migration: **STOP** and report.
+
+### P0 — Baseline record (docs only)
+- **Scope:** commit this plan; add `docs/billing-gate-c-record.md` with base/head/tree SHAs for #109/#110/#111/#118/#112/#113/#117/#120/#121/#122/#195 (from PR bodies where present, otherwise computed from the merge commit's parents — never left blank); an **owner notice** that the §16 Gate C exit condition "reconciliation drift-report demonstrated" was not met at merge and will be discharged in P4 (G30); and a `PROPOSED contract amendments (Rev 2.3)` section listing D19's items for ratification.
+- **Acceptance:** docs-only diff; commitlint passes; CI green.
+
+### P1 — Dark-safe defect batch (touches a boot-time validator)
+- **Scope:** G20 (`UsageBillingModal.tsx` posts `data.salonId`; regression test); G03 (Sentry on every `held_anomaly` return in `stripe-billing/route.ts` and on `projectSubscriptionSnapshot` anomaly outcomes); G04 (livemode check before `claimBillingEvent`, keeping a durable `ignored_livemode_mismatch` record); G25 (`requireDistinctStripeWebhookSecrets()` adds `if (billing && (billing === legacy || billing === connect)) reject(...)`); G27 (extract `isAuthorizedCronRequest()` into `src/libs/billing/cronAuth.ts` using `crypto.timingSafeEqual`, tested there — outside the `src/app/api/billing` guard — and used by both cron routes); G23/G34 (public `/api/health` gains exactly two booleans: `billingDark` = all three switches unset AND secret unset, and `planEnvMatchesRuntime`; no per-switch detail on the public surface — granular state is P8b's authenticated panel).
+- **Files:** `UsageBillingModal.tsx` (+test), `stripe-billing/route.ts` (+test), `billingSubscriptionProjection.ts`, `environmentIsolation.ts` (+test), new `src/libs/billing/cronAuth.ts` (+test), `reconcile/route.ts`, `windows/evaluate/route.ts` (both allowlisted), `health/route.ts` (+test).
+- **CI:** no allowlist edits (no new files under `src/app/api/billing`).
+- **Acceptance:** portal button posts `salonId`; each `held_anomaly` path asserts one Sentry call; livemode-mismatch event never reaches `handleEvent` and is still recorded; collision guard rejects billing==legacy and billing==connect **and passes with the billing secret absent, and with billing+connect both absent (today's production shape)**; health reports `billingDark: true` under CI env; focused battery + `cronAuth` + health tests green; `npm run check-types`, `npm run lint`, `npx next build` green. **After merge/deploy: confirm `https://www.lustergel.app/api/health` returns 200 with `billingDark: true` before starting P2.**
+- **Rollback:** forward revert PR of the single merge commit (no CI freeze involved).
+
+### P2 — Test-debt sweep (tests only)
+- **Scope (G31):** grant-level fixture seeding `paid_through == window_start` (no grant); `unpaid`, `incomplete`, `incomplete_expired`, `paused`, `canceled`-past-`paid_through` seeds ⇒ zero grants + correct `billing_credit_window` status; explicit `past_due` boundary fixture; annual-cadence parity (12 windows from one `paid_through`) and annual cancellation with prepaid windows remaining; annual renewal failure (`invoice.payment_failed` on an annual renewal ⇒ `past_due`, no window beyond `paid_through`); owner-transfer (Clerk user id change) preserves starter/promotion eligibility; retired offer (`active:false`) checkout rejection; cross-salon `403` before any attempt/claim write on checkout and top-up through the real `requireAdmin` membership path, **inside the existing allowlisted test files**; `+tag`/dot addresses ⇒ distinct identities at grant level; parameterise `stripePriceMap.test.ts` so "placeholders reject" and "configured IDs resolve" both hold via a mocked table. New PG vectors go **inside the two existing CI-listed integration files**.
+- **Files:** existing test files only. No new files under `src/app/api/billing`.
+- **Acceptance:** every scenario is a named `it(...)` whose body seeds the named value; `npm run test:all` green; PG suites run with the disposable env and the output shows their test counts (not skipped).
+
+### P3a — Webhook completeness and foreign-event safety (§8.4/§8.2/§6.7)
+- **Scope:** G01 add `refund.updated`, routed through the cumulative `reverseTopup` arithmetic keyed by refund id (idempotent with `charge.refunded`); G02 subscription snapshot carries `items.data[0].price.id`; top-up branch retrieves the session with `expand: ['line_items','payment_intent']` (the PR #176 expanded-evidence pattern) and passes the resolved price to `claimBillingEvent({ priceId })`; cross-check via the existing reverse lookups; **when the price map has no id for the current env (all-null tables until P6 + provisioning) the cross-check is skipped with one log line, never a hold**; mismatch with a configured map ⇒ `held_anomaly` + Sentry, no state write; G42 ownership classification: invoices/charges/disputes whose subscription/payment-intent has no local `billing_subscription` / `sms_topup_purchase` row ⇒ `ignored_foreign` (durable, no throw, no Sentry per event; one aggregated Sentry message per run if the count is unexpectedly high); G05 `async_payment_succeeded` (⇒ same fulfilment transition when `payment_status='paid'`) and `async_payment_failed` (⇒ same expire transition); **D8 default:** `payment_method_types: ['card']` on the top-up session (allowlisted route, no hash); **G10/D2 default:** full refund of a subscription invoice charge ⇒ explicit idempotent transition (keyed by refund id) that sets `paid_through = min(paid_through, refunded_period_start)` so the window engine stops granting, plus Sentry; disputes stay held + Sentry (the contract's MAY); §6.8 vectors "full refund after prior windows consumed", "full refund with current unused allowance", "dispute during prepaid annual term".
+- **Files:** `stripe-billing/route.ts` (+test), `billingSubscriptionProjection.ts` (+test), `topupFulfillment.ts`, `billingStripeEvents.ts` (priceId only), `checkout/topup/route.ts` (+tests).
+- **Acceptance:** replayed `refund.updated` reverses at most once; `charge.refunded` + `refund.updated` for one refund reverse once; unconfigured map ⇒ no hold, one log; configured-map mismatch ⇒ hold + Sentry + no writes; legacy-flow invoice ⇒ `ignored_foreign`, no retry, no Sentry; deposit charge refund ⇒ `ignored_foreign`; async success fulfils exactly once even if an unpaid `checkout.session.completed` arrived first; async failure expires attempt + purchase atomically; full subscription refund stops the next window (test seeds a covered window, refunds, evaluates ⇒ `skipped_unpaid`); top-up session request asserts `payment_method_types: ['card']`. Focused battery + PG suites (with counts) green; `npx next build` green.
+
+### P3b — Webhook concurrency hardening (ported from PR #176, re-derived on #195's state machine)
+- **Scope:** processing lease (`BILLING_EVENT_PROCESSING_LEASE_MS`), CAS-fenced terminal writes in `resolveBillingEvent`/`failBillingEvent`, reclaim of abandoned `processing` rows, `503 BILLING_EVENT_PENDING` + `Retry-After` for in-flight duplicates; pre-reservation `stripe.prices.retrieve` sanity check (fixed price, `cad`, `unit_amount` = offer snapshot) and `payment_intent_data.metadata` on the top-up session; session `expires_at` tied to the attempt's `expiresAt`. Never cherry-pick; #176's `checkoutAttempts.ts`/`applyTopupSessionExpired`/route-reuse logic is superseded and must not be reintroduced.
+- **Files:** `billingStripeEvents.ts` (+test), `stripe-billing/route.ts` (+test), `checkout/topup/route.ts` (+tests). Columns `available_at`/`updated_at` already exist — no migration.
+- **Acceptance:** two simultaneous deliveries of one event ⇒ one processes, one `503` with `Retry-After`, no double effect; abandoned lease past TTL is reclaimed exactly once; existing PG top-up suite still green with counts; #195's `CHECKOUT_IN_PROGRESS`/`CHECKOUT_PENDING_RECONCILIATION` tests unchanged and green.
+
+### P3c — Audit trail (§8.5)
+- **Scope:** add `logAuditEventTx(tx, entry)` in `src/libs/auditLog.ts` (commits/rolls back with the caller's transaction; `logAuditEvent` unchanged); route-level `checkout_session_created` (existing action name) immediately after `markAttemptCheckoutCreated` in `checkout/route.ts` and the top-up route (**new checkout postimage hash appended to `CI.yml:266-270` in the same PR**, D18); lib-layer rows via the tx helper for promotion claim reserve/redeem/release (`promotionClaims.ts`), attempt complete/expire (`checkoutAttempts.ts`), top-up fulfil/reverse (`topupFulfillment.ts`) and subscription projection apply; new action names appended to `AUDIT_LOG_ACTIONS` in `src/models/Schema.ts:3242` (TS union only; `audit_log.action` has no DB CHECK — no migration). **`creditGrants.ts`, `creditLedger.ts`, `creditReservation.ts` are live paths and are not edited.** Actor: `actorType: 'webhook', actorId: 'stripe-billing'` (or `'admin'` + user id for checkout).
+- **Acceptance:** exactly one committed audit row per committed transition, none on rollback (test forces a rollback after the audit call); rows carry `salonId`, event id, no PII; CI ladder guard accepts the new checkout hash.
+
+### P4 — Scheduler, reconciliation, held top-ups, purge
+- **Scope:** G08 reconcile diffs `paid_through` (latest paid invoice period end), plan/offer keys (via the P3a cross-check, skipped while unconfigured), `pending_offer_key`, `next_credit_grant_at`, `last_event_created`; repairs only via the existing idempotent projection; cursor pagination (`id` ordered, loop until drained) for both cron routes; duplicate-remote alert test. **Per-section gating:** subscription drift runs when `BILLING_SUBSCRIPTIONS_ENABLED==='true'`, top-up reconciliation when `BILLING_TOPUPS_ENABLED==='true'`, the route runs when either is set, and **G13 payload purge (`payload_purge_after < now()` ⇒ null the payload) runs unconditionally before any switch gate**. G06 `src/libs/billing/topupReconciliation.ts`: candidates = attempts with `purpose='sms_topup'` and `status IN ('creating','checkout_created')` where the salon has more than one such row **or** `expires_at < now()`; for those with a non-null `stripe_checkout_session_id` retrieve the session (+ payment intent) and apply the same idempotent transitions (`paid` ⇒ fulfil, `expired` ⇒ expire, `open` ⇒ leave); unbound rows are only listed (never cleared by age). G09 call `expireLapsedLots` from `/api/billing/windows/evaluate`. Cron routes return `200 { skipped: 'BILLING_DISABLED' }` when nothing is enabled, and their header comments (`windows/evaluate/route.ts:9-15`, `reconcile/route.ts:15-18`) are rewritten to describe the dark contract. **Registration half (only if D3 = yes):** insert the two cron objects *before* the existing last entry of `vercel.json` (pure `+` hunk; an append rewrites the previous brace and fails `CI.yml:351-359`), add both paths to the cron case list (`CI.yml:466-469`), and record the §20 amendment in `docs/billing-gate-c-record.md`. Add `src/app/api/billing/windows/evaluate/route.test.ts` to the 8-path case list (`CI.yml:255-257`, D18). G30 part 2: run the reconciler against a disposable Postgres seeded with drifted fixtures; commit the drift report.
+- **Files:** `reconcile/route.ts` (+test), `windows/evaluate/route.ts` (+new test, allowlisted in this PR), new lib + test under `src/libs/billing/`, optionally `vercel.json` + `CI.yml` cron list, docs.
+- **Acceptance:** reconcile detects and repairs a seeded `paid_through` lag and a stuck pending downgrade, and reports (never repairs) a duplicate remote subscription; 250 seeded subscriptions covered in one run; **topups-only configuration still resolves a held purchase**; held top-up with `paid` remote session fulfilled exactly once and attempt completed; unbound held attempt listed and untouched; purge nulls payloads with both switches unset; cron routes respond `200 skipped` with **no billing query and no Stripe call** (one pooled connection + `SELECT 1` per cold start is inherent to `src/libs/DB.ts:291-338` and must be stated, not denied); if registered: `vercel.json` diff contains no `-` line and CI ladder guard passes; annual subscriber with `paid_through` one year out receives exactly 12 windows across simulated evaluations.
+- **Rollback:** code half = forward revert. Registration half cannot be reverted by a plain revert (a removed cron line trips `CI.yml:351-359`); rollback is "leave the entries, keep the switches unset" or a D18-approved freeze exemption — state this in the PR body.
+
+### P5a — Owner surface truth (blocked on D1)
+- **Scope:** G18 usage API returns the subscription for every §6.5a status with an `entitlement` field (`paidThrough`, `grantsEligible`, `label`); `UsageBillingModal` renders a status banner for `past_due/unpaid/incomplete/incomplete_expired/paused/canceled-past-paid_through`; G17 new `GET src/app/api/billing/topups/route.ts` (**inside** the guarded tree; path + test path added to the 8-path case list, D18), gated on `BILLING_TOPUPS_ENABLED==='true'` (else `[]`), tenant-scoped, cursor, masked (offer key, credits, price snapshot, status incl. `pending/held/fulfilled/refunded/disputed`, timestamps; no `cs_`/`pi_`/`price_` strings) + a "Top-ups" tab; G19 (top-up half) admin page reads `?topup=success|cancelled` once, shows a non-authoritative toast, opens the modal, polls usage until `fulfilled` or 60 s, clears the param; G16 implement `describeBillingState({ salon, subscription })` and use it in the usage route.
+- **Acceptance:** every §6.5a status row has an RTL test showing the right banner; cross-salon top-ups request ⇒ 403; dark ⇒ `[]`; masking test; return-param flow with mocked fetch; `npx next build` green.
+
+### P5b — Billing Portal for new-track subscriptions (live route; explicit D18)
+- **Scope:** G41 portal resolves the Stripe customer from the salon's live `billing_subscription.stripe_customer_id` first, falling back to legacy `salon.stripeCustomerId` (behaviour for legacy customers byte-for-byte unchanged); G26 fixed error message instead of `error.message`; D9 default: no dark switch. Requires replacing the zero-diff freeze on `src/app/api/billing/portal` (`CI.yml:219-221`) with a reviewed postimage hash — **explicit owner approval, recorded in §5.0**.
+- **Acceptance:** legacy-column-only salon ⇒ identical portal session request as today (snapshot test of the Stripe call); new-track salon ⇒ portal opens with the billing customer; both absent ⇒ `400 NO_BILLING_ACCOUNT`; error body fixed; live regression: existing portal tests unchanged.
+
+### P6 — Env-keyed price carrier, tax architecture, rate protection (server)
+- **Scope:** G40/D19 default: one optional server-only env `BILLING_STRIPE_PRICE_IDS` = zod-validated JSON `{ env: 'dev'|'test'|'prod', offers: {offerKey: price_…}, topups: {topupOfferKey: price_…}, coupons: {promotionKey: coupon_…} }`; **rejected at boot (`assertEnvironmentIsolation`) when `env !== BILLING_PLAN_ENV`** — that is the implementable "prod-shaped map under test is rejected" test and it restores §12's structural isolation; malformed/duplicate/unknown keys fail closed; `stripePriceMap.ts` reads it first, falls back to the committed placeholders; reverse lookups use the same table. Honest caveat recorded in the docs: live-vs-test separation of the *ids themselves* rests on per-Vercel-environment provisioning plus the existing `STRIPE_KEY_MODE_INVALID` boot check (`environmentIsolation.ts:343-345`), never on inspecting an id. G14 optional env `BILLING_TAX_COLLECTION_ENABLED` (`'true'|'false'`, unset ⇒ off); both Checkout Sessions set `automatic_tax: { enabled }`, `billing_address_collection: 'required'`, `customer_update: { address: 'auto' }`, optional `tax_id_collection`; `invoice.payment_failed` test for a tax-related failure. G15 `resolveOfferForServicePeriod(subscription, periodStart)` honouring `rate_protected_through` against offer successor chains, used where plan/offer keys are applied at renewal/pending-change (`billingSubscriptionProjection.ts:218-226`) and in the checkout disclosure (stored date, not the static months constant); §3.9 vectors (monthly founder protected through month 24; annual terms 1–2 protected, term 3 not; lapse breaks protection).
+- **Files:** `Env.ts` (**two edits each**: `server:` zod entry + `runtimeEnv` mapping), `.env.example`, `environmentIsolation.ts` (+test), `stripePriceMap.ts` (+test), `checkout/route.ts` (**new postimage hash in `CI.yml`**), `checkout/topup/route.ts`, `billingSubscriptionProjection.ts`, `billingOffers.ts`/`promotions.ts` helper, tests.
+- **Acceptance:** map with wrong `env` fails boot in test; map absent ⇒ placeholders ⇒ `PRICE_UNCONFIGURED`; flag unset ⇒ `automatic_tax.enabled=false` with address collection still required; `'true'` ⇒ enabled; §3.9 vectors green; disclosure returns stored `rateProtectedThrough`; ladder guard accepts the new checkout hash; **both new envs stay unset everywhere** (§7).
+
+### P7 — Subscription checkout UI (blocked on D4/D5)
+- **Scope (defaults):** replace `ComparePlansModal` with a "Choose plan" surface in Settings → Account & Plan listing the catalogue (`getPublicPlanCatalog()`/`getPublicBillingOffers()`), calling `POST /api/billing/checkout`, showing the disclosure (renewal amount, rate-protection end, founding promo when open) before redirect; rendered only when the usage/billing-status response's `capabilities: { subscriptions, topups, pricingPublic }` says enabled; G19 (subscription half) `?billing=…` handling; delete `ComparePlansModal` + `BILLING_PLAN_CARDS` and their pin test (D5 default).
+- **Acceptance:** switches unset ⇒ surface absent from the DOM; mocked enabled ⇒ exact §3 numbers pinned against `getBillingOffer`; `ACTIVE_SUBSCRIPTION_EXISTS` renders the portal hand-off (works because of P5b); no feature-matrix copy beyond SMS credits and email-included (§12).
+
+### P8a — Operator scripts and observability (dark code)
+- **Scope:** G22 `scripts/grant-starter-credits.ts` with **all four layers of `scripts/database-command.ts:89-115`**: CI refusal, `LUSTER_PRODUCTION_CONFIRM` date confirmation, `requirePostgresDatabaseTarget`, and `attestProductionTarget`/`rejectNonProductionMarkerForProduction`; `--dry-run` (default) routes through `requireNonProductionDatabaseTarget` or an explicit `--database-url` carrying the non-production marker (a dry run still connects and reads — dev and prod share one Neon database); `--apply` reachable only with confirmation + attestation; idempotent via the existing `starter-grant:{identity}` key; writes an audit row via `logAuditEventTx`; prints ledger evidence. G12 `scripts/billing-integrity-check.ts` (read-only: duplicate ledger lots per idempotency-key family, negative balances, account cache vs ledger sum, orphan reservations) runnable locally/CI; Sentry only for an **actual** duplicate ledger lot or negative balance found by the check — **never** on the live suppressed-duplicate-claim path; a metric/log line at most there, and any edit to `creditGrants.ts` carries a live-onboarding regression test.
+- **Acceptance:** dry-run against a disposable DB prints the would-be grant; `--apply` grants once; second `--apply` is a no-op; integrity check passes on a clean seed and flags each injected anomaly; scripts refuse to run in CI.
+- **Never run `--apply` against production without written authorization.**
+
+### P8b — Super-admin billing ops panel (D6)
+- **Scope:** compact read-only panel under `src/app/[locale]/super-admin/` reading `/api/super-admin/communications`, a new authenticated billing-status endpoint (granular switch/secret/plan-env booleans that the public health deliberately omits), the P4 held-attempt listing, and the existing platform kill switch.
+- **Acceptance:** RTL test; `requireSuperAdmin` exercised by a test; no raw Stripe ids rendered.
+
+### P8c — D1 billing half: runbook, readiness harness, retention docs (**requires Gate D authorization**)
+- **Scope:** `docs/BILLING_PRODUCTION_RUNBOOK.md` in §20 order: Stripe Products/Prices (`tax_behavior=exclusive`), 40%-off-once Coupon, top-up Prices, `stripe-billing` endpoint with the event selection **enumerated from `HANDLED_TYPES` (13 after P3a: the 10 today + `refund.updated`, `checkout.session.async_payment_succeeded`, `checkout.session.async_payment_failed`)** and narrowed to those types only, Customer Portal configuration (D16), **legacy endpoint event filtering so it never receives `checkout.session.completed` for `plan_subscription`/`sms_topup` sessions (G24, D7)**, env provisioning (`STRIPE_BILLING_WEBHOOK_SECRET`, `BILLING_STRIPE_PRICE_IDS`, `BILLING_IDENTITY_HMAC_SECRET/VERSION`), **verify `BILLING_PLAN_ENV=prod` on Production and `test` on Preview before the secret**, cron registration/verification, dark readiness proof, activation order, rollback priority, the D2 manual dispute step; `scripts/billing-readiness-check.ts` (read-only: env distinctness, price-map resolution per env, secret presence, cron registration by statically importing `vercel.json`, endpoint event selection equals `HANDLED_TYPES`, no live keys on preview); `docs/BILLING_IDENTITY_KEY_LIFECYCLE.md` (HMAC version register, rotation, verification window, deletion) with the retention horizon marked **PROPOSED pending owner sign-off (D10)**.
+- **Acceptance:** owner review (check-in); harness passes on CI placeholders.
+
+### P9 — Legacy hardening and cleanup (**BLOCKED**: contract amendment required)
+- **Why blocked:** §5/§8.1 keep the legacy route byte-identical and §24 defers both legacy retirement and boilerplate deletion; a CI freeze edit is not an authorization. Proceeds only after the owner ratifies the D19 amendment note.
+- **Design constraints when unblocked:** purpose guard only (ignore `checkout.session.completed` with `metadata.purpose ∈ {plan_subscription, sms_topup}`); **no shared dedupe with `billing_stripe_event`** (Stripe delivers one event id to every endpoint; a shared claim would steal projections from the billing endpoint — `billingStripeEvents.ts:54-78`, `stripe-billing/route.ts:109-111`); preserve legacy retry-recovery behaviour; G32 deletions (keep `organizationSchema`); G28 optional Redis limiter.
+
+---
+
+## 6. Owner decision register
+
+`Default` = what Claude does if still `OPEN` when the phase starts. **BLOCKING** = stop until answered.
+
+| ID | Decision | Default if unanswered | Blocks |
+|---|---|---|---|
+| D1 | **PR #176 disposition** (Codex, CONFLICTING): split into (a) client-reminders/usage UI half and (b) billing-engine half; or close; or full rebase | Split (§10.1): land only (a) after rebase; close (b) as superseded by #195; Claude ports its four new pieces in P3a/P3b/P6. Never merge as-is | P5a, P7 — **BLOCKING** (P1–P4 may proceed) |
+| D2 | §6.7 subscription full refund: automate "future grants stop" now (P3a `paid_through` rollback transition) vs manual runbook | Automate the refund case in P3a; disputes stay held + Sentry with a manual runbook step (P8c) | `BILLING_SUBSCRIPTIONS_ENABLED` |
+| D3 | Register the two billing crons now (dark, `200 skipped`) — this schedules ~120 production invocations/day that each cold-start a pooled connection + `SELECT 1` against the shared Neon database (quota outage history), and amends §20 (which has no cron step) | **No default** — the P4 code half lands; registration waits for this answer or for activation | P4 registration half — **BLOCKING** |
+| D4 | Self-serve subscription checkout UI at pilot: minimal "Choose plan" flow vs support-driven only | Build the minimal flow (P7); it is the only way a real subscription gets correct metadata | P7 — **BLOCKING** |
+| D5 | `ComparePlansModal`: delete (§15 C2) or keep as informational | Delete in P7 when the Choose-plan surface lands | P7 |
+| D6 | Super-admin billing ops panel now or later | Build compact read-only panel (P8b) | P8b |
+| D7 | Legacy `/api/webhooks/stripe`: ops-side event filtering vs code purpose-guard vs retirement | **Ops filtering only** (P8c runbook); code guard and retirement BLOCKED pending D19 ratification | P9 |
+| D8 | Top-up payment methods card-only (excludes async settlement); note reversing later costs a postimage hash only if it moves into `checkout/route.ts` | Yes, `payment_method_types: ['card']` (P3a, allowlisted route) | P3a |
+| D9 | Dark switch on `/api/billing/portal` | No (serves live legacy-flow customers) | P5b |
+| D10 | Anti-abuse record retention horizon (keyed email fingerprints — a privacy/legal commitment) | **No default**; P8c documents the horizon as PROPOSED | P8c sign-off |
+| D11 | §12 publication approvals — **seven** separate items: (1) feature matrix; (2) tax configuration (accountant); (3) refund/cancellation terms; (4) founding promotion window + cap; (5) renewal-disclosure copy; (6) shared-number consent/STOP copy — ratified 2026-08-17, confirm it discharges the publication condition; (7) Canada-only launch language — OPEN | None can default. Pricing stays dark; promotion stays closed | `PUBLIC_PRICING_ENABLED`, promotion window |
+| D12 | French i18n for billing surfaces | Defer | — |
+| D13 | Direct `billing_subscription.status` gate in sender eligibility | Keep indirect enforcement (contract-consistent: prepaid entitlement continues through `paid_through`) | — |
+| D14 | Dashboard suspension on `past_due`/`unpaid` | None in v1; status banner only (P5a) | — |
+| D15 | Delete Rev-1 pricing boilerplate + i18n namespaces + `guardBillingOr402` | BLOCKED with P9 (§24 defers it) | P9 |
+| D16 | Stripe Customer Portal configuration: allow plan switching? | No plan/price switching until G02 is live; payment method, invoices, cancel only | P8c runbook |
+| D17 | Standing authorization to merge green, dark-only phase PRs (P1–P4, P5a, P6, P8a) without per-PR approval | **Not granted** until the owner writes `SA-MERGE: granted <date>` here | every merge |
+| D18 | Standing authorization for **additive** `CI.yml` edits inside phase PRs: new route/test paths appended to the 8-path case list, new checkout postimage hashes, cron case-list entries, appending files to the PG job line (`CI.yml:~1197`). Replacing a zero-diff freeze (portal in P5b, legacy route in P9) needs **explicit** approval each time | Additive edits allowed; freeze replacements not | P3c, P4, P5a, P5b, P6, P9 |
+| D19 | Ratify the `PROPOSED contract amendments (Rev 2.3)` recorded in P0: (a) env-keyed `BILLING_STRIPE_PRICE_IDS` carrier as the §4 mechanism for real IDs; (b) cron registration as a §20 step (only if D3 = yes); (c) legacy-route purpose guard against §5/§8.1/§24; (d) boilerplate deletion against §24 | (a) proceed in P6 (strictly safer than committing live IDs; structural isolation preserved by the boot check); (b)–(d) **no default** | P6 (a), P9 (c, d) |
+
+---
+
+## 7. Must remain disabled until final production authorization
+
+| Item | State to preserve | Where enforced |
+|---|---|---|
+| `BILLING_SUBSCRIPTIONS_ENABLED`, `BILLING_TOPUPS_ENABLED`, `PUBLIC_PRICING_ENABLED` | unset in Production, Preview, Development | `Env.ts:34-36`; checked first in every route |
+| `BILLING_TAX_COLLECTION_ENABLED`, `BILLING_STRIPE_PRICE_IDS` (new in P6) | unset everywhere (Preview test-mode ids only under separate authorization) | `Env.ts`; boot check |
+| `STRIPE_BILLING_WEBHOOK_SECRET` | unset; no `stripe-billing` endpoint registered — **this secret is the first live-traffic control** (route ignores the `BILLING_*` flags) | route returns 503 first |
+| `BILLING_PLAN_ENV` | never changed by Claude; `prod` on Production / `test` on Preview verified in P8c before any secret | boot-fatal check |
+| Committed `stripePriceMap.ts` tables | stay `null`; no live Price/Coupon ids in git, ever (§4) | `PRICE_UNCONFIGURED` |
+| Founding promotion window/cap | `null` (closed) | `promotions.ts` |
+| Billing crons | not registered unless D3 = yes; if registered, `200 skipped` while dark | P4 |
+| `GET /api/billing/topups` (P5a) | returns `[]` unless `BILLING_TOPUPS_ENABLED==='true'` | P5a |
+| Stripe resources | no Products/Prices/Coupon/Portal config created; legacy endpoint untouched in the dashboard | §20 step 1 — authorization only |
+| `scripts/grant-starter-credits.ts --apply` | never against production without written authorization | four-layer guard (P8a) |
+| `BILLING_IDENTITY_HMAC_SECRET/VERSION` | provisioning is a runbook step; rotation follows the P8c lifecycle doc | — |
+| Live modules `creditGrants.ts`, `creditLedger.ts`, `creditReservation.ts` | not edited in dark phases (P3c, P8a explicitly exclude them); any edit carries a live-onboarding regression test | protocol |
+| Vercel env / Stripe dashboard / production DB | no changes of any kind by Claude during P0–P9 | protocol |
+| `/api/webhooks/stripe/route.ts` (legacy) and `/api/billing/portal` | byte-identical until P5b (portal, explicit D18) / P9 (legacy, D19) | `CI.yml:219-221` |
+| `platform_communication_control` and SMS switches | untouched by this track | communications runbook |
+
+---
+
+## 8. Execution protocol (for continuous autonomous work)
+
+1. **Worktree:** from the primary repo run `git fetch origin` then `git worktree add /Users/me/nailsalon-worktrees/billing-p<N>-<slug> -b agent/billing-p<N>-<slug> origin/main`. Never implement in the shared checkout; never touch other worktrees.
+2. **Scope discipline:** exactly the phase's scope; no drive-by refactors; stage files explicitly (never `git add -A`); never `drizzle-kit generate`; no migrations (STOP if one seems needed); no `.env*` edits beyond `.env.example`; adding an env var means **two** edits in `Env.ts` (zod entry + `runtimeEnv`).
+3. **Commits:** conventional commits (`fix(billing): …`, `feat(billing): …`, `test(billing): …`, `docs(billing): …`), attribution line as required; commitlint runs per PR.
+4. **Local gates before pushing:**
+   - Focused billing battery: `npx vitest run --no-file-parallelism src/app/api/billing/checkout/topup/route.test.ts src/app/api/billing/checkout/route.test.ts src/app/api/webhooks/stripe-billing/route.test.ts src/app/api/billing/reconcile/route.test.ts src/libs/billing/*.test.ts src/libs/lowBalanceWarnings.test.ts src/components/admin/UsageBillingModal.test.tsx src/components/admin/SettingsModal.billing.test.tsx` (the glob includes the self-skipping concurrency suite — one skipped suite here is expected).
+   - PG concurrency suites on a **disposable** Postgres only: `CONCURRENCY_TEST_DATABASE_URL=<disposable url> SMS_CREDIT_LEDGER_DISPOSABLE_DATABASE_CONFIRMED=true npx vitest run --no-file-parallelism src/libs/billing/creditReservation.concurrency.integration.test.ts src/app/api/billing/checkout/topup/route.concurrency.integration.test.ts` — **acceptance requires the output to show the suites ran (non-zero test counts)**; never the Neon URL.
+   - `npm run check-types`, `npm run lint`, `npm run test:all` for phases touching shared libs; **`npx next build` for every phase that touches `src/app`** (`tsc` cannot catch route-export errors) — that is all phases except P0/P2/P8c.
+5. **CI allowlists (D18):** touching `checkout/route.ts` ⇒ append `git hash-object` of the new file to the postimage list; new route/test files under `src/app/api/billing` ⇒ append to the 8-path case list; new crons ⇒ cron case list + insert-before-last-entry; new PG suites ⇒ inside the two existing files or append to the job line. Never remove allowlist lines. Zero-diff freeze replacements need explicit approval.
+6. **PR:** draft from the phase branch; body records `base`, `head`, `tree` SHAs, phase ID, gap IDs closed, acceptance checklist with results, PG suite counts, "dark: no behaviour change while switches unset" (or the flagged exception), and the rollback recipe. Ready when CI is green. Re-run only a specifically flaky job.
+7. **Merge:** green CI, up-to-date branch (release bot pushes `chore(release)` commits; rebase first). Per-PR owner approval unless D17 is granted. After merge: wait for the Release run; confirm `https://www.lustergel.app/api/health` `gitSha` matches and `billingDark: true`; if crons are registered, confirm in Vercel cron logs that both routes returned `200 skipped`.
+8. **Rollback:** forward revert PR of the merge commit; note the `vercel.json` exception in P4.
+9. **Bookkeeping:** update §5.0 (status, PR, SHA, sign-off/date) and §6; strike closed gap IDs in §3 with the merge SHA; add a one-line memory pointer for the next session.
+10. **Check-in points only:** D1 before P5a; D3 before P4's registration half; D18 explicit before P5b; D4/D5 before P7; Gate D authorization before P8c; D19 before P9; anything needing a migration, an env change, a Stripe dashboard change, or a production data change.
+
+---
+
+## 9. Acceptance per switch (what must be true before each flip is even proposed)
+
+| Switch / secret | Prerequisite phases | Additional proof |
+|---|---|---|
+| `STRIPE_BILLING_WEBHOOK_SECRET` (endpoint registration) | P1, P3a, P3b, P3c, P4 (purge + reconcile), P6 (price carrier) | `BILLING_PLAN_ENV` verified per environment; collision guard test; endpoint event selection = `HANDLED_TYPES` (13), narrowed — no platform-wide `charge.*`/`invoice.*` beyond them; legacy endpoint filtered (D7); reconcile cron registered (D3) or an accepted plan for payload purge; **understand that the route becomes live at this step** |
+| `BILLING_TOPUPS_ENABLED` | P1–P6 (incl. P5a), P8a | held-attempt resolver demonstrated in a topups-only configuration; purchase history visible; card-only sessions; integrity check clean |
+| `BILLING_SUBSCRIPTIONS_ENABLED` | P1–P8a (incl. P5b) | crons registered and observed (`200 skipped` → real work after flip); annual parity test; reconcile drift report empty on Preview test-mode data; portal reaches new-track customers; Choose-plan surface hidden until flip |
+| `BILLING_TAX_COLLECTION_ENABLED` | P6 + D11(2) | Stripe Tax registration configured; prices `tax_behavior=exclusive` |
+| `PUBLIC_PRICING_ENABLED` | all **seven** D11 approvals | copy reviewed; founding window configured only if D11(4) approved |
+
+Activation itself (after separate authorization and P8c): follow `docs/BILLING_PRODUCTION_RUNBOOK.md` in §20 order; billing-specific §21 checks: health `billingDark` flips only as intended; readiness harness green; a single test-mode Checkout end-to-end on Preview (`BILLING_PLAN_ENV=test`) before any live flag; Isla starter grant via the P8a script; reconcile drift report empty; integrity check clean.
+
+---
+
+## 10. Concurrent work and conflicts
+
+- **PR #176** (`codex/client-reminders-and-usage-20260909`, open, non-draft, `CONFLICTING`, updated 2026-09-09): rewrites `UsageBillingModal.tsx` (+399/−35), the usage route, `checkout/topup/route.ts`, `stripe-billing/route.ts`, `billingStripeEvents.ts`, `checkoutAttempts.ts`, `topupFulfillment.ts`, `stripePriceMap.ts`, adds 2 lines to `Env.ts`, adds `docs/CLIENT_REMINDERS.md`. Its billing half targets the same problem PR #195 solved on 2026-09-13/14 with a different, more defensive design.
+- **PR #174** (docs) and **#178** (booking page photos): no billing overlap.
+- Worktree `/Users/me/nailsalon-worktrees/stripe-topup-retry-safety` still exists for the merged #195 branch; do not touch it.
+- The release bot (`semantic-release` via `workflow_run` on CI success) pushes `chore(release): x.y.z [skip ci]` to main after every merge; rebase phase branches before merging.
+
+### 10.1 PR #176 overlap analysis (delegated three-way comparison against `origin/main`, 2026-09-14)
+
+- **Merge state:** `git merge-tree` reports 7 conflicted files: 3 deep logic conflicts (`checkoutAttempts.ts`, `topupFulfillment.ts`, `checkout/topup/route.ts` + its test) and 3 shallow positional ones (`AdminModalHost.tsx`, `AppGrid.tsx`, `AppGrid.test.tsx`). Everything else auto-merges. No migration, no `vercel.json`, no `CI.yml` change.
+- **Superseded by #195 (would regress if merged as-is):** plain `for('update')` lock instead of `FOR NO KEY UPDATE`; `BeginAttemptResult` lacks `CHECKOUT_IN_PROGRESS`/`CHECKOUT_PENDING_RECONCILIATION`; the TTL sweep drops the "never auto-expire a top-up with an unknown outcome" guard; `applyTopupSessionExpired` is the pre-#195 unlocked one-liner; reused sessions returned without re-validation; Stripe-create failure returns `502` instead of the held `409`. Its concurrency test asserts the weaker design.
+- **Genuinely new and worth porting:** (1) `billingStripeEvents.ts` processing lease / CAS / reclaim / `503 BILLING_EVENT_PENDING` + `Retry-After` → P3b; (2) env-driven price map (`BILLING_TOPUP_PRICE_IDS`, single-env shape) → generalised and env-keyed in P6 (G40, D19a); (3) pre-reservation `stripe.prices.retrieve` sanity check, `payment_intent_data.metadata`, card-only, `expires_at` tied to the attempt → P3a/P3b; (4) expanded-evidence verification in `applyTopupSessionCompleted` → P3a (top-up half of G02).
+- **Reminders/UI half:** low-risk to rebase; if it lands, P5a is built on top of it.
+- **Author's own note:** "Deployment is blocked: Vercel Preview has mismatched Stripe key modes… Do not merge until the final checks and a configured preview pass."
+- **Recommendation (D1 default):** split; never a full in-place rebase.
+
+---
+
+## 11. Audit provenance
+
+- Workflow `wf_73dc988a-343`: 12 inventory dimensions, 78 claimed gaps each adversarially verified by 1–2 refuters (9 refuted/downgraded), completeness critic (14 follow-ups; 12 answered with evidence, 2 empty and re-verified by the lead). 127 agents, 0 errors.
+- Delegated PR #176 three-way comparison (1 agent).
+- Review panel `wf_8585fca7-c91` (3 opus reviewers: contract fidelity, dark-safety/production risk, executability/CI mechanics): 48 findings; every blocker/major accepted and folded in above (portal G41, foreign-event G42, per-section reconcile gating, unconditional purge, boot-time collision-guard vectors, `vercel.json` insertion rule, windows/evaluate test allowlist, tx-aware audit helper, `AUDIT_LOG_ACTIONS` location, top-up `expand` requirement, held-attempt query definition, unconfigured-map skip, env-keyed price carrier, seven §12 conditions, D2 automation, D3/D10 made owner-required, P3/P8 splits, P9 blocked on contract amendment, live-module exclusions, §6.8 correction, `unpaid` fixture, 13 event types, public health reduced to booleans, PG-suite run evidence, rollback notes, citation fixes).
+- Lead spot-checks on the detached worktree at `1b6ffeb3`: `HANDLED_TYPES`, reconcile field list, `UsageBillingModal` portal body, legacy webhook `billingMode` write, collision guard, `automatic_tax` (0 hits), in-process window caller, `grantStarterCredits` callers, `sms_topup_purchase` readers, `expireStaleClaims`/`expireLapsedLots` callers, usage-route status filter, CI freeze/allowlist/cron lines, PG job command, `AUDIT_LOG_ACTIONS` (no DB CHECK), `creditWindows.test.ts:99-107`.
+- Read-only external checks: `gh` (PR list/bodies/files, CI runs, branch protection 404 ⇒ ruleset unverified), one `curl` of the public `/api/health`.

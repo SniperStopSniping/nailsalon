@@ -41,9 +41,26 @@ vi.mock('@/libs/Env', () => ({ Env: envHolder }));
 // across every salon of one identity, so a shared user would make later
 // founding tests silently reuse the first test's claim (which is itself
 // correct behavior, pinned separately below).
-const adminHolder = vi.hoisted(() => ({ clerkUserId: 'user_default' }));
+// `deniedSalonIds` simulates requireAdmin's real membership check (§8, see
+// adminAuth.ts:443-454): an admin authenticated for one salon is refused a
+// FOREIGN salonId with the same 403 Forbidden shape production returns.
+const adminHolder = vi.hoisted(() => ({
+  clerkUserId: 'user_default',
+  deniedSalonIds: new Set<string>(),
+}));
 vi.mock('@/libs/adminAuth', () => ({
-  requireAdmin: vi.fn(async () => ({ ok: true, admin: { clerkUserId: adminHolder.clerkUserId } })),
+  requireAdmin: vi.fn(async (salonId: string) => {
+    if (adminHolder.deniedSalonIds.has(salonId)) {
+      return {
+        ok: false,
+        response: new Response(JSON.stringify({ error: 'Forbidden' }), {
+          status: 403,
+          headers: { 'Content-Type': 'application/json' },
+        }),
+      };
+    }
+    return { ok: true, admin: { clerkUserId: adminHolder.clerkUserId } };
+  }),
 }));
 
 vi.mock('@/libs/rateLimit', () => ({
@@ -109,6 +126,30 @@ vi.mock('@/libs/billing/stripePriceMap', async (importOriginal) => {
   };
 });
 
+// G31/item 7: no retired (active:false) offer exists in the committed
+// catalogue today, so a retired fixture is injected here ONLY — the
+// committed catalogue in src/libs/billing/billingOffers.ts is never touched.
+const billingOffersHolder = vi.hoisted(() => ({ includeRetired: false }));
+vi.mock('@/libs/billing/billingOffers', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/libs/billing/billingOffers')>();
+  return {
+    ...actual,
+    getBillingOffer: (key: string) => {
+      if (billingOffersHolder.includeRetired && key === 'retired_test_offer_monthly') {
+        return {
+          key: 'retired_test_offer_monthly',
+          planDefinitionKey: 'starter_2026_08',
+          cadence: 'monthly',
+          priceCents: 1499,
+          currency: 'cad',
+          activeForNewSubscriptions: false,
+        };
+      }
+      return actual.getBillingOffer(key);
+    },
+  };
+});
+
 let db: ReturnType<typeof drizzle<typeof schema>>;
 
 beforeAll(async () => {
@@ -120,6 +161,8 @@ beforeAll(async () => {
 
 beforeEach(() => {
   envHolder.BILLING_SUBSCRIPTIONS_ENABLED = 'true';
+  adminHolder.deniedSalonIds = new Set();
+  billingOffersHolder.includeRetired = false;
   priceMapHolder.priceId = 'price_test_resolved';
   priceMapHolder.couponId = 'coupon_test_resolved';
   promotionHolder.startsAt = '2026-01-01T00:00:00.000Z';
@@ -492,5 +535,61 @@ describe('founding promotion — claim-before-Checkout (§7.3)', () => {
 
     expect(released).toHaveLength(1);
     expect(released[0]!.status).toBe('released');
+  });
+});
+
+describe('cross-salon isolation (§17 security/tenancy)', () => {
+  it('an admin authenticated for a DIFFERENT salon is refused with 403 before any attempt or claim row is written', async () => {
+    // Approach: this file already stubs @/libs/adminAuth globally (as the
+    // pre-existing `requireAdmin: vi.fn(async () => ({ ok: true, ... }))`
+    // mock did). The stub above was extended to key off `salonId` and mimic
+    // the real requireAdmin membership check's 403 shape (adminAuth.ts:
+    // 443-454) — this case marks 's_cross_target' as a salon the current
+    // admin does NOT belong to, exactly like an admin of salon X requesting
+    // salon Y. Exercising the real requireAdmin (Clerk session + DB
+    // membership) is not practical inside this file's existing PGlite +
+    // globally-mocked-adminAuth harness without a large unrelated rework.
+    await seedSalon('s_cross_owner');
+    await seedSalon('s_cross_target');
+    adminHolder.deniedSalonIds.add('s_cross_target');
+
+    const response = await post({ salonId: 's_cross_target', billingOfferKey: 'pro_2026_08_monthly' });
+
+    expect(response.status).toBe(403);
+    expect(stripeMock.checkout.sessions.create).not.toHaveBeenCalled();
+    expect(await attemptRows('s_cross_target')).toHaveLength(0);
+
+    const claims = await db.select().from(schema.billingPromotionClaimSchema)
+      .where(eq(schema.billingPromotionClaimSchema.salonId, 's_cross_target'));
+
+    expect(claims).toHaveLength(0);
+
+    // The admin's OWN salon is unaffected — the denial is scoped to the
+    // foreign salonId only, not a blanket lockout.
+    const own = await post({ salonId: 's_cross_owner', billingOfferKey: 'pro_2026_08_monthly' });
+
+    expect(own.status).toBe(200);
+  });
+});
+
+describe('retired offer — active:false rejects before any durable write (G31 item 7)', () => {
+  it('rejects a retired (activeForNewSubscriptions: false) offer with a typed UNKNOWN_OFFER error', async () => {
+    // No retired offer exists in the committed catalogue today (every row of
+    // BILLING_OFFERS is activeForNewSubscriptions: true) — a fixture is
+    // injected via the billingOffers mock above; production catalogue data
+    // is never touched.
+    billingOffersHolder.includeRetired = true;
+    await seedSalon('s_retired');
+    const response = await post({ salonId: 's_retired', billingOfferKey: 'retired_test_offer_monthly' });
+
+    expect(response.status).toBe(400);
+    expect((await response.json()).error.code).toBe('UNKNOWN_OFFER');
+    expect(stripeMock.checkout.sessions.create).not.toHaveBeenCalled();
+    expect(await attemptRows('s_retired')).toHaveLength(0);
+
+    const claims = await db.select().from(schema.billingPromotionClaimSchema)
+      .where(eq(schema.billingPromotionClaimSchema.salonId, 's_retired'));
+
+    expect(claims).toHaveLength(0);
   });
 });

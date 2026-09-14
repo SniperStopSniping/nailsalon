@@ -94,6 +94,14 @@ describe('GET /api/health', () => {
     delete process.env.SUPER_ADMIN_TEST_PHONE;
     delete process.env.SUPER_ADMIN_TEST_PASSWORD;
     delete process.env.LEGACY_OTP_AUTH_ENABLED;
+    delete process.env.BILLING_SUBSCRIPTIONS_ENABLED;
+    delete process.env.BILLING_TOPUPS_ENABLED;
+    delete process.env.PUBLIC_PRICING_ENABLED;
+    delete process.env.STRIPE_BILLING_WEBHOOK_SECRET;
+    // vitest-setup.ts sets this to 'test' for every run; re-asserted here so
+    // the billing.planEnvMatchesRuntime fixtures are deterministic even if a
+    // prior test in this file overwrote it.
+    process.env.BILLING_PLAN_ENV = 'test';
   });
 
   afterEach(() => {
@@ -167,6 +175,10 @@ describe('GET /api/health', () => {
       // deposits foundation must never be able to degrade production health.
       depositsSchema: expect.any(String),
       schemaDrift: 'ready',
+      // G23/G34 — dark: none of the three switches or the billing secret are
+      // set anywhere in this fixture; planEnvMatchesRuntime: BILLING_PLAN_ENV
+      // is 'test' (vitest-setup.ts) and the runtime resolves to 'test' too.
+      billing: { dark: true, planEnvMatchesRuntime: true },
       timestamp: expect.any(String),
       gitSha: 'abcdef1',
     });
@@ -466,5 +478,65 @@ describe('GET /api/health', () => {
     expect(JSON.stringify(body)).not.toContain(
       'drizzle.__drizzle_migrations detail must not escape',
     );
+  });
+
+  // G23/G34 — the public, unauthenticated billing surface: exactly two
+  // booleans, never per-switch detail or a secret-presence flag.
+  describe('billing (G23/G34)', () => {
+    it('reports dark: true under the default test env (no switch, no secret)', async () => {
+      executeMock.mockResolvedValue([{ '?column?': 1 }]);
+
+      const body = await (await GET()).json();
+
+      expect(body.billing.dark).toBe(true);
+    });
+
+    it.each([
+      ['BILLING_SUBSCRIPTIONS_ENABLED'],
+      ['BILLING_TOPUPS_ENABLED'],
+      ['PUBLIC_PRICING_ENABLED'],
+    ] as const)('reports dark: false once %s is enabled', async (envVar) => {
+      executeMock.mockResolvedValue([{ '?column?': 1 }]);
+      process.env[envVar] = 'true';
+
+      const body = await (await GET()).json();
+
+      expect(body.billing.dark).toBe(false);
+    });
+
+    it('reports dark: false once the billing webhook secret is provisioned', async () => {
+      executeMock.mockResolvedValue([{ '?column?': 1 }]);
+      process.env.STRIPE_BILLING_WEBHOOK_SECRET = 'whsec_billing';
+
+      const body = await (await GET()).json();
+
+      expect(body.billing.dark).toBe(false);
+    });
+
+    it('reports planEnvMatchesRuntime: true for the test mapping (BILLING_PLAN_ENV=test under the test runtime)', async () => {
+      executeMock.mockResolvedValue([{ '?column?': 1 }]);
+      process.env.BILLING_PLAN_ENV = 'test';
+
+      const body = await (await GET()).json();
+
+      expect(body.billing.planEnvMatchesRuntime).toBe(true);
+    });
+
+    it('reports planEnvMatchesRuntime: false when BILLING_PLAN_ENV does not match the resolved runtime', async () => {
+      executeMock.mockResolvedValue([{ '?column?': 1 }]);
+      process.env.BILLING_PLAN_ENV = 'prod';
+
+      const body = await (await GET()).json();
+
+      expect(body.billing.planEnvMatchesRuntime).toBe(false);
+    });
+
+    it('never exposes per-switch detail or a secret-presence flag — exactly two keys', async () => {
+      executeMock.mockResolvedValue([{ '?column?': 1 }]);
+
+      const body = await (await GET()).json();
+
+      expect(Object.keys(body.billing).sort()).toEqual(['dark', 'planEnvMatchesRuntime']);
+    });
   });
 });

@@ -51,7 +51,8 @@ const stripeMock = vi.hoisted(() => ({
   },
 }));
 vi.mock('@/libs/stripe', () => ({ stripe: stripeMock }));
-vi.mock('@sentry/nextjs', () => ({ captureException: vi.fn(), captureMessage: vi.fn() }));
+const sentryHolder = vi.hoisted(() => ({ captureMessage: vi.fn(), captureException: vi.fn() }));
+vi.mock('@sentry/nextjs', () => sentryHolder);
 
 let db: ReturnType<typeof drizzle<typeof schema>>;
 
@@ -65,6 +66,8 @@ beforeAll(async () => {
 beforeEach(() => {
   envHolder.STRIPE_BILLING_WEBHOOK_SECRET = 'whsec_test';
   envHolder.BILLING_PLAN_ENV = 'test';
+  sentryHolder.captureMessage.mockClear();
+  sentryHolder.captureException.mockClear();
 });
 
 const post = async (body: unknown, signature = 'sig_valid') => {
@@ -131,16 +134,48 @@ describe('stripe-billing webhook pipeline', () => {
     expect(mine[0]!.status).toBe('ignored_foreign');
   });
 
-  it('records and ignores a livemode mismatch without processing', async () => {
-    // test-mode deployment receiving a LIVE event.
-    const event = stripeEvent('invoice.payment_succeeded', { id: 'in_live' }, { livemode: true });
+  it('records and ignores a livemode mismatch without processing (§8.2 order: verify → livemode → claim)', async () => {
+    await db.insert(schema.salonSchema).values({ id: 's_route_livemode', name: 's', slug: 's-route-livemode' });
+    // test-mode deployment receiving a LIVE event — and one that WOULD create
+    // a billing_subscription row if handleEvent ever ran, so a passing
+    // assertion that no row exists is proof handleEvent was never reached,
+    // not just an absence of a thrown error.
+    const event = stripeEvent('customer.subscription.created', {
+      id: 'sub_live_mismatch',
+      customer: 'cus_live_mismatch',
+      status: 'active',
+      cancel_at_period_end: false,
+      current_period_start: 1_780_000_000,
+      metadata: { purpose: 'plan_subscription', salonId: 's_route_livemode', billingOfferKey: 'starter_2026_08_monthly' },
+    }, { livemode: true });
     const response = await post(event);
 
     expect((await response.json()).ignored).toBe('livemode_mismatch');
 
+    // The status is recorded DIRECTLY in its terminal form — assert it right
+    // after the request, exactly as it stands, never having passed through
+    // 'processing'.
     const [row] = (await eventRows()).filter(entry => entry.eventId === event.id);
 
     expect(row!.status).toBe('ignored_livemode_mismatch');
+    expect(row!.attempts).toBe(0);
+
+    const [subscription] = await db.select().from(schema.billingSubscriptionSchema)
+      .where(eq(schema.billingSubscriptionSchema.stripeSubscriptionId, 'sub_live_mismatch'));
+
+    expect(subscription).toBeUndefined();
+
+    // A replay of the SAME mismatched event stays a no-op: still 200,
+    // still ignored, still exactly one durable row, never claimed.
+    const replay = await post(event);
+
+    expect(replay.status).toBe(200);
+    expect((await replay.json()).ignored).toBe('livemode_mismatch');
+
+    const rowsAfterReplay = (await eventRows()).filter(entry => entry.eventId === event.id);
+
+    expect(rowsAfterReplay).toHaveLength(1);
+    expect(rowsAfterReplay[0]!.status).toBe('ignored_livemode_mismatch');
   });
 
   it('processes a subscription create + paid invoice end-to-end: projection, paid_through, ENGINE grant', async () => {
@@ -248,5 +283,70 @@ describe('stripe-billing webhook pipeline', () => {
     const [row] = (await eventRows()).filter(entry => entry.eventId === event.id);
 
     expect(row!.status).toBe('held_anomaly');
+  });
+
+  // G03 — every held_anomaly outcome alerts exactly once.
+  describe('G03 — Sentry on every held_anomaly outcome', () => {
+    it('alerts exactly once for a subscription-projection anomaly (UNKNOWN_OFFER_OR_SALON_METADATA)', async () => {
+      // purpose='plan_subscription' but no salonId/billingOfferKey metadata.
+      const event = stripeEvent('customer.subscription.created', {
+        id: 'sub_route_anomaly',
+        customer: 'cus_route_anomaly',
+        status: 'active',
+        cancel_at_period_end: false,
+        current_period_start: 1_780_000_000,
+        metadata: { purpose: 'plan_subscription' },
+      });
+      const response = await post(event);
+
+      expect(response.status).toBe(200);
+
+      const [row] = (await eventRows()).filter(entry => entry.eventId === event.id);
+
+      expect(row!.status).toBe('held_anomaly');
+      expect(row!.lastError).toBe('UNKNOWN_OFFER_OR_SALON_METADATA');
+      expect(sentryHolder.captureMessage).toHaveBeenCalledTimes(1);
+      expect(sentryHolder.captureMessage).toHaveBeenCalledWith('billing.event_held_anomaly', {
+        level: 'warning',
+        extra: { eventId: event.id, eventType: 'customer.subscription.created', detail: 'UNKNOWN_OFFER_OR_SALON_METADATA' },
+      });
+    });
+
+    it('alerts exactly once for an invoice with no line-item periods', async () => {
+      const event = stripeEvent('invoice.payment_succeeded', {
+        id: 'in_route_no_periods',
+        subscription: 'sub_route_no_periods',
+        lines: { data: [] },
+      });
+      const response = await post(event);
+
+      expect(response.status).toBe(200);
+
+      const [row] = (await eventRows()).filter(entry => entry.eventId === event.id);
+
+      expect(row!.status).toBe('held_anomaly');
+      expect(row!.lastError).toBe('INVOICE_WITHOUT_LINE_PERIODS');
+      expect(sentryHolder.captureMessage).toHaveBeenCalledTimes(1);
+      expect(sentryHolder.captureMessage).toHaveBeenCalledWith('billing.event_held_anomaly', {
+        level: 'warning',
+        extra: { eventId: event.id, eventType: 'invoice.payment_succeeded', detail: 'INVOICE_WITHOUT_LINE_PERIODS' },
+      });
+    });
+
+    it('never includes the raw payload or PII in the Sentry extra', async () => {
+      const event = stripeEvent('customer.subscription.created', {
+        id: 'sub_route_anomaly_pii',
+        customer: 'cus_route_anomaly_pii',
+        status: 'active',
+        cancel_at_period_end: false,
+        current_period_start: 1_780_000_000,
+        metadata: { purpose: 'plan_subscription' },
+      });
+      await post(event);
+
+      const [, options] = sentryHolder.captureMessage.mock.calls[0]! as [string, { extra: Record<string, unknown> }];
+
+      expect(Object.keys(options.extra).sort()).toEqual(['detail', 'eventId', 'eventType']);
+    });
   });
 });

@@ -13,6 +13,8 @@ import { beforeAll, describe, expect, it, vi } from 'vitest';
 
 import * as schema from '@/models/Schema';
 
+import { computeCreditWindow } from './creditWindows';
+
 vi.mock('server-only', () => ({}));
 
 const holder = vi.hoisted(() => ({ db: null as unknown }));
@@ -47,6 +49,7 @@ async function seedSubscription(input: {
   planKey?: string;
   cadence?: 'monthly' | 'annual';
   status?: schema.BillingSubscriptionStatus;
+  cancelAtPeriodEnd?: boolean;
   anchor: Date;
   paidThrough: Date;
 }) {
@@ -59,6 +62,7 @@ async function seedSubscription(input: {
     billingOfferKey: `${input.planKey ?? 'starter_2026_08'}_${input.cadence ?? 'monthly'}`,
     billingCadence: input.cadence ?? 'monthly',
     status: input.status ?? 'active',
+    cancelAtPeriodEnd: input.cancelAtPeriodEnd ?? false,
     paidThrough: input.paidThrough,
     creditCycleAnchor: input.anchor,
   });
@@ -123,6 +127,205 @@ describe('credit windows — §6 grant semantics', () => {
 
     expect(late.granted).toBe(1);
     expect(await monthlyBalance('s_win2')).toBe(200);
+  });
+
+  it('paid_through EXACTLY == window_start grants nothing at the grant level (engine-level boundary pinned separately in creditWindows.test.ts:99-107)', async () => {
+    const { evaluateSubscriptionWindows } = await grants();
+    await seedSalon('s_win_start');
+    // paid_through equals the window's START instant precisely — the Rev 2
+    // rule this would have satisfied is void; Rev 2.2 requires paid_through
+    // >= window_end.
+    await seedSubscription({ id: 'sub_win_start', salonId: 's_win_start', anchor, paidThrough: anchor });
+    const during = new Date('2026-02-10T00:00:00.000Z');
+    const summary = await evaluateSubscriptionWindows({ subscriptionId: 'sub_win_start', now: during });
+
+    expect(summary).toMatchObject({ granted: 0, skippedUnpaid: 1 });
+    expect(await monthlyBalance('s_win_start')).toBe(0);
+
+    const windows = await db.execute(sql`
+      SELECT status FROM billing_credit_window WHERE billing_subscription_id = 'sub_win_start'
+    `);
+
+    expect(windows.rows.map(row => (row as Record<string, unknown>).status)).toEqual(['skipped_unpaid']);
+  });
+
+  it.each(['unpaid', 'incomplete', 'incomplete_expired', 'paused'] as const)(
+    '§6.5a status=%s grants nothing and writes NO durable billing_credit_window row (not even skipped) even when paid_through covers the window forever',
+    async (status) => {
+      const { evaluateSubscriptionWindows } = await grants();
+      const salonId = `s_status_${status}`;
+      const subscriptionId = `sub_status_${status}`;
+      await seedSalon(salonId);
+      // paid_through is set far in the future — fully covering every window —
+      // to prove the refusal comes from GRANT_ELIGIBLE_STATUSES, not from an
+      // unpaid boundary.
+      await seedSubscription({
+        id: subscriptionId,
+        salonId,
+        status,
+        anchor,
+        paidThrough: new Date('2030-01-01T00:00:00.000Z'),
+      });
+      const now = new Date('2026-02-10T00:00:00.000Z'); // inside window 0
+
+      const summary = await evaluateSubscriptionWindows({ subscriptionId, now });
+
+      expect(summary).toEqual({ granted: 0, skippedUnpaid: 0, skippedMissed: 0, anomalies: [] });
+      expect(await monthlyBalance(salonId)).toBe(0);
+
+      const windowRows = await db.execute(sql`
+        SELECT COUNT(*)::int AS n FROM billing_credit_window WHERE billing_subscription_id = ${subscriptionId}
+      `);
+
+      expect(Number((windowRows.rows[0] as Record<string, unknown>).n)).toBe(0);
+    },
+  );
+
+  it('canceled with paid_through already in the past (relative to now, inside the still-active window) grants nothing and records skipped_unpaid', async () => {
+    const { evaluateSubscriptionWindows } = await grants();
+    await seedSalon('s_canc_past');
+    const anchor6 = new Date('2026-01-01T00:00:00.000Z');
+    // Entitlement lapsed partway through window 0 (Jan 1 - Feb 1): paid only
+    // through Jan 15, but `now` is already past that.
+    const paidThrough = new Date('2026-01-15T00:00:00.000Z');
+    await seedSubscription({ id: 'sub_canc_past', salonId: 's_canc_past', status: 'canceled', anchor: anchor6, paidThrough });
+    const now = new Date('2026-01-20T00:00:00.000Z'); // past paid_through, window 0 still active
+
+    const summary = await evaluateSubscriptionWindows({ subscriptionId: 'sub_canc_past', now });
+
+    expect(summary).toMatchObject({ granted: 0, skippedUnpaid: 1 });
+    expect(await monthlyBalance('s_canc_past')).toBe(0);
+
+    const windows = await db.execute(sql`
+      SELECT status FROM billing_credit_window WHERE billing_subscription_id = 'sub_canc_past'
+    `);
+
+    expect(windows.rows.map(row => (row as Record<string, unknown>).status)).toEqual(['skipped_unpaid']);
+  });
+
+  it('explicit past_due fixture: window granted only when paid_through >= window_end, refused otherwise', async () => {
+    const { evaluateSubscriptionWindows } = await grants();
+    await seedSalon('s_pd1');
+    await seedSalon('s_pd2');
+    const anchor7 = new Date('2026-05-01T00:00:00.000Z');
+    const windowEnd = new Date('2026-06-01T00:00:00.000Z');
+    const now = new Date('2026-05-15T00:00:00.000Z');
+
+    // Fully covered: paid_through == window_end.
+    await seedSubscription({ id: 'sub_pd_covered', salonId: 's_pd1', status: 'past_due', anchor: anchor7, paidThrough: windowEnd });
+    const covered = await evaluateSubscriptionWindows({ subscriptionId: 'sub_pd_covered', now });
+
+    expect(covered).toMatchObject({ granted: 1, skippedUnpaid: 0 });
+    expect(await monthlyBalance('s_pd1')).toBe(200);
+
+    // Short by one second: refused, recorded skipped_unpaid.
+    await seedSubscription({
+      id: 'sub_pd_short',
+      salonId: 's_pd2',
+      status: 'past_due',
+      anchor: anchor7,
+      paidThrough: new Date(windowEnd.getTime() - 1000),
+    });
+    const refused = await evaluateSubscriptionWindows({ subscriptionId: 'sub_pd_short', now });
+
+    expect(refused).toMatchObject({ granted: 0, skippedUnpaid: 1 });
+    expect(await monthlyBalance('s_pd2')).toBe(0);
+  });
+
+  it('annual-cadence parity: exactly 12 windows granted across 12 simulated monthly evaluations', async () => {
+    const { evaluateSubscriptionWindows } = await grants();
+    await seedSalon('s_annual_parity');
+    const anchor8 = new Date('2026-01-15T00:00:00.000Z');
+    const paidThrough = new Date('2027-01-15T00:00:00.000Z'); // one full year prepaid
+    await seedSubscription({
+      id: 'sub_annual_parity',
+      salonId: 's_annual_parity',
+      cadence: 'annual',
+      planKey: 'pro_2026_08', // 400 credits/month
+      status: 'active',
+      anchor: anchor8,
+      paidThrough,
+    });
+
+    let totalGranted = 0;
+    for (let index = 0; index < 12; index += 1) {
+      const window = computeCreditWindow(anchor8, index);
+      const now = new Date(window.start.getTime() + 60_000); // simulated monthly cron tick
+      // Sequential on purpose: each simulated monthly tick depends on the
+      // previous window's committed state (creditCycleIndex cursor).
+      const summary = await evaluateSubscriptionWindows({ subscriptionId: 'sub_annual_parity', now });
+      totalGranted += summary.granted;
+    }
+
+    expect(totalGranted).toBe(12);
+    expect(await monthlyBalance('s_annual_parity')).toBe(12 * 400);
+
+    const grantedWindows = await db.execute(sql`
+      SELECT COUNT(*)::int AS n FROM billing_credit_window
+      WHERE billing_subscription_id = 'sub_annual_parity' AND status = 'granted'
+    `);
+
+    expect(Number((grantedWindows.rows[0] as Record<string, unknown>).n)).toBe(12);
+  });
+
+  it('annual cancel_at_period_end keeps granting through paid_through across prepaid windows, then stops', async () => {
+    const { evaluateSubscriptionWindows } = await grants();
+    await seedSalon('s_annual_cape');
+    const anchor9 = new Date('2026-02-01T00:00:00.000Z');
+    const paidThrough = new Date('2026-04-01T00:00:00.000Z'); // two full prepaid monthly windows
+    await seedSubscription({
+      id: 'sub_annual_cape',
+      salonId: 's_annual_cape',
+      cadence: 'annual',
+      status: 'active',
+      cancelAtPeriodEnd: true,
+      anchor: anchor9,
+      paidThrough,
+    });
+
+    const inWindow0 = new Date('2026-02-10T00:00:00.000Z');
+
+    expect((await evaluateSubscriptionWindows({ subscriptionId: 'sub_annual_cape', now: inWindow0 })).granted).toBe(1);
+
+    const inWindow1 = new Date('2026-03-10T00:00:00.000Z');
+
+    expect((await evaluateSubscriptionWindows({ subscriptionId: 'sub_annual_cape', now: inWindow1 })).granted).toBe(1);
+
+    // Window 2 starts exactly at paid_through: not fully covered → stops.
+    const inWindow2 = new Date('2026-04-10T00:00:00.000Z');
+    const after = await evaluateSubscriptionWindows({ subscriptionId: 'sub_annual_cape', now: inWindow2 });
+
+    expect(after.granted).toBe(0);
+    expect(await monthlyBalance('s_annual_cape')).toBe(400);
+  });
+
+  it('annual subscription canceled (status) with prepaid windows remaining keeps granting through paid_through, then stops', async () => {
+    const { evaluateSubscriptionWindows } = await grants();
+    await seedSalon('s_annual_canceled');
+    const anchor10 = new Date('2026-06-01T00:00:00.000Z');
+    const paidThrough = new Date('2026-08-01T00:00:00.000Z'); // two full prepaid monthly windows
+    await seedSubscription({
+      id: 'sub_annual_canceled',
+      salonId: 's_annual_canceled',
+      cadence: 'annual',
+      status: 'canceled',
+      anchor: anchor10,
+      paidThrough,
+    });
+
+    const inWindow0 = new Date('2026-06-10T00:00:00.000Z');
+
+    expect((await evaluateSubscriptionWindows({ subscriptionId: 'sub_annual_canceled', now: inWindow0 })).granted).toBe(1);
+
+    const inWindow1 = new Date('2026-07-10T00:00:00.000Z');
+
+    expect((await evaluateSubscriptionWindows({ subscriptionId: 'sub_annual_canceled', now: inWindow1 })).granted).toBe(1);
+
+    const inWindow2 = new Date('2026-08-10T00:00:00.000Z');
+    const after = await evaluateSubscriptionWindows({ subscriptionId: 'sub_annual_canceled', now: inWindow2 });
+
+    expect(after.granted).toBe(0);
+    expect(await monthlyBalance('s_annual_canceled')).toBe(400);
   });
 
   it('a scheduler outage never backfills fully missed windows (annual subscriber, multiple windows)', async () => {
@@ -302,6 +505,98 @@ describe('business identity + starter grant — once per business, forever', () 
     expect(normalizeEmailForHmac('  Name+foo@EXAMPLE.com ')).toBe('Name+foo@example.com');
     expect(normalizeEmailForHmac('Name.Dot@Example.Com')).toBe('Name.Dot@example.com');
     expect(normalizeEmailForHmac('not-an-email')).toBeNull();
+  });
+
+  it('owner transfer (Clerk user id change) preserves starter eligibility — same durable identity, no second grant', async () => {
+    const { grantStarterCredits } = await grants();
+    const { resolveOrCreateBusinessIdentity } = await identity();
+    await seedSalon('s_transfer');
+
+    // Original owner (Clerk user A) resolves and claims the starter grant.
+    const beforeTransfer = await db.transaction(async tx =>
+      resolveOrCreateBusinessIdentity(tx, { clerkUserId: 'user_owner_a', salonId: 's_transfer' }));
+    const firstGrant = await db.transaction(async tx =>
+      grantStarterCredits(tx, { businessIdentityId: beforeTransfer.businessIdentityId, salonId: 's_transfer' }));
+
+    expect(firstGrant.granted).toBe(true);
+
+    // Ownership transfers to Clerk user B. Resolution is re-run with the NEW
+    // owner id but the SAME salon link — the durable salon link is what
+    // carries eligibility across the transfer, not the (now-stale) Clerk id.
+    const afterTransfer = await db.transaction(async tx =>
+      resolveOrCreateBusinessIdentity(tx, { clerkUserId: 'user_owner_b', salonId: 's_transfer' }));
+
+    expect(afterTransfer.businessIdentityId).toBe(beforeTransfer.businessIdentityId);
+    expect(afterTransfer.created).toBe(false);
+
+    // The transfer must not reset eligibility: a second starter grant attempt
+    // under the (same) identity is refused.
+    const secondGrant = await db.transaction(async tx =>
+      grantStarterCredits(tx, { businessIdentityId: afterTransfer.businessIdentityId, salonId: 's_transfer' }));
+
+    expect(secondGrant.granted).toBe(false);
+
+    // Both the old and the new owner's Clerk ids now resolve to the SAME
+    // identity (the new owner link was attached, the old one retained).
+    const viaOldOwner = await db.transaction(async tx =>
+      resolveOrCreateBusinessIdentity(tx, { clerkUserId: 'user_owner_a' }));
+    const viaNewOwner = await db.transaction(async tx =>
+      resolveOrCreateBusinessIdentity(tx, { clerkUserId: 'user_owner_b' }));
+
+    expect(viaOldOwner.businessIdentityId).toBe(beforeTransfer.businessIdentityId);
+    expect(viaNewOwner.businessIdentityId).toBe(beforeTransfer.businessIdentityId);
+  });
+
+  it('+tag and dot-local-part addresses resolve to DISTINCT identities (both may starter-grant); only the DOMAIN is case-normalized to the SAME identity (§7.3)', async () => {
+    const { grantStarterCredits } = await grants();
+    const { resolveOrCreateBusinessIdentity } = await identity();
+    envHolder.BILLING_IDENTITY_HMAC_SECRET = 'test-secret-tag';
+    envHolder.BILLING_IDENTITY_HMAC_VERSION = 1;
+    await seedSalon('s_tag_base');
+    await seedSalon('s_tag_plus');
+    await seedSalon('s_tag_dot');
+    await seedSalon('s_tag_domain_case');
+
+    const base = await db.transaction(async tx =>
+      resolveOrCreateBusinessIdentity(tx, { verifiedEmail: 'a@ex.com', salonId: 's_tag_base' }));
+    const plusTagged = await db.transaction(async tx =>
+      resolveOrCreateBusinessIdentity(tx, { verifiedEmail: 'a+x@ex.com', salonId: 's_tag_plus' }));
+    const dotted = await db.transaction(async tx =>
+      resolveOrCreateBusinessIdentity(tx, { verifiedEmail: 'a.b@ex.com', salonId: 's_tag_dot' }));
+
+    // Never strip +tag, never remove local-part dots (§7.3) ⇒ three DISTINCT
+    // businesses by the identity resolver's own logic.
+    expect(plusTagged.businessIdentityId).not.toBe(base.businessIdentityId);
+    expect(dotted.businessIdentityId).not.toBe(base.businessIdentityId);
+    expect(dotted.businessIdentityId).not.toBe(plusTagged.businessIdentityId);
+
+    // Each of the distinct identities may independently receive its own
+    // once-per-business starter grant.
+    const grantBase = await db.transaction(async tx =>
+      grantStarterCredits(tx, { businessIdentityId: base.businessIdentityId, salonId: 's_tag_base' }));
+    const grantPlus = await db.transaction(async tx =>
+      grantStarterCredits(tx, { businessIdentityId: plusTagged.businessIdentityId, salonId: 's_tag_plus' }));
+    const grantDot = await db.transaction(async tx =>
+      grantStarterCredits(tx, { businessIdentityId: dotted.businessIdentityId, salonId: 's_tag_dot' }));
+
+    expect(grantBase.granted).toBe(true);
+    expect(grantPlus.granted).toBe(true);
+    expect(grantDot.granted).toBe(true);
+
+    // The SAME address with a different-CASE DOMAIN ONLY resolves to the SAME
+    // identity as `base` (local part case is untouched, but is identical here
+    // so only domain-casing is under test).
+    const domainCased = await db.transaction(async tx =>
+      resolveOrCreateBusinessIdentity(tx, { verifiedEmail: 'a@EX.COM', salonId: 's_tag_domain_case' }));
+
+    expect(domainCased.businessIdentityId).toBe(base.businessIdentityId);
+    expect(domainCased.created).toBe(false);
+
+    // Same identity ⇒ the once-per-business fence still holds: no second grant.
+    const grantDomainCased = await db.transaction(async tx =>
+      grantStarterCredits(tx, { businessIdentityId: domainCased.businessIdentityId, salonId: 's_tag_domain_case' }));
+
+    expect(grantDomainCased.granted).toBe(false);
   });
 });
 
