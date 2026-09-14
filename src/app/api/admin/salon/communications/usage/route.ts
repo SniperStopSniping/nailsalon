@@ -11,13 +11,13 @@
  * this repo — because batch dispatch legitimately creates identical
  * timestamps and a bare-timestamp cursor would skip or repeat rows.
  */
-import { and, desc, eq, inArray, lt, or, sql } from 'drizzle-orm';
+import { and, desc, eq, lt, or, sql } from 'drizzle-orm';
 import type { NextRequest } from 'next/server';
 
 import { requireAdminSalon } from '@/libs/adminAuth';
 import { computeAvailableBalance } from '@/libs/billing/creditLedger';
-import { resolveTopupAudienceForLegacyPlan } from '@/libs/billing/legacyPlanAdapter';
-import { getPlanDefinition } from '@/libs/billing/planDefinitions';
+import { describeBillingState, resolveTopupAudienceForLegacyPlan } from '@/libs/billing/legacyPlanAdapter';
+import { getPlanDefinition, type PlanDefinitionKey } from '@/libs/billing/planDefinitions';
 import { BillingCatalogError, resolveStripePriceIdForTopup } from '@/libs/billing/stripePriceMap';
 import { listActiveTopupOffersForAudience } from '@/libs/billing/topupOffers';
 import { friendlyFailureReason, maskRecipient } from '@/libs/communicationMasking';
@@ -86,14 +86,32 @@ export async function GET(request: NextRequest): Promise<Response> {
       rateProtectedThrough: billingSubscriptionSchema.rateProtectedThrough,
     })
     .from(billingSubscriptionSchema)
-    .where(and(
-      eq(billingSubscriptionSchema.salonId, salonId),
-      inArray(billingSubscriptionSchema.status, ['active', 'past_due', 'canceled']),
-    ))
+    .where(eq(billingSubscriptionSchema.salonId, salonId))
+    // G18 (§6.5a): every status must render truthfully — unpaid, incomplete,
+    // incomplete_expired and paused used to fall out of the old
+    // active/past_due/canceled filter and render as "No subscription".
+    // When more than one row exists for a salon (a canceled/expired history
+    // row alongside a live one), prefer the LIVE row (status not in
+    // canceled/incomplete_expired); among ties, the most recently updated
+    // row wins.
+    .orderBy(
+      sql`(${billingSubscriptionSchema.status} not in ('canceled', 'incomplete_expired')) desc`,
+      desc(billingSubscriptionSchema.updatedAt),
+    )
     .limit(1);
   const plan = subscription !== undefined
     ? getPlanDefinition(subscription.planDefinitionKey)
     : null;
+  // G16: the usage route and describeBillingState share ONE entitlement
+  // computation (subscriptionEntitlement.ts) so the owner surface and the
+  // legacy/billing adapter can never disagree about what a status means.
+  const entitlement = describeBillingState({
+    salon: { plan: guard.salon.plan ?? null },
+    subscription: subscription === undefined
+      ? null
+      : { ...subscription, planDefinitionKey: subscription.planDefinitionKey as PlanDefinitionKey },
+    now,
+  }).entitlement;
 
   const blockedRows = await db.execute(sql`
     SELECT COUNT(*)::int AS n FROM communication_intent
@@ -124,6 +142,11 @@ export async function GET(request: NextRequest): Promise<Response> {
           paidThrough: subscription!.paidThrough.toISOString(),
           cancelAtPeriodEnd: subscription!.cancelAtPeriodEnd,
           rateProtectedThrough: subscription!.rateProtectedThrough?.toISOString() ?? null,
+          // G18/§6.5a: plain-English status truth for every subscription
+          // status, not just active/past_due/canceled. Never null when
+          // `plan` itself is non-null (a resolved plan implies a
+          // subscription row, which always has a status).
+          entitlement,
         },
   };
 

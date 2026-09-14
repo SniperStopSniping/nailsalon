@@ -279,6 +279,9 @@ jobs:
               src/app/api/billing/checkout/topup/route.ts) ;;
               src/app/api/billing/checkout/topup/route.concurrency.integration.test.ts) ;;
               src/app/api/billing/checkout/topup/route.test.ts) ;;
+              # P5a (G17): top-up purchase history, dark-gated + tenant-scoped.
+              src/app/api/billing/topups/route.ts) ;;
+              src/app/api/billing/topups/route.test.ts) ;;
               *)
                 echo "::error::Unauthorized change under src/app/api/billing: $file"
                 exit 1
