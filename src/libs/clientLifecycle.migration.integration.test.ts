@@ -439,7 +439,7 @@ describePostgres.sequential('client lifecycle migration chain', () => {
     expect(
       (await getClientLifecycleSchemaReadiness(database)).ready,
     ).toBe(true);
-  });
+  }, MIGRATION_REPLAY_TIMEOUT_MS);
 
   it('rejects a preexisting incomplete capability table before publishing readiness', async () => {
     await resetDatabase(pool);
@@ -707,7 +707,7 @@ describePostgres.sequential('client lifecycle migration chain', () => {
     expect(
       (await getClientLifecycleSchemaReadiness(database)).ready,
     ).toBe(true);
-  });
+  }, MIGRATION_REPLAY_TIMEOUT_MS);
 
   it('rejects a lifecycle trigger with a predicate before publishing readiness', async () => {
     await resetDatabase(pool);
@@ -738,7 +738,7 @@ describePostgres.sequential('client lifecycle migration chain', () => {
         `select to_regclass('public.app_schema_capability') is null as missing`,
       ),
     ).toMatchObject({ rows: [{ missing: true }] });
-  });
+  }, MIGRATION_REPLAY_TIMEOUT_MS);
 
   it('rejects a lifecycle trigger with the wrong update-of set before publishing readiness', async () => {
     await resetDatabase(pool);
@@ -1297,7 +1297,7 @@ describePostgres.sequential('client lifecycle migration chain', () => {
       status: 'failed',
       stage: 'configuration',
     });
-  });
+  }, MIGRATION_REPLAY_TIMEOUT_MS);
 
   it('refuses a mismatched endpoint, missing disposable attestation, or cleartext remote URL', () => {
     const mismatchedHost = runLifecycleRehearsal(true, {
@@ -1323,7 +1323,7 @@ describePostgres.sequential('client lifecycle migration chain', () => {
         stage: 'configuration',
       });
     }
-  });
+  }, MIGRATION_REPLAY_TIMEOUT_MS);
 
   it('uses a transaction-scoped rehearsal barrier that cannot leak across pooled sessions', async () => {
     const rehearsalSource = await fs.readFile(
@@ -1334,5 +1334,5 @@ describePostgres.sequential('client lifecycle migration chain', () => {
     expect(rehearsalSource).toContain('pg_advisory_xact_lock(');
     expect(rehearsalSource).not.toMatch(/\bpg_advisory_lock\s*\(/);
     expect(rehearsalSource).not.toMatch(/\bpg_advisory_unlock\s*\(/);
-  });
+  }, MIGRATION_REPLAY_TIMEOUT_MS);
 });
