@@ -298,6 +298,8 @@ jobs:
               90b8019c1d545de917763ffb9d983f6eb5f04edd) ;;
               # + P6 automatic-tax architecture (collection dark).
               7499a6d0a128b47971927f796e68f13b1888885d) ;;
+              # + P3c checkout_session_created audit (§8.5).
+              d4ffdac927b223234cf3292a83c2be4974b0cf91) ;;
               *)
                 echo "::error::src/app/api/billing/checkout/route.ts must match a reviewed postimage."
                 printf 'actual blob: %s\n' "$checkout_blob"

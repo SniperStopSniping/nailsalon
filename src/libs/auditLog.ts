@@ -11,6 +11,15 @@
 import { db } from '@/libs/DB';
 import { type AuditLogAction, auditLogSchema } from '@/models/Schema';
 
+/**
+ * The transaction handle shape every `db.transaction(async (tx) => ...)`
+ * callback receives. Structurally identical to the `BillingDbTransaction`
+ * type in `src/libs/billing/creditLedger.ts` — duplicated here rather than
+ * imported so this generic audit module never depends on the billing
+ * domain.
+ */
+export type DbTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
 // =============================================================================
 // TYPES
 // =============================================================================
@@ -111,6 +120,37 @@ export async function logAuditEvent(entry: AuditLogEntry): Promise<void> {
  */
 export async function logAuditEventOrThrow(entry: AuditLogEntry): Promise<void> {
   await db.insert(auditLogSchema).values({
+    id: `audit_${crypto.randomUUID()}`,
+    salonId: entry.salonId ?? null,
+    actorType: entry.actorType,
+    actorId: entry.actorId ?? null,
+    actorPhone: null, // Intentionally not stored - use actorId for correlation
+    action: entry.action,
+    entityType: entry.entityType ?? null,
+    entityId: entry.entityId ?? null,
+    metadata: entry.metadata
+      ? sanitizeAuditMetadata(entry.metadata) as Record<string, unknown>
+      : null,
+    ip: entry.ip ?? null,
+    userAgent: entry.userAgent ?? null,
+  });
+}
+
+/**
+ * Transaction-scoped variant of {@link logAuditEvent}: inserts through the
+ * CALLER's transaction handle so the audit row commits or rolls back
+ * atomically with the money movement it records — never a phantom row for a
+ * transition that never committed, never a committed transition with no
+ * evidence. Like {@link logAuditEventOrThrow} (and unlike the fire-and-forget
+ * `logAuditEvent`), this THROWS on failure: swallowing a write failure
+ * inside a financial transaction would let the transaction commit silently
+ * short of the audit trail §8.5/§17 require.
+ *
+ * Governing contract: docs/luster-billing-communications-rev-2-2.md §8.5,
+ * §17 ("audit rows present").
+ */
+export async function logAuditEventTx(tx: DbTransaction, entry: AuditLogEntry): Promise<void> {
+  await tx.insert(auditLogSchema).values({
     id: `audit_${crypto.randomUUID()}`,
     salonId: entry.salonId ?? null,
     actorType: entry.actorType,

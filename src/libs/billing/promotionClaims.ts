@@ -16,10 +16,14 @@ import 'server-only';
 
 import { and, eq, inArray, lt, sql } from 'drizzle-orm';
 
+import { logAuditEventTx } from '@/libs/auditLog';
 import { getPromotion, type PromotionDefinition } from '@/libs/billing/promotions';
 import { billingPromotionClaimSchema, billingPromotionCounterSchema } from '@/models/Schema';
 
 import type { BillingDbTransaction } from './creditLedger';
+
+/** P3c: every lib-layer audit row in this domain defaults to the webhook actor. */
+const WEBHOOK_ACTOR = { actorType: 'webhook' as const, actorId: 'stripe-billing' };
 
 export const PROMOTION_CLAIM_TTL_MS = 60 * 60 * 1000;
 
@@ -103,6 +107,18 @@ export async function reservePromotionClaim(
     reservedAt: now,
     expiresAt: new Date(now.getTime() + PROMOTION_CLAIM_TTL_MS),
   });
+  await logAuditEventTx(tx, {
+    salonId: input.salonId,
+    ...WEBHOOK_ACTOR,
+    action: 'billing_promotion_claim_reserved',
+    entityType: 'billing_promotion_claim',
+    entityId: claimId,
+    metadata: {
+      promotionKey: input.promotionKey,
+      businessIdentityId: input.businessIdentityId,
+      checkoutAttemptId: input.checkoutAttemptId ?? null,
+    },
+  });
   return { ok: true, claimId, reused: false };
 }
 
@@ -119,7 +135,19 @@ export async function redeemPromotionClaim(
       eq(billingPromotionClaimSchema.status, 'reserved'),
     ))
     .returning();
-  if (updated.length === 1) {
+  const redeemedRow = updated[0];
+  if (redeemedRow !== undefined) {
+    await logAuditEventTx(tx, {
+      salonId: redeemedRow.salonId,
+      ...WEBHOOK_ACTOR,
+      action: 'billing_promotion_claim_redeemed',
+      entityType: 'billing_promotion_claim',
+      entityId: redeemedRow.id,
+      metadata: {
+        promotionKey: redeemedRow.promotionKey,
+        businessIdentityId: redeemedRow.businessIdentityId,
+      },
+    });
     return { redeemed: true };
   }
   const already = await tx
@@ -143,6 +171,20 @@ export async function releasePromotionClaim(
       eq(billingPromotionClaimSchema.status, 'reserved'),
     ))
     .returning();
+  const releasedRow = updated[0];
+  if (releasedRow !== undefined) {
+    await logAuditEventTx(tx, {
+      salonId: releasedRow.salonId,
+      ...WEBHOOK_ACTOR,
+      action: 'billing_promotion_claim_released',
+      entityType: 'billing_promotion_claim',
+      entityId: releasedRow.id,
+      metadata: {
+        promotionKey: releasedRow.promotionKey,
+        businessIdentityId: releasedRow.businessIdentityId,
+      },
+    });
+  }
   return { released: updated.length === 1 };
 }
 

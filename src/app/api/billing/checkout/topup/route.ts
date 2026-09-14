@@ -30,6 +30,7 @@ import { type NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 
 import { requireAdmin } from '@/libs/adminAuth';
+import { logAuditEventTx } from '@/libs/auditLog';
 import { beginCheckoutAttempt, markAttemptCheckoutCreated } from '@/libs/billing/checkoutAttempts';
 import { resolveTopupAudienceForLegacyPlan } from '@/libs/billing/legacyPlanAdapter';
 import { BillingCatalogError, resolveStripePriceIdForTopup } from '@/libs/billing/stripePriceMap';
@@ -89,6 +90,7 @@ export async function POST(request: NextRequest) {
     if (!authResult.ok) {
       return authResult.response;
     }
+    const clerkUserId = authResult.admin.clerkUserId ?? null;
 
     const [salon] = await db
       .select({
@@ -335,6 +337,22 @@ export async function POST(request: NextRequest) {
         if (updated.length !== 1) {
           throw new Error('TOPUP_PURCHASE_BINDING_MISSING');
         }
+        // Contracted route-level event (§8.5) — inside the SAME transaction,
+        // so the row commits or rolls back with the session binding above.
+        await logAuditEventTx(tx, {
+          salonId,
+          actorType: 'admin',
+          actorId: clerkUserId,
+          action: 'checkout_session_created',
+          entityType: 'billing_checkout_attempt',
+          entityId: reservation.attemptId,
+          metadata: {
+            purpose: 'sms_topup',
+            topupOfferKey: offer.key,
+            attemptId: reservation.attemptId,
+            purchaseId: reservation.purchaseId,
+          },
+        });
       });
     } catch (error) {
       Sentry.captureException(error, { tags: { endpoint: 'billing/checkout-topup' }, extra: { attemptId: reservation.attemptId, sessionId: session.id } });

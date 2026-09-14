@@ -3327,6 +3327,19 @@ export const AUDIT_LOG_ACTIONS = [
   // Staff time-off decisions. An approval writes a real calendar block, so the
   // decision needs a durable record. Appended, never reordered.
   'time_off_request_decided',
+  // P3c billing audit trail (§8.5, §17 "audit rows present"). Written via the
+  // transaction-scoped logAuditEventTx (src/libs/auditLog.ts) so each row
+  // commits or rolls back atomically with the money movement it records.
+  // Appended, never reordered.
+  'billing_promotion_claim_reserved',
+  'billing_promotion_claim_redeemed',
+  'billing_promotion_claim_released',
+  'billing_checkout_attempt_completed',
+  'billing_checkout_attempt_expired',
+  'billing_topup_fulfilled',
+  'billing_topup_reversed',
+  'billing_subscription_projected',
+  'billing_subscription_refund_applied',
 ] as const;
 export type AuditLogAction = (typeof AUDIT_LOG_ACTIONS)[number];
 

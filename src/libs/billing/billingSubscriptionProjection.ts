@@ -25,21 +25,28 @@ import 'server-only';
 
 import { and, eq, inArray } from 'drizzle-orm';
 
+import { type ActorType, logAuditEventTx } from '@/libs/auditLog';
 import { getBillingOffer } from '@/libs/billing/billingOffers';
-import { completeAttempt } from '@/libs/billing/checkoutAttempts';
+import { completeAttempt, expireAttempt } from '@/libs/billing/checkoutAttempts';
 import { applyUpgradeDiff, evaluateSubscriptionWindows } from '@/libs/billing/creditGrants';
 import type { BillingDbTransaction } from '@/libs/billing/creditLedger';
 import { getPlanDefinition } from '@/libs/billing/planDefinitions';
+import { releasePromotionClaim } from '@/libs/billing/promotionClaims';
 import { getPromotion } from '@/libs/billing/promotions';
 import { resolveOfferForServicePeriod, resolveRateProtectedThrough } from '@/libs/billing/rateProtection';
 import { resolveBillingOfferFromStripePriceId } from '@/libs/billing/stripePriceMap';
 import { db } from '@/libs/DB';
 import {
-  billingCheckoutAttemptSchema,
   billingPromotionClaimSchema,
   billingSubscriptionSchema,
   type BillingSubscriptionStatus,
 } from '@/models/Schema';
+
+/** P3c: every lib-layer audit row in this domain defaults to the webhook actor. */
+const WEBHOOK_ACTOR = { actorType: 'webhook' as const, actorId: 'stripe-billing' };
+
+/** Optional override for {@link projectSubscriptionSnapshot}'s audit actor. */
+export type BillingProjectionActor = { actorType: ActorType; actorId: string | null };
 
 /** The §6.5a status vocabulary as Stripe reports it. */
 const KNOWN_STATUSES = new Set<BillingSubscriptionStatus>([
@@ -98,9 +105,16 @@ export async function projectSubscriptionSnapshot(input: {
   eventCreated: Date;
   eventId: string;
   now?: Date;
+  /**
+   * P3c: defaults to the webhook actor. The window-evaluation cron (P4)
+   * reuses this same projection for reconciliation repairs and will pass
+   * its own actor once that caller exists.
+   */
+  actor?: BillingProjectionActor;
 }): Promise<ProjectionOutcome> {
   const { snapshot } = input;
   const now = input.now ?? new Date();
+  const actor = input.actor ?? WEBHOOK_ACTOR;
 
   const offerKey = snapshot.metadata.billingOfferKey ?? null;
   const salonId = snapshot.metadata.salonId ?? null;
@@ -140,8 +154,9 @@ export async function projectSubscriptionSnapshot(input: {
       .for('update');
 
     if (existing === undefined) {
+      const subscriptionId = `bsub_${crypto.randomUUID()}`;
       await tx.insert(billingSubscriptionSchema).values({
-        id: `bsub_${crypto.randomUUID()}`,
+        id: subscriptionId,
         salonId,
         stripeSubscriptionId: snapshot.id,
         stripeCustomerId: snapshot.customerId,
@@ -159,6 +174,15 @@ export async function projectSubscriptionSnapshot(input: {
         lastEventCreated: input.eventCreated,
         lastEventId: input.eventId,
       }).onConflictDoNothing({ target: billingSubscriptionSchema.stripeSubscriptionId });
+      await logAuditEventTx(tx, {
+        salonId,
+        actorType: actor.actorType,
+        actorId: actor.actorId,
+        action: 'billing_subscription_projected',
+        entityType: 'billing_subscription',
+        entityId: subscriptionId,
+        metadata: { kind: 'created', billingOfferKey: offer.key },
+      });
       return { applied: true, kind: 'created' as const };
     }
 
@@ -168,6 +192,15 @@ export async function projectSubscriptionSnapshot(input: {
       existing.lastEventCreated !== null
       && input.eventCreated.getTime() < existing.lastEventCreated.getTime()
     ) {
+      await logAuditEventTx(tx, {
+        salonId: existing.salonId,
+        actorType: actor.actorType,
+        actorId: actor.actorId,
+        action: 'billing_subscription_projected',
+        entityType: 'billing_subscription',
+        entityId: existing.id,
+        metadata: { kind: 'stale' },
+      });
       return { applied: true, kind: 'stale' as const };
     }
 
@@ -211,6 +244,15 @@ export async function projectSubscriptionSnapshot(input: {
         now,
       });
     }
+    await logAuditEventTx(tx, {
+      salonId: existing.salonId,
+      actorType: actor.actorType,
+      actorId: actor.actorId,
+      action: 'billing_subscription_projected',
+      entityType: 'billing_subscription',
+      entityId: existing.id,
+      metadata: { kind: 'updated', billingOfferKey: offer.key },
+    });
     return { applied: true, kind: 'updated' as const };
   });
 }
@@ -391,6 +433,14 @@ export async function applySubscriptionFullRefund(input: {
       .update(billingSubscriptionSchema)
       .set({ paidThrough: input.refundedPeriodStart })
       .where(eq(billingSubscriptionSchema.id, subscription.id));
+    await logAuditEventTx(tx, {
+      salonId: subscription.salonId,
+      ...WEBHOOK_ACTOR,
+      action: 'billing_subscription_refund_applied',
+      entityType: 'billing_subscription',
+      entityId: subscription.id,
+      metadata: { refundId: input.refundId, eventId: input.eventId },
+    });
     return { applied: true, lowered: true };
   });
 }
@@ -428,24 +478,25 @@ export async function applyCheckoutSessionExpired(input: {
 }): Promise<{ attemptExpired: boolean; claimReleased: boolean }> {
   const now = input.now ?? new Date();
   return db.transaction(async (tx) => {
-    const expired = await tx
-      .update(billingCheckoutAttemptSchema)
-      .set({ status: 'expired' })
-      .where(and(
-        eq(billingCheckoutAttemptSchema.stripeCheckoutSessionId, input.sessionId),
-        eq(billingCheckoutAttemptSchema.purpose, 'plan_subscription'),
-        inArray(billingCheckoutAttemptSchema.status, ['creating', 'checkout_created']),
-      ))
-      .returning();
-    const released = await tx
-      .update(billingPromotionClaimSchema)
-      .set({ status: 'released', releasedAt: now })
+    // Reuses the SAME audited transitions as the checkout route
+    // (checkoutAttempts.ts / promotionClaims.ts) instead of inline
+    // duplicate updates.
+    const { expired } = await expireAttempt(tx, {
+      stripeCheckoutSessionId: input.sessionId,
+      purpose: 'plan_subscription',
+    });
+    const [claim] = await tx
+      .select({ id: billingPromotionClaimSchema.id })
+      .from(billingPromotionClaimSchema)
       .where(and(
         eq(billingPromotionClaimSchema.stripeCheckoutSessionId, input.sessionId),
         eq(billingPromotionClaimSchema.status, 'reserved'),
       ))
-      .returning();
-    return { attemptExpired: expired.length === 1, claimReleased: released.length === 1 };
+      .limit(1);
+    const released = claim === undefined
+      ? false
+      : (await releasePromotionClaim(tx, { claimId: claim.id, now })).released;
+    return { attemptExpired: expired, claimReleased: released };
   });
 }
 

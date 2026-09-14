@@ -429,6 +429,38 @@ describe('top-up checkout (§9.2)', () => {
     expect(params.payment_method_types).toEqual(['card']);
   });
 
+  it('P3c: writes ONE checkout_session_created audit row, admin-attributed, no Stripe ids in metadata', async () => {
+    await seedSalon('s_audit_topup_ok');
+    const response = await postCheckout({ salonId: 's_audit_topup_ok', topupOfferKey: 'topup_250_paid_2026_08' });
+
+    expect(response.status).toBe(200);
+
+    const [attempt] = await attemptRows('s_audit_topup_ok');
+    const [purchase] = await purchaseRows('s_audit_topup_ok');
+    const rows = await db.select().from(schema.auditLogSchema)
+      .where(eq(schema.auditLogSchema.entityId, attempt!.id));
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      salonId: 's_audit_topup_ok',
+      actorType: 'admin',
+      actorId: 'user_topup',
+      action: 'checkout_session_created',
+      entityType: 'billing_checkout_attempt',
+      entityId: attempt!.id,
+    });
+    expect(rows[0]!.metadata).toMatchObject({
+      purpose: 'sms_topup',
+      topupOfferKey: 'topup_250_paid_2026_08',
+      attemptId: attempt!.id,
+      purchaseId: purchase!.id,
+    });
+
+    const metadataString = JSON.stringify(rows[0]!.metadata);
+
+    expect(metadataString).not.toMatch(/cs_|pi_|price_|ch_/);
+  });
+
   it('reuses one bound, verified open session for a retry of the same offer', async () => {
     await seedSalon('s_t_retry');
     const first = await postCheckout({ salonId: 's_t_retry', topupOfferKey: 'topup_100_paid_2026_08' });
@@ -1099,6 +1131,123 @@ describe('top-up fulfillment through the webhook (§9.3-§9.5)', () => {
     }));
     // The balance is UNCHANGED — no automatic claw-forward on a failed refund.
     expect(await purchasedBalance('s_t_regressed')).toBe(50);
+  });
+
+  describe('P3c — audit trail (§8.5, §17)', () => {
+    const auditActionsFor = async (entityId: string) => {
+      const rows = await db.select().from(schema.auditLogSchema)
+        .where(eq(schema.auditLogSchema.entityId, entityId));
+      return rows.map(row => row.action);
+    };
+
+    it('fulfillment writes ONE billing_topup_fulfilled row and ONE billing_checkout_attempt_completed row; replay writes neither again', async () => {
+      await buyAndPay('s_audit_fulfill');
+      const [purchase] = await purchaseRows('s_audit_fulfill');
+      const [attempt] = await attemptRows('s_audit_fulfill');
+
+      const fulfilledRows = await db.select().from(schema.auditLogSchema)
+        .where(eq(schema.auditLogSchema.action, 'billing_topup_fulfilled'));
+      const forThisPurchase = fulfilledRows.filter(row => row.entityId === purchase!.id);
+
+      expect(forThisPurchase).toHaveLength(1);
+      expect(forThisPurchase[0]).toMatchObject({
+        salonId: 's_audit_fulfill',
+        actorType: 'webhook',
+        actorId: 'stripe-billing',
+        entityType: 'sms_topup_purchase',
+      });
+
+      const metadataString = JSON.stringify(forThisPurchase[0]!.metadata);
+
+      expect(metadataString).not.toMatch(/cs_|pi_|price_|ch_/);
+
+      expect(await auditActionsFor(attempt!.id)).toEqual(
+        expect.arrayContaining(['checkout_session_created', 'billing_checkout_attempt_completed']),
+      );
+
+      const completedCount = (await auditActionsFor(attempt!.id))
+        .filter(action => action === 'billing_checkout_attempt_completed').length;
+
+      expect(completedCount).toBe(1);
+
+      // A SECOND, distinct webhook delivery of paid evidence for the SAME
+      // (already-fulfilled) purchase must not double-log — this exercises
+      // purchase-state idempotency, not just event-id dedup.
+      const sessionId = purchase!.stripeCheckoutSessionId!;
+      await mockVerifiedTopupEvidence({ sessionId, salonId: 's_audit_fulfill' });
+      await postWebhook(webhookEvent('checkout.session.completed', {
+        id: sessionId,
+        payment_status: 'paid',
+        payment_intent: 'pi_s_audit_fulfill',
+        metadata: { purpose: 'sms_topup', salonId: 's_audit_fulfill' },
+      }));
+
+      const fulfilledRowsAfterReplay = (await db.select().from(schema.auditLogSchema)
+        .where(eq(schema.auditLogSchema.action, 'billing_topup_fulfilled')))
+        .filter(row => row.entityId === purchase!.id);
+
+      expect(fulfilledRowsAfterReplay).toHaveLength(1);
+    });
+
+    it('a refund writes ONE billing_topup_reversed row (kind: refund)', async () => {
+      await buyAndPay('s_audit_refund_row');
+      const [purchase] = await purchaseRows('s_audit_refund_row');
+
+      await postWebhook(webhookEvent('charge.refunded', {
+        id: 'ch_audit_refund_row',
+        payment_intent: 'pi_s_audit_refund_row',
+        amount_refunded: 300,
+        refunds: { data: [{ id: 're_audit_refund_row' }] },
+      }));
+
+      const reversedRows = (await db.select().from(schema.auditLogSchema)
+        .where(eq(schema.auditLogSchema.action, 'billing_topup_reversed')))
+        .filter(row => row.entityId === purchase!.id);
+
+      expect(reversedRows).toHaveLength(1);
+      expect(reversedRows[0]).toMatchObject({
+        salonId: 's_audit_refund_row',
+        actorType: 'webhook',
+        actorId: 'stripe-billing',
+        entityType: 'sms_topup_purchase',
+      });
+      expect(reversedRows[0]!.metadata).toMatchObject({ kind: 'refund' });
+    });
+
+    it('a dispute writes ONE billing_topup_reversed row (kind: dispute)', async () => {
+      await buyAndPay('s_audit_dispute_row');
+      const [purchase] = await purchaseRows('s_audit_dispute_row');
+
+      await postWebhook(webhookEvent('charge.dispute.created', {
+        id: 'dp_audit_dispute_row',
+        payment_intent: 'pi_s_audit_dispute_row',
+      }));
+
+      const reversedRows = (await db.select().from(schema.auditLogSchema)
+        .where(eq(schema.auditLogSchema.action, 'billing_topup_reversed')))
+        .filter(row => row.entityId === purchase!.id);
+
+      expect(reversedRows).toHaveLength(1);
+      expect(reversedRows[0]!.metadata).toMatchObject({ kind: 'dispute' });
+    });
+
+    it('an expired session writes ONE billing_checkout_attempt_expired row', async () => {
+      await seedSalon('s_audit_expire_row');
+      const checkout = await postCheckout({ salonId: 's_audit_expire_row', topupOfferKey: 'topup_100_paid_2026_08' });
+      const { data } = await checkout.json();
+      const [attempt] = await attemptRows('s_audit_expire_row');
+
+      await postWebhook(webhookEvent('checkout.session.expired', {
+        id: data.sessionId,
+        metadata: { purpose: 'sms_topup', salonId: 's_audit_expire_row' },
+      }));
+
+      const expiredRows = (await db.select().from(schema.auditLogSchema)
+        .where(eq(schema.auditLogSchema.action, 'billing_checkout_attempt_expired')))
+        .filter(row => row.entityId === attempt!.id);
+
+      expect(expiredRows).toHaveLength(1);
+    });
   });
 });
 

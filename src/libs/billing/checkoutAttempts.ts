@@ -15,6 +15,7 @@ import 'server-only';
 
 import { and, eq, inArray, lt } from 'drizzle-orm';
 
+import { logAuditEventTx } from '@/libs/auditLog';
 import {
   billingCheckoutAttemptSchema,
   billingSubscriptionSchema,
@@ -23,6 +24,9 @@ import {
 } from '@/models/Schema';
 
 import type { BillingDbTransaction } from './creditLedger';
+
+/** P3c: every lib-layer audit row in this domain defaults to the webhook actor. */
+const WEBHOOK_ACTOR = { actorType: 'webhook' as const, actorId: 'stripe-billing' };
 
 export const CHECKOUT_ATTEMPT_TTL_MS = 60 * 60 * 1000;
 
@@ -211,7 +215,63 @@ export async function completeAttempt(
       inArray(billingCheckoutAttemptSchema.status, ['creating', 'checkout_created']),
     ))
     .returning();
+  const row = updated[0];
+  if (row !== undefined) {
+    await logAuditEventTx(tx, {
+      salonId: row.salonId,
+      ...WEBHOOK_ACTOR,
+      action: 'billing_checkout_attempt_completed',
+      entityType: 'billing_checkout_attempt',
+      entityId: row.id,
+      metadata: { purpose: row.purpose },
+    });
+  }
   return { completed: updated.length === 1 };
+}
+
+/**
+ * Move ONE attempt to `expired` — the counterpart to {@link completeAttempt},
+ * keyed the same way (by Stripe Checkout Session id) so both the subscription
+ * (`applyCheckoutSessionExpired`) and top-up (`applyTopupSessionExpired`)
+ * flows share one code path and one audited transition, instead of each
+ * inlining its own duplicate UPDATE. `salonId` narrows the match when the
+ * caller already has it (top-ups: session ids are not unique across salons
+ * until bound); subscription attempts are already globally unique per
+ * session so the narrower match is optional there.
+ */
+export async function expireAttempt(
+  tx: BillingDbTransaction,
+  input: {
+    stripeCheckoutSessionId: string;
+    purpose: 'plan_subscription' | 'sms_topup';
+    salonId?: string;
+  },
+): Promise<{ expired: boolean }> {
+  const conditions = [
+    eq(billingCheckoutAttemptSchema.stripeCheckoutSessionId, input.stripeCheckoutSessionId),
+    eq(billingCheckoutAttemptSchema.purpose, input.purpose),
+    inArray(billingCheckoutAttemptSchema.status, ['creating', 'checkout_created']),
+  ];
+  if (input.salonId !== undefined) {
+    conditions.push(eq(billingCheckoutAttemptSchema.salonId, input.salonId));
+  }
+  const updated = await tx
+    .update(billingCheckoutAttemptSchema)
+    .set({ status: 'expired' })
+    .where(and(...conditions))
+    .returning();
+  const row = updated[0];
+  if (row !== undefined) {
+    await logAuditEventTx(tx, {
+      salonId: row.salonId,
+      ...WEBHOOK_ACTOR,
+      action: 'billing_checkout_attempt_expired',
+      entityType: 'billing_checkout_attempt',
+      entityId: row.id,
+      metadata: { purpose: row.purpose },
+    });
+  }
+  return { expired: updated.length === 1 };
 }
 
 export async function failAttempt(
