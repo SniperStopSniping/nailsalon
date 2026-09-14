@@ -9,6 +9,12 @@ on:
 permissions:
   contents: read
 
+# PR numbers isolate agents; non-PR runs get unique groups, so main/release
+# evidence is never cancelled by a later push or another PR.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   secret-scan:
     name: Secret hygiene
@@ -71,8 +77,12 @@ jobs:
       - name: Scan production client bundles and runtime credentials
         run: npm run security:check-secrets -- --tree
 
-  full-vitest:
-    name: Full Vitest Suite
+  full-vitest-shards:
+    name: Vitest shard ${{ matrix.shard }}/3
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
     needs: secret-scan
     runs-on: ubuntu-latest
     permissions:
@@ -95,15 +105,26 @@ jobs:
         run: HUSKY=0 npm ci
 
       - name: Run full Vitest suite
-        run: npm run test:all
+        run: npm run test:all -- --shard=${{ matrix.shard }}/3
 
-  test:
+  full-vitest:
+    name: Full Vitest Suite
+    needs: full-vitest-shards
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every Vitest shard
+        env:
+          SHARDS_RESULT: ${{ needs.full-vitest-shards.result }}
+        run: test "$SHARDS_RESULT" = success
+
+  test-core:
     needs: secret-scan
     strategy:
       matrix:
         node-version: [20.x]
 
-    name: Run all tests
+    name: Application tests
     runs-on: ubuntu-latest
     # Every other long-running job here is bounded (15-25m). This one was not,
     # so it inherited GitHub's 6-hour default. When the Playwright install step
@@ -173,6 +194,9 @@ jobs:
           cache: npm
 
       - run: npm ci
+
+      - name: Test CI evidence and cancellation contracts
+        run: node --test scripts/ci-workflow.node-test.mjs
 
       # The deposits ladder is additive by construction. These paths carry the
       # SaaS billing surface, dependency manifests, migration set, deploy
@@ -539,160 +563,9 @@ jobs:
         env:
           CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
 
-      # `npx playwright install --with-deps` does unbounded external work: an
-      # apt-get pass against the Ubuntu/Microsoft/Google mirrors, then a browser
-      # download from Playwright's CDN. It normally finishes in ~3 minutes, but
-      # it has stalled indefinitely three separate times -- twice on main and
-      # once on a pull request -- with no output and no failure. Nothing bounded
-      # it, so a transient network stall consumed an entire CI run instead of
-      # failing fast.
-      #
-      # Each attempt is capped, and a stalled attempt is retried rather than
-      # waited on. Test coverage is unchanged: the same command installs the
-      # same browsers, and a genuine install failure still fails the job after
-      # the final attempt (`exit 1`) rather than being swallowed.
-      # CI #497 proved why this cannot be one command with a retry wrapped
-      # around it. `npx playwright install --with-deps` shells out to
-      # `sudo apt-get`, and `timeout` signals only its DIRECT child. When the
-      # bound fired, the privileged grandchild survived; the log named it
-      # exactly: "Could not get lock /var/lib/apt/lists/lock. It is held by
-      # process 6933 (apt-get)". Every later attempt then failed on that same
-      # lock -- as did the dpkg/apt-get repair commands meant to recover, which
-      # were `|| true`-guarded and so failed silently. No amount of retrying
-      # that one command can work while a privileged child outlives the bound.
-      #
-      # The two halves have genuinely different hazards, so they are now
-      # separate bounded phases:
-      #   * OS dependencies are privileged, take global apt/dpkg locks, and
-      #     must never leave a surviving process;
-      #   * browsers are an unprivileged download into ~/.cache/ms-playwright
-      #     with no locks and no privileged children, which IS safe to retry.
-      #
-      # Coverage is identical: `install-deps` + `install` is precisely what
-      # `--with-deps` runs. Storybook and E2E below are untouched.
-      - name: Install Playwright OS dependencies
-        timeout-minutes: 20
-        run: |
-          # GitHub points apt at azure.archive.ubuntu.com, which is
-          # intermittently unreachable from the runner. apt's default
-          # per-request timeout turns that into an hours-long stall before it
-          # falls back to archive.ubuntu.com -- which the same run reaches
-          # successfully. Non-fatal: a speed-up, not a requirement.
-          printf 'Acquire::http::Timeout "15";\nAcquire::https::Timeout "15";\nAcquire::Retries "2";\n' \
-            | sudo tee /etc/apt/apt.conf.d/99-ci-fast-mirror-failover >/dev/null \
-            || echo "warning: could not write apt timeout config; continuing without it"
-
-          # The invariant that actually matters between attempts is not "a
-          # signal was sent" but "no process still holds an apt/dpkg lock".
-          # Assert that directly, and fail loudly rather than starting an
-          # attempt that cannot possibly succeed.
-          assert_apt_unlocked() {
-            for _ in $(seq 1 20); do
-              if ! sudo fuser /var/lib/apt/lists/lock /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock >/dev/null 2>&1; then
-                return 0
-              fi
-              sudo pkill -KILL -x apt-get 2>/dev/null || true
-              sudo pkill -KILL -x apt 2>/dev/null || true
-              sudo pkill -KILL -x dpkg 2>/dev/null || true
-              sleep 3
-            done
-            echo "apt/dpkg locks are STILL held after reaping; refusing to continue."
-            sudo fuser -v /var/lib/apt/lists/lock /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock || true
-            return 1
-          }
-
-          # Runs install-deps in its own session so the watchdog can signal the
-          # entire process GROUP. The child records its own pgid, so this works
-          # whether or not setsid forks. This is what guarantees no privileged
-          # apt child outlives a failed attempt.
-          run_deps_bounded() {
-            limit="$1"
-            pgid_file="$(mktemp)"
-            setsid --fork --wait bash -c \
-              'ps -o pgid= -p $$ | tr -d " " > "$1"; exec npx playwright install-deps' _ "$pgid_file" &
-            wrapper_pid=$!
-            waited=0
-            while kill -0 "$wrapper_pid" 2>/dev/null; do
-              if [ "$waited" -ge "$limit" ]; then
-                pgid="$(tr -d '[:space:]' < "$pgid_file" 2>/dev/null || true)"
-                echo "install-deps exceeded ${limit}s; killing its whole process group (${pgid:-unknown})"
-                if [ -n "$pgid" ]; then
-                  sudo kill -TERM "-${pgid}" 2>/dev/null || true
-                  sleep 5
-                  sudo kill -KILL "-${pgid}" 2>/dev/null || true
-                fi
-                wait "$wrapper_pid" 2>/dev/null || true
-                return 124
-              fi
-              sleep 2
-              waited=$((waited + 2))
-            done
-            wait "$wrapper_pid"
-          }
-
-          for attempt in 1 2; do
-            echo "::group::Playwright OS dependency attempt ${attempt}/2"
-            status=0
-            run_deps_bounded 480 || status=$?
-            echo "::endgroup::"
-            if [ "${status}" -eq 0 ]; then
-              echo "Playwright OS dependencies installed on attempt ${attempt}."
-              exit 0
-            fi
-            echo "Attempt ${attempt} failed with status ${status}."
-            # A second attempt is permitted ONLY once the machine is provably
-            # clean. If anything still holds a lock, stop here -- retrying into
-            # a held lock is exactly the CI #497 failure.
-            if ! assert_apt_unlocked; then
-              exit 1
-            fi
-            sudo dpkg --configure -a || true
-          done
-          echo "Playwright OS dependencies did not install in 2 bounded attempts."
-          exit 1
-
-      - name: Install Playwright browsers
-        timeout-minutes: 18
-        run: |
-          # Unprivileged download into ~/.cache/ms-playwright: no apt, no sudo,
-          # no global locks, no privileged children. Bounding the direct child
-          # is sufficient here, which is why retrying this half is safe.
-          for attempt in 1 2 3; do
-            echo "::group::Playwright browser attempt ${attempt}/3"
-            status=0
-            timeout --kill-after=30 300 npx playwright install || status=$?
-            echo "::endgroup::"
-            if [ "${status}" -eq 0 ]; then
-              echo "Playwright browsers installed on attempt ${attempt}."
-              exit 0
-            fi
-            if [ "${status}" -eq 124 ]; then
-              echo "Attempt ${attempt} exceeded the 300s cap and was terminated."
-            else
-              echo "Attempt ${attempt} failed with exit status ${status}."
-            fi
-            sleep 10
-          done
-          echo "Playwright browsers did not install in 3 bounded attempts."
-          exit 1
-
-      - name: Verify onboarding confirmation and booking notice
-        working-directory: prototypes/site-builder-v2-booking-integration-lab
-        timeout-minutes: 10
-        run: |
-          npm ci
-          npm run typecheck
-          npm test -- --maxWorkers=2 --minWorkers=1
-          npx playwright test --config playwright.booking-preferences.config.ts
-
-      - name: Verify SMS components and plan access in desktop and mobile browsers
-        run: node node_modules/@playwright/test/cli.js test --config tests/browser/sms/playwright.config.ts --output=test-results/sms-components
-
-      - name: Verify review previews and delivery states in mobile browsers
-        run: node node_modules/playwright/cli.js test --config tests/browser/reviews/playwright.config.ts --output=test-results/review-components
-
-      - name: Run storybook tests
-        run: npm run test-storybook:ci
+      - name: Install Playwright safely
+        timeout-minutes: 38
+        uses: ./.github/actions/install-playwright
 
       # Functional visual assertions remain in Visual.e2e.ts for PRs, while
       # trusted main retains hosted snapshot publication.
@@ -716,6 +589,74 @@ jobs:
             npm run test:e2e -- tests/e2e/mobile-staff-uiqi.e2e.ts tests/e2e/booking-layout-variants.e2e.ts tests/e2e/account-gate-contrast.e2e.ts tests/e2e/booking-page-hub.e2e.ts tests/e2e/review-requests.e2e.ts
           fi
 
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-results
+          path: test-results/
+          retention-days: 7
+
+  test-components:
+    name: Component and onboarding browsers
+    needs: secret-scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    env:
+      BILLING_PLAN_ENV: test
+      CLERK_SECRET_KEY: ci-placeholder-not-a-secret
+      NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_test_Y2kubHVzdGVyLmludmFsaWQk
+      NEXT_PUBLIC_CLERK_SIGN_IN_URL: /sign-in
+      STRIPE_SECRET_KEY: ci-placeholder-not-a-secret
+      STRIPE_WEBHOOK_SECRET: ci-placeholder-not-a-secret
+      STRIPE_CONNECT_WEBHOOK_SECRET: ci-placeholder-not-a-secret
+      NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: ci-placeholder-not-a-secret
+      SUPER_ADMIN_AUTH_MODE: password
+      SUPER_ADMIN_TEST_LOGIN_ENABLED: 'true'
+      ALLOW_STAGING_SUPER_ADMIN_PASSWORD: 'true'
+      LEGACY_OTP_AUTH_ENABLED: 'false'
+      E2E_USE_REAL_TWILIO: 'false'
+      TWILIO_ACCOUNT_SID: ''
+      TWILIO_AUTH_TOKEN: ''
+      TWILIO_VERIFY_SERVICE_SID: ''
+      TWILIO_PHONE_NUMBER: ''
+      RESEND_API_KEY: ''
+      RESEND_FROM_EMAIL: ''
+      RESEND_REPLY_TO_EMAIL: ''
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20.x
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            prototypes/site-builder-v2-booking-integration-lab/package-lock.json
+      - run: HUSKY=0 npm ci
+      - name: Install Playwright safely
+        timeout-minutes: 38
+        uses: ./.github/actions/install-playwright
+
+      - name: Verify onboarding confirmation and booking notice
+        working-directory: prototypes/site-builder-v2-booking-integration-lab
+        timeout-minutes: 10
+        run: |
+          npm ci
+          npm run typecheck
+          npm test -- --maxWorkers=2 --minWorkers=1
+          npx playwright test --config playwright.booking-preferences.config.ts
+
+      - name: Verify SMS components and plan access in desktop and mobile browsers
+        run: node node_modules/@playwright/test/cli.js test --config tests/browser/sms/playwright.config.ts --output=test-results/sms-components
+
+      - name: Verify review previews and delivery states in mobile browsers
+        run: node node_modules/playwright/cli.js test --config tests/browser/reviews/playwright.config.ts --output=test-results/review-components
+
+      - name: Run storybook tests
+        run: npm run test-storybook:ci
+
       - name: Verify onboarding desktop and phone geometry
         timeout-minutes: 5
         working-directory: prototypes/site-builder-v2-booking-integration-lab
@@ -728,9 +669,24 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: test-results
+          name: component-test-results
           path: test-results/
           retention-days: 7
+
+  test:
+    # Preserve the live ruleset context; success requires both execution jobs.
+    name: Run all tests (20.x)
+    needs: [test-core, test-components]
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require application and component evidence
+        env:
+          CORE_RESULT: ${{ needs.test-core.result }}
+          COMPONENTS_RESULT: ${{ needs.test-components.result }}
+        run: |
+          test "$CORE_RESULT" = success
+          test "$COMPONENTS_RESULT" = success
 
   uiqi-release-conditions:
     name: UIQI release conditions
