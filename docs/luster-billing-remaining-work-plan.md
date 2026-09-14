@@ -144,7 +144,7 @@ Hard ordering rules:
 | P3a | merged | #204 | e71dfbf5 | 2026-09-14 | includes G42 foreign-event guard and D2 refund rollback |
 | P3b | merged | #209 | 6a315a5f | 2026-09-14 | processing lease + CAS + top-up price sanity check |
 | P3c | merged | #210 | 1627a2ee | 2026-09-14 | transactional audit trail; adds a checkout postimage hash |
-| P4 | merged | #207 | e4ed4928 | 2026-09-14 | code half only — cron registration parked on D3; drift demo in billing-gate-c-record.md §3 |
+| P4 | merged | #207 | e4ed4928 | 2026-09-14 | code half; drift demo in billing-gate-c-record.md §3; cron registration landed in P4b (D3) |
 | P5a | merged | #205 | 3ed304b7 | 2026-09-14 | proceeded under owner instruction "do not merge #176 wholesale"; #176 UI half must rebase on it |
 | P5b | merged | #213 | c29d8c29 | 2026-09-14 | portal freeze replaced by reviewed postimage (D18 approved 2026-09-14); live route, legacy behaviour byte-preserved |
 | P6 | merged | #208 | ef3f486a | 2026-09-14 | tax architecture + rate-protection resolver; env-keyed price carrier landed in P6b (D19a ratified 2026-09-14) |
@@ -236,7 +236,7 @@ If any phase turns out to need a migration: **STOP** and report.
 |---|---|---|---|
 | D1 | **PR #176 disposition** (Codex, CONFLICTING): split into (a) client-reminders/usage UI half and (b) billing-engine half; or close; or full rebase | Split (§10.1): land only (a) after rebase; close (b) as superseded by #195; Claude ports its four new pieces in P3a/P3b/P6. Never merge as-is | P5a, P7 — **BLOCKING** (P1–P4 may proceed) |
 | D2 | §6.7 subscription full refund: automate "future grants stop" now (P3a `paid_through` rollback transition) vs manual runbook | Automate the refund case in P3a; disputes stay held + Sentry with a manual runbook step (P8c) | `BILLING_SUBSCRIPTIONS_ENABLED` |
-| D3 | Register the two billing crons now (dark, `200 skipped`) — this schedules ~120 production invocations/day that each cold-start a pooled connection + `SELECT 1` against the shared Neon database (quota outage history), and amends §20 (which has no cron step) | **No default** — the P4 code half lands; registration waits for this answer or for activation | P4 registration half — **BLOCKING** |
+| D3 | Register the two billing crons now (dark, `200 skipped`) — this schedules ~120 production invocations/day that each cold-start a pooled connection + `SELECT 1` against the shared Neon database (quota outage history), and amends §20 (which has no cron step) | **DECIDED 2026-09-14: yes** — registered in P4b | P4 registration half — landed (P4b) |
 | D4 | Self-serve subscription checkout UI at pilot: minimal "Choose plan" flow vs support-driven only | Build the minimal flow (P7); it is the only way a real subscription gets correct metadata | P7 — **BLOCKING** |
 | D5 | `ComparePlansModal`: delete (§15 C2) or keep as informational | Delete in P7 when the Choose-plan surface lands | P7 |
 | D6 | Super-admin billing ops panel now or later | Build compact read-only panel (P8b) | P8b |
@@ -266,7 +266,7 @@ If any phase turns out to need a migration: **STOP** and report.
 | `BILLING_PLAN_ENV` | never changed by Claude; `prod` on Production / `test` on Preview verified in P8c before any secret | boot-fatal check |
 | Committed `stripePriceMap.ts` tables | stay `null`; no live Price/Coupon ids in git, ever (§4) | `PRICE_UNCONFIGURED` |
 | Founding promotion window/cap | `null` (closed) | `promotions.ts` |
-| Billing crons | not registered unless D3 = yes; if registered, `200 skipped` while dark | P4 |
+| Billing crons | registered (D3 ratified 2026-09-14, P4b); routes answer `200 skipped` while dark | P4b |
 | `GET /api/billing/topups` (P5a) | returns `[]` unless `BILLING_TOPUPS_ENABLED==='true'` | P5a |
 | Stripe resources | no Products/Prices/Coupon/Portal config created; legacy endpoint untouched in the dashboard | §20 step 1 — authorization only |
 | `scripts/grant-starter-credits.ts --apply` | never against production without written authorization | four-layer guard (P8a) |

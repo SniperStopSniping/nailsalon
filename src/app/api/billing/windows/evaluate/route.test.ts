@@ -1,8 +1,8 @@
 /**
  * Credit-window scheduler route proofs — §6.4, §7.3 rule 7, §8.6 (plan P4).
- * CRON_SECRET-gated, cron-unregistered, dark-`200 skipped` while
- * BILLING_SUBSCRIPTIONS_ENABLED is unset, cursor-paginated over `id`
- * ascending in batches of 200, and the only caller of both
+ * CRON_SECRET-gated, registered in `vercel.json` (P4b, D3), dark-`200
+ * skipped` while BILLING_SUBSCRIPTIONS_ENABLED is unset, cursor-paginated
+ * over `id` ascending in batches of 200, and the only caller of both
  * `expireStaleClaims` (§7.3 rule 7) and `expireLapsedLots` (G09).
  */
 import path from 'node:path';
@@ -13,6 +13,8 @@ import { migrate } from 'drizzle-orm/pglite/migrator';
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import * as schema from '@/models/Schema';
+
+import vercelConfig from '../../../../../../vercel.json';
 
 vi.mock('server-only', () => ({}));
 
@@ -162,4 +164,18 @@ describe('window scheduler route (P4)', () => {
     expect(body.summary.evaluated).toBeGreaterThanOrEqual(210);
     expect(body.summary.granted).toBeGreaterThanOrEqual(210);
   }, 30_000);
+});
+
+describe('vercel.json cron registration (P4b, D3)', () => {
+  it('registers /api/billing/windows/evaluate on a 15-minute schedule', () => {
+    const cron = vercelConfig.crons.find(entry => entry.path === '/api/billing/windows/evaluate');
+
+    expect(cron).toEqual({ path: '/api/billing/windows/evaluate', schedule: '*/15 * * * *' });
+  });
+
+  it('registers /api/billing/reconcile on an hourly :17 schedule', () => {
+    const cron = vercelConfig.crons.find(entry => entry.path === '/api/billing/reconcile');
+
+    expect(cron).toEqual({ path: '/api/billing/reconcile', schedule: '17 * * * *' });
+  });
 });

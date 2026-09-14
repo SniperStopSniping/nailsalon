@@ -1,7 +1,7 @@
 /**
  * Reconciliation route proofs — §8.6/G08/G06/G13 (plan P4). CRON_SECRET-gated
- * and cron-unregistered; the unconditional payload purge runs before either
- * dark switch; subscription drift repairs only via the idempotent
+ * and registered in `vercel.json` (P4b, D3); the unconditional payload purge
+ * runs before either dark switch; subscription drift repairs only via the idempotent
  * projection functions the webhook itself uses; the held top-up resolver
  * reuses the SAME idempotent transitions; duplicate remote subscriptions are
  * ALERTED, never silently resolved. (The window scheduler route has its own
