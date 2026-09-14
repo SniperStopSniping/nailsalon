@@ -1,64 +1,100 @@
 /**
- * Credit-window scheduler — Gate C2 (§6.4, §8.8 of the completion
- * authorization).
+ * Credit-window scheduler — Gate C2/P4 (§6.4, §7.3 rule 7, §8.6 of the
+ * contract).
  *
  * The B1 window engine is the ONLY monthly-allowance granter; Stripe events
  * merely maintain paid_through/status/plan. This route drives the engine
- * over every subscription with an unevaluated or due window.
+ * over every subscription with an unevaluated or due window, sweeps stale
+ * promotion claims (the ONLY caller of `expireStaleClaims`, §7.3 rule 7),
+ * and (P4/G09) sweeps lapsed credit lots per salon (`expireLapsedLots` —
+ * bookkeeping only; correctness never depends on it).
  *
- * CRON_SECRET-gated exactly like /api/reminders/process. DELIBERATELY NOT
- * REGISTERED in vercel.json: the deposits-ladder guard freezes cron entries
- * additively (an append rewrites the closing brace of the previous entry),
- * and a dark gate has nothing to schedule — registration is a §20 runbook
- * step with its own authorization. Until then this route only runs when
- * called explicitly, and evaluating windows is grant-correct whenever it
- * runs (idempotent keys; missed evaluations skip, never backfill).
+ * Dark contract: CRON_SECRET-gated exactly like /api/reminders/process, and
+ * responds `200 { skipped: 'BILLING_DISABLED' }` while
+ * BILLING_SUBSCRIPTIONS_ENABLED is unset — no DB read beyond the auth check.
+ *
+ * DELIBERATELY NOT REGISTERED in vercel.json: registering this (or the
+ * sibling reconcile route) as a cron is an owner decision (plan D3, §20
+ * runbook step) that has NOT been taken. Until then this route only runs
+ * when invoked explicitly, and evaluating windows is grant-correct whenever
+ * it runs (idempotent keys; missed evaluations skip, never backfill).
  */
-import { and, inArray, isNull, lte, or } from 'drizzle-orm';
+import { and, asc, gt, inArray, isNull, lte, or } from 'drizzle-orm';
 
-import { evaluateSubscriptionWindows } from '@/libs/billing/creditGrants';
+import { evaluateSubscriptionWindows, expireLapsedLots } from '@/libs/billing/creditGrants';
 import { isAuthorizedCronRequest } from '@/libs/billing/cronAuth';
 import { expireStaleClaims } from '@/libs/billing/promotionClaims';
 import { db } from '@/libs/DB';
 import { Env } from '@/libs/Env';
 import { billingSubscriptionSchema } from '@/models/Schema';
 
+const SUBSCRIPTION_BATCH_SIZE = 200;
+
 async function run(request: Request): Promise<Response> {
   if (!isAuthorizedCronRequest(request, process.env.CRON_SECRET)) {
     return Response.json({ error: 'Unauthorized' }, { status: 401 });
   }
   if (Env.BILLING_SUBSCRIPTIONS_ENABLED !== 'true') {
-    return Response.json(
-      { error: { code: 'BILLING_DISABLED', message: 'Nothing to evaluate while billing is dark.' } },
-      { status: 503 },
-    );
+    return Response.json({ skipped: 'BILLING_DISABLED' });
   }
   const now = new Date();
   // A crash between claim reservation and session creation leaves a
   // reserved claim with no session to expire it — sweeping here frees the
   // once-per-business slot after its TTL (review LOW finding).
   const staleClaims = await db.transaction(async tx => expireStaleClaims(tx, now));
-  const due = await db
-    .select({ id: billingSubscriptionSchema.id })
-    .from(billingSubscriptionSchema)
-    .where(and(
-      inArray(billingSubscriptionSchema.status, ['active', 'past_due', 'canceled']),
-      or(
-        isNull(billingSubscriptionSchema.nextCreditGrantAt),
-        lte(billingSubscriptionSchema.nextCreditGrantAt, now),
-      ),
-    ))
-    .limit(200);
 
-  const summary = { evaluated: 0, granted: 0, skippedUnpaid: 0, skippedMissed: 0, anomalies: [] as string[] };
-  for (const subscription of due) {
-    const result = await evaluateSubscriptionWindows({ subscriptionId: subscription.id, now });
-    summary.evaluated += 1;
-    summary.granted += result.granted;
-    summary.skippedUnpaid += result.skippedUnpaid;
-    summary.skippedMissed += result.skippedMissed;
-    summary.anomalies.push(...result.anomalies);
+  const summary = {
+    evaluated: 0,
+    granted: 0,
+    skippedUnpaid: 0,
+    skippedMissed: 0,
+    anomalies: [] as string[],
+    lapsedLotsExpired: 0,
+  };
+
+  // Cursor pagination by `id` ascending, batches of 200, until drained.
+  let cursor: string | null = null;
+  for (;;) {
+    const due = await db
+      .select({ id: billingSubscriptionSchema.id, salonId: billingSubscriptionSchema.salonId })
+      .from(billingSubscriptionSchema)
+      .where(and(
+        inArray(billingSubscriptionSchema.status, ['active', 'past_due', 'canceled']),
+        or(
+          isNull(billingSubscriptionSchema.nextCreditGrantAt),
+          lte(billingSubscriptionSchema.nextCreditGrantAt, now),
+        ),
+        cursor !== null ? gt(billingSubscriptionSchema.id, cursor) : undefined,
+      ))
+      .orderBy(asc(billingSubscriptionSchema.id))
+      .limit(SUBSCRIPTION_BATCH_SIZE);
+    if (due.length === 0) {
+      break;
+    }
+
+    for (const subscription of due) {
+      const result = await evaluateSubscriptionWindows({ subscriptionId: subscription.id, now });
+      summary.evaluated += 1;
+      summary.granted += result.granted;
+      summary.skippedUnpaid += result.skippedUnpaid;
+      summary.skippedMissed += result.skippedMissed;
+      summary.anomalies.push(...result.anomalies);
+
+      // G09: expireLapsedLots is a per-salon bookkeeping sweep (never called
+      // anywhere in the dark contract before P4) — exported but orphaned.
+      const { expired } = await db.transaction(async tx => expireLapsedLots(tx, {
+        salonId: subscription.salonId,
+        now,
+      }));
+      summary.lapsedLotsExpired += expired;
+    }
+
+    cursor = due[due.length - 1]!.id;
+    if (due.length < SUBSCRIPTION_BATCH_SIZE) {
+      break;
+    }
   }
+
   return Response.json({ summary, staleClaimsExpired: staleClaims.expired });
 }
 

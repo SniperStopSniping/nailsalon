@@ -274,6 +274,7 @@ jobs:
               src/app/api/billing/checkout/route.ts) ;;
               src/app/api/billing/checkout/route.test.ts) ;;
               src/app/api/billing/windows/evaluate/route.ts) ;;
+              src/app/api/billing/windows/evaluate/route.test.ts) ;;
               src/app/api/billing/reconcile/route.ts) ;;
               src/app/api/billing/reconcile/route.test.ts) ;;
               src/app/api/billing/checkout/topup/route.ts) ;;

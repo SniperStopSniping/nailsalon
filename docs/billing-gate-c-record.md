@@ -28,7 +28,78 @@ No D1 PR exists. Migration tail at this record: `0077_review_requests` (78 journ
 
 ## 3. Reconciliation drift-report demonstration (P4)
 
-_Pending — appended by phase P4._
+Discharges the §16 Gate C exit condition (owner notice §2.1 above). Run 2026-09-14 against a disposable, throwaway PostgreSQL 16 container (`docker run --rm -d -e POSTGRES_PASSWORD=demo -e POSTGRES_USER=demo -e POSTGRES_DB=luster_demo -p 55440:5432 postgres:16-alpine`; stopped and removed immediately after), migrated to the current tail (`0077_review_requests`). The container never held production data and was destroyed on completion.
+
+**Method.** A throwaway vitest integration test (not committed — a one-off demonstration script, run and deleted in the same session) mocked the Stripe SDK layer only (`@/libs/stripe`, `@/libs/billing/stripePriceMap`), pointed `@/libs/DB` at the disposable container via `drizzle-orm/node-postgres`, seeded three `billing_subscription` rows with deliberate drift, and invoked the P4 `/api/billing/reconcile` route handler directly (CRON_SECRET-authorized, `BILLING_SUBSCRIPTIONS_ENABLED='true'`, `BILLING_TOPUPS_ENABLED` unset):
+
+- **`sub_g30_a`** — `paid_through` LAG: local `paid_through` left at "now"; the mocked remote subscription's `latest_invoice` is a PAID invoice whose line-item period ends ~40 days out.
+- **`sub_g30_b`** — status/cancellation drift: local `status='active'`, `cancel_at_period_end=false`; the mocked remote subscription reports `status='past_due'`, `cancel_at_period_end=true`.
+- **`sub_g30_c`** — stuck pending downgrade: local `billing_offer_key='pro_2026_08_monthly'` with `pending_offer_key='starter_2026_08_monthly'`; the mocked remote subscription's price resolves (via a mocked reverse lookup) to `starter_2026_08_monthly` — Stripe is already billing the parked offer.
+
+**Result — exact JSON response** (`purged: 0` because no `billing_stripe_event` rows were seeded in this demonstration; the purge step itself is separately covered by `src/app/api/billing/reconcile/route.test.ts`):
+
+```json
+{
+  "purged": 0,
+  "summary": {
+    "checked": 3,
+    "drift": [
+      {
+        "stripeSubscriptionId": "sub_g30_a",
+        "field": "paid_through_behind",
+        "local": "2026-09-14T05:37:51.984Z",
+        "remote": "2026-10-24T05:37:51.000Z",
+        "repaired": true
+      },
+      {
+        "stripeSubscriptionId": "sub_g30_a",
+        "field": "next_grant_drift",
+        "local": "null",
+        "remote": "2026-10-09T05:37:51.984Z",
+        "repaired": false
+      },
+      {
+        "stripeSubscriptionId": "sub_g30_b",
+        "field": "status",
+        "local": "active",
+        "remote": "past_due",
+        "repaired": true
+      },
+      {
+        "stripeSubscriptionId": "sub_g30_b",
+        "field": "cancelAtPeriodEnd",
+        "local": "false",
+        "remote": "true",
+        "repaired": true
+      },
+      {
+        "stripeSubscriptionId": "sub_g30_b",
+        "field": "next_grant_drift",
+        "local": "null",
+        "remote": "2026-10-09T05:37:51.984Z",
+        "repaired": false
+      },
+      {
+        "stripeSubscriptionId": "sub_g30_c",
+        "field": "pending_offer_applied_remotely",
+        "local": "starter_2026_08_monthly",
+        "remote": "starter_2026_08_monthly",
+        "repaired": true
+      },
+      {
+        "stripeSubscriptionId": "sub_g30_c",
+        "field": "next_grant_drift",
+        "local": "null",
+        "remote": "2026-10-09T05:37:51.984Z",
+        "repaired": false
+      }
+    ],
+    "duplicateRemoteCustomers": 0
+  }
+}
+```
+
+**Reading it.** Every seeded drift was detected and, per §8.6, repaired ONLY through the existing idempotent transitions (`applyInvoicePaymentSucceeded` for `sub_g30_a`'s paid-through lag; `projectSubscriptionSnapshot` for `sub_g30_b`'s status/cancellation drift; `applyInvoicePaymentSucceeded`'s pending-offer-application branch for `sub_g30_c`'s stuck downgrade) — `repaired: true` on each. All three rows also carry a `next_grant_drift` entry (`repaired: false`, report-only by design, §6.4): none of the three had ever been evaluated by `/api/billing/windows/evaluate` in this from-scratch seed, so `next_credit_grant_at` was `null` against a non-null computed window boundary — exactly the drift that field exists to surface. `duplicateRemoteCustomers: 0` because none of the three shared a Stripe customer id in this seed (the duplicate-alert path itself has its own dedicated seeded test in `src/app/api/billing/reconcile/route.test.ts`).
 
 ## 4. PROPOSED contract amendments (Rev 2.3) — NOT ratified, NOT authorized
 
