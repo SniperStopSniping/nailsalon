@@ -424,12 +424,18 @@ function AdminDashboardContent() {
   );
   // Explains a deep link to an app this salon cannot open (entitlement-gated).
   const [blockedAppNotice, setBlockedAppNotice] = useState<string | null>(null);
-  // Top-up checkout return (G19, §8.5 UX): the top-up Checkout redirects to
-  // /admin?topup=success|cancelled and nothing read it before P5a.
-  const [topupNotice, setTopupNotice] = useState<string | null>(null);
+  // Billing Checkout return (G19, §8.5 UX): shared by the top-up Checkout
+  // (?topup=success|cancelled, P5a) and the subscription Checkout
+  // (?billing=success|cancelled, P7) — same non-authoritative notice + Usage
+  // & billing modal hand-off pattern, different copy and (top-ups only) a
+  // fulfilment poll, since subscription state arrives from the
+  // stripe-billing webhook with no equivalent read-back endpoint here.
+  const [billingReturnNotice, setBillingReturnNotice] = useState<
+    { kind: 'topup' | 'billing'; message: string } | null
+  >(null);
   const [showTopupUsageBilling, setShowTopupUsageBilling] = useState(false);
   const [pollingTopupFulfillment, setPollingTopupFulfillment] = useState(false);
-  const handledTopupReturnRef = useRef(false);
+  const handledBillingReturnRef = useRef(false);
   const activeDashboardSalonSlug
     = adminUser?.impersonation?.salonSlug
     ?? requestedSalonSlug
@@ -444,28 +450,49 @@ function AdminDashboardContent() {
   const activeDashboardSalonStatus = activeDashboardSalon?.status ?? null;
   const isFreeSolo = activeDashboardSalon?.freeSoloEnabled === true;
 
-  // G19 (top-up half, §8.5 UX): read ?topup=success|cancelled exactly once,
-  // show a non-authoritative notice, and strip the param so a reload never
-  // repeats it. Independent of the ?app= state machine above — it never
-  // touches activeModal.
+  // G19 (§8.5 UX): read ?topup=success|cancelled (P5a) or
+  // ?billing=success|cancelled (P7, subscription half) exactly once, show a
+  // non-authoritative notice, and strip whichever param was present so a
+  // reload never repeats it. One handler for both params — they redirect
+  // from two different Checkout modes but share the same hand-off shape.
+  // Independent of the ?app= state machine above — it never touches
+  // activeModal.
   useEffect(() => {
-    if (handledTopupReturnRef.current) {
+    if (handledBillingReturnRef.current) {
       return;
     }
     const topupParam = searchParams.get('topup');
-    if (topupParam !== 'success' && topupParam !== 'cancelled') {
+    const billingParam = searchParams.get('billing');
+    const kind: 'topup' | 'billing' | null
+      = topupParam === 'success' || topupParam === 'cancelled'
+        ? 'topup'
+        : billingParam === 'success' || billingParam === 'cancelled'
+          ? 'billing'
+          : null;
+    if (kind === null) {
       return;
     }
-    handledTopupReturnRef.current = true;
-    if (topupParam === 'success') {
-      setTopupNotice('Payment received — credits usually arrive within a minute.');
+    handledBillingReturnRef.current = true;
+    const outcome = kind === 'topup' ? topupParam : billingParam;
+    if (outcome === 'success') {
+      setBillingReturnNotice({
+        kind,
+        message: kind === 'topup'
+          ? 'Payment received — credits usually arrive within a minute.'
+          : 'Payment received — your plan updates within a minute.',
+      });
       setShowTopupUsageBilling(true);
-      setPollingTopupFulfillment(true);
+      if (kind === 'topup') {
+        // Subscription state arrives from the stripe-billing webhook; there
+        // is no equivalent read-back endpoint to poll here (unlike top-up
+        // purchases, which read back from /api/billing/topups).
+        setPollingTopupFulfillment(true);
+      }
     } else {
-      setTopupNotice('Checkout cancelled — nothing was charged.');
+      setBillingReturnNotice({ kind, message: 'Checkout cancelled — nothing was charged.' });
     }
     const url = new URL(window.location.href);
-    url.searchParams.delete('topup');
+    url.searchParams.delete(kind);
     window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`);
   }, [searchParams]);
 
@@ -1920,17 +1947,18 @@ function AdminDashboardContent() {
           </div>
         )}
 
-        {/* Returned from top-up Checkout (G19, §8.5 UX) — non-authoritative. */}
-        {topupNotice && (
+        {/* Returned from a Checkout (G19, §8.5 UX) — top-up or subscription,
+            non-authoritative either way. */}
+        {billingReturnNotice && (
           <div
             className="mx-4 mt-2 flex items-start gap-3 rounded-lg border border-blue-200 bg-blue-50 p-3"
-            data-testid="topup-return-notice"
+            data-testid={billingReturnNotice.kind === 'topup' ? 'topup-return-notice' : 'billing-return-notice'}
             role="status"
           >
-            <p className="flex-1 text-sm text-blue-800">{topupNotice}</p>
+            <p className="flex-1 text-sm text-blue-800">{billingReturnNotice.message}</p>
             <button
               type="button"
-              onClick={() => setTopupNotice(null)}
+              onClick={() => setBillingReturnNotice(null)}
               className="shrink-0 rounded-lg px-2 py-1 text-sm font-medium text-blue-900 underline underline-offset-2"
             >
               Dismiss
@@ -2105,8 +2133,9 @@ function AdminDashboardContent() {
         }}
       />
 
-      {/* Opened by a top-up Checkout return (G19) — same modal the Account &
-          Plan view opens, driven here by page state instead of a click. */}
+      {/* Opened by a top-up OR subscription Checkout return (G19) — same
+          modal the Account & Plan view opens, driven here by page state
+          instead of a click. */}
       {showTopupUsageBilling && activeDashboardSalonSlug && (
         <UsageBillingModal
           salonSlug={activeDashboardSalonSlug}

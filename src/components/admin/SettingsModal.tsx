@@ -44,7 +44,6 @@ import {
   Star,
   User,
   Users,
-  X,
 } from 'lucide-react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import {
@@ -58,7 +57,6 @@ import {
 
 import { useOwnerAdminFeatureFlags } from '@/app/[locale]/admin/OwnerAdminFeatureFlags';
 import { BookingPageInformationEditor } from '@/components/admin/BookingPageInformationEditor';
-import { DialogShell } from '@/components/ui/dialog-shell';
 import { LockedFeatureRow } from '@/components/ui/locked-feature-row';
 import {
   BOOKING_EXPERIENCE_DEFAULTS,
@@ -95,6 +93,7 @@ import type {
 
 import { BackButton, ModalHeader } from './AppModal';
 import { BookingFlowEditor } from './BookingFlowEditor';
+import { ChoosePlanPanel } from './ChoosePlanPanel';
 import { PageThemesSettings } from './PageThemesSettings';
 import { ReviewRequestSettings } from './ReviewRequestSettings';
 import { SmartFitSettingsCard } from './SmartFitSettingsCard';
@@ -640,15 +639,6 @@ function ParkingInstructionsCard({
     </Section>
   );
 }
-
-/**
- * Compare Plans Modal
- * Shows Starter/Pro/Elite plan comparison
- */
-type ComparePlansModalProps = {
-  isOpen: boolean;
-  onClose: () => void;
-};
 
 type BookingConfigFormState = {
   bufferMinutes: number;
@@ -1937,103 +1927,6 @@ const DEFAULT_BOOKING_NOTIFICATION_EVENT_FORM_STATE: BookingNotificationEventFor
     ownerChannel: 'both',
   };
 
-/**
- * Canonical plan cards (Gate C2). MIRRORS src/libs/billing/billingOffers.ts
- * (a server-only module a client component cannot import); the
- * SettingsModal.billing test pins these against the catalogue so any price
- * drift fails CI. No feature matrix here — §12 forbids inventing one.
- */
-export const BILLING_PLAN_CARDS = [
-  { family: 'starter', name: 'Starter', monthly: '$14.99', annual: '$149.90', smsCredits: 200 },
-  { family: 'pro', name: 'Pro', monthly: '$24.99', annual: '$249.90', smsCredits: 400 },
-  { family: 'elite', name: 'Elite', monthly: '$44.99', annual: '$449.90', smsCredits: 800 },
-] as const;
-
-function ComparePlansModal({ isOpen, onClose }: ComparePlansModalProps) {
-  if (!isOpen) {
-    return null;
-  }
-
-  return (
-    <DialogShell
-      isOpen={isOpen}
-      onClose={onClose}
-      alignClassName="items-end justify-center p-0 sm:items-center sm:p-4"
-      maxWidthClassName="max-w-2xl"
-      contentClassName="max-h-[90vh] overflow-hidden rounded-t-[20px] bg-[var(--owner-surface)] shadow-xl supports-[height:100dvh]:max-h-[90dvh] sm:rounded-[20px]"
-    >
-      <motion.div
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="compare-plans-title"
-        initial={{ opacity: 0, y: 100 }}
-        animate={{ opacity: 1, y: 0 }}
-        exit={{ opacity: 0, y: 100 }}
-        transition={{ type: 'spring', damping: 25, stiffness: 300 }}
-        className="w-full"
-      >
-        {/* Header */}
-        <div className="flex items-center justify-between border-b border-[var(--owner-line)] px-5 py-4">
-          <h2 id="compare-plans-title" className="text-lg font-semibold text-[var(--owner-ink)]">Compare Plans</h2>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close compare plans modal"
-            className="flex size-11 items-center justify-center rounded-full bg-[var(--owner-ground)] transition-colors hover:bg-gray-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-950"
-          >
-            <X className="size-4 text-[var(--owner-muted)]" />
-          </button>
-        </div>
-
-        {/* Content — the CANONICAL catalogue only (Gate C2, §12). Feature
-            access is unchanged by these plans until the separately-approved
-            feature matrix lands; plans differ in monthly SMS credits. */}
-        <div className="max-h-[calc(90vh-120px)] touch-pan-y overflow-y-auto overscroll-contain p-5 supports-[height:100dvh]:max-h-[calc(90dvh-120px)]">
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-            {BILLING_PLAN_CARDS.map(plan => (
-              <div key={plan.family} className="rounded-xl border-2 border-[var(--owner-line)] bg-[var(--owner-surface)] p-4">
-                <div className="mb-3 text-center">
-                  <h3 className="text-lg font-semibold text-[var(--owner-ink)]">{plan.name}</h3>
-                  <div className="mt-1 text-2xl font-bold text-[var(--owner-ink)]">{plan.monthly}</div>
-                  <p className="mt-1 text-xs text-[var(--owner-muted)]">per month</p>
-                </div>
-                <ul className="space-y-2 text-sm text-[var(--owner-muted)]">
-                  <li className="flex items-center gap-2">
-                    <Check className="size-4 shrink-0 text-green-500" />
-                    {plan.smsCredits}
-                    {' '}
-                    SMS credits / month
-                  </li>
-                  <li className="flex items-center gap-2">
-                    <Check className="size-4 shrink-0 text-green-500" />
-                    Email confirmations & reminders included
-                  </li>
-                  <li className="flex items-center gap-2">
-                    <Check className="size-4 shrink-0 text-green-500" />
-                    {plan.annual}
-                    {' '}
-                    / year (two months free)
-                  </li>
-                </ul>
-              </div>
-            ))}
-          </div>
-
-          <p className="mt-4 text-center text-xs text-[var(--owner-muted)]">
-            Prices in CAD, plus applicable taxes. Annual plans renew at the
-            standard annual price. Your current feature access does not change
-            with these plans.
-          </p>
-
-          <p className="mt-6 text-center text-xs text-[var(--owner-muted)]">
-            To change plans, contact Luster at support@lustergel.app
-          </p>
-        </div>
-      </motion.div>
-    </DialogShell>
-  );
-}
-
 type SettingsView
   = | 'index'
   | 'business'
@@ -2380,8 +2273,8 @@ export function SettingsModal({
   // Usage & billing modal (Gate C4).
   const [showUsageBilling, setShowUsageBilling] = useState(false);
 
-  // Compare Plans modal state (Step 19)
-  const [showComparePlans, setShowComparePlans] = useState(false);
+  // Choose plan panel state (P7) — replaces the Step 19 Compare Plans modal.
+  const [showChoosePlan, setShowChoosePlan] = useState(false);
 
   // Owner profile state (Account view)
   const [profileName, setProfileName] = useState(userName);
@@ -6155,10 +6048,10 @@ export function SettingsModal({
                   {!isFreeSolo && (
                     <button
                       type="button"
-                      onClick={() => setShowComparePlans(true)}
+                      onClick={() => setShowChoosePlan(true)}
                       className="rounded-[10px] bg-gradient-to-r from-purple-500 to-indigo-500 px-4 py-2.5 text-sm font-medium text-white shadow-sm transition-opacity hover:opacity-90"
                     >
-                      Compare Plans
+                      Plans
                     </button>
                   )}
                   <button
@@ -6183,11 +6076,13 @@ export function SettingsModal({
         />
       )}
 
-      {/* Compare Plans Modal (Step 19) */}
-      <ComparePlansModal
-        isOpen={showComparePlans}
-        onClose={() => setShowComparePlans(false)}
-      />
+      {/* Choose plan (P7) — replaces the Step 19 Compare Plans modal. */}
+      {showChoosePlan && salonSlug && (
+        <ChoosePlanPanel
+          salonSlug={salonSlug}
+          onClose={() => setShowChoosePlan(false)}
+        />
+      )}
     </div>
   );
 }

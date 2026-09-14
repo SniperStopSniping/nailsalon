@@ -1701,4 +1701,95 @@ describe('AdminDashboardPage', () => {
       setTimeoutSpy.mockRestore();
     });
   });
+
+  describe('billing checkout return (G19, subscription half, P7)', () => {
+    afterEach(() => {
+      window.history.pushState(null, '', '/');
+    });
+
+    function mockOwnerSession(salonSlug = 'salon-b') {
+      fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
+        const url = String(input);
+
+        if (url.startsWith('/api/admin/auth/me')) {
+          return new Response(JSON.stringify({
+            user: {
+              id: 'admin_1',
+              name: 'Admin User',
+              isSuperAdmin: false,
+              impersonation: null,
+              salons: [
+                { id: 'sal_b', slug: salonSlug, name: 'Salon B', status: 'active', role: 'owner' },
+              ],
+            },
+          }), { status: 200 });
+        }
+        if (url === '/api/admin/auth/set-active-salon') {
+          return new Response(JSON.stringify({ ok: true }), { status: 200 });
+        }
+        if (url === '/api/admin/fraud-signals') {
+          return new Response(JSON.stringify({ data: { signals: [], unresolvedCount: 0 } }), { status: 200 });
+        }
+        if (url === `/api/admin/settings/modules?salonSlug=${salonSlug}`) {
+          return new Response(JSON.stringify({
+            data: { modules: {}, entitledModules: {}, moduleReasons: {} },
+          }), { status: 200 });
+        }
+
+        throw new Error(`Unhandled fetch: ${url}`);
+      });
+    }
+
+    it('success: shows the plan notice, opens the Usage & billing modal, and strips ?billing=', async () => {
+      searchParamGet.mockImplementation((key: string) => {
+        if (key === 'salon') {
+          return 'salon-b';
+        }
+        return key === 'billing' ? 'success' : null;
+      });
+      mockOwnerSession();
+      window.history.pushState(null, '', '/en/admin?salon=salon-b&billing=success');
+
+      render(<AdminDashboardPage />);
+
+      expect(await screen.findByTestId('billing-return-notice')).toHaveTextContent(
+        'Payment received — your plan updates within a minute.',
+      );
+      expect(await screen.findByTestId('usage-billing-modal')).toBeInTheDocument();
+      expect(usageBillingModalSpy).toHaveBeenCalledWith(expect.objectContaining({ salonSlug: 'salon-b' }));
+
+      // Subscription state arrives from the stripe-billing webhook, not a
+      // read-back endpoint: unlike top-ups, this return never polls.
+      expect(fetchMock.mock.calls.some(([url]) => String(url).startsWith('/api/billing/topups'))).toBe(false);
+
+      // A reload must not repeat the notice/modal: the param is gone.
+      await waitFor(() => {
+        expect(window.location.search).not.toContain('billing=');
+      });
+
+      expect(window.location.search).toContain('salon=salon-b');
+    });
+
+    it('cancelled: shows the notice, never opens the modal, and strips ?billing=', async () => {
+      searchParamGet.mockImplementation((key: string) => {
+        if (key === 'salon') {
+          return 'salon-b';
+        }
+        return key === 'billing' ? 'cancelled' : null;
+      });
+      mockOwnerSession();
+      window.history.pushState(null, '', '/en/admin?salon=salon-b&billing=cancelled');
+
+      render(<AdminDashboardPage />);
+
+      expect(await screen.findByTestId('billing-return-notice')).toHaveTextContent(
+        'Checkout cancelled — nothing was charged.',
+      );
+      expect(screen.queryByTestId('usage-billing-modal')).not.toBeInTheDocument();
+
+      await waitFor(() => {
+        expect(window.location.search).not.toContain('billing=');
+      });
+    });
+  });
 });

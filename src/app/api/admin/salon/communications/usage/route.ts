@@ -10,14 +10,23 @@
  * History pagination uses a COMPOUND (createdAt, id) cursor — the first in
  * this repo — because batch dispatch legitimately creates identical
  * timestamps and a bare-timestamp cursor would skip or repeat rows.
+ *
+ * P7 addition (§3 G19/G21, §5 P7): `capabilities` tells the client which
+ * dark switches are live (never per-switch detail beyond what the owner
+ * surface itself needs), and `catalog` carries the public, ID-free plan /
+ * offer / founding-promotion projections so `ChoosePlanPanel` never mirrors
+ * prices client-side. Both are built from the same public projection
+ * functions the checkout route validates against, so drift is impossible.
  */
 import { and, desc, eq, lt, or, sql } from 'drizzle-orm';
 import type { NextRequest } from 'next/server';
 
 import { requireAdminSalon } from '@/libs/adminAuth';
+import { getPublicBillingOffers } from '@/libs/billing/billingOffers';
 import { computeAvailableBalance } from '@/libs/billing/creditLedger';
 import { describeBillingState, resolveTopupAudienceForLegacyPlan } from '@/libs/billing/legacyPlanAdapter';
-import { getPlanDefinition, type PlanDefinitionKey } from '@/libs/billing/planDefinitions';
+import { getPlanDefinition, getPublicPlanCatalog, type PlanDefinitionKey } from '@/libs/billing/planDefinitions';
+import { getPromotion, isPromotionWindowOpen } from '@/libs/billing/promotions';
 import { BillingCatalogError, resolveStripePriceIdForTopup } from '@/libs/billing/stripePriceMap';
 import { listActiveTopupOffersForAudience } from '@/libs/billing/topupOffers';
 import { friendlyFailureReason, maskRecipient } from '@/libs/communicationMasking';
@@ -72,6 +81,35 @@ export async function GET(request: NextRequest): Promise<Response> {
     : [];
   // Configuration readiness only: never contact Stripe from this read path.
   const creditPurchasesAvailable = topupOffers.length > 0;
+
+  // --- P7: capabilities + catalog (ChoosePlanPanel) -----------------------
+  // Server-side dark switches only (§12) — no per-switch detail beyond what
+  // ChoosePlanPanel needs to decide "informational cards" vs "live Choose
+  // buttons"; granular switch/secret state is P8b's authenticated panel.
+  const capabilities = {
+    subscriptions: Env.BILLING_SUBSCRIPTIONS_ENABLED === 'true',
+    topups: Env.BILLING_TOPUPS_ENABLED === 'true',
+    pricingPublic: Env.PUBLIC_PRICING_ENABLED === 'true',
+  };
+  // Founding promotion (§3.9): a public, ID-free projection, present only
+  // while its redemption window is actually open — closed (both bounds
+  // null) is the committed default and MUST stay that way until §12's seven
+  // publication approvals land.
+  const foundingPromotion = getPromotion('founding_annual_2026');
+  const founding = foundingPromotion !== null && isPromotionWindowOpen(foundingPromotion, now)
+    ? {
+        key: foundingPromotion.key,
+        percentOff: foundingPromotion.percentOffAgainstAnnualPrice,
+        rateProtectionMonths: foundingPromotion.rateProtectionMonths,
+        eligibleOfferKeys: foundingPromotion.eligibleOfferKeys,
+        endsAt: foundingPromotion.endsAt,
+      }
+    : null;
+  const catalog = {
+    plans: getPublicPlanCatalog(),
+    offers: getPublicBillingOffers(),
+    founding,
+  };
 
   // --- Credit meter -------------------------------------------------------
   const balance = await db.transaction(async tx => computeAvailableBalance(tx, salonId, now));
@@ -226,7 +264,9 @@ export async function GET(request: NextRequest): Promise<Response> {
           : null,
   }));
 
-  return Response.json({ data: { salonId, usage, history, nextCursor, topupOffers, creditPurchasesAvailable } }, NO_STORE);
+  return Response.json({
+    data: { salonId, usage, history, nextCursor, topupOffers, creditPurchasesAvailable, capabilities, catalog },
+  }, NO_STORE);
 }
 
 export const dynamic = 'force-dynamic';

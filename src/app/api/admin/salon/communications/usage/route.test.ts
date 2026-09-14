@@ -28,6 +28,8 @@ vi.mock('@/libs/DB', () => ({
 const envHolder = vi.hoisted(() => ({
   BILLING_PLAN_ENV: 'test' as string,
   BILLING_TOPUPS_ENABLED: undefined as string | undefined,
+  BILLING_SUBSCRIPTIONS_ENABLED: undefined as string | undefined,
+  PUBLIC_PRICING_ENABLED: undefined as string | undefined,
 }));
 vi.mock('@/libs/Env', () => ({ Env: envHolder }));
 
@@ -44,6 +46,21 @@ vi.mock('@/libs/rateLimit', () => ({
   rateLimitResponse: () => new Response('rate limited', { status: 429 }),
 }));
 
+// P7: the founding promotion window is null/null (closed) in the committed
+// module (§7 — it MUST stay that way). To prove the route's "open ⇒ public
+// projection" branch without touching that committed default, only
+// `isPromotionWindowOpen` is overridden here; everything else (including the
+// promotion math) stays the real module.
+const promotionsHolder = vi.hoisted(() => ({ windowOpenOverride: null as boolean | null }));
+vi.mock('@/libs/billing/promotions', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/libs/billing/promotions')>();
+  return {
+    ...actual,
+    isPromotionWindowOpen: (promotion: Parameters<typeof actual.isPromotionWindowOpen>[0], now: Date) =>
+      promotionsHolder.windowOpenOverride ?? actual.isPromotionWindowOpen(promotion, now),
+  };
+});
+
 let db: ReturnType<typeof drizzle<typeof schema>>;
 
 beforeAll(async () => {
@@ -55,6 +72,9 @@ beforeAll(async () => {
 
 beforeEach(() => {
   envHolder.BILLING_TOPUPS_ENABLED = undefined;
+  envHolder.BILLING_SUBSCRIPTIONS_ENABLED = undefined;
+  envHolder.PUBLIC_PRICING_ENABLED = undefined;
+  promotionsHolder.windowOpenOverride = null;
   adminSalonHolder.error = null;
   adminSalonHolder.salon = null;
 });
@@ -281,5 +301,78 @@ describe('admin guard passthrough', () => {
     const response = await getUsage();
 
     expect(response.status).toBe(404);
+  });
+});
+
+describe('capabilities + catalog (P7, ChoosePlanPanel)', () => {
+  it('capabilities default to false when every dark switch is unset', async () => {
+    await seedSalon('free');
+
+    const response = await getUsage();
+    const body = await response.json();
+
+    expect(body.data.capabilities).toEqual({ subscriptions: false, topups: false, pricingPublic: false });
+  });
+
+  it('capabilities booleans reflect the dark switches exactly', async () => {
+    await seedSalon('free');
+    envHolder.BILLING_SUBSCRIPTIONS_ENABLED = 'true';
+    envHolder.BILLING_TOPUPS_ENABLED = 'true';
+    envHolder.PUBLIC_PRICING_ENABLED = 'true';
+
+    const response = await getUsage();
+    const body = await response.json();
+
+    expect(body.data.capabilities).toEqual({ subscriptions: true, topups: true, pricingPublic: true });
+  });
+
+  it('catalog.plans and catalog.offers match the canonical public projections exactly', async () => {
+    await seedSalon('free');
+    const { getPublicPlanCatalog } = await import('@/libs/billing/planDefinitions');
+    const { getPublicBillingOffers } = await import('@/libs/billing/billingOffers');
+
+    const response = await getUsage();
+    const body = await response.json();
+
+    expect(body.data.catalog.plans).toEqual(JSON.parse(JSON.stringify(getPublicPlanCatalog())));
+    expect(body.data.catalog.offers).toEqual(JSON.parse(JSON.stringify(getPublicBillingOffers())));
+  });
+
+  it('catalog.founding is null while the promotion window is closed (the committed default)', async () => {
+    await seedSalon('free');
+
+    const response = await getUsage();
+    const body = await response.json();
+
+    expect(body.data.catalog.founding).toBeNull();
+  });
+
+  it('catalog.founding is a public, ID-free projection when the window is open', async () => {
+    await seedSalon('free');
+    promotionsHolder.windowOpenOverride = true;
+
+    const response = await getUsage();
+    const body = await response.json();
+
+    expect(body.data.catalog.founding).toEqual({
+      key: 'founding_annual_2026',
+      percentOff: 40,
+      rateProtectionMonths: 24,
+      eligibleOfferKeys: ['starter_2026_08_annual', 'pro_2026_08_annual', 'elite_2026_08_annual'],
+      endsAt: null,
+    });
+  });
+
+  it('never leaks a Stripe Price/Coupon/Promotion Code id anywhere in the response', async () => {
+    const salonId = await seedSalon('single_salon');
+    await seedSubscription(salonId);
+    envHolder.BILLING_SUBSCRIPTIONS_ENABLED = 'true';
+    envHolder.BILLING_TOPUPS_ENABLED = 'true';
+    promotionsHolder.windowOpenOverride = true;
+
+    const response = await getUsage();
+    const body = await response.json();
+
+    expect(JSON.stringify(body)).not.toMatch(/\b(price_|coupon_|promo_)\w+/i);
   });
 });
