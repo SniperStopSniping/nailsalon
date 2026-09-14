@@ -39,6 +39,7 @@ import { type NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 
 import { requireAdmin } from '@/libs/adminAuth';
+import { logAuditEventTx } from '@/libs/auditLog';
 import { getBillingOffer } from '@/libs/billing/billingOffers';
 import { classifySubscriptionEligibility } from '@/libs/billing/billingSubscriptionProjection';
 import { resolveOrCreateBusinessIdentity } from '@/libs/billing/businessIdentity';
@@ -315,7 +316,10 @@ export async function POST(request: NextRequest) {
       return errorJson(502, 'CHECKOUT_CREATE_FAILED', 'The payment provider rejected the checkout request.');
     }
 
-    // 7. TX2 — record the session on attempt and claim.
+    // 7. TX2 — record the session on attempt and claim, then the contracted
+    //    checkout_session_created audit row (§8.5) — inside the SAME
+    //    transaction, so the row commits or rolls back with the session
+    //    binding it describes.
     await db.transaction(async (tx) => {
       await markAttemptCheckoutCreated(tx, {
         attemptId: reservation.attemptId,
@@ -327,6 +331,20 @@ export async function POST(request: NextRequest) {
           .set({ stripeCheckoutSessionId: session.id })
           .where(eq(billingPromotionClaimSchema.id, reservation.claimId));
       }
+      await logAuditEventTx(tx, {
+        salonId,
+        actorType: 'admin',
+        actorId: clerkUserId,
+        action: 'checkout_session_created',
+        entityType: 'billing_checkout_attempt',
+        entityId: reservation.attemptId,
+        metadata: {
+          purpose: 'plan_subscription',
+          billingOfferKey: offer.key,
+          ...(promotion !== null ? { promotionKey: promotion.key } : {}),
+          attemptId: reservation.attemptId,
+        },
+      });
     });
 
     return NextResponse.json({

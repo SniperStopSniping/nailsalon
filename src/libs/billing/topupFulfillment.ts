@@ -11,14 +11,19 @@
 
 import 'server-only';
 
-import { and, eq, inArray } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import type Stripe from 'stripe';
 
+import { logAuditEventTx } from '@/libs/auditLog';
+import { completeAttempt, expireAttempt } from '@/libs/billing/checkoutAttempts';
 import { fulfillTopupPurchase, reverseTopup } from '@/libs/billing/creditGrants';
 import { resolveTopupOfferFromStripePriceId } from '@/libs/billing/stripePriceMap';
 import { db } from '@/libs/DB';
 import { stripe } from '@/libs/stripe';
 import { billingCheckoutAttemptSchema, salonSchema, smsTopupPurchaseSchema } from '@/models/Schema';
+
+/** P3c: every lib-layer audit row in this domain defaults to the webhook actor. */
+const WEBHOOK_ACTOR = { actorType: 'webhook' as const, actorId: 'stripe-billing' };
 
 /**
  * Evidence the ROUTE retrieved directly from Stripe (`sessions.retrieve`
@@ -188,18 +193,30 @@ export async function applyTopupSessionCompleted(input: {
         eq(smsTopupPurchaseSchema.id, purchase.id),
         eq(smsTopupPurchaseSchema.status, 'checkout_created'),
       ));
+    // Captured BEFORE fulfillTopupPurchase's own CAS — this is the row's
+    // pre-transition status, held under the FOR UPDATE lock above, so it
+    // reliably distinguishes a fresh fulfillment from an idempotent replay
+    // of an already-fulfilled purchase (P3c: exactly one audit row per
+    // committed transition, never one per replayed webhook delivery).
+    const wasAlreadyFulfilled = purchase.status === 'fulfilled';
     const { fulfilled } = await fulfillTopupPurchase(tx, {
       topupPurchaseId: purchase.id,
       now: input.now,
     });
     if (fulfilled) {
-      await tx.update(billingCheckoutAttemptSchema).set({ status: 'completed' })
-        .where(and(
-          eq(billingCheckoutAttemptSchema.stripeCheckoutSessionId, input.sessionId),
-          eq(billingCheckoutAttemptSchema.purpose, 'sms_topup'),
-          eq(billingCheckoutAttemptSchema.salonId, purchase.salonId!),
-          inArray(billingCheckoutAttemptSchema.status, ['creating', 'checkout_created']),
-        ));
+      // Reuses the SAME audited transition as the subscription flow
+      // (checkoutAttempts.ts) instead of an inline duplicate update.
+      await completeAttempt(tx, { stripeCheckoutSessionId: input.sessionId });
+      if (!wasAlreadyFulfilled) {
+        await logAuditEventTx(tx, {
+          salonId: purchase.salonId,
+          ...WEBHOOK_ACTOR,
+          action: 'billing_topup_fulfilled',
+          entityType: 'sms_topup_purchase',
+          entityId: purchase.id,
+          metadata: { topupOfferKey: purchase.topupOfferKey, credits: purchase.credits },
+        });
+      }
     }
     return { fulfilled };
   });
@@ -226,13 +243,13 @@ export async function applyTopupSessionExpired(sessionId: string): Promise<{ exp
     }
     await tx.update(smsTopupPurchaseSchema).set({ status: 'expired' })
       .where(eq(smsTopupPurchaseSchema.id, purchase.id));
-    await tx.update(billingCheckoutAttemptSchema).set({ status: 'expired' })
-      .where(and(
-        eq(billingCheckoutAttemptSchema.stripeCheckoutSessionId, sessionId),
-        eq(billingCheckoutAttemptSchema.salonId, binding.salonId),
-        eq(billingCheckoutAttemptSchema.purpose, 'sms_topup'),
-        inArray(billingCheckoutAttemptSchema.status, ['creating', 'checkout_created']),
-      ));
+    // Reuses the SAME audited transition as the subscription flow
+    // (checkoutAttempts.ts) instead of an inline duplicate update.
+    await expireAttempt(tx, {
+      stripeCheckoutSessionId: sessionId,
+      purpose: 'sms_topup',
+      salonId: binding.salonId,
+    });
     return { expired: true };
   });
 }
@@ -250,20 +267,36 @@ export async function applyTopupChargeRefunded(input: {
   now?: Date;
 }): Promise<{ reversed: number; shortfall: number; anomaly: string | null } | null> {
   const [purchase] = await db
-    .select({ id: smsTopupPurchaseSchema.id })
+    .select({ id: smsTopupPurchaseSchema.id, salonId: smsTopupPurchaseSchema.salonId })
     .from(smsTopupPurchaseSchema)
     .where(eq(smsTopupPurchaseSchema.stripePaymentIntentId, input.paymentIntentId))
     .limit(1);
   if (purchase === undefined) {
     return null;
   }
-  return db.transaction(async tx => reverseTopup(tx, {
-    topupPurchaseId: purchase.id,
-    kind: 'refund',
-    stripeRef: input.refundId,
-    cumulativeRefundedCents: input.cumulativeRefundedCents,
-    now: input.now,
-  }));
+  return db.transaction(async (tx) => {
+    const result = await reverseTopup(tx, {
+      topupPurchaseId: purchase.id,
+      kind: 'refund',
+      stripeRef: input.refundId,
+      cumulativeRefundedCents: input.cumulativeRefundedCents,
+      now: input.now,
+    });
+    // `reversed > 0` only when reverseTopup's own idempotency key
+    // (topup-reversal:{refundId}:{grantLedgerId}) inserted a NEW ledger row —
+    // a replayed refund event resolves to 0 here, so this cannot double-log.
+    if (result.reversed > 0) {
+      await logAuditEventTx(tx, {
+        salonId: purchase.salonId,
+        ...WEBHOOK_ACTOR,
+        action: 'billing_topup_reversed',
+        entityType: 'sms_topup_purchase',
+        entityId: purchase.id,
+        metadata: { kind: 'refund', reversedCredits: result.reversed, shortfall: result.shortfall },
+      });
+    }
+    return result;
+  });
 }
 
 /** charge.dispute.created for a top-up: full residual reversal, may go negative. */
@@ -273,17 +306,33 @@ export async function applyTopupDisputeCreated(input: {
   now?: Date;
 }): Promise<{ reversed: number } | null> {
   const [purchase] = await db
-    .select({ id: smsTopupPurchaseSchema.id })
+    .select({ id: smsTopupPurchaseSchema.id, salonId: smsTopupPurchaseSchema.salonId })
     .from(smsTopupPurchaseSchema)
     .where(eq(smsTopupPurchaseSchema.stripePaymentIntentId, input.paymentIntentId))
     .limit(1);
   if (purchase === undefined) {
     return null;
   }
-  return db.transaction(async tx => reverseTopup(tx, {
-    topupPurchaseId: purchase.id,
-    kind: 'dispute',
-    stripeRef: input.disputeId,
-    now: input.now,
-  }));
+  return db.transaction(async (tx) => {
+    const result = await reverseTopup(tx, {
+      topupPurchaseId: purchase.id,
+      kind: 'dispute',
+      stripeRef: input.disputeId,
+      now: input.now,
+    });
+    // `reversed > 0` only when reverseTopup's own idempotency key
+    // (dispute-reversal:{disputeId}:{grantLedgerId}) inserted a NEW ledger
+    // row — a replayed dispute event resolves to 0 here.
+    if (result.reversed > 0) {
+      await logAuditEventTx(tx, {
+        salonId: purchase.salonId,
+        ...WEBHOOK_ACTOR,
+        action: 'billing_topup_reversed',
+        entityType: 'sms_topup_purchase',
+        entityId: purchase.id,
+        metadata: { kind: 'dispute', reversedCredits: result.reversed },
+      });
+    }
+    return result;
+  });
 }

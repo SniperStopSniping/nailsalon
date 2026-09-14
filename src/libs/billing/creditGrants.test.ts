@@ -980,3 +980,140 @@ describe('upgrade diff — window-cumulative, not plan-pair (§6.4)', () => {
     expect(await monthlyBalance('s_ungr')).toBe(0);
   });
 });
+
+describe('P3c — transactional audit trail (§8.5, §17)', () => {
+  const auditRowsFor = (entityId: string) =>
+    db.select().from(schema.auditLogSchema).where(eq(schema.auditLogSchema.entityId, entityId));
+
+  it('reservePromotionClaim writes ONE billing_promotion_claim_reserved row; reuse writes none', async () => {
+    const { reservePromotionClaim } = await claims();
+    const { resolveOrCreateBusinessIdentity } = await identity();
+    await seedSalon('s_audit_pc1');
+    const identityId = (await db.transaction(async tx =>
+      resolveOrCreateBusinessIdentity(tx, { clerkUserId: 'user_audit_pc1' }))).businessIdentityId;
+
+    const reserved = await db.transaction(async tx =>
+      reservePromotionClaim(tx, { promotionKey: 'founding_annual_2026', businessIdentityId: identityId, salonId: 's_audit_pc1' }));
+    const claimId = (reserved as { claimId: string }).claimId;
+
+    const rows = await auditRowsFor(claimId);
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      salonId: 's_audit_pc1',
+      actorType: 'webhook',
+      actorId: 'stripe-billing',
+      action: 'billing_promotion_claim_reserved',
+      entityType: 'billing_promotion_claim',
+    });
+    expect(rows[0]!.metadata).toMatchObject({ promotionKey: 'founding_annual_2026', businessIdentityId: identityId });
+
+    // Reuse (same salon, still reserved) is NOT a new transition.
+    await db.transaction(async tx =>
+      reservePromotionClaim(tx, { promotionKey: 'founding_annual_2026', businessIdentityId: identityId, salonId: 's_audit_pc1' }));
+
+    expect(await auditRowsFor(claimId)).toHaveLength(1);
+  });
+
+  it('redeemPromotionClaim and releasePromotionClaim each write exactly one row on the real transition, none on replay', async () => {
+    const { redeemPromotionClaim, releasePromotionClaim, reservePromotionClaim } = await claims();
+    const { resolveOrCreateBusinessIdentity } = await identity();
+    await seedSalon('s_audit_pc2');
+    const identityId = (await db.transaction(async tx =>
+      resolveOrCreateBusinessIdentity(tx, { clerkUserId: 'user_audit_pc2' }))).businessIdentityId;
+    const reserved = await db.transaction(async tx =>
+      reservePromotionClaim(tx, { promotionKey: 'founding_annual_2026', businessIdentityId: identityId, salonId: 's_audit_pc2' }));
+    const claimId = (reserved as { claimId: string }).claimId;
+
+    await db.transaction(async tx => redeemPromotionClaim(tx, { claimId, stripeCheckoutSessionId: 'cs_audit_pc2' }));
+    // Replay of an already-redeemed claim must not double-log.
+    await db.transaction(async tx => redeemPromotionClaim(tx, { claimId, stripeCheckoutSessionId: 'cs_audit_pc2' }));
+
+    const redeemedRows = await db.select().from(schema.auditLogSchema)
+      .where(eq(schema.auditLogSchema.action, 'billing_promotion_claim_redeemed'));
+    const redeemedForClaim = redeemedRows.filter(row => row.entityId === claimId);
+
+    expect(redeemedForClaim).toHaveLength(1);
+    expect(redeemedForClaim[0]!.salonId).toBe('s_audit_pc2');
+
+    // A second, separate claim exercises release.
+    const otherId = (await db.transaction(async tx =>
+      resolveOrCreateBusinessIdentity(tx, { clerkUserId: 'user_audit_pc2b' }))).businessIdentityId;
+    const secondReserved = await db.transaction(async tx =>
+      reservePromotionClaim(tx, { promotionKey: 'founding_annual_2026', businessIdentityId: otherId, salonId: 's_audit_pc2' }));
+    const secondClaimId = (secondReserved as { claimId: string }).claimId;
+
+    await db.transaction(async tx => releasePromotionClaim(tx, { claimId: secondClaimId }));
+    // Replay (already released, no longer 'reserved') must not double-log.
+    await db.transaction(async tx => releasePromotionClaim(tx, { claimId: secondClaimId }));
+
+    const releasedRows = (await auditRowsFor(secondClaimId))
+      .filter(row => row.action === 'billing_promotion_claim_released');
+
+    expect(releasedRows).toHaveLength(1);
+  });
+
+  it('completeAttempt and expireAttempt each write exactly one attempt-lifecycle row', async () => {
+    const { beginCheckoutAttempt, completeAttempt, expireAttempt, markAttemptCheckoutCreated } = await attempts();
+    await seedSalon('s_audit_ca1');
+    const begun = await db.transaction(async tx =>
+      beginCheckoutAttempt(tx, { salonId: 's_audit_ca1', purpose: 'plan_subscription', billingOfferKey: 'starter_2026_08_monthly' }));
+    const attemptId = (begun as { attemptId: string }).attemptId;
+    await db.transaction(async tx =>
+      markAttemptCheckoutCreated(tx, { attemptId, stripeCheckoutSessionId: 'cs_audit_ca1' }));
+
+    await db.transaction(async tx => completeAttempt(tx, { stripeCheckoutSessionId: 'cs_audit_ca1' }));
+    // Replay: already 'completed', no matching row to update, no double-log.
+    await db.transaction(async tx => completeAttempt(tx, { stripeCheckoutSessionId: 'cs_audit_ca1' }));
+
+    const completedRows = (await auditRowsFor(attemptId))
+      .filter(row => row.action === 'billing_checkout_attempt_completed');
+
+    expect(completedRows).toHaveLength(1);
+    expect(completedRows[0]).toMatchObject({ salonId: 's_audit_ca1', actorType: 'webhook', actorId: 'stripe-billing' });
+
+    // A second attempt exercises expiry.
+    const begun2 = await db.transaction(async tx =>
+      beginCheckoutAttempt(tx, { salonId: 's_audit_ca1', purpose: 'sms_topup', topupOfferKey: 'topup_100_paid_2026_08' }));
+    const attemptId2 = (begun2 as { attemptId: string }).attemptId;
+    await db.transaction(async tx =>
+      markAttemptCheckoutCreated(tx, { attemptId: attemptId2, stripeCheckoutSessionId: 'cs_audit_ca1_expire' }));
+
+    await db.transaction(async tx =>
+      expireAttempt(tx, { stripeCheckoutSessionId: 'cs_audit_ca1_expire', purpose: 'sms_topup' }));
+    await db.transaction(async tx =>
+      expireAttempt(tx, { stripeCheckoutSessionId: 'cs_audit_ca1_expire', purpose: 'sms_topup' }));
+
+    const expiredRows = (await auditRowsFor(attemptId2))
+      .filter(row => row.action === 'billing_checkout_attempt_expired');
+
+    expect(expiredRows).toHaveLength(1);
+  });
+
+  it('a forced rollback after reservePromotionClaim leaves NO audit row (and no claim row)', async () => {
+    const { reservePromotionClaim } = await claims();
+    const { resolveOrCreateBusinessIdentity } = await identity();
+    await seedSalon('s_audit_rollback');
+    const identityId = (await db.transaction(async tx =>
+      resolveOrCreateBusinessIdentity(tx, { clerkUserId: 'user_audit_rollback' }))).businessIdentityId;
+
+    let claimIdForCheck: string | undefined;
+
+    await expect(db.transaction(async (tx) => {
+      const reserved = await reservePromotionClaim(tx, {
+        promotionKey: 'founding_annual_2026',
+        businessIdentityId: identityId,
+        salonId: 's_audit_rollback',
+      });
+      claimIdForCheck = (reserved as { claimId: string }).claimId;
+      throw new Error('forced rollback');
+    })).rejects.toThrow('forced rollback');
+
+    expect(await auditRowsFor(claimIdForCheck!)).toHaveLength(0);
+
+    const claimRows = await db.select().from(schema.billingPromotionClaimSchema)
+      .where(eq(schema.billingPromotionClaimSchema.id, claimIdForCheck!));
+
+    expect(claimRows).toHaveLength(0);
+  });
+});

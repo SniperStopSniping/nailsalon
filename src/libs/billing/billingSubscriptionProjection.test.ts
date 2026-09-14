@@ -733,3 +733,179 @@ describe('§2.3 duplicate-subscription policy', () => {
     });
   });
 });
+
+describe('P3c — audit trail (§8.5, §17)', () => {
+  const auditRowsForEntity = (entityId: string) =>
+    db.select().from(schema.auditLogSchema).where(eq(schema.auditLogSchema.entityId, entityId));
+  const attempts = () => import('./checkoutAttempts');
+
+  it('projectSubscriptionSnapshot writes one billing_subscription_projected row per applied outcome, tagged with kind', async () => {
+    const { projectSubscriptionSnapshot } = await projection();
+    await seedSalon('s_audit_proj');
+
+    const created = await projectSubscriptionSnapshot({
+      snapshot: snapshot({ salonId: 's_audit_proj', id: 'sub_audit_proj' }),
+      eventCreated: T0,
+      eventId: 'evt_audit_created',
+    });
+
+    expect(created).toMatchObject({ applied: true, kind: 'created' });
+
+    const [row] = await db.select().from(schema.billingSubscriptionSchema)
+      .where(eq(schema.billingSubscriptionSchema.stripeSubscriptionId, 'sub_audit_proj'));
+    const subscriptionId = row!.id;
+
+    let rows = await auditRowsForEntity(subscriptionId);
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      salonId: 's_audit_proj',
+      actorType: 'webhook',
+      actorId: 'stripe-billing',
+      action: 'billing_subscription_projected',
+    });
+    expect(rows[0]!.metadata).toMatchObject({ kind: 'created' });
+
+    // Equal-second event with a status change ⇒ 'updated'.
+    await projectSubscriptionSnapshot({
+      snapshot: snapshot({ salonId: 's_audit_proj', id: 'sub_audit_proj', status: 'past_due' }),
+      eventCreated: T0,
+      eventId: 'evt_audit_updated',
+    });
+    rows = await auditRowsForEntity(subscriptionId);
+
+    expect(rows).toHaveLength(2);
+    expect(rows[1]!.metadata).toMatchObject({ kind: 'updated' });
+
+    // Strictly-older event ⇒ 'stale', still one row.
+    await projectSubscriptionSnapshot({
+      snapshot: snapshot({ salonId: 's_audit_proj', id: 'sub_audit_proj', status: 'active' }),
+      eventCreated: new Date(T0.getTime() - 1000),
+      eventId: 'evt_audit_stale',
+    });
+    rows = await auditRowsForEntity(subscriptionId);
+
+    expect(rows).toHaveLength(3);
+    expect(rows[2]!.metadata).toMatchObject({ kind: 'stale' });
+  });
+
+  it('projectSubscriptionSnapshot accepts an optional actor override, defaulting to the webhook actor', async () => {
+    const { projectSubscriptionSnapshot } = await projection();
+    await seedSalon('s_audit_actor1');
+    await seedSalon('s_audit_actor2');
+
+    await projectSubscriptionSnapshot({
+      snapshot: snapshot({ salonId: 's_audit_actor1', id: 'sub_audit_actor1' }),
+      eventCreated: T0,
+      eventId: 'evt_audit_actor_default',
+    });
+    const [defaultRow] = await db.select().from(schema.billingSubscriptionSchema)
+      .where(eq(schema.billingSubscriptionSchema.stripeSubscriptionId, 'sub_audit_actor1'));
+    const defaultRows = await auditRowsForEntity(defaultRow!.id);
+
+    expect(defaultRows[0]).toMatchObject({ actorType: 'webhook', actorId: 'stripe-billing' });
+
+    // P4's reconciliation cron will reuse this same projection with its own
+    // actor once that caller exists — the seam is proven here.
+    await projectSubscriptionSnapshot({
+      snapshot: snapshot({ salonId: 's_audit_actor2', id: 'sub_audit_actor2' }),
+      eventCreated: T0,
+      eventId: 'evt_audit_actor_override',
+      actor: { actorType: 'system', actorId: 'billing-reconciliation' },
+    });
+    const [overrideRow] = await db.select().from(schema.billingSubscriptionSchema)
+      .where(eq(schema.billingSubscriptionSchema.stripeSubscriptionId, 'sub_audit_actor2'));
+    const overrideRows = await auditRowsForEntity(overrideRow!.id);
+
+    expect(overrideRows[0]).toMatchObject({ actorType: 'system', actorId: 'billing-reconciliation' });
+  });
+
+  it('applySubscriptionFullRefund writes billing_subscription_refund_applied ONLY when lowered', async () => {
+    const { applySubscriptionFullRefund } = await projection();
+    await seedSalon('s_audit_refund');
+    const subscriptionId = 'bsub_audit_refund';
+    await db.insert(schema.billingSubscriptionSchema).values({
+      id: subscriptionId,
+      salonId: 's_audit_refund',
+      stripeSubscriptionId: 'sub_audit_refund',
+      stripeCustomerId: 'cus_audit_refund',
+      planDefinitionKey: 'pro_2026_08',
+      billingOfferKey: 'pro_2026_08_monthly',
+      billingCadence: 'monthly',
+      status: 'active',
+      paidThrough: T0_PLUS_MONTH,
+      creditCycleAnchor: T0,
+    });
+
+    const lowered = await applySubscriptionFullRefund({
+      stripeSubscriptionId: 'sub_audit_refund',
+      refundId: 're_audit_1',
+      refundedPeriodStart: T0,
+      eventCreated: T0,
+      eventId: 'evt_audit_refund_1',
+    });
+
+    expect(lowered).toEqual({ applied: true, lowered: true });
+
+    let rows = await auditRowsForEntity(subscriptionId);
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      salonId: 's_audit_refund',
+      actorType: 'webhook',
+      actorId: 'stripe-billing',
+      action: 'billing_subscription_refund_applied',
+    });
+    expect(rows[0]!.metadata).toMatchObject({ refundId: 're_audit_1', eventId: 'evt_audit_refund_1' });
+
+    // Already at the refunded floor ⇒ lowered:false ⇒ NO second row.
+    const replay = await applySubscriptionFullRefund({
+      stripeSubscriptionId: 'sub_audit_refund',
+      refundId: 're_audit_2',
+      refundedPeriodStart: T0,
+      eventCreated: T0,
+      eventId: 'evt_audit_refund_2',
+    });
+
+    expect(replay).toEqual({ applied: true, lowered: false });
+
+    rows = await auditRowsForEntity(subscriptionId);
+
+    expect(rows).toHaveLength(1);
+  });
+
+  it('applyCheckoutSessionCompleted / applyCheckoutSessionExpired write the SAME shared attempt-lifecycle rows as the checkout route', async () => {
+    const { applyCheckoutSessionCompleted, applyCheckoutSessionExpired } = await projection();
+    const { beginCheckoutAttempt, markAttemptCheckoutCreated } = await attempts();
+    await seedSalon('s_audit_cs');
+
+    const begun = await db.transaction(async tx =>
+      beginCheckoutAttempt(tx, { salonId: 's_audit_cs', purpose: 'plan_subscription', billingOfferKey: 'starter_2026_08_monthly' }));
+    const attemptId = (begun as { attemptId: string }).attemptId;
+    await db.transaction(async tx =>
+      markAttemptCheckoutCreated(tx, { attemptId, stripeCheckoutSessionId: 'cs_audit_complete' }));
+
+    await applyCheckoutSessionCompleted({ sessionId: 'cs_audit_complete', paymentStatus: 'unpaid' });
+
+    const completedRows = (await auditRowsForEntity(attemptId))
+      .filter(row => row.action === 'billing_checkout_attempt_completed');
+
+    expect(completedRows).toHaveLength(1);
+
+    // A second attempt on the same salon exercises expiry.
+    const begun2 = await db.transaction(async tx =>
+      beginCheckoutAttempt(tx, { salonId: 's_audit_cs', purpose: 'plan_subscription', billingOfferKey: 'starter_2026_08_monthly' }));
+    const attemptId2 = (begun2 as { attemptId: string }).attemptId;
+    await db.transaction(async tx =>
+      markAttemptCheckoutCreated(tx, { attemptId: attemptId2, stripeCheckoutSessionId: 'cs_audit_expire' }));
+
+    const result = await applyCheckoutSessionExpired({ sessionId: 'cs_audit_expire' });
+
+    expect(result.attemptExpired).toBe(true);
+
+    const expiredRows = (await auditRowsForEntity(attemptId2))
+      .filter(row => row.action === 'billing_checkout_attempt_expired');
+
+    expect(expiredRows).toHaveLength(1);
+  });
+});

@@ -141,13 +141,13 @@ Hard ordering rules:
 | P1 | merged | #202 | e5882910 | 2026-09-14 | boot-time validator edit; `/api/health` verified after deploy |
 | P2 | merged | #201 | af264739 | 2026-09-14 | tests only |
 | P3a | merged | #204 | e71dfbf5 | 2026-09-14 | includes G42 foreign-event guard and D2 refund rollback |
-| P3b | not started | | | | ports PR #176 items 1/3/4; scheduled after P7 |
-| P3c | not started | | | | adds a checkout postimage hash; scheduled after P3b |
-| P4 | PR opened | (this PR) | | | code half only — cron registration parked on D3; drift demo in billing-gate-c-record.md §3 |
+| P3b | merged | #209 | 6a315a5f | 2026-09-14 | processing lease + CAS + top-up price sanity check |
+| P3c | PR opened | (this PR) | | | transactional audit trail; adds a checkout postimage hash |
+| P4 | merged | #207 | e4ed4928 | 2026-09-14 | code half only — cron registration parked on D3; drift demo in billing-gate-c-record.md §3 |
 | P5a | merged | #205 | 3ed304b7 | 2026-09-14 | proceeded under owner instruction "do not merge #176 wholesale"; #176 UI half must rebase on it |
 | P5b | parked | | | | live portal route; needs explicit D18 approval |
-| P6 | ready (unpushed) | | | | tax architecture + rate-protection resolver; env-keyed price carrier PARKED (D19a) |
-| P7 | PR opened | #206 | | | proceeded under owner "through P7"; cards stay informational while dark |
+| P6 | merged | #208 | ef3f486a | 2026-09-14 | tax architecture + rate-protection resolver; env-keyed price carrier PARKED (D19a) |
+| P7 | merged | #206 | 1083e9e1 | 2026-09-14 | proceeded under owner "through P7"; cards stay informational while dark |
 | P8a | not started | | | | |
 | P8b | not started | | | | D6 |
 | P8c | not started | | | | = D1 billing half; Gate D authorization required |

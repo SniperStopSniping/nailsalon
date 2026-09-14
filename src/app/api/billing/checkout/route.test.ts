@@ -288,6 +288,49 @@ describe('attempt lifecycle', () => {
     expect(params.metadata.purpose).toBe('plan_subscription');
   });
 
+  it('P3c: writes ONE checkout_session_created audit row, admin-attributed, no Stripe ids in metadata', async () => {
+    await seedSalon('s_audit_ok');
+    adminHolder.clerkUserId = 'user_audit_checkout';
+    const response = await post({ salonId: 's_audit_ok', billingOfferKey: 'pro_2026_08_monthly' });
+
+    expect(response.status).toBe(200);
+
+    const attempts = await attemptRows('s_audit_ok');
+    const rows = await db.select().from(schema.auditLogSchema)
+      .where(eq(schema.auditLogSchema.entityId, attempts[0]!.id));
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      salonId: 's_audit_ok',
+      actorType: 'admin',
+      actorId: 'user_audit_checkout',
+      action: 'checkout_session_created',
+      entityType: 'billing_checkout_attempt',
+      entityId: attempts[0]!.id,
+    });
+    expect(rows[0]!.metadata).toMatchObject({
+      purpose: 'plan_subscription',
+      billingOfferKey: 'pro_2026_08_monthly',
+      attemptId: attempts[0]!.id,
+    });
+
+    const metadataString = JSON.stringify(rows[0]!.metadata);
+
+    expect(metadataString).not.toMatch(/cs_|pi_|price_|ch_/);
+
+    // A browser retry reusing the active attempt must NOT write a second row.
+    stripeMock.checkout.sessions.retrieve.mockResolvedValue({
+      id: attempts[0]!.stripeCheckoutSessionId,
+      url: 'https://checkout.stripe.test/session',
+    });
+    await post({ salonId: 's_audit_ok', billingOfferKey: 'pro_2026_08_monthly' });
+
+    const rowsAfterRetry = await db.select().from(schema.auditLogSchema)
+      .where(eq(schema.auditLogSchema.entityId, attempts[0]!.id));
+
+    expect(rowsAfterRetry).toHaveLength(1);
+  });
+
   it('a browser retry reuses the active attempt and its session — no second create', async () => {
     await seedSalon('s_retry');
     const first = await post({ salonId: 's_retry', billingOfferKey: 'pro_2026_08_monthly' });
