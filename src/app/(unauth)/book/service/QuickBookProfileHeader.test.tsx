@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 
 import {
@@ -283,6 +283,60 @@ describe('QuickBookProfileHeader', () => {
     expect(within(policies).getByText('Appointment only.')).toBeInTheDocument();
     expect(within(policies).getByText('Please provide 24 hours notice.')).toBeInTheDocument();
     expect(screen.getByTestId('quick-book-bio')).toHaveTextContent('Healthy nails');
+  });
+
+  it.each([
+    ['clean_card', 'quick-book-logo'],
+    ['clean_card_pro', null],
+  ] as const)('uses a compact rectangular frame for a wide logo in %s', async (layout, legacyTestId) => {
+    render(
+      <QuickBookProfileHeader
+        profile={FULL_PROFILE}
+        bookingFlow={['service', 'tech', 'time', 'confirm']}
+        layout={layout}
+        mounted
+      />,
+    );
+
+    const image = screen.getByAltText('Isla Nail Studio With A Deliberately Long Name logo');
+    Object.defineProperties(image, {
+      naturalHeight: { configurable: true, value: 80 },
+      naturalWidth: { configurable: true, value: 320 },
+    });
+    fireEvent.load(image);
+
+    const frame = legacyTestId ? screen.getByTestId(legacyTestId) : image.parentElement;
+
+    await waitFor(() => {
+      expect(frame).toHaveAttribute(legacyTestId ? 'data-logo-shape' : 'data-qb-logo-shape', 'wide');
+    });
+
+    if (legacyTestId) {
+      expect(image).toHaveClass('object-contain');
+    } else {
+      expect(frame).toHaveClass('qb-logo');
+    }
+  });
+
+  it('keeps a square logo in a square object-contained frame', () => {
+    render(
+      <QuickBookProfileHeader
+        profile={FULL_PROFILE}
+        bookingFlow={['service', 'tech', 'time', 'confirm']}
+        layout="clean_card"
+        mounted
+      />,
+    );
+
+    const image = screen.getByAltText('Isla Nail Studio With A Deliberately Long Name logo');
+    Object.defineProperties(image, {
+      naturalHeight: { configurable: true, value: 200 },
+      naturalWidth: { configurable: true, value: 200 },
+    });
+    fireEvent.load(image);
+
+    expect(screen.getByTestId('quick-book-logo')).toHaveAttribute('data-logo-shape', 'square');
+    expect(image).toHaveClass('object-contain');
   });
 
   it('uses full-width rows instead of reserving blank columns for one contact or action', () => {

@@ -11,7 +11,7 @@ import {
   Star,
 } from 'lucide-react';
 import Image from 'next/image';
-import type { CSSProperties, ReactNode } from 'react';
+import { type CSSProperties, type ReactNode, useState } from 'react';
 
 import { QuickBookPresentation } from '@/components/customer-site/QuickBookPresentation';
 import type { BookingStep } from '@/libs/bookingFlow';
@@ -70,8 +70,19 @@ function ProfileLogo({ compact = false, name, src }: {
   name: string;
   src: string;
 }) {
+  const [wideLogoSrc, setWideLogoSrc] = useState<string | null>(null);
+  const isWide = wideLogoSrc === src;
+
   return (
-    <div className={`relative shrink-0 overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-sm sm:size-[4.5rem] ${compact ? 'size-12 min-[360px]:size-16' : 'size-16'}`}>
+    <div
+      className={`relative shrink-0 overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-sm ${isWide
+        ? compact
+          ? 'h-12 w-[7.5rem] min-[360px]:h-16 min-[360px]:w-36 sm:h-[4.5rem] sm:w-40'
+          : 'h-16 w-40 sm:h-[4.5rem] sm:w-44'
+        : `sm:size-[4.5rem] ${compact ? 'size-12 min-[360px]:size-16' : 'size-16'}`}`}
+      data-logo-shape={isWide ? 'wide' : 'square'}
+      data-testid="quick-book-logo"
+    >
       <Image
         src={src}
         alt={`${name} logo`}
@@ -79,6 +90,10 @@ function ProfileLogo({ compact = false, name, src }: {
         height={72}
         unoptimized
         className="size-full object-contain p-1"
+        onLoad={(event) => {
+          const { naturalHeight, naturalWidth } = event.currentTarget;
+          setWideLogoSrc(naturalHeight > 0 && naturalWidth / naturalHeight >= 1.5 ? src : null);
+        }}
       />
     </div>
   );
