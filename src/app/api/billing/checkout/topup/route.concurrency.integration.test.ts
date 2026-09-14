@@ -315,18 +315,25 @@ suite('top-up checkout — real-lock concurrency', () => {
     // for that purchase. Releasing fulfillment requires its ledger insert to
     // take KEY SHARE on salon; FOR UPDATE here would form a deadlock cycle.
     const expiry = applyTopupSessionExpired(sessionId);
-    await vi.waitFor(async () => {
-      const waiting = await pool.query(`
-        SELECT COUNT(*)::int AS count
-        FROM pg_stat_activity
-        WHERE application_name = 'gate-c3-topup-checkout-concurrency-test'
-          AND wait_event_type = 'Lock'
-          AND query ILIKE '%sms_topup_purchase%'
-      `);
+    try {
+      // Reaching the purchase-row lock wait can take well over vi.waitFor's
+      // 1 s default on a loaded CI runner; the assertion itself is unchanged.
+      await vi.waitFor(async () => {
+        const waiting = await pool.query(`
+          SELECT COUNT(*)::int AS count
+          FROM pg_stat_activity
+          WHERE application_name = 'gate-c3-topup-checkout-concurrency-test'
+            AND wait_event_type = 'Lock'
+            AND query ILIKE '%sms_topup_purchase%'
+        `);
 
-      expect(Number(waiting.rows[0].count)).toBeGreaterThan(0);
-    });
-    releaseFulfillment.resolve();
+        expect(Number(waiting.rows[0].count)).toBeGreaterThan(0);
+      }, { timeout: 15_000, interval: 50 });
+    } finally {
+      // Always let the gated fulfillment finish, otherwise a failed wait
+      // leaves it blocked and afterAll's pool.end() hangs past the hook budget.
+      releaseFulfillment.resolve();
+    }
     const [expiryResult, completionResult] = await Promise.race([
       Promise.all([expiry, completion]),
       new Promise<never>((_resolve, reject) => setTimeout(() => reject(new Error('TOPUP_EXPIRY_COMPLETION_DEADLOCK')), 3_000)),
