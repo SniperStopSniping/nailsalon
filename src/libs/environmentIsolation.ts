@@ -9,6 +9,8 @@ export type RuntimeEnvironment
 export type EnvironmentIsolationErrorCode
   = | 'APP_ENV_INVALID'
   | 'BILLING_PLAN_ENV_INVALID'
+  | 'BILLING_STRIPE_PRICE_IDS_ENV_MISMATCH'
+  | 'BILLING_STRIPE_PRICE_IDS_INVALID'
   | 'CI_PROVIDER_PLACEHOLDER_REQUIRED'
   | 'CLERK_KEY_MODE_INVALID'
   | 'CLERK_KEY_MODE_MISMATCH'
@@ -28,6 +30,10 @@ const ERROR_MESSAGES: Record<EnvironmentIsolationErrorCode, string> = {
     'Environment isolation rejected: APP_ENV is not an approved environment marker.',
   BILLING_PLAN_ENV_INVALID:
     'Environment isolation rejected: the billing plan environment does not match the runtime environment.',
+  BILLING_STRIPE_PRICE_IDS_ENV_MISMATCH:
+    'Environment isolation rejected: the Stripe price-id carrier is scoped to a different billing environment than this runtime.',
+  BILLING_STRIPE_PRICE_IDS_INVALID:
+    'Environment isolation rejected: the Stripe price-id carrier is not well-formed.',
   CI_PROVIDER_PLACEHOLDER_REQUIRED:
     'Environment isolation rejected: CI and test runs require the approved synthetic provider placeholders.',
   CLERK_KEY_MODE_INVALID:
@@ -331,6 +337,85 @@ function requireBillingEnvironment(
   }
 }
 
+const CONFIGURED_STRIPE_ID_SHAPE = /^(?:price|coupon|promo)_[A-Za-z0-9]{8,}$/;
+const BILLING_STRIPE_PRICE_IDS_TOP_LEVEL_KEYS = new Set(['env', 'offers', 'topups', 'coupons']);
+
+type BillingStripePriceIdsShapeInspection = 'ok' | 'env_mismatch' | 'invalid';
+
+/**
+ * G40/D19a (contract §4, §12) — a minimal, dependency-free structural check
+ * for the optional BILLING_STRIPE_PRICE_IDS carrier. Deliberately NOT the
+ * same function as parseStripePriceCarrier
+ * (src/libs/billing/stripePriceCarrier.ts), which is the single source of
+ * truth for catalogue-key membership (BILLING_OFFERS/TOPUP_OFFERS/
+ * PROMOTIONS) and is what every real resolution in stripePriceMap.ts goes
+ * through. This module carries ZERO import statements by construction — see
+ * computeExpectedLivemode's siting note above and
+ * src/libs/stripeConnect/stripeConnect.boundaries.test.ts "31(a)", which
+ * fails the build the moment this file gains one — so it cannot reach the
+ * committed catalogue to validate individual keys. It therefore checks only
+ * what is verifiable without any import: the env-isolation property this
+ * module already owns for BILLING_PLAN_ENV itself, plus generic JSON shape,
+ * id format and cross-map uniqueness. Catalogue-key validation, and the full
+ * fail-closed guarantee before any Stripe call, live in
+ * getStripePriceCarrier() — every resolver in stripePriceMap.ts consults it
+ * first and never returns an id this check alone approved.
+ */
+function inspectBillingStripePriceIdsShape(
+  raw: string,
+  expectedEnv: 'dev' | 'test' | 'prod',
+): BillingStripePriceIdsShapeInspection {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return 'invalid';
+  }
+
+  if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+    return 'invalid';
+  }
+  const record = parsed as Record<string, unknown>;
+
+  for (const key of Object.keys(record)) {
+    if (!BILLING_STRIPE_PRICE_IDS_TOP_LEVEL_KEYS.has(key)) {
+      return 'invalid';
+    }
+  }
+
+  if (record.env !== 'dev' && record.env !== 'test' && record.env !== 'prod') {
+    return 'invalid';
+  }
+  if (record.env !== expectedEnv) {
+    return 'env_mismatch';
+  }
+
+  const seenIds = new Set<string>();
+  for (const section of ['offers', 'topups', 'coupons'] as const) {
+    const value = record[section];
+    if (value === undefined) {
+      continue;
+    }
+    if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+      return 'invalid';
+    }
+    for (const [mapKey, mapValue] of Object.entries(value as Record<string, unknown>)) {
+      if (mapKey.length === 0 || typeof mapValue !== 'string') {
+        return 'invalid';
+      }
+      if (!CONFIGURED_STRIPE_ID_SHAPE.test(mapValue)) {
+        return 'invalid';
+      }
+      if (seenIds.has(mapValue)) {
+        return 'invalid';
+      }
+      seenIds.add(mapValue);
+    }
+  }
+
+  return 'ok';
+}
+
 /**
  * The SINGLE PRODUCER of "what BILLING_PLAN_ENV should read for this runtime
  * environment" (G34). PURE, never throws. `ci`/`test` map to `'test'` — the
@@ -386,6 +471,24 @@ export function assertProviderEnvironmentIsolation(
   }
 
   requireBillingEnvironment(environment, expectedBillingPlanEnv(runtimeEnvironment));
+
+  // G40/D19a — optional and UNSET MEANS IGNORED: this never runs unless
+  // BILLING_STRIPE_PRICE_IDS is actually set, and it stays unset in every
+  // environment while billing is dark (contract §7). See
+  // inspectBillingStripePriceIdsShape's doc comment for why this check is
+  // structural-only rather than catalogue-aware.
+  if (environment.BILLING_STRIPE_PRICE_IDS) {
+    const inspection = inspectBillingStripePriceIdsShape(
+      environment.BILLING_STRIPE_PRICE_IDS,
+      expectedBillingPlanEnv(runtimeEnvironment),
+    );
+    if (inspection === 'env_mismatch') {
+      reject('BILLING_STRIPE_PRICE_IDS_ENV_MISMATCH');
+    }
+    if (inspection === 'invalid') {
+      reject('BILLING_STRIPE_PRICE_IDS_INVALID');
+    }
+  }
 
   return runtimeEnvironment;
 }

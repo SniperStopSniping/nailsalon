@@ -44,6 +44,15 @@ export const Env = createEnv({
     // Dedicated secret for /api/webhooks/stripe-billing (§8.1) — never shared
     // with the legacy or deposits webhook secrets.
     STRIPE_BILLING_WEBHOOK_SECRET: z.string().optional(),
+    // G40/D19a — env-keyed Stripe Price/Coupon id carrier (contract §4/§12,
+    // P6b; ratified 2026-09-14). Server-only JSON, optional; UNSET MEANS NO
+    // CARRIER — every resolver in stripePriceMap.ts falls back to the
+    // committed (all-null) placeholder tables when this is absent, exactly
+    // as before. Provisioned per Vercel environment only at activation
+    // (§20); stays unset in every environment while billing is dark (§7).
+    // See src/libs/billing/stripePriceCarrier.ts for the schema, resolution
+    // order and the boot-time isolation check.
+    BILLING_STRIPE_PRICE_IDS: z.string().optional(),
     // Twilio (salon communications; Verify is reserved for existing super-admin verification)
     TWILIO_ACCOUNT_SID: z.string().optional(),
     TWILIO_AUTH_TOKEN: z.string().optional(),
@@ -144,6 +153,7 @@ export const Env = createEnv({
     PUBLIC_PRICING_ENABLED: process.env.PUBLIC_PRICING_ENABLED,
     BILLING_TAX_COLLECTION_ENABLED: process.env.BILLING_TAX_COLLECTION_ENABLED,
     STRIPE_BILLING_WEBHOOK_SECRET: process.env.STRIPE_BILLING_WEBHOOK_SECRET,
+    BILLING_STRIPE_PRICE_IDS: process.env.BILLING_STRIPE_PRICE_IDS,
     TWILIO_ACCOUNT_SID: process.env.TWILIO_ACCOUNT_SID,
     TWILIO_AUTH_TOKEN: process.env.TWILIO_AUTH_TOKEN,
     TWILIO_VERIFY_SERVICE_SID: process.env.TWILIO_VERIFY_SERVICE_SID,

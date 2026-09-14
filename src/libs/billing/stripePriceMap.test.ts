@@ -1,6 +1,12 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('server-only', () => ({}));
+
+const envHolder = vi.hoisted(() => ({
+  BILLING_PLAN_ENV: 'test' as 'dev' | 'test' | 'prod',
+  BILLING_STRIPE_PRICE_IDS: undefined as string | undefined,
+}));
+vi.mock('@/libs/Env', () => ({ Env: envHolder }));
 
 const {
   BillingCatalogError,
@@ -78,5 +84,117 @@ describe('stripePriceMap', () => {
   it('reverse lookups return null over placeholder tables — never a guessed key', () => {
     expect(resolveBillingOfferFromStripePriceId('price_abcdefgh12345678')).toBeNull();
     expect(resolveTopupOfferFromStripePriceId('price_abcdefgh12345678')).toBeNull();
+  });
+});
+
+// =============================================================================
+// P6b (D19a) — resolution order now consults the env-keyed carrier
+// (stripePriceCarrier.ts) FIRST, falling back to the committed (all-null)
+// placeholder tables above. getStripePriceCarrier() is memoised per module
+// instance, so each scenario below resets the module registry and imports a
+// fresh instance after configuring the mocked Env.
+// =============================================================================
+
+describe('stripePriceMap — env carrier resolution order (P6b, D19a)', () => {
+  beforeEach(() => {
+    vi.resetModules();
+    envHolder.BILLING_PLAN_ENV = 'test';
+    envHolder.BILLING_STRIPE_PRICE_IDS = undefined;
+  });
+
+  it('a carrier entry for one offer resolves that offer; every other offer still throws PRICE_UNCONFIGURED', async () => {
+    const offerKeys = Object.keys(BILLING_OFFERS) as Array<keyof typeof BILLING_OFFERS>;
+    const configuredKey = offerKeys[0]!;
+    envHolder.BILLING_STRIPE_PRICE_IDS = JSON.stringify({
+      env: 'test',
+      offers: { [configuredKey]: 'price_carrier12345678' },
+    });
+    const mod = await import('./stripePriceMap');
+
+    expect(mod.resolveStripePriceIdForOffer(configuredKey)).toBe('price_carrier12345678');
+
+    for (const key of offerKeys) {
+      if (key === configuredKey) {
+        continue;
+      }
+
+      expect(() => mod.resolveStripePriceIdForOffer(key)).toThrow(/PRICE_UNCONFIGURED/);
+    }
+  });
+
+  it('carrier entries for a top-up and a coupon resolve independently of the offers map', async () => {
+    const topupKey = (Object.keys(TOPUP_OFFERS) as Array<keyof typeof TOPUP_OFFERS>)[0]!;
+    const promotionKey = (Object.keys(PROMOTIONS) as Array<keyof typeof PROMOTIONS>)[0]!;
+    envHolder.BILLING_STRIPE_PRICE_IDS = JSON.stringify({
+      env: 'test',
+      topups: { [topupKey]: 'price_topupcarrier1234' },
+      coupons: { [promotionKey]: 'coupon_carrier12345678' },
+    });
+    const mod = await import('./stripePriceMap');
+
+    expect(mod.resolveStripePriceIdForTopup(topupKey)).toBe('price_topupcarrier1234');
+    expect(mod.resolveStripeCouponIdForPromotion(promotionKey)).toBe('coupon_carrier12345678');
+  });
+
+  it('a carrier whose env does not equal BILLING_PLAN_ENV is ignored entirely — every key still throws', async () => {
+    const offerKeys = Object.keys(BILLING_OFFERS) as Array<keyof typeof BILLING_OFFERS>;
+    envHolder.BILLING_PLAN_ENV = 'test';
+    envHolder.BILLING_STRIPE_PRICE_IDS = JSON.stringify({
+      env: 'prod',
+      offers: { [offerKeys[0]!]: 'price_carrier12345678' },
+    });
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const mod = await import('./stripePriceMap');
+
+    for (const key of offerKeys) {
+      expect(() => mod.resolveStripePriceIdForOffer(key)).toThrow(/PRICE_UNCONFIGURED/);
+    }
+    warnSpy.mockRestore();
+  });
+
+  it('reverse lookup finds a carrier-configured offer id ahead of the (all-null) committed table', async () => {
+    const offerKeys = Object.keys(BILLING_OFFERS) as Array<keyof typeof BILLING_OFFERS>;
+    const configuredKey = offerKeys[0]!;
+    envHolder.BILLING_STRIPE_PRICE_IDS = JSON.stringify({
+      env: 'test',
+      offers: { [configuredKey]: 'price_carrier12345678' },
+    });
+    const mod = await import('./stripePriceMap');
+
+    expect(mod.resolveBillingOfferFromStripePriceId('price_carrier12345678')).toBe(configuredKey);
+    expect(mod.resolveBillingOfferFromStripePriceId('price_unknown12345678')).toBeNull();
+  });
+
+  it('reverse lookup finds a carrier-configured top-up id', async () => {
+    const configuredKey = (Object.keys(TOPUP_OFFERS) as Array<keyof typeof TOPUP_OFFERS>)[0]!;
+    envHolder.BILLING_STRIPE_PRICE_IDS = JSON.stringify({
+      env: 'test',
+      topups: { [configuredKey]: 'price_topupcarrier1234' },
+    });
+    const mod = await import('./stripePriceMap');
+
+    expect(mod.resolveTopupOfferFromStripePriceId('price_topupcarrier1234')).toBe(configuredKey);
+  });
+
+  it('a malformed carrier is ignored (fails closed): resolution falls back to the placeholder table and warns at most once', async () => {
+    envHolder.BILLING_STRIPE_PRICE_IDS = '{not valid json';
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const mod = await import('./stripePriceMap');
+    const offerKeys = Object.keys(BILLING_OFFERS) as Array<keyof typeof BILLING_OFFERS>;
+
+    for (const key of offerKeys) {
+      expect(() => mod.resolveStripePriceIdForOffer(key)).toThrow(/PRICE_UNCONFIGURED/);
+    }
+
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+
+    warnSpy.mockRestore();
+  });
+
+  it('unknown catalogue keys still throw UNKNOWN_CATALOG_KEY even with a carrier configured', async () => {
+    envHolder.BILLING_STRIPE_PRICE_IDS = JSON.stringify({ env: 'test' });
+    const mod = await import('./stripePriceMap');
+
+    expect(() => mod.resolveStripeIdFromTable({}, 'test', 'nope')).toThrow(/UNKNOWN_CATALOG_KEY/);
   });
 });

@@ -45,6 +45,23 @@ function previewFixture(overrides: Record<string, string | undefined> = {}) {
   };
 }
 
+/** A deployment-shaped fixture (production), with live providers + prod billing env. */
+function productionFixture(overrides: Record<string, string | undefined> = {}) {
+  return {
+    VERCEL: '1',
+    VERCEL_ENV: 'production',
+    APP_ENV: 'production',
+    BILLING_PLAN_ENV: 'prod',
+    CLERK_SECRET_KEY: 'sk_live_clerk',
+    NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: 'pk_live_clerk',
+    NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: 'pk_live_stripe',
+    STRIPE_SECRET_KEY: 'sk_live_stripe',
+    STRIPE_WEBHOOK_SECRET: 'whsec_billing',
+    STRIPE_CONNECT_WEBHOOK_SECRET: 'whsec_connect',
+    ...overrides,
+  };
+}
+
 function isolationErrorCode(run: () => unknown): string | undefined {
   try {
     run();
@@ -220,6 +237,109 @@ describe('G25 — billing secret collision guard', () => {
     // requireDistinctStripeWebhookSecrets sits in the deployment branch only.
     expect(isolationErrorCode(() => assertProviderEnvironmentIsolation(
       ciFixture({ STRIPE_BILLING_WEBHOOK_SECRET: CI_PLACEHOLDER }),
+    ))).toBeUndefined();
+  });
+});
+
+// =============================================================================
+// G40/D19a — BILLING_STRIPE_PRICE_IDS boot check (P6b). Optional and UNSET
+// MEANS IGNORED (today's shape); when set it must be well-formed AND scoped
+// to this runtime's billing plan env. Catalogue-key membership is NOT
+// checked here (environmentIsolation.ts stays import-free by construction —
+// see stripeConnect.boundaries.test.ts "31(a)") — it is checked by
+// parseStripePriceCarrier (stripePriceCarrier.test.ts) and by
+// getStripePriceCarrier at real resolution time (stripePriceMap.test.ts).
+// =============================================================================
+
+describe('G40/D19a — BILLING_STRIPE_PRICE_IDS boot check', () => {
+  it('absent is ignored — today\'s shape', () => {
+    expect(isolationErrorCode(() => assertProviderEnvironmentIsolation(
+      previewFixture({ BILLING_STRIPE_PRICE_IDS: undefined }),
+    ))).toBeUndefined();
+  });
+
+  it('a well-formed carrier scoped to the current runtime passes', () => {
+    expect(isolationErrorCode(() => assertProviderEnvironmentIsolation(
+      previewFixture({
+        BILLING_STRIPE_PRICE_IDS: JSON.stringify({
+          env: 'test',
+          offers: { starter_2026_08_monthly: 'price_abcd12345678' },
+        }),
+      }),
+    ))).toBeUndefined();
+  });
+
+  it('a production-shaped carrier under a Preview runtime is rejected as an env mismatch', () => {
+    // This is the implementable "prod-shaped map under test is rejected"
+    // test the plan calls out (§3 G40) — the headline behaviour this boot
+    // check restores.
+    expect(isolationErrorCode(() => assertProviderEnvironmentIsolation(
+      previewFixture({
+        BILLING_STRIPE_PRICE_IDS: JSON.stringify({
+          env: 'prod',
+          offers: { starter_2026_08_monthly: 'price_liveabcd1234' },
+        }),
+      }),
+    ))).toBe('BILLING_STRIPE_PRICE_IDS_ENV_MISMATCH');
+  });
+
+  it('production with a matching env: \'prod\' carrier passes', () => {
+    expect(isolationErrorCode(() => assertProviderEnvironmentIsolation(
+      productionFixture({
+        BILLING_STRIPE_PRICE_IDS: JSON.stringify({
+          env: 'prod',
+          coupons: { founding_annual_2026: 'coupon_prodabcd1234' },
+        }),
+      }),
+    ))).toBeUndefined();
+  });
+
+  it('malformed JSON is rejected as invalid', () => {
+    expect(isolationErrorCode(() => assertProviderEnvironmentIsolation(
+      previewFixture({ BILLING_STRIPE_PRICE_IDS: '{not valid json' }),
+    ))).toBe('BILLING_STRIPE_PRICE_IDS_INVALID');
+  });
+
+  it('an unrecognized top-level field is rejected as invalid', () => {
+    // Stands in for "unknown key" at the boot-check layer: this module has
+    // no catalogue to check individual map keys against (see the describe
+    // block comment), but an unexpected shape is still generically invalid.
+    // Real catalogue-key membership is asserted in stripePriceCarrier.test.ts.
+    expect(isolationErrorCode(() => assertProviderEnvironmentIsolation(
+      previewFixture({
+        BILLING_STRIPE_PRICE_IDS: JSON.stringify({ env: 'test', bogusField: 1 }),
+      }),
+    ))).toBe('BILLING_STRIPE_PRICE_IDS_INVALID');
+  });
+
+  it('a malformed id shape is rejected as invalid', () => {
+    expect(isolationErrorCode(() => assertProviderEnvironmentIsolation(
+      previewFixture({
+        BILLING_STRIPE_PRICE_IDS: JSON.stringify({
+          env: 'test',
+          offers: { starter_2026_08_monthly: 'price_123' },
+        }),
+      }),
+    ))).toBe('BILLING_STRIPE_PRICE_IDS_INVALID');
+  });
+
+  it('a duplicate id across maps is rejected as invalid', () => {
+    expect(isolationErrorCode(() => assertProviderEnvironmentIsolation(
+      previewFixture({
+        BILLING_STRIPE_PRICE_IDS: JSON.stringify({
+          env: 'test',
+          offers: { starter_2026_08_monthly: 'price_shared12345678' },
+          topups: { topup_100_paid_2026_08: 'price_shared12345678' },
+        }),
+      }),
+    ))).toBe('BILLING_STRIPE_PRICE_IDS_INVALID');
+  });
+
+  it('is never evaluated in ci/test — the carrier is ignorable/absent in CI', () => {
+    // Even a clearly invalid value must not be reached: this boot check sits
+    // strictly after the ci/test early return.
+    expect(isolationErrorCode(() => assertProviderEnvironmentIsolation(
+      ciFixture({ BILLING_STRIPE_PRICE_IDS: '{not valid json' }),
     ))).toBeUndefined();
   });
 });
