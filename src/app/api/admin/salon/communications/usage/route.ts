@@ -18,7 +18,7 @@
  * prices client-side. Both are built from the same public projection
  * functions the checkout route validates against, so drift is impossible.
  */
-import { and, desc, eq, lt, or, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, lt, or, sql } from 'drizzle-orm';
 import type { NextRequest } from 'next/server';
 
 import { requireAdminSalon } from '@/libs/adminAuth';
@@ -37,6 +37,8 @@ import {
   billingSubscriptionSchema,
   communicationIntentSchema,
   notificationDeliverySchema,
+  smsCreditReservationLotSchema,
+  smsCreditReservationSchema,
 } from '@/models/Schema';
 
 const NO_STORE = { headers: { 'Cache-Control': 'no-store' } };
@@ -161,6 +163,9 @@ export async function GET(request: NextRequest): Promise<Response> {
   const byBucket = balance.byBucket;
   const usage = {
     availableCredits: balance.available,
+    // Owner-facing counterpart to the ledger's `reserved` bucket: credits
+    // held for texts that are queued/sending but not yet settled.
+    pendingCredits: balance.reserved,
     monthlyCredits: byBucket.monthly ?? 0,
     starterCredits: byBucket.starter ?? 0,
     purchasedCredits: byBucket.purchased ?? 0,
@@ -218,6 +223,7 @@ export async function GET(request: NextRequest): Promise<Response> {
       channel: communicationIntentSchema.channel,
       eventType: communicationIntentSchema.eventType,
       appointmentId: communicationIntentSchema.appointmentId,
+      variables: communicationIntentSchema.variables,
       recipient: communicationIntentSchema.recipient,
       status: communicationIntentSchema.status,
       scheduledFor: communicationIntentSchema.scheduledFor,
@@ -230,6 +236,7 @@ export async function GET(request: NextRequest): Promise<Response> {
       deliveryErrorCode: notificationDeliverySchema.errorCode,
       settlementState: notificationDeliverySchema.settlementState,
       chargedCredits: notificationDeliverySchema.segmentCount,
+      creditReservationId: notificationDeliverySchema.creditReservationId,
     })
     .from(communicationIntentSchema)
     .leftJoin(notificationDeliverySchema, and(
@@ -247,22 +254,71 @@ export async function GET(request: NextRequest): Promise<Response> {
     ? `${page[page.length - 1]!.createdAt.getTime()}_${page[page.length - 1]!.id}`
     : null;
 
-  const history = page.map(row => ({
-    id: row.id,
-    channel: row.channel,
-    eventType: row.eventType,
-    appointmentId: row.appointmentId,
-    recipient: maskRecipient(row.channel, row.recipient),
-    status: row.status === 'sent' && row.deliveryStatus ? row.deliveryStatus : row.status,
-    scheduledFor: row.scheduledFor.toISOString(),
-    sentAt: row.status === 'sent' ? row.resolvedAt?.toISOString() ?? null : null,
-    creditsUsed: row.channel === 'sms' && row.settlementState === 'settled' ? row.chargedCredits ?? row.segmentCount ?? 1 : 0,
-    failureReason: ['failed', 'undelivered'].includes(row.deliveryStatus ?? '')
-      ? friendlyFailureReason(row.deliveryErrorCode ?? 'DELIVERY_FAILED')
-      : ['failed', 'expired', 'suppressed', 'blocked_no_credit', 'canceled'].includes(row.status)
-          ? friendlyFailureReason(row.blockedReason ?? row.lastError)
-          : null,
-  }));
+  // Net SMS credits actually charged, after partial/full refunds — reads the
+  // same settled reservation lots the ledger itself trusts, scoped to this
+  // salon. Rows predating the reservation link (creditReservationId null)
+  // keep the legacy chargedCredits/segmentCount estimate below.
+  const reservationIds = page.flatMap(row => (row.creditReservationId ? [row.creditReservationId] : []));
+  const charges = reservationIds.length === 0
+    ? []
+    : await db
+      .select({
+        id: smsCreditReservationSchema.id,
+        credits: sql<number>`COALESCE(SUM(CASE
+          WHEN ${smsCreditReservationLotSchema.refundedAt} IS NOT NULL THEN 0
+          ELSE ${smsCreditReservationLotSchema.segments} - ${smsCreditReservationLotSchema.refundedSegments}
+        END), 0)::int`,
+      })
+      .from(smsCreditReservationSchema)
+      .innerJoin(smsCreditReservationLotSchema, and(
+        eq(smsCreditReservationLotSchema.reservationId, smsCreditReservationSchema.id),
+        eq(smsCreditReservationLotSchema.salonId, salonId),
+      ))
+      .where(and(
+        eq(smsCreditReservationSchema.salonId, salonId),
+        eq(smsCreditReservationSchema.status, 'settled'),
+        inArray(smsCreditReservationSchema.id, reservationIds),
+      ))
+      .groupBy(smsCreditReservationSchema.id);
+  const netCreditsByReservation = new Map(charges.map(charge => [charge.id, Number(charge.credits)]));
+
+  const history = page.map((row) => {
+    // §11.1 reminder rules persist their lead time on the intent's
+    // variables at materialization time (communicationMaterialization.ts);
+    // clamp to the same [15m, 7d] range the settings schema enforces so a
+    // corrupt/legacy value can never masquerade as a real category.
+    const parsedReminderLead = Number(row.variables.reminderLeadMinutes);
+    const reminderLeadMinutes = row.eventType === 'appointment_reminder'
+      && Number.isInteger(parsedReminderLead)
+      && parsedReminderLead >= 15
+      && parsedReminderLead <= 7 * 24 * 60
+      ? parsedReminderLead
+      : null;
+    return {
+      id: row.id,
+      channel: row.channel,
+      eventType: row.eventType,
+      appointmentId: row.appointmentId,
+      recipient: maskRecipient(row.channel, row.recipient),
+      status: row.status === 'sent' && row.deliveryStatus ? row.deliveryStatus : row.status,
+      scheduledFor: row.scheduledFor.toISOString(),
+      sentAt: row.status === 'sent' ? row.resolvedAt?.toISOString() ?? null : null,
+      // Partial refunds leave the original delivery segment count
+      // unchanged — read settled/refunded evidence when a reservation link
+      // exists, and fall back to the legacy estimate for rows without one.
+      creditsUsed: row.channel === 'sms' && row.settlementState === 'settled'
+        ? row.creditReservationId
+          ? netCreditsByReservation.get(row.creditReservationId) ?? 0
+          : row.chargedCredits ?? row.segmentCount ?? 1
+        : 0,
+      reminderLeadMinutes,
+      failureReason: ['failed', 'undelivered'].includes(row.deliveryStatus ?? '')
+        ? friendlyFailureReason(row.deliveryErrorCode ?? 'DELIVERY_FAILED')
+        : ['failed', 'expired', 'suppressed', 'blocked_no_credit', 'canceled'].includes(row.status)
+            ? friendlyFailureReason(row.blockedReason ?? row.lastError)
+            : null,
+    };
+  });
 
   return Response.json({
     data: { salonId, usage, history, nextCursor, topupOffers, creditPurchasesAvailable, capabilities, catalog },

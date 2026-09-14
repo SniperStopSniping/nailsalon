@@ -12,7 +12,7 @@
  * controls are reduced-motion safe (CSS only).
  */
 import { X } from 'lucide-react';
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { DialogShell } from '@/components/ui/dialog-shell';
 
@@ -27,6 +27,8 @@ type UsagePayload = {
     monthlyAllowance: number;
     resetsAt: string | null;
     blockedMessages: number;
+    /** Credits held for texts that are queued/sending but not yet settled. */
+    pendingCredits?: number;
     plan: {
       displayName: string;
       cadence: string;
@@ -53,10 +55,15 @@ type UsagePayload = {
     scheduledFor: string;
     sentAt: string | null;
     creditsUsed: number;
+    /** Minutes-before-appointment this reminder was scheduled at, when known. */
+    reminderLeadMinutes: number | null;
     failureReason: string | null;
   }>;
   nextCursor: string | null;
 };
+
+/** Which grouped section of message history an entry belongs in. */
+type HistoryCategory = 'all' | 'confirmations' | '24h' | '1h' | 'cancellations' | 'other';
 
 type TopupItem = {
   id: string;
@@ -128,6 +135,51 @@ const STATUS_LABELS: Record<string, string> = {
   send_outcome_unknown: 'Confirming delivery',
 };
 
+const CATEGORY_LABELS: Record<Exclude<HistoryCategory, 'all'>, string> = {
+  'confirmations': 'Confirmations',
+  '24h': '24-hour reminders',
+  '1h': '1-hour reminders',
+  'cancellations': 'Cancellations',
+  'other': 'Other messages',
+};
+
+/**
+ * Groups a history row the way owners think about their messages, not the
+ * way the ledger stores them — a saved lead time (§ reminderLeadMinutes)
+ * beats guessing from the current settings, since settings can change after
+ * the message went out.
+ */
+function historyCategory(entry: UsagePayload['history'][number]): Exclude<HistoryCategory, 'all'> {
+  if (entry.eventType === 'booking_confirmation' || entry.eventType === 'booking_request_approved') {
+    return 'confirmations';
+  }
+  if (entry.eventType === 'appointment_reminder' && entry.reminderLeadMinutes === 1440) {
+    return '24h';
+  }
+  if (entry.eventType === 'appointment_reminder' && entry.reminderLeadMinutes === 60) {
+    return '1h';
+  }
+  if (entry.eventType.includes('cancelled')) {
+    return 'cancellations';
+  }
+  return 'other';
+}
+
+/**
+ * Net SMS credits actually charged for this message — email and
+ * fully-refunded/cancelled texts never draw credits, so this is never a
+ * synonym for "a message was sent".
+ */
+function creditLabel(entry: UsagePayload['history'][number]): string {
+  if (entry.channel !== 'sms') {
+    return 'Email included · no SMS credits';
+  }
+  if (entry.creditsUsed === 0) {
+    return 'No SMS credits charged';
+  }
+  return `${entry.creditsUsed} SMS credit${entry.creditsUsed === 1 ? '' : 's'} charged`;
+}
+
 export function UsageBillingModal({ salonSlug, onClose }: UsageBillingModalProps) {
   const [data, setData] = useState<UsagePayload | null>(null);
   const [loading, setLoading] = useState(true);
@@ -135,6 +187,9 @@ export function UsageBillingModal({ salonSlug, onClose }: UsageBillingModalProps
   const [portalLoading, setPortalLoading] = useState(false);
   const [buying, setBuying] = useState<string | null>(null);
   const [buyError, setBuyError] = useState<string | null>(null);
+  const [historyFilter, setHistoryFilter] = useState<HistoryCategory>('all');
+  const [loadingMoreHistory, setLoadingMoreHistory] = useState(false);
+  const [historyError, setHistoryError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -162,6 +217,45 @@ export function UsageBillingModal({ salonSlug, onClose }: UsageBillingModalProps
       cancelled = true;
     };
   }, [salonSlug]);
+
+  // Message history — a second page on demand (distinct from the top-ups
+  // "Load more" below, which pages a different endpoint).
+  const loadMoreHistory = useCallback(async () => {
+    if (data === null || data.nextCursor === null || loadingMoreHistory) {
+      return;
+    }
+    try {
+      setLoadingMoreHistory(true);
+      setHistoryError(null);
+      const query = new URLSearchParams({ salonSlug, cursor: data.nextCursor });
+      const response = await fetch(`/api/admin/salon/communications/usage?${query.toString()}`);
+      if (!response.ok) {
+        throw new Error('history fetch failed');
+      }
+      const body = await response.json();
+      setData(current => current === null
+        ? current
+        : { ...current, history: [...current.history, ...body.data.history], nextCursor: body.data.nextCursor });
+    } catch {
+      setHistoryError('Could not load more history. Please try again.');
+    } finally {
+      setLoadingMoreHistory(false);
+    }
+  }, [data, loadingMoreHistory, salonSlug]);
+
+  const groupedHistory = useMemo(() => {
+    const groups: Record<Exclude<HistoryCategory, 'all'>, UsagePayload['history']> = {
+      'confirmations': [],
+      '24h': [],
+      '1h': [],
+      'cancellations': [],
+      'other': [],
+    };
+    data?.history.forEach((entry) => {
+      groups[historyCategory(entry)].push(entry);
+    });
+    return groups;
+  }, [data?.history]);
 
   // --- Top-ups tab (G17) ---------------------------------------------------
   const [topups, setTopups] = useState<TopupItem[] | null>(null);
@@ -390,6 +484,16 @@ export function UsageBillingModal({ salonSlug, onClose }: UsageBillingModalProps
                     waiting for credits. Email delivery continues.
                   </p>
                 )}
+                {usage.pendingCredits !== undefined && usage.pendingCredits > 0 && (
+                  <p className="rounded-lg bg-blue-50 p-3 text-[14px] text-blue-800">
+                    {usage.pendingCredits}
+                    {' '}
+                    credit
+                    {usage.pendingCredits === 1 ? ' is' : 's are'}
+                    {' '}
+                    set aside for texts being sent.
+                  </p>
+                )}
               </section>
 
               <section aria-labelledby="plan-heading" className="space-y-2">
@@ -496,31 +600,66 @@ export function UsageBillingModal({ salonSlug, onClose }: UsageBillingModalProps
               </section>
 
               <section aria-labelledby="history-heading" className="space-y-2">
-                <h3 id="history-heading" className="text-[15px] font-medium text-gray-900">Recent messages</h3>
+                <div className="flex items-center justify-between gap-3">
+                  <h3 id="history-heading" className="text-[15px] font-medium text-gray-900">Message history</h3>
+                  <label className="sr-only" htmlFor="history-filter">Filter message history</label>
+                  <select
+                    id="history-filter"
+                    value={historyFilter}
+                    onChange={event => setHistoryFilter(event.target.value as HistoryCategory)}
+                    className="h-9 rounded-md border border-gray-300 bg-white px-2 text-[14px]"
+                  >
+                    <option value="all">All messages</option>
+                    {Object.entries(CATEGORY_LABELS).map(([value, label]) => (
+                      <option key={value} value={value}>{label}</option>
+                    ))}
+                  </select>
+                </div>
                 {data!.history.length === 0 && (
                   <p className="text-[14px] text-gray-500">No messages yet.</p>
                 )}
-                <ul className="divide-y divide-gray-100">
-                  {data!.history.map(entry => (
-                    <li key={entry.id} className="space-y-0.5 py-2 text-[14px]">
-                      <div className="flex items-center justify-between">
-                        <span className="text-gray-900">
-                          {EVENT_LABELS[entry.eventType] ?? 'Message'}
-                          {' · '}
-                          {entry.channel === 'sms' ? 'Text' : 'Email'}
-                        </span>
-                        <span className="text-gray-500">{STATUS_LABELS[entry.status] ?? entry.status}</span>
-                      </div>
-                      <div className="flex items-center justify-between text-gray-500">
-                        <span>{entry.recipient}</span>
-                        <span>{new Date(entry.scheduledFor).toLocaleString()}</span>
-                      </div>
-                      {entry.failureReason !== null && (
-                        <p className="text-[13px] text-amber-700">{entry.failureReason}</p>
-                      )}
-                    </li>
-                  ))}
-                </ul>
+                {(Object.keys(CATEGORY_LABELS) as Array<Exclude<HistoryCategory, 'all'>>).map(category => (
+                  (historyFilter === 'all' || historyFilter === category) && groupedHistory[category].length > 0
+                    ? (
+                        <div key={category} className="space-y-1">
+                          <h4 className="text-[13px] font-medium text-gray-500">{CATEGORY_LABELS[category]}</h4>
+                          <ul className="divide-y divide-gray-100">
+                            {groupedHistory[category].map(entry => (
+                              <li key={entry.id} className="space-y-1 py-2 text-[14px]">
+                                <div className="flex items-center justify-between gap-2">
+                                  <span className="text-gray-900">
+                                    {EVENT_LABELS[entry.eventType] ?? 'Message'}
+                                    {' · '}
+                                    {entry.channel === 'sms' ? 'Text' : 'Email'}
+                                  </span>
+                                  <span className="shrink-0 text-gray-500">{STATUS_LABELS[entry.status] ?? entry.status}</span>
+                                </div>
+                                <div className="flex items-center justify-between gap-2 text-gray-500">
+                                  <span>{entry.recipient}</span>
+                                  <span className="shrink-0">{new Date(entry.scheduledFor).toLocaleString()}</span>
+                                </div>
+                                <p className="text-[13px] text-gray-500">{creditLabel(entry)}</p>
+                                {entry.failureReason !== null && (
+                                  <p className="text-[13px] text-amber-700">{entry.failureReason}</p>
+                                )}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )
+                    : null
+                ))}
+                {historyError && <p role="status" aria-live="polite" className="text-[13px] text-red-600">{historyError}</p>}
+                {data!.nextCursor !== null && (
+                  <button
+                    type="button"
+                    onClick={loadMoreHistory}
+                    disabled={loadingMoreHistory}
+                    className="rounded-lg border border-gray-300 px-3 py-2 text-[14px] font-medium text-gray-800 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-950 disabled:opacity-40 motion-reduce:transition-none"
+                  >
+                    {loadingMoreHistory ? 'Loading…' : 'Load more'}
+                  </button>
+                )}
               </section>
             </>
           )}
