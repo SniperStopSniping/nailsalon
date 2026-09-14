@@ -1,3 +1,10 @@
+# [1.101.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.100.0...v1.101.0) (2026-09-14)
+
+
+### Features
+
+* **billing:** p4 reconciliation, held top-ups and payload purge ([ec1398c](https://github.com/SniperStopSniping/nailsalon/commit/ec1398c8c0f09002977d6391221919008f2be76b)), closes [#195](https://github.com/SniperStopSniping/nailsalon/issues/195)
+
 # [1.100.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.99.0...v1.100.0) (2026-09-14)
 
 
