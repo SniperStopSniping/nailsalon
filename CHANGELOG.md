@@ -1,3 +1,10 @@
+## [1.98.4](https://github.com/SniperStopSniping/nailsalon/compare/v1.98.3...v1.98.4) (2026-09-14)
+
+
+### Bug Fixes
+
+* **billing:** p1 dark-safe defect batch ([a3253b8](https://github.com/SniperStopSniping/nailsalon/commit/a3253b896d4fd7eacb61085639a9733ff6b72654))
+
 ## [1.98.3](https://github.com/SniperStopSniping/nailsalon/compare/v1.98.2...v1.98.3) (2026-09-14)
 
 
