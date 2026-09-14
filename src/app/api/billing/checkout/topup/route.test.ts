@@ -61,6 +61,10 @@ const stripeMock = vi.hoisted(() => ({
     }),
   },
   subscriptions: { retrieve: vi.fn() },
+  // G01/refund.updated: the webhook route fetches the charge to learn its
+  // CUMULATIVE amount_refunded — the Refund object alone never carries it.
+  charges: { retrieve: vi.fn() },
+  invoices: { retrieve: vi.fn() },
 }));
 vi.mock('@/libs/stripe', () => ({ stripe: stripeMock }));
 vi.mock('@sentry/nextjs', () => ({ captureException: vi.fn(), captureMessage: vi.fn() }));
@@ -93,6 +97,8 @@ beforeEach(() => {
   priceMapHolder.priceId = 'price_topup_resolved';
   stripeMock.checkout.sessions.create.mockReset();
   stripeMock.checkout.sessions.retrieve.mockReset();
+  stripeMock.charges.retrieve.mockReset();
+  stripeMock.invoices.retrieve.mockReset();
   stripeMock.checkout.sessions.create.mockImplementation(async () => ({
     id: `cs_topup_${Math.random().toString(36).slice(2, 8)}`,
     url: 'https://checkout.stripe.test/topup',
@@ -266,6 +272,8 @@ describe('top-up checkout (§9.2)', () => {
 
     expect(params.mode).toBe('payment');
     expect(params.metadata.purpose).toBe('sms_topup');
+    // D8: card-only — delayed-notification payment methods stay excluded.
+    expect(params.payment_method_types).toEqual(['card']);
   });
 
   it('reuses one bound, verified open session for a retry of the same offer', async () => {
@@ -519,11 +527,40 @@ describe('top-up checkout (§9.2)', () => {
 });
 
 describe('top-up fulfillment through the webhook (§9.3-§9.5)', () => {
+  // G02: the webhook retrieves the session (line items + payment intent)
+  // whenever it is about to fulfil — queue the verified evidence the route
+  // expects to see for a genuine, unmodified purchase.
+  async function mockVerifiedTopupEvidence(input: {
+    sessionId: string;
+    salonId: string;
+    priceId?: string | null;
+  }) {
+    const [purchase] = await purchaseRows(input.salonId);
+    const [attempt] = await attemptRows(input.salonId);
+
+    stripeMock.checkout.sessions.retrieve.mockResolvedValueOnce({
+      id: input.sessionId,
+      amount_total: purchase!.amountCents,
+      currency: 'cad',
+      metadata: {
+        purpose: 'sms_topup',
+        salonId: input.salonId,
+        topupOfferKey: purchase!.topupOfferKey,
+        purchaseId: purchase!.id,
+        attemptId: attempt?.id,
+      },
+      line_items: { data: input.priceId ? [{ price: { id: input.priceId } }] : [] },
+      payment_intent: `pi_${input.salonId}`,
+    });
+    return { purchase, attempt };
+  }
+
   async function buyAndPay(salonId: string, sessionOverride?: string) {
     await seedSalon(salonId);
     const checkout = await postCheckout({ salonId, topupOfferKey: 'topup_100_paid_2026_08' });
     const { data } = await checkout.json();
     const sessionId = sessionOverride ?? data.sessionId;
+    await mockVerifiedTopupEvidence({ sessionId, salonId });
     const completed = webhookEvent('checkout.session.completed', {
       id: sessionId,
       payment_status: 'paid',
@@ -685,7 +722,7 @@ describe('top-up fulfillment through the webhook (§9.3-§9.5)', () => {
     expect(purchase!.status).toBe('disputed');
   });
 
-  it('a charge event with no matching top-up purchase stays held for a human', async () => {
+  it('a charge event matching no top-up purchase and no local subscription is ignored as foreign, never held for a human (G42)', async () => {
     const event = webhookEvent('charge.refunded', {
       id: 'ch_foreign',
       payment_intent: 'pi_subscription_charge',
@@ -695,6 +732,219 @@ describe('top-up fulfillment through the webhook (§9.3-§9.5)', () => {
     const [row] = (await db.select().from(schema.billingStripeEventSchema))
       .filter(entry => entry.eventId === event.id);
 
+    expect(row!.status).toBe('ignored_foreign');
+    expect(row!.lastError).toBe('FOREIGN_CHARGE');
+
+    const sentry = await import('@sentry/nextjs');
+
+    // No billing-webhook alert for THIS event (other tests in this file may
+    // have alerted for unrelated reasons; this file has no per-test Sentry reset).
+    expect(vi.mocked(sentry.captureMessage)).not.toHaveBeenCalledWith('billing.charge_event_held', expect.anything());
+    expect(vi.mocked(sentry.captureMessage)).not.toHaveBeenCalledWith('billing.event_held_anomaly', expect.anything());
+  });
+
+  // G01 — refund.updated joins charge.refunded on the same cumulative-evidence path.
+  describe('G01 — refund.updated (charge-level cumulative evidence)', () => {
+    it('a lone refund.updated reverses by the charge-fetched CUMULATIVE figure, at most once on replay', async () => {
+      await buyAndPay('s_t_refund_updated');
+      stripeMock.charges.retrieve.mockResolvedValueOnce({
+        id: 'ch_t_ru',
+        amount: 599,
+        amount_refunded: 300, // cumulative, from the CHARGE — the refund object itself never carries this
+        invoice: null,
+        payment_intent: 'pi_s_t_refund_updated',
+      });
+      const event = webhookEvent('refund.updated', {
+        id: 're_t_ru_1',
+        charge: 'ch_t_ru',
+        payment_intent: 'pi_s_t_refund_updated',
+        amount: 300,
+      });
+      await postWebhook(event);
+
+      // 100cr / 599¢: T = floor(100·300/599) = 50.
+      expect(await purchasedBalance('s_t_refund_updated')).toBe(50);
+
+      // Exact replay of the SAME event id — claimBillingEvent dedups it
+      // before handleEvent (and therefore charges.retrieve) ever runs again.
+      await postWebhook(event);
+
+      expect(await purchasedBalance('s_t_refund_updated')).toBe(50);
+    });
+
+    it('charge.refunded then refund.updated for ONE refund reverse the topup at most once', async () => {
+      await buyAndPay('s_t_dedup');
+      await postWebhook(webhookEvent('charge.refunded', {
+        id: 'ch_t_dedup',
+        payment_intent: 'pi_s_t_dedup',
+        amount: 599,
+        amount_refunded: 599, // full
+        refunds: { data: [{ id: 're_t_dedup' }] },
+      }));
+
+      expect(await purchasedBalance('s_t_dedup')).toBe(0);
+
+      stripeMock.charges.retrieve.mockResolvedValueOnce({
+        id: 'ch_t_dedup',
+        amount: 599,
+        amount_refunded: 599,
+        invoice: null,
+        payment_intent: 'pi_s_t_dedup',
+      });
+      await postWebhook(webhookEvent('refund.updated', {
+        id: 're_t_dedup', // the SAME refund id charge.refunded already reported
+        charge: 'ch_t_dedup',
+        payment_intent: 'pi_s_t_dedup',
+        amount: 599,
+      }));
+
+      // Still fully (and only once) reversed — never double-reversed negative.
+      expect(await purchasedBalance('s_t_dedup')).toBe(0);
+
+      const [purchase] = await purchaseRows('s_t_dedup');
+
+      expect(purchase!.status).toBe('refunded');
+    });
+  });
+
+  // G02 — top-up verified-evidence cross-check.
+  describe('G02 — verified evidence before fulfilment', () => {
+    it('an amount mismatch between the retrieved session and the persisted purchase holds the event and grants nothing', async () => {
+      await seedSalon('s_t_evidence_mismatch');
+      const checkout = await postCheckout({ salonId: 's_t_evidence_mismatch', topupOfferKey: 'topup_100_paid_2026_08' });
+      const { data } = await checkout.json();
+      const [purchase] = await purchaseRows('s_t_evidence_mismatch');
+      const [attempt] = await attemptRows('s_t_evidence_mismatch');
+
+      // The retrieved session reports a DIFFERENT amount than the persisted
+      // purchase (599¢) — tampering, or a session/purchase mismatch race.
+      stripeMock.checkout.sessions.retrieve.mockResolvedValueOnce({
+        id: data.sessionId,
+        amount_total: 1,
+        currency: 'cad',
+        metadata: {
+          purpose: 'sms_topup',
+          salonId: 's_t_evidence_mismatch',
+          topupOfferKey: purchase!.topupOfferKey,
+          purchaseId: purchase!.id,
+          attemptId: attempt!.id,
+        },
+        line_items: { data: [] },
+        payment_intent: 'pi_evidence_mismatch',
+      });
+      const event = webhookEvent('checkout.session.completed', {
+        id: data.sessionId,
+        payment_status: 'paid',
+        payment_intent: 'pi_evidence_mismatch',
+        metadata: { purpose: 'sms_topup', salonId: 's_t_evidence_mismatch' },
+      });
+      const response = await postWebhook(event);
+
+      expect(response.status).toBe(200);
+
+      const [row] = (await db.select().from(schema.billingStripeEventSchema))
+        .filter(entry => entry.eventId === event.id);
+
+      expect(row!.status).toBe('held_anomaly');
+      expect(row!.lastError).toBe('TOPUP_AMOUNT_MISMATCH');
+      expect(await purchasedBalance('s_t_evidence_mismatch')).toBe(0);
+
+      const [purchaseAfter] = await purchaseRows('s_t_evidence_mismatch');
+
+      expect(purchaseAfter!.status).toBe('checkout_created'); // never touched
+
+      const sentry = await import('@sentry/nextjs');
+
+      expect(vi.mocked(sentry.captureMessage)).toHaveBeenCalledWith('billing.event_held_anomaly', expect.objectContaining({
+        extra: expect.objectContaining({ detail: 'TOPUP_AMOUNT_MISMATCH' }),
+      }));
+    });
+  });
+
+  // G05 — delayed-settlement (async) payment methods.
+  describe('G05 — async payment events', () => {
+    it('async_payment_succeeded fulfils exactly once, even when an unpaid completed arrived first', async () => {
+      await seedSalon('s_t_async_success');
+      const checkout = await postCheckout({ salonId: 's_t_async_success', topupOfferKey: 'topup_100_paid_2026_08' });
+      const { data } = await checkout.json();
+      await postWebhook(webhookEvent('checkout.session.completed', {
+        id: data.sessionId,
+        payment_status: 'unpaid',
+        payment_intent: 'pi_async_success',
+        metadata: { purpose: 'sms_topup', salonId: 's_t_async_success' },
+      }));
+
+      expect(await purchasedBalance('s_t_async_success')).toBe(0);
+
+      await mockVerifiedTopupEvidence({ sessionId: data.sessionId, salonId: 's_t_async_success' });
+      const asyncSucceeded = webhookEvent('checkout.session.async_payment_succeeded', {
+        id: data.sessionId,
+        payment_status: 'paid',
+        payment_intent: 'pi_async_success',
+        metadata: { purpose: 'sms_topup', salonId: 's_t_async_success' },
+      });
+      await postWebhook(asyncSucceeded);
+
+      expect(await purchasedBalance('s_t_async_success')).toBe(100);
+
+      // Replay: exactly once.
+      await postWebhook(asyncSucceeded);
+
+      expect(await purchasedBalance('s_t_async_success')).toBe(100);
+    });
+
+    it('async_payment_failed expires the purchase and its attempt atomically, using the same locked transition as checkout.session.expired', async () => {
+      await seedSalon('s_t_async_failed');
+      const checkout = await postCheckout({ salonId: 's_t_async_failed', topupOfferKey: 'topup_100_paid_2026_08' });
+      const { data } = await checkout.json();
+
+      await postWebhook(webhookEvent('checkout.session.async_payment_failed', {
+        id: data.sessionId,
+        metadata: { purpose: 'sms_topup', salonId: 's_t_async_failed' },
+      }));
+
+      const [purchase] = await purchaseRows('s_t_async_failed');
+      const [attempt] = await attemptRows('s_t_async_failed');
+
+      expect(purchase!.status).toBe('expired');
+      expect(attempt!.status).toBe('expired');
+    });
+  });
+
+  // P1 follow-up — the top-up-refund held_anomaly branch now alerts too.
+  it('a refund total that REGRESSES (moves backward) is held for a human and alerts exactly once', async () => {
+    await buyAndPay('s_t_regressed');
+    await postWebhook(webhookEvent('charge.refunded', {
+      id: 'ch_t_regressed',
+      payment_intent: 'pi_s_t_regressed',
+      amount: 599,
+      amount_refunded: 300,
+      refunds: { data: [{ id: 're_t_regressed' }] },
+    }));
+
+    expect(await purchasedBalance('s_t_regressed')).toBe(50);
+
+    const sentry = await import('@sentry/nextjs');
+    const before = vi.mocked(sentry.captureMessage).mock.calls.length;
+    const event = webhookEvent('charge.refunded', {
+      id: 'ch_t_regressed',
+      payment_intent: 'pi_s_t_regressed',
+      amount: 599,
+      amount_refunded: 100, // moved BACKWARD — a failed refund
+      refunds: { data: [{ id: 're_t_regressed_2' }] },
+    });
+    await postWebhook(event);
+
+    const [row] = (await db.select().from(schema.billingStripeEventSchema))
+      .filter(entry => entry.eventId === event.id);
+
     expect(row!.status).toBe('held_anomaly');
+    expect(row!.lastError).toBe('REFUND_TOTAL_REGRESSED');
+    expect(vi.mocked(sentry.captureMessage).mock.calls.length).toBe(before + 1);
+    expect(vi.mocked(sentry.captureMessage)).toHaveBeenLastCalledWith('billing.event_held_anomaly', expect.objectContaining({
+      extra: expect.objectContaining({ detail: 'REFUND_TOTAL_REGRESSED' }),
+    }));
+    // The balance is UNCHANGED — no automatic claw-forward on a failed refund.
+    expect(await purchasedBalance('s_t_regressed')).toBe(50);
   });
 });

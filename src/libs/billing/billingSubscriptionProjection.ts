@@ -32,6 +32,7 @@ import type { BillingDbTransaction } from '@/libs/billing/creditLedger';
 import { addMonthsClamped } from '@/libs/billing/creditWindows';
 import { getPlanDefinition } from '@/libs/billing/planDefinitions';
 import { getPromotion } from '@/libs/billing/promotions';
+import { resolveBillingOfferFromStripePriceId } from '@/libs/billing/stripePriceMap';
 import { db } from '@/libs/DB';
 import {
   billingCheckoutAttemptSchema,
@@ -59,11 +60,33 @@ export type StripeSubscriptionSnapshot = {
   cancelAtPeriodEnd: boolean;
   currentPeriodStart: Date;
   metadata: Record<string, string | undefined>;
+  /** The subscription's first item's price id (§4/G02 cross-check). Absent when the caller could not read it. */
+  priceId?: string | null;
 };
 
 export type ProjectionOutcome =
   | { applied: true; kind: 'created' | 'updated' | 'stale' | 'noop' }
   | { applied: false; anomaly: string };
+
+/**
+ * G02 price ↔ offer-metadata cross-check gate. Logged AT MOST ONCE per
+ * process — over the all-placeholder Gate A tables `resolveBillingOfferFromStripePriceId`
+ * always returns null (every table is unconfigured), so without this cap
+ * every subscription event carrying a price id would log forever. The same
+ * null return also covers a configured map that simply does not recognise an
+ * unrelated price id; in both cases there is nothing positive to cross-check
+ * against, so the cross-check is skipped rather than treated as a mismatch.
+ */
+let subscriptionPriceCrossCheckUnconfiguredLogged = false;
+
+function logSubscriptionPriceCrossCheckSkippedOnce(): void {
+  if (subscriptionPriceCrossCheckUnconfiguredLogged) {
+    return;
+  }
+  subscriptionPriceCrossCheckUnconfiguredLogged = true;
+  // eslint-disable-next-line no-console
+  console.info('[billing] subscription price cross-check skipped: price map unconfigured for this environment (G02)');
+}
 
 /**
  * Upsert from an authoritative subscription snapshot (a subscription.* event
@@ -93,6 +116,21 @@ export async function projectSubscriptionSnapshot(input: {
     return { applied: false, anomaly: `UNKNOWN_STATUS:${snapshot.status}` };
   }
   const status = snapshot.status as BillingSubscriptionStatus;
+
+  // G02: cross-check the Stripe Price actually on the subscription against
+  // the offer key we trust from metadata — BEFORE any state write. Only
+  // evaluated when the caller supplied a price id; a resolved-but-different
+  // offer is a hard anomaly (never guess which one is right), while a null
+  // resolution (unconfigured map, or a price id the current map does not
+  // recognise) is inert-by-design until Stripe Price ids are provisioned.
+  if (snapshot.priceId !== null && snapshot.priceId !== undefined) {
+    const resolvedOfferKey = resolveBillingOfferFromStripePriceId(snapshot.priceId);
+    if (resolvedOfferKey === null) {
+      logSubscriptionPriceCrossCheckSkippedOnce();
+    } else if (resolvedOfferKey !== offer.key) {
+      return { applied: false, anomaly: 'PRICE_OFFER_MISMATCH' };
+    }
+  }
 
   return db.transaction(async (tx) => {
     const [existing] = await tx
@@ -294,6 +332,55 @@ export async function applyInvoicePaymentFailed(input: {
     .where(eq(billingSubscriptionSchema.stripeSubscriptionId, input.stripeSubscriptionId))
     .returning();
   return { applied: updated.length === 1 };
+}
+
+/**
+ * §6.7/G10 full subscription refund: future grants stop. Sets
+ * `paid_through = min(paid_through, refundedPeriodStart)` — NEVER raises it —
+ * so the window engine (the only granter, §6.4) stops minting windows the
+ * refund left uncovered. Nothing else is recorded: this is deliberately NOT
+ * part of the subscription event stream's `last_event_created` fence (a
+ * refund is money evidence, not a newer subscription state), and consumed
+ * credits already sent are never clawed back (§6.7) — only FUTURE windows are
+ * affected.
+ *
+ * Idempotent by construction: replaying the SAME (or an older) refund's
+ * `refundedPeriodStart` against an already-lowered `paid_through` is a pure
+ * MIN no-op (`lowered: false`) — no extra column or refund-id ledger is
+ * needed to detect replay. This is also why `charge.refunded` and
+ * `refund.updated` for the SAME underlying refund converge to AT MOST ONE
+ * Sentry alert regardless of delivery order: whichever event arrives first
+ * lowers the value and reports `lowered: true`; the other finds the target
+ * already reached and reports `lowered: false`.
+ */
+export async function applySubscriptionFullRefund(input: {
+  stripeSubscriptionId: string;
+  /** The refund's id — carried for caller-side logging/audit; not persisted here. */
+  refundId: string;
+  refundedPeriodStart: Date;
+  eventCreated: Date;
+  eventId: string;
+  now?: Date;
+}): Promise<{ applied: boolean; lowered: boolean }> {
+  return db.transaction(async (tx) => {
+    const [subscription] = await tx
+      .select()
+      .from(billingSubscriptionSchema)
+      .where(eq(billingSubscriptionSchema.stripeSubscriptionId, input.stripeSubscriptionId))
+      .for('update');
+    if (subscription === undefined) {
+      return { applied: false, lowered: false };
+    }
+    if (input.refundedPeriodStart.getTime() >= subscription.paidThrough.getTime()) {
+      // Already at or below the refunded floor — no-op, matches "never raises".
+      return { applied: true, lowered: false };
+    }
+    await tx
+      .update(billingSubscriptionSchema)
+      .set({ paidThrough: input.refundedPeriodStart })
+      .where(eq(billingSubscriptionSchema.id, subscription.id));
+    return { applied: true, lowered: true };
+  });
 }
 
 /**

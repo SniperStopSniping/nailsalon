@@ -212,6 +212,10 @@ export async function POST(request: NextRequest) {
       session = await stripe.checkout.sessions.create(
         {
           mode: 'payment',
+          // D8: card-only for v1 — delayed-notification methods (still
+          // reachable via checkout.session.async_payment_succeeded/failed,
+          // handled by the webhook) are deliberately excluded for now.
+          payment_method_types: ['card'],
           ...(salon.stripeCustomerId
             ? { customer: salon.stripeCustomerId }
             : { customer_email: salon.stripeCustomerEmail ?? salon.ownerEmail ?? undefined }),
