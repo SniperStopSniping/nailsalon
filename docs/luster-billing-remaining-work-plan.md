@@ -146,7 +146,7 @@ Hard ordering rules:
 | P3c | merged | #210 | 1627a2ee | 2026-09-14 | transactional audit trail; adds a checkout postimage hash |
 | P4 | merged | #207 | e4ed4928 | 2026-09-14 | code half only — cron registration parked on D3; drift demo in billing-gate-c-record.md §3 |
 | P5a | merged | #205 | 3ed304b7 | 2026-09-14 | proceeded under owner instruction "do not merge #176 wholesale"; #176 UI half must rebase on it |
-| P5b | parked | | | | live portal route; needs explicit D18 approval |
+| P5b | PR opened | (this PR) | | | portal freeze replaced by reviewed postimage (D18 approved 2026-09-14); live route, legacy behaviour byte-preserved |
 | P6 | merged | #208 | ef3f486a | 2026-09-14 | tax architecture + rate-protection resolver; env-keyed price carrier PARKED (D19a) |
 | P7 | merged | #206 | 1083e9e1 | 2026-09-14 | proceeded under owner "through P7"; cards stay informational while dark |
 | P8a | not started | | | | |
@@ -273,7 +273,8 @@ If any phase turns out to need a migration: **STOP** and report.
 | `BILLING_IDENTITY_HMAC_SECRET/VERSION` | provisioning is a runbook step; rotation follows the P8c lifecycle doc | — |
 | Live modules `creditGrants.ts`, `creditLedger.ts`, `creditReservation.ts` | not edited in dark phases (P3c, P8a explicitly exclude them); any edit carries a live-onboarding regression test | protocol |
 | Vercel env / Stripe dashboard / production DB | no changes of any kind by Claude during P0–P9 | protocol |
-| `/api/webhooks/stripe/route.ts` (legacy) and `/api/billing/portal` | byte-identical until P5b (portal, explicit D18) / P9 (legacy, D19) | `CI.yml:219-221` |
+| `/api/webhooks/stripe/route.ts` (legacy) | byte-identical until P9 (legacy, D19) | `CI.yml:219-221` |
+| `/api/billing/portal/route.ts` | zero-diff freeze replaced by a reviewed-postimage gate (P5b, D18 approved 2026-09-14): live route, legacy-customer behaviour byte-preserved, new-track `billing_subscription` customer resolution added, errors masked (G26) | `CI.yml` — postimage gate immediately after the checkout postimage gate |
 | `platform_communication_control` and SMS switches | untouched by this track | communications runbook |
 
 ---
