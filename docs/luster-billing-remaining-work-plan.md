@@ -151,7 +151,7 @@ Hard ordering rules:
 | P7 | merged | #206 | 1083e9e1 | 2026-09-14 | proceeded under owner "through P7"; cards stay informational while dark |
 | P8a | not started | | | | |
 | P8b | not started | | | | D6 |
-| P8c | not started | | | | = D1 billing half; Gate D authorization required |
+| P8c | PR opened | (this PR) | | | = D1 billing half; Gate D authorization required for this scope (documentation + dark readiness harness only — no execution); delivers `docs/BILLING_PRODUCTION_RUNBOOK.md`, `docs/BILLING_IDENTITY_KEY_LIFECYCLE.md`, `src/libs/billing/readinessCheck.ts` + `scripts/billing-readiness-check.ts`; D10/D11 documented PENDING, not defaulted |
 | P9 | BLOCKED | | | | contract amendment required |
 
 If any phase turns out to need a migration: **STOP** and report.
