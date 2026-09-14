@@ -28,6 +28,7 @@ vi.mock('@/libs/DB', () => ({
 const envHolder = vi.hoisted(() => ({
   BILLING_PLAN_ENV: 'test' as string,
   BILLING_TOPUPS_ENABLED: undefined as string | undefined,
+  BILLING_TAX_COLLECTION_ENABLED: undefined as string | undefined,
   STRIPE_BILLING_WEBHOOK_SECRET: 'whsec_test' as string | undefined,
   NEXT_PUBLIC_APP_URL: 'https://app.test',
   BILLING_IDENTITY_HMAC_SECRET: undefined,
@@ -94,6 +95,7 @@ beforeAll(async () => {
 
 beforeEach(() => {
   envHolder.BILLING_TOPUPS_ENABLED = 'true';
+  envHolder.BILLING_TAX_COLLECTION_ENABLED = undefined;
   priceMapHolder.priceId = 'price_topup_resolved';
   stripeMock.checkout.sessions.create.mockReset();
   stripeMock.checkout.sessions.retrieve.mockReset();
@@ -946,5 +948,63 @@ describe('top-up fulfillment through the webhook (§9.3-§9.5)', () => {
     }));
     // The balance is UNCHANGED — no automatic claw-forward on a failed refund.
     expect(await purchasedBalance('s_t_regressed')).toBe(50);
+  });
+});
+
+// G14 — automatic-tax architecture (§3.7). Collection stays off in every
+// environment; this pins the ARCHITECTURE (the Checkout Session params),
+// never a live-collection assertion.
+describe('G14 — automatic-tax architecture (§3.7)', () => {
+  it('BILLING_TAX_COLLECTION_ENABLED unset ⇒ automatic_tax.enabled is false, address collection still required', async () => {
+    await seedSalon('s_t_tax_off');
+    const response = await postCheckout({ salonId: 's_t_tax_off', topupOfferKey: 'topup_100_paid_2026_08' });
+
+    expect(response.status).toBe(200);
+
+    const params = stripeMock.checkout.sessions.create.mock.calls[0]![0];
+
+    expect(params.automatic_tax).toEqual({ enabled: false });
+    expect(params.billing_address_collection).toBe('required');
+  });
+
+  it('BILLING_TAX_COLLECTION_ENABLED=\'true\' ⇒ automatic_tax.enabled is true', async () => {
+    envHolder.BILLING_TAX_COLLECTION_ENABLED = 'true';
+    await seedSalon('s_t_tax_on');
+    const response = await postCheckout({ salonId: 's_t_tax_on', topupOfferKey: 'topup_100_paid_2026_08' });
+
+    expect(response.status).toBe(200);
+
+    const params = stripeMock.checkout.sessions.create.mock.calls[0]![0];
+
+    expect(params.automatic_tax).toEqual({ enabled: true });
+  });
+
+  it('the customer branch (a known Stripe customer) carries customer_update; the customer_email branch does not', async () => {
+    await db.insert(schema.salonSchema).values({
+      id: 's_t_tax_customer',
+      name: 's_t_tax_customer',
+      slug: 's_t_tax_customer',
+      plan: 'single_salon',
+      stripeCustomerId: 'cus_existing_topup_123',
+    });
+    const withCustomer = await postCheckout({ salonId: 's_t_tax_customer', topupOfferKey: 'topup_100_paid_2026_08' });
+
+    expect(withCustomer.status).toBe(200);
+
+    const paramsWithCustomer = stripeMock.checkout.sessions.create.mock.calls[0]![0];
+
+    expect(paramsWithCustomer.customer).toBe('cus_existing_topup_123');
+    expect(paramsWithCustomer.customer_update).toEqual({ address: 'auto' });
+
+    stripeMock.checkout.sessions.create.mockClear();
+    await seedSalon('s_t_tax_no_customer');
+    const withoutCustomer = await postCheckout({ salonId: 's_t_tax_no_customer', topupOfferKey: 'topup_100_paid_2026_08' });
+
+    expect(withoutCustomer.status).toBe(200);
+
+    const paramsWithoutCustomer = stripeMock.checkout.sessions.create.mock.calls[0]![0];
+
+    expect(paramsWithoutCustomer.customer).toBeUndefined();
+    expect(paramsWithoutCustomer.customer_update).toBeUndefined();
   });
 });

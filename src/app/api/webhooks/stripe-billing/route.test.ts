@@ -604,4 +604,48 @@ describe('stripe-billing webhook pipeline', () => {
       expect(Object.keys(options.extra).sort()).toEqual(['detail', 'eventId', 'eventType']);
     });
   });
+
+  // G14/§3.7 — the architecture MUST support invoice-failure states,
+  // including tax-related ones (automatic tax stays OFF; this proves the
+  // generic invoice.payment_failed handling needs no special-casing for a
+  // tax-shaped failure body).
+  describe('§3.7 — invoice-failure states (tax-related failure shape)', () => {
+    it('an invoice.payment_failed carrying a tax-related last_finalization_error still projects past_due, paid_through unchanged', async () => {
+      const salonId = 's_route_tax_failed';
+      const stripeSubscriptionId = 'sub_route_tax_failed';
+      const paidThrough = new Date('2027-09-01T10:00:00.000Z');
+      await db.insert(schema.salonSchema).values({ id: salonId, name: salonId, slug: salonId });
+      await db.insert(schema.billingSubscriptionSchema).values({
+        id: `bsub_${salonId}`,
+        salonId,
+        stripeSubscriptionId,
+        stripeCustomerId: `cus_${salonId}`,
+        planDefinitionKey: 'pro_2026_08',
+        billingOfferKey: 'pro_2026_08_annual',
+        billingCadence: 'annual',
+        status: 'active',
+        paidThrough,
+        creditCycleAnchor: new Date('2026-09-01T10:00:00.000Z'),
+      });
+
+      const event = stripeEvent('invoice.payment_failed', {
+        id: 'in_route_tax_failed',
+        subscription: stripeSubscriptionId,
+        last_finalization_error: { code: 'tax_id_invalid', type: 'invoice_error' },
+      });
+      const response = await post(event);
+
+      expect(response.status).toBe(200);
+
+      const [row] = (await eventRows()).filter(entry => entry.eventId === event.id);
+
+      expect(row!.status).toBe('processed');
+
+      const [subscription] = await db.select().from(schema.billingSubscriptionSchema)
+        .where(eq(schema.billingSubscriptionSchema.stripeSubscriptionId, stripeSubscriptionId));
+
+      expect(subscription!.status).toBe('past_due');
+      expect(subscription!.paidThrough.getTime()).toBe(paidThrough.getTime());
+    });
+  });
 });

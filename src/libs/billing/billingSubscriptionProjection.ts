@@ -29,9 +29,9 @@ import { getBillingOffer } from '@/libs/billing/billingOffers';
 import { completeAttempt } from '@/libs/billing/checkoutAttempts';
 import { applyUpgradeDiff, evaluateSubscriptionWindows } from '@/libs/billing/creditGrants';
 import type { BillingDbTransaction } from '@/libs/billing/creditLedger';
-import { addMonthsClamped } from '@/libs/billing/creditWindows';
 import { getPlanDefinition } from '@/libs/billing/planDefinitions';
 import { getPromotion } from '@/libs/billing/promotions';
+import { resolveOfferForServicePeriod, resolveRateProtectedThrough } from '@/libs/billing/rateProtection';
 import { resolveBillingOfferFromStripePriceId } from '@/libs/billing/stripePriceMap';
 import { db } from '@/libs/DB';
 import {
@@ -253,9 +253,21 @@ export async function applyInvoicePaymentSucceeded(input: {
     }
 
     // A parked downgrade applies at renewal (§6.4): the renewal invoice is
-    // the boundary evidence.
+    // the boundary evidence. §3.9/G15: the pending key is mapped through the
+    // rate-protection resolver before it is applied — a protected Founding
+    // subscriber renewing into a pending change still keeps its protected
+    // offer while `servicePeriodStart` (the pre-update paid_through
+    // boundary — this invoice's coverage begins exactly where the prior
+    // entitlement ended) is strictly before `rate_protected_through`.
+    // Today the committed catalogue retires no offer, so this is a no-op —
+    // pinned in billingSubscriptionProjection.test.ts.
     if (subscription.pendingOfferKey !== null) {
-      const pendingOffer = getBillingOffer(subscription.pendingOfferKey);
+      const resolvedPendingOfferKey = resolveOfferForServicePeriod({
+        currentOfferKey: subscription.pendingOfferKey,
+        rateProtectedThrough: subscription.rateProtectedThrough,
+        servicePeriodStart: subscription.paidThrough,
+      }).offerKey;
+      const pendingOffer = getBillingOffer(resolvedPendingOfferKey);
       const pendingPlan = pendingOffer !== null ? getPlanDefinition(pendingOffer.planDefinitionKey) : null;
       if (pendingOffer !== null && pendingPlan !== null) {
         patch.billingOfferKey = pendingOffer.key;
@@ -296,7 +308,7 @@ export async function applyInvoicePaymentSucceeded(input: {
           hasClaim = already !== undefined;
         }
         if (hasClaim) {
-          patch.rateProtectedThrough = addMonthsClamped(now, promotion.rateProtectionMonths);
+          patch.rateProtectedThrough = resolveRateProtectedThrough(now, promotion);
         }
       }
     }

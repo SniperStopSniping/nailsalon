@@ -34,6 +34,13 @@ export const Env = createEnv({
     BILLING_SUBSCRIPTIONS_ENABLED: z.enum(['true', 'false']).optional(),
     BILLING_TOPUPS_ENABLED: z.enum(['true', 'false']).optional(),
     PUBLIC_PRICING_ENABLED: z.enum(['true', 'false']).optional(),
+    // G14 automatic-tax architecture (contract §3.7, P6). Optional and UNSET
+    // MEANS COLLECTION STAYS OFF: both Checkout Sessions always set
+    // automatic_tax.enabled from this flag directly, so a fresh deploy can
+    // never collect tax structurally. Enabling live collection requires the
+    // owner's accountant to confirm registrations, jurisdictions, product
+    // tax code, treatment and invoice wording (publication gate §12) first.
+    BILLING_TAX_COLLECTION_ENABLED: z.enum(['true', 'false']).optional(),
     // Dedicated secret for /api/webhooks/stripe-billing (§8.1) — never shared
     // with the legacy or deposits webhook secrets.
     STRIPE_BILLING_WEBHOOK_SECRET: z.string().optional(),
@@ -135,6 +142,7 @@ export const Env = createEnv({
     BILLING_SUBSCRIPTIONS_ENABLED: process.env.BILLING_SUBSCRIPTIONS_ENABLED,
     BILLING_TOPUPS_ENABLED: process.env.BILLING_TOPUPS_ENABLED,
     PUBLIC_PRICING_ENABLED: process.env.PUBLIC_PRICING_ENABLED,
+    BILLING_TAX_COLLECTION_ENABLED: process.env.BILLING_TAX_COLLECTION_ENABLED,
     STRIPE_BILLING_WEBHOOK_SECRET: process.env.STRIPE_BILLING_WEBHOOK_SECRET,
     TWILIO_ACCOUNT_SID: process.env.TWILIO_ACCOUNT_SID,
     TWILIO_AUTH_TOKEN: process.env.TWILIO_AUTH_TOKEN,

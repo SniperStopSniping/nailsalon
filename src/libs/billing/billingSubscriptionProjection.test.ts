@@ -41,6 +41,24 @@ vi.mock('@/libs/billing/stripePriceMap', async (importOriginal) => {
   };
 });
 
+// G15/§3.9 — wraps the REAL resolver so renewal behaviour is unchanged
+// while recording every call, proving the pending-offer-at-renewal path is
+// actually wired through it (the §3.9 vectors themselves live in
+// rateProtection.test.ts).
+const rateProtectionHolder = vi.hoisted(() => ({
+  calls: [] as { currentOfferKey: string; rateProtectedThrough: Date | null; servicePeriodStart: Date }[],
+}));
+vi.mock('@/libs/billing/rateProtection', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/libs/billing/rateProtection')>();
+  return {
+    ...actual,
+    resolveOfferForServicePeriod: (input: Parameters<typeof actual.resolveOfferForServicePeriod>[0]) => {
+      rateProtectionHolder.calls.push(input);
+      return actual.resolveOfferForServicePeriod(input);
+    },
+  };
+});
+
 let db: ReturnType<typeof drizzle<typeof schema>>;
 
 beforeAll(async () => {
@@ -52,6 +70,7 @@ beforeAll(async () => {
 
 beforeEach(() => {
   priceMapHolder.resolvedOfferKey = null;
+  rateProtectionHolder.calls = [];
 });
 
 const events = () => import('./billingStripeEvents');
@@ -268,6 +287,18 @@ describe('subscription projection (§8.3/§8.4)', () => {
 
     expect(row!.billingOfferKey).toBe('starter_2026_08_monthly');
     expect(row!.pendingOfferKey).toBeNull();
+
+    // G15/§3.9: the pending key was mapped through resolveOfferForServicePeriod
+    // — servicePeriodStart is the PRE-UPDATE paid_through boundary (this
+    // subscription's original activation, T0; no promotion ⇒ no protection).
+    // Today the committed catalogue retires no offer, so the resolved key is
+    // IDENTICAL to the raw pending key above — that is the point: wiring the
+    // resolver in changes nothing yet.
+    expect(rateProtectionHolder.calls).toContainEqual({
+      currentOfferKey: 'starter_2026_08_monthly',
+      rateProtectedThrough: null,
+      servicePeriodStart: T0,
+    });
   });
 });
 
