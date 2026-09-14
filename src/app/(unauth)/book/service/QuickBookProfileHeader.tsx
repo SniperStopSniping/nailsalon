@@ -56,6 +56,7 @@ const PRESENTATION_TOKEN_STYLE = {
 
 /** The booking engine's own heading, rendered directly below this header. */
 const BOOKING_ENTRY_ANCHOR_ID = 'quick-book-booking';
+const WIDE_LOGO_MIN_ASPECT_RATIO = 4 / 3;
 
 type QuickBookProfileHeaderProps = {
   profile: QuickBookProfileView;
@@ -92,7 +93,11 @@ function ProfileLogo({ compact = false, name, src }: {
         className={`size-full object-contain ${isWide ? 'p-0.5' : 'p-1'}`}
         onLoad={(event) => {
           const { naturalHeight, naturalWidth } = event.currentTarget;
-          setWideLogoSrc(naturalHeight > 0 && naturalWidth / naturalHeight >= 1.5 ? src : null);
+          setWideLogoSrc(
+            naturalHeight > 0 && naturalWidth / naturalHeight >= WIDE_LOGO_MIN_ASPECT_RATIO
+              ? src
+              : null,
+          );
         }}
       />
     </div>

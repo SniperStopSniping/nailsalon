@@ -74,6 +74,8 @@ type Fact = {
   href?: string;
 };
 
+const WIDE_LOGO_MIN_ASPECT_RATIO = 4 / 3;
+
 /**
  * A saved asset that no longer loads (moved storage, revoked provider URL)
  * must never leave a broken frame beside the owner's name: the slot falls
@@ -106,7 +108,11 @@ function Logo({ name, src }: { name: string; src: string | null }) {
             onError={markBroken}
             onLoad={(event) => {
               const { naturalHeight, naturalWidth } = event.currentTarget;
-              setWideLogoSrc(naturalHeight > 0 && naturalWidth / naturalHeight >= 1.5 ? src : null);
+              setWideLogoSrc(
+                naturalHeight > 0 && naturalWidth / naturalHeight >= WIDE_LOGO_MIN_ASPECT_RATIO
+                  ? src
+                  : null,
+              );
             }}
             ref={imageRef}
             src={src}
