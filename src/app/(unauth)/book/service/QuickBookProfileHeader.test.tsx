@@ -312,7 +312,8 @@ describe('QuickBookProfileHeader', () => {
     });
 
     if (legacyTestId) {
-      expect(image).toHaveClass('object-contain');
+      expect(frame).toHaveClass('h-[4.25rem]', 'w-[6.5rem]');
+      expect(image).toHaveClass('object-contain', 'p-0.5');
     } else {
       expect(frame).toHaveClass('qb-logo');
     }

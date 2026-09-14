@@ -1100,15 +1100,29 @@ details[open] > summary > .qb-fact__chevron {
    The image remains object-contained, so internal asset whitespace is left
    intact and meaningful content is never cropped. */
 .qb-logo[data-qb-logo-shape="wide"] {
-  width: min(150px, 42cqw);
+  width: min(92px, 30cqw);
+  height: 62px;
+}
+
+.qb-logo[data-qb-logo-shape="wide"] img {
+  padding: 2px;
 }
 
 .qb-cover-stack > .qb-logo[data-qb-logo-shape="wide"],
-.qb-ribbon > .qb-logo[data-qb-logo-shape="wide"],
+.qb-ribbon > .qb-logo[data-qb-logo-shape="wide"] {
+  width: min(70px, 24cqw);
+  height: 48px;
+}
+
 .qb-split__panel .qb-logo[data-qb-logo-shape="wide"],
-.qb-luxe__panel .qb-logo[data-qb-logo-shape="wide"],
 .qb-band__copy .qb-logo[data-qb-logo-shape="wide"] {
-  width: min(120px, 36cqw);
+  width: min(64px, 24cqw);
+  height: 44px;
+}
+
+.qb-luxe__panel .qb-logo[data-qb-logo-shape="wide"] {
+  width: min(76px, 24cqw);
+  height: 52px;
 }
 
 @container (min-width: 520px) {
