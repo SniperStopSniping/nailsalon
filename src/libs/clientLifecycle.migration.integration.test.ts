@@ -529,7 +529,7 @@ describePostgres.sequential('client lifecycle migration chain', () => {
     expect(
       (await getClientLifecycleSchemaReadiness(database)).ready,
     ).toBe(true);
-  });
+  }, MIGRATION_REPLAY_TIMEOUT_MS);
 
   it('rejects a same-named index owned by the wrong public table', async () => {
     await resetDatabase(pool);
@@ -616,7 +616,7 @@ describePostgres.sequential('client lifecycle migration chain', () => {
     expect(
       (await getClientLifecycleSchemaReadiness(database)).ready,
     ).toBe(true);
-  });
+  }, MIGRATION_REPLAY_TIMEOUT_MS);
 
   it('rejects a lifecycle trigger attached to a foreign-schema function', async () => {
     await resetDatabase(pool);

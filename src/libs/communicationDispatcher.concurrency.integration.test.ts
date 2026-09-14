@@ -78,6 +78,17 @@ let db: ReturnType<typeof drizzle<typeof schema>>;
 
 const NOW = new Date('2026-08-17T12:00:00.000Z');
 
+// The shared beforeEach below (TRUNCATE ... CASCADE against a real,
+// shared-runner Postgres, right after the previous test's concurrent
+// Promise.all races release their pool connections) is marginal against the
+// 10s vitest hookTimeout default: CI reported "Hook timed out in 10000ms" in
+// this hook ahead of "STOP racing a dispatch linearizes…" and "concurrent
+// dispatch of the SAME claimed intent…", each passing on rerun (job
+// "Communications dispatcher PostgreSQL concurrency"). The hook is shared by
+// every test in this suite rather than owned by one, so the budget is set
+// file-wide instead of on a single beforeEach() call.
+vi.setConfig({ hookTimeout: 30_000 });
+
 suite('dispatcher — real-lock concurrency matrix', () => {
   beforeAll(async () => {
     pool = new pg.Pool({
