@@ -17,23 +17,14 @@
 import { and, inArray, isNull, lte, or } from 'drizzle-orm';
 
 import { evaluateSubscriptionWindows } from '@/libs/billing/creditGrants';
+import { isAuthorizedCronRequest } from '@/libs/billing/cronAuth';
 import { expireStaleClaims } from '@/libs/billing/promotionClaims';
 import { db } from '@/libs/DB';
 import { Env } from '@/libs/Env';
 import { billingSubscriptionSchema } from '@/models/Schema';
 
-function isAuthorized(request: Request): boolean {
-  const secret = process.env.CRON_SECRET;
-  if (!secret) {
-    return false;
-  }
-  const header = request.headers.get('x-cron-secret');
-  const bearer = request.headers.get('authorization');
-  return header === secret || bearer === `Bearer ${secret}`;
-}
-
 async function run(request: Request): Promise<Response> {
-  if (!isAuthorized(request)) {
+  if (!isAuthorizedCronRequest(request, process.env.CRON_SECRET)) {
     return Response.json({ error: 'Unauthorized' }, { status: 401 });
   }
   if (Env.BILLING_SUBSCRIPTIONS_ENABLED !== 'true') {

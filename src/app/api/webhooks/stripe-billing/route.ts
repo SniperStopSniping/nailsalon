@@ -27,6 +27,7 @@ import type Stripe from 'stripe';
 import {
   claimBillingEvent,
   failBillingEvent,
+  recordIgnoredBillingEvent,
   resolveBillingEvent,
 } from '@/libs/billing/billingStripeEvents';
 import {
@@ -89,11 +90,9 @@ export async function POST(request: Request): Promise<Response> {
     return Response.json({ error: { code: 'INVALID_SIGNATURE' } }, { status: 400 });
   }
 
-  // Livemode gate (§8.2): a live event reaching a non-prod deployment (or
-  // vice versa) is recorded and ignored — never processed, never retried.
   const expectLive = Env.BILLING_PLAN_ENV === 'prod';
   const object = event.data.object as unknown as Record<string, unknown>;
-  const claim = await claimBillingEvent({
+  const extracted = {
     eventId: event.id,
     eventType: event.type,
     livemode: event.livemode,
@@ -105,14 +104,23 @@ export async function POST(request: Request): Promise<Response> {
     checkoutSessionId: event.type.startsWith('checkout.session') ? String(object.id ?? '') || null : null,
     paymentIntentId: typeof object.payment_intent === 'string' ? object.payment_intent : null,
     rawPayload: JSON.parse(JSON.stringify(event)) as Record<string, unknown>,
-  });
+  };
+
+  // Livemode gate (§8.2 order: signature → livemode → claim): a live event
+  // reaching a non-prod deployment (or vice versa) is recorded DIRECTLY in
+  // its terminal status — never processed, never retried, and never
+  // claimed. No `processing` row is ever written for it, and a replayed
+  // delivery of the same mismatched event is a no-op (ON CONFLICT DO
+  // NOTHING inside recordIgnoredBillingEvent).
+  if (event.livemode !== expectLive) {
+    await recordIgnoredBillingEvent(extracted, 'ignored_livemode_mismatch');
+    return Response.json({ received: true, ignored: 'livemode_mismatch' });
+  }
+
+  const claim = await claimBillingEvent(extracted);
   if (!claim.claimed) {
     // Replay or concurrent delivery: acknowledged, never reprocessed.
     return Response.json({ received: true, deduplicated: true });
-  }
-  if (event.livemode !== expectLive) {
-    await resolveBillingEvent(event.id, 'ignored_livemode_mismatch');
-    return Response.json({ received: true, ignored: 'livemode_mismatch' });
   }
   if (!HANDLED_TYPES.has(event.type)) {
     await resolveBillingEvent(event.id, 'ignored_unhandled');
@@ -218,6 +226,10 @@ async function handleEvent(event: Stripe.Event): Promise<{
         eventId: event.id,
       });
       if (!outcome.applied) {
+        Sentry.captureMessage('billing.event_held_anomaly', {
+          level: 'warning',
+          extra: { eventId: event.id, eventType: event.type, detail: outcome.anomaly },
+        });
         return { status: 'held_anomaly', detail: outcome.anomaly };
       }
       return { status: 'processed' };
@@ -235,6 +247,10 @@ async function handleEvent(event: Stripe.Event): Promise<{
         .map(line => line.period?.end ?? 0)
         .filter(end => end > 0);
       if (periodEnds.length === 0) {
+        Sentry.captureMessage('billing.event_held_anomaly', {
+          level: 'warning',
+          extra: { eventId: event.id, eventType: event.type, detail: 'INVOICE_WITHOUT_LINE_PERIODS' },
+        });
         return { status: 'held_anomaly', detail: 'INVOICE_WITHOUT_LINE_PERIODS' };
       }
       const result = await applyInvoicePaymentSucceeded({

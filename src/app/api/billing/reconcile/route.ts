@@ -21,20 +21,11 @@ import * as Sentry from '@sentry/nextjs';
 import type Stripe from 'stripe';
 
 import { projectSubscriptionSnapshot } from '@/libs/billing/billingSubscriptionProjection';
+import { isAuthorizedCronRequest } from '@/libs/billing/cronAuth';
 import { db } from '@/libs/DB';
 import { Env } from '@/libs/Env';
 import { stripe } from '@/libs/stripe';
 import { billingSubscriptionSchema } from '@/models/Schema';
-
-function isAuthorized(request: Request): boolean {
-  const secret = process.env.CRON_SECRET;
-  if (!secret) {
-    return false;
-  }
-  const header = request.headers.get('x-cron-secret');
-  const bearer = request.headers.get('authorization');
-  return header === secret || bearer === `Bearer ${secret}`;
-}
 
 type DriftEntry = {
   stripeSubscriptionId: string;
@@ -45,7 +36,7 @@ type DriftEntry = {
 };
 
 async function run(request: Request): Promise<Response> {
-  if (!isAuthorized(request)) {
+  if (!isAuthorizedCronRequest(request, process.env.CRON_SECRET)) {
     return Response.json({ error: 'Unauthorized' }, { status: 401 });
   }
   if (Env.BILLING_SUBSCRIPTIONS_ENABLED !== 'true') {

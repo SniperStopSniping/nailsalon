@@ -159,3 +159,67 @@ describe('test 23 — Connect secret isolation', () => {
     ))).toBeUndefined();
   });
 });
+
+// =============================================================================
+// G25 — the billing secret was never checked for a collision with either
+// sibling, and the check runs at process boot (instrumentation.ts →
+// assertEnvironmentIsolation), so a defective fix fails production boot.
+// =============================================================================
+
+describe('G25 — billing secret collision guard', () => {
+  it('(a) billing == legacy is rejected', () => {
+    expect(isolationErrorCode(() => assertProviderEnvironmentIsolation(
+      previewFixture({
+        STRIPE_WEBHOOK_SECRET: 'whsec_shared',
+        STRIPE_BILLING_WEBHOOK_SECRET: 'whsec_shared',
+      }),
+    ))).toBe('STRIPE_WEBHOOK_SECRET_COLLISION');
+  });
+
+  it('(b) billing == connect is rejected', () => {
+    expect(isolationErrorCode(() => assertProviderEnvironmentIsolation(
+      previewFixture({
+        STRIPE_CONNECT_WEBHOOK_SECRET: 'whsec_shared',
+        STRIPE_BILLING_WEBHOOK_SECRET: 'whsec_shared',
+      }),
+    ))).toBe('STRIPE_WEBHOOK_SECRET_COLLISION');
+  });
+
+  it('(c) billing absent, connect present passes', () => {
+    expect(isolationErrorCode(() => assertProviderEnvironmentIsolation(
+      previewFixture({
+        STRIPE_CONNECT_WEBHOOK_SECRET: 'whsec_connect',
+        STRIPE_BILLING_WEBHOOK_SECRET: undefined,
+      }),
+    ))).toBeUndefined();
+  });
+
+  it('(d) billing absent AND connect absent (today\'s production shape) passes', () => {
+    // The mandatory truthiness guard: undefined === undefined must never reject.
+    expect(isolationErrorCode(() => assertProviderEnvironmentIsolation(
+      previewFixture({
+        STRIPE_CONNECT_WEBHOOK_SECRET: undefined,
+        STRIPE_BILLING_WEBHOOK_SECRET: undefined,
+      }),
+    ))).toBeUndefined();
+  });
+
+  it('(e) all three distinct passes', () => {
+    expect(isolationErrorCode(() => assertProviderEnvironmentIsolation(
+      previewFixture({
+        STRIPE_WEBHOOK_SECRET: 'whsec_legacy',
+        STRIPE_CONNECT_WEBHOOK_SECRET: 'whsec_connect',
+        STRIPE_BILLING_WEBHOOK_SECRET: 'whsec_billing',
+      }),
+    ))).toBeUndefined();
+  });
+
+  it('(c) REGRESSION GUARD: the real CI fixture must pass with all three placeholders equal', () => {
+    // Deliberately mirrors "(c) REGRESSION GUARD" above for the legacy/connect
+    // pair: in ci/test the billing secret is never validated by this guard —
+    // requireDistinctStripeWebhookSecrets sits in the deployment branch only.
+    expect(isolationErrorCode(() => assertProviderEnvironmentIsolation(
+      ciFixture({ STRIPE_BILLING_WEBHOOK_SECRET: CI_PLACEHOLDER }),
+    ))).toBeUndefined();
+  });
+});

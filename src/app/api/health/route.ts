@@ -5,6 +5,7 @@ import { isClientLifecycleSchemaReady } from '@/libs/clientLifecycleSchema';
 import type { LifecycleReadinessSqlHandle } from '@/libs/clientLifecycleSchemaCore';
 import { db } from '@/libs/DB';
 import { type DepositsReadinessSqlHandle, isDepositsSchemaReady } from '@/libs/depositsSchema';
+import { expectedBillingPlanEnv, resolveRuntimeEnvironment } from '@/libs/environmentIsolation';
 import { isResendSenderVerified } from '@/libs/resendHealth';
 import { getSchemaDriftStatus, type SchemaReadinessSqlHandle } from '@/libs/schemaReadiness';
 
@@ -69,6 +70,20 @@ type HealthResponse = {
   // ready semantically, but is deliberately excluded from `criticalChecksPass`
   // below — see that comment.
   schemaDrift: 'ready' | 'not_ready' | 'ahead' | 'unavailable';
+  // G23/G34 — the Luster billing track's ONLY public surface. Exactly two
+  // booleans, deliberately no per-switch detail and no secret-presence flag:
+  // granular state (which of the three switches is set, whether the billing
+  // secret specifically is provisioned) belongs to the authenticated
+  // super-admin panel (P8b), never to this unauthenticated endpoint.
+  billing: {
+    // True while every dark-safety control is in its default, inert state:
+    // no billing behaviour is reachable from any request while this holds.
+    dark: boolean;
+    // True when BILLING_PLAN_ENV matches what environmentIsolation's single
+    // producer (expectedBillingPlanEnv) expects for this runtime — reused,
+    // never re-derived, so this can never drift from the boot-time check.
+    planEnvMatchesRuntime: boolean;
+  };
   timestamp: string;
   gitSha?: string;
 };
@@ -260,6 +275,26 @@ export async function GET(): Promise<Response> {
     = googleOAuthConfigured || legacyGoogleCalendarConfigured;
 
   // ---------------------------------------------------------------------------
+  // 11. Billing track — G23/G34. Presence-only, no external call. Exactly
+  // two booleans on this public surface (see the HealthResponse comment).
+  // ---------------------------------------------------------------------------
+  const billingDark = process.env.BILLING_SUBSCRIPTIONS_ENABLED !== 'true'
+    && process.env.BILLING_TOPUPS_ENABLED !== 'true'
+    && process.env.PUBLIC_PRICING_ENABLED !== 'true'
+    && !process.env.STRIPE_BILLING_WEBHOOK_SECRET;
+  // Never let a health probe throw: an unresolved/conflicting runtime
+  // environment reads as a mismatch, exactly like a real misprovisioning
+  // would, rather than taking the whole endpoint down.
+  let billingPlanEnvMatchesRuntime = false;
+  try {
+    const runtimeEnvironment = resolveRuntimeEnvironment();
+    billingPlanEnvMatchesRuntime
+      = process.env.BILLING_PLAN_ENV === expectedBillingPlanEnv(runtimeEnvironment);
+  } catch {
+    billingPlanEnvMatchesRuntime = false;
+  }
+
+  // ---------------------------------------------------------------------------
   // Determine overall status
   // ---------------------------------------------------------------------------
   // DB is critical - if it's down, we're degraded
@@ -300,6 +335,10 @@ export async function GET(): Promise<Response> {
     clientLifecycleSchema,
     depositsSchema,
     schemaDrift,
+    billing: {
+      dark: billingDark,
+      planEnvMatchesRuntime: billingPlanEnvMatchesRuntime,
+    },
     timestamp: new Date().toISOString(),
   };
 
