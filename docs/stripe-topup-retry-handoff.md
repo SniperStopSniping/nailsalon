@@ -24,10 +24,42 @@ Route regressions cover duplicate/reused attempts, offer conflicts, tenant and d
 Final validation on Node 20.19.4:
 
 - Focused billing suite: **77 passed** across top-up route (24), subscription checkout (16), billing webhook (7), subscription projection (7), credit grants (23). Command: `npx vitest run --no-file-parallelism src/app/api/billing/checkout/topup/route.test.ts src/app/api/billing/checkout/route.test.ts src/app/api/webhooks/stripe-billing/route.test.ts src/libs/billing/billingSubscriptionProjection.test.ts src/libs/billing/creditGrants.test.ts`.
-- Strengthened standalone PostgreSQL suite: **3 passed**, including eight initial requests waiting on the same salon lock, tenant independence during remote I/O, and deterministic expiry/fulfillment lock compatibility. Uses the existing guarded `CONCURRENCY_TEST_DATABASE_URL` pattern.
-- An earlier combined credit + top-up PostgreSQL run passed 11 tests. After strengthening, the final combined rerun was blocked by host **ENOSPC** while writing WAL/cache; it is not a final green combined gate.
-- `npm run check-types`: passed with the repository's synthetic CI provider placeholders. Scoped ESLint and `npm run lint`: passed. `npm run security:check-secrets -- --tree`: passed (2,534 tracked files).
-- `npm run test:all -- --maxWorkers=2 --minWorkers=1`: attempted, exited 1 during host disk exhaustion; incomplete, **not green**. Full-suite and final combined PostgreSQL gates must be rerun before delivery beyond this local review branch.
+- Final combined PostgreSQL suite: **12 passed** across the credit-reservation
+  concurrency suite (9) and top-up checkout concurrency suite (3), including
+  simultaneous initial requests, tenant independence, and deterministic
+  expiry/fulfillment lock compatibility.
+- `npm run check-types`: passed with the repository's synthetic CI provider
+  placeholders. Scoped ESLint and `npm run lint`: passed.
+  `npm run security:check-secrets -- --tree`: passed (2,534 tracked files).
+- `npm run test:all -- --maxWorkers=1 --minWorkers=1`: **7,752 passed, 178
+  skipped by environment guards, 1 documented todo; 663 files passed and 18
+  skipped**. The single worker bounds temporary-disk pressure without changing
+  suite coverage.
 - Browser tests/build/remote CI/preview were not run. This phase changes no browser UI. No branch push, deployment, merge or activation was performed.
 
-Fresh `npm ci` failed due to disk exhaustion. Checks used an existing compatible dependency tree through a local ignored symlink, without changing the lockfile. The first reused tree was stale; final checks used the installed Next 15.5.25 tree. The disposable PostgreSQL cluster created for these tests was stopped and removed. No user-owned files or services were cleaned up.
+### Pre-existing reminder-test race
+
+The first complete Vitest rerun after disk cleanup exposed a synchronization
+race in `UpcomingAppointmentActions.test.tsx`, outside the Stripe change. The
+test waited until the reminder POST appeared in the fetch mock, then immediately
+asserted that React had removed the due-reminder panel. The request observation
+can precede the async state commit.
+
+Evidence from an untouched detached `origin/main` worktree at `77231193`:
+
+- The test file had the same SHA-256 on `origin/main` and `8bbba238`:
+  `f381d56e22fc73880327cbf5b34ef0505cbe41bf3ca8fe987839703b0f7b5579`.
+- Ten isolated baseline runs produced five passes and five failures. Four
+  failures selected `Snooze 3 hours`; one selected `Skip`, confirming timing
+  rather than action-specific behavior.
+- A separate test-only commit keeps the request-body assertions and DOM-removal
+  assertion intact, wrapping only the final removal assertion in Testing
+  Library's condition-based `waitFor`. It adds no arbitrary delay.
+- Ten repeated candidate runs passed, and the corrected test passed in the
+  complete Vitest suite.
+
+Fresh `npm ci` initially failed during the earlier disk-exhaustion incident.
+Final checks used an existing compatible Next 15.5.25 dependency tree through
+a local ignored symlink, without changing the lockfile. Every disposable
+PostgreSQL cluster created for these tests was stopped and removed. No
+user-owned files or services were cleaned up.
