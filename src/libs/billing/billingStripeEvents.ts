@@ -109,6 +109,58 @@ export async function claimBillingEvent(input: {
   };
 }
 
+/**
+ * Record a DURABLE terminal row for an event that must never be claimed or
+ * processed at all — today, exclusively the §8.2 livemode mismatch. Unlike
+ * claimBillingEvent, this writes the row ALREADY in its terminal status: no
+ * `processing` row is ever created, and `handleEvent` is never reachable for
+ * this event id. `ON CONFLICT (event_id) DO NOTHING` makes a replayed
+ * delivery of the same mismatched event a no-op — the first delivery's row
+ * is authoritative and is never overwritten or reprocessed.
+ */
+export async function recordIgnoredBillingEvent(
+  input: {
+    eventId: string;
+    eventType: string;
+    livemode: boolean;
+    apiCreatedAt: Date;
+    salonId?: string | null;
+    subscriptionId?: string | null;
+    invoiceId?: string | null;
+    checkoutSessionId?: string | null;
+    paymentIntentId?: string | null;
+    priceId?: string | null;
+    rawPayload?: Record<string, unknown> | null;
+    now?: Date;
+  },
+  status: 'ignored_livemode_mismatch',
+): Promise<void> {
+  const now = input.now ?? new Date();
+  await db
+    .insert(billingStripeEventSchema)
+    .values({
+      id: `bse_${crypto.randomUUID()}`,
+      eventId: input.eventId,
+      eventType: input.eventType,
+      livemode: input.livemode,
+      apiCreatedAt: input.apiCreatedAt,
+      salonId: input.salonId ?? null,
+      status,
+      attempts: 0,
+      subscriptionId: input.subscriptionId ?? null,
+      invoiceId: input.invoiceId ?? null,
+      checkoutSessionId: input.checkoutSessionId ?? null,
+      paymentIntentId: input.paymentIntentId ?? null,
+      priceId: input.priceId ?? null,
+      rawPayload: input.rawPayload ?? null,
+      // Same 30-day payload retention as a claimed row (§7.3 / G13 purge).
+      payloadPurgeAfter: new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000),
+      receivedAt: now,
+      processedAt: now,
+    })
+    .onConflictDoNothing({ target: billingStripeEventSchema.eventId });
+}
+
 /** Terminal success / classification statuses. */
 export async function resolveBillingEvent(
   eventId: string,

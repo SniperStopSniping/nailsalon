@@ -137,7 +137,7 @@ export function UsageBillingModal({ salonSlug, onClose }: UsageBillingModalProps
       const response = await fetch('/api/billing/portal', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ salonId: undefined, salonSlug }),
+        body: JSON.stringify({ salonId: data?.salonId, salonSlug }),
       });
       const body = await response.json();
       if (body.url) {
@@ -146,7 +146,7 @@ export function UsageBillingModal({ salonSlug, onClose }: UsageBillingModalProps
     } finally {
       setPortalLoading(false);
     }
-  }, [portalLoading, salonSlug]);
+  }, [portalLoading, salonSlug, data]);
 
   const buyTopup = useCallback(async (topupOfferKey: string) => {
     if (buying !== null || data?.creditPurchasesAvailable !== true

@@ -98,6 +98,24 @@ describe('UsageBillingModal', () => {
     expect(fetchMock).not.toHaveBeenCalledWith('/api/billing/checkout/topup', expect.anything());
   });
 
+  it('posts the real salonId (not undefined) when opening the Billing Portal (G20)', async () => {
+    render(<UsageBillingModal salonSlug="salon-a" onClose={vi.fn()} />);
+    const button = await screen.findByRole('button', { name: 'Manage billing' });
+    // No `url` in the response: the test asserts the outgoing request body,
+    // not the redirect, and must not exercise jsdom's unimplemented navigation.
+    fetchMock.mockResolvedValue(new Response(JSON.stringify({}), { status: 200 }));
+
+    fireEvent.click(button);
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith('/api/billing/portal', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ salonId: 'salon_1', salonSlug: 'salon-a' }),
+      });
+    });
+  });
+
   it.each(['TOPUPS_DISABLED', 'PRICE_UNCONFIGURED'])('preserves configured checkout and explains a later %s response', async (code) => {
     render(<UsageBillingModal salonSlug="salon-a" onClose={vi.fn()} />);
     const button = await screen.findByRole('button', { name: /100 credits — \$5\.99/ });

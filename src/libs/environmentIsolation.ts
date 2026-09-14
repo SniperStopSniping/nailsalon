@@ -287,20 +287,37 @@ function requireExactCiProviderPlaceholders(environment: Environment): void {
 }
 
 /**
- * The billing endpoint and the Connect endpoint are two distinct Stripe webhook
- * endpoints, so they have two distinct signing secrets. Sharing one means either
- * the Connect endpoint verifies billing deliveries or the reverse — and the
- * billing handler resolves its tenant from `session.metadata.salonId` without
- * ever reading `event.account`, so a Connect-scoped delivery reaching it is a
+ * The legacy, Connect, and billing endpoints are three distinct Stripe webhook
+ * endpoints, so they have three distinct signing secrets. Sharing one means one
+ * endpoint could verify another's deliveries — and the billing handler resolves
+ * its tenant from `session.metadata.salonId` without ever reading
+ * `event.account`, so a Connect- or legacy-scoped delivery reaching it is a
  * cross-tenant billing takeover.
  *
- * Deployment branch ONLY. In ci/test both are the same approved placeholder by
- * design, so evaluating this before the ci/test early return would reject every
- * CI job and every vitest run.
+ * The billing secret (`STRIPE_BILLING_WEBHOOK_SECRET`) is OPTIONAL — it stays
+ * unset while the billing endpoint is dark (§12) — so every comparison
+ * involving it MUST be guarded by its truthiness first. A bare
+ * `billing === connect` (or `billing === legacy`) check would reject every
+ * deployment where the billing secret is simply unset, including today's
+ * production shape where Connect is also unset: `undefined === undefined` is
+ * `true`, and that must never reject.
+ *
+ * Deployment branch ONLY. In ci/test all three are the same approved
+ * placeholder by design, so evaluating this before the ci/test early return
+ * would reject every CI job and every vitest run.
  */
 function requireDistinctStripeWebhookSecrets(environment: Environment): void {
   const connectSecret = environment.STRIPE_CONNECT_WEBHOOK_SECRET;
   if (connectSecret && connectSecret === environment.STRIPE_WEBHOOK_SECRET) {
+    reject('STRIPE_WEBHOOK_SECRET_COLLISION');
+  }
+
+  const billingSecret = environment.STRIPE_BILLING_WEBHOOK_SECRET;
+  if (
+    billingSecret
+    && (billingSecret === environment.STRIPE_WEBHOOK_SECRET
+      || (connectSecret && billingSecret === connectSecret))
+  ) {
     reject('STRIPE_WEBHOOK_SECRET_COLLISION');
   }
 }
@@ -312,6 +329,30 @@ function requireBillingEnvironment(
   if (environment.BILLING_PLAN_ENV !== expected) {
     reject('BILLING_PLAN_ENV_INVALID');
   }
+}
+
+/**
+ * The SINGLE PRODUCER of "what BILLING_PLAN_ENV should read for this runtime
+ * environment" (G34). PURE, never throws. `ci`/`test` map to `'test'` — the
+ * same literal `APPROVED_CI_PROVIDER_VALUES.BILLING_PLAN_ENV` requires below
+ * — because a real deployment (development/preview/production) is the only
+ * place `assertProviderEnvironmentIsolation` calls `requireBillingEnvironment`
+ * with this mapping; ci/test enforce the placeholder value through the exact
+ * CI-placeholder check instead. Exported so callers outside this module (the
+ * public, unauthenticated `/api/health` informational surface) can ask
+ * "does BILLING_PLAN_ENV match this runtime" without re-deriving the mapping.
+ */
+export function expectedBillingPlanEnv(
+  runtimeEnvironment: RuntimeEnvironment,
+): 'dev' | 'test' | 'prod' {
+  if (runtimeEnvironment === 'ci' || runtimeEnvironment === 'test') {
+    return 'test';
+  }
+  return runtimeEnvironment === 'production'
+    ? 'prod'
+    : runtimeEnvironment === 'preview'
+      ? 'test'
+      : 'dev';
 }
 
 /**
@@ -344,14 +385,7 @@ export function assertProviderEnvironmentIsolation(
     reject('STRIPE_KEY_MODE_INVALID');
   }
 
-  requireBillingEnvironment(
-    environment,
-    runtimeEnvironment === 'production'
-      ? 'prod'
-      : runtimeEnvironment === 'preview'
-        ? 'test'
-        : 'dev',
-  );
+  requireBillingEnvironment(environment, expectedBillingPlanEnv(runtimeEnvironment));
 
   return runtimeEnvironment;
 }
