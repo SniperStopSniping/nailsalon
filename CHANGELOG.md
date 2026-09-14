@@ -1,3 +1,10 @@
+## [1.98.3](https://github.com/SniperStopSniping/nailsalon/compare/v1.98.2...v1.98.3) (2026-09-14)
+
+
+### Bug Fixes
+
+* **booking:** tighten wide logo frame ([5d77bbb](https://github.com/SniperStopSniping/nailsalon/commit/5d77bbb5ab29d9fe3508237ddd2c4af5c376d317))
+
 ## [1.98.2](https://github.com/SniperStopSniping/nailsalon/compare/v1.98.1...v1.98.2) (2026-09-14)
 
 
