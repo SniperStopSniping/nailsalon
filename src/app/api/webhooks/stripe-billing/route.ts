@@ -41,6 +41,7 @@ import {
   projectSubscriptionSnapshot,
   type StripeSubscriptionSnapshot,
 } from '@/libs/billing/billingSubscriptionProjection';
+import { BILLING_WEBHOOK_HANDLED_TYPES } from '@/libs/billing/billingWebhookEvents';
 import {
   applyTopupChargeRefunded,
   applyTopupDisputeCreated,
@@ -55,21 +56,10 @@ import { Env } from '@/libs/Env';
 import { stripe } from '@/libs/stripe';
 import { billingSubscriptionSchema, smsTopupPurchaseSchema } from '@/models/Schema';
 
-const HANDLED_TYPES = new Set([
-  'checkout.session.completed',
-  'checkout.session.expired',
-  'checkout.session.async_payment_succeeded',
-  'checkout.session.async_payment_failed',
-  'customer.subscription.created',
-  'customer.subscription.updated',
-  'customer.subscription.deleted',
-  'invoice.payment_succeeded',
-  'invoice.payment_failed',
-  'charge.refunded',
-  'refund.updated',
-  'charge.dispute.created',
-  'charge.dispute.closed',
-]);
+// P8c: the literal list now lives in billingWebhookEvents.ts (shared with
+// the readiness harness and its CLI) — this route's behaviour is unchanged,
+// it just no longer owns the only copy.
+const HANDLED_TYPES = new Set<string>(BILLING_WEBHOOK_HANDLED_TYPES);
 
 function toSnapshot(subscription: Stripe.Subscription): StripeSubscriptionSnapshot {
   return {
