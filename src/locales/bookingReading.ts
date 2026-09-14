@@ -1,10 +1,6 @@
-// Small, shared client-side copy for the date picker and reading preference.
+// Small, shared client-side copy for the date picker.
 // Keep English and French keys together so every control has both variants.
 const en = {
-  easierToRead: 'Easier to read',
-  readingOn: 'On',
-  readingOff: 'Off',
-  readingHelp: 'Larger text, clear backgrounds and a simple font. Saved on this device.',
   previousWeek: 'Previous week',
   nextWeek: 'Next week',
   previousMonth: 'Previous month',
@@ -16,10 +12,6 @@ const en = {
 };
 
 const fr: typeof en = {
-  easierToRead: 'Lecture facilitée',
-  readingOn: 'Activée',
-  readingOff: 'Désactivée',
-  readingHelp: 'Texte agrandi, fonds unis et police simple. Enregistré sur cet appareil.',
   previousWeek: 'Semaine précédente',
   nextWeek: 'Semaine suivante',
   previousMonth: 'Mois précédent',

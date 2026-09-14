@@ -385,10 +385,6 @@ async function walkReadOnlyBookingTargets(page: Page): Promise<void> {
   });
   await page.keyboard.press('Tab');
 
-  await expect(page.getByRole('button', { name: 'Easier to read Off' })).toBeFocused();
-
-  await page.keyboard.press('Tab');
-
   await expect(back).toBeFocused();
   await expect.poll(() => back.evaluate(element => window.getComputedStyle(element).outlineStyle)).not.toBe('none');
 }
