@@ -3913,6 +3913,11 @@ suite('POST /api/appointments — genuine concurrency', () => {
     expect(await activeAppointments()).toHaveLength(1);
   });
 
+  // Five sequential real-Postgres races (TRUNCATE CASCADE + two concurrent
+  // POST /api/appointments handlers each) in one test is ~5x the work of its
+  // single-race siblings above; CI reported "Test timed out in 5000ms" here
+  // (job "Booking entitlement override PostgreSQL concurrency") while the
+  // same test passes on rerun and locally well under the vitest default.
   it('is correct whichever request wins, across repeated races', async () => {
     const { POST } = await import('./route');
     const winners = new Set<string>();
@@ -3941,7 +3946,7 @@ suite('POST /api/appointments — genuine concurrency', () => {
 
     // The invariant holds no matter who won; which one wins is not asserted.
     expect(winners.size).toBeGreaterThanOrEqual(1);
-  });
+  }, 30_000);
 
   it('serializes two real moves and leaves reminders aligned with the winner', async () => {
     const appointment = await seedManagedAppointment({
