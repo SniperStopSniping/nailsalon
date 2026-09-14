@@ -1,3 +1,10 @@
+# [1.106.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.105.0...v1.106.0) (2026-09-14)
+
+
+### Features
+
+* **billing:** p6b env-keyed stripe price-id carrier (D19a) ([0d9a0e0](https://github.com/SniperStopSniping/nailsalon/commit/0d9a0e058ad9c43601eb34dd3cbf4ee215578128))
+
 # [1.105.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.104.2...v1.105.0) (2026-09-14)
 
 
