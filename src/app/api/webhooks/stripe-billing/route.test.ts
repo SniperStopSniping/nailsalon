@@ -648,4 +648,195 @@ describe('stripe-billing webhook pipeline', () => {
       expect(subscription!.paidThrough.getTime()).toBe(paidThrough.getTime());
     });
   });
+
+  // P3b — processing lease + CAS-fenced terminal writes, re-derived from PR
+  // #176's ideas on top of #195's state machine.
+  describe('P3b — processing lease and CAS-fenced terminal writes', () => {
+    it('a concurrent delivery of the SAME event, still within another claim\'s lease, gets 503 with Retry-After and never runs the handler (no double effect)', async () => {
+      await db.insert(schema.salonSchema).values({ id: 's_route_inflight', name: 's', slug: 's-route-inflight' });
+      const event = stripeEvent('customer.subscription.created', {
+        id: 'sub_route_inflight',
+        customer: 'cus_inflight',
+        status: 'active',
+        cancel_at_period_end: false,
+        current_period_start: 1_780_000_000,
+        metadata: { purpose: 'plan_subscription', salonId: 's_route_inflight', billingOfferKey: 'starter_2026_08_monthly' },
+      });
+      // Simulate a DIFFERENT delivery already claimed and mid-flight, well
+      // within its lease — this IS the two-simultaneous-deliveries scenario,
+      // driven through the same DB row a real second worker would hold.
+      await db.insert(schema.billingStripeEventSchema).values({
+        id: 'bse_route_inflight_sim',
+        eventId: event.id,
+        eventType: event.type,
+        livemode: false,
+        apiCreatedAt: new Date(event.created * 1000),
+        status: 'processing',
+        attempts: 1,
+      });
+
+      const response = await post(event);
+
+      expect(response.status).toBe(503);
+      expect((await response.json()).error.code).toBe('BILLING_EVENT_PENDING');
+
+      const retryAfter = Number(response.headers.get('Retry-After'));
+
+      expect(retryAfter).toBeGreaterThanOrEqual(5);
+      expect(retryAfter).toBeLessThanOrEqual(300);
+
+      const [subscription] = await db.select().from(schema.billingSubscriptionSchema)
+        .where(eq(schema.billingSubscriptionSchema.stripeSubscriptionId, 'sub_route_inflight'));
+
+      expect(subscription).toBeUndefined(); // handleEvent never ran for this delivery — no double effect
+
+      const rows = (await eventRows()).filter(row => row.eventId === event.id);
+
+      expect(rows).toHaveLength(1);
+      expect(rows[0]!.status).toBe('processing'); // untouched — still owned by the simulated in-flight claimer
+      expect(rows[0]!.attempts).toBe(1);
+    });
+
+    it('a lapsed processing lease is reclaimed exactly once, with attempts incremented, and the event completes normally', async () => {
+      await db.insert(schema.salonSchema).values({ id: 's_route_lease', name: 's', slug: 's-route-lease' });
+      const event = stripeEvent('customer.subscription.created', {
+        id: 'sub_route_lease',
+        customer: 'cus_lease',
+        status: 'active',
+        cancel_at_period_end: false,
+        current_period_start: 1_780_000_000,
+        metadata: { purpose: 'plan_subscription', salonId: 's_route_lease', billingOfferKey: 'starter_2026_08_monthly' },
+      });
+      const staleLease = new Date(Date.now() - 6 * 60 * 1000); // past the 5-minute lease
+      await db.insert(schema.billingStripeEventSchema).values({
+        id: 'bse_route_lease_stale',
+        eventId: event.id,
+        eventType: event.type,
+        livemode: false,
+        apiCreatedAt: new Date(event.created * 1000),
+        status: 'processing',
+        attempts: 1,
+        updatedAt: staleLease,
+      });
+
+      const response = await post(event);
+
+      expect(response.status).toBe(200);
+
+      const [row] = (await eventRows()).filter(entry => entry.eventId === event.id);
+
+      expect(row!.status).toBe('processed');
+      expect(row!.attempts).toBe(2); // bumped by the lapsed-lease reclaim, then resolved by THIS delivery
+
+      const [subscription] = await db.select().from(schema.billingSubscriptionSchema)
+        .where(eq(schema.billingSubscriptionSchema.stripeSubscriptionId, 'sub_route_lease'));
+
+      expect(subscription).toBeDefined();
+    });
+
+    it('a lost CAS on the terminal write never overwrites the newer owner\'s outcome, and alerts exactly once', async () => {
+      await db.insert(schema.salonSchema).values({ id: 's_route_cas', name: 's', slug: 's-route-cas' });
+      const event = stripeEvent('customer.subscription.updated', {
+        id: 'sub_route_cas',
+        customer: 'cus_cas',
+        status: 'active',
+        cancel_at_period_end: false,
+        current_period_start: 1_780_000_000,
+        metadata: { purpose: 'plan_subscription', salonId: 's_route_cas', billingOfferKey: 'starter_2026_08_monthly' },
+      });
+
+      stripeMock.subscriptions.retrieve.mockImplementationOnce(async () => {
+        // Simulate a DIFFERENT worker reclaiming this event id's LAPSED
+        // lease and reaching its OWN terminal outcome WHILE this delivery's
+        // handler is still mid-flight (blocked on this very Stripe call).
+        await db.update(schema.billingStripeEventSchema)
+          .set({ attempts: 2, status: 'processed', processedAt: new Date(), lastError: 'other_owner' })
+          .where(eq(schema.billingStripeEventSchema.eventId, event.id));
+        return {
+          id: 'sub_route_cas',
+          customer: 'cus_cas',
+          status: 'active',
+          cancel_at_period_end: false,
+          current_period_start: 1_780_000_000,
+          metadata: { purpose: 'plan_subscription', salonId: 's_route_cas', billingOfferKey: 'starter_2026_08_monthly' },
+          items: { data: [] },
+        };
+      });
+
+      const response = await post(event);
+
+      expect(response.status).toBe(200);
+
+      const [row] = (await eventRows()).filter(entry => entry.eventId === event.id);
+
+      // The other owner's outcome stands, byte for byte — our write never landed.
+      expect(row!.status).toBe('processed');
+      expect(row!.attempts).toBe(2);
+      expect(row!.lastError).toBe('other_owner');
+
+      const casLostCalls = sentryHolder.captureMessage.mock.calls
+        .filter(([message]) => message === 'billing.event_cas_lost');
+
+      expect(casLostCalls).toHaveLength(1);
+      expect(casLostCalls[0]![1]).toMatchObject({
+        extra: { eventId: event.id, eventType: 'customer.subscription.updated' },
+      });
+    });
+
+    it('the 8th failed attempt still poisons the event and alerts, unaffected by the CAS/lease changes', async () => {
+      const event = stripeEvent('invoice.payment_succeeded', {
+        id: 'in_route_poison',
+        subscription: 'sub_route_poison_missing',
+        lines: { data: [{ period: { end: 1_780_000_000 + 30 * 24 * 3600 } }] },
+      });
+      // Seed the row at attempt 7, past backoff — the reclaim on this
+      // delivery bumps it to 8, the poison threshold.
+      await db.insert(schema.billingStripeEventSchema).values({
+        id: 'bse_route_poison',
+        eventId: event.id,
+        eventType: event.type,
+        livemode: false,
+        apiCreatedAt: new Date(event.created * 1000),
+        status: 'failed_retryable',
+        attempts: 7,
+        availableAt: new Date(Date.now() - 1000),
+        lastError: 'prior failure',
+      });
+
+      const response = await post(event);
+
+      expect(response.status).toBe(200);
+      expect((await response.json()).poisoned).toBe(true);
+
+      const [row] = (await eventRows()).filter(entry => entry.eventId === event.id);
+
+      expect(row!.status).toBe('poisoned');
+      expect(row!.attempts).toBe(8);
+      expect(sentryHolder.captureException).toHaveBeenCalledWith(expect.any(Error), expect.objectContaining({
+        extra: expect.objectContaining({ eventId: event.id, poisoned: true }),
+      }));
+    });
+
+    it('a terminal replay after successful processing still deduplicates as 200, not the 503 given to an in-flight delivery', async () => {
+      await db.insert(schema.salonSchema).values({ id: 's_route_terminal_replay', name: 's', slug: 's-route-terminal-replay' });
+      const event = stripeEvent('customer.subscription.created', {
+        id: 'sub_route_terminal_replay',
+        customer: 'cus_terminal_replay',
+        status: 'active',
+        cancel_at_period_end: false,
+        current_period_start: 1_780_000_000,
+        metadata: { purpose: 'plan_subscription', salonId: 's_route_terminal_replay', billingOfferKey: 'starter_2026_08_monthly' },
+      });
+
+      const first = await post(event);
+
+      expect(first.status).toBe(200);
+
+      const replay = await post(event);
+
+      expect(replay.status).toBe(200);
+      expect((await replay.json()).deduplicated).toBe(true);
+      expect(replay.headers.get('Retry-After')).toBeNull();
+    });
+  });
 });
