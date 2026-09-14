@@ -235,14 +235,19 @@ jobs:
           base="$(git merge-base origin/main HEAD)"
 
           # 1. Hard zero-diff. D6 adds dependency manifests to the protected set.
-          #    Gate C2 narrowed the billing freeze: the PORTAL route (the one
-          #    production-used billing surface) stays byte-frozen here, while
-          #    the checkout surface moved to the reviewed-postimage allowlist
-          #    in step 1b — its legacy body accepted a client-supplied Stripe
-          #    priceId and was replaced by the server-authoritative C2 route.
+          #    Gate C2 narrowed the billing freeze: the legacy webhook route
+          #    stays byte-frozen here, while the checkout surface moved to the
+          #    reviewed-postimage allowlist in step 1b — its legacy body
+          #    accepted a client-supplied Stripe priceId and was replaced by
+          #    the server-authoritative C2 route. P5b (G41, D18, explicit
+          #    owner approval 2026-09-14) moved the Billing Portal route the
+          #    same way: it also stays a LIVE, production-used surface, but
+          #    now via the reviewed-postimage gate below (not this zero-diff
+          #    line) so it can resolve new-track `billing_subscription`
+          #    customers instead of only the legacy `salon.stripeCustomerId`
+          #    column.
           git diff --exit-code "$base" -- \
-            src/app/api/webhooks/stripe/route.ts \
-            src/app/api/billing/portal
+            src/app/api/webhooks/stripe/route.ts
 
           # Dependency manifests remain frozen except these reviewed exact
           # manifest/lock pairs. Neither a generic version range nor an
@@ -283,6 +288,9 @@ jobs:
               # P5a (G17): top-up purchase history, dark-gated + tenant-scoped.
               src/app/api/billing/topups/route.ts) ;;
               src/app/api/billing/topups/route.test.ts) ;;
+              # P5b (G41, D18): Billing Portal customer resolution.
+              src/app/api/billing/portal/route.ts) ;;
+              src/app/api/billing/portal/route.test.ts) ;;
               *)
                 echo "::error::Unauthorized change under src/app/api/billing: $file"
                 exit 1
@@ -303,6 +311,19 @@ jobs:
               *)
                 echo "::error::src/app/api/billing/checkout/route.ts must match a reviewed postimage."
                 printf 'actual blob: %s\n' "$checkout_blob"
+                exit 1
+                ;;
+            esac
+          fi
+
+          # Reviewed postimages: P5b billing_subscription customer resolution + masked errors (D18, 2026-09-14).
+          if ! git diff --quiet "$base" -- src/app/api/billing/portal/route.ts; then
+            portal_blob="$(git hash-object src/app/api/billing/portal/route.ts)"
+            case "$portal_blob" in
+              a4e92403b3a77bb60a414ce91651fd8de7137ad0) ;;
+              *)
+                echo "::error::src/app/api/billing/portal/route.ts must match a reviewed postimage."
+                printf 'actual blob: %s\n' "$portal_blob"
                 exit 1
                 ;;
             esac
