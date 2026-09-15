@@ -1,3 +1,10 @@
+## [1.110.1](https://github.com/SniperStopSniping/nailsalon/compare/v1.110.0...v1.110.1) (2026-09-15)
+
+
+### Bug Fixes
+
+* **billing:** preserve refunded coverage through reconciliation ([aa62d02](https://github.com/SniperStopSniping/nailsalon/commit/aa62d024cbf16f8304b26aef8d93a8962f383544))
+
 # [1.110.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.109.0...v1.110.0) (2026-09-14)
 
 
