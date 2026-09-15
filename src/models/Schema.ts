@@ -5090,3 +5090,31 @@ export const reviewRequestSchema = pgTable('review_request', {
   clientOnce: uniqueIndex('review_request_client_once').on(table.salonId, table.clientId).where(sql`${table.status} <> 'cancelled'`),
   phoneOnce: uniqueIndex('review_request_phone_once').on(table.salonId, table.recipient).where(sql`${table.status} <> 'cancelled'`),
 }));
+
+// Durable revision and receipts for the disabled owner-assistant menu action.
+// Migration 0078 advances the revision for every service mutation.
+export const serviceMenuRevisionSchema = pgTable('service_menu_revision', {
+  salonId: text('salon_id').primaryKey().references(() => salonSchema.id, { onDelete: 'cascade' }),
+  revision: bigint('revision', { mode: 'number' }).notNull().default(0),
+  updatedAt: timestamp('updated_at', { mode: 'date', withTimezone: true }).notNull().defaultNow(),
+});
+
+export const ownerAssistantMenuOperationSchema = pgTable('owner_assistant_menu_operation', {
+  id: text('id').primaryKey(),
+  salonId: text('salon_id').notNull().references(() => salonSchema.id, { onDelete: 'cascade' }),
+  actorAdminId: text('actor_admin_id').notNull().references(() => adminUserSchema.id, { onDelete: 'restrict' }),
+  idempotencyKey: text('idempotency_key').notNull(),
+  status: text('status').$type<'ready' | 'no_op' | 'applied' | 'undone'>().notNull(),
+  baseRevision: bigint('base_revision', { mode: 'number' }).notNull(),
+  appliedRevision: bigint('applied_revision', { mode: 'number' }),
+  oldOrder: jsonb('old_order').$type<Array<{ id: string; name: string; sortOrder: number | null }>>().notNull(),
+  newOrder: jsonb('new_order').$type<Array<{ id: string; name: string; sortOrder: number | null }>>().notNull(),
+  createdAt: timestamp('created_at', { mode: 'date', withTimezone: true }).notNull().defaultNow(),
+  appliedAt: timestamp('applied_at', { mode: 'date', withTimezone: true }),
+  undoneAt: timestamp('undone_at', { mode: 'date', withTimezone: true }),
+  updatedAt: timestamp('updated_at', { mode: 'date', withTimezone: true }).notNull().defaultNow(),
+}, table => ({
+  actorIdempotencyUniq: uniqueIndex('owner_assistant_menu_operation_actor_idempotency_idx').on(table.salonId, table.actorAdminId, table.idempotencyKey),
+  salonIdx: index('owner_assistant_menu_operation_salon_idx').on(table.salonId, table.createdAt),
+  statusValid: check('owner_assistant_menu_operation_status_check', sql`${table.status} IN ('ready', 'no_op', 'applied', 'undone')`),
+}));

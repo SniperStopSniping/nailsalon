@@ -508,6 +508,43 @@ export async function requireAdminOwner(
 }
 
 /**
+ * Owner-assistant writes deliberately do not run through super-admin
+ * impersonation. The assistant is an owner-authored command surface, so it
+ * requires the authenticated actor's own explicit `owner` membership.
+ */
+export async function requireRealSalonOwner(salonId: string): Promise<AdminGuardResult> {
+  const admin = await getAdminSession();
+  if (!admin) {
+    return {
+      ok: false,
+      response: new Response(JSON.stringify({ error: { code: 'UNAUTHORIZED', message: 'Not authenticated' } }), {
+        status: 401,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    };
+  }
+  if (await getValidatedAdminImpersonation(admin)) {
+    return {
+      ok: false,
+      response: new Response(JSON.stringify({ error: { code: 'IMPERSONATION_NOT_ALLOWED', message: 'Owner assistant actions are unavailable while impersonating.' } }), {
+        status: 403,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    };
+  }
+  if (!admin.salons.some(membership => membership.salonId === salonId && membership.role === 'owner')) {
+    return {
+      ok: false,
+      response: new Response(JSON.stringify({ error: { code: 'OWNER_REQUIRED', message: 'Only the salon owner can use owner assistant actions.' } }), {
+        status: 403,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    };
+  }
+  return { ok: true, admin };
+}
+
+/**
  * Require super admin access
  * Returns discriminated union: { ok: true, admin } or { ok: false, response }
  */

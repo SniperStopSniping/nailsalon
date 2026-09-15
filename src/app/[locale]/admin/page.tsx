@@ -29,6 +29,7 @@ import {
   WorkspaceQuickTour,
   type WorkspaceTourTarget,
 } from '@/components/admin/onboarding/WorkspaceQuickTour';
+import { OwnerMenuAssistant } from '@/components/admin/ownerAssistant/OwnerMenuAssistant';
 import { OwnerTodayWorkspace } from '@/components/admin/OwnerTodayWorkspace';
 import {
   OwnerWorkspaceNav,
@@ -2164,6 +2165,7 @@ function AdminDashboardContent() {
         onTargetChange={handleWorkspaceTourTarget}
         open={showOnboardingTour}
       />
+      <OwnerMenuAssistant locale={locale === 'fr' ? 'fr' : 'en'} salonSlug={activeDashboardSalonSlug} />
     </div>
   );
 }

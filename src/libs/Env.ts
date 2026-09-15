@@ -5,6 +5,8 @@ export const Env = createEnv({
   server: {
     CLERK_SECRET_KEY: z.string().min(1),
     DATABASE_URL: z.string().optional(),
+    // Owner menu assistant is disabled unless explicitly enabled server-side.
+    OWNER_ASSISTANT_ENABLED: z.enum(['true', 'false']).optional(),
     // Feature-flagged account-backed Onboarding V1 integration. Omission is
     // disabled; both the page and mutating APIs enforce this server-side.
     LUSTER_ONBOARDING_V1_INTEGRATION_ENABLED: z.enum(['true', 'false']).optional(),
@@ -135,6 +137,7 @@ export const Env = createEnv({
   runtimeEnv: {
     CLERK_SECRET_KEY: process.env.CLERK_SECRET_KEY,
     DATABASE_URL: process.env.DATABASE_URL,
+    OWNER_ASSISTANT_ENABLED: process.env.OWNER_ASSISTANT_ENABLED,
     LUSTER_ONBOARDING_V1_INTEGRATION_ENABLED:
       process.env.LUSTER_ONBOARDING_V1_INTEGRATION_ENABLED,
     LUSTER_SECTION_LIBRARY_V1_ENABLED:
