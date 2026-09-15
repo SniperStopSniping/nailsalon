@@ -94,13 +94,31 @@ export type VercelCronEntry = { path: string; schedule?: string };
 export type BillingReadinessHealthBilling = {
   dark: boolean;
   planEnvMatchesRuntime: boolean;
+  schemaDrift?: 'ready';
+};
+
+export type ProvisionedBillingWebhookEndpoint = {
+  id: string;
+  url: string;
+  livemode: boolean;
+  status: string;
+  enabled_events: readonly string[];
 };
 
 export type BillingReadinessCheckInput = {
   env: BillingReadinessEnv;
   vercelCrons: readonly VercelCronEntry[];
-  handledEventTypes: readonly string[];
-  /** Optional snapshot of GET /api/health's `billing` block — cross-checked, never required. */
+  /**
+   * Event types read from the Stripe webhook endpoint configuration. This is
+   * intentionally separate from the source constant: comparing a constant
+   * to itself cannot prove Stripe's selected delivery types.
+   */
+  provisionedWebhookEndpoint?: ProvisionedBillingWebhookEndpoint;
+  /** @deprecated Source event lists are never activation evidence. */
+  provisionedWebhookEventTypes?: readonly string[];
+  /** The exact deployed billing endpoint URL expected for this environment. */
+  expectedWebhookUrl?: string;
+  /** Optional snapshot of GET /api/health's `billing` block. */
   healthBilling?: BillingReadinessHealthBilling;
 };
 
@@ -112,9 +130,9 @@ export type BillingReadinessCheck = {
 
 export type BillingReadinessCheckResult = {
   checks: BillingReadinessCheck[];
-  /** Every boot-safety and dark-contract check passes: safe to deploy dark right now. */
+  /** Local configuration is safe to deploy while billing traffic controls stay dark. */
   readyForDarkDeploy: boolean;
-  /** readyForDarkDeploy AND the activation-only preconditions (cron registration, full handled-type set) hold too. */
+  /** Activation prerequisites, including independently supplied endpoint evidence, pass. */
   readyForActivation: boolean;
 };
 
@@ -232,6 +250,7 @@ function inspectCarrier(raw: string | undefined, expectedEnv: string | undefined
     ['coupons', KNOWN_COUPON_KEYS],
   ];
   const missing: Record<'offers' | 'topups' | 'coupons', string[]> = { offers: [], topups: [], coupons: [] };
+  const seenIds = new Set<string>();
   for (const [section, knownKeys] of sections) {
     const value = record[section];
     const configuredKeys = new Set<string>();
@@ -240,9 +259,10 @@ function inspectCarrier(raw: string | undefined, expectedEnv: string | undefined
         return { status: 'malformed' };
       }
       for (const [key, id] of Object.entries(value as Record<string, unknown>)) {
-        if (typeof id !== 'string' || !STRIPE_ID_SHAPE.test(id)) {
+        if (!knownKeys.includes(key) || typeof id !== 'string' || !STRIPE_ID_SHAPE.test(id) || seenIds.has(id)) {
           return { status: 'malformed' };
         }
+        seenIds.add(id);
         configuredKeys.add(key);
       }
     }
@@ -297,6 +317,28 @@ function checkStripePriceCarrier(env: BillingReadinessEnv): BillingReadinessChec
   }
 }
 
+function checkActivationPriceCarrier(env: BillingReadinessEnv): BillingReadinessCheck {
+  const inspection = inspectCarrier(env.BILLING_STRIPE_PRICE_IDS, env.BILLING_PLAN_ENV);
+  if (inspection.status === 'absent') {
+    return { id: 'activation_price_carrier', ok: false, detail: 'BILLING_STRIPE_PRICE_IDS is absent; activation requires every offer, top-up, and coupon id' };
+  }
+  if (inspection.status === 'malformed') {
+    return { id: 'activation_price_carrier', ok: false, detail: 'BILLING_STRIPE_PRICE_IDS is malformed' };
+  }
+  if (inspection.status === 'env_mismatch') {
+    return { id: 'activation_price_carrier', ok: false, detail: `BILLING_STRIPE_PRICE_IDS.env="${inspection.carrierEnv}" does not match BILLING_PLAN_ENV` };
+  }
+  const missing = [
+    ...inspection.missingOfferKeys,
+    ...inspection.missingTopupKeys,
+    ...inspection.missingCouponKeys,
+  ];
+  if (missing.length > 0) {
+    return { id: 'activation_price_carrier', ok: false, detail: `carrier is incomplete; missing catalogue keys: ${missing.join(', ')}` };
+  }
+  return { id: 'activation_price_carrier', ok: true, detail: 'carrier has every offer, top-up, and coupon id for this environment' };
+}
+
 function checkDarkSwitches(env: BillingReadinessEnv): BillingReadinessCheck {
   const enabled = DARK_SWITCH_KEYS.filter(key => env[key] === 'true');
   const secretSet = Boolean(env.STRIPE_BILLING_WEBHOOK_SECRET);
@@ -308,6 +350,14 @@ function checkDarkSwitches(env: BillingReadinessEnv): BillingReadinessCheck {
     return { id: 'dark_switches_unset', ok: false, detail: `not dark: ${reasons.join(', ')}` };
   }
   return { id: 'dark_switches_unset', ok: true, detail: 'all four dark switches unset and the billing webhook secret is unset' };
+}
+
+function checkActivationSwitches(env: BillingReadinessEnv): BillingReadinessCheck {
+  const enabled = DARK_SWITCH_KEYS.filter(key => env[key] === 'true');
+  if (enabled.length > 0) {
+    return { id: 'activation_switches_unset', ok: false, detail: `activation preparation requires switches to remain unset: ${enabled.join(', ')}` };
+  }
+  return { id: 'activation_switches_unset', ok: true, detail: 'all billing feature switches remain unset; the webhook secret is evaluated separately' };
 }
 
 function checkCronsRegistered(vercelCrons: readonly VercelCronEntry[]): BillingReadinessCheck {
@@ -327,23 +377,71 @@ function checkCronsRegistered(vercelCrons: readonly VercelCronEntry[]): BillingR
   };
 }
 
-function checkHandledEventTypes(handledEventTypes: readonly string[]): BillingReadinessCheck {
+function checkProvisionedWebhookEndpoint(
+  endpoint: ProvisionedBillingWebhookEndpoint | undefined,
+  expectedUrl: string | undefined,
+  env: BillingReadinessEnv,
+): BillingReadinessCheck {
+  if (endpoint === undefined || expectedUrl === undefined) {
+    return {
+      id: 'provisioned_webhook_endpoint',
+      ok: false,
+      detail: 'Stripe endpoint event selection was not supplied; source-code constants alone are not deployment evidence',
+    };
+  }
+  let endpointPath: string | null = null;
+  let expectedPath: string | null = null;
+  let invalidEndpointUrl = false;
+  try {
+    const endpointUrl = new URL(endpoint.url);
+    const expected = new URL(expectedUrl);
+    if (endpointUrl.protocol !== 'https:' || endpointUrl.pathname !== '/api/webhooks/stripe-billing') {
+      return { id: 'provisioned_webhook_endpoint', ok: false, detail: 'endpoint URL is not an HTTPS billing webhook URL' };
+    }
+    endpointPath = endpointUrl.origin + endpointUrl.pathname;
+    expectedPath = expected.origin + expected.pathname;
+  } catch {
+    invalidEndpointUrl = true;
+  }
+  if (invalidEndpointUrl || !endpoint.id || endpoint.status !== 'enabled' || endpointPath !== expectedPath) {
+    return { id: 'provisioned_webhook_endpoint', ok: false, detail: 'endpoint id, enabled status, or target URL is not the expected billing endpoint' };
+  }
+  const expectsLive = env.BILLING_PLAN_ENV === 'prod';
+  if (endpoint.livemode !== expectsLive) {
+    return { id: 'provisioned_webhook_endpoint', ok: false, detail: 'endpoint livemode does not match the billing environment' };
+  }
   const expected = new Set<string>(BILLING_WEBHOOK_HANDLED_TYPES);
-  const actual = new Set(handledEventTypes);
+  const actual = new Set(endpoint.enabled_events);
   const missing = [...expected].filter(type => !actual.has(type));
   const extra = [...actual].filter(type => !expected.has(type));
   if (missing.length > 0 || extra.length > 0) {
     const parts = [
-      ...(missing.length > 0 ? [`missing: ${missing.join(', ')}`] : []),
-      ...(extra.length > 0 ? [`unexpected: ${extra.join(', ')}`] : []),
+      ...(missing.length > 0 ? [`missing event types: ${missing.length}`] : []),
+      ...(extra.length > 0 ? [`unexpected event types: ${extra.length}`] : []),
     ];
-    return { id: 'webhook_handled_event_types', ok: false, detail: parts.join('; ') };
+    return { id: 'provisioned_webhook_endpoint', ok: false, detail: parts.join('; ') };
   }
   return {
-    id: 'webhook_handled_event_types',
+    id: 'provisioned_webhook_endpoint',
     ok: true,
-    detail: `exactly the ${BILLING_WEBHOOK_HANDLED_TYPES.length} contracted event types are handled`,
+    detail: `Stripe endpoint selection has exactly the ${BILLING_WEBHOOK_HANDLED_TYPES.length} contracted event types`,
   };
+}
+
+function checkActivationRuntimeSecrets(env: BillingReadinessEnv): BillingReadinessCheck {
+  const key = env.STRIPE_SECRET_KEY;
+  const expectedKey = env.BILLING_PLAN_ENV === 'prod' ? /^sk_live_\S+$/ : /^sk_test_\S+$/;
+  if (!expectedKey.test(key ?? '') || !env.CRON_SECRET?.trim()) {
+    return { id: 'activation_runtime_secrets', ok: false, detail: 'mode-matched Stripe secret key and nonblank CRON_SECRET are required' };
+  }
+  return { id: 'activation_runtime_secrets', ok: true, detail: 'mode-matched Stripe key and CRON_SECRET are present' };
+}
+
+function checkActivationWebhookSecret(env: BillingReadinessEnv): BillingReadinessCheck {
+  if (!/^whsec_\S+$/.test(env.STRIPE_BILLING_WEBHOOK_SECRET ?? '')) {
+    return { id: 'activation_webhook_secret', ok: false, detail: 'STRIPE_BILLING_WEBHOOK_SECRET is absent; activation requires the dedicated endpoint secret' };
+  }
+  return { id: 'activation_webhook_secret', ok: true, detail: 'dedicated billing webhook secret is present (value not shown)' };
 }
 
 function checkNoLiveStripeKeysOutsideProduction(env: BillingReadinessEnv): BillingReadinessCheck {
@@ -372,6 +470,9 @@ function checkHealthConsistency(
   localPlanEnvOk: boolean,
 ): BillingReadinessCheck {
   const mismatches: string[] = [];
+  if (healthBilling.schemaDrift !== 'ready') {
+    mismatches.push('health schemaDrift is not ready');
+  }
   if (healthBilling.dark !== localDark) {
     mismatches.push(`health billing.dark=${healthBilling.dark} but local computation says ${localDark}`);
   }
@@ -395,10 +496,14 @@ export function runBillingReadinessCheck(
   const planEnvCheck = checkBillingPlanEnv(input.env);
   const secretDistinctnessCheck = checkWebhookSecretDistinctness(input.env);
   const carrierCheck = checkStripePriceCarrier(input.env);
+  const activationCarrierCheck = checkActivationPriceCarrier(input.env);
   const darkSwitchesCheck = checkDarkSwitches(input.env);
+  const activationSwitchesCheck = checkActivationSwitches(input.env);
+  const activationWebhookSecretCheck = checkActivationWebhookSecret(input.env);
   const noLiveKeysCheck = checkNoLiveStripeKeysOutsideProduction(input.env);
   const cronsCheck = checkCronsRegistered(input.vercelCrons);
-  const handledTypesCheck = checkHandledEventTypes(input.handledEventTypes);
+  const provisionedEndpointCheck = checkProvisionedWebhookEndpoint(input.provisionedWebhookEndpoint, input.expectedWebhookUrl, input.env);
+  const activationRuntimeSecretsCheck = checkActivationRuntimeSecrets(input.env);
 
   const checks: BillingReadinessCheck[] = [
     planEnvCheck,
@@ -407,19 +512,39 @@ export function runBillingReadinessCheck(
     darkSwitchesCheck,
     noLiveKeysCheck,
     cronsCheck,
-    handledTypesCheck,
+    provisionedEndpointCheck,
+    activationRuntimeSecretsCheck,
+    activationCarrierCheck,
+    activationWebhookSecretCheck,
+    activationSwitchesCheck,
   ];
 
-  if (input.healthBilling) {
-    checks.push(checkHealthConsistency(input.healthBilling, darkSwitchesCheck.ok, planEnvCheck.ok));
+  const healthCheck = input.healthBilling
+    ? checkHealthConsistency(input.healthBilling, darkSwitchesCheck.ok, planEnvCheck.ok)
+    : null;
+  if (healthCheck !== null) {
+    checks.push(healthCheck);
   }
 
   const readyForDarkDeploy = planEnvCheck.ok
     && secretDistinctnessCheck.ok
     && carrierCheck.ok
     && darkSwitchesCheck.ok
-    && noLiveKeysCheck.ok;
-  const readyForActivation = readyForDarkDeploy && cronsCheck.ok && handledTypesCheck.ok;
+    && noLiveKeysCheck.ok
+    && (healthCheck?.ok ?? true);
+  // Activation is intentionally not derived from readyForDarkDeploy: a
+  // dedicated webhook secret is required activation evidence, while its
+  // presence correctly makes the deployment non-dark.
+  const readyForActivation = planEnvCheck.ok
+    && secretDistinctnessCheck.ok
+    && activationCarrierCheck.ok
+    && activationWebhookSecretCheck.ok
+    && activationSwitchesCheck.ok
+    && noLiveKeysCheck.ok
+    && cronsCheck.ok
+    && provisionedEndpointCheck.ok
+    && activationRuntimeSecretsCheck.ok
+    && (healthCheck?.ok ?? true);
 
   return { checks, readyForDarkDeploy, readyForActivation };
 }
