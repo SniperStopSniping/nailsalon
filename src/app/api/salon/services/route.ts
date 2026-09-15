@@ -1,4 +1,4 @@
-import { and, eq, inArray, sql } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import { z } from 'zod';
 
@@ -9,6 +9,7 @@ import {
 } from '@/libs/bookingCatalog';
 import { deriveBookingCategory } from '@/libs/bookingCategory';
 import { db } from '@/libs/DB';
+import { MenuOrderError, reorderSalonMenu } from '@/libs/ownerAssistant/menuOrder.server';
 import { getServicesBySalonIdIncludingInactive } from '@/libs/queries';
 import {
   ensureServiceAssignments,
@@ -473,55 +474,20 @@ export async function PATCH(request: Request): Promise<Response> {
       return error!;
     }
 
-    // Tenant scoping is not optional here: an id from another salon must never
-    // reach the UPDATE, and a partially-applied order is worse than none, so
-    // the whole request is rejected before anything is written.
-    const ownedServices = await db
-      .select({ id: serviceSchema.id })
-      .from(serviceSchema)
-      .where(
-        and(
-          eq(serviceSchema.salonId, salon.id),
-          inArray(serviceSchema.id, orderedIds),
-        ),
-      );
-
-    if (ownedServices.length !== orderedIds.length) {
-      return Response.json(
-        {
-          error: {
-            code: 'SERVICE_NOT_FOUND',
-            message: 'One or more services are not on this salon’s menu.',
-          },
-        } satisfies ErrorResponse,
-        { status: 404 },
-      );
-    }
-
-    const updatedAt = new Date();
-    await db.transaction(async (tx) => {
-      for (const [index, serviceId] of orderedIds.entries()) {
-        await tx
-          .update(serviceSchema)
-          .set({ sortOrder: index + 1, updatedAt })
-          .where(
-            and(
-              eq(serviceSchema.id, serviceId),
-              eq(serviceSchema.salonId, salon.id),
-            ),
-          );
-      }
-    });
+    const order = await reorderSalonMenu(salon.id, orderedIds);
 
     return Response.json({
       data: {
-        order: orderedIds.map((serviceId, index) => ({
-          id: serviceId,
-          sortOrder: index + 1,
-        })),
+        order: order.map(({ id, sortOrder }) => ({ id, sortOrder })),
       },
     });
   } catch (error) {
+    const menuError = error as MenuOrderError;
+    if (error instanceof MenuOrderError || (error instanceof Error && ['STALE', 'UNDO_UNAVAILABLE', 'INVALID_ORDER', 'NOT_FOUND'].includes(String(menuError.code)))) {
+      return Response.json({ error: { code: menuError.code, message: menuError.message } } satisfies ErrorResponse, {
+        status: menuError.code === 'NOT_FOUND' ? 404 : menuError.code === 'INVALID_ORDER' ? 400 : 409,
+      });
+    }
     console.error('Error reordering services:', error);
     return Response.json(
       {

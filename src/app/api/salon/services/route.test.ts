@@ -10,6 +10,7 @@ const {
   updateReturning,
   ensureServiceAssignments,
   update,
+  reorderSalonMenu,
   db,
 } = vi.hoisted(() => {
   const selectWhere = vi.fn();
@@ -36,6 +37,7 @@ const {
     updateSet,
     updateReturning,
     update,
+    reorderSalonMenu: vi.fn(),
     ensureServiceAssignments: vi.fn(),
     db: {
       select,
@@ -63,6 +65,13 @@ vi.mock('@/libs/queries', () => ({
   getServicesBySalonIdIncludingInactive,
 }));
 
+vi.mock('@/libs/ownerAssistant/menuOrder.server', () => ({
+  MenuOrderError: class MenuOrderError extends Error {
+    code = 'INVALID_ORDER';
+  },
+  reorderSalonMenu,
+}));
+
 vi.mock('@/libs/serviceAssignments', () => ({
   ensureServiceAssignments,
   InvalidTechnicianAssignmentError: class InvalidTechnicianAssignmentError extends Error {},
@@ -82,6 +91,7 @@ describe('salon services route', () => {
       assignedTechnicianIds: ['tech_1'],
       assignmentRequired: false,
     });
+    reorderSalonMenu.mockResolvedValue([]);
     selectWhere.mockResolvedValue([{ maxOrder: 2 }]);
     insertValues.mockReturnValue({
       returning: vi.fn(async () => [{
@@ -352,10 +362,10 @@ describe('salon services route', () => {
     }
 
     it('rewrites sort_order to the requested sequence', async () => {
-      selectWhere.mockResolvedValueOnce([
-        { id: 'svc_a' },
-        { id: 'svc_b' },
-        { id: 'svc_c' },
+      reorderSalonMenu.mockResolvedValueOnce([
+        { id: 'svc_c', name: 'C', sortOrder: 1 },
+        { id: 'svc_a', name: 'A', sortOrder: 2 },
+        { id: 'svc_b', name: 'B', sortOrder: 3 },
       ]);
 
       const response = await PATCH(reorderRequest({
@@ -370,13 +380,11 @@ describe('salon services route', () => {
         { id: 'svc_a', sortOrder: 2 },
         { id: 'svc_b', sortOrder: 3 },
       ]);
-      expect(updateSet).toHaveBeenNthCalledWith(1, expect.objectContaining({ sortOrder: 1 }));
-      expect(updateSet).toHaveBeenNthCalledWith(2, expect.objectContaining({ sortOrder: 2 }));
-      expect(updateSet).toHaveBeenNthCalledWith(3, expect.objectContaining({ sortOrder: 3 }));
+      expect(reorderSalonMenu).toHaveBeenCalledWith('salon_1', ['svc_c', 'svc_a', 'svc_b']);
     });
 
     it('refuses an id that is not on this salon’s menu and writes nothing', async () => {
-      selectWhere.mockResolvedValueOnce([{ id: 'svc_a' }]);
+      reorderSalonMenu.mockRejectedValueOnce(Object.assign(new Error('not found'), { code: 'NOT_FOUND' }));
 
       const response = await PATCH(reorderRequest({
         salonSlug: 'isla-nail-studio',
@@ -385,7 +393,7 @@ describe('salon services route', () => {
       const body = await response.json();
 
       expect(response.status).toBe(404);
-      expect(body.error.code).toBe('SERVICE_NOT_FOUND');
+      expect(body.error.code).toBe('NOT_FOUND');
       expect(update).not.toHaveBeenCalled();
     });
 
