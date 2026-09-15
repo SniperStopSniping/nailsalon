@@ -474,10 +474,67 @@ describe('stripe-billing webhook pipeline', () => {
       expect(subscription!.paidThrough.toISOString()).toBe('2027-09-01T10:00:00.000Z'); // grants unchanged
     });
 
+    it.each([false, true])('blocks grants for a full refund with unusable invoice coverage (truncated=%s)', async (truncated) => {
+      const salonId = `s_refund_unknown_${truncated}`;
+      const subId = `sub_refund_unknown_${truncated}`;
+      await seedLocalSubscription(salonId, subId);
+      stripeMock.invoices.retrieve.mockResolvedValueOnce({
+        id: `in_refund_unknown_${truncated}`,
+        subscription: subId,
+        lines: { has_more: truncated, data: truncated ? [{ period: { start: 1780000000, end: 1811536000 } }] : [] },
+      });
+      const response = await post(stripeEvent('charge.refunded', {
+        id: `ch_refund_unknown_${truncated}`,
+        invoice: `in_refund_unknown_${truncated}`,
+        amount: 10000,
+        amount_refunded: 10000,
+      }));
+
+      expect(response.status).toBe(200);
+      expect(await response.json()).toMatchObject({ outcome: 'held_anomaly' });
+
+      const [subscription] = await db.select().from(schema.billingSubscriptionSchema)
+        .where(eq(schema.billingSubscriptionSchema.stripeSubscriptionId, subId));
+      const { evaluateSubscriptionWindows } = await import('@/libs/billing/creditGrants');
+      const result = await evaluateSubscriptionWindows({
+        subscriptionId: subscription!.id,
+        now: new Date('2026-10-15T10:00:00.000Z'),
+      });
+
+      expect(result.granted).toBe(0);
+
+      const grants = await db.select().from(schema.smsCreditLedgerSchema).where(eq(schema.smsCreditLedgerSchema.salonId, salonId));
+
+      expect(grants).toHaveLength(0);
+    });
+
+    it('retries an owned subscription refund that arrives before subscription projection', async () => {
+      stripeMock.invoices.retrieve.mockResolvedValueOnce({
+        id: 'in_early_refund',
+        subscription: 'sub_early_refund',
+        lines: { data: [{ period: { start: 1780000000, end: 1811536000 } }] },
+      });
+      stripeMock.subscriptions.retrieve.mockResolvedValueOnce({ id: 'sub_early_refund', metadata: { purpose: 'plan_subscription' } });
+      const event = stripeEvent('charge.refunded', {
+        id: 'ch_early_refund',
+        invoice: 'in_early_refund',
+        amount: 10000,
+        amount_refunded: 10000,
+      });
+      const response = await post(event);
+
+      expect(response.status).toBe(500);
+
+      const [row] = (await eventRows()).filter(entry => entry.eventId === event.id);
+
+      expect(row!.status).not.toBe('ignored_foreign');
+      expect(row!.lastError).toBe('SUBSCRIPTION_NOT_PROJECTED');
+    });
+
     it('charge.refunded then refund.updated for the SAME full refund lower paid_through only ONCE (single Sentry alert, G01 dedup)', async () => {
       await seedLocalSubscription('s_route_full_refund', 'sub_route_full_refund');
       const periodStart = 1_780_000_000;
-      const periodEnd = periodStart + 365 * 24 * 3600;
+      const periodEnd = new Date('2027-09-01T10:00:00.000Z').getTime() / 1000;
       stripeMock.invoices.retrieve.mockResolvedValue({
         id: 'in_route_full',
         subscription: 'sub_route_full_refund',
@@ -529,6 +586,7 @@ describe('stripe-billing webhook pipeline', () => {
       [row] = (await eventRows()).filter(entry => entry.eventId === refundUpdatedEvent.id);
 
       expect(row!.status).toBe('processed');
+      // The invoice exclusion deduplicates both refund event types.
       // No SECOND alert — applySubscriptionFullRefund's MIN semantics make
       // this a pure no-op regardless of delivery order.
       expect(sentryHolder.captureMessage).toHaveBeenCalledTimes(1);
@@ -537,6 +595,21 @@ describe('stripe-billing webhook pipeline', () => {
         .where(eq(schema.billingSubscriptionSchema.stripeSubscriptionId, 'sub_route_full_refund'));
 
       expect(subscription!.paidThrough.getTime()).toBe(periodStart * 1000); // unchanged
+
+      const delayedPaid = stripeEvent('invoice.payment_succeeded', {
+        id: 'in_route_full',
+        subscription: 'sub_route_full_refund',
+        lines: { data: [{ period: { start: periodStart, end: periodEnd } }] },
+      });
+      const delayedResponse = await post(delayedPaid);
+
+      expect(delayedResponse.status).toBe(200);
+      expect(await delayedResponse.json()).toMatchObject({ outcome: 'held_anomaly' });
+
+      const [delayedRow] = (await eventRows()).filter(entry => entry.eventId === delayedPaid.id);
+
+      expect(delayedRow!.lastError).toBe('SUBSCRIPTION_PERIOD_REFUNDED');
+      expect(delayedRow!.attempts).toBe(1);
     });
   });
 
@@ -602,6 +675,88 @@ describe('stripe-billing webhook pipeline', () => {
       const [, options] = sentryHolder.captureMessage.mock.calls[0]! as [string, { extra: Record<string, unknown> }];
 
       expect(Object.keys(options.extra).sort()).toEqual(['detail', 'eventId', 'eventType']);
+    });
+
+    // Top-up refund reversal anomalies (reverseTopup, §7.8). The route holds
+    // the event without touching the ledger and MUST page with the same
+    // payload shape as every other held_anomaly outcome — this branch used
+    // to return silently.
+    async function seedFulfilledTopup(salonId: string, paymentIntentId: string) {
+      const { fulfillTopupPurchase } = await import('@/libs/billing/creditGrants');
+      await db.insert(schema.salonSchema).values({ id: salonId, name: salonId, slug: salonId });
+      await db.insert(schema.smsTopupPurchaseSchema).values({
+        id: `tp_${salonId}`,
+        salonId,
+        topupOfferKey: 'topup_100_paid_2026_08',
+        credits: 100,
+        amountCents: 599,
+        status: 'paid',
+        stripeCheckoutSessionId: `cs_${salonId}`,
+        stripePaymentIntentId: paymentIntentId,
+      });
+      await db.transaction(async tx => fulfillTopupPurchase(tx, { topupPurchaseId: `tp_${salonId}` }));
+    }
+
+    it('alerts exactly once for a top-up refund whose cumulative total REGRESSED (REFUND_TOTAL_REGRESSED)', async () => {
+      await seedFulfilledTopup('s_route_topup_regressed', 'pi_route_topup_regressed');
+      // A clean partial refund first: reverses floor(100 · 300 / 599) = 50 credits.
+      const first = stripeEvent('charge.refunded', {
+        id: 'ch_route_topup_regressed',
+        payment_intent: 'pi_route_topup_regressed',
+        amount: 599,
+        amount_refunded: 300,
+        refunds: { data: [{ id: 're_route_topup_regressed_1' }] },
+      });
+      const firstResponse = await post(first);
+
+      expect(firstResponse.status).toBe(200);
+      expect(sentryHolder.captureMessage).not.toHaveBeenCalled(); // a processed reversal never pages
+
+      const event = stripeEvent('charge.refunded', {
+        id: 'ch_route_topup_regressed',
+        payment_intent: 'pi_route_topup_regressed',
+        amount: 599,
+        amount_refunded: 100, // moved BACKWARD — a failed refund
+        refunds: { data: [{ id: 're_route_topup_regressed_2' }] },
+      });
+      const response = await post(event);
+
+      expect(response.status).toBe(200);
+
+      const [row] = (await eventRows()).filter(entry => entry.eventId === event.id);
+
+      expect(row!.status).toBe('held_anomaly');
+      expect(row!.lastError).toBe('REFUND_TOTAL_REGRESSED');
+      expect(sentryHolder.captureMessage).toHaveBeenCalledTimes(1);
+      expect(sentryHolder.captureMessage).toHaveBeenCalledWith('billing.event_held_anomaly', {
+        level: 'warning',
+        extra: { eventId: event.id, eventType: 'charge.refunded', detail: 'REFUND_TOTAL_REGRESSED' },
+      });
+    });
+
+    it.each([-1, undefined])('alerts exactly once for unusable cumulative refund evidence: %s', async (amountRefunded) => {
+      const suffix = String(amountRefunded);
+      await seedFulfilledTopup(`s_route_topup_no_evidence_${suffix}`, `pi_route_topup_no_evidence_${suffix}`);
+      const event = stripeEvent('charge.refunded', {
+        id: 'ch_route_topup_no_evidence',
+        payment_intent: `pi_route_topup_no_evidence_${suffix}`,
+        amount: 599,
+        amount_refunded: amountRefunded, // missing or malformed figure — never guess a refund magnitude
+        refunds: { data: [{ id: 're_route_topup_no_evidence' }] },
+      });
+      const response = await post(event);
+
+      expect(response.status).toBe(200);
+
+      const [row] = (await eventRows()).filter(entry => entry.eventId === event.id);
+
+      expect(row!.status).toBe('held_anomaly');
+      expect(row!.lastError).toBe('REFUND_EVIDENCE_MISSING');
+      expect(sentryHolder.captureMessage).toHaveBeenCalledTimes(1);
+      expect(sentryHolder.captureMessage).toHaveBeenCalledWith('billing.event_held_anomaly', {
+        level: 'warning',
+        extra: { eventId: event.id, eventType: 'charge.refunded', detail: 'REFUND_EVIDENCE_MISSING' },
+      });
     });
   });
 

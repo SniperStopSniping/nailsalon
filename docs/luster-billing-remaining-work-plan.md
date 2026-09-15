@@ -6,13 +6,13 @@
 **Governing contract:** [luster-billing-communications-rev-2-2.md](luster-billing-communications-rev-2-2.md) (Rev 2.2). `§` below refers to it.
 **Authorization status:** Gates A–C are merged. **Gate D / D1 is NOT authorized** — phase P8c below *is* the billing half of D1 and will not start without explicit Gate D authorization. **Production configuration, Stripe resource creation, env switch flips, cron registration (D3) and every activation step are NOT authorized.** Phases P0–P8b are dark code/test work: they change no production behaviour while the switches stay unset, with two explicitly flagged exceptions (P1 edits a boot-time validator; P5b edits the live Billing-Portal route).
 **Nothing was implemented, and no code, migration, Stripe configuration, production data or live service was modified while producing this plan.**
-**Execution record (2026-09-14):** every authorized phase is merged — P0 #200, P1 #202, P2 #201, P3a #204, P3b #209, P3c #210, P4 #207 (code half), P5a #205, P6 #208 (tax + rate protection), P7 #206. Production at the P3b merge reports `billing.dark: true` and `planEnvMatchesRuntime: true`. Nothing was enabled: no switch, secret, Stripe resource, cron registration, env value or production data changed. **Parked pending owner decisions:** D3 (cron registration), P5b/D18 (portal freeze replacement), D19a (env-keyed price carrier — no activation carrier for Stripe IDs exists yet), P8a–c/Gate D, P9/D19c–d, D10, D11 (seven publication approvals), D1 ratification of the PR #176 split. Non-billing CI note: the client-lifecycle migration and dispatcher/appointment concurrency suites hit 5–10 s timeouts on several runs (non-required jobs); reruns pass. **Round 2 (owner approvals 2026-09-14 — D19a, D3, D18, D1, Gate D for P8a + P8c; D10/D11 NOT approved):** P5b #213 (c29d8c29), P6b #214 (2ca9381d), P4b #216 (4103c165), CI timeout fixes #215 (acd89097) and #221 (b3091376), P8a #219 (b7797bde), P8c #220 (c7550855), PR #176 client-reminders salvage #218 (6ac4d674) all merged dark. Still nothing enabled: no switch, secret, Stripe resource, env value or production data changed; the two crons are registered but answer `200 skipped`. **Remaining owner decisions:** D10 (retention horizon), D11 (seven §12 approvals), P8b (optional), P9/D19c–d (deferred, no amendment). Everything else required before an Isla pilot is an owner-executed runbook step (`docs/BILLING_PRODUCTION_RUNBOOK.md`).
+**Execution record (2026-09-14):** every authorized phase is merged — P0 #200, P1 #202, P2 #201, P3a #204, P3b #209, P3c #210, P4 #207 (code half), P5a #205, P6 #208 (tax + rate protection), P7 #206. Production at the P3b merge reports `billing.dark: true` and `planEnvMatchesRuntime: true`. Nothing was enabled: no switch, secret, Stripe resource, cron registration, env value or production data changed. **Parked pending owner decisions:** D3 (cron registration), P5b/D18 (portal freeze replacement), D19a (env-keyed price carrier — no activation carrier for Stripe IDs exists yet), P8a–c/Gate D, P9/D19c–d, D10, D11 (seven publication approvals), D1 ratification of the PR #176 split. Non-billing CI note: the client-lifecycle migration and dispatcher/appointment concurrency suites hit 5–10 s timeouts on several runs (non-required jobs); reruns pass. **Round 2 (owner approvals 2026-09-14 — D19a, D3, D18, D1, Gate D for P8a + P8c; D10/D11 NOT approved):** P5b #213 (c29d8c29), P6b #214 (2ca9381d), P4b #216 (4103c165), CI timeout fixes #215 (acd89097) and #221 (b3091376), P8a #219 (b7797bde), P8c #220 (c7550855), PR #176 client-reminders salvage #218 (6ac4d674) all merged dark. Still nothing enabled: no switch, secret, Stripe resource, env value or production data changed; the two crons are registered but answer `200 skipped`. **Remaining owner decisions:** D10 (retention horizon), D11 (seven §12 approvals), P8b (optional), P9/D19c–d (deferred, no amendment). This was a phase-delivery record, not proof of pilot readiness. The 2026-09-15 independent audit found refund/reconciliation durability and readiness-evidence defects plus unfinished local rehearsal tooling; see `docs/billing-completion-repair-20260915.md`.
 
 How to use this file: a fresh session reads §1–§3 (state), checks §6 for decisions still `OPEN` that block the next phase, executes the next phase under §8, and updates §5.0 in the same PR.
 
 ---
 
-## 1. Verified baseline facts
+## 1. Historical verified baseline facts (before P0–P8 execution)
 
 | Fact | Value / evidence |
 |---|---|
@@ -50,7 +50,7 @@ How to use this file: a fresh session reads §1–§3 (state), checks §6 for de
 
 ---
 
-## 3. Canonical gap register (deduplicated, adversarially verified, panel-reviewed)
+## 3. Historical gap register (closure status is in §5.0; not a current open-task list)
 
 Severity is relative to the **dark** state: `A` = must land before the named switch/secret is ever enabled; `B` = required for pilot/paid launch; `C` = quality/cleanup.
 

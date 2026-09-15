@@ -394,6 +394,8 @@ describe('G10 — full subscription refund stops future grants (§6.7)', () => {
     const result = await applySubscriptionFullRefund({
       stripeSubscriptionId: 'sub_s_refund_lower',
       refundId: 're_lower_1',
+      invoiceId: 'in_refund_test',
+      refundedPeriodEnd: new Date('2027-10-01T10:00:00.000Z'),
       refundedPeriodStart,
       eventCreated: T0,
       eventId: 'evt_refund_lower',
@@ -410,6 +412,8 @@ describe('G10 — full subscription refund stops future grants (§6.7)', () => {
     const raiseAttempt = await applySubscriptionFullRefund({
       stripeSubscriptionId: 'sub_s_refund_lower',
       refundId: 're_lower_2',
+      invoiceId: 'in_refund_test',
+      refundedPeriodEnd: new Date('2027-10-01T10:00:00.000Z'),
       refundedPeriodStart: T0_PLUS_MONTH,
       eventCreated: T0,
       eventId: 'evt_refund_raise_attempt',
@@ -430,6 +434,8 @@ describe('G10 — full subscription refund stops future grants (§6.7)', () => {
     const first = await applySubscriptionFullRefund({
       stripeSubscriptionId: 'sub_s_refund_replay',
       refundId: 're_replay_1',
+      invoiceId: 'in_refund_test',
+      refundedPeriodEnd: new Date('2027-10-01T10:00:00.000Z'),
       refundedPeriodStart: T0,
       eventCreated: T0,
       eventId: 'evt_refund_replay_1',
@@ -442,6 +448,8 @@ describe('G10 — full subscription refund stops future grants (§6.7)', () => {
     const replay = await applySubscriptionFullRefund({
       stripeSubscriptionId: 'sub_s_refund_replay',
       refundId: 're_replay_1',
+      invoiceId: 'in_refund_test',
+      refundedPeriodEnd: new Date('2027-10-01T10:00:00.000Z'),
       refundedPeriodStart: T0,
       eventCreated: T0,
       eventId: 'evt_refund_replay_1_retry',
@@ -449,6 +457,8 @@ describe('G10 — full subscription refund stops future grants (§6.7)', () => {
     const secondEvent = await applySubscriptionFullRefund({
       stripeSubscriptionId: 'sub_s_refund_replay',
       refundId: 're_replay_2',
+      invoiceId: 'in_refund_test',
+      refundedPeriodEnd: new Date('2027-10-01T10:00:00.000Z'),
       refundedPeriodStart: T0,
       eventCreated: T0,
       eventId: 'evt_refund_replay_2',
@@ -468,6 +478,8 @@ describe('G10 — full subscription refund stops future grants (§6.7)', () => {
     const result = await applySubscriptionFullRefund({
       stripeSubscriptionId: 'sub_does_not_exist',
       refundId: 're_missing',
+      invoiceId: 'in_refund_test',
+      refundedPeriodEnd: new Date('2027-10-01T10:00:00.000Z'),
       refundedPeriodStart: T0,
       eventCreated: T0,
       eventId: 'evt_refund_missing',
@@ -509,6 +521,8 @@ describe('G10 — full subscription refund stops future grants (§6.7)', () => {
     const refundResult = await applySubscriptionFullRefund({
       stripeSubscriptionId: 'sub_refund_window',
       refundId: 're_window_1',
+      invoiceId: 'in_refund_test',
+      refundedPeriodEnd: new Date('2027-10-01T10:00:00.000Z'),
       refundedPeriodStart: T0_PLUS_MONTH,
       eventCreated: new Date(T0.getTime() + 2000),
       eventId: 'evt_refund_window_refund',
@@ -820,7 +834,7 @@ describe('P3c — audit trail (§8.5, §17)', () => {
     expect(overrideRows[0]).toMatchObject({ actorType: 'system', actorId: 'billing-reconciliation' });
   });
 
-  it('applySubscriptionFullRefund writes billing_subscription_refund_applied ONLY when lowered', async () => {
+  it('applySubscriptionFullRefund records durable refund evidence once per invoice', async () => {
     const { applySubscriptionFullRefund } = await projection();
     await seedSalon('s_audit_refund');
     const subscriptionId = 'bsub_audit_refund';
@@ -840,6 +854,8 @@ describe('P3c — audit trail (§8.5, §17)', () => {
     const lowered = await applySubscriptionFullRefund({
       stripeSubscriptionId: 'sub_audit_refund',
       refundId: 're_audit_1',
+      invoiceId: 'in_refund_test',
+      refundedPeriodEnd: new Date('2027-10-01T10:00:00.000Z'),
       refundedPeriodStart: T0,
       eventCreated: T0,
       eventId: 'evt_audit_refund_1',
@@ -856,12 +872,14 @@ describe('P3c — audit trail (§8.5, §17)', () => {
       actorId: 'stripe-billing',
       action: 'billing_subscription_refund_applied',
     });
-    expect(rows[0]!.metadata).toMatchObject({ refundId: 're_audit_1', eventId: 'evt_audit_refund_1' });
+    expect(rows[0]!.metadata).toMatchObject({ refundId: 're_audit_1', eventId: 'evt_audit_refund_1', invoiceId: 'in_refund_test', refundedPeriodStart: T0.toISOString() });
 
     // Already at the refunded floor ⇒ lowered:false ⇒ NO second row.
     const replay = await applySubscriptionFullRefund({
       stripeSubscriptionId: 'sub_audit_refund',
       refundId: 're_audit_2',
+      invoiceId: 'in_refund_test',
+      refundedPeriodEnd: new Date('2027-10-01T10:00:00.000Z'),
       refundedPeriodStart: T0,
       eventCreated: T0,
       eventId: 'evt_audit_refund_2',

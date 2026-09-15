@@ -30,6 +30,7 @@ import {
 import type { BillingDbTransaction } from './creditLedger';
 import { appendLotGrant, appendNegativeEntry, lockCreditAccount, lotRemaining, recomputeCachedBalance } from './creditLedger';
 import { computeCreditWindow, evaluateCreditWindow } from './creditWindows';
+import { overlapsRefund, readSubscriptionRefunds } from './subscriptionRefunds';
 
 export const STARTER_CREDITS = 100;
 
@@ -122,10 +123,11 @@ export async function evaluateSubscriptionWindows(
 
     await lockCreditAccount(tx, subscription.salonId);
 
+    const refunds = await readSubscriptionRefunds(tx, subscription);
     let index = subscription.creditCycleIndex;
     for (;;) {
       const window = computeCreditWindow(subscription.creditCycleAnchor, index);
-      const evaluation = evaluateCreditWindow(window, subscription.paidThrough, now);
+      const evaluation = evaluateCreditWindow(window, overlapsRefund(refunds, window) ? window.start : subscription.paidThrough, now);
       if (evaluation === null) {
         break; // future window — stop.
       }
@@ -276,6 +278,10 @@ export async function applyUpgradeDiff(
   }
   const window = computeCreditWindow(subscription.creditCycleAnchor, subscription.creditCycleIndex);
   if (now.getTime() < window.start.getTime() || now.getTime() >= window.end.getTime()) {
+    return { granted: 0 };
+  }
+
+  if (overlapsRefund(await readSubscriptionRefunds(tx, subscription), window)) {
     return { granted: 0 };
   }
 
