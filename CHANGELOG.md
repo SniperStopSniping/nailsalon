@@ -1,3 +1,10 @@
+## [1.110.2](https://github.com/SniperStopSniping/nailsalon/compare/v1.110.1...v1.110.2) (2026-09-15)
+
+
+### Bug Fixes
+
+* **billing:** distinguish dark and activation readiness evidence ([6a01dc8](https://github.com/SniperStopSniping/nailsalon/commit/6a01dc8cc6aaa368c4a23e4cd8aad8f9529afc98))
+
 ## [1.110.1](https://github.com/SniperStopSniping/nailsalon/compare/v1.110.0...v1.110.1) (2026-09-15)
 
 
