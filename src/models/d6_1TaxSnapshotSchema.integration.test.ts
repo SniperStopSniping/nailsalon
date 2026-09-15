@@ -334,13 +334,15 @@ describe('migration 0068 — D6.1 invoice and tax snapshot foundation', () => {
       readFileSync(path.join(process.cwd(), 'migrations/meta/_journal.json'), 'utf8'),
     ) as { entries: { idx: number; when: number; tag: string }[] };
 
-    expect(journal.entries).toHaveLength(78);
-    expect(journal.entries.at(-2)).toMatchObject({
+    // These are immutable historical positions, not a ban on subsequent
+    // migrations. New migration install/upgrade safety has its own contract.
+    expect(journal.entries.slice(0, 78)).toHaveLength(78);
+    expect(journal.entries[76]).toMatchObject({
       idx: 76,
       when: 1787476392670,
       tag: '0076_deposit_shadow_evidence',
     });
-    expect(journal.entries.at(-1)).toMatchObject({
+    expect(journal.entries[77]).toMatchObject({
       idx: 77,
       when: 1787562792670,
       tag: '0077_review_requests',
@@ -365,7 +367,9 @@ describe('migration 0068 — D6.1 invoice and tax snapshot foundation', () => {
 
     try {
       await migrator.dialect.migrate(migrations.slice(0, existingCount), migrator.session, { migrationsFolder });
-      await migrator.dialect.migrate(migrations, migrator.session, { migrationsFolder });
+      // Preserve the original historical upgrade target exactly: this test
+      // proves 0075/0076 -> Review 0077, not an arbitrary future schema tail.
+      await migrator.dialect.migrate(migrations.slice(0, 78), migrator.session, { migrationsFolder });
 
       const rows = await upgradeClient.query<{ hash: string; created_at: string }>(
         'SELECT hash, created_at FROM drizzle.__drizzle_migrations ORDER BY created_at, id',

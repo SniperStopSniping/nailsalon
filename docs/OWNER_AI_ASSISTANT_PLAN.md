@@ -1,5 +1,7 @@
 # Luster Owner AI Assistant — first-release plan
 
+> September 15 implementation status: PR #223 remains blocked. Disposable PostgreSQL reproduced an ordinary-service-writer deadlock introduced by migration 0078 even with the assistant disabled. See `OWNER_AI_MENU_ORDER_VALIDATION.md`; no migration approval, rollout or activation is implied.
+
 Planning baseline prepared September 14, 2026 against fetched origin/main `5779b937d629a6ae58d123eac16948e57a740427`. This durable copy records the proposed roadmap; implementation status is distinguished below. Estimates and future phases are not claims of shipped capability.
 
 ## Authorized first implementation

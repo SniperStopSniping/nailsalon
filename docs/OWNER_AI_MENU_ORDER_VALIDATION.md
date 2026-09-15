@@ -14,10 +14,68 @@ data changes are authorized.
 
 ## Delivery constraint
 
+### September 15 migration review: additional compatibility blocker
+
+**Migration 0078 is not approved for installation or allowlisting.** The
+follow-up review reproduced a PostgreSQL deadlock between two ordinary service
+writers, without calling any assistant action. This supersedes the earlier
+disabled-code review's conclusion for purposes of migration approval.
+
+The AFTER-row trigger takes the shared salon revision-row lock after a writer
+has already locked its service row. A family-style transaction changes service
+A and holds the revision lock; a second transaction locks service B and waits
+for that revision; the first then tries to change B. PostgreSQL aborts one with
+SQLSTATE `40P01`. Running the same ordinary writer schedule without the trigger
+completes successfully. Both transactions were explicitly rolled back in the
+diagnostic, preserving the baseline rows. A passing reproduction test means
+the incompatibility was reproduced, **not** that the migration is safe.
+
+The existing family writer in `src/libs/ownerCatalogFamilies.server.ts` applies
+multiple service updates sequentially and does not have the assistant helper's
+bounded transaction retry. Installing the trigger can therefore turn an
+ordinary owner save into an error even when `OWNER_ASSISTANT_ENABLED` is unset
+or false. Data rollback is necessary but does not satisfy ordinary-workflow
+compatibility.
+
+The narrow follow-up preserves the 0076 SQL hash and 0076/0077 journal positions;
+their historical upgrade test still targets exactly the original 78-entry
+ledger through 0077. It no longer mistakes those historical positions for the
+repository's permanent migration tail. The new migration's independent
+PostgreSQL proof owns its later install/upgrade behavior.
+
+The CI allowlists and the Preview fixture tool's exact migration/deletion
+contracts remain unchanged: admitting an incompatible trigger is not justified.
+The next design decision is how to avoid introducing this shared lock into
+ordinary writers, or establish a complete, tested writer lock/retry discipline.
+That requires a separate bounded implementation and migration review; it is not
+an unreviewed schema redesign in this contract-only follow-up.
+
+The refreshed main is still `5779b937`; no competing 0078 was found in available
+worktrees or open PR branches. The CI task was notified about shared-file
+ownership and that no CI edit would proceed. Shared historical test ownership
+was noted on PR #193. The active billing work's product/test files were not
+changed.
+
+### Required checks and preview distinction
+
+GitHub's effective branch rules (`Protect production main#`, ruleset 19559560)
+require `Build with 20.x`, `Build with 22.6`, `Run all tests (20.x)`,
+`Full Vitest Suite`, and `Booking entitlement override PostgreSQL concurrency`,
+with strict current-head/base checks and resolved review conversations.
+**Vercel Agent Review is not a required status check or required reviewer.**
+Its insufficient-credit skip is not a waived required gate; no credit was
+purchased and no repository setting was changed.
+
+The repository PR template separately asks for a healthy Vercel preview. That
+evidence has not been obtained for this disabled slice. Local synthetic browser
+fixtures and authenticated-route tests do not establish an authenticated hosted
+owner journey. This remains explicitly unverified; it is not waived by the
+absence of Vercel Agent Review in the ruleset.
+
 The unchanged CI migration guard (`.github/workflows/CI.yml`, new migration tag
 allowlist) permits migrations only through the currently reviewed packets. The
 new explicit owner-assistant migration is not on that list. It therefore needs
-a separately authorized CI allowlist review before this PR can pass that gate.
+a corrected locking design and migration approval before this PR can pass that gate.
 This PR must not be merged while that gate fails. No bypass, hidden schema
 creation, CI change or modification of an applied migration is part of this work.
 
@@ -27,7 +85,25 @@ disabled, applying its trigger has database effects; production application is
 explicitly deferred. Local validation uses only a newly created disposable
 database or in-memory PGlite.
 
-## Evidence
+## Follow-up verification
+
+The dedicated PostgreSQL migration suite passes **6/6, zero skips**, run
+serially with `--no-file-parallelism`:
+its control temporarily removes and restores the trigger in this disposable
+cluster. Fresh and historical-upgrade databases have random task-owned names
+and are dropped after the test. It checks all service columns across upgrade,
+existing reorder with and without the new schema, stable historical ledger,
+ordinary writes, reassignment, salon cascades and actor deletion restriction.
+The known-deadlock test intentionally expects `40P01`; it is diagnostic evidence,
+not an acceptance test claiming compatibility. Migration SQL is unchanged.
+
+Affected historical/fixture rerun: **33 passed, 11 failed** across two files.
+All nine historical migration tests pass; eleven fixture failures retain the
+exact 0077 contract. Type checking, changed-source lint, secret scan and diff
+whitespace checks pass locally. No new browser claim accompanies this test-only
+follow-up. Exact-head hosted results are recorded on PR #223.
+
+## Initial slice evidence (before this follow-up)
 
 Local validation uses Node 20.19.4, provider placeholders from the existing CI
 contract, in-memory PGlite, and a new PostgreSQL 16 cluster bound only to
@@ -53,13 +129,13 @@ contracts pinned to the previous tail. Eleven fail in
 requires exactly 78 migrations ending at `0077_review_requests`. Three fail in
 `src/models/d6_1TaxSnapshotSchema.integration.test.ts`, which pins that same tail
 for its Stripe prerequisite/upgrade assertions. These are consequences of this
-PR's migration, not claimed pre-existing failures. Neither the fixture contract
-nor the Stripe migration tests are changed here. They need a separately scoped
-contract update and review alongside the CI allowlist before merge.
+PR's migration, not claimed pre-existing failures. The follow-up fixes the three historical migration assertions while preserving
+their original target and hash. The eleven fixture failures remain intentionally
+blocked pending a compatible migration and exact contract review.
 
-The independent safety reviewer found no remaining blocking code findings for
-a disabled, review-ready PR after checking the final transaction and UI-state
-changes. This is not activation or merge approval. Hosted checks are recorded
+The initial transaction/UI review found no blocking findings in that scope.
+The subsequent independent installed-migration review supersedes that assessment:
+0078 is blocked by the reproduced ordinary-writer deadlock. Hosted checks are recorded
 on the PR; this document does not claim all CI gates passed.
 
 ### Reproduce the bounded flow
@@ -97,7 +173,9 @@ end-to-end evidence. No live-owner rollout is part of this review.
 
 ## Remaining decisions
 
-- Separate authorization/review for the migration allowlist addition in CI.
+- Correct the ordinary-writer locking regression, then obtain migration and exact
+  allowlist/fixture-contract approval. The present follow-up is authorized but
+  does not make an incompatible migration eligible for approval.
 - Review and application of the migration in disposable Preview infrastructure;
   no production migration is included in this task.
 - Whether/when to enable a limited owner pilot. `OWNER_ASSISTANT_ENABLED` remains
