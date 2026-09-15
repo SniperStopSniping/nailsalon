@@ -16,6 +16,36 @@ const BOTH_CRONS = [
 ];
 
 const CORRECT_HANDLED_TYPES = [...BILLING_WEBHOOK_HANDLED_TYPES];
+const ENDPOINT_URL = 'https://preview.example/api/webhooks/stripe-billing';
+const completeEndpoint = {
+  id: 'we_12345678',
+  url: ENDPOINT_URL,
+  livemode: false,
+  status: 'enabled' as const,
+  enabled_events: CORRECT_HANDLED_TYPES,
+};
+
+const completeCarrier = JSON.stringify({
+  env: 'test',
+  offers: Object.fromEntries([
+    'starter_2026_08_monthly',
+    'starter_2026_08_annual',
+    'pro_2026_08_monthly',
+    'pro_2026_08_annual',
+    'elite_2026_08_monthly',
+    'elite_2026_08_annual',
+  ].map((key, index) => [key, `price_test${String(index).padStart(8, '0')}`])),
+  topups: Object.fromEntries([
+    'topup_100_free_2026_08',
+    'topup_250_free_2026_08',
+    'topup_500_free_2026_08',
+    'topup_100_paid_2026_08',
+    'topup_250_paid_2026_08',
+    'topup_500_paid_2026_08',
+    'topup_1000_paid_2026_08',
+  ].map((key, index) => [key, `price_topup${String(index).padStart(8, '0')}`])),
+  coupons: { founding_annual_2026: 'coupon_test12345678' },
+});
 
 function darkEnv(overrides: Record<string, string | undefined> = {}): Record<string, string | undefined> {
   return {
@@ -38,7 +68,7 @@ describe('runBillingReadinessCheck — dark env', () => {
     const result = runBillingReadinessCheck({
       env: darkEnv(),
       vercelCrons: [],
-      handledEventTypes: CORRECT_HANDLED_TYPES,
+      provisionedWebhookEventTypes: CORRECT_HANDLED_TYPES,
     });
 
     expect(result.readyForDarkDeploy).toBe(true);
@@ -55,7 +85,7 @@ describe('runBillingReadinessCheck — dark env', () => {
         STRIPE_BILLING_WEBHOOK_SECRET: 'whsec_billing_super_secret_value',
       }),
       vercelCrons: BOTH_CRONS,
-      handledEventTypes: CORRECT_HANDLED_TYPES,
+      provisionedWebhookEventTypes: CORRECT_HANDLED_TYPES,
     });
 
     const serialized = JSON.stringify(result);
@@ -76,7 +106,7 @@ describe('runBillingReadinessCheck — carrier env mismatch', () => {
     const result = runBillingReadinessCheck({
       env: darkEnv({ BILLING_STRIPE_PRICE_IDS: mismatchedCarrier }),
       vercelCrons: BOTH_CRONS,
-      handledEventTypes: CORRECT_HANDLED_TYPES,
+      provisionedWebhookEventTypes: CORRECT_HANDLED_TYPES,
     });
 
     expect(result.readyForDarkDeploy).toBe(false);
@@ -92,7 +122,7 @@ describe('runBillingReadinessCheck — carrier env mismatch', () => {
     const result = runBillingReadinessCheck({
       env: darkEnv({ BILLING_STRIPE_PRICE_IDS: '{not valid json' }),
       vercelCrons: BOTH_CRONS,
-      handledEventTypes: CORRECT_HANDLED_TYPES,
+      provisionedWebhookEventTypes: CORRECT_HANDLED_TYPES,
     });
 
     expect(result.readyForDarkDeploy).toBe(false);
@@ -110,7 +140,7 @@ describe('runBillingReadinessCheck — carrier env mismatch', () => {
     const result = runBillingReadinessCheck({
       env: darkEnv({ BILLING_STRIPE_PRICE_IDS: carrier }),
       vercelCrons: BOTH_CRONS,
-      handledEventTypes: CORRECT_HANDLED_TYPES,
+      provisionedWebhookEventTypes: CORRECT_HANDLED_TYPES,
     });
 
     const carrierCheck = findCheck(result, 'stripe_price_carrier');
@@ -126,7 +156,7 @@ describe('runBillingReadinessCheck — missing cron', () => {
     const result = runBillingReadinessCheck({
       env: darkEnv(),
       vercelCrons: [{ path: '/api/billing/windows/evaluate', schedule: '*/15 * * * *' }],
-      handledEventTypes: CORRECT_HANDLED_TYPES,
+      provisionedWebhookEventTypes: CORRECT_HANDLED_TYPES,
     });
 
     expect(result.readyForDarkDeploy).toBe(true);
@@ -138,15 +168,15 @@ describe('runBillingReadinessCheck — missing cron', () => {
     expect(cronCheck.detail).toContain('/api/billing/reconcile');
   });
 
-  it('registering both billing crons with the full 13-type handled set is ready for activation', () => {
+  it('registered crons and source-like event input alone are not activation evidence', () => {
     const result = runBillingReadinessCheck({
       env: darkEnv(),
       vercelCrons: BOTH_CRONS,
-      handledEventTypes: CORRECT_HANDLED_TYPES,
+      provisionedWebhookEventTypes: CORRECT_HANDLED_TYPES,
     });
 
     expect(result.readyForDarkDeploy).toBe(true);
-    expect(result.readyForActivation).toBe(true);
+    expect(result.readyForActivation).toBe(false);
   });
 });
 
@@ -158,7 +188,7 @@ describe('runBillingReadinessCheck — webhook secret collision', () => {
         STRIPE_BILLING_WEBHOOK_SECRET: 'whsec_shared',
       }),
       vercelCrons: BOTH_CRONS,
-      handledEventTypes: CORRECT_HANDLED_TYPES,
+      provisionedWebhookEventTypes: CORRECT_HANDLED_TYPES,
     });
 
     expect(result.readyForDarkDeploy).toBe(false);
@@ -173,7 +203,7 @@ describe('runBillingReadinessCheck — webhook secret collision', () => {
         STRIPE_BILLING_WEBHOOK_SECRET: 'whsec_shared',
       }),
       vercelCrons: BOTH_CRONS,
-      handledEventTypes: CORRECT_HANDLED_TYPES,
+      provisionedWebhookEventTypes: CORRECT_HANDLED_TYPES,
     });
 
     expect(result.readyForDarkDeploy).toBe(false);
@@ -188,7 +218,7 @@ describe('runBillingReadinessCheck — webhook secret collision', () => {
         STRIPE_BILLING_WEBHOOK_SECRET: 'whsec_billing',
       }),
       vercelCrons: BOTH_CRONS,
-      handledEventTypes: CORRECT_HANDLED_TYPES,
+      provisionedWebhookEventTypes: CORRECT_HANDLED_TYPES,
     });
 
     // Note: this env is no longer "dark" (the billing secret is set), so
@@ -197,6 +227,25 @@ describe('runBillingReadinessCheck — webhook secret collision', () => {
     expect(findCheck(result, 'webhook_secret_distinctness').ok).toBe(true);
     expect(findCheck(result, 'dark_switches_unset').ok).toBe(false);
   });
+
+  it('allows the expected distinct billing secret for activation when all activation evidence is present', () => {
+    const result = runBillingReadinessCheck({
+      env: darkEnv({
+        STRIPE_WEBHOOK_SECRET: 'whsec_legacy',
+        STRIPE_CONNECT_WEBHOOK_SECRET: 'whsec_connect',
+        STRIPE_BILLING_WEBHOOK_SECRET: 'whsec_billing',
+        STRIPE_SECRET_KEY: 'sk_test_abcdefgh',
+        CRON_SECRET: 'cron-secret',
+        BILLING_STRIPE_PRICE_IDS: completeCarrier,
+      }),
+      vercelCrons: BOTH_CRONS,
+      provisionedWebhookEndpoint: completeEndpoint,
+      expectedWebhookUrl: ENDPOINT_URL,
+    });
+
+    expect(result.readyForDarkDeploy).toBe(false);
+    expect(result.readyForActivation).toBe(true);
+  });
 });
 
 describe('runBillingReadinessCheck — plan env / runtime mismatch', () => {
@@ -204,7 +253,7 @@ describe('runBillingReadinessCheck — plan env / runtime mismatch', () => {
     const result = runBillingReadinessCheck({
       env: darkEnv({ BILLING_PLAN_ENV: 'prod' }),
       vercelCrons: BOTH_CRONS,
-      handledEventTypes: CORRECT_HANDLED_TYPES,
+      provisionedWebhookEventTypes: CORRECT_HANDLED_TYPES,
     });
 
     expect(result.readyForDarkDeploy).toBe(false);
@@ -217,7 +266,7 @@ describe('runBillingReadinessCheck — no live Stripe keys outside production', 
     const result = runBillingReadinessCheck({
       env: darkEnv({ STRIPE_SECRET_KEY: 'sk_live_abcdefgh' }),
       vercelCrons: BOTH_CRONS,
-      handledEventTypes: CORRECT_HANDLED_TYPES,
+      provisionedWebhookEventTypes: CORRECT_HANDLED_TYPES,
     });
 
     expect(result.readyForDarkDeploy).toBe(false);
@@ -228,7 +277,7 @@ describe('runBillingReadinessCheck — no live Stripe keys outside production', 
     const result = runBillingReadinessCheck({
       env: darkEnv({ STRIPE_SECRET_KEY: 'sk_test_abcdefgh' }),
       vercelCrons: BOTH_CRONS,
-      handledEventTypes: CORRECT_HANDLED_TYPES,
+      provisionedWebhookEventTypes: CORRECT_HANDLED_TYPES,
     });
 
     expect(findCheck(result, 'no_live_stripe_keys_outside_production').ok).toBe(true);
@@ -236,31 +285,44 @@ describe('runBillingReadinessCheck — no live Stripe keys outside production', 
 });
 
 describe('runBillingReadinessCheck — handled event types', () => {
+  it('refuses to call activation ready when Stripe endpoint evidence is omitted', () => {
+    const result = runBillingReadinessCheck({
+      env: darkEnv({
+        STRIPE_BILLING_WEBHOOK_SECRET: 'whsec_billing',
+        BILLING_STRIPE_PRICE_IDS: completeCarrier,
+      }),
+      vercelCrons: BOTH_CRONS,
+    });
+
+    expect(result.readyForActivation).toBe(false);
+    expect(findCheck(result, 'provisioned_webhook_endpoint').detail).toContain('not supplied');
+  });
+
   it('a truncated handled-type list is not ready for activation', () => {
     const result = runBillingReadinessCheck({
       env: darkEnv(),
       vercelCrons: BOTH_CRONS,
-      handledEventTypes: CORRECT_HANDLED_TYPES.slice(0, 10),
+      provisionedWebhookEventTypes: CORRECT_HANDLED_TYPES.slice(0, 10),
     });
 
     expect(result.readyForDarkDeploy).toBe(true);
     expect(result.readyForActivation).toBe(false);
 
-    const check = findCheck(result, 'webhook_handled_event_types');
+    const check = findCheck(result, 'provisioned_webhook_endpoint');
 
     expect(check.ok).toBe(false);
-    expect(check.detail).toContain('missing');
+    expect(check.detail).toContain('not supplied');
   });
 
   it('an event type beyond the contracted 13 is not ready for activation', () => {
     const result = runBillingReadinessCheck({
       env: darkEnv(),
       vercelCrons: BOTH_CRONS,
-      handledEventTypes: [...CORRECT_HANDLED_TYPES, 'payment_intent.succeeded'],
+      provisionedWebhookEventTypes: [...CORRECT_HANDLED_TYPES, 'payment_intent.succeeded'],
     });
 
     expect(result.readyForActivation).toBe(false);
-    expect(findCheck(result, 'webhook_handled_event_types').detail).toContain('unexpected');
+    expect(findCheck(result, 'provisioned_webhook_endpoint').detail).toContain('not supplied');
   });
 
   it('asserts the contracted list is exactly the 13 event types the contract requires', () => {
@@ -273,7 +335,7 @@ describe('runBillingReadinessCheck — optional health cross-check', () => {
     const result = runBillingReadinessCheck({
       env: darkEnv(),
       vercelCrons: BOTH_CRONS,
-      handledEventTypes: CORRECT_HANDLED_TYPES,
+      provisionedWebhookEventTypes: CORRECT_HANDLED_TYPES,
     });
 
     expect(result.checks.some(check => check.id === 'health_endpoint_consistency')).toBe(false);
@@ -283,24 +345,76 @@ describe('runBillingReadinessCheck — optional health cross-check', () => {
     const result = runBillingReadinessCheck({
       env: darkEnv(),
       vercelCrons: BOTH_CRONS,
-      handledEventTypes: CORRECT_HANDLED_TYPES,
-      healthBilling: { dark: false, planEnvMatchesRuntime: true },
+      provisionedWebhookEventTypes: CORRECT_HANDLED_TYPES,
+      healthBilling: { dark: false, planEnvMatchesRuntime: true, schemaDrift: 'ready' },
     });
 
     const check = findCheck(result, 'health_endpoint_consistency');
 
     expect(check.ok).toBe(false);
     expect(check.detail).toContain('billing.dark');
+    expect(result.readyForDarkDeploy).toBe(false);
   });
 
   it('passes when the reported health block agrees with local expectations', () => {
     const result = runBillingReadinessCheck({
       env: darkEnv(),
       vercelCrons: BOTH_CRONS,
-      handledEventTypes: CORRECT_HANDLED_TYPES,
-      healthBilling: { dark: true, planEnvMatchesRuntime: true },
+      provisionedWebhookEventTypes: CORRECT_HANDLED_TYPES,
+      healthBilling: { dark: true, planEnvMatchesRuntime: true, schemaDrift: 'ready' },
     });
 
     expect(findCheck(result, 'health_endpoint_consistency').ok).toBe(true);
+  });
+});
+
+describe('activation evidence rejects incomplete or wrong provider state', () => {
+  function activationInput(overrides: Record<string, string | undefined> = {}) {
+    return {
+      env: darkEnv({
+        STRIPE_WEBHOOK_SECRET: 'whsec_legacy',
+        STRIPE_CONNECT_WEBHOOK_SECRET: 'whsec_connect',
+        STRIPE_BILLING_WEBHOOK_SECRET: 'whsec_billing',
+        STRIPE_SECRET_KEY: 'sk_test_abcdefgh',
+        CRON_SECRET: 'cron-secret',
+        BILLING_STRIPE_PRICE_IDS: completeCarrier,
+        ...overrides,
+      }),
+      vercelCrons: BOTH_CRONS,
+      provisionedWebhookEndpoint: completeEndpoint,
+      expectedWebhookUrl: ENDPOINT_URL,
+    };
+  }
+
+  it.each([
+    ['unknown carrier key', JSON.stringify({ env: 'test', offers: { rogue: 'price_test12345678' }, topups: {}, coupons: {} })],
+    ['duplicate carrier id', completeCarrier.replace('price_test00000001', 'price_test00000000')],
+  ])('rejects a %s that the runtime parser rejects', (_label, carrier) => {
+    expect(runBillingReadinessCheck(activationInput({ BILLING_STRIPE_PRICE_IDS: carrier })).readyForActivation).toBe(false);
+  });
+
+  it.each([
+    ['STRIPE_SECRET_KEY', undefined],
+    ['STRIPE_SECRET_KEY', ''],
+    ['STRIPE_SECRET_KEY', 'sk_test_'],
+    ['STRIPE_SECRET_KEY', 'sk_test_has space'],
+    ['CRON_SECRET', undefined],
+    ['CRON_SECRET', '   '],
+    ['STRIPE_BILLING_WEBHOOK_SECRET', undefined],
+    ['STRIPE_BILLING_WEBHOOK_SECRET', '   '],
+    ['STRIPE_BILLING_WEBHOOK_SECRET', 'not-a-whsec'],
+  ])('rejects a missing or blank %s', (key, value) => {
+    expect(runBillingReadinessCheck(activationInput({ [key]: value })).readyForActivation).toBe(false);
+  });
+
+  it.each([
+    ['disabled', { ...completeEndpoint, status: 'disabled' }],
+    ['live-mode mismatch', { ...completeEndpoint, livemode: true }],
+    ['wrong origin', { ...completeEndpoint, url: 'https://wrong.example/api/webhooks/stripe-billing' }],
+    ['wrong path', { ...completeEndpoint, url: 'https://preview.example/api/webhooks/stripe' }],
+    ['non-HTTPS URL', { ...completeEndpoint, url: 'http://preview.example/api/webhooks/stripe-billing' }],
+    ['invalid URL', { ...completeEndpoint, url: 'not a URL' }],
+  ])('rejects a %s endpoint export', (_label, endpoint) => {
+    expect(runBillingReadinessCheck({ ...activationInput(), provisionedWebhookEndpoint: endpoint }).readyForActivation).toBe(false);
   });
 });

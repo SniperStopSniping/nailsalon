@@ -43,8 +43,25 @@ Broad local validation encountered resource failures: the full Vitest process
 exhausted its heap (including timing failures during contention), and the Next build
 reported ENOSPC. These runs are not counted as passes. Required exact-head CI,
 including full-suite shards and both Node builds, remains the delivery gate. The
-focused top-up suite was rerun cleanly after resource recovery. This record does not
-claim a merge, deployment or pilot pass; immutable PR/CI evidence is authoritative.
+focused top-up suite was rerun cleanly after resource recovery. Immutable PR/CI
+evidence is authoritative.
+
+Refund repair [PR #224](https://github.com/SniperStopSniping/nailsalon/pull/224)
+merged as `fd1058c1c4e8e9f30e39be05e090e64250df9bd5` after exact-head CI
+`35016462439` passed every gate. Its SMS-credit PostgreSQL job ran all eight
+refund regressions as part of 20 passing tests with zero skips. This supersedes
+the pending delivery gate above; it does not establish a pilot pass.
+
+The follow-on readiness repair separates dark deployment from pre-activation
+configuration evidence. Missing/malformed credentials, incomplete carriers,
+wrong-mode/disabled/wrong-target endpoints, and failed requested health checks
+cannot yield activation readiness. Supplying the correct dedicated webhook
+secret makes billing non-dark without incorrectly failing pre-activation evidence.
+49 focused readiness tests pass locally, including CLI output and safe diagnostics.
+The original Preview tooling remains parked; only its useful protected-health
+access pattern was salvaged. Provider resource authenticity, account ownership,
+catalogue amounts, portal settings, and legacy isolation are still manual rehearsal
+prerequisites; this offline checker does not prove them or authorize activation.
 
 ## Open decisions and rehearsal gates
 
