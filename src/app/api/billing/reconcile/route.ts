@@ -105,7 +105,7 @@ function latestPaidInvoicePeriodEnd(remote: ReconcileRemoteSubscription): Date |
   const invoice = typeof remote.latest_invoice === 'object' && remote.latest_invoice !== null
     ? remote.latest_invoice
     : null;
-  if (invoice === null) {
+  if (invoice === null || invoice.lines?.has_more) {
     return null;
   }
   const isPaid = invoice.status === 'paid' || invoice.paid === true;
@@ -251,7 +251,11 @@ async function reconcileOneSubscription(
     // still clears the parked offer, because what we just confirmed is
     // §6.4's renewal boundary evidence (the price Stripe is now actually
     // billing), not a fresh invoice amount.
+    const invoice = typeof remote.latest_invoice === 'object' ? remote.latest_invoice : null;
+    const starts = (invoice?.lines?.data ?? []).map(line => line.period?.start ?? 0).filter(start => start > 0);
     const outcome = await applyInvoicePaymentSucceeded({
+      invoiceId: invoice?.id,
+      paidPeriodStart: starts.length ? new Date(Math.min(...starts) * 1000) : undefined,
       stripeSubscriptionId: remote.id,
       paidPeriodEnd: remotePaidThroughFromInvoice ?? row.paidThrough,
       eventCreated: row.lastEventCreated ?? new Date(0),

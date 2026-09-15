@@ -4,7 +4,7 @@
  * The webhook route parses and claims; THIS module owns every financial
  * state transition, each one idempotent on object-derived identities:
  *
- *   - paid_through only ever moves FORWARD (monotonic max), so a replayed or
+ *   - paid_through moves forward on unrefunded paid evidence, so a replayed or
  *     re-ordered invoice event is arithmetic identity, not corruption.
  *   - The staleness fence is STRICTLY `event.created < last_event_created`
  *     (§8.3): distinct events sharing a created second stay eligible, and an
@@ -35,6 +35,7 @@ import { releasePromotionClaim } from '@/libs/billing/promotionClaims';
 import { getPromotion } from '@/libs/billing/promotions';
 import { resolveOfferForServicePeriod, resolveRateProtectedThrough } from '@/libs/billing/rateProtection';
 import { resolveBillingOfferFromStripePriceId } from '@/libs/billing/stripePriceMap';
+import { overlapsRefund, readSubscriptionRefunds } from '@/libs/billing/subscriptionRefunds';
 import { db } from '@/libs/DB';
 import {
   billingPromotionClaimSchema,
@@ -267,11 +268,17 @@ export async function projectSubscriptionSnapshot(input: {
 export async function applyInvoicePaymentSucceeded(input: {
   stripeSubscriptionId: string;
   paidPeriodEnd: Date;
+  invoiceId?: string;
+  paidPeriodStart?: Date;
   eventCreated: Date;
   eventId: string;
   now?: Date;
 }): Promise<{ applied: boolean; anomaly?: string }> {
   const now = input.now ?? new Date();
+  if (!Number.isFinite(input.paidPeriodEnd.getTime())
+    || (input.paidPeriodStart !== undefined && (!Number.isFinite(input.paidPeriodStart.getTime()) || input.paidPeriodStart >= input.paidPeriodEnd))) {
+    return { applied: false, anomaly: 'INVALID_PAID_PERIOD' };
+  }
   const outcome = await db.transaction(async (tx) => {
     const [subscription] = await tx
       .select()
@@ -282,11 +289,17 @@ export async function applyInvoicePaymentSucceeded(input: {
       return { applied: false as const, anomaly: 'SUBSCRIPTION_NOT_PROJECTED', subscriptionRowId: undefined };
     }
 
+    const refundEvidence = await readSubscriptionRefunds(tx, subscription);
+    if (refundEvidence.incomplete || refundEvidence.refunds.some(refund => refund.invoiceId === input.invoiceId)
+      || overlapsRefund(refundEvidence, { start: input.paidPeriodStart ?? new Date(-8640000000000000), end: input.paidPeriodEnd })) {
+      return { applied: false as const, anomaly: 'SUBSCRIPTION_PERIOD_REFUNDED', subscriptionRowId: undefined };
+    }
+
     // Deliberately NOT advancing last_event_created/last_event_id: that
     // fence belongs to the SUBSCRIPTION event stream. An invoice raising the
     // shared watermark would make a genuinely newer plan change created a
     // second earlier read as stale and be dropped (review finding 2).
-    // paid_through is monotonic and needs no fence.
+    // The durable refund exclusions above take precedence over this monotonic advance.
     const patch: Record<string, unknown> = {
       status: 'active',
     };
@@ -389,29 +402,18 @@ export async function applyInvoicePaymentFailed(input: {
 }
 
 /**
- * §6.7/G10 full subscription refund: future grants stop. Sets
- * `paid_through = min(paid_through, refundedPeriodStart)` — NEVER raises it —
- * so the window engine (the only granter, §6.4) stops minting windows the
- * refund left uncovered. Nothing else is recorded: this is deliberately NOT
- * part of the subscription event stream's `last_event_created` fence (a
- * refund is money evidence, not a newer subscription state), and consumed
- * credits already sent are never clawed back (§6.7) — only FUTURE windows are
- * affected.
- *
- * Idempotent by construction: replaying the SAME (or an older) refund's
- * `refundedPeriodStart` against an already-lowered `paid_through` is a pure
- * MIN no-op (`lowered: false`) — no extra column or refund-id ledger is
- * needed to detect replay. This is also why `charge.refunded` and
- * `refund.updated` for the SAME underlying refund converge to AT MOST ONE
- * Sentry alert regardless of delivery order: whichever event arrives first
- * lowers the value and reports `lowered: true`; the other finds the target
- * already reached and reports `lowered: false`.
+ * §6.7: persist the refunded invoice interval under the subscription lock.
+ * paidThrough alone cannot represent holes in prepaid coverage. Both payment
+ * projection and the grant engine consume these durable exclusions. A later
+ * disjoint paid renewal remains valid; replay never erases it.
  */
 export async function applySubscriptionFullRefund(input: {
   stripeSubscriptionId: string;
-  /** The refund's id — carried for caller-side logging/audit; not persisted here. */
+  /** The refund identity is retained with its invoice and coverage in the audit fact. */
   refundId: string;
+  invoiceId: string;
   refundedPeriodStart: Date;
+  refundedPeriodEnd: Date;
   eventCreated: Date;
   eventId: string;
   now?: Date;
@@ -425,23 +427,37 @@ export async function applySubscriptionFullRefund(input: {
     if (subscription === undefined) {
       return { applied: false, lowered: false };
     }
-    if (input.refundedPeriodStart.getTime() >= subscription.paidThrough.getTime()) {
-      // Already at or below the refunded floor — no-op, matches "never raises".
+    if (!input.invoiceId) {
+      throw new Error('INVALID_SUBSCRIPTION_REFUND_IDENTITY');
+    }
+    const validCoverage = Number.isFinite(input.refundedPeriodStart.getTime())
+      && Number.isFinite(input.refundedPeriodEnd.getTime()) && input.refundedPeriodStart < input.refundedPeriodEnd;
+    const evidence = await readSubscriptionRefunds(tx, subscription);
+    if (evidence.refunds.some(refund => refund.invoiceId === input.invoiceId)) {
       return { applied: true, lowered: false };
     }
-    await tx
-      .update(billingSubscriptionSchema)
-      .set({ paidThrough: input.refundedPeriodStart })
-      .where(eq(billingSubscriptionSchema.id, subscription.id));
+    const lowered = validCoverage && subscription.paidThrough > input.refundedPeriodStart
+      && subscription.paidThrough <= input.refundedPeriodEnd;
+    if (lowered) {
+      await tx.update(billingSubscriptionSchema)
+        .set({ paidThrough: input.refundedPeriodStart })
+        .where(eq(billingSubscriptionSchema.id, subscription.id));
+    }
     await logAuditEventTx(tx, {
       salonId: subscription.salonId,
       ...WEBHOOK_ACTOR,
       action: 'billing_subscription_refund_applied',
       entityType: 'billing_subscription',
       entityId: subscription.id,
-      metadata: { refundId: input.refundId, eventId: input.eventId },
+      metadata: {
+        refundId: input.refundId,
+        eventId: input.eventId,
+        invoiceId: input.invoiceId,
+        refundedPeriodStart: validCoverage ? input.refundedPeriodStart.toISOString() : null,
+        refundedPeriodEnd: validCoverage ? input.refundedPeriodEnd.toISOString() : null,
+      },
     });
-    return { applied: true, lowered: true };
+    return { applied: true, lowered };
   });
 }
 

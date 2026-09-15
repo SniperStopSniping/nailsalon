@@ -355,6 +355,9 @@ async function resolveLocalSubscriptionByInvoiceId(
     .from(billingSubscriptionSchema)
     .where(eq(billingSubscriptionSchema.stripeSubscriptionId, subscriptionId))
     .limit(1);
+  if (row === undefined && await isLocallyOwnedSubscription(subscriptionId)) {
+    throw new Error('SUBSCRIPTION_NOT_PROJECTED');
+  }
   return row === undefined ? null : { stripeSubscriptionId: subscriptionId, invoice };
 }
 
@@ -417,7 +420,7 @@ async function handleRefundEvent(event: Stripe.Event, created: Date): Promise<{
     const outcome = await applyTopupChargeRefunded({
       paymentIntentId: context.paymentIntentId,
       refundId: context.refundId,
-      cumulativeRefundedCents: context.cumulativeRefundedCents ?? 0,
+      cumulativeRefundedCents: context.cumulativeRefundedCents ?? -1,
     });
     if (outcome !== null) {
       if (outcome.anomaly !== null) {
@@ -439,22 +442,33 @@ async function handleRefundEvent(event: Stripe.Event, created: Date): Promise<{
         && context.cumulativeRefundedCents >= context.chargeAmount;
       if (isFullRefund) {
         const refundedPeriodStart = earliestSubscriptionLinePeriodStart(local.invoice);
-        if (refundedPeriodStart !== null) {
-          const result = await applySubscriptionFullRefund({
-            stripeSubscriptionId: local.stripeSubscriptionId,
-            refundId: context.refundId,
-            refundedPeriodStart,
-            eventCreated: created,
-            eventId: event.id,
+        const periodEnds = (local.invoice.lines?.data ?? []).map(line => line.period?.end ?? 0).filter(end => end > 0);
+        const refundedPeriodEnd = periodEnds.length ? new Date(Math.max(...periodEnds) * 1000) : null;
+        const usableCoverage = !local.invoice.lines?.has_more && refundedPeriodStart !== null
+          && refundedPeriodEnd !== null && refundedPeriodStart < refundedPeriodEnd;
+        const result = await applySubscriptionFullRefund({
+          stripeSubscriptionId: local.stripeSubscriptionId,
+          refundId: context.refundId,
+          refundedPeriodStart: usableCoverage ? refundedPeriodStart : new Date(Number.NaN),
+          refundedPeriodEnd: usableCoverage ? refundedPeriodEnd : new Date(Number.NaN),
+          invoiceId: local.invoice.id,
+          eventCreated: created,
+          eventId: event.id,
+        });
+        if (!usableCoverage) {
+          Sentry.captureMessage('billing.event_held_anomaly', {
+            level: 'warning',
+            extra: { eventId: event.id, eventType: event.type, detail: 'SUBSCRIPTION_REFUND_COVERAGE_UNKNOWN' },
           });
-          if (result.lowered) {
-            Sentry.captureMessage('billing.subscription_refunded', {
-              level: 'warning',
-              extra: { eventId: event.id, stripeSubscriptionId: local.stripeSubscriptionId },
-            });
-          }
-          return { status: 'processed' };
+          return { status: 'held_anomaly', detail: 'SUBSCRIPTION_REFUND_COVERAGE_UNKNOWN' };
         }
+        if (result.lowered) {
+          Sentry.captureMessage('billing.subscription_refunded', {
+            level: 'warning',
+            extra: { eventId: event.id, stripeSubscriptionId: local.stripeSubscriptionId },
+          });
+        }
+        return { status: 'processed' };
       }
       // Partial subscription refund: §6.7's "MAY suspend" stays a human call.
       Sentry.captureMessage('billing.charge_event_held', {
@@ -555,20 +569,30 @@ async function handleEvent(event: Stripe.Event): Promise<{
       const periodEnds = (invoice.lines?.data ?? [])
         .map(line => line.period?.end ?? 0)
         .filter(end => end > 0);
-      if (periodEnds.length === 0) {
+      if (periodEnds.length === 0 || invoice.lines?.has_more) {
         Sentry.captureMessage('billing.event_held_anomaly', {
           level: 'warning',
           extra: { eventId: event.id, eventType: event.type, detail: 'INVOICE_WITHOUT_LINE_PERIODS' },
         });
         return { status: 'held_anomaly', detail: 'INVOICE_WITHOUT_LINE_PERIODS' };
       }
+      const periodStarts = invoice.lines.data.map(line => line.period?.start ?? 0).filter(start => start > 0);
       const result = await applyInvoicePaymentSucceeded({
+        invoiceId: invoice.id,
+        paidPeriodStart: periodStarts.length ? new Date(Math.min(...periodStarts) * 1000) : undefined,
         stripeSubscriptionId: subscriptionId,
         paidPeriodEnd: new Date(Math.max(...periodEnds) * 1000),
         eventCreated: created,
         eventId: event.id,
       });
       if (!result.applied) {
+        if (result.anomaly !== 'SUBSCRIPTION_NOT_PROJECTED') {
+          Sentry.captureMessage('billing.event_held_anomaly', {
+            level: 'warning',
+            extra: { eventId: event.id, eventType: event.type, detail: result.anomaly },
+          });
+          return { status: 'held_anomaly', detail: result.anomaly };
+        }
         // G42: a missing local projection is ambiguous by itself — it is
         // either a genuinely foreign (legacy-flow) invoice, or OUR OWN
         // brand-new subscription whose customer.subscription.created has not

@@ -18,7 +18,7 @@ Companion to [luster-billing-remaining-work-plan.md](luster-billing-remaining-wo
 | #122 | C4 usage / warnings / operations | 2026-08-17 | `da08f2793fdc` | `a13a90d94850` | `017f43136917` | `c413cfe3eee5` | matches |
 | #195 | top-up checkout retry safety | 2026-09-13 | `1b6ffeb32916` | `772311939c2c` | `ec4e1f64e56b` | `f75d51242349` | not recorded |
 
-No D1 PR exists. Migration tail at this record: `0077_review_requests` (78 journal entries).
+At this original baseline no D1 PR existed; P8c subsequently merged in #220 (§5–§6 below). Migration tail at this record: `0077_review_requests` (78 journal entries).
 
 ## 2. Owner notices
 
@@ -130,3 +130,7 @@ Owner approvals 2026-09-14: D19a (carrier), D3 (crons), D18 (portal postimage), 
 | #219 | P8a | b7797bde | super-admin starter-grant endpoint + integrity CLI; ledger modules untouched |
 | #220 | P8c | c7550855 | runbook, key-lifecycle doc, readiness harness; no execution |
 | #218 | D1 salvage | 6ac4d674 | client-reminders UI only; no billing files |
+
+## 7. Independent completion repair (2026-09-15)
+
+The merged phase list above records delivery, not pilot approval or end-to-end financial correctness. The follow-up repair and validation are recorded in [billing-completion-repair-20260915.md](billing-completion-repair-20260915.md). No activation, configuration, payment, grant, production data change, or migration is authorized by that record.

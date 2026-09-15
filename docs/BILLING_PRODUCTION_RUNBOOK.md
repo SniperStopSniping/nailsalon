@@ -4,6 +4,8 @@ Governing contract: [luster-billing-communications-rev-2-2.md](luster-billing-co
 
 ## 0. Status banner
 
+**2026-09-15 repair checkpoint:** consult [billing-completion-repair-20260915.md](billing-completion-repair-20260915.md) before relying on historical completion claims. Legacy webhook isolation remains blocked on the §5/§8.1 contract exception (D19c), including subscription lifecycle events; checkout-event filtering alone does not close it. Refund facts in `audit_log` are financial entitlement evidence and must be retained for the subscription lifetime; purging raw webhook payloads must never remove them.
+
 **NOT executed. Nothing in this document has been run against production, staging, Preview, or any Stripe account — live or test — by Claude.** Every switch, every secret, and the Stripe price carrier are unset today (verified read-only while writing this document; see §1). Each section below requires its own **separate, explicit owner authorization** before anyone runs it — this runbook is the specification for that work, not a standing approval to perform it. Gate D (P8c) authorizes writing this document and the readiness harness; it does **not** authorize creating a single Stripe resource, setting a single environment variable, or flipping a single switch. Two owner decisions block parts of this runbook outright and are carried as **PENDING** throughout, never defaulted:
 
 - **D10 (retention horizon)** — blocks §10.2 of [BILLING_IDENTITY_KEY_LIFECYCLE.md](BILLING_IDENTITY_KEY_LIFECYCLE.md); it does not block dark deploy, cron registration, or top-up/subscription activation.
@@ -19,7 +21,7 @@ All four checks below were performed while writing this document, from the `agen
 | Both billing crons registered in `vercel.json` | Anyone with repo access | `git show origin/main:vercel.json \| grep -A1 '/api/billing/'` | PR #216 (`agent/billing-p4b-cron-registration`) adds `/api/billing/windows/evaluate` (`*/15 * * * *`) and `/api/billing/reconcile` (`17 * * * *`); **MERGED** as #216 (4103c165) — registration is on `main` | N/A (read-only check); if unmerged, §5's cron-log proof will show no invocations yet |
 | `/api/health` reports `billing.dark: true` and `billing.planEnvMatchesRuntime: true` | Anyone (public endpoint) | `curl -s https://www.lustergel.app/api/health \| jq .billing` | Not fetched by Claude (no outbound network call was made while producing this document); **owner runs this before §2** | N/A (read-only check) |
 | Readiness harness green for dark deploy | Anyone with repo access | `npx tsx scripts/billing-readiness-check.ts` (no env needed beyond what the shell already has) | Run locally in this worktree against a minimal dev-shaped env: `readyForDarkDeploy: true`, `readyForActivation: false` (carrier and webhook secret unset, as expected while dark; crons are registered on `main` since #216) — see §5 for the same command run post-deploy | N/A (read-only check) |
-| Billing integrity check clean | Owner (non-production DB target) | `npx tsx scripts/billing-integrity-check.ts` (planned interface — see §6) | Not run against any shared database this session; the script landed on `main` in P8a (#219, b7797bde) — run it against the target DB immediately before §2 | N/A (read-only check) |
+| Billing integrity check clean | Owner (non-production DB target) | `npx tsx scripts/billing-integrity-check.ts` (implemented in #219 — see §6) | Not run against any shared database this session; the script landed on `main` in P8a (#219, b7797bde) — run it against the target DB immediately before §2 | N/A (read-only check) |
 
 **Stop condition:** if any row above is not confirmed true immediately before starting §2, stop and resolve it first. Do not proceed on an assumption.
 
@@ -217,7 +219,7 @@ Mark this configuration as the account's **default/active** configuration for th
 
 ## 6. Isla starter grant (P8a super-admin endpoint; written owner authorization required for `mode: 'apply'`)
 
-**P8a's original standalone CLI-script interface turned out to be structurally unrunnable under `tsx`:** the live credit module chain imports the top-level-await database module, and this repository is CommonJS-typed, so a bare `tsx` process cannot load it. P8a replaces it with an **authenticated super-admin API endpoint** instead: `POST /api/super-admin/billing/starter-grant`, JSON body `{ salonSlug, mode: 'plan' | 'apply', confirmation? }`. **This endpoint has not landed on `origin` as of this writing** — verify it exists and matches this description (`requireSuperAdmin` guard, rate limit, typed confirmation, no `BILLING_*` switch gate) before relying on it.
+**P8a's original standalone CLI-script interface turned out to be structurally unrunnable under `tsx`:** the live credit module chain imports the top-level-await database module, and this repository is CommonJS-typed, so a bare `tsx` process cannot load it. P8a replaces it with an **authenticated super-admin API endpoint** instead: `POST /api/super-admin/billing/starter-grant`, JSON body `{ salonSlug, mode: 'plan' | 'apply', confirmation? }`. **This endpoint landed in #219 (`b7797bde`)** — verify the selected deployment contains it and matches this description (`requireSuperAdmin` guard, rate limit, typed confirmation, no `BILLING_*` switch gate) before relying on it.
 
 - **Owner:** whoever holds written pilot authorization for Isla's starter grant (plan §9: "Isla starter grant via the P8a script" — now the P8a endpoint — is one of the activation-itself preconditions), AND holds a super-admin login.
 - **Guards the endpoint is expected to enforce:** `requireSuperAdmin` (only an authenticated super-admin session can call it); a rate limit; a **typed confirmation** — `apply` mode is refused unless `confirmation` is exactly equal to `salonSlug` (not a boolean flag — the operator must type the slug). Deliberately **no `BILLING_*_ENABLED` switch gate**: granting a starter credit lot is a dark action under contract §20 step 6 (it happens before `platform_communication_control`/billing switches are ever touched), so this endpoint working while every switch is unset is expected, not a defect.
@@ -249,7 +251,7 @@ Flip **one switch at a time**, in this order, each gated on the proof to its lef
 ### 7.1 `BILLING_TOPUPS_ENABLED`
 
 **Owner:** authorized to run a real (test-mode) purchase end-to-end.
-**Precondition:** a complete test-mode purchase demonstrated on Preview FIRST: Checkout → webhook (`checkout.session.completed`, purpose `sms_topup`) → fulfilment (`sms_credit_ledger` gains a `purchased` lot) → history (`GET /api/billing/topups` returns the purchase, once P5a's endpoint exists — if not yet merged, verify via `sms_topup_purchase` directly on the disposable Preview database instead).
+**Precondition:** a complete test-mode purchase demonstrated on Preview FIRST: Checkout → webhook (`checkout.session.completed`, purpose `sms_topup`) → fulfilment (`sms_credit_ledger` gains a `purchased` lot) → history (`GET /api/billing/topups` returns the purchase; P5a landed in #205).
 **Command:** `vercel env add BILLING_TOPUPS_ENABLED preview` (value `true`); after the Preview rehearsal fully passes, repeat for `production`.
 **Verification:** `npx tsx scripts/billing-readiness-check.ts --health-url https://<origin>/api/health` — `dark_switches_unset: false` is now EXPECTED (that is the flip working); `curl .../api/health | jq .billing.dark` reads `false`. Run `scripts/billing-integrity-check.ts` (§6) — clean.
 **Rollback:** `vercel env rm BILLING_TOPUPS_ENABLED <environment>`, redeploy; the route rejects new top-up Checkout attempts again before any Stripe call (`BILLING_TOPUPS_ENABLED !== 'true'`).
@@ -282,7 +284,7 @@ Do not infer a start date, cap, or percentage for the founding promotion window 
 
 **Owner:** whoever flips switches in §7, continuing responsibility afterward.
 
-Contract §19 sets these budgets to **zero**, always, not just at flip time: duplicate starter/monthly/top-up grants; duplicate debits/refunds; unauthorized negative balance; cross-tenant credit/message access; reservation released after proven acceptance. Run `npx tsx scripts/billing-integrity-check.ts` (§6, planned interface) on a **schedule**, not just once:
+Contract §19 sets these budgets to **zero**, always, not just at flip time: duplicate starter/monthly/top-up grants; duplicate debits/refunds; unauthorized negative balance; cross-tenant credit/message access; reservation released after proven acceptance. Run `npx tsx scripts/billing-integrity-check.ts` (§6) on a **schedule**, not just once:
 - **Daily**, for the first two weeks after any switch flips (manual cron entry or a manually-triggered run — this runbook does not itself add a new Vercel cron for the integrity check; that would be a separate, reviewed change).
 - **Weekly** thereafter, indefinitely, while any billing switch is `true`.
 
