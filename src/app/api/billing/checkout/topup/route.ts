@@ -23,6 +23,12 @@
  * `expiresAt` — the attempt TTL stays the single source of truth for how
  * long a checkout may sit unresolved; only Stripe's own [30min, 24h] session
  * bound is enforced here as a clamp, never a second TTL.
+ *
+ * X5 (final handoff §6): the `success_url`/`cancel_url` origin comes from
+ * `resolveBillingAppOrigin()` (`src/libs/billing/billingAppOrigin.ts`), never
+ * from an inline `|| 'http://localhost:3000'` fallback — a hosted deployment
+ * built before `NEXT_PUBLIC_APP_URL` was provisioned refuses the checkout
+ * instead of dead-ending a paying customer on localhost.
  */
 import * as Sentry from '@sentry/nextjs';
 import { and, eq, inArray } from 'drizzle-orm';
@@ -31,6 +37,7 @@ import { z } from 'zod';
 
 import { requireAdmin } from '@/libs/adminAuth';
 import { logAuditEventTx } from '@/libs/auditLog';
+import { resolveBillingAppOrigin } from '@/libs/billing/billingAppOrigin';
 import { beginCheckoutAttempt, markAttemptCheckoutCreated } from '@/libs/billing/checkoutAttempts';
 import { resolveTopupAudienceForLegacyPlan } from '@/libs/billing/legacyPlanAdapter';
 import { BillingCatalogError, resolveStripePriceIdForTopup } from '@/libs/billing/stripePriceMap';
@@ -153,6 +160,17 @@ export async function POST(request: NextRequest) {
       return errorJson(503, 'PRICE_MISMATCH', 'The configured top-up price no longer matches the offer.');
     }
 
+    // X5 (final handoff §6): the post-payment redirect origin is resolved
+    // HERE — before TX1 — not at the session-create call site below. It is a
+    // pure environment read, so an unconfigured hosted deployment fails with
+    // nothing written and no Stripe session, exactly like PRICE_UNCONFIGURED
+    // above; resolving it later would park a durable attempt in `creating`
+    // (unresolvable until its TTL, blocking the salon's next checkout) for a
+    // fault that is purely environmental. The throw is masked by this
+    // handler's outer catch as the route's existing 500 `CHECKOUT_ERROR`,
+    // with the cause captured to Sentry — no new public error vocabulary.
+    const baseUrl = resolveBillingAppOrigin();
+
     const now = new Date();
     const reservation = await db.transaction(async (tx) => {
       const attempt = await beginCheckoutAttempt(tx, {
@@ -262,7 +280,6 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    const baseUrl = Env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
     let session: Awaited<ReturnType<typeof stripe.checkout.sessions.create>>;
     try {
       session = await stripe.checkout.sessions.create(

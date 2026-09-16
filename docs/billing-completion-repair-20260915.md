@@ -274,3 +274,120 @@ current zero-diff pin (`CI.yml:249-250`), which PR-5 will replace with a reviewe
 ### PR-4 — readiness half
 
 **2026-09-15, branch `feat/billing-pr4-readiness-rehearsal-tooling-20260916` (base `origin/main` `6999d87d`).** The pre-activation readiness verdict is no longer computed from the operator's own shell. `scripts/billing-readiness-check.ts` now takes a required `--target dark | rehearsal | activate-topups | activate-subscriptions` and a required `--env-source deployed | env-file | local`, and `src/libs/billing/readinessCheck.ts` gains `evaluateBillingReadiness({ target, evidence })` — pure over an explicit evidence bundle — which replaces the two old `readyForDarkDeploy`/`readyForActivation` verdicts with the per-target conjunction handoff §5.1 specifies. The trusted facts come from a new `GET /api/billing/readiness` (allowlisted in `CI.yml`), authorized by the same `isAuthorizedCronRequest` Bearer `CRON_SECRET` the billing crons accept — no cookie, no super-admin dependency, 401 by construction when the secret is unset — which publishes presence booleans and non-secret facts only: `planEnv`, `planEnvMatchesRuntime`, `vercelEnv`, `gitSha`, `appOrigin`, the four `switches`, `webhookSecretConfigured`, `webhookSecretDistinct` (computed in-process against the legacy and Connect secrets), `stripeKeyMode`, `cronSecretConfigured`, `identityHmacConfigured`, `identityHmacVersion`, `carrier` (section counts plus a SHA-256 digest of the sorted id list, never an id), `deploymentMarker`, `timestamp`. Public `/api/health` is unchanged and still carries exactly its two billing booleans. Four #225 defects close with it: the `whsec_` **value** regex is deleted in favour of presence evidence (B4 — the activation verdict no longer requires the deployment's secret to exist in the operator's shell); `checkActivationSwitches` becomes target-aware, so `activate-subscriptions` with `BILLING_TOPUPS_ENABLED` already `true` is provable while `PUBLIC_PRICING_ENABLED`/`BILLING_TAX_COLLECTION_ENABLED` stay blocked per D11 (B2); crons are read from `vercel.json` **at the deployed `gitSha`** (`git show <sha>:vercel.json`) and Preview additionally requires a `--cron-proof-file`, because Vercel never schedules Preview crons at all (B5/X4); and a Preview `/api/health` 503 body is read — its `degraded` status reported as an informational check, never as a billing-verdict term — only under `--environment preview` (B6/X7). Exit codes are 0 met / 4 not met / 5 evidence missing or unreadable / 6 evidence source insufficient, latched upward only, so a "met" computed after an unreadable evidence file cannot erase it; `--env-source local` requires `--developer`, prints `EVIDENCE SOURCE: local developer shell — NOT deployed proof`, and can never exit 0. Every #225 hardening is preserved verbatim: HTTPS-only evidence URLs with no credentials/query/fragment, redirects refused so an automation-bypass header is never replayed to a redirect target, a 10 s deadline, strict endpoint-**object** validation (a bare array is rejected), and no transport or JSON error detail in any message. Carrier parity is proven by digest equality between the pulled env file and the deployment, so no Stripe id is transmitted in either direction; secrets are named on argv only as environment-variable NAMES (`--bypass-secret-env`, `--cron-secret-env`) and sent as headers. `--health-file`/`--readiness-file` accept a *saved* response as recorded evidence — refused outright with `--env-source deployed`, and useless for any non-`dark` target, which still requires `deployed` — with the JSON `provenance` block naming the exact URL or file every fact was read from. `docs/BILLING_PRODUCTION_RUNBOOK.md` is corrected, never trimmed: §1 gains the per-target evidence-source/exit-code table; §2.2 makes `stripe coupons create --id coupon_<8+ alnum>` mandatory (a Stripe-generated coupon id fails the carrier regex and therefore the whole deployment at boot); §2.4/§4 replace value-reading with the endpoint object export plus `vercel env ls` names or the unsigned-POST probe (`400 INVALID_SIGNATURE` = set, `503 WEBHOOK_NOT_CONFIGURED` = unset); §3's verification command becomes `git grep -n 'checkout.sessions.create' -- src/`, which — unlike the old `src/app/api`-only grep — also surfaces the two connected-account deposit creators in `src/libs`; §4 corrects the false "CRON_SECRET already provisioned" claim for Preview and adds rows for `NEXT_PUBLIC_APP_URL` (set **before** the build; build-time inlined), `LUSTER_NONPROD_DB_HOSTS`, `REDIS_URL`, the five `SUPER_ADMIN_*`/`LEGACY_OTP_AUTH_ENABLED` variables, and the optional `BILLING_DEPLOYMENT_MARKER`; §5/§7 add the exact Preview manual-cron curl (Bearer `CRON_SECRET` + `x-vercel-protection-bypass`) and state plainly that Preview does not establish production crons; §6 records that `REDIS_URL` is required for super-admin login on hosted deploys. Three couplings close the gap a trust-boundary review found in the first cut, where `--environment` was a free-floating label: it is now REQUIRED and pinned to the target (`rehearsal` ⇒ `preview`, `activate-*` ⇒ `production`, `dark` ⇒ either, exit 6 otherwise), so an activation target can no longer be labelled `preview` to unlock the Preview-only 503 allowance; `environment_matches_deployment` makes the deployment's own `vercelEnv` able to contradict the label; and `deployment_sha_consistent` requires `/api/health` and `/api/billing/readiness` to report the same commit, since two reads that landed on different deployments are not evidence about one. Nine narrower rules land with them: an `env-file` source requires an actual `--env-file` (an empty variable-name list is not provisioning evidence); a saved `--health-file` obeys the same 503 gate as the live fetch; `--readiness-url` must share the health origin; each cron invocation must carry a response body and a parseable `recordedAt`, and the two jobs are held to DIFFERENT bodies for the `activate-*` targets because they gate differently — `/api/billing/windows/evaluate` gates on `BILLING_SUBSCRIPTIONS_ENABLED` alone and must answer the dark `{"skipped":"BILLING_DISABLED"}`, while `/api/billing/reconcile` skips only when NEITHER switch is set (`reconcile/route.ts:605-609`), so it must answer the dark skip for `activate-topups` but a body with NO `skipped` key (`{purged, topups}`) for `activate-subscriptions`, where `BILLING_TOPUPS_ENABLED` is already true under D11; demanding a skip from both would have refused the documented activation order; a supplied `--vercel-json-at-sha` must be byte-identical to `<sha>:vercel.json` whenever that commit IS in the checkout (the flag exists only for the case where it is not, and `provenance` records which situation applied); portal export entries must carry a `livemode` marker that matches the target's mode; the endpoint export's URL must carry no query string, so a deployment-protection bypass token cannot be stored in — and displayed by — the shared Stripe dashboard (O6); `validateIntegrityReport` accepts both the flat `{exitCode, violations}` shape and the `{exitCode, report}` wrapper the rehearsal document prescribes (because `scripts/billing-integrity-check.ts` carries its exit code only as a process status that a saved stdout file loses), refuses a file carrying both at once, and holds a wrapper to that script's own contract — `report.violationCount === report.violations.length`, and `exitCode === 3` exactly when violations were found (`billing-integrity-check.ts:145`); `deployment_sha_consistent` fails rather than skips when exactly one of the two deployed surfaces names a commit, since on one deployment both read the same `VERCEL_GIT_COMMIT_SHA`; and the route clamps `BILLING_PLAN_ENV` to the enum, sends `Cache-Control: no-store` on the 401 as well, and normalises `appOrigin` through `URL.origin` so a bypass token in `NEXT_PUBLIC_APP_URL` can never ride out on the body. The exit code is now computed before serialization and printed INSIDE the JSON beside `met`, so `met: true` can never be read without the `exitCode: 5` that qualifies it. Tests: `src/libs/billing/readinessCheck.test.ts` 120, `scripts/billing-readiness-check.test.ts` 55, `src/app/api/billing/readiness/route.test.ts` 12 (RD-1 … RD-8 plus one explicit failing path per check id), with `reconcile` 22 and `windows/evaluate` 7 re-run green; `tsc --noEmit` and `eslint --max-warnings 0` clean; `node scripts/check-secret-leaks.mjs --tree` and `node --test scripts/check-secret-leaks.node-test.mjs` both pass. No Stripe call, no Vercel call, no migration, no `vercel.json` change, and production billing stays dark throughout.
+
+## PR-6b (identity safety + hosted application origin) — 2026-09-16
+
+Base `origin/main` `6c5167e9` (v1.112.0), branch `fix/billing-pr6b-identity-origin-20260916`. Only the
+slices of PR-6 that need no owner decision. Billing stays dark: no migration, no `vercel.json` change, no
+environment value, no Stripe or Vercel call, and nothing here performs a provider-side action.
+
+### Y9 — an unverified email must never become a durable identity link
+
+`src/libs/billing/starterGrantBackfill.ts` passed `verifiedEmail: salon.ownerEmail` into
+`resolveOrCreateBusinessIdentity`. `salon.owner_email` is a free-text contact column that nothing verifies,
+while `businessIdentity.ts:81-90` turns any non-empty `verifiedEmail` into a durable `email_hmac` link and
+`billing_identity_link_value_uniq` makes one link value belong to exactly one identity globally. Two salons
+that merely share an owner email were therefore merged into a single business identity, and because the
+starter grant is fenced per identity, the second salon's grant silently returned `granted: false` — or the
+resolution raised `IDENTITY_CONFLICT` (`businessIdentity.ts:140-145`), which the operator route masked as a
+500. Live onboarding (`onboarding/luster/route.ts:418-421`,
+`onboarding-v1-integration/persistence.server.ts:1979-1982`) passes a genuinely Clerk-verified address, so
+the two call sites did not agree on what "verified" means.
+
+The email signal now comes from the owner's `admin_user` row and only when that row's `email_verified_at`
+is non-null — the single verified-email marker this schema has (`src/models/Schema.ts:2065`). It is that
+row's own `email` that is passed, never `salon.owner_email`, because the marker attests the `admin_user`
+address and the two can differ. The owner row is found by `admin_user.clerk_user_id =
+salon.owner_clerk_user_id` (onboarding writes the same Clerk id to both columns), falling back for a legacy
+phone-OTP salon to the `admin_salon_membership` row with `role = 'owner'`, ordered by `admin_user.created_at`
+so a salon carrying two owner rows resolves deterministically. With no verified address the call passes
+`verifiedEmail: null` and the `clerk_user`, `salon` and `stripe_customer` signals carry the resolution
+unchanged — the grant still applies. `salon.ownerEmail` is gone from the module's salon projection entirely,
+so a later edit cannot reintroduce it, and the read-only `plan` path uses the same gated signal: otherwise
+`plan` could report an `alreadyGranted` belonging to a different salon that merely shares the address, and
+then disagree with the identity `apply` resolves.
+
+`src/app/api/super-admin/billing/starter-grant/route.ts` now answers a typed **409 `IDENTITY_CONFLICT`** for
+`BusinessIdentityError` with that code, telling the operator that the salon's signals resolve to more than
+one business identity and that the grant was **not** applied. The backfill runs in one transaction, so the
+throw already rolled everything back: no credits moved, no `billing_starter_grant` row, no audit row. The
+body carries the code and message only — no Stripe id, no amount, no fingerprint and no business-identity
+id, since the thing that failed is deciding which identity this salon is. Everything else in that route is
+untouched: auth first, then the rate limiter, then body parse, the typed confirmation, and a masked 500 with
+a Sentry capture for anything unexpected. The other `BusinessIdentityError` code, `NO_IDENTITY_SIGNALS`, is
+structurally unreachable here (the salon id is always supplied) and deliberately stays in the masked-500
+bucket rather than being mislabelled a conflict. `plan` shares the same catch, so a future plan-side
+conflict check answers 409 and not 500; it cannot raise the error today, because its read-only resolution
+returns the first existing link match and never calls `resolveOrCreateBusinessIdentity`.
+
+**Y9 was unreachable in production while it was live.** Both the defect and the fix depend on
+`computeEmailFingerprint`, which fail-closes to `null` unless `BILLING_IDENTITY_HMAC_SECRET` and
+`BILLING_IDENTITY_HMAC_VERSION` are both set — and they are unset in every environment today (final handoff
+§6.2, HMAC configuration row). No `email_hmac` link has ever been written, so there is no data to repair;
+the fix lands before the secret is ever provisioned. The tests set the secret explicitly, which is the only
+way the regression is provable.
+
+### X5 — a hosted deployment must never send a paying customer to `localhost`
+
+New `src/libs/billing/billingAppOrigin.ts` exports `resolveBillingAppOrigin(): string` and
+`BillingAppOriginError` with the single code `APP_ORIGIN_UNCONFIGURED`. It returns the `URL.origin` of
+`NEXT_PUBLIC_APP_URL` when that is set and parseable as an absolute `http(s)` URL — origin only, so a
+deployment-protection bypass token left in the variable can never ride out to Stripe inside a redirect url.
+When the value is unusable it throws on a hosted runtime (`process.env.VERCEL === '1'`) and returns
+`http://localhost:3000` only off one. It deliberately does **not** reuse `getCanonicalAppOrigin()`
+(`src/libs/publicUrl.ts:26-42`), whose `VERCEL_PROJECT_PRODUCTION_URL` fallback (`publicUrl.ts:30`) would
+send a Preview customer's test-mode success/cancel redirect to the production domain; the file header says
+so, and both the unit suite and the route suite pin it.
+
+`src/app/api/billing/checkout/topup/route.ts` uses it in place of the inline
+`Env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'` fallback. `NEXT_PUBLIC_APP_URL` is build-time inlined,
+so a deployment built before the variable was provisioned dead-ended every post-payment redirect. The origin
+is resolved **before TX1**, alongside the catalogue and `PRICE_UNCONFIGURED` checks, not at the
+`checkout.sessions.create` call site: it is a pure environment read, so the refusal leaves no attempt row, no
+`sms_topup_purchase` row and no Stripe session, exactly like every other pre-reservation refusal. Resolving
+it later would have parked a durable attempt in `creating` — unresolvable until its TTL, blocking the salon's
+next checkout — for a purely environmental fault. The throw is masked by the route's existing outer catch as
+its existing 500 `CHECKOUT_ERROR` with a Sentry capture; no new public error vocabulary was invented.
+
+`src/app/api/billing/checkout/topup/route.ts` is on the `src/app/api/billing` allowlist in
+`.github/workflows/CI.yml` (`case` entry at `CI.yml:285`) but carries **no** reviewed-postimage blob pin —
+only `checkout/route.ts` (`CI.yml:304-321`) and `portal/route.ts` (`CI.yml:324-333`) do — so this edit needs
+no CI change, and none was made.
+
+**What stays owner-gated (O10).** The subscription checkout (`checkout/route.ts:271`) and the Billing Portal
+(`portal/route.ts:142`) keep their inline `localhost` fallback. Both files are pinned to reviewed-postimage
+blobs, so editing either fails CI until the owner ratifies a new postimage — the same gate that holds the
+portal's `returnUrl` same-origin validation and PR-3's response codes. The next PR that refreshes those pins
+must delete both inline fallbacks; the helper's header comment records the obligation at the call sites.
+
+### Deliberate non-changes recorded here
+
+**1. R10 (§6.5a label vs eligibility) is accepted as a pilot limitation, not fixed.**
+`describeSubscriptionEntitlement` (`src/libs/billing/subscriptionEntitlement.ts:90-102`) is a pure function
+over `{status, paidThrough}`. The divergence is reachable only after a refund of a **non-latest** invoice,
+where a newer paid invoice keeps `paid_through` ahead of the refunded window: the owner-facing label then
+states coverage the refunded interval no longer earns. Making the label refund-aware would mean threading
+refund evidence through `legacyPlanAdapter.ts` into the owner usage surface
+(`src/app/api/admin/salon/communications/usage/route.ts`) — a database read in an owner-facing route, which
+is well outside this PR and outside PR-6's mandate. The grant engine remains authoritative and is unaffected:
+window grants and upgrade differences exclude refunded intervals independently of the mutable `paidThrough`
+scalar, so credits are withheld correctly. Only the label over-states coverage. Handoff §3.4 explicitly
+permits recording this rather than fixing it.
+
+**2. Migration index collision — `0078` is already claimed.** The open Owner Assistant PR #223 claims
+`migrations/0078_owner_assistant_menu_order.sql` and edits `migrations/meta/_journal.json`,
+`src/models/Schema.ts`, `src/models/d6_1TaxSnapshotSchema.integration.test.ts`, `src/libs/Env.ts` and
+`src/libs/adminAuth.ts`. Whichever of the two merges first takes index `0078`. The future `billing_customer`
+migration (owner decision O12, PR-3) must therefore claim the next free index, re-base its `_journal.json`
+entry on the merged tail, and re-base the preview-fixture ledger pin every migration has to re-base. This is
+recorded here so the PR-3 author meets it before CI does, not after.
+
+### Validation
+
+`src/libs/billing/starterGrantBackfill.test.ts` 15 (8 pre-existing + 7 Y9, including the two-salons /
+one-mailbox regression), `src/app/api/super-admin/billing/starter-grant/route.test.ts` 15 (11 pre-existing +
+4), `src/libs/billing/billingAppOrigin.test.ts` 14 (new),
+`src/app/api/billing/checkout/topup/route.test.ts` 50 (45 pre-existing + 5 X5), all green, with
+`src/libs/architecturalInvariants.test.ts` and `src/libs/architectureClientServerBoundary.test.ts` re-run
+clean. `npx tsc --noEmit` and `eslint --max-warnings 0` on every changed file are clean, and
+`node scripts/check-secret-leaks.mjs --tree` passes. No existing assertion was weakened.
