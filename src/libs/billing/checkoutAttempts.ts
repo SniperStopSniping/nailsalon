@@ -4,7 +4,9 @@
  * B1 persists and serializes ONLY: no Stripe SDK import, no session
  * creation, no route. At most one ACTIVE subscription attempt per salon
  * (purpose-scoped partial unique — a pending subscription attempt must
- * never block top-ups); repeated requests reuse the active attempt; the
+ * never block top-ups); repeated requests for the SAME offer reuse the active
+ * attempt while a request for a DIFFERENT offer or promotion is refused
+ * (`CHECKOUT_IN_PROGRESS`, OP-2/Y2 — see {@link attemptMatchesRequestedOffer}); the
  * Stripe idempotency key derives deterministically from the persisted
  * attempt id and is never browser-supplied. A salon with a LIVE paid
  * subscription cannot begin a new-subscription attempt
@@ -32,6 +34,45 @@ export const CHECKOUT_ATTEMPT_TTL_MS = 60 * 60 * 1000;
 
 export function deriveStripeIdempotencyKey(attemptId: string): string {
   return `billing-attempt:${attemptId}`;
+}
+
+/**
+ * OP-2 / handoff §6.2 (Y2): an ACTIVE attempt is reusable ONLY for the offer
+ * it was created for. Reuse hands the caller the attempt's existing Checkout
+ * Session, so reusing across offers would show a customer who abandoned offer
+ * A and returned for offer B the session (and price, and disclosure) of A;
+ * worse, the subscription route reserves a capped promotion claim against the
+ * reused attempt, so a promotion added on the retry would burn a claim against
+ * a session that carries no discount.
+ *
+ * Per purpose, because the two purposes key their offer on different columns:
+ * `topupOfferKey` for `sms_topup` (the comparison the reuse branch below has
+ * always made), `billingOfferKey` AND `promotionKey` for `plan_subscription`.
+ * `undefined` from a caller that omitted a key is the nullable column's `null`.
+ *
+ * Deliberate partial (contract O10): `checkout/route.ts:246-247` maps EVERY
+ * attempt conflict to `409 ACTIVE_SUBSCRIPTION_EXISTS`, so a differing-offer
+ * refusal currently surfaces to the subscription caller under that code rather
+ * than `CHECKOUT_IN_PROGRESS`. Correcting the mapping means editing a
+ * reviewed-postimage-pinned route (owner decision O10) and is deferred; the
+ * money-safety half — never reusing a session created for a different offer or
+ * promotion — is complete here. The top-up route already maps
+ * `CHECKOUT_IN_PROGRESS` correctly (`checkout/topup/route.ts:208`).
+ */
+function attemptMatchesRequestedOffer(
+  existing: { billingOfferKey: string | null; topupOfferKey: string | null; promotionKey: string | null },
+  input: {
+    purpose: 'plan_subscription' | 'sms_topup';
+    billingOfferKey?: string | null;
+    topupOfferKey?: string | null;
+    promotionKey?: string | null;
+  },
+): boolean {
+  if (input.purpose === 'sms_topup') {
+    return existing.topupOfferKey === (input.topupOfferKey ?? null);
+  }
+  return existing.billingOfferKey === (input.billingOfferKey ?? null)
+    && existing.promotionKey === (input.promotionKey ?? null);
 }
 
 export type BeginAttemptResult =
@@ -126,6 +167,9 @@ export async function beginCheckoutAttempt(
       .select({
         id: billingCheckoutAttemptSchema.id,
         stripeIdempotencyKey: billingCheckoutAttemptSchema.stripeIdempotencyKey,
+        billingOfferKey: billingCheckoutAttemptSchema.billingOfferKey,
+        topupOfferKey: billingCheckoutAttemptSchema.topupOfferKey,
+        promotionKey: billingCheckoutAttemptSchema.promotionKey,
       })
       .from(billingCheckoutAttemptSchema)
       .where(and(
@@ -134,11 +178,16 @@ export async function beginCheckoutAttempt(
         inArray(billingCheckoutAttemptSchema.status, ['creating', 'checkout_created']),
       ))
       .limit(1);
-    if (active.length > 0) {
+    const existing = active[0];
+    if (existing !== undefined) {
+      // OP-2/Y2: same offer AND same promotion, or no reuse at all.
+      if (!attemptMatchesRequestedOffer(existing, input)) {
+        return { ok: false, reason: 'CHECKOUT_IN_PROGRESS' };
+      }
       return {
         ok: true,
-        attemptId: active[0]!.id,
-        stripeIdempotencyKey: active[0]!.stripeIdempotencyKey,
+        attemptId: existing.id,
+        stripeIdempotencyKey: existing.stripeIdempotencyKey,
         reused: true,
       };
     }
@@ -162,11 +211,16 @@ export async function beginCheckoutAttempt(
   }).onConflictDoNothing().returning();
   if (inserted.length === 0) {
     // Partial-unique race: a concurrent request created the active attempt
-    // between our check and insert — reuse it.
+    // between our check and insert — reuse it, but only when it is an attempt
+    // at the SAME offer (OP-2/Y2). The reuse hole this closes exists here for
+    // BOTH purposes, so the comparison is purpose-scoped.
     const active = await tx
       .select({
         id: billingCheckoutAttemptSchema.id,
         stripeIdempotencyKey: billingCheckoutAttemptSchema.stripeIdempotencyKey,
+        billingOfferKey: billingCheckoutAttemptSchema.billingOfferKey,
+        topupOfferKey: billingCheckoutAttemptSchema.topupOfferKey,
+        promotionKey: billingCheckoutAttemptSchema.promotionKey,
       })
       .from(billingCheckoutAttemptSchema)
       .where(and(
@@ -175,11 +229,15 @@ export async function beginCheckoutAttempt(
         inArray(billingCheckoutAttemptSchema.status, ['creating', 'checkout_created']),
       ))
       .limit(1);
-    if (active.length > 0) {
+    const raced = active[0];
+    if (raced !== undefined) {
+      if (!attemptMatchesRequestedOffer(raced, input)) {
+        return { ok: false, reason: 'CHECKOUT_IN_PROGRESS' };
+      }
       return {
         ok: true,
-        attemptId: active[0]!.id,
-        stripeIdempotencyKey: active[0]!.stripeIdempotencyKey,
+        attemptId: raced.id,
+        stripeIdempotencyKey: raced.stripeIdempotencyKey,
         reused: true,
       };
     }

@@ -8,7 +8,7 @@
 import path from 'node:path';
 
 import { PGlite } from '@electric-sql/pglite';
-import { eq, sql } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/pglite';
 import { migrate } from 'drizzle-orm/pglite/migrator';
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -440,6 +440,199 @@ describe('G02 — Stripe Price ↔ offer-metadata cross-check', () => {
   });
 });
 
+/**
+ * The projection's INSERT path used to write its `created` audit row
+ * unconditionally, for a locally generated `bsub_…` id that a concurrent
+ * delivery's winning insert had made non-existent — a phantom entity_id in the
+ * very table that carries refund evidence — while silently dropping this
+ * delivery's snapshot.
+ *
+ * `projectSubscriptionSnapshot` opens its own transaction, so the race is
+ * staged by swapping `@/libs/DB`'s db for one whose transaction hands the
+ * projection a doubled `tx`: the named SELECT calls answer empty, everything
+ * else — the salon share-lock read, the INSERT and its real ON CONFLICT DO
+ * NOTHING against the pre-seeded winner row, the re-SELECT, the UPDATE and the
+ * audit INSERT — runs against the real database. Cross-connection concurrency
+ * is proven separately in the Postgres concurrency suite.
+ */
+type EmptySelect = {
+  from: () => EmptySelect;
+  where: () => EmptySelect;
+  limit: () => EmptySelect;
+  for: () => Promise<never[]>;
+  then: (resolve: (rows: never[]) => unknown) => unknown;
+};
+
+function dbWithBlindSelects(stubbedSelectCalls: number[]) {
+  const realDb = db;
+  return {
+    transaction: <T>(callback: (tx: unknown) => Promise<T>) => realDb.transaction(async (tx) => {
+      const realSelect = tx.select.bind(tx) as unknown as (...args: unknown[]) => unknown;
+      const realInsert = tx.insert.bind(tx) as unknown as (...args: unknown[]) => unknown;
+      const realUpdate = tx.update.bind(tx) as unknown as (...args: unknown[]) => unknown;
+      let selectCall = 0;
+      const blind = (): EmptySelect => {
+        const builder: EmptySelect = {
+          from: () => builder,
+          where: () => builder,
+          limit: () => builder,
+          for: async () => [],
+          then: resolve => resolve([]),
+        };
+        return builder;
+      };
+      return callback({
+        select: (...args: unknown[]) => {
+          selectCall += 1;
+          return stubbedSelectCalls.includes(selectCall) ? blind() : realSelect(...args);
+        },
+        insert: (...args: unknown[]) => realInsert(...args),
+        update: (...args: unknown[]) => realUpdate(...args),
+      });
+    }),
+  };
+}
+
+describe('projection insert race (§8.3) — the loser must never write a phantom audit row', () => {
+  const projectedRows = (entityId: string) => db
+    .select()
+    .from(schema.auditLogSchema)
+    .where(and(
+      eq(schema.auditLogSchema.action, 'billing_subscription_projected'),
+      eq(schema.auditLogSchema.entityId, entityId),
+    ));
+
+  it('an insert that returns nothing routes to the UPDATE path and writes one `updated` audit row', async () => {
+    const { projectSubscriptionSnapshot } = await projection();
+    await seedSalon('s_race_proj');
+    // The concurrent delivery that won the insert.
+    const winner = await projectSubscriptionSnapshot({
+      snapshot: snapshot({ salonId: 's_race_proj', id: 'sub_race_proj' }),
+      eventCreated: T0,
+      eventId: 'evt_race_proj_winner',
+    });
+
+    expect(winner).toEqual({ applied: true, kind: 'created' });
+
+    const [winnerRow] = await db.select().from(schema.billingSubscriptionSchema)
+      .where(eq(schema.billingSubscriptionSchema.stripeSubscriptionId, 'sub_race_proj'));
+    const auditRowsBefore = (await projectedRows(winnerRow!.id)).length;
+
+    // The loser: its existence check (SELECT #1) ran before the winner
+    // committed, so it takes the INSERT path and conflicts for real.
+    holder.db = dbWithBlindSelects([1]);
+    let loser;
+    try {
+      loser = await projectSubscriptionSnapshot({
+        snapshot: snapshot({ salonId: 's_race_proj', id: 'sub_race_proj', cancelAtPeriodEnd: true }),
+        eventCreated: new Date(T0.getTime() + 1000),
+        eventId: 'evt_race_proj_loser',
+      });
+    } finally {
+      holder.db = db;
+    }
+
+    expect(loser).toEqual({ applied: true, kind: 'updated' });
+
+    // Exactly one subscription row, and the loser's snapshot was APPLIED to it
+    // rather than dropped.
+    const rows = await db.select().from(schema.billingSubscriptionSchema)
+      .where(eq(schema.billingSubscriptionSchema.stripeSubscriptionId, 'sub_race_proj'));
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.id).toBe(winnerRow!.id);
+    expect(rows[0]!.cancelAtPeriodEnd).toBe(true);
+    expect(rows[0]!.lastEventId).toBe('evt_race_proj_loser');
+
+    // Exactly one NEW audit row, of kind `updated` — and no `created` row for a
+    // `bsub_…` id that no subscription row has.
+    const after = await projectedRows(winnerRow!.id);
+
+    expect(after).toHaveLength(auditRowsBefore + 1);
+    expect(after.at(-1)!.metadata).toMatchObject({ kind: 'updated' });
+
+    const orphans = await db.execute(sql`
+      SELECT COUNT(*)::int AS orphans FROM audit_log
+      WHERE action = 'billing_subscription_projected'
+        AND entity_id NOT IN (SELECT id FROM billing_subscription)
+    `);
+
+    expect(Number((orphans.rows[0] as Record<string, unknown>).orphans)).toBe(0);
+  });
+
+  it('the §8.3 stale fence still decides on the re-selected row', async () => {
+    const { projectSubscriptionSnapshot } = await projection();
+    await seedSalon('s_race_stale');
+    await projectSubscriptionSnapshot({
+      snapshot: snapshot({ salonId: 's_race_stale', id: 'sub_race_stale' }),
+      eventCreated: T0_PLUS_MONTH,
+      eventId: 'evt_race_stale_winner',
+    });
+
+    const [winnerRow] = await db.select().from(schema.billingSubscriptionSchema)
+      .where(eq(schema.billingSubscriptionSchema.stripeSubscriptionId, 'sub_race_stale'));
+
+    // The losing delivery is STRICTLY older than the winner's watermark: the
+    // moved update branch must fence it exactly as it would for any second
+    // delivery, instead of writing a `created` row for a phantom id.
+    holder.db = dbWithBlindSelects([1]);
+    let loser;
+    try {
+      loser = await projectSubscriptionSnapshot({
+        snapshot: snapshot({ salonId: 's_race_stale', id: 'sub_race_stale', cancelAtPeriodEnd: true }),
+        eventCreated: T0,
+        eventId: 'evt_race_stale_loser',
+      });
+    } finally {
+      holder.db = db;
+    }
+
+    expect(loser).toEqual({ applied: true, kind: 'stale' });
+
+    const [row] = await db.select().from(schema.billingSubscriptionSchema)
+      .where(eq(schema.billingSubscriptionSchema.stripeSubscriptionId, 'sub_race_stale'));
+
+    expect(row!.cancelAtPeriodEnd).toBe(false);
+    expect(row!.lastEventId).toBe('evt_race_stale_winner');
+    expect((await projectedRows(winnerRow!.id)).at(-1)!.metadata).toMatchObject({ kind: 'stale' });
+  });
+
+  it('a winner row that vanishes before the re-select is SUBSCRIPTION_PROJECTION_RACE, not a phantom create', async () => {
+    const { projectSubscriptionSnapshot } = await projection();
+    await seedSalon('s_race_gone');
+    await projectSubscriptionSnapshot({
+      snapshot: snapshot({ salonId: 's_race_gone', id: 'sub_race_gone' }),
+      eventCreated: T0,
+      eventId: 'evt_race_gone_winner',
+    });
+
+    // SELECT #1 is the existence check and SELECT #3 the post-conflict
+    // re-select (#2 is the salon share-lock read): the winning row was deleted
+    // between the conflict and the re-read.
+    holder.db = dbWithBlindSelects([1, 3]);
+    let loser;
+    try {
+      loser = await projectSubscriptionSnapshot({
+        snapshot: snapshot({ salonId: 's_race_gone', id: 'sub_race_gone' }),
+        eventCreated: new Date(T0.getTime() + 1000),
+        eventId: 'evt_race_gone_loser',
+      });
+    } finally {
+      holder.db = db;
+    }
+
+    expect(loser).toEqual({ applied: false, anomaly: 'SUBSCRIPTION_PROJECTION_RACE' });
+
+    const orphans = await db.execute(sql`
+      SELECT COUNT(*)::int AS orphans FROM audit_log
+      WHERE action = 'billing_subscription_projected'
+        AND entity_id NOT IN (SELECT id FROM billing_subscription)
+    `);
+
+    expect(Number((orphans.rows[0] as Record<string, unknown>).orphans)).toBe(0);
+  });
+});
+
 describe('G10 — full subscription refund stops future grants (§6.7)', () => {
   async function seedActiveSubscription(salonId: string, over: Partial<typeof schema.billingSubscriptionSchema.$inferInsert> = {}) {
     await seedSalon(salonId);
@@ -475,7 +668,7 @@ describe('G10 — full subscription refund stops future grants (§6.7)', () => {
       eventId: 'evt_refund_lower',
     });
 
-    expect(result).toEqual({ applied: true, lowered: true });
+    expect(result).toEqual({ applied: true, lowered: true, written: true });
 
     const [row] = await db.select().from(schema.billingSubscriptionSchema)
       .where(eq(schema.billingSubscriptionSchema.stripeSubscriptionId, 'sub_s_refund_lower'));
@@ -493,7 +686,7 @@ describe('G10 — full subscription refund stops future grants (§6.7)', () => {
       eventId: 'evt_refund_raise_attempt',
     });
 
-    expect(raiseAttempt).toEqual({ applied: true, lowered: false });
+    expect(raiseAttempt).toEqual({ applied: true, lowered: false, written: false });
 
     const [afterRaiseAttempt] = await db.select().from(schema.billingSubscriptionSchema)
       .where(eq(schema.billingSubscriptionSchema.stripeSubscriptionId, 'sub_s_refund_lower'));
@@ -515,7 +708,7 @@ describe('G10 — full subscription refund stops future grants (§6.7)', () => {
       eventId: 'evt_refund_replay_1',
     });
 
-    expect(first).toEqual({ applied: true, lowered: true });
+    expect(first).toEqual({ applied: true, lowered: true, written: true });
 
     // Same refund id, replayed — and even a SECOND, unrelated event carrying
     // the identical evidence — both converge to a no-op.
@@ -538,8 +731,8 @@ describe('G10 — full subscription refund stops future grants (§6.7)', () => {
       eventId: 'evt_refund_replay_2',
     });
 
-    expect(replay).toEqual({ applied: true, lowered: false });
-    expect(secondEvent).toEqual({ applied: true, lowered: false });
+    expect(replay).toEqual({ applied: true, lowered: false, written: false });
+    expect(secondEvent).toEqual({ applied: true, lowered: false, written: false });
 
     const [row] = await db.select().from(schema.billingSubscriptionSchema)
       .where(eq(schema.billingSubscriptionSchema.stripeSubscriptionId, 'sub_s_refund_replay'));
@@ -559,7 +752,7 @@ describe('G10 — full subscription refund stops future grants (§6.7)', () => {
       eventId: 'evt_refund_missing',
     });
 
-    expect(result).toEqual({ applied: false, lowered: false });
+    expect(result).toEqual({ applied: false, lowered: false, written: false });
   });
 
   it('a window ALREADY granted before the refund stays granted; the NEXT window records skipped_unpaid instead of being granted (§6.8: full refund after prior windows consumed)', async () => {
@@ -602,7 +795,7 @@ describe('G10 — full subscription refund stops future grants (§6.7)', () => {
       eventId: 'evt_refund_window_refund',
     });
 
-    expect(refundResult).toEqual({ applied: true, lowered: true });
+    expect(refundResult).toEqual({ applied: true, lowered: true, written: true });
 
     // Evaluate again from inside window 1's range: it must record
     // skipped_unpaid, NOT granted — even though paid_through covered it
@@ -820,6 +1013,83 @@ describe('§2.3 duplicate-subscription policy', () => {
         .toEqual({ eligible: true });
     });
   });
+
+  /**
+   * OP-4: the classification used to order by `createdAt` ASC and take ONE
+   * row. The partial unique index permits one live row PLUS any number of
+   * `canceled` history rows, so after a cancel → resubscribe the OLDEST row is
+   * a canceled one whose prepaid time has long expired — and the salon was
+   * told it was eligible while a live subscription existed.
+   */
+  it('judges ALL rows: a live row always decides, however old the canceled history is', async () => {
+    const { classifySubscriptionEligibility } = await projection();
+    const now = new Date('2026-09-15T00:00:00.000Z');
+    const seedRow = async (input: {
+      salonId: string;
+      suffix: string;
+      status: schema.BillingSubscriptionStatus;
+      paidThrough: Date;
+      cancelAtPeriodEnd?: boolean;
+      createdAt: Date;
+    }) => {
+      await db.insert(schema.billingSubscriptionSchema).values({
+        id: `bsub_${input.salonId}_${input.suffix}`,
+        salonId: input.salonId,
+        stripeSubscriptionId: `sub_${input.salonId}_${input.suffix}`,
+        stripeCustomerId: `cus_${input.salonId}`,
+        planDefinitionKey: 'pro_2026_08',
+        billingOfferKey: 'pro_2026_08_monthly',
+        billingCadence: 'monthly',
+        status: input.status,
+        cancelAtPeriodEnd: input.cancelAtPeriodEnd ?? false,
+        paidThrough: input.paidThrough,
+        creditCycleAnchor: T0,
+        createdAt: input.createdAt,
+      });
+    };
+    const expired = new Date('2026-08-01T00:00:00.000Z');
+    const stillPrepaid = new Date('2026-10-01T00:00:00.000Z');
+    const laterPrepaid = new Date('2026-11-01T00:00:00.000Z');
+
+    // 1. old exhausted canceled row + a live one.
+    await seedSalon('s_el_resub');
+    await seedRow({ salonId: 's_el_resub', suffix: 'old', status: 'canceled', paidThrough: expired, createdAt: new Date('2026-01-01T00:00:00.000Z') });
+    await seedRow({ salonId: 's_el_resub', suffix: 'live', status: 'active', paidThrough: stillPrepaid, createdAt: new Date('2026-09-01T00:00:00.000Z') });
+
+    // 2. the same shape, but the live row is scheduled to cancel.
+    await seedSalon('s_el_resub_sched');
+    await seedRow({ salonId: 's_el_resub_sched', suffix: 'old', status: 'canceled', paidThrough: expired, createdAt: new Date('2026-01-01T00:00:00.000Z') });
+    await seedRow({ salonId: 's_el_resub_sched', suffix: 'live', status: 'past_due', paidThrough: stillPrepaid, cancelAtPeriodEnd: true, createdAt: new Date('2026-09-01T00:00:00.000Z') });
+
+    // 3. two canceled rows: the NEWER one still carries prepaid entitlement.
+    await seedSalon('s_el_two_canceled');
+    await seedRow({ salonId: 's_el_two_canceled', suffix: 'old', status: 'canceled', paidThrough: expired, createdAt: new Date('2026-01-01T00:00:00.000Z') });
+    await seedRow({ salonId: 's_el_two_canceled', suffix: 'new', status: 'canceled', paidThrough: laterPrepaid, createdAt: new Date('2026-09-01T00:00:00.000Z') });
+    await seedRow({ salonId: 's_el_two_canceled', suffix: 'mid', status: 'canceled', paidThrough: stillPrepaid, createdAt: new Date('2026-06-01T00:00:00.000Z') });
+
+    // 4. only exhausted canceled rows.
+    await seedSalon('s_el_all_expired');
+    await seedRow({ salonId: 's_el_all_expired', suffix: 'a', status: 'canceled', paidThrough: expired, createdAt: new Date('2026-01-01T00:00:00.000Z') });
+    await seedRow({ salonId: 's_el_all_expired', suffix: 'b', status: 'canceled', paidThrough: new Date('2026-09-01T00:00:00.000Z'), createdAt: new Date('2026-05-01T00:00:00.000Z') });
+
+    // 5. an `incomplete_expired` row is neither live nor prepaid evidence.
+    await seedSalon('s_el_incomplete_expired');
+    await seedRow({ salonId: 's_el_incomplete_expired', suffix: 'a', status: 'incomplete_expired', paidThrough: laterPrepaid, createdAt: new Date('2026-01-01T00:00:00.000Z') });
+
+    await db.transaction(async (tx) => {
+      expect(await classifySubscriptionEligibility(tx, 's_el_resub', now))
+        .toEqual({ eligible: false, reason: 'ACTIVE_SUBSCRIPTION_EXISTS' });
+      expect(await classifySubscriptionEligibility(tx, 's_el_resub_sched', now))
+        .toEqual({ eligible: false, reason: 'CANCELLATION_SCHEDULED' });
+      // The MAXIMUM prepaid remainder, not the oldest or the newest row's.
+      expect(await classifySubscriptionEligibility(tx, 's_el_two_canceled', now))
+        .toEqual({ eligible: false, reason: 'PREPAID_ENTITLEMENT_REMAINS', paidThrough: laterPrepaid });
+      expect(await classifySubscriptionEligibility(tx, 's_el_all_expired', now))
+        .toEqual({ eligible: true });
+      expect(await classifySubscriptionEligibility(tx, 's_el_incomplete_expired', now))
+        .toEqual({ eligible: true });
+    });
+  });
 });
 
 describe('P3c — audit trail (§8.5, §17)', () => {
@@ -935,7 +1205,7 @@ describe('P3c — audit trail (§8.5, §17)', () => {
       eventId: 'evt_audit_refund_1',
     });
 
-    expect(lowered).toEqual({ applied: true, lowered: true });
+    expect(lowered).toEqual({ applied: true, lowered: true, written: true });
 
     let rows = await auditRowsForEntity(subscriptionId);
 
@@ -970,7 +1240,7 @@ describe('P3c — audit trail (§8.5, §17)', () => {
       eventId: 'evt_audit_refund_2',
     });
 
-    expect(replay).toEqual({ applied: true, lowered: false });
+    expect(replay).toEqual({ applied: true, lowered: false, written: false });
 
     rows = await auditRowsForEntity(subscriptionId);
 
@@ -1084,7 +1354,7 @@ describe('R-1/R-8 — refund coverage validity and v2 evidence', () => {
       eventId: 'evt_pr1_invalid_nan',
     });
 
-    expect(nanBounds).toEqual({ applied: false, lowered: false, anomaly: 'REFUND_COVERAGE_INVALID' });
+    expect(nanBounds).toEqual({ applied: false, lowered: false, written: false, anomaly: 'REFUND_COVERAGE_INVALID' });
 
     const inverted = await applySubscriptionFullRefund({
       stripeSubscriptionId: 'sub_s_pr1_invalid',
@@ -1096,7 +1366,7 @@ describe('R-1/R-8 — refund coverage validity and v2 evidence', () => {
       eventId: 'evt_pr1_invalid_inverted',
     });
 
-    expect(inverted).toEqual({ applied: false, lowered: false, anomaly: 'REFUND_COVERAGE_INVALID' });
+    expect(inverted).toEqual({ applied: false, lowered: false, written: false, anomaly: 'REFUND_COVERAGE_INVALID' });
 
     // ZERO writes: no evidence row, and paid_through untouched.
     expect(await evidenceRowsFor(subscriptionId)).toHaveLength(0);
@@ -1120,7 +1390,7 @@ describe('R-1/R-8 — refund coverage validity and v2 evidence', () => {
       observedAmount: 2400,
     });
 
-    expect(result).toEqual({ applied: true, lowered: true });
+    expect(result).toEqual({ applied: true, lowered: true, written: true });
 
     const rows = await evidenceRowsFor(subscriptionId);
 
@@ -1162,8 +1432,8 @@ describe('R-1/R-8 — refund coverage validity and v2 evidence', () => {
       eventId: 'evt_rt12_refund_updated',
     });
 
-    expect(first).toEqual({ applied: true, lowered: true });
-    expect(second).toEqual({ applied: true, lowered: false });
+    expect(first).toEqual({ applied: true, lowered: true, written: true });
+    expect(second).toEqual({ applied: true, lowered: false, written: false });
     expect(await evidenceRowsFor(subscriptionId)).toHaveLength(1);
 
     // A MALFORMED historical row for a second invoice is still "refunded":
@@ -1186,7 +1456,7 @@ describe('R-1/R-8 — refund coverage validity and v2 evidence', () => {
       eventId: 'evt_rt12_legacy_replay',
     });
 
-    expect(overLegacy).toEqual({ applied: true, lowered: false });
+    expect(overLegacy).toEqual({ applied: true, lowered: false, written: false });
     expect(await evidenceRowsFor(subscriptionId)).toHaveLength(2); // the seeded legacy row + the first
   });
 });
@@ -1600,7 +1870,7 @@ describe('R-2 — applySubscriptionRefundVoid', () => {
       observedAmount: 2400,
     });
 
-    expect(reRefund).toEqual({ applied: true, lowered: true });
+    expect(reRefund).toEqual({ applied: true, lowered: true, written: true });
     expect((await subscriptionRow('sub_s_pr1_rt19')).paidThrough.getTime()).toBe(T0.getTime());
 
     const { readSubscriptionRefunds } = await import('./subscriptionRefunds');

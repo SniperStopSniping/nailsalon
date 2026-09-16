@@ -38,11 +38,15 @@ vi.mock('@/libs/Env', () => ({ Env: envHolder }));
 const stripeMock = vi.hoisted(() => ({
   subscriptions: {
     retrieve: vi.fn(),
+    // Y5/§8.5: one list per distinct local customer, AFTER the main loop.
+    list: vi.fn(),
   },
   // R-2 writer 3 re-checks every invoice whose EFFECTIVE evidence still says
-  // "refunded" against its own charge.
+  // "refunded" against its own charge; `listLineItems` pages a truncated line
+  // set when the re-assert direction needs the invoice's FULL coverage.
   invoices: {
     retrieve: vi.fn(),
+    listLineItems: vi.fn(),
   },
   checkout: {
     sessions: { retrieve: vi.fn() },
@@ -79,7 +83,13 @@ beforeEach(async () => {
   envHolder.BILLING_SUBSCRIPTIONS_ENABLED = 'true';
   envHolder.BILLING_TOPUPS_ENABLED = undefined;
   stripeMock.subscriptions.retrieve.mockReset();
+  stripeMock.subscriptions.list.mockReset();
+  // The §8.5 remote check runs on EVERY enabled pass. Its default answer is
+  // "this customer has nothing we don't already know", so tests that are not
+  // about it are unaffected by it.
+  stripeMock.subscriptions.list.mockResolvedValue({ data: [] });
   stripeMock.invoices.retrieve.mockReset();
+  stripeMock.invoices.listLineItems.mockReset();
   stripeMock.checkout.sessions.retrieve.mockReset();
   sentryMessage.mockClear();
   priceMapHolder.resolvedOfferKey = null;
@@ -176,6 +186,8 @@ async function seedSubscription(
     pendingOfferKey: string | null;
     paidThrough: Date;
     anchor: Date;
+    /** The LOCAL `stripe_customer_id` — what the §8.5 remote check is keyed on. */
+    customerId: string;
   }> = {},
 ) {
   await db.insert(schema.salonSchema).values({ id: salonId, name: salonId, slug: salonId });
@@ -184,7 +196,7 @@ async function seedSubscription(
     id: `bsub_${subId}`,
     salonId,
     stripeSubscriptionId: subId,
-    stripeCustomerId: `cus_${subId}`,
+    stripeCustomerId: overrides.customerId ?? `cus_${subId}`,
     planDefinitionKey: overrides.planDefinitionKey ?? 'pro_2026_08',
     billingOfferKey: overrides.billingOfferKey ?? 'pro_2026_08_monthly',
     pendingOfferKey: overrides.pendingOfferKey ?? null,
@@ -289,6 +301,9 @@ describe('reconciliation route (§8.6, P4)', () => {
     expect(response.status).toBe(200);
     expect(body).toEqual({ skipped: 'BILLING_DISABLED', purged: 1 });
     expect(stripeMock.subscriptions.retrieve).not.toHaveBeenCalled();
+    // Y5's per-customer listing is part of the drift section, so the dark
+    // contract covers it too: while both switches are unset it costs nothing.
+    expect(stripeMock.subscriptions.list).not.toHaveBeenCalled();
     expect(stripeMock.checkout.sessions.retrieve).not.toHaveBeenCalled();
   });
 
@@ -539,6 +554,163 @@ describe('reconciliation route (§8.6, P4)', () => {
       level: 'error',
       extra: expect.objectContaining({ customers: expect.arrayContaining([sharedCustomer]) }),
     }));
+    // Y5 did not manufacture this one: the two LOCAL rows carry different
+    // `stripe_customer_id`s, and Stripe reports nothing unprojected for either.
+    expect(body.summary.drift.some((item: { field: string }) => item.field === 'unprojected_remote_subscription')).toBe(false);
+  });
+
+  // ─────────────────── Y5 / §8.5: the alert that could not fire ───────────────────
+  // The local-only comparison can only ever notice subscriptions this database
+  // already knows. The documented case — a second LIVE subscription on a
+  // customer we bill that was never projected here — needs Stripe's answer.
+
+  it('reports and alerts a live remote subscription this database never projected', async () => {
+    const { salonId, subId } = nextIds();
+    const customerId = 'cus_y5_unprojected';
+    const anchor = await seedSubscription(salonId, subId, { customerId });
+    stripeMock.subscriptions.retrieve.mockResolvedValue(
+      remoteSubscription({ id: subId, salonId, anchor, customer: customerId }),
+    );
+    stripeMock.subscriptions.list.mockResolvedValue({
+      data: [
+        { id: subId, status: 'active' },
+        // Created in the Dashboard, or by a checkout whose webhook never
+        // landed: it bills this customer every month and we know nothing.
+        { id: 'sub_y5_ghost', status: 'active' },
+      ],
+    });
+
+    const response = await call();
+    const body = await response.json();
+
+    expect(stripeMock.subscriptions.list).toHaveBeenCalledTimes(1);
+    expect(stripeMock.subscriptions.list).toHaveBeenCalledWith({ customer: customerId, status: 'all', limit: 100 });
+    expect(body.summary.drift.find((item: { field: string }) => item.field === 'unprojected_remote_subscription'))
+      .toEqual({
+        stripeSubscriptionId: 'sub_y5_ghost',
+        field: 'unprojected_remote_subscription',
+        local: customerId,
+        remote: 'sub_y5_ghost',
+        repaired: false,
+      });
+    expect(body.summary.duplicateRemoteCustomers).toBe(1);
+    expect(sentryMessage).toHaveBeenCalledWith('billing.duplicate_remote_subscriptions', expect.objectContaining({
+      level: 'error',
+      extra: expect.objectContaining({
+        customers: [customerId],
+        unprojected: ['sub_y5_ghost'],
+      }),
+    }));
+
+    // Never repaired: projecting it would be CHOOSING which subscription is
+    // authoritative, and §8.5 reserves that for a human.
+    const rows = await db.select().from(schema.billingSubscriptionSchema);
+
+    expect(rows).toHaveLength(1);
+  });
+
+  it('a TERMINATED second remote subscription is not drift and raises no alert', async () => {
+    const { salonId, subId } = nextIds();
+    const customerId = 'cus_y5_terminated';
+    const anchor = await seedSubscription(salonId, subId, { customerId });
+    stripeMock.subscriptions.retrieve.mockResolvedValue(
+      remoteSubscription({ id: subId, salonId, anchor, customer: customerId }),
+    );
+    stripeMock.subscriptions.list.mockResolvedValue({
+      data: [
+        { id: subId, status: 'active' },
+        { id: 'sub_y5_dead', status: 'canceled' },
+        { id: 'sub_y5_never_started', status: 'incomplete_expired' },
+      ],
+    });
+
+    const response = await call();
+    const body = await response.json();
+
+    expect(body.summary.drift.some((item: { field: string }) => item.field === 'unprojected_remote_subscription')).toBe(false);
+    expect(body.summary.duplicateRemoteCustomers).toBe(0);
+    expect(sentryMessage).not.toHaveBeenCalledWith('billing.duplicate_remote_subscriptions', expect.anything());
+  });
+
+  it('every non-terminal remote status counts as live, including incomplete and paused', async () => {
+    const { salonId, subId } = nextIds();
+    const customerId = 'cus_y5_live_statuses';
+    const anchor = await seedSubscription(salonId, subId, { customerId });
+    stripeMock.subscriptions.retrieve.mockResolvedValue(
+      remoteSubscription({ id: subId, salonId, anchor, customer: customerId }),
+    );
+    stripeMock.subscriptions.list.mockResolvedValue({
+      data: [
+        { id: subId, status: 'active' },
+        { id: 'sub_y5_incomplete', status: 'incomplete' },
+        { id: 'sub_y5_paused', status: 'paused' },
+        { id: 'sub_y5_unpaid', status: 'unpaid' },
+      ],
+    });
+
+    const response = await call();
+    const body = await response.json();
+    const reported = body.summary.drift
+      .filter((item: { field: string }) => item.field === 'unprojected_remote_subscription')
+      .map((item: { remote: string }) => item.remote);
+
+    expect(reported).toEqual(['sub_y5_incomplete', 'sub_y5_paused', 'sub_y5_unpaid']);
+    // Three findings, ONE customer to investigate.
+    expect(body.summary.duplicateRemoteCustomers).toBe(1);
+  });
+
+  it('a failing customer listing is a note only, and the other customers are still checked', async () => {
+    const first = nextIds();
+    const second = nextIds();
+    const firstCustomer = 'cus_y5_unlistable';
+    const secondCustomer = 'cus_y5_listable';
+    const anchor1 = await seedSubscription(first.salonId, first.subId, { customerId: firstCustomer });
+    const anchor2 = await seedSubscription(second.salonId, second.subId, { customerId: secondCustomer });
+    stripeMock.subscriptions.retrieve.mockImplementation(async (id: string) => remoteSubscription({
+      id,
+      salonId: id === first.subId ? first.salonId : second.salonId,
+      anchor: id === first.subId ? anchor1 : anchor2,
+      customer: id === first.subId ? firstCustomer : secondCustomer,
+    }));
+    stripeMock.subscriptions.list.mockImplementation(async (params: { customer: string }) => {
+      if (params.customer === firstCustomer) {
+        throw new Error('rate limited');
+      }
+      return { data: [{ id: second.subId, status: 'active' }, { id: 'sub_y5_second_ghost', status: 'past_due' }] };
+    });
+
+    const response = await call();
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.summary.checked).toBe(2);
+    expect(body.summary.notes.find((item: { field: string }) => item.field === 'duplicate_check_unverifiable'))
+      .toEqual({
+        stripeSubscriptionId: firstCustomer,
+        field: 'duplicate_check_unverifiable',
+        local: firstCustomer,
+        remote: 'UNRETRIEVABLE',
+        repaired: false,
+      });
+    // The failure did not abort the pass: the NEXT customer's finding is here.
+    expect(body.summary.drift.find((item: { field: string }) => item.field === 'unprojected_remote_subscription'))
+      .toMatchObject({ local: secondCustomer, remote: 'sub_y5_second_ghost' });
+  });
+
+  it('asks Stripe once per DISTINCT local customer, even for an unretrievable subscription', async () => {
+    const first = nextIds();
+    const second = nextIds();
+    const sharedLocalCustomer = 'cus_y5_shared_local';
+    await seedSubscription(first.salonId, first.subId, { customerId: sharedLocalCustomer });
+    await seedSubscription(second.salonId, second.subId, { customerId: sharedLocalCustomer });
+    // Neither subscription can be retrieved — the §8.5 question is about the
+    // CUSTOMER, so it must still be asked.
+    stripeMock.subscriptions.retrieve.mockRejectedValue(new Error('No such subscription'));
+
+    await call();
+
+    expect(stripeMock.subscriptions.list).toHaveBeenCalledTimes(1);
+    expect(stripeMock.subscriptions.list).toHaveBeenCalledWith({ customer: sharedLocalCustomer, status: 'all', limit: 100 });
   });
 
   it('cursor-paginates by id ascending in batches of 100 until drained (seeds 250)', async () => {
@@ -928,6 +1100,239 @@ describe('reconciliation route (§8.6, P4)', () => {
     expect(applied).toHaveLength(2);
     expect(applied.find(auditRow => auditRow.actorType === 'system')).toMatchObject({ actorId: 'billing-reconcile' });
     expect(applied.find(auditRow => auditRow.actorType === 'system')!.metadata).toMatchObject({ seq: 3, invoiceId: 'in_stale_void' });
+  });
+
+  // E.1 — PR-1 reviewer follow-up. `applySubscriptionFullRefund` answers
+  // `applied: true` both when it INSERTS the exclusion and when it dedupes on
+  // an effective state that already carries it. Gating the alert on `applied`
+  // therefore re-announced, once an hour forever, a correction a concurrent
+  // webhook had already made. `written` is the honest signal.
+  it('does not re-announce an exclusion a concurrent webhook already wrote', async () => {
+    const { salonId, subId } = nextIds();
+    const startUnix = Math.floor((Date.now() - 20 * 24 * 3600_000) / 1000);
+    const endUnix = Math.floor((Date.now() + 20 * 24 * 3600_000) / 1000);
+    const periodStart = new Date(startUnix * 1000);
+    const periodEnd = new Date(endUnix * 1000);
+    const anchor = await seedSubscription(salonId, subId, { paidThrough: periodEnd });
+    await seedRefundEvidence({
+      salonId,
+      subscriptionRowId: `bsub_${subId}`,
+      invoiceId: 'in_raced_reassert',
+      start: periodStart,
+      end: periodEnd,
+      seq: 1,
+    });
+    await seedVoidResolution({
+      salonId,
+      subscriptionRowId: `bsub_${subId}`,
+      invoiceId: 'in_raced_reassert',
+      actorType: 'webhook',
+      seq: 2,
+    });
+    stripeMock.subscriptions.retrieve.mockResolvedValue(
+      remoteSubscription({ id: subId, salonId, anchor, latestInvoice: null }),
+    );
+    // The race, made deterministic: this pass has already read the evidence
+    // (void ⇒ re-assert) when a redelivered webhook commits the applied row
+    // and lowers paid_through itself. The reconcile write then dedupes.
+    stripeMock.invoices.retrieve.mockImplementation(async () => {
+      await seedRefundEvidence({
+        salonId,
+        subscriptionRowId: `bsub_${subId}`,
+        invoiceId: 'in_raced_reassert',
+        start: periodStart,
+        end: periodEnd,
+        seq: 3,
+      });
+      await db.update(schema.billingSubscriptionSchema)
+        .set({ paidThrough: periodStart })
+        .where(eq(schema.billingSubscriptionSchema.stripeSubscriptionId, subId));
+      return {
+        id: 'in_raced_reassert',
+        charge: { amount: 10000, amount_refunded: 10000 },
+        lines: { has_more: false, data: [subLine(startUnix, endUnix)] },
+      };
+    });
+
+    const response = await call();
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.summary.notes.some((item: { field: string }) => item.field === 'refund_evidence_reasserted')).toBe(false);
+    expect(sentryMessage).not.toHaveBeenCalledWith('billing.subscription_refunded', expect.anything());
+
+    // Nothing was written by this pass: the webhook's row is the only new one.
+    const applied = (await db.select().from(schema.auditLogSchema))
+      .filter(auditRow => auditRow.action === 'billing_subscription_refund_applied');
+
+    expect(applied).toHaveLength(2);
+    expect(applied.some(auditRow => auditRow.actorType === 'system')).toBe(false);
+
+    // The outcome is still correct — it just was not this job's doing.
+    const [row] = await db.select().from(schema.billingSubscriptionSchema)
+      .where(eq(schema.billingSubscriptionSchema.stripeSubscriptionId, subId));
+
+    expect(row!.paidThrough.getTime()).toBe(periodStart.getTime());
+  });
+
+  // E.2 — a >10-line invoice used to be un-re-assertable forever: the
+  // re-assert direction declined on `has_more` alone, so the exact invoices
+  // that carry the most money (many lines) were the ones a stale machine void
+  // could suppress permanently. Truncation is a reason to PAGE, not to give up.
+  it('pages a truncated invoice in the re-assert direction and re-asserts on its FULL coverage', async () => {
+    const { salonId, subId } = nextIds();
+    const startUnix = Math.floor((Date.now() - 20 * 24 * 3600_000) / 1000);
+    const endUnix = Math.floor((Date.now() + 20 * 24 * 3600_000) / 1000);
+    const periodStart = new Date(startUnix * 1000);
+    const periodEnd = new Date(endUnix * 1000);
+    const anchor = await seedSubscription(salonId, subId, { paidThrough: periodEnd });
+    await seedRefundEvidence({
+      salonId,
+      subscriptionRowId: `bsub_${subId}`,
+      invoiceId: 'in_truncated_void',
+      start: periodStart,
+      end: periodEnd,
+      seq: 1,
+    });
+    await seedVoidResolution({
+      salonId,
+      subscriptionRowId: `bsub_${subId}`,
+      invoiceId: 'in_truncated_void',
+      actorType: 'webhook',
+      seq: 2,
+    });
+    stripeMock.subscriptions.retrieve.mockResolvedValue(
+      remoteSubscription({ id: subId, salonId, anchor, latestInvoice: null }),
+    );
+    stripeMock.invoices.retrieve.mockResolvedValue({
+      id: 'in_truncated_void',
+      charge: { amount: 10000, amount_refunded: 10000 },
+      lines: {
+        has_more: true,
+        // The embedded page shows only a NARROWER slice; using it would record
+        // an exclusion smaller than the refund actually covers.
+        data: [subLine(endUnix - 3600, endUnix)],
+      },
+    });
+    stripeMock.invoices.listLineItems.mockReturnValue({
+      autoPagingToArray: async () => [subLine(startUnix, endUnix)],
+    });
+
+    const response = await call();
+    const body = await response.json();
+
+    expect(stripeMock.invoices.listLineItems).toHaveBeenCalledWith('in_truncated_void', { limit: 100 });
+    expect(body.summary.notes.some((item: { field: string }) => item.field === 'refund_evidence_uncomparable')).toBe(false);
+    expect(body.summary.notes.find((item: { field: string }) => item.field === 'refund_evidence_reasserted'))
+      .toMatchObject({ stripeSubscriptionId: subId, local: 'in_truncated_void', remote: '10000/10000', repaired: true });
+
+    const [row] = await db.select().from(schema.billingSubscriptionSchema)
+      .where(eq(schema.billingSubscriptionSchema.stripeSubscriptionId, subId));
+
+    // The FULL coverage was used: paid_through is pulled back to the paged
+    // line's start, not to the embedded page's later one.
+    expect(row!.paidThrough.getTime()).toBe(periodStart.getTime());
+  });
+
+  it('a paging failure is an unverifiable note, never a silent re-assert, and the pass continues', async () => {
+    const first = nextIds();
+    const second = nextIds();
+    const startUnix = Math.floor((Date.now() - 20 * 24 * 3600_000) / 1000);
+    const endUnix = Math.floor((Date.now() + 20 * 24 * 3600_000) / 1000);
+    const periodStart = new Date(startUnix * 1000);
+    const periodEnd = new Date(endUnix * 1000);
+    const anchor1 = await seedSubscription(first.salonId, first.subId, { paidThrough: periodEnd });
+    const anchor2 = await seedSubscription(second.salonId, second.subId, { paidThrough: periodEnd });
+    await seedRefundEvidence({
+      salonId: first.salonId,
+      subscriptionRowId: `bsub_${first.subId}`,
+      invoiceId: 'in_paging_failure',
+      start: periodStart,
+      end: periodEnd,
+      seq: 1,
+    });
+    await seedVoidResolution({
+      salonId: first.salonId,
+      subscriptionRowId: `bsub_${first.subId}`,
+      invoiceId: 'in_paging_failure',
+      actorType: 'webhook',
+      seq: 2,
+    });
+    stripeMock.subscriptions.retrieve.mockImplementation(async (id: string) => remoteSubscription({
+      id,
+      salonId: id === first.subId ? first.salonId : second.salonId,
+      anchor: id === first.subId ? anchor1 : anchor2,
+      latestInvoice: null,
+    }));
+    stripeMock.invoices.retrieve.mockResolvedValue({
+      id: 'in_paging_failure',
+      charge: { amount: 10000, amount_refunded: 10000 },
+      lines: { has_more: true, data: [subLine(startUnix, endUnix)] },
+    });
+    stripeMock.invoices.listLineItems.mockReturnValue({
+      autoPagingToArray: async () => {
+        throw new Error('rate limited');
+      },
+    });
+
+    const response = await call();
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.summary.checked).toBe(2);
+    expect(body.summary.notes.find((item: { field: string }) => item.field === 'refund_evidence_unverifiable'))
+      .toMatchObject({ stripeSubscriptionId: first.subId, local: 'in_paging_failure', remote: 'UNRETRIEVABLE', repaired: false });
+    expect(body.summary.notes.some((item: { field: string }) => item.field === 'refund_evidence_reasserted')).toBe(false);
+
+    const [row] = await db.select().from(schema.billingSubscriptionSchema)
+      .where(eq(schema.billingSubscriptionSchema.stripeSubscriptionId, first.subId));
+
+    // The void stands until the coverage can actually be read.
+    expect(row!.paidThrough.getTime()).toBe(periodEnd.getTime());
+  });
+
+  it('keeps refund_evidence_uncomparable for a STRUCTURALLY unreadable line set', async () => {
+    const { salonId, subId } = nextIds();
+    const startUnix = Math.floor((Date.now() - 20 * 24 * 3600_000) / 1000);
+    const endUnix = Math.floor((Date.now() + 20 * 24 * 3600_000) / 1000);
+    const periodEnd = new Date(endUnix * 1000);
+    const anchor = await seedSubscription(salonId, subId, { paidThrough: periodEnd });
+    await seedRefundEvidence({
+      salonId,
+      subscriptionRowId: `bsub_${subId}`,
+      invoiceId: 'in_unreadable_lines',
+      start: new Date(startUnix * 1000),
+      end: periodEnd,
+      seq: 1,
+    });
+    await seedVoidResolution({
+      salonId,
+      subscriptionRowId: `bsub_${subId}`,
+      invoiceId: 'in_unreadable_lines',
+      actorType: 'webhook',
+      seq: 2,
+    });
+    stripeMock.subscriptions.retrieve.mockResolvedValue(
+      remoteSubscription({ id: subId, salonId, anchor, latestInvoice: null }),
+    );
+    // No `lines` object at all: retrying cannot change that, so it is a fact
+    // about the invoice, not a transient failure.
+    stripeMock.invoices.retrieve.mockResolvedValue({
+      id: 'in_unreadable_lines',
+      charge: { amount: 10000, amount_refunded: 10000 },
+    });
+
+    const response = await call();
+    const body = await response.json();
+
+    expect(stripeMock.invoices.listLineItems).not.toHaveBeenCalled();
+    expect(body.summary.notes.find((item: { field: string }) => item.field === 'refund_evidence_uncomparable'))
+      .toMatchObject({ stripeSubscriptionId: subId, local: 'in_unreadable_lines', remote: 'LINES_UNREADABLE', repaired: false });
+
+    const [row] = await db.select().from(schema.billingSubscriptionSchema)
+      .where(eq(schema.billingSubscriptionSchema.stripeSubscriptionId, subId));
+
+    expect(row!.paidThrough.getTime()).toBe(periodEnd.getTime());
   });
 
   it('leaves a SUPER-ADMIN void alone even when Stripe reports the charge fully refunded', async () => {
