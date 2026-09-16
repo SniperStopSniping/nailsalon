@@ -1,3 +1,16 @@
+# [1.113.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.112.0...v1.113.0) (2026-09-16)
+
+
+### Bug Fixes
+
+* **availability:** count refused slots, not skipped ones, in explain mode ([c79bdf5](https://github.com/SniperStopSniping/nailsalon/commit/c79bdf5ccad0b8e0a89074b15ae226c9d992d816))
+* **setup-readiness:** apply review findings B-1..B-5 ([affff0e](https://github.com/SniperStopSniping/nailsalon/commit/affff0ef34e4241a2a2c81acb2d8c2a1e2ad47b1))
+
+
+### Features
+
+* **setup-readiness:** derive the owner setup-readiness projection ([251ab72](https://github.com/SniperStopSniping/nailsalon/commit/251ab72867f896653b2b418f22c08cdf9dd290c7))
+
 # [1.112.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.111.0...v1.112.0) (2026-09-16)
 
 
