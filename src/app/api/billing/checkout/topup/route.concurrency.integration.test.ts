@@ -99,6 +99,13 @@ const suite = isLocalThrowaway ? describe : describe.skip;
 let pool: pg.Pool;
 let db: ReturnType<typeof drizzle<typeof schema>>;
 
+/**
+ * Zero-skip proof: this suite must never silently degrade to a skip in CI.
+ * The count is asserted in afterAll and grepped for by the workflow step.
+ */
+const EXPECTED_EXECUTED_TESTS = 3;
+let executedTests = 0;
+
 function deferred<T>() {
   let resolve!: (value: T) => void;
   const promise = new Promise<T>((resolvePromise) => {
@@ -153,9 +160,16 @@ suite('top-up checkout — real-lock concurrency', () => {
 
   afterAll(async () => {
     await pool?.end();
+
+    expect(executedTests).toBe(EXPECTED_EXECUTED_TESTS);
+
+    process.stdout.write(
+      `BILLING_TOPUP_CHECKOUT_POSTGRES_TESTS_EXECUTED=${executedTests} BILLING_TOPUP_CHECKOUT_POSTGRES_TESTS_SKIPPED=0\n`,
+    );
   });
 
   it('serializes simultaneous initial reservations behind one salon row lock', async () => {
+    executedTests += 1;
     let createNumber = 0;
     stripeMock.checkout.sessions.create.mockImplementation(async () => {
       createNumber += 1;
@@ -210,6 +224,7 @@ suite('top-up checkout — real-lock concurrency', () => {
   });
 
   it('serializes one salon while another salon can independently reserve a checkout', async () => {
+    executedTests += 1;
     const firstCreateEntered = deferred<void>();
     const releaseCreates = deferred<void>();
     let createNumber = 0;
@@ -276,6 +291,7 @@ suite('top-up checkout — real-lock concurrency', () => {
   });
 
   it('allows paid fulfillment past an expiry holding the salon lock for its ledger foreign key', async () => {
+    executedTests += 1;
     const sessionId = 'cs_topup_expiry_completion_race';
     await db.insert(schema.billingCheckoutAttemptSchema).values({
       id: 'bca_topup_expiry_completion_race',

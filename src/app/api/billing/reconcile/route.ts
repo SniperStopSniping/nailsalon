@@ -39,12 +39,16 @@ import type Stripe from 'stripe';
 
 import {
   applyInvoicePaymentSucceeded,
+  applyPendingOfferAtRenewal,
+  applySubscriptionRefundVoid,
   projectSubscriptionSnapshot,
   type StripeSubscriptionSnapshot,
 } from '@/libs/billing/billingSubscriptionProjection';
 import { computeCreditWindow } from '@/libs/billing/creditWindows';
 import { isAuthorizedCronRequest } from '@/libs/billing/cronAuth';
+import { subscriptionLinePeriods } from '@/libs/billing/invoiceLinePeriods';
 import { resolveBillingOfferFromStripePriceId } from '@/libs/billing/stripePriceMap';
+import { readSubscriptionRefunds } from '@/libs/billing/subscriptionRefunds';
 import { reconcileHeldTopups, type TopupReconciliationSummary } from '@/libs/billing/topupReconciliation';
 import { db } from '@/libs/DB';
 import { Env } from '@/libs/Env';
@@ -53,6 +57,13 @@ import { type BillingSubscription, billingSubscriptionSchema } from '@/models/Sc
 
 const SUBSCRIPTION_BATCH_SIZE = 100;
 const PURGE_BATCH_SIZE = 500;
+
+/**
+ * R-2 writer 3 acts as the system, not as a webhook delivery: its evidence
+ * corrections are attributable to THIS job in `audit_log`, distinguishable
+ * from both `stripe-billing` (webhook) and a super-admin's typed resolution.
+ */
+const RECONCILE_ACTOR = { actorType: 'system' as const, actorId: 'billing-reconcile' };
 
 type DriftEntry = {
   stripeSubscriptionId: string;
@@ -65,6 +76,13 @@ type DriftEntry = {
 type SubscriptionDriftSummary = {
   checked: number;
   drift: DriftEntry[];
+  /**
+   * Informational observations that are NOT drift: a comparison this pass
+   * deliberately declined to make (truncated invoice lines, a latest invoice
+   * whose coverage is refunded) and the R-2 evidence corrections it made.
+   * Never counted as drift, never alerted on by the drift budget.
+   */
+  notes: DriftEntry[];
   duplicateRemoteCustomers: number;
 };
 
@@ -100,31 +118,112 @@ async function purgeExpiredStripeEventPayloads(now: Date): Promise<number> {
   return purged;
 }
 
-/** (b) paid_through vs the latest PAID invoice's LATEST line-item period end (§8.4/§6.4). Null when there is no paid invoice to compare against — never guessed from an open/failed one. */
-function latestPaidInvoicePeriodEnd(remote: ReconcileRemoteSubscription): Date | null {
+/**
+ * (b) the latest PAID invoice's coverage (§8.4/§6.4, R-6): its identity plus
+ * the half-open span of its NON-PRORATION subscription lines.
+ *
+ * `null` when there is nothing comparable — no latest invoice, an
+ * open/failed one, or one that bills no subscription line for this
+ * subscription. `'uncomparable'` is the distinct truncated-lines case: the
+ * remote coverage EXISTS but this pass cannot see all of it, so comparing
+ * would report drift invented by pagination. That is reported as a note, not
+ * silently swallowed.
+ */
+function latestPaidInvoiceCoverage(
+  remote: ReconcileRemoteSubscription,
+): { invoiceId: string | undefined; start: Date; end: Date } | null | 'uncomparable' {
   const invoice = typeof remote.latest_invoice === 'object' && remote.latest_invoice !== null
     ? remote.latest_invoice
     : null;
-  if (invoice === null || invoice.lines?.has_more) {
+  if (invoice === null) {
     return null;
+  }
+  if (invoice.lines?.has_more) {
+    return 'uncomparable';
   }
   const isPaid = invoice.status === 'paid' || invoice.paid === true;
   if (!isPaid) {
     return null;
   }
-  const periodEnds = (invoice.lines?.data ?? [])
-    .map(line => line.period?.end ?? 0)
-    .filter(end => end > 0);
-  if (periodEnds.length === 0) {
+  const coverage = subscriptionLinePeriods(invoice.lines?.data, remote.id);
+  if (coverage.kind !== 'ok') {
     return null;
   }
-  return new Date(Math.max(...periodEnds) * 1000);
+  return { invoiceId: invoice.id, start: coverage.start, end: coverage.end };
+}
+
+/**
+ * R-2 writer 3 (safety net): the hourly pass re-checks every invoice whose
+ * EFFECTIVE evidence still says "refunded" against its charge. A charge whose
+ * cumulative `amount_refunded` has fallen below its `amount` is no longer
+ * fully refunded — Owner decision O2 voids the exclusion automatically and
+ * alerts, because a webhook that was never delivered (or was delivered while
+ * the endpoint was down) must not leave a paying salon's entitlement
+ * suppressed forever.
+ *
+ * Every failure is absorbed into a note: a Stripe hiccup on one invoice can
+ * never abort the reconcile pass for the rest of the estate.
+ */
+async function reconcileRefundEvidence(
+  row: BillingSubscription,
+  now: Date,
+  notes: DriftEntry[],
+): Promise<void> {
+  const evidence = await db.transaction(async tx => readSubscriptionRefunds(tx, row));
+  for (const invoiceId of evidence.appliedInvoiceIds) {
+    try {
+      const invoice = await stripe.invoices.retrieve(invoiceId, { expand: ['charge'] });
+      const charge = typeof invoice.charge === 'object' && invoice.charge !== null ? invoice.charge : null;
+      if (charge === null || charge.amount_refunded >= charge.amount) {
+        continue;
+      }
+      const outcome = await applySubscriptionRefundVoid({
+        stripeSubscriptionId: row.stripeSubscriptionId,
+        invoiceId,
+        reason: 'refund_reversed:reconcile',
+        observedAmountRefunded: charge.amount_refunded,
+        observedAmount: charge.amount,
+        actor: RECONCILE_ACTOR,
+        now,
+      });
+      if (!outcome.voided) {
+        continue;
+      }
+      Sentry.captureMessage('billing.subscription_refund_voided', {
+        level: 'warning',
+        extra: {
+          source: 'reconcile',
+          stripeSubscriptionId: row.stripeSubscriptionId,
+          invoiceId,
+          observedAmountRefunded: charge.amount_refunded,
+          observedAmount: charge.amount,
+          reapplied: outcome.reapplied,
+        },
+      });
+      notes.push({
+        stripeSubscriptionId: row.stripeSubscriptionId,
+        field: 'refund_evidence_voided',
+        local: invoiceId,
+        remote: `${charge.amount_refunded}/${charge.amount}`,
+        repaired: outcome.reapplied,
+      });
+    } catch {
+      notes.push({
+        stripeSubscriptionId: row.stripeSubscriptionId,
+        field: 'refund_evidence_unverifiable',
+        local: invoiceId,
+        remote: 'UNRETRIEVABLE',
+        repaired: false,
+      });
+    }
+  }
 }
 
 async function reconcileOneSubscription(
   row: BillingSubscription,
   now: Date,
   drift: DriftEntry[],
+  notes: DriftEntry[],
   duplicateAlerts: string[],
   customersSeen: Map<string, string>,
 ): Promise<void> {
@@ -224,63 +323,88 @@ async function reconcileOneSubscription(
     }
   }
 
-  const remotePaidThroughFromInvoice = latestPaidInvoicePeriodEnd(remote);
-  const paidThroughBehind = remotePaidThroughFromInvoice !== null
-    && remotePaidThroughFromInvoice.getTime() > row.paidThrough.getTime();
-  const paidThroughAhead = remotePaidThroughFromInvoice !== null
-    && remotePaidThroughFromInvoice.getTime() < row.paidThrough.getTime();
+  const coverage = latestPaidInvoiceCoverage(remote);
+  if (coverage === 'uncomparable') {
+    notes.push({
+      stripeSubscriptionId: row.stripeSubscriptionId,
+      field: 'paid_through_uncomparable',
+      local: row.paidThrough.toISOString(),
+      remote: 'LINES_TRUNCATED',
+      repaired: false,
+    });
+  }
+  const comparable = coverage !== null && coverage !== 'uncomparable' ? coverage : null;
+  const paidThroughBehind = comparable !== null && comparable.end.getTime() > row.paidThrough.getTime();
+  const paidThroughAhead = comparable !== null && comparable.end.getTime() < row.paidThrough.getTime();
 
   if (paidThroughAhead) {
-    // Report ONLY — never lowered by reconcile. remotePaidThroughFromInvoice
-    // is non-null in this branch.
+    // Report ONLY — never lowered by reconcile.
     drift.push({
       stripeSubscriptionId: row.stripeSubscriptionId,
       field: 'paid_through_ahead',
       local: row.paidThrough.toISOString(),
-      remote: remotePaidThroughFromInvoice!.toISOString(),
+      remote: comparable!.end.toISOString(),
       repaired: false,
     });
   }
 
-  if (paidThroughBehind || pendingApplied) {
+  if (paidThroughBehind) {
     // The SAME idempotent transition invoice.payment_succeeded uses:
-    // monotonic max on paid_through (never lowers it), and — in the SAME
-    // transaction — applies a parked pending_offer_key when one is set.
-    // When only the pending-offer evidence fired (no fresh paid period),
-    // paidPeriodEnd is the CURRENT value: a deliberate no-advance call that
-    // still clears the parked offer, because what we just confirmed is
-    // §6.4's renewal boundary evidence (the price Stripe is now actually
-    // billing), not a fresh invoice amount.
-    const invoice = typeof remote.latest_invoice === 'object' ? remote.latest_invoice : null;
-    const starts = (invoice?.lines?.data ?? []).map(line => line.period?.start ?? 0).filter(start => start > 0);
+    // monotonic max on paid_through (never lowers it), with this invoice's
+    // own identity and coverage so the §6.7 refund exclusions apply exactly
+    // as they would for a live event.
     const outcome = await applyInvoicePaymentSucceeded({
-      invoiceId: invoice?.id,
-      paidPeriodStart: starts.length ? new Date(Math.min(...starts) * 1000) : undefined,
+      invoiceId: comparable!.invoiceId,
+      paidPeriodStart: comparable!.start,
       stripeSubscriptionId: remote.id,
-      paidPeriodEnd: remotePaidThroughFromInvoice ?? row.paidThrough,
+      paidPeriodEnd: comparable!.end,
       eventCreated: row.lastEventCreated ?? new Date(0),
       eventId: `reconcile_${crypto.randomUUID()}`,
       now,
     });
-    if (paidThroughBehind) {
+    if (outcome.anomaly === 'SUBSCRIPTION_PERIOD_REFUNDED') {
+      // Not drift: the local row is BEHIND the remote invoice precisely
+      // because that invoice was refunded. Reporting (and endlessly
+      // re-attempting) `paid_through_behind` here would turn the correct
+      // §6.7 outcome into a permanent false alarm.
+      notes.push({
+        stripeSubscriptionId: row.stripeSubscriptionId,
+        field: 'paid_through_refunded_invoice',
+        local: row.paidThrough.toISOString(),
+        remote: comparable!.end.toISOString(),
+        repaired: false,
+      });
+    } else {
       drift.push({
         stripeSubscriptionId: row.stripeSubscriptionId,
         field: 'paid_through_behind',
         local: row.paidThrough.toISOString(),
-        remote: remotePaidThroughFromInvoice!.toISOString(),
-        repaired: outcome.applied,
-      });
-    }
-    if (pendingApplied) {
-      drift.push({
-        stripeSubscriptionId: row.stripeSubscriptionId,
-        field: 'pending_offer_applied_remotely',
-        local: row.pendingOfferKey!,
-        remote: resolvedOfferKey!,
+        remote: comparable!.end.toISOString(),
         repaired: outcome.applied,
       });
     }
   }
+
+  if (pendingApplied) {
+    // R-4 (Y7): §6.4's renewal boundary was reached remotely — the price
+    // Stripe is now actually billing IS the evidence. Applying it no longer
+    // borrows the payment transition (which dragged in the latest invoice's
+    // status and periods, refund evidence, status changes and window
+    // evaluation it had no business touching); this clears exactly the
+    // parked offer, under the row lock, and nothing else.
+    const outcome = await applyPendingOfferAtRenewal({ stripeSubscriptionId: remote.id, now });
+    drift.push({
+      stripeSubscriptionId: row.stripeSubscriptionId,
+      field: 'pending_offer_applied_remotely',
+      local: row.pendingOfferKey!,
+      remote: resolvedOfferKey!,
+      repaired: outcome.cleared,
+    });
+  }
+
+  // R-2 writer 3, after the paid-through logic so a void's re-applied
+  // coverage is the LAST word on paid_through for this pass.
+  await reconcileRefundEvidence(row, now, notes);
 
   // (e) next_credit_grant_at consistency — report only; the window engine
   // (dispatch/reconcile cron) remains the ONLY granter (§6.4).
@@ -302,6 +426,7 @@ async function reconcileOneSubscription(
  */
 async function reconcileSubscriptionDrift(now: Date): Promise<SubscriptionDriftSummary> {
   const drift: DriftEntry[] = [];
+  const notes: DriftEntry[] = [];
   const duplicateAlerts: string[] = [];
   const customersSeen = new Map<string, string>();
   let checked = 0;
@@ -320,7 +445,7 @@ async function reconcileSubscriptionDrift(now: Date): Promise<SubscriptionDriftS
     for (const row of rows) {
       checked += 1;
 
-      await reconcileOneSubscription(row, now, drift, duplicateAlerts, customersSeen);
+      await reconcileOneSubscription(row, now, drift, notes, duplicateAlerts, customersSeen);
     }
     cursor = rows[rows.length - 1]!.id;
     if (rows.length < SUBSCRIPTION_BATCH_SIZE) {
@@ -335,7 +460,7 @@ async function reconcileSubscriptionDrift(now: Date): Promise<SubscriptionDriftS
     });
   }
 
-  return { checked, drift, duplicateRemoteCustomers: duplicateAlerts.length };
+  return { checked, drift, notes, duplicateRemoteCustomers: duplicateAlerts.length };
 }
 
 async function run(request: Request): Promise<Response> {

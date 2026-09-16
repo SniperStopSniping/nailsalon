@@ -53,7 +53,10 @@ const stripeMock = vi.hoisted(() => ({
   // an invoice's own subscription) through these — unset by default; each
   // test that needs them supplies its own resolved value.
   charges: { retrieve: vi.fn() },
-  invoices: { retrieve: vi.fn() },
+  // R-6: `retrieve` returns the invoice with an embedded (possibly
+  // truncated) line page; `listLineItems` is the paging escape hatch the
+  // route takes ONLY when that page says `has_more`.
+  invoices: { retrieve: vi.fn(), listLineItems: vi.fn() },
   checkout: { sessions: { retrieve: vi.fn() } },
 }));
 vi.mock('@/libs/stripe', () => ({ stripe: stripeMock }));
@@ -87,9 +90,47 @@ beforeEach(() => {
   sentryHolder.captureException.mockClear();
   stripeMock.charges.retrieve.mockReset();
   stripeMock.invoices.retrieve.mockReset();
+  stripeMock.invoices.listLineItems.mockReset();
+  stripeMock.subscriptions.retrieve.mockReset();
+  stripeMock.subscriptions.retrieve.mockImplementation(async () => {
+    throw new Error('NO_REFETCH_IN_TEST');
+  });
   stripeMock.checkout.sessions.retrieve.mockReset();
   priceMapHolder.resolvedOfferKey = null;
 });
+
+/**
+ * A realistic Stripe subscription line item. R-6 filters on `type` and
+ * `proration`, so a bare `{ period }` stub is no longer coverage — exactly
+ * as in production, where a renewal's proration line must not be mistaken
+ * for the period the invoice actually paid for.
+ */
+function subLine(start: number, end: number, over: Record<string, unknown> = {}) {
+  return { type: 'subscription', proration: false, subscription: null, period: { start, end }, ...over };
+}
+
+/** A proration line — never subscription coverage (R-6). */
+function prorationLine(start: number, end: number) {
+  return { type: 'subscription', proration: true, subscription: null, period: { start, end } };
+}
+
+const auditRowsFor = async (entityId: string) =>
+  (await db.select().from(schema.auditLogSchema)).filter(row => row.entityId === entityId);
+
+/**
+ * §8.3: the subscription branch re-fetches the charge for `charge.refunded`
+ * rather than trusting the event body, which is a snapshot at event time and
+ * may be delivered out of order. Every `charge.refunded` test that reaches a
+ * LOCAL subscription must therefore say what the charge looks like NOW.
+ */
+function freshCharge(over: { amount: number; amountRefunded: number; id?: string; invoice?: string }) {
+  return {
+    id: over.id ?? 'ch_fresh',
+    invoice: over.invoice,
+    amount: over.amount,
+    amount_refunded: over.amountRefunded,
+  };
+}
 
 const post = async (body: unknown, signature = 'sig_valid') => {
   const { POST } = await import('./route');
@@ -219,7 +260,7 @@ describe('stripe-billing webhook pipeline', () => {
     const invoiceEvent = stripeEvent('invoice.payment_succeeded', {
       id: 'in_route_full',
       subscription: 'sub_route_full',
-      lines: { data: [{ period: { end: createdAt + 35 * 24 * 3600 } }] },
+      lines: { data: [subLine(createdAt, createdAt + 35 * 24 * 3600)] },
     }, { created: createdAt + 60 });
 
     expect((await post(invoiceEvent)).status).toBe(200);
@@ -255,7 +296,7 @@ describe('stripe-billing webhook pipeline', () => {
     const invoiceEvent = stripeEvent('invoice.payment_succeeded', {
       id: 'in_route_early',
       subscription: 'sub_route_late',
-      lines: { data: [{ period: { end: createdAt + 30 * 24 * 3600 } }] },
+      lines: { data: [subLine(createdAt, createdAt + 30 * 24 * 3600)] },
     }, { created: createdAt });
     const early = await post(invoiceEvent);
 
@@ -319,7 +360,7 @@ describe('stripe-billing webhook pipeline', () => {
       const event = stripeEvent('invoice.payment_succeeded', {
         id: 'in_legacy_flow',
         subscription: 'sub_legacy_flow',
-        lines: { data: [{ period: { start: 1_780_000_000, end: 1_780_000_000 + 30 * 24 * 3600 } }] },
+        lines: { data: [subLine(1_780_000_000, 1_780_000_000 + 30 * 24 * 3600)] },
       });
       const response = await post(event);
 
@@ -413,8 +454,9 @@ describe('stripe-billing webhook pipeline', () => {
       stripeMock.invoices.retrieve.mockResolvedValueOnce({
         id: 'in_route_partial',
         subscription: 'sub_route_partial',
-        lines: { data: [{ period: { start: 1_780_000_000, end: 1_780_000_000 + 30 * 24 * 3600 } }] },
+        lines: { data: [subLine(1_780_000_000, 1_780_000_000 + 30 * 24 * 3600)] },
       });
+      stripeMock.charges.retrieve.mockResolvedValue(freshCharge({ id: 'ch_route_partial', amount: 10000, amountRefunded: 3000 }));
       const event = stripeEvent('charge.refunded', {
         id: 'ch_route_partial',
         payment_intent: 'pi_route_partial',
@@ -451,7 +493,7 @@ describe('stripe-billing webhook pipeline', () => {
       stripeMock.invoices.retrieve.mockResolvedValueOnce({
         id: 'in_route_dispute',
         subscription: 'sub_route_dispute',
-        lines: { data: [{ period: { start: 1_780_000_000, end: 1_780_000_000 + 365 * 24 * 3600 } }] },
+        lines: { data: [subLine(1_780_000_000, 1_780_000_000 + 365 * 24 * 3600)] },
       });
       const event = stripeEvent('charge.dispute.created', {
         id: 'dp_route_annual',
@@ -474,38 +516,212 @@ describe('stripe-billing webhook pipeline', () => {
       expect(subscription!.paidThrough.toISOString()).toBe('2027-09-01T10:00:00.000Z'); // grants unchanged
     });
 
-    it.each([false, true])('blocks grants for a full refund with unusable invoice coverage (truncated=%s)', async (truncated) => {
-      const salonId = `s_refund_unknown_${truncated}`;
-      const subId = `sub_refund_unknown_${truncated}`;
+    // RT-7: unusable coverage now holds the event with ZERO writes. The old
+    // code wrote a null-bound `refund_applied` row here, which permanently
+    // poisoned every later evidence read (incomplete ⇒ fail closed forever);
+    // grants stopping was the SYMPTOM, not the contract. The contract is:
+    // nothing is written at all, and `paid_through` is untouched.
+    it.each([
+      {
+        name: 'no subscription lines at all',
+        lines: { has_more: false, data: [] },
+        detail: 'SUBSCRIPTION_REFUND_PRORATION_ONLY',
+      },
+      {
+        // Structurally unreadable — a fact about the object, not a transient
+        // failure, so no retry could ever change it.
+        name: 'no readable line set',
+        lines: undefined,
+        detail: 'SUBSCRIPTION_REFUND_COVERAGE_UNKNOWN',
+      },
+    ])('holds a full refund with unusable invoice coverage and writes NOTHING ($name)', async ({ lines, detail }) => {
+      const salonId = `s_refund_unknown_${detail}`;
+      const subId = `sub_refund_unknown_${detail}`;
       await seedLocalSubscription(salonId, subId);
       stripeMock.invoices.retrieve.mockResolvedValueOnce({
-        id: `in_refund_unknown_${truncated}`,
+        id: `in_refund_unknown_${detail}`,
         subscription: subId,
-        lines: { has_more: truncated, data: truncated ? [{ period: { start: 1780000000, end: 1811536000 } }] : [] },
+        ...(lines !== undefined ? { lines } : {}),
       });
-      const response = await post(stripeEvent('charge.refunded', {
-        id: `ch_refund_unknown_${truncated}`,
-        invoice: `in_refund_unknown_${truncated}`,
+      stripeMock.charges.retrieve.mockResolvedValue(freshCharge({
+        id: `ch_refund_unknown_${detail}`,
+        amount: 10000,
+        amountRefunded: 10000,
+      }));
+      const event = stripeEvent('charge.refunded', {
+        id: `ch_refund_unknown_${detail}`,
+        invoice: `in_refund_unknown_${detail}`,
         amount: 10000,
         amount_refunded: 10000,
-      }));
+      });
+      const response = await post(event);
 
       expect(response.status).toBe(200);
       expect(await response.json()).toMatchObject({ outcome: 'held_anomaly' });
 
+      const [row] = (await eventRows()).filter(entry => entry.eventId === event.id);
+
+      expect(row!.lastError).toBe(detail);
+      expect(sentryHolder.captureMessage).toHaveBeenCalledWith('billing.event_held_anomaly', {
+        level: 'warning',
+        extra: { eventId: event.id, eventType: 'charge.refunded', detail },
+      });
+
       const [subscription] = await db.select().from(schema.billingSubscriptionSchema)
         .where(eq(schema.billingSubscriptionSchema.stripeSubscriptionId, subId));
+
+      // ZERO writes: no evidence row, and paid_through exactly as seeded.
+      expect(await auditRowsFor(subscription!.id)).toHaveLength(0);
+      expect(subscription!.paidThrough.toISOString()).toBe('2027-09-01T10:00:00.000Z');
+
+      // INVERTED (R-1): grants used to be blocked here, but only because the
+      // route wrote a NULL-BOUND refund row that made every later evidence
+      // read `incomplete` and fail closed — permanently, with no automated
+      // way back. That was the defect, not the protection. With zero writes
+      // the salon keeps exactly the entitlement it paid for, and the HELD
+      // event is what stops the refund from being silently ignored.
       const { evaluateSubscriptionWindows } = await import('@/libs/billing/creditGrants');
       const result = await evaluateSubscriptionWindows({
         subscriptionId: subscription!.id,
         now: new Date('2026-10-15T10:00:00.000Z'),
       });
 
-      expect(result.granted).toBe(0);
+      expect(result.granted).toBe(1);
 
       const grants = await db.select().from(schema.smsCreditLedgerSchema).where(eq(schema.smsCreditLedgerSchema.salonId, salonId));
 
-      expect(grants).toHaveLength(0);
+      expect(grants).toHaveLength(1);
+    });
+
+    // INVERTED: a Stripe paging failure used to be swallowed into a TERMINAL
+    // hold. It is a transient infrastructure problem, not a fact about the
+    // invoice — so it is now retryable (and poisons after 8 attempts like any
+    // other handler error). Scenario kept: still ZERO writes.
+    it('retries (500) instead of holding when a truncated refund invoice cannot be paged', async () => {
+      const salonId = 's_refund_paging_failure';
+      const subId = 'sub_refund_paging_failure';
+      await seedLocalSubscription(salonId, subId);
+      stripeMock.invoices.retrieve.mockResolvedValueOnce({
+        id: 'in_refund_paging_failure',
+        subscription: subId,
+        lines: { has_more: true, data: [subLine(1780000000, 1811536000)] },
+      });
+      stripeMock.invoices.listLineItems.mockImplementation(() => {
+        throw new Error('STRIPE_UNAVAILABLE');
+      });
+      stripeMock.charges.retrieve.mockResolvedValue(freshCharge({
+        id: 'ch_refund_paging_failure',
+        amount: 10000,
+        amountRefunded: 10000,
+      }));
+      const event = stripeEvent('charge.refunded', {
+        id: 'ch_refund_paging_failure',
+        invoice: 'in_refund_paging_failure',
+        amount: 10000,
+        amount_refunded: 10000,
+      });
+      const response = await post(event);
+
+      expect(response.status).toBe(500);
+      expect((await response.json()).error.code).toBe('HANDLER_RETRYABLE');
+
+      const [row] = (await eventRows()).filter(entry => entry.eventId === event.id);
+
+      expect(row!.status).toBe('failed_retryable');
+
+      const [subscription] = await db.select().from(schema.billingSubscriptionSchema)
+        .where(eq(schema.billingSubscriptionSchema.stripeSubscriptionId, subId));
+
+      expect(await auditRowsFor(subscription!.id)).toHaveLength(0);
+      expect(subscription!.paidThrough.toISOString()).toBe('2027-09-01T10:00:00.000Z');
+    });
+
+    // RT-7b: the paging escape hatch actually works — a truncated page that
+    // CAN be paged yields ordinary evidence, not a hold.
+    it('pages a truncated line set through listLineItems and records normal refund evidence', async () => {
+      const salonId = 's_refund_paged';
+      const subId = 'sub_refund_paged';
+      const periodStart = 1_780_000_000;
+      const periodEnd = new Date('2027-09-01T10:00:00.000Z').getTime() / 1000;
+      await seedLocalSubscription(salonId, subId);
+      stripeMock.invoices.retrieve.mockResolvedValueOnce({
+        id: 'in_refund_paged',
+        subscription: subId,
+        // The embedded page shows only the LAST slice of the coverage.
+        lines: { has_more: true, data: [subLine(periodEnd - 24 * 3600, periodEnd)] },
+      });
+      stripeMock.invoices.listLineItems.mockReturnValue({
+        autoPagingToArray: async () => [
+          subLine(periodStart, periodEnd - 24 * 3600),
+          subLine(periodEnd - 24 * 3600, periodEnd),
+        ],
+      });
+      stripeMock.charges.retrieve.mockResolvedValue(freshCharge({ id: 'ch_refund_paged', amount: 10000, amountRefunded: 10000 }));
+      const event = stripeEvent('charge.refunded', {
+        id: 'ch_refund_paged',
+        invoice: 'in_refund_paged',
+        amount: 10000,
+        amount_refunded: 10000,
+        refunds: { data: [{ id: 're_refund_paged' }] },
+      });
+      const response = await post(event);
+
+      expect(response.status).toBe(200);
+
+      const [row] = (await eventRows()).filter(entry => entry.eventId === event.id);
+
+      expect(row!.status).toBe('processed');
+      expect(stripeMock.invoices.listLineItems).toHaveBeenCalledWith('in_refund_paged', { limit: 100 });
+
+      const [subscription] = await db.select().from(schema.billingSubscriptionSchema)
+        .where(eq(schema.billingSubscriptionSchema.stripeSubscriptionId, subId));
+      const evidence = (await auditRowsFor(subscription!.id))
+        .filter(auditRow => auditRow.action === 'billing_subscription_refund_applied');
+
+      expect(evidence).toHaveLength(1);
+      // The FULL paged span, not the visible slice.
+      expect(evidence[0]!.metadata).toMatchObject({
+        evidenceVersion: 2,
+        invoiceId: 'in_refund_paged',
+        refundIds: ['re_refund_paged'],
+        refundedPeriodStart: new Date(periodStart * 1000).toISOString(),
+        refundedPeriodEnd: new Date(periodEnd * 1000).toISOString(),
+      });
+      expect(subscription!.paidThrough.getTime()).toBe(periodStart * 1000);
+    });
+
+    // A full refund of an invoice that bills only prorations has no
+    // subscription coverage to exclude — held, never guessed at.
+    it('holds a full refund of a proration-only invoice (SUBSCRIPTION_REFUND_PRORATION_ONLY), zero writes', async () => {
+      const salonId = 's_refund_proration_only';
+      const subId = 'sub_refund_proration_only';
+      await seedLocalSubscription(salonId, subId);
+      stripeMock.invoices.retrieve.mockResolvedValueOnce({
+        id: 'in_refund_proration_only',
+        subscription: subId,
+        lines: { has_more: false, data: [prorationLine(1_780_000_000, 1_782_000_000)] },
+      });
+      stripeMock.charges.retrieve.mockResolvedValue(freshCharge({ id: 'ch_refund_proration_only', amount: 10000, amountRefunded: 10000 }));
+      const event = stripeEvent('charge.refunded', {
+        id: 'ch_refund_proration_only',
+        invoice: 'in_refund_proration_only',
+        amount: 10000,
+        amount_refunded: 10000,
+      });
+      const response = await post(event);
+
+      expect(response.status).toBe(200);
+
+      const [row] = (await eventRows()).filter(entry => entry.eventId === event.id);
+
+      expect(row!.status).toBe('held_anomaly');
+      expect(row!.lastError).toBe('SUBSCRIPTION_REFUND_PRORATION_ONLY');
+
+      const [subscription] = await db.select().from(schema.billingSubscriptionSchema)
+        .where(eq(schema.billingSubscriptionSchema.stripeSubscriptionId, subId));
+
+      expect(await auditRowsFor(subscription!.id)).toHaveLength(0);
+      expect(subscription!.paidThrough.toISOString()).toBe('2027-09-01T10:00:00.000Z');
     });
 
     it('retries an owned subscription refund that arrives before subscription projection', async () => {
@@ -538,8 +754,9 @@ describe('stripe-billing webhook pipeline', () => {
       stripeMock.invoices.retrieve.mockResolvedValue({
         id: 'in_route_full',
         subscription: 'sub_route_full_refund',
-        lines: { data: [{ period: { start: periodStart, end: periodEnd } }] },
+        lines: { data: [subLine(periodStart, periodEnd)] },
       });
+      stripeMock.charges.retrieve.mockResolvedValue(freshCharge({ id: 'ch_route_full', invoice: 'in_route_full', amount: 10000, amountRefunded: 10000 }));
       const chargeEvent = stripeEvent('charge.refunded', {
         id: 'ch_route_full',
         payment_intent: 'pi_route_full',
@@ -599,7 +816,7 @@ describe('stripe-billing webhook pipeline', () => {
       const delayedPaid = stripeEvent('invoice.payment_succeeded', {
         id: 'in_route_full',
         subscription: 'sub_route_full_refund',
-        lines: { data: [{ period: { start: periodStart, end: periodEnd } }] },
+        lines: { data: [subLine(periodStart, periodEnd)] },
       });
       const delayedResponse = await post(delayedPaid);
 
@@ -610,6 +827,575 @@ describe('stripe-billing webhook pipeline', () => {
 
       expect(delayedRow!.lastError).toBe('SUBSCRIPTION_PERIOD_REFUNDED');
       expect(delayedRow!.attempts).toBe(1);
+    });
+
+    // RT-17 (route half): a renewal invoice routinely carries a proration
+    // line for the PREVIOUS — here refunded — cycle. The old min/max over
+    // ALL lines dragged paidPeriodStart back into that refunded window and
+    // turned a legitimate renewal into a permanent SUBSCRIPTION_PERIOD_REFUNDED
+    // hold. Coverage is the SUBSCRIPTION line's span only.
+    it('applies a renewal invoice that also carries a proration line from the refunded previous cycle', async () => {
+      const salonId = 's_route_rt17';
+      const subId = 'sub_route_rt17';
+      const w0Start = Math.floor(new Date('2026-09-01T10:00:00.000Z').getTime() / 1000);
+      const w0End = Math.floor(new Date('2026-10-01T10:00:00.000Z').getTime() / 1000);
+      const w1End = Math.floor(new Date('2026-11-01T10:00:00.000Z').getTime() / 1000);
+      await seedLocalSubscription(salonId, subId, {
+        paidThrough: new Date(w0End * 1000),
+        creditCycleAnchor: new Date(w0Start * 1000),
+      });
+
+      // First: the previous cycle's invoice is fully refunded.
+      stripeMock.invoices.retrieve.mockResolvedValueOnce({
+        id: 'in_rt17_first',
+        subscription: subId,
+        lines: { has_more: false, data: [subLine(w0Start, w0End)] },
+      });
+      stripeMock.charges.retrieve.mockResolvedValue(freshCharge({ id: 'ch_rt17', amount: 10000, amountRefunded: 10000 }));
+      const refund = await post(stripeEvent('charge.refunded', {
+        id: 'ch_rt17',
+        invoice: 'in_rt17_first',
+        amount: 10000,
+        amount_refunded: 10000,
+        refunds: { data: [{ id: 're_rt17' }] },
+      }));
+
+      expect(refund.status).toBe(200);
+
+      // Then the renewal lands, carrying BOTH a proration for [w0mid, w0End)
+      // and the real subscription line for [w0End, w1End).
+      const renewal = stripeEvent('invoice.payment_succeeded', {
+        id: 'in_rt17_renewal',
+        subscription: subId,
+        lines: {
+          has_more: false,
+          data: [
+            prorationLine(w0Start + 15 * 24 * 3600, w0End),
+            subLine(w0End, w1End),
+          ],
+        },
+      });
+      const response = await post(renewal);
+
+      expect(response.status).toBe(200);
+
+      const [row] = (await eventRows()).filter(entry => entry.eventId === renewal.id);
+
+      expect(row!.status).toBe('processed');
+
+      const [subscription] = await db.select().from(schema.billingSubscriptionSchema)
+        .where(eq(schema.billingSubscriptionSchema.stripeSubscriptionId, subId));
+
+      expect(subscription!.paidThrough.getTime()).toBe(w1End * 1000);
+    });
+
+    // RT-6 (webhook half) — Owner decision O2: a charge that is no longer
+    // fully refunded automatically VOIDS the §6.7 exclusion recorded for its
+    // invoice, restores coverage, and pages a human.
+    it('voids live refund evidence when refund.updated shows the cumulative refund below the charge amount', async () => {
+      const salonId = 's_route_void';
+      const subId = 'sub_route_void';
+      const periodStart = Math.floor(new Date('2026-09-01T10:00:00.000Z').getTime() / 1000);
+      const periodEnd = Math.floor(new Date('2027-09-01T10:00:00.000Z').getTime() / 1000);
+      await seedLocalSubscription(salonId, subId, { paidThrough: new Date(periodEnd * 1000) });
+      stripeMock.invoices.retrieve.mockResolvedValue({
+        id: 'in_route_void',
+        subscription: subId,
+        lines: { has_more: false, data: [subLine(periodStart, periodEnd)] },
+      });
+
+      stripeMock.charges.retrieve.mockResolvedValue(freshCharge({ id: 'ch_route_void', invoice: 'in_route_void', amount: 10000, amountRefunded: 10000 }));
+      const refunded = await post(stripeEvent('charge.refunded', {
+        id: 'ch_route_void',
+        invoice: 'in_route_void',
+        amount: 10000,
+        amount_refunded: 10000,
+        refunds: { data: [{ id: 're_route_void' }] },
+      }));
+
+      expect(refunded.status).toBe(200);
+
+      let [subscription] = await db.select().from(schema.billingSubscriptionSchema)
+        .where(eq(schema.billingSubscriptionSchema.stripeSubscriptionId, subId));
+
+      expect(subscription!.paidThrough.getTime()).toBe(periodStart * 1000);
+
+      sentryHolder.captureMessage.mockClear();
+
+      // The refund FAILED at the bank: cumulative drops back to zero.
+      stripeMock.charges.retrieve.mockResolvedValueOnce({
+        id: 'ch_route_void',
+        invoice: 'in_route_void',
+        amount: 10000,
+        amount_refunded: 0,
+      });
+      const reversal = stripeEvent('refund.updated', {
+        id: 're_route_void',
+        charge: 'ch_route_void',
+        status: 'failed',
+        amount: 10000,
+      });
+      const response = await post(reversal);
+
+      expect(response.status).toBe(200);
+
+      const [row] = (await eventRows()).filter(entry => entry.eventId === reversal.id);
+
+      expect(row!.status).toBe('processed');
+      expect(row!.lastError).toBe('REFUND_EVIDENCE_VOIDED');
+
+      const voidAlerts = sentryHolder.captureMessage.mock.calls
+        .filter(([message]) => message === 'billing.subscription_refund_voided');
+
+      expect(voidAlerts).toHaveLength(1);
+      expect(voidAlerts[0]![1]).toMatchObject({
+        level: 'warning',
+        extra: {
+          eventId: reversal.id,
+          stripeSubscriptionId: subId,
+          invoiceId: 'in_route_void',
+          observedAmountRefunded: 0,
+          observedAmount: 10000,
+          reapplied: true,
+        },
+      });
+
+      [subscription] = await db.select().from(schema.billingSubscriptionSchema)
+        .where(eq(schema.billingSubscriptionSchema.stripeSubscriptionId, subId));
+
+      // Coverage restored through the ORDINARY payment transition.
+      expect(subscription!.paidThrough.getTime()).toBe(periodEnd * 1000);
+
+      const resolutions = (await auditRowsFor(subscription!.id))
+        .filter(auditRow => auditRow.action === 'billing_subscription_refund_evidence_resolved');
+
+      expect(resolutions).toHaveLength(1);
+      expect(resolutions[0]!.metadata).toMatchObject({
+        evidenceVersion: 2,
+        invoiceId: 'in_route_void',
+        resolution: 'void',
+        reason: 'refund_reversed:failed',
+        observedAmountRefunded: 0,
+        observedAmount: 10000,
+      });
+    });
+
+    // RT-6b — the void is keyed on the INVOICE, never on a refund id. A
+    // partial `re_1` that later fails after a successful full `re_2` must
+    // still resolve the invoice's evidence, whichever refund identity (if
+    // any) the event happens to carry.
+    it.each([
+      { name: 'charge.refunds lists the newest refund first', refunds: { data: [{ id: 're_2' }, { id: 're_1' }] }, expectedIds: ['re_2', 're_1'] },
+      { name: 'charge.refunds is absent entirely', refunds: undefined, expectedIds: [] },
+    ])('voids partial-then-full refund evidence by invoice identity ($name)', async ({ refunds, expectedIds }) => {
+      const suffix = expectedIds.length > 0 ? 'listed' : 'absent';
+      const salonId = `s_route_rt6b_${suffix}`;
+      const subId = `sub_route_rt6b_${suffix}`;
+      const invoiceId = `in_route_rt6b_${suffix}`;
+      const periodStart = Math.floor(new Date('2026-09-01T10:00:00.000Z').getTime() / 1000);
+      const periodEnd = Math.floor(new Date('2027-09-01T10:00:00.000Z').getTime() / 1000);
+      await seedLocalSubscription(salonId, subId, { paidThrough: new Date(periodEnd * 1000) });
+      stripeMock.invoices.retrieve.mockResolvedValue({
+        id: invoiceId,
+        subscription: subId,
+        lines: { has_more: false, data: [subLine(periodStart, periodEnd)] },
+      });
+
+      // 1. `re_1` refunds 3000 of 10000 — partial, held, nothing written.
+      stripeMock.charges.retrieve.mockResolvedValue(freshCharge({
+        id: `ch_route_rt6b_${suffix}`,
+        invoice: invoiceId,
+        amount: 10000,
+        amountRefunded: 3000,
+      }));
+      const partial = await post(stripeEvent('charge.refunded', {
+        id: `ch_route_rt6b_${suffix}`,
+        invoice: invoiceId,
+        amount: 10000,
+        amount_refunded: 3000,
+        refunds: { data: [{ id: 're_1' }] },
+      }));
+
+      expect(await partial.json()).toMatchObject({ outcome: 'held_anomaly' });
+
+      // 2. `re_2` takes the cumulative to the full amount.
+      stripeMock.charges.retrieve.mockResolvedValue(freshCharge({
+        id: `ch_route_rt6b_${suffix}`,
+        invoice: invoiceId,
+        amount: 10000,
+        amountRefunded: 10000,
+      }));
+      const full = await post(stripeEvent('charge.refunded', {
+        id: `ch_route_rt6b_${suffix}`,
+        invoice: invoiceId,
+        amount: 10000,
+        amount_refunded: 10000,
+        ...(refunds !== undefined ? { refunds } : {}),
+      }));
+
+      expect(full.status).toBe(200);
+
+      let [subscription] = await db.select().from(schema.billingSubscriptionSchema)
+        .where(eq(schema.billingSubscriptionSchema.stripeSubscriptionId, subId));
+
+      expect(subscription!.paidThrough.getTime()).toBe(periodStart * 1000);
+
+      const applied = (await auditRowsFor(subscription!.id))
+        .filter(auditRow => auditRow.action === 'billing_subscription_refund_applied');
+
+      expect(applied).toHaveLength(1);
+      expect(applied[0]!.metadata).toMatchObject({ invoiceId, refundIds: expectedIds });
+
+      // 3. `re_1` is reversed: cumulative falls to 7000 — no longer full.
+      stripeMock.charges.retrieve.mockResolvedValueOnce({
+        id: `ch_route_rt6b_${suffix}`,
+        invoice: invoiceId,
+        amount: 10000,
+        amount_refunded: 7000,
+      });
+      const reversalEvent = stripeEvent('refund.updated', {
+        id: 're_1',
+        charge: `ch_route_rt6b_${suffix}`,
+        status: 'failed',
+        amount: 3000,
+      });
+      const reversal = await post(reversalEvent);
+
+      expect(reversal.status).toBe(200);
+
+      const [reversalRow] = (await eventRows()).filter(entry => entry.eventId === reversalEvent.id);
+
+      expect(reversalRow!.status).toBe('processed');
+      expect(reversalRow!.lastError).toBe('REFUND_EVIDENCE_VOIDED');
+
+      [subscription] = await db.select().from(schema.billingSubscriptionSchema)
+        .where(eq(schema.billingSubscriptionSchema.stripeSubscriptionId, subId));
+
+      expect(subscription!.paidThrough.getTime()).toBe(periodEnd * 1000);
+    });
+
+    // RT-20: a charge.refunded whose `refunds` list is absent still records
+    // evidence — keyed by INVOICE, with an empty (informational) id list.
+    it('records refund evidence keyed by invoice when charge.refunds is absent', async () => {
+      const salonId = 's_route_rt20';
+      const subId = 'sub_route_rt20';
+      const periodStart = Math.floor(new Date('2026-09-01T10:00:00.000Z').getTime() / 1000);
+      const periodEnd = Math.floor(new Date('2027-09-01T10:00:00.000Z').getTime() / 1000);
+      await seedLocalSubscription(salonId, subId, { paidThrough: new Date(periodEnd * 1000) });
+      stripeMock.invoices.retrieve.mockResolvedValueOnce({
+        id: 'in_route_rt20',
+        subscription: subId,
+        lines: { has_more: false, data: [subLine(periodStart, periodEnd)] },
+      });
+
+      stripeMock.charges.retrieve.mockResolvedValue(freshCharge({ id: 'ch_route_rt20', amount: 10000, amountRefunded: 10000 }));
+      const response = await post(stripeEvent('charge.refunded', {
+        id: 'ch_route_rt20',
+        invoice: 'in_route_rt20',
+        amount: 10000,
+        amount_refunded: 10000,
+      }));
+
+      expect(response.status).toBe(200);
+
+      const [subscription] = await db.select().from(schema.billingSubscriptionSchema)
+        .where(eq(schema.billingSubscriptionSchema.stripeSubscriptionId, subId));
+      const applied = (await auditRowsFor(subscription!.id))
+        .filter(auditRow => auditRow.action === 'billing_subscription_refund_applied');
+
+      expect(applied).toHaveLength(1);
+      expect(applied[0]!.metadata).toMatchObject({
+        evidenceVersion: 2,
+        invoiceId: 'in_route_rt20',
+        refundIds: [],
+        observedAmountRefunded: 10000,
+        observedAmount: 10000,
+      });
+    });
+
+    // §8.3 — a charge.refunded body is the charge AS IT WAS at event time and
+    // Stripe guarantees no delivery order, so the decision is made from an
+    // authoritative re-fetch. Both directions of the ordering hazard:
+    describe('§8.3 — the charge is re-fetched, never decided from a stale event body', () => {
+      it('does NOT void evidence when a stale PARTIAL body arrives for a charge that is still fully refunded', async () => {
+        const salonId = 's_route_stale_partial';
+        const subId = 'sub_route_stale_partial';
+        const periodStart = Math.floor(new Date('2026-09-01T10:00:00.000Z').getTime() / 1000);
+        const periodEnd = Math.floor(new Date('2027-09-01T10:00:00.000Z').getTime() / 1000);
+        await seedLocalSubscription(salonId, subId, { paidThrough: new Date(periodEnd * 1000) });
+        stripeMock.invoices.retrieve.mockResolvedValue({
+          id: 'in_route_stale_partial',
+          subscription: subId,
+          lines: { has_more: false, data: [subLine(periodStart, periodEnd)] },
+        });
+        // The charge IS fully refunded now (re_2 already landed).
+        stripeMock.charges.retrieve.mockResolvedValue(freshCharge({
+          id: 'ch_route_stale_partial',
+          invoice: 'in_route_stale_partial',
+          amount: 10000,
+          amountRefunded: 10000,
+        }));
+
+        // re_2's event lands first and records the exclusion.
+        expect((await post(stripeEvent('charge.refunded', {
+          id: 'ch_route_stale_partial',
+          invoice: 'in_route_stale_partial',
+          amount: 10000,
+          amount_refunded: 10000,
+          refunds: { data: [{ id: 're_2' }] },
+        }))).status).toBe(200);
+
+        // re_1's OLDER event now arrives, its body still saying 4000.
+        const stale = stripeEvent('charge.refunded', {
+          id: 'ch_route_stale_partial',
+          invoice: 'in_route_stale_partial',
+          amount: 10000,
+          amount_refunded: 4000, // stale snapshot
+          refunds: { data: [{ id: 're_1' }] },
+        });
+
+        expect((await post(stale)).status).toBe(200);
+
+        const [row] = (await eventRows()).filter(entry => entry.eventId === stale.id);
+
+        expect(row!.status).toBe('processed');
+        expect(row!.lastError).not.toBe('REFUND_EVIDENCE_VOIDED');
+
+        const [subscription] = await db.select().from(schema.billingSubscriptionSchema)
+          .where(eq(schema.billingSubscriptionSchema.stripeSubscriptionId, subId));
+        const evidence = await auditRowsFor(subscription!.id);
+
+        // Exactly one applied row, and NO void: the refund stands.
+        expect(evidence.filter(entry => entry.action === 'billing_subscription_refund_applied')).toHaveLength(1);
+        expect(evidence.filter(entry => entry.action === 'billing_subscription_refund_evidence_resolved')).toHaveLength(0);
+        expect(subscription!.paidThrough.getTime()).toBe(periodStart * 1000);
+      });
+
+      it('does NOT write evidence when a stale FULL body arrives for a charge that is no longer fully refunded', async () => {
+        const salonId = 's_route_stale_full';
+        const subId = 'sub_route_stale_full';
+        const periodStart = Math.floor(new Date('2026-09-01T10:00:00.000Z').getTime() / 1000);
+        const periodEnd = Math.floor(new Date('2027-09-01T10:00:00.000Z').getTime() / 1000);
+        await seedLocalSubscription(salonId, subId, { paidThrough: new Date(periodEnd * 1000) });
+        stripeMock.invoices.retrieve.mockResolvedValue({
+          id: 'in_route_stale_full',
+          subscription: subId,
+          lines: { has_more: false, data: [subLine(periodStart, periodEnd)] },
+        });
+        // A full refund is already on record...
+        stripeMock.charges.retrieve.mockResolvedValue(freshCharge({
+          id: 'ch_route_stale_full',
+          invoice: 'in_route_stale_full',
+          amount: 10000,
+          amountRefunded: 10000,
+        }));
+
+        expect((await post(stripeEvent('charge.refunded', {
+          id: 'ch_route_stale_full',
+          invoice: 'in_route_stale_full',
+          amount: 10000,
+          amount_refunded: 10000,
+        }))).status).toBe(200);
+
+        // ...but the refund has since been reversed at the bank. A DELAYED
+        // full-refund body must not re-assert it.
+        stripeMock.charges.retrieve.mockResolvedValue(freshCharge({
+          id: 'ch_route_stale_full',
+          invoice: 'in_route_stale_full',
+          amount: 10000,
+          amountRefunded: 2000,
+        }));
+        const stale = stripeEvent('charge.refunded', {
+          id: 'ch_route_stale_full',
+          invoice: 'in_route_stale_full',
+          amount: 10000,
+          amount_refunded: 10000, // stale snapshot
+        });
+
+        expect((await post(stale)).status).toBe(200);
+
+        const [row] = (await eventRows()).filter(entry => entry.eventId === stale.id);
+
+        expect(row!.lastError).toBe('REFUND_EVIDENCE_VOIDED');
+
+        const [subscription] = await db.select().from(schema.billingSubscriptionSchema)
+          .where(eq(schema.billingSubscriptionSchema.stripeSubscriptionId, subId));
+        const evidence = await auditRowsFor(subscription!.id);
+
+        // One applied row from the first event, ONE void from the stale one —
+        // never a second applied row — and coverage is restored.
+        expect(evidence.filter(entry => entry.action === 'billing_subscription_refund_applied')).toHaveLength(1);
+        expect(evidence.filter(entry => entry.action === 'billing_subscription_refund_evidence_resolved')).toHaveLength(1);
+        expect(subscription!.paidThrough.getTime()).toBe(periodEnd * 1000);
+      });
+
+      it('is RETRYABLE (never decided from the body) when the charge re-fetch fails', async () => {
+        const salonId = 's_route_refetch_fails';
+        const subId = 'sub_route_refetch_fails';
+        await seedLocalSubscription(salonId, subId);
+        stripeMock.invoices.retrieve.mockResolvedValueOnce({
+          id: 'in_route_refetch_fails',
+          subscription: subId,
+          lines: { has_more: false, data: [subLine(1_780_000_000, 1_811_536_000)] },
+        });
+        stripeMock.charges.retrieve.mockRejectedValue(new Error('STRIPE_UNAVAILABLE'));
+        const event = stripeEvent('charge.refunded', {
+          id: 'ch_route_refetch_fails',
+          invoice: 'in_route_refetch_fails',
+          amount: 10000,
+          amount_refunded: 10000,
+        });
+        const response = await post(event);
+
+        expect(response.status).toBe(500);
+        expect((await response.json()).error.code).toBe('HANDLER_RETRYABLE');
+
+        const [row] = (await eventRows()).filter(entry => entry.eventId === event.id);
+
+        expect(row!.status).toBe('failed_retryable');
+
+        const [subscription] = await db.select().from(schema.billingSubscriptionSchema)
+          .where(eq(schema.billingSubscriptionSchema.stripeSubscriptionId, subId));
+
+        expect(await auditRowsFor(subscription!.id)).toHaveLength(0);
+        expect(subscription!.paidThrough.toISOString()).toBe('2027-09-01T10:00:00.000Z');
+      });
+
+      it('makes exactly ONE charges.retrieve on the refund.updated path — the enrichment IS the re-fetch', async () => {
+        const salonId = 's_route_single_fetch';
+        const subId = 'sub_route_single_fetch';
+        const periodStart = Math.floor(new Date('2026-09-01T10:00:00.000Z').getTime() / 1000);
+        const periodEnd = Math.floor(new Date('2027-09-01T10:00:00.000Z').getTime() / 1000);
+        await seedLocalSubscription(salonId, subId, { paidThrough: new Date(periodEnd * 1000) });
+        stripeMock.invoices.retrieve.mockResolvedValue({
+          id: 'in_route_single_fetch',
+          subscription: subId,
+          lines: { has_more: false, data: [subLine(periodStart, periodEnd)] },
+        });
+        stripeMock.charges.retrieve.mockResolvedValue(freshCharge({
+          id: 'ch_route_single_fetch',
+          invoice: 'in_route_single_fetch',
+          amount: 10000,
+          amountRefunded: 10000,
+        }));
+
+        const response = await post(stripeEvent('refund.updated', {
+          id: 're_route_single_fetch',
+          charge: 'ch_route_single_fetch',
+          status: 'succeeded',
+          amount: 10000,
+        }));
+
+        expect(response.status).toBe(200);
+        expect(stripeMock.charges.retrieve).toHaveBeenCalledTimes(1);
+        expect(stripeMock.charges.retrieve).toHaveBeenCalledWith('ch_route_single_fetch');
+      });
+    });
+
+    it('still holds a partial subscription refund with NO live evidence as SUBSCRIPTION_CHARGE_PARTIAL_REFUND', async () => {
+      const salonId = 's_route_partial_no_evidence';
+      const subId = 'sub_route_partial_no_evidence';
+      await seedLocalSubscription(salonId, subId);
+      stripeMock.invoices.retrieve.mockResolvedValueOnce({
+        id: 'in_route_partial_no_evidence',
+        subscription: subId,
+        lines: { has_more: false, data: [subLine(1_780_000_000, 1_811_536_000)] },
+      });
+
+      stripeMock.charges.retrieve.mockResolvedValue(freshCharge({ id: 'ch_route_partial_no_evidence', amount: 10000, amountRefunded: 2500 }));
+      const event = stripeEvent('charge.refunded', {
+        id: 'ch_route_partial_no_evidence',
+        invoice: 'in_route_partial_no_evidence',
+        amount: 10000,
+        amount_refunded: 2500,
+      });
+      const response = await post(event);
+
+      expect(response.status).toBe(200);
+
+      const [row] = (await eventRows()).filter(entry => entry.eventId === event.id);
+
+      expect(row!.status).toBe('held_anomaly');
+      expect(row!.lastError).toBe('SUBSCRIPTION_CHARGE_PARTIAL_REFUND');
+
+      const [subscription] = await db.select().from(schema.billingSubscriptionSchema)
+        .where(eq(schema.billingSubscriptionSchema.stripeSubscriptionId, subId));
+
+      // A void that finds nothing live writes NOTHING.
+      expect(await auditRowsFor(subscription!.id)).toHaveLength(0);
+      expect(subscription!.paidThrough.toISOString()).toBe('2027-09-01T10:00:00.000Z');
+    });
+  });
+
+  // RT-14 (route half) — R-5: invoice events are fenced by STATUS, and they
+  // never touch the SUBSCRIPTION event watermark.
+  describe('RT-14 — invoice events never resurrect a canceled subscription or move the watermark', () => {
+    it('leaves a canceled subscription canceled, keeps last_event_created, and still fences an older update', async () => {
+      const salonId = 's_route_rt14';
+      const subId = 'sub_route_rt14';
+      await db.insert(schema.salonSchema).values({ id: salonId, name: salonId, slug: salonId });
+      const t0 = 1_780_000_000;
+      const body = (status: string) => ({
+        id: subId,
+        customer: `cus_${subId}`,
+        status,
+        cancel_at_period_end: false,
+        current_period_start: t0,
+        metadata: { purpose: 'plan_subscription', salonId, billingOfferKey: 'pro_2026_08_monthly' },
+      });
+
+      expect((await post(stripeEvent('customer.subscription.created', body('active'), { created: t0 }))).status).toBe(200);
+      expect((await post(stripeEvent('customer.subscription.deleted', body('canceled'), { created: t0 + 200 }))).status).toBe(200);
+
+      let [subscription] = await db.select().from(schema.billingSubscriptionSchema)
+        .where(eq(schema.billingSubscriptionSchema.stripeSubscriptionId, subId));
+
+      expect(subscription!.status).toBe('canceled');
+      expect(subscription!.lastEventCreated!.getTime()).toBe((t0 + 200) * 1000);
+
+      // A paid invoice for the terminated subscription: paid_through may
+      // advance, the STATUS may not (R-5), and the watermark may not move.
+      const paid = stripeEvent('invoice.payment_succeeded', {
+        id: 'in_route_rt14',
+        subscription: subId,
+        lines: { has_more: false, data: [subLine(t0, t0 + 30 * 24 * 3600)] },
+      }, { created: t0 + 300 });
+
+      expect((await post(paid)).status).toBe(200);
+
+      [subscription] = await db.select().from(schema.billingSubscriptionSchema)
+        .where(eq(schema.billingSubscriptionSchema.stripeSubscriptionId, subId));
+
+      expect(subscription!.status).toBe('canceled');
+      expect(subscription!.paidThrough.getTime()).toBe((t0 + 30 * 24 * 3600) * 1000);
+      expect(subscription!.lastEventCreated!.getTime()).toBe((t0 + 200) * 1000);
+
+      // A failed invoice for a canceled subscription changes nothing at all.
+      const failed = stripeEvent('invoice.payment_failed', {
+        id: 'in_route_rt14_failed',
+        subscription: subId,
+      }, { created: t0 + 400 });
+
+      expect((await post(failed)).status).toBe(200);
+
+      [subscription] = await db.select().from(schema.billingSubscriptionSchema)
+        .where(eq(schema.billingSubscriptionSchema.stripeSubscriptionId, subId));
+
+      expect(subscription!.status).toBe('canceled');
+      expect(subscription!.lastEventCreated!.getTime()).toBe((t0 + 200) * 1000);
+
+      // And a genuinely OLDER customer.subscription.updated is still stale —
+      // the invoice events never raised the fence it is compared against.
+      stripeMock.subscriptions.retrieve.mockResolvedValueOnce({ ...body('active') });
+      const stale = stripeEvent('customer.subscription.updated', body('active'), { created: t0 + 100 });
+
+      expect((await post(stale)).status).toBe(200);
+
+      [subscription] = await db.select().from(schema.billingSubscriptionSchema)
+        .where(eq(schema.billingSubscriptionSchema.stripeSubscriptionId, subId));
+
+      expect(subscription!.status).toBe('canceled');
+      expect(subscription!.lastEventCreated!.getTime()).toBe((t0 + 200) * 1000);
     });
   });
 
@@ -640,11 +1426,36 @@ describe('stripe-billing webhook pipeline', () => {
       });
     });
 
-    it('alerts exactly once for an invoice with no line-item periods', async () => {
+    // R-6 split this single detail in two. A READABLE line set that simply
+    // bills no subscription coverage is a different operational situation
+    // from a line set we could not read at all, and the runbook's response
+    // differs, so the scenario is kept and the assertion inverted.
+    it('alerts exactly once for an invoice whose (readable) lines bill no subscription coverage', async () => {
       const event = stripeEvent('invoice.payment_succeeded', {
         id: 'in_route_no_periods',
         subscription: 'sub_route_no_periods',
         lines: { data: [] },
+      });
+      const response = await post(event);
+
+      expect(response.status).toBe(200);
+
+      const [row] = (await eventRows()).filter(entry => entry.eventId === event.id);
+
+      expect(row!.status).toBe('held_anomaly');
+      expect(row!.lastError).toBe('INVOICE_WITHOUT_SUBSCRIPTION_LINES');
+      expect(sentryHolder.captureMessage).toHaveBeenCalledTimes(1);
+      expect(sentryHolder.captureMessage).toHaveBeenCalledWith('billing.event_held_anomaly', {
+        level: 'warning',
+        extra: { eventId: event.id, eventType: 'invoice.payment_succeeded', detail: 'INVOICE_WITHOUT_SUBSCRIPTION_LINES' },
+      });
+    });
+
+    it('alerts exactly once with INVOICE_WITHOUT_LINE_PERIODS when the line set cannot be read at all', async () => {
+      const event = stripeEvent('invoice.payment_succeeded', {
+        id: 'in_route_unreadable_lines',
+        subscription: 'sub_route_unreadable_lines',
+        // No `lines` at all — coverage is UNKNOWN, never assumed empty.
       });
       const response = await post(event);
 
@@ -659,6 +1470,30 @@ describe('stripe-billing webhook pipeline', () => {
         level: 'warning',
         extra: { eventId: event.id, eventType: 'invoice.payment_succeeded', detail: 'INVOICE_WITHOUT_LINE_PERIODS' },
       });
+    });
+
+    // INVERTED for the same reason as the refund path: a paid invoice whose
+    // lines cannot be paged must be RETRIED, not held terminally. Holding it
+    // stranded a real payment on one rate-limited minute, with no operator
+    // exit on the payment path at all.
+    it('retries (500) instead of holding when a truncated PAID invoice cannot be paged', async () => {
+      stripeMock.invoices.listLineItems.mockImplementation(() => {
+        throw new Error('STRIPE_UNAVAILABLE');
+      });
+      const event = stripeEvent('invoice.payment_succeeded', {
+        id: 'in_route_truncated_paid',
+        subscription: 'sub_route_truncated_paid',
+        lines: { has_more: true, data: [subLine(1_780_000_000, 1_782_000_000)] },
+      });
+      const response = await post(event);
+
+      expect(response.status).toBe(500);
+      expect((await response.json()).error.code).toBe('HANDLER_RETRYABLE');
+
+      const [row] = (await eventRows()).filter(entry => entry.eventId === event.id);
+
+      expect(row!.status).toBe('failed_retryable');
+      expect(sentryHolder.captureMessage).not.toHaveBeenCalled();
     });
 
     it('never includes the raw payload or PII in the Sentry extra', async () => {
@@ -942,7 +1777,7 @@ describe('stripe-billing webhook pipeline', () => {
       const event = stripeEvent('invoice.payment_succeeded', {
         id: 'in_route_poison',
         subscription: 'sub_route_poison_missing',
-        lines: { data: [{ period: { end: 1_780_000_000 + 30 * 24 * 3600 } }] },
+        lines: { data: [subLine(1_780_000_000, 1_780_000_000 + 30 * 24 * 3600)] },
       });
       // Seed the row at attempt 7, past backoff — the reclaim on this
       // delivery bumps it to 8, the poison threshold.

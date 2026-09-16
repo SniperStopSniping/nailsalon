@@ -81,3 +81,51 @@ prerequisites; this offline checker does not prove them or authorize activation.
 - Rehearsal evidence must cover duplicate checkout, refund/reconcile/grant ordering,
   one-time starter grant, top-up history, subscription cycle, tenant isolation, clean
   integrity/drift reports, and the deployed SHA. None has been executed by this repair.
+
+## PR-1 (refund completion) — 2026-09-15
+
+At the merge of [#224](https://github.com/SniperStopSniping/nailsalon/pull/224), HANDOFF §3.3 items 1
+and 3–10 plus the new N1 proration veto were still outstanding. PR-1 closes them:
+
+- **R-1** — a full refund whose invoice coverage cannot be derived now writes NOTHING and holds the
+  event (`SUBSCRIPTION_REFUND_COVERAGE_UNKNOWN` / `SUBSCRIPTION_REFUND_PRORATION_ONLY`). The former
+  null-bound `billing_subscription_refund_applied` row made every later evidence read `incomplete`,
+  failing all future grants closed with no automated way back.
+- **R-2** — refund evidence becomes CORRECTABLE without deleting anything: a second append-only
+  action, `billing_subscription_refund_evidence_resolved`, records a `void` or an authoritative
+  `set` for one invoice, and the highest `seq` across both actions is the effective state. Three
+  writers use it — the webhook, the hourly reconcile safety net, and the new super-admin endpoint
+  `/api/super-admin/billing/refund-evidence` (`plan`, then `apply` with a typed `invoiceId`).
+  Per §8.3 the webhook decides from an AUTHORITATIVE re-fetch of the charge, never from the
+  `charge.refunded` event body: that body is a snapshot at event time, and Stripe guarantees no
+  delivery order, so an out-of-order partial body would otherwise void correct evidence (and a
+  stale full body would assert a refund that no longer holds).
+- **R-3** — an unknown paid-period start is no longer defaulted to the epoch minimum (which made
+  EVERY refund overlap and turned legitimate renewals into permanent holds); it is its own anomaly,
+  `PAID_PERIOD_START_UNKNOWN`.
+- **R-4** — a parked downgrade applies through `applyPendingOfferAtRenewal`, so the reconcile repair
+  no longer depends on the latest invoice's status or periods (Y7).
+- **R-5** — invoice events are fenced by STATUS: a payment resumes service only from
+  `past_due`/`unpaid`/`incomplete`, a failure only dunns `active`/`unpaid`/`trialing`, and neither
+  ever writes the SUBSCRIPTION event watermark.
+- **R-6** — one shared reading of invoice coverage (`invoiceLinePeriods.ts`): non-proration
+  subscription lines only, paged when `has_more`, with `unknown` kept distinct from
+  `no_subscription_lines` (`INVOICE_WITHOUT_LINE_PERIODS` vs `INVOICE_WITHOUT_SUBSCRIPTION_LINES`).
+  A Stripe failure while paging PROPAGATES (retryable, bounded by the 8-attempt poison ladder)
+  rather than collapsing into a terminal hold; `unknown` is reserved for structurally unreadable
+  line sets, which no retry could change.
+- **R-7** — the real-PostgreSQL refund suite proves its executed count with zero skips in CI.
+- **R-8** — refund metadata is versioned (`evidenceVersion: 2`) with `seq`, `invoiceId`, `refundIds`
+  and ISO bounds; the audit sanitizer serialises `Date` values instead of flattening them.
+
+Owner decision **O2 is approved and implemented**: a charge whose cumulative `amount_refunded` falls
+below its `amount` automatically voids the §6.7 exclusion recorded for its invoice, restores the
+coverage through the ordinary payment transition, and alerts
+(`Sentry.captureMessage('billing.subscription_refund_voided', ...)`) — written by the webhook when
+the reversal is delivered and by the hourly reconcile regardless. The resulting partial refund
+remains a human review item (§10).
+
+Billing stays dark: no environment, switch, migration, Stripe or Vercel change.
+
+Still outstanding for the pilot: PR-2 through PR-5 per the final implementation handoff, plus the
+open decisions and rehearsal gates above.

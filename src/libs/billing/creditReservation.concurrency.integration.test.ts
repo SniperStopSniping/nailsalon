@@ -63,6 +63,13 @@ const suite = isLocalThrowaway ? describe : describe.skip;
 let pool: pg.Pool;
 let db: ReturnType<typeof drizzle<typeof schema>>;
 
+/**
+ * Zero-skip proof: this suite must never silently degrade to a skip in CI.
+ * The count is asserted in afterAll and grepped for by the workflow step.
+ */
+const EXPECTED_EXECUTED_TESTS = 9;
+let executedTests = 0;
+
 suite('credit engine — real-lock concurrency matrix', () => {
   beforeAll(async () => {
     pool = new pg.Pool({
@@ -89,6 +96,12 @@ suite('credit engine — real-lock concurrency matrix', () => {
 
   afterAll(async () => {
     await pool?.end();
+
+    expect(executedTests).toBe(EXPECTED_EXECUTED_TESTS);
+
+    process.stdout.write(
+      `BILLING_CREDIT_RESERVATION_POSTGRES_TESTS_EXECUTED=${executedTests} BILLING_CREDIT_RESERVATION_POSTGRES_TESTS_SKIPPED=0\n`,
+    );
   });
 
   async function grant(salonId: string, amount: number, key: string) {
@@ -107,6 +120,7 @@ suite('credit engine — real-lock concurrency matrix', () => {
   }
 
   it('25-way race on one remaining credit: exactly one hold, never negative', async () => {
+    executedTests += 1;
     const { reserveSmsCredits } = await import('./creditReservation');
     await grant('s1', 1, 'c1_seed');
     const results = await Promise.all(
@@ -127,6 +141,7 @@ suite('credit engine — real-lock concurrency matrix', () => {
   });
 
   it('settle vs release racing on the same reservation: exactly one terminal outcome, one debit set at most', async () => {
+    executedTests += 1;
     const { reserveSmsCredits, releaseReservation, settleReservationOnAccept } = await import('./creditReservation');
     await grant('s1', 5, 'c2_seed');
     const reserved = await reserveSmsCredits({ salonId: 's1', dedupeKey: 'c2_key', segments: 2 });
@@ -159,6 +174,7 @@ suite('credit engine — real-lock concurrency matrix', () => {
   });
 
   it('two simultaneous terminal-failure refunds produce at most one refund per lot', async () => {
+    executedTests += 1;
     const { refundTerminalFailure, reserveSmsCredits, settleReservationOnAccept } = await import('./creditReservation');
     await grant('s1', 5, 'c3_seed');
     const reserved = await reserveSmsCredits({ salonId: 's1', dedupeKey: 'c3_key', segments: 2 });
@@ -180,6 +196,7 @@ suite('credit engine — real-lock concurrency matrix', () => {
   });
 
   it('N-parallel window evaluations grant one lot and one granted window row', async () => {
+    executedTests += 1;
     const { evaluateSubscriptionWindows } = await import('./creditGrants');
     const anchor = new Date('2026-08-01T00:00:00.000Z');
     await db.insert(schema.billingSubscriptionSchema).values({
@@ -210,6 +227,7 @@ suite('credit engine — real-lock concurrency matrix', () => {
   });
 
   it('duplicate starter claims across two salons sharing one identity grant once', async () => {
+    executedTests += 1;
     const { grantStarterCredits } = await import('./creditGrants');
     const { resolveOrCreateBusinessIdentity } = await import('./businessIdentity');
     const identityId = await db.transaction(async tx =>
@@ -229,6 +247,7 @@ suite('credit engine — real-lock concurrency matrix', () => {
   });
 
   it('parallel promotion claims at an injected cap of 1 never exceed the cap', async () => {
+    executedTests += 1;
     const { reservePromotionClaim } = await import('./promotionClaims');
     const { resolveOrCreateBusinessIdentity } = await import('./businessIdentity');
     const { PROMOTIONS } = await import('@/libs/billing/promotions');
@@ -255,6 +274,7 @@ suite('credit engine — real-lock concurrency matrix', () => {
   });
 
   it('10-way checkout-attempt race yields exactly one active attempt (others reuse it)', async () => {
+    executedTests += 1;
     const { beginCheckoutAttempt } = await import('./checkoutAttempts');
     const results = await Promise.all(
       Array.from({ length: 10 }, () =>
@@ -279,6 +299,7 @@ suite('credit engine — real-lock concurrency matrix', () => {
   });
 
   it('reaper racing settle never releases proven-accepted work', async () => {
+    executedTests += 1;
     const { reapExpiredReservations, reserveSmsCredits, settleReservationOnAccept } = await import('./creditReservation');
     await grant('s1', 3, 'c8_seed');
     const past = new Date(Date.now() - 60 * 60 * 1000);
@@ -300,6 +321,7 @@ suite('credit engine — real-lock concurrency matrix', () => {
   });
 
   it('dispute-driven negative availability blocks concurrent reserves', async () => {
+    executedTests += 1;
     const { fulfillTopupPurchase, reverseTopup } = await import('./creditGrants');
     const { reserveSmsCredits, settleReservationOnAccept } = await import('./creditReservation');
     await db.insert(schema.smsTopupPurchaseSchema).values({

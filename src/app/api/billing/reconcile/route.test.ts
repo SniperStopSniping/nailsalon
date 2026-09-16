@@ -39,6 +39,11 @@ const stripeMock = vi.hoisted(() => ({
   subscriptions: {
     retrieve: vi.fn(),
   },
+  // R-2 writer 3 re-checks every invoice whose EFFECTIVE evidence still says
+  // "refunded" against its own charge.
+  invoices: {
+    retrieve: vi.fn(),
+  },
   checkout: {
     sessions: { retrieve: vi.fn() },
   },
@@ -74,14 +79,48 @@ beforeEach(async () => {
   envHolder.BILLING_SUBSCRIPTIONS_ENABLED = 'true';
   envHolder.BILLING_TOPUPS_ENABLED = undefined;
   stripeMock.subscriptions.retrieve.mockReset();
+  stripeMock.invoices.retrieve.mockReset();
   stripeMock.checkout.sessions.retrieve.mockReset();
   sentryMessage.mockClear();
   priceMapHolder.resolvedOfferKey = null;
   // Full isolation between tests — several of these assert on the ENTIRE
   // table (pagination counts, purge selectivity), so leftover rows from an
-  // earlier test would silently corrupt those assertions.
-  await db.execute(sql`TRUNCATE billing_subscription, salon, billing_checkout_attempt, sms_topup_purchase, sms_credit_ledger, sms_credit_account, billing_stripe_event CASCADE`);
+  // earlier test would silently corrupt those assertions. `audit_log` is
+  // named explicitly: refund EVIDENCE lives there, and a leaked row would
+  // change another test's effective state.
+  await db.execute(sql`TRUNCATE billing_subscription, salon, billing_checkout_attempt, sms_topup_purchase, sms_credit_ledger, sms_credit_account, billing_stripe_event, audit_log CASCADE`);
 });
+
+/**
+ * One §6.7 exclusion in its v2 shape, written straight to `audit_log` — the
+ * same row `applySubscriptionFullRefund` produces.
+ */
+async function seedRefundEvidence(input: {
+  salonId: string;
+  subscriptionRowId: string;
+  invoiceId: string;
+  start: Date;
+  end: Date;
+}) {
+  await db.insert(schema.auditLogSchema).values({
+    id: `al_${input.invoiceId}_${Math.random().toString(36).slice(2)}`,
+    salonId: input.salonId,
+    actorType: 'webhook',
+    actorId: 'stripe-billing',
+    action: 'billing_subscription_refund_applied',
+    entityType: 'billing_subscription',
+    entityId: input.subscriptionRowId,
+    metadata: {
+      evidenceVersion: 2,
+      seq: 1,
+      invoiceId: input.invoiceId,
+      refundIds: ['re_seeded'],
+      eventId: 'evt_seeded',
+      refundedPeriodStart: input.start.toISOString(),
+      refundedPeriodEnd: input.end.toISOString(),
+    },
+  });
+}
 
 const call = async (secret = 'cron_test_secret') => {
   const { POST } = await import('./route');
@@ -127,6 +166,16 @@ async function seedSubscription(
   return anchor;
 }
 
+/**
+ * A realistic Stripe subscription line item. R-6 filters on `type` and
+ * `proration`, so a bare `{ period }` stub is no longer coverage — a
+ * renewal's proration line must never be mistaken for the period the
+ * invoice actually paid for.
+ */
+function subLine(start: number, end: number) {
+  return { type: 'subscription', proration: false, subscription: null, period: { start, end } };
+}
+
 function remoteSubscription(over: {
   id: string;
   customer?: string;
@@ -136,8 +185,16 @@ function remoteSubscription(over: {
   salonId: string;
   billingOfferKey?: string;
   priceId?: string | null;
-  latestInvoice?: { status: string; paid?: boolean; periodEndUnix: number } | null;
+  latestInvoice?: {
+    id?: string;
+    status: string;
+    paid?: boolean;
+    periodStartUnix?: number;
+    periodEndUnix: number;
+    hasMore?: boolean;
+  } | null;
 }) {
+  const invoice = over.latestInvoice;
   return {
     id: over.id,
     customer: over.customer ?? `cus_${over.id}`,
@@ -146,11 +203,18 @@ function remoteSubscription(over: {
     current_period_start: Math.floor(over.anchor.getTime() / 1000),
     metadata: { purpose: 'plan_subscription', salonId: over.salonId, billingOfferKey: over.billingOfferKey ?? 'pro_2026_08_monthly' },
     items: over.priceId !== undefined ? { data: over.priceId === null ? [] : [{ price: { id: over.priceId } }] } : undefined,
-    latest_invoice: over.latestInvoice
+    latest_invoice: invoice
       ? {
-          status: over.latestInvoice.status,
-          paid: over.latestInvoice.paid ?? (over.latestInvoice.status === 'paid'),
-          lines: { data: [{ period: { end: over.latestInvoice.periodEndUnix } }] },
+          id: invoice.id ?? `in_${over.id}`,
+          status: invoice.status,
+          paid: invoice.paid ?? (invoice.status === 'paid'),
+          lines: {
+            has_more: invoice.hasMore ?? false,
+            data: [subLine(
+              invoice.periodStartUnix ?? invoice.periodEndUnix - 30 * 24 * 3600,
+              invoice.periodEndUnix,
+            )],
+          },
         }
       : null,
   };
@@ -496,5 +560,242 @@ describe('reconciliation route (§8.6, P4)', () => {
       .where(eq(schema.smsTopupPurchaseSchema.id, 'stp_rec_topup_only'));
 
     expect(purchase!.status).toBe('fulfilled');
+  });
+
+  // RT-14 (reconcile half) — R-5: a paid invoice ahead of local coverage
+  // extends paid_through, but must NEVER flap a terminated subscription back
+  // to 'active'. Reconcile runs hourly, so a status flap here would be a
+  // permanently self-reviving cancellation.
+  it('extends paid_through for a CANCELED subscription without resurrecting it', async () => {
+    const { salonId, subId } = nextIds();
+    const localPaidThrough = new Date();
+    const anchor = await seedSubscription(salonId, subId, {
+      status: 'canceled',
+      paidThrough: localPaidThrough,
+    });
+    const remotePeriodEndUnix = Math.floor((Date.now() + 40 * 24 * 3600_000) / 1000);
+    stripeMock.subscriptions.retrieve.mockResolvedValue(remoteSubscription({
+      id: subId,
+      salonId,
+      anchor,
+      status: 'canceled',
+      latestInvoice: { status: 'paid', periodEndUnix: remotePeriodEndUnix },
+    }));
+
+    const response = await call();
+    const body = await response.json();
+
+    expect(body.summary.drift.some((item: { field: string }) => item.field === 'status')).toBe(false);
+    expect(body.summary.drift.find((item: { field: string }) => item.field === 'paid_through_behind'))
+      .toMatchObject({ stripeSubscriptionId: subId, repaired: true });
+
+    const [row] = await db.select().from(schema.billingSubscriptionSchema)
+      .where(eq(schema.billingSubscriptionSchema.stripeSubscriptionId, subId));
+
+    expect(row!.status).toBe('canceled');
+    expect(row!.paidThrough.getTime()).toBe(remotePeriodEndUnix * 1000);
+  });
+
+  // RT-15 — the two comparisons reconcile must DECLINE to make, reported as
+  // notes so they are visible without polluting the drift budget.
+  it('reports a refunded latest invoice as a NOTE, never as paid_through drift', async () => {
+    const { salonId, subId } = nextIds();
+    const localPaidThrough = new Date(Date.now() - 10 * 24 * 3600_000);
+    const anchor = await seedSubscription(salonId, subId, { paidThrough: localPaidThrough });
+    const periodStartUnix = Math.floor((Date.now() - 10 * 24 * 3600_000) / 1000);
+    const periodEndUnix = Math.floor((Date.now() + 20 * 24 * 3600_000) / 1000);
+    await seedRefundEvidence({
+      salonId,
+      subscriptionRowId: `bsub_${subId}`,
+      invoiceId: `in_${subId}`,
+      start: new Date(periodStartUnix * 1000),
+      end: new Date(periodEndUnix * 1000),
+    });
+    stripeMock.subscriptions.retrieve.mockResolvedValue(remoteSubscription({
+      id: subId,
+      salonId,
+      anchor,
+      latestInvoice: { status: 'paid', periodStartUnix, periodEndUnix },
+    }));
+    // The safety net re-checks the charge: still fully refunded ⇒ no void.
+    stripeMock.invoices.retrieve.mockResolvedValue({
+      id: `in_${subId}`,
+      charge: { amount: 10000, amount_refunded: 10000 },
+    });
+
+    const response = await call();
+    const body = await response.json();
+
+    expect(body.summary.drift.some((item: { field: string }) => item.field === 'paid_through_behind')).toBe(false);
+    expect(body.summary.notes.find((item: { field: string }) => item.field === 'paid_through_refunded_invoice'))
+      .toMatchObject({ stripeSubscriptionId: subId, repaired: false });
+
+    const [row] = await db.select().from(schema.billingSubscriptionSchema)
+      .where(eq(schema.billingSubscriptionSchema.stripeSubscriptionId, subId));
+
+    expect(row!.paidThrough.getTime()).toBe(localPaidThrough.getTime());
+  });
+
+  it('reports a truncated invoice line set as paid_through_uncomparable instead of inventing drift', async () => {
+    const { salonId, subId } = nextIds();
+    const localPaidThrough = new Date();
+    const anchor = await seedSubscription(salonId, subId, { paidThrough: localPaidThrough });
+    stripeMock.subscriptions.retrieve.mockResolvedValue(remoteSubscription({
+      id: subId,
+      salonId,
+      anchor,
+      latestInvoice: {
+        status: 'paid',
+        periodEndUnix: Math.floor((Date.now() + 40 * 24 * 3600_000) / 1000),
+        hasMore: true,
+      },
+    }));
+
+    const response = await call();
+    const body = await response.json();
+
+    expect(body.summary.notes.find((item: { field: string }) => item.field === 'paid_through_uncomparable'))
+      .toMatchObject({ stripeSubscriptionId: subId, remote: 'LINES_TRUNCATED', repaired: false });
+    expect(body.summary.drift.some((item: { field: string }) => ['paid_through_behind', 'paid_through_ahead'].includes(item.field))).toBe(false);
+
+    const [row] = await db.select().from(schema.billingSubscriptionSchema)
+      .where(eq(schema.billingSubscriptionSchema.stripeSubscriptionId, subId));
+
+    expect(row!.paidThrough.getTime()).toBe(localPaidThrough.getTime());
+  });
+
+  // RT-16 (Y7) — a parked downgrade applies on the REMOTE PRICE as evidence.
+  // It used to be forced through a no-advancing applyInvoicePaymentSucceeded,
+  // which made the repair depend on the latest invoice's status and periods:
+  // an open invoice whose line starts AFTER local paid_through produced
+  // INVALID_PAID_PERIOD and the parked offer stayed stuck forever.
+  it('clears a parked downgrade even when the latest invoice is open/unpaid, leaving paid_through untouched', async () => {
+    const { salonId, subId } = nextIds();
+    const localPaidThrough = new Date(Date.now() + 10 * 24 * 3600_000);
+    const anchor = await seedSubscription(salonId, subId, {
+      billingOfferKey: 'pro_2026_08_monthly',
+      planDefinitionKey: 'pro_2026_08',
+      pendingOfferKey: 'starter_2026_08_monthly',
+      paidThrough: localPaidThrough,
+    });
+    priceMapHolder.resolvedOfferKey = 'starter_2026_08_monthly';
+    stripeMock.subscriptions.retrieve.mockResolvedValue(remoteSubscription({
+      id: subId,
+      salonId,
+      anchor,
+      billingOfferKey: 'pro_2026_08_monthly',
+      priceId: 'price_starter_stub',
+      latestInvoice: {
+        status: 'open',
+        paid: false,
+        // Starts AFTER local paid_through — the exact shape that used to
+        // abort the repair with INVALID_PAID_PERIOD.
+        periodStartUnix: Math.floor((localPaidThrough.getTime() + 24 * 3600_000) / 1000),
+        periodEndUnix: Math.floor((localPaidThrough.getTime() + 31 * 24 * 3600_000) / 1000),
+      },
+    }));
+
+    const response = await call();
+    const body = await response.json();
+
+    expect(body.summary.drift.find((item: { field: string }) => item.field === 'pending_offer_applied_remotely'))
+      .toMatchObject({ stripeSubscriptionId: subId, repaired: true });
+
+    const [row] = await db.select().from(schema.billingSubscriptionSchema)
+      .where(eq(schema.billingSubscriptionSchema.stripeSubscriptionId, subId));
+
+    expect(row!.billingOfferKey).toBe('starter_2026_08_monthly');
+    expect(row!.planDefinitionKey).toBe('starter_2026_08');
+    expect(row!.pendingOfferKey).toBeNull();
+    expect(row!.paidThrough.getTime()).toBe(localPaidThrough.getTime());
+  });
+
+  // RT-6c — R-2 writer 3. The webhook may never deliver the reversal (the
+  // endpoint could have been down, or dark); the hourly pass is the backstop
+  // that stops retracted evidence from suppressing a paying salon forever.
+  it('voids refund evidence whose charge is no longer fully refunded, and restores coverage', async () => {
+    const { salonId, subId } = nextIds();
+    const periodStart = new Date(Date.now() - 20 * 24 * 3600_000);
+    const periodEnd = new Date(Date.now() + 20 * 24 * 3600_000);
+    const anchor = await seedSubscription(salonId, subId, { paidThrough: periodStart });
+    await seedRefundEvidence({
+      salonId,
+      subscriptionRowId: `bsub_${subId}`,
+      invoiceId: 'in_rt6c',
+      start: periodStart,
+      end: periodEnd,
+    });
+    stripeMock.subscriptions.retrieve.mockResolvedValue(
+      remoteSubscription({ id: subId, salonId, anchor, latestInvoice: null }),
+    );
+    stripeMock.invoices.retrieve.mockResolvedValue({
+      id: 'in_rt6c',
+      charge: { amount: 10000, amount_refunded: 0 }, // the refund failed
+    });
+
+    const response = await call();
+    const body = await response.json();
+
+    expect(stripeMock.invoices.retrieve).toHaveBeenCalledWith('in_rt6c', { expand: ['charge'] });
+    expect(body.summary.notes.find((item: { field: string }) => item.field === 'refund_evidence_voided'))
+      .toMatchObject({ stripeSubscriptionId: subId, local: 'in_rt6c', remote: '0/10000', repaired: true });
+    expect(sentryMessage).toHaveBeenCalledWith('billing.subscription_refund_voided', expect.objectContaining({
+      level: 'warning',
+      extra: expect.objectContaining({
+        source: 'reconcile',
+        stripeSubscriptionId: subId,
+        invoiceId: 'in_rt6c',
+        observedAmountRefunded: 0,
+        observedAmount: 10000,
+        reapplied: true,
+      }),
+    }));
+
+    const [row] = await db.select().from(schema.billingSubscriptionSchema)
+      .where(eq(schema.billingSubscriptionSchema.stripeSubscriptionId, subId));
+
+    expect(row!.paidThrough.getTime()).toBe(periodEnd.getTime());
+
+    const resolutions = (await db.select().from(schema.auditLogSchema))
+      .filter(auditRow => auditRow.action === 'billing_subscription_refund_evidence_resolved');
+
+    expect(resolutions).toHaveLength(1);
+    expect(resolutions[0]).toMatchObject({ actorType: 'system', actorId: 'billing-reconcile' });
+    expect(resolutions[0]!.metadata).toMatchObject({ invoiceId: 'in_rt6c', resolution: 'void', reason: 'refund_reversed:reconcile' });
+  });
+
+  it('records an unverifiable invoice as a note and keeps reconciling the rest of the estate', async () => {
+    const first = nextIds();
+    const second = nextIds();
+    const paidThrough = new Date(Date.now() + 30 * 24 * 3600_000);
+    const anchor1 = await seedSubscription(first.salonId, first.subId, { paidThrough });
+    const anchor2 = await seedSubscription(second.salonId, second.subId, { paidThrough });
+    await seedRefundEvidence({
+      salonId: first.salonId,
+      subscriptionRowId: `bsub_${first.subId}`,
+      invoiceId: 'in_unverifiable',
+      start: new Date(Date.now() - 40 * 24 * 3600_000),
+      end: new Date(Date.now() - 10 * 24 * 3600_000),
+    });
+    stripeMock.subscriptions.retrieve.mockImplementation(async (id: string) => remoteSubscription({
+      id,
+      salonId: id === first.subId ? first.salonId : second.salonId,
+      anchor: id === first.subId ? anchor1 : anchor2,
+      latestInvoice: null,
+    }));
+    stripeMock.invoices.retrieve.mockRejectedValue(new Error('No such invoice'));
+
+    const response = await call();
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.summary.checked).toBe(2);
+    expect(body.summary.notes.find((item: { field: string }) => item.field === 'refund_evidence_unverifiable'))
+      .toMatchObject({ stripeSubscriptionId: first.subId, local: 'in_unverifiable', remote: 'UNRETRIEVABLE', repaired: false });
+
+    const resolutions = (await db.select().from(schema.auditLogSchema))
+      .filter(auditRow => auditRow.action === 'billing_subscription_refund_evidence_resolved');
+
+    expect(resolutions).toHaveLength(0);
   });
 });

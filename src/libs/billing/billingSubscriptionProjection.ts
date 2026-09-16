@@ -35,7 +35,14 @@ import { releasePromotionClaim } from '@/libs/billing/promotionClaims';
 import { getPromotion } from '@/libs/billing/promotions';
 import { resolveOfferForServicePeriod, resolveRateProtectedThrough } from '@/libs/billing/rateProtection';
 import { resolveBillingOfferFromStripePriceId } from '@/libs/billing/stripePriceMap';
-import { overlapsRefund, readSubscriptionRefunds } from '@/libs/billing/subscriptionRefunds';
+import {
+  type BillingEvidenceReader,
+  overlapsRefund,
+  readSubscriptionRefunds,
+  recordSubscriptionRefundResolution,
+  REFUND_EVIDENCE_VERSION,
+  type SubscriptionRefund,
+} from '@/libs/billing/subscriptionRefunds';
 import { db } from '@/libs/DB';
 import {
   billingPromotionClaimSchema,
@@ -45,6 +52,31 @@ import {
 
 /** P3c: every lib-layer audit row in this domain defaults to the webhook actor. */
 const WEBHOOK_ACTOR = { actorType: 'webhook' as const, actorId: 'stripe-billing' };
+
+/**
+ * R-5 status fence: a paid invoice only RESUMES a subscription that dunning
+ * or an incomplete first payment had knocked out of service. It must never
+ * resurrect `canceled` / `incomplete_expired`, un-pause `paused`, or convert
+ * `trialing` — those states are owned by the subscription event stream, and a
+ * late or replayed invoice event arriving after them would otherwise flap the
+ * status back to active.
+ */
+const PAYMENT_RESUMABLE_STATUSES = new Set<BillingSubscriptionStatus>([
+  'past_due',
+  'unpaid',
+  'incomplete',
+]);
+
+/**
+ * R-5: statuses an invoice failure may mark `past_due`. A subscription that
+ * is already canceled/expired/paused (or incomplete, which dunning never
+ * touches) keeps the status its own event stream set.
+ */
+const PAYMENT_FAILURE_DUNNABLE_STATUSES = new Set<BillingSubscriptionStatus>([
+  'active',
+  'unpaid',
+  'trialing',
+]);
 
 /** Optional override for {@link projectSubscriptionSnapshot}'s audit actor. */
 export type BillingProjectionActor = { actorType: ActorType; actorId: string | null };
@@ -258,6 +290,51 @@ export async function projectSubscriptionSnapshot(input: {
   });
 }
 
+type BillingSubscriptionRow = typeof billingSubscriptionSchema.$inferSelect;
+
+/**
+ * A parked downgrade applies at renewal (§6.4): the renewal invoice is
+ * the boundary evidence. §3.9/G15: the pending key is mapped through the
+ * rate-protection resolver before it is applied — a protected Founding
+ * subscriber renewing into a pending change still keeps its protected
+ * offer while `servicePeriodStart` (the pre-update paid_through
+ * boundary — this invoice's coverage begins exactly where the prior
+ * entitlement ended) is strictly before `rate_protected_through`.
+ * Today the committed catalogue retires no offer, so this is a no-op —
+ * pinned in billingSubscriptionProjection.test.ts.
+ *
+ * R-4 extracted this from `applyInvoicePaymentSucceeded` so the reconcile
+ * cron can apply a parked offer ON ITS OWN ({@link applyPendingOfferAtRenewal})
+ * without borrowing the payment transition's paid-through and status effects.
+ *
+ * `now` is accepted for symmetry with the other projection helpers; the
+ * resolver deliberately keys on the subscription's own service-period
+ * boundary, never on wall-clock time.
+ */
+function computePendingOfferPatch(
+  subscription: BillingSubscriptionRow,
+  _now: Date,
+): { billingOfferKey: string; planDefinitionKey: string; pendingOfferKey: null } | null {
+  if (subscription.pendingOfferKey === null) {
+    return null;
+  }
+  const resolvedPendingOfferKey = resolveOfferForServicePeriod({
+    currentOfferKey: subscription.pendingOfferKey,
+    rateProtectedThrough: subscription.rateProtectedThrough,
+    servicePeriodStart: subscription.paidThrough,
+  }).offerKey;
+  const pendingOffer = getBillingOffer(resolvedPendingOfferKey);
+  const pendingPlan = pendingOffer !== null ? getPlanDefinition(pendingOffer.planDefinitionKey) : null;
+  if (pendingOffer === null || pendingPlan === null) {
+    return null;
+  }
+  return {
+    billingOfferKey: pendingOffer.key,
+    planDefinitionKey: pendingPlan.key,
+    pendingOfferKey: null,
+  };
+}
+
 /**
  * invoice.payment_succeeded (§8.4, §3.9): extend paid_through to the paid
  * period's end — monotonic max, so replay and reorder are identity — then
@@ -290,8 +367,26 @@ export async function applyInvoicePaymentSucceeded(input: {
     }
 
     const refundEvidence = await readSubscriptionRefunds(tx, subscription);
-    if (refundEvidence.incomplete || refundEvidence.refunds.some(refund => refund.invoiceId === input.invoiceId)
-      || overlapsRefund(refundEvidence, { start: input.paidPeriodStart ?? new Date(-8640000000000000), end: input.paidPeriodEnd })) {
+    // Malformed or unreadable evidence excludes everything (fail closed).
+    if (refundEvidence.incomplete) {
+      return { applied: false as const, anomaly: 'SUBSCRIPTION_PERIOD_REFUNDED', subscriptionRowId: undefined };
+    }
+    // This very invoice's EFFECTIVE state is "refunded" — including a legacy
+    // row whose bounds are unusable. A later `void` resolution removes the
+    // invoice from this set, which is exactly how a reversed refund becomes
+    // re-appliable (R-2).
+    if (input.invoiceId !== undefined && refundEvidence.appliedInvoiceIds.has(input.invoiceId)) {
+      return { applied: false as const, anomaly: 'SUBSCRIPTION_PERIOD_REFUNDED', subscriptionRowId: undefined };
+    }
+    // R-3: with refunds on record the coverage comparison is load-bearing, so
+    // an unknown start can no longer be defaulted to the epoch minimum — that
+    // silently made EVERY refund overlap and turned a legitimate renewal into
+    // a permanent hold. Unknown start + existing refunds is its own anomaly.
+    if (refundEvidence.refunds.length > 0 && input.paidPeriodStart === undefined) {
+      return { applied: false as const, anomaly: 'PAID_PERIOD_START_UNKNOWN', subscriptionRowId: undefined };
+    }
+    if (refundEvidence.refunds.length > 0
+      && overlapsRefund(refundEvidence, { start: input.paidPeriodStart!, end: input.paidPeriodEnd })) {
       return { applied: false as const, anomaly: 'SUBSCRIPTION_PERIOD_REFUNDED', subscriptionRowId: undefined };
     }
 
@@ -300,35 +395,18 @@ export async function applyInvoicePaymentSucceeded(input: {
     // shared watermark would make a genuinely newer plan change created a
     // second earlier read as stale and be dropped (review finding 2).
     // The durable refund exclusions above take precedence over this monotonic advance.
-    const patch: Record<string, unknown> = {
-      status: 'active',
-    };
+    const patch: Record<string, unknown> = {};
+    // R-5: resume service only from a dunning/incomplete state.
+    if (PAYMENT_RESUMABLE_STATUSES.has(subscription.status)) {
+      patch.status = 'active';
+    }
     if (input.paidPeriodEnd.getTime() > subscription.paidThrough.getTime()) {
       patch.paidThrough = input.paidPeriodEnd;
     }
 
-    // A parked downgrade applies at renewal (§6.4): the renewal invoice is
-    // the boundary evidence. §3.9/G15: the pending key is mapped through the
-    // rate-protection resolver before it is applied — a protected Founding
-    // subscriber renewing into a pending change still keeps its protected
-    // offer while `servicePeriodStart` (the pre-update paid_through
-    // boundary — this invoice's coverage begins exactly where the prior
-    // entitlement ended) is strictly before `rate_protected_through`.
-    // Today the committed catalogue retires no offer, so this is a no-op —
-    // pinned in billingSubscriptionProjection.test.ts.
-    if (subscription.pendingOfferKey !== null) {
-      const resolvedPendingOfferKey = resolveOfferForServicePeriod({
-        currentOfferKey: subscription.pendingOfferKey,
-        rateProtectedThrough: subscription.rateProtectedThrough,
-        servicePeriodStart: subscription.paidThrough,
-      }).offerKey;
-      const pendingOffer = getBillingOffer(resolvedPendingOfferKey);
-      const pendingPlan = pendingOffer !== null ? getPlanDefinition(pendingOffer.planDefinitionKey) : null;
-      if (pendingOffer !== null && pendingPlan !== null) {
-        patch.billingOfferKey = pendingOffer.key;
-        patch.planDefinitionKey = pendingPlan.key;
-        patch.pendingOfferKey = null;
-      }
+    const pendingPatch = computePendingOfferPatch(subscription, now);
+    if (pendingPatch !== null) {
+      Object.assign(patch, pendingPatch);
     }
 
     // §3.9: the protection clock begins at the FIRST successfully paid
@@ -368,10 +446,15 @@ export async function applyInvoicePaymentSucceeded(input: {
       }
     }
 
-    await tx
-      .update(billingSubscriptionSchema)
-      .set(patch)
-      .where(eq(billingSubscriptionSchema.id, subscription.id));
+    // The status fence (R-5) can leave NOTHING to write — a replayed invoice
+    // for an already-active, already-covered subscription. Drizzle rejects an
+    // empty SET, and a no-op UPDATE would be pointless row churn anyway.
+    if (Object.keys(patch).length > 0) {
+      await tx
+        .update(billingSubscriptionSchema)
+        .set(patch)
+        .where(eq(billingSubscriptionSchema.id, subscription.id));
+    }
     return { applied: true as const, subscriptionRowId: subscription.id };
   });
 
@@ -383,22 +466,87 @@ export async function applyInvoicePaymentSucceeded(input: {
   return { applied: outcome.applied, ...(outcome.applied ? {} : { anomaly: outcome.anomaly }) };
 }
 
-/** invoice.payment_failed: past_due projection; entitlement math untouched. */
+/**
+ * R-4: apply a parked downgrade at renewal WITHOUT the payment transition.
+ *
+ * The reconcile cron used to force this through a deliberately no-advancing
+ * `applyInvoicePaymentSucceeded` call, which made the repair depend on the
+ * latest invoice's status and period (Y7) and dragged in refund evidence,
+ * status changes and window evaluation it had no business touching. This
+ * applies exactly one patch — the pending offer — under the row lock.
+ */
+export async function applyPendingOfferAtRenewal(input: {
+  stripeSubscriptionId: string;
+  now?: Date;
+  actor?: BillingProjectionActor;
+}): Promise<{ applied: boolean; cleared: boolean }> {
+  const now = input.now ?? new Date();
+  const actor = input.actor ?? WEBHOOK_ACTOR;
+  return db.transaction(async (tx) => {
+    const [subscription] = await tx
+      .select()
+      .from(billingSubscriptionSchema)
+      .where(eq(billingSubscriptionSchema.stripeSubscriptionId, input.stripeSubscriptionId))
+      .for('update');
+    if (subscription === undefined) {
+      return { applied: false, cleared: false };
+    }
+    const patch = computePendingOfferPatch(subscription, now);
+    if (patch === null) {
+      return { applied: true, cleared: false };
+    }
+    await tx
+      .update(billingSubscriptionSchema)
+      .set(patch)
+      .where(eq(billingSubscriptionSchema.id, subscription.id));
+    await logAuditEventTx(tx, {
+      salonId: subscription.salonId,
+      actorType: actor.actorType,
+      actorId: actor.actorId,
+      action: 'billing_subscription_projected',
+      entityType: 'billing_subscription',
+      entityId: subscription.id,
+      metadata: { kind: 'pending_offer_applied', billingOfferKey: patch.billingOfferKey },
+    });
+    return { applied: true, cleared: true };
+  });
+}
+
+/**
+ * invoice.payment_failed: past_due projection; entitlement math untouched.
+ *
+ * R-5: the failure is fenced by STATUS, not by the event watermark. Dunning
+ * only moves a subscription that is still in service (`active`/`trialing`) or
+ * already exhausted (`unpaid`); a `canceled`, `incomplete_expired`, `paused`
+ * or `incomplete` row keeps what its own event stream set. And it must NEVER
+ * write `last_event_created`/`last_event_id`: that watermark belongs to the
+ * SUBSCRIPTION stream, and an invoice raising it would fence out a genuinely
+ * newer `customer.subscription.updated` created in the same second.
+ */
 export async function applyInvoicePaymentFailed(input: {
   stripeSubscriptionId: string;
   eventCreated: Date;
   eventId: string;
-}): Promise<{ applied: boolean }> {
-  const updated = await db
-    .update(billingSubscriptionSchema)
-    .set({
-      status: 'past_due',
-      lastEventCreated: input.eventCreated,
-      lastEventId: input.eventId,
-    })
-    .where(eq(billingSubscriptionSchema.stripeSubscriptionId, input.stripeSubscriptionId))
-    .returning();
-  return { applied: updated.length === 1 };
+}): Promise<{ applied: boolean; changed: boolean }> {
+  return db.transaction(async (tx) => {
+    const [subscription] = await tx
+      .select()
+      .from(billingSubscriptionSchema)
+      .where(eq(billingSubscriptionSchema.stripeSubscriptionId, input.stripeSubscriptionId))
+      .for('update');
+    if (subscription === undefined) {
+      // The route reads this as a foreign (legacy-flow) invoice.
+      return { applied: false, changed: false };
+    }
+    if (!PAYMENT_FAILURE_DUNNABLE_STATUSES.has(subscription.status)) {
+      return { applied: true, changed: false };
+    }
+    await tx
+      .update(billingSubscriptionSchema)
+      .set({ status: 'past_due' })
+      .where(eq(billingSubscriptionSchema.id, subscription.id));
+    return { applied: true, changed: true };
+  });
 }
 
 /**
@@ -409,15 +557,35 @@ export async function applyInvoicePaymentFailed(input: {
  */
 export async function applySubscriptionFullRefund(input: {
   stripeSubscriptionId: string;
-  /** The refund identity is retained with its invoice and coverage in the audit fact. */
-  refundId: string;
+  /** The refund identities are retained with the invoice and coverage in the audit fact (informational). */
+  refundId?: string;
+  refundIds?: string[];
   invoiceId: string;
   refundedPeriodStart: Date;
   refundedPeriodEnd: Date;
   eventCreated: Date;
   eventId: string;
+  observedAmountRefunded?: number;
+  observedAmount?: number;
   now?: Date;
-}): Promise<{ applied: boolean; lowered: boolean }> {
+}): Promise<{ applied: boolean; lowered: boolean; anomaly?: string }> {
+  // R-1: unusable coverage is rejected BEFORE any write. The route must never
+  // reach this with bounds it could not derive (it holds the event instead);
+  // this is defence in depth, because the null-bound row the old code wrote
+  // permanently poisoned the evidence — every later read went `incomplete`
+  // and every future window failed closed with no way back short of an
+  // operator resolution.
+  if (!Number.isFinite(input.refundedPeriodStart.getTime())
+    || !Number.isFinite(input.refundedPeriodEnd.getTime())
+    || input.refundedPeriodStart >= input.refundedPeriodEnd) {
+    return { applied: false, lowered: false, anomaly: 'REFUND_COVERAGE_INVALID' };
+  }
+  const refundIds = [
+    ...new Set([
+      ...(input.refundIds ?? []),
+      ...(input.refundId !== undefined && input.refundId !== '' ? [input.refundId] : []),
+    ]),
+  ];
   return db.transaction(async (tx) => {
     const [subscription] = await tx
       .select()
@@ -430,13 +598,14 @@ export async function applySubscriptionFullRefund(input: {
     if (!input.invoiceId) {
       throw new Error('INVALID_SUBSCRIPTION_REFUND_IDENTITY');
     }
-    const validCoverage = Number.isFinite(input.refundedPeriodStart.getTime())
-      && Number.isFinite(input.refundedPeriodEnd.getTime()) && input.refundedPeriodStart < input.refundedPeriodEnd;
     const evidence = await readSubscriptionRefunds(tx, subscription);
-    if (evidence.refunds.some(refund => refund.invoiceId === input.invoiceId)) {
+    // Dedupe on the EFFECTIVE state, not on the raw applied rows: an invoice
+    // whose latest resolution is `void` is NOT refunded, so a genuinely new
+    // full refund writes a fresh applied row that supersedes the void (R-2).
+    if (evidence.appliedInvoiceIds.has(input.invoiceId)) {
       return { applied: true, lowered: false };
     }
-    const lowered = validCoverage && subscription.paidThrough > input.refundedPeriodStart
+    const lowered = subscription.paidThrough > input.refundedPeriodStart
       && subscription.paidThrough <= input.refundedPeriodEnd;
     if (lowered) {
       await tx.update(billingSubscriptionSchema)
@@ -450,14 +619,243 @@ export async function applySubscriptionFullRefund(input: {
       entityType: 'billing_subscription',
       entityId: subscription.id,
       metadata: {
-        refundId: input.refundId,
-        eventId: input.eventId,
+        evidenceVersion: REFUND_EVIDENCE_VERSION,
+        seq: evidence.nextSeq,
         invoiceId: input.invoiceId,
-        refundedPeriodStart: validCoverage ? input.refundedPeriodStart.toISOString() : null,
-        refundedPeriodEnd: validCoverage ? input.refundedPeriodEnd.toISOString() : null,
+        refundIds,
+        eventId: input.eventId,
+        refundedPeriodStart: input.refundedPeriodStart.toISOString(),
+        refundedPeriodEnd: input.refundedPeriodEnd.toISOString(),
+        ...(Number.isFinite(input.observedAmountRefunded)
+          ? { observedAmountRefunded: input.observedAmountRefunded }
+          : {}),
+        ...(Number.isFinite(input.observedAmount) ? { observedAmount: input.observedAmount } : {}),
       },
     });
     return { applied: true, lowered };
+  });
+}
+
+/**
+ * R-2 writer (webhook + reconcile): a charge whose CUMULATIVE
+ * `amount_refunded` has dropped below its `amount` is no longer fully
+ * refunded, so the §6.7 exclusion recorded for its invoice must stop
+ * applying. Owner decision O2: void automatically and alert, rather than
+ * leaving a salon's entitlement suppressed by evidence Stripe has retracted.
+ *
+ * The void is recorded as an append-only resolution row; nothing is deleted.
+ * The coverage captured before the void is then replayed through the ordinary
+ * payment transition, which re-establishes `paid_through` and re-evaluates
+ * windows using exactly the same idempotent path a live payment takes.
+ */
+export async function applySubscriptionRefundVoid(input: {
+  stripeSubscriptionId: string;
+  invoiceId: string;
+  reason: string;
+  eventId?: string;
+  /**
+   * The charge amounts that justified the void, recorded on the resolution
+   * row. Optional only for the super-admin path, where the operator's typed
+   * reason IS the justification and there is no observed charge.
+   */
+  observedAmountRefunded?: number;
+  observedAmount?: number;
+  actor?: BillingProjectionActor;
+  now?: Date;
+}): Promise<{ applied: boolean; voided: boolean; reapplied: boolean }> {
+  const now = input.now ?? new Date();
+  const actor = input.actor ?? WEBHOOK_ACTOR;
+  const outcome = await db.transaction(async (tx) => {
+    const [subscription] = await tx
+      .select()
+      .from(billingSubscriptionSchema)
+      .where(eq(billingSubscriptionSchema.stripeSubscriptionId, input.stripeSubscriptionId))
+      .for('update');
+    if (subscription === undefined) {
+      return { found: false as const };
+    }
+    const evidence = await readSubscriptionRefunds(tx, subscription);
+    if (!evidence.appliedInvoiceIds.has(input.invoiceId)) {
+      // No LIVE evidence for this invoice (never recorded, or already
+      // voided). Never an error: the reconcile safety net re-checks every
+      // hour and the webhook may deliver the same reversal twice.
+      return { found: true as const, voided: false as const };
+    }
+    // Undefined when the effective row is malformed (legacy null bounds):
+    // the void still lands, but there is no coverage to re-apply and an
+    // operator `set` resolution is the way back.
+    const coverage = evidence.refunds.find(refund => refund.invoiceId === input.invoiceId);
+    await recordSubscriptionRefundResolution(tx, {
+      subscription,
+      invoiceId: input.invoiceId,
+      resolution: 'void',
+      reason: input.reason,
+      actor,
+      eventId: input.eventId,
+      observedAmountRefunded: input.observedAmountRefunded,
+      observedAmount: input.observedAmount,
+      seq: evidence.nextSeq,
+    });
+    return {
+      found: true as const,
+      voided: true as const,
+      coverage,
+      seq: evidence.nextSeq,
+      lastEventCreated: subscription.lastEventCreated,
+    };
+  });
+
+  if (!outcome.found) {
+    return { applied: false, voided: false, reapplied: false };
+  }
+  if (!outcome.voided) {
+    return { applied: true, voided: false, reapplied: false };
+  }
+  if (outcome.coverage === undefined) {
+    return { applied: true, voided: true, reapplied: false };
+  }
+  // Post-commit: the void must be durable before the coverage is replayed,
+  // otherwise the payment transition would still read the invoice as refunded.
+  const reapply = await applyInvoicePaymentSucceeded({
+    stripeSubscriptionId: input.stripeSubscriptionId,
+    invoiceId: input.invoiceId,
+    paidPeriodStart: outcome.coverage.start,
+    paidPeriodEnd: outcome.coverage.end,
+    eventCreated: outcome.lastEventCreated ?? new Date(0),
+    eventId: `refund-void:${input.eventId ?? outcome.seq}`,
+    now,
+  });
+  return { applied: true, voided: true, reapplied: reapply.applied };
+}
+
+/**
+ * R-2 operator read (INV-A8/A10 exit): the EFFECTIVE evidence a super-admin
+ * must see before choosing a resolution. Read-only — never writes.
+ */
+export async function planSubscriptionRefundEvidence(
+  database: BillingEvidenceReader,
+  input: { salonId: string; stripeSubscriptionId: string },
+): Promise<{
+  subscriptionRowId: string;
+  paidThrough: Date;
+  evidence: {
+    refunds: SubscriptionRefund[];
+    incomplete: boolean;
+    appliedInvoiceIds: string[];
+    rows: number;
+    nextSeq: number;
+  };
+} | null> {
+  const [subscription] = await database
+    .select()
+    .from(billingSubscriptionSchema)
+    .where(and(
+      eq(billingSubscriptionSchema.stripeSubscriptionId, input.stripeSubscriptionId),
+      // Tenant check: a super-admin acts on ONE salon at a time and may never
+      // read another salon's subscription by guessing a Stripe id.
+      eq(billingSubscriptionSchema.salonId, input.salonId),
+    ))
+    .limit(1);
+  if (subscription === undefined) {
+    return null;
+  }
+  const evidence = await readSubscriptionRefunds(database, subscription);
+  return {
+    subscriptionRowId: subscription.id,
+    paidThrough: subscription.paidThrough,
+    evidence: {
+      refunds: evidence.refunds,
+      incomplete: evidence.incomplete,
+      appliedInvoiceIds: [...evidence.appliedInvoiceIds],
+      rows: evidence.rows,
+      nextSeq: evidence.nextSeq,
+    },
+  };
+}
+
+/**
+ * R-2 operator write: resolve ONE invoice's refund evidence.
+ *
+ * `void` is the reversal path (identical semantics to
+ * {@link applySubscriptionRefundVoid}, with the super-admin as actor).
+ * `set` is the repair path for malformed legacy evidence: it records an
+ * authoritative coverage window and applies the same `lowered` rule a refund
+ * application would. No window evaluation is needed — the cron re-evaluates
+ * and will now read the coverage as refunded.
+ */
+export async function applySubscriptionRefundEvidenceResolution(input: {
+  salonId: string;
+  stripeSubscriptionId: string;
+  invoiceId: string;
+  resolution: 'void' | 'set';
+  periodStart?: Date;
+  periodEnd?: Date;
+  reason: string;
+  actor: BillingProjectionActor;
+  now?: Date;
+}): Promise<{ applied: boolean; seq?: number; lowered?: boolean; reapplied?: boolean; anomaly?: string }> {
+  const now = input.now ?? new Date();
+  const [scoped] = await db
+    .select({ id: billingSubscriptionSchema.id })
+    .from(billingSubscriptionSchema)
+    .where(and(
+      eq(billingSubscriptionSchema.stripeSubscriptionId, input.stripeSubscriptionId),
+      eq(billingSubscriptionSchema.salonId, input.salonId),
+    ))
+    .limit(1);
+  if (scoped === undefined) {
+    return { applied: false, anomaly: 'SUBSCRIPTION_NOT_FOUND' };
+  }
+
+  if (input.resolution === 'void') {
+    const outcome = await applySubscriptionRefundVoid({
+      stripeSubscriptionId: input.stripeSubscriptionId,
+      invoiceId: input.invoiceId,
+      reason: input.reason,
+      actor: input.actor,
+      now,
+    });
+    return { applied: outcome.voided, reapplied: outcome.reapplied };
+  }
+
+  if (input.periodStart === undefined || input.periodEnd === undefined
+    || !Number.isFinite(input.periodStart.getTime()) || !Number.isFinite(input.periodEnd.getTime())
+    || input.periodStart >= input.periodEnd) {
+    return { applied: false, anomaly: 'INVALID_RESOLUTION_BOUNDS' };
+  }
+  const periodStart = input.periodStart;
+  const periodEnd = input.periodEnd;
+
+  return db.transaction(async (tx) => {
+    const [subscription] = await tx
+      .select()
+      .from(billingSubscriptionSchema)
+      .where(and(
+        eq(billingSubscriptionSchema.stripeSubscriptionId, input.stripeSubscriptionId),
+        eq(billingSubscriptionSchema.salonId, input.salonId),
+      ))
+      .for('update');
+    if (subscription === undefined) {
+      return { applied: false, anomaly: 'SUBSCRIPTION_NOT_FOUND' };
+    }
+    const evidence = await readSubscriptionRefunds(tx, subscription);
+    await recordSubscriptionRefundResolution(tx, {
+      subscription,
+      invoiceId: input.invoiceId,
+      resolution: 'set',
+      periodStart,
+      periodEnd,
+      reason: input.reason,
+      actor: input.actor,
+      seq: evidence.nextSeq,
+    });
+    const lowered = subscription.paidThrough > periodStart && subscription.paidThrough <= periodEnd;
+    if (lowered) {
+      await tx.update(billingSubscriptionSchema)
+        .set({ paidThrough: periodStart })
+        .where(eq(billingSubscriptionSchema.id, subscription.id));
+    }
+    return { applied: true, seq: evidence.nextSeq, lowered };
   });
 }
 
