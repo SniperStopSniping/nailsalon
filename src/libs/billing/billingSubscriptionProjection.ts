@@ -23,7 +23,7 @@
 
 import 'server-only';
 
-import { and, eq, inArray } from 'drizzle-orm';
+import { and, eq, inArray, isNull } from 'drizzle-orm';
 
 import { type ActorType, logAuditEventTx } from '@/libs/auditLog';
 import { getBillingOffer } from '@/libs/billing/billingOffers';
@@ -48,6 +48,7 @@ import {
   billingPromotionClaimSchema,
   billingSubscriptionSchema,
   type BillingSubscriptionStatus,
+  salonSchema,
 } from '@/models/Schema';
 
 /** P3c: every lib-layer audit row in this domain defaults to the webhook actor. */
@@ -107,6 +108,14 @@ export type StripeSubscriptionSnapshot = {
 export type ProjectionOutcome =
   | { applied: true; kind: 'created' | 'updated' | 'stale' | 'noop' }
   | { applied: false; anomaly: string };
+
+/**
+ * D19c §2.3 item 3: the snapshot's `metadata.salonId` names no live salon in
+ * THIS deployment's database. Shared by the projection (which produces it)
+ * and the billing webhook (which maps it to a terminal `ignored_foreign`,
+ * never to `held_anomaly`) so the two can never drift on the literal.
+ */
+export const SALON_NOT_LOCAL_ANOMALY = 'SALON_NOT_LOCAL';
 
 /**
  * G02 price ↔ offer-metadata cross-check gate. Logged AT MOST ONCE per
@@ -187,6 +196,40 @@ export async function projectSubscriptionSnapshot(input: {
       .for('update');
 
     if (existing === undefined) {
+      // D19c §2.3 item 3 / §2.7: the salon binding is metadata, and metadata
+      // on a SHARED Stripe platform account can name a salon that does not
+      // exist here at all — another deployment's fixture, or a stale id. The
+      // insert below carries a foreign key, so without this check such an
+      // event would raise inside the handler and enter the retry ladder,
+      // burning eight deliveries on an object that will never be ours.
+      //
+      // `FOR SHARE`, not a bare SELECT: under READ COMMITTED an unlocked read
+      // would let a concurrent transaction soft-delete (or hard-delete) the
+      // salon between this test and the INSERT below, so the check could pass
+      // and the insert still land on — or fail against — a salon that is gone.
+      // The share lock holds the salon row against any writer for the rest of
+      // this transaction while still permitting other readers and the FK's own
+      // `FOR KEY SHARE`, so the answer is true at COMMIT, not merely when it
+      // was read. Taken on the INSERT path only, where no other row lock is
+      // held yet (the `billing_subscription` SELECT above matched nothing), so
+      // it cannot form a cycle with the salon-first lock order used by the
+      // top-up and checkout-attempt paths.
+      //
+      // A soft-deleted salon counts as NOT LOCAL, the same rule the rest of
+      // billing applies (`starterGrantBackfill.ts`'s SALON_DELETED): no
+      // entitlement may be projected onto a salon that has been deleted.
+      const [salon] = await tx
+        .select({ id: salonSchema.id })
+        .from(salonSchema)
+        .where(and(eq(salonSchema.id, salonId), isNull(salonSchema.deletedAt)))
+        .limit(1)
+        .for('share');
+      if (salon === undefined) {
+        // The ROUTE maps this to a terminal `ignored_foreign`, never to
+        // `held_anomaly`: there is nothing for a human to repair about
+        // somebody else's subscription.
+        return { applied: false as const, anomaly: SALON_NOT_LOCAL_ANOMALY };
+      }
       const subscriptionId = `bsub_${crypto.randomUUID()}`;
       await tx.insert(billingSubscriptionSchema).values({
         id: subscriptionId,
