@@ -23,6 +23,8 @@ const SAMPLE_ARGUMENTS: Record<string, unknown> = {
   get_salon_overview: {},
   list_services: { includeInactive: false },
   find_destination: { query: 'logo' },
+  diagnose_day_availability: { date: 'friday', serviceName: null, technicianName: null },
+  get_setup_readiness: {},
 };
 
 describe('tool definitions and zod argument schemas agree', () => {
@@ -69,6 +71,32 @@ describe('tool definitions and zod argument schemas agree', () => {
   it('rejects a wrong-typed argument', () => {
     expect(OWNER_ASSISTANT_TOOL_ARG_SCHEMAS.list_services.safeParse({ includeInactive: 'yes' }).success).toBe(false);
     expect(OWNER_ASSISTANT_TOOL_ARG_SCHEMAS.find_destination.safeParse({ query: '' }).success).toBe(false);
+  });
+
+  it('declares the nullable diagnosis arguments as nullable to the model too', () => {
+    const definition = OWNER_ASSISTANT_TOOL_DEFINITIONS
+      .find(tool => tool.name === 'diagnose_day_availability');
+    const properties = definition?.parameters.properties as Record<string, { type: unknown }>;
+
+    // Strict mode has no `optional`: an argument the model may omit has to be
+    // declared as explicitly nullable, matching `.nullable()` on the zod twin.
+    expect(properties.serviceName?.type).toEqual(['string', 'null']);
+    expect(properties.technicianName?.type).toEqual(['string', 'null']);
+    expect(properties.date?.type).toBe('string');
+  });
+
+  it('holds the diagnosis date to a length a day name can actually have', () => {
+    const schema = OWNER_ASSISTANT_TOOL_ARG_SCHEMAS.diagnose_day_availability;
+    const valid = { date: '2026-03-06', serviceName: null, technicianName: null };
+
+    expect(schema.safeParse(valid).success).toBe(true);
+    expect(schema.safeParse({ ...valid, date: 'no' }).success).toBe(false);
+    expect(schema.safeParse({ ...valid, date: 'a'.repeat(33) }).success).toBe(false);
+    expect(schema.safeParse({ ...valid, serviceName: 'a'.repeat(161) }).success).toBe(false);
+    expect(schema.safeParse({ ...valid, technicianName: 'a'.repeat(121) }).success).toBe(false);
+    // Trimmed, so a name the owner typed with stray spaces still matches.
+    expect(schema.safeParse({ ...valid, serviceName: '  Gel manicure  ' }))
+      .toMatchObject({ success: true, data: { serviceName: 'Gel manicure' } });
   });
 });
 

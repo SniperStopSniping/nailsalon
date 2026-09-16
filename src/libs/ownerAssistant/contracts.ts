@@ -12,6 +12,9 @@
  */
 import { z } from 'zod';
 
+import type { DiagnosisCode } from '@/libs/availability/reasons';
+import type { SetupReadinessResult } from '@/libs/setupReadiness/types';
+
 // ---------------------------------------------------------------------------
 // Pilot limits (Owner decision A-3, 2026-09-16) and fixed parameters
 // ---------------------------------------------------------------------------
@@ -74,17 +77,31 @@ export const OWNER_ASSISTANT_DISCLOSURE
 // Tools (read-only). Names, argument schemas and the OpenAI function schemas.
 // ---------------------------------------------------------------------------
 
-export const OWNER_ASSISTANT_TOOL_NAMES = ['get_salon_overview', 'list_services', 'find_destination'] as const;
+export const OWNER_ASSISTANT_TOOL_NAMES = [
+  'get_salon_overview',
+  'list_services',
+  'find_destination',
+  'diagnose_day_availability',
+  'get_setup_readiness',
+] as const;
 export type OwnerAssistantToolName = (typeof OWNER_ASSISTANT_TOOL_NAMES)[number];
 
 export const getSalonOverviewArgsSchema = z.object({}).strict();
 export const listServicesArgsSchema = z.object({ includeInactive: z.boolean() }).strict();
 export const findDestinationArgsSchema = z.object({ query: z.string().trim().min(1).max(200) }).strict();
+export const diagnoseDayArgsSchema = z.object({
+  date: z.string().trim().min(3).max(32),
+  serviceName: z.string().trim().max(160).nullable(),
+  technicianName: z.string().trim().max(120).nullable(),
+}).strict();
+export const getSetupReadinessArgsSchema = z.object({}).strict();
 
 export const OWNER_ASSISTANT_TOOL_ARG_SCHEMAS = {
   get_salon_overview: getSalonOverviewArgsSchema,
   list_services: listServicesArgsSchema,
   find_destination: findDestinationArgsSchema,
+  diagnose_day_availability: diagnoseDayArgsSchema,
+  get_setup_readiness: getSetupReadinessArgsSchema,
 } as const;
 
 /**
@@ -123,6 +140,38 @@ export const OWNER_ASSISTANT_TOOL_DEFINITIONS = [
       required: ['query'],
       additionalProperties: false,
     },
+  },
+  {
+    type: 'function',
+    name: 'diagnose_day_availability',
+    description: 'Explain why customers can or cannot book online on a given day, using the same availability rules as the public booking page. Pass a date (YYYY-MM-DD), a weekday word, \'today\' or \'tomorrow\'. Pass serviceName only if the owner named a service; otherwise null (a default 30-minute check is used). Call this for questions like \'why can\'t people book Friday?\'.',
+    strict: true,
+    parameters: {
+      type: 'object',
+      properties: {
+        date: {
+          type: 'string',
+          description: 'YYYY-MM-DD, a weekday word (monday…sunday), \'today\' or \'tomorrow\'.',
+        },
+        serviceName: {
+          type: ['string', 'null'],
+          description: 'The service the owner named, exactly as they said it. Null when they named none.',
+        },
+        technicianName: {
+          type: ['string', 'null'],
+          description: 'The team member the owner named. Null to check the whole team.',
+        },
+      },
+      required: ['date', 'serviceName', 'technicianName'],
+      additionalProperties: false,
+    },
+  },
+  {
+    type: 'function',
+    name: 'get_setup_readiness',
+    description: 'Check what still has to be done before this salon\'s booking page works for customers: publication, services, team, hours, booking rules, deposits, page text and connections. Call this when the owner asks what is missing, what is left to set up, or why their page is not working yet.',
+    strict: true,
+    parameters: { type: 'object', properties: {}, required: [], additionalProperties: false },
   },
 ] as const;
 
@@ -206,6 +255,62 @@ export type FindDestinationResult = {
     addressable: 'exact' | 'exact_on_open' | 'parent';
   }>;
 };
+
+/**
+ * One reason the day is (or is not) bookable.
+ *
+ * `count` is always a SLOT count from the availability engine — never a count
+ * of appointments, clients or calendar events, and never anything that
+ * identifies one. `detail` is a fixed short code produced by Luster code (today
+ * only a `BookingSelectionErrorCode`), never free text and never owner or
+ * client content. `link` is a navigation registry key or null; the model may
+ * cite it in `links` exactly like a `find_destination` key.
+ */
+export type DiagnoseDayCause = {
+  code: DiagnosisCode;
+  count?: number;
+  /** Staff display name — present only for a per-technician cause. */
+  technicianName?: string;
+  detail?: string;
+  link: string | null;
+};
+
+export type DiagnoseDayResult = {
+  /** The day actually diagnosed, YYYY-MM-DD in the salon timezone. */
+  resolvedDateKey: string;
+  resolution: 'exact' | 'next_weekday' | 'today' | 'tomorrow';
+  /**
+   * 'today_or_next' when the owner said a weekday word that IS today: the
+   * result describes the NEXT occurrence and the assistant must ask which one
+   * the owner meant before concluding anything.
+   */
+  ambiguity: 'today_or_next' | null;
+  /** Present when a named service or team member matched zero or several rows. */
+  clarify?: { kind: 'service'; options: string[] } | { kind: 'technician'; options: string[] };
+  checked: {
+    timezone: string;
+    serviceName: string | null;
+    durationMinutes: number;
+    bufferMinutes: number;
+    technician: 'any' | string;
+  };
+  bookableSlotCount: number;
+  /** Earliest bookable slot label (e.g. '14:30'), or null. */
+  firstBookable: string | null;
+  /** 'error' when the public booking page is currently failing for this day. */
+  publicRouteState: 'ok' | 'error';
+  causes: DiagnoseDayCause[];
+};
+
+/**
+ * `get_setup_readiness` returns the setup-readiness projection unchanged.
+ *
+ * It is an ALIAS, not a copy: the projection owns its own frozen contract and
+ * its own privacy test, and a field added there (for example the draft/live
+ * `side` of `customersWillSee`) must reach the assistant without a second
+ * edit here that could silently drop it.
+ */
+export type SetupReadinessToolResult = SetupReadinessResult;
 
 // ---------------------------------------------------------------------------
 // Model final answer (strict JSON schema for the Responses API + zod twin)
@@ -339,4 +444,9 @@ export const OWNER_ASSISTANT_TOOL_LABELS: Record<OwnerAssistantToolName, string>
   get_salon_overview: 'your salon setup',
   list_services: 'your services list',
   find_destination: 'where things live in Luster',
+  // Labels are static strings today (the "Checked:" line is built from the
+  // tool NAME, not from its arguments), so this one names the day generically
+  // rather than interpolating the date the model asked about.
+  diagnose_day_availability: 'the availability rules for that day',
+  get_setup_readiness: 'your setup readiness',
 };
