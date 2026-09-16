@@ -12,7 +12,7 @@ import { PGlite } from '@electric-sql/pglite';
 import { eq, sql } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/pglite';
 import { migrate } from 'drizzle-orm/pglite/migrator';
-import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { getTopupOffer } from '@/libs/billing/topupOffers';
 import * as schema from '@/models/Schema';
@@ -31,7 +31,7 @@ const envHolder = vi.hoisted(() => ({
   BILLING_TOPUPS_ENABLED: undefined as string | undefined,
   BILLING_TAX_COLLECTION_ENABLED: undefined as string | undefined,
   STRIPE_BILLING_WEBHOOK_SECRET: 'whsec_test' as string | undefined,
-  NEXT_PUBLIC_APP_URL: 'https://app.test',
+  NEXT_PUBLIC_APP_URL: 'https://app.test' as string | undefined,
   BILLING_IDENTITY_HMAC_SECRET: undefined,
   BILLING_IDENTITY_HMAC_VERSION: undefined,
 }));
@@ -103,9 +103,15 @@ beforeAll(async () => {
   holder.db = db;
 });
 
+const originalVercel = process.env.VERCEL;
+
 beforeEach(() => {
   envHolder.BILLING_TOPUPS_ENABLED = 'true';
   envHolder.BILLING_TAX_COLLECTION_ENABLED = undefined;
+  // X5: restore the configured origin every test; the origin suite below
+  // unsets it deliberately.
+  envHolder.NEXT_PUBLIC_APP_URL = 'https://app.test';
+  delete process.env.VERCEL;
   priceMapHolder.priceId = 'price_topup_resolved';
   priceMapHolder.lastOfferKey = null;
   stripeMock.checkout.sessions.create.mockReset();
@@ -132,6 +138,14 @@ beforeEach(() => {
   });
   adminHolder.allowed = true;
   adminHolder.deniedSalonIds = new Set();
+});
+
+afterEach(() => {
+  if (originalVercel === undefined) {
+    delete process.env.VERCEL;
+  } else {
+    process.env.VERCEL = originalVercel;
+  }
 });
 
 const postCheckout = async (body: unknown) => {
@@ -1306,5 +1320,97 @@ describe('G14 — automatic-tax architecture (§3.7)', () => {
 
     expect(paramsWithoutCustomer.customer).toBeUndefined();
     expect(paramsWithoutCustomer.customer_update).toBeUndefined();
+  });
+});
+
+/**
+ * X5 (final handoff §6) — the post-payment redirect origin.
+ *
+ * `NEXT_PUBLIC_APP_URL` is build-time inlined, so a hosted deployment built
+ * before it was provisioned used to fall back to `http://localhost:3000` and
+ * dead-end every paying customer. `resolveBillingAppOrigin()` refuses
+ * instead, and it is called BEFORE TX1, so the refusal leaves exactly what
+ * every other pre-reservation refusal leaves: nothing.
+ */
+describe('X5 — checkout redirect origin', () => {
+  it('builds success_url and cancel_url from the CONFIGURED origin', async () => {
+    envHolder.NEXT_PUBLIC_APP_URL = 'https://booking.example.com/ignored/path?tok=secret';
+    await seedSalon('s_t_origin_ok');
+
+    const response = await postCheckout({ salonId: 's_t_origin_ok', topupOfferKey: 'topup_100_paid_2026_08' });
+
+    expect(response.status).toBe(200);
+
+    const params = stripeMock.checkout.sessions.create.mock.calls[0]![0];
+
+    expect(params.success_url).toBe('https://booking.example.com/admin?topup=success');
+    expect(params.cancel_url).toBe('https://booking.example.com/admin?topup=cancelled');
+    // The path and query of the configured value never ride out to Stripe.
+    expect(params.success_url).not.toContain('secret');
+    expect(params.cancel_url).not.toContain('/ignored/');
+  });
+
+  it('a HOSTED runtime with NO NEXT_PUBLIC_APP_URL fails masked before reserving anything — no Stripe session, no attempt, no purchase', async () => {
+    envHolder.NEXT_PUBLIC_APP_URL = undefined;
+    process.env.VERCEL = '1';
+    await seedSalon('s_t_origin_missing');
+
+    const response = await postCheckout({ salonId: 's_t_origin_missing', topupOfferKey: 'topup_100_paid_2026_08' });
+    const json = await response.json();
+
+    expect(response.status).toBe(500);
+    expect(json.error.code).toBe('CHECKOUT_ERROR');
+    expect(stripeMock.checkout.sessions.create).not.toHaveBeenCalled();
+    expect(await attemptRows('s_t_origin_missing')).toHaveLength(0);
+    expect(await purchaseRows('s_t_origin_missing')).toHaveLength(0);
+  });
+
+  it('the hosted refusal is reported to Sentry and leaks no origin detail to the caller', async () => {
+    envHolder.NEXT_PUBLIC_APP_URL = undefined;
+    process.env.VERCEL = '1';
+    await seedSalon('s_t_origin_sentry');
+    const sentry = await import('@sentry/nextjs');
+    // This file has no per-test Sentry reset, so pin the LAST capture rather
+    // than merely "was called".
+    vi.mocked(sentry.captureException).mockClear();
+
+    const response = await postCheckout({ salonId: 's_t_origin_sentry', topupOfferKey: 'topup_100_paid_2026_08' });
+    const json = await response.json();
+    const captured = vi.mocked(sentry.captureException).mock.calls.at(-1);
+
+    expect(captured?.[0]).toMatchObject({ code: 'APP_ORIGIN_UNCONFIGURED' });
+    // The operator learns the cause; the caller learns only the masked code.
+    expect(JSON.stringify(json)).not.toContain('localhost');
+    expect(JSON.stringify(json)).not.toContain('APP_ORIGIN_UNCONFIGURED');
+  });
+
+  it('never falls back to the PRODUCTION domain for a Preview deployment', async () => {
+    envHolder.NEXT_PUBLIC_APP_URL = undefined;
+    process.env.VERCEL = '1';
+    process.env.VERCEL_PROJECT_PRODUCTION_URL = 'isla-nail-studio.vercel.app';
+    await seedSalon('s_t_origin_preview');
+    try {
+      const response = await postCheckout({ salonId: 's_t_origin_preview', topupOfferKey: 'topup_100_paid_2026_08' });
+
+      expect(response.status).toBe(500);
+      expect(stripeMock.checkout.sessions.create).not.toHaveBeenCalled();
+    } finally {
+      delete process.env.VERCEL_PROJECT_PRODUCTION_URL;
+    }
+  });
+
+  it('an unset origin OFF a hosted runtime still resolves to localhost for local development', async () => {
+    envHolder.NEXT_PUBLIC_APP_URL = undefined;
+    delete process.env.VERCEL;
+    await seedSalon('s_t_origin_local');
+
+    const response = await postCheckout({ salonId: 's_t_origin_local', topupOfferKey: 'topup_100_paid_2026_08' });
+
+    expect(response.status).toBe(200);
+
+    const params = stripeMock.checkout.sessions.create.mock.calls[0]![0];
+
+    expect(params.success_url).toBe('http://localhost:3000/admin?topup=success');
+    expect(params.cancel_url).toBe('http://localhost:3000/admin?topup=cancelled');
   });
 });
