@@ -291,6 +291,10 @@ jobs:
               # P5b (G41, D18): Billing Portal customer resolution.
               src/app/api/billing/portal/route.ts) ;;
               src/app/api/billing/portal/route.test.ts) ;;
+              # PR-4 (handoff §5.3): CRON_SECRET-authorized deployed readiness
+              # evidence. Read-only, presence booleans only, no Stripe/DB call.
+              src/app/api/billing/readiness/route.ts) ;;
+              src/app/api/billing/readiness/route.test.ts) ;;
               *)
                 echo "::error::Unauthorized change under src/app/api/billing: $file"
                 exit 1
