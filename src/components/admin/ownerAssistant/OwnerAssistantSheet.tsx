@@ -12,7 +12,7 @@
 import { useReducedMotion } from 'framer-motion';
 import { RotateCcw, Send, Sparkles, X } from 'lucide-react';
 import { useRouter } from 'next/navigation';
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useRef, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
 import { DialogShell } from '@/components/ui/dialog-shell';
@@ -35,9 +35,12 @@ export type OwnerAssistantSheetProps = {
   banner: OwnerAssistantBanner | null;
   notice: string | null;
   suggestedQuestions: string[];
+  /** Text handed back after a turn that could not be delivered; see the hook. */
+  draftToRestore: string | null;
   onSend: (message: string) => void;
   onRetry: () => void;
   onReset: () => void;
+  onDraftRestored: () => void;
 };
 
 export function OwnerAssistantSheet({
@@ -49,9 +52,11 @@ export function OwnerAssistantSheet({
   banner,
   notice,
   suggestedQuestions,
+  draftToRestore,
   onSend,
   onRetry,
   onReset,
+  onDraftRestored,
 }: OwnerAssistantSheetProps) {
   const router = useRouter();
   const shouldReduceMotion = useReducedMotion();
@@ -61,6 +66,7 @@ export function OwnerAssistantSheet({
   const threadEndRef = useRef<HTMLDivElement>(null);
   const [draft, setDraft] = useState('');
   const [entered, setEntered] = useState(false);
+  const wasBusyRef = useRef(false);
 
   // The repo's mount-transition pattern (docs/AI_RULES.md §3.5): the first
   // commit paints the sheet low and transparent, the effect commit slides it in.
@@ -75,6 +81,29 @@ export function OwnerAssistantSheet({
       anchor.scrollIntoView({ block: 'end', behavior: shouldReduceMotion ? 'auto' : 'smooth' });
     }
   }, [messages, busy, shouldReduceMotion]);
+
+  // The composer stays focusable for the whole turn (it goes read-only, never
+  // disabled), but the Send button does get disabled and the browser drops focus
+  // off a disabled control. Put the caret back where the owner left it as soon
+  // as the turn ends.
+  useEffect(() => {
+    const wasBusy = wasBusyRef.current;
+    wasBusyRef.current = busy;
+    if (wasBusy && !busy && isOpen) {
+      textareaRef.current?.focus();
+    }
+  }, [busy, isOpen]);
+
+  // A turn that could not be delivered gives the owner their text back rather
+  // than losing it with the refused conversation.
+  useEffect(() => {
+    if (draftToRestore === null) {
+      return;
+    }
+    setDraft(draftToRestore);
+    onDraftRestored();
+    textareaRef.current?.focus();
+  }, [draftToRestore, onDraftRestored]);
 
   const submit = useCallback(
     (text: string) => {
@@ -106,27 +135,20 @@ export function OwnerAssistantSheet({
       if (!href.startsWith('/') || href.startsWith('//')) {
         return;
       }
-      router.push(href);
+      // Close first so focus is returned to the launcher before the route
+      // changes: navigating out of an open dialog leaves focus on a node that
+      // is about to be unmounted.
       onClose();
+      router.push(href);
     },
     [onClose, router],
   );
-
-  const latestAssistantText = useMemo(() => {
-    for (let index = messages.length - 1; index >= 0; index -= 1) {
-      const message = messages[index];
-      if (message?.role === 'assistant') {
-        return message.text;
-      }
-    }
-    return '';
-  }, [messages]);
 
   return (
     <DialogShell
       alignClassName="items-end justify-center p-0 sm:items-center sm:p-4"
       contentClassName={cn(
-        'flex max-h-[calc(100dvh-1rem)] min-h-0 flex-col overflow-hidden rounded-t-2xl bg-[var(--owner-surface)] shadow-2xl transition-all duration-200 sm:max-h-[calc(100vh-2rem)] sm:rounded-2xl motion-reduce:transition-none',
+        'flex max-h-[calc(100dvh-1rem-env(safe-area-inset-bottom,0px))] min-h-0 flex-col overflow-hidden rounded-t-2xl bg-[var(--owner-surface)] shadow-2xl transition-all duration-200 sm:max-h-[calc(100vh-2rem)] sm:rounded-2xl motion-reduce:transition-none',
         entered || shouldReduceMotion ? 'translate-y-0 opacity-100' : 'translate-y-3 opacity-0',
       )}
       contentTestId="owner-assistant-sheet"
@@ -167,8 +189,14 @@ export function OwnerAssistantSheet({
           {ownerAssistantCopy.disclosure}
         </p>
 
+        {/*
+          The thread itself is the polite live region: a separate sr-only copy of
+          the latest answer made screen readers read every answer twice.
+        */}
         <div
+          aria-busy={busy}
           aria-label={ownerAssistantCopy.threadLabel}
+          aria-live="polite"
           className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-4 sm:px-5"
           data-testid="owner-assistant-thread"
           role="group"
@@ -222,6 +250,15 @@ export function OwnerAssistantSheet({
                 {message.text}
               </p>
 
+              {message.role === 'owner' && message.unanswered === true && (
+                <p
+                  className="text-xs text-[var(--owner-muted)]"
+                  data-testid="owner-assistant-unanswered"
+                >
+                  {ownerAssistantCopy.notAnswered}
+                </p>
+              )}
+
               {message.role === 'assistant' && message.checked && message.checked.length > 0 && (
                 <p
                   className="text-xs text-[var(--owner-muted)]"
@@ -273,6 +310,7 @@ export function OwnerAssistantSheet({
             <p
               className="text-sm text-[var(--owner-muted)]"
               data-testid="owner-assistant-busy"
+              role="status"
             >
               {ownerAssistantCopy.busy}
             </p>
@@ -295,38 +333,38 @@ export function OwnerAssistantSheet({
               role="status"
             >
               <p className="text-sm text-[var(--owner-ink)]">{banner.message}</p>
-              <div>
-                <Button
-                  className="min-h-11 px-4"
-                  disabled={busy}
-                  onClick={onRetry}
-                  type="button"
-                  variant="ownerSecondary"
-                >
-                  <RotateCcw aria-hidden="true" className="mr-2" size={16} />
-                  {ownerAssistantCopy.retry}
-                </Button>
-              </div>
+              {banner.retryable && (
+                <div>
+                  <Button
+                    className="min-h-11 px-4"
+                    disabled={busy}
+                    onClick={onRetry}
+                    type="button"
+                    variant="ownerSecondary"
+                  >
+                    <RotateCcw aria-hidden="true" className="mr-2" size={16} />
+                    {ownerAssistantCopy.retry}
+                  </Button>
+                </div>
+              )}
             </div>
           )}
 
           <div ref={threadEndRef} />
         </div>
 
-        {/* Announced without stealing focus; the visible thread is the source. */}
-        <p aria-live="polite" className="sr-only" data-testid="owner-assistant-live-region">
-          {latestAssistantText}
-        </p>
-
-        <div className="border-t border-[var(--owner-line)] px-4 py-3 sm:px-5">
+        <div
+          className="border-t border-[var(--owner-line)] px-4 pb-[max(0.75rem,env(safe-area-inset-bottom,0px))] pt-3 sm:px-5"
+          data-testid="owner-assistant-composer-bar"
+        >
           <div className="flex items-end gap-2">
             <label className="sr-only" htmlFor="owner-assistant-composer">
               {ownerAssistantCopy.composerLabel}
             </label>
             <textarea
               aria-describedby={disclosureId}
-              className="min-h-11 w-full flex-1 resize-none rounded-2xl border border-[var(--owner-line)] bg-[var(--owner-ground)] px-3 py-2.5 text-sm text-[var(--owner-ink)] outline-none transition-colors duration-200 placeholder:text-[var(--owner-muted)] focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)] disabled:opacity-60 motion-reduce:transition-none"
-              disabled={busy}
+              aria-disabled={busy}
+              className="min-h-11 w-full flex-1 resize-none rounded-2xl border border-[var(--owner-line)] bg-[var(--owner-ground)] px-3 py-2.5 text-sm text-[var(--owner-ink)] outline-none transition-colors duration-200 placeholder:text-[var(--owner-muted)] focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)] aria-disabled:opacity-60 motion-reduce:transition-none"
               enterKeyHint="send"
               id="owner-assistant-composer"
               maxLength={OWNER_ASSISTANT_LIMITS.messageMaxChars}
@@ -338,6 +376,7 @@ export function OwnerAssistantSheet({
                 }
               }}
               placeholder={ownerAssistantCopy.composerPlaceholder}
+              readOnly={busy}
               ref={textareaRef}
               rows={2}
               value={draft}
@@ -357,10 +396,10 @@ export function OwnerAssistantSheet({
           <div className="mt-2 flex items-center justify-between gap-3">
             <p className="text-xs text-[var(--owner-muted)]">{ownerAssistantCopy.composerHint}</p>
             <p
-              aria-label={ownerAssistantCopy.counterLabel}
               className="text-xs tabular-nums text-[var(--owner-muted)]"
               data-testid="owner-assistant-counter"
             >
+              <span className="sr-only">{`${ownerAssistantCopy.counterLabel}: `}</span>
               {`${draft.length}/${OWNER_ASSISTANT_LIMITS.messageMaxChars}`}
             </p>
           </div>

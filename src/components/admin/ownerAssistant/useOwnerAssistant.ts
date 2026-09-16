@@ -17,7 +17,10 @@ import type {
   ChatTurnResponse,
   ContextResponse,
 } from '@/libs/ownerAssistant/contracts';
-import { OWNER_ASSISTANT_SUGGESTED_QUESTIONS } from '@/libs/ownerAssistant/contracts';
+import {
+  CHAT_UNAVAILABLE_MESSAGES,
+  OWNER_ASSISTANT_SUGGESTED_QUESTIONS,
+} from '@/libs/ownerAssistant/contracts';
 
 import { ownerAssistantCopy } from './ownerAssistantCopy';
 import type { UiMessage } from './ownerAssistantStorage';
@@ -34,6 +37,12 @@ export type OwnerAssistantBanner = {
   /** `unavailable` carries the server's own sentence; `error` is our generic one. */
   tone: 'unavailable' | 'error';
   message: string;
+  /**
+   * False when there is no question to send again — the model being unavailable
+   * on open is a state of the salon, not of a turn, so offering Retry would be
+   * a control that does nothing.
+   */
+  retryable: boolean;
 };
 
 type Thread = {
@@ -51,6 +60,13 @@ export type OwnerAssistantState = {
   banner: OwnerAssistantBanner | null;
   /** Non-null after a 409: the previous thread was dropped. */
   notice: string | null;
+  /**
+   * Text handed back to the composer when a turn could not be delivered at all
+   * (a refused conversation that a fresh one could not rescue). Non-null exactly
+   * once per occurrence; the composer clears it through `clearDraftToRestore`.
+   */
+  draftToRestore: string | null;
+  clearDraftToRestore: () => void;
   suggestedQuestions: string[];
   send: (message: string) => void;
   retry: () => void;
@@ -64,6 +80,32 @@ function createMessageId(): string {
     return crypto.randomUUID();
   }
   return `m-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function ownerMessage(text: string): UiMessage {
+  return { id: createMessageId(), role: 'owner', text };
+}
+
+/**
+ * Marks (or unmarks) the owner message this turn belongs to — always the last
+ * one in the thread. A turn that ended `unavailable` or in an error produced no
+ * assistant bubble and, on the server, no window entry either: without the mark
+ * the visible thread would silently claim a question was answered.
+ */
+function withLastOwnerUnanswered(messages: UiMessage[], unanswered: boolean): UiMessage[] {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (!message || message.role !== 'owner') {
+      continue;
+    }
+    if ((message.unanswered ?? false) === unanswered) {
+      return messages;
+    }
+    const next = [...messages];
+    next[index] = { ...message, unanswered };
+    return next;
+  }
+  return messages;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -117,6 +159,7 @@ export function useOwnerAssistant({
   const [busy, setBusy] = useState(false);
   const [banner, setBanner] = useState<OwnerAssistantBanner | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [draftToRestore, setDraftToRestore] = useState<string | null>(null);
 
   // Bumped on salon switch and on "New conversation" so a response that was
   // already in flight can never land in a thread it does not belong to.
@@ -125,6 +168,12 @@ export function useOwnerAssistant({
   const lastOwnerMessageRef = useRef<string | null>(null);
   const previousSlugRef = useRef<string | null>(null);
   const busyRef = useRef(false);
+  // Owner reference the restored thread was stored under (undefined = no
+  // stored thread). Compared against the context once admission succeeds so
+  // one owner never sees another owner's conversation on a shared device.
+  const storedOwnerRefRef = useRef<string | null | undefined>(undefined);
+
+  const clearDraftToRestore = useCallback(() => setDraftToRestore(null), []);
 
   // Salon switch: drop the previous salon's stored thread. Keyed storage means
   // a reload of the *same* salon still restores, which is the point of §7.
@@ -150,6 +199,7 @@ export function useOwnerAssistant({
     setBusy(false);
     setBanner(null);
     setNotice(null);
+    setDraftToRestore(null);
 
     if (!salonSlug) {
       setThread(EMPTY_THREAD);
@@ -157,6 +207,7 @@ export function useOwnerAssistant({
     }
 
     const stored = readOwnerAssistantThread(salonSlug);
+    storedOwnerRefRef.current = stored ? (stored.ownerRef ?? null) : undefined;
     setThread({
       slug: salonSlug,
       conversation: stored?.conversation ?? null,
@@ -175,9 +226,19 @@ export function useOwnerAssistant({
           return;
         }
         const payload = asContextResponse(await response.json());
-        if (payload && session === sessionRef.current) {
-          setContext(payload);
+        if (!payload || session !== sessionRef.current) {
+          return;
         }
+        // A stored thread belongs to exactly one owner. Anything stored under
+        // another owner's reference (or under none) is dropped before the
+        // sheet can render it.
+        const storedOwnerRef = storedOwnerRefRef.current;
+        if (storedOwnerRef !== undefined && storedOwnerRef !== payload.ownerRef) {
+          clearOwnerAssistantThread(salonSlug);
+          storedOwnerRefRef.current = undefined;
+          setThread({ slug: salonSlug, conversation: null, messages: [] });
+        }
+        setContext(payload);
       } catch {
         // Silent: admission failures leave the dashboard exactly as it was.
       }
@@ -199,11 +260,17 @@ export function useOwnerAssistant({
       clearOwnerAssistantThread(thread.slug);
       return;
     }
+    // Only persist once admission has told us WHO this thread belongs to;
+    // before that the restored thread is invisible and needs no re-write.
+    if (!context) {
+      return;
+    }
     writeOwnerAssistantThread(thread.slug, {
+      ownerRef: context.ownerRef,
       conversation: thread.conversation,
       messages: thread.messages,
     });
-  }, [salonSlug, thread]);
+  }, [salonSlug, thread, context]);
 
   const runTurn = useCallback(
     async (text: string, appendOwnerMessage: boolean) => {
@@ -219,98 +286,136 @@ export function useOwnerAssistant({
       setBusy(true);
       setBanner(null);
       setNotice(null);
+      setDraftToRestore(null);
+
+      const markUnanswered = (unanswered: boolean) => {
+        setThread(previous =>
+          previous.slug === salonSlug
+            ? { ...previous, messages: withLastOwnerUnanswered(previous.messages, unanswered) }
+            : previous,
+        );
+      };
 
       // Read the token from the rendered thread, not from inside a state
       // updater: React runs updaters during the render phase, so a value
       // captured there would still be null when the request is built.
-      const conversation = thread.slug === salonSlug ? thread.conversation : null;
-      if (appendOwnerMessage) {
-        setThread(previous =>
-          previous.slug === salonSlug
-            ? {
-                ...previous,
-                messages: [...previous.messages, { id: createMessageId(), role: 'owner', text }],
-              }
-            : previous,
-        );
-      }
-
-      const body: ChatRequest = {
-        salonSlug,
-        message: text,
-        locale,
-        ...(conversation ? { conversation } : {}),
-      };
+      let conversation = thread.slug === salonSlug ? thread.conversation : null;
+      let pendingOwnerMessage = appendOwnerMessage;
 
       try {
-        const response = await fetch(CHAT_ENDPOINT, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(body),
-          signal: controller.signal,
-        });
-        if (session !== sessionRef.current || controller.signal.aborted) {
-          return;
-        }
-
-        // The signed window no longer matches this session: the only honest
-        // move is to drop it and start again (docs §3.6).
-        if (response.status === 409) {
-          lastOwnerMessageRef.current = null;
-          setThread(previous =>
-            previous.slug === salonSlug ? { ...previous, conversation: null, messages: [] } : previous,
-          );
-          setNotice(ownerAssistantCopy.conversationReset);
-          return;
-        }
-
-        if (!response.ok) {
-          setBanner({ tone: 'error', message: ownerAssistantCopy.networkError });
-          return;
-        }
-
-        const payload = asChatTurnResponse(await response.json());
-        if (session !== sessionRef.current) {
-          return;
-        }
-        if (!payload) {
-          setBanner({ tone: 'error', message: ownerAssistantCopy.networkError });
-          return;
-        }
-
-        if (payload.kind === 'unavailable') {
-          // The reason sentence is the server's; render it verbatim and keep
-          // the thread so Retry re-sends the same question.
-          setBanner({ tone: 'unavailable', message: payload.message });
-          if (payload.conversation) {
-            const echoed = payload.conversation;
+        // At most two attempts. A 409 means the signed window was refused, and
+        // the question itself is still perfectly valid: re-send it once with no
+        // token at all rather than dropping what the owner typed (docs §3.6).
+        for (let attempt = 1; attempt <= 2; attempt += 1) {
+          if (pendingOwnerMessage) {
+            pendingOwnerMessage = false;
             setThread(previous =>
-              previous.slug === salonSlug ? { ...previous, conversation: echoed } : previous,
+              previous.slug === salonSlug
+                ? { ...previous, messages: [...previous.messages, ownerMessage(text)] }
+                : previous,
             );
           }
+
+          const body: ChatRequest = {
+            salonSlug,
+            message: text,
+            locale,
+            ...(conversation ? { conversation } : {}),
+          };
+
+          // The second attempt is a deliberate consequence of the first one's
+          // 409, never a parallel call: awaiting inside the loop is the point.
+          const response = await fetch(CHAT_ENDPOINT, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+            signal: controller.signal,
+          });
+          if (session !== sessionRef.current || controller.signal.aborted) {
+            return;
+          }
+
+          if (response.status === 409) {
+            setNotice(ownerAssistantCopy.conversationReset);
+            if (attempt === 1) {
+              // Drop the refused window, keep the question on screen exactly
+              // once, and send it again as the first turn of a new conversation.
+              conversation = null;
+              setThread(previous =>
+                previous.slug === salonSlug
+                  ? { ...previous, conversation: null, messages: [ownerMessage(text)] }
+                  : previous,
+              );
+              continue;
+            }
+            // Even a brand new conversation was refused: hand the text back to
+            // the composer so the owner still has what they wrote.
+            lastOwnerMessageRef.current = null;
+            setThread(previous =>
+              previous.slug === salonSlug
+                ? { ...previous, conversation: null, messages: [] }
+                : previous,
+            );
+            setDraftToRestore(text);
+            return;
+          }
+
+          if (!response.ok) {
+            setBanner({ tone: 'error', message: ownerAssistantCopy.networkError, retryable: true });
+            markUnanswered(true);
+            return;
+          }
+
+          const payload = asChatTurnResponse(await response.json());
+          if (session !== sessionRef.current) {
+            return;
+          }
+          if (!payload) {
+            setBanner({ tone: 'error', message: ownerAssistantCopy.networkError, retryable: true });
+            markUnanswered(true);
+            return;
+          }
+
+          if (payload.kind === 'unavailable') {
+            // The reason sentence is the server's; render it verbatim and keep
+            // the thread so Retry re-sends the same question.
+            setBanner({ tone: 'unavailable', message: payload.message, retryable: true });
+            const echoed = payload.conversation;
+            setThread(previous =>
+              previous.slug === salonSlug
+                ? {
+                    ...previous,
+                    ...(echoed ? { conversation: echoed } : {}),
+                    messages: withLastOwnerUnanswered(previous.messages, true),
+                  }
+                : previous,
+            );
+            return;
+          }
+
+          const answer: UiMessage = {
+            id: createMessageId(),
+            role: 'assistant',
+            text: payload.message,
+            checked: payload.checked.length > 0 ? payload.checked : undefined,
+            links: payload.links.length > 0 ? payload.links : undefined,
+            followUps: payload.followUps.length > 0 ? payload.followUps : undefined,
+          };
+          setThread(previous =>
+            previous.slug === salonSlug
+              ? {
+                  ...previous,
+                  conversation: payload.conversation,
+                  messages: [...withLastOwnerUnanswered(previous.messages, false), answer],
+                }
+              : previous,
+          );
           return;
         }
-
-        const answer: UiMessage = {
-          id: createMessageId(),
-          role: 'assistant',
-          text: payload.message,
-          checked: payload.checked.length > 0 ? payload.checked : undefined,
-          links: payload.links.length > 0 ? payload.links : undefined,
-          followUps: payload.followUps.length > 0 ? payload.followUps : undefined,
-        };
-        setThread(previous =>
-          previous.slug === salonSlug
-            ? {
-                ...previous,
-                conversation: payload.conversation,
-                messages: [...previous.messages, answer],
-              }
-            : previous,
-        );
       } catch {
         if (session === sessionRef.current && !controller.signal.aborted) {
-          setBanner({ tone: 'error', message: ownerAssistantCopy.networkError });
+          setBanner({ tone: 'error', message: ownerAssistantCopy.networkError, retryable: true });
+          markUnanswered(true);
         }
       } finally {
         if (turnControllerRef.current === controller) {
@@ -353,11 +458,27 @@ export function useOwnerAssistant({
     setBusy(false);
     setBanner(null);
     setNotice(null);
+    setDraftToRestore(null);
     setThread({ slug: salonSlug, conversation: null, messages: [] });
     if (salonSlug) {
       clearOwnerAssistantThread(salonSlug);
     }
   }, [salonSlug]);
+
+  // The server already knows the assistant cannot answer for this salon. Say so
+  // the moment the sheet opens, with the very sentence a turn would carry
+  // (docs §4), instead of letting the owner type a question only to be told
+  // afterwards. A banner from an actual turn is more specific, so it wins.
+  const modelBanner = useMemo<OwnerAssistantBanner | null>(() => {
+    if (!context || context.model.available) {
+      return null;
+    }
+    return {
+      tone: 'unavailable',
+      message: CHAT_UNAVAILABLE_MESSAGES[context.model.reason],
+      retryable: false,
+    };
+  }, [context]);
 
   const suggestedQuestions = useMemo(() => {
     const fromServer = context?.suggestedQuestions ?? [];
@@ -368,8 +489,10 @@ export function useOwnerAssistant({
     context,
     messages: thread.slug === salonSlug ? thread.messages : [],
     busy,
-    banner,
+    banner: banner ?? modelBanner,
     notice,
+    draftToRestore,
+    clearDraftToRestore,
     suggestedQuestions,
     send,
     retry,

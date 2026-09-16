@@ -1491,6 +1491,7 @@ export default function BookingPageOwnerSurface() {
       {/* Owner Assistant (A1-1); silent until its context endpoint answers 200. */}
       <OwnerAssistantLauncher
         locale={locale === 'fr' ? 'fr' : 'en'}
+        placement="standalone"
         salonSlug={salonSlug || null}
         screen="booking-page"
       />

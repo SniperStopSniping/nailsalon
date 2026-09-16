@@ -34,6 +34,7 @@ import {
   getModelId,
   getOwnerAssistantApiKey,
   getOwnerAssistantAvailability,
+  getReasoningEffort,
 } from './enablement.server';
 import { type LedgerModelCall, type LedgerToolCall, recordOwnerAssistantTurn } from './ledger.server';
 import {
@@ -109,6 +110,33 @@ function stripCodeFences(text: string): string {
   return trimmed.slice(firstNewline + 1, trimmed.length - 3).trim();
 }
 
+/**
+ * The provider's schema is a superset of ours (no array/length caps), so a
+ * grammar-valid answer with a fourth follow-up or an overlong message is
+ * TRIMMED to the contract instead of rejected — rejecting would burn the turn
+ * and the budget unit over a cosmetic overflow. An empty message still fails.
+ */
+function trimToContract(candidate: unknown): unknown {
+  if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) {
+    return candidate;
+  }
+  const value = { ...(candidate as Record<string, unknown>) };
+  if (typeof value.message === 'string') {
+    value.message = value.message.trim().slice(0, 2000);
+  }
+  if (Array.isArray(value.links)) {
+    value.links = value.links.slice(0, 4);
+  }
+  if (Array.isArray(value.followUps)) {
+    value.followUps = value.followUps
+      .filter((item): item is string => typeof item === 'string')
+      .map(item => item.trim().slice(0, 120))
+      .filter(item => item.length > 0)
+      .slice(0, 3);
+  }
+  return value;
+}
+
 function parseAnswer(text: string, jsonMode: 'schema' | 'prompt'): AssistantAnswer | null {
   let candidate: unknown;
   try {
@@ -116,7 +144,7 @@ function parseAnswer(text: string, jsonMode: 'schema' | 'prompt'): AssistantAnsw
   } catch {
     return null;
   }
-  const parsed = assistantAnswerSchema.safeParse(candidate);
+  const parsed = assistantAnswerSchema.safeParse(trimToContract(candidate));
   return parsed.success ? parsed.data : null;
 }
 
@@ -207,10 +235,12 @@ export async function runOwnerAssistantTurn(
   const performedBy = args.admin.clerkUserId ?? args.admin.id;
   const model = getModelId();
   const jsonMode = getJsonMode();
+  const reasoningEffort = getReasoningEffort();
   const enabledTools = getEnabledToolNames();
   const modelCalls: LedgerModelCall[] = [];
   const toolCalls: LedgerToolCall[] = [];
 
+  let promptExtras = '';
   const ledger = async (outcome: string, salonFrame: string) => {
     try {
       await recordOwnerAssistantTurn({
@@ -223,6 +253,7 @@ export async function runOwnerAssistantTurn(
         modelCalls,
         toolCalls,
         salonFrameText: salonFrame,
+        promptExtras,
         database: args.database,
       });
     } catch {
@@ -235,6 +266,9 @@ export async function runOwnerAssistantTurn(
   const reservation = await reserveTurn({ salonId: args.salon.id, now });
   if (!reservation.ok) {
     if (reservation.reason === 'redis_unavailable') {
+      // Evidence even here: the reservation may have been counted by a Redis
+      // that answered after our 1 s timeout, so the row shows the attempt.
+      await ledger('redis_unavailable', '');
       return unavailable('redis_unavailable', args.conversationToken);
     }
     await ledger('budget_exhausted', '');
@@ -270,14 +304,19 @@ export async function runOwnerAssistantTurn(
   const provider = args.provider
     ?? createOpenAiResponsesProvider({ apiKey: getOwnerAssistantApiKey() ?? '' });
   const tools = TOOL_DEFINITIONS.filter(tool => enabledTools.includes(tool.name as OwnerAssistantToolName));
+  promptExtras = `${JSON.stringify(tools)}\n${jsonMode}\n${reasoningEffort}`;
 
-  const finish = async (reason: ChatUnavailableReason): Promise<ChatTurnResponse> => {
-    await ledger(reason, salonFrame);
+  // `ledgerOutcome` lets the durable row say WHY an owner-facing reason
+  // happened (a truncated response vs malformed JSON vs a refusal) without
+  // widening the owner-facing vocabulary.
+  const finish = async (reason: ChatUnavailableReason, ledgerOutcome: string = reason): Promise<ChatTurnResponse> => {
+    await ledger(ledgerOutcome, salonFrame);
     return unavailable(reason, args.conversationToken);
   };
 
   // 8 — bounded model/tool loop.
   let answer: AssistantAnswer | null = null;
+  let executedToolCalls = 0;
 
   for (let call = 1; call <= OWNER_ASSISTANT_LIMITS.modelCallsPerTurn; call++) {
     if (Date.now() >= deadline) {
@@ -293,6 +332,10 @@ export async function runOwnerAssistantTurn(
       model,
       input: [...input],
       tools,
+      // On the last call the model is told to answer; withholding tools makes
+      // that structural rather than a matter of obedience.
+      toolChoice: isLastCall ? 'none' : 'auto',
+      reasoningEffort,
       maxOutputTokens: OWNER_ASSISTANT_LIMITS.maxOutputTokens,
       timeoutMs: Math.max(1, Math.min(OWNER_ASSISTANT_LIMITS.modelCallTimeoutMs, deadline - Date.now())),
       jsonMode,
@@ -310,6 +353,7 @@ export async function runOwnerAssistantTurn(
         index: call,
         inputCount: 0,
         cachedInputCount: 0,
+        cacheWriteInputCount: 0,
         outputCount: 0,
         latencyMs: Date.now() - startedAt,
       });
@@ -324,15 +368,19 @@ export async function runOwnerAssistantTurn(
       index: call,
       inputCount: response.usage.inputTokens,
       cachedInputCount: response.usage.cachedInputTokens,
+      cacheWriteInputCount: response.usage.cacheWriteInputTokens ?? 0,
       outputCount: response.usage.outputTokens,
       latencyMs: Date.now() - startedAt,
     });
 
+    if (response.status === 'failed') {
+      return finish('provider_error');
+    }
     if (response.status === 'incomplete') {
-      return finish('model_output_invalid');
+      return finish('model_output_invalid', `model_output_incomplete:${response.incompleteReason ?? 'unknown'}`);
     }
     if (response.items.some(item => item.type === 'refusal')) {
-      return finish('model_output_invalid');
+      return finish('model_output_invalid', 'model_refusal');
     }
 
     const functionCalls = response.items.filter(
@@ -356,13 +404,35 @@ export async function runOwnerAssistantTurn(
     // The model asked for tools on its last allowed call: there is no round
     // trip left to give it, so the turn ends honestly rather than silently.
     if (isLastCall) {
-      return finish('model_output_invalid');
+      return finish('model_output_invalid', 'model_tool_call_on_last_call');
     }
 
-    for (const functionCall of functionCalls) {
-      if (toolCalls.length >= OWNER_ASSISTANT_LIMITS.toolCallsPerTurn) {
-        break;
+    // Walk the response in ORDER: reasoning items are echoed back verbatim
+    // ahead of the function calls they produced (required when tools are used
+    // statelessly), and every function call the model made gets exactly one
+    // output — executed, or refused with a code once the per-turn cap is hit,
+    // so the model learns why instead of re-requesting silently.
+    for (const item of response.items) {
+      if (item.type === 'passthrough') {
+        input.push(item.raw as ModelProviderInputItem);
+        continue;
       }
+      if (item.type !== 'function_call') {
+        continue;
+      }
+      const functionCall = item;
+
+      if (executedToolCalls >= OWNER_ASSISTANT_LIMITS.toolCallsPerTurn) {
+        toolCalls.push({ name: functionCall.name, ok: false, durationMs: 0, errorCode: 'tool_budget_exhausted' });
+        input.push(functionCall.raw as ModelProviderInputItem);
+        input.push({
+          type: 'function_call_output',
+          call_id: functionCall.callId,
+          output: JSON.stringify({ error: { code: 'tool_budget_exhausted' } }),
+        });
+        continue;
+      }
+      executedToolCalls += 1;
 
       const toolStartedAt = Date.now();
       const outcome = await executeOwnerAssistantTool({
@@ -424,6 +494,6 @@ export async function runOwnerAssistantTurn(
     followUps: answer.followUps,
     needsClarification: answer.needsClarification,
     conversation: signConversation(nextConversation),
-    usage: { modelCalls: modelCalls.length, toolCalls: toolCalls.length },
+    usage: { modelCalls: modelCalls.length, toolCalls: executedToolCalls },
   };
 }

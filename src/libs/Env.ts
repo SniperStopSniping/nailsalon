@@ -70,6 +70,9 @@ export const Env = createEnv({
     // 'schema' (default) sends a strict json_schema text.format; 'prompt' asks
     // for JSON in the prompt only, for APIs that reject schema + tools.
     OWNER_ASSISTANT_JSON_MODE: z.enum(['schema', 'prompt']).optional(),
+    // Reasoning depth for the owner assistant model. Unset means 'low' (the
+    // documented setting for tool use); 'none' removes reasoning items.
+    OWNER_ASSISTANT_REASONING_EFFORT: z.enum(['none', 'low', 'medium']).optional(),
     // Server-side only: dedicated key/project for the owner surface with its
     // own provider-side budget. UNSET MEANS UNAVAILABLE (not_configured).
     OPENAI_API_KEY_OWNER: z.string().optional(),
@@ -183,6 +186,7 @@ export const Env = createEnv({
     OWNER_ASSISTANT_TOOLS: process.env.OWNER_ASSISTANT_TOOLS,
     OWNER_ASSISTANT_MODEL: process.env.OWNER_ASSISTANT_MODEL,
     OWNER_ASSISTANT_JSON_MODE: process.env.OWNER_ASSISTANT_JSON_MODE,
+    OWNER_ASSISTANT_REASONING_EFFORT: process.env.OWNER_ASSISTANT_REASONING_EFFORT,
     OPENAI_API_KEY_OWNER: process.env.OPENAI_API_KEY_OWNER,
     OWNER_ASSISTANT_SIGNING_SECRET: process.env.OWNER_ASSISTANT_SIGNING_SECRET,
     TWILIO_ACCOUNT_SID: process.env.TWILIO_ACCOUNT_SID,

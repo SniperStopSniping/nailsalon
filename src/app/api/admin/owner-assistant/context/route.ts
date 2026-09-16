@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+
 import { z } from 'zod';
 
 import { requireAdminSalonForSlug, requireRealSalonOwner } from '@/libs/adminAuth';
@@ -69,6 +71,7 @@ export async function GET(request: Request): Promise<Response> {
     enabled: true,
     salonSlug: salon.slug,
     salonName: salon.name,
+    ownerRef: createHash('sha256').update(`owner-assistant:${ownerGuard.admin.id}`).digest('hex').slice(0, 16),
     tools: getEnabledToolNames(),
     model: availability.available
       ? { available: true }

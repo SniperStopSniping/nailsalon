@@ -95,7 +95,7 @@ describe('dark posture', () => {
     expect((await get()).status).toBe(404);
   });
 
-  it('admits a salon entitled by its feature key alone', async () => {
+  it('does NOT admit a salon by its feature key alone in this slice (allowlist only)', async () => {
     envHolder.OWNER_ASSISTANT_SALON_ALLOWLIST = undefined;
     guards.salonResult = {
       error: null,
@@ -104,7 +104,7 @@ describe('dark posture', () => {
       impersonation: null,
     };
 
-    expect((await get()).status).toBe(200);
+    expect((await get()).status).toBe(404);
   });
 
   it('matches the allowlist case-insensitively and ignores surrounding space', async () => {
@@ -190,7 +190,7 @@ describe('successful context', () => {
     const response = await get();
 
     expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toEqual({
+    await expect(response.json()).resolves.toMatchObject({
       data: {
         enabled: true,
         salonSlug: 'isla-nail-studio',
@@ -201,6 +201,10 @@ describe('successful context', () => {
         disclosure: OWNER_ASSISTANT_DISCLOSURE,
       },
     });
+
+    const payload = await (await get()).json() as { data: { ownerRef: string } };
+
+    expect(payload.data.ownerRef).toMatch(/^[0-9a-f]{16}$/);
   });
 
   it('never caches', async () => {

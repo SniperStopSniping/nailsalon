@@ -35,7 +35,7 @@ export function parseSalonAllowlist(raw: string | null | undefined): string[] {
     .filter(entry => entry.length > 0);
 }
 
-function hasOwnerAssistantFeature(features: unknown): boolean {
+export function hasOwnerAssistantFeature(features: unknown): boolean {
   if (!features || typeof features !== 'object') {
     return false;
   }
@@ -47,9 +47,12 @@ function hasOwnerAssistantFeature(features: unknown): boolean {
 }
 
 /**
- * Global switch AND (pilot allowlist OR the per-salon feature key). The
- * feature key has no writer in this slice; the allowlist is the pilot
- * mechanism.
+ * Global switch AND the pilot allowlist. `salon.features.ai.ownerAssistant`
+ * is reserved (typed, defaulted false) but deliberately NOT consulted in this
+ * slice: the super-admin organization PATCH writes the whole `features`
+ * object, so reading the key here would create a second activation path that
+ * bypasses the allowlist. A dedicated, audited writer must land before the
+ * key becomes an entitlement source; `hasOwnerAssistantFeature` stays for it.
  */
 export function isOwnerAssistantEnabledForSalon(salon: SalonEntitlementInput | null | undefined): boolean {
   if (!isGloballyEnabled() || !salon) {
@@ -57,10 +60,8 @@ export function isOwnerAssistantEnabledForSalon(salon: SalonEntitlementInput | n
   }
 
   const slug = salon.slug?.trim().toLowerCase() ?? '';
-  const allowlisted = slug.length > 0
+  return slug.length > 0
     && parseSalonAllowlist(Env.OWNER_ASSISTANT_SALON_ALLOWLIST).includes(slug);
-
-  return allowlisted || hasOwnerAssistantFeature(salon.features);
 }
 
 /**
@@ -133,4 +134,10 @@ export function getModelId(): string {
 
 export function getJsonMode(): 'schema' | 'prompt' {
   return Env.OWNER_ASSISTANT_JSON_MODE === 'prompt' ? 'prompt' : 'schema';
+}
+
+/** Reasoning depth sent to the provider; 'low' unless an operator overrides it. */
+export function getReasoningEffort(): 'none' | 'low' | 'medium' {
+  const configured = Env.OWNER_ASSISTANT_REASONING_EFFORT;
+  return configured === 'none' || configured === 'medium' ? configured : 'low';
 }

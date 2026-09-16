@@ -144,8 +144,9 @@ describe('response parsing', () => {
     const result = await provider().createResponse(REQUEST);
 
     expect(result.status).toBe('completed');
-    expect(result.usage).toEqual({ inputTokens: 812, cachedInputTokens: 640, outputTokens: 77 });
+    expect(result.usage).toEqual({ inputTokens: 812, cachedInputTokens: 640, outputTokens: 77, cacheWriteInputTokens: 0 });
     expect(result.items).toEqual([
+      { type: 'passthrough', raw: { type: 'reasoning', summary: [] } },
       {
         type: 'function_call',
         callId: 'call_1',
@@ -204,7 +205,69 @@ describe('response parsing', () => {
     fetchMock.mockResolvedValue(jsonResponse({ status: 'completed', output: [] }));
 
     expect((await provider().createResponse(REQUEST)).usage)
-      .toEqual({ inputTokens: 0, cachedInputTokens: 0, outputTokens: 0 });
+      .toEqual({ inputTokens: 0, cachedInputTokens: 0, outputTokens: 0, cacheWriteInputTokens: 0 });
+  });
+});
+
+describe('reasoning, cache writes, tool choice and provider status', () => {
+  it('parses cache-write tokens and keeps reasoning items opaque for echoing', async () => {
+    fetchMock.mockResolvedValue(jsonResponse({
+      status: 'completed',
+      output: [{ type: 'reasoning', id: 'rs_1', encrypted_content: 'opaque' }],
+      usage: { input_tokens: 3000, input_tokens_details: { cached_tokens: 0, cache_write_tokens: 2048 }, output_tokens: 10 },
+    }));
+
+    const result = await provider().createResponse(REQUEST);
+
+    expect(result.usage.cacheWriteInputTokens).toBe(2048);
+    expect(result.items).toEqual([{ type: 'passthrough', raw: { type: 'reasoning', id: 'rs_1', encrypted_content: 'opaque' } }]);
+  });
+
+  it('concatenates several output_text parts of one message', async () => {
+    fetchMock.mockResolvedValue(jsonResponse({
+      status: 'completed',
+      output: [{ type: 'message', content: [{ type: 'output_text', text: '{"message":' }, { type: 'output_text', text: '"ok"}' }] }],
+    }));
+
+    const result = await provider().createResponse(REQUEST);
+
+    expect(result.items).toEqual([{ type: 'message', text: '{"message":"ok"}' }]);
+  });
+
+  it('reports a non-completed provider status as failed', async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ status: 'failed', output: [] }));
+
+    await expect(provider().createResponse(REQUEST)).resolves.toMatchObject({ status: 'failed' });
+  });
+
+  it('withholds tools on request and asks for encrypted reasoning only when reasoning is on', async () => {
+    // A fresh Response per call: a body can only be read once.
+    fetchMock.mockImplementation(async () => jsonResponse({ status: 'completed', output: [] }));
+
+    await provider().createResponse({ ...REQUEST, toolChoice: 'none' });
+    const withReasoning = JSON.parse(String(fetchMock.mock.calls.at(-1)?.[1]?.body));
+
+    expect(withReasoning.tool_choice).toBe('none');
+    expect(withReasoning.include).toEqual(['reasoning.encrypted_content']);
+
+    await provider().createResponse({ ...REQUEST, reasoningEffort: 'none' });
+    const withoutReasoning = JSON.parse(String(fetchMock.mock.calls.at(-1)?.[1]?.body));
+
+    expect(withoutReasoning.reasoning).toEqual({ effort: 'none' });
+    expect(withoutReasoning.include).toBeUndefined();
+  });
+
+  it('applies the call timeout to the body read, not only to the headers', async () => {
+    fetchMock.mockImplementation(async (_url: unknown, init?: RequestInit) => new Response(
+      new ReadableStream({
+        start(controller) {
+          init?.signal?.addEventListener('abort', () => controller.error(Object.assign(new Error('aborted'), { name: 'AbortError' })));
+        },
+      }),
+      { status: 200, headers: { 'Content-Type': 'application/json' } },
+    ));
+
+    await expect(provider().createResponse({ ...REQUEST, timeoutMs: 20 })).rejects.toMatchObject({ kind: 'provider_timeout' });
   });
 });
 

@@ -3,7 +3,11 @@ import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { ChatRequest, ChatTurnResponse, ContextResponse } from '@/libs/ownerAssistant/contracts';
-import { OWNER_ASSISTANT_DISCLOSURE, OWNER_ASSISTANT_LIMITS } from '@/libs/ownerAssistant/contracts';
+import {
+  CHAT_UNAVAILABLE_MESSAGES,
+  OWNER_ASSISTANT_DISCLOSURE,
+  OWNER_ASSISTANT_LIMITS,
+} from '@/libs/ownerAssistant/contracts';
 
 import { ownerAssistantCopy } from './ownerAssistantCopy';
 import OwnerAssistantLauncher from './OwnerAssistantLauncher';
@@ -21,13 +25,18 @@ vi.mock('next/navigation', () => ({
 const SALON_SLUG = 'isla-nail-studio';
 const OTHER_SLUG = 'nail-salon-no5';
 
-function contextBody(slug = SALON_SLUG, name = 'Isla Nail Studio'): ContextResponse {
+function contextBody(
+  slug = SALON_SLUG,
+  name = 'Isla Nail Studio',
+  model: ContextResponse['model'] = { available: true },
+): ContextResponse {
   return {
     enabled: true,
     salonSlug: slug,
     salonName: name,
+    ownerRef: 'owner-ref-1',
     tools: ['get_salon_overview', 'list_services', 'find_destination'],
-    model: { available: true },
+    model,
     suggestedQuestions: ['What services do I offer?', 'Where do I upload my logo?'],
     disclosure: OWNER_ASSISTANT_DISCLOSURE,
   };
@@ -81,12 +90,21 @@ function composer(): HTMLTextAreaElement {
 }
 
 /**
- * Message text is scoped to the thread: the polite live region repeats the
- * latest assistant sentence for screen readers, so an unscoped text query
- * legitimately matches twice.
+ * Message queries are scoped to the thread, which is itself the polite live
+ * region: an answer must appear in the accessibility tree exactly once.
  */
 function thread() {
   return within(screen.getByTestId('owner-assistant-thread'));
+}
+
+/** A chat response that stays in flight until the test releases it. */
+function deferredChat(body: unknown): { queue: () => Promise<Response>; release: () => void } {
+  let release = (): void => {};
+  const pending = new Promise<Response>((resolve) => {
+    release = () => resolve(jsonResponse(body));
+  });
+
+  return { queue: () => pending, release: () => release() };
 }
 
 async function ask(text: string): Promise<void> {
@@ -170,6 +188,45 @@ describe('OwnerAssistantLauncher — admission', () => {
     expect(screen.getByRole('button', { name: 'What services do I offer?' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Where do I upload my logo?' })).toBeInTheDocument();
   });
+
+  it('clears the fixed workspace bottom nav at every width', async () => {
+    queueContext(() => jsonResponse(contextBody()));
+
+    render(<OwnerAssistantLauncher locale="en" placement="workspace" salonSlug={SALON_SLUG} />);
+
+    const pill = await screen.findByTestId('owner-assistant-launcher');
+
+    // OwnerWorkspaceNav is `fixed inset-x-0 bottom-0` at every width and is
+    // never hidden, so a wide-screen offset would park the pill on its 5th tab.
+    expect(pill).toHaveClass('bottom-[calc(5.5rem+env(safe-area-inset-bottom))]');
+    expect(pill).not.toHaveClass('sm:bottom-6');
+  });
+
+  it('sits at the bottom edge on a screen that has no bottom nav', async () => {
+    queueContext(() => jsonResponse(contextBody()));
+
+    render(<OwnerAssistantLauncher locale="en" placement="standalone" salonSlug={SALON_SLUG} />);
+
+    const pill = await screen.findByTestId('owner-assistant-launcher');
+
+    expect(pill).toHaveClass('bottom-[calc(1.5rem+env(safe-area-inset-bottom))]');
+    expect(pill).not.toHaveClass('bottom-[calc(5.5rem+env(safe-area-inset-bottom))]');
+  });
+
+  it('shows the server reason on open when the model is not available', async () => {
+    queueContext(() => jsonResponse(
+      contextBody(SALON_SLUG, 'Isla Nail Studio', { available: false, reason: 'redis_unavailable' }),
+    ));
+
+    render(<OwnerAssistantLauncher locale="en" salonSlug={SALON_SLUG} />);
+    await openSheet();
+
+    expect(screen.getByTestId('owner-assistant-banner')).toHaveTextContent(
+      CHAT_UNAVAILABLE_MESSAGES.redis_unavailable,
+    );
+    // Nothing has been asked yet, so a Retry control would do nothing at all.
+    expect(screen.queryByRole('button', { name: ownerAssistantCopy.retry })).not.toBeInTheDocument();
+  });
 });
 
 describe('OwnerAssistantLauncher — turns', () => {
@@ -185,6 +242,9 @@ describe('OwnerAssistantLauncher — turns', () => {
     await ask('What services do I offer?');
 
     expect(await thread().findByText('You offer Gel manicure and Pedicure.')).toBeInTheDocument();
+    expect(screen.getByTestId('owner-assistant-thread')).toHaveAttribute('aria-live', 'polite');
+    // The thread is the live region: no sr-only copy reads the answer twice.
+    expect(screen.getAllByText('You offer Gel manicure and Pedicure.')).toHaveLength(1);
 
     await ask('only the active ones');
 
@@ -241,10 +301,20 @@ describe('OwnerAssistantLauncher — turns', () => {
     await openSheet();
     await ask('Where do I change my hours?');
 
+    // What was focused at the moment the route changed? Closing first hands
+    // focus back to the pill; navigating first would leave it on a node the
+    // route change is about to unmount.
+    const focusedDuringPush: Array<string | undefined> = [];
+
+    routerPush.mockImplementation(() => {
+      focusedDuringPush.push((document.activeElement as HTMLElement | null)?.dataset.testid);
+    });
+
     const user = userEvent.setup();
     await user.click(await screen.findByRole('button', { name: 'Business hours' }));
 
     expect(routerPush).toHaveBeenCalledWith('/en/admin?salon=isla-nail-studio&app=settings&view=hours');
+    expect(focusedDuringPush).toEqual(['owner-assistant-launcher']);
 
     await waitFor(() => expect(screen.queryByTestId('owner-assistant-sheet')).not.toBeInTheDocument());
 
@@ -270,11 +340,16 @@ describe('OwnerAssistantLauncher — turns', () => {
       'You\'ve reached the assistant limit for now. It resets daily.',
     );
     expect(thread().getByText('What services do I offer?')).toBeInTheDocument();
+    // The question is still on screen but was never answered; say so.
+    expect(screen.getByTestId('owner-assistant-unanswered')).toHaveTextContent(
+      ownerAssistantCopy.notAnswered,
+    );
 
     const user = userEvent.setup();
     await user.click(screen.getByRole('button', { name: ownerAssistantCopy.retry }));
 
     expect(await thread().findByText('You offer Gel manicure.')).toBeInTheDocument();
+    expect(screen.queryByTestId('owner-assistant-unanswered')).not.toBeInTheDocument();
     expect(scenario.chatRequests).toHaveLength(2);
     expect(scenario.chatRequests[1]?.message).toBe('What services do I offer?');
     // The owner question is not duplicated in the thread by a retry.
@@ -293,12 +368,53 @@ describe('OwnerAssistantLauncher — turns', () => {
       ownerAssistantCopy.networkError,
     );
     expect(screen.getByRole('button', { name: ownerAssistantCopy.retry })).toBeInTheDocument();
+    expect(screen.getByTestId('owner-assistant-unanswered')).toHaveTextContent(
+      ownerAssistantCopy.notAnswered,
+    );
   });
 
-  it('drops the thread and explains the reset when the conversation is refused (409)', async () => {
+  it('re-sends the refused message once on a fresh conversation (409)', async () => {
     queueContext(() => jsonResponse(contextBody()));
     queueChat(
       () => jsonResponse(answer()),
+      () => jsonResponse({ error: { code: 'CONVERSATION_INVALID' } }, 409),
+      () => jsonResponse(answer({ message: 'Two add-ons: nail art and French tips.', conversation: 'token-2' })),
+    );
+
+    render(<OwnerAssistantLauncher locale="en" salonSlug={SALON_SLUG} />);
+    await openSheet();
+    await ask('What services do I offer?');
+
+    expect(await thread().findByText('You offer Gel manicure and Pedicure.')).toBeInTheDocument();
+
+    await ask('and the add-ons?');
+
+    // The refused window is dropped and the owner is told, but the question
+    // itself is answered rather than lost.
+    expect(await thread().findByText('Two add-ons: nail art and French tips.')).toBeInTheDocument();
+    expect(screen.getByTestId('owner-assistant-notice')).toHaveTextContent(
+      ownerAssistantCopy.conversationReset,
+    );
+    expect(thread().queryByText('You offer Gel manicure and Pedicure.')).not.toBeInTheDocument();
+    expect(thread().getAllByText('and the add-ons?')).toHaveLength(1);
+    expect(scenario.chatRequests[1]).toEqual({
+      salonSlug: SALON_SLUG,
+      message: 'and the add-ons?',
+      locale: 'en',
+      conversation: 'token-1',
+    });
+    expect(scenario.chatRequests[2]).toEqual({
+      salonSlug: SALON_SLUG,
+      message: 'and the add-ons?',
+      locale: 'en',
+    });
+  });
+
+  it('gives the message back to the composer when the fresh conversation is refused too', async () => {
+    queueContext(() => jsonResponse(contextBody()));
+    queueChat(
+      () => jsonResponse(answer()),
+      () => jsonResponse({ error: { code: 'CONVERSATION_INVALID' } }, 409),
       () => jsonResponse({ error: { code: 'CONVERSATION_INVALID' } }, 409),
     );
 
@@ -310,12 +426,52 @@ describe('OwnerAssistantLauncher — turns', () => {
 
     await ask('and the add-ons?');
 
-    expect(await screen.findByTestId('owner-assistant-notice')).toHaveTextContent(
+    await waitFor(() => expect(composer()).toHaveValue('and the add-ons?'));
+
+    expect(screen.getByTestId('owner-assistant-notice')).toHaveTextContent(
       ownerAssistantCopy.conversationReset,
     );
-    expect(thread().queryByText('You offer Gel manicure and Pedicure.')).not.toBeInTheDocument();
+    expect(thread().queryByText('and the add-ons?')).not.toBeInTheDocument();
     expect(screen.getByTestId('owner-assistant-empty-state')).toBeInTheDocument();
+    expect(scenario.chatRequests).toHaveLength(3);
+    expect(scenario.chatRequests[2]?.conversation).toBeUndefined();
     expect(window.sessionStorage.getItem(ownerAssistantStorageKey(SALON_SLUG))).toBeNull();
+  });
+
+  it('ignores a link chip whose href leaves this origin', async () => {
+    queueContext(() => jsonResponse(contextBody()));
+    queueChat(() => jsonResponse(answer({
+      message: 'Hours live in Settings.',
+      links: [{ key: 'business_hours', label: 'Business hours', href: 'https://evil.example/x' }],
+    })));
+
+    render(<OwnerAssistantLauncher locale="en" salonSlug={SALON_SLUG} />);
+    await openSheet();
+    await ask('Where do I change my hours?');
+
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole('button', { name: 'Business hours' }));
+
+    expect(routerPush).not.toHaveBeenCalled();
+    expect(screen.getByTestId('owner-assistant-sheet')).toBeInTheDocument();
+  });
+
+  it('ignores a protocol-relative link chip href', async () => {
+    queueContext(() => jsonResponse(contextBody()));
+    queueChat(() => jsonResponse(answer({
+      message: 'Hours live in Settings.',
+      links: [{ key: 'business_hours', label: 'Business hours', href: '//evil.example/x' }],
+    })));
+
+    render(<OwnerAssistantLauncher locale="en" salonSlug={SALON_SLUG} />);
+    await openSheet();
+    await ask('Where do I change my hours?');
+
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole('button', { name: 'Business hours' }));
+
+    expect(routerPush).not.toHaveBeenCalled();
+    expect(screen.getByTestId('owner-assistant-sheet')).toBeInTheDocument();
   });
 });
 
@@ -335,6 +491,11 @@ describe('OwnerAssistantLauncher — composer', () => {
     expect(screen.getByTestId('owner-assistant-counter')).toHaveTextContent(
       `0/${OWNER_ASSISTANT_LIMITS.messageMaxChars}`,
     );
+    // An aria-label on a <p> would replace the number a sighted owner reads.
+    expect(screen.getByTestId('owner-assistant-counter')).not.toHaveAttribute('aria-label');
+    expect(screen.getByTestId('owner-assistant-counter')).toHaveTextContent(
+      ownerAssistantCopy.counterLabel,
+    );
 
     const user = userEvent.setup();
     await user.type(textarea, 'Is my page live?');
@@ -348,6 +509,55 @@ describe('OwnerAssistantLauncher — composer', () => {
     expect(await thread().findByText('Yes, your page is live.')).toBeInTheDocument();
     expect(scenario.chatRequests[0]?.message).toBe('Is my page live?');
     expect(composer()).toHaveValue('');
+  });
+
+  it('keeps the composer focusable and announces the wait while a turn is in flight', async () => {
+    queueContext(() => jsonResponse(contextBody()));
+
+    const inFlight = deferredChat(answer({ message: 'Yes, your page is live.' }));
+
+    queueChat(inFlight.queue);
+
+    render(<OwnerAssistantLauncher locale="en" salonSlug={SALON_SLUG} />);
+    await openSheet();
+    await ask('Is my page live?');
+
+    const busy = await screen.findByTestId('owner-assistant-busy');
+
+    expect(busy).toHaveAttribute('role', 'status');
+    expect(screen.getByTestId('owner-assistant-thread')).toHaveAttribute('aria-busy', 'true');
+    // `disabled` would throw keyboard focus out of the dialog for the whole turn.
+    expect(composer()).toBeEnabled();
+    expect(composer()).toHaveAttribute('readonly');
+    expect(composer()).toHaveAttribute('aria-disabled', 'true');
+    expect(screen.getByRole('button', { name: ownerAssistantCopy.send })).toBeDisabled();
+    expect(screen.getByTestId('owner-assistant-sheet')).toContainElement(
+      document.activeElement as HTMLElement,
+    );
+
+    inFlight.release();
+
+    expect(await thread().findByText('Yes, your page is live.')).toBeInTheDocument();
+
+    await waitFor(() => expect(composer()).toHaveFocus());
+
+    expect(composer()).not.toHaveAttribute('readonly');
+    expect(screen.getByTestId('owner-assistant-thread')).toHaveAttribute('aria-busy', 'false');
+  });
+
+  it('keeps the composer clear of the home indicator', async () => {
+    queueContext(() => jsonResponse(contextBody()));
+
+    render(<OwnerAssistantLauncher locale="en" salonSlug={SALON_SLUG} />);
+    await openSheet();
+
+    // `viewportFit: 'cover'` in the root layout means the inset is ours to add.
+    expect(screen.getByTestId('owner-assistant-composer-bar')).toHaveClass(
+      'pb-[max(0.75rem,env(safe-area-inset-bottom,0px))]',
+    );
+    expect(screen.getByTestId('owner-assistant-sheet')).toHaveClass(
+      'max-h-[calc(100dvh-1rem-env(safe-area-inset-bottom,0px))]',
+    );
   });
 
   it('keeps a Shift+Enter newline in the draft instead of sending', async () => {
@@ -365,6 +575,24 @@ describe('OwnerAssistantLauncher — composer', () => {
 });
 
 describe('OwnerAssistantLauncher — persistence', () => {
+  it('drops a stored thread that belongs to a different owner of the same salon', async () => {
+    window.sessionStorage.setItem(
+      ownerAssistantStorageKey(SALON_SLUG),
+      JSON.stringify({
+        ownerRef: 'someone-else',
+        conversation: 'token-other',
+        messages: [{ id: 'm1', role: 'assistant', text: 'Another owner answer.' }],
+      }),
+    );
+    queueContext(() => jsonResponse(contextBody()));
+
+    render(<OwnerAssistantLauncher locale="en" salonSlug={SALON_SLUG} />);
+    await openSheet();
+
+    expect(screen.queryByText('Another owner answer.')).not.toBeInTheDocument();
+    expect(window.sessionStorage.getItem(ownerAssistantStorageKey(SALON_SLUG))).toBeNull();
+  });
+
   it('stores the thread and the token, and restores them on a remount', async () => {
     queueContext(() => jsonResponse(contextBody()), () => jsonResponse(contextBody()));
     queueChat(
@@ -398,7 +626,7 @@ describe('OwnerAssistantLauncher — persistence', () => {
     expect(scenario.chatRequests[1]?.conversation).toBe('token-1');
   });
 
-  it('clears the thread and the stored entry when the active salon changes', async () => {
+  it('closes the sheet and clears the thread when the active salon changes', async () => {
     queueContext(
       () => jsonResponse(contextBody()),
       () => jsonResponse(contextBody(OTHER_SLUG, 'Nail Salon No5')),
@@ -414,7 +642,12 @@ describe('OwnerAssistantLauncher — persistence', () => {
 
     view.rerender(<OwnerAssistantLauncher locale="en" salonSlug={OTHER_SLUG} />);
 
-    expect(await screen.findByText('Nail Salon No5')).toBeInTheDocument();
+    // An open sheet must never survive the switch onto another salon.
+    await waitFor(() => expect(screen.queryByTestId('owner-assistant-sheet')).not.toBeInTheDocument());
+
+    await openSheet();
+
+    expect(screen.getByText('Nail Salon No5')).toBeInTheDocument();
     expect(thread().queryByText('You offer Gel manicure and Pedicure.')).not.toBeInTheDocument();
     expect(screen.getByTestId('owner-assistant-empty-state')).toBeInTheDocument();
     expect(window.sessionStorage.getItem(ownerAssistantStorageKey(SALON_SLUG))).toBeNull();

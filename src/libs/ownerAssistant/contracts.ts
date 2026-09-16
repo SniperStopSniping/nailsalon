@@ -314,6 +314,8 @@ export type ContextResponse = {
   enabled: true;
   salonSlug: string;
   salonName: string;
+  /** Opaque, stable per-owner reference (hash) so the client never shows another owner's stored thread. */
+  ownerRef: string;
   tools: OwnerAssistantToolName[];
   model: { available: true } | { available: false; reason: 'not_configured' | 'redis_unavailable' };
   suggestedQuestions: string[];

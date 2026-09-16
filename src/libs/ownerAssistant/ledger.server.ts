@@ -29,9 +29,14 @@ export type LedgerModelCall = {
   index: number;
   inputCount: number;
   cachedInputCount: number;
+  /** Prefix tokens written to the prompt cache (billed at 1.25× the input rate). */
+  cacheWriteInputCount: number;
   outputCount: number;
   latencyMs: number;
 };
+
+/** GPT-5.6+ prompt-cache writes are billed at 1.25× the uncached input rate. */
+export const CACHE_WRITE_MULTIPLIER = 1.25;
 
 export type LedgerToolCall = {
   name: string;
@@ -53,6 +58,8 @@ export type RecordOwnerAssistantTurnArgs = {
   toolCalls: LedgerToolCall[];
   /** The dynamic salon frame; hashed with the fixed prefix, never stored. */
   salonFrameText: string;
+  /** Tool definitions and any mode-specific instruction that shaped the prompt; hashed, never stored. */
+  promptExtras?: string;
   database?: SalonAuditLogDatabase;
 };
 
@@ -66,14 +73,17 @@ export function computeCostMicros(
   }
 
   const micros = modelCalls.reduce((total, call) => {
-    // Cached input is billed at the cached rate; the uncached remainder at the
-    // full rate. A provider that reports more cached than input tokens must
-    // not produce a negative charge.
-    const cached = Math.min(Math.max(call.cachedInputCount, 0), Math.max(call.inputCount, 0));
-    const uncached = Math.max(call.inputCount, 0) - cached;
+    // Cached input is billed at the cached rate, cache WRITES at 1.25× the
+    // input rate, and the remainder at the full rate. A provider that reports
+    // more cached/written than input tokens must not produce a negative charge.
+    const input = Math.max(call.inputCount, 0);
+    const cached = Math.min(Math.max(call.cachedInputCount, 0), input);
+    const cacheWrite = Math.min(Math.max(call.cacheWriteInputCount ?? 0, 0), input - cached);
+    const uncached = input - cached - cacheWrite;
     return total
       + (uncached * price.input)
       + (cached * price.cachedInput)
+      + (cacheWrite * price.input * CACHE_WRITE_MULTIPLIER)
       + (Math.max(call.outputCount, 0) * price.output);
   }, 0);
 
@@ -85,13 +95,15 @@ export function computeCostMicros(
  * prompt revision and which salon shape produced a turn, and contains no owner
  * text by construction.
  */
-export function computePromptFingerprint(salonFrameText: string): string {
+export function computePromptFingerprint(salonFrameText: string, promptExtras = ''): string {
   return createHash('sha256')
     .update(OWNER_ASSISTANT_SYSTEM_TEXT)
     .update('\n')
     .update(OWNER_ASSISTANT_DEVELOPER_RULES_TEXT)
     .update('\n')
     .update(salonFrameText)
+    .update('\n')
+    .update(promptExtras)
     .digest('hex');
 }
 
@@ -115,7 +127,7 @@ export async function recordOwnerAssistantTurn(args: RecordOwnerAssistantTurnArg
         toolCalls: args.toolCalls,
         costMicros,
         priceKnown,
-        promptFingerprint: computePromptFingerprint(args.salonFrameText),
+        promptFingerprint: computePromptFingerprint(args.salonFrameText, args.promptExtras),
       },
     },
   });

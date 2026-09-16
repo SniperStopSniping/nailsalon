@@ -2173,6 +2173,7 @@ function AdminDashboardContent() {
       */}
       <OwnerAssistantLauncher
         locale={locale === 'fr' ? 'fr' : 'en'}
+        placement="workspace"
         salonSlug={activeDashboardSalonSlug}
         screen="workspace"
       />

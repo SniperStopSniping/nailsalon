@@ -16,6 +16,7 @@ export type ScrubbableSentryEvent = {
     url?: string;
     data?: unknown;
     cookies?: unknown;
+    headers?: Record<string, unknown>;
   };
 };
 
@@ -46,6 +47,16 @@ export function scrubSentryEvent<T extends ScrubbableSentryEvent>(event: T): T {
   if (event.request?.url?.includes(OWNER_ASSISTANT_SCRUBBED_PATH)) {
     delete event.request.data;
     delete event.request.cookies;
+    // The raw `Cookie` header carries the admin session even when the parsed
+    // cookies are dropped; `Authorization` would carry a bearer token.
+    if (event.request.headers) {
+      for (const name of Object.keys(event.request.headers)) {
+        const lower = name.toLowerCase();
+        if (lower === 'cookie' || lower === 'authorization') {
+          delete event.request.headers[name];
+        }
+      }
+    }
   }
   return event;
 }

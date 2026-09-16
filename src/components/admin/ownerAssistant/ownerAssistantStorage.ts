@@ -22,9 +22,17 @@ export type UiMessage = {
   checked?: ChatChecked[];
   links?: ChatLink[];
   followUps?: string[];
+  /**
+   * Owner messages only: the turn ended `unavailable` or in an error, so this
+   * question never reached the signed window and was never answered. Rendered
+   * as a caption so the visible thread cannot claim otherwise.
+   */
+  unanswered?: boolean;
 };
 
 export type OwnerAssistantStoredThread = {
+  /** Opaque per-owner reference from the context response; a stored thread is only restored for the same owner. */
+  ownerRef?: string;
   conversation: string | null;
   messages: UiMessage[];
 };
@@ -101,6 +109,7 @@ function parseMessage(value: unknown): UiMessage | null {
     checked: parseChecked(value.checked),
     links: parseLinks(value.links),
     followUps: parseFollowUps(value.followUps),
+    unanswered: value.unanswered === true ? true : undefined,
   };
 }
 
@@ -123,7 +132,11 @@ export function readOwnerAssistantThread(salonSlug: string): OwnerAssistantStore
     const messages = Array.isArray(parsed.messages)
       ? parsed.messages.map(parseMessage).filter((message): message is UiMessage => message !== null)
       : [];
-    return { conversation, messages };
+    return {
+      ownerRef: typeof parsed.ownerRef === 'string' ? parsed.ownerRef : undefined,
+      conversation,
+      messages,
+    };
   } catch {
     // An unreadable or malformed entry is indistinguishable from no entry.
     return null;

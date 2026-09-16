@@ -30,6 +30,8 @@ export const ownerAssistantCopy = {
   suggestedQuestionsLabel: 'Try asking',
   emptyStateTitle: 'Ask about your salon',
   emptyStateBody: 'Questions about your services, hours, booking page or where a setting lives.',
+  /** Caption under an owner message whose turn ended unavailable or in an error. */
+  notAnswered: 'Not answered',
 
   /** Turn states. */
   busy: 'Checking your salon…',

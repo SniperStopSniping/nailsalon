@@ -13,24 +13,25 @@ Examples it must handle in this slice: "What services do I offer?", "Where do I 
 | Variable | Meaning |
 |---|---|
 | `OWNER_ASSISTANT_ENABLED` | `'true'` enables the feature globally. Anything else ⇒ every route answers 404 and no UI renders. |
-| `OWNER_ASSISTANT_SALON_ALLOWLIST` | Comma-separated salon slugs (pilot mechanism). A salon is entitled when its slug is listed **or** `salon.features.ai.ownerAssistant === true`. |
+| `OWNER_ASSISTANT_SALON_ALLOWLIST` | Comma-separated salon slugs — the ONLY per-salon entitlement in this slice. `salon.features.ai.ownerAssistant` is typed and defaulted false but not consulted yet: the super-admin organization PATCH writes the whole `features` object, so consulting it would create a second activation path outside the allowlist. A dedicated audited writer comes before the key becomes an entitlement source. |
 | `OWNER_ASSISTANT_TOOLS` | Comma-separated tool names the model may use. Unset ⇒ no tools (the assistant can still converse but must say it cannot check anything). |
 | `OWNER_ASSISTANT_MODEL` | OpenAI model id. Default `gpt-5.6-luna`. The adapter always sends `reasoning: { effort: 'low' }`, so the configured model must accept `reasoning.effort` (GPT-5 family and later); a model that rejects it answers HTTP 400, which surfaces as `provider_error`. |
 | `OWNER_ASSISTANT_JSON_MODE` | `'schema'` (default: strict `text.format` json_schema) or `'prompt'` (JSON requested in the prompt only; use if the API rejects schema+tools). |
+| `OWNER_ASSISTANT_REASONING_EFFORT` | `'none' \| 'low' \| 'medium'`; default `low` (OpenAI's documented setting for tool use). With reasoning on, the adapter requests `include: ['reasoning.encrypted_content']` and echoes reasoning items back with tool outputs, as the stateless Responses flow requires. |
 | `OPENAI_API_KEY_OWNER` | Server-side only. Dedicated key/project for the owner surface with its own provider-side budget. |
 | `OWNER_ASSISTANT_SIGNING_SECRET` | HMAC secret for the conversation token. Required in production when enabled (hard-fail); in non-production falls back to a value derived from `CLERK_SECRET_KEY` like `OAUTH_STATE_SECRET`. Tokens expire 24 h after the last turn and never live longer than 7 days from their first turn. |
 | `REDIS_URL` | Already exists. Required for the turn budget; without it the assistant reports `redis_unavailable`. |
 
 `src/libs/ownerAssistant/enablement.server.ts` exports:
-- `isOwnerAssistantEnabledForSalon(salon)` → boolean (global switch ∧ (allowlist ∨ feature)).
-- `getOwnerAssistantAvailability()` → `{ available: true } | { available: false; reason: 'not_configured' | 'redis_unavailable' }` (key present, secret resolvable, Redis reachable).
+- `isOwnerAssistantEnabledForSalon(salon)` → boolean (global switch ∧ allowlist).
+- `getOwnerAssistantAvailability()` → `{ available: true } | { available: false; reason: 'not_configured' | 'redis_unavailable' }`. `not_configured` covers BOTH a missing `OPENAI_API_KEY_OWNER` and a missing production signing secret (the owner sees one sentence for both; the operator checks the two variables). `redis_unavailable` here means the Redis client was never constructed (`REDIS_URL` unset); liveness is proved by the per-turn reservation, so a Redis that is configured but down shows `available: true` and every turn answers `redis_unavailable`.
 - `getEnabledToolNames()` → `OwnerAssistantToolName[]` (intersection of `OWNER_ASSISTANT_TOOLS` with the known names).
 
 Feature group: add `ai?: { ownerAssistant?: boolean; bookingHelper?: boolean }` to `SalonFeatures` and `ai: { ownerAssistant: false, bookingHelper: false }` to `FEATURE_DEFAULTS` (typed object). Do **not** add registry/preset entries in this slice (no writer exists yet).
 
 ## 3. Trust boundary (normative)
 
-1. **Salon identity comes from the session, never from the model or the request body beyond the slug hint.** Routes run `requireAdminSalonForSlug(slug, { persistActiveSalon: false })` with a mandatory non-empty slug (empty ⇒ 400), then `requireRealSalonOwner(salon.id)` (ported from PR #223: authenticated, not impersonating, explicit `owner` membership; super-admins without membership are refused), then entitlement (not entitled ⇒ 404, indistinguishable from dark).
+1. **Salon identity comes from the session, never from the model or the request body beyond the slug hint.** Routes check the global switch first (dark ⇒ empty 404 before any parsing or authentication), parse the request (400), then run `requireAdminSalonForSlug(slug, { persistActiveSalon: false })` with a mandatory non-empty slug, then `requireRealSalonOwner(salon.id)` (ported from PR #223: authenticated, not impersonating, explicit `owner` membership; super-admins without membership are refused), then entitlement (not entitled ⇒ empty 404, indistinguishable from dark). Disclosure: an anonymous probe can learn only that the global switch is on (it gets 401/400 instead of 404); it can never learn which salons are entitled.
 2. **Tools execute with the resolved `salonId` only.** Tool arguments are validated with the `.strict()` zod schemas in `contracts.ts`; an invalid or unknown tool call becomes a tool-error output the model must acknowledge, never an exception to the owner.
 3. **Tools return Tier-0 projections only** (`contracts.ts` result types): salon name, public service/add-on names, prices, durations, hours, booking rules, staff names, integration readiness, booking-page facts. Never client names, phones, emails, notes, appointment details, revenue, event titles, credentials. A test asserts no key from the PII denylist (`phone`, `email`, `full_name`, `first_name`, `birthday`, `notes`, `sensitivities`, `tags`, `clientPhone`, `clientSensitivities`, `totalPrice`, `totalSpent`, `title`, `summary`, `attendees`) appears in any tool result or chat response.
 4. **The model has no write path.** The three tools are read-only; there is no generic query tool; `find_destination` returns registry keys, and code turns keys into hrefs (`registry.ts`). Unknown keys in the model's `links` are dropped.
@@ -43,8 +44,8 @@ Feature group: add `ai?: { ownerAssistant?: boolean; bookingHelper?: boolean }` 
 `export const dynamic = 'force-dynamic'`, `export const runtime = 'nodejs'`, `export const maxDuration = 60` (inline literal — the repo's existing `maxDuration` exports document that an imported constant does not build). Response headers `Cache-Control: private, no-store`.
 
 ```
-1  parse body with chatRequestSchema (400 BAD_REQUEST on failure; salonSlug required)
-2  dark? Env.OWNER_ASSISTANT_ENABLED !== 'true' → 404 (before auth)
+1  dark? Env.OWNER_ASSISTANT_ENABLED !== 'true' → empty 404 (before parsing and before auth)
+2  parse body with chatRequestSchema (400 BAD_REQUEST on failure; salonSlug required)
 3  requireAdminSalonForSlug → requireRealSalonOwner → isOwnerAssistantEnabledForSalon (else 404)
 4  availability (key/secret/redis) → { kind:'unavailable', reason } (HTTP 200)
 5  conversation: verify token if present (409 CONVERSATION_INVALID on any failure) else new payload {cid, salonId, adminId, turnCount:0, turns:[]}
@@ -78,7 +79,7 @@ One `salon_audit_log` row per turn through a new `writeSalonAuditRow` helper (`s
 - Key names deliberately avoid the sanitiser's redaction terms (`token`, `session`, `url`, `link`, …): token counts are `*Count`.
 - `promptFingerprint` = sha256 of the fixed prefix + salon frame (never the owner text).
 - Cost from `OWNER_ASSISTANT_MODEL_PRICES_MICROS_PER_MILLION`; unknown model ⇒ 0 with `priceKnown:false`.
-Rows are written for every outcome that reached the provider or the budget (including `budget_exhausted` with `modelCalls: []`).
+Rows are written for every outcome that reached the budget or the provider (including `budget_exhausted` and `redis_unavailable` after a reservation attempt, with `modelCalls: []`). Known limits: a call that times out may still have been generated and billed provider-side (its row shows zero tokens), and cache writes are costed at 1.25× the input rate from `usage.input_tokens_details.cache_write_tokens` when the provider reports it. The budget script uses three keys in one `EVAL`, so it requires a single-node Redis (not Redis Cluster).
 
 ## 7. UI (`src/components/admin/ownerAssistant/`)
 
@@ -102,7 +103,15 @@ Rows are written for every outcome that reached the provider or the budget (incl
 
 ## 9. Operator runbook (pilot; activation is a separate Owner action)
 
-Enable for one salon: set `OWNER_ASSISTANT_ENABLED=true`, `OWNER_ASSISTANT_SALON_ALLOWLIST=<slug>`, `OWNER_ASSISTANT_TOOLS=get_salon_overview,list_services,find_destination`, `OPENAI_API_KEY_OWNER=<dedicated key with a provider-side monthly budget>`, `OWNER_ASSISTANT_SIGNING_SECRET=<32+ random bytes>`; confirm `REDIS_URL` is set; redeploy. Verify: `GET /api/admin/owner-assistant/context?salonSlug=<other-slug>` → 404; the allowlisted owner sees the pill. Disable: unset `OWNER_ASSISTANT_ENABLED` (global) or remove the slug (per salon) and redeploy. Read the ledger: `select created_at, metadata->'newValue' from salon_audit_log where salon_id = $1 and action = 'owner_assistant_turn' order by created_at desc`. Rotate the key: replace `OPENAI_API_KEY_OWNER`, redeploy, revoke the old key at the provider.
+Enable for one salon: set `OWNER_ASSISTANT_ENABLED=true`, `OWNER_ASSISTANT_SALON_ALLOWLIST=<slug>`, `OWNER_ASSISTANT_TOOLS=get_salon_overview,list_services,find_destination`, `OPENAI_API_KEY_OWNER=<dedicated key with a provider-side monthly budget>`, `OWNER_ASSISTANT_SIGNING_SECRET=<32+ random bytes>`; confirm `REDIS_URL` is set; redeploy.
+
+Verify: anonymous `GET /api/admin/owner-assistant/context?salonSlug=<any>` → 401 (the global switch is on; nothing else is disclosed). From the pilot owner's own session, `GET …/context?salonSlug=<slug>` → 200 with `model.available: true`; a second salon that owner owns which is NOT on the allowlist → empty 404 (a salon they do not own answers 403 and proves nothing). If `model.available` is `false`: `not_configured` ⇒ check `OPENAI_API_KEY_OWNER` and, in production, `OWNER_ASSISTANT_SIGNING_SECRET`; `redis_unavailable` ⇒ `REDIS_URL` is unset. If every turn answers "isn't available right now" while `context` says available, Redis is configured but unreachable.
+
+Disable: unset `OWNER_ASSISTANT_ENABLED` (global) or remove the slug from the allowlist (per salon) and redeploy.
+
+Read the ledger: `select created_at, metadata->'newValue' from salon_audit_log where salon_id = $1 and action = 'owner_assistant_turn' order by created_at desc`. Ledger outcomes: `answer`, `budget_exhausted`, `redis_unavailable`, `provider_error`, `provider_timeout`, `turn_timeout`, `model_output_invalid` (malformed JSON), `model_output_incomplete:<reason>` (e.g. `max_output_tokens` — raise `maxOutputTokens` or lower reasoning effort), `model_refusal`, `model_tool_call_on_last_call`. Note that these rows share `salon_audit_log` with the salon's lifecycle events and the super-admin organization log has no action filter; use the SQL above (or `and action <> 'owner_assistant_turn'`) rather than the UI when looking for lifecycle rows.
+
+Rotate the key: replace `OPENAI_API_KEY_OWNER`, redeploy, revoke the old key at the provider.
 
 ## 10. Evaluation
 `docs/OWNER_ASSISTANT_EVALS.md` holds the case set (conversation, grounding, security, failure, cost) that the CI suites already cover in part and that A1-4 turns into a fake-provider harness plus a recorded real-model run.

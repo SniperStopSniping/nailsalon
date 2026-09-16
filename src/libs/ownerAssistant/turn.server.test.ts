@@ -54,6 +54,8 @@ const {
   fakeRawMessage,
   fakeRefusal,
   fakeToolCalls,
+  fakeFailedStatus,
+  fakeReasoningThenToolCalls,
 } = await import('@/libs/ai/providerFake');
 const { ModelProviderError } = await import('@/libs/ai/provider');
 
@@ -340,6 +342,7 @@ describe('caps', () => {
   });
 
   it('stops executing tools at toolCallsPerTurn', async () => {
+    await clearLedger();
     const provider = createScriptedProvider(
       fakeToolCalls(Array.from({ length: OWNER_ASSISTANT_LIMITS.toolCallsPerTurn + 3 }, (_unused, index) => ({
         callId: `c${index}`,
@@ -351,6 +354,68 @@ describe('caps', () => {
     const result = await run(provider);
 
     expect(result.kind === 'answer' && result.usage.toolCalls).toBe(OWNER_ASSISTANT_LIMITS.toolCallsPerTurn);
+
+    // Every requested call gets exactly one output: the surplus three are
+    // refused with a code instead of being dropped silently.
+    const outputs = (provider.requests[1]?.input ?? [])
+      .filter((item): item is { type: 'function_call_output'; call_id: string; output: string } =>
+        'type' in item && item.type === 'function_call_output');
+
+    expect(outputs).toHaveLength(OWNER_ASSISTANT_LIMITS.toolCallsPerTurn + 3);
+    expect(outputs.filter(item => item.output.includes('tool_budget_exhausted'))).toHaveLength(3);
+
+    const row = ((await ledgerRows())[0]?.metadata as { newValue: { toolCalls: Array<{ ok: boolean; errorCode?: string }> } }).newValue;
+
+    expect(row.toolCalls).toHaveLength(OWNER_ASSISTANT_LIMITS.toolCallsPerTurn + 3);
+    expect(row.toolCalls.filter(call => call.errorCode === 'tool_budget_exhausted')).toHaveLength(3);
+  });
+
+  it('withholds tools on the last allowed call', async () => {
+    const provider = createScriptedProvider(
+      ...Array.from({ length: OWNER_ASSISTANT_LIMITS.modelCallsPerTurn - 1 }, (_unused, index) =>
+        fakeToolCalls([{ callId: `c${index}`, name: 'find_destination', argumentsJson: '{"query":"logo"}' }])),
+      fakeAnswer(ANSWER),
+    );
+    await run(provider);
+
+    expect(provider.requests.at(-1)?.toolChoice).toBe('none');
+    expect(provider.requests[0]?.toolChoice).toBe('auto');
+  });
+
+  it('echoes reasoning items back verbatim ahead of the tool calls they produced', async () => {
+    const reasoning = { type: 'reasoning', id: 'rs_1', encrypted_content: 'opaque-blob' };
+    const provider = createScriptedProvider(
+      fakeReasoningThenToolCalls(reasoning, [{ callId: 'c1', name: 'find_destination', argumentsJson: '{"query":"logo"}' }]),
+      fakeAnswer(ANSWER),
+    );
+    await run(provider);
+
+    const input = provider.requests[1]?.input ?? [];
+    const reasoningIndex = input.findIndex(item => 'type' in item && item.type === 'reasoning');
+    const callIndex = input.findIndex(item => 'type' in item && item.type === 'function_call');
+
+    expect(reasoningIndex).toBeGreaterThan(-1);
+    expect(callIndex).toBeGreaterThan(reasoningIndex);
+    expect(input[reasoningIndex]).toEqual(reasoning);
+  });
+
+  it('reports a failed provider status as provider_error', async () => {
+    const provider = createScriptedProvider(fakeFailedStatus());
+    const result = await run(provider);
+
+    expect(result.kind === 'unavailable' && result.reason).toBe('provider_error');
+  });
+
+  it('records WHY an answer was unusable in the ledger', async () => {
+    await clearLedger();
+    const provider = createScriptedProvider(fakeIncomplete('max_output_tokens'));
+    const result = await run(provider);
+
+    expect(result.kind === 'unavailable' && result.reason).toBe('model_output_invalid');
+
+    const value = ((await ledgerRows())[0]?.metadata as { newValue: { outcome: string } }).newValue;
+
+    expect(value.outcome).toBe('model_output_incomplete:max_output_tokens');
   });
 });
 
