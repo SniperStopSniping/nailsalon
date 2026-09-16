@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { isSalonOwner, requireAdminOwner } from './adminAuth';
+import { isSalonOwner, requireAdminOwner, requireRealSalonOwner } from './adminAuth';
+import { getSalonById } from './queries';
 
 /**
  * Collaborator RBAC (AG-security-tenancy-02): membership role 'admin' is a
@@ -217,6 +218,60 @@ describe('requireAdminOwner', () => {
     const guard = await requireAdminOwner('salon_b');
 
     expect(guard.ok).toBe(true);
+  });
+});
+
+describe('requireRealSalonOwner', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    getAdminImpersonationSession.mockResolvedValue(null);
+    cookieGet.mockImplementation(name => name === 'n5_admin_session' ? { value: 'admin_session_1' } : undefined);
+  });
+
+  it('admits only an explicit owner membership in the requested salon', async () => {
+    primeSession({ memberships: [{ salonId: 'salon_b', role: 'owner' }] });
+
+    expect((await requireRealSalonOwner('salon_b')).ok).toBe(true);
+  });
+
+  it.each([
+    { isSuperAdmin: false, memberships: [{ salonId: 'salon_b', role: 'admin' }] },
+    { isSuperAdmin: false, memberships: [{ salonId: 'salon_a', role: 'owner' }] },
+    { isSuperAdmin: true, memberships: [] },
+  ])('rejects non-owner admission: %j', async (session) => {
+    primeSession(session);
+    const result = await requireRealSalonOwner('salon_b');
+
+    expect(result.ok).toBe(false);
+
+    if (!result.ok) {
+      expect(result.response.status).toBe(403);
+    }
+  });
+
+  it('rejects a missing session', async () => {
+    cookieGet.mockImplementation(() => undefined);
+    const result = await requireRealSalonOwner('salon_b');
+
+    expect(result.ok).toBe(false);
+
+    if (!result.ok) {
+      expect(result.response.status).toBe(401);
+    }
+  });
+
+  it('rejects active super-admin impersonation even with an owner membership', async () => {
+    primeSession({ isSuperAdmin: true, memberships: [{ salonId: 'salon_b', role: 'owner' }] });
+    getAdminImpersonationSession.mockResolvedValue({ adminUserId: 'admin_1', salonId: 'salon_b', salonSlug: 'salon-b', salonName: 'Salon B' });
+    vi.mocked(getSalonById).mockResolvedValue({ id: 'salon_b', slug: 'salon-b', name: 'Salon B' } as Awaited<ReturnType<typeof getSalonById>>);
+    const result = await requireRealSalonOwner('salon_b');
+
+    expect(result.ok).toBe(false);
+
+    if (!result.ok) {
+      expect(result.response.status).toBe(403);
+      expect((await result.response.json()).error.code).toBe('IMPERSONATION_NOT_ALLOWED');
+    }
   });
 });
 

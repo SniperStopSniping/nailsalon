@@ -286,6 +286,7 @@ export const FEATURE_DEFAULTS: {
   clients: { clientProfiles: boolean; clientHistory: boolean };
   social: { photoUploads: boolean };
   catalog: { variantsV1: boolean; addOnGroupsV1: boolean; bookingModesV1: boolean };
+  ai: { ownerAssistant: boolean; bookingHelper: boolean };
   marketing: { smsReminders: boolean; referrals: boolean; rewards: boolean };
   money: { staffEarnings: boolean; deposits: boolean };
   analytics: { dashboard: boolean; utilization: boolean };
@@ -306,6 +307,10 @@ export const FEATURE_DEFAULTS: {
   // Luster L1 catalog domain — dark by default on every tier. Nothing reads
   // these until the behaviour they gate is built and separately enabled.
   catalog: { variantsV1: false, addOnGroupsV1: false, bookingModesV1: false },
+  // Conversational assistants (docs/OWNER_ASSISTANT_CHAT.md). Both are DARK
+  // and have NO WRITER yet: nothing in the app can set them, and the owner
+  // assistant pilot is driven by OWNER_ASSISTANT_SALON_ALLOWLIST instead.
+  ai: { ownerAssistant: false, bookingHelper: false },
   marketing: { smsReminders: true, referrals: false, rewards: false },
   money: { staffEarnings: false, deposits: false },
   analytics: { dashboard: false, utilization: false },
