@@ -1,3 +1,11 @@
+## [1.110.3](https://github.com/SniperStopSniping/nailsalon/compare/v1.110.2...v1.110.3) (2026-09-16)
+
+
+### Bug Fixes
+
+* **billing:** complete refund durability exits and evidence resolution ([7ddaf46](https://github.com/SniperStopSniping/nailsalon/commit/7ddaf46d75f105c83635dfaaa232ec14c2e15260)), closes [#224](https://github.com/SniperStopSniping/nailsalon/issues/224)
+* **billing:** re-assert stale refund voids and report pending-offer repairs ([cf6fa60](https://github.com/SniperStopSniping/nailsalon/commit/cf6fa6081d859aaa0cad3fb75d3819a77dcad004))
+
 ## [1.110.2](https://github.com/SniperStopSniping/nailsalon/compare/v1.110.1...v1.110.2) (2026-09-15)
 
 
