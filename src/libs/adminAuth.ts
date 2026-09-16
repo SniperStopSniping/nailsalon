@@ -508,6 +508,62 @@ export async function requireAdminOwner(
 }
 
 /**
+ * The owner assistant deliberately does not run through super-admin
+ * impersonation, and does not admit collaborators. It is an owner-authored
+ * command surface, so it requires the AUTHENTICATED actor's own explicit
+ * `owner` membership on this salon: a super admin without one is refused, and
+ * so is any session that is currently impersonating.
+ *
+ * `requireAdminOwner` is the guard for irreversible owner work done through
+ * the normal dashboard; this one is strictly narrower and never widens.
+ */
+export async function requireRealSalonOwner(salonId: string): Promise<AdminGuardResult> {
+  const admin = await getAdminSession();
+
+  if (!admin) {
+    return {
+      ok: false,
+      response: new Response(
+        JSON.stringify({ error: { code: 'UNAUTHORIZED', message: 'Not authenticated' } }),
+        { status: 401, headers: { 'Content-Type': 'application/json' } },
+      ),
+    };
+  }
+
+  if (await getValidatedAdminImpersonation(admin)) {
+    return {
+      ok: false,
+      response: new Response(
+        JSON.stringify({
+          error: {
+            code: 'IMPERSONATION_NOT_ALLOWED',
+            message: 'Owner assistant actions are unavailable while impersonating.',
+          },
+        }),
+        { status: 403, headers: { 'Content-Type': 'application/json' } },
+      ),
+    };
+  }
+
+  if (!admin.salons.some(membership => membership.salonId === salonId && membership.role === 'owner')) {
+    return {
+      ok: false,
+      response: new Response(
+        JSON.stringify({
+          error: {
+            code: 'OWNER_REQUIRED',
+            message: 'Only the salon owner can use owner assistant actions.',
+          },
+        }),
+        { status: 403, headers: { 'Content-Type': 'application/json' } },
+      ),
+    };
+  }
+
+  return { ok: true, admin };
+}
+
+/**
  * Require super admin access
  * Returns discriminated union: { ok: true, admin } or { ok: false, response }
  */

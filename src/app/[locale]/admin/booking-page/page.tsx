@@ -34,6 +34,7 @@ import {
   disableBookingPagePreviewFrameInteraction,
   normalizeBookingPagePreviewFrame,
 } from '@/components/admin/bookingPagePreviewFrame';
+import OwnerAssistantLauncher from '@/components/admin/ownerAssistant/OwnerAssistantLauncher';
 import { QUICK_BOOK_VISIBILITY_OPTIONS, QuickBookProfileVisibilityCard, QuickBookVisibilitySwitch } from '@/components/admin/QuickBookProfileVisibilityCard';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import type { BookingPageBuilderOperation } from '@/libs/bookingPageBuilder';
@@ -1485,6 +1486,14 @@ export default function BookingPageOwnerSurface() {
         onClose={() => setPendingConfirmation(null)}
         onConfirm={() => void confirmRevert()}
         description="Your draft goes back to matching what is already live. Anything you changed since your last publish is lost."
+      />
+
+      {/* Owner Assistant (A1-1); silent until its context endpoint answers 200. */}
+      <OwnerAssistantLauncher
+        locale={locale === 'fr' ? 'fr' : 'en'}
+        placement="standalone"
+        salonSlug={salonSlug || null}
+        screen="booking-page"
       />
     </main>
   );

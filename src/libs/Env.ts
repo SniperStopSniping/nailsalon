@@ -64,6 +64,33 @@ export const Env = createEnv({
     // See src/libs/billing/stripePriceCarrier.ts for the schema, resolution
     // order and the boot-time isolation check.
     BILLING_STRIPE_PRICE_IDS: z.string().optional(),
+    // Owner Assistant chat (docs/OWNER_ASSISTANT_CHAT.md §2). Every switch is
+    // optional and UNSET MEANS DISABLED — read as `=== 'true'`, so a fresh
+    // deploy can never expose the conversational surface structurally. Both
+    // routes answer 404 before authentication while this is unset.
+    OWNER_ASSISTANT_ENABLED: z.enum(['true', 'false']).optional(),
+    // Comma-separated salon slugs — the ONLY per-salon entitlement in this
+    // slice. UNSET MEANS NO SALON is entitled. `salon.features.ai.ownerAssistant`
+    // is reserved and deliberately not consulted (docs/OWNER_ASSISTANT_CHAT.md §2).
+    OWNER_ASSISTANT_SALON_ALLOWLIST: z.string().optional(),
+    // Comma-separated read-only tool names the model may call. UNSET MEANS NO
+    // TOOLS: the assistant can converse but must say it cannot check anything.
+    OWNER_ASSISTANT_TOOLS: z.string().optional(),
+    // OpenAI model id. Unset falls back to OWNER_ASSISTANT_DEFAULT_MODEL.
+    OWNER_ASSISTANT_MODEL: z.string().optional(),
+    // 'schema' (default) sends a strict json_schema text.format; 'prompt' asks
+    // for JSON in the prompt only, for APIs that reject schema + tools.
+    OWNER_ASSISTANT_JSON_MODE: z.enum(['schema', 'prompt']).optional(),
+    // Reasoning depth for the owner assistant model. Unset means 'low' (the
+    // documented setting for tool use); 'none' removes reasoning items.
+    OWNER_ASSISTANT_REASONING_EFFORT: z.enum(['none', 'low', 'medium']).optional(),
+    // Server-side only: dedicated key/project for the owner surface with its
+    // own provider-side budget. UNSET MEANS UNAVAILABLE (not_configured).
+    OPENAI_API_KEY_OWNER: z.string().optional(),
+    // HMAC secret for the signed conversation window. Required in production
+    // when the assistant is enabled (hard-fail); non-production derives a
+    // development value from CLERK_SECRET_KEY, like OAUTH_STATE_SECRET.
+    OWNER_ASSISTANT_SIGNING_SECRET: z.string().optional(),
     // Twilio (salon communications; Verify is reserved for existing super-admin verification)
     TWILIO_ACCOUNT_SID: z.string().optional(),
     TWILIO_AUTH_TOKEN: z.string().optional(),
@@ -166,6 +193,14 @@ export const Env = createEnv({
     STRIPE_BILLING_WEBHOOK_SECRET: process.env.STRIPE_BILLING_WEBHOOK_SECRET,
     BILLING_DEPLOYMENT_MARKER: process.env.BILLING_DEPLOYMENT_MARKER,
     BILLING_STRIPE_PRICE_IDS: process.env.BILLING_STRIPE_PRICE_IDS,
+    OWNER_ASSISTANT_ENABLED: process.env.OWNER_ASSISTANT_ENABLED,
+    OWNER_ASSISTANT_SALON_ALLOWLIST: process.env.OWNER_ASSISTANT_SALON_ALLOWLIST,
+    OWNER_ASSISTANT_TOOLS: process.env.OWNER_ASSISTANT_TOOLS,
+    OWNER_ASSISTANT_MODEL: process.env.OWNER_ASSISTANT_MODEL,
+    OWNER_ASSISTANT_JSON_MODE: process.env.OWNER_ASSISTANT_JSON_MODE,
+    OWNER_ASSISTANT_REASONING_EFFORT: process.env.OWNER_ASSISTANT_REASONING_EFFORT,
+    OPENAI_API_KEY_OWNER: process.env.OPENAI_API_KEY_OWNER,
+    OWNER_ASSISTANT_SIGNING_SECRET: process.env.OWNER_ASSISTANT_SIGNING_SECRET,
     TWILIO_ACCOUNT_SID: process.env.TWILIO_ACCOUNT_SID,
     TWILIO_AUTH_TOKEN: process.env.TWILIO_AUTH_TOKEN,
     TWILIO_VERIFY_SERVICE_SID: process.env.TWILIO_VERIFY_SERVICE_SID,
