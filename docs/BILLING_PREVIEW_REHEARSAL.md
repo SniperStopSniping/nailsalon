@@ -316,6 +316,8 @@ The cron proof file is the two **manual** invocations from §6 (Preview never sc
 
 ```json
 {
+  "origin": "https://<pilot-origin>",
+  "gitSha": "<gitSha reported by /api/billing/readiness>",
   "invocations": [
     { "path": "/api/billing/windows/evaluate", "status": 200, "body": { "skipped": "BILLING_DISABLED" } },
     { "path": "/api/billing/reconcile", "status": 200, "body": { "skipped": "BILLING_DISABLED" } }
@@ -323,6 +325,9 @@ The cron proof file is the two **manual** invocations from §6 (Preview never sc
   "recordedAt": "<ISO timestamp>"
 }
 ```
+
+`origin` and `gitSha` are required: the readiness harness rejects a saved cron proof from another
+deployment or commit, even when its paths and response bodies otherwise look valid.
 
 **Expected exit codes at this point:**
 

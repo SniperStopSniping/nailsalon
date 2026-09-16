@@ -504,17 +504,23 @@ describe('RD-4 — evidence-file validation', () => {
 
   it('validates the cron proof: a parseable timestamp, and a response BODY per invocation', () => {
     expect(validateCronProof({
+      origin: 'https://preview.example',
+      gitSha: 'abc1234',
       recordedAt: RECORDED_AT,
       invocations: [{ path: '/api/billing/reconcile', status: 200, body: DARK_BODY }],
     })).toMatchObject({ ok: true });
     expect(validateCronProof({ invocations: [] })).toMatchObject({ ok: false });
-    expect(validateCronProof({ recordedAt: RECORDED_AT, invocations: [{ path: '/api/billing/reconcile' }] }))
+    expect(validateCronProof({ origin: 'https://preview.example', gitSha: 'abc1234', recordedAt: RECORDED_AT, invocations: [{ path: '/api/billing/reconcile' }] }))
       .toMatchObject({ ok: false });
     // A bare status line cannot distinguish a dark skip from real billing work.
-    expect(validateCronProof({ recordedAt: RECORDED_AT, invocations: [{ path: '/api/billing/reconcile', status: 200 }] }))
+    expect(validateCronProof({ origin: 'https://preview.example', gitSha: 'abc1234', recordedAt: RECORDED_AT, invocations: [{ path: '/api/billing/reconcile', status: 200 }] }))
       .toEqual({ ok: false, reason: expect.stringContaining('response body') });
-    expect(validateCronProof({ recordedAt: 'now', invocations: [{ path: '/api/billing/reconcile', status: 200, body: DARK_BODY }] }))
+    expect(validateCronProof({ origin: 'https://preview.example', gitSha: 'abc1234', recordedAt: 'now', invocations: [{ path: '/api/billing/reconcile', status: 200, body: DARK_BODY }] }))
       .toEqual({ ok: false, reason: expect.stringContaining('parseable date') });
+    expect(validateCronProof({ origin: 'https://preview.example/path', gitSha: 'abc1234', recordedAt: RECORDED_AT, invocations: [] }))
+      .toEqual({ ok: false, reason: expect.stringContaining('exact HTTPS origin') });
+    expect(validateCronProof({ origin: 'https://preview.example', gitSha: 'not-a-sha', recordedAt: RECORDED_AT, invocations: [] }))
+      .toEqual({ ok: false, reason: expect.stringContaining('commit SHA') });
   });
 
   it('accepts the flat integrity-report shape', () => {
@@ -895,6 +901,8 @@ describe('CLI — a deployed run with evidence files omitted', () => {
       ],
     });
     const cronProofFile = writeFixture('cron-proof.json', {
+      origin: 'https://preview.example',
+      gitSha: 'c1a1234',
       recordedAt: '2026-09-16T00:05:00.000Z',
       invocations: [
         { path: '/api/billing/windows/evaluate', status: 200, body: { skipped: 'BILLING_DISABLED' } },
@@ -907,14 +915,14 @@ describe('CLI — a deployed run with evidence files omitted', () => {
     const healthBody = {
       status: 'degraded',
       schemaDrift: 'ready',
-      gitSha: 'cli1234',
+      gitSha: 'c1a1234',
       billing: { dark: false, planEnvMatchesRuntime: true },
     };
     const readinessBody = {
       planEnv: 'test',
       planEnvMatchesRuntime: true,
       vercelEnv: 'preview',
-      gitSha: 'cli1234',
+      gitSha: 'c1a1234',
       appOrigin: 'https://preview.example',
       switches: { subscriptions: true, topups: true, publicPricing: false, taxCollection: false },
       webhookSecretConfigured: true,

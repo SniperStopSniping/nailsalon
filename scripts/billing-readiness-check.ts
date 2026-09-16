@@ -478,8 +478,20 @@ export function validatePortalConfigurations(parsed: unknown): EvidenceRead<Bill
 }
 
 export function validateCronProof(parsed: unknown): EvidenceRead<BillingCronInvocationProof> {
-  if (!isRecord(parsed) || !Array.isArray(parsed.invocations) || typeof parsed.recordedAt !== 'string') {
-    return { ok: false, reason: 'not a cron-invocation proof (need invocations[] and recordedAt)' };
+  if (
+    !isRecord(parsed)
+    || typeof parsed.origin !== 'string'
+    || typeof parsed.gitSha !== 'string'
+    || !Array.isArray(parsed.invocations)
+    || typeof parsed.recordedAt !== 'string'
+  ) {
+    return { ok: false, reason: 'not a cron-invocation proof (need origin, gitSha, invocations[] and recordedAt)' };
+  }
+  if (!assertSafeFetchUrl(parsed.origin) || new URL(parsed.origin).origin !== parsed.origin) {
+    return { ok: false, reason: 'cron proof origin must be an exact HTTPS origin without credentials, path, query, or fragment' };
+  }
+  if (!/^[0-9a-f]{7,40}$/i.test(parsed.gitSha)) {
+    return { ok: false, reason: 'cron proof gitSha must be a 7-40 character hexadecimal commit SHA' };
   }
   // An unparseable `recordedAt` means the proof cannot be placed in time
   // relative to the deployment it is supposed to be evidence about.

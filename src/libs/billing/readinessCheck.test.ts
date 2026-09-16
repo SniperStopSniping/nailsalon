@@ -441,6 +441,7 @@ describe('activation evidence rejects incomplete or wrong provider state', () =>
 // ===========================================================================
 
 const REHEARSAL_ORIGIN = 'https://preview.example';
+const REHEARSAL_SHA = 'abc1234';
 const REHEARSAL_CARRIER = inspectEnvFileCarrier(completeCarrier, 'test');
 // Same catalogue, scoped to the production plan env — the ids are identical,
 // so the digest is too: what differs is the env the carrier declares.
@@ -453,7 +454,7 @@ function healthFacts(overrides: Partial<BillingReadinessHealthFacts> = {}): Bill
     dark: false,
     planEnvMatchesRuntime: true,
     schemaDrift: 'ready',
-    gitSha: 'abc1234',
+    gitSha: REHEARSAL_SHA,
     ...overrides,
   };
 }
@@ -463,7 +464,7 @@ function readinessFacts(overrides: Partial<BillingReadinessEndpointFacts> = {}):
     planEnv: 'test',
     planEnvMatchesRuntime: true,
     vercelEnv: 'preview',
-    gitSha: 'abc1234',
+    gitSha: REHEARSAL_SHA,
     appOrigin: REHEARSAL_ORIGIN,
     switches: { subscriptions: true, topups: true, publicPricing: false, taxCollection: false },
     webhookSecretConfigured: true,
@@ -498,6 +499,8 @@ function rehearsalEvidence(overrides: Partial<BillingReadinessEvidence> = {}): B
     envFileCarrier: REHEARSAL_CARRIER,
     vercelCrons: BOTH_CRONS,
     cronProof: {
+      origin: REHEARSAL_ORIGIN,
+      gitSha: REHEARSAL_SHA,
       recordedAt: '2026-09-16T00:00:00.000Z',
       invocations: [
         { path: '/api/billing/windows/evaluate', status: 200, body: { skipped: 'BILLING_DISABLED' } },
@@ -521,6 +524,8 @@ function rehearsalEvidence(overrides: Partial<BillingReadinessEvidence> = {}): B
  */
 function productionCronProof(topupsEnabled: boolean): BillingCronInvocationProof {
   return {
+    origin: REHEARSAL_ORIGIN,
+    gitSha: REHEARSAL_SHA,
     recordedAt: '2026-09-16T00:05:00.000Z',
     invocations: [
       { path: '/api/billing/windows/evaluate', status: 200, body: { skipped: 'BILLING_DISABLED' } },
@@ -812,6 +817,8 @@ describe('RD-6 — Preview crons and CRON_SECRET', () => {
   it('a recorded non-200, or a missing path, fails the proof', () => {
     expect(evaluation('rehearsal', rehearsalEvidence({
       cronProof: {
+        origin: REHEARSAL_ORIGIN,
+        gitSha: REHEARSAL_SHA,
         recordedAt: '2026-09-16T00:00:00.000Z',
         invocations: [
           { path: '/api/billing/windows/evaluate', status: 401 },
@@ -821,10 +828,30 @@ describe('RD-6 — Preview crons and CRON_SECRET', () => {
     })).met).toBe(false);
     expect(evaluation('rehearsal', rehearsalEvidence({
       cronProof: {
+        origin: REHEARSAL_ORIGIN,
+        gitSha: REHEARSAL_SHA,
         recordedAt: '2026-09-16T00:00:00.000Z',
         invocations: [{ path: '/api/billing/windows/evaluate', status: 200 }],
       },
     })).met).toBe(false);
+  });
+
+  it('rejects a cron proof saved from another deployment origin or commit', () => {
+    const wrongOrigin = evaluation('rehearsal', rehearsalEvidence({
+      cronProof: { ...rehearsalEvidence().cronProof!, origin: 'https://other-preview.example' },
+    }));
+    const wrongSha = evaluation('rehearsal', rehearsalEvidence({
+      cronProof: { ...rehearsalEvidence().cronProof!, gitSha: 'def5678' },
+    }));
+
+    expect(checkOf(wrongOrigin, 'cron_invocation_proof')).toMatchObject({
+      ok: false,
+      detail: expect.stringContaining('does not match target origin'),
+    });
+    expect(checkOf(wrongSha, 'cron_invocation_proof')).toMatchObject({
+      ok: false,
+      detail: expect.stringContaining('does not match deployed gitSha'),
+    });
   });
 
   it('a cron missing from vercel.json AT THE DEPLOYED SHA fails', () => {
@@ -1133,7 +1160,11 @@ describe('evidence-shaped legs the happy paths never reach', () => {
     // `readiness_app_origin` shares the same missing fact and correctly fails
     // with it; the endpoint check reports MISSING evidence rather than
     // pretending an unknown origin matched.
-    expect(failingIds(result)).toEqual(['readiness_app_origin', 'provisioned_webhook_endpoint']);
+    expect(failingIds(result)).toEqual([
+      'readiness_app_origin',
+      'cron_invocation_proof',
+      'provisioned_webhook_endpoint',
+    ]);
     expect(result.missingEvidence).toEqual(['target origin (--health-url)']);
     expect(result.met).toBe(false);
   });
@@ -1327,6 +1358,8 @@ describe('endpoint, portal and cron evidence content rules', () => {
       const working = evaluation(target, {
         ...base,
         cronProof: {
+          origin: REHEARSAL_ORIGIN,
+          gitSha: REHEARSAL_SHA,
           recordedAt: '2026-09-16T00:05:00.000Z',
           invocations: [
             { path: '/api/billing/windows/evaluate', status: 200, body: { evaluated: 3, granted: 3 } },
@@ -1346,6 +1379,8 @@ describe('endpoint, portal and cron evidence content rules', () => {
     const working = evaluation('activate-topups', {
       ...productionEvidence(),
       cronProof: {
+        origin: REHEARSAL_ORIGIN,
+        gitSha: REHEARSAL_SHA,
         recordedAt: '2026-09-16T00:05:00.000Z',
         invocations: [
           { path: '/api/billing/windows/evaluate', status: 200, body: { skipped: 'BILLING_DISABLED' } },
@@ -1374,6 +1409,8 @@ describe('endpoint, portal and cron evidence content rules', () => {
     const working = evaluation('activate-subscriptions', {
       ...productionEvidence({ topups: true }),
       cronProof: {
+        origin: REHEARSAL_ORIGIN,
+        gitSha: REHEARSAL_SHA,
         recordedAt: '2026-09-16T00:05:00.000Z',
         invocations: [
           { path: '/api/billing/windows/evaluate', status: 200, body: { skipped: 'BILLING_DISABLED' } },
@@ -1391,6 +1428,8 @@ describe('endpoint, portal and cron evidence content rules', () => {
   it('a recorded invocation with no response body object is refused for every target', () => {
     const result = evaluation('rehearsal', rehearsalEvidence({
       cronProof: {
+        origin: REHEARSAL_ORIGIN,
+        gitSha: REHEARSAL_SHA,
         recordedAt: '2026-09-16T00:05:00.000Z',
         invocations: [
           { path: '/api/billing/windows/evaluate', status: 200 },
@@ -1406,6 +1445,8 @@ describe('endpoint, portal and cron evidence content rules', () => {
   it('a rehearsal does NOT require the dark skip body — its switches are deliberately on', () => {
     const result = evaluation('rehearsal', rehearsalEvidence({
       cronProof: {
+        origin: REHEARSAL_ORIGIN,
+        gitSha: REHEARSAL_SHA,
         recordedAt: '2026-09-16T00:05:00.000Z',
         invocations: [
           { path: '/api/billing/windows/evaluate', status: 200, body: { evaluated: 1, granted: 1 } },

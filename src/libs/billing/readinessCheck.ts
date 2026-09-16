@@ -757,6 +757,10 @@ export type BillingReadinessHealthFacts = {
 };
 
 export type BillingCronInvocationProof = {
+  /** Origin the invocations were sent to; binds saved proof to this target. */
+  origin: string;
+  /** Deployed short/full commit SHA reported by the readiness endpoint. */
+  gitSha: string;
   invocations: readonly { path: string; status: number; body?: unknown }[];
   recordedAt: string;
 };
@@ -1257,6 +1261,15 @@ function evaluateCrons(
     return;
   }
   const failures: string[] = [];
+  const expectedOrigin = normalizeOrigin(evidence.origin);
+  const proofOrigin = normalizeOrigin(proof.origin);
+  if (expectedOrigin === null || proofOrigin !== expectedOrigin) {
+    failures.push(`proof origin "${proof.origin}" does not match target origin "${evidence.origin ?? 'null'}"`);
+  }
+  const deployedSha = evidence.readiness?.gitSha ?? null;
+  if (deployedSha === null || proof.gitSha !== deployedSha) {
+    failures.push(`proof gitSha "${proof.gitSha}" does not match deployed gitSha "${deployedSha ?? 'null'}"`);
+  }
   for (const path of BILLING_CRON_PATHS) {
     const invocation = proof.invocations.find(entry => entry.path === path);
     if (invocation === undefined) {
