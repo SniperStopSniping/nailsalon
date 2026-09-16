@@ -31,6 +31,9 @@ import {
   type BookingPagePresentationState,
   resolveBookingPageStartingPresentation,
 } from '@/libs/bookingPageBuilder';
+// Type-only: `bookingPageContent.ts` is `server-only` and imports nothing from
+// this module, so this is erased at compile time and creates no cycle.
+import type { BookingPageContent } from '@/libs/bookingPageContent';
 import {
   BOOKING_PAGE_PRESET_IDS,
   BOOKING_PAGE_PRESET_RECIPE_VERSION,
@@ -961,6 +964,31 @@ export function resolveBookingPageConfig(settings: unknown): BookingPageConfig {
           ? null
           : { ...BOOKING_PAGE_CONFIG_DEFAULTS.livePresetBase! }),
   };
+}
+
+/**
+ * Whether the owner's draft booking page differs from what is published.
+ *
+ * ONE definition, two readers: the owner Website hub's "Draft changes not
+ * published" line and the setup-readiness projection's
+ * `draft_unpublished_changes` item. Extracted from the hub, where it lived
+ * inline, so the two can never disagree.
+ *
+ * Both resolvers build each side from fixed object literals in a fixed key
+ * order, so `JSON.stringify` is a stable, deterministic comparison here — the
+ * exact semantics the hub already shipped, deliberately preserved rather than
+ * upgraded to a deep-equality walk.
+ *
+ * Only the two rendered sides are compared. `draftPresetBase` /
+ * `livePresetBase` are admin-only recipe provenance that never reaches the
+ * public page, so a difference there is not an unpublished page change.
+ */
+export function hasUnpublishedBookingPageChanges(
+  config: BookingPageConfig,
+  content: BookingPageContent,
+): boolean {
+  return JSON.stringify(config.draft) !== JSON.stringify(config.live)
+    || JSON.stringify(content.draft) !== JSON.stringify(content.live);
 }
 
 /** Admin-only logical presentation state used by guarded builder operations. */

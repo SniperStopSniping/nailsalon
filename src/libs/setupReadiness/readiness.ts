@@ -1,4 +1,4 @@
-import type { BookingPageConfigSide } from '@/libs/bookingPageConfig';
+import { type BookingPageConfigSide, hasUnpublishedBookingPageChanges } from '@/libs/bookingPageConfig';
 import type { BookingPageContentSide } from '@/libs/bookingPageContent';
 import { getTemplateByKey } from '@/libs/serviceTemplateCatalog';
 import { resolveWeeklySchedule } from '@/libs/weeklySchedule';
@@ -22,9 +22,15 @@ import {
  * A1-3 Piece 1 — the PURE setup-readiness derivation.
  *
  * Every input is already loaded (see `readiness.server.ts`), so this module is
- * a total function over plain data: no database, no clock beyond the injected
- * `now`, no `server-only`. That is what makes the derivation matrix in
+ * a total function over plain data: it issues no query and reads no clock
+ * beyond the injected `now`. That is what makes the derivation matrix in
  * `readiness.test.ts` able to turn every code on and off with plain objects.
+ *
+ * It is not import-free, though: `hasUnpublishedBookingPageChanges` lives in
+ * `bookingPageConfig.ts`, which imports `@/libs/DB` for its own writers. So
+ * this module loads on the server only, and its tests mock `server-only` and
+ * `@/libs/DB` exactly as `bookingPageConfig.test.ts` does. The client-safe
+ * surface is `types.ts`, which remains type-only.
  *
  * REUSE, NEVER RE-DERIVE. Each rule below is a thin reading of an authority
  * that already exists:
@@ -362,26 +368,21 @@ export function deriveSetupReadiness(input: SetupReadinessInput): SetupReadiness
   //
   // The spec flagged this as a candidate for omission ("if no cheap comparison
   // exists"). One DOES exist and is already shipped: the owner Website hub
-  // (`src/app/[locale]/admin/website/page.tsx`) computes its own
-  // "Draft changes not published" line as exactly this comparison. Both
-  // resolvers build their sides from fixed object literals, so the serialized
-  // form is stable and the comparison is deterministic. Re-implemented here
-  // rather than imported because the hub's copy lives inline in a page
-  // component; the semantics are deliberately identical, so the assistant and
-  // the hub can never disagree about whether a salon has unpublished changes.
+  // (`src/app/[locale]/admin/website/page.tsx`) shows a "Draft changes not
+  // published" line from exactly this comparison. That comparison now lives in
+  // `hasUnpublishedBookingPageChanges` (`bookingPageConfig.ts`) and BOTH read
+  // it, so the assistant and the hub can never disagree about whether a salon
+  // has unpublished changes.
   // ---------------------------------------------------------------------------
-  if (published) {
-    const configDiffers = JSON.stringify(input.bookingPageConfig.draft)
-      !== JSON.stringify(input.bookingPageConfig.live);
-    const contentDiffers = JSON.stringify(input.bookingPageContent.draft)
-      !== JSON.stringify(input.bookingPageContent.live);
-    if (configDiffers || contentDiffers) {
-      items.push({
-        code: 'draft_unpublished_changes',
-        severity: 'recommended',
-        links: links('page_publish'),
-      });
-    }
+  if (
+    published
+    && hasUnpublishedBookingPageChanges(input.bookingPageConfig, input.bookingPageContent)
+  ) {
+    items.push({
+      code: 'draft_unpublished_changes',
+      severity: 'recommended',
+      links: links('page_publish'),
+    });
   }
 
   // ---------------------------------------------------------------------------
@@ -458,6 +459,7 @@ export function deriveSetupReadiness(input: SetupReadinessInput): SetupReadiness
     },
     items: items.sort(compareItems),
     customersWillSee: {
+      side: published ? 'live' : 'draft',
       layoutId: activeConfigSide.layout ?? null,
       rendersBio: isQuickBook && showBio,
       activeServiceCount: activeServices.length,

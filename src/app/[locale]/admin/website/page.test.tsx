@@ -10,7 +10,18 @@ vi.mock('next/navigation', () => ({ redirect: (url: string) => {
 } }));
 vi.mock('@/libs/adminAuth', () => ({ getAdminSession: mocks.session, requireAdmin: mocks.guard }));
 vi.mock('@/libs/queries', () => ({ getSalonBySlug: mocks.salon }));
-vi.mock('@/libs/bookingPageConfig', () => ({ resolveBookingPageConfig: () => ({ draft: { layout: 'quick_book' }, live: { layout: 'quick_book' } }) }));
+// `server-only` and `@/libs/DB` are mocked purely so the REAL
+// `bookingPageConfig` module can be imported below (the same pattern as
+// `src/libs/bookingPageConfig.test.ts`); nothing here touches a database.
+vi.mock('server-only', () => ({}));
+vi.mock('@/libs/DB', () => ({ db: null }));
+// Only the resolver is stubbed. The draft/live comparison stays the real
+// `hasUnpublishedBookingPageChanges`, so this page test keeps exercising the
+// shipped `hasDraftChanges` semantics rather than a stand-in for them.
+vi.mock('@/libs/bookingPageConfig', async importOriginal => ({
+  ...await importOriginal<typeof import('@/libs/bookingPageConfig')>(),
+  resolveBookingPageConfig: () => ({ draft: { layout: 'quick_book' }, live: { layout: 'quick_book' } }),
+}));
 vi.mock('@/libs/bookingPageContent', () => ({ resolveBookingPageContent: () => ({ draft: {}, live: {} }) }));
 vi.mock('@/features/onboarding-v1-integration/config.server', () => ({ isOnboardingV1IntegrationEnabled: () => true }));
 vi.mock('@/features/onboarding-v1-integration/admin-handoff.server', () => ({ getOnboardingSiteHandoff: mocks.handoff }));
