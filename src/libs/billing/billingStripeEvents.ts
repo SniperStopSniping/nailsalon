@@ -39,7 +39,7 @@ import 'server-only';
 import { and, eq, lt, lte, sql } from 'drizzle-orm';
 
 import { db } from '@/libs/DB';
-import { billingStripeEventSchema } from '@/models/Schema';
+import { billingStripeEventSchema, salonSchema } from '@/models/Schema';
 
 export const BILLING_EVENT_MAX_ATTEMPTS = 8;
 
@@ -123,6 +123,41 @@ export async function claimBillingEvent(input: {
     return { claimed: true, attempts: reclaimed[0]!.attempts };
   }
 
+  // Y12 (D19c §2.3 item 5): a row parked as `ignored_livemode_mismatch`
+  // becomes claimable again. The route reaches this function ONLY after the
+  // event's `livemode` matched the CURRENT expectation, so arriving here with
+  // a mismatch row means exactly one thing: the deployment's mode
+  // configuration has since been corrected and Stripe has redelivered an
+  // event we previously could not act on. Before this branch such a row was
+  // permanently terminal, and the only recovery was a manual replay — which
+  // INV-A10 forbids. `attempts` moves 0 → 1 (the mismatch row never claimed
+  // an attempt), so the poison ladder still bounds it normally.
+  //
+  // `processed_at` is CLEARED here, unlike the other two reclaims. Those
+  // reclaim rows that never carried one (`failed_retryable` only stamps it
+  // when it poisons; a lapsed `processing` row never got that far), but
+  // recordIgnoredBillingEvent writes the mismatch row ALREADY terminal, with
+  // `processed_at` set. Carrying that forward would leave a reclaimed row
+  // that then fails mid-handler sitting in `failed_retryable` wearing a
+  // terminal timestamp — a state every ops query and forensic read would
+  // misreport.
+  const reclaimedLivemode = await db
+    .update(billingStripeEventSchema)
+    .set({
+      status: 'processing',
+      attempts: sql`${billingStripeEventSchema.attempts} + 1`,
+      lastError: null,
+      processedAt: null,
+    })
+    .where(and(
+      eq(billingStripeEventSchema.eventId, input.eventId),
+      eq(billingStripeEventSchema.status, 'ignored_livemode_mismatch'),
+    ))
+    .returning();
+  if (reclaimedLivemode.length === 1) {
+    return { claimed: true, attempts: reclaimedLivemode[0]!.attempts };
+  }
+
   // P3b: a `processing` row whose lease has LAPSED means the worker that
   // claimed it crashed, timed out, or was killed before ever writing a
   // terminal status — nothing will ever CAS it out of `processing`
@@ -157,6 +192,10 @@ export async function claimBillingEvent(input: {
   // row not yet past its own backoff stays classified with the terminal
   // replay (unchanged §8.2 behaviour): Stripe's own retry cadence, not this
   // route, decides when that redelivery is worth a fresh look.
+  //
+  // Y12: `already_processed` now means "terminal AND not reclaimable". It no
+  // longer covers `ignored_livemode_mismatch`, which the branch above
+  // reclaims whenever a redelivery arrives under a matching expectation.
   if (existing?.status === 'processing') {
     return {
       claimed: false,
@@ -168,13 +207,19 @@ export async function claimBillingEvent(input: {
 }
 
 /**
- * Record a DURABLE terminal row for an event that must never be claimed or
- * processed at all — today, exclusively the §8.2 livemode mismatch. Unlike
+ * Record a DURABLE terminal row for an event this deployment must not act on
+ * as delivered — today, exclusively the §8.2 livemode mismatch. Unlike
  * claimBillingEvent, this writes the row ALREADY in its terminal status: no
  * `processing` row is ever created, and `handleEvent` is never reachable for
- * this event id. `ON CONFLICT (event_id) DO NOTHING` makes a replayed
- * delivery of the same mismatched event a no-op — the first delivery's row
- * is authoritative and is never overwritten or reprocessed.
+ * this delivery. `ON CONFLICT (event_id) DO NOTHING` makes a replayed
+ * delivery under the SAME (still mismatched) expectation a no-op — the first
+ * delivery's row is authoritative and is never overwritten.
+ *
+ * Y12: "never processed" is no longer permanent. Once the deployment's mode
+ * configuration is corrected, the route's livemode gate passes and
+ * `claimBillingEvent` RECLAIMS this row (see its `ignored_livemode_mismatch`
+ * branch), so a redelivery is processed normally instead of being dropped as
+ * a terminal replay. The row is a parked event, not a tombstone.
  */
 export async function recordIgnoredBillingEvent(
   input: {
@@ -237,6 +282,39 @@ export async function recordBillingEventPriceId(eventId: string, priceId: string
     .update(billingStripeEventSchema)
     .set({ priceId })
     .where(eq(billingStripeEventSchema.eventId, eventId));
+}
+
+/**
+ * D19c §2.3 item 4: attribute an ALREADY-CLAIMED event row to the salon it
+ * actually touched, so purge (`salonPurge.ts` nulls `billing_stripe_event.salon_id`)
+ * and forensics can answer "what did this salon's billing do".
+ *
+ * Deliberately NOT written at claim time from the raw event body. `salon_id`
+ * carries a real foreign key (`ON DELETE SET NULL`), so a salon id copied out
+ * of a FOREIGN object's metadata would either fail the insert — turning a
+ * terminal `ignored_foreign` classification into a retry loop — or, worse,
+ * attribute another deployment's event to a same-named local salon. The route
+ * calls this only after a handler has ESTABLISHED that the object is ours and
+ * local, passing an id that came from a locally stored row (or from metadata
+ * the projection has already accepted). `ignored_foreign` rows keep a NULL
+ * `salon_id`.
+ *
+ * The `EXISTS` fence is defence in depth against exactly that hazard: if the
+ * id does not name a live local salon the update writes nothing rather than
+ * raising a foreign-key error inside a webhook that has already committed its
+ * financial effect. A no-op on null, like {@link recordBillingEventPriceId}.
+ */
+export async function recordBillingEventSalonId(eventId: string, salonId: string | null): Promise<void> {
+  if (salonId === null) {
+    return;
+  }
+  await db
+    .update(billingStripeEventSchema)
+    .set({ salonId })
+    .where(and(
+      eq(billingStripeEventSchema.eventId, eventId),
+      sql`EXISTS (SELECT 1 FROM ${salonSchema} WHERE ${salonSchema.id} = ${salonId} AND ${salonSchema.deletedAt} IS NULL)`,
+    ));
 }
 
 /**

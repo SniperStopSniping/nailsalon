@@ -205,6 +205,80 @@ describe('subscription projection (§8.3/§8.4)', () => {
     expect(rows).toHaveLength(0);
   });
 
+  // FE-3 (D19c §2.3 item 3): the salon binding is METADATA, and on a shared
+  // Stripe account it can name a salon that exists in another deployment's
+  // database and nowhere here. That must be a classification, never a foreign
+  // key error thrown into the webhook's retry ladder.
+  it('a salonId with no salon row is SALON_NOT_LOCAL — never an FK throw, never a write', async () => {
+    const { projectSubscriptionSnapshot } = await projection();
+    const outcome = await projectSubscriptionSnapshot({
+      snapshot: snapshot({ salonId: 's_belongs_to_another_deployment', id: 'sub_not_local' }),
+      eventCreated: T0,
+      eventId: 'evt_not_local',
+    });
+
+    expect(outcome).toEqual({ applied: false, anomaly: 'SALON_NOT_LOCAL' });
+
+    const rows = await db.select().from(schema.billingSubscriptionSchema)
+      .where(eq(schema.billingSubscriptionSchema.stripeSubscriptionId, 'sub_not_local'));
+
+    expect(rows).toHaveLength(0);
+
+    // Zero writes anywhere: no audit row either, so an operator queue is not
+    // polluted with somebody else's subscriptions.
+    const audit = (await db.select().from(schema.auditLogSchema))
+      .filter(row => row.salonId === 's_belongs_to_another_deployment');
+
+    expect(audit).toHaveLength(0);
+  });
+
+  it('a SOFT-DELETED salon is not local either — no entitlement is projected onto a deleted salon', async () => {
+    const { projectSubscriptionSnapshot } = await projection();
+    await db.insert(schema.salonSchema).values({
+      id: 's_proj_deleted',
+      name: 's_proj_deleted',
+      slug: 's_proj_deleted',
+      deletedAt: T0,
+    });
+    const outcome = await projectSubscriptionSnapshot({
+      snapshot: snapshot({ salonId: 's_proj_deleted', id: 'sub_proj_deleted' }),
+      eventCreated: T0,
+      eventId: 'evt_proj_deleted',
+    });
+
+    expect(outcome).toEqual({ applied: false, anomaly: 'SALON_NOT_LOCAL' });
+
+    const rows = await db.select().from(schema.billingSubscriptionSchema)
+      .where(eq(schema.billingSubscriptionSchema.stripeSubscriptionId, 'sub_proj_deleted'));
+
+    expect(rows).toHaveLength(0);
+  });
+
+  // The UPDATE path is reached only when a local row already exists, and that
+  // row's own foreign key proves its salon — so an existing subscription keeps
+  // projecting exactly as before, with no second lookup.
+  it('an EXISTING local subscription still projects updates without re-testing the salon', async () => {
+    const { projectSubscriptionSnapshot } = await projection();
+    await seedSalon('s_proj_existing');
+    await projectSubscriptionSnapshot({
+      snapshot: snapshot({ salonId: 's_proj_existing', id: 'sub_proj_existing' }),
+      eventCreated: T0,
+      eventId: 'evt_proj_existing_create',
+    });
+    const updated = await projectSubscriptionSnapshot({
+      snapshot: snapshot({ salonId: 's_proj_existing', id: 'sub_proj_existing', status: 'past_due' }),
+      eventCreated: T0_PLUS_MONTH,
+      eventId: 'evt_proj_existing_update',
+    });
+
+    expect(updated).toEqual({ applied: true, kind: 'updated' });
+
+    const [row] = await db.select().from(schema.billingSubscriptionSchema)
+      .where(eq(schema.billingSubscriptionSchema.stripeSubscriptionId, 'sub_proj_existing'));
+
+    expect(row!.status).toBe('past_due');
+  });
+
   it('invoice success extends paid_through monotonically and only the ENGINE grants', async () => {
     const { projectSubscriptionSnapshot, applyInvoicePaymentSucceeded } = await projection();
     await seedSalon('s_proj2');
