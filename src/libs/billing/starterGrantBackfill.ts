@@ -130,9 +130,14 @@ type SalonIdentityRow = {
  *     identity, not a heuristic.
  *  2. the `admin_salon_membership` row with `role = 'owner'` — the canonical
  *     owner relation for a legacy phone-OTP salon whose `owner_clerk_user_id`
- *     was never populated. Ordered by `admin_user.created_at` so a salon that
- *     somehow carries two owner rows resolves deterministically to the
- *     founding one rather than to whichever row the planner happened to emit.
+ *     was never populated. Ordered by `admin_user.created_at`, then by `id`,
+ *     so a salon that somehow carries two owner rows resolves deterministically
+ *     to the founding one rather than to whichever row the planner happened to
+ *     emit. The id tiebreak is load-bearing: `created_at` defaults to `now()`,
+ *     which is the TRANSACTION timestamp, so two owners created in one
+ *     transaction share it exactly and ordering on the timestamp alone would
+ *     still be arbitrary — and an arbitrary owner means an arbitrary verified
+ *     address attached to this business identity.
  */
 async function loadOwnerVerifiedEmail(
   tx: BillingDbTransaction,
@@ -158,7 +163,7 @@ async function loadOwnerVerifiedEmail(
         eq(adminSalonMembershipSchema.salonId, salon.id),
         eq(adminSalonMembershipSchema.role, 'owner'),
       ))
-      .orderBy(asc(adminUserSchema.createdAt))
+      .orderBy(asc(adminUserSchema.createdAt), asc(adminUserSchema.id))
       .limit(1);
     owner = byMembership[0];
   }
