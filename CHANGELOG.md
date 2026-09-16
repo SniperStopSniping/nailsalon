@@ -1,3 +1,11 @@
+## [1.113.1](https://github.com/SniperStopSniping/nailsalon/compare/v1.113.0...v1.113.1) (2026-09-16)
+
+
+### Bug Fixes
+
+* **billing:** make the owner tiebreak total when two owner rows share a timestamp ([1b9f6f2](https://github.com/SniperStopSniping/nailsalon/commit/1b9f6f2a7244592fc8bc98d0384426aaa7a4b1e6))
+* **billing:** stop building identity links from unverified email and localhost redirects ([f7307be](https://github.com/SniperStopSniping/nailsalon/commit/f7307bea3266399a708b594fd79dd1897fbb9b9e))
+
 # [1.113.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.112.0...v1.113.0) (2026-09-16)
 
 
