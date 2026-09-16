@@ -12,6 +12,7 @@ import { PGlite } from '@electric-sql/pglite';
 import { eq, sql } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/pglite';
 import { migrate } from 'drizzle-orm/pglite/migrator';
+import Stripe from 'stripe';
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import * as schema from '@/models/Schema';
@@ -28,10 +29,32 @@ vi.mock('@/libs/DB', () => ({
 const envHolder = vi.hoisted(() => ({
   BILLING_PLAN_ENV: 'test' as string,
   STRIPE_BILLING_WEBHOOK_SECRET: undefined as string | undefined,
+  // PR-2 / D19c §2.1: unset means "no deployment check", i.e. exactly the
+  // behaviour every test in this suite asserted before the variable existed.
+  BILLING_DEPLOYMENT_MARKER: undefined as string | undefined,
   BILLING_IDENTITY_HMAC_SECRET: undefined,
   BILLING_IDENTITY_HMAC_VERSION: undefined,
 }));
 vi.mock('@/libs/Env', () => ({ Env: envHolder }));
+
+/**
+ * Y12: the livemode expectation is now the programme's two-leg producer. The
+ * REAL function is the default here (under vitest it resolves to the `test`
+ * runtime with a test-mode key ⇒ `{ ok: true, livemode: false }`, the same
+ * expectation this suite has always asserted against); a test that needs the
+ * mismatch or indeterminate legs sets `expected` explicitly.
+ */
+const livemodeHolder = vi.hoisted(() => ({
+  expected: null as null | { ok: true; livemode: boolean } | { ok: false; code: 'MODE_INDETERMINATE' },
+}));
+vi.mock('@/libs/environmentIsolation', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/libs/environmentIsolation')>();
+  return {
+    ...actual,
+    computeExpectedLivemode: (environment: Record<string, string | undefined>) =>
+      livemodeHolder.expected ?? actual.computeExpectedLivemode(environment),
+  };
+});
 
 // constructEvent parses our JSON "signature-valid" test bodies; a literal
 // 'invalid' signature throws, exactly like the real SDK.
@@ -84,8 +107,21 @@ beforeAll(async () => {
 });
 
 beforeEach(() => {
+  // The route keeps ONE piece of module-level state — the Y12 alert's
+  // rate-limit timestamp — and the rate-limit test below deliberately pins
+  // `Date.now()` far in the future to exercise the window. Without a reset
+  // that timestamp would outlive the test and silently suppress every later
+  // mismatch alert in this file. `vi.resetModules()` is this repo's
+  // convention for per-test module state (stripePriceMap.test.ts,
+  // stripePriceCarrier.test.ts, DB.testIsolation.test.ts); the route is
+  // re-imported per `post()` anyway, and the alternative — exporting a reset
+  // helper — is not available here, because a Next.js route file may export
+  // only its handlers and route config.
+  vi.resetModules();
   envHolder.STRIPE_BILLING_WEBHOOK_SECRET = 'whsec_test';
   envHolder.BILLING_PLAN_ENV = 'test';
+  envHolder.BILLING_DEPLOYMENT_MARKER = undefined;
+  livemodeHolder.expected = null;
   sentryHolder.captureMessage.mockClear();
   sentryHolder.captureException.mockClear();
   stripeMock.charges.retrieve.mockReset();
@@ -142,6 +178,20 @@ const post = async (body: unknown, signature = 'sig_valid') => {
 };
 
 const eventRows = () => db.select().from(schema.billingStripeEventSchema);
+
+/**
+ * PR-2: the ONE Stripe failure that is evidence rather than an outage — a
+ * decoded invalid-request saying the object is not on this account. Every
+ * other failure class must stay retryable, which the negative cases below
+ * (5xx, authentication) pin explicitly.
+ */
+function resourceMissing(message: string): Stripe.errors.StripeInvalidRequestError {
+  return new Stripe.errors.StripeInvalidRequestError({
+    type: 'invalid_request_error',
+    code: 'resource_missing',
+    message,
+  });
+}
 
 let eventCounter = 0;
 function stripeEvent(type: string, object: Record<string, unknown>, over?: Partial<{ id: string; livemode: boolean; created: number }>) {
@@ -1827,6 +1877,765 @@ describe('stripe-billing webhook pipeline', () => {
       expect(replay.status).toBe(200);
       expect((await replay.json()).deduplicated).toBe(true);
       expect(replay.headers.get('Retry-After')).toBeNull();
+    });
+  });
+
+  /**
+   * PR-2 / D19c §2.1 — FOREIGN-EVENT ISOLATION.
+   *
+   * This platform account is shared with the legacy flow and with every other
+   * deployment of this codebase, so "I received it" is not "it is mine". Each
+   * test below pins one leg of the ownership rule: marked AND local, decided
+   * from the cheapest evidence available, failing toward "not mine", and
+   * never spending the retry ladder on an object that will never be ours.
+   */
+  describe('FE-1 — top-up sessions for a salon that does not exist here', () => {
+    it('a completed sms_topup session whose salonId is not a local salon is terminally foreign', async () => {
+      // Mocked, and asserted NEVER CALLED: classification happens before any
+      // Stripe call, so a foreign session costs nothing and writes nothing.
+      stripeMock.checkout.sessions.retrieve.mockResolvedValue({
+        id: 'cs_fe1_foreign',
+        amount_total: 599,
+        currency: 'cad',
+        metadata: { salonId: 's_fe1_not_local', purchaseId: 'stp_elsewhere', attemptId: 'att_elsewhere' },
+        line_items: { data: [{ price: { id: 'price_topup_elsewhere' } }] },
+      });
+      const event = stripeEvent('checkout.session.completed', {
+        id: 'cs_fe1_foreign',
+        payment_status: 'paid',
+        payment_intent: 'pi_fe1_foreign',
+        metadata: { purpose: 'sms_topup', salonId: 's_fe1_not_local' },
+      });
+      const response = await post(event);
+
+      expect(response.status).toBe(200); // never a 500, never a retry
+
+      const [row] = (await eventRows()).filter(entry => entry.eventId === event.id);
+
+      expect(row!.status).toBe('ignored_foreign');
+      expect(row!.lastError).toBe('FOREIGN_SALON');
+      expect(row!.attempts).toBe(1);
+      expect(row!.salonId).toBeNull(); // §2.3 item 4: foreign rows are never attributed
+      expect(row!.priceId).toBeNull(); // no evidence write for somebody else's session
+      expect(stripeMock.checkout.sessions.retrieve).not.toHaveBeenCalled();
+      expect(sentryHolder.captureMessage).not.toHaveBeenCalled();
+      expect(sentryHolder.captureException).not.toHaveBeenCalled();
+    });
+
+    it('an EXPIRED sms_topup session for a non-local salon is terminally foreign too', async () => {
+      const event = stripeEvent('checkout.session.expired', {
+        id: 'cs_fe1_foreign_expired',
+        metadata: { purpose: 'sms_topup', salonId: 's_fe1_not_local' },
+      });
+      const response = await post(event);
+
+      expect(response.status).toBe(200);
+
+      const [row] = (await eventRows()).filter(entry => entry.eventId === event.id);
+
+      expect(row!.status).toBe('ignored_foreign');
+      expect(row!.lastError).toBe('FOREIGN_SALON');
+      expect(sentryHolder.captureMessage).not.toHaveBeenCalled();
+    });
+
+    it('the genuine TX2 race is UNCHANGED: a LOCAL salon with no purchase row still retries (500)', async () => {
+      await db.insert(schema.salonSchema).values({ id: 's_fe1_local', name: 's', slug: 's-fe1-local' });
+      stripeMock.checkout.sessions.retrieve.mockResolvedValue({
+        id: 'cs_fe1_local',
+        amount_total: 599,
+        currency: 'cad',
+        metadata: { salonId: 's_fe1_local' },
+        line_items: { data: [] },
+      });
+      const completed = await post(stripeEvent('checkout.session.completed', {
+        id: 'cs_fe1_local',
+        payment_status: 'paid',
+        payment_intent: 'pi_fe1_local',
+        metadata: { purpose: 'sms_topup', salonId: 's_fe1_local' },
+      }, { id: 'evt_fe1_local_completed' }));
+
+      expect(completed.status).toBe(500);
+
+      const [completedRow] = (await eventRows()).filter(entry => entry.eventId === 'evt_fe1_local_completed');
+
+      expect(completedRow!.status).toBe('failed_retryable');
+      expect(completedRow!.lastError).toBe('TOPUP_PURCHASE_NOT_FOUND');
+
+      const expired = await post(stripeEvent('checkout.session.expired', {
+        id: 'cs_fe1_local_expired',
+        metadata: { purpose: 'sms_topup', salonId: 's_fe1_local' },
+      }, { id: 'evt_fe1_local_expired' }));
+
+      expect(expired.status).toBe(500);
+
+      const [expiredRow] = (await eventRows()).filter(entry => entry.eventId === 'evt_fe1_local_expired');
+
+      expect(expiredRow!.status).toBe('failed_retryable');
+      expect(expiredRow!.lastError).toBe('TOPUP_PURCHASE_NOT_FOUND');
+    });
+  });
+
+  describe('FE-2 — invoices and refunds classify before they retry', () => {
+    it('an invoice whose subscription_details snapshot names a NON-LOCAL salon is foreign, with ZERO Stripe calls', async () => {
+      const event = stripeEvent('invoice.payment_succeeded', {
+        id: 'in_fe2_foreign_salon',
+        subscription: 'sub_fe2_foreign_salon',
+        subscription_details: {
+          metadata: { purpose: 'plan_subscription', salonId: 's_fe2_another_deployment', billingOfferKey: 'starter_2026_08_monthly' },
+        },
+        lines: { data: [subLine(1_780_000_000, 1_780_000_000 + 30 * 24 * 3600)] },
+      });
+      const response = await post(event);
+
+      expect(response.status).toBe(200);
+
+      const [row] = (await eventRows()).filter(entry => entry.eventId === event.id);
+
+      expect(row!.status).toBe('ignored_foreign');
+      expect(row!.lastError).toBe('FOREIGN_SALON');
+      expect(stripeMock.subscriptions.retrieve).not.toHaveBeenCalled();
+      expect(stripeMock.invoices.listLineItems).not.toHaveBeenCalled();
+      expect(sentryHolder.captureMessage).not.toHaveBeenCalled();
+    });
+
+    it('an invoice snapshot with a foreign PURPOSE is foreign with zero Stripe calls', async () => {
+      const event = stripeEvent('invoice.payment_succeeded', {
+        id: 'in_fe2_foreign_purpose',
+        subscription: 'sub_fe2_foreign_purpose',
+        subscription_details: { metadata: { some: 'legacy-flow-subscription' } },
+        lines: { data: [subLine(1_780_000_000, 1_780_000_000 + 30 * 24 * 3600)] },
+      });
+      const response = await post(event);
+
+      expect(response.status).toBe(200);
+
+      const [row] = (await eventRows()).filter(entry => entry.eventId === event.id);
+
+      expect(row!.status).toBe('ignored_foreign');
+      expect(row!.lastError).toBe('FOREIGN_INVOICE');
+      expect(stripeMock.subscriptions.retrieve).not.toHaveBeenCalled();
+    });
+
+    it('invoice.payment_failed applies the same snapshot pre-check', async () => {
+      const event = stripeEvent('invoice.payment_failed', {
+        id: 'in_fe2_failed_foreign',
+        subscription: 'sub_fe2_failed_foreign',
+        subscription_details: { metadata: { purpose: 'something_else' } },
+      });
+      const response = await post(event);
+
+      expect(response.status).toBe(200);
+
+      const [row] = (await eventRows()).filter(entry => entry.eventId === event.id);
+
+      expect(row!.status).toBe('ignored_foreign');
+      expect(row!.lastError).toBe('FOREIGN_INVOICE');
+      expect(stripeMock.subscriptions.retrieve).not.toHaveBeenCalled();
+    });
+
+    it('without a snapshot, a subscription Stripe reports MISSING is foreign — one fetch, no retry', async () => {
+      stripeMock.subscriptions.retrieve.mockRejectedValueOnce(resourceMissing('No such subscription: sub_fe2_missing'));
+      const event = stripeEvent('invoice.payment_succeeded', {
+        id: 'in_fe2_missing',
+        subscription: 'sub_fe2_missing',
+        lines: { data: [subLine(1_780_000_000, 1_780_000_000 + 30 * 24 * 3600)] },
+      });
+      const response = await post(event);
+
+      expect(response.status).toBe(200);
+
+      const [row] = (await eventRows()).filter(entry => entry.eventId === event.id);
+
+      expect(row!.status).toBe('ignored_foreign');
+      expect(row!.lastError).toBe('FOREIGN_INVOICE');
+      expect(stripeMock.subscriptions.retrieve).toHaveBeenCalledTimes(1);
+    });
+
+    it('a 5xx on that same fetch is RETRYABLE — a Stripe outage never means "not mine"', async () => {
+      stripeMock.subscriptions.retrieve.mockRejectedValueOnce(
+        new Stripe.errors.StripeAPIError({ type: 'api_error', message: 'Stripe is temporarily unavailable' }),
+      );
+      const event = stripeEvent('invoice.payment_succeeded', {
+        id: 'in_fe2_outage',
+        subscription: 'sub_fe2_outage',
+        lines: { data: [subLine(1_780_000_000, 1_780_000_000 + 30 * 24 * 3600)] },
+      });
+      const response = await post(event);
+
+      expect(response.status).toBe(500);
+
+      const [row] = (await eventRows()).filter(entry => entry.eventId === event.id);
+
+      expect(row!.status).toBe('failed_retryable');
+      expect(row!.lastError).toBe('Stripe is temporarily unavailable');
+    });
+
+    it('an AUTHENTICATION failure on that fetch is retryable too — a bad key must never read as foreign', async () => {
+      stripeMock.subscriptions.retrieve.mockRejectedValueOnce(
+        new Stripe.errors.StripeAuthenticationError({ type: 'authentication_error', message: 'Invalid API Key provided' }),
+      );
+      const event = stripeEvent('invoice.payment_succeeded', {
+        id: 'in_fe2_badkey',
+        subscription: 'sub_fe2_badkey',
+        lines: { data: [subLine(1_780_000_000, 1_780_000_000 + 30 * 24 * 3600)] },
+      });
+      const response = await post(event);
+
+      expect(response.status).toBe(500);
+
+      const [row] = (await eventRows()).filter(entry => entry.eventId === event.id);
+
+      expect(row!.status).toBe('failed_retryable');
+      expect(row!.status).not.toBe('ignored_foreign');
+    });
+
+    it('a subscription that IS ours but is not projected yet still retries (500)', async () => {
+      await db.insert(schema.salonSchema).values({ id: 's_fe2_ours', name: 's', slug: 's-fe2-ours' });
+      stripeMock.subscriptions.retrieve.mockResolvedValueOnce({
+        id: 'sub_fe2_ours',
+        metadata: { purpose: 'plan_subscription', salonId: 's_fe2_ours' },
+      });
+      const event = stripeEvent('invoice.payment_succeeded', {
+        id: 'in_fe2_ours',
+        subscription: 'sub_fe2_ours',
+        lines: { data: [subLine(1_780_000_000, 1_780_000_000 + 30 * 24 * 3600)] },
+      });
+      const response = await post(event);
+
+      expect(response.status).toBe(500);
+
+      const [row] = (await eventRows()).filter(entry => entry.eventId === event.id);
+
+      expect(row!.status).toBe('failed_retryable');
+      expect(row!.lastError).toBe('SUBSCRIPTION_NOT_PROJECTED');
+    });
+
+    it('ours-but-unprojected WITH the snapshot present retries, and makes ZERO Stripe calls', async () => {
+      await db.insert(schema.salonSchema).values({ id: 's_fe2_hint_ours', name: 's', slug: 's-fe2-hint-ours' });
+      const event = stripeEvent('invoice.payment_succeeded', {
+        id: 'in_fe2_hint_ours',
+        subscription: 'sub_fe2_hint_ours',
+        subscription_details: {
+          metadata: { purpose: 'plan_subscription', salonId: 's_fe2_hint_ours', billingOfferKey: 'starter_2026_08_monthly' },
+        },
+        lines: { data: [subLine(1_780_000_000, 1_780_000_000 + 30 * 24 * 3600)] },
+      });
+      const response = await post(event);
+
+      expect(response.status).toBe(500);
+
+      const [row] = (await eventRows()).filter(entry => entry.eventId === event.id);
+
+      expect(row!.status).toBe('failed_retryable');
+      expect(row!.lastError).toBe('SUBSCRIPTION_NOT_PROJECTED');
+      // The snapshot Stripe already put in the event body IS the answer — the
+      // classification fetch is never made.
+      expect(stripeMock.subscriptions.retrieve).not.toHaveBeenCalled();
+    });
+
+    it('a marked subscription whose salon is ANOTHER deployment\'s is foreign, not a retry to poison (X2)', async () => {
+      stripeMock.subscriptions.retrieve.mockResolvedValueOnce({
+        id: 'sub_fe2_other_estate',
+        // Stamped by this very same code, in another deployment sharing the
+        // Stripe account: `purpose` alone cannot separate the two.
+        metadata: { purpose: 'plan_subscription', salonId: 's_fe2_other_estate' },
+      });
+      const event = stripeEvent('invoice.payment_succeeded', {
+        id: 'in_fe2_other_estate',
+        subscription: 'sub_fe2_other_estate',
+        lines: { data: [subLine(1_780_000_000, 1_780_000_000 + 30 * 24 * 3600)] },
+      });
+      const response = await post(event);
+
+      expect(response.status).toBe(200);
+
+      const [row] = (await eventRows()).filter(entry => entry.eventId === event.id);
+
+      expect(row!.status).toBe('ignored_foreign');
+      expect(row!.lastError).toBe('FOREIGN_INVOICE');
+      expect(stripeMock.subscriptions.retrieve).toHaveBeenCalledTimes(1);
+    });
+
+    it('a charge.refunded whose INVOICE Stripe reports missing is foreign, not a 500', async () => {
+      stripeMock.invoices.retrieve.mockRejectedValueOnce(resourceMissing('No such invoice: in_fe2_refund_missing'));
+      const event = stripeEvent('charge.refunded', {
+        id: 'ch_fe2_refund_missing',
+        invoice: 'in_fe2_refund_missing',
+        amount: 10000,
+        amount_refunded: 10000,
+      });
+      const response = await post(event);
+
+      expect(response.status).toBe(200);
+
+      const [row] = (await eventRows()).filter(entry => entry.eventId === event.id);
+
+      expect(row!.status).toBe('ignored_foreign');
+      expect(row!.lastError).toBe('FOREIGN_CHARGE');
+      expect(row!.salonId).toBeNull();
+      expect(sentryHolder.captureMessage).not.toHaveBeenCalled();
+    });
+
+    it('a refund.updated whose CHARGE Stripe reports missing is foreign, not a 500', async () => {
+      stripeMock.charges.retrieve.mockRejectedValueOnce(resourceMissing('No such charge: ch_fe2_refund_updated'));
+      const event = stripeEvent('refund.updated', {
+        id: 're_fe2_missing',
+        charge: 'ch_fe2_refund_updated',
+        status: 'succeeded',
+      });
+      const response = await post(event);
+
+      expect(response.status).toBe(200);
+
+      const [row] = (await eventRows()).filter(entry => entry.eventId === event.id);
+
+      expect(row!.status).toBe('ignored_foreign');
+      expect(row!.lastError).toBe('FOREIGN_CHARGE');
+    });
+  });
+
+  describe('FE-5 — the optional deployment marker (X2/X3)', () => {
+    /** A subscription this deployment already projected, before any marker existed. */
+    async function seedPriorSubscription(salonId: string, stripeSubscriptionId: string, paidThrough = new Date('2027-09-01T10:00:00.000Z')) {
+      await db.insert(schema.salonSchema).values({ id: salonId, name: salonId, slug: salonId });
+      await db.insert(schema.billingSubscriptionSchema).values({
+        id: `bsub_${salonId}`,
+        salonId,
+        stripeSubscriptionId,
+        stripeCustomerId: `cus_${salonId}`,
+        planDefinitionKey: 'pro_2026_08',
+        billingOfferKey: 'pro_2026_08_annual',
+        billingCadence: 'annual',
+        status: 'active',
+        paidThrough,
+        creditCycleAnchor: new Date('2026-09-01T10:00:00.000Z'),
+      });
+    }
+
+    it('a session with NO luster_deployment is foreign once a marker is configured — zero Stripe calls', async () => {
+      envHolder.BILLING_DEPLOYMENT_MARKER = 'preview-a';
+      const event = stripeEvent('checkout.session.completed', {
+        id: 'cs_fe5_unstamped',
+        payment_status: 'paid',
+        metadata: { purpose: 'sms_topup', salonId: 's_fe5_local' },
+      });
+      const response = await post(event);
+
+      expect(response.status).toBe(200);
+
+      const [row] = (await eventRows()).filter(entry => entry.eventId === event.id);
+
+      expect(row!.status).toBe('ignored_foreign');
+      expect(row!.lastError).toBe('FOREIGN_DEPLOYMENT');
+      expect(stripeMock.checkout.sessions.retrieve).not.toHaveBeenCalled();
+    });
+
+    it('a subscription stamped for ANOTHER deployment is foreign, with zero Stripe calls and no row', async () => {
+      envHolder.BILLING_DEPLOYMENT_MARKER = 'preview-a';
+      await db.insert(schema.salonSchema).values({ id: 's_fe5_marker', name: 's', slug: 's-fe5-marker' });
+      const event = stripeEvent('customer.subscription.created', {
+        id: 'sub_fe5_other_deployment',
+        customer: 'cus_fe5',
+        status: 'active',
+        cancel_at_period_end: false,
+        current_period_start: 1_780_000_000,
+        metadata: {
+          purpose: 'plan_subscription',
+          salonId: 's_fe5_marker',
+          billingOfferKey: 'starter_2026_08_monthly',
+          luster_deployment: 'preview-b',
+        },
+      });
+      const response = await post(event);
+
+      expect(response.status).toBe(200);
+
+      const [row] = (await eventRows()).filter(entry => entry.eventId === event.id);
+
+      expect(row!.status).toBe('ignored_foreign');
+      expect(row!.lastError).toBe('FOREIGN_DEPLOYMENT');
+      expect(stripeMock.subscriptions.retrieve).not.toHaveBeenCalled();
+
+      const [subscription] = await db.select().from(schema.billingSubscriptionSchema)
+        .where(eq(schema.billingSubscriptionSchema.stripeSubscriptionId, 'sub_fe5_other_deployment'));
+
+      expect(subscription).toBeUndefined();
+    });
+
+    it('an invoice snapshot stamped for another deployment is foreign, with zero Stripe calls', async () => {
+      envHolder.BILLING_DEPLOYMENT_MARKER = 'preview-a';
+      const event = stripeEvent('invoice.payment_succeeded', {
+        id: 'in_fe5_other_deployment',
+        subscription: 'sub_fe5_invoice',
+        subscription_details: {
+          metadata: { purpose: 'plan_subscription', salonId: 's_fe5_marker', luster_deployment: 'preview-b' },
+        },
+        lines: { data: [subLine(1_780_000_000, 1_780_000_000 + 30 * 24 * 3600)] },
+      });
+      const response = await post(event);
+
+      expect(response.status).toBe(200);
+
+      const [row] = (await eventRows()).filter(entry => entry.eventId === event.id);
+
+      expect(row!.status).toBe('ignored_foreign');
+      expect(row!.lastError).toBe('FOREIGN_DEPLOYMENT');
+      expect(stripeMock.subscriptions.retrieve).not.toHaveBeenCalled();
+    });
+
+    /**
+     * The marker is stamped at CREATION (PR-3), so on the day it is first
+     * configured every object already in flight carries none. A locally
+     * stored row is proof this deployment created and projected the object,
+     * and must outrank the marker — otherwise setting the variable would
+     * silently stop projecting existing paying subscribers' renewals.
+     */
+    it('a LOCAL subscription row outranks an ABSENT marker', async () => {
+      envHolder.BILLING_DEPLOYMENT_MARKER = 'preview-a';
+      await seedPriorSubscription('s_fe5_prior', 'sub_fe5_prior');
+      const event = stripeEvent('customer.subscription.updated', {
+        id: 'sub_fe5_prior',
+        customer: 'cus_s_fe5_prior',
+        status: 'past_due',
+        cancel_at_period_end: false,
+        current_period_start: 1_780_000_000,
+        // Created before the marker existed: no luster_deployment at all.
+        metadata: { purpose: 'plan_subscription', salonId: 's_fe5_prior', billingOfferKey: 'pro_2026_08_annual' },
+      });
+      const response = await post(event);
+
+      expect(response.status).toBe(200);
+
+      const [row] = (await eventRows()).filter(entry => entry.eventId === event.id);
+
+      expect(row!.status).toBe('processed');
+      expect(row!.salonId).toBe('s_fe5_prior');
+
+      const [subscription] = await db.select().from(schema.billingSubscriptionSchema)
+        .where(eq(schema.billingSubscriptionSchema.stripeSubscriptionId, 'sub_fe5_prior'));
+
+      expect(subscription!.status).toBe('past_due');
+    });
+
+    it('a LOCAL subscription row outranks a DIFFERENT marker on an invoice too', async () => {
+      envHolder.BILLING_DEPLOYMENT_MARKER = 'preview-a';
+      await seedPriorSubscription('s_fe5_prior_inv', 'sub_fe5_prior_inv', new Date('2026-09-01T10:00:00.000Z'));
+      const periodEnd = Math.floor(new Date('2027-09-01T10:00:00.000Z').getTime() / 1000);
+      const event = stripeEvent('invoice.payment_succeeded', {
+        id: 'in_fe5_prior',
+        subscription: 'sub_fe5_prior_inv',
+        subscription_details: {
+          metadata: { purpose: 'plan_subscription', salonId: 's_fe5_prior_inv', luster_deployment: 'preview-b' },
+        },
+        lines: { data: [subLine(1_780_000_000, periodEnd)] },
+      });
+      const response = await post(event);
+
+      expect(response.status).toBe(200);
+
+      const [row] = (await eventRows()).filter(entry => entry.eventId === event.id);
+
+      expect(row!.status).toBe('processed');
+      expect(row!.salonId).toBe('s_fe5_prior_inv');
+    });
+
+    it('with NO local row and an absent marker it is still FOREIGN_DEPLOYMENT (the rule only relaxes for rows we hold)', async () => {
+      envHolder.BILLING_DEPLOYMENT_MARKER = 'preview-a';
+      const event = stripeEvent('customer.subscription.updated', {
+        id: 'sub_fe5_no_row',
+        customer: 'cus_fe5_no_row',
+        status: 'active',
+        cancel_at_period_end: false,
+        current_period_start: 1_780_000_000,
+        metadata: { purpose: 'plan_subscription', salonId: 's_fe5_no_row', billingOfferKey: 'starter_2026_08_monthly' },
+      });
+      const response = await post(event);
+
+      expect(response.status).toBe(200);
+
+      const [row] = (await eventRows()).filter(entry => entry.eventId === event.id);
+
+      expect(row!.status).toBe('ignored_foreign');
+      expect(row!.lastError).toBe('FOREIGN_DEPLOYMENT');
+      expect(stripeMock.subscriptions.retrieve).not.toHaveBeenCalled();
+    });
+
+    it('a bound checkout ATTEMPT outranks an absent marker on a session event', async () => {
+      envHolder.BILLING_DEPLOYMENT_MARKER = 'preview-a';
+      await db.insert(schema.salonSchema).values({ id: 's_fe5_attempt', name: 's', slug: 's-fe5-attempt' });
+      await db.insert(schema.billingCheckoutAttemptSchema).values({
+        id: 'att_fe5',
+        salonId: 's_fe5_attempt',
+        purpose: 'plan_subscription',
+        billingOfferKey: 'starter_2026_08_monthly',
+        status: 'checkout_created',
+        stripeIdempotencyKey: 'idem_fe5',
+        stripeCheckoutSessionId: 'cs_fe5_attempt',
+        expiresAt: new Date(Date.now() + 3600_000),
+      });
+      const event = stripeEvent('checkout.session.completed', {
+        id: 'cs_fe5_attempt',
+        payment_status: 'paid',
+        metadata: { purpose: 'plan_subscription', salonId: 's_fe5_attempt' },
+      });
+      const response = await post(event);
+
+      expect(response.status).toBe(200);
+
+      const [row] = (await eventRows()).filter(entry => entry.eventId === event.id);
+
+      expect(row!.status).toBe('processed');
+      expect(row!.salonId).toBe('s_fe5_attempt');
+    });
+
+    it('an EQUAL marker processes exactly as it does with the marker unset', async () => {
+      envHolder.BILLING_DEPLOYMENT_MARKER = 'preview-a';
+      await db.insert(schema.salonSchema).values({ id: 's_fe5_equal', name: 's', slug: 's-fe5-equal' });
+      const event = stripeEvent('customer.subscription.created', {
+        id: 'sub_fe5_equal',
+        customer: 'cus_fe5_equal',
+        status: 'active',
+        cancel_at_period_end: false,
+        current_period_start: 1_780_000_000,
+        metadata: {
+          purpose: 'plan_subscription',
+          salonId: 's_fe5_equal',
+          billingOfferKey: 'starter_2026_08_monthly',
+          luster_deployment: 'preview-a',
+        },
+      });
+      const response = await post(event);
+
+      expect(response.status).toBe(200);
+
+      const [row] = (await eventRows()).filter(entry => entry.eventId === event.id);
+
+      expect(row!.status).toBe('processed');
+
+      const [subscription] = await db.select().from(schema.billingSubscriptionSchema)
+        .where(eq(schema.billingSubscriptionSchema.stripeSubscriptionId, 'sub_fe5_equal'));
+
+      expect(subscription!.salonId).toBe('s_fe5_equal');
+    });
+  });
+
+  describe('FE-3 — a marked subscription for a salon that is not local', () => {
+    it('is terminally foreign: no held_anomaly, no Sentry, no row, no FK error', async () => {
+      const event = stripeEvent('customer.subscription.created', {
+        id: 'sub_fe3_not_local',
+        customer: 'cus_fe3',
+        status: 'active',
+        cancel_at_period_end: false,
+        current_period_start: 1_780_000_000,
+        metadata: {
+          purpose: 'plan_subscription',
+          salonId: 's_fe3_another_deployment',
+          billingOfferKey: 'starter_2026_08_monthly',
+        },
+      });
+      const response = await post(event);
+
+      expect(response.status).toBe(200);
+
+      const [row] = (await eventRows()).filter(entry => entry.eventId === event.id);
+
+      expect(row!.status).toBe('ignored_foreign');
+      expect(row!.lastError).toBe('FOREIGN_SALON');
+      expect(row!.attempts).toBe(1);
+      expect(row!.salonId).toBeNull();
+      expect(sentryHolder.captureMessage).not.toHaveBeenCalled();
+
+      const [subscription] = await db.select().from(schema.billingSubscriptionSchema)
+        .where(eq(schema.billingSubscriptionSchema.stripeSubscriptionId, 'sub_fe3_not_local'));
+
+      expect(subscription).toBeUndefined();
+    });
+  });
+
+  describe('FE-4 / Y12 — the livemode gate', () => {
+    it('answers 503 MODE_INDETERMINATE and writes NOTHING when the two legs disagree', async () => {
+      livemodeHolder.expected = { ok: false, code: 'MODE_INDETERMINATE' };
+      const event = stripeEvent('customer.subscription.created', {
+        id: 'sub_y12_indeterminate',
+        customer: 'cus_y12',
+        status: 'active',
+        cancel_at_period_end: false,
+        current_period_start: 1_780_000_000,
+        metadata: { purpose: 'plan_subscription', salonId: 's_y12', billingOfferKey: 'starter_2026_08_monthly' },
+      });
+      const response = await post(event);
+
+      expect(response.status).toBe(503);
+      expect((await response.json()).error.code).toBe('MODE_INDETERMINATE');
+      expect((await eventRows()).filter(entry => entry.eventId === event.id)).toHaveLength(0);
+      expect(sentryHolder.captureMessage).toHaveBeenCalledWith(
+        'billing.livemode_indeterminate',
+        expect.objectContaining({ level: 'error' }),
+      );
+    });
+
+    it('alerts at most ONCE per ten-minute window, then again after it', async () => {
+      const nowSpy = vi.spyOn(Date, 'now');
+      try {
+        // Far enough past any earlier alert in this file that the first call
+        // here always opens a fresh window, whatever order the suite ran in.
+        const t0 = 4_000_000_000_000;
+        nowSpy.mockReturnValue(t0);
+        await post(stripeEvent('invoice.payment_failed', { id: 'in_y12_a', subscription: 'sub_y12_a' }, { livemode: true }));
+
+        expect(sentryHolder.captureMessage).toHaveBeenCalledTimes(1);
+        expect(sentryHolder.captureMessage).toHaveBeenLastCalledWith(
+          'billing.livemode_mismatch',
+          expect.objectContaining({
+            level: 'error',
+            extra: expect.objectContaining({ eventLivemode: true, expectedLivemode: false }),
+          }),
+        );
+
+        // A second mismatch five minutes later: the fault is standing, not
+        // per-event, so it must not page again.
+        nowSpy.mockReturnValue(t0 + 5 * 60 * 1000);
+        await post(stripeEvent('invoice.payment_failed', { id: 'in_y12_b', subscription: 'sub_y12_b' }, { livemode: true }));
+
+        expect(sentryHolder.captureMessage).toHaveBeenCalledTimes(1);
+
+        // Past the window: the condition is still live, so it pages again.
+        nowSpy.mockReturnValue(t0 + 11 * 60 * 1000);
+        await post(stripeEvent('invoice.payment_failed', { id: 'in_y12_c', subscription: 'sub_y12_c' }, { livemode: true }));
+
+        expect(sentryHolder.captureMessage).toHaveBeenCalledTimes(2);
+      } finally {
+        nowSpy.mockRestore();
+      }
+
+      // Every mismatched delivery is still parked terminally, alert or not.
+      const parked = (await eventRows()).filter(entry => ['in_y12_a', 'in_y12_b', 'in_y12_c']
+        .includes(entry.invoiceId ?? ''));
+
+      expect(parked).toHaveLength(3);
+      expect(parked.every(entry => entry.status === 'ignored_livemode_mismatch')).toBe(true);
+    });
+
+    it('once the configuration is corrected, the SAME event id is reclaimed and processes', async () => {
+      await db.insert(schema.salonSchema).values({ id: 's_y12_reclaim', name: 's', slug: 's-y12-reclaim' });
+      const event = stripeEvent('customer.subscription.created', {
+        id: 'sub_y12_reclaim',
+        customer: 'cus_y12_reclaim',
+        status: 'active',
+        cancel_at_period_end: false,
+        current_period_start: 1_780_000_000,
+        metadata: { purpose: 'plan_subscription', salonId: 's_y12_reclaim', billingOfferKey: 'starter_2026_08_monthly' },
+      }, { livemode: true });
+
+      // Delivery 1 — this deployment expects test mode; the event is live.
+      const mismatched = await post(event);
+
+      expect((await mismatched.json()).ignored).toBe('livemode_mismatch');
+
+      // The rate-limit test above pinned Date.now() to the year 2096 and left
+      // a timestamp behind in the route module. `vi.resetModules()` in
+      // beforeEach clears it, so this mismatch alerts on its own merits — if
+      // that isolation ever regresses, this assertion fails rather than the
+      // suppression going unnoticed.
+      expect(sentryHolder.captureMessage).toHaveBeenCalledWith(
+        'billing.livemode_mismatch',
+        expect.objectContaining({ level: 'error' }),
+      );
+
+      const [parked] = (await eventRows()).filter(entry => entry.eventId === event.id);
+
+      expect(parked!.status).toBe('ignored_livemode_mismatch');
+      expect(parked!.attempts).toBe(0);
+
+      // The operator fixes the endpoint secret / key pairing; Stripe
+      // redelivers the very same event id.
+      livemodeHolder.expected = { ok: true, livemode: true };
+      const redelivery = await post(event);
+
+      expect(redelivery.status).toBe(200);
+      expect((await redelivery.json()).outcome).toBe('processed');
+
+      const [reclaimed] = (await eventRows()).filter(entry => entry.eventId === event.id);
+
+      expect(reclaimed!.status).toBe('processed');
+      expect(reclaimed!.attempts).toBe(1);
+      expect(reclaimed!.salonId).toBe('s_y12_reclaim');
+
+      const [subscription] = await db.select().from(schema.billingSubscriptionSchema)
+        .where(eq(schema.billingSubscriptionSchema.stripeSubscriptionId, 'sub_y12_reclaim'));
+
+      expect(subscription!.salonId).toBe('s_y12_reclaim');
+    });
+  });
+
+  describe('§2.3 item 4 — salon attribution on processed event rows', () => {
+    it('attributes the subscription and its paid invoice to the local salon', async () => {
+      await db.insert(schema.salonSchema).values({ id: 's_attr_route', name: 's', slug: 's-attr-route' });
+      const createdAt = Math.floor((Date.now() - 5 * 24 * 3600_000) / 1000);
+      const subscriptionEvent = stripeEvent('customer.subscription.created', {
+        id: 'sub_attr_route',
+        customer: 'cus_attr_route',
+        status: 'active',
+        cancel_at_period_end: false,
+        current_period_start: createdAt,
+        metadata: { purpose: 'plan_subscription', salonId: 's_attr_route', billingOfferKey: 'starter_2026_08_monthly' },
+      });
+      await post(subscriptionEvent);
+
+      const [subscriptionRow] = (await eventRows()).filter(entry => entry.eventId === subscriptionEvent.id);
+
+      expect(subscriptionRow!.status).toBe('processed');
+      expect(subscriptionRow!.salonId).toBe('s_attr_route');
+
+      const invoiceEvent = stripeEvent('invoice.payment_succeeded', {
+        id: 'in_attr_route',
+        subscription: 'sub_attr_route',
+        lines: { data: [subLine(createdAt, createdAt + 35 * 24 * 3600)] },
+      });
+      await post(invoiceEvent);
+
+      const [invoiceRow] = (await eventRows()).filter(entry => entry.eventId === invoiceEvent.id);
+
+      expect(invoiceRow!.status).toBe('processed');
+      expect(invoiceRow!.salonId).toBe('s_attr_route');
+    });
+
+    it('attributes a fulfilled top-up to its purchase salon', async () => {
+      await db.insert(schema.salonSchema).values({ id: 's_attr_topup', name: 's', slug: 's-attr-topup' });
+      await db.insert(schema.smsCreditAccountSchema).values({ salonId: 's_attr_topup' });
+      await db.insert(schema.smsTopupPurchaseSchema).values({
+        id: 'stp_attr_topup',
+        salonId: 's_attr_topup',
+        topupOfferKey: 'topup_100_paid_2026_08',
+        credits: 100,
+        amountCents: 599,
+        status: 'checkout_created',
+        stripeCheckoutSessionId: 'cs_attr_topup',
+      });
+      stripeMock.checkout.sessions.retrieve.mockResolvedValue({
+        id: 'cs_attr_topup',
+        amount_total: 599,
+        currency: 'cad',
+        metadata: { salonId: 's_attr_topup', purchaseId: 'stp_attr_topup' },
+        // No price id: the G02 reverse lookup is all-placeholder before
+        // activation, and its once-per-process "unconfigured" notice is not
+        // what this test is about.
+        line_items: { data: [] },
+      });
+      const event = stripeEvent('checkout.session.completed', {
+        id: 'cs_attr_topup',
+        payment_status: 'paid',
+        payment_intent: 'pi_attr_topup',
+        metadata: { purpose: 'sms_topup', salonId: 's_attr_topup' },
+      });
+      const response = await post(event);
+
+      expect(response.status).toBe(200);
+
+      const [row] = (await eventRows()).filter(entry => entry.eventId === event.id);
+
+      expect(row!.status).toBe('processed');
+      expect(row!.salonId).toBe('s_attr_topup');
     });
   });
 });

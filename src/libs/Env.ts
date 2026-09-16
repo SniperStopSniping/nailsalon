@@ -44,6 +44,17 @@ export const Env = createEnv({
     // Dedicated secret for /api/webhooks/stripe-billing (§8.1) — never shared
     // with the legacy or deposits webhook secrets.
     STRIPE_BILLING_WEBHOOK_SECRET: z.string().optional(),
+    // D19c §2.1 deployment marker. OPTIONAL; UNSET MEANS NO DEPLOYMENT CHECK
+    // and behaviour identical to before this variable existed. When it IS
+    // set, /api/webhooks/stripe-billing additionally requires every object it
+    // processes to carry `metadata.luster_deployment` equal to this value —
+    // an absent or different marker is DEFINITELY FOREIGN (`FOREIGN_DEPLOYMENT`,
+    // zero Stripe calls). That is the structural answer to several
+    // deployments of this codebase sharing one test-mode Stripe account.
+    // PR-2 only HONOURS the marker; PR-3 stamps it onto sessions,
+    // subscriptions and customers — so set it only AFTER the stamping deploy,
+    // or the endpoint will classify its own in-flight objects as foreign.
+    BILLING_DEPLOYMENT_MARKER: z.string().regex(/^[\w.-]{1,64}$/).optional(),
     // G40/D19a — env-keyed Stripe Price/Coupon id carrier (contract §4/§12,
     // P6b; ratified 2026-09-14). Server-only JSON, optional; UNSET MEANS NO
     // CARRIER — every resolver in stripePriceMap.ts falls back to the
@@ -153,6 +164,7 @@ export const Env = createEnv({
     PUBLIC_PRICING_ENABLED: process.env.PUBLIC_PRICING_ENABLED,
     BILLING_TAX_COLLECTION_ENABLED: process.env.BILLING_TAX_COLLECTION_ENABLED,
     STRIPE_BILLING_WEBHOOK_SECRET: process.env.STRIPE_BILLING_WEBHOOK_SECRET,
+    BILLING_DEPLOYMENT_MARKER: process.env.BILLING_DEPLOYMENT_MARKER,
     BILLING_STRIPE_PRICE_IDS: process.env.BILLING_STRIPE_PRICE_IDS,
     TWILIO_ACCOUNT_SID: process.env.TWILIO_ACCOUNT_SID,
     TWILIO_AUTH_TOKEN: process.env.TWILIO_AUTH_TOKEN,
