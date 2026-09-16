@@ -1,3 +1,25 @@
+# [1.111.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.110.4...v1.111.0) (2026-09-16)
+
+
+### Bug Fixes
+
+* **owner-assistant:** apply the four fresh-context review passes ([b286ed8](https://github.com/SniperStopSniping/nailsalon/commit/b286ed8a4ee2270d215b22fdedd9c8087e722237))
+* **owner-assistant:** cap conversation age and document model limits ([1aa2ea6](https://github.com/SniperStopSniping/nailsalon/commit/1aa2ea6bd7ea486335c104b2f3375f285592144c))
+* **owner-assistant:** close the final review minors ([bfdd101](https://github.com/SniperStopSniping/nailsalon/commit/bfdd101262a75fed025f33ee6b3d3efcaa03751d))
+* **owner-assistant:** refuse non-relative link hrefs in the chat sheet ([1b6b160](https://github.com/SniperStopSniping/nailsalon/commit/1b6b160a92eb261b3a0d602dfac2950558c17423))
+* **owner-assistant:** report a call cut short by the turn deadline as turn_timeout ([a5401c0](https://github.com/SniperStopSniping/nailsalon/commit/a5401c03f7126b718f6bd7ac7b0af651984a5dcb))
+
+
+### Features
+
+* **owner-assistant:** chat copy, session storage and turn state hook ([68d2bdc](https://github.com/SniperStopSniping/nailsalon/commit/68d2bdc60a716475e72af5146c1f457db680694b))
+* **owner-assistant:** context and chat routes ([9bda3dd](https://github.com/SniperStopSniping/nailsalon/commit/9bda3dd0a484d38cb7a543e8dd68a6c1f533e81e))
+* **owner-assistant:** contracts, navigation registry and spec for the chat slice (A1-1) ([ea90abd](https://github.com/SniperStopSniping/nailsalon/commit/ea90abdf27774cdceca9cb6490deb2925ba989e0))
+* **owner-assistant:** launcher pill and chat sheet ([7735e1f](https://github.com/SniperStopSniping/nailsalon/commit/7735e1fe6de4928bb2ab4a8db0887a7248aa7025)), closes [#223](https://github.com/SniperStopSniping/nailsalon/issues/223)
+* **owner-assistant:** mount the launcher on the workspace and booking page ([6fdb674](https://github.com/SniperStopSniping/nailsalon/commit/6fdb674a665e4c646b0b293e244ef836b64b5ae5))
+* **owner-assistant:** provider boundary, turn loop, tools and read-only projections ([36f6b9e](https://github.com/SniperStopSniping/nailsalon/commit/36f6b9ecae95328c1b11cdda2be60d9355f4650f))
+* **owner-assistant:** switches, ai feature group, owner guard and audit writer ([d9148af](https://github.com/SniperStopSniping/nailsalon/commit/d9148af1c32faf8c200cf7c016f82ea504a1d8dd)), closes [#223](https://github.com/SniperStopSniping/nailsalon/issues/223)
+
 ## [1.110.4](https://github.com/SniperStopSniping/nailsalon/compare/v1.110.3...v1.110.4) (2026-09-16)
 
 
