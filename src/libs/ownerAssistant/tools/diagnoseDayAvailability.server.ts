@@ -57,6 +57,21 @@ import { OwnerAssistantSalonMissingError } from './getSalonOverview.server';
  * reaches the result — the engine is asked for counts, and nothing here reads
  * an appointment row.
  *
+ * TWO DIFFERENT QUESTIONS. `bookableSlotCount` answers "what would this salon's
+ * own rules allow on that day" and is `null` whenever the slot loop did not run.
+ * `customersCanBookNow` answers "can a customer actually book right now", which
+ * is false for an unpublished salon or one without the online-booking
+ * entitlement however healthy its rules are, and false whenever nothing was
+ * measured. Only the second one may be turned into "customers can book".
+ *
+ * KNOWN LIMITATION — single location. The hours ceiling is resolved from the
+ * salon's PRIMARY location (`getPrimaryLocation`), while the public route
+ * resolves it from the location the customer is booking against. A
+ * multi-location salon can therefore be diagnosed against different hours than
+ * the page serves for a secondary location. Recorded in
+ * docs/OWNER_ASSISTANT_CHAT.md §3; multi-location is an elite-tier feature and
+ * out of scope for this slice.
+ *
  * TIMEZONE LIMITATION: the booking policy engine resolves weekdays and
  * schedule windows in America/Toronto (`getDayNameForDate`,
  * `isWindowWithinSchedule` in `bookingPolicy.ts`). A salon on any other
@@ -75,6 +90,26 @@ const SUPPORTED_TIME_ZONE = 'America/Toronto';
 /** At most this many names come back with a `clarify`. */
 const MAX_CLARIFY_OPTIONS = 8;
 
+/**
+ * At most this many ENGINE-derived causes reach the model.
+ *
+ * The engine charges up to six codes per technician plus two salon-wide ones,
+ * so a large team produced an unbounded list that is replayed into the model on
+ * every later call of the turn. The tool's own causes (steps 0–7) are
+ * authoritative and always survive; only the per-slot tallies below are capped,
+ * keeping the biggest counts because those are the ones that explain the day.
+ */
+const MAX_ENGINE_CAUSES = 8;
+
+/**
+ * Engine causes that merely restate the working window. On a day that yields
+ * bookable slots they explain nothing — a healthy Friday charges one
+ * `outside_schedule` per technician for the sixteen grid slots outside 09:00–17:00
+ * — so they are dropped there and kept when the day yields nothing, where they
+ * may be the real explanation.
+ */
+const SCHEDULE_SHAPE_CODES = new Set<DiagnosisCode>(['outside_schedule', 'location_unavailable']);
+
 const WEEKDAY_WORDS = [
   'sunday',
   'monday',
@@ -90,7 +125,7 @@ const WEEKDAY_WORDS = [
  * cite them in `links`, and code turns a key into an href); `null` where
  * nothing in the dashboard can fix it.
  */
-const CAUSE_LINKS: Record<DiagnosisCode, string | null> = {
+export const CAUSE_LINKS: Record<DiagnosisCode, string | null> = {
   // Not an owner-fixable state: Luster does not support this salon's timezone
   // in the availability engine yet.
   timezone_unsupported: null,
@@ -212,6 +247,14 @@ function resolveRequestedDate(rawDate: string, todayKey: string): ResolvedDate {
   if (!DATE_KEY_PATTERN.test(trimmed)) {
     throw new DiagnoseDayInvalidArgumentsError('unparseable_date');
   }
+  // The pattern only proves the SHAPE. `Date.UTC` silently rolls an impossible
+  // key over into a real instant ('2026-03-99' becomes June), which would slip
+  // past the lexicographic range check below and be diagnosed as a day ~94 days
+  // out while `resolvedDateKey` still echoed the impossible key back. A key that
+  // does not survive the round trip is not a date.
+  if (utcToDateKey(dateKeyToUtcNoon(trimmed)) !== trimmed) {
+    throw new DiagnoseDayInvalidArgumentsError('unparseable_date');
+  }
   if (trimmed < todayKey || trimmed > addDaysToDateKey(todayKey, MAX_DAYS_AHEAD)) {
     throw new DiagnoseDayInvalidArgumentsError('date_out_of_range');
   }
@@ -269,13 +312,18 @@ export async function diagnoseDayAvailability(
   // argument error rather than a cause, on every timezone.
   const requested = resolveRequestedDate(args.date, getDateKeyInTimeZone(now, timeZone));
 
+  // Every field here is what the tool knows BEFORE the slot loop runs. The
+  // count and the first bookable time are `null` — NOT MEASURED — so that every
+  // early return below reports honestly instead of claiming a measured zero,
+  // and `customersCanBookNow` is false until something proves otherwise.
   const base = {
     resolvedDateKey: requested.dateKey,
     resolution: requested.resolution,
     ambiguity: requested.ambiguity,
-    bookableSlotCount: 0,
+    bookableSlotCount: null,
     firstBookable: null,
     publicRouteState: 'ok',
+    customersCanBookNow: false,
   } as const;
 
   // Step 0 — the policy engine is Toronto-bound; say so instead of guessing.
@@ -299,12 +347,18 @@ export async function diagnoseDayAvailability(
     getServicesBySalonIdIncludingInactive(salonId),
     getTechniciansBySalonId(salonId),
   ]);
-  const activeServices = allServices.filter(service => service.isActive === true);
 
-  let service: (typeof activeServices)[number] | null = null;
+  // Matched against ALL of the salon's services, switched-off ones included. An
+  // owner asking about a hidden service must be told it is switched off (step 5
+  // raises `service_not_bookable` with the validator's own `invalid_service`),
+  // not handed a list of other services that quietly omits the one they named.
+  let service: (typeof allServices)[number] | null = null;
   if (args.serviceName !== null && args.serviceName.trim() !== '') {
-    const match = matchByName(activeServices, args.serviceName);
-    if (!match.matched) {
+    const match = matchByName(allServices, args.serviceName);
+    // An EMPTY option list is not a question — it asks the owner to choose
+    // between nothing. Fall through instead, so the honest gates below
+    // (no services at all, nobody active) get to speak.
+    if (!match.matched && match.options.length > 0) {
       return {
         ...base,
         clarify: { kind: 'service', options: match.options },
@@ -324,7 +378,7 @@ export async function diagnoseDayAvailability(
   let technician: (typeof activeTechnicians)[number] | null = null;
   if (args.technicianName !== null && args.technicianName.trim() !== '') {
     const match = matchByName(activeTechnicians, args.technicianName);
-    if (!match.matched) {
+    if (!match.matched && match.options.length > 0) {
       return {
         ...base,
         clarify: { kind: 'technician', options: match.options },
@@ -362,13 +416,18 @@ export async function diagnoseDayAvailability(
 
   // Step 3 — is the page reachable at all, and is online booking entitled?
   // Both are reported and neither stops the diagnosis: an owner fixing their
-  // publication state still wants to know their Friday is fully booked.
+  // publication state still wants to know their Friday is fully booked. But
+  // either one means the PUBLIC page serves nobody, on every day and whatever
+  // the slot loop goes on to measure, so the state becomes `unreachable` and
+  // `customersCanBookNow` can no longer be true.
   const status = await checkSalonStatus(salonId);
   if (!status.isActive) {
     causes.push(cause('salon_not_public'));
+    publicRouteState = 'unreachable';
   }
   if (!resolveEntitlement(features, 'booking', 'onlineBooking')) {
     causes.push(cause('online_booking_off'));
+    publicRouteState = 'unreachable';
   }
 
   // Step 4 — the opening-hours ceiling, resolved exactly as the public route
@@ -492,7 +551,11 @@ export async function diagnoseDayAvailability(
       throw error;
     }
     causes.push(cause('calendar_unverified'));
-    publicRouteState = 'error';
+    // `unreachable` outranks `error`: a page nobody can open at all cannot be
+    // described as failing for this one day.
+    if (publicRouteState === 'ok') {
+      publicRouteState = 'error';
+    }
   }
 
   // Step 8 — the slot loop itself, in explain mode. No annotator and no
@@ -518,14 +581,29 @@ export async function diagnoseDayAvailability(
   }, { explain: true });
 
   const namesById = new Map(technicians.map(candidate => [candidate.id, candidate.name]));
+  const dayWorks = explanation.bookableSlotCount > 0;
 
-  for (const engineCause of explanation.causes) {
+  const relevant = explanation.causes.filter((engineCause) => {
     // Step 7 already reported these authoritatively, once per technician and
     // with a name; the engine only restates them per refused slot.
     if (engineCause.code === 'technician_time_off' || engineCause.code === 'technician_day_off') {
-      continue;
+      return false;
     }
 
+    // Schedule shape is noise on a day that works (see SCHEDULE_SHAPE_CODES).
+    return !(dayWorks && SCHEDULE_SHAPE_CODES.has(engineCause.code));
+  });
+
+  // Cap by COUNT, emit in the engine's own first-hit order: which causes
+  // survive is a question of which explain most, but the order the model reads
+  // them in stays the deterministic order the day hit them.
+  const capped = relevant
+    .map((engineCause, index) => ({ engineCause, index }))
+    .sort((left, right) => right.engineCause.count - left.engineCause.count || left.index - right.index)
+    .slice(0, MAX_ENGINE_CAUSES)
+    .sort((left, right) => left.index - right.index);
+
+  for (const { engineCause } of capped) {
     const technicianName = engineCause.technicianId === undefined
       ? undefined
       : namesById.get(engineCause.technicianId);
@@ -542,6 +620,8 @@ export async function diagnoseDayAvailability(
     checked: checked(),
     bookableSlotCount: explanation.bookableSlotCount,
     firstBookable: explanation.firstBookable,
+    // The only place this can be true: the loop ran AND the page is serving.
+    customersCanBookNow: publicRouteState === 'ok' && explanation.bookableSlotCount > 0,
     causes,
   };
 }

@@ -56,6 +56,41 @@ describe('the rules the availability diagnosis depends on', () => {
     expect(OWNER_ASSISTANT_DEVELOPER_RULES_TEXT)
       .toContain('list the options it returned and ask which one the owner means');
   });
+
+  it('makes the resolved day something the owner can correct', () => {
+    expect(OWNER_ASSISTANT_DEVELOPER_RULES_TEXT)
+      .toContain('Always name the day you diagnosed out loud');
+    // The example is spelled out in words on purpose: these texts may carry no
+    // digits at all (see the byte-stability rule above).
+    expect(OWNER_ASSISTANT_DEVELOPER_RULES_TEXT)
+      .toContain('Friday the eighteenth of September');
+  });
+
+  it('gates "customers can book" on customersCanBookNow, not on the slot count', () => {
+    expect(OWNER_ASSISTANT_DEVELOPER_RULES_TEXT)
+      .toContain('If customersCanBookNow is true, lead with bookableSlotCount and firstBookable');
+    expect(OWNER_ASSISTANT_DEVELOPER_RULES_TEXT)
+      .toContain('never tell the owner that customers can book it, whatever bookableSlotCount says');
+  });
+
+  it('forbids reporting an unmeasured day as a number', () => {
+    expect(OWNER_ASSISTANT_DEVELOPER_RULES_TEXT)
+      .toContain('If bookableSlotCount is null, the day was not measured at all');
+    expect(OWNER_ASSISTANT_DEVELOPER_RULES_TEXT)
+      .toContain('Never report it as a number, and never call it zero.');
+  });
+
+  it('pins what a page that serves nobody must be told as', () => {
+    expect(OWNER_ASSISTANT_DEVELOPER_RULES_TEXT)
+      .toContain('If publicRouteState is "unreachable", the booking page is serving nobody at all right now');
+  });
+
+  it('gives the unsupported timezone its own honest answer', () => {
+    expect(OWNER_ASSISTANT_DEVELOPER_RULES_TEXT)
+      .toContain('A cause of timezone_unsupported means this check does not support the salon\'s timezone yet');
+    expect(OWNER_ASSISTANT_DEVELOPER_RULES_TEXT)
+      .toContain('point the owner at their own calendar instead');
+  });
 });
 
 describe('the rules the setup readiness answer depends on', () => {
