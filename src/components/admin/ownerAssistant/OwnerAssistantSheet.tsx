@@ -100,6 +100,12 @@ export function OwnerAssistantSheet({
 
   const openLink = useCallback(
     (href: string) => {
+      // Defence in depth: the server builds hrefs from the navigation
+      // registry, but the sheet still refuses anything that is not a
+      // same-origin relative path (no protocol, no protocol-relative form).
+      if (!href.startsWith('/') || href.startsWith('//')) {
+        return;
+      }
       router.push(href);
       onClose();
     },
