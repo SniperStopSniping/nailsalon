@@ -4,8 +4,14 @@ import {
   OWNER_ASSISTANT_TOOL_ARG_SCHEMAS,
   type OwnerAssistantToolName,
 } from '../contracts';
+import {
+  type DiagnoseDayArgs,
+  diagnoseDayAvailability,
+  DiagnoseDayInvalidArgumentsError,
+} from './diagnoseDayAvailability.server';
 import { findDestination } from './findDestination.server';
 import { getSalonOverview } from './getSalonOverview.server';
+import { getSetupReadiness } from './getSetupReadiness.server';
 import { listServices } from './listServices.server';
 
 /**
@@ -72,10 +78,28 @@ export async function executeOwnerAssistantTool(args: {
         };
       case 'find_destination':
         return { ok: true, result: findDestination(parsed.data as { query: string }) };
+      case 'diagnose_day_availability':
+        return {
+          ok: true,
+          result: await diagnoseDayAvailability(
+            args.salonId,
+            parsed.data as DiagnoseDayArgs,
+            { now: args.now },
+          ),
+        };
+      case 'get_setup_readiness':
+        return { ok: true, result: await getSetupReadiness(args.salonId, { now: args.now }) };
       default:
         return { ok: false, error: { code: 'unknown_tool' } };
     }
-  } catch {
+  } catch (error) {
+    // A day the tool cannot honour is an ARGUMENT problem, not a fault: told
+    // apart here so the model can ask the owner for a different day instead of
+    // reporting that something broke.
+    if (error instanceof DiagnoseDayInvalidArgumentsError) {
+      return { ok: false, error: { code: 'invalid_arguments' } };
+    }
+
     // A database fault must not become an exception the owner sees, and its
     // message must not become model input.
     return { ok: false, error: { code: 'tool_failed' } };

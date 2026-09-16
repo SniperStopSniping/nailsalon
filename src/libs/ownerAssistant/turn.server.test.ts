@@ -836,3 +836,143 @@ describe('ledger row', () => {
     expect((await ledgerRows())[0]?.performedBy).toBe('admin_no_clerk');
   });
 });
+
+/**
+ * The follow-up scenario A1-2 was specified around: an owner asks about one
+ * day, then about another without repeating themselves. What is being proved
+ * is that the second turn INHERITS the first — the window carries the exchange
+ * back to the model — and that the day the model asks about is resolved by
+ * Luster code in the salon's own timezone, not by the model.
+ */
+describe('a two-turn availability conversation', () => {
+  const FRIDAY_ANSWER = {
+    message: 'Nobody is scheduled to work that day, so there is nothing to book. Same availability rules as your booking page.',
+    links: [{ key: 'team' }],
+    followUps: ['What about Saturday?'],
+    needsClarification: false,
+  };
+  const SATURDAY_ANSWER = {
+    message: 'Saturday is the same: no one is working. Same availability rules as your booking page.',
+    links: [],
+    followUps: [],
+    needsClarification: false,
+  };
+
+  const diagnosisCallFor = (date: string) => fakeToolCalls([{
+    callId: `call_${date}`,
+    name: 'diagnose_day_availability',
+    argumentsJson: JSON.stringify({ date, serviceName: null, technicianName: null }),
+  }]);
+
+  /** The JSON the loop handed back to the model for the one tool call it made. */
+  function toolOutputOf(provider: ReturnType<typeof createScriptedProvider>, requestIndex: number) {
+    const output = (provider.requests[requestIndex]?.input ?? [])
+      .find(item => 'type' in item && item.type === 'function_call_output') as { output: string };
+
+    return JSON.parse(output.output) as {
+      resolvedDateKey: string;
+      resolution: string;
+      causes: Array<{ code: string; link: string | null }>;
+    };
+  }
+
+  /** 0 = Sunday … 6 = Saturday, read off the date key as a pure calendar fact. */
+  const weekdayOf = (dateKey: string) => new Date(`${dateKey}T12:00:00.000Z`).getUTCDay();
+
+  beforeEach(() => {
+    envHolder.OWNER_ASSISTANT_TOOLS = 'get_salon_overview,list_services,find_destination,diagnose_day_availability,get_setup_readiness';
+  });
+
+  it('answers about Friday, then about Saturday with the first exchange still in view', async () => {
+    const first = createScriptedProvider(diagnosisCallFor('friday'), fakeAnswer(FRIDAY_ANSWER));
+    const turnOne = await run(first, { message: 'Why can\'t people book Friday?' });
+
+    expect(turnOne.kind).toBe('answer');
+
+    if (turnOne.kind !== 'answer') {
+      return;
+    }
+
+    expect(turnOne.checked).toEqual([
+      { tool: 'diagnose_day_availability', label: OWNER_ASSISTANT_TOOL_LABELS.diagnose_day_availability },
+    ]);
+
+    // Luster resolved the weekday word, in the salon's timezone.
+    const fridayResult = toolOutputOf(first, 1);
+
+    expect(weekdayOf(fridayResult.resolvedDateKey)).toBe(5);
+    expect(fridayResult.resolution).toBe('next_weekday');
+
+    const second = createScriptedProvider(diagnosisCallFor('saturday'), fakeAnswer(SATURDAY_ANSWER));
+    const turnTwo = await run(second, {
+      conversationToken: turnOne.conversation,
+      message: 'What about Saturday?',
+    });
+
+    expect(turnTwo.kind).toBe('answer');
+    expect(turnTwo.kind === 'answer' && turnTwo.message).toBe(SATURDAY_ANSWER.message);
+
+    // The window carried over: the second request replays turn one's exchange
+    // ahead of the new question, which is what lets "What about Saturday?"
+    // mean anything at all.
+    const replayed = (second.requests[0]?.input ?? [])
+      .map(item => ('role' in item && 'content' in item ? `${String(item.role)}: ${String(item.content)}` : ''))
+      .filter(line => line !== '');
+
+    expect(replayed).toContain('user: Why can\'t people book Friday?');
+    expect(replayed).toContain(`assistant: ${FRIDAY_ANSWER.message}`);
+    expect(replayed.at(-1)).toBe('user: What about Saturday?');
+
+    const saturdayResult = toolOutputOf(second, 1);
+
+    expect(weekdayOf(saturdayResult.resolvedDateKey)).toBe(6);
+    expect(saturdayResult.resolvedDateKey).not.toBe(fridayResult.resolvedDateKey);
+  });
+
+  it('keeps the model\'s cited key only because the registry knows it', async () => {
+    const provider = createScriptedProvider(diagnosisCallFor('friday'), fakeAnswer({
+      ...FRIDAY_ANSWER,
+      links: [{ key: 'team' }, { key: 'availability_engine_internals' }],
+    }));
+    const result = await run(provider, { message: 'Why can\'t people book Friday?' });
+
+    expect(result.kind === 'answer' && result.links.map(link => link.key)).toEqual(['team']);
+  });
+
+  it('reports a day the tool refuses as an argument error the model must own', async () => {
+    const provider = createScriptedProvider(
+      fakeToolCalls([{
+        callId: 'c1',
+        name: 'diagnose_day_availability',
+        argumentsJson: JSON.stringify({ date: '1999-01-01', serviceName: null, technicianName: null }),
+      }]),
+      fakeAnswer(ANSWER),
+    );
+    const result = await run(provider, { message: 'Why could nobody book in 1999?' });
+
+    const output = (provider.requests[1]?.input ?? [])
+      .find(item => 'type' in item && item.type === 'function_call_output') as { output: string };
+
+    expect(JSON.parse(output.output)).toEqual({ error: { code: 'invalid_arguments' } });
+    // A failed tool is never claimed as "checked".
+    expect(result.kind === 'answer' && result.checked).toEqual([]);
+  });
+
+  it('runs the readiness tool and tells the owner what it checked', async () => {
+    const provider = createScriptedProvider(
+      fakeToolCalls([{ callId: 'c1', name: 'get_setup_readiness', argumentsJson: '{}' }]),
+      fakeAnswer(ANSWER),
+    );
+    const result = await run(provider, { message: 'What do I still need to set up?' });
+
+    expect(result.kind === 'answer' && result.checked).toEqual([
+      { tool: 'get_setup_readiness', label: OWNER_ASSISTANT_TOOL_LABELS.get_setup_readiness },
+    ]);
+
+    const output = (provider.requests[1]?.input ?? [])
+      .find(item => 'type' in item && item.type === 'function_call_output') as { output: string };
+
+    expect(Object.keys(JSON.parse(output.output)).sort())
+      .toEqual(['computedAt', 'customersWillSee', 'items', 'salon']);
+  });
+});

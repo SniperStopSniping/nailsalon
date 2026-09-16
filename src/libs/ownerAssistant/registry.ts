@@ -132,7 +132,13 @@ export function buildRegistryHref(entryOrKey: RegistryEntry | string, args: { lo
   }
 }
 
-function normalize(text: string): string {
+/**
+ * The assistant's one text-normalisation rule: lowercase, NFKC, punctuation to
+ * spaces, whitespace collapsed. Exported because the tools that match an
+ * owner-typed name against a service or a team member must normalise exactly
+ * the way registry search does — two rules would mean two answers.
+ */
+export function normalizeAssistantText(text: string): string {
   return text.toLowerCase().normalize('NFKC').replace(/[^\p{L}\p{N}\s]/gu, ' ').replace(/\s+/g, ' ').trim();
 }
 
@@ -142,14 +148,14 @@ function normalize(text: string): string {
  * description/key 1. Returns the best `limit` entries with a positive score.
  */
 export function searchRegistry(query: string, limit = 5): RegistryEntry[] {
-  const q = normalize(query);
+  const q = normalizeAssistantText(query);
   if (!q) {
     return [];
   }
   const tokens = q.split(' ').filter(token => token.length > 1);
   const scored = OWNER_ASSISTANT_REGISTRY.map((item) => {
     let score = 0;
-    const synonyms = item.synonyms.map(normalize);
+    const synonyms = item.synonyms.map(normalizeAssistantText);
     if (synonyms.includes(q)) {
       score += 6;
     }
@@ -161,8 +167,8 @@ export function searchRegistry(query: string, limit = 5): RegistryEntry[] {
         score += 1;
       }
     }
-    const labelTokens = normalize(item.label).split(' ');
-    const descriptionTokens = normalize(`${item.description} ${item.key.replace(/_/g, ' ')}`).split(' ');
+    const labelTokens = normalizeAssistantText(item.label).split(' ');
+    const descriptionTokens = normalizeAssistantText(`${item.description} ${item.key.replace(/_/g, ' ')}`).split(' ');
     for (const token of tokens) {
       if (labelTokens.includes(token)) {
         score += 2;
