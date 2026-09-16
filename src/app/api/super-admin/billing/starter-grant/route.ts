@@ -50,6 +50,7 @@ import * as Sentry from '@sentry/nextjs';
 import { z } from 'zod';
 
 import { requireSuperAdmin } from '@/libs/adminAuth';
+import { BusinessIdentityError } from '@/libs/billing/businessIdentity';
 import {
   applyStarterGrantBackfill,
   planStarterGrantBackfill,
@@ -129,6 +130,34 @@ export async function POST(request: Request): Promise<Response> {
       }
       // SALON_DELETED
       return errorJson(409, 'SALON_DELETED', 'This salon has been deleted.');
+    }
+
+    // Y9 (final handoff §6.2): a genuine multi-identity collision is an
+    // operator-actionable state, not an internal fault — surface it instead
+    // of masking it as a 500. The whole backfill runs inside ONE transaction
+    // (`applyStarterGrantBackfill`), so the throw already rolled everything
+    // back: no credits moved, no `billing_starter_grant` row, no audit row.
+    // The body says so and carries nothing else — no Stripe id, no amount,
+    // no identity fingerprint or business-identity id, since the very thing
+    // that failed is deciding WHICH identity this salon is.
+    //
+    // `plan` shares this catch: it cannot raise the error today (its
+    // read-only resolution returns the first existing link match and never
+    // calls `resolveOrCreateBusinessIdentity`), so the mapping is here so
+    // that a future plan-side conflict check answers 409 and not 500.
+    //
+    // The other `BusinessIdentityError` code, `NO_IDENTITY_SIGNALS`, is
+    // structurally unreachable from this module (the salon id is always
+    // supplied as a signal) and therefore stays in the masked-500 bucket
+    // below rather than being mislabelled as a conflict.
+    if (error instanceof BusinessIdentityError && error.code === 'IDENTITY_CONFLICT') {
+      return errorJson(
+        409,
+        'IDENTITY_CONFLICT',
+        'This salon\'s identity signals resolve to more than one business identity. '
+        + 'The starter grant was NOT applied and no credits moved. '
+        + 'Resolve the conflicting business-identity links before retrying.',
+      );
     }
 
     // Every other failure is masked — no raw error message ever reaches the

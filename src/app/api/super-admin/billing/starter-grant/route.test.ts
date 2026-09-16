@@ -71,6 +71,7 @@ async function seedSalon(input: {
   slug: string;
   ownerClerkUserId?: string | null;
   ownerEmail?: string | null;
+  stripeCustomerId?: string | null;
   deletedAt?: Date | null;
 }) {
   await db.insert(schema.salonSchema).values({
@@ -79,6 +80,7 @@ async function seedSalon(input: {
     slug: input.slug,
     ownerClerkUserId: input.ownerClerkUserId ?? null,
     ownerEmail: input.ownerEmail ?? null,
+    stripeCustomerId: input.stripeCustomerId ?? null,
     deletedAt: input.deletedAt ?? null,
   });
 }
@@ -297,5 +299,137 @@ describe('POST /api/super-admin/billing/starter-grant — input validation', () 
 
     expect(response.status).toBe(429);
     expect(rateLimit.rateLimitResponse).toHaveBeenCalledWith(5000);
+  });
+});
+
+describe('POST /api/super-admin/billing/starter-grant — Y9 identity safety', () => {
+  it('409s IDENTITY_CONFLICT when the salon\'s signals resolve to more than one business identity, moving nothing', async () => {
+    await seedSalon({
+      id: 's_conflict_route',
+      slug: 'conflict-route-salon',
+      ownerClerkUserId: 'user_conflict_route',
+      ownerEmail: 'conflict-route@example.com',
+    });
+
+    // Two pre-existing, DIFFERENT identities: one already owns the
+    // clerk_user link, the other already owns the salon link, so resolving
+    // this salon's signals hits `businessIdentity.ts:140-145`.
+    const { resolveOrCreateBusinessIdentity } = await import('@/libs/billing/businessIdentity');
+    await db.transaction(async tx =>
+      resolveOrCreateBusinessIdentity(tx, { clerkUserId: 'user_conflict_route' }));
+    await db.transaction(async tx =>
+      resolveOrCreateBusinessIdentity(tx, { salonId: 's_conflict_route' }));
+
+    const before = await rowCounts();
+    const response = await post({
+      salonSlug: 'conflict-route-salon',
+      mode: 'apply',
+      confirmation: 'conflict-route-salon',
+    });
+    const json = await response.json();
+
+    expect(response.status).toBe(409);
+    expect(json.error.code).toBe('IDENTITY_CONFLICT');
+
+    // No audit row, no grant row, no ledger movement — the library runs the
+    // whole backfill in ONE transaction, so the throw rolled it all back.
+    expect(await rowCounts()).toEqual(before);
+    expect(await db.select().from(schema.billingStarterGrantSchema)
+      .where(eq(schema.billingStarterGrantSchema.salonId, 's_conflict_route'))).toHaveLength(0);
+    expect(await db.select().from(schema.smsCreditLedgerSchema)
+      .where(eq(schema.smsCreditLedgerSchema.salonId, 's_conflict_route'))).toHaveLength(0);
+    expect(await db.select().from(schema.auditLogSchema)
+      .where(eq(schema.auditLogSchema.salonId, 's_conflict_route'))).toHaveLength(0);
+  });
+
+  it('the 409 body carries no Stripe id, no amount and no fingerprint — only the operator instruction', async () => {
+    await seedSalon({
+      id: 's_conflict_body',
+      slug: 'conflict-body-salon',
+      ownerClerkUserId: 'user_conflict_body',
+      stripeCustomerId: 'cus_should_never_appear',
+    });
+    const { resolveOrCreateBusinessIdentity } = await import('@/libs/billing/businessIdentity');
+    await db.transaction(async tx =>
+      resolveOrCreateBusinessIdentity(tx, { clerkUserId: 'user_conflict_body' }));
+    await db.transaction(async tx =>
+      resolveOrCreateBusinessIdentity(tx, { salonId: 's_conflict_body' }));
+
+    const response = await post({
+      salonSlug: 'conflict-body-salon',
+      mode: 'apply',
+      confirmation: 'conflict-body-salon',
+    });
+    const json = await response.json();
+    const serialized = JSON.stringify(json);
+
+    expect(response.status).toBe(409);
+    expect(Object.keys(json)).toEqual(['error']);
+    expect(Object.keys(json.error).sort()).toEqual(['code', 'message']);
+    expect(serialized).not.toContain('cus_');
+    expect(serialized).not.toContain('bbi_');
+    expect(serialized).not.toMatch(/\d/);
+    expect(json.error.message).toContain('NOT applied');
+  });
+
+  it('a conflict is NOT masked as a 500 and is not reported as a granted result', async () => {
+    await seedSalon({
+      id: 's_conflict_not500',
+      slug: 'conflict-not500-salon',
+      ownerClerkUserId: 'user_conflict_not500',
+    });
+    const { resolveOrCreateBusinessIdentity } = await import('@/libs/billing/businessIdentity');
+    await db.transaction(async tx =>
+      resolveOrCreateBusinessIdentity(tx, { clerkUserId: 'user_conflict_not500' }));
+    await db.transaction(async tx =>
+      resolveOrCreateBusinessIdentity(tx, { salonId: 's_conflict_not500' }));
+
+    const response = await post({
+      salonSlug: 'conflict-not500-salon',
+      mode: 'apply',
+      confirmation: 'conflict-not500-salon',
+    });
+    const json = await response.json();
+
+    expect(response.status).not.toBe(500);
+    expect(json.error.code).not.toBe('STARTER_GRANT_ERROR');
+    expect(json.granted).toBeUndefined();
+  });
+
+  it('an UNVERIFIED salon.ownerEmail never blocks the grant — the route still applies it once', async () => {
+    await seedSalon({
+      id: 's_unverified_route',
+      slug: 'unverified-route-salon',
+      ownerClerkUserId: 'user_unverified_route',
+      ownerEmail: 'unverified-route@example.com',
+    });
+    await db.insert(schema.adminUserSchema).values({
+      id: 'au_unverified_route',
+      phoneE164: '+15550001234',
+      clerkUserId: 'user_unverified_route',
+      email: 'unverified-route@example.com',
+      emailVerifiedAt: null,
+    });
+    await db.insert(schema.adminSalonMembershipSchema).values({
+      adminId: 'au_unverified_route',
+      salonId: 's_unverified_route',
+      role: 'owner',
+    });
+
+    const response = await post({
+      salonSlug: 'unverified-route-salon',
+      mode: 'apply',
+      confirmation: 'unverified-route-salon',
+    });
+    const json = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(json.granted).toBe(true);
+
+    // No email_hmac link was built from the unverified address.
+    const links = await db.select().from(schema.billingBusinessIdentityLinkSchema)
+      .where(eq(schema.billingBusinessIdentityLinkSchema.businessIdentityId, json.businessIdentityId));
+
+    expect(links.map(row => row.linkType)).not.toContain('email_hmac');
   });
 });
