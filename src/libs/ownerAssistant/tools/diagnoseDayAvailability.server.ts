@@ -594,12 +594,33 @@ export async function diagnoseDayAvailability(
     return !(dayWorks && SCHEDULE_SHAPE_CODES.has(engineCause.code));
   });
 
-  // Cap by COUNT, emit in the engine's own first-hit order: which causes
-  // survive is a question of which explain most, but the order the model reads
-  // them in stays the deterministic order the day hit them.
-  const capped = relevant
-    .map((engineCause, index) => ({ engineCause, index }))
-    .sort((left, right) => right.engineCause.count - left.engineCause.count || left.index - right.index)
+  // Cap by BREADTH FIRST, then by count. Ranking purely on count lets one
+  // busy day's per-technician causes (one per technician, each covering most
+  // of the grid) crowd out a salon-wide cause like `min_notice` that is the
+  // actual reason nothing is bookable. So every distinct code places its
+  // largest cause before any code places a second one. Emission stays in the
+  // engine's own first-hit order, which is the order the day hit them.
+  const byCode = new Map<string, Array<{ engineCause: (typeof relevant)[number]; index: number }>>();
+  relevant.forEach((engineCause, index) => {
+    const bucket = byCode.get(engineCause.code) ?? [];
+    bucket.push({ engineCause, index });
+    byCode.set(engineCause.code, bucket);
+  });
+  for (const bucket of byCode.values()) {
+    bucket.sort((left, right) => right.engineCause.count - left.engineCause.count || left.index - right.index);
+  }
+
+  const rounds: Array<{ engineCause: (typeof relevant)[number]; index: number }> = [];
+  const deepest = Math.max(0, ...[...byCode.values()].map(bucket => bucket.length));
+  for (let round = 0; round < deepest; round++) {
+    const thisRound = [...byCode.values()]
+      .map(bucket => bucket[round])
+      .filter((entry): entry is { engineCause: (typeof relevant)[number]; index: number } => entry !== undefined)
+      .sort((left, right) => right.engineCause.count - left.engineCause.count || left.index - right.index);
+    rounds.push(...thisRound);
+  }
+
+  const capped = rounds
     .slice(0, MAX_ENGINE_CAUSES)
     .sort((left, right) => left.index - right.index);
 

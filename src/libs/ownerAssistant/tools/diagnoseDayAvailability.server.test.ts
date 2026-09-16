@@ -897,14 +897,14 @@ describe('how many causes the model is allowed to hear', () => {
     // The tool's own authoritative cause survives the cap untouched.
     expect(own).toEqual([{ code: 'salon_not_public', link: 'page_publish' }]);
 
-    // Preferring the highest counts: each technician's schedule-shape cause
-    // covers the 32 grid slots outside 09:00–17:00, which outranks the notice
-    // floor's 16 and crowds it out entirely.
-    for (const cause of engineDerived) {
-      expect(cause.count, cause.code).toBe(32);
-    }
-
-    expect(codes(result)).not.toContain('min_notice');
+    // Breadth before size: every distinct code places its largest cause before
+    // any code places a second one, so the salon-wide notice floor (16 slots)
+    // survives even though ten per-technician schedule-shape causes (32 slots
+    // each) outrank it on count. Ranking on count alone dropped the one cause
+    // that actually explains why nothing is bookable.
+    expect(codes(result)).toContain('min_notice');
+    expect(engineDerived.filter(cause => cause.count === 16)).toHaveLength(1);
+    expect(engineDerived.filter(cause => cause.count === 32)).toHaveLength(7);
   });
 });
 
