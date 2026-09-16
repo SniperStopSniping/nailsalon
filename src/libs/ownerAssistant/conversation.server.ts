@@ -69,7 +69,13 @@ export function verifyConversation(
     throw new ConversationInvalidError('payload');
   }
 
-  if (parsed.data.exp <= nowSeconds(binding.now)) {
+  const now = nowSeconds(binding.now);
+  if (parsed.data.exp <= now) {
+    throw new ConversationInvalidError('expired');
+  }
+  // `renewExpiry` slides `exp` forward on every turn; the absolute cap keeps
+  // a token from living forever on activity alone.
+  if (now - parsed.data.iat > OWNER_ASSISTANT_LIMITS.conversationMaxAgeSeconds) {
     throw new ConversationInvalidError('expired');
   }
 

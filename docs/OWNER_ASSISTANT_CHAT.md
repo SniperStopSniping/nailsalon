@@ -15,10 +15,10 @@ Examples it must handle in this slice: "What services do I offer?", "Where do I 
 | `OWNER_ASSISTANT_ENABLED` | `'true'` enables the feature globally. Anything else ⇒ every route answers 404 and no UI renders. |
 | `OWNER_ASSISTANT_SALON_ALLOWLIST` | Comma-separated salon slugs (pilot mechanism). A salon is entitled when its slug is listed **or** `salon.features.ai.ownerAssistant === true`. |
 | `OWNER_ASSISTANT_TOOLS` | Comma-separated tool names the model may use. Unset ⇒ no tools (the assistant can still converse but must say it cannot check anything). |
-| `OWNER_ASSISTANT_MODEL` | OpenAI model id. Default `gpt-5.6-luna`. |
+| `OWNER_ASSISTANT_MODEL` | OpenAI model id. Default `gpt-5.6-luna`. The adapter always sends `reasoning: { effort: 'low' }`, so the configured model must accept `reasoning.effort` (GPT-5 family and later); a model that rejects it answers HTTP 400, which surfaces as `provider_error`. |
 | `OWNER_ASSISTANT_JSON_MODE` | `'schema'` (default: strict `text.format` json_schema) or `'prompt'` (JSON requested in the prompt only; use if the API rejects schema+tools). |
 | `OPENAI_API_KEY_OWNER` | Server-side only. Dedicated key/project for the owner surface with its own provider-side budget. |
-| `OWNER_ASSISTANT_SIGNING_SECRET` | HMAC secret for the conversation token. Required in production when enabled (hard-fail); in non-production falls back to a value derived from `CLERK_SECRET_KEY` like `OAUTH_STATE_SECRET`. |
+| `OWNER_ASSISTANT_SIGNING_SECRET` | HMAC secret for the conversation token. Required in production when enabled (hard-fail); in non-production falls back to a value derived from `CLERK_SECRET_KEY` like `OAUTH_STATE_SECRET`. Tokens expire 24 h after the last turn and never live longer than 7 days from their first turn. |
 | `REDIS_URL` | Already exists. Required for the turn budget; without it the assistant reports `redis_unavailable`. |
 
 `src/libs/ownerAssistant/enablement.server.ts` exports:
@@ -104,5 +104,8 @@ Rows are written for every outcome that reached the provider or the budget (incl
 
 Enable for one salon: set `OWNER_ASSISTANT_ENABLED=true`, `OWNER_ASSISTANT_SALON_ALLOWLIST=<slug>`, `OWNER_ASSISTANT_TOOLS=get_salon_overview,list_services,find_destination`, `OPENAI_API_KEY_OWNER=<dedicated key with a provider-side monthly budget>`, `OWNER_ASSISTANT_SIGNING_SECRET=<32+ random bytes>`; confirm `REDIS_URL` is set; redeploy. Verify: `GET /api/admin/owner-assistant/context?salonSlug=<other-slug>` → 404; the allowlisted owner sees the pill. Disable: unset `OWNER_ASSISTANT_ENABLED` (global) or remove the slug (per salon) and redeploy. Read the ledger: `select created_at, metadata->'newValue' from salon_audit_log where salon_id = $1 and action = 'owner_assistant_turn' order by created_at desc`. Rotate the key: replace `OPENAI_API_KEY_OWNER`, redeploy, revoke the old key at the provider.
 
-## 10. Not in this slice
+## 10. Evaluation
+`docs/OWNER_ASSISTANT_EVALS.md` holds the case set (conversation, grounding, security, failure, cost) that the CI suites already cover in part and that A1-4 turns into a fake-provider harness plus a recorded real-model run.
+
+## 11. Not in this slice
 Availability diagnosis (A1-2), setup readiness (A1-3), the evaluation suite against the real model and the pilot hardening (A1-4), reviewed write actions (master plan §6), the customer helper, streaming responses, voice, any Stripe or production configuration change.

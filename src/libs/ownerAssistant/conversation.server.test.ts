@@ -112,6 +112,17 @@ describe('sign and verify', () => {
     expect(() => verifyConversation(token, { ...BINDING, now: later })).toThrow(ConversationInvalidError);
   });
 
+  it('rejects a token older than the absolute age cap even when renewal kept it inside its ttl', () => {
+    const issued = new Date('2026-09-16T00:00:00.000Z');
+    const payload = createConversation({ ...BINDING, now: issued });
+    const beyondCap = new Date(issued.getTime() + (OWNER_ASSISTANT_LIMITS.conversationMaxAgeSeconds + 60) * 1000);
+    // Renewed just before the check, so `exp` is in the future and only the
+    // absolute cap can reject it.
+    const token = signConversation(renewExpiry(payload, new Date(beyondCap.getTime() - 1000)));
+
+    expect(() => verifyConversation(token, { ...BINDING, now: beyondCap })).toThrow(ConversationInvalidError);
+  });
+
   it('accepts a token that is still inside its window', () => {
     const issued = new Date('2026-09-16T00:00:00.000Z');
     const token = signConversation(createConversation({ ...BINDING, now: issued }));

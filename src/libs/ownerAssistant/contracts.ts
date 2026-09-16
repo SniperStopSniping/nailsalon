@@ -33,8 +33,10 @@ export const OWNER_ASSISTANT_LIMITS = {
   modelCallTimeoutMs: 20_000,
   /** Abort the whole turn after this long (route declares maxDuration = 60). */
   turnTimeoutMs: 45_000,
-  /** Signed conversation validity. */
+  /** Signed conversation validity, renewed on every turn. */
   conversationTtlSeconds: 24 * 60 * 60,
+  /** Absolute cap from the conversation's first turn; renewal never extends past it. */
+  conversationMaxAgeSeconds: 7 * 24 * 60 * 60,
   /** Messages kept in the signed window (12 owner/assistant exchanges). */
   conversationMaxMessages: 24,
   /** Serialized window size cap; oldest messages drop first. */
