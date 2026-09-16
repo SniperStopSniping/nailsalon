@@ -41,7 +41,10 @@ vi.mock('@/libs/Env', () => ({ Env: envHolder }));
 // delegated to the REAL stripe-node verifier in beforeAll (see `signedPost`),
 // so webhook tests here cross a genuine HMAC boundary rather than a stub.
 const stripeMock = vi.hoisted(() => ({
-  subscriptions: { retrieve: vi.fn() },
+  // `list` is the Y5/§8.5 per-customer duplicate check the reconcile pass runs
+  // after its main loop; these tests are not about it, so it answers "nothing
+  // this database does not already know".
+  subscriptions: { retrieve: vi.fn(), list: vi.fn() },
   invoices: { retrieve: vi.fn(), listLineItems: vi.fn() },
   charges: { retrieve: vi.fn() },
   checkout: { sessions: { retrieve: vi.fn() } },
@@ -75,7 +78,7 @@ const signingStripe = new Stripe('sk_test_billing_refund_concurrency', { apiVers
  * Zero-skip proof: this suite must never silently degrade to a skip in CI.
  * The count is asserted in afterAll and grepped for by the workflow step.
  */
-const EXPECTED_EXECUTED_TESTS = 17;
+const EXPECTED_EXECUTED_TESTS = 18;
 let executedTests = 0;
 
 const day = 86_400_000;
@@ -98,6 +101,8 @@ suite('subscription refund exclusions — real PostgreSQL', () => {
 
   beforeEach(async () => {
     stripeMock.subscriptions.retrieve.mockReset();
+    stripeMock.subscriptions.list.mockReset();
+    stripeMock.subscriptions.list.mockResolvedValue({ data: [] });
     stripeMock.checkout.sessions.retrieve.mockReset();
     stripeMock.invoices.retrieve.mockReset();
     stripeMock.invoices.listLineItems.mockReset();
@@ -361,7 +366,9 @@ suite('subscription refund exclusions — real PostgreSQL', () => {
       { index: 0, status: 'skipped_missed' },
       { index: 1, status: 'granted' },
     ]));
-    expect(await refund(subscriptionId)).toEqual({ applied: true, lowered: false });
+    // A redelivery dedupes on the EFFECTIVE state: applied, but nothing was
+    // written — which is exactly what stops the hourly pass re-announcing it.
+    expect(await refund(subscriptionId)).toEqual({ applied: true, lowered: false, written: false });
     expect((await row(subscriptionId)).paidThrough).toEqual(renewalEnd);
   });
 
@@ -482,7 +489,7 @@ suite('subscription refund exclusions — real PostgreSQL', () => {
     const { evaluateSubscriptionWindows } = await import('./creditGrants');
 
     expect((await evaluateSubscriptionWindows({ subscriptionId: bsubId, now: new Date(anchor.getTime() + day) })).granted).toBe(1);
-    expect(await refund(subscriptionId, 'in_1', anchor, periodEnd)).toEqual({ applied: true, lowered: true });
+    expect(await refund(subscriptionId, 'in_1', anchor, periodEnd)).toEqual({ applied: true, lowered: true, written: true });
     expect((await row(subscriptionId)).paidThrough).toEqual(anchor);
 
     const { applySubscriptionRefundVoid } = await import('./billingSubscriptionProjection');
@@ -882,6 +889,77 @@ suite('subscription refund exclusions — real PostgreSQL', () => {
       expect(plan.evidence.appliedInvoiceIds).toEqual(['in_1']);
       expect(plan.evidence.refunds).toEqual([{ invoiceId: 'in_1', start: anchor, end: repairEnd }]);
     }
+  });
+
+  // PR-6a §C/§G — the projection INSERT race. `onConflictDoNothing` silently
+  // drops the loser's row, and the old code then wrote a `created` audit row
+  // for the `bsub_…` id it had generated locally and never persisted. Refund
+  // EVIDENCE lives in that same `audit_log` table, so an entity_id pointing at
+  // no subscription is a correctness-of-evidence defect: a later reader
+  // scoping evidence by entity_id can attribute it to nothing, and this
+  // delivery's snapshot was dropped on top of that. Only a real row lock can
+  // prove the fix — PGlite has one connection and cannot serialize two
+  // writers at all.
+  it('RT-20: two concurrent projections of one new subscription leave one row, one `created` audit row, and no phantom evidence', async () => {
+    executedTests += 1;
+    const salonId = 'refund_projection_race';
+    const subscriptionId = 'sub_projection_race';
+    await db.insert(schema.salonSchema).values({ id: salonId, name: salonId, slug: salonId });
+
+    const { projectSubscriptionSnapshot } = await import('./billingSubscriptionProjection');
+    const snapshot = {
+      id: subscriptionId,
+      customerId: `cus_${subscriptionId}`,
+      status: 'active',
+      cancelAtPeriodEnd: false,
+      currentPeriodStart: anchor,
+      metadata: { purpose: 'plan_subscription', salonId, billingOfferKey: 'starter_2026_08_monthly' },
+    };
+    // The same second for both: §8.3 keeps equal-second events eligible, so
+    // the loser must APPLY through the update path rather than fence itself
+    // out — a `stale` answer here would be the phantom defect wearing a
+    // different hat.
+    const eventCreated = new Date('2030-01-02T00:00:00.000Z');
+
+    const [first, second] = await Promise.all([
+      projectSubscriptionSnapshot({ snapshot, eventCreated, eventId: 'evt_projection_race_a' }),
+      projectSubscriptionSnapshot({ snapshot, eventCreated, eventId: 'evt_projection_race_b' }),
+    ]);
+
+    // Neither delivery is dropped, and neither is an anomaly.
+    expect(first.applied).toBe(true);
+    expect(second.applied).toBe(true);
+    expect([first, second]
+      .map(outcome => (outcome.applied ? outcome.kind : `anomaly:${outcome.anomaly}`))
+      .sort())
+      .toEqual(['created', 'updated']);
+
+    const rows = await db.select().from(schema.billingSubscriptionSchema)
+      .where(eq(schema.billingSubscriptionSchema.stripeSubscriptionId, subscriptionId));
+
+    expect(rows).toHaveLength(1);
+
+    const projected = (await db.select().from(schema.auditLogSchema))
+      .filter(entry => entry.action === 'billing_subscription_projected')
+      .map(entry => ({ entityId: entry.entityId, metadata: entry.metadata as Record<string, unknown> }));
+
+    expect(projected).toHaveLength(2);
+    expect(projected.filter(entry => entry.metadata.kind === 'created')).toHaveLength(1);
+    expect(projected.filter(entry => entry.metadata.kind === 'updated')).toHaveLength(1);
+    // Both rows are attributed to the row that actually exists — the locally
+    // generated loser id never reaches `audit_log`.
+    expect(new Set(projected.map(entry => entry.entityId))).toEqual(new Set([rows[0]!.id]));
+
+    // The invariant in full, over the WHOLE table (each test starts from a
+    // truncated `audit_log`): no audit row points at a subscription that is
+    // not there.
+    const orphans = await pool.query(
+      `SELECT a.id, a.entity_id FROM audit_log a
+       WHERE a.entity_type = 'billing_subscription'
+         AND NOT EXISTS (SELECT 1 FROM billing_subscription b WHERE b.id = a.entity_id)`,
+    );
+
+    expect(orphans.rows).toEqual([]);
   });
 
   it('RT-19: a void racing a replayed full-refund event converges on one consistent live state', async () => {

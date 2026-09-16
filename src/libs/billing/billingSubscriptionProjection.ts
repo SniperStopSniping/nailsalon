@@ -23,14 +23,14 @@
 
 import 'server-only';
 
-import { and, eq, inArray, isNull } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNull } from 'drizzle-orm';
 
 import { type ActorType, logAuditEventTx } from '@/libs/auditLog';
-import { getBillingOffer } from '@/libs/billing/billingOffers';
+import { type BillingOffer, getBillingOffer } from '@/libs/billing/billingOffers';
 import { completeAttempt, expireAttempt } from '@/libs/billing/checkoutAttempts';
 import { applyUpgradeDiff, evaluateSubscriptionWindows } from '@/libs/billing/creditGrants';
 import type { BillingDbTransaction } from '@/libs/billing/creditLedger';
-import { getPlanDefinition } from '@/libs/billing/planDefinitions';
+import { getPlanDefinition, type PlanDefinition } from '@/libs/billing/planDefinitions';
 import { releasePromotionClaim } from '@/libs/billing/promotionClaims';
 import { getPromotion } from '@/libs/billing/promotions';
 import { resolveOfferForServicePeriod, resolveRateProtectedThrough } from '@/libs/billing/rateProtection';
@@ -231,7 +231,7 @@ export async function projectSubscriptionSnapshot(input: {
         return { applied: false as const, anomaly: SALON_NOT_LOCAL_ANOMALY };
       }
       const subscriptionId = `bsub_${crypto.randomUUID()}`;
-      await tx.insert(billingSubscriptionSchema).values({
+      const insertedRows = await tx.insert(billingSubscriptionSchema).values({
         id: subscriptionId,
         salonId,
         stripeSubscriptionId: snapshot.id,
@@ -249,7 +249,43 @@ export async function projectSubscriptionSnapshot(input: {
         creditCycleAnchor: snapshot.currentPeriodStart,
         lastEventCreated: input.eventCreated,
         lastEventId: input.eventId,
-      }).onConflictDoNothing({ target: billingSubscriptionSchema.stripeSubscriptionId });
+      }).onConflictDoNothing({ target: billingSubscriptionSchema.stripeSubscriptionId })
+        .returning();
+
+      if (insertedRows.length === 0) {
+        // Insert race: a concurrent delivery for the SAME subscription won the
+        // insert, so `subscriptionId` names a row that was never persisted.
+        // Writing the `created` audit row for it anyway (what this path used to
+        // do unconditionally) put an entity_id into `audit_log` that no
+        // `billing_subscription` row has — and refund evidence lives in that
+        // same table, so a phantom row there is a correctness-of-evidence
+        // defect, not a cosmetic one — while this delivery's snapshot was
+        // silently dropped. Re-read the winner's row under the SAME `FOR
+        // UPDATE` lock the top of this transaction takes and run the ordinary
+        // update path against it: the §8.3 fence then decides stale vs applied
+        // exactly as it would have for a delivery that arrived second.
+        const [winner] = await tx
+          .select()
+          .from(billingSubscriptionSchema)
+          .where(eq(billingSubscriptionSchema.stripeSubscriptionId, snapshot.id))
+          .for('update');
+        if (winner === undefined) {
+          // Neither inserted nor findable: the winning row was deleted between
+          // the conflict and this re-select. Nothing to project onto.
+          return { applied: false as const, anomaly: 'SUBSCRIPTION_PROJECTION_RACE' };
+        }
+        return applySnapshotToExisting(tx, winner, {
+          snapshot,
+          status,
+          offer,
+          plan,
+          eventCreated: input.eventCreated,
+          eventId: input.eventId,
+          now,
+          actor,
+        });
+      }
+
       await logAuditEventTx(tx, {
         salonId,
         actorType: actor.actorType,
@@ -262,64 +298,54 @@ export async function projectSubscriptionSnapshot(input: {
       return { applied: true, kind: 'created' as const };
     }
 
-    // §8.3 fence: strictly-older events are stale; equal-second events remain
-    // eligible (the caller re-fetched when types conflicted).
-    if (
-      existing.lastEventCreated !== null
-      && input.eventCreated.getTime() < existing.lastEventCreated.getTime()
-    ) {
-      await logAuditEventTx(tx, {
-        salonId: existing.salonId,
-        actorType: actor.actorType,
-        actorId: actor.actorId,
-        action: 'billing_subscription_projected',
-        entityType: 'billing_subscription',
-        entityId: existing.id,
-        metadata: { kind: 'stale' },
-      });
-      return { applied: true, kind: 'stale' as const };
-    }
-
-    const fromPlanKey = existing.planDefinitionKey;
-    const toAllowance = plan.monthlySmsCredits;
-    const fromPlan = getPlanDefinition(fromPlanKey);
-    const fromAllowance = fromPlan?.monthlySmsCredits ?? 0;
-
-    const patch: Partial<typeof existing> = {
+    return applySnapshotToExisting(tx, existing, {
+      snapshot,
       status,
-      cancelAtPeriodEnd: snapshot.cancelAtPeriodEnd,
-      stripeCustomerId: snapshot.customerId,
-      lastEventCreated: input.eventCreated,
-      lastEventId: input.eventId,
-    };
+      offer,
+      plan,
+      eventCreated: input.eventCreated,
+      eventId: input.eventId,
+      now,
+      actor,
+    });
+  });
+}
 
-    if (offer.key !== existing.billingOfferKey) {
-      if (toAllowance > fromAllowance) {
-        // Upgrade: authoritative immediately; the diff grant is
-        // window-cumulative (#118) and the engine skips granted windows.
-        patch.planDefinitionKey = plan.key;
-        patch.billingOfferKey = offer.key;
-        patch.pendingOfferKey = null;
-      } else {
-        // Downgrade: NEVER applied mid-window (§6.4) — parked as the pending
-        // offer, applied when a renewal invoice arrives under the new price.
-        patch.pendingOfferKey = offer.key;
-      }
-    }
+/**
+ * The §8.3/§6.4 update path for a subscription row that ALREADY exists.
+ *
+ * Extracted verbatim from {@link projectSubscriptionSnapshot}'s update branch
+ * so the insert-race loser can run the very same path against the winner's row
+ * instead of writing a `created` audit row for an id that was never persisted.
+ * Behaviour is unchanged for the ordinary (row-found-up-front) caller: the
+ * stale fence, the upgrade/downgrade patch, the `applyUpgradeDiff` call and
+ * the audit row are the same statements in the same order.
+ *
+ * Runs inside the caller's transaction, with `existing` already locked
+ * `FOR UPDATE` by the caller.
+ */
+async function applySnapshotToExisting(
+  tx: BillingDbTransaction,
+  existing: BillingSubscriptionRow,
+  input: {
+    snapshot: StripeSubscriptionSnapshot;
+    status: BillingSubscriptionStatus;
+    offer: BillingOffer;
+    plan: PlanDefinition;
+    eventCreated: Date;
+    eventId: string;
+    now: Date;
+    actor: BillingProjectionActor;
+  },
+): Promise<ProjectionOutcome> {
+  const { actor, now, offer, plan, snapshot, status } = input;
 
-    await tx
-      .update(billingSubscriptionSchema)
-      .set(patch)
-      .where(eq(billingSubscriptionSchema.id, existing.id));
-
-    if (offer.key !== existing.billingOfferKey && toAllowance > fromAllowance) {
-      await applyUpgradeDiff(tx, {
-        subscriptionId: existing.id,
-        fromPlanKey,
-        toPlanKey: plan.key,
-        now,
-      });
-    }
+  // §8.3 fence: strictly-older events are stale; equal-second events remain
+  // eligible (the caller re-fetched when types conflicted).
+  if (
+    existing.lastEventCreated !== null
+    && input.eventCreated.getTime() < existing.lastEventCreated.getTime()
+  ) {
     await logAuditEventTx(tx, {
       salonId: existing.salonId,
       actorType: actor.actorType,
@@ -327,10 +353,61 @@ export async function projectSubscriptionSnapshot(input: {
       action: 'billing_subscription_projected',
       entityType: 'billing_subscription',
       entityId: existing.id,
-      metadata: { kind: 'updated', billingOfferKey: offer.key },
+      metadata: { kind: 'stale' },
     });
-    return { applied: true, kind: 'updated' as const };
+    return { applied: true, kind: 'stale' as const };
+  }
+
+  const fromPlanKey = existing.planDefinitionKey;
+  const toAllowance = plan.monthlySmsCredits;
+  const fromPlan = getPlanDefinition(fromPlanKey);
+  const fromAllowance = fromPlan?.monthlySmsCredits ?? 0;
+
+  const patch: Partial<typeof existing> = {
+    status,
+    cancelAtPeriodEnd: snapshot.cancelAtPeriodEnd,
+    stripeCustomerId: snapshot.customerId,
+    lastEventCreated: input.eventCreated,
+    lastEventId: input.eventId,
+  };
+
+  if (offer.key !== existing.billingOfferKey) {
+    if (toAllowance > fromAllowance) {
+      // Upgrade: authoritative immediately; the diff grant is
+      // window-cumulative (#118) and the engine skips granted windows.
+      patch.planDefinitionKey = plan.key;
+      patch.billingOfferKey = offer.key;
+      patch.pendingOfferKey = null;
+    } else {
+      // Downgrade: NEVER applied mid-window (§6.4) — parked as the pending
+      // offer, applied when a renewal invoice arrives under the new price.
+      patch.pendingOfferKey = offer.key;
+    }
+  }
+
+  await tx
+    .update(billingSubscriptionSchema)
+    .set(patch)
+    .where(eq(billingSubscriptionSchema.id, existing.id));
+
+  if (offer.key !== existing.billingOfferKey && toAllowance > fromAllowance) {
+    await applyUpgradeDiff(tx, {
+      subscriptionId: existing.id,
+      fromPlanKey,
+      toPlanKey: plan.key,
+      now,
+    });
+  }
+  await logAuditEventTx(tx, {
+    salonId: existing.salonId,
+    actorType: actor.actorType,
+    actorId: actor.actorId,
+    action: 'billing_subscription_projected',
+    entityType: 'billing_subscription',
+    entityId: existing.id,
+    metadata: { kind: 'updated', billingOfferKey: offer.key },
   });
+  return { applied: true, kind: 'updated' as const };
 }
 
 type BillingSubscriptionRow = typeof billingSubscriptionSchema.$inferSelect;
@@ -597,6 +674,12 @@ export async function applyInvoicePaymentFailed(input: {
  * paidThrough alone cannot represent holes in prepaid coverage. Both payment
  * projection and the grant engine consume these durable exclusions. A later
  * disjoint paid renewal remains valid; replay never erases it.
+ *
+ * Return: `applied` — a subscription row was found and the evidence stands;
+ * `lowered` — paid_through was pulled back to the refunded period's start;
+ * `written` — THIS call inserted the applied audit row (false for every
+ * dedupe and for every refusal), which is what separates a fresh refund from
+ * agreement with evidence another writer already recorded.
  */
 export async function applySubscriptionFullRefund(input: {
   stripeSubscriptionId: string;
@@ -617,7 +700,7 @@ export async function applySubscriptionFullRefund(input: {
    */
   actor?: BillingProjectionActor;
   now?: Date;
-}): Promise<{ applied: boolean; lowered: boolean; anomaly?: string }> {
+}): Promise<{ applied: boolean; lowered: boolean; written: boolean; anomaly?: string }> {
   const actor = input.actor ?? WEBHOOK_ACTOR;
   // R-1: unusable coverage is rejected BEFORE any write. The route must never
   // reach this with bounds it could not derive (it holds the event instead);
@@ -628,7 +711,7 @@ export async function applySubscriptionFullRefund(input: {
   if (!Number.isFinite(input.refundedPeriodStart.getTime())
     || !Number.isFinite(input.refundedPeriodEnd.getTime())
     || input.refundedPeriodStart >= input.refundedPeriodEnd) {
-    return { applied: false, lowered: false, anomaly: 'REFUND_COVERAGE_INVALID' };
+    return { applied: false, lowered: false, written: false, anomaly: 'REFUND_COVERAGE_INVALID' };
   }
   const refundIds = [
     ...new Set([
@@ -643,7 +726,7 @@ export async function applySubscriptionFullRefund(input: {
       .where(eq(billingSubscriptionSchema.stripeSubscriptionId, input.stripeSubscriptionId))
       .for('update');
     if (subscription === undefined) {
-      return { applied: false, lowered: false };
+      return { applied: false, lowered: false, written: false };
     }
     if (!input.invoiceId) {
       throw new Error('INVALID_SUBSCRIPTION_REFUND_IDENTITY');
@@ -653,7 +736,13 @@ export async function applySubscriptionFullRefund(input: {
     // whose latest resolution is `void` is NOT refunded, so a genuinely new
     // full refund writes a fresh applied row that supersedes the void (R-2).
     if (evidence.appliedInvoiceIds.has(input.invoiceId)) {
-      return { applied: true, lowered: false };
+      // PR-1 reviewer follow-up: `written: false` — this pass wrote NO audit
+      // row, it merely agreed with evidence that already stands. The hourly
+      // reconcile gates its `billing.subscription_refunded` alert and its
+      // `refund_evidence_reasserted` note on `written`, so a row a concurrent
+      // webhook delivery already wrote is never re-announced. (The webhook
+      // caller keeps gating on `lowered`.)
+      return { applied: true, lowered: false, written: false };
     }
     const lowered = subscription.paidThrough > input.refundedPeriodStart
       && subscription.paidThrough <= input.refundedPeriodEnd;
@@ -683,7 +772,7 @@ export async function applySubscriptionFullRefund(input: {
         ...(Number.isFinite(input.observedAmount) ? { observedAmount: input.observedAmount } : {}),
       },
     });
-    return { applied: true, lowered };
+    return { applied: true, lowered, written: true };
   });
 }
 
@@ -969,8 +1058,45 @@ export async function applyCheckoutSessionExpired(input: {
 }
 
 /**
+ * The §2.3 LIVE set — the same statuses `beginCheckoutAttempt` refuses on.
+ * `canceled` is deliberately absent: it is history, and only its prepaid
+ * remainder (if any) can still refuse a new subscription.
+ */
+const ELIGIBILITY_LIVE_STATUSES = new Set<BillingSubscriptionStatus>([
+  'active',
+  'past_due',
+  'trialing',
+  'paused',
+  'unpaid',
+  'incomplete',
+]);
+
+/**
  * §2.3 duplicate-subscription policy for the checkout route — typed results
  * for every live-or-prepaid shape, never an overlapping second subscription.
+ *
+ * OP-4 (handoff §6.3 "eligibility"): this reads ALL rows for the salon, not
+ * the oldest one. The partial unique index `billing_subscription_live_salon_uniq`
+ * permits one live row PLUS any number of `canceled` / `incomplete_expired`
+ * history rows, so a cancel → resubscribe salon has an old `canceled` row with
+ * a long-past `paidThrough` sitting in front of its live one under
+ * `createdAt ASC`. Taking that first row returned `{ eligible: true }` WHILE A
+ * LIVE SUBSCRIPTION EXISTED: the route's typed refusal was skipped and only
+ * `beginCheckoutAttempt`'s own live check refused, under a different and less
+ * useful code.
+ *
+ * Reduced most restrictive first:
+ *   1. any LIVE row decides — `cancelAtPeriodEnd` ⇒ CANCELLATION_SCHEDULED,
+ *      else ACTIVE_SUBSCRIPTION_EXISTS. Should the unique index ever be absent
+ *      and two live rows exist, the stricter ACTIVE_SUBSCRIPTION_EXISTS wins
+ *      and the deciding row is picked deterministically (most recently
+ *      updated, then by id) rather than by arrival order.
+ *   2. else the MAXIMUM `paidThrough` among `canceled` rows still in the
+ *      future ⇒ PREPAID_ENTITLEMENT_REMAINS (a newer canceled row's prepaid
+ *      remainder must not be hidden by an older exhausted one).
+ *   3. else eligible.
+ *
+ * The status filter and the returned type are unchanged.
  */
 export async function classifySubscriptionEligibility(
   tx: BillingDbTransaction,
@@ -981,8 +1107,9 @@ export async function classifySubscriptionEligibility(
   | { eligible: false; reason: 'ACTIVE_SUBSCRIPTION_EXISTS' | 'CANCELLATION_SCHEDULED' }
   | { eligible: false; reason: 'PREPAID_ENTITLEMENT_REMAINS'; paidThrough: Date }
   > {
-  const [live] = await tx
+  const rows = await tx
     .select({
+      id: billingSubscriptionSchema.id,
       status: billingSubscriptionSchema.status,
       cancelAtPeriodEnd: billingSubscriptionSchema.cancelAtPeriodEnd,
       paidThrough: billingSubscriptionSchema.paidThrough,
@@ -1000,19 +1127,30 @@ export async function classifySubscriptionEligibility(
         'canceled',
       ]),
     ))
-    .orderBy(billingSubscriptionSchema.createdAt)
-    .limit(1);
-  if (live === undefined) {
-    return { eligible: true };
+    // Deterministic order for the (index-forbidden) multi-live case.
+    .orderBy(desc(billingSubscriptionSchema.updatedAt), asc(billingSubscriptionSchema.id));
+
+  const liveRows = rows.filter(row => ELIGIBILITY_LIVE_STATUSES.has(row.status));
+  if (liveRows.length > 0) {
+    // Prefer the stricter refusal: a scheduled cancellation only decides when
+    // EVERY live row is scheduled.
+    const decisive = liveRows.find(row => !row.cancelAtPeriodEnd) ?? liveRows[0]!;
+    return decisive.cancelAtPeriodEnd
+      ? { eligible: false, reason: 'CANCELLATION_SCHEDULED' }
+      : { eligible: false, reason: 'ACTIVE_SUBSCRIPTION_EXISTS' };
   }
-  if (live.status === 'canceled') {
-    if (live.paidThrough.getTime() > now.getTime()) {
-      return { eligible: false, reason: 'PREPAID_ENTITLEMENT_REMAINS', paidThrough: live.paidThrough };
+
+  let prepaidThrough: Date | null = null;
+  for (const row of rows) {
+    if (row.status !== 'canceled' || row.paidThrough.getTime() <= now.getTime()) {
+      continue;
     }
-    return { eligible: true };
+    if (prepaidThrough === null || row.paidThrough.getTime() > prepaidThrough.getTime()) {
+      prepaidThrough = row.paidThrough;
+    }
   }
-  if (live.cancelAtPeriodEnd) {
-    return { eligible: false, reason: 'CANCELLATION_SCHEDULED' };
+  if (prepaidThrough !== null) {
+    return { eligible: false, reason: 'PREPAID_ENTITLEMENT_REMAINS', paidThrough: prepaidThrough };
   }
-  return { eligible: false, reason: 'ACTIVE_SUBSCRIPTION_EXISTS' };
+  return { eligible: true };
 }

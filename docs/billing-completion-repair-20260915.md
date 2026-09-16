@@ -391,3 +391,153 @@ one-mailbox regression), `src/app/api/super-admin/billing/starter-grant/route.te
 `src/libs/architecturalInvariants.test.ts` and `src/libs/architectureClientServerBoundary.test.ts` re-run
 clean. `npx tsc --noEmit` and `eslint --max-warnings 0` on every changed file are clean, and
 `node scripts/check-secret-leaks.mjs --tree` passes. No existing assertion was weakened.
+## PR-6a (pre-production correctness, unblocked subset) — 2026-09-16
+
+Base `origin/main` `6c5167e9` (v1.112.0, containing PR-1 #226, PR-2 #227, PR-4 #228), branch
+`fix/billing-pr6a-preprod-correctness-20260916`. Every item here needed **no owner decision**;
+everything that did is listed as still-gated at the end. Billing stays dark: no migration, no
+`vercel.json` change, no environment value, no Stripe or Vercel call, and no route becomes reachable
+that was not reachable before.
+
+- **OP-2 / Y2 — an attempt is reusable only for the SAME offer** (`src/libs/billing/checkoutAttempts.ts`).
+  The `plan_subscription` reuse branch selected only `id` and `stripeIdempotencyKey` and reused ANY
+  active attempt, unlike the top-up branch which has always compared `topupOfferKey`. Reuse hands the
+  caller the attempt's existing Checkout Session, so a customer who abandoned offer A and returned for
+  offer B inside the 1-hour TTL was shown A's session while the route rendered B's price and
+  disclosure — and because `checkout/route.ts` reserves a capped promotion claim against the reused
+  attempt, a promotion added on the retry burned a claim against a session that carries no discount.
+  Both reuse sites (the ordinary branch and the insert-race fallback) now compare through one
+  `attemptMatchesRequestedOffer` helper, purpose-scoped: `topupOfferKey` for `sms_topup`,
+  `billingOfferKey` AND `promotionKey` for `plan_subscription`; a mismatch is the typed refusal
+  `CHECKOUT_IN_PROGRESS`, never a reuse. The TTL sweep, `ACTIVE_SUBSCRIPTION_EXISTS`,
+  `CHECKOUT_PENDING_RECONCILIATION`, the top-up grant/expired resolution and the targetless
+  `onConflictDoNothing` are untouched.
+  **Deliberate partial (O10).** `src/app/api/billing/checkout/route.ts:246-247` maps every attempt
+  conflict to `409 ACTIVE_SUBSCRIPTION_EXISTS`, so a differing-offer refusal currently surfaces to the
+  subscription caller under that code instead of `CHECKOUT_IN_PROGRESS`. Correcting the mapping means
+  editing a reviewed-postimage-pinned route (owner decision O10) and is deferred; the money-safety
+  half — never reusing a session created for a different offer or promotion — lands here in full. The
+  top-up route already maps `CHECKOUT_IN_PROGRESS` correctly (`checkout/topup/route.ts:208`).
+- **OP-4 — eligibility must judge ALL rows** (`classifySubscriptionEligibility`). It ordered by
+  `createdAt` ASC and took ONE row, so with a cancel → resubscribe history the oldest row is an old
+  `canceled` one whose `paidThrough` has passed and the function answered `{ eligible: true }` **while
+  a live subscription existed**; the partial unique index `billing_subscription_live_salon_uniq`
+  permits exactly that shape. It now reads every row under the same status filter and reduces
+  most-restrictive-first: any live-set row decides (`ACTIVE_SUBSCRIPTION_EXISTS`, or
+  `CANCELLATION_SCHEDULED` only when every live row is scheduled), else the MAXIMUM `paidThrough`
+  among still-prepaid `canceled` rows gives `PREPAID_ENTITLEMENT_REMAINS`, else eligible. Ordered
+  `updatedAt` DESC, `id` ASC so the (index-forbidden) multi-live case is still deterministic. The
+  status filter and the return type are unchanged.
+- **OP-5 — window-engine anomalies reach Sentry** (`src/libs/billing/creditGrants.ts`).
+  `TRIALING_SUBSCRIPTION_ANOMALY` and `UNKNOWN_PLAN_DEFINITION` only ever reached
+  `WindowEvaluationSummary`, whose sole consumer is the hourly cron's response body — which nothing
+  reads. Both are currently unreachable, but a Price accidentally created with `trial_period_days`
+  would grant nothing, silently, forever. Each push site now also raises
+  `Sentry.captureMessage('billing.window_engine_anomaly', { level: 'warning', extra: { anomaly,
+  subscriptionId, salonId } })`, so both callers (the hourly cron and the webhook's post-commit
+  evaluation) alert. No summary field and no return shape changed.
+- **Projection insert race — no more phantom audit rows** (`projectSubscriptionSnapshot`). The insert
+  path used `onConflictDoNothing` and then wrote a `billing_subscription_projected` audit row
+  UNCONDITIONALLY for the locally generated `bsub_…` id, returning `kind: 'created'`. When a
+  concurrent delivery won the insert, the loser's audit row referenced an id that was never persisted
+  and its snapshot was silently dropped. Refund evidence lives in the same `audit_log` table, so a
+  false row there is a correctness-of-evidence defect, not a cosmetic one. The insert now
+  `.returning()`s: zero rows ⇒ re-select the winner `FOR UPDATE` by `stripeSubscriptionId` and run the
+  **existing** update path against it, which was moved verbatim into a module-private
+  `applySnapshotToExisting` (the §8.3 stale fence, the upgrade/downgrade patch, `applyUpgradeDiff` and
+  the audit row are the same statements in the same order, so the ordinary caller's behaviour is
+  unchanged). A winner that cannot be re-selected — deleted in between — returns
+  `{ applied: false, anomaly: 'SUBSCRIPTION_PROJECTION_RACE' }`.
+- **Y5 — the §8.5 duplicate-remote alert can finally fire** (`src/app/api/billing/reconcile/route.ts`).
+  The alert only ever compared subscriptions this database already knows (`customersSeen`), so the
+  documented case — a second LIVE subscription on a customer we bill that was never projected here —
+  could not be detected at all; it could only produce a benign false positive after cancel →
+  resubscribe. The pass now builds `customerToLocalSubscriptionIds` from the LOCAL rows while
+  iterating (so a subscription whose remote retrieve failed still contributes its customer) and, after
+  the main loop, issues exactly ONE `stripe.subscriptions.list({ customer, status: 'all', limit: 100 })`
+  per distinct non-empty customer id. A remote subscription counts as live unless its status is
+  `canceled` or `incomplete_expired`; every live remote id absent from that customer's local set
+  becomes a drift entry `unprojected_remote_subscription` (`local` = the customer id, `remote` = the
+  remote subscription id, `stripeSubscriptionId` = the remote subscription id, `repaired: false`) and
+  records the customer for the alert. The existing `customersSeen` comparison is kept. One
+  `billing.duplicate_remote_subscriptions` message per pass now carries the DISTINCT `customers` plus
+  every `unprojected` id, and `summary.duplicateRemoteCustomers` counts distinct customers rather than
+  observations. Nothing is repaired: projecting the unknown subscription would mean CHOOSING which one
+  is authoritative, which §8.5 reserves for a human. A failing list call pushes the informational note
+  `duplicate_check_unverifiable` (`local` and `stripeSubscriptionId` = the customer id, `remote:
+  'UNRETRIEVABLE'`) and never aborts the pass. All of it sits inside the section gated on
+  `BILLING_SUBSCRIPTIONS_ENABLED`, so it costs nothing in production today.
+- **PR-1 reviewer follow-up 1 — the `written` flag.** `applySubscriptionFullRefund` answered
+  `{ applied: true, lowered: false }` both when it inserted a new applied row and when it deduped on
+  an effective state that already carried the exclusion. Its return gains `written: boolean`, true
+  only when the audit row was actually inserted. `reconcileStaleVoids` now gates BOTH the
+  `billing.subscription_refunded` Sentry call and the `refund_evidence_reasserted` note on `written`,
+  so an exclusion a concurrent webhook delivery already wrote is not re-announced by the hourly pass —
+  once an hour, forever. The webhook caller is untouched and still gates on `lowered`.
+- **PR-1 reviewer follow-up 2 — paging in the re-assert direction.** `reconcileStaleVoids` noted
+  `refund_evidence_uncomparable` whenever `invoice.lines.has_more`, so a >10-line invoice with a stale
+  machine void could never be re-asserted — precisely the invoices carrying the most line items. It
+  now calls `loadInvoiceLines(invoice)`, which pages through `invoices.listLineItems` and THROWS on a
+  Stripe failure; the surrounding try/catch turns that into the existing `refund_evidence_unverifiable`
+  note and the pass continues. `refund_evidence_uncomparable` is kept for the one case retrying cannot
+  fix — a structurally unreadable line set (`remote: 'LINES_UNREADABLE'`).
+
+**Tests.** `src/app/api/billing/reconcile/route.test.ts` 32 (10 new: five for Y5 — the unprojected
+live remote, terminated remotes, every non-terminal status, a failing list absorbed into a note with
+the next customer still checked, and one list per distinct customer even when the subscription itself
+is unretrievable; one for the `written` gate under a webhook that wins the race; three for the paging
+direction — paged-and-re-asserted, paging failure, structurally unreadable; plus the dark contract
+extended to cover the new list call). `src/libs/billing/checkoutAttempts.test.ts`,
+`src/libs/billing/billingSubscriptionProjection.test.ts` and `src/libs/billing/creditGrants.test.ts`
+cover A–D. The real-PostgreSQL refund suite gains RT-20 — two concurrent `projectSubscriptionSnapshot`
+calls for one brand-new subscription leave exactly one `billing_subscription` row, exactly one
+`created` audit row, one `updated` audit row, both attributed to the row that exists, both calls
+`applied: true`, and zero `audit_log` rows whose `entity_id` names no subscription — and now executes
+**18** tests with zero skips (`EXPECTED_EXECUTED_TESTS` and the matching
+`BILLING_REFUND_POSTGRES_TESTS_EXECUTED=18` grep in `.github/workflows/CI.yml`; that one count is the
+only CI change).
+
+**Documentation corrected, never trimmed.** Runbook §5's cron-log row no longer implies
+`/api/billing/reconcile` answers `{"skipped":"BILLING_DISABLED"}` at the `activate-subscriptions`
+gate — with `BILLING_TOPUPS_ENABLED` already `true` under D11 it reconciles held top-ups and answers a
+body with NO `skipped` key, which is exactly what the readiness harness requires there (a skip would
+mean the switch is not live). Runbook §8 gains the two shapes behind the duplicate-remote alert, the
+new `unprojected_remote_subscription` drift entry, a row for `duplicate_check_unverifiable`, and a
+corrected reading of `refund_evidence_uncomparable` (structurally unreadable only — truncation is now
+paged). `scripts/billing-readiness-check.ts`'s USAGE loses the stale "`--env-file` without
+`--environment`" exit-6 case: `--environment` is required for every run. The `classifyCheckoutSession`
+doc comment in `src/app/api/webhooks/stripe-billing/route.ts` no longer claims "zero database reads" —
+it reads the bound `billing_checkout_attempt` row when the deployment marker disagrees, because a
+local attempt is proof we created the session; comment only, no behaviour change.
+
+**Still owner-gated, deliberately untouched:** O1/D19c (`src/app/api/webhooks/stripe/route.ts`), O7,
+O10 (the reviewed-postimage-pinned `checkout/route.ts` and `portal/route.ts`, hence the OP-2 response
+code above), and O12/O13 (anything creating a Stripe customer or a `billing_customer` table).
+
+### PR-6a — accepted consequences and queued follow-ups
+
+**Switching offers inside the attempt window is now refused, deliberately.** Closing OP-2 means a
+salon that opens checkout for one offer, abandons it, and returns for a different offer inside the
+attempt TTL is refused until the old attempt expires (the session TTL is 55 minutes, the attempt
+TTL 60). Until owner decision O10 allows the pinned checkout route to change, that refusal also
+surfaces under the wrong code and message (`409 ACTIVE_SUBSCRIPTION_EXISTS`, "Manage it in the
+Billing Portal") because the route maps every attempt conflict to that response.
+
+Automatically releasing the superseded attempt was considered and rejected as unsafe: the old
+Stripe Checkout Session stays payable until it expires, so releasing the slot and issuing a second
+attempt admits a window in which a customer pays BOTH sessions, producing two live subscriptions
+for one salon — a double charge and a `billing_subscription_live_salon_uniq` violation. Refusing is
+the conservative outcome, and it is bounded and self-releasing. The complete fix belongs with O10,
+where the route can expire the superseded session server-side first and then start a fresh attempt;
+note that approving O10 for the response code alone does not remove the wait.
+
+**Queued, not done (estate-scale, irrelevant at pilot scale of one salon):**
+- The window-engine anomaly alert and the `unprojected_remote_subscription` alert both fire once
+  per affected subscription per hourly pass, with no acknowledgement path, so a persistent
+  condition repeats indefinitely. The repository already has the idiom for this
+  (`logSubscriptionPriceCrossCheckSkippedOnce`). Suppression needs a deliberate design — keyed on
+  what, for how long — because a too-broad guard would hide a genuine second occurrence.
+- `unprojected_remote_subscription` can also fire legitimately and forever for a salon holding a
+  grandfathered legacy subscription on the same Stripe customer; §8.5 says to alert rather than
+  choose, so this needs an operator acknowledgement marker rather than a code change.
+

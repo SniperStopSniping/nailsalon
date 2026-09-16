@@ -958,7 +958,13 @@ async function handleRefundEvent(event: Stripe.Event, created: Date): Promise<Ha
  * D19c §2.1: a Checkout Session is IMMUTABLE after creation, so its own
  * metadata is the whole ownership answer — purpose first (is this one of our
  * two flows at all?), then the deployment marker (is it THIS deployment's?).
- * Zero Stripe calls, zero database reads.
+ * Zero Stripe calls.
+ *
+ * NOT read-free, though: when the marker DISAGREES, the
+ * `billing_checkout_attempt` row bound to this session id is read, because a
+ * local attempt is proof we created the session and outranks a missing or
+ * mismatched marker. The matching path (and the wrong-`purpose` path above it)
+ * still touches no database at all.
  */
 async function classifyCheckoutSession(
   session: Stripe.Checkout.Session,
