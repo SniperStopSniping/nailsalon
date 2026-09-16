@@ -314,7 +314,10 @@ export async function runOwnerAssistantTurn(
         latencyMs: Date.now() - startedAt,
       });
       const kind = error instanceof ModelProviderError ? error.kind : 'provider_error';
-      return finish(kind);
+      // The per-call timeout is clamped to whatever is left of the whole-turn
+      // deadline, so a call that aborts AT the deadline was cut short by the
+      // turn, not by the provider. Report it as what it is.
+      return finish(kind === 'provider_timeout' && Date.now() >= deadline ? 'turn_timeout' : kind);
     }
 
     modelCalls.push({

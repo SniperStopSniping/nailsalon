@@ -583,6 +583,45 @@ describe('availability and provider failures', () => {
   });
 });
 
+describe('whole-turn deadline', () => {
+  it('reports turn_timeout when the turn is already past its deadline', async () => {
+    const provider = createScriptedProvider(fakeAnswer(ANSWER));
+    // `now` is the turn's own clock: starting one full turnTimeoutMs in the
+    // past means the deadline has already passed on the first iteration.
+    const result = await run(provider, {
+      now: new Date(Date.now() - OWNER_ASSISTANT_LIMITS.turnTimeoutMs - 1_000),
+    });
+
+    expect(result.kind === 'unavailable' && result.reason).toBe('turn_timeout');
+    expect(provider.requests).toHaveLength(0);
+  });
+
+  it('writes a ledger row for the timed-out turn', async () => {
+    await clearLedger();
+    await run(createScriptedProvider(fakeAnswer(ANSWER)), {
+      now: new Date(Date.now() - OWNER_ASSISTANT_LIMITS.turnTimeoutMs - 1_000),
+    });
+
+    const value = ((await ledgerRows())[0]?.metadata as { newValue: { outcome: string } }).newValue;
+
+    expect(value.outcome).toBe('turn_timeout');
+  });
+
+  it('bounds each model call by whatever is left of the turn', async () => {
+    const provider = createScriptedProvider(fakeAnswer(ANSWER));
+    await run(provider, { now: new Date(Date.now() - (OWNER_ASSISTANT_LIMITS.turnTimeoutMs - 5_000)) });
+
+    expect(provider.requests[0]?.timeoutMs).toBeLessThanOrEqual(5_000);
+  });
+
+  it('uses the per-call timeout when the whole turn has room', async () => {
+    const provider = createScriptedProvider(fakeAnswer(ANSWER));
+    await run(provider);
+
+    expect(provider.requests[0]?.timeoutMs).toBe(OWNER_ASSISTANT_LIMITS.modelCallTimeoutMs);
+  });
+});
+
 describe('conversation rejection', () => {
   it.each([
     ['tampered', 'not-a-real-token'],
