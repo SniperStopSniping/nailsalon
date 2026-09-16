@@ -4,7 +4,7 @@ import { BookingPageHub } from '@/components/admin/BookingPageHub';
 import { getOnboardingSiteHandoff } from '@/features/onboarding-v1-integration/admin-handoff.server';
 import { isOnboardingV1IntegrationEnabled } from '@/features/onboarding-v1-integration/config.server';
 import { getAdminSession, requireAdmin } from '@/libs/adminAuth';
-import { resolveBookingPageConfig } from '@/libs/bookingPageConfig';
+import { hasUnpublishedBookingPageChanges, resolveBookingPageConfig } from '@/libs/bookingPageConfig';
 import { resolveBookingPageContent } from '@/libs/bookingPageContent';
 import { buildSalonTenantPublicUrl } from '@/libs/publicUrl';
 import { getSalonBySlug } from '@/libs/queries';
@@ -47,7 +47,7 @@ export default async function WebsiteHubPage({ params, searchParams }: {
   return (
     <BookingPageHub
       canPublish={canEditSetup || admin.isSuperAdmin}
-      hasDraftChanges={JSON.stringify(config.draft) !== JSON.stringify(config.live) || JSON.stringify(content.draft) !== JSON.stringify(content.live)}
+      hasDraftChanges={hasUnpublishedBookingPageChanges(config, content)}
       locale={locale}
       published={salon.publicationStatus === 'published'}
       publicUrl={buildSalonTenantPublicUrl('/', { slug: salon.slug, customDomain: salon.customDomain }, locale)}
