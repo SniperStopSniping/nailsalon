@@ -37,9 +37,11 @@ import * as Sentry from '@sentry/nextjs';
 import { asc, gt, sql } from 'drizzle-orm';
 import type Stripe from 'stripe';
 
+import type { ActorType } from '@/libs/auditLog';
 import {
   applyInvoicePaymentSucceeded,
   applyPendingOfferAtRenewal,
+  applySubscriptionFullRefund,
   applySubscriptionRefundVoid,
   projectSubscriptionSnapshot,
   type StripeSubscriptionSnapshot,
@@ -153,13 +155,24 @@ function latestPaidInvoiceCoverage(
 }
 
 /**
- * R-2 writer 3 (safety net): the hourly pass re-checks every invoice whose
- * EFFECTIVE evidence still says "refunded" against its charge. A charge whose
- * cumulative `amount_refunded` has fallen below its `amount` is no longer
- * fully refunded — Owner decision O2 voids the exclusion automatically and
- * alerts, because a webhook that was never delivered (or was delivered while
- * the endpoint was down) must not leave a paying salon's entitlement
- * suppressed forever.
+ * R-2 writer 3 (safety net): the hourly pass re-checks the EFFECTIVE refund
+ * evidence against Stripe, in BOTH directions.
+ *
+ *   - An invoice still marked refunded whose charge's cumulative
+ *     `amount_refunded` has fallen below its `amount` is no longer fully
+ *     refunded — Owner decision O2 voids the exclusion automatically and
+ *     alerts, because a webhook that was never delivered (or was delivered
+ *     while the endpoint was down) must not leave a paying salon's
+ *     entitlement suppressed forever.
+ *   - An invoice whose effective row is a MACHINE `void` but whose charge
+ *     Stripe now reports as fully refunded is re-asserted. A void can be
+ *     just as stale as an applied row: a handler that read the charge while
+ *     it was partially refunded can commit its void AFTER a newer handler
+ *     committed the applied row, and nothing else would ever correct it —
+ *     the salon would keep granting credits on money that was returned.
+ *
+ * A `super_admin` void is a deliberate operator decision and is NEVER
+ * re-asserted automatically; the operator owns it until they change it.
  *
  * Every failure is absorbed into a note: a Stripe hiccup on one invoice can
  * never abort the reconcile pass for the rest of the estate.
@@ -170,7 +183,18 @@ async function reconcileRefundEvidence(
   notes: DriftEntry[],
 ): Promise<void> {
   const evidence = await db.transaction(async tx => readSubscriptionRefunds(tx, row));
-  for (const invoiceId of evidence.appliedInvoiceIds) {
+  await reconcileRetractedEvidence(row, now, notes, evidence.appliedInvoiceIds);
+  await reconcileStaleVoids(row, now, notes, evidence.voidedInvoiceIds);
+}
+
+/** Direction 1: evidence says "refunded", Stripe says otherwise ⇒ void. */
+async function reconcileRetractedEvidence(
+  row: BillingSubscription,
+  now: Date,
+  notes: DriftEntry[],
+  appliedInvoiceIds: Set<string>,
+): Promise<void> {
+  for (const invoiceId of appliedInvoiceIds) {
     try {
       const invoice = await stripe.invoices.retrieve(invoiceId, { expand: ['charge'] });
       const charge = typeof invoice.charge === 'object' && invoice.charge !== null ? invoice.charge : null;
@@ -206,6 +230,103 @@ async function reconcileRefundEvidence(
         local: invoiceId,
         remote: `${charge.amount_refunded}/${charge.amount}`,
         repaired: outcome.reapplied,
+      });
+    } catch {
+      notes.push({
+        stripeSubscriptionId: row.stripeSubscriptionId,
+        field: 'refund_evidence_unverifiable',
+        local: invoiceId,
+        remote: 'UNRETRIEVABLE',
+        repaired: false,
+      });
+    }
+  }
+}
+
+/**
+ * Direction 2: a MACHINE void says "not refunded", Stripe says fully
+ * refunded ⇒ re-assert the exclusion. This is the half that closes the
+ * commit-order race — a void committed from a stale read would otherwise be
+ * the last word forever, because the first loop only ever looks at invoices
+ * that are still marked refunded.
+ */
+async function reconcileStaleVoids(
+  row: BillingSubscription,
+  now: Date,
+  notes: DriftEntry[],
+  voidedInvoiceIds: Map<string, ActorType>,
+): Promise<void> {
+  for (const [invoiceId, actorType] of voidedInvoiceIds) {
+    // An operator's void stands: a human weighed this and the machine does
+    // not get to overrule them on a schedule.
+    if (actorType === 'super_admin') {
+      continue;
+    }
+    try {
+      const invoice = await stripe.invoices.retrieve(invoiceId, { expand: ['charge'] });
+      const charge = typeof invoice.charge === 'object' && invoice.charge !== null ? invoice.charge : null;
+      if (charge === null || charge.amount_refunded < charge.amount) {
+        continue; // The void is correct — nothing to do.
+      }
+      if (invoice.lines?.has_more) {
+        // Re-asserting needs the FULL coverage; a truncated page would
+        // record a narrower exclusion than the refund actually covers.
+        notes.push({
+          stripeSubscriptionId: row.stripeSubscriptionId,
+          field: 'refund_evidence_uncomparable',
+          local: invoiceId,
+          remote: 'LINES_TRUNCATED',
+          repaired: false,
+        });
+        continue;
+      }
+      const coverage = subscriptionLinePeriods(invoice.lines?.data, row.stripeSubscriptionId);
+      if (coverage.kind !== 'ok') {
+        notes.push({
+          stripeSubscriptionId: row.stripeSubscriptionId,
+          field: 'refund_evidence_unverifiable',
+          local: invoiceId,
+          remote: 'NO_SUBSCRIPTION_LINES',
+          repaired: false,
+        });
+        continue;
+      }
+      // The ordinary refund writer: a fresh applied row at a HIGHER seq
+      // supersedes the void, and its own `lowered` rule pulls `paid_through`
+      // back out of the refunded window.
+      const result = await applySubscriptionFullRefund({
+        stripeSubscriptionId: row.stripeSubscriptionId,
+        invoiceId,
+        refundIds: [],
+        refundedPeriodStart: coverage.start,
+        refundedPeriodEnd: coverage.end,
+        eventCreated: row.lastEventCreated ?? new Date(0),
+        eventId: `reconcile_${crypto.randomUUID()}`,
+        observedAmountRefunded: charge.amount_refunded,
+        observedAmount: charge.amount,
+        actor: RECONCILE_ACTOR,
+        now,
+      });
+      if (!result.applied) {
+        continue;
+      }
+      Sentry.captureMessage('billing.subscription_refunded', {
+        level: 'warning',
+        extra: {
+          source: 'reconcile',
+          stripeSubscriptionId: row.stripeSubscriptionId,
+          invoiceId,
+          observedAmountRefunded: charge.amount_refunded,
+          observedAmount: charge.amount,
+          lowered: result.lowered,
+        },
+      });
+      notes.push({
+        stripeSubscriptionId: row.stripeSubscriptionId,
+        field: 'refund_evidence_reasserted',
+        local: invoiceId,
+        remote: `${charge.amount_refunded}/${charge.amount}`,
+        repaired: result.applied,
       });
     } catch {
       notes.push({
@@ -323,6 +444,28 @@ async function reconcileOneSubscription(
     }
   }
 
+  if (pendingApplied) {
+    // R-4 (Y7): §6.4's renewal boundary was reached remotely — the price
+    // Stripe is now actually billing IS the evidence. Applying it no longer
+    // borrows the payment transition (which dragged in the latest invoice's
+    // status and periods, refund evidence, status changes and window
+    // evaluation it had no business touching); this clears exactly the
+    // parked offer, under the row lock, and nothing else.
+    //
+    // Deliberately BEFORE the paid-through repair: that repair runs
+    // `applyInvoicePaymentSucceeded`, which clears a parked offer as part of
+    // its own transition. Running it first left this call with nothing to do
+    // and made a genuine repair report `repaired: false`.
+    const outcome = await applyPendingOfferAtRenewal({ stripeSubscriptionId: remote.id, now });
+    drift.push({
+      stripeSubscriptionId: row.stripeSubscriptionId,
+      field: 'pending_offer_applied_remotely',
+      local: row.pendingOfferKey!,
+      remote: resolvedOfferKey!,
+      repaired: outcome.cleared,
+    });
+  }
+
   const coverage = latestPaidInvoiceCoverage(remote);
   if (coverage === 'uncomparable') {
     notes.push({
@@ -383,23 +526,6 @@ async function reconcileOneSubscription(
         repaired: outcome.applied,
       });
     }
-  }
-
-  if (pendingApplied) {
-    // R-4 (Y7): §6.4's renewal boundary was reached remotely — the price
-    // Stripe is now actually billing IS the evidence. Applying it no longer
-    // borrows the payment transition (which dragged in the latest invoice's
-    // status and periods, refund evidence, status changes and window
-    // evaluation it had no business touching); this clears exactly the
-    // parked offer, under the row lock, and nothing else.
-    const outcome = await applyPendingOfferAtRenewal({ stripeSubscriptionId: remote.id, now });
-    drift.push({
-      stripeSubscriptionId: row.stripeSubscriptionId,
-      field: 'pending_offer_applied_remotely',
-      local: row.pendingOfferKey!,
-      remote: resolvedOfferKey!,
-      repaired: outcome.cleared,
-    });
   }
 
   // R-2 writer 3, after the paid-through logic so a void's re-applied

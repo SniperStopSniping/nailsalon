@@ -567,8 +567,15 @@ export async function applySubscriptionFullRefund(input: {
   eventId: string;
   observedAmountRefunded?: number;
   observedAmount?: number;
+  /**
+   * Defaults to the webhook. The hourly reconcile passes its own actor when
+   * it RE-ASSERTS evidence a stale machine void had retracted, so the audit
+   * trail says which writer made each correction.
+   */
+  actor?: BillingProjectionActor;
   now?: Date;
 }): Promise<{ applied: boolean; lowered: boolean; anomaly?: string }> {
+  const actor = input.actor ?? WEBHOOK_ACTOR;
   // R-1: unusable coverage is rejected BEFORE any write. The route must never
   // reach this with bounds it could not derive (it holds the event instead);
   // this is defence in depth, because the null-bound row the old code wrote
@@ -614,7 +621,8 @@ export async function applySubscriptionFullRefund(input: {
     }
     await logAuditEventTx(tx, {
       salonId: subscription.salonId,
-      ...WEBHOOK_ACTOR,
+      actorType: actor.actorType,
+      actorId: actor.actorId,
       action: 'billing_subscription_refund_applied',
       entityType: 'billing_subscription',
       entityId: subscription.id,
@@ -742,6 +750,8 @@ export async function planSubscriptionRefundEvidence(
     refunds: SubscriptionRefund[];
     incomplete: boolean;
     appliedInvoiceIds: string[];
+    /** Invoices whose effective state is an explicit `void` (operator context). */
+    voidedInvoiceIds: string[];
     rows: number;
     nextSeq: number;
   };
@@ -767,6 +777,7 @@ export async function planSubscriptionRefundEvidence(
       refunds: evidence.refunds,
       incomplete: evidence.incomplete,
       appliedInvoiceIds: [...evidence.appliedInvoiceIds],
+      voidedInvoiceIds: [...evidence.voidedInvoiceIds.keys()],
       rows: evidence.rows,
       nextSeq: evidence.nextSeq,
     },

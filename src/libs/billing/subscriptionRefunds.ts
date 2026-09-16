@@ -46,6 +46,19 @@ export type SubscriptionRefundEvidence = {
   incomplete: boolean;
   /** Invoices whose effective state is "refunded" (applied or set), well-formed or not. */
   appliedInvoiceIds: Set<string>;
+  /**
+   * Invoices whose effective state is an explicit `void`, mapped to the
+   * ACTOR TYPE that voided them.
+   *
+   * The reconcile safety net needs both halves of the question — evidence
+   * can be wrong in either direction, and a void is just as capable of being
+   * stale as an applied row (a handler that read a partial charge can commit
+   * its void AFTER a newer handler committed the applied row). The actor
+   * type is what keeps the repair from fighting a human: a `super_admin`
+   * void is a deliberate operator decision and is never re-asserted
+   * automatically.
+   */
+  voidedInvoiceIds: Map<string, ActorType>;
   /** max(seq) + 1 over ALL rows of both actions; 0 rows → 1. */
   nextSeq: number;
   /** Total rows read (operator plan output). */
@@ -56,6 +69,7 @@ type EvidenceRow = {
   id: string;
   createdAt: Date;
   action: string;
+  actorType: string;
   metadata: Record<string, unknown>;
   invoiceId: string;
   seq: number;
@@ -135,6 +149,7 @@ export async function readSubscriptionRefunds(
       id: auditLogSchema.id,
       createdAt: auditLogSchema.createdAt,
       action: auditLogSchema.action,
+      actorType: auditLogSchema.actorType,
       metadata: auditLogSchema.metadata,
     })
     .from(auditLogSchema)
@@ -147,6 +162,7 @@ export async function readSubscriptionRefunds(
 
   const refunds: SubscriptionRefund[] = [];
   const appliedInvoiceIds = new Set<string>();
+  const voidedInvoiceIds = new Map<string, ActorType>();
   let incomplete = false;
   let maxSeq = 0;
 
@@ -167,6 +183,7 @@ export async function readSubscriptionRefunds(
       id: row.id,
       createdAt: row.createdAt,
       action: row.action,
+      actorType: row.actorType,
       metadata,
       invoiceId,
       seq,
@@ -194,7 +211,11 @@ export async function readSubscriptionRefunds(
     }
     const resolution = row.metadata.resolution;
     if (resolution === 'void') {
-      continue; // The invoice is NOT refunded; it contributes no exclusion.
+      // The invoice is NOT refunded; it contributes no exclusion. Recorded
+      // with its actor so the reconcile safety net can re-check a MACHINE
+      // void against Stripe while leaving an operator's decision alone.
+      voidedInvoiceIds.set(row.invoiceId, row.actorType as ActorType);
+      continue;
     }
     if (resolution === 'set') {
       appliedInvoiceIds.add(row.invoiceId);
@@ -209,7 +230,7 @@ export async function readSubscriptionRefunds(
     incomplete = true; // Unknown resolution verb → fail closed.
   }
 
-  return { refunds, incomplete, appliedInvoiceIds, nextSeq: maxSeq + 1, rows: rows.length };
+  return { refunds, incomplete, appliedInvoiceIds, voidedInvoiceIds, nextSeq: maxSeq + 1, rows: rows.length };
 }
 
 export function overlapsRefund(

@@ -1191,7 +1191,7 @@ jobs:
             src/app/api/billing/checkout/topup/route.concurrency.integration.test.ts \
             src/libs/billing/subscriptionRefunds.concurrency.integration.test.ts \
             | tee billing-postgres-concurrency.log
-          grep -Fqx 'BILLING_REFUND_POSTGRES_TESTS_EXECUTED=16 BILLING_REFUND_POSTGRES_TESTS_SKIPPED=0' billing-postgres-concurrency.log
+          grep -Fqx 'BILLING_REFUND_POSTGRES_TESTS_EXECUTED=17 BILLING_REFUND_POSTGRES_TESTS_SKIPPED=0' billing-postgres-concurrency.log
           grep -Fqx 'BILLING_CREDIT_RESERVATION_POSTGRES_TESTS_EXECUTED=9 BILLING_CREDIT_RESERVATION_POSTGRES_TESTS_SKIPPED=0' billing-postgres-concurrency.log
           grep -Fqx 'BILLING_TOPUP_CHECKOUT_POSTGRES_TESTS_EXECUTED=3 BILLING_TOPUP_CHECKOUT_POSTGRES_TESTS_SKIPPED=0' billing-postgres-concurrency.log
 

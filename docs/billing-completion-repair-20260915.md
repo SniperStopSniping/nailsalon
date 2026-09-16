@@ -99,7 +99,13 @@ and 3–10 plus the new N1 proration veto were still outstanding. PR-1 closes th
   Per §8.3 the webhook decides from an AUTHORITATIVE re-fetch of the charge, never from the
   `charge.refunded` event body: that body is a snapshot at event time, and Stripe guarantees no
   delivery order, so an out-of-order partial body would otherwise void correct evidence (and a
-  stale full body would assert a refund that no longer holds).
+  stale full body would assert a refund that no longer holds). The hourly safety net closes the
+  same hazard at the commit boundary and runs in BOTH directions: it voids evidence Stripe no
+  longer backs, and it RE-ASSERTS a machine `void` that Stripe now contradicts (a void committed
+  from a stale read can land at a higher `seq` than the applied row it supersedes, and nothing
+  else would ever correct it). A `super_admin` void is never re-asserted automatically — the
+  reader reports each void with the actor type that wrote it precisely so an operator's decision
+  stands.
 - **R-3** — an unknown paid-period start is no longer defaulted to the epoch minimum (which made
   EVERY refund overlap and turned legitimate renewals into permanent holds); it is its own anomaly,
   `PAID_PERIOD_START_UNKNOWN`.

@@ -57,12 +57,14 @@ async function seedEvidence(input: {
   metadata: Record<string, unknown>;
   createdAt?: Date;
   id?: string;
+  /** Which writer produced the row — load-bearing for `voidedInvoiceIds`. */
+  actorType?: 'system' | 'webhook' | 'super_admin';
 }) {
   auditRowCounter += 1;
   await db.insert(schema.auditLogSchema).values({
     id: input.id ?? `audit_seed_${auditRowCounter}`,
     salonId: input.salonId,
-    actorType: 'system',
+    actorType: input.actorType ?? 'system',
     action: input.action,
     entityType: 'billing_subscription',
     entityId: input.entityId,
@@ -86,6 +88,7 @@ describe('readSubscriptionRefunds — effective-state table', () => {
       refunds: [],
       incomplete: false,
       appliedInvoiceIds: new Set(),
+      voidedInvoiceIds: new Map(),
       nextSeq: 1,
       rows: 0,
     });
@@ -434,8 +437,78 @@ describe('readSubscriptionRefunds — effective-state table', () => {
       refunds: [],
       incomplete: false,
       appliedInvoiceIds: new Set(),
+      voidedInvoiceIds: new Map(),
       nextSeq: 1,
       rows: 0,
+    });
+  });
+
+  // F-1: evidence can be wrong in BOTH directions, so the reader reports the
+  // voided side too — with the actor, because the hourly safety net may
+  // re-check a machine's void against Stripe but must never overrule a
+  // human's.
+  describe('voidedInvoiceIds', () => {
+    it('reports an EFFECTIVE void with the actor type that wrote it', async () => {
+      await seedSalon('s_ev_voided');
+      await seedEvidence({
+        salonId: 's_ev_voided',
+        entityId: 'bsub_ev_voided',
+        action: 'billing_subscription_refund_applied',
+        metadata: { evidenceVersion: 2, seq: 1, invoiceId: 'in_v', refundedPeriodStart: T0.toISOString(), refundedPeriodEnd: T1.toISOString() },
+        actorType: 'webhook',
+      });
+      await seedEvidence({
+        salonId: 's_ev_voided',
+        entityId: 'bsub_ev_voided',
+        action: 'billing_subscription_refund_evidence_resolved',
+        metadata: { evidenceVersion: 2, seq: 2, invoiceId: 'in_v', resolution: 'void', reason: 'refund_reversed:failed' },
+        actorType: 'webhook',
+      });
+      await seedEvidence({
+        salonId: 's_ev_voided',
+        entityId: 'bsub_ev_voided',
+        action: 'billing_subscription_refund_evidence_resolved',
+        metadata: { evidenceVersion: 2, seq: 1, invoiceId: 'in_operator', resolution: 'void', reason: 'operator judgement' },
+        actorType: 'super_admin',
+      });
+
+      const evidence = await read('s_ev_voided', 'bsub_ev_voided');
+
+      expect([...evidence.voidedInvoiceIds]).toEqual([
+        ['in_v', 'webhook'],
+        ['in_operator', 'super_admin'],
+      ]);
+      expect([...evidence.appliedInvoiceIds]).toEqual([]);
+      expect(evidence.refunds).toEqual([]);
+      expect(evidence.incomplete).toBe(false);
+    });
+
+    it('does NOT report a void that a higher-seq applied row has superseded', async () => {
+      await seedSalon('s_ev_void_superseded');
+      await seedEvidence({
+        salonId: 's_ev_void_superseded',
+        entityId: 'bsub_ev_void_superseded',
+        action: 'billing_subscription_refund_evidence_resolved',
+        metadata: { evidenceVersion: 2, seq: 4, invoiceId: 'in_s', resolution: 'void', reason: 'reversed' },
+        actorType: 'webhook',
+        // A LATER created_at than the row that supersedes it: ordering is by
+        // `seq`, never by the clock.
+        createdAt: new Date('2026-12-01T00:00:00.000Z'),
+      });
+      await seedEvidence({
+        salonId: 's_ev_void_superseded',
+        entityId: 'bsub_ev_void_superseded',
+        action: 'billing_subscription_refund_applied',
+        metadata: { evidenceVersion: 2, seq: 5, invoiceId: 'in_s', refundedPeriodStart: T0.toISOString(), refundedPeriodEnd: T1.toISOString() },
+        actorType: 'system',
+        createdAt: new Date('2026-09-15T00:00:00.000Z'),
+      });
+
+      const evidence = await read('s_ev_void_superseded', 'bsub_ev_void_superseded');
+
+      expect([...evidence.voidedInvoiceIds]).toEqual([]);
+      expect([...evidence.appliedInvoiceIds]).toEqual(['in_s']);
+      expect(evidence.refunds).toEqual([{ invoiceId: 'in_s', start: T0, end: T1 }]);
     });
   });
 });

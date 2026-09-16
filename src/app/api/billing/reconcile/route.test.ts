@@ -101,6 +101,7 @@ async function seedRefundEvidence(input: {
   invoiceId: string;
   start: Date;
   end: Date;
+  seq?: number;
 }) {
   await db.insert(schema.auditLogSchema).values({
     id: `al_${input.invoiceId}_${Math.random().toString(36).slice(2)}`,
@@ -112,12 +113,41 @@ async function seedRefundEvidence(input: {
     entityId: input.subscriptionRowId,
     metadata: {
       evidenceVersion: 2,
-      seq: 1,
+      seq: input.seq ?? 1,
       invoiceId: input.invoiceId,
       refundIds: ['re_seeded'],
       eventId: 'evt_seeded',
       refundedPeriodStart: input.start.toISOString(),
       refundedPeriodEnd: input.end.toISOString(),
+    },
+  });
+}
+
+/**
+ * A `void` resolution attributed to a specific writer — the actor is what
+ * decides whether the hourly safety net may re-assert it (F-1).
+ */
+async function seedVoidResolution(input: {
+  salonId: string;
+  subscriptionRowId: string;
+  invoiceId: string;
+  actorType: 'webhook' | 'system' | 'super_admin';
+  seq?: number;
+}) {
+  await db.insert(schema.auditLogSchema).values({
+    id: `al_void_${input.invoiceId}_${Math.random().toString(36).slice(2)}`,
+    salonId: input.salonId,
+    actorType: input.actorType,
+    actorId: input.actorType === 'super_admin' ? 'sa_1' : 'stripe-billing',
+    action: 'billing_subscription_refund_evidence_resolved',
+    entityType: 'billing_subscription',
+    entityId: input.subscriptionRowId,
+    metadata: {
+      evidenceVersion: 2,
+      seq: input.seq ?? 2,
+      invoiceId: input.invoiceId,
+      resolution: 'void',
+      reason: 'seeded void',
     },
   });
 }
@@ -797,5 +827,162 @@ describe('reconciliation route (§8.6, P4)', () => {
       .filter(auditRow => auditRow.action === 'billing_subscription_refund_evidence_resolved');
 
     expect(resolutions).toHaveLength(0);
+  });
+
+  // F-1 — the safety net must work in BOTH directions. A void committed from
+  // a stale read (handler reads a partial charge, a newer handler commits the
+  // applied row, the first handler then commits its void at a higher seq)
+  // would otherwise be the last word forever: the retracted-evidence loop
+  // only ever looks at invoices still marked refunded.
+  it('re-asserts a webhook-voided invoice Stripe now reports fully refunded', async () => {
+    const { salonId, subId } = nextIds();
+    // Whole seconds: Stripe line periods are unix seconds, so a Date with
+    // millisecond precision would not round-trip and `lowered` would silently
+    // miss by a fraction of a second.
+    const startUnix = Math.floor((Date.now() - 20 * 24 * 3600_000) / 1000);
+    const endUnix = Math.floor((Date.now() + 20 * 24 * 3600_000) / 1000);
+    const periodStart = new Date(startUnix * 1000);
+    const periodEnd = new Date(endUnix * 1000);
+    const anchor = await seedSubscription(salonId, subId, { paidThrough: periodEnd });
+    await seedRefundEvidence({
+      salonId,
+      subscriptionRowId: `bsub_${subId}`,
+      invoiceId: 'in_stale_void',
+      start: periodStart,
+      end: periodEnd,
+      seq: 1,
+    });
+    await seedVoidResolution({
+      salonId,
+      subscriptionRowId: `bsub_${subId}`,
+      invoiceId: 'in_stale_void',
+      actorType: 'webhook',
+      seq: 2,
+    });
+    stripeMock.subscriptions.retrieve.mockResolvedValue(
+      remoteSubscription({ id: subId, salonId, anchor, latestInvoice: null }),
+    );
+    stripeMock.invoices.retrieve.mockResolvedValue({
+      id: 'in_stale_void',
+      charge: { amount: 10000, amount_refunded: 10000 }, // Stripe: fully refunded
+      lines: {
+        has_more: false,
+        data: [subLine(startUnix, endUnix)],
+      },
+    });
+
+    const response = await call();
+    const body = await response.json();
+
+    expect(body.summary.notes.find((item: { field: string }) => item.field === 'refund_evidence_reasserted'))
+      .toMatchObject({ stripeSubscriptionId: subId, local: 'in_stale_void', remote: '10000/10000', repaired: true });
+    expect(sentryMessage).toHaveBeenCalledWith('billing.subscription_refunded', expect.objectContaining({
+      extra: expect.objectContaining({ source: 'reconcile', invoiceId: 'in_stale_void' }),
+    }));
+
+    const [row] = await db.select().from(schema.billingSubscriptionSchema)
+      .where(eq(schema.billingSubscriptionSchema.stripeSubscriptionId, subId));
+
+    // The exclusion is back, and paid_through is pulled out of the refunded
+    // window again.
+    expect(row!.paidThrough.getTime()).toBe(periodStart.getTime());
+
+    const applied = (await db.select().from(schema.auditLogSchema))
+      .filter(auditRow => auditRow.action === 'billing_subscription_refund_applied');
+
+    expect(applied).toHaveLength(2);
+    expect(applied.find(auditRow => auditRow.actorType === 'system')).toMatchObject({ actorId: 'billing-reconcile' });
+    expect(applied.find(auditRow => auditRow.actorType === 'system')!.metadata).toMatchObject({ seq: 3, invoiceId: 'in_stale_void' });
+  });
+
+  it('leaves a SUPER-ADMIN void alone even when Stripe reports the charge fully refunded', async () => {
+    const { salonId, subId } = nextIds();
+    // Whole seconds: Stripe line periods are unix seconds, so a Date with
+    // millisecond precision would not round-trip and `lowered` would silently
+    // miss by a fraction of a second.
+    const startUnix = Math.floor((Date.now() - 20 * 24 * 3600_000) / 1000);
+    const endUnix = Math.floor((Date.now() + 20 * 24 * 3600_000) / 1000);
+    const periodStart = new Date(startUnix * 1000);
+    const periodEnd = new Date(endUnix * 1000);
+    const anchor = await seedSubscription(salonId, subId, { paidThrough: periodEnd });
+    await seedRefundEvidence({
+      salonId,
+      subscriptionRowId: `bsub_${subId}`,
+      invoiceId: 'in_operator_void',
+      start: periodStart,
+      end: periodEnd,
+      seq: 1,
+    });
+    await seedVoidResolution({
+      salonId,
+      subscriptionRowId: `bsub_${subId}`,
+      invoiceId: 'in_operator_void',
+      actorType: 'super_admin',
+      seq: 2,
+    });
+    stripeMock.subscriptions.retrieve.mockResolvedValue(
+      remoteSubscription({ id: subId, salonId, anchor, latestInvoice: null }),
+    );
+    stripeMock.invoices.retrieve.mockResolvedValue({
+      id: 'in_operator_void',
+      charge: { amount: 10000, amount_refunded: 10000 },
+      lines: { has_more: false, data: [subLine(startUnix, endUnix)] },
+    });
+
+    const response = await call();
+    const body = await response.json();
+
+    // A human weighed this; the machine does not overrule them on a schedule.
+    expect(stripeMock.invoices.retrieve).not.toHaveBeenCalled();
+    expect(body.summary.notes.some((item: { field: string }) => item.field === 'refund_evidence_reasserted')).toBe(false);
+
+    const [row] = await db.select().from(schema.billingSubscriptionSchema)
+      .where(eq(schema.billingSubscriptionSchema.stripeSubscriptionId, subId));
+
+    expect(row!.paidThrough.getTime()).toBe(periodEnd.getTime());
+
+    const applied = (await db.select().from(schema.auditLogSchema))
+      .filter(auditRow => auditRow.action === 'billing_subscription_refund_applied');
+
+    expect(applied).toHaveLength(1);
+  });
+
+  // F-2 — the pending-offer repair runs BEFORE the paid-through repair, whose
+  // own transition also clears a parked offer. Running it second reported a
+  // genuine repair as `repaired: false`.
+  it('reports BOTH repairs when a paid invoice is ahead AND a downgrade is parked', async () => {
+    const { salonId, subId } = nextIds();
+    const localPaidThrough = new Date();
+    const anchor = await seedSubscription(salonId, subId, {
+      billingOfferKey: 'pro_2026_08_monthly',
+      planDefinitionKey: 'pro_2026_08',
+      pendingOfferKey: 'starter_2026_08_monthly',
+      paidThrough: localPaidThrough,
+    });
+    priceMapHolder.resolvedOfferKey = 'starter_2026_08_monthly';
+    const remotePeriodEndUnix = Math.floor((Date.now() + 40 * 24 * 3600_000) / 1000);
+    stripeMock.subscriptions.retrieve.mockResolvedValue(remoteSubscription({
+      id: subId,
+      salonId,
+      anchor,
+      billingOfferKey: 'pro_2026_08_monthly',
+      priceId: 'price_starter_stub',
+      latestInvoice: { status: 'paid', periodEndUnix: remotePeriodEndUnix },
+    }));
+
+    const response = await call();
+    const body = await response.json();
+
+    expect(body.summary.drift.find((item: { field: string }) => item.field === 'pending_offer_applied_remotely'))
+      .toMatchObject({ stripeSubscriptionId: subId, repaired: true });
+    expect(body.summary.drift.find((item: { field: string }) => item.field === 'paid_through_behind'))
+      .toMatchObject({ stripeSubscriptionId: subId, repaired: true });
+
+    const [row] = await db.select().from(schema.billingSubscriptionSchema)
+      .where(eq(schema.billingSubscriptionSchema.stripeSubscriptionId, subId));
+
+    expect(row!.pendingOfferKey).toBeNull();
+    expect(row!.billingOfferKey).toBe('starter_2026_08_monthly');
+    expect(row!.paidThrough.getTime()).toBe(remotePeriodEndUnix * 1000);
   });
 });

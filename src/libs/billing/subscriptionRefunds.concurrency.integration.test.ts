@@ -75,7 +75,7 @@ const signingStripe = new Stripe('sk_test_billing_refund_concurrency', { apiVers
  * Zero-skip proof: this suite must never silently degrade to a skip in CI.
  * The count is asserted in afterAll and grepped for by the workflow step.
  */
-const EXPECTED_EXECUTED_TESTS = 16;
+const EXPECTED_EXECUTED_TESTS = 17;
 let executedTests = 0;
 
 const day = 86_400_000;
@@ -640,6 +640,78 @@ suite('subscription refund exclusions — real PostgreSQL', () => {
       'billing.subscription_refund_voided',
       expect.anything(),
     );
+  });
+
+  it('RT-6d: the hourly reconcile safety net RE-ASSERTS a stale machine void Stripe still reports as fully refunded', async () => {
+    executedTests += 1;
+    const subscriptionId = 'sub_rt6d';
+    const salonId = 'refund_rt6d';
+    const bsubId = await seed(salonId, subscriptionId);
+    await payment(subscriptionId, 'in_1', anchor, periodEnd);
+
+    const { evaluateSubscriptionWindows } = await import('./creditGrants');
+
+    expect((await evaluateSubscriptionWindows({ subscriptionId: bsubId, now: new Date(anchor.getTime() + day) })).granted).toBe(1);
+
+    await refund(subscriptionId, 'in_1', anchor, periodEnd);
+
+    // The commit-order hazard: a handler that read the charge while it was
+    // only partially refunded commits its void AFTER the applied row landed.
+    // The void wins on `seq`, so the invoice reads as NOT refunded and the
+    // salon starts granting again on money that was returned.
+    const { applySubscriptionRefundVoid } = await import('./billingSubscriptionProjection');
+    const staleVoid = await applySubscriptionRefundVoid({
+      stripeSubscriptionId: subscriptionId,
+      invoiceId: 'in_1',
+      reason: 'refund_reversed:failed',
+      eventId: 'evt_rt6d_stale_void',
+      observedAmountRefunded: 400,
+      observedAmount: 1000,
+      now: new Date(anchor.getTime() + 2 * day),
+    });
+
+    expect(staleVoid).toEqual({ applied: true, voided: true, reapplied: true });
+    expect((await row(subscriptionId)).paidThrough).toEqual(periodEnd);
+
+    // Stripe's authoritative answer: the charge IS fully refunded.
+    stripeMock.subscriptions.retrieve.mockResolvedValue(remote(subscriptionId, 'in_1'));
+    stripeMock.invoices.retrieve.mockResolvedValue({
+      id: 'in_1',
+      charge: { id: 'ch_rt6d', amount: 1000, amount_refunded: 1000 },
+      lines: { has_more: false, data: [line(anchor, periodEnd, { subscription: subscriptionId })] },
+    });
+
+    const response = await reconcile();
+    const body = await response.json() as {
+      summary: { drift: Array<{ field: string }>; notes: Array<{ field: string }> };
+    };
+
+    expect(response.status).toBe(200);
+    expect(body.summary.notes.map(note => note.field)).toContain('refund_evidence_reasserted');
+    expect((await row(subscriptionId)).paidThrough).toEqual(anchor);
+
+    const rows = await evidenceRows(bsubId);
+
+    expect(rows.map(entry => entry.action)).toEqual([
+      'billing_subscription_refund_applied',
+      'billing_subscription_refund_evidence_resolved',
+      'billing_subscription_refund_applied',
+    ]);
+    // A FRESH applied row at a higher seq supersedes the void — append-only,
+    // attributable to the reconcile job, carrying the amounts that justified it.
+    expect(rows[2]!.metadata).toMatchObject({
+      evidenceVersion: 2,
+      seq: 3,
+      invoiceId: 'in_1',
+      refundIds: [],
+      observedAmountRefunded: 1000,
+      observedAmount: 1000,
+    });
+
+    // Entitlement stops again, and across the whole sequence the salon was
+    // granted exactly one lot — never a second one funded by refunded money.
+    expect((await evaluateSubscriptionWindows({ subscriptionId: bsubId, now: new Date(anchor.getTime() + 35 * day) })).granted).toBe(0);
+    expect(await monthlyLots(salonId)).toHaveLength(1);
   });
 
   it('RT-11+: an operator `set` repairs malformed legacy evidence, and a later `void` resumes grants exactly once', async () => {
