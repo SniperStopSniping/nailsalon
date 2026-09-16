@@ -465,6 +465,41 @@ describe('reconciliation route (§8.6, P4)', () => {
     });
   });
 
+  // PR-2 / D19c §2.3 item 3: the projection gained a local-salon check on its
+  // INSERT path. Reconcile only ever projects subscriptions it read out of
+  // this database, so that path — and its SALON_NOT_LOCAL outcome — is
+  // unreachable here: the row it is repairing is the proof of locality. This
+  // pins both halves of that claim, including the §2.7 one that matters most
+  // — remote METADATA can never re-tenant a local row.
+  it('repairs a local row whose remote metadata names a non-local salon, without re-tenanting it', async () => {
+    const { salonId, subId } = nextIds();
+    const anchor = await seedSubscription(salonId, subId, { status: 'active' });
+    stripeMock.subscriptions.retrieve.mockResolvedValue(remoteSubscription({
+      id: subId,
+      // A salon id that exists in NO database here.
+      salonId: 's_reconcile_not_local',
+      anchor,
+      status: 'past_due',
+    }));
+
+    const response = await call();
+
+    expect(response.status).toBe(200);
+
+    const body = await response.json();
+    const entry = body.summary.drift.find((item: { field: string }) => item.field === 'status');
+
+    expect(entry).toMatchObject({ stripeSubscriptionId: subId, repaired: true });
+
+    const [row] = await db.select().from(schema.billingSubscriptionSchema)
+      .where(eq(schema.billingSubscriptionSchema.stripeSubscriptionId, subId));
+
+    expect(row!.status).toBe('past_due');
+    // The salon binding is NEVER taken from remote metadata on the update
+    // path — the local row keeps the tenant its own foreign key proves.
+    expect(row!.salonId).toBe(salonId);
+  });
+
   it('offer mismatch is skipped silently when the reverse lookup is unconfigured', async () => {
     const { salonId, subId } = nextIds();
     const anchor = await seedSubscription(salonId, subId, { billingOfferKey: 'pro_2026_08_monthly' });

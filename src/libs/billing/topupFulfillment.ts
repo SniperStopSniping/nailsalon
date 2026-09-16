@@ -222,14 +222,32 @@ export async function applyTopupSessionCompleted(input: {
   });
 }
 
-/** checkout.session.expired: an unfulfilled purchase row parks as expired. */
-export async function applyTopupSessionExpired(sessionId: string): Promise<{ expired: boolean }> {
+/** {@link resolveTopupSessionExpiry}'s outcome: `reason` is populated only when nothing was parked. */
+export type TopupSessionExpiryOutcome = {
+  expired: boolean;
+  /** 'PURCHASE_NOT_FOUND' — no purchase row is bound to this session id (yet, or ever). */
+  reason?: 'PURCHASE_NOT_FOUND';
+};
+
+/**
+ * checkout.session.expired: an unfulfilled purchase row parks as expired.
+ *
+ * D19c §2.3 item 3: a missing purchase row is RETURNED, never thrown, because
+ * the two possible causes need opposite handling and only the CALLER can tell
+ * them apart — the genuine TX2 race (our own checkout has not committed its
+ * binding yet) is retryable, while an expired session belonging to another
+ * deployment on the shared Stripe account is terminally foreign. The billing
+ * webhook decides with a local-salon test; {@link applyTopupSessionExpired}
+ * below keeps the throwing contract for the callers that have no such
+ * evidence to offer.
+ */
+export async function resolveTopupSessionExpiry(sessionId: string): Promise<TopupSessionExpiryOutcome> {
   return db.transaction(async (tx) => {
     const [binding] = await tx.select().from(smsTopupPurchaseSchema)
       .where(eq(smsTopupPurchaseSchema.stripeCheckoutSessionId, sessionId));
     if (!binding) {
       // Like completion, delivery can precede the checkout's binding commit.
-      throw new Error('TOPUP_PURCHASE_NOT_FOUND');
+      return { expired: false, reason: 'PURCHASE_NOT_FOUND' as const };
     }
     if (binding.salonId === null) {
       return { expired: false };
@@ -252,6 +270,22 @@ export async function applyTopupSessionExpired(sessionId: string): Promise<{ exp
     });
     return { expired: true };
   });
+}
+
+/**
+ * Throwing form of {@link resolveTopupSessionExpiry}, kept BYTE-IDENTICAL in
+ * behaviour for the callers that cannot classify a missing purchase row:
+ * the top-up checkout route's reuse path and P4's held-attempt reconciler,
+ * both of which treat the throw as "retryable next pass". Only the billing
+ * webhook — which holds the session's own `metadata.salonId` and can prove
+ * whether the salon is local — uses the classifying form directly.
+ */
+export async function applyTopupSessionExpired(sessionId: string): Promise<{ expired: boolean }> {
+  const outcome = await resolveTopupSessionExpiry(sessionId);
+  if (outcome.reason === 'PURCHASE_NOT_FOUND') {
+    throw new Error('TOPUP_PURCHASE_NOT_FOUND');
+  }
+  return { expired: outcome.expired };
 }
 
 /**
