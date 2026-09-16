@@ -44,6 +44,17 @@ export const Env = createEnv({
     // Dedicated secret for /api/webhooks/stripe-billing (§8.1) — never shared
     // with the legacy or deposits webhook secrets.
     STRIPE_BILLING_WEBHOOK_SECRET: z.string().optional(),
+    // D19c §2.1 deployment marker. OPTIONAL; UNSET MEANS NO DEPLOYMENT CHECK
+    // and behaviour identical to before this variable existed. When it IS
+    // set, /api/webhooks/stripe-billing additionally requires every object it
+    // processes to carry `metadata.luster_deployment` equal to this value —
+    // an absent or different marker is DEFINITELY FOREIGN (`FOREIGN_DEPLOYMENT`,
+    // zero Stripe calls). That is the structural answer to several
+    // deployments of this codebase sharing one test-mode Stripe account.
+    // PR-2 only HONOURS the marker; PR-3 stamps it onto sessions,
+    // subscriptions and customers — so set it only AFTER the stamping deploy,
+    // or the endpoint will classify its own in-flight objects as foreign.
+    BILLING_DEPLOYMENT_MARKER: z.string().regex(/^[\w.-]{1,64}$/).optional(),
     // G40/D19a — env-keyed Stripe Price/Coupon id carrier (contract §4/§12,
     // P6b; ratified 2026-09-14). Server-only JSON, optional; UNSET MEANS NO
     // CARRIER — every resolver in stripePriceMap.ts falls back to the
@@ -58,9 +69,9 @@ export const Env = createEnv({
     // deploy can never expose the conversational surface structurally. Both
     // routes answer 404 before authentication while this is unset.
     OWNER_ASSISTANT_ENABLED: z.enum(['true', 'false']).optional(),
-    // Comma-separated salon slugs (pilot mechanism). UNSET MEANS NO SALON is
-    // entitled by allowlist; `salon.features.ai.ownerAssistant` is the other,
-    // independent path.
+    // Comma-separated salon slugs — the ONLY per-salon entitlement in this
+    // slice. UNSET MEANS NO SALON is entitled. `salon.features.ai.ownerAssistant`
+    // is reserved and deliberately not consulted (docs/OWNER_ASSISTANT_CHAT.md §2).
     OWNER_ASSISTANT_SALON_ALLOWLIST: z.string().optional(),
     // Comma-separated read-only tool names the model may call. UNSET MEANS NO
     // TOOLS: the assistant can converse but must say it cannot check anything.
@@ -180,6 +191,7 @@ export const Env = createEnv({
     PUBLIC_PRICING_ENABLED: process.env.PUBLIC_PRICING_ENABLED,
     BILLING_TAX_COLLECTION_ENABLED: process.env.BILLING_TAX_COLLECTION_ENABLED,
     STRIPE_BILLING_WEBHOOK_SECRET: process.env.STRIPE_BILLING_WEBHOOK_SECRET,
+    BILLING_DEPLOYMENT_MARKER: process.env.BILLING_DEPLOYMENT_MARKER,
     BILLING_STRIPE_PRICE_IDS: process.env.BILLING_STRIPE_PRICE_IDS,
     OWNER_ASSISTANT_ENABLED: process.env.OWNER_ASSISTANT_ENABLED,
     OWNER_ASSISTANT_SALON_ALLOWLIST: process.env.OWNER_ASSISTANT_SALON_ALLOWLIST,

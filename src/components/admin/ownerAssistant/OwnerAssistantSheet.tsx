@@ -194,7 +194,6 @@ export function OwnerAssistantSheet({
           the latest answer made screen readers read every answer twice.
         */}
         <div
-          aria-busy={busy}
           aria-label={ownerAssistantCopy.threadLabel}
           aria-live="polite"
           className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-4 sm:px-5"

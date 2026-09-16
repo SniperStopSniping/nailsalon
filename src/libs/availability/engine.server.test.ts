@@ -260,10 +260,63 @@ describe('computeDaySlots — explain aggregate', () => {
   it('reports min_notice for the starts inside the lead window on today', () => {
     const { explanation } = explain(baseInput({ date: THURSDAY }));
 
-    // 00:00 through 14:00 local are inside the 120-minute floor (14:30).
-    expect(causeFor(explanation.causes, 'min_notice')).toEqual({ code: 'min_notice', count: 15 });
+    // 00:00 through 14:00 local are inside the 120-minute floor (14:30), but
+    // only 9:00…14:00 would have been OFFERED without it — the other nine are
+    // hours the technician never works, and they are charged there instead.
+    expect(causeFor(explanation.causes, 'min_notice')).toEqual({ code: 'min_notice', count: 6 });
+    expect(causeFor(explanation.causes, 'outside_schedule')).toEqual({
+      code: 'outside_schedule',
+      count: 16,
+      technicianId: TECH_ID,
+    });
     expect(explanation.bookableSlotCount).toBe(2);
     expect(explanation.firstBookable).toBe('15:00');
+  });
+
+  it('charges the notice floor only for slots it alone took away', () => {
+    // The technician works 13:00–17:00, so the 14:30 floor sits INSIDE opening
+    // hours: 13:00 and 14:00 are the only starts the floor actually cost the
+    // day. 00:00–12:00 were never on offer and stay `outside_schedule`.
+    const { explanation, visibleSlots } = explain(baseInput({
+      date: THURSDAY,
+      technicians: [{
+        ...baseInput().technicians[0]!,
+        weeklySchedule: { thursday: { start: '13:00', end: '17:00' } },
+      }],
+    }));
+
+    expect(visibleSlots).toEqual(['15:00', '16:00']);
+    expect(causeFor(explanation.causes, 'min_notice')).toEqual({ code: 'min_notice', count: 2 });
+    expect(causeFor(explanation.causes, 'outside_schedule')).toEqual({
+      code: 'outside_schedule',
+      count: 20,
+      technicianId: TECH_ID,
+    });
+    expect(explanation.bookableSlotCount).toBe(2);
+    expect(explanation.firstBookable).toBe('15:00');
+  });
+
+  it('reports no per-technician causes at all when every slot is bookable', () => {
+    // A day with no closed hours and a second technician who is off entirely.
+    // Nobody lost a slot to her absence, so she must not appear: the old tally
+    // reported `technician_day_off × 24` for a day with nothing wrong with it.
+    const alwaysOpen = {
+      ...baseInput().technicians[0]!,
+      weeklySchedule: { friday: { start: '00:00', end: '23:59' } },
+    };
+
+    const { explanation, visibleSlots } = explain(baseInput({
+      visibleDurationMinutes: 30,
+      technicians: [
+        alwaysOpen,
+        { ...alwaysOpen, id: 'tech_engine_off', weeklySchedule: { monday: { start: '09:00', end: '17:00' } } },
+      ],
+    }));
+
+    expect(visibleSlots).toHaveLength(24);
+    expect(explanation.bookableSlotCount).toBe(24);
+    expect(explanation.firstBookable).toBe('0:00');
+    expect(explanation.causes).toEqual([]);
   });
 
   it('attributes per-technician causes separately and keeps the day bookable', () => {
@@ -284,9 +337,12 @@ describe('computeDaySlots — explain aggregate', () => {
       count: 16,
       technicianId: TECH_ID,
     });
+    // 16, not 24: her time off cost the day only the sixteen starts her
+    // colleague could not cover either. The eight bookable starts are not
+    // charged to her — nothing was lost there.
     expect(explanation.causes).toContainEqual({
       code: 'technician_time_off',
-      count: 24,
+      count: 16,
       technicianId: 'tech_engine_2',
     });
   });

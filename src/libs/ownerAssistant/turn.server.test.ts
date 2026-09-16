@@ -586,13 +586,22 @@ describe('budget', () => {
     expect(value.modelCalls).toEqual([]);
   });
 
-  it('reports redis_unavailable without calling the provider', async () => {
+  it('reports redis_unavailable without calling the provider, and ledgers the attempt', async () => {
+    await clearLedger();
     redisHolder.eval.mockRejectedValue(new Error('connection refused'));
     const provider = createScriptedProvider(fakeAnswer(ANSWER));
     const result = await run(provider);
 
     expect(result.kind === 'unavailable' && result.reason).toBe('redis_unavailable');
     expect(provider.requests).toHaveLength(0);
+
+    const rows = await ledgerRows();
+
+    expect(rows).toHaveLength(1);
+    expect((rows[0]?.metadata as { newValue: { outcome: string; modelCalls: unknown[] } }).newValue).toMatchObject({
+      outcome: 'redis_unavailable',
+      modelCalls: [],
+    });
   });
 });
 
