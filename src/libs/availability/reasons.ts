@@ -69,8 +69,9 @@ export const TECHNICIAN_DECISION_DIAGNOSIS: Record<TechnicianDecisionReason, Dia
  * Every `BookingSelectionError` the public selection validator can raise is
  * one thing to an owner asking "why can nobody book this?": the service, as
  * selected, is not bookable online. The specific code travels separately as
- * the cause's `detail`, so the vocabulary stays small without losing
- * precision.
+ * the cause's `detail`, which is typed as `BookingSelectionErrorCode` for
+ * exactly this reason — so the vocabulary stays small without losing
+ * precision, and a cause cannot carry free-form text.
  */
 export const BOOKING_SELECTION_DIAGNOSIS: Record<BookingSelectionErrorCode, DiagnosisCode> = {
   invalid_service: 'service_not_bookable',

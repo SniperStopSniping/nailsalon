@@ -75,21 +75,25 @@ vi.mock('@/libs/clientAuth', () => ({
   getClientSession: vi.fn(async () => null),
 }));
 
-vi.mock('@/libs/googleCalendar', () => ({
-  GoogleCalendarAvailabilityError,
-  getGoogleCalendarBusyWindows: vi.fn(async () => {
-    if (holder.googleError) {
-      throw holder.googleError;
-    }
+vi.mock('@/libs/googleCalendar', async () => {
+  const actual = await vi.importActual<typeof import('@/libs/googleCalendar')>('@/libs/googleCalendar');
 
-    return holder.googleBusy;
-  }),
-  isBusyWindowConflict: (
-    startTime: Date,
-    endTime: Date,
-    busyWindows: Array<{ startTime: Date; endTime: Date }>,
-  ) => busyWindows.some(window => startTime < window.endTime && endTime > window.startTime),
-}));
+  return {
+    GoogleCalendarAvailabilityError,
+    // Only the FETCH is mocked — it is the network edge, and pinning it is
+    // what makes the busy-window scenarios deterministic.
+    getGoogleCalendarBusyWindows: vi.fn(async () => {
+      if (holder.googleError) {
+        throw holder.googleError;
+      }
+
+      return holder.googleBusy;
+    }),
+    // The overlap predicate is the REAL one. A parity pin that re-implemented
+    // it would be pinning the test's arithmetic, not production's.
+    isBusyWindowConflict: actual.isBusyWindowConflict,
+  };
+});
 
 /* eslint-disable import/first */
 import { GET } from './route';
