@@ -69,3 +69,6 @@ local
 
 # vercel
 .vercel
+
+# owner-assistant eval reports (scripts/owner-assistant-eval.ts). Never commit a run.
+/eval-reports/

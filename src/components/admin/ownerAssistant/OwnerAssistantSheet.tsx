@@ -20,8 +20,10 @@ import { OWNER_ASSISTANT_LIMITS } from '@/libs/ownerAssistant/contracts';
 import { cn } from '@/utils/Helpers';
 
 import { ownerAssistantCopy } from './ownerAssistantCopy';
+import { OwnerAssistantFeedbackControls } from './OwnerAssistantFeedback';
 import type { UiMessage } from './ownerAssistantStorage';
 import type { OwnerAssistantBanner } from './useOwnerAssistant';
+import type { OwnerAssistantFeedbackState } from './useOwnerAssistantFeedback';
 
 const CHIP_CLASS_NAME
   = 'inline-flex min-h-11 items-center rounded-full border border-[var(--owner-line-strong)] bg-[var(--owner-surface)] px-4 py-2 text-left text-sm font-medium text-[var(--owner-ink)] transition-all duration-200 hover:border-[var(--owner-accent)] hover:text-[var(--owner-accent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)] motion-reduce:transition-none';
@@ -35,6 +37,8 @@ export type OwnerAssistantSheetProps = {
   banner: OwnerAssistantBanner | null;
   notice: string | null;
   suggestedQuestions: string[];
+  /** Rating and report state, keyed by message id (A1-4b). */
+  feedback: OwnerAssistantFeedbackState;
   /** Text handed back after a turn that could not be delivered; see the hook. */
   draftToRestore: string | null;
   onSend: (message: string) => void;
@@ -52,6 +56,7 @@ export function OwnerAssistantSheet({
   banner,
   notice,
   suggestedQuestions,
+  feedback,
   draftToRestore,
   onSend,
   onRetry,
@@ -301,6 +306,10 @@ export function OwnerAssistantSheet({
                     ))}
                   </div>
                 </div>
+              )}
+
+              {message.role === 'assistant' && (
+                <OwnerAssistantFeedbackControls feedback={feedback} message={message} />
               )}
             </div>
           ))}

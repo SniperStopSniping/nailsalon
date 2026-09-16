@@ -123,9 +123,19 @@ Rows are written for every outcome that reached the budget or the provider (incl
 - `adminAuth.ownerRole.test.ts` (ported) + `clerkApiContext.coverage.test.ts` with `requireRealSalonOwner` and `requireAdminSalonForSlug` in `ADMIN_GUARDS`.
 - RTL: launcher hidden on 404; sheet flow (send → answer → checked → links → follow-up); unavailable banner; 409 resets; salon switch resets; disclosure visible.
 
+## 8b. Owner feedback
+
+Every assistant answer carries a thumbs up / thumbs down, and a "report a problem" form that sends the owner's own note (≤ 1000 characters). Each action writes ONE `salon_audit_log` row through the same sanitising writer the turn ledger uses:
+
+- `action: 'owner_assistant_feedback'`, `metadata.newValue = { feedbackId, kind: 'up' | 'down' | 'report', conversationId?, turnIndex?, cardKind?, reasonCodes[], ownerText (report only, else null), ownerTextChars }`.
+- Withdrawing writes `action: 'owner_assistant_feedback_withdrawn'` carrying the same `feedbackId`; the original row is never edited or deleted, and readers treat the pair as withdrawn.
+- Ratings carry no text at all. A report carries only what the owner typed — never the conversation, the model's answer, or any tool result.
+- `conversationId` and `turnIndex` are correlation hints the client derives from its own signed token; the salon and the actor always come from the session, so a mislabelled hint can only mislabel a row inside the owner's own trail. There is no unique index (no migration), so a retried `feedbackId` writes a second row and the reader de-duplicates.
+- `GET /api/admin/owner-assistant/feedback` returns the requesting owner's own rows only, newest first, capped at 50.
+
 ## 9. Operator runbook (pilot; activation is a separate Owner action)
 
-Enable for one salon: set `OWNER_ASSISTANT_ENABLED=true`, `OWNER_ASSISTANT_SALON_ALLOWLIST=<slug>`, `OWNER_ASSISTANT_TOOLS=get_salon_overview,list_services,find_destination,diagnose_day_availability,get_setup_readiness`, `OPENAI_API_KEY_OWNER=<dedicated key with a provider-side monthly budget>`, `OWNER_ASSISTANT_SIGNING_SECRET=<32+ random bytes>`; confirm `REDIS_URL` is set; redeploy.
+The full pilot procedure, the disclosure the owner must receive, and the incident/rollback steps live in `docs/OWNER_ASSISTANT_PILOT.md`. In short — enable for one salon: set `OWNER_ASSISTANT_ENABLED=true`, `OWNER_ASSISTANT_SALON_ALLOWLIST=<slug>`, `OWNER_ASSISTANT_TOOLS=get_salon_overview,list_services,find_destination,diagnose_day_availability,get_setup_readiness`, `OPENAI_API_KEY_OWNER=<dedicated key with a provider-side monthly budget>`, `OWNER_ASSISTANT_SIGNING_SECRET=<32+ random bytes>`; confirm `REDIS_URL` is set; redeploy.
 
 Verify: anonymous `GET /api/admin/owner-assistant/context?salonSlug=<any>` → 401 (the global switch is on; nothing else is disclosed). From the pilot owner's own session, `GET …/context?salonSlug=<slug>` → 200 with `model.available: true`; a second salon that owner owns which is NOT on the allowlist → empty 404 (a salon they do not own answers 403 and proves nothing). If `model.available` is `false`: `not_configured` ⇒ check `OPENAI_API_KEY_OWNER` and, in production, `OWNER_ASSISTANT_SIGNING_SECRET`; `redis_unavailable` ⇒ `REDIS_URL` is unset. If every turn answers "isn't available right now" while `context` says available, Redis is configured but unreachable.
 

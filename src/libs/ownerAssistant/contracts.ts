@@ -20,16 +20,27 @@ import type { SetupReadinessResult } from '@/libs/setupReadiness/types';
 // Pilot limits (Owner decision A-3, 2026-09-16) and fixed parameters
 // ---------------------------------------------------------------------------
 
+/**
+ * Two enforcement points, deliberately not the same one:
+ *
+ *  - `turnsPerDay`, `turnsPerMonth` and `globalTurnsPerDay` are reserved in
+ *    REDIS before any provider call (`budget.server.ts`). Their keys carry only
+ *    the SALON id, so the allowance is per salon and per UTC window — two owners
+ *    of one salon share it; one owner's two salons each have their own.
+ *  - `modelCallsPerTurn` and `toolCallsPerTurn` are NOT in Redis. They are
+ *    enforced by the TURN LOOP (`turn.server.ts`), inside a turn that has
+ *    already reserved its one unit.
+ */
 export const OWNER_ASSISTANT_LIMITS = {
-  /** Owner-salon turns per UTC day. */
+  /** Turns per UTC day, per SALON (not per owner). Reserved in Redis. */
   turnsPerDay: 30,
-  /** Owner-salon turns per UTC month. */
+  /** Turns per UTC month, per SALON (not per owner). Reserved in Redis. */
   turnsPerMonth: 300,
-  /** All salons together, per UTC day. */
+  /** All salons together, per UTC day. Reserved in Redis. */
   globalTurnsPerDay: 2000,
-  /** Model round trips per turn (first call + tool-result follow-ups). */
+  /** Model round trips per turn (first call + tool-result follow-ups). Enforced in the turn loop. */
   modelCallsPerTurn: 3,
-  /** Luster tool executions per turn, across all model calls. */
+  /** Luster tool executions per turn, across all model calls. Enforced in the turn loop. */
   toolCallsPerTurn: 5,
   /** Upper bound on visible + reasoning output tokens per model call. */
   maxOutputTokens: 1200,
@@ -461,7 +472,14 @@ export type ContextResponse = {
 };
 
 /** Error envelope for non-2xx responses (matches the admin API convention). */
-export type ChatErrorCode = 'BAD_REQUEST' | 'CONVERSATION_INVALID' | 'UNAUTHORIZED' | 'OWNER_REQUIRED' | 'IMPERSONATION_NOT_ALLOWED';
+export type ChatErrorCode =
+  | 'BAD_REQUEST'
+  | 'CONVERSATION_INVALID'
+  | 'UNAUTHORIZED'
+  | 'OWNER_REQUIRED'
+  | 'IMPERSONATION_NOT_ALLOWED'
+  /** The feedback row could not be written; the client offers Retry (A1-4b). */
+  | 'FEEDBACK_NOT_RECORDED';
 
 export const CHAT_UNAVAILABLE_MESSAGES: Record<ChatUnavailableReason, string> = {
   not_configured: 'The assistant isn\'t set up for this salon yet.',
@@ -483,3 +501,130 @@ export const OWNER_ASSISTANT_TOOL_LABELS: Record<OwnerAssistantToolName, string>
   diagnose_day_availability: 'the availability rules for that day',
   get_setup_readiness: 'your setup readiness',
 };
+
+// ---------------------------------------------------------------------------
+// Owner feedback (A1-4b)
+// ---------------------------------------------------------------------------
+
+/**
+ * Feedback is evidence, not content. A rating says "this answer was good/bad"
+ * and nothing more; a report may carry the owner's OWN typed sentence and
+ * nothing else — never the transcript, never a tool result, never the model's
+ * words, never a client's data.
+ *
+ * Both rows live in `salon_audit_log` exactly like the turn ledger (§6), so
+ * this slice adds no table and no migration. The correlation keys
+ * (`conversationId`, `turnIndex`) are the same two the ledger row already
+ * carries, which is what makes a rating joinable to the turn it rates.
+ */
+
+export const OWNER_ASSISTANT_FEEDBACK_ACTION = 'owner_assistant_feedback';
+export const OWNER_ASSISTANT_FEEDBACK_WITHDRAWN_ACTION = 'owner_assistant_feedback_withdrawn';
+
+export const OWNER_ASSISTANT_FEEDBACK_KINDS = ['up', 'down', 'report'] as const;
+export type OwnerAssistantFeedbackKind = (typeof OWNER_ASSISTANT_FEEDBACK_KINDS)[number];
+
+/** Which card the owner rated. Fixed vocabulary — never a label or a message. */
+export const OWNER_ASSISTANT_FEEDBACK_CARD_KINDS = ['answer', 'unavailable'] as const;
+export type OwnerAssistantFeedbackCardKind = (typeof OWNER_ASSISTANT_FEEDBACK_CARD_KINDS)[number];
+
+/**
+ * Closed vocabulary for structured reasons. Fixed codes, never free text, so a
+ * reason can be counted without reading anybody's words. The sheet in this
+ * slice does not yet offer reason chips; the API accepts them so a later UI
+ * (and the eval harness) does not need a second contract change.
+ */
+export const OWNER_ASSISTANT_FEEDBACK_REASON_CODES = [
+  'wrong_answer',
+  'missing_information',
+  'confusing',
+  'wrong_destination',
+  'too_slow',
+  'other',
+] as const;
+export type OwnerAssistantFeedbackReasonCode = (typeof OWNER_ASSISTANT_FEEDBACK_REASON_CODES)[number];
+
+export const OWNER_ASSISTANT_FEEDBACK_LIMITS = {
+  /** Owner-typed report text, after trimming. */
+  textMaxChars: 1000,
+  /** Structured reason codes per row. */
+  reasonCodesMax: 4,
+  /** Rows the GET returns, newest first. */
+  listMax: 50,
+  /**
+   * Rows the reader scans before filtering to this owner and de-duplicating.
+   * The index is `(salon_id)` + `(action)`, not `(actor)`, so the actor filter
+   * happens in code over a bounded window rather than in SQL.
+   */
+  scanMax: 500,
+} as const;
+
+/**
+ * Client-generated id, opaque and short. A retry re-sends the SAME id, which is
+ * what makes a retry safe: there is no unique index on the audit table, so the
+ * READER de-duplicates by this id rather than the writer refusing a second row.
+ */
+export const ownerAssistantFeedbackIdSchema = z
+  .string()
+  .trim()
+  .min(8)
+  .max(64)
+  .regex(/^[\w-]+$/, 'feedbackId must be url-safe');
+
+/**
+ * The conversation id the client read out of its own signed token — a
+ * correlation hint, not an authorization input. The salon and the owner always
+ * come from the session, so at worst an owner mislabels a row in their own
+ * salon's evidence trail. The transcript itself is deliberately NOT sent to
+ * this endpoint.
+ */
+const conversationIdSchema = z.string().trim().min(8).max(64).regex(/^[\w-]+$/);
+
+export const feedbackRequestSchema = z.object({
+  salonSlug: z.string().trim().min(1).max(200),
+  feedbackId: ownerAssistantFeedbackIdSchema,
+  kind: z.enum(OWNER_ASSISTANT_FEEDBACK_KINDS),
+  conversationId: conversationIdSchema.optional(),
+  turnIndex: z.number().int().nonnegative().max(100_000).optional(),
+  cardKind: z.enum(OWNER_ASSISTANT_FEEDBACK_CARD_KINDS).optional(),
+  reasonCodes: z
+    .array(z.enum(OWNER_ASSISTANT_FEEDBACK_REASON_CODES))
+    .max(OWNER_ASSISTANT_FEEDBACK_LIMITS.reasonCodesMax)
+    .optional(),
+  text: z.string().trim().min(1).max(OWNER_ASSISTANT_FEEDBACK_LIMITS.textMaxChars).optional(),
+}).strict().refine(
+  // A rating is a rating: `up`/`down` may never carry free text. Enforced here
+  // (400) as well as in the writer, because the two failures are different —
+  // one is a client bug the client should see, the other is the last line of
+  // defence for any future caller.
+  body => body.kind === 'report' || body.text === undefined,
+  { message: 'Only a report may carry text.', path: ['text'] },
+);
+export type FeedbackRequest = z.infer<typeof feedbackRequestSchema>;
+
+export const feedbackWithdrawRequestSchema = z.object({
+  salonSlug: z.string().trim().min(1).max(200),
+  feedbackId: ownerAssistantFeedbackIdSchema,
+  conversationId: conversationIdSchema.optional(),
+  turnIndex: z.number().int().nonnegative().max(100_000).optional(),
+}).strict();
+export type FeedbackWithdrawRequest = z.infer<typeof feedbackWithdrawRequestSchema>;
+
+export const feedbackListQuerySchema = z.object({
+  salonSlug: z.string().trim().min(1).max(200),
+}).strict();
+
+export type FeedbackAcceptedResponse = {
+  feedbackId: string;
+  /** Server clock, ISO-8601. The client shows nothing from it; evidence does. */
+  receivedAt: string;
+};
+
+export type FeedbackListItem = {
+  feedbackId: string;
+  kind: OwnerAssistantFeedbackKind;
+  createdAt: string;
+  withdrawn: boolean;
+};
+
+export type FeedbackListResponse = { items: FeedbackListItem[] };

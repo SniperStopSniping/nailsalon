@@ -42,6 +42,36 @@ export const ownerAssistantCopy = {
   conversationReset: 'Let\'s start a fresh conversation.',
   newConversation: 'New conversation',
 
+  /**
+   * Feedback (A1-4b). Every string the rating control and the report form
+   * show lives here — including the sentence that states exactly what leaves
+   * the browser, which is a product promise and must not be rewritten in JSX.
+   */
+  feedbackGroupLabel: 'Was this answer helpful?',
+  feedbackUp: 'Helpful',
+  feedbackDown: 'Not helpful',
+  /** Announced after a rating is accepted; also the visible confirmation. */
+  feedbackThanks: 'Thanks — noted.',
+  /** A rating that did not reach the server. Never blocks the conversation. */
+  feedbackFailed: 'Not sent.',
+  feedbackRetry: 'Retry',
+
+  reportOpen: 'Report a problem',
+  reportTitle: 'Report a problem',
+  reportLabel: 'What went wrong?',
+  reportPlaceholder: 'Tell us what was wrong with this answer…',
+  /**
+   * The disclosure the form is required to carry. It states what is sent, and
+   * the implementation makes it true: the request body carries the rating, the
+   * opaque conversation id and the turn number — never the conversation.
+   */
+  reportNote: 'We send your note with the conversation id and the turn number. What you and the assistant wrote is never sent.',
+  reportSend: 'Send report',
+  reportCancel: 'Cancel',
+  reportSent: 'Thanks — your report was sent.',
+  reportFailed: 'That report didn\'t send.',
+  reportCounterLabel: 'Characters used',
+
   /** Composer. */
   composerLabel: 'Message the assistant',
   composerPlaceholder: 'Ask a question about your salon…',
