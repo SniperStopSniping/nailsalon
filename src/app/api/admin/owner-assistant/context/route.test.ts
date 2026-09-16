@@ -190,21 +190,18 @@ describe('successful context', () => {
     const response = await get();
 
     expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toMatchObject({
+    await expect(response.json()).resolves.toEqual({
       data: {
         enabled: true,
         salonSlug: 'isla-nail-studio',
         salonName: 'Isla Nail Studio',
+        ownerRef: expect.stringMatching(/^[0-9a-f]{16}$/),
         tools: ['get_salon_overview', 'list_services', 'find_destination'],
         model: { available: true },
         suggestedQuestions: [...OWNER_ASSISTANT_SUGGESTED_QUESTIONS],
         disclosure: OWNER_ASSISTANT_DISCLOSURE,
       },
     });
-
-    const payload = await (await get()).json() as { data: { ownerRef: string } };
-
-    expect(payload.data.ownerRef).toMatch(/^[0-9a-f]{16}$/);
   });
 
   it('never caches', async () => {

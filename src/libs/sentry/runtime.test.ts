@@ -57,6 +57,17 @@ describe('owner-assistant event scrubbing', () => {
     expect(event.exception).toEqual({ values: [] });
   });
 
+  it('drops the raw Cookie and Authorization headers of an owner-assistant request', () => {
+    const event = scrubSentryEvent({
+      request: {
+        url: 'https://www.lustergel.app/api/admin/owner-assistant/chat',
+        headers: { Cookie: 'n5_admin_session=abc', Authorization: 'Bearer x', Accept: 'application/json' },
+      },
+    });
+
+    expect(event.request?.headers).toEqual({ Accept: 'application/json' });
+  });
+
   it('scrubs the context route too', () => {
     const event = scrubSentryEvent({
       request: {

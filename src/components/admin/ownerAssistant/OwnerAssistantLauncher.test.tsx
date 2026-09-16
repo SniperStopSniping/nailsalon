@@ -525,7 +525,7 @@ describe('OwnerAssistantLauncher — composer', () => {
     const busy = await screen.findByTestId('owner-assistant-busy');
 
     expect(busy).toHaveAttribute('role', 'status');
-    expect(screen.getByTestId('owner-assistant-thread')).toHaveAttribute('aria-busy', 'true');
+    expect(screen.getByTestId('owner-assistant-thread')).not.toHaveAttribute('aria-busy');
     // `disabled` would throw keyboard focus out of the dialog for the whole turn.
     expect(composer()).toBeEnabled();
     expect(composer()).toHaveAttribute('readonly');
@@ -542,7 +542,6 @@ describe('OwnerAssistantLauncher — composer', () => {
     await waitFor(() => expect(composer()).toHaveFocus());
 
     expect(composer()).not.toHaveAttribute('readonly');
-    expect(screen.getByTestId('owner-assistant-thread')).toHaveAttribute('aria-busy', 'false');
   });
 
   it('keeps the composer clear of the home indicator', async () => {

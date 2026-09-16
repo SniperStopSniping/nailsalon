@@ -58,9 +58,9 @@ export const Env = createEnv({
     // deploy can never expose the conversational surface structurally. Both
     // routes answer 404 before authentication while this is unset.
     OWNER_ASSISTANT_ENABLED: z.enum(['true', 'false']).optional(),
-    // Comma-separated salon slugs (pilot mechanism). UNSET MEANS NO SALON is
-    // entitled by allowlist; `salon.features.ai.ownerAssistant` is the other,
-    // independent path.
+    // Comma-separated salon slugs — the ONLY per-salon entitlement in this
+    // slice. UNSET MEANS NO SALON is entitled. `salon.features.ai.ownerAssistant`
+    // is reserved and deliberately not consulted (docs/OWNER_ASSISTANT_CHAT.md §2).
     OWNER_ASSISTANT_SALON_ALLOWLIST: z.string().optional(),
     // Comma-separated read-only tool names the model may call. UNSET MEANS NO
     // TOOLS: the assistant can converse but must say it cannot check anything.
