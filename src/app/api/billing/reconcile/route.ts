@@ -11,7 +11,11 @@
  *
  * Duplicate remote subscriptions for one customer are ALERTED, never
  * silently resolved (§8.5): choosing one would strand real money on the
- * other.
+ * other. The alert is raised against STRIPE, not against this database: one
+ * `subscriptions.list` per distinct local customer id finds the live remote
+ * subscription that was never projected here — the case §8.5 is actually
+ * about, and the only one a comparison between rows we already know could
+ * never see.
  *
  * Per-section gating (P4): the `billing_stripe_event` payload purge (G13)
  * runs FIRST and UNCONDITIONALLY, right after CRON_SECRET auth — payloads
@@ -48,7 +52,7 @@ import {
 } from '@/libs/billing/billingSubscriptionProjection';
 import { computeCreditWindow } from '@/libs/billing/creditWindows';
 import { isAuthorizedCronRequest } from '@/libs/billing/cronAuth';
-import { subscriptionLinePeriods } from '@/libs/billing/invoiceLinePeriods';
+import { loadInvoiceLines, subscriptionLinePeriods } from '@/libs/billing/invoiceLinePeriods';
 import { resolveBillingOfferFromStripePriceId } from '@/libs/billing/stripePriceMap';
 import { readSubscriptionRefunds } from '@/libs/billing/subscriptionRefunds';
 import { reconcileHeldTopups, type TopupReconciliationSummary } from '@/libs/billing/topupReconciliation';
@@ -59,6 +63,16 @@ import { type BillingSubscription, billingSubscriptionSchema } from '@/models/Sc
 
 const SUBSCRIPTION_BATCH_SIZE = 100;
 const PURGE_BATCH_SIZE = 500;
+/** One page per customer, never auto-paged: the alert needs existence, not a census. */
+const REMOTE_SUBSCRIPTION_LIST_LIMIT = 100;
+
+/**
+ * A remote subscription is LIVE unless Stripe has terminated it. Everything
+ * else — `active`, `past_due`, `trialing`, `paused`, `unpaid`, `incomplete` —
+ * can still bill the customer, which is precisely what makes an unprojected
+ * one dangerous.
+ */
+const TERMINATED_REMOTE_STATUSES: ReadonlySet<string> = new Set(['canceled', 'incomplete_expired']);
 
 /**
  * R-2 writer 3 acts as the system, not as a webhook delivery: its evidence
@@ -85,6 +99,12 @@ type SubscriptionDriftSummary = {
    * Never counted as drift, never alerted on by the drift budget.
    */
   notes: DriftEntry[];
+  /**
+   * DISTINCT Stripe customers that carry a §8.5 duplicate signal — either two
+   * local rows resolving to one customer, or a live remote subscription this
+   * database never projected. Counting customers, not observations: one
+   * customer with three unprojected remotes is still one investigation.
+   */
   duplicateRemoteCustomers: number;
 };
 
@@ -268,19 +288,27 @@ async function reconcileStaleVoids(
       if (charge === null || charge.amount_refunded < charge.amount) {
         continue; // The void is correct — nothing to do.
       }
-      if (invoice.lines?.has_more) {
-        // Re-asserting needs the FULL coverage; a truncated page would
-        // record a narrower exclusion than the refund actually covers.
+      // Re-asserting needs the FULL coverage; a truncated page would record a
+      // narrower exclusion than the refund actually covers. Truncation is not
+      // a reason to decline, though — it is a reason to PAGE.
+      // `loadInvoiceLines` fetches the rest via `invoices.listLineItems` and
+      // THROWS on a Stripe failure, which the catch below turns into the
+      // existing `refund_evidence_unverifiable` note; the pass continues
+      // either way. `null` is reserved for a line set that is structurally
+      // unreadable (no `lines.data` at all, or a truncated page on an invoice
+      // with no id to page against) — that, and only that, is uncomparable.
+      const lines = await loadInvoiceLines(invoice);
+      if (lines === null) {
         notes.push({
           stripeSubscriptionId: row.stripeSubscriptionId,
           field: 'refund_evidence_uncomparable',
           local: invoiceId,
-          remote: 'LINES_TRUNCATED',
+          remote: 'LINES_UNREADABLE',
           repaired: false,
         });
         continue;
       }
-      const coverage = subscriptionLinePeriods(invoice.lines?.data, row.stripeSubscriptionId);
+      const coverage = subscriptionLinePeriods(lines, row.stripeSubscriptionId);
       if (coverage.kind !== 'ok') {
         notes.push({
           stripeSubscriptionId: row.stripeSubscriptionId,
@@ -308,6 +336,16 @@ async function reconcileStaleVoids(
         now,
       });
       if (!result.applied) {
+        continue;
+      }
+      if (!result.written) {
+        // PR-1 reviewer follow-up: the effective state already carried this
+        // exclusion — a concurrent webhook delivery wrote the applied row
+        // between this pass's evidence read and the write, so
+        // `applySubscriptionFullRefund` deduped instead of inserting. The
+        // outcome is correct and needs no correction, so the hourly pass must
+        // not ANNOUNCE it: an alert and a note here would report a repair
+        // that this job did not make, once an hour, forever.
         continue;
       }
       Sentry.captureMessage('billing.subscription_refunded', {
@@ -364,9 +402,11 @@ async function reconcileOneSubscription(
     return;
   }
 
-  // Duplicate remote detection: one customer, two live local rows would be
-  // impossible (partial unique); one customer with a second REMOTE live
-  // subscription we never projected is the §8.5 alert case.
+  // Duplicate remote detection, half 1: two LOCAL rows resolving to the same
+  // Stripe customer. Two live local rows are impossible (partial unique), so
+  // this half can only fire benignly after cancel → resubscribe — which is
+  // exactly why half 2 (`detectUnprojectedRemoteSubscriptions`) asks Stripe
+  // instead of asking ourselves.
   const customerId = typeof remote.customer === 'string' ? remote.customer : remote.customer.id;
   const previousRemoteId = customersSeen.get(customerId);
   if (previousRemoteId !== undefined && previousRemoteId !== remote.id) {
@@ -547,6 +587,71 @@ async function reconcileOneSubscription(
 }
 
 /**
+ * Y5 / §8.5, half 2: ask STRIPE which subscriptions each customer has.
+ *
+ * The local-only comparison above can never see the case the alert exists
+ * for — a second LIVE subscription on a customer we already bill that was
+ * never projected here (a Dashboard-created subscription, a checkout whose
+ * webhook never landed, a second deployment writing to the same account).
+ * That subscription charges the card every month while this database knows
+ * nothing about it, so it is reported as drift and alerted, never repaired:
+ * projecting it would mean CHOOSING which subscription is authoritative, and
+ * §8.5 reserves that decision for a human.
+ *
+ * Cost: exactly ONE `subscriptions.list` per distinct non-empty local
+ * customer id, after the main loop. The whole pass runs only when
+ * BILLING_SUBSCRIPTIONS_ENABLED is true, so it costs nothing while dark.
+ *
+ * A list failure is absorbed into an informational note — one customer's
+ * rate-limited minute must never abort the estate's reconciliation.
+ */
+async function detectUnprojectedRemoteSubscriptions(
+  customerToLocalSubscriptionIds: Map<string, Set<string>>,
+  drift: DriftEntry[],
+  notes: DriftEntry[],
+  duplicateAlerts: string[],
+): Promise<string[]> {
+  const unprojected: string[] = [];
+  for (const [customerId, localSubscriptionIds] of customerToLocalSubscriptionIds) {
+    let remoteSubscriptions: Stripe.Subscription[];
+    try {
+      const page = await stripe.subscriptions.list({
+        customer: customerId,
+        status: 'all',
+        limit: REMOTE_SUBSCRIPTION_LIST_LIMIT,
+      });
+      remoteSubscriptions = page.data;
+    } catch {
+      // No subscription id to key this on — the check is per CUSTOMER, so the
+      // customer id identifies it in both fields.
+      notes.push({
+        stripeSubscriptionId: customerId,
+        field: 'duplicate_check_unverifiable',
+        local: customerId,
+        remote: 'UNRETRIEVABLE',
+        repaired: false,
+      });
+      continue;
+    }
+    for (const remote of remoteSubscriptions) {
+      if (TERMINATED_REMOTE_STATUSES.has(remote.status) || localSubscriptionIds.has(remote.id)) {
+        continue;
+      }
+      unprojected.push(remote.id);
+      drift.push({
+        stripeSubscriptionId: remote.id,
+        field: 'unprojected_remote_subscription',
+        local: customerId,
+        remote: remote.id,
+        repaired: false,
+      });
+      duplicateAlerts.push(customerId);
+    }
+  }
+  return unprojected;
+}
+
+/**
  * Cursor pagination by `id` ascending, batches of 100, until drained — no
  * more silent `limit(100)` truncating the reconciled set.
  */
@@ -555,6 +660,10 @@ async function reconcileSubscriptionDrift(now: Date): Promise<SubscriptionDriftS
   const notes: DriftEntry[] = [];
   const duplicateAlerts: string[] = [];
   const customersSeen = new Map<string, string>();
+  // Built from the LOCAL rows, so a subscription whose remote retrieve failed
+  // still contributes its customer to the §8.5 check — the unprojected-remote
+  // question is about the customer, not about that one subscription.
+  const customerToLocalSubscriptionIds = new Map<string, Set<string>>();
   let checked = 0;
   let cursor: string | null = null;
 
@@ -570,6 +679,14 @@ async function reconcileSubscriptionDrift(now: Date): Promise<SubscriptionDriftS
     }
     for (const row of rows) {
       checked += 1;
+      if (row.stripeCustomerId.length > 0) {
+        const known = customerToLocalSubscriptionIds.get(row.stripeCustomerId);
+        if (known === undefined) {
+          customerToLocalSubscriptionIds.set(row.stripeCustomerId, new Set([row.stripeSubscriptionId]));
+        } else {
+          known.add(row.stripeSubscriptionId);
+        }
+      }
 
       await reconcileOneSubscription(row, now, drift, notes, duplicateAlerts, customersSeen);
     }
@@ -579,14 +696,25 @@ async function reconcileSubscriptionDrift(now: Date): Promise<SubscriptionDriftS
     }
   }
 
-  if (duplicateAlerts.length > 0) {
+  const unprojected = await detectUnprojectedRemoteSubscriptions(
+    customerToLocalSubscriptionIds,
+    drift,
+    notes,
+    duplicateAlerts,
+  );
+
+  // ONE alert per pass, carrying the DISTINCT customers (a customer with two
+  // unprojected remotes is still one customer to investigate) and every
+  // unprojected subscription id, so the operator can open each one directly.
+  const duplicateCustomers = [...new Set(duplicateAlerts)];
+  if (duplicateCustomers.length > 0) {
     Sentry.captureMessage('billing.duplicate_remote_subscriptions', {
       level: 'error',
-      extra: { customers: duplicateAlerts },
+      extra: { customers: duplicateCustomers, unprojected },
     });
   }
 
-  return { checked, drift, notes, duplicateRemoteCustomers: duplicateAlerts.length };
+  return { checked, drift, notes, duplicateRemoteCustomers: duplicateCustomers.length };
 }
 
 async function run(request: Request): Promise<Response> {
@@ -622,3 +750,14 @@ async function run(request: Request): Promise<Response> {
 export const GET = run;
 export const POST = run;
 export const dynamic = 'force-dynamic';
+/**
+ * This pass is sequential and unbounded in the number of subscriptions: one
+ * `subscriptions.retrieve` per local row, plus (PR-6a) one
+ * `subscriptions.list` per distinct local customer for the §8.5 duplicate
+ * check. The platform default would cut a large estate's pass off mid-flight,
+ * leaving drift unreported with no signal that the pass never finished — so
+ * this pins the same ceiling the deposits crons already declare. Written as a
+ * literal, not an imported constant: Next.js requires a statically
+ * analysable value here.
+ */
+export const maxDuration = 300;

@@ -115,9 +115,10 @@
  *   - a flag present but missing its value (`--portal-config-file --target …`)
  *     is exit 5: a named evidence input could not be read.
  *   - every other usage or validation error is exit 6: an unknown/absent
- *     `--target` or `--env-source`, a bad `--environment`, `--mode`,
- *     `--env-source local` without `--developer`, `--env-file` without
- *     `--environment`, `--bypass-secret-env` with no URL to send it to,
+ *     `--target` or `--env-source`, a missing or bad `--environment` (it is
+ *     required for EVERY run, so there is no longer a separate "`--env-file`
+ *     without `--environment`" case), `--mode`, `--env-source local` without
+ *     `--developer`, `--bypass-secret-env` with no URL to send it to,
  *     `--env-source deployed` without `--health-url`, and
  *     `--health-file`/`--readiness-file` combined with `--env-source deployed`.
  *   Both are strictly greater than 0 and 4, so a malformed invocation can

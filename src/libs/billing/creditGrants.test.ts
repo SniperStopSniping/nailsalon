@@ -9,7 +9,7 @@ import { PGlite } from '@electric-sql/pglite';
 import { eq, sql } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/pglite';
 import { migrate } from 'drizzle-orm/pglite/migrator';
-import { beforeAll, describe, expect, it, vi } from 'vitest';
+import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import * as schema from '@/models/Schema';
 
@@ -31,6 +31,11 @@ const envHolder = vi.hoisted(() => ({
 }));
 
 vi.mock('@/libs/Env', () => ({ Env: envHolder }));
+
+// OP-5: the window engine's anomalies must reach Sentry, not only the cron's
+// unread response body.
+const sentryHolder = vi.hoisted(() => ({ captureMessage: vi.fn(), captureException: vi.fn() }));
+vi.mock('@sentry/nextjs', () => sentryHolder);
 
 let db: ReturnType<typeof drizzle<typeof schema>>;
 
@@ -81,6 +86,11 @@ beforeAll(async () => {
   db = drizzle(client, { schema });
   await migrate(db, { migrationsFolder: path.join(process.cwd(), 'migrations') });
   holder.db = db;
+});
+
+beforeEach(() => {
+  sentryHolder.captureMessage.mockClear();
+  sentryHolder.captureException.mockClear();
 });
 
 describe('credit windows — §6 grant semantics', () => {
@@ -371,6 +381,12 @@ describe('credit windows — §6 grant semantics', () => {
 
     expect(trial.anomalies).toContain('TRIALING_SUBSCRIPTION_ANOMALY');
     expect(await monthlyBalance('s_win4')).toBe(0);
+    // OP-5: the summary is unchanged AND the anomaly alerts.
+    expect(sentryHolder.captureMessage).toHaveBeenCalledTimes(1);
+    expect(sentryHolder.captureMessage).toHaveBeenCalledWith('billing.window_engine_anomaly', {
+      level: 'warning',
+      extra: { anomaly: 'TRIALING_SUBSCRIPTION_ANOMALY', subscriptionId: 'sub_w4', salonId: 's_win4' },
+    });
 
     await db.update(schema.billingSubscriptionSchema)
       .set({ status: 'unpaid' })
@@ -978,6 +994,77 @@ describe('upgrade diff — window-cumulative, not plan-pair (§6.4)', () => {
 
     expect(result.granted).toBe(0);
     expect(await monthlyBalance('s_ungr')).toBe(0);
+  });
+});
+
+describe('OP-5 — window-engine anomalies reach Sentry', () => {
+  it('an unknown plan key grants nothing, keeps the summary shape AND alerts', async () => {
+    const { evaluateSubscriptionWindows } = await grants();
+    await seedSalon('s_anom_plan');
+    await seedSubscription({
+      id: 'sub_anom_plan',
+      salonId: 's_anom_plan',
+      planKey: 'retired_plan_1999_01',
+      anchor: new Date('2026-08-01T00:00:00.000Z'),
+      paidThrough: new Date('2026-09-01T00:00:00.000Z'),
+    });
+
+    const summary = await evaluateSubscriptionWindows({
+      subscriptionId: 'sub_anom_plan',
+      now: new Date('2026-08-10T00:00:00.000Z'),
+    });
+
+    expect(summary).toEqual({ granted: 0, skippedUnpaid: 0, skippedMissed: 0, anomalies: ['UNKNOWN_PLAN_DEFINITION'] });
+    expect(sentryHolder.captureMessage).toHaveBeenCalledTimes(1);
+    expect(sentryHolder.captureMessage).toHaveBeenCalledWith('billing.window_engine_anomaly', {
+      level: 'warning',
+      extra: { anomaly: 'UNKNOWN_PLAN_DEFINITION', subscriptionId: 'sub_anom_plan', salonId: 's_anom_plan' },
+    });
+  });
+
+  it('an ordinary grant alerts nothing', async () => {
+    const { evaluateSubscriptionWindows } = await grants();
+    await seedSalon('s_anom_none');
+    await seedSubscription({
+      id: 'sub_anom_none',
+      salonId: 's_anom_none',
+      anchor: new Date('2026-08-01T00:00:00.000Z'),
+      paidThrough: new Date('2026-09-01T00:00:00.000Z'),
+    });
+
+    const summary = await evaluateSubscriptionWindows({
+      subscriptionId: 'sub_anom_none',
+      now: new Date('2026-08-10T00:00:00.000Z'),
+    });
+
+    expect(summary).toMatchObject({ granted: 1, anomalies: [] });
+    expect(sentryHolder.captureMessage).not.toHaveBeenCalled();
+  });
+
+  it('applyUpgradeDiff alerts on the same code at its own silent-return site', async () => {
+    const { applyUpgradeDiff } = await grants();
+    await seedSalon('s_anom_diff');
+    await seedSubscription({
+      id: 'sub_anom_diff',
+      salonId: 's_anom_diff',
+      anchor: new Date('2026-08-01T00:00:00.000Z'),
+      paidThrough: new Date('2026-09-01T00:00:00.000Z'),
+    });
+
+    const diff = await db.transaction(async tx =>
+      applyUpgradeDiff(tx, {
+        subscriptionId: 'sub_anom_diff',
+        fromPlanKey: 'starter_2026_08',
+        toPlanKey: 'retired_plan_1999_01',
+        now: new Date('2026-08-10T00:00:00.000Z'),
+      }));
+
+    // The return shape is untouched — only the alert is new.
+    expect(diff).toEqual({ granted: 0 });
+    expect(sentryHolder.captureMessage).toHaveBeenCalledWith('billing.window_engine_anomaly', {
+      level: 'warning',
+      extra: { anomaly: 'UNKNOWN_PLAN_DEFINITION', subscriptionId: 'sub_anom_diff', salonId: 's_anom_diff' },
+    });
   });
 });
 

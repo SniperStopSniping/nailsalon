@@ -15,6 +15,7 @@
 
 import 'server-only';
 
+import * as Sentry from '@sentry/nextjs';
 import { and, eq, sql } from 'drizzle-orm';
 
 import { getPlanDefinition } from '@/libs/billing/planDefinitions';
@@ -87,6 +88,34 @@ export type WindowEvaluationSummary = {
 const GRANT_ELIGIBLE_STATUSES = new Set(['active', 'past_due', 'canceled']);
 
 /**
+ * OP-5 (handoff §6.3 "engine anomalies"): a window-engine anomaly means the
+ * engine granted NOTHING and will keep granting nothing for that subscription
+ * — a Price accidentally created with `trial_period_days`, or a plan key the
+ * committed catalogue no longer defines. The anomaly codes only ever reached
+ * the `WindowEvaluationSummary`, and the sole consumer of that summary is the
+ * hourly cron's response BODY (`windows/evaluate/route.ts:87`), which nothing
+ * reads — so the failure was silent and permanent.
+ *
+ * Raised at every push site inside this module so BOTH callers alert (the
+ * hourly cron and the webhook's post-commit evaluation) without any change to
+ * the summary fields or to a return shape.
+ */
+function reportWindowEngineAnomaly(input: {
+  anomaly: string;
+  subscriptionId: string;
+  salonId: string;
+}): void {
+  Sentry.captureMessage('billing.window_engine_anomaly', {
+    level: 'warning',
+    extra: {
+      anomaly: input.anomaly,
+      subscriptionId: input.subscriptionId,
+      salonId: input.salonId,
+    },
+  });
+}
+
+/**
  * Evaluate every unevaluated window up to `now` for one subscription.
  * §6.5a status table: active grants; past_due/canceled grant ONLY windows
  * fully covered by verified paid_through (prepaid remainder); unpaid/
@@ -110,6 +139,11 @@ export async function evaluateSubscriptionWindows(
     }
     if (subscription.status === 'trialing') {
       summary.anomalies.push('TRIALING_SUBSCRIPTION_ANOMALY');
+      reportWindowEngineAnomaly({
+        anomaly: 'TRIALING_SUBSCRIPTION_ANOMALY',
+        subscriptionId: subscription.id,
+        salonId: subscription.salonId,
+      });
       return summary;
     }
     if (!GRANT_ELIGIBLE_STATUSES.has(subscription.status)) {
@@ -118,6 +152,11 @@ export async function evaluateSubscriptionWindows(
     const plan = getPlanDefinition(subscription.planDefinitionKey);
     if (plan === null) {
       summary.anomalies.push('UNKNOWN_PLAN_DEFINITION');
+      reportWindowEngineAnomaly({
+        anomaly: 'UNKNOWN_PLAN_DEFINITION',
+        subscriptionId: subscription.id,
+        salonId: subscription.salonId,
+      });
       return summary;
     }
 
@@ -274,6 +313,15 @@ export async function applyUpgradeDiff(
   const fromPlan = getPlanDefinition(input.fromPlanKey);
   const toPlan = getPlanDefinition(input.toPlanKey);
   if (fromPlan === null || toPlan === null) {
+    // OP-5, the equivalent site in this function: an unknown plan key silently
+    // grants nothing here too. There is no `WindowEvaluationSummary` to push
+    // onto — the return shape is `{ granted }` and stays that way — so the
+    // anomaly is raised directly, under the same code the engine uses.
+    reportWindowEngineAnomaly({
+      anomaly: 'UNKNOWN_PLAN_DEFINITION',
+      subscriptionId: subscription.id,
+      salonId: subscription.salonId,
+    });
     return { granted: 0 };
   }
   const window = computeCreditWindow(subscription.creditCycleAnchor, subscription.creditCycleIndex);

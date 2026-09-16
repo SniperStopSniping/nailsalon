@@ -107,9 +107,12 @@ export function subscriptionLinePeriods(
  * event TERMINALLY — no retry, and for the payment path no operator exit
  * either, so one rate-limited minute could strand a paid invoice forever.
  * Thrown, the webhook route's own catch marks the event `failed_retryable`
- * and Stripe redelivers, bounded by the 8-attempt poison ladder. (The
- * reconcile caller never pages — it reads `invoice.lines.data` directly — so
- * it is unaffected.)
+ * and Stripe redelivers, bounded by the 8-attempt poison ladder. The
+ * reconcile route has TWO callers with different needs: its drift comparison
+ * reads `invoice.lines.data` directly and never pages, while (PR-6a) its
+ * refund-evidence re-assert DOES page through this helper — a throw there is
+ * caught per invoice and recorded as `refund_evidence_unverifiable`, so one
+ * unreadable invoice can never abort the pass.
  *
  * `null` is therefore reserved for STRUCTURALLY unreadable input: no
  * `lines.data` array at all, or a truncated page on an invoice with no id to
