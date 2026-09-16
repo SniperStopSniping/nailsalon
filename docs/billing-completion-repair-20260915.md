@@ -513,3 +513,31 @@ local attempt is proof we created the session; comment only, no behaviour change
 **Still owner-gated, deliberately untouched:** O1/D19c (`src/app/api/webhooks/stripe/route.ts`), O7,
 O10 (the reviewed-postimage-pinned `checkout/route.ts` and `portal/route.ts`, hence the OP-2 response
 code above), and O12/O13 (anything creating a Stripe customer or a `billing_customer` table).
+
+### PR-6a — accepted consequences and queued follow-ups
+
+**Switching offers inside the attempt window is now refused, deliberately.** Closing OP-2 means a
+salon that opens checkout for one offer, abandons it, and returns for a different offer inside the
+attempt TTL is refused until the old attempt expires (the session TTL is 55 minutes, the attempt
+TTL 60). Until owner decision O10 allows the pinned checkout route to change, that refusal also
+surfaces under the wrong code and message (`409 ACTIVE_SUBSCRIPTION_EXISTS`, "Manage it in the
+Billing Portal") because the route maps every attempt conflict to that response.
+
+Automatically releasing the superseded attempt was considered and rejected as unsafe: the old
+Stripe Checkout Session stays payable until it expires, so releasing the slot and issuing a second
+attempt admits a window in which a customer pays BOTH sessions, producing two live subscriptions
+for one salon — a double charge and a `billing_subscription_live_salon_uniq` violation. Refusing is
+the conservative outcome, and it is bounded and self-releasing. The complete fix belongs with O10,
+where the route can expire the superseded session server-side first and then start a fresh attempt;
+note that approving O10 for the response code alone does not remove the wait.
+
+**Queued, not done (estate-scale, irrelevant at pilot scale of one salon):**
+- The window-engine anomaly alert and the `unprojected_remote_subscription` alert both fire once
+  per affected subscription per hourly pass, with no acknowledgement path, so a persistent
+  condition repeats indefinitely. The repository already has the idiom for this
+  (`logSubscriptionPriceCrossCheckSkippedOnce`). Suppression needs a deliberate design — keyed on
+  what, for how long — because a too-broad guard would hide a genuine second occurrence.
+- `unprojected_remote_subscription` can also fire legitimately and forever for a salon holding a
+  grandfathered legacy subscription on the same Stripe customer; §8.5 says to alert rather than
+  choose, so this needs an operator acknowledgement marker rather than a code change.
+

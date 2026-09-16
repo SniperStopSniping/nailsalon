@@ -750,3 +750,14 @@ async function run(request: Request): Promise<Response> {
 export const GET = run;
 export const POST = run;
 export const dynamic = 'force-dynamic';
+/**
+ * This pass is sequential and unbounded in the number of subscriptions: one
+ * `subscriptions.retrieve` per local row, plus (PR-6a) one
+ * `subscriptions.list` per distinct local customer for the §8.5 duplicate
+ * check. The platform default would cut a large estate's pass off mid-flight,
+ * leaving drift unreported with no signal that the pass never finished — so
+ * this pins the same ceiling the deposits crons already declare. Written as a
+ * literal, not an imported constant: Next.js requires a statically
+ * analysable value here.
+ */
+export const maxDuration = 300;
