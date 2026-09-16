@@ -1,3 +1,15 @@
+# [1.112.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.111.0...v1.112.0) (2026-09-16)
+
+
+### Bug Fixes
+
+* **billing:** bind cron proof to deployment ([8367146](https://github.com/SniperStopSniping/nailsalon/commit/836714697cce3dd32faa783b7f28a9f06436cf7e))
+
+
+### Features
+
+* **billing:** per-target readiness evidence and reviewed Preview rehearsal tooling ([a51958c](https://github.com/SniperStopSniping/nailsalon/commit/a51958c0f938bf3e2f60a779e9c650684e21415c))
+
 # [1.111.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.110.4...v1.111.0) (2026-09-16)
 
 
