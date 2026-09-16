@@ -29,6 +29,7 @@ import {
   WorkspaceQuickTour,
   type WorkspaceTourTarget,
 } from '@/components/admin/onboarding/WorkspaceQuickTour';
+import OwnerAssistantLauncher from '@/components/admin/ownerAssistant/OwnerAssistantLauncher';
 import { OwnerTodayWorkspace } from '@/components/admin/OwnerTodayWorkspace';
 import {
   OwnerWorkspaceNav,
@@ -2163,6 +2164,17 @@ function AdminDashboardContent() {
         onComplete={completeWorkspaceTour}
         onTargetChange={handleWorkspaceTourTarget}
         open={showOnboardingTour}
+      />
+
+      {/*
+        Owner Assistant (A1-1). Renders nothing until its context endpoint
+        answers 200, so a dark deployment or a salon that is not entitled sees
+        no trace of it (docs/OWNER_ASSISTANT_CHAT.md §7).
+      */}
+      <OwnerAssistantLauncher
+        locale={locale === 'fr' ? 'fr' : 'en'}
+        salonSlug={activeDashboardSalonSlug}
+        screen="workspace"
       />
     </div>
   );

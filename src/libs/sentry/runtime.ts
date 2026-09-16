@@ -6,6 +6,19 @@ export type PublicSentryRuntimeEnv = {
 
 type PublicSentryRuntimeEnvSource = PublicSentryRuntimeEnv | Record<string, string | undefined>;
 
+/**
+ * The subset of a Sentry event `beforeSend` needs to scrub. Deliberately a
+ * structural subset with NO index signature, so Sentry's own `ErrorEvent`
+ * satisfies it and the scrubber can be passed straight to `Sentry.init`.
+ */
+export type ScrubbableSentryEvent = {
+  request?: {
+    url?: string;
+    data?: unknown;
+    cookies?: unknown;
+  };
+};
+
 export type SentryRuntimeConfig =
   | {
     enabled: false;
@@ -17,11 +30,29 @@ export type SentryRuntimeConfig =
     environment?: string;
     tracesSampleRate: number;
     debug: boolean;
+    beforeSend: <T extends ScrubbableSentryEvent>(event: T) => T;
   };
+
+/**
+ * Owner-assistant requests carry the owner's own words in the body and the
+ * session cookie in the headers. An error report from those routes would ship
+ * both to a third party, so both are removed before the event leaves the
+ * process. Everything else about the event — the stack, the route, the status
+ * — is untouched, and every other route is untouched too.
+ */
+export const OWNER_ASSISTANT_SCRUBBED_PATH = '/api/admin/owner-assistant/';
+
+export function scrubSentryEvent<T extends ScrubbableSentryEvent>(event: T): T {
+  if (event.request?.url?.includes(OWNER_ASSISTANT_SCRUBBED_PATH)) {
+    delete event.request.data;
+    delete event.request.cookies;
+  }
+  return event;
+}
 
 function clean(value: string | undefined): string | undefined {
   const trimmed = value?.trim();
-  return trimmed ? trimmed : undefined;
+  return trimmed || undefined;
 }
 
 export function getPublicSentryRuntimeConfig(env: PublicSentryRuntimeEnvSource = process.env): SentryRuntimeConfig {
@@ -40,5 +71,6 @@ export function getPublicSentryRuntimeConfig(env: PublicSentryRuntimeEnvSource =
     environment: clean(env.NEXT_PUBLIC_SENTRY_ENVIRONMENT),
     tracesSampleRate: 1,
     debug: false,
+    beforeSend: scrubSentryEvent,
   };
 }

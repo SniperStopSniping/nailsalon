@@ -28,7 +28,9 @@ const API_ROOT = path.join(process.cwd(), 'src/app/api');
 const ADMIN_GUARDS = [
   'requireAdmin',
   'requireAdminSalon',
+  'requireAdminSalonForSlug',
   'requireActiveAdminSalon',
+  'requireRealSalonOwner',
   'requireStaffOrAdminSalonAccess',
   'requireAppointmentManagerAccess',
   'requireAppointmentAccess',
