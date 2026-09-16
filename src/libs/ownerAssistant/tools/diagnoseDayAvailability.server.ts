@@ -97,7 +97,9 @@ const MAX_CLARIFY_OPTIONS = 8;
  * so a large team produced an unbounded list that is replayed into the model on
  * every later call of the turn. The tool's own causes (steps 0–7) are
  * authoritative and always survive; only the per-slot tallies below are capped,
- * keeping the biggest counts because those are the ones that explain the day.
+ * ranked BREADTH BEFORE SIZE — every distinct code places its largest cause
+ * before any code places a second, so a salon-wide reason such as the
+ * minimum-notice floor is never crowded out by one cause per technician.
  */
 const MAX_ENGINE_CAUSES = 8;
 
@@ -322,7 +324,9 @@ export async function diagnoseDayAvailability(
     ambiguity: requested.ambiguity,
     bookableSlotCount: null,
     firstBookable: null,
-    publicRouteState: 'ok',
+    // Nothing has been read yet. Every early return keeps this; only the
+    // pipeline that actually reaches step 3 knows whether the page serves.
+    publicRouteState: 'not_checked',
     customersCanBookNow: false,
   } as const;
 

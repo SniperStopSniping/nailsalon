@@ -490,6 +490,10 @@ describe('step 0 — the Toronto-only refusal', () => {
     // refusal is precisely unable to make.
     expect(result.bookableSlotCount).toBeNull();
     expect(result.firstBookable).toBeNull();
+    // Publication was never read either, so the page's state is unknown rather
+    // than fine. Reporting 'ok' here would assert something nobody measured.
+    expect(result.publicRouteState).toBe('not_checked');
+    expect(result.customersCanBookNow).toBe(false);
     expect(result.customersCanBookNow).toBe(false);
   });
 
@@ -578,9 +582,10 @@ describe('step 2 — naming a service or a team member', () => {
     // different question than the one they asked; naming it lets them say
     // "that one", and step 5 then tells them it is switched off.
     expect(result.clarify?.options).toContain('Hidden buff');
-    // A clarify measures nothing.
+    // A clarify measures nothing, and it never read publication either.
     expect(result.bookableSlotCount).toBeNull();
     expect(result.customersCanBookNow).toBe(false);
+    expect(result.publicRouteState).toBe('not_checked');
   });
 
   it('answers about a switched-off service instead of hiding it', async () => {
@@ -866,6 +871,12 @@ describe('step 9 — a calendar Luster cannot read', () => {
 
     expect(causeFor(result, 'calendar_unverified')).toEqual({ code: 'calendar_unverified', link: 'integrations' });
     expect(result.publicRouteState).toBe('error');
+    // The public route answers 503 for this day, so whatever the loop measured
+    // against an empty busy list, nobody can book it. This is the one state
+    // where a POSITIVE measured count must still read as "cannot book" — the
+    // guard is the `=== 'ok'` conjunct, and relaxing it to `!== 'unreachable'`
+    // has to fail here.
+    expect(result.customersCanBookNow).toBe(false);
     // The other causes survive the calendar failure.
     expect(codes(result)).toContain('technician_time_off');
     expect(codes(result)).toContain('technician_day_off');

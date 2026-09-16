@@ -320,8 +320,11 @@ export type DiagnoseDayResult = {
    * - `unreachable` — it serves nobody at all, on every day: the salon is not
    *   published, or online booking is not entitled. `unreachable` outranks
    *   `error`, because a page nobody can open cannot fail for one day only.
+   * - `not_checked` — the tool stopped before it looked (an unsupported
+   *   timezone, or a name it had to ask about). Publication was never read, so
+   *   claiming `ok` here would assert something nobody measured.
    */
-  publicRouteState: 'ok' | 'error' | 'unreachable';
+  publicRouteState: 'ok' | 'error' | 'unreachable' | 'not_checked';
   /**
    * The single question an owner is actually asking. True only when the public
    * page is serving this day (`publicRouteState === 'ok'`) AND the slot loop
