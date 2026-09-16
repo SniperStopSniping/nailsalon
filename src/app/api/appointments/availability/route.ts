@@ -1,11 +1,12 @@
 import * as Sentry from '@sentry/nextjs';
 
 import { verifyAppointmentAccessToken } from '@/libs/appointmentAccess';
+import type { AnnotateSlot } from '@/libs/availability/engine.server';
+import { computeDaySlots, preflightDayAvailability } from '@/libs/availability/engine.server';
 import { getBookingConfigForSalon } from '@/libs/bookingConfig';
 import { parseSelectedAddOnsParam } from '@/libs/bookingParams';
 import type { RequestedService } from '@/libs/bookingPolicy';
 import {
-  canTechnicianTakeAppointment,
   loadBookingPolicy,
   resolveBookingHoursCeiling,
   resolveTechnicianCapabilityMode,
@@ -24,7 +25,6 @@ import {
 import {
   getGoogleCalendarBusyWindows,
   GoogleCalendarAvailabilityError,
-  isBusyWindowConflict,
 } from '@/libs/googleCalendar';
 import { normalizePhone } from '@/libs/phone';
 import { technicianSupportsPublicLocation } from '@/libs/publicTechnicianCompatibility';
@@ -44,10 +44,9 @@ import {
   buildSmartFitDayContext,
   buildSmartFitSlotAnnotation,
   smartFitServiceScopeAllows,
-  type SmartFitSlotAnnotation,
 } from '@/libs/smartFitBooking';
 import { resolveSmartFitConfig } from '@/libs/smartFitConfig';
-import { getZonedDayBounds, zonedTimeToUtc } from '@/libs/timeZone';
+import { getZonedDayBounds } from '@/libs/timeZone';
 import type { WeeklySchedule } from '@/models/Schema';
 import type { SalonSettings } from '@/types/salonPolicy';
 
@@ -102,18 +101,6 @@ function buildPublicAvailabilityError(args: {
   };
 }
 
-function getAllSlots(intervalMinutes: number): string[] {
-  const slots: string[] = [];
-
-  for (let hour = 0; hour < 24; hour++) {
-    for (let minute = 0; minute < 60; minute += intervalMinutes) {
-      slots.push(`${hour}:${minute.toString().padStart(2, '0')}`);
-    }
-  }
-
-  return slots;
-}
-
 export async function GET(request: Request): Promise<Response> {
   const { searchParams } = new URL(request.url);
   const date = searchParams.get('date');
@@ -158,7 +145,6 @@ export async function GET(request: Request): Promise<Response> {
     const bookingConfig = await getBookingConfigForSalon(salon.id);
     const { startOfDay, endOfDay } = getZonedDayBounds(date, bookingConfig.timezone);
     const selectedDate = startOfDay;
-    const allSlots = getAllSlots(bookingConfig.slotIntervalMinutes);
 
     const requestedLocation = locationId
       ? await getLocationById(locationId, salon.id)
@@ -295,7 +281,20 @@ export async function GET(request: Request): Promise<Response> {
       technicians = await getTechniciansBySalonId(salon.id);
     }
 
-    if (technicians.length === 0) {
+    // The "is there anybody to book with at all" decision lives in the engine
+    // (`preflightDayAvailability`); the route keeps building the two Responses,
+    // which echo request fields the engine has no business knowing.
+    const preflight = preflightDayAvailability({
+      technicians,
+      compatibility: tech =>
+        getPublicTechnicianCompatibility({
+          selectionMode: baseServiceId ? 'base-service' : 'legacy',
+          technician: tech,
+          requestedServices: requestedServices as RequestedService[],
+        }).bookable,
+    });
+
+    if (!preflight.ok) {
       return Response.json({
         date,
         salonSlug,
@@ -303,31 +302,11 @@ export async function GET(request: Request): Promise<Response> {
         visibleSlots: [],
         bookedSlots: [],
         appointmentCount: 0,
-        reason: 'no_technicians',
+        reason: preflight.code,
       });
     }
 
-    const compatibleTechnicians = technicians.filter(tech =>
-      getPublicTechnicianCompatibility({
-        selectionMode: baseServiceId ? 'base-service' : 'legacy',
-        technician: tech,
-        requestedServices: requestedServices as RequestedService[],
-      }).bookable,
-    );
-
-    if (compatibleTechnicians.length === 0) {
-      return Response.json({
-        date,
-        salonSlug,
-        technicianId: technicianId || null,
-        visibleSlots: [],
-        bookedSlots: [],
-        appointmentCount: 0,
-        reason: 'no_compatible_technicians',
-      });
-    }
-
-    technicians = compatibleTechnicians;
+    technicians = preflight.technicians;
 
     // Reschedules: `originalAppointmentId` only earns the right to exclude
     // that appointment's own blocked window (and to suppress Smart Fit
@@ -495,97 +474,22 @@ export async function GET(request: Request): Promise<Response> {
       }
     }
 
-    const visibleSlots: string[] = [];
-    const slots: Array<{ time: string; startTime: string; smartFit?: SmartFitSlotAnnotation }> = [];
-    const blockedSlots = new Set<string>();
-    const minimumStartTime = new Date(
-      Date.now() + bookingConfig.minimumNoticeMinutes * 60 * 1000,
-    );
-
-    for (const slot of allSlots) {
-      const startTime = zonedTimeToUtc({ date, time: slot, timeZone: bookingConfig.timezone });
-      if (startTime < minimumStartTime) {
-        continue;
-      }
-
-      const blockedEndTime = new Date(startTime.getTime() + (visibleDurationMinutes + bufferMinutes) * 60 * 1000);
-
-      const anyTechVisible = technicians.some((tech) => {
-        const visibleDecision = canTechnicianTakeAppointment({
-          startTime,
-          endTime: blockedEndTime,
-          weeklySchedule: tech.weeklySchedule as WeeklySchedule | null,
-          override: bookingPolicy.overridesByTechnician.get(tech.id),
-          isOnTimeOff: bookingPolicy.timeOffTechnicianIds.has(tech.id),
-          blockedSlots: bookingPolicy.blockedSlotsByTechnician.get(tech.id) ?? [],
-          requestedServices,
-          capabilityMode,
-          enabledServiceIds: tech.enabledServiceIds ?? [],
-          specialties: tech.specialties ?? [],
-          locationId: effectiveLocationId,
-          primaryLocationId: tech.primaryLocationId ?? null,
-          locationBusinessHours: hoursCeiling.businessHours,
-          existingAppointments: [],
-          excludedAppointmentId,
-          bufferMinutes: 0,
-        });
-
-        return visibleDecision.available;
-      });
-
-      if (!anyTechVisible) {
-        continue;
-      }
-
-      visibleSlots.push(slot);
-      const slotEntry: { time: string; startTime: string; smartFit?: SmartFitSlotAnnotation } = {
-        time: slot,
-        startTime: startTime.toISOString(),
-      };
-      slots.push(slotEntry);
-
-      if (isBusyWindowConflict(startTime, blockedEndTime, googleBusyWindows)) {
-        blockedSlots.add(slot);
-        continue;
-      }
-
-      const isTechAvailableAtSlot = (tech: (typeof technicians)[number]): boolean => {
-        const decision = canTechnicianTakeAppointment({
-          startTime,
-          endTime: blockedEndTime,
-          weeklySchedule: tech.weeklySchedule as WeeklySchedule | null,
-          override: bookingPolicy.overridesByTechnician.get(tech.id),
-          isOnTimeOff: bookingPolicy.timeOffTechnicianIds.has(tech.id),
-          blockedSlots: bookingPolicy.blockedSlotsByTechnician.get(tech.id) ?? [],
-          requestedServices,
-          capabilityMode,
-          enabledServiceIds: tech.enabledServiceIds ?? [],
-          specialties: tech.specialties ?? [],
-          locationId: effectiveLocationId,
-          primaryLocationId: tech.primaryLocationId ?? null,
-          locationBusinessHours: hoursCeiling.businessHours,
-          existingAppointments: bookingPolicy.appointmentsByTechnician.get(tech.id) ?? [],
-          excludedAppointmentId,
-          bufferMinutes: 0,
-        });
-
-        return decision.available;
-      };
-
-      const anyTechAvailable = technicians.some(isTechAvailableAtSlot);
-
-      if (!anyTechAvailable) {
-        blockedSlots.add(slot);
-        continue;
-      }
-
+    // Smart Fit never enters the engine: it reaches the loop only through this
+    // opaque per-slot callback, invoked at exactly the point the inline block
+    // used to run (after the decision pass proved the slot bookable).
+    const annotateSlot: AnnotateSlot = ({
+      slot: slotEntry,
+      startTime,
+      technicians: slotTechnicians,
+      isTechnicianAvailable,
+    }) => {
       // Smart Fit annotation: the slot qualifies when ANY technician who can
       // actually take it evaluates as a tight fit ('any'-tech booking assigns
       // a qualifying technician first — see the booking POST).
       if (smartFitDayByTechnician.size > 0) {
-        for (const tech of technicians) {
+        for (const tech of slotTechnicians) {
           const dayContext = smartFitDayByTechnician.get(tech.id);
-          if (!dayContext || !isTechAvailableAtSlot(tech)) {
+          if (!dayContext || !isTechnicianAvailable(tech)) {
             continue;
           }
           const evaluation = evaluateSmartFitSlot({
@@ -616,9 +520,27 @@ export async function GET(request: Request): Promise<Response> {
           }
         }
       }
-    }
 
-    const bookedSlots = Array.from(blockedSlots);
+      return slotEntry;
+    };
+
+    const { visibleSlots, slots, bookedSlots } = computeDaySlots({
+      date,
+      technicians,
+      requestedServices,
+      capabilityMode,
+      bookingPolicy,
+      googleBusyWindows,
+      hoursCeiling,
+      effectiveLocationId,
+      visibleDurationMinutes,
+      bufferMinutes,
+      slotIntervalMinutes: bookingConfig.slotIntervalMinutes,
+      minimumNoticeMinutes: bookingConfig.minimumNoticeMinutes,
+      timeZone: bookingConfig.timezone,
+      now: new Date(Date.now()),
+      excludedAppointmentId,
+    }, { explain: false, annotateSlot });
 
     return Response.json({
       date,
@@ -628,10 +550,7 @@ export async function GET(request: Request): Promise<Response> {
       visibleDurationMinutes,
       blockedDurationMinutes: visibleDurationMinutes + bufferMinutes,
       visibleSlots,
-      slots: slots.map(slot => ({
-        ...slot,
-        availability: blockedSlots.has(slot.time) ? 'schedule_conflict' : 'available',
-      })),
+      slots,
       bookedSlots,
       appointmentCount: bookedSlots.length,
     });
