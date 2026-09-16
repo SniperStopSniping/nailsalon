@@ -3345,6 +3345,13 @@ export const AUDIT_LOG_ACTIONS = [
   // POST /api/super-admin/billing/starter-grant (mode: 'apply'), never the
   // live onboarding path. Appended, never reordered.
   'billing_starter_grant_backfilled',
+  // PR-1/R-2 (§6.7 refund completion): an operator- or reconcile-driven
+  // correction of the refund evidence for ONE invoice — `void` (the charge is
+  // no longer fully refunded, so the exclusion must stop applying) or `set`
+  // (an authoritative coverage window replacing malformed legacy evidence).
+  // Read together with `billing_subscription_refund_applied`; the highest
+  // `seq` for an invoice is its effective state. Appended, never reordered.
+  'billing_subscription_refund_evidence_resolved',
 ] as const;
 export type AuditLogAction = (typeof AUDIT_LOG_ACTIONS)[number];
 

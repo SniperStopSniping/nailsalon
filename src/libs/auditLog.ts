@@ -62,6 +62,13 @@ export function sanitizeAuditMetadata(value: unknown): unknown {
   if (Array.isArray(value)) {
     return value.map(sanitizeAuditMetadata);
   }
+  // R-8: a Date is an object, so without this branch the generic object walk
+  // below turned it into `{}` — silently erasing refund coverage bounds that
+  // financial evidence is read back from. Serialise to the same ISO string
+  // every caller would have written by hand.
+  if (value instanceof Date) {
+    return value.toISOString();
+  }
   if (!value || typeof value !== 'object') {
     return value;
   }

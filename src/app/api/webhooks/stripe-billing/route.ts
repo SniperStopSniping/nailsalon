@@ -38,10 +38,12 @@ import {
   applyInvoicePaymentFailed,
   applyInvoicePaymentSucceeded,
   applySubscriptionFullRefund,
+  applySubscriptionRefundVoid,
   projectSubscriptionSnapshot,
   type StripeSubscriptionSnapshot,
 } from '@/libs/billing/billingSubscriptionProjection';
 import { BILLING_WEBHOOK_HANDLED_TYPES } from '@/libs/billing/billingWebhookEvents';
+import { loadInvoiceLines, subscriptionLinePeriods } from '@/libs/billing/invoiceLinePeriods';
 import {
   applyTopupChargeRefunded,
   applyTopupDisputeCreated,
@@ -276,7 +278,13 @@ async function handleSubscriptionCheckoutPaymentEvent(
 
 type RefundContext = {
   paymentIntentId: string | null;
+  /** The charge this refund belongs to — the identity §8.3's authoritative re-fetch needs. */
+  chargeId: string | null;
   refundId: string;
+  /** Every refund identity the event carries — informational evidence only, never an idempotency key (R-2: the INVOICE is the key). */
+  refundIds: string[];
+  /** refund.updated only: the refund's own lifecycle status, recorded in the void reason so an operator can see WHY evidence was retracted. */
+  refundStatus: string | null;
   chargeAmount: number | null;
   cumulativeRefundedCents: number | null;
   invoiceId: string | null;
@@ -297,7 +305,12 @@ async function resolveRefundContext(event: Stripe.Event): Promise<RefundContext>
       paymentIntentId: typeof charge.payment_intent === 'string'
         ? charge.payment_intent
         : charge.payment_intent?.id ?? null,
+      chargeId: typeof charge.id === 'string' && charge.id.length > 0 ? charge.id : null,
       refundId: charge.refunds?.data?.[0]?.id ?? event.id,
+      // The charge's refund list may be absent (expansion-dependent) — an
+      // empty list is fine, because nothing keys on these ids.
+      refundIds: charge.refunds?.data?.map(refund => refund.id) ?? [],
+      refundStatus: null,
       chargeAmount: charge.amount ?? null,
       cumulativeRefundedCents: charge.amount_refunded ?? null,
       invoiceId: typeof charge.invoice === 'string' ? charge.invoice : charge.invoice?.id ?? null,
@@ -311,32 +324,31 @@ async function resolveRefundContext(event: Stripe.Event): Promise<RefundContext>
   if (chargeId === null) {
     return {
       paymentIntentId: refundPaymentIntentId,
+      chargeId: null,
       refundId: refund.id,
+      refundIds: [refund.id],
+      refundStatus: refund.status ?? null,
       chargeAmount: null,
       cumulativeRefundedCents: null,
       invoiceId: null,
     };
   }
+  // refund.updated's body is the Refund, which carries neither the charge's
+  // cumulative amount_refunded nor its invoice link — so this retrieve is
+  // BOTH the enrichment and §8.3's authoritative re-fetch. The subscription
+  // branch must not fetch the same charge a second time.
   const charge = await stripe.charges.retrieve(chargeId);
   return {
     paymentIntentId: refundPaymentIntentId
       ?? (typeof charge.payment_intent === 'string' ? charge.payment_intent : charge.payment_intent?.id ?? null),
+    chargeId,
     refundId: refund.id,
+    refundIds: [refund.id],
+    refundStatus: refund.status ?? null,
     chargeAmount: charge.amount ?? null,
     cumulativeRefundedCents: charge.amount_refunded ?? null,
     invoiceId: typeof charge.invoice === 'string' ? charge.invoice : charge.invoice?.id ?? null,
   };
-}
-
-/** G10: the earliest subscription line's period start — the floor a refund leaves uncovered. */
-function earliestSubscriptionLinePeriodStart(invoice: Stripe.Invoice): Date | null {
-  const starts = (invoice.lines?.data ?? [])
-    .map(line => line.period?.start ?? 0)
-    .filter(start => start > 0);
-  if (starts.length === 0) {
-    return null;
-  }
-  return new Date(Math.min(...starts) * 1000);
 }
 
 /** G42: does this charge's invoice belong to a LOCAL billing_subscription? Fetches the invoice (never guesses); null when it does not, or nothing local matches. */
@@ -437,30 +449,103 @@ async function handleRefundEvent(event: Stripe.Event, created: Date): Promise<{
   if (context.invoiceId !== null) {
     const local = await resolveLocalSubscriptionByInvoiceId(context.invoiceId);
     if (local !== null) {
-      const isFullRefund = context.chargeAmount !== null
-        && context.cumulativeRefundedCents !== null
-        && context.cumulativeRefundedCents >= context.chargeAmount;
-      if (isFullRefund) {
-        const refundedPeriodStart = earliestSubscriptionLinePeriodStart(local.invoice);
-        const periodEnds = (local.invoice.lines?.data ?? []).map(line => line.period?.end ?? 0).filter(end => end > 0);
-        const refundedPeriodEnd = periodEnds.length ? new Date(Math.max(...periodEnds) * 1000) : null;
-        const usableCoverage = !local.invoice.lines?.has_more && refundedPeriodStart !== null
-          && refundedPeriodEnd !== null && refundedPeriodStart < refundedPeriodEnd;
+      // §8.3: ambiguity resolves by AUTHORITATIVE re-fetch, never by event
+      // ordering. A `charge.refunded` body is the charge AS IT WAS when the
+      // event was created, and Stripe guarantees no delivery order — so a
+      // partial `re_1` delivered AFTER a full `re_2` carries a body saying
+      // `amount_refunded: 4000` for a charge that is fully refunded, and
+      // deciding from it would void correct evidence with nothing to rewrite
+      // it. (The mirror image writes full-refund evidence for a charge that
+      // is no longer fully refunded.) refund.updated already retrieved the
+      // charge in resolveRefundContext — re-fetching there would be a second
+      // call for the same fact.
+      const fresh = event.type === 'charge.refunded' && context.chargeId !== null
+        // Deliberately unguarded: a retrieve failure must become
+        // failed_retryable (Stripe redelivers) — never a hold, and never a
+        // decision made from the stale body.
+        ? await stripe.charges.retrieve(context.chargeId)
+        : null;
+      // "Known" = Stripe gave us BOTH sides of the arithmetic. Without both,
+      // the magnitude of this refund is not a fact and nothing is decided
+      // from it (G01) — the event is held for a human exactly as before.
+      const amount = fresh !== null ? fresh.amount ?? null : context.chargeAmount;
+      const cumulative = fresh !== null ? fresh.amount_refunded ?? null : context.cumulativeRefundedCents;
+      const known = amount !== null && cumulative !== null;
+      const fullRefund = known && cumulative! >= amount!;
+
+      if (known && !fullRefund) {
+        // R-2 / Owner decision O2: the charge's CUMULATIVE refund has dropped
+        // below its amount, so it is no longer fully refunded and the §6.7
+        // exclusion recorded for its invoice must stop applying. Keyed on the
+        // INVOICE, never on a refund id: a failed `re_1` after a successful
+        // `re_2` is the same invoice-level fact either way.
+        const outcome = await applySubscriptionRefundVoid({
+          stripeSubscriptionId: local.stripeSubscriptionId,
+          invoiceId: local.invoice.id,
+          reason: `refund_reversed:${context.refundStatus ?? event.type}`,
+          eventId: event.id,
+          observedAmountRefunded: cumulative!,
+          observedAmount: amount!,
+        });
+        if (outcome.voided) {
+          Sentry.captureMessage('billing.subscription_refund_voided', {
+            level: 'warning',
+            extra: {
+              eventId: event.id,
+              stripeSubscriptionId: local.stripeSubscriptionId,
+              invoiceId: local.invoice.id,
+              observedAmountRefunded: cumulative,
+              observedAmount: amount,
+              reapplied: outcome.reapplied,
+            },
+          });
+          return { status: 'processed', detail: 'REFUND_EVIDENCE_VOIDED' };
+        }
+        // Nothing live to void: this is an ordinary partial refund, and
+        // §6.7's "MAY suspend" stays a human call.
+        Sentry.captureMessage('billing.charge_event_held', {
+          level: 'warning',
+          extra: { eventId: event.id, eventType: event.type },
+        });
+        return { status: 'held_anomaly', detail: 'SUBSCRIPTION_CHARGE_PARTIAL_REFUND' };
+      }
+
+      if (fullRefund) {
+        // R-1/R-6: coverage is derived from the invoice's NON-PRORATION
+        // subscription lines, paged when truncated. Unusable coverage holds
+        // the event with ZERO writes — the old code wrote a null-bound row
+        // that permanently poisoned every later evidence read.
+        const lines = await loadInvoiceLines(local.invoice);
+        const coverage = subscriptionLinePeriods(lines, local.stripeSubscriptionId);
+        if (coverage.kind !== 'ok') {
+          const detail = coverage.kind === 'no_subscription_lines'
+            ? 'SUBSCRIPTION_REFUND_PRORATION_ONLY'
+            : 'SUBSCRIPTION_REFUND_COVERAGE_UNKNOWN';
+          Sentry.captureMessage('billing.event_held_anomaly', {
+            level: 'warning',
+            extra: { eventId: event.id, eventType: event.type, detail },
+          });
+          return { status: 'held_anomaly', detail };
+        }
         const result = await applySubscriptionFullRefund({
           stripeSubscriptionId: local.stripeSubscriptionId,
-          refundId: context.refundId,
-          refundedPeriodStart: usableCoverage ? refundedPeriodStart : new Date(Number.NaN),
-          refundedPeriodEnd: usableCoverage ? refundedPeriodEnd : new Date(Number.NaN),
+          refundIds: context.refundIds,
+          refundedPeriodStart: coverage.start,
+          refundedPeriodEnd: coverage.end,
           invoiceId: local.invoice.id,
           eventCreated: created,
           eventId: event.id,
+          observedAmountRefunded: cumulative ?? undefined,
+          observedAmount: amount ?? undefined,
         });
-        if (!usableCoverage) {
+        if (!result.applied) {
+          // Defence in depth: the writer rejects unusable coverage too.
+          const detail = result.anomaly ?? 'SUBSCRIPTION_NOT_PROJECTED';
           Sentry.captureMessage('billing.event_held_anomaly', {
             level: 'warning',
-            extra: { eventId: event.id, eventType: event.type, detail: 'SUBSCRIPTION_REFUND_COVERAGE_UNKNOWN' },
+            extra: { eventId: event.id, eventType: event.type, detail },
           });
-          return { status: 'held_anomaly', detail: 'SUBSCRIPTION_REFUND_COVERAGE_UNKNOWN' };
+          return { status: 'held_anomaly', detail };
         }
         if (result.lowered) {
           Sentry.captureMessage('billing.subscription_refunded', {
@@ -470,7 +555,9 @@ async function handleRefundEvent(event: Stripe.Event, created: Date): Promise<{
         }
         return { status: 'processed' };
       }
-      // Partial subscription refund: §6.7's "MAY suspend" stays a human call.
+
+      // Amounts unknown (a refund.updated whose charge retrieve gave nulls):
+      // unchanged behaviour — held for a human, nothing inferred.
       Sentry.captureMessage('billing.charge_event_held', {
         level: 'warning',
         extra: { eventId: event.id, eventType: event.type },
@@ -565,23 +652,27 @@ async function handleEvent(event: Stripe.Event): Promise<{
       if (subscriptionId === null) {
         return { status: 'ignored_foreign', detail: 'FOREIGN_INVOICE' };
       }
-      // Paid-through extends to the LATEST line-item period end (§8.4).
-      const periodEnds = (invoice.lines?.data ?? [])
-        .map(line => line.period?.end ?? 0)
-        .filter(end => end > 0);
-      if (periodEnds.length === 0 || invoice.lines?.has_more) {
+      // R-6: paid coverage is the span of this invoice's NON-PRORATION
+      // subscription lines (§8.4), paged when the embedded page is
+      // truncated. A renewal's proration line for the PREVIOUS cycle must
+      // never drag `paidPeriodStart` back into a refunded window.
+      const lines = await loadInvoiceLines(invoice);
+      const coverage = subscriptionLinePeriods(lines, subscriptionId);
+      if (coverage.kind !== 'ok') {
+        const detail = coverage.kind === 'unknown'
+          ? 'INVOICE_WITHOUT_LINE_PERIODS'
+          : 'INVOICE_WITHOUT_SUBSCRIPTION_LINES';
         Sentry.captureMessage('billing.event_held_anomaly', {
           level: 'warning',
-          extra: { eventId: event.id, eventType: event.type, detail: 'INVOICE_WITHOUT_LINE_PERIODS' },
+          extra: { eventId: event.id, eventType: event.type, detail },
         });
-        return { status: 'held_anomaly', detail: 'INVOICE_WITHOUT_LINE_PERIODS' };
+        return { status: 'held_anomaly', detail };
       }
-      const periodStarts = invoice.lines.data.map(line => line.period?.start ?? 0).filter(start => start > 0);
       const result = await applyInvoicePaymentSucceeded({
         invoiceId: invoice.id,
-        paidPeriodStart: periodStarts.length ? new Date(Math.min(...periodStarts) * 1000) : undefined,
+        paidPeriodStart: coverage.start,
         stripeSubscriptionId: subscriptionId,
-        paidPeriodEnd: new Date(Math.max(...periodEnds) * 1000),
+        paidPeriodEnd: coverage.end,
         eventCreated: created,
         eventId: event.id,
       });

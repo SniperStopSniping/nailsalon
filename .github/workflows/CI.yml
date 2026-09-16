@@ -1182,7 +1182,18 @@ jobs:
           node-version: 20.x
           cache: npm
       - run: HUSKY=0 npm ci
-      - run: npx vitest run --no-file-parallelism 'src/libs/billing/creditReservation.concurrency.integration.test.ts' 'src/app/api/billing/checkout/topup/route.concurrency.integration.test.ts' 'src/libs/billing/subscriptionRefunds.concurrency.integration.test.ts'
+      - name: Run billing real-PostgreSQL money suites and prove zero skips
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx vitest run --no-file-parallelism \
+            src/libs/billing/creditReservation.concurrency.integration.test.ts \
+            src/app/api/billing/checkout/topup/route.concurrency.integration.test.ts \
+            src/libs/billing/subscriptionRefunds.concurrency.integration.test.ts \
+            | tee billing-postgres-concurrency.log
+          grep -Fqx 'BILLING_REFUND_POSTGRES_TESTS_EXECUTED=17 BILLING_REFUND_POSTGRES_TESTS_SKIPPED=0' billing-postgres-concurrency.log
+          grep -Fqx 'BILLING_CREDIT_RESERVATION_POSTGRES_TESTS_EXECUTED=9 BILLING_CREDIT_RESERVATION_POSTGRES_TESTS_SKIPPED=0' billing-postgres-concurrency.log
+          grep -Fqx 'BILLING_TOPUP_CHECKOUT_POSTGRES_TESTS_EXECUTED=3 BILLING_TOPUP_CHECKOUT_POSTGRES_TESTS_SKIPPED=0' billing-postgres-concurrency.log
 
   booking-entitlement-override-postgres:
     name: Booking entitlement override PostgreSQL concurrency

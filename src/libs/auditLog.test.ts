@@ -136,3 +136,82 @@ describe('logAuditEventTx (P3c tx-aware audit helper)', () => {
     expect(row!.metadata).toEqual({ token: '[REDACTED]', billingOfferKey: 'pro_2026_08_monthly' });
   });
 });
+
+/**
+ * RT-13 (PR-1/R-8): the sanitizer walks metadata before it is stored, and a
+ * Date is an `object`. Without an explicit branch the generic walk turned
+ * every Date into `{}` — silently erasing the refund coverage bounds that
+ * §6.7 evidence is read back from.
+ */
+describe('sanitizeAuditMetadata — Date serialization (R-8)', () => {
+  it('serializes a top-level Date to its ISO string, never to an empty object', async () => {
+    const { sanitizeAuditMetadata } = await import('./auditLog');
+    const at = new Date('2026-09-01T10:00:00.000Z');
+
+    expect(sanitizeAuditMetadata({ refundedPeriodStart: at })).toEqual({
+      refundedPeriodStart: '2026-09-01T10:00:00.000Z',
+    });
+  });
+
+  it('serializes nested and array-held Dates at every depth', async () => {
+    const { sanitizeAuditMetadata } = await import('./auditLog');
+
+    expect(sanitizeAuditMetadata({
+      coverage: { start: new Date('2026-09-01T10:00:00.000Z'), end: new Date('2026-10-01T10:00:00.000Z') },
+      observedAt: [new Date('2026-09-02T00:00:00.000Z')],
+    })).toEqual({
+      coverage: { start: '2026-09-01T10:00:00.000Z', end: '2026-10-01T10:00:00.000Z' },
+      observedAt: ['2026-09-02T00:00:00.000Z'],
+    });
+  });
+
+  it('preserves every v2 refund-evidence field byte-identically while still redacting sensitive keys', async () => {
+    const { sanitizeAuditMetadata } = await import('./auditLog');
+    const metadata = {
+      evidenceVersion: 2,
+      seq: 7,
+      invoiceId: 'in_1',
+      refundIds: ['re_1', 're_2'],
+      eventId: 'evt_1',
+      refundedPeriodStart: '2026-09-01T10:00:00.000Z',
+      refundedPeriodEnd: '2026-10-01T10:00:00.000Z',
+      observedAmountRefunded: 1200,
+      observedAmount: 2400,
+      sessionSecret: 'private',
+    };
+
+    expect(sanitizeAuditMetadata(metadata)).toEqual({
+      evidenceVersion: 2,
+      seq: 7,
+      invoiceId: 'in_1',
+      refundIds: ['re_1', 're_2'],
+      eventId: 'evt_1',
+      refundedPeriodStart: '2026-09-01T10:00:00.000Z',
+      refundedPeriodEnd: '2026-10-01T10:00:00.000Z',
+      observedAmountRefunded: 1200,
+      observedAmount: 2400,
+      sessionSecret: '[REDACTED]',
+    });
+  });
+
+  it('stores a Date passed through logAuditEventTx as a readable ISO string', async () => {
+    const { logAuditEventTx } = await import('./auditLog');
+    await seedSalon('s_audit_date');
+
+    await db.transaction(async (tx) => {
+      await logAuditEventTx(tx, {
+        salonId: 's_audit_date',
+        actorType: 'webhook',
+        actorId: 'stripe-billing',
+        action: 'billing_subscription_refund_applied',
+        entityType: 'billing_subscription',
+        entityId: 'bsub_audit_date',
+        metadata: { refundedPeriodStart: new Date('2026-09-01T10:00:00.000Z') },
+      });
+    });
+
+    const [row] = await rowsForEntity('bsub_audit_date');
+
+    expect(row!.metadata).toEqual({ refundedPeriodStart: '2026-09-01T10:00:00.000Z' });
+  });
+});
