@@ -17,6 +17,7 @@ import { cn } from '@/utils/Helpers';
 import { ownerAssistantCopy } from './ownerAssistantCopy';
 import { OwnerAssistantSheet } from './OwnerAssistantSheet';
 import { useOwnerAssistant } from './useOwnerAssistant';
+import { useOwnerAssistantFeedback } from './useOwnerAssistantFeedback';
 
 /**
  * Where the pill sits above the bottom edge.
@@ -53,6 +54,13 @@ export default function OwnerAssistantLauncher({
   screen,
 }: OwnerAssistantLauncherProps) {
   const assistant = useOwnerAssistant({ locale, salonSlug });
+  // Feedback lives beside the conversation, not inside it: a rating must never
+  // be able to change the thread, and a failed rating must never be able to
+  // interrupt it.
+  const feedback = useOwnerAssistantFeedback({
+    conversation: assistant.conversation,
+    salonSlug,
+  });
   const [open, setOpen] = useState(false);
   const launcherRef = useRef<HTMLButtonElement>(null);
 
@@ -100,6 +108,7 @@ export default function OwnerAssistantLauncher({
         banner={assistant.banner}
         busy={assistant.busy}
         draftToRestore={assistant.draftToRestore}
+        feedback={feedback}
         isOpen={open}
         messages={assistant.messages}
         notice={assistant.notice}

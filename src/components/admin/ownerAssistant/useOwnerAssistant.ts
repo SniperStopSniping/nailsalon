@@ -56,6 +56,12 @@ export type OwnerAssistantState = {
   /** Null until `GET /context` answered 200. The UI renders nothing while null. */
   context: ContextResponse | null;
   messages: UiMessage[];
+  /**
+   * The signed conversation token for the thread on screen, or null before the
+   * first answer. Exposed so the feedback control can label a rating with the
+   * conversation it belongs to; nothing outside this module ever sends it.
+   */
+  conversation: string | null;
   busy: boolean;
   banner: OwnerAssistantBanner | null;
   /** Non-null after a 409: the previous thread was dropped. */
@@ -393,23 +399,31 @@ export function useOwnerAssistant({
             return;
           }
 
-          const answer: UiMessage = {
-            id: createMessageId(),
-            role: 'assistant',
-            text: payload.message,
-            checked: payload.checked.length > 0 ? payload.checked : undefined,
-            links: payload.links.length > 0 ? payload.links : undefined,
-            followUps: payload.followUps.length > 0 ? payload.followUps : undefined,
-          };
-          setThread(previous =>
-            previous.slug === salonSlug
-              ? {
-                  ...previous,
-                  conversation: payload.conversation,
-                  messages: [...withLastOwnerUnanswered(previous.messages, false), answer],
-                }
-              : previous,
-          );
+          setThread((previous) => {
+            if (previous.slug !== salonSlug) {
+              return previous;
+            }
+            const settled = withLastOwnerUnanswered(previous.messages, false);
+            const answer: UiMessage = {
+              id: createMessageId(),
+              role: 'assistant',
+              text: payload.message,
+              checked: payload.checked.length > 0 ? payload.checked : undefined,
+              links: payload.links.length > 0 ? payload.links : undefined,
+              followUps: payload.followUps.length > 0 ? payload.followUps : undefined,
+              // The server's `turnIndex` is the number of ANSWERED turns that
+              // preceded this one in the conversation, which is exactly the
+              // number of assistant bubbles already in the thread: an
+              // `unavailable` turn adds neither. Derived here rather than read
+              // from the response because the turn contract does not carry it.
+              turnIndex: settled.filter(message => message.role === 'assistant').length,
+            };
+            return {
+              ...previous,
+              conversation: payload.conversation,
+              messages: [...settled, answer],
+            };
+          });
           return;
         }
       } catch {
@@ -488,6 +502,7 @@ export function useOwnerAssistant({
   return {
     context,
     messages: thread.slug === salonSlug ? thread.messages : [],
+    conversation: thread.slug === salonSlug ? thread.conversation : null,
     busy,
     banner: banner ?? modelBanner,
     notice,

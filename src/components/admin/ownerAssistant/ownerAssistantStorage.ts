@@ -23,6 +23,13 @@ export type UiMessage = {
   links?: ChatLink[];
   followUps?: string[];
   /**
+   * Assistant messages only: which turn of the current conversation produced
+   * this answer, counted the way the server counts it (answered turns only, so
+   * an `unavailable` turn does not advance it). Feedback sends this number so a
+   * rating joins to the ledger row of the turn it rates (A1-4b).
+   */
+  turnIndex?: number;
+  /**
    * Owner messages only: the turn ended `unavailable` or in an error, so this
    * question never reached the signed window and was never answered. Rendered
    * as a caption so the visible thread cannot claim otherwise.
@@ -109,6 +116,10 @@ function parseMessage(value: unknown): UiMessage | null {
     checked: parseChecked(value.checked),
     links: parseLinks(value.links),
     followUps: parseFollowUps(value.followUps),
+    turnIndex:
+      typeof value.turnIndex === 'number' && Number.isInteger(value.turnIndex) && value.turnIndex >= 0
+        ? value.turnIndex
+        : undefined,
     unanswered: value.unanswered === true ? true : undefined,
   };
 }
