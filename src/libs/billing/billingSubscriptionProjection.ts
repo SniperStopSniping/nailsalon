@@ -201,10 +201,19 @@ export async function projectSubscriptionSnapshot(input: {
       // exist here at all — another deployment's fixture, or a stale id. The
       // insert below carries a foreign key, so without this check such an
       // event would raise inside the handler and enter the retry ladder,
-      // burning eight deliveries on an object that will never be ours. Looked
-      // up INSIDE the transaction (and under the same lock ordering as every
-      // other projection read) so the answer cannot go stale between the test
-      // and the insert.
+      // burning eight deliveries on an object that will never be ours.
+      //
+      // `FOR SHARE`, not a bare SELECT: under READ COMMITTED an unlocked read
+      // would let a concurrent transaction soft-delete (or hard-delete) the
+      // salon between this test and the INSERT below, so the check could pass
+      // and the insert still land on — or fail against — a salon that is gone.
+      // The share lock holds the salon row against any writer for the rest of
+      // this transaction while still permitting other readers and the FK's own
+      // `FOR KEY SHARE`, so the answer is true at COMMIT, not merely when it
+      // was read. Taken on the INSERT path only, where no other row lock is
+      // held yet (the `billing_subscription` SELECT above matched nothing), so
+      // it cannot form a cycle with the salon-first lock order used by the
+      // top-up and checkout-attempt paths.
       //
       // A soft-deleted salon counts as NOT LOCAL, the same rule the rest of
       // billing applies (`starterGrantBackfill.ts`'s SALON_DELETED): no
@@ -213,7 +222,8 @@ export async function projectSubscriptionSnapshot(input: {
         .select({ id: salonSchema.id })
         .from(salonSchema)
         .where(and(eq(salonSchema.id, salonId), isNull(salonSchema.deletedAt)))
-        .limit(1);
+        .limit(1)
+        .for('share');
       if (salon === undefined) {
         // The ROUTE maps this to a terminal `ignored_foreign`, never to
         // `held_anomaly`: there is nothing for a human to repair about

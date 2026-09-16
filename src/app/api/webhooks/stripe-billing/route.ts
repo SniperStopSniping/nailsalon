@@ -74,7 +74,7 @@ import { db } from '@/libs/DB';
 import { Env } from '@/libs/Env';
 import { computeExpectedLivemode } from '@/libs/environmentIsolation';
 import { stripe } from '@/libs/stripe';
-import { billingSubscriptionSchema, salonSchema, smsTopupPurchaseSchema } from '@/models/Schema';
+import { billingCheckoutAttemptSchema, billingSubscriptionSchema, salonSchema, smsTopupPurchaseSchema } from '@/models/Schema';
 
 // P8c: the literal list now lives in billingWebhookEvents.ts (shared with
 // the readiness harness and its CLI) — this route's behaviour is unchanged,
@@ -163,6 +163,32 @@ function foreignDetail(verdict: 'foreign_purpose' | 'foreign_deployment', purpos
 }
 
 /**
+ * A LOCALLY STORED ROW OUTRANKS THE DEPLOYMENT MARKER.
+ *
+ * The marker is stamped at creation (PR-3), so the day it is first configured
+ * every subscription, session and customer already in flight carries no
+ * `luster_deployment` at all — and by the marker test alone this deployment
+ * would start classifying its OWN paying subscribers as `FOREIGN_DEPLOYMENT`
+ * and silently stop projecting their renewals. A `billing_subscription` or
+ * `billing_checkout_attempt` row here is direct proof that THIS deployment
+ * created and projected the object, which is stronger evidence than any
+ * metadata field, so it settles ownership on its own.
+ *
+ * The `purpose` test is NOT bypassed — only the marker is. And `hasLocalRow`
+ * is invoked ONLY when the marker is configured and disagrees, so a
+ * deployment with no marker set performs exactly the queries it did before.
+ */
+async function withLocalRowOverride(
+  verdict: OwnershipVerdict,
+  hasLocalRow: () => Promise<boolean>,
+): Promise<OwnershipVerdict> {
+  if (verdict !== 'foreign_deployment') {
+    return verdict;
+  }
+  return (await hasLocalRow()) ? 'ours' : 'foreign_deployment';
+}
+
+/**
  * D19c §2.1/§2.7 for invoices, with NO Stripe call.
  *
  * `purpose: 'plan_subscription'` alone cannot separate our own invoices from
@@ -209,9 +235,12 @@ async function salonExists(salonId: string | null | undefined): Promise<boolean>
 }
 
 /**
- * §2.3 item 4 attribution source for subscription-shaped events: the LOCAL
- * row's own salon id, never the event body's metadata. The row carries the
- * foreign key, so this id is guaranteed to name a live local salon.
+ * §2.3 item 4 attribution source for subscription-shaped events, and the
+ * strongest possible ownership evidence: the LOCAL row's own salon id, never
+ * the event body's metadata. `billing_subscription.salon_id` is NOT NULL and
+ * carries the foreign key, so a non-null answer here is simultaneously proof
+ * that this deployment projected the subscription AND a salon id guaranteed
+ * to name a live local salon.
  */
 async function localSubscriptionSalonId(stripeSubscriptionId: string): Promise<string | null> {
   const [row] = await db
@@ -222,14 +251,35 @@ async function localSubscriptionSalonId(stripeSubscriptionId: string): Promise<s
   return row?.salonId ?? null;
 }
 
-/** §2.3 item 4 attribution source for top-up checkout events. */
-async function topupSalonIdForSession(sessionId: string): Promise<string | null> {
+/**
+ * The same evidence for Checkout Sessions: `billing_checkout_attempt` is
+ * written by our own two checkout routes before the session is created, and
+ * its `salon_id` is NOT NULL with a cascading foreign key. Serves both
+ * ownership (a bound attempt proves the session is ours) and §2.3 item 4
+ * attribution for a subscription session whose object Stripe did not expand.
+ */
+async function localAttemptSalonIdForSession(sessionId: string): Promise<string | null> {
+  const [row] = await db
+    .select({ salonId: billingCheckoutAttemptSchema.salonId })
+    .from(billingCheckoutAttemptSchema)
+    .where(eq(billingCheckoutAttemptSchema.stripeCheckoutSessionId, sessionId))
+    .limit(1);
+  return row?.salonId ?? null;
+}
+
+/**
+ * The top-up purchase bound to a checkout session. Returns the ROW (or null)
+ * rather than its salon id, because `sms_topup_purchase.salon_id` is nullable
+ * — it is nulled by salon purge — so "no salon id" and "no row" are different
+ * facts and only the second one means "not ours".
+ */
+async function topupPurchaseForSession(sessionId: string): Promise<{ salonId: string | null } | null> {
   const [row] = await db
     .select({ salonId: smsTopupPurchaseSchema.salonId })
     .from(smsTopupPurchaseSchema)
     .where(eq(smsTopupPurchaseSchema.stripeCheckoutSessionId, sessionId))
     .limit(1);
-  return row?.salonId ?? null;
+  return row ?? null;
 }
 
 function toSnapshot(subscription: Stripe.Subscription): StripeSubscriptionSnapshot {
@@ -421,6 +471,19 @@ async function handleTopupCheckoutPaymentEvent(
     ? session.payment_intent
     : session.payment_intent?.id ?? null;
 
+  // D19c §2.1: CLASSIFY FIRST. The evidence retrieve below is a real Stripe
+  // call and `recordBillingEventPriceId` is a real write, and neither may be
+  // spent on an object that is not ours — a foreign session would otherwise
+  // leave a `price_id` stamped on its own `ignored_foreign` row. No purchase
+  // row bound to this session AND no local salon named in its metadata is a
+  // definite "not mine"; a local salon keeps the genuine TX2 race retryable
+  // (re-checked after the fulfillment transaction below, which is the only
+  // reader that holds the row lock).
+  const purchase = await topupPurchaseForSession(session.id);
+  if (purchase === null && !(await salonExists(session.metadata?.salonId))) {
+    return { status: 'ignored_foreign', detail: 'FOREIGN_SALON' };
+  }
+
   let verifiedEvidence: TopupVerifiedEvidence | null = null;
   if (paymentStatus === 'paid') {
     verifiedEvidence = await buildTopupVerifiedEvidence(session.id);
@@ -455,8 +518,10 @@ async function handleTopupCheckoutPaymentEvent(
     return { status: 'held_anomaly', detail: result.reason };
   }
   // §2.3 item 4: the purchase row is ours and local, so its salon id can be
-  // attributed to the event row for purge and forensics.
-  await recordBillingEventSalonId(event.id, await topupSalonIdForSession(session.id));
+  // attributed to the event row for purge and forensics. Re-read rather than
+  // reusing the pre-classification row, which may have been created by the
+  // racing checkout between the two points.
+  await recordBillingEventSalonId(event.id, (await topupPurchaseForSession(session.id))?.salonId ?? null);
   return { status: 'processed' };
 }
 
@@ -470,6 +535,13 @@ async function handleSubscriptionCheckoutPaymentEvent(
     sessionId: session.id,
     paymentStatus: session.payment_status ?? 'unpaid',
   });
+  // §2.3 item 4: Stripe expands `session.subscription` only sometimes, so the
+  // projection below cannot be the only attribution source or every
+  // unexpanded subscription session would finish `processed` with a NULL
+  // salon. The `billing_checkout_attempt` our own checkout route wrote before
+  // creating this session always can be — its `salon_id` is NOT NULL with a
+  // cascading foreign key, so it is local by construction.
+  await recordBillingEventSalonId(event.id, await localAttemptSalonIdForSession(session.id));
   // The subscription object itself normally arrives via customer.subscription.*;
   // when it is already expanded on the session, project it now so the row
   // exists before the invoice event lands.
@@ -691,6 +763,13 @@ async function ownershipOfSubscription(
   stripeSubscriptionId: string,
   hint?: StripeMetadata,
 ): Promise<'ours' | 'foreign'> {
+  // A local row settles it before any metadata is consulted (and before any
+  // Stripe call). Today's two callers reach this only when they have already
+  // seen no local row, so this is a defensive re-read that keeps the helper
+  // correct standalone — and it is the marker override for any future caller.
+  if ((await localSubscriptionSalonId(stripeSubscriptionId)) !== null) {
+    return 'ours';
+  }
   let metadata: StripeMetadata = hint;
   if (metadata === null || metadata === undefined) {
     const subscription = await fetchOrForeign(() => stripe.subscriptions.retrieve(stripeSubscriptionId));
@@ -881,15 +960,21 @@ async function handleRefundEvent(event: Stripe.Event, created: Date): Promise<Ha
  * two flows at all?), then the deployment marker (is it THIS deployment's?).
  * Zero Stripe calls, zero database reads.
  */
-function classifyCheckoutSession(
+async function classifyCheckoutSession(
   session: Stripe.Checkout.Session,
-): { ours: true; purpose: 'sms_topup' | 'plan_subscription' } | { ours: false; detail?: string } {
+): Promise<{ ours: true; purpose: 'sms_topup' | 'plan_subscription' } | { ours: false; detail?: string }> {
   const metadata = session.metadata as StripeMetadata;
   const purpose = metadata?.purpose;
   if (purpose !== 'sms_topup' && purpose !== 'plan_subscription') {
     return { ours: false };
   }
-  if (!markerMatches(metadata)) {
+  // A `billing_checkout_attempt` bound to this session id is proof we created
+  // it, and outranks a missing or mismatched deployment marker.
+  const verdict = await withLocalRowOverride(
+    markerMatches(metadata) ? 'ours' : 'foreign_deployment',
+    async () => (await localAttemptSalonIdForSession(session.id)) !== null,
+  );
+  if (verdict !== 'ours') {
     return { ours: false, detail: 'FOREIGN_DEPLOYMENT' };
   }
   return { ours: true, purpose };
@@ -902,7 +987,7 @@ async function handleEvent(event: Stripe.Event): Promise<HandlerOutcome> {
     case 'checkout.session.completed':
     case 'checkout.session.async_payment_succeeded': {
       const session = event.data.object as Stripe.Checkout.Session;
-      const classification = classifyCheckoutSession(session);
+      const classification = await classifyCheckoutSession(session);
       if (!classification.ours) {
         return { status: 'ignored_foreign', detail: classification.detail };
       }
@@ -914,7 +999,7 @@ async function handleEvent(event: Stripe.Event): Promise<HandlerOutcome> {
     case 'checkout.session.expired':
     case 'checkout.session.async_payment_failed': {
       const session = event.data.object as Stripe.Checkout.Session;
-      const classification = classifyCheckoutSession(session);
+      const classification = await classifyCheckoutSession(session);
       if (!classification.ours) {
         return { status: 'ignored_foreign', detail: classification.detail };
       }
@@ -929,7 +1014,7 @@ async function handleEvent(event: Stripe.Event): Promise<HandlerOutcome> {
           }
           throw new Error('TOPUP_PURCHASE_NOT_FOUND');
         }
-        await recordBillingEventSalonId(event.id, await topupSalonIdForSession(session.id));
+        await recordBillingEventSalonId(event.id, (await topupPurchaseForSession(session.id))?.salonId ?? null);
       } else {
         await applyCheckoutSessionExpired({ sessionId: session.id });
       }
@@ -940,8 +1025,12 @@ async function handleEvent(event: Stripe.Event): Promise<HandlerOutcome> {
     case 'customer.subscription.deleted': {
       let subscription = event.data.object as Stripe.Subscription;
       // D19c §2.1: purpose, then deployment marker — both read off the event
-      // body, no Stripe call, no database read.
-      const verdict = isNewTrackMetadata(subscription.metadata as StripeMetadata, 'plan_subscription');
+      // body, no Stripe call, no database read. A local `billing_subscription`
+      // row overrides a marker disagreement (and is read only then).
+      const verdict = await withLocalRowOverride(
+        isNewTrackMetadata(subscription.metadata as StripeMetadata, 'plan_subscription'),
+        async () => (await localSubscriptionSalonId(subscription.id)) !== null,
+      );
       if (verdict !== 'ours') {
         return {
           status: 'ignored_foreign',
@@ -994,7 +1083,10 @@ async function handleEvent(event: Stripe.Event): Promise<HandlerOutcome> {
         return { status: 'ignored_foreign', detail: 'FOREIGN_INVOICE' };
       }
       if (hint !== null && hint !== undefined) {
-        const verdict = isNewTrackMetadata(hint, 'plan_subscription');
+        const verdict = await withLocalRowOverride(
+          isNewTrackMetadata(hint, 'plan_subscription'),
+          async () => (await localSubscriptionSalonId(subscriptionId)) !== null,
+        );
         if (verdict !== 'ours') {
           return { status: 'ignored_foreign', detail: foreignDetail(verdict, 'FOREIGN_INVOICE') };
         }
@@ -1061,7 +1153,10 @@ async function handleEvent(event: Stripe.Event): Promise<HandlerOutcome> {
         return { status: 'ignored_foreign', detail: 'FOREIGN_INVOICE' };
       }
       if (hint !== null && hint !== undefined) {
-        const verdict = isNewTrackMetadata(hint, 'plan_subscription');
+        const verdict = await withLocalRowOverride(
+          isNewTrackMetadata(hint, 'plan_subscription'),
+          async () => (await localSubscriptionSalonId(subscriptionId)) !== null,
+        );
         if (verdict !== 'ours') {
           return { status: 'ignored_foreign', detail: foreignDetail(verdict, 'FOREIGN_INVOICE') };
         }

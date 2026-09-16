@@ -132,12 +132,22 @@ export async function claimBillingEvent(input: {
   // permanently terminal, and the only recovery was a manual replay — which
   // INV-A10 forbids. `attempts` moves 0 → 1 (the mismatch row never claimed
   // an attempt), so the poison ladder still bounds it normally.
+  //
+  // `processed_at` is CLEARED here, unlike the other two reclaims. Those
+  // reclaim rows that never carried one (`failed_retryable` only stamps it
+  // when it poisons; a lapsed `processing` row never got that far), but
+  // recordIgnoredBillingEvent writes the mismatch row ALREADY terminal, with
+  // `processed_at` set. Carrying that forward would leave a reclaimed row
+  // that then fails mid-handler sitting in `failed_retryable` wearing a
+  // terminal timestamp — a state every ops query and forensic read would
+  // misreport.
   const reclaimedLivemode = await db
     .update(billingStripeEventSchema)
     .set({
       status: 'processing',
       attempts: sql`${billingStripeEventSchema.attempts} + 1`,
       lastError: null,
+      processedAt: null,
     })
     .where(and(
       eq(billingStripeEventSchema.eventId, input.eventId),

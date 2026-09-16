@@ -162,8 +162,11 @@ decide stays retryable, bounded by the existing 8-attempt poison ladder. The end
   Stripe's immutable snapshot of the subscription's metadata at finalization, and every new-track
   invoice carries it. When present, ownership costs **zero Stripe calls**. `subscriptions.retrieve`
   runs only when that snapshot is absent, and is the one classification fetch §2.6 permits.
-  `SUBSCRIPTION_NOT_PROJECTED` is now thrown from exactly one place — an ours-but-not-yet-projected
-  subscription on the refund path — instead of standing in for every unresolved refund.
+  `SUBSCRIPTION_NOT_PROJECTED` now has exactly two producers, both of them the
+  ours-but-not-yet-projected case: the refund/dispute path
+  (`resolveLocalSubscriptionByInvoiceId`) and the invoice path, which rethrows the projection's own
+  anomaly. Both are retryable and bounded by the 8-attempt poison ladder, and neither fires for an
+  object classified as foreign — where it previously stood in for every unresolved refund.
 - **Item 3 — a local salon is required before any write.** `projectSubscriptionSnapshot` looks the
   salon up inside its transaction on the INSERT path and returns `{applied:false,
   anomaly:'SALON_NOT_LOCAL'}` rather than raising a foreign-key error into the retry ladder; the
@@ -172,6 +175,11 @@ decide stays retryable, bounded by the existing 8-attempt poison ladder. The end
   race), a non-local one is terminal. `applyTopupSessionExpired` keeps its throwing contract for the
   callers that cannot classify (the checkout reuse path, P4's reconciler); the classifying form is
   the new `resolveTopupSessionExpiry`.
+- **Ordering — classify before spending.** The top-up completion path now looks up the bound
+  purchase row *before* retrieving the session from Stripe, so a foreign session costs zero Stripe
+  calls and never gets a `price_id` written onto its own `ignored_foreign` row. A
+  `plan_subscription` session is attributed from its `billing_checkout_attempt` rather than only
+  from an expanded `session.subscription`, which Stripe supplies only sometimes.
 - **Item 4 — `billing_stripe_event.salon_id` attribution.** Deliberately NOT written at claim time
   from the raw body: the column carries a real foreign key, so a foreign salon id would turn a
   terminal classification into a retry loop. `recordBillingEventSalonId` is called only after a
@@ -188,8 +196,15 @@ decide stays retryable, bounded by the existing 8-attempt poison ladder. The end
 
 **New, optional `BILLING_DEPLOYMENT_MARKER`.** Unset ⇒ behaviour identical to before the variable
 existed. Set ⇒ an absent or different `metadata.luster_deployment` is definitely foreign, with zero
-Stripe calls. PR-2 only *honours* it; PR-3 stamps it. The runbook §4 row says, in bold, to set it only
-after the stamping deploy.
+Stripe calls — **unless this database already holds a row for the object** (`billing_subscription`
+for a subscription or invoice, `billing_checkout_attempt` for a session), which is direct proof this
+deployment created and projected it and therefore outranks the marker. Without that override,
+configuring the marker for the first time would classify every in-flight subscription stamped before
+the stamping deploy as foreign and silently stop projecting existing subscribers' renewals. The
+`purpose` check is never bypassed, and the local-row read happens only when the marker is configured
+and disagrees. PR-2 only *honours* the marker; PR-3 stamps it. The runbook §4 row says, in bold, to
+set it only after the stamping deploy, and records that the marker (or a dedicated Sandbox, O5) is
+required before the Isla Preview rehearsal on a shared test account.
 
 Billing stays dark: no environment value, no switch, no migration, no CI change, no Stripe or Vercel
 change. The real-PostgreSQL refund suite still executes 17 tests with zero skips.

@@ -78,6 +78,10 @@ describe('Y12 — a livemode-mismatch row is reclaimable once configuration is c
 
     expect(claim).toEqual({ claimed: true, attempts: 1 });
     expect((await rowFor(base.eventId))!.status).toBe('processing');
+    // The parked row carried a terminal `processed_at`; the reclaim clears it,
+    // so a reclaimed row that then fails cannot sit in `failed_retryable`
+    // wearing a terminal timestamp.
+    expect((await rowFor(base.eventId))!.processedAt).toBeNull();
 
     // …and it then resolves normally under the CAS fence.
     expect(await resolveBillingEvent(base.eventId, 1, 'processed')).toEqual({ written: true });

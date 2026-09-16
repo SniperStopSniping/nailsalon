@@ -107,6 +107,17 @@ beforeAll(async () => {
 });
 
 beforeEach(() => {
+  // The route keeps ONE piece of module-level state — the Y12 alert's
+  // rate-limit timestamp — and the rate-limit test below deliberately pins
+  // `Date.now()` far in the future to exercise the window. Without a reset
+  // that timestamp would outlive the test and silently suppress every later
+  // mismatch alert in this file. `vi.resetModules()` is this repo's
+  // convention for per-test module state (stripePriceMap.test.ts,
+  // stripePriceCarrier.test.ts, DB.testIsolation.test.ts); the route is
+  // re-imported per `post()` anyway, and the alternative — exporting a reset
+  // helper — is not available here, because a Next.js route file may export
+  // only its handlers and route config.
+  vi.resetModules();
   envHolder.STRIPE_BILLING_WEBHOOK_SECRET = 'whsec_test';
   envHolder.BILLING_PLAN_ENV = 'test';
   envHolder.BILLING_DEPLOYMENT_MARKER = undefined;
@@ -1880,6 +1891,8 @@ describe('stripe-billing webhook pipeline', () => {
    */
   describe('FE-1 — top-up sessions for a salon that does not exist here', () => {
     it('a completed sms_topup session whose salonId is not a local salon is terminally foreign', async () => {
+      // Mocked, and asserted NEVER CALLED: classification happens before any
+      // Stripe call, so a foreign session costs nothing and writes nothing.
       stripeMock.checkout.sessions.retrieve.mockResolvedValue({
         id: 'cs_fe1_foreign',
         amount_total: 599,
@@ -1903,6 +1916,8 @@ describe('stripe-billing webhook pipeline', () => {
       expect(row!.lastError).toBe('FOREIGN_SALON');
       expect(row!.attempts).toBe(1);
       expect(row!.salonId).toBeNull(); // §2.3 item 4: foreign rows are never attributed
+      expect(row!.priceId).toBeNull(); // no evidence write for somebody else's session
+      expect(stripeMock.checkout.sessions.retrieve).not.toHaveBeenCalled();
       expect(sentryHolder.captureMessage).not.toHaveBeenCalled();
       expect(sentryHolder.captureException).not.toHaveBeenCalled();
     });
@@ -2095,6 +2110,29 @@ describe('stripe-billing webhook pipeline', () => {
       expect(row!.lastError).toBe('SUBSCRIPTION_NOT_PROJECTED');
     });
 
+    it('ours-but-unprojected WITH the snapshot present retries, and makes ZERO Stripe calls', async () => {
+      await db.insert(schema.salonSchema).values({ id: 's_fe2_hint_ours', name: 's', slug: 's-fe2-hint-ours' });
+      const event = stripeEvent('invoice.payment_succeeded', {
+        id: 'in_fe2_hint_ours',
+        subscription: 'sub_fe2_hint_ours',
+        subscription_details: {
+          metadata: { purpose: 'plan_subscription', salonId: 's_fe2_hint_ours', billingOfferKey: 'starter_2026_08_monthly' },
+        },
+        lines: { data: [subLine(1_780_000_000, 1_780_000_000 + 30 * 24 * 3600)] },
+      });
+      const response = await post(event);
+
+      expect(response.status).toBe(500);
+
+      const [row] = (await eventRows()).filter(entry => entry.eventId === event.id);
+
+      expect(row!.status).toBe('failed_retryable');
+      expect(row!.lastError).toBe('SUBSCRIPTION_NOT_PROJECTED');
+      // The snapshot Stripe already put in the event body IS the answer — the
+      // classification fetch is never made.
+      expect(stripeMock.subscriptions.retrieve).not.toHaveBeenCalled();
+    });
+
     it('a marked subscription whose salon is ANOTHER deployment\'s is foreign, not a retry to poison (X2)', async () => {
       stripeMock.subscriptions.retrieve.mockResolvedValueOnce({
         id: 'sub_fe2_other_estate',
@@ -2157,6 +2195,23 @@ describe('stripe-billing webhook pipeline', () => {
   });
 
   describe('FE-5 — the optional deployment marker (X2/X3)', () => {
+    /** A subscription this deployment already projected, before any marker existed. */
+    async function seedPriorSubscription(salonId: string, stripeSubscriptionId: string, paidThrough = new Date('2027-09-01T10:00:00.000Z')) {
+      await db.insert(schema.salonSchema).values({ id: salonId, name: salonId, slug: salonId });
+      await db.insert(schema.billingSubscriptionSchema).values({
+        id: `bsub_${salonId}`,
+        salonId,
+        stripeSubscriptionId,
+        stripeCustomerId: `cus_${salonId}`,
+        planDefinitionKey: 'pro_2026_08',
+        billingOfferKey: 'pro_2026_08_annual',
+        billingCadence: 'annual',
+        status: 'active',
+        paidThrough,
+        creditCycleAnchor: new Date('2026-09-01T10:00:00.000Z'),
+      });
+    }
+
     it('a session with NO luster_deployment is foreign once a marker is configured — zero Stripe calls', async () => {
       envHolder.BILLING_DEPLOYMENT_MARKER = 'preview-a';
       const event = stripeEvent('checkout.session.completed', {
@@ -2226,6 +2281,111 @@ describe('stripe-billing webhook pipeline', () => {
       expect(row!.status).toBe('ignored_foreign');
       expect(row!.lastError).toBe('FOREIGN_DEPLOYMENT');
       expect(stripeMock.subscriptions.retrieve).not.toHaveBeenCalled();
+    });
+
+    /**
+     * The marker is stamped at CREATION (PR-3), so on the day it is first
+     * configured every object already in flight carries none. A locally
+     * stored row is proof this deployment created and projected the object,
+     * and must outrank the marker — otherwise setting the variable would
+     * silently stop projecting existing paying subscribers' renewals.
+     */
+    it('a LOCAL subscription row outranks an ABSENT marker', async () => {
+      envHolder.BILLING_DEPLOYMENT_MARKER = 'preview-a';
+      await seedPriorSubscription('s_fe5_prior', 'sub_fe5_prior');
+      const event = stripeEvent('customer.subscription.updated', {
+        id: 'sub_fe5_prior',
+        customer: 'cus_s_fe5_prior',
+        status: 'past_due',
+        cancel_at_period_end: false,
+        current_period_start: 1_780_000_000,
+        // Created before the marker existed: no luster_deployment at all.
+        metadata: { purpose: 'plan_subscription', salonId: 's_fe5_prior', billingOfferKey: 'pro_2026_08_annual' },
+      });
+      const response = await post(event);
+
+      expect(response.status).toBe(200);
+
+      const [row] = (await eventRows()).filter(entry => entry.eventId === event.id);
+
+      expect(row!.status).toBe('processed');
+      expect(row!.salonId).toBe('s_fe5_prior');
+
+      const [subscription] = await db.select().from(schema.billingSubscriptionSchema)
+        .where(eq(schema.billingSubscriptionSchema.stripeSubscriptionId, 'sub_fe5_prior'));
+
+      expect(subscription!.status).toBe('past_due');
+    });
+
+    it('a LOCAL subscription row outranks a DIFFERENT marker on an invoice too', async () => {
+      envHolder.BILLING_DEPLOYMENT_MARKER = 'preview-a';
+      await seedPriorSubscription('s_fe5_prior_inv', 'sub_fe5_prior_inv', new Date('2026-09-01T10:00:00.000Z'));
+      const periodEnd = Math.floor(new Date('2027-09-01T10:00:00.000Z').getTime() / 1000);
+      const event = stripeEvent('invoice.payment_succeeded', {
+        id: 'in_fe5_prior',
+        subscription: 'sub_fe5_prior_inv',
+        subscription_details: {
+          metadata: { purpose: 'plan_subscription', salonId: 's_fe5_prior_inv', luster_deployment: 'preview-b' },
+        },
+        lines: { data: [subLine(1_780_000_000, periodEnd)] },
+      });
+      const response = await post(event);
+
+      expect(response.status).toBe(200);
+
+      const [row] = (await eventRows()).filter(entry => entry.eventId === event.id);
+
+      expect(row!.status).toBe('processed');
+      expect(row!.salonId).toBe('s_fe5_prior_inv');
+    });
+
+    it('with NO local row and an absent marker it is still FOREIGN_DEPLOYMENT (the rule only relaxes for rows we hold)', async () => {
+      envHolder.BILLING_DEPLOYMENT_MARKER = 'preview-a';
+      const event = stripeEvent('customer.subscription.updated', {
+        id: 'sub_fe5_no_row',
+        customer: 'cus_fe5_no_row',
+        status: 'active',
+        cancel_at_period_end: false,
+        current_period_start: 1_780_000_000,
+        metadata: { purpose: 'plan_subscription', salonId: 's_fe5_no_row', billingOfferKey: 'starter_2026_08_monthly' },
+      });
+      const response = await post(event);
+
+      expect(response.status).toBe(200);
+
+      const [row] = (await eventRows()).filter(entry => entry.eventId === event.id);
+
+      expect(row!.status).toBe('ignored_foreign');
+      expect(row!.lastError).toBe('FOREIGN_DEPLOYMENT');
+      expect(stripeMock.subscriptions.retrieve).not.toHaveBeenCalled();
+    });
+
+    it('a bound checkout ATTEMPT outranks an absent marker on a session event', async () => {
+      envHolder.BILLING_DEPLOYMENT_MARKER = 'preview-a';
+      await db.insert(schema.salonSchema).values({ id: 's_fe5_attempt', name: 's', slug: 's-fe5-attempt' });
+      await db.insert(schema.billingCheckoutAttemptSchema).values({
+        id: 'att_fe5',
+        salonId: 's_fe5_attempt',
+        purpose: 'plan_subscription',
+        billingOfferKey: 'starter_2026_08_monthly',
+        status: 'checkout_created',
+        stripeIdempotencyKey: 'idem_fe5',
+        stripeCheckoutSessionId: 'cs_fe5_attempt',
+        expiresAt: new Date(Date.now() + 3600_000),
+      });
+      const event = stripeEvent('checkout.session.completed', {
+        id: 'cs_fe5_attempt',
+        payment_status: 'paid',
+        metadata: { purpose: 'plan_subscription', salonId: 's_fe5_attempt' },
+      });
+      const response = await post(event);
+
+      expect(response.status).toBe(200);
+
+      const [row] = (await eventRows()).filter(entry => entry.eventId === event.id);
+
+      expect(row!.status).toBe('processed');
+      expect(row!.salonId).toBe('s_fe5_attempt');
     });
 
     it('an EQUAL marker processes exactly as it does with the marker unset', async () => {
@@ -2371,6 +2531,16 @@ describe('stripe-billing webhook pipeline', () => {
       const mismatched = await post(event);
 
       expect((await mismatched.json()).ignored).toBe('livemode_mismatch');
+
+      // The rate-limit test above pinned Date.now() to the year 2096 and left
+      // a timestamp behind in the route module. `vi.resetModules()` in
+      // beforeEach clears it, so this mismatch alerts on its own merits — if
+      // that isolation ever regresses, this assertion fails rather than the
+      // suppression going unnoticed.
+      expect(sentryHolder.captureMessage).toHaveBeenCalledWith(
+        'billing.livemode_mismatch',
+        expect.objectContaining({ level: 'error' }),
+      );
 
       const [parked] = (await eventRows()).filter(entry => entry.eventId === event.id);
 
