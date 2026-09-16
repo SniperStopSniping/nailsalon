@@ -81,6 +81,16 @@ export type SalonFeatures = {
   social?: {
     photoUploads?: boolean; // default: TRUE (core - Step 14/15 needs this)
   };
+  /**
+   * Conversational assistants (docs/OWNER_ASSISTANT_CHAT.md §2). Both keys
+   * ship OFF and no writer sets them yet — the pilot is driven by
+   * `OWNER_ASSISTANT_SALON_ALLOWLIST`. An absent group resolves to false, so
+   * omission and explicit `false` mean the same thing.
+   */
+  ai?: {
+    ownerAssistant?: boolean; // default: false
+    bookingHelper?: boolean; // default: false
+  };
 
   // ==========================================================================
   // PAID ADD-ONS - OFF by default
