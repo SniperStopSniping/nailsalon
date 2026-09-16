@@ -26,10 +26,12 @@ import {
   bookingPageDraftPatchSchema,
   createDefaultBookingPageConfig,
   foldLegacyAppearanceInputs,
+  hasUnpublishedBookingPageChanges,
   resolveBookingPageConfig,
   SECTION_IDS,
   validateSectionOrder,
 } from './bookingPageConfig';
+import { createDefaultBookingPageContent } from './bookingPageContent';
 import { BOOKING_PAGE_PRESET_RECIPES } from './bookingPagePresetRecipes';
 import { EMPTY_SALON_CONTENT } from './salonContent';
 import { resolveSectionPresentation } from './sectionPresentation';
@@ -841,6 +843,52 @@ describe('foldLegacyAppearanceInputs', () => {
     const folded = foldLegacyAppearanceInputs(config, null);
 
     expect(folded.draft.tokenOverrides).toBeNull();
+  });
+});
+
+describe('hasUnpublishedBookingPageChanges', () => {
+  // One definition, two readers: the owner Website hub's "Draft changes not
+  // published" line and the setup-readiness `draft_unpublished_changes` item.
+  it('reports nothing for a salon whose draft matches what is published', () => {
+    expect(hasUnpublishedBookingPageChanges(
+      createDefaultBookingPageConfig(),
+      createDefaultBookingPageContent(),
+    )).toBe(false);
+  });
+
+  it('detects a config-side change', () => {
+    const config = createDefaultBookingPageConfig();
+    config.draft.layout = 'editorial';
+
+    expect(hasUnpublishedBookingPageChanges(config, createDefaultBookingPageContent())).toBe(true);
+  });
+
+  it('detects a content-side change', () => {
+    const content = createDefaultBookingPageContent();
+    content.draft.bio = 'Builder gel, structured and long-wearing.';
+
+    expect(hasUnpublishedBookingPageChanges(createDefaultBookingPageConfig(), content)).toBe(true);
+  });
+
+  it('ignores admin-only preset provenance, which never reaches the public page', () => {
+    const config = createDefaultBookingPageConfig();
+
+    expect(config.draftPresetBase).not.toBeNull();
+
+    config.draftPresetBase = null;
+
+    expect(hasUnpublishedBookingPageChanges(config, createDefaultBookingPageContent())).toBe(false);
+  });
+
+  it('keeps the shipped JSON.stringify semantics: key order is part of the comparison', () => {
+    // Documented, deliberately preserved: both resolvers build their sides
+    // from fixed object literals, so this never fires in production — but a
+    // future reader must not mistake this helper for a deep-equality walk.
+    const config = createDefaultBookingPageConfig();
+    const { layout, ...rest } = config.draft;
+    config.draft = { ...rest, layout } as typeof config.draft;
+
+    expect(hasUnpublishedBookingPageChanges(config, createDefaultBookingPageContent())).toBe(true);
   });
 });
 

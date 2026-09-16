@@ -134,6 +134,13 @@ export type ReadinessItem = {
  * matching `BookServicePageServer.tsx`'s own draft/live selection.
  */
 export type CustomersWillSee = {
+  /**
+   * WHICH side the numbers below were read from. `live` for a published salon,
+   * `draft` otherwise. Consumers must say so out loud: for an unpublished
+   * salon this describes the owner's DRAFT page ("your draft page shows…"),
+   * not anything a customer can reach today.
+   */
+  side: 'draft' | 'live';
   /** The booking-page layout id (`quick_book`, `editorial`, …). */
   layoutId: string | null;
   rendersBio: boolean;

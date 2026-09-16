@@ -101,6 +101,7 @@ describe('deriveSetupReadiness — the finished baseline', () => {
       technicianCount: 1,
     });
     expect(result.customersWillSee).toEqual({
+      side: 'live',
       layoutId: 'quick_book',
       rendersBio: true,
       activeServiceCount: 2,
@@ -162,7 +163,7 @@ describe('deriveSetupReadiness — publication', () => {
     ]);
   });
 
-  it('reads the draft config side for an unpublished salon', () => {
+  it('reads the draft config side for an unpublished salon, and says so', () => {
     const config = readyConfig();
     config.draft.layout = 'editorial';
 
@@ -172,6 +173,19 @@ describe('deriveSetupReadiness — publication', () => {
     }));
 
     expect(result.customersWillSee?.layoutId).toBe('editorial');
+    // The discriminator is what lets a consumer say "your DRAFT page shows…"
+    // instead of claiming a customer can see any of this today.
+    expect(result.customersWillSee?.side).toBe('draft');
+  });
+
+  it('marks the side live for a published salon and ignores its draft edits', () => {
+    const config = readyConfig();
+    config.draft.layout = 'editorial';
+
+    const result = deriveSetupReadiness(input({ bookingPageConfig: config }));
+
+    expect(result.customersWillSee?.side).toBe('live');
+    expect(result.customersWillSee?.layoutId).toBe('quick_book');
   });
 });
 

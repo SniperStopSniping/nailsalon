@@ -171,6 +171,7 @@ describe('loadSetupReadiness', () => {
       technicianCount: 1,
     });
     expect(result?.customersWillSee).toEqual({
+      side: 'live',
       layoutId: 'quick_book',
       rendersBio: true,
       activeServiceCount: 2,
@@ -328,6 +329,46 @@ describe('loadSetupReadiness', () => {
     expect(item?.detail).toEqual({ count: 1 });
   });
 
+  it('ignores another salon\'s override row for the same technician id', async () => {
+    // The override table carries salon_id and technician_id as INDEPENDENT
+    // foreign keys — nothing in the schema forces the technician to belong to
+    // the salon on the row. So a cross-tenant row is insertable, and the only
+    // thing keeping it out of this projection is the loader's `salonId`
+    // predicate. Drop that predicate and this test flips to `recommended`.
+    await seedSalon({
+      features: { staff: { scheduleOverrides: true } } as never,
+      businessHours: null,
+    });
+    await seedTechnician('tech_1', { weeklySchedule: null });
+    await seedService('svc_1');
+
+    await db.insert(schema.salonSchema).values({
+      id: 'salon_other_tenant',
+      name: 'Another Studio',
+      slug: 'another-studio',
+      publicationStatus: 'published',
+      isActive: true,
+    });
+    await db.insert(schema.technicianScheduleOverrideSchema).values({
+      id: 'ovr_other_tenant',
+      salonId: 'salon_other_tenant',
+      technicianId: 'tech_1',
+      // A different date from any row above: the table is unique on
+      // (technician_id, date), so the collision under test is the technician
+      // id, not the row key.
+      date: '2026-09-25',
+      type: 'hours',
+      startTime: '10:00',
+      endTime: '16:00',
+    });
+
+    const result = await loadSetupReadiness(SALON_ID, new Date('2026-09-16T12:00:00.000Z'));
+    const item = result?.items.find(entry => entry.code === 'technician_no_weekly_days');
+
+    expect(item?.severity).toBe('required');
+    expect(item?.detail).toEqual({ count: 1 });
+  });
+
   it('keeps the item required when the salon lacks the scheduleOverrides entitlement', async () => {
     await seedSalon({
       features: { staff: { scheduleOverrides: false } } as never,
@@ -384,6 +425,7 @@ describe('loadSetupReadiness', () => {
 
     expect(result?.items.map(item => item.code)).toContain('not_published');
     expect(result?.items.map(item => item.code)).not.toContain('draft_unpublished_changes');
+    expect(result?.customersWillSee?.side).toBe('draft');
   });
 
   it('reports draft_unpublished_changes for a published salon whose sides differ', async () => {
