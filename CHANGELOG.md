@@ -1,3 +1,10 @@
+# [1.115.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.114.0...v1.115.0) (2026-09-16)
+
+
+### Features
+
+* **owner-assistant:** pilot preparation — evals, feedback, spend proof, runbook ([6767452](https://github.com/SniperStopSniping/nailsalon/commit/67674528355a1bb93b8fc2ea7f7b7ebf5bb36177))
+
 # [1.114.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.113.1...v1.114.0) (2026-09-16)
 
 
