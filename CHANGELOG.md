@@ -1,3 +1,19 @@
+# [1.114.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.113.1...v1.114.0) (2026-09-16)
+
+
+### Bug Fixes
+
+* **billing:** close the pre-production correctness items that need no owner decision ([e0af12f](https://github.com/SniperStopSniping/nailsalon/commit/e0af12f073320567d93d13703d186714cd442d93)), closes [#226](https://github.com/SniperStopSniping/nailsalon/issues/226) [#227](https://github.com/SniperStopSniping/nailsalon/issues/227) [#228](https://github.com/SniperStopSniping/nailsalon/issues/228)
+* **billing:** pin the reconcile cron ceiling and record the offer-switch trade ([a1bccfa](https://github.com/SniperStopSniping/nailsalon/commit/a1bccfa9f4156bb95b7cac20b363855cf3a140a8))
+* **owner-assistant:** never report a page state nobody looked at ([40a392a](https://github.com/SniperStopSniping/nailsalon/commit/40a392a825af27310d08c9c4e1a2619292b2755c))
+* **owner-assistant:** rank capped causes by breadth before size ([519caba](https://github.com/SniperStopSniping/nailsalon/commit/519cabaa79d29f966faa064818361e4688347907))
+* **owner-assistant:** stop telling owners customers can book a page that serves nobody ([74f0c5c](https://github.com/SniperStopSniping/nailsalon/commit/74f0c5c3adb56580eed1b56bbed621d7291c53b1))
+
+
+### Features
+
+* **owner-assistant:** add the day-availability and setup-readiness tools ([c6500f6](https://github.com/SniperStopSniping/nailsalon/commit/c6500f68d8c18919d062db4e9a43e3275a31a094))
+
 ## [1.113.1](https://github.com/SniperStopSniping/nailsalon/compare/v1.113.0...v1.113.1) (2026-09-16)
 
 
