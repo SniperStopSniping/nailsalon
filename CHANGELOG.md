@@ -1,3 +1,10 @@
+## [1.116.1](https://github.com/SniperStopSniping/nailsalon/compare/v1.116.0...v1.116.1) (2026-09-17)
+
+
+### Bug Fixes
+
+* **vercel:** include onboarding runtime sources ([ee68a69](https://github.com/SniperStopSniping/nailsalon/commit/ee68a69cc01a803883a193c5c3fa0bf8b3b74c76))
+
 # [1.116.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.115.2...v1.116.0) (2026-09-17)
 
 
