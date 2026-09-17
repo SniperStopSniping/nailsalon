@@ -40,12 +40,38 @@ vi.mock('@/libs/Env', () => ({ Env: envHolder }));
 // `deniedSalonIds` simulates requireAdmin's real per-salon membership check
 // (adminAuth.ts:443-454): an admin authenticated for one salon is refused a
 // FOREIGN salonId, distinct from the blanket `allowed=false` case below.
-const adminHolder = vi.hoisted(() => ({ allowed: true, deniedSalonIds: new Set<string>() }));
-vi.mock('@/libs/adminAuth', () => ({
-  requireAdmin: vi.fn(async (salonId: string) => (adminHolder.allowed && !adminHolder.deniedSalonIds.has(salonId))
-    ? { ok: true, admin: { clerkUserId: 'user_topup' } }
-    : { ok: false, response: new Response('forbidden', { status: 403 }) }),
+// `nonOwnerSalonIds` names the salons where the authenticated admin is a
+// COLLABORATOR (`role: 'admin'`), not the owner: `requireAdmin` still admits
+// them, `requireAdminOwner` answers 403 OWNER_REQUIRED (adminAuth.ts:488-508).
+// Y1/OP-1 made buying credits owner-only, so the stub composes the way the
+// real guard does — the owner check layered ON TOP of requireAdmin.
+const adminHolder = vi.hoisted(() => ({
+  allowed: true,
+  deniedSalonIds: new Set<string>(),
+  nonOwnerSalonIds: new Set<string>(),
 }));
+vi.mock('@/libs/adminAuth', () => {
+  const requireAdmin = vi.fn(async (salonId: string) => (adminHolder.allowed && !adminHolder.deniedSalonIds.has(salonId))
+    ? { ok: true, admin: { clerkUserId: 'user_topup' } }
+    : { ok: false, response: new Response('forbidden', { status: 403 }) });
+  const requireAdminOwner = vi.fn(async (
+    salonId: string,
+    message = 'Only the salon owner can do this.',
+  ) => {
+    const guard = await requireAdmin(salonId);
+    if (!guard.ok || !adminHolder.nonOwnerSalonIds.has(salonId)) {
+      return guard;
+    }
+    return {
+      ok: false,
+      response: new Response(JSON.stringify({ error: { code: 'OWNER_REQUIRED', message } }), {
+        status: 403,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    };
+  });
+  return { requireAdmin, requireAdminOwner };
+});
 vi.mock('@/libs/rateLimit', () => ({
   checkEndpointRateLimit: () => ({ allowed: true }),
   getClientIp: () => '127.0.0.1',
@@ -138,6 +164,7 @@ beforeEach(() => {
   });
   adminHolder.allowed = true;
   adminHolder.deniedSalonIds = new Set();
+  adminHolder.nonOwnerSalonIds = new Set();
 });
 
 afterEach(() => {
@@ -413,6 +440,30 @@ describe('top-up checkout (§9.2)', () => {
     const own = await postCheckout({ salonId: 's_t_cross_owner', topupOfferKey: 'topup_100_paid_2026_08' });
 
     expect(own.status).toBe(200);
+  });
+
+  // Y1 / OP-1 (owner authorization 2026-09-16): buying credits spends the
+  // salon's money, so a collaborator is refused even though requireAdmin —
+  // which still guards the read-only purchase history — would admit them.
+  it('refuses a non-owner admin OF THIS SALON with 403 OWNER_REQUIRED, reserving no purchase and calling no Stripe', async () => {
+    await seedSalon('s_t_owner_required');
+    adminHolder.nonOwnerSalonIds.add('s_t_owner_required');
+
+    const response = await postCheckout({ salonId: 's_t_owner_required', topupOfferKey: 'topup_100_paid_2026_08' });
+
+    expect(response.status).toBe(403);
+    expect((await response.json()).error.code).toBe('OWNER_REQUIRED');
+    expect(stripeMock.checkout.sessions.create).not.toHaveBeenCalled();
+    expect(await attemptRows('s_t_owner_required')).toHaveLength(0);
+    expect(await purchaseRows('s_t_owner_required')).toHaveLength(0);
+
+    // The OWNER's identical request is unchanged.
+    adminHolder.nonOwnerSalonIds.delete('s_t_owner_required');
+    const owner = await postCheckout({ salonId: 's_t_owner_required', topupOfferKey: 'topup_100_paid_2026_08' });
+
+    expect(owner.status).toBe(200);
+    expect(await attemptRows('s_t_owner_required')).toHaveLength(1);
+    expect(await purchaseRows('s_t_owner_required')).toHaveLength(1);
   });
 
   it('precreates the durable purchase and creates the session under the attempt key', async () => {

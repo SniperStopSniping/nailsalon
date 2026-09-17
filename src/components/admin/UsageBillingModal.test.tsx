@@ -206,6 +206,45 @@ describe('UsageBillingModal', () => {
     });
   });
 
+  // OP-1 (2026-09-16): the Portal route has no dark switch, so it is live for
+  // legacy-flow customers today. A collaborator who is not the owner now gets
+  // `403 OWNER_REQUIRED` there — and before this, the button simply flipped
+  // back to its idle label and said nothing, which reads as a broken button.
+  it('shows the Portal refusal instead of failing silently', async () => {
+    render(<UsageBillingModal salonSlug="salon-a" onClose={vi.fn()} />);
+    const button = await screen.findByRole('button', { name: 'Manage billing' });
+    fetchMock.mockResolvedValue(new Response(
+      JSON.stringify({ error: { code: 'OWNER_REQUIRED', message: 'Only the salon owner can manage billing.' } }),
+      { status: 403 },
+    ));
+
+    fireEvent.click(button);
+
+    expect(await screen.findByText('Only the salon owner can manage billing.')).toBeInTheDocument();
+    // The button returns to its idle label rather than sticking on "Opening…".
+    expect(await screen.findByRole('button', { name: 'Manage billing' })).toBeEnabled();
+  });
+
+  // OP-1 / OP-2: neither refusal is fixed by retrying, so neither may be
+  // reported as "Please try again."
+  it.each([
+    ['OWNER_REQUIRED', 'Only the salon owner can buy credits.'],
+    ['CHECKOUT_IN_PROGRESS', 'Another checkout is already in progress for this salon.'],
+    ['CHECKOUT_PENDING_RECONCILIATION', 'Your checkout is pending verification. Another checkout cannot be started yet.'],
+  ])('surfaces the %s refusal verbatim rather than a retry prompt', async (code, message) => {
+    render(<UsageBillingModal salonSlug="salon-a" onClose={vi.fn()} />);
+    const button = await screen.findByRole('button', { name: /100 credits — \$5\.99/ });
+    fetchMock.mockResolvedValue(new Response(
+      JSON.stringify({ error: { code, message } }),
+      { status: code === 'OWNER_REQUIRED' ? 403 : 409 },
+    ));
+
+    fireEvent.click(button);
+
+    expect(await screen.findByText(message)).toBeInTheDocument();
+    expect(screen.queryByText('Could not start the purchase. Please try again.')).not.toBeInTheDocument();
+  });
+
   it.each(['TOPUPS_DISABLED', 'PRICE_UNCONFIGURED'])('preserves configured checkout and explains a later %s response', async (code) => {
     render(<UsageBillingModal salonSlug="salon-a" onClose={vi.fn()} />);
     const button = await screen.findByRole('button', { name: /100 credits — \$5\.99/ });

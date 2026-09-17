@@ -37,8 +37,11 @@ const envHolder = vi.hoisted(() => ({
 }));
 vi.mock('@/libs/Env', () => ({ Env: envHolder }));
 
+// Y1/OP-1: the top-up checkout resolves through `requireAdminOwner`; this
+// suite's concern is concurrency, so both guards simply admit the owner.
 vi.mock('@/libs/adminAuth', () => ({
   requireAdmin: vi.fn(async () => ({ ok: true, admin: { clerkUserId: 'topup-concurrency-admin' } })),
+  requireAdminOwner: vi.fn(async () => ({ ok: true, admin: { clerkUserId: 'topup-concurrency-admin' } })),
 }));
 vi.mock('@/libs/rateLimit', () => ({
   checkEndpointRateLimit: () => ({ allowed: true }),

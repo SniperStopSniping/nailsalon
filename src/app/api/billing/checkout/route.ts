@@ -15,9 +15,13 @@
  * Ordering is load-bearing:
  *   1. BILLING_SUBSCRIPTIONS_ENABLED gate — before parsing, before any
  *      attempt or claim slot is consumed, before any Stripe call (§12).
- *   2. Catalogue + promotion validation, and Stripe ID resolution — a
- *      placeholder mapping throws PRICE_UNCONFIGURED here, so a dark or
- *      misconfigured environment can never reach the provider.
+ *   2. Catalogue + promotion validation, Stripe ID resolution and the
+ *      post-payment redirect ORIGIN (X5) — a placeholder mapping throws
+ *      PRICE_UNCONFIGURED and an unconfigured hosted origin throws
+ *      APP_ORIGIN_UNCONFIGURED here, so a dark or misconfigured
+ *      environment can never reach the provider, and never leaves a
+ *      durable attempt or promotion claim behind for a fault that is
+ *      purely environmental.
  *   3. TX1: durable checkout attempt (serialization + ACTIVE_SUBSCRIPTION_
  *      EXISTS) and, for founding checkouts, the promotion claim — RESERVED
  *      BEFORE the Stripe session exists (§7.3), committed so a crash between
@@ -38,8 +42,9 @@ import { eq } from 'drizzle-orm';
 import { type NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 
-import { requireAdmin } from '@/libs/adminAuth';
+import { requireAdminOwner } from '@/libs/adminAuth';
 import { logAuditEventTx } from '@/libs/auditLog';
+import { resolveBillingAppOrigin } from '@/libs/billing/billingAppOrigin';
 import { getBillingOffer } from '@/libs/billing/billingOffers';
 import { classifySubscriptionEligibility } from '@/libs/billing/billingSubscriptionProjection';
 import { resolveOrCreateBusinessIdentity } from '@/libs/billing/businessIdentity';
@@ -106,7 +111,11 @@ export async function POST(request: NextRequest) {
     }
     const { salonId, billingOfferKey, promotionKey } = parsed.data;
 
-    const authResult = await requireAdmin(salonId);
+    // Y1 / OP-1 (owner authorization 2026-09-16): starting a subscription
+    // spends the salon's money, so it is the OWNER's action — a collaborator
+    // (`role: 'admin'`) is refused `403 OWNER_REQUIRED` here, before any
+    // catalogue read, durable attempt, promotion claim or Stripe call.
+    const authResult = await requireAdminOwner(salonId);
     if (!authResult.ok) {
       return authResult.response;
     }
@@ -150,6 +159,20 @@ export async function POST(request: NextRequest) {
       }
       throw error;
     }
+
+    // X5 (final handoff §6): the post-payment redirect origin is resolved
+    // HERE — before the durable attempt transaction and before any provider
+    // call — not at the session-create call site below. It is a pure
+    // environment read, so an unconfigured hosted deployment fails with
+    // NOTHING written: no `billing_checkout_attempt` row, no promotion claim
+    // slot, no Stripe session. Resolving it later would park a durable
+    // attempt in `creating` (unresolvable until its TTL, blocking the salon's
+    // next checkout) for a fault that is purely environmental. The throw is
+    // masked by this handler's outer catch as the route's existing 500
+    // `CHECKOUT_ERROR`, with the cause captured to Sentry — the operator sees
+    // `APP_ORIGIN_UNCONFIGURED`, the customer never does, and no new public
+    // error vocabulary is invented.
+    const baseUrl = resolveBillingAppOrigin();
 
     const [salon] = await db
       .select({
@@ -244,6 +267,30 @@ export async function POST(request: NextRequest) {
       return errorJson(409, 'ACTIVE_SUBSCRIPTION_EXISTS', 'This salon already has a live subscription. Manage it in the Billing Portal.');
     }
     if (reservation.kind === 'conflict') {
+      // OP-2 (owner authorization 2026-09-16): each refusal reason gets its
+      // OWN response. This mapping used to collapse every attempt conflict
+      // into ACTIVE_SUBSCRIPTION_EXISTS, which told an owner who had simply
+      // opened a checkout for a DIFFERENT offer that the salon already had a
+      // live subscription and sent them to a Portal that has nothing to show.
+      //
+      // CHECKOUT_IN_PROGRESS is NOT resolved by releasing the pending attempt
+      // or expiring its Stripe session to shorten the wait, and this route
+      // deliberately does neither (owner, 2026-09-16: "Preserve pending-
+      // checkout safety. Do not release still-payable sessions merely to
+      // remove the waiting period."). The superseded Checkout Session stays
+      // PAYABLE until Stripe expires it, so handing out a second attempt
+      // would admit a window in which one customer pays BOTH sessions — two
+      // live subscriptions for one salon (a double charge and a
+      // `billing_subscription_live_salon_uniq` violation). Only the reported
+      // reason is corrected here; the refusal itself is unchanged, bounded
+      // and self-releasing.
+      if (reservation.reason === 'CHECKOUT_IN_PROGRESS') {
+        return errorJson(409, 'CHECKOUT_IN_PROGRESS', 'A checkout for a different plan is already open for this salon. Finish that checkout, or leave it to expire shortly and then start this one.');
+      }
+      // ACTIVE_SUBSCRIPTION_EXISTS keeps its existing code and message.
+      // CHECKOUT_PENDING_RECONCILIATION is unreachable from here — it is
+      // raised only inside `beginCheckoutAttempt`'s `sms_topup` branch — so
+      // this fallthrough is the subscription route's only other outcome.
       return errorJson(409, 'ACTIVE_SUBSCRIPTION_EXISTS', 'This salon already has a live subscription. Manage it in the Billing Portal.');
     }
     if (reservation.kind === 'promotion_refused') {
@@ -267,8 +314,8 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // 6. Provider call under the attempt-derived idempotency key.
-    const baseUrl = Env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+    // 6. Provider call under the attempt-derived idempotency key. `baseUrl`
+    //    was resolved above, before TX1 (X5).
     let session: Awaited<ReturnType<typeof stripe.checkout.sessions.create>>;
     try {
       session = await stripe.checkout.sessions.create(

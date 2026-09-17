@@ -20,15 +20,17 @@
  * redirect gets the deployment's own configured origin or no checkout at
  * all; it never gets a guess.
  *
- * Only the SMS top-up checkout (`src/app/api/billing/checkout/topup/route.ts`)
- * uses this today. The subscription checkout
- * (`src/app/api/billing/checkout/route.ts:271`) and the Billing Portal
- * (`src/app/api/billing/portal/route.ts:142`) still carry the inline
- * localhost fallback, because both files are pinned to reviewed-postimage
- * blobs in `.github/workflows/CI.yml` (Gate C2 and the D18 P5b pin): editing
- * either one fails CI until the owner ratifies a new postimage (owner
- * decision O10). The next PR that refreshes those pins must finish the job
- * and delete both inline fallbacks.
+ * All three billing redirect sites now resolve through this helper: the SMS
+ * top-up checkout (`src/app/api/billing/checkout/topup/route.ts`), the
+ * subscription checkout (`src/app/api/billing/checkout/route.ts`) and the
+ * Billing Portal (`src/app/api/billing/portal/route.ts`). The last two were
+ * converted once the owner ratified new reviewed-postimage blobs for those
+ * pinned routes (2026-09-16); no inline `|| 'http://localhost:3000'` fallback
+ * remains in the billing tree. Both routes resolve the origin BEFORE anything
+ * durable is written — before the checkout attempt transaction, before the
+ * Stripe call — so an unconfigured hosted deployment refuses with no attempt
+ * row, no promotion claim and no provider session. Any new redirect site must
+ * do the same.
  */
 
 import 'server-only';
