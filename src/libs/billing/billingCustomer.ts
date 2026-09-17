@@ -2,7 +2,7 @@
  * New-track Stripe customer identity — the `billing_customer` resolver.
  *
  * Governing design: FINAL_IMPLEMENTATION_HANDOFF.md §3 (all of it). Migration
- * `0078_billing_customer.sql` owns the two indexes this module leans on.
+ * `0079_billing_customer.sql` owns the two indexes this module leans on.
  *
  * THE ENVIRONMENT FENCE IS WHY THIS FILE EXISTS. This deployment family shares
  * ONE database between development and production (Preview uses a separate
@@ -126,6 +126,21 @@ function currentPlanEnv(): 'dev' | 'test' | 'prod' {
 function isUniqueViolation(error: unknown): boolean {
   const candidate = error as { code?: string; cause?: { code?: string } } | null;
   return candidate?.code === '23505' || candidate?.cause?.code === '23505';
+}
+
+function stripeErrorShape(error: unknown): { code?: string; type?: string } {
+  return (error ?? {}) as { code?: string; type?: string };
+}
+
+function isDefiniteMissingStripeResource(error: unknown): boolean {
+  return stripeErrorShape(error).code === 'resource_missing';
+}
+
+function isStripeIdempotencyError(error: unknown): boolean {
+  const candidate = stripeErrorShape(error);
+  return candidate.type === 'StripeIdempotencyError'
+    || candidate.type === 'idempotency_error'
+    || candidate.code === 'idempotency_key_in_use';
 }
 
 // =============================================================================
@@ -322,10 +337,36 @@ async function candidateMatchesEnvironment(
   // Never swallowed: a Stripe failure must surface as a retryable error rather
   // than adopt on unverified evidence, and must not fall through to creating a
   // second customer either.
-  const customer = await stripe.customers.retrieve(stripeCustomerId);
-  const livemode = (customer as { livemode?: boolean }).livemode;
+  let customer: Awaited<ReturnType<typeof stripe.customers.retrieve>>;
+  try {
+    customer = await stripe.customers.retrieve(stripeCustomerId);
+  } catch (error) {
+    // A Customer from the other Stripe mode is `resource_missing` under this
+    // deployment's key. That is definite non-adoptable evidence, not an
+    // outage: the create path may mint its own environment-scoped Customer and
+    // the Portal may continue to its legacy fallback. Transient failures still
+    // throw so they can never cause adoption-by-omission.
+    if (isDefiniteMissingStripeResource(error)) {
+      return false;
+    }
+    throw error;
+  }
+  const candidate = customer as {
+    livemode?: boolean;
+    metadata?: Record<string, string | undefined>;
+  };
+  const metadata = candidate.metadata ?? {};
+  const deploymentMarker = Env.BILLING_DEPLOYMENT_MARKER;
+  const metadataContradictsRuntime
+    = (metadata.salonId !== undefined && metadata.salonId !== salonId)
+    || (metadata.planEnv !== undefined && metadata.planEnv !== currentPlanEnv())
+    || (
+      deploymentMarker !== undefined
+      && metadata.luster_deployment !== undefined
+      && metadata.luster_deployment !== deploymentMarker
+    );
 
-  if (livemode === expected.livemode) {
+  if (candidate.livemode === expected.livemode && !metadataContradictsRuntime) {
     return true;
   }
 
@@ -336,7 +377,10 @@ async function candidateMatchesEnvironment(
       salonId,
       stripeCustomerId,
       expectedLivemode: expected.livemode,
-      observedLivemode: livemode ?? null,
+      observedLivemode: candidate.livemode ?? null,
+      observedPlanEnv: metadata.planEnv ?? null,
+      observedSalonId: metadata.salonId ?? null,
+      observedDeploymentMarker: metadata.luster_deployment ?? null,
     },
   });
   return false;
@@ -418,23 +462,42 @@ export async function resolveOrCreateBillingCustomer(input: {
   // Step 3 — create. The idempotency key means a concurrent duplicate request
   // with identical parameters receives the SAME Stripe Customer, so the two
   // requests usually converge before the unique index even arbitrates.
-  const customer = await stripe.customers.create(
-    {
-      email: input.email ?? undefined,
-      name: input.name ?? undefined,
-      metadata: {
-        purpose: 'luster_billing',
-        salonId: input.salonId,
-        planEnv,
+  let customer: Awaited<ReturnType<typeof stripe.customers.create>>;
+  try {
+    customer = await stripe.customers.create(
+      {
+        email: input.email ?? undefined,
+        name: input.name ?? undefined,
+        metadata: {
+          purpose: 'luster_billing',
+          salonId: input.salonId,
+          planEnv,
+          ...(Env.BILLING_DEPLOYMENT_MARKER
+            ? { luster_deployment: Env.BILLING_DEPLOYMENT_MARKER }
+            : {}),
+        },
       },
-    },
-    {
-      idempotencyKey: buildBillingCustomerIdempotencyKey({
-        planEnv,
-        salonId: input.salonId,
-      }),
-    },
-  );
+      {
+        idempotencyKey: buildBillingCustomerIdempotencyKey({
+          planEnv,
+          salonId: input.salonId,
+        }),
+      },
+    );
+  } catch (error) {
+    if (isStripeIdempotencyError(error)) {
+      // Concurrent first requests can carry different email/name values under
+      // the same stable idempotency key. Stripe rejects the parameter mismatch,
+      // but the other request may already have recorded the canonical mapping.
+      // Re-read once and reuse that winner; if it has not committed, preserve
+      // the retryable provider error for the caller.
+      const winner = await selectMapping(db, input.salonId, planEnv);
+      if (winner) {
+        return winner;
+      }
+    }
+    throw error;
+  }
 
   const { record } = await insertMapping(db, {
     salonId: input.salonId,

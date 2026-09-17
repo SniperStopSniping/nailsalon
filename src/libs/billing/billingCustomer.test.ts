@@ -3,7 +3,7 @@
  *
  * Run against real PostgreSQL semantics (PGlite + the committed migration
  * folder) rather than a mocked drizzle, because the two unique indexes from
- * migration 0078 ARE the design: a mocked insert could not demonstrate that a
+ * migration 0079 ARE the design: a mocked insert could not demonstrate that a
  * `dev` row fails to satisfy a `prod` lookup, nor that a Stripe Customer
  * already mapped to another salon is refused by the database.
  *
@@ -30,7 +30,10 @@ vi.mock('@/libs/DB', () => ({
   },
 }));
 
-const envHolder = vi.hoisted(() => ({ BILLING_PLAN_ENV: 'test' as 'dev' | 'test' | 'prod' }));
+const envHolder = vi.hoisted(() => ({
+  BILLING_DEPLOYMENT_MARKER: undefined as string | undefined,
+  BILLING_PLAN_ENV: 'test' as 'dev' | 'test' | 'prod',
+}));
 vi.mock('@/libs/Env', () => ({ Env: envHolder }));
 
 const stripeMock = vi.hoisted(() => ({
@@ -102,6 +105,7 @@ beforeEach(() => {
   sentryHolder.captureMessage.mockClear();
   sentryHolder.captureException.mockClear();
   envHolder.BILLING_PLAN_ENV = 'test';
+  envHolder.BILLING_DEPLOYMENT_MARKER = undefined;
   // computeExpectedLivemode reads the real process.env. Under Vitest the
   // runtime environment resolves to `test` (not live), so a test-mode secret
   // key makes both of its legs agree on livemode === false.
@@ -288,6 +292,73 @@ describe('step 2 — adoption only from verified, environment-matching evidence'
     expect(await mappingRows('s_deleted')).toHaveLength(0);
   });
 
+  it('a definite resource_missing candidate is non-adoptable, not a transient failure', async () => {
+    const { findBillingCustomer, resolveOrCreateBillingCustomer } = await billingCustomer();
+    await seedSalon('s_missing_candidate');
+    await seedSubscription({
+      id: 'bsub_missing_candidate',
+      salonId: 's_missing_candidate',
+      stripeCustomerId: 'cus_other_mode',
+      status: 'active',
+    });
+    stripeMock.customers.retrieve.mockRejectedValue({
+      type: 'StripeInvalidRequestError',
+      code: 'resource_missing',
+    });
+    stripeMock.customers.create.mockResolvedValue({ id: 'cus_current_mode', object: 'customer', livemode: false });
+
+    await expect(findBillingCustomer(db, { salonId: 's_missing_candidate' })).resolves.toBeNull();
+    await expect(resolveOrCreateBillingCustomer({ salonId: 's_missing_candidate', email: null, name: null }))
+      .resolves.toMatchObject({ stripeCustomerId: 'cus_current_mode', source: 'created' });
+  });
+
+  it.each([
+    ['salon binding', { salonId: 's_someone_else' }],
+    ['plan environment', { planEnv: 'dev' }],
+    ['deployment marker', { luster_deployment: 'preview-other' }],
+  ])('rejects explicit contradictory customer metadata: %s', async (_label, metadata) => {
+    const { findBillingCustomer } = await billingCustomer();
+    const salonId = `s_metadata_${String(_label).replace(' ', '_')}`;
+    await seedSalon(salonId);
+    await seedSubscription({
+      id: `bsub_${salonId}`,
+      salonId,
+      stripeCustomerId: `cus_${salonId}`,
+      status: 'active',
+    });
+    envHolder.BILLING_DEPLOYMENT_MARKER = 'preview-this';
+    stripeMock.customers.retrieve.mockResolvedValue({
+      id: `cus_${salonId}`,
+      object: 'customer',
+      livemode: false,
+      metadata,
+    });
+
+    await expect(findBillingCustomer(db, { salonId })).resolves.toBeNull();
+    expect(await mappingRows(salonId)).toHaveLength(0);
+  });
+
+  it('allows historical subscription evidence whose customer metadata is absent', async () => {
+    const { findBillingCustomer } = await billingCustomer();
+    await seedSalon('s_metadata_absent');
+    await seedSubscription({
+      id: 'bsub_metadata_absent',
+      salonId: 's_metadata_absent',
+      stripeCustomerId: 'cus_metadata_absent',
+      status: 'active',
+    });
+    envHolder.BILLING_DEPLOYMENT_MARKER = 'preview-this';
+    stripeMock.customers.retrieve.mockResolvedValue({
+      id: 'cus_metadata_absent',
+      object: 'customer',
+      livemode: false,
+      metadata: {},
+    });
+
+    await expect(findBillingCustomer(db, { salonId: 's_metadata_absent' }))
+      .resolves.toMatchObject({ stripeCustomerId: 'cus_metadata_absent' });
+  });
+
   it('a STRIPE FAILURE during verification throws and persists nothing', async () => {
     const { findBillingCustomer, resolveOrCreateBillingCustomer } = await billingCustomer();
     await seedSalon('s_stripe_down');
@@ -394,6 +465,22 @@ describe('step 3 — create', () => {
     );
   });
 
+  it('stamps the configured deployment marker into Stripe metadata', async () => {
+    const { resolveOrCreateBillingCustomer } = await billingCustomer();
+    await seedSalon('s_create_marker');
+    envHolder.BILLING_DEPLOYMENT_MARKER = 'preview-ca-1';
+    stripeMock.customers.create.mockResolvedValue({ id: 'cus_created_marker', object: 'customer', livemode: false });
+
+    await resolveOrCreateBillingCustomer({ salonId: 's_create_marker', email: null, name: null });
+
+    expect(stripeMock.customers.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        metadata: expect.objectContaining({ luster_deployment: 'preview-ca-1' }),
+      }),
+      expect.anything(),
+    );
+  });
+
   it('writes the durable audit row exactly once, when the insert won', async () => {
     const { resolveOrCreateBillingCustomer } = await billingCustomer();
     await seedSalon('s_audit');
@@ -411,6 +498,37 @@ describe('step 3 — create', () => {
       source: 'created',
       planEnv: 'test',
     });
+  });
+
+  it('reuses a concurrent winner after a Stripe idempotency parameter mismatch', async () => {
+    const { resolveOrCreateBillingCustomer } = await billingCustomer();
+    await seedSalon('s_idempotency_winner');
+    // The initial resolver read misses. While its provider call is in flight,
+    // model the other request committing the winner, then have Stripe reject
+    // this request's changed parameters under the shared idempotency key.
+    stripeMock.customers.create.mockImplementation(async () => {
+      await db.insert(schema.billingCustomerSchema).values({
+        id: 'bcus_idempotency_winner',
+        salonId: 's_idempotency_winner',
+        planEnv: 'test',
+        stripeCustomerId: 'cus_idempotency_winner',
+        source: 'created',
+      });
+      throw Object.assign(new Error('parameters differ'), { type: 'StripeIdempotencyError' });
+    });
+
+    await expect(resolveOrCreateBillingCustomer({ salonId: 's_idempotency_winner', email: 'new@example.test', name: null }))
+      .resolves.toMatchObject({ stripeCustomerId: 'cus_idempotency_winner' });
+  });
+
+  it('preserves the Stripe idempotency error when no concurrent winner exists', async () => {
+    const { resolveOrCreateBillingCustomer } = await billingCustomer();
+    await seedSalon('s_idempotency_no_winner');
+    const providerError = { type: 'StripeIdempotencyError', message: 'parameters differ' };
+    stripeMock.customers.create.mockRejectedValue(providerError);
+
+    await expect(resolveOrCreateBillingCustomer({ salonId: 's_idempotency_no_winner', email: null, name: null }))
+      .rejects.toBe(providerError);
   });
 });
 

@@ -350,7 +350,7 @@ describe('migration 0068 — D6.1 invoice and tax snapshot foundation', () => {
     expect(journal.entries.at(-1)).toMatchObject({
       idx: 78,
       when: 1787649192670,
-      tag: '0078_billing_customer',
+      tag: '0079_billing_customer',
     });
     expect(createHash('sha256')
       .update(readFileSync(path.join(process.cwd(), 'migrations/0076_deposit_shadow_evidence.sql')))
@@ -361,7 +361,7 @@ describe('migration 0068 — D6.1 invoice and tax snapshot foundation', () => {
     [76, '0075'],
     [77, 'Stripe 0076'],
     [78, 'Review 0077'],
-  ])('upgrades a %s ledger through billing customer 0078', async (existingCount) => {
+  ])('upgrades a %s ledger through billing customer 0079', async (existingCount) => {
     const upgradeClient = new PGlite();
     const upgradeDb = drizzle(upgradeClient);
     const migrationsFolder = path.join(process.cwd(), 'migrations');

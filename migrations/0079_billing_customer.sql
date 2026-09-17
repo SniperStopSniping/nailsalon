@@ -1,4 +1,4 @@
--- 0078_billing_customer.sql
+-- 0079_billing_customer.sql
 --
 -- New-track Stripe customer identity: one durable Stripe Customer per
 -- (salon, billing plan environment). Additive and inert — no backfill, no

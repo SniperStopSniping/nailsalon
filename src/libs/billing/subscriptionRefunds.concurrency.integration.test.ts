@@ -85,6 +85,14 @@ const signingStripe = new Stripe('sk_test_billing_refund_concurrency', { apiVers
 const EXPECTED_EXECUTED_TESTS = 22;
 let executedTests = 0;
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  return { promise, resolve };
+}
+
 const day = 86_400_000;
 const anchor = new Date('2030-01-01T00:00:00.000Z');
 const periodEnd = new Date('2030-02-01T00:00:00.000Z');
@@ -1059,13 +1067,29 @@ suite('subscription refund exclusions — real PostgreSQL', () => {
       await db.insert(schema.salonSchema).values({ id: 'cus_race_s1', name: 'Race', slug: 'cus-race-s1' });
       // Stripe's idempotency key returns the SAME Customer to both callers when
       // the parameters match, which is the ordinary shape of this race.
-      stripeMock.customers.create.mockResolvedValue({ id: 'cus_race_one', object: 'customer', livemode: false });
+      const bothEntered = deferred<void>();
+      const releaseCreates = deferred<void>();
+      let entered = 0;
+      stripeMock.customers.create.mockImplementation(async () => {
+        entered += 1;
+        if (entered === 2) {
+          bothEntered.resolve();
+        }
+        await releaseCreates.promise;
+        return { id: 'cus_race_one', object: 'customer', livemode: false };
+      });
 
       const { resolveOrCreateBillingCustomer } = await import('./billingCustomer');
-      const [first, second] = await Promise.all([
+      const racers = Promise.all([
         resolveOrCreateBillingCustomer({ salonId: 'cus_race_s1', email: 'a@example.test', name: 'Race' }),
         resolveOrCreateBillingCustomer({ salonId: 'cus_race_s1', email: 'a@example.test', name: 'Race' }),
       ]);
+      await bothEntered.promise;
+
+      expect(stripeMock.customers.create).toHaveBeenCalledTimes(2);
+
+      releaseCreates.resolve();
+      const [first, second] = await racers;
 
       // No unique violation escaped to either caller, and they agree.
       expect(first.stripeCustomerId).toBe('cus_race_one');
@@ -1087,17 +1111,30 @@ suite('subscription refund exclusions — real PostgreSQL', () => {
     it('a race whose Stripe calls return different customers keeps one winner and orphans, never deletes, the other', async () => {
       executedTests += 1;
       await db.insert(schema.salonSchema).values({ id: 'cus_race_s2', name: 'Race2', slug: 'cus-race-s2' });
+      const bothEntered = deferred<void>();
+      const releaseCreates = deferred<void>();
       let minted = 0;
       stripeMock.customers.create.mockImplementation(async () => {
         minted += 1;
-        return { id: `cus_race_two_${minted}`, object: 'customer', livemode: false };
+        const customerId = `cus_race_two_${minted}`;
+        if (minted === 2) {
+          bothEntered.resolve();
+        }
+        await releaseCreates.promise;
+        return { id: customerId, object: 'customer', livemode: false };
       });
 
       const { resolveOrCreateBillingCustomer } = await import('./billingCustomer');
-      const [first, second] = await Promise.all([
+      const racers = Promise.all([
         resolveOrCreateBillingCustomer({ salonId: 'cus_race_s2', email: null, name: null }),
         resolveOrCreateBillingCustomer({ salonId: 'cus_race_s2', email: null, name: null }),
       ]);
+      await bothEntered.promise;
+
+      expect(stripeMock.customers.create).toHaveBeenCalledTimes(2);
+
+      releaseCreates.resolve();
+      const [first, second] = await racers;
 
       const rows = await customerRows('cus_race_s2');
 
@@ -1105,12 +1142,11 @@ suite('subscription refund exclusions — real PostgreSQL', () => {
       expect(first.stripeCustomerId).toBe(second.stripeCustomerId);
       expect(first.stripeCustomerId).toBe(rows[0]!.stripeCustomerId);
 
-      if (minted > 1) {
-        expect(sentryHolder.captureMessage).toHaveBeenCalledWith(
-          'billing.customer_create_race_orphan',
-          expect.objectContaining({ level: 'info' }),
-        );
-      }
+      expect(minted).toBe(2);
+      expect(sentryHolder.captureMessage).toHaveBeenCalledWith(
+        'billing.customer_create_race_orphan',
+        expect.objectContaining({ level: 'info' }),
+      );
     });
 
     it('THE TENANT FENCE: a second salon presenting the same Stripe customer fails closed and writes nothing', async () => {

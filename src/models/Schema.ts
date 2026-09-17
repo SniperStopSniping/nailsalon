@@ -3887,7 +3887,7 @@ export const BILLING_CUSTOMER_SOURCES = ['created', 'adopted_subscription'] as c
 export type BillingCustomerSource = (typeof BILLING_CUSTOMER_SOURCES)[number];
 
 /**
- * Migration 0078 — the new track's canonical Stripe Customer per salon.
+ * Migration 0079 — the new track's canonical Stripe Customer per salon.
  *
  * `planEnv` is the runtime's `BILLING_PLAN_ENV`, and it is in the unique key on
  * purpose: this deployment family shares ONE database between development and
@@ -3916,6 +3916,14 @@ export const billingCustomerSchema = pgTable(
       .notNull(),
   },
   table => ({
+    planEnvValid: check(
+      'billing_customer_plan_env_check',
+      sql`${table.planEnv} IN ('dev', 'test', 'prod')`,
+    ),
+    sourceValid: check(
+      'billing_customer_source_check',
+      sql`${table.source} IN ('created', 'adopted_subscription')`,
+    ),
     // One canonical customer per (salon, plan env) — the environment fence.
     salonEnvUniq: uniqueIndex('billing_customer_salon_env_uniq').on(table.salonId, table.planEnv),
     // A Stripe Customer belongs to exactly one salon — the tenant fence.

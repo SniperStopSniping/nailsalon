@@ -332,6 +332,10 @@ jobs:
               # longer reported as ACTIVE_SUBSCRIPTION_EXISTS), and the X5
               # redirect origin resolved before TX1.
               a7a2e3cf55225ff923950fbbb2f59e7bda099ae2) ;;
+              # + PR-C canonical billing_customer identity, deployment-marker
+              # stamping on Session + Subscription, and no customer_email.
+              # Independent payment-safety review 2026-09-17.
+              c2416168241fce84b8fa556cd5aded8204afa92a) ;;
               *)
                 echo "::error::src/app/api/billing/checkout/route.ts must match a reviewed postimage."
                 printf 'actual blob: %s\n' "$checkout_blob"
@@ -349,6 +353,10 @@ jobs:
               # the X5 return_url origin via resolveBillingAppOrigin(), and
               # same-origin validation of the caller-supplied returnUrl.
               9773fc739f9c251c77370d4902997fbc175a8558) ;;
+              # + PR-C canonical billing_customer resolution/adoption before
+              # the sanctioned genuine-legacy Portal fallback.
+              # Independent payment-safety review 2026-09-17.
+              0980ab2978ef54cc868247d0d9354cc3692172b7) ;;
               *)
                 echo "::error::src/app/api/billing/portal/route.ts must match a reviewed postimage."
                 printf 'actual blob: %s\n' "$portal_blob"
@@ -422,7 +430,7 @@ jobs:
               migrations/0077_review_requests.sql) ;;
               # New-track Stripe customer identity: one durable customer per
               # (salon, plan env). Additive, inert, no backfill.
-              migrations/0078_billing_customer.sql) ;;
+              migrations/0079_billing_customer.sql) ;;
               migrations/meta/_journal.json) ;;
               vercel.json) ;;
               *)
@@ -532,7 +540,7 @@ jobs:
               0076_deposit_shadow_evidence) ;;
               0077_review_requests) ;;
               # New-track Stripe customer identity (billing_customer).
-              0078_billing_customer) ;;
+              0079_billing_customer) ;;
               *)
                 echo "::error::Unauthorized migration journal entries: $tag"
                 exit 1

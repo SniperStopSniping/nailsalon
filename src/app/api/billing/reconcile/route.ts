@@ -38,7 +38,7 @@
  * start — a property of that module, not of this route.
  */
 import * as Sentry from '@sentry/nextjs';
-import { asc, gt, sql } from 'drizzle-orm';
+import { and, asc, eq, gt, sql } from 'drizzle-orm';
 import type Stripe from 'stripe';
 
 import type { ActorType } from '@/libs/auditLog';
@@ -59,7 +59,11 @@ import { reconcileHeldTopups, type TopupReconciliationSummary } from '@/libs/bil
 import { db } from '@/libs/DB';
 import { Env } from '@/libs/Env';
 import { stripe } from '@/libs/stripe';
-import { type BillingSubscription, billingSubscriptionSchema } from '@/models/Schema';
+import {
+  billingCustomerSchema,
+  type BillingSubscription,
+  billingSubscriptionSchema,
+} from '@/models/Schema';
 
 const SUBSCRIPTION_BATCH_SIZE = 100;
 const PURGE_BATCH_SIZE = 500;
@@ -679,10 +683,35 @@ async function reconcileSubscriptionDrift(now: Date): Promise<SubscriptionDriftS
     }
     for (const row of rows) {
       checked += 1;
-      if (row.stripeCustomerId.length > 0) {
-        const known = customerToLocalSubscriptionIds.get(row.stripeCustomerId);
+      const [canonicalCustomer] = await db
+        .select({ stripeCustomerId: billingCustomerSchema.stripeCustomerId })
+        .from(billingCustomerSchema)
+        .where(and(
+          eq(billingCustomerSchema.salonId, row.salonId),
+          eq(billingCustomerSchema.planEnv, Env.BILLING_PLAN_ENV),
+        ))
+        .limit(1);
+      if (
+        canonicalCustomer
+        && canonicalCustomer.stripeCustomerId !== row.stripeCustomerId
+      ) {
+        // Report only. Choosing which paid relationship is authoritative is
+        // a human decision; reconciliation must never rewrite customer
+        // ownership merely because two durable records disagree.
+        drift.push({
+          stripeSubscriptionId: row.stripeSubscriptionId,
+          field: 'customer_mismatch',
+          local: row.stripeCustomerId,
+          remote: canonicalCustomer.stripeCustomerId,
+          repaired: false,
+        });
+      }
+
+      const duplicateCheckCustomerId = canonicalCustomer?.stripeCustomerId ?? row.stripeCustomerId;
+      if (duplicateCheckCustomerId.length > 0) {
+        const known = customerToLocalSubscriptionIds.get(duplicateCheckCustomerId);
         if (known === undefined) {
-          customerToLocalSubscriptionIds.set(row.stripeCustomerId, new Set([row.stripeSubscriptionId]));
+          customerToLocalSubscriptionIds.set(duplicateCheckCustomerId, new Set([row.stripeSubscriptionId]));
         } else {
           known.add(row.stripeSubscriptionId);
         }

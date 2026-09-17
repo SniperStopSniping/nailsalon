@@ -373,6 +373,45 @@ describe('reconciliation route (§8.6, P4)', () => {
     expect(entry).toMatchObject({ field: 'existence', remote: 'UNRETRIEVABLE', repaired: false });
   });
 
+  it('reports a canonical customer mismatch without repair and checks duplicates on the canonical customer', async () => {
+    const { salonId, subId } = nextIds();
+    const anchor = await seedSubscription(salonId, subId, { customerId: 'cus_subscription_stale' });
+    await db.insert(schema.billingCustomerSchema).values({
+      id: `bcus_${subId}`,
+      salonId,
+      planEnv: 'test',
+      stripeCustomerId: 'cus_canonical_current',
+      source: 'created',
+    });
+    stripeMock.subscriptions.retrieve.mockResolvedValue(remoteSubscription({
+      id: subId,
+      salonId,
+      anchor,
+      customer: 'cus_subscription_stale',
+    }));
+
+    const response = await call();
+    const body = await response.json();
+
+    expect(body.summary.drift).toContainEqual({
+      stripeSubscriptionId: subId,
+      field: 'customer_mismatch',
+      local: 'cus_subscription_stale',
+      remote: 'cus_canonical_current',
+      repaired: false,
+    });
+    expect(stripeMock.subscriptions.list).toHaveBeenCalledWith({
+      customer: 'cus_canonical_current',
+      status: 'all',
+      limit: 100,
+    });
+
+    const [row] = await db.select().from(schema.billingSubscriptionSchema)
+      .where(eq(schema.billingSubscriptionSchema.stripeSubscriptionId, subId));
+
+    expect(row!.stripeCustomerId).toBe('cus_subscription_stale');
+  });
+
   it('paid_through lag is detected and repaired via applyInvoicePaymentSucceeded', async () => {
     const { salonId, subId } = nextIds();
     const anchor = await seedSubscription(salonId, subId, { paidThrough: new Date() });

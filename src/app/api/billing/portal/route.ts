@@ -38,15 +38,16 @@
  * `http(s)` URL, and is rebuilt from its path rather than forwarded as-is.
  */
 import * as Sentry from '@sentry/nextjs';
-import { and, desc, eq, sql } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import { type NextRequest, NextResponse } from 'next/server';
 
 import { requireAdminOwner } from '@/libs/adminAuth';
 import { resolveBillingAppOrigin } from '@/libs/billing/billingAppOrigin';
+import { findBillingCustomer } from '@/libs/billing/billingCustomer';
 import { db } from '@/libs/DB';
 import { checkEndpointRateLimit, getClientIp, rateLimitResponse } from '@/libs/rateLimit';
 import { stripe } from '@/libs/stripe';
-import { billingSubscriptionSchema, salonSchema } from '@/models/Schema';
+import { salonSchema } from '@/models/Schema';
 
 /**
  * X5: honour a caller-supplied `returnUrl` ONLY when it lands on this
@@ -150,44 +151,16 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 4. Resolve the Stripe customer (G41): prefer the salon's LIVE
-    //    `billing_subscription` row (status NOT IN
-    //    ('canceled','incomplete_expired') — the same live-row preference
-    //    the usage route encodes, `communications/usage/route.ts`), most
-    //    recently updated among ties; falling back to the legacy
-    //    `salon.stripeCustomerId` projection when no live row exists. A
-    //    canceled/incomplete_expired billing_subscription row (e.g. an
-    //    abandoned new-track attempt) never shadows a still-present legacy
-    //    customer id — only a genuinely live new-track subscription's
-    //    customer should be trusted over the legacy compatibility column.
-    const [subscription] = await db
-      .select({ stripeCustomerId: billingSubscriptionSchema.stripeCustomerId })
-      .from(billingSubscriptionSchema)
-      .where(and(
-        eq(billingSubscriptionSchema.salonId, salonId),
-        sql`${billingSubscriptionSchema.status} not in ('canceled', 'incomplete_expired')`,
-      ))
-      .orderBy(desc(billingSubscriptionSchema.updatedAt))
-      .limit(1);
+    // 4. Prefer the canonical new-track customer for THIS plan environment.
+    //    `findBillingCustomer` may adopt only verified new-track subscription
+    //    evidence and never creates a Stripe Customer. If no new-track
+    //    identity exists, preserve genuine legacy Portal access by falling
+    //    back to the legacy column. That fallback can open a management
+    //    surface; it is never used by checkout to choose a charge target.
+    const billingCustomer = await findBillingCustomer(db, { salonId });
+    const stripeCustomerId = billingCustomer?.stripeCustomerId ?? salon.stripeCustomerId ?? null;
 
-    let stripeCustomerId: string | null = subscription?.stripeCustomerId ?? salon.stripeCustomerId ?? null;
-
-    // 5. Last resort: neither a live row nor the legacy column resolved a
-    //    customer — fall back to the most recently updated
-    //    `billing_subscription` row of ANY status (e.g. a canceled new-track
-    //    subscriber who never had a legacy Stripe customer id). Only reached
-    //    when steps 4's live-row and legacy lookups both came up empty.
-    if (!stripeCustomerId) {
-      const [anyStatusSubscription] = await db
-        .select({ stripeCustomerId: billingSubscriptionSchema.stripeCustomerId })
-        .from(billingSubscriptionSchema)
-        .where(eq(billingSubscriptionSchema.salonId, salonId))
-        .orderBy(desc(billingSubscriptionSchema.updatedAt))
-        .limit(1);
-      stripeCustomerId = anyStatusSubscription?.stripeCustomerId ?? null;
-    }
-
-    // 6. Require existing Stripe customer
+    // 5. Require existing Stripe customer
     if (!stripeCustomerId) {
       return NextResponse.json(
         {
@@ -200,7 +173,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 7. Build the return URL. X5: the origin is resolved HERE — a pure
+    // 6. Build the return URL. X5: the origin is resolved HERE — a pure
     //    environment read, taken BEFORE the Stripe call (this route makes no
     //    durable write of its own), so an unconfigured hosted deployment
     //    fails with no portal session created rather than returning a
@@ -211,7 +184,7 @@ export async function POST(request: NextRequest) {
     const baseUrl = resolveBillingAppOrigin();
     const defaultReturnUrl = `${baseUrl}/admin?tab=billing`;
 
-    // 8. Create Billing Portal Session. `returnUrl` is caller-supplied and
+    // 7. Create Billing Portal Session. `returnUrl` is caller-supplied and
     //    was previously handed to Stripe unvalidated — an open-redirect
     //    surface: anyone who could reach this endpoint could have Stripe
     //    bounce the owner to a foreign origin from inside a trusted billing
@@ -225,7 +198,7 @@ export async function POST(request: NextRequest) {
       return_url: resolveSameOriginReturnUrl(returnUrl, baseUrl) ?? defaultReturnUrl,
     });
 
-    // 9. Return portal URL
+    // 8. Return portal URL
     return NextResponse.json({
       url: session.url,
     });

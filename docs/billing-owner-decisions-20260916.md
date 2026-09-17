@@ -13,7 +13,7 @@ Nothing below changes that.
 
 ## 1. Durable `billing_customer` mapping per salon and environment, including a reviewed migration
 
-Handoff §3 / §7 **O12**. Implemented by **PR-3** (`migrations/0078_billing_customer.sql`,
+Handoff §3 / §7 **O12**. Implemented by **PR-3** (`migrations/0079_billing_customer.sql`,
 `src/libs/billing/billingCustomer.ts`, `Schema.ts`, the checkout/top-up/portal customer resolution,
 the projection tenant guard and the reconcile `customer_mismatch` path).
 
@@ -22,9 +22,11 @@ plan environment as the new track's own customer identity; writing the migration
 reviewed (payment-safety review **and** a schema review of cascade, plan-env check and uniques)
 before merge.
 
-**Does NOT authorize:** applying that migration to production (see §6); creating, editing or
-deleting any Stripe Customer; any change to `salon.stripeCustomerId`, which stays legacy-owned; any
-other new table. A `billing_customer` table is not created or referenced by this PR — it is PR-3's.
+**Does NOT authorize:** applying that migration to production (see §6); any provider-side creation,
+editing or deletion of a Stripe Customer outside the approved code path; any change to
+`salon.stripeCustomerId`, which stays legacy-owned; any other new table. The later recovery
+authorization of 2026-09-17 permits PR-3 to implement the customer-creation path while billing stays
+dark; it still authorizes no Stripe account mutation or test/live payment during implementation.
 
 ## 2. Reuse and adoption only from verified, environment-matching new-track evidence
 
@@ -35,14 +37,15 @@ track can verify — a `billing_subscription` row, or new-track metadata whose d
 environment matches the runtime — and, explicitly, accepting that a genuine legacy subscriber who
 joins the new track receives a **separate** Stripe Customer.
 
-**Does NOT authorize:** reusing `salon.stripeCustomerId`, ever, for a new-track charge, link or
-portal session; inferring ownership from an email address; adopting a customer from an environment
-that does not match the runtime; back-filling existing salons.
+**Does NOT authorize:** reusing `salon.stripeCustomerId` for a new-track charge or identity link;
+inferring ownership from an email address; adopting a customer from an environment that does not
+match the runtime; back-filling existing salons. The canonical handoff's single sanctioned exception
+remains: the Portal may fall back to the legacy customer solely to preserve genuine legacy account
+management when no canonical new-track mapping is available.
 
 ## 3. Exact checkout and portal postimage updates, correct refusal responses, remaining origin fixes
 
-Handoff §7 **O10** (with §2.3 refusal typing and the X5 hosted-origin fix). Implemented by **PR-3**
-(a different worktree and a different PR from this one).
+Handoff §7 **O10** (with §2.3 refusal typing and the X5 hosted-origin fix). Implemented by **PR-3**.
 
 **Authorizes:** editing the two reviewed-postimage-pinned routes
 (`src/app/api/billing/checkout/route.ts`, `src/app/api/billing/portal/route.ts`) and registering the
@@ -51,8 +54,8 @@ refusal responses so an attempt conflict surfaces under its own code rather than
 `ACTIVE_SUBSCRIPTION_EXISTS`; finishing the hosted-origin correction and `returnUrl` validation.
 
 **Does NOT authorize:** any behaviour change beyond those items; removing or loosening an existing
-refusal; a postimage hash added without the review record; touching `checkout/topup/route.ts` beyond
-the CI allowlist entry it already has.
+refusal; a postimage hash added without the review record. The later recovery authorization of
+2026-09-17 explicitly adds the canonical-customer wiring for `checkout/topup/route.ts` to PR-3.
 
 ## 4. Owner-only subscription, top-up and cancellation actions
 
@@ -108,11 +111,11 @@ legacy route — the §5 isolation exception is not retirement and does not adva
 
 | # | Approval | Implemented by | Migration |
 |---|---|---|---|
-| 1 | `billing_customer` mapping + reviewed migration (O12) | PR-3 | 0078 — written and reviewed; **not applied** |
+| 1 | `billing_customer` mapping + reviewed migration (O12) | PR-3 | 0079 — written and reviewed; **not applied** |
 | 2 | Verified-evidence reuse/adoption only (O13) | PR-3 | — |
 | 3 | Checkout/portal postimages, refusals, origin fixes (O10) | PR-3 | — |
 | 4 | Owner-only money actions (O7 / Y1) | PR-6 | — |
 | 5 | Narrow D19c amendment + settings/Portal companion (O1, O10) | **PR-A (this PR)** | none |
 
-**Migration index 0078** was reallocated to `billing_customer` from the retired PR #223, whose own
-`0078` was dropped when that PR was retired. No other index is reserved by these approvals.
+**Migration index 0078** remains preserved as historical evidence on retired PR #223's branch and is
+not resurrected or applied. PR-3 therefore uses **0079** even though current main ends at 0077.

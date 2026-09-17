@@ -38,6 +38,7 @@ import { z } from 'zod';
 import { requireAdminOwner } from '@/libs/adminAuth';
 import { logAuditEventTx } from '@/libs/auditLog';
 import { resolveBillingAppOrigin } from '@/libs/billing/billingAppOrigin';
+import { resolveOrCreateBillingCustomer } from '@/libs/billing/billingCustomer';
 import { beginCheckoutAttempt, markAttemptCheckoutCreated } from '@/libs/billing/checkoutAttempts';
 import { resolveTopupAudienceForLegacyPlan } from '@/libs/billing/legacyPlanAdapter';
 import { BillingCatalogError, resolveStripePriceIdForTopup } from '@/libs/billing/stripePriceMap';
@@ -109,10 +110,9 @@ export async function POST(request: NextRequest) {
     const [salon] = await db
       .select({
         id: salonSchema.id,
+        name: salonSchema.name,
         plan: salonSchema.plan,
         ownerEmail: salonSchema.ownerEmail,
-        stripeCustomerId: salonSchema.stripeCustomerId,
-        stripeCustomerEmail: salonSchema.stripeCustomerEmail,
       })
       .from(salonSchema)
       .where(eq(salonSchema.id, salonId))
@@ -177,6 +177,16 @@ export async function POST(request: NextRequest) {
     // handler's outer catch as the route's existing 500 `CHECKOUT_ERROR`,
     // with the cause captured to Sentry — no new public error vocabulary.
     const baseUrl = resolveBillingAppOrigin();
+
+    // Resolve the canonical new-track Customer before TX1. The resolver is
+    // plan-environment scoped, never reads the legacy salon customer column,
+    // and converges concurrent first purchases through Stripe idempotency and
+    // the database uniqueness fences.
+    const billingCustomer = await resolveOrCreateBillingCustomer({
+      salonId,
+      email: salon.ownerEmail ?? null,
+      name: salon.name,
+    });
 
     const now = new Date();
     const reservation = await db.transaction(async (tx) => {
@@ -301,11 +311,10 @@ export async function POST(request: NextRequest) {
           // reachable via checkout.session.async_payment_succeeded/failed,
           // handled by the webhook) are deliberately excluded for now.
           payment_method_types: ['card'],
-          // `customer_update` is only valid alongside an existing `customer`
-          // id (Stripe rejects it otherwise).
-          ...(salon.stripeCustomerId
-            ? { customer: salon.stripeCustomerId, customer_update: { address: 'auto' } }
-            : { customer_email: salon.stripeCustomerEmail ?? salon.ownerEmail ?? undefined }),
+          // Always use the canonical, environment-scoped new-track Customer;
+          // never infer financial ownership from a legacy column or email.
+          customer: billingCustomer.stripeCustomerId,
+          customer_update: { address: 'auto', name: 'auto' },
           line_items: [{ price: stripePriceId, quantity: 1 }],
           success_url: `${baseUrl}/admin?topup=success`,
           cancel_url: `${baseUrl}/admin?topup=cancelled`,
@@ -316,6 +325,9 @@ export async function POST(request: NextRequest) {
           metadata: {
             purpose: 'sms_topup',
             salonId,
+            ...(Env.BILLING_DEPLOYMENT_MARKER
+              ? { luster_deployment: Env.BILLING_DEPLOYMENT_MARKER }
+              : {}),
             topupOfferKey: offer.key,
             purchaseId: reservation.purchaseId,
             attemptId: reservation.attemptId,
@@ -329,6 +341,9 @@ export async function POST(request: NextRequest) {
             metadata: {
               purpose: 'sms_topup',
               salonId,
+              ...(Env.BILLING_DEPLOYMENT_MARKER
+                ? { luster_deployment: Env.BILLING_DEPLOYMENT_MARKER }
+                : {}),
               purchaseId: reservation.purchaseId,
               attemptId: reservation.attemptId,
             },

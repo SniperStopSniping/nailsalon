@@ -49,6 +49,9 @@ vi.mock('@/libs/DB', () => ({
   },
 }));
 
+const billingCustomerMock = vi.hoisted(() => ({ findBillingCustomer: vi.fn() }));
+vi.mock('@/libs/billing/billingCustomer', () => billingCustomerMock);
+
 const envHolder = vi.hoisted(() => ({
   NEXT_PUBLIC_APP_URL: 'https://app.test' as string | undefined,
 }));
@@ -136,6 +139,8 @@ beforeEach(() => {
     url: 'https://billing.stripe.test/session',
   }));
   sentryMock.captureException.mockReset();
+  billingCustomerMock.findBillingCustomer.mockReset();
+  billingCustomerMock.findBillingCustomer.mockResolvedValue(null);
 });
 
 const post = async (body: unknown) => {
@@ -156,32 +161,6 @@ async function seedSalon(stripeCustomerId: string | null): Promise<string> {
     name: id,
     slug: id,
     stripeCustomerId,
-  });
-  return id;
-}
-
-let subCounter = 0;
-async function seedSubscription(salonId: string, overrides: Partial<{
-  status: schema.BillingSubscriptionStatus;
-  stripeCustomerId: string;
-  updatedAt: Date;
-}> = {}): Promise<string> {
-  subCounter += 1;
-  const id = `bsub_portal_${subCounter}`;
-  const now = new Date();
-  await db.insert(schema.billingSubscriptionSchema).values({
-    id,
-    salonId,
-    stripeSubscriptionId: `sub_${id}`,
-    stripeCustomerId: overrides.stripeCustomerId ?? `cus_new_${id}`,
-    planDefinitionKey: 'pro_2026_08',
-    billingOfferKey: 'pro_2026_08_monthly',
-    billingCadence: 'monthly',
-    status: overrides.status ?? 'active',
-    paidThrough: new Date('2026-10-01T00:00:00.000Z'),
-    creditCycleAnchor: now,
-    createdAt: now,
-    updatedAt: overrides.updatedAt ?? now,
   });
   return id;
 }
@@ -218,9 +197,15 @@ describe('legacy-flow customers — byte-identical behaviour', () => {
 });
 
 describe('customer resolution (G41)', () => {
-  it('uses the live billing_subscription customer id even when the legacy column differs', async () => {
+  it('uses the canonical billing customer even when the legacy column differs', async () => {
     const salonId = await seedSalon('cus_legacy_stale');
-    await seedSubscription(salonId, { status: 'active', stripeCustomerId: 'cus_new_track_live' });
+    billingCustomerMock.findBillingCustomer.mockResolvedValueOnce({
+      id: 'bcus_portal',
+      salonId,
+      planEnv: 'test',
+      stripeCustomerId: 'cus_new_track_live',
+      source: 'adopted_subscription',
+    });
 
     const response = await post({ salonId });
 
@@ -231,17 +216,14 @@ describe('customer resolution (G41)', () => {
     });
   });
 
-  it('prefers the most recently updated LIVE row when several exist', async () => {
+  it('uses the canonical resolver result when no legacy customer exists', async () => {
     const salonId = await seedSalon(null);
-    await seedSubscription(salonId, {
-      status: 'canceled',
-      stripeCustomerId: 'cus_old_canceled',
-      updatedAt: new Date('2026-01-01T00:00:00.000Z'),
-    });
-    await seedSubscription(salonId, {
-      status: 'past_due',
+    billingCustomerMock.findBillingCustomer.mockResolvedValueOnce({
+      id: 'bcus_portal_only',
+      salonId,
+      planEnv: 'test',
       stripeCustomerId: 'cus_current_live',
-      updatedAt: new Date('2026-06-01T00:00:00.000Z'),
+      source: 'created',
     });
 
     await post({ salonId });
@@ -252,9 +234,8 @@ describe('customer resolution (G41)', () => {
     });
   });
 
-  it('falls back to the legacy column when the only billing_subscription row is canceled (live-row rule)', async () => {
+  it('falls back to the legacy column when no canonical mapping is available', async () => {
     const salonId = await seedSalon('cus_legacy_wins');
-    await seedSubscription(salonId, { status: 'canceled', stripeCustomerId: 'cus_dead_attempt' });
 
     const response = await post({ salonId });
 
@@ -265,20 +246,7 @@ describe('customer resolution (G41)', () => {
     });
   });
 
-  it('falls back to a canceled billing_subscription row when no legacy id exists (third tier)', async () => {
-    const salonId = await seedSalon(null);
-    await seedSubscription(salonId, { status: 'canceled', stripeCustomerId: 'cus_canceled_only' });
-
-    const response = await post({ salonId });
-
-    expect(response.status).toBe(200);
-    expect(stripeMock.billingPortal.sessions.create).toHaveBeenCalledWith({
-      customer: 'cus_canceled_only',
-      return_url: 'https://app.test/admin?tab=billing',
-    });
-  });
-
-  it('returns 400 NO_BILLING_ACCOUNT when there is no billing_subscription row and no legacy customer id', async () => {
+  it('returns 400 NO_BILLING_ACCOUNT when there is no canonical mapping and no legacy customer id', async () => {
     const salonId = await seedSalon(null);
 
     const response = await post({ salonId });
