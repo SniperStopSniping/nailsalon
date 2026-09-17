@@ -1,3 +1,18 @@
+# [1.116.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.115.2...v1.116.0) (2026-09-17)
+
+
+### Bug Fixes
+
+* **billing:** document the two return-URL tests, and cover the third refusal ([113417d](https://github.com/SniperStopSniping/nailsalon/commit/113417d4c1c1ebd604e76dabfad5348a8e94ddf7))
+* **billing:** owner-only money actions, truthful checkout refusals, hosted redirect origin ([7252973](https://github.com/SniperStopSniping/nailsalon/commit/7252973b6ff54fa0b12e77f91d1797e70ce4ff52))
+* **billing:** surface the new refusals, and harden the portal return URL ([0f9f970](https://github.com/SniperStopSniping/nailsalon/commit/0f9f970b9da78e1caf9137b91cad514645177007))
+
+
+### Features
+
+* **billing:** durable per-environment Stripe customer mapping (schema + resolver) ([4bc887a](https://github.com/SniperStopSniping/nailsalon/commit/4bc887a4c971b713cf562f54d124f46c9dbe159c))
+* **billing:** wire canonical Stripe customer identity ([fc8dff3](https://github.com/SniperStopSniping/nailsalon/commit/fc8dff37d6715d195680f49983d5f6a233d3dcb7))
+
 ## [1.115.2](https://github.com/SniperStopSniping/nailsalon/compare/v1.115.1...v1.115.2) (2026-09-17)
 
 
