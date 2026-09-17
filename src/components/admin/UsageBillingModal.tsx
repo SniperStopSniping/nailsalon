@@ -187,6 +187,12 @@ export function UsageBillingModal({ salonSlug, onClose }: UsageBillingModalProps
   const [portalLoading, setPortalLoading] = useState(false);
   const [buying, setBuying] = useState<string | null>(null);
   const [buyError, setBuyError] = useState<string | null>(null);
+  // OP-1 (owner authorization 2026-09-16): the Portal route can now refuse a
+  // collaborator with `403 OWNER_REQUIRED`, and that route has no dark switch
+  // (D9) — it is live for legacy-flow customers today. Without somewhere to
+  // put the refusal, the button would flip back to its idle label and say
+  // nothing at all, which reads as a broken button rather than a rule.
+  const [portalError, setPortalError] = useState<string | null>(null);
   const [historyFilter, setHistoryFilter] = useState<HistoryCategory>('all');
   const [loadingMoreHistory, setLoadingMoreHistory] = useState(false);
   const [historyError, setHistoryError] = useState<string | null>(null);
@@ -334,6 +340,7 @@ export function UsageBillingModal({ salonSlug, onClose }: UsageBillingModalProps
     }
     try {
       setPortalLoading(true);
+      setPortalError(null);
       const response = await fetch('/api/billing/portal', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -342,7 +349,16 @@ export function UsageBillingModal({ salonSlug, onClose }: UsageBillingModalProps
       const body = await response.json();
       if (body.url) {
         window.location.assign(body.url);
+        return;
       }
+      // A refusal the caller can act on (OWNER_REQUIRED above all) carries a
+      // message written for the owner; show it verbatim rather than inventing
+      // a retry prompt for something retrying cannot fix.
+      setPortalError(typeof body?.error?.message === 'string' && body.error.message !== ''
+        ? body.error.message
+        : 'Could not open the billing portal. Please try again.');
+    } catch {
+      setPortalError('Could not open the billing portal. Please try again.');
     } finally {
       setPortalLoading(false);
     }
@@ -370,6 +386,13 @@ export function UsageBillingModal({ salonSlug, onClose }: UsageBillingModalProps
         setData(current => current?.salonId === data.salonId
           ? { ...current, creditPurchasesAvailable: false, topupOffers: [] }
           : current);
+      } else if (typeof body?.error?.message === 'string' && body.error.message !== ''
+        && ['OWNER_REQUIRED', 'CHECKOUT_IN_PROGRESS'].includes(body.error?.code)) {
+        // OP-1 / OP-2 (2026-09-16): these two refusals are rules, not faults.
+        // "Please try again" would be a lie for both — a collaborator will
+        // never succeed, and a caller with another checkout open must finish
+        // or outwait it. Show what the route actually said.
+        setBuyError(body.error.message);
       } else {
         setBuyError('Could not start the purchase. Please try again.');
       }
@@ -520,6 +543,7 @@ export function UsageBillingModal({ salonSlug, onClose }: UsageBillingModalProps
                 >
                   {portalLoading ? 'Opening…' : 'Manage billing'}
                 </button>
+                <p role="status" aria-live="polite" className="text-[13px] text-red-600">{portalError ?? ''}</p>
               </section>
 
               {data!.creditPurchasesAvailable === true && data!.topupOffers.length > 0

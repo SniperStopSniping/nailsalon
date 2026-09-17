@@ -772,3 +772,39 @@ route.concurrency.integration.test.ts`'s `adminAuth` stub gained `requireAdminOw
 concurrency suite still exercises the route. `npx tsc --noEmit --pretty`, `eslint --max-warnings 0` on
 every changed file, `node --test scripts/ci-workflow.node-test.mjs` and
 `node scripts/check-secret-leaks.mjs --tree` are all clean. No existing assertion was weakened.
+
+### Independent review of PR-B, and what it changed (2026-09-16)
+
+An independent reviewer checked head `c72265f1` from a clean clone and returned **no blockers**, confirming
+independently that `requireAdminOwner` genuinely establishes ownership, that the three routes refuse before
+any durable write, that no path can hand out a second payable session, that every listed open-redirect
+vector falls back, and that both recomputed blob hashes matched the appended pins exactly.
+
+Five findings were fixed rather than deferred:
+
+1. **Silent Portal failure (the one that mattered).** `UsageBillingModal.openPortal` only acted on
+   `body.url`, so a `403 OWNER_REQUIRED` produced no message at all — the button just flipped back to its
+   idle label. The Portal has no dark switch (D9), so this was an immediately user-visible regression for a
+   live route rather than a dark-path one. It now surfaces the route's own message through a `role="status"`
+   live region beside the button.
+2. **Retryable-looking top-up refusal.** `OWNER_REQUIRED` and `CHECKOUT_IN_PROGRESS` fell into the generic
+   "Please try again", which is a lie for both — a collaborator will never succeed, and a caller with
+   another checkout open must finish or outwait it. Both now show the server message verbatim.
+3. **`blob:` URLs passed the same-origin check.** `new URL('blob:https://app.test/1234').origin` is our own
+   origin, so such a value reached Stripe as an unusable `return_url` (a 500, not an open redirect). The
+   validator now also requires an `http(s)` protocol.
+4. **Credentials survived into `return_url`.** `https://user:pass@app.test/x` is same-origin, so
+   `toString()` preserved the credentials in the link Stripe renders. The return URL is now rebuilt from the
+   resolved origin plus path, search and hash.
+5. **Two comments describing states that no longer exist**, plus a stale byte-parity claim in the portal
+   test header, corrected.
+
+Both postimage pins were recomputed after these edits: checkout `a7a2e3cf55225ff923950fbbb2f59e7bda099ae2`,
+portal `42b02c3f6ca0e6be4904b590dc538e19901bdec1`.
+
+**Merge precondition the reviewer raised, worth recording.** `admin_salon_membership.role` defaults to
+`'admin'`, and the super-admin invite path defaults `membershipRole` to `'admin'` when the caller omits it.
+Any live salon whose only admin was provisioned that way has `role='admin'` and, after this change, loses
+billing self-service — including the live Portal. `requireAdminOwner` already gates publish and the
+financial summary, which suggests real rows are correct, but this is a read-only query worth running against
+salons that have a Stripe customer before relying on the new gate in production.

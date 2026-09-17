@@ -287,8 +287,10 @@ export async function POST(request: NextRequest) {
       if (reservation.reason === 'CHECKOUT_IN_PROGRESS') {
         return errorJson(409, 'CHECKOUT_IN_PROGRESS', 'A checkout for a different plan is already open for this salon. Finish that checkout, or leave it to expire shortly and then start this one.');
       }
-      // ACTIVE_SUBSCRIPTION_EXISTS keeps its existing code and message, and
-      // CHECKOUT_PENDING_RECONCILIATION keeps whatever it maps to today.
+      // ACTIVE_SUBSCRIPTION_EXISTS keeps its existing code and message.
+      // CHECKOUT_PENDING_RECONCILIATION is unreachable from here — it is
+      // raised only inside `beginCheckoutAttempt`'s `sms_topup` branch — so
+      // this fallthrough is the subscription route's only other outcome.
       return errorJson(409, 'ACTIVE_SUBSCRIPTION_EXISTS', 'This salon already has a live subscription. Manage it in the Billing Portal.');
     }
     if (reservation.kind === 'promotion_refused') {

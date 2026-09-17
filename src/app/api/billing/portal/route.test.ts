@@ -21,6 +21,14 @@
  * The "before" expectation pinned in the first describe block below is that
  * exact call shape, transcribed from the pre-P5b route.ts before any change
  * in this PR.
+ *
+ * X5 (2026-09-16) deliberately ENDS that byte-for-byte parity in exactly one
+ * respect: `return_url` is no longer `returnUrl || defaultReturnUrl`. A
+ * caller-supplied value now has to be a same-origin http(s) URL, and anything
+ * else falls back to the default instead of reaching Stripe. Parity for a
+ * legacy-only salon supplying no `returnUrl`, or a same-origin one, is
+ * unchanged and still pinned. The origin itself comes from
+ * `resolveBillingAppOrigin()` rather than an inline localhost fallback.
  */
 import path from 'node:path';
 
@@ -462,6 +470,25 @@ describe('X5 — return url origin and returnUrl validation', () => {
     await attempt('cus_return_scheme', 'javascript:alert(1)');
     await attempt('cus_return_unparseable', 'http://[::bad');
     await attempt('cus_return_empty', '');
+    // `blob:` reports OUR origin, so an origin check alone would pass it
+    // through to Stripe as an unusable return_url.
+    await attempt('cus_return_blob', 'blob:https://app.test/9f1c');
+  });
+
+  it('strips credentials from an otherwise same-origin returnUrl', async () => {
+    const salonId = await seedSalon('cus_return_userinfo');
+
+    // `https://user:pass@app.test/x` IS same-origin, so the origin check alone
+    // would forward the credentials into the link Stripe renders.
+    const response = await post({ salonId, returnUrl: 'https://owner:hunter2@app.test/admin?tab=settings' });
+
+    expect(response.status).toBe(200);
+
+    const call = stripeMock.billingPortal.sessions.create.mock.calls[0]![0];
+
+    expect(call.return_url).toBe('https://app.test/admin?tab=settings');
+    expect(call.return_url).not.toContain('hunter2');
+    expect(call.return_url).not.toContain('@');
   });
 
   it('accepts a same-origin absolute returnUrl unchanged and absolutises a same-origin path', async () => {

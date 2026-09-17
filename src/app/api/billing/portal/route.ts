@@ -66,7 +66,20 @@ function resolveSameOriginReturnUrl(candidate: unknown, appOrigin: string): stri
 
   try {
     const parsed = new URL(candidate, appOrigin);
-    return parsed.origin === appOrigin ? parsed.toString() : null;
+    if (parsed.origin !== appOrigin) {
+      return null;
+    }
+
+    // Same origin is necessary but not sufficient. `blob:https://app/xyz`
+    // reports OUR origin and would reach Stripe as an unusable `return_url`,
+    // and `https://user:pass@app/x` is same-origin while carrying credentials
+    // into the link Stripe renders. Require a real http(s) navigation and
+    // rebuild from the path so neither can survive.
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      return null;
+    }
+
+    return `${appOrigin}${parsed.pathname}${parsed.search}${parsed.hash}`;
   } catch {
     return null;
   }
