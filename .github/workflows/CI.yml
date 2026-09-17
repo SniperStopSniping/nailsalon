@@ -327,6 +327,11 @@ jobs:
               7499a6d0a128b47971927f796e68f13b1888885d) ;;
               # + P3c checkout_session_created audit (§8.5).
               d4ffdac927b223234cf3292a83c2be4974b0cf91) ;;
+              # + PR-B (owner approval 2026-09-16, O7/O10): requireAdminOwner,
+              # per-reason attempt-conflict responses (CHECKOUT_IN_PROGRESS no
+              # longer reported as ACTIVE_SUBSCRIPTION_EXISTS), and the X5
+              # redirect origin resolved before TX1.
+              76280b1bcaacc83342aeb8eb3979e2c89e10ed17) ;;
               *)
                 echo "::error::src/app/api/billing/checkout/route.ts must match a reviewed postimage."
                 printf 'actual blob: %s\n' "$checkout_blob"
@@ -340,6 +345,10 @@ jobs:
             portal_blob="$(git hash-object src/app/api/billing/portal/route.ts)"
             case "$portal_blob" in
               a4e92403b3a77bb60a414ce91651fd8de7137ad0) ;;
+              # + PR-B (owner approval 2026-09-16, O7/O10): requireAdminOwner,
+              # the X5 return_url origin via resolveBillingAppOrigin(), and
+              # same-origin validation of the caller-supplied returnUrl.
+              43a196f662a519f9fee7b4776de6e7e791246529) ;;
               *)
                 echo "::error::src/app/api/billing/portal/route.ts must match a reviewed postimage."
                 printf 'actual blob: %s\n' "$portal_blob"

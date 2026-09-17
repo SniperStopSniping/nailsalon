@@ -31,7 +31,7 @@ const envHolder = vi.hoisted(() => ({
   BILLING_PLAN_ENV: 'test' as string,
   BILLING_SUBSCRIPTIONS_ENABLED: undefined as string | undefined,
   BILLING_TAX_COLLECTION_ENABLED: undefined as string | undefined,
-  NEXT_PUBLIC_APP_URL: 'https://app.test',
+  NEXT_PUBLIC_APP_URL: 'https://app.test' as string | undefined,
   BILLING_IDENTITY_HMAC_SECRET: undefined,
   BILLING_IDENTITY_HMAC_VERSION: undefined,
 }));
@@ -45,12 +45,19 @@ vi.mock('@/libs/Env', () => ({ Env: envHolder }));
 // `deniedSalonIds` simulates requireAdmin's real membership check (§8, see
 // adminAuth.ts:443-454): an admin authenticated for one salon is refused a
 // FOREIGN salonId with the same 403 Forbidden shape production returns.
+// `nonOwnerSalonIds` names the salons where the authenticated admin is a
+// COLLABORATOR (`role: 'admin'`), not the owner: `requireAdmin` still admits
+// them, `requireAdminOwner` answers 403 OWNER_REQUIRED (adminAuth.ts:488-508).
+// Y1/OP-1 made this route owner-only, so the stub below composes exactly the
+// way the real guard does — owner check layered ON TOP of requireAdmin — and
+// keeps the production response shape.
 const adminHolder = vi.hoisted(() => ({
   clerkUserId: 'user_default',
   deniedSalonIds: new Set<string>(),
+  nonOwnerSalonIds: new Set<string>(),
 }));
-vi.mock('@/libs/adminAuth', () => ({
-  requireAdmin: vi.fn(async (salonId: string) => {
+vi.mock('@/libs/adminAuth', () => {
+  const requireAdmin = vi.fn(async (salonId: string) => {
     if (adminHolder.deniedSalonIds.has(salonId)) {
       return {
         ok: false,
@@ -61,8 +68,25 @@ vi.mock('@/libs/adminAuth', () => ({
       };
     }
     return { ok: true, admin: { clerkUserId: adminHolder.clerkUserId } };
-  }),
-}));
+  });
+  const requireAdminOwner = vi.fn(async (
+    salonId: string,
+    message = 'Only the salon owner can do this.',
+  ) => {
+    const guard = await requireAdmin(salonId);
+    if (!guard.ok || !adminHolder.nonOwnerSalonIds.has(salonId)) {
+      return guard;
+    }
+    return {
+      ok: false,
+      response: new Response(JSON.stringify({ error: { code: 'OWNER_REQUIRED', message } }), {
+        status: 403,
+        headers: { 'Content-Type': 'application/json' },
+      }),
+    };
+  });
+  return { requireAdmin, requireAdminOwner };
+});
 
 vi.mock('@/libs/rateLimit', () => ({
   checkEndpointRateLimit: () => ({ allowed: true }),
@@ -70,11 +94,16 @@ vi.mock('@/libs/rateLimit', () => ({
   rateLimitResponse: () => new Response('rate limited', { status: 429 }),
 }));
 
+// `expire` exists on the mock ONLY so the OP-2 tests below can prove the
+// route never calls it: a pending checkout's Stripe session is never expired
+// to shorten an owner's wait (owner, 2026-09-16), because the superseded
+// session stays payable and releasing the slot would admit a double charge.
 const stripeMock = vi.hoisted(() => ({
   checkout: {
     sessions: {
       create: vi.fn(),
       retrieve: vi.fn(),
+      expire: vi.fn(),
     },
   },
 }));
@@ -163,7 +192,9 @@ beforeAll(async () => {
 beforeEach(() => {
   envHolder.BILLING_SUBSCRIPTIONS_ENABLED = 'true';
   envHolder.BILLING_TAX_COLLECTION_ENABLED = undefined;
+  envHolder.NEXT_PUBLIC_APP_URL = 'https://app.test';
   adminHolder.deniedSalonIds = new Set();
+  adminHolder.nonOwnerSalonIds = new Set();
   billingOffersHolder.includeRetired = false;
   priceMapHolder.priceId = 'price_test_resolved';
   priceMapHolder.couponId = 'coupon_test_resolved';
@@ -171,6 +202,7 @@ beforeEach(() => {
   promotionHolder.endsAt = null;
   stripeMock.checkout.sessions.create.mockReset();
   stripeMock.checkout.sessions.retrieve.mockReset();
+  stripeMock.checkout.sessions.expire.mockReset();
   stripeMock.checkout.sessions.create.mockImplementation(async () => ({
     id: `cs_${Math.random().toString(36).slice(2, 10)}`,
     url: 'https://checkout.stripe.test/session',
@@ -693,5 +725,259 @@ describe('G14 — automatic-tax architecture (§3.7)', () => {
 
     expect(paramsWithoutCustomer.customer).toBeUndefined();
     expect(paramsWithoutCustomer.customer_update).toBeUndefined();
+  });
+});
+
+// Y1 / OP-1 — owner-only money actions (owner authorization 2026-09-16).
+// Starting a subscription spends the salon's money, so a collaborator
+// (`role: 'admin'`) is refused even though `requireAdmin` would admit them.
+describe('owner-only money actions (Y1/OP-1)', () => {
+  it('refuses a non-owner admin OF THIS SALON with 403 OWNER_REQUIRED and writes nothing', async () => {
+    adminHolder.clerkUserId = 'user_collaborator';
+    await seedSalon('s_owner_required');
+    adminHolder.nonOwnerSalonIds.add('s_owner_required');
+
+    const response = await post({
+      salonId: 's_owner_required',
+      billingOfferKey: 'pro_2026_08_annual',
+      promotionKey: 'founding_annual_2026',
+    });
+
+    expect(response.status).toBe(403);
+    expect((await response.json()).error.code).toBe('OWNER_REQUIRED');
+    expect(stripeMock.checkout.sessions.create).not.toHaveBeenCalled();
+    expect(await attemptRows('s_owner_required')).toHaveLength(0);
+
+    const claims = await db.select().from(schema.billingPromotionClaimSchema)
+      .where(eq(schema.billingPromotionClaimSchema.salonId, 's_owner_required'));
+
+    expect(claims).toHaveLength(0);
+  });
+
+  it('leaves the OWNER unchanged — the identical request succeeds once the caller owns the salon', async () => {
+    adminHolder.clerkUserId = 'user_owner_unchanged';
+    await seedSalon('s_owner_unchanged');
+    adminHolder.nonOwnerSalonIds.add('s_owner_unchanged');
+
+    const refused = await post({ salonId: 's_owner_unchanged', billingOfferKey: 'pro_2026_08_monthly' });
+
+    expect(refused.status).toBe(403);
+
+    adminHolder.nonOwnerSalonIds.delete('s_owner_unchanged');
+    const allowed = await post({ salonId: 's_owner_unchanged', billingOfferKey: 'pro_2026_08_monthly' });
+
+    expect(allowed.status).toBe(200);
+    expect((await allowed.json()).data.reused).toBe(false);
+    expect(stripeMock.checkout.sessions.create).toHaveBeenCalledTimes(1);
+    expect(await attemptRows('s_owner_unchanged')).toHaveLength(1);
+  });
+});
+
+// OP-2 — the REPORTED refusal is corrected; the refusal itself is not.
+describe('attempt conflict mapping (OP-2)', () => {
+  it('a second checkout for a DIFFERENT offer answers CHECKOUT_IN_PROGRESS, not ACTIVE_SUBSCRIPTION_EXISTS', async () => {
+    await seedSalon('s_conflict_offer');
+    const first = await post({ salonId: 's_conflict_offer', billingOfferKey: 'pro_2026_08_monthly' });
+
+    expect(first.status).toBe(200);
+
+    const firstBody = await first.json();
+    const second = await post({ salonId: 's_conflict_offer', billingOfferKey: 'elite_2026_08_monthly' });
+
+    expect(second.status).toBe(409);
+
+    const body = await second.json();
+
+    expect(body.error.code).toBe('CHECKOUT_IN_PROGRESS');
+    // The old response was untrue for this case and sent the owner to a
+    // Portal that cannot help.
+    expect(body.error.message).not.toMatch(/live subscription|Billing Portal/);
+    // Truthful about the wait without promising a precise duration.
+    expect(body.error.message).not.toMatch(/\d/);
+
+    // The pending attempt is NOT released to shorten the wait: same single
+    // attempt, still `checkout_created`, still bound to the SAME still-payable
+    // session, and its Stripe session was never expired.
+    const attempts = await attemptRows('s_conflict_offer');
+
+    expect(attempts).toHaveLength(1);
+    expect(attempts[0]!.status).toBe('checkout_created');
+    expect(attempts[0]!.stripeCheckoutSessionId).toBe(firstBody.data.sessionId);
+    expect(attempts[0]!.billingOfferKey).toBe('pro_2026_08_monthly');
+    expect(stripeMock.checkout.sessions.create).toHaveBeenCalledTimes(1);
+    expect(stripeMock.checkout.sessions.expire).not.toHaveBeenCalled();
+  });
+
+  it('adding a promotion to the SAME offer is the same refusal, and burns no claim', async () => {
+    adminHolder.clerkUserId = 'user_conflict_promo';
+    await seedSalon('s_conflict_promo');
+    const first = await post({ salonId: 's_conflict_promo', billingOfferKey: 'pro_2026_08_annual' });
+
+    expect(first.status).toBe(200);
+
+    const second = await post({
+      salonId: 's_conflict_promo',
+      billingOfferKey: 'pro_2026_08_annual',
+      promotionKey: 'founding_annual_2026',
+    });
+
+    expect(second.status).toBe(409);
+    expect((await second.json()).error.code).toBe('CHECKOUT_IN_PROGRESS');
+    expect(stripeMock.checkout.sessions.create).toHaveBeenCalledTimes(1);
+    expect(stripeMock.checkout.sessions.expire).not.toHaveBeenCalled();
+
+    // A claim reserved against the superseded attempt would carry a discount
+    // the existing session does not have.
+    const claims = await db.select().from(schema.billingPromotionClaimSchema)
+      .where(eq(schema.billingPromotionClaimSchema.salonId, 's_conflict_promo'));
+
+    expect(claims).toHaveLength(0);
+  });
+
+  it('a genuine live subscription still answers ACTIVE_SUBSCRIPTION_EXISTS with the unchanged message', async () => {
+    await seedSalon('s_conflict_live');
+    await db.insert(schema.billingSubscriptionSchema).values({
+      id: 'sub_conflict_live',
+      salonId: 's_conflict_live',
+      stripeSubscriptionId: 'sub_stripe_conflict_live',
+      stripeCustomerId: 'cus_conflict_live',
+      planDefinitionKey: 'pro_2026_08',
+      billingOfferKey: 'pro_2026_08_monthly',
+      billingCadence: 'monthly',
+      status: 'active',
+      paidThrough: new Date('2027-01-01T00:00:00.000Z'),
+      creditCycleAnchor: new Date('2026-01-01T00:00:00.000Z'),
+    });
+
+    const response = await post({ salonId: 's_conflict_live', billingOfferKey: 'elite_2026_08_monthly' });
+
+    expect(response.status).toBe(409);
+
+    const body = await response.json();
+
+    expect(body.error.code).toBe('ACTIVE_SUBSCRIPTION_EXISTS');
+    expect(body.error.message).toBe('This salon already has a live subscription. Manage it in the Billing Portal.');
+    expect(stripeMock.checkout.sessions.create).not.toHaveBeenCalled();
+  });
+
+  it('an identical retry of the same offer AND promotion still reuses the attempt and its session', async () => {
+    adminHolder.clerkUserId = 'user_reuse_promo';
+    await seedSalon('s_reuse_promo');
+    const first = await post({
+      salonId: 's_reuse_promo',
+      billingOfferKey: 'elite_2026_08_annual',
+      promotionKey: 'founding_annual_2026',
+    });
+
+    expect(first.status).toBe(200);
+
+    const firstBody = await first.json();
+    stripeMock.checkout.sessions.retrieve.mockResolvedValue({
+      id: firstBody.data.sessionId,
+      url: 'https://checkout.stripe.test/session',
+    });
+
+    const second = await post({
+      salonId: 's_reuse_promo',
+      billingOfferKey: 'elite_2026_08_annual',
+      promotionKey: 'founding_annual_2026',
+    });
+
+    expect(second.status).toBe(200);
+
+    const secondBody = await second.json();
+
+    expect(secondBody.data.reused).toBe(true);
+    expect(secondBody.data.sessionId).toBe(firstBody.data.sessionId);
+    expect(stripeMock.checkout.sessions.create).toHaveBeenCalledTimes(1);
+
+    const claims = await db.select().from(schema.billingPromotionClaimSchema)
+      .where(eq(schema.billingPromotionClaimSchema.salonId, 's_reuse_promo'));
+
+    expect(claims).toHaveLength(1);
+  });
+});
+
+// X5 — the redirect origin is an environment read taken BEFORE TX1.
+describe('X5 — redirect origin', () => {
+  const withVercel = async (value: string | undefined, run: () => Promise<void>) => {
+    const previous = process.env.VERCEL;
+    if (value === undefined) {
+      delete process.env.VERCEL;
+    } else {
+      process.env.VERCEL = value;
+    }
+    try {
+      await run();
+    } finally {
+      if (previous === undefined) {
+        delete process.env.VERCEL;
+      } else {
+        process.env.VERCEL = previous;
+      }
+    }
+  };
+
+  it('a hosted runtime with NEXT_PUBLIC_APP_URL unset fails masked, with no attempt, no claim and no Stripe call', async () => {
+    adminHolder.clerkUserId = 'user_origin_unset';
+    await seedSalon('s_origin_unset');
+    envHolder.NEXT_PUBLIC_APP_URL = undefined;
+
+    await withVercel('1', async () => {
+      const response = await post({
+        salonId: 's_origin_unset',
+        billingOfferKey: 'pro_2026_08_annual',
+        promotionKey: 'founding_annual_2026',
+      });
+
+      expect(response.status).toBe(500);
+
+      const body = await response.json();
+
+      expect(body.error.code).toBe('CHECKOUT_ERROR');
+      // The customer is told nothing about the misconfiguration, and is
+      // certainly never pointed at localhost.
+      expect(JSON.stringify(body)).not.toContain('localhost');
+      expect(JSON.stringify(body)).not.toContain('APP_ORIGIN_UNCONFIGURED');
+      expect(stripeMock.checkout.sessions.create).not.toHaveBeenCalled();
+      expect(await attemptRows('s_origin_unset')).toHaveLength(0);
+
+      const claims = await db.select().from(schema.billingPromotionClaimSchema)
+        .where(eq(schema.billingPromotionClaimSchema.salonId, 's_origin_unset'));
+
+      expect(claims).toHaveLength(0);
+    });
+  });
+
+  it('builds both redirect urls from the ORIGIN only, dropping a path or bypass token on the configured value', async () => {
+    envHolder.NEXT_PUBLIC_APP_URL = 'https://app.test/nested?x-vercel-protection-bypass=tok';
+    await seedSalon('s_origin_strip');
+
+    await withVercel('1', async () => {
+      const response = await post({ salonId: 's_origin_strip', billingOfferKey: 'pro_2026_08_monthly' });
+
+      expect(response.status).toBe(200);
+
+      const params = stripeMock.checkout.sessions.create.mock.calls[0]![0];
+
+      expect(params.success_url).toBe('https://app.test/admin?billing=success');
+      expect(params.cancel_url).toBe('https://app.test/admin?billing=cancelled');
+      expect(JSON.stringify(params)).not.toContain('x-vercel-protection-bypass');
+    });
+  });
+
+  it('local development is unaffected: an unset origin off a hosted runtime still resolves to localhost', async () => {
+    envHolder.NEXT_PUBLIC_APP_URL = undefined;
+    await seedSalon('s_origin_local');
+
+    await withVercel(undefined, async () => {
+      const response = await post({ salonId: 's_origin_local', billingOfferKey: 'pro_2026_08_monthly' });
+
+      expect(response.status).toBe(200);
+
+      const params = stripeMock.checkout.sessions.create.mock.calls[0]![0];
+
+      expect(params.success_url).toBe('http://localhost:3000/admin?billing=success');
+    });
   });
 });

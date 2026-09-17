@@ -50,14 +50,17 @@ export function deriveStripeIdempotencyKey(attemptId: string): string {
  * always made), `billingOfferKey` AND `promotionKey` for `plan_subscription`.
  * `undefined` from a caller that omitted a key is the nullable column's `null`.
  *
- * Deliberate partial (contract O10): `checkout/route.ts:246-247` maps EVERY
- * attempt conflict to `409 ACTIVE_SUBSCRIPTION_EXISTS`, so a differing-offer
- * refusal currently surfaces to the subscription caller under that code rather
- * than `CHECKOUT_IN_PROGRESS`. Correcting the mapping means editing a
- * reviewed-postimage-pinned route (owner decision O10) and is deferred; the
- * money-safety half — never reusing a session created for a different offer or
- * promotion — is complete here. The top-up route already maps
- * `CHECKOUT_IN_PROGRESS` correctly (`checkout/topup/route.ts:208`).
+ * Both halves are now complete. The money-safety half is here: an attempt is
+ * never reused for a session created under a different offer or promotion. The
+ * reporting half lives in the two callers, each of which maps this reason to
+ * its own `409 CHECKOUT_IN_PROGRESS` rather than collapsing it into
+ * `ACTIVE_SUBSCRIPTION_EXISTS` — the top-up route always did, and the
+ * subscription route was corrected when the owner ratified new postimages for
+ * the pinned billing routes (2026-09-16, OP-2). A differing-offer refusal is
+ * deliberately NOT resolved by releasing the pending attempt or expiring its
+ * Stripe session: that session stays payable until Stripe expires it, so
+ * handing out a second attempt would admit a window in which one customer pays
+ * both and the salon ends up with two live subscriptions.
  */
 function attemptMatchesRequestedOffer(
   existing: { billingOfferKey: string | null; topupOfferKey: string | null; promotionKey: string | null },

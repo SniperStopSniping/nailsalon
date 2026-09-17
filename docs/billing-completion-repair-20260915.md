@@ -647,3 +647,128 @@ activate until a guard existed. The contract header is now Revision 2.3, with th
 existing citations keep resolving.
 
 Legacy route postimage after these edits: `85990776e5a63a04397c6958092be0ec660f109c`.
+## PR-B (owner-only money actions, correct refusal responses, remaining origin fixes) — 2026-09-16
+
+Owner authorization 2026-09-16: "Exact checkout/portal postimage updates, correct refusal responses and
+remaining origin fixes" and "Owner-only subscription, top-up and cancellation actions" — i.e. O7 and the
+O10 postimage refreshes for both reviewed-postimage-pinned billing routes. Billing stays dark. No
+migration, no `vercel.json`, no env value, no Stripe or Vercel call, no switch, no new table, and nothing
+that creates a Stripe customer or a `billing_customer` row (still O12/O13, a separate PR).
+
+### Y1 / OP-1 — owner-only money actions
+
+`requireAdmin` → `requireAdminOwner` (`src/libs/adminAuth.ts:488-508`, `403 OWNER_REQUIRED`) in exactly the
+three routes that SPEND or CANCEL:
+
+- `src/app/api/billing/checkout/route.ts` — starts a subscription;
+- `src/app/api/billing/checkout/topup/route.ts` — buys SMS credits;
+- `src/app/api/billing/portal/route.ts` — replaces the payment method and can cancel the subscription.
+
+Each route keeps its existing ordering (dark switch → rate limit → parse → auth for the two checkouts;
+rate limit → parse → auth for the portal, which has no dark switch by design, D9) and every other refusal
+string is untouched. The guard still runs before any catalogue read, durable attempt, `sms_topup_purchase`
+row, promotion claim or provider call, so a collaborator's refusal writes nothing.
+
+**`src/app/api/billing/topups/route.ts` deliberately stays on `requireAdmin`.** It is the read-only
+purchase history. The owner approved owner-only *actions*; narrowing a read would take history away from
+staff who legitimately see it today, which is a regression the authorization did not ask for. Its suite is
+re-run unchanged as part of this PR's validation to prove the read was not narrowed by accident.
+
+### OP-2 — the reported refusal is corrected; the refusal itself is not
+
+`beginCheckoutAttempt` already refuses reuse across a different offer or promotion with
+`CHECKOUT_IN_PROGRESS` (`src/libs/billing/checkoutAttempts.ts:62-76`), but `checkout/route.ts` mapped
+EVERY attempt conflict to `409 ACTIVE_SUBSCRIPTION_EXISTS` / "This salon already has a live subscription.
+Manage it in the Billing Portal." For the differing-offer case that statement is simply untrue, and it
+sent the owner to a Portal that cannot help. The mapping is now per reason:
+
+| `BeginAttemptResult.reason` | Response |
+|---|---|
+| `ACTIVE_SUBSCRIPTION_EXISTS` | `409 ACTIVE_SUBSCRIPTION_EXISTS` + the unchanged Portal message |
+| `CHECKOUT_IN_PROGRESS` | `409 CHECKOUT_IN_PROGRESS` — "A checkout for a different plan is already open for this salon. Finish that checkout, or leave it to expire shortly and then start this one." |
+| `CHECKOUT_PENDING_RECONCILIATION` | unchanged — keeps today's `409 ACTIVE_SUBSCRIPTION_EXISTS` response |
+
+The copy names no duration on purpose: the attempt TTL (60 min) and the session TTL (55 min) are
+implementation facts that must not become a promise to a customer.
+
+**The pending attempt and its Stripe session are NOT released, and this PR does not shorten the wait.**
+Owner, 2026-09-16: "Preserve pending-checkout safety. Do not release still-payable sessions merely to
+remove the waiting period." The superseded Checkout Session stays payable until Stripe expires it, so
+handing out a second attempt would admit a window in which one customer pays BOTH sessions — two live
+subscriptions for one salon, a double charge and a `billing_subscription_live_salon_uniq` violation. Only
+the *reported* reason changed; the refusal is unchanged, bounded and self-releasing. The reasoning is
+recorded in a comment at the mapping site so a later reader cannot mistake the wait for an oversight, and
+the route never calls `stripe.checkout.sessions.expire` — a test asserts that mock was never called.
+
+This also retires the "deliberate partial" recorded under PR-6a: the differing-offer refusal no longer
+surfaces under the wrong code. The waiting period it documented remains, by the owner's decision above.
+
+### X5 — the last two inline `localhost` fallbacks, and the portal's unvalidated `returnUrl`
+
+`resolveBillingAppOrigin()` (`src/libs/billing/billingAppOrigin.ts`, unchanged by this PR) replaces the
+inline `Env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'` fallback in both remaining routes, finishing
+the job its header comment recorded as owed:
+
+- **`checkout/route.ts`** resolves the origin immediately after the catalogue and Stripe-id checks —
+  **before** the salon read, **before** TX1 (the durable attempt and the promotion claim) and **before**
+  the first Stripe call. An unconfigured hosted deployment therefore creates no attempt row, claims no
+  promotion slot and makes no provider call; resolving it at the `checkout.sessions.create` call site
+  would have parked a durable attempt in `creating` (unresolvable until its TTL, blocking the salon's next
+  checkout) for a purely environmental fault. The throw is masked by the route's existing outer catch as
+  its existing `500 CHECKOUT_ERROR` with a Sentry capture — no new public error vocabulary.
+- **`portal/route.ts`** resolves it at step 7, **before** the `billingPortal.sessions.create` call (this
+  route makes no durable write of its own), masked by its existing outer catch as `500 PORTAL_ERROR` plus
+  one Sentry capture. `NO_BILLING_ACCOUNT` still precedes it, so no existing refusal changed order.
+
+**`returnUrl` is now validated (open-redirect surface).** It is caller-supplied and was handed to Stripe
+unvalidated, so anyone who could reach the endpoint could have Stripe bounce the owner to a foreign origin
+from inside a trusted billing flow. `resolveSameOriginReturnUrl()` resolves the candidate against the
+resolved application origin and accepts it ONLY when `URL.origin` matches: a same-origin absolute URL
+passes through unchanged, a same-origin path is returned absolute (Stripe requires absolute), and a
+foreign origin, a protocol-relative `//evil.example`, a non-`http(s)` scheme, an unparseable value and an
+empty string all fall back to the default return URL. The fallback is **silent and deliberate**: a
+management link that quietly returns the owner to their own dashboard is safer than a 400 that strands
+them outside the Portal, and the only thing lost is a destination the caller was never entitled to choose.
+A comment at the call site says so.
+
+### CI postimage refreshes (O10)
+
+Both pinned lists in `.github/workflows/CI.yml` gain one appended blob each, with a comment naming this
+change and the owner's 2026-09-16 approval; no historical blob was removed, and nothing else in CI changed.
+
+| File | New reviewed postimage |
+|---|---|
+| `src/app/api/billing/checkout/route.ts` | `76280b1bcaacc83342aeb8eb3979e2c89e10ed17` |
+| `src/app/api/billing/portal/route.ts` | `43a196f662a519f9fee7b4776de6e7e791246529` |
+
+Every path this PR touches under `src/app/api/billing` is already on the step-1b allowlist, and no
+zero-diff surface (`src/app/api/webhooks/stripe/route.ts`, `migrations`, `vercel.json`, the dependency
+manifests, `src/libs/salonPurge.ts`) was touched.
+
+### Deliberate non-changes recorded here
+
+1. **The waiting period behind `CHECKOUT_IN_PROGRESS` stays.** See above — the owner ruled on it directly.
+   Expiring the superseded session server-side and starting a fresh attempt remains the only complete fix
+   and remains unauthorized.
+2. **`src/app/api/billing/topups/route.ts` stays on `requireAdmin`** (read-only history, see Y1 above).
+3. **`src/libs/billing/billingAppOrigin.ts` is unchanged**, including its header note about the two
+   pinned routes; the note is now historical rather than an outstanding obligation.
+4. **No `billing_customer`, no Stripe customer creation, no `customer_email` → `customer` change** — that
+   is PR-3 under O12/O13. The webhook route, the settings routes and
+   `src/libs/billing/salonBillingDisplay.ts` are owned by a concurrent PR and were not touched.
+
+### Validation
+
+`src/app/api/billing/checkout/route.test.ts` 31 (22 pre-existing + 9: two Y1/OP-1, four OP-2 — the
+differing-offer refusal with the pending attempt proved untouched and its session neither re-created nor
+expired, the same-offer-plus-promotion refusal burning no claim, the genuine live subscription keeping the
+unchanged code AND message, and the identical offer+promotion retry still reusing the same session — and
+three X5), `src/app/api/billing/portal/route.test.ts` 18 (10 pre-existing + 8: two Y1/OP-1 and six for the
+origin and `returnUrl` validation), `src/app/api/billing/checkout/topup/route.test.ts` 51 (50
+pre-existing + 1 Y1/OP-1), `src/libs/billing/checkoutAttempts.test.ts` 12,
+`src/libs/billing/billingAppOrigin.test.ts` 14 and `src/app/api/billing/topups/route.test.ts` 14 all
+re-run unchanged and green — 140 tests, 0 failures. `src/app/api/billing/checkout/topup/
+route.concurrency.integration.test.ts`'s `adminAuth` stub gained `requireAdminOwner` so the PostgreSQL
+concurrency suite still exercises the route. `npx tsc --noEmit --pretty`, `eslint --max-warnings 0` on
+every changed file, `node --test scripts/ci-workflow.node-test.mjs` and
+`node scripts/check-secret-leaks.mjs --tree` are all clean. No existing assertion was weakened.

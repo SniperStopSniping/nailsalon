@@ -35,7 +35,7 @@ import { and, eq, inArray } from 'drizzle-orm';
 import { type NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 
-import { requireAdmin } from '@/libs/adminAuth';
+import { requireAdminOwner } from '@/libs/adminAuth';
 import { logAuditEventTx } from '@/libs/auditLog';
 import { resolveBillingAppOrigin } from '@/libs/billing/billingAppOrigin';
 import { beginCheckoutAttempt, markAttemptCheckoutCreated } from '@/libs/billing/checkoutAttempts';
@@ -93,7 +93,14 @@ export async function POST(request: NextRequest) {
       return errorJson(400, 'INVALID_INPUT', 'salonId and topupOfferKey are required; amounts and Stripe identifiers are never accepted.');
     }
     const { salonId, topupOfferKey } = parsed.data;
-    const authResult = await requireAdmin(salonId);
+    // Y1 / OP-1 (owner authorization 2026-09-16): buying credits spends the
+    // salon's money, so it is the OWNER's action — a collaborator
+    // (`role: 'admin'`) is refused `403 OWNER_REQUIRED` here, before any
+    // catalogue read, durable attempt, `sms_topup_purchase` row or Stripe
+    // call. Reading the purchase history (`/api/billing/topups`) stays on
+    // `requireAdmin`: the owner approved owner-only ACTIONS, and narrowing
+    // that read would take history away from staff who legitimately see it.
+    const authResult = await requireAdminOwner(salonId);
     if (!authResult.ok) {
       return authResult.response;
     }
