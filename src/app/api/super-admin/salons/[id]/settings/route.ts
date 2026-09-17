@@ -14,6 +14,7 @@ import { eq } from 'drizzle-orm';
 import { z } from 'zod';
 
 import { logAuditEvent } from '@/libs/auditLog';
+import { resolveSalonBillingDisplay } from '@/libs/billing/salonBillingDisplay';
 import { db } from '@/libs/DB';
 import { requireSuperAdmin } from '@/libs/superAdmin';
 import { salonSchema } from '@/models/Schema';
@@ -98,13 +99,17 @@ export async function PATCH(
 
     // 4. If no changes, return current state
     if (Object.keys(dbUpdates).length === 0) {
+      const billingDisplay = await resolveSalonBillingDisplay(db, existingSalon);
       return Response.json({
         settings: {
           reviewsEnabled: existingSalon.reviewsEnabled ?? true,
           rewardsEnabled: existingSalon.rewardsEnabled ?? true,
+          // STORED, never derived — see the GET site for why.
           billingMode: existingSalon.billingMode ?? 'NONE',
         },
-        subscriptionStatus: existingSalon.billingMode === 'STRIPE' ? existingSalon.stripeSubscriptionStatus : null,
+        derivedBillingMode: billingDisplay.billingMode,
+        subscriptionStatus: billingDisplay.subscriptionStatus,
+        billingSource: billingDisplay.billingSource,
       });
     }
 
@@ -134,13 +139,27 @@ export async function PATCH(
     });
 
     // 7. Return updated settings
+    //
+    // D19c companion: the PATCH above writes the LEGACY column, and the
+    // response below reports BOTH meanings separately — `settings.billingMode`
+    // is that stored column (the editable select's value), `derivedBillingMode`
+    // is what the owner is actually shown. Do not collapse them: this select's
+    // Save submits `settings.billingMode` whether or not the operator touched
+    // it, so seeding it from the derived value would write the new track's
+    // answer back into the legacy column on an unrelated save.
+    const billingDisplay = await resolveSalonBillingDisplay(db, updatedSalon);
     return Response.json({
       settings: {
+        // STORED, never derived — see the GET site for why.
         reviewsEnabled: updatedSalon.reviewsEnabled ?? true,
         rewardsEnabled: updatedSalon.rewardsEnabled ?? true,
         billingMode: updatedSalon.billingMode ?? 'NONE',
       },
-      subscriptionStatus: updatedSalon.billingMode === 'STRIPE' ? updatedSalon.stripeSubscriptionStatus : null,
+      derivedBillingMode: billingDisplay.billingMode,
+      // Derived, like `derivedBillingMode` and unlike `settings.billingMode`.
+      // No client echoes it back today; any future one must not start.
+      subscriptionStatus: billingDisplay.subscriptionStatus,
+      billingSource: billingDisplay.billingSource,
     });
   } catch (error) {
     console.error('Error updating salon settings:', error);
@@ -181,13 +200,24 @@ export async function GET(
       );
     }
 
+    const billingDisplay = await resolveSalonBillingDisplay(db, salon);
+
     return Response.json({
+      // `settings.billingMode` is the STORED legacy column, deliberately NOT
+      // the derived value. The super-admin panel seeds an EDITABLE select from
+      // this field and its Save button submits that state whether or not the
+      // operator touched the control, so returning the derived value here
+      // would let an unrelated save write `STRIPE` back into the legacy column
+      // for a new-track salon — silently, since the response re-derives the
+      // same answer. The derived truth is reported alongside, read-only.
       settings: {
         reviewsEnabled: salon.reviewsEnabled ?? true,
         rewardsEnabled: salon.rewardsEnabled ?? true,
         billingMode: salon.billingMode ?? 'NONE',
       },
-      subscriptionStatus: salon.billingMode === 'STRIPE' ? salon.stripeSubscriptionStatus : null,
+      derivedBillingMode: billingDisplay.billingMode,
+      subscriptionStatus: billingDisplay.subscriptionStatus,
+      billingSource: billingDisplay.billingSource,
     });
   } catch (error) {
     console.error('Error fetching salon settings:', error);

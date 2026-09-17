@@ -11,6 +11,26 @@
  *
  * CRITICAL: Uses raw body + signature verification for security.
  * Single source of truth: syncSubscription() handles all subscription updates.
+ *
+ * ISOLATION EXCEPTION (Rev 2.3 §5, D19c, owner-ratified 2026-09-16). This route
+ * is otherwise frozen. It MUST NOT project onto any salon row an object owned by
+ * the new billing track (`/api/webhooks/stripe-billing`):
+ *   - Guard A (marker): a Checkout Session whose `metadata.purpose` is
+ *     `plan_subscription` or `sms_topup`, or a Subscription whose
+ *     `metadata.purpose` is `plan_subscription`. Both markers are stamped at
+ *     creation by the two new-track checkout routes, so they are authoritative.
+ *   - Guard B (local ownership): a Subscription for which a `billing_subscription`
+ *     row already exists. Provably a no-op for genuine legacy subscriptions —
+ *     the only insert into that table requires new-track metadata resolving to a
+ *     known offer — so it only re-closes the leak when a marker was stripped or
+ *     dashboard-edited. It backs up this function, not the checkout handler.
+ *
+ * AMBIGUITY RULE (normative): an object is new-track IFF Guard A or Guard B
+ * fires. Otherwise this route behaves byte-identically to Rev 2.2. Fail toward
+ * legacy. A skipped event writes no salon row and no audit row, is logged
+ * without PII, and is still acknowledged with HTTP 200 so Stripe does not retry.
+ * The route gains no other behaviour, no event-id table, and no shared state
+ * with the billing endpoint (§8.2 independence is unchanged).
  */
 /* eslint-disable no-console -- Webhook logging is intentional for operational visibility */
 import * as Sentry from '@sentry/nextjs';
@@ -23,7 +43,7 @@ import { db } from '@/libs/DB';
 import { Env } from '@/libs/Env';
 import { BILLING_MODE } from '@/libs/featureGating';
 import { stripe } from '@/libs/stripe';
-import { salonSchema } from '@/models/Schema';
+import { billingSubscriptionSchema, salonSchema } from '@/models/Schema';
 
 // =============================================================================
 // SYNC SUBSCRIPTION - Single Source of Truth
@@ -40,6 +60,41 @@ async function syncSubscription(subscriptionId: string): Promise<void> {
   const subscription = await stripe.subscriptions.retrieve(subscriptionId, {
     expand: ['customer', 'items.data.price'],
   });
+
+  // 1a. Guard A (§5 isolation exception): a new-track subscription is never
+  // projected onto a salon row. The marker is stamped at creation, so this fires
+  // before salon resolution and before every write, and covers both
+  // `customer.subscription.*` and `invoice.payment_*` (all funnel through here).
+  if (subscription.metadata?.purpose === 'plan_subscription') {
+    console.warn('[Stripe Webhook] syncSubscription: new-track subscription ignored', {
+      subscriptionId: subscription.id,
+      purpose: subscription.metadata.purpose,
+    });
+    return;
+  }
+
+  // 1b. Guard B (§5 isolation exception): local-ownership backstop, one indexed
+  // read on `billing_subscription_stripe_sub_uniq`. The only insert into that
+  // table (`billingSubscriptionProjection.ts`) requires new-track metadata —
+  // `billingOfferKey` plus `salonId`, resolving to a known offer — so a genuine
+  // legacy subscription can never acquire a row and this is a no-op for it.
+  // Note this backs up `syncSubscription` only: an unmarked Checkout Session
+  // still takes the full legacy projection in `handleCheckoutSessionCompleted`
+  // below. That is deliberate — a checkout-time ownership read would race the
+  // sibling endpoint's own insert for the very session being completed.
+  const [ownedByBillingTrack] = await db
+    .select({ id: billingSubscriptionSchema.id })
+    .from(billingSubscriptionSchema)
+    .where(eq(billingSubscriptionSchema.stripeSubscriptionId, subscription.id))
+    .limit(1);
+
+  if (ownedByBillingTrack) {
+    console.warn('[Stripe Webhook] syncSubscription: billing-track subscription ignored', {
+      subscriptionId: subscription.id,
+      reason: 'billing_subscription_row_exists',
+    });
+    return;
+  }
 
   // 2. Extract data
   const stripeCustomerId = typeof subscription.customer === 'string'
@@ -121,6 +176,20 @@ async function syncSubscription(subscriptionId: string): Promise<void> {
  */
 async function handleCheckoutSessionCompleted(session: Stripe.Checkout.Session): Promise<void> {
   const salonId = session.metadata?.salonId;
+
+  // Guard A (§5 isolation exception): a new-track Checkout Session is never
+  // projected onto a salon row — no billingMode flip, no ids, no email, no
+  // audit row, no syncSubscription. Sessions are immutable after creation, so
+  // the marker the two billing checkout routes stamp is authoritative.
+  const purpose = session.metadata?.purpose;
+  if (purpose === 'plan_subscription' || purpose === 'sms_topup') {
+    console.warn('[Stripe Webhook] checkout.session.completed: new-track session ignored', {
+      sessionId: session.id,
+      purpose,
+    });
+    return;
+  }
+
   const subscriptionId = typeof session.subscription === 'string'
     ? session.subscription
     : session.subscription?.id;

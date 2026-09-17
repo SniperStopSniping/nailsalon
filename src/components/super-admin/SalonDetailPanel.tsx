@@ -387,6 +387,11 @@ export function SalonDetailPanel({ salonId, onClose, onDeleted }: SalonDetailPan
   // Billing & Programs state (Step 21E)
   const [reviewsEnabled, setReviewsEnabled] = useState(true);
   const [billingMode, setBillingMode] = useState<'NONE' | 'STRIPE'>('NONE');
+  // D19c companion: what the OWNER is shown, which for a new-track subscriber
+  // is derived from a live `billing_subscription` row rather than the legacy
+  // column the select above edits. Read-only, and never submitted back.
+  const [derivedBillingMode, setDerivedBillingMode] = useState<string | null>(null);
+  const [billingSource, setBillingSource] = useState<string | null>(null);
   const [settingsSaving, setSettingsSaving] = useState(false);
 
   // Save button states
@@ -504,7 +509,12 @@ export function SalonDetailPanel({ salonId, onClose, onDeleted }: SalonDetailPan
       // Populate Billing & Programs state from settings endpoint
       setReviewsEnabled(data.settings.reviewsEnabled ?? true);
       setRewardsEnabled(data.settings.rewardsEnabled ?? true);
+      // The STORED legacy column — this select edits that column, so seeding it
+      // from the derived value would let an unrelated save write the derived
+      // answer back into storage.
       setBillingMode((data.settings.billingMode as 'NONE' | 'STRIPE') ?? 'NONE');
+      setDerivedBillingMode(typeof data.derivedBillingMode === 'string' ? data.derivedBillingMode : null);
+      setBillingSource(typeof data.billingSource === 'string' ? data.billingSource : null);
     } catch (err) {
       setSettingsError(err instanceof Error ? err.message : 'Failed to load settings');
     } finally {
@@ -1706,6 +1716,11 @@ export function SalonDetailPanel({ salonId, onClose, onDeleted }: SalonDetailPan
                                   ? 'Salon handles billing manually. No Stripe subscription required.'
                                   : 'Salon uses Stripe for subscription billing.'}
                               </p>
+                              {billingSource === 'billing_subscription' && (
+                                <p data-testid="derived-billing-mode" className="mt-1 text-xs text-amber-700">
+                                  {`This salon has a live subscription on the new billing track, so the owner sees ${derivedBillingMode ?? 'STRIPE'} regardless of the value above. The control edits the legacy column only.`}
+                                </p>
+                              )}
                             </div>
                           </div>
 

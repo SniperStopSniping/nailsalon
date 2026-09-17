@@ -235,19 +235,34 @@ jobs:
           base="$(git merge-base origin/main HEAD)"
 
           # 1. Hard zero-diff. D6 adds dependency manifests to the protected set.
-          #    Gate C2 narrowed the billing freeze: the legacy webhook route
-          #    stays byte-frozen here, while the checkout surface moved to the
-          #    reviewed-postimage allowlist in step 1b — its legacy body
+          #    Gate C2 narrowed the billing freeze: the checkout surface moved
+          #    to the reviewed-postimage allowlist in step 1b — its legacy body
           #    accepted a client-supplied Stripe priceId and was replaced by
           #    the server-authoritative C2 route. P5b (G41, D18, explicit
           #    owner approval 2026-09-14) moved the Billing Portal route the
           #    same way: it also stays a LIVE, production-used surface, but
-          #    now via the reviewed-postimage gate below (not this zero-diff
+          #    now via the reviewed-postimage gate below (not a zero-diff
           #    line) so it can resolve new-track `billing_subscription`
           #    customers instead of only the legacy `salon.stripeCustomerId`
-          #    column.
-          git diff --exit-code "$base" -- \
-            src/app/api/webhooks/stripe/route.ts
+          #    column. D19c (owner ratification 2026-09-16, Rev 2.3 §5) moves
+          #    the legacy webhook route the same way. That route stays frozen
+          #    except for the single §5 isolation exception: it must not
+          #    project a new-track Checkout Session or Subscription onto a
+          #    salon row. Every object matching neither guard is processed
+          #    byte-identically, so only a REVIEWED postimage is accepted here.
+          if ! git diff --quiet "$base" -- src/app/api/webhooks/stripe/route.ts; then
+            legacy_webhook_blob="$(git hash-object src/app/api/webhooks/stripe/route.ts)"
+            case "$legacy_webhook_blob" in
+              # D19c: Guard A (metadata.purpose) + Guard B (billing_subscription
+              # local-ownership backstop) and nothing else.
+              85990776e5a63a04397c6958092be0ec660f109c) ;;
+              *)
+                echo "::error::src/app/api/webhooks/stripe/route.ts must match a reviewed postimage."
+                printf 'actual blob: %s\n' "$legacy_webhook_blob"
+                exit 1
+                ;;
+            esac
+          fi
 
           # Dependency manifests remain frozen except these reviewed exact
           # manifest/lock pairs. Neither a generic version range nor an

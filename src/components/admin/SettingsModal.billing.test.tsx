@@ -53,7 +53,11 @@ vi.mock('./ChoosePlanPanel', () => ({
   ),
 }));
 
-function mockEndpoints(options: { billingMode?: 'NONE' | 'STRIPE' } = {}) {
+function mockEndpoints(options: {
+  billingMode?: 'NONE' | 'STRIPE';
+  subscriptionStatus?: string | null;
+  billingSource?: 'billing_subscription' | 'legacy';
+} = {}) {
   fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === 'string' ? input : input.toString();
 
@@ -94,7 +98,11 @@ function mockEndpoints(options: { billingMode?: 'NONE' | 'STRIPE' } = {}) {
         reviewsEnabled: true,
         rewardsEnabled: true,
         billingMode: options.billingMode ?? 'NONE',
-        subscriptionStatus: options.billingMode === 'STRIPE' ? 'active' : null,
+        subscriptionStatus: options.subscriptionStatus !== undefined
+          ? options.subscriptionStatus
+          : (options.billingMode === 'STRIPE' ? 'active' : null),
+        // D19c companion: the settings route now says which side answered.
+        billingSource: options.billingSource ?? 'legacy',
         bookingConfig: {
           bufferMinutes: 10,
           slotIntervalMinutes: 15,
@@ -168,6 +176,39 @@ describe('Account & Plan — Choose plan wiring (P7)', () => {
     const panel = await screen.findByTestId('choose-plan-panel-stub');
 
     expect(panel).toHaveTextContent('panel for salon-a');
+  });
+
+  // D19c companion (LG-4): the component needs NO logic change — it renders
+  // from `data.billingMode` — but that is exactly why it has to be pinned. The
+  // settings route now derives that field from a live `billing_subscription`
+  // row, so a new-track subscriber whose LEGACY column still reads `NONE` must
+  // still get the Manage-billing button and the plan status, not "Cash /
+  // Offline billing enabled".
+  it('renders manage-billing-button for a derived billing_subscription salon', async () => {
+    mockEndpoints({
+      billingMode: 'STRIPE',
+      subscriptionStatus: 'active',
+      billingSource: 'billing_subscription',
+    });
+    const { SettingsModal } = await import('./SettingsModal');
+    render(<SettingsModal onClose={vi.fn()} salonSlug="salon-a" salonId="salon_1" userName="Daniela" />);
+
+    fireEvent.click(await screen.findByText('Account & Plan'));
+
+    expect(await screen.findByTestId('manage-billing-button')).toBeInTheDocument();
+    expect(screen.getByText('Stripe Billing (active)')).toBeInTheDocument();
+    expect(screen.queryByText('Cash / Offline billing enabled')).not.toBeInTheDocument();
+  });
+
+  it('still shows the cash/offline state when the display resolves to legacy NONE', async () => {
+    mockEndpoints({ billingMode: 'NONE', billingSource: 'legacy' });
+    const { SettingsModal } = await import('./SettingsModal');
+    render(<SettingsModal onClose={vi.fn()} salonSlug="salon-a" salonId="salon_1" userName="Daniela" />);
+
+    fireEvent.click(await screen.findByText('Account & Plan'));
+
+    expect(await screen.findByText('Cash / Offline billing enabled')).toBeInTheDocument();
+    expect(screen.queryByTestId('manage-billing-button')).not.toBeInTheDocument();
   });
 
   it('does not render the Plans button for free-solo salons', async () => {

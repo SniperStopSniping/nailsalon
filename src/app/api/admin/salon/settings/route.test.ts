@@ -38,12 +38,19 @@ const {
   getDepositPolicyForSalon,
   updatedRows,
   selectResults,
+  billingSubscriptionRows,
   db,
 } = vi.hoisted(() => {
   const updatedRows: unknown[] = [];
   // FIFO queue of result sets for db.select(...).from(...).where(...) calls
   // (smart fit id-ownership checks: services first, then technicians).
   const selectResults: unknown[][] = [];
+  // D19c companion: `resolveSalonBillingDisplay` is the only reader that
+  // continues past `.where()` (`.orderBy(...).limit(1)`), so it gets its OWN
+  // queue and cannot consume an entry an id-ownership check is waiting for.
+  // Empty — the default — means "no billing_subscription row", i.e. today's
+  // legacy display, which is what every pre-existing assertion here expects.
+  const billingSubscriptionRows: unknown[] = [];
   return {
     requireAdmin: vi.fn(),
     logAuditEvent: vi.fn(),
@@ -64,10 +71,21 @@ const {
     })),
     updatedRows,
     selectResults,
+    billingSubscriptionRows,
     db: {
       select: vi.fn(() => ({
         from: vi.fn(() => ({
-          where: vi.fn(async () => selectResults.shift() ?? []),
+          where: vi.fn(() => ({
+            // Awaited directly (today's callers): the FIFO queue, unchanged.
+            then: (
+              onFulfilled: (rows: unknown[]) => unknown,
+              onRejected?: (reason: unknown) => unknown,
+            ) => Promise.resolve(selectResults.shift() ?? []).then(onFulfilled, onRejected),
+            // Continued with `.orderBy(...).limit(1)`: the billing-display read.
+            orderBy: () => ({
+              limit: async () => billingSubscriptionRows.splice(0, billingSubscriptionRows.length),
+            }),
+          })),
         })),
       })),
       update: vi.fn(() => ({
@@ -140,6 +158,20 @@ vi.mock('@/libs/depositPolicy.server', () => ({
   getDepositPolicyForSalon,
   EXPECTED_LIVEMODE: false,
 }));
+
+/**
+ * D19c companion: every response now makes exactly ONE extra select — the
+ * billing-display read, whose projection is `{ status, updatedAt }`. The smart
+ * fit tests below are about the id-OWNERSHIP selects, so those are identified
+ * by their `{ id }` projection instead of by the coarse "select was never
+ * called" that the billing read would now always trip.
+ */
+function ownershipSelectCalls(): Record<string, unknown>[] {
+  const calls = db.select.mock.calls as unknown as [Record<string, unknown> | undefined][];
+  return calls
+    .map(([projection]) => projection ?? {})
+    .filter(projection => Object.keys(projection).length === 1 && 'id' in projection);
+}
 
 describe('/api/admin/salon/settings notification settings', () => {
   beforeEach(() => {
@@ -1293,7 +1325,8 @@ describe('/api/admin/salon/settings smart fit settings (P7.4)', () => {
     const response = await patchSmartFit({ enabled: true });
 
     expect(response.status).toBe(200);
-    expect(db.select).not.toHaveBeenCalled();
+    expect(ownershipSelectCalls()).toEqual([]);
+    expect(db.select).toHaveBeenCalledTimes(1);
   });
 
   it('persists explicit empty arrays (= all services/technicians eligible per the parser)', async () => {
@@ -1318,7 +1351,8 @@ describe('/api/admin/salon/settings smart fit settings (P7.4)', () => {
     expect(body.smartFit.eligibleServiceIds).toEqual([]);
     expect(body.smartFit.eligibleTechnicianIds).toEqual([]);
     // Empty arrays trigger no ownership queries.
-    expect(db.select).not.toHaveBeenCalled();
+    expect(ownershipSelectCalls()).toEqual([]);
+    expect(db.select).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -4380,5 +4414,131 @@ describe('/api/admin/salon/settings deposits', () => {
     expect(response.status).toBe(500);
 
     consoleError.mockRestore();
+  });
+});
+
+// =============================================================================
+// LG-4 — the owner-facing billing display (D19c companion, Rev 2.3 §5)
+// =============================================================================
+//
+// Once the legacy webhook route stops flipping `salon.billingMode` for a
+// new-track Checkout Session, a paying subscriber's legacy column still reads
+// `NONE`. Without the derived read the owner would be told "Cash / Offline
+// billing enabled" and would lose the Manage-billing button. These pin the
+// wiring at all three response sites; the live-row PREDICATE itself is proved
+// against real SQL in `src/libs/billing/salonBillingDisplay.test.ts`.
+describe('/api/admin/salon/settings billing display (LG-4)', () => {
+  const baseSalon = {
+    id: 'salon_1',
+    slug: 'salon-a',
+    ownerPhone: '4169021427',
+    ownerEmail: 'owner@example.com',
+    reviewsEnabled: true,
+    rewardsEnabled: true,
+    billingMode: 'NONE',
+    stripeSubscriptionStatus: null,
+    features: {},
+    settings: {},
+  };
+
+  function get() {
+    return GET(new Request('http://localhost/api/admin/salon/settings?salonSlug=salon-a'));
+  }
+
+  function patch(body: unknown) {
+    return PATCH(
+      new Request('http://localhost/api/admin/salon/settings?salonSlug=salon-a', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      }),
+    );
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    updatedRows.length = 0;
+    selectResults.length = 0;
+    billingSubscriptionRows.length = 0;
+
+    requireAdmin.mockResolvedValue({ ok: true, admin: { id: 'admin_1' } });
+    getBookingConfigForSalon.mockResolvedValue({});
+    resolveBookingConfigFromSettings.mockReturnValue({ currency: 'CAD' });
+    getDefaultLoyaltyPoints.mockReturnValue({});
+    resolveSalonLoyaltyPoints.mockReturnValue({});
+    getSalonBySlug.mockResolvedValue(baseSalon);
+  });
+
+  it('GET derives STRIPE and the row status for a live billing_subscription while the legacy column says NONE', async () => {
+    billingSubscriptionRows.push({ status: 'active', updatedAt: new Date('2026-09-01T00:00:00Z') });
+
+    const body = await (await get()).json();
+
+    expect(body.billingMode).toBe('STRIPE');
+    expect(body.subscriptionStatus).toBe('active');
+    expect(body.billingSource).toBe('billing_subscription');
+    // Display only — the admin still cannot edit it.
+    expect(body.canEditBillingMode).toBe(false);
+  });
+
+  it('GET falls back to the legacy columns for a canceled-only history row', async () => {
+    billingSubscriptionRows.push({ status: 'canceled', updatedAt: new Date('2026-09-15T00:00:00Z') });
+
+    const body = await (await get()).json();
+
+    expect(body.billingMode).toBe('NONE');
+    expect(body.subscriptionStatus).toBeNull();
+    expect(body.billingSource).toBe('legacy');
+  });
+
+  it('GET leaves a genuine legacy Stripe subscriber reading exactly as it does today', async () => {
+    getSalonBySlug.mockResolvedValue({
+      ...baseSalon,
+      billingMode: 'STRIPE',
+      stripeSubscriptionStatus: 'active',
+    });
+
+    const body = await (await get()).json();
+
+    expect(body.billingMode).toBe('STRIPE');
+    expect(body.subscriptionStatus).toBe('active');
+    expect(body.billingSource).toBe('legacy');
+  });
+
+  it('the PATCH no-change branch derives the display too', async () => {
+    billingSubscriptionRows.push({ status: 'past_due', updatedAt: new Date('2026-09-01T00:00:00Z') });
+
+    // reviewsEnabled already true on the salon, so nothing is written.
+    const response = await patch({ reviewsEnabled: true });
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(db.update).not.toHaveBeenCalled();
+    expect(body.billingMode).toBe('STRIPE');
+    expect(body.subscriptionStatus).toBe('past_due');
+    expect(body.billingSource).toBe('billing_subscription');
+  });
+
+  it('the PATCH success branch derives the display from the UPDATED salon', async () => {
+    billingSubscriptionRows.push({ status: 'trialing', updatedAt: new Date('2026-09-01T00:00:00Z') });
+    updatedRows.push({ ...baseSalon, reviewsEnabled: false });
+
+    const response = await patch({ reviewsEnabled: false });
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.reviewsEnabled).toBe(false);
+    expect(body.billingMode).toBe('STRIPE');
+    expect(body.subscriptionStatus).toBe('trialing');
+    expect(body.billingSource).toBe('billing_subscription');
+  });
+
+  it('billingMode is still a FORBIDDEN field for an admin, derived display or not', async () => {
+    billingSubscriptionRows.push({ status: 'active', updatedAt: new Date('2026-09-01T00:00:00Z') });
+
+    const response = await patch({ billingMode: 'NONE' });
+
+    expect(response.status).toBe(403);
+    expect(db.update).not.toHaveBeenCalled();
   });
 });
