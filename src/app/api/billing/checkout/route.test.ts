@@ -27,7 +27,19 @@ vi.mock('@/libs/DB', () => ({
   },
 }));
 
+const billingCustomerMock = vi.hoisted(() => ({
+  resolveOrCreateBillingCustomer: vi.fn(async ({ salonId }: { salonId: string }) => ({
+    id: `bcus_${salonId}`,
+    salonId,
+    planEnv: 'test',
+    stripeCustomerId: `cus_billing_${salonId}`,
+    source: 'created' as const,
+  })),
+}));
+vi.mock('@/libs/billing/billingCustomer', () => billingCustomerMock);
+
 const envHolder = vi.hoisted(() => ({
+  BILLING_DEPLOYMENT_MARKER: undefined as string | undefined,
   BILLING_PLAN_ENV: 'test' as string,
   BILLING_SUBSCRIPTIONS_ENABLED: undefined as string | undefined,
   BILLING_TAX_COLLECTION_ENABLED: undefined as string | undefined,
@@ -190,6 +202,7 @@ beforeAll(async () => {
 });
 
 beforeEach(() => {
+  envHolder.BILLING_DEPLOYMENT_MARKER = undefined;
   envHolder.BILLING_SUBSCRIPTIONS_ENABLED = 'true';
   envHolder.BILLING_TAX_COLLECTION_ENABLED = undefined;
   envHolder.NEXT_PUBLIC_APP_URL = 'https://app.test';
@@ -203,6 +216,7 @@ beforeEach(() => {
   stripeMock.checkout.sessions.create.mockReset();
   stripeMock.checkout.sessions.retrieve.mockReset();
   stripeMock.checkout.sessions.expire.mockReset();
+  billingCustomerMock.resolveOrCreateBillingCustomer.mockClear();
   stripeMock.checkout.sessions.create.mockImplementation(async () => ({
     id: `cs_${Math.random().toString(36).slice(2, 10)}`,
     url: 'https://checkout.stripe.test/session',
@@ -283,6 +297,20 @@ describe('dark switch and catalogue gates — reject before any write or provide
 });
 
 describe('attempt lifecycle', () => {
+  it('stamps a configured deployment marker on both the Session and Subscription metadata', async () => {
+    envHolder.BILLING_DEPLOYMENT_MARKER = 'preview-isla';
+    await seedSalon('s_marker');
+
+    const response = await post({ salonId: 's_marker', billingOfferKey: 'pro_2026_08_monthly' });
+
+    expect(response.status).toBe(200);
+
+    const params = stripeMock.checkout.sessions.create.mock.calls[0]![0];
+
+    expect(params.metadata.luster_deployment).toBe('preview-isla');
+    expect(params.subscription_data.metadata.luster_deployment).toBe('preview-isla');
+  });
+
   it('creates the session under the attempt-derived idempotency key and records it', async () => {
     await seedSalon('s_ok');
     const response = await post({ salonId: 's_ok', billingOfferKey: 'pro_2026_08_monthly' });
@@ -699,7 +727,7 @@ describe('G14 — automatic-tax architecture (§3.7)', () => {
     expect(params.automatic_tax).toEqual({ enabled: true });
   });
 
-  it('the customer branch (a known Stripe customer) carries customer_update; the customer_email branch does not', async () => {
+  it('always uses the canonical billing customer and allows Stripe to update address and name', async () => {
     await db.insert(schema.salonSchema).values({
       id: 's_tax_customer',
       name: 's_tax_customer',
@@ -712,19 +740,14 @@ describe('G14 — automatic-tax architecture (§3.7)', () => {
 
     const paramsWithCustomer = stripeMock.checkout.sessions.create.mock.calls[0]![0];
 
-    expect(paramsWithCustomer.customer).toBe('cus_existing_123');
-    expect(paramsWithCustomer.customer_update).toEqual({ address: 'auto' });
-
-    stripeMock.checkout.sessions.create.mockClear();
-    await seedSalon('s_tax_no_customer');
-    const withoutCustomer = await post({ salonId: 's_tax_no_customer', billingOfferKey: 'pro_2026_08_monthly' });
-
-    expect(withoutCustomer.status).toBe(200);
-
-    const paramsWithoutCustomer = stripeMock.checkout.sessions.create.mock.calls[0]![0];
-
-    expect(paramsWithoutCustomer.customer).toBeUndefined();
-    expect(paramsWithoutCustomer.customer_update).toBeUndefined();
+    expect(paramsWithCustomer.customer).toBe('cus_billing_s_tax_customer');
+    expect(paramsWithCustomer.customer_update).toEqual({ address: 'auto', name: 'auto' });
+    expect(paramsWithCustomer.customer_email).toBeUndefined();
+    expect(billingCustomerMock.resolveOrCreateBillingCustomer).toHaveBeenCalledWith({
+      email: null,
+      name: 's_tax_customer',
+      salonId: 's_tax_customer',
+    });
   });
 });
 

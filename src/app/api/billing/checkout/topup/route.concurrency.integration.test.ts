@@ -51,6 +51,7 @@ vi.mock('@/libs/rateLimit', () => ({
 vi.mock('@sentry/nextjs', () => ({ captureException: vi.fn(), captureMessage: vi.fn() }));
 
 const stripeMock = vi.hoisted(() => ({
+  customers: { create: vi.fn(), retrieve: vi.fn() },
   checkout: { sessions: { create: vi.fn(), retrieve: vi.fn() } },
   // P3b: the route re-verifies the resolved price live before writing
   // anything — always resolved to the single price id this suite uses.
@@ -150,7 +151,14 @@ suite('top-up checkout — real-lock concurrency', () => {
     fulfillmentGate.wait = null;
     stripeMock.checkout.sessions.create.mockReset();
     stripeMock.checkout.sessions.retrieve.mockReset();
+    stripeMock.customers.create.mockReset();
+    stripeMock.customers.retrieve.mockReset();
     stripeMock.prices.retrieve.mockReset();
+    stripeMock.customers.create.mockImplementation(async (params: { metadata?: { salonId?: string } }) => ({
+      id: `cus_${params.metadata?.salonId ?? 'unknown'}`,
+      object: 'customer',
+      livemode: false,
+    }));
     // P3b: every suite fixture buys 'topup_100_paid_2026_08' (599¢) — a
     // live, ACTIVE, one-time, cad price matching it every time.
     stripeMock.prices.retrieve.mockImplementation(async () => ({
@@ -216,6 +224,38 @@ suite('top-up checkout — real-lock concurrency', () => {
 
       expect(Number(attempts.rows[0].count)).toBe(1);
       expect(Number(purchases.rows[0].count)).toBe(1);
+
+      const customerMappings = await db.select().from(schema.billingCustomerSchema)
+        .where(eq(schema.billingCustomerSchema.salonId, 'topup-s1'));
+      const customerAudits = await db.select().from(schema.auditLogSchema)
+        .where(eq(schema.auditLogSchema.action, 'billing_customer_created'));
+      const canonicalCustomerId = customerMappings[0]!.stripeCustomerId;
+
+      expect(customerMappings).toHaveLength(1);
+      expect(customerAudits).toHaveLength(1);
+      expect(stripeMock.checkout.sessions.create.mock.calls[0]![0].customer)
+        .toBe(canonicalCustomerId);
+      expect(stripeMock.checkout.sessions.create.mock.calls[0]![0].customer_email)
+        .toBeUndefined();
+
+      // After the first durable attempt is terminal, a later top-up creates a
+      // second Session but reuses the same canonical Customer without another
+      // provider-side customer create. Combined with the eight simultaneous
+      // route calls above, this is CU-2's route/customer convergence proof.
+      await db.update(schema.billingCheckoutAttemptSchema)
+        .set({ status: 'completed' })
+        .where(eq(schema.billingCheckoutAttemptSchema.salonId, 'topup-s1'));
+      const customerCreateCalls = stripeMock.customers.create.mock.calls.length;
+      const repeat = await postCheckout('topup-s1');
+
+      expect(repeat.status).toBe(200);
+      expect(stripeMock.checkout.sessions.create).toHaveBeenCalledTimes(2);
+      expect(stripeMock.checkout.sessions.create.mock.calls[1]![0].customer)
+        .toBe(canonicalCustomerId);
+      expect(stripeMock.customers.create).toHaveBeenCalledTimes(customerCreateCalls);
+      expect(await db.select().from(schema.billingCustomerSchema)
+        .where(eq(schema.billingCustomerSchema.salonId, 'topup-s1')))
+        .toHaveLength(1);
     } finally {
       try {
         await fixture.query('ROLLBACK');

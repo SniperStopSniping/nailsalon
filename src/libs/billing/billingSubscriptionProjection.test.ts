@@ -25,6 +25,7 @@ vi.mock('@/libs/DB', () => ({
 }));
 
 const envHolder = vi.hoisted(() => ({
+  BILLING_PLAN_ENV: 'test' as 'dev' | 'test' | 'prod',
   BILLING_IDENTITY_HMAC_SECRET: undefined,
   BILLING_IDENTITY_HMAC_VERSION: undefined,
 }));
@@ -69,6 +70,7 @@ beforeAll(async () => {
 });
 
 beforeEach(() => {
+  envHolder.BILLING_PLAN_ENV = 'test';
   priceMapHolder.resolvedOfferKey = null;
   rateProtectionHolder.calls = [];
 });
@@ -86,7 +88,7 @@ async function seedSalon(id: string) {
 function snapshot(over: Partial<import('./billingSubscriptionProjection').StripeSubscriptionSnapshot> & { salonId: string }) {
   return {
     id: over.id ?? 'sub_stripe_1',
-    customerId: 'cus_1',
+    customerId: over.customerId ?? 'cus_1',
     status: over.status ?? 'active',
     cancelAtPeriodEnd: over.cancelAtPeriodEnd ?? false,
     currentPeriodStart: over.currentPeriodStart ?? T0,
@@ -140,6 +142,73 @@ describe('billing event claim machinery (§8.2)', () => {
 });
 
 describe('subscription projection (§8.3/§8.4)', () => {
+  it('refuses a customer mapped to another tenant before projecting anything', async () => {
+    const { projectSubscriptionSnapshot } = await projection();
+    await seedSalon('s_customer_owner');
+    await seedSalon('s_customer_intruder');
+    await db.insert(schema.billingCustomerSchema).values({
+      id: 'bcus_projection_tenant',
+      salonId: 's_customer_owner',
+      planEnv: 'test',
+      stripeCustomerId: 'cus_projection_owned',
+      source: 'created',
+    });
+
+    const outcome = await projectSubscriptionSnapshot({
+      snapshot: snapshot({
+        salonId: 's_customer_intruder',
+        id: 'sub_projection_intruder',
+        customerId: 'cus_projection_owned',
+      }),
+      eventCreated: T0,
+      eventId: 'evt_projection_intruder',
+    });
+
+    expect(outcome).toEqual({ applied: false, anomaly: 'CUSTOMER_TENANT_MISMATCH' });
+    expect(await db.select().from(schema.billingSubscriptionSchema)
+      .where(eq(schema.billingSubscriptionSchema.stripeSubscriptionId, 'sub_projection_intruder')))
+      .toHaveLength(0);
+  });
+
+  it('refuses a customer mapping from another plan environment', async () => {
+    const { projectSubscriptionSnapshot } = await projection();
+    await seedSalon('s_customer_env');
+    await db.insert(schema.billingCustomerSchema).values({
+      id: 'bcus_projection_env',
+      salonId: 's_customer_env',
+      planEnv: 'dev',
+      stripeCustomerId: 'cus_projection_dev',
+      source: 'created',
+    });
+
+    const outcome = await projectSubscriptionSnapshot({
+      snapshot: snapshot({
+        salonId: 's_customer_env',
+        id: 'sub_projection_env',
+        customerId: 'cus_projection_dev',
+      }),
+      eventCreated: T0,
+      eventId: 'evt_projection_env',
+    });
+
+    expect(outcome).toEqual({ applied: false, anomaly: 'CUSTOMER_ENVIRONMENT_MISMATCH' });
+  });
+
+  it('allows an unknown customer to remain visible as remote evidence', async () => {
+    const { projectSubscriptionSnapshot } = await projection();
+    await seedSalon('s_customer_unknown');
+
+    await expect(projectSubscriptionSnapshot({
+      snapshot: snapshot({
+        salonId: 's_customer_unknown',
+        id: 'sub_projection_unknown',
+        customerId: 'cus_projection_unknown',
+      }),
+      eventCreated: T0,
+      eventId: 'evt_projection_unknown',
+    })).resolves.toEqual({ applied: true, kind: 'created' });
+  });
+
   it('creates with ZERO entitlement, applies equal-second events, rejects strictly older ones', async () => {
     const { projectSubscriptionSnapshot } = await projection();
     await seedSalon('s_proj1');
@@ -520,7 +589,7 @@ describe('projection insert race (§8.3) — the loser must never write a phanto
 
     // The loser: its existence check (SELECT #1) ran before the winner
     // committed, so it takes the INSERT path and conflicts for real.
-    holder.db = dbWithBlindSelects([1]);
+    holder.db = dbWithBlindSelects([2]);
     let loser;
     try {
       loser = await projectSubscriptionSnapshot({
@@ -575,7 +644,7 @@ describe('projection insert race (§8.3) — the loser must never write a phanto
     // The losing delivery is STRICTLY older than the winner's watermark: the
     // moved update branch must fence it exactly as it would for any second
     // delivery, instead of writing a `created` row for a phantom id.
-    holder.db = dbWithBlindSelects([1]);
+    holder.db = dbWithBlindSelects([2]);
     let loser;
     try {
       loser = await projectSubscriptionSnapshot({
@@ -606,10 +675,11 @@ describe('projection insert race (§8.3) — the loser must never write a phanto
       eventId: 'evt_race_gone_winner',
     });
 
-    // SELECT #1 is the existence check and SELECT #3 the post-conflict
-    // re-select (#2 is the salon share-lock read): the winning row was deleted
-    // between the conflict and the re-read.
-    holder.db = dbWithBlindSelects([1, 3]);
+    // SELECT #2 is the existence check and SELECT #4 the post-conflict
+    // re-select (#1 is the canonical-customer fence and #3 the salon
+    // share-lock read): the winning row was deleted between the conflict and
+    // the re-read.
+    holder.db = dbWithBlindSelects([2, 4]);
     let loser;
     try {
       loser = await projectSubscriptionSnapshot({

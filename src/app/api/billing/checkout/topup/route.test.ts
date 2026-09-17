@@ -26,7 +26,19 @@ vi.mock('@/libs/DB', () => ({
   },
 }));
 
+const billingCustomerMock = vi.hoisted(() => ({
+  resolveOrCreateBillingCustomer: vi.fn(async ({ salonId }: { salonId: string }) => ({
+    id: `bcus_${salonId}`,
+    salonId,
+    planEnv: 'test',
+    stripeCustomerId: `cus_billing_${salonId}`,
+    source: 'created' as const,
+  })),
+}));
+vi.mock('@/libs/billing/billingCustomer', () => billingCustomerMock);
+
 const envHolder = vi.hoisted(() => ({
+  BILLING_DEPLOYMENT_MARKER: undefined as string | undefined,
   BILLING_PLAN_ENV: 'test' as string,
   BILLING_TOPUPS_ENABLED: undefined as string | undefined,
   BILLING_TAX_COLLECTION_ENABLED: undefined as string | undefined,
@@ -132,6 +144,7 @@ beforeAll(async () => {
 const originalVercel = process.env.VERCEL;
 
 beforeEach(() => {
+  envHolder.BILLING_DEPLOYMENT_MARKER = undefined;
   envHolder.BILLING_TOPUPS_ENABLED = 'true';
   envHolder.BILLING_TAX_COLLECTION_ENABLED = undefined;
   // X5: restore the configured origin every test; the origin suite below
@@ -145,6 +158,7 @@ beforeEach(() => {
   stripeMock.charges.retrieve.mockReset();
   stripeMock.invoices.retrieve.mockReset();
   stripeMock.prices.retrieve.mockReset();
+  billingCustomerMock.resolveOrCreateBillingCustomer.mockClear();
   stripeMock.checkout.sessions.create.mockImplementation(async () => ({
     id: `cs_topup_${Math.random().toString(36).slice(2, 8)}`,
     url: 'https://checkout.stripe.test/topup',
@@ -242,6 +256,20 @@ const purchasedBalance = async (salonId: string) => {
 };
 
 describe('top-up checkout (§9.2)', () => {
+  it('stamps a configured deployment marker on Session and PaymentIntent metadata', async () => {
+    envHolder.BILLING_DEPLOYMENT_MARKER = 'preview-isla';
+    await seedSalon('s_t_marker');
+
+    const response = await postCheckout({ salonId: 's_t_marker', topupOfferKey: 'topup_100_paid_2026_08' });
+
+    expect(response.status).toBe(200);
+
+    const params = stripeMock.checkout.sessions.create.mock.calls[0]![0];
+
+    expect(params.metadata.luster_deployment).toBe('preview-isla');
+    expect(params.payment_intent_data.metadata.luster_deployment).toBe('preview-isla');
+  });
+
   it('the dark switch rejects before any write or provider call', async () => {
     envHolder.BILLING_TOPUPS_ENABLED = undefined;
     await seedSalon('s_t_dark');
@@ -1344,7 +1372,7 @@ describe('G14 — automatic-tax architecture (§3.7)', () => {
     expect(params.automatic_tax).toEqual({ enabled: true });
   });
 
-  it('the customer branch (a known Stripe customer) carries customer_update; the customer_email branch does not', async () => {
+  it('always uses the canonical billing customer and allows Stripe to update address and name', async () => {
     await db.insert(schema.salonSchema).values({
       id: 's_t_tax_customer',
       name: 's_t_tax_customer',
@@ -1358,19 +1386,14 @@ describe('G14 — automatic-tax architecture (§3.7)', () => {
 
     const paramsWithCustomer = stripeMock.checkout.sessions.create.mock.calls[0]![0];
 
-    expect(paramsWithCustomer.customer).toBe('cus_existing_topup_123');
-    expect(paramsWithCustomer.customer_update).toEqual({ address: 'auto' });
-
-    stripeMock.checkout.sessions.create.mockClear();
-    await seedSalon('s_t_tax_no_customer');
-    const withoutCustomer = await postCheckout({ salonId: 's_t_tax_no_customer', topupOfferKey: 'topup_100_paid_2026_08' });
-
-    expect(withoutCustomer.status).toBe(200);
-
-    const paramsWithoutCustomer = stripeMock.checkout.sessions.create.mock.calls[0]![0];
-
-    expect(paramsWithoutCustomer.customer).toBeUndefined();
-    expect(paramsWithoutCustomer.customer_update).toBeUndefined();
+    expect(paramsWithCustomer.customer).toBe('cus_billing_s_t_tax_customer');
+    expect(paramsWithCustomer.customer_update).toEqual({ address: 'auto', name: 'auto' });
+    expect(paramsWithCustomer.customer_email).toBeUndefined();
+    expect(billingCustomerMock.resolveOrCreateBillingCustomer).toHaveBeenCalledWith({
+      email: null,
+      name: 's_t_tax_customer',
+      salonId: 's_t_tax_customer',
+    });
   });
 });
 

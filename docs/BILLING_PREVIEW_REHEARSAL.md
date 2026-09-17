@@ -18,7 +18,7 @@ database change and **no** deploy. Specifically, it does not authorize:
   or branch;
 - flipping any `BILLING_*` switch anywhere, in any environment, for any duration;
 - running the seed script's `--apply`, the starter grant's `mode: 'apply'`, or any migration;
-- touching Production in any way. The only Production change in this whole plan is migration `0078`
+- touching Production in any way. The only Production change in this whole plan is migration `0079`
   (additive, PR-3, under the guarded procedure), and it is not performed by this document either.
 
 Every step below that changes provider state is **owner-executed** and additionally requires the written
@@ -50,7 +50,7 @@ applies to EVERY Preview deployment of the project — always pass the branch.
 | **O1** | Ratify the Rev 2.3 legacy-route guard amendment (PR-5). | §6 D4. Once PR-3 has shipped, every top-up session carries a `customer`, so the legacy route's skip no longer protects top-up `checkout.session.completed` events: **PR-5 merged, or B1 proven** (no test-mode legacy/Connect endpoint targets the pilot host, runbook §3.1 executed in test mode) is a hard prerequisite of the D4 top-up drill. |
 | **O2** | When a recorded subscription refund later fails or is cancelled: automatic void + alert, or hold with entitlement suspended? | **Decided: automatic void + alert**, approved and implemented in PR-1 (2026-09-16; see `docs/billing-completion-repair-20260915.md`). §6 D6 rehearses it, including the reconcile safety net when test mode cannot produce a card-refund failure. |
 | **O10** | Approve the D18 reviewed-postimage refreshes for `billing/checkout/route.ts` and `billing/portal/route.ts` in PR-3. | §1. PR-3 cannot ship without editing both pinned files; without PR-3 the pilot runs under the O12 limitation instead. |
-| **O12** | Adopt the `billing_customer` table (migration `0078`, applied to Preview before this deployment is built and to Production under the guarded procedure), or accept "top-up-only salons have no Stripe Customer/portal" as a pilot limitation? | §1 and §2.1 (`DATABASE_URL` row). If O12 waives PR-3, the rehearsal exercises a customer flow that PR-3 will later change — record that as a known limitation of the evidence. |
+| **O12** | Adopt the `billing_customer` table (migration `0079`, applied to Preview before this deployment is built and to Production under the guarded procedure), or accept "top-up-only salons have no Stripe Customer/portal" as a pilot limitation? | §1 and §2.1 (`DATABASE_URL` row). If O12 waives PR-3, the rehearsal exercises a customer flow that PR-3 will later change — record that as a known limitation of the evidence. Migration `0078` is reserved historical evidence from retired PR #223 and must not be applied. |
 | **O13** | Confirm the legacy-customer rule: the new track never reuses `salon.stripeCustomerId`; a legacy subscriber joining the new track gets a second Stripe Customer. | §1, and §6 D4/D5 (which customer the drills exercise). |
 
 Owner decisions are recorded outside this repository. This document neither records nor implies them.
@@ -102,7 +102,7 @@ Every row is `vercel env add <NAME> preview <branch>` — always scoped to the b
 | `LEGACY_OTP_AUTH_ENABLED` | `false` | before the deploy | Keeps the retired OTP surface closed. **Note the interaction with §5.1: with this `false`, the OTP bootstrap route answers `410 LEGACY_OTP_DISABLED`.** |
 | `BILLING_IDENTITY_HMAC_SECRET` / `BILLING_IDENTITY_HMAC_VERSION` | a fresh secret / a small integer | before the deploy | Starter grant and identity linking are unreachable without them; the harness checks presence (never the value). |
 | Resend / Google Calendar / Clerk / Cloudinary env | the Preview values | before the deploy | Needed for `/api/health` to answer **200** rather than `degraded`/503. |
-| `DATABASE_URL` | the **Preview** Neon project | before the deploy | Marker `preview`, zero salons — **re-verify on the day** (gate G6). Migration `0078` is applied there *before* this deployment is built. |
+| `DATABASE_URL` | the **Preview** Neon project | before the deploy | Marker `preview`, zero salons — **re-verify on the day** (gate G6). Migration `0079` is applied there *before* this deployment is built; historical `0078` from retired PR #223 is never applied. |
 | `BILLING_DEPLOYMENT_MARKER` | optional, e.g. `preview-rehearsal` | only **after** the stamping deploy | Optional. Set it only once the deploy that stamps it has shipped, never before. |
 | `LUSTER_NONPROD_DB_HOSTS` | the Preview Neon hostname | not a deployment variable | **Local shell only, and only for `scripts/billing-integrity-check.ts`** — it is what lets that script's non-production guard accept the Preview Neon host. The seed script never reads it: it gates on `--expect-host` plus the live `preview` marker instead (§5.3). |
 

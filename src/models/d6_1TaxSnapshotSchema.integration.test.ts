@@ -334,16 +334,23 @@ describe('migration 0068 — D6.1 invoice and tax snapshot foundation', () => {
       readFileSync(path.join(process.cwd(), 'migrations/meta/_journal.json'), 'utf8'),
     ) as { entries: { idx: number; when: number; tag: string }[] };
 
-    expect(journal.entries).toHaveLength(78);
-    expect(journal.entries.at(-2)).toMatchObject({
+    expect(journal.entries).toHaveLength(79);
+    // The Stripe prerequisite keeps its own identity assertion as the tail
+    // grows: 0078 appends, it does not displace what 0076 pinned.
+    expect(journal.entries.at(-3)).toMatchObject({
       idx: 76,
       when: 1787476392670,
       tag: '0076_deposit_shadow_evidence',
     });
-    expect(journal.entries.at(-1)).toMatchObject({
+    expect(journal.entries.at(-2)).toMatchObject({
       idx: 77,
       when: 1787562792670,
       tag: '0077_review_requests',
+    });
+    expect(journal.entries.at(-1)).toMatchObject({
+      idx: 78,
+      when: 1787649192670,
+      tag: '0079_billing_customer',
     });
     expect(createHash('sha256')
       .update(readFileSync(path.join(process.cwd(), 'migrations/0076_deposit_shadow_evidence.sql')))
@@ -353,7 +360,8 @@ describe('migration 0068 — D6.1 invoice and tax snapshot foundation', () => {
   it.each([
     [76, '0075'],
     [77, 'Stripe 0076'],
-  ])('upgrades a %s ledger through Review 0077', async (existingCount) => {
+    [78, 'Review 0077'],
+  ])('upgrades a %s ledger through billing customer 0079', async (existingCount) => {
     const upgradeClient = new PGlite();
     const upgradeDb = drizzle(upgradeClient);
     const migrationsFolder = path.join(process.cwd(), 'migrations');
@@ -371,9 +379,10 @@ describe('migration 0068 — D6.1 invoice and tax snapshot foundation', () => {
         'SELECT hash, created_at FROM drizzle.__drizzle_migrations ORDER BY created_at, id',
       );
 
-      expect(rows.rows).toHaveLength(78);
-      expect(Number(rows.rows.at(-2)?.created_at)).toBe(1787476392670);
-      expect(Number(rows.rows.at(-1)?.created_at)).toBe(1787562792670);
+      expect(rows.rows).toHaveLength(79);
+      expect(Number(rows.rows.at(-3)?.created_at)).toBe(1787476392670);
+      expect(Number(rows.rows.at(-2)?.created_at)).toBe(1787562792670);
+      expect(Number(rows.rows.at(-1)?.created_at)).toBe(1787649192670);
     } finally {
       await upgradeClient.close();
     }

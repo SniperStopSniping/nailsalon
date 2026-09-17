@@ -44,7 +44,9 @@ import {
   type SubscriptionRefund,
 } from '@/libs/billing/subscriptionRefunds';
 import { db } from '@/libs/DB';
+import { Env } from '@/libs/Env';
 import {
+  billingCustomerSchema,
   billingPromotionClaimSchema,
   billingSubscriptionSchema,
   type BillingSubscriptionStatus,
@@ -189,6 +191,26 @@ export async function projectSubscriptionSnapshot(input: {
   }
 
   return db.transaction(async (tx) => {
+    // A canonical customer mapping is a hard tenant/environment fence. A
+    // Stripe subscription carrying another salon's mapped Customer must never
+    // be projected under metadata supplied for this salon. Unknown customers
+    // remain eligible: dashboard-created subscriptions are remote evidence to
+    // report/reconcile, not silently claimed as canonical mappings.
+    const [customerMapping] = await tx
+      .select({
+        salonId: billingCustomerSchema.salonId,
+        planEnv: billingCustomerSchema.planEnv,
+      })
+      .from(billingCustomerSchema)
+      .where(eq(billingCustomerSchema.stripeCustomerId, snapshot.customerId))
+      .limit(1);
+    if (customerMapping && customerMapping.salonId !== salonId) {
+      return { applied: false as const, anomaly: 'CUSTOMER_TENANT_MISMATCH' };
+    }
+    if (customerMapping && customerMapping.planEnv !== Env.BILLING_PLAN_ENV) {
+      return { applied: false as const, anomaly: 'CUSTOMER_ENVIRONMENT_MISMATCH' };
+    }
+
     const [existing] = await tx
       .select()
       .from(billingSubscriptionSchema)

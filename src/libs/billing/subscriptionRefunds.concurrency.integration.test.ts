@@ -47,6 +47,10 @@ const stripeMock = vi.hoisted(() => ({
   subscriptions: { retrieve: vi.fn(), list: vi.fn() },
   invoices: { retrieve: vi.fn(), listLineItems: vi.fn() },
   charges: { retrieve: vi.fn() },
+  // PR-C/CU-2: `billing_customer` resolution rides the same real-PostgreSQL
+  // job, because its two unique indexes are only meaningful under genuine
+  // concurrent connections.
+  customers: { retrieve: vi.fn(), create: vi.fn() },
   checkout: { sessions: { retrieve: vi.fn() } },
   webhooks: { constructEvent: vi.fn() },
 }));
@@ -78,8 +82,16 @@ const signingStripe = new Stripe('sk_test_billing_refund_concurrency', { apiVers
  * Zero-skip proof: this suite must never silently degrade to a skip in CI.
  * The count is asserted in afterAll and grepped for by the workflow step.
  */
-const EXPECTED_EXECUTED_TESTS = 18;
+const EXPECTED_EXECUTED_TESTS = 22;
 let executedTests = 0;
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  return { promise, resolve };
+}
 
 const day = 86_400_000;
 const anchor = new Date('2030-01-01T00:00:00.000Z');
@@ -107,6 +119,8 @@ suite('subscription refund exclusions — real PostgreSQL', () => {
     stripeMock.invoices.retrieve.mockReset();
     stripeMock.invoices.listLineItems.mockReset();
     stripeMock.charges.retrieve.mockReset();
+    stripeMock.customers.retrieve.mockReset();
+    stripeMock.customers.create.mockReset();
     sentryHolder.captureMessage.mockClear();
     sentryHolder.captureException.mockClear();
     envHolder.BILLING_SUBSCRIPTIONS_ENABLED = 'true';
@@ -1029,5 +1043,168 @@ suite('subscription refund exclusions — real PostgreSQL', () => {
     expect((await row(subscriptionId)).paidThrough).toEqual(refundedNow ? anchor : periodEnd);
     // And the money is untouched by the race: W0 was granted exactly once.
     expect(await monthlyLots(salonId)).toHaveLength(1);
+  });
+
+  // ===========================================================================
+  // PR-C / CU-2 — `billing_customer` under real concurrent connections.
+  //
+  // PGlite runs one connection, so the unit suite can prove the SQL but never
+  // the race. These three properties only mean something here: the unique
+  // index as the arbiter of a genuine double-checkout, the global
+  // stripe_customer_id fence between two salons, and the environment fence
+  // between two plan environments in the one shared database.
+  // ===========================================================================
+  describe('billing_customer', () => {
+    async function customerRows(salonId?: string) {
+      const query = db.select().from(schema.billingCustomerSchema);
+      return salonId
+        ? query.where(eq(schema.billingCustomerSchema.salonId, salonId))
+        : query;
+    }
+
+    it('two concurrent first checkouts for one salon converge on exactly one customer', async () => {
+      executedTests += 1;
+      await db.insert(schema.salonSchema).values({ id: 'cus_race_s1', name: 'Race', slug: 'cus-race-s1' });
+      // Stripe's idempotency key returns the SAME Customer to both callers when
+      // the parameters match, which is the ordinary shape of this race.
+      const bothEntered = deferred<void>();
+      const releaseCreates = deferred<void>();
+      let entered = 0;
+      stripeMock.customers.create.mockImplementation(async () => {
+        entered += 1;
+        if (entered === 2) {
+          bothEntered.resolve();
+        }
+        await releaseCreates.promise;
+        return { id: 'cus_race_one', object: 'customer', livemode: false };
+      });
+
+      const { resolveOrCreateBillingCustomer } = await import('./billingCustomer');
+      const racers = Promise.all([
+        resolveOrCreateBillingCustomer({ salonId: 'cus_race_s1', email: 'a@example.test', name: 'Race' }),
+        resolveOrCreateBillingCustomer({ salonId: 'cus_race_s1', email: 'a@example.test', name: 'Race' }),
+      ]);
+      await bothEntered.promise;
+
+      expect(stripeMock.customers.create).toHaveBeenCalledTimes(2);
+
+      releaseCreates.resolve();
+      const [first, second] = await racers;
+
+      // No unique violation escaped to either caller, and they agree.
+      expect(first.stripeCustomerId).toBe('cus_race_one');
+      expect(second.stripeCustomerId).toBe('cus_race_one');
+      expect(first.id).toBe(second.id);
+
+      const rows = await customerRows('cus_race_s1');
+
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({ stripeCustomerId: 'cus_race_one', planEnv: 'test', source: 'created' });
+
+      // Exactly one audit row: only the insert that WON writes one.
+      const audits = await db.select().from(schema.auditLogSchema)
+        .where(eq(schema.auditLogSchema.action, 'billing_customer_created'));
+
+      expect(audits).toHaveLength(1);
+    });
+
+    it('a race whose Stripe calls return different customers keeps one winner and orphans, never deletes, the other', async () => {
+      executedTests += 1;
+      await db.insert(schema.salonSchema).values({ id: 'cus_race_s2', name: 'Race2', slug: 'cus-race-s2' });
+      const bothEntered = deferred<void>();
+      const releaseCreates = deferred<void>();
+      let minted = 0;
+      stripeMock.customers.create.mockImplementation(async () => {
+        minted += 1;
+        const customerId = `cus_race_two_${minted}`;
+        if (minted === 2) {
+          bothEntered.resolve();
+        }
+        await releaseCreates.promise;
+        return { id: customerId, object: 'customer', livemode: false };
+      });
+
+      const { resolveOrCreateBillingCustomer } = await import('./billingCustomer');
+      const racers = Promise.all([
+        resolveOrCreateBillingCustomer({ salonId: 'cus_race_s2', email: null, name: null }),
+        resolveOrCreateBillingCustomer({ salonId: 'cus_race_s2', email: null, name: null }),
+      ]);
+      await bothEntered.promise;
+
+      expect(stripeMock.customers.create).toHaveBeenCalledTimes(2);
+
+      releaseCreates.resolve();
+      const [first, second] = await racers;
+
+      const rows = await customerRows('cus_race_s2');
+
+      expect(rows).toHaveLength(1);
+      expect(first.stripeCustomerId).toBe(second.stripeCustomerId);
+      expect(first.stripeCustomerId).toBe(rows[0]!.stripeCustomerId);
+
+      expect(minted).toBe(2);
+      expect(sentryHolder.captureMessage).toHaveBeenCalledWith(
+        'billing.customer_create_race_orphan',
+        expect.objectContaining({ level: 'info' }),
+      );
+    });
+
+    it('THE TENANT FENCE: a second salon presenting the same Stripe customer fails closed and writes nothing', async () => {
+      executedTests += 1;
+      await db.insert(schema.salonSchema).values([
+        { id: 'cus_fence_owner', name: 'Owner', slug: 'cus-fence-owner' },
+        { id: 'cus_fence_other', name: 'Other', slug: 'cus-fence-other' },
+      ]);
+      stripeMock.customers.create.mockResolvedValue({ id: 'cus_fence_shared', object: 'customer', livemode: false });
+
+      const { resolveOrCreateBillingCustomer } = await import('./billingCustomer');
+
+      await expect(resolveOrCreateBillingCustomer({ salonId: 'cus_fence_owner', email: null, name: null }))
+        .resolves.toMatchObject({ stripeCustomerId: 'cus_fence_shared' });
+      await expect(resolveOrCreateBillingCustomer({ salonId: 'cus_fence_other', email: null, name: null }))
+        .rejects.toMatchObject({ name: 'BillingCustomerError', code: 'CUSTOMER_TENANT_CONFLICT' });
+
+      expect(await customerRows('cus_fence_other')).toHaveLength(0);
+      // The rightful owner keeps its mapping: money is never re-tenanted.
+      expect(await customerRows('cus_fence_owner')).toHaveLength(1);
+    });
+
+    it('THE ENVIRONMENT FENCE: a dev row does not satisfy a prod lookup on the same salon', async () => {
+      executedTests += 1;
+      await db.insert(schema.salonSchema).values({ id: 'cus_env_s1', name: 'Env', slug: 'cus-env-s1' });
+      await db.insert(schema.billingCustomerSchema).values({
+        id: 'bcus_env_dev',
+        salonId: 'cus_env_s1',
+        planEnv: 'dev',
+        stripeCustomerId: 'cus_env_dev_only',
+        source: 'created',
+      });
+
+      const { findBillingCustomer } = await import('./billingCustomer');
+
+      envHolder.BILLING_PLAN_ENV = 'dev';
+
+      await expect(findBillingCustomer(db, { salonId: 'cus_env_s1' }))
+        .resolves.toMatchObject({ stripeCustomerId: 'cus_env_dev_only' });
+
+      // Same database, same salon row, live-mode deployment: unreachable.
+      envHolder.BILLING_PLAN_ENV = 'prod';
+
+      await expect(findBillingCustomer(db, { salonId: 'cus_env_s1' })).resolves.toBeNull();
+      expect(stripeMock.customers.create).not.toHaveBeenCalled();
+
+      // Both environments may coexist for one salon — the point of the
+      // composite key, proven at the database level.
+      stripeMock.customers.create.mockResolvedValue({ id: 'cus_env_prod_only', object: 'customer', livemode: true });
+
+      const { resolveOrCreateBillingCustomer } = await import('./billingCustomer');
+
+      await expect(resolveOrCreateBillingCustomer({ salonId: 'cus_env_s1', email: null, name: null }))
+        .resolves.toMatchObject({ stripeCustomerId: 'cus_env_prod_only', planEnv: 'prod' });
+
+      const rows = await customerRows('cus_env_s1');
+
+      expect(rows.map(r => r.planEnv).sort()).toEqual(['dev', 'prod']);
+    });
   });
 });

@@ -26,8 +26,8 @@ type PreviewFixtureDatabase = {
 };
 const APPLICATION_NAME = 'luster-preview-service-image-fixtures-v1';
 const DATABASE_NAME = 'luster_preview';
-const FINAL_MIGRATION = '0077_review_requests';
-const MIGRATION_COUNT = 78;
+const FINAL_MIGRATION = '0079_billing_customer';
+const MIGRATION_COUNT = 79;
 const CONFIRM = 'CREATE_SYNTHETIC_PREVIEW_FIXTURES';
 const RESET_CONFIRM = 'DELETE_SYNTHETIC_PREVIEW_FIXTURES';
 const ADMIN_CONFIRM = 'MAP_SYNTHETIC_DEVELOPMENT_USER';
@@ -363,6 +363,10 @@ const EXPECTED_INCOMING_FOREIGN_KEYS = [
   ['public', 'sms_inbound_event', 'sms_inbound_event_attributed_salon_id_fkey', ['attributed_salon_id'], 'public', 'salon', ['id'], 'NO ACTION', 'SET NULL'],
   ['public', 'billing_checkout_attempt', 'billing_checkout_attempt_salon_id_fkey', ['salon_id'], 'public', 'salon', ['id'], 'NO ACTION', 'CASCADE'],
   ['public', 'billing_credit_window', 'billing_credit_window_salon_id_fkey', ['salon_id'], 'public', 'salon', ['id'], 'NO ACTION', 'CASCADE'],
+  // Migration 0079 — new-track Stripe customer identity. CASCADE: the mapping
+  // is meaningless without the salon and is not money evidence, so the purge
+  // needs no plan step for it.
+  ['public', 'billing_customer', 'billing_customer_salon_id_fkey', ['salon_id'], 'public', 'salon', ['id'], 'NO ACTION', 'CASCADE'],
   ['public', 'billing_promotion_claim', 'billing_promotion_claim_salon_id_fkey', ['salon_id'], 'public', 'salon', ['id'], 'NO ACTION', 'SET NULL'],
   ['public', 'billing_starter_grant', 'billing_starter_grant_salon_id_fkey', ['salon_id'], 'public', 'salon', ['id'], 'NO ACTION', 'SET NULL'],
   ['public', 'billing_stripe_event', 'billing_stripe_event_salon_id_fkey', ['salon_id'], 'public', 'salon', ['id'], 'NO ACTION', 'SET NULL'],

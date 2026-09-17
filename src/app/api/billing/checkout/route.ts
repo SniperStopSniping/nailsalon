@@ -45,6 +45,7 @@ import { z } from 'zod';
 import { requireAdminOwner } from '@/libs/adminAuth';
 import { logAuditEventTx } from '@/libs/auditLog';
 import { resolveBillingAppOrigin } from '@/libs/billing/billingAppOrigin';
+import { resolveOrCreateBillingCustomer } from '@/libs/billing/billingCustomer';
 import { getBillingOffer } from '@/libs/billing/billingOffers';
 import { classifySubscriptionEligibility } from '@/libs/billing/billingSubscriptionProjection';
 import { resolveOrCreateBusinessIdentity } from '@/libs/billing/businessIdentity';
@@ -177,13 +178,9 @@ export async function POST(request: NextRequest) {
     const [salon] = await db
       .select({
         id: salonSchema.id,
+        name: salonSchema.name,
         slug: salonSchema.slug,
         ownerEmail: salonSchema.ownerEmail,
-        // Read-only compatibility projection: reused when present so one
-        // salon does not accrete Stripe customers, but this route never
-        // writes legacy salon columns (§5 — the legacy webhook owns them).
-        stripeCustomerId: salonSchema.stripeCustomerId,
-        stripeCustomerEmail: salonSchema.stripeCustomerEmail,
       })
       .from(salonSchema)
       .where(eq(salonSchema.id, salonId))
@@ -191,6 +188,18 @@ export async function POST(request: NextRequest) {
     if (!salon) {
       return errorJson(404, 'SALON_NOT_FOUND', 'Salon not found.');
     }
+
+    // Canonical new-track identity. This deliberately never consults the
+    // legacy `salon.stripeCustomerId`: a genuine legacy subscriber receives
+    // a separate Customer for the new billing track. Stripe idempotency plus
+    // the `(salon_id, plan_env)` unique index makes concurrent first
+    // checkouts converge without holding a database lock across provider I/O.
+    // Resolve before TX1 so no transaction is held across the Stripe call.
+    const billingCustomer = await resolveOrCreateBillingCustomer({
+      salonId,
+      email: salon.ownerEmail ?? null,
+      name: salon.name,
+    });
 
     // 4. TX1 — durable attempt + claim-before-Checkout.
     const clerkUserId = authResult.admin.clerkUserId ?? null;
@@ -218,7 +227,7 @@ export async function POST(request: NextRequest) {
         const identity = await resolveOrCreateBusinessIdentity(tx, {
           clerkUserId,
           salonId,
-          stripeCustomerId: salon.stripeCustomerId ?? null,
+          stripeCustomerId: billingCustomer.stripeCustomerId,
         });
         const claim = await reservePromotionClaim(tx, {
           promotionKey: promotion.key,
@@ -327,13 +336,12 @@ export async function POST(request: NextRequest) {
           // required either way so a later flip has the evidence it needs.
           automatic_tax: { enabled: Env.BILLING_TAX_COLLECTION_ENABLED === 'true' },
           billing_address_collection: 'required',
-          // Reuse the known customer; otherwise let Checkout create one —
-          // this route never pre-creates provider objects. `customer_update`
-          // is only valid alongside an existing `customer` id (Stripe
-          // rejects it otherwise).
-          ...(salon.stripeCustomerId
-            ? { customer: salon.stripeCustomerId, customer_update: { address: 'auto' } }
-            : { customer_email: salon.stripeCustomerEmail ?? salon.ownerEmail ?? undefined }),
+          // Always use the canonical, environment-scoped new-track Customer.
+          // `customer_email` is intentionally absent: email is never an
+          // ownership signal, and the legacy customer column is never used
+          // to choose a charge target.
+          customer: billingCustomer.stripeCustomerId,
+          customer_update: { address: 'auto', name: 'auto' },
           line_items: [{ price: stripePriceId, quantity: 1 }],
           ...(stripeCouponId !== null
             ? { discounts: [{ coupon: stripeCouponId }] }
@@ -418,6 +426,9 @@ function buildMetadata(
   return {
     purpose: 'plan_subscription',
     salonId,
+    ...(Env.BILLING_DEPLOYMENT_MARKER
+      ? { luster_deployment: Env.BILLING_DEPLOYMENT_MARKER }
+      : {}),
     billingOfferKey,
     planDefinitionKey,
     ...(promotionKey !== undefined ? { promotionKey } : {}),
