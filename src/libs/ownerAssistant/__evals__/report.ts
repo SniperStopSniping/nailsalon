@@ -29,6 +29,17 @@ export type EvalReportInput = {
   frozenNow: string;
   /** Injected so a rendered report is byte-stable in a test. */
   generatedAt?: string;
+  /**
+   * Present when the run stopped early because the client-side spend ceiling
+   * (`runnerGuards.ts`) was reached — an ESTIMATE from the local price table,
+   * never a provider-verified figure, and never able to un-spend a request
+   * already in flight with the provider when the ceiling was crossed.
+   */
+  haltedBySpendCeiling?: {
+    ceilingMicros: number;
+    spentMicros: number;
+    reason: string;
+  };
 };
 
 export function formatMicros(micros: number): string {
@@ -59,6 +70,12 @@ export function renderEvalMarkdown(input: EvalReportInput): string {
     `- Latency: p50 ${input.summary.latencyP50Ms} ms · p95 ${input.summary.latencyP95Ms} ms`,
     `- Cost per turn: mean ${formatMicros(input.summary.meanCostMicrosPerTurn)} · median ${formatMicros(input.summary.medianCostMicrosPerTurn)} (total ${formatMicros(input.summary.totalCostMicros)})`,
     `- Grounded turns: ${input.summary.groundedTurns}/${input.summary.turns} · unsupported facts: ${input.summary.unsupportedFactCount}`,
+    ...(input.haltedBySpendCeiling
+      ? [
+          '',
+          `- **RUN HALTED BY SPEND CEILING** — ${input.haltedBySpendCeiling.reason} (ceiling ${formatMicros(input.haltedBySpendCeiling.ceilingMicros)}, spent ${formatMicros(input.haltedBySpendCeiling.spentMicros)}). This is a client-side estimate from the local price table, checked between turns — it cannot stop spend already in flight with the provider, and provider-side limits are the only real backstop for that.`,
+        ]
+      : []),
     '',
     markdownRow(['Group', 'Passed', 'Cases', 'Rate']),
     markdownRow(['---', '---', '---', '---']),
@@ -146,6 +163,7 @@ export function writeEvalReport(
       summary: input.summary,
       records: input.records,
       skipped: input.skipped,
+      haltedBySpendCeiling: input.haltedBySpendCeiling,
     }, null, 2)}\n`,
     'utf8',
   );

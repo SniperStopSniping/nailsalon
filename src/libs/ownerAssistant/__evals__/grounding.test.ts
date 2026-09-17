@@ -373,21 +373,99 @@ describe('regression — reviewer-constructed false negatives', () => {
     expect(check('Your Google Calendar is not connected.', [OVERVIEW_RESULT]).ok).toBe(true);
   });
 
-  it('A4 (KNOWN BLIND SPOT): a lower-case invented name is not extracted at all', () => {
-    // Documented in the module header and docs/OWNER_ASSISTANT_EVALS.md §2.
-    // This test pins the blind spot so it cannot close silently and unnoticed.
+  it('A4 (CLOSED): a lower-case invented add-on is now reported', () => {
+    // Was a pinned blind spot: entity extraction saw quoted strings and
+    // capitalised runs only, so an invented item in ordinary lower case was
+    // checked for no entity at all. The head-noun pass closes it.
     const verdict = check('Your paraffin dip is active.', [SERVICES_RESULT]);
+
+    expect(verdict.ok).toBe(false);
+    expect(verdict.unsupported).toContainEqual({
+      kind: 'entity',
+      value: 'paraffin dip',
+      note: 'no menu item by that name',
+    });
+  });
+
+  it('A4 (CLOSED): reports the invented phrase ONCE, not once per word', () => {
+    const verdict = check('Your paraffin dip is active.', [SERVICES_RESULT]);
+
+    expect(verdict.unsupported).toHaveLength(1);
+  });
+
+  it('A4 (CLOSED): a lower-case REAL menu phrase is still accepted', () => {
+    expect(check('Your gel manicure is bookable.', [SERVICES_RESULT]).ok).toBe(true);
+    expect(check('You offer a gel removal add-on.', [SERVICES_RESULT]).ok).toBe(true);
+    // The verb in front of the head noun is not part of any name.
+    expect(check('I could not find gel manicure.', [SERVICES_RESULT]).ok).toBe(true);
+  });
+
+  it('A5 (CLOSED): a real price attached to the WRONG service is reported', () => {
+    // 7500 is Gel-X's price, not Gel Manicure's. Both values exist in the tool
+    // result, so value-set membership alone passed this. Attribution does not.
+    const verdict = check('Gel Manicure is $75.', [SERVICES_RESULT]);
+
+    expect(verdict.ok).toBe(false);
+    expect(verdict.unsupported).toContainEqual({
+      kind: 'money',
+      value: '$75',
+      note: 'not the price of "gel manicure"',
+    });
+  });
+
+  it('A5 (CLOSED): a real duration attached to the WRONG service is reported', () => {
+    const verdict = check('Gel Manicure takes 120 minutes.', [SERVICES_RESULT]);
+
+    expect(verdict.ok).toBe(false);
+    expect(verdict.unsupported).toContainEqual({
+      kind: 'duration',
+      value: '120 minutes',
+      note: 'not the duration of "gel manicure"',
+    });
+  });
+
+  it('A5 (CLOSED): the RIGHT price and duration on the right service still pass', () => {
+    expect(check('Gel Manicure is $45.', [SERVICES_RESULT]).ok).toBe(true);
+    expect(check('Gel Manicure takes 60 minutes.', [SERVICES_RESULT]).ok).toBe(true);
+    expect(check('Gel-X Extensions is $75 and takes 120 minutes.', [SERVICES_RESULT]).ok).toBe(true);
+  });
+
+  it('A5 (CLOSED): attribution is skipped when the sentence names two services', () => {
+    // With two candidates a sentence-level check cannot say which number
+    // belongs to which, so it must not guess. Value-set membership still holds.
+    const verdict = check('Gel Manicure is $45 and Gel-X Extensions is $75.', [SERVICES_RESULT]);
 
     expect(verdict.ok).toBe(true);
   });
 
-  it('A5 (KNOWN BLIND SPOT): the check is value-set membership, not attribution', () => {
-    // 7500 is Gel-X's price, not Gel Manicure's; both values exist, so the
-    // mis-attribution passes. Price/duration attribution must be spot-checked
-    // by hand in the first real-model report.
-    expect(check('Gel Manicure is $75.', [SERVICES_RESULT]).ok).toBe(true);
-    // Same class: a durationMinutes vouches for a money claim.
-    expect(check('It costs $60.', [SERVICES_RESULT]).ok).toBe(true);
+  it('A5 (CLOSED): silence about a value is not evidence against it', () => {
+    // `Gel Removal` has a price but the overview knows no duration for the
+    // salon's technician, so a duration stated next to a name with no recorded
+    // duration must not be convicted.
+    const verdict = check('Dani works 8 hours.', [OVERVIEW_RESULT]);
+
+    expect(verdict.unsupported.every(fact => fact.note === undefined)).toBe(true);
+  });
+
+  it('A2 (CLOSED): a duration no longer vouches for a price', () => {
+    // 60 is Gel Manicure's durationMinutes and no service costs $60.
+    const verdict = check('It costs $60.', [SERVICES_RESULT]);
+
+    expect(verdict.ok).toBe(false);
+    expect(verdict.unsupported).toContainEqual({ kind: 'money', value: '$60' });
+  });
+
+  it('A2 (CLOSED): a price no longer vouches for a duration', () => {
+    // 4500 is a priceCents; 4500 minutes is not a duration anything returned.
+    const verdict = check('It takes 4500 minutes.', [SERVICES_RESULT]);
+
+    expect(verdict.ok).toBe(false);
+  });
+
+  it('A2 (CLOSED): counts deliberately keep the union pool', () => {
+    // 3 is the length of `services`; this is the one kind whose legitimate
+    // support really is "that number occurs".
+    expect(check('You have 3 services.', [SERVICES_RESULT]).ok).toBe(true);
   });
 });
 
