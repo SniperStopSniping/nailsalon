@@ -110,28 +110,35 @@ describe('shortManageLink', () => {
   });
 
   it('the /a route redirects same-origin 302 with no-store and identical opaque failures', async () => {
-    const { mintShortManageToken } = await import('./shortManageLink');
-    const minted = await db.transaction(async tx =>
-      mintShortManageToken(tx, { salonId: 'sl1', appointmentId: 'apt_sl1', expiresAt: FUTURE }));
-    const { GET } = await import('../app/a/[token]/route');
+    vi.useFakeTimers();
+    vi.setSystemTime(NOW);
 
-    const ok = await GET(
-      new Request('https://islanailsalon.com/a/x', { headers: { 'x-forwarded-for': '10.9.0.1' } }),
-      { params: Promise.resolve({ token: minted.token }) },
-    );
+    try {
+      const { mintShortManageToken } = await import('./shortManageLink');
+      const minted = await db.transaction(async tx =>
+        mintShortManageToken(tx, { salonId: 'sl1', appointmentId: 'apt_sl1', expiresAt: FUTURE }));
+      const { GET } = await import('../app/a/[token]/route');
 
-    expect(ok.status).toBe(302);
-    expect(ok.headers.get('Location')).toBe(`/en/link-salon/manage/${minted.token}`);
-    expect(ok.headers.get('Cache-Control')).toBe('no-store');
-    expect(ok.headers.get('Referrer-Policy')).toBe('no-referrer');
+      const ok = await GET(
+        new Request('https://islanailsalon.com/a/x', { headers: { 'x-forwarded-for': '10.9.0.1' } }),
+        { params: Promise.resolve({ token: minted.token }) },
+      );
 
-    const unknown = await GET(
-      new Request('https://islanailsalon.com/a/x', { headers: { 'x-forwarded-for': '10.9.0.2' } }),
-      { params: Promise.resolve({ token: 'B'.repeat(22) }) },
-    );
+      expect(ok.status).toBe(302);
+      expect(ok.headers.get('Location')).toBe(`/en/link-salon/manage/${minted.token}`);
+      expect(ok.headers.get('Cache-Control')).toBe('no-store');
+      expect(ok.headers.get('Referrer-Policy')).toBe('no-referrer');
 
-    expect(unknown.status).toBe(404);
-    expect(await unknown.text()).toBe('This link is no longer valid.');
+      const unknown = await GET(
+        new Request('https://islanailsalon.com/a/x', { headers: { 'x-forwarded-for': '10.9.0.2' } }),
+        { params: Promise.resolve({ token: 'B'.repeat(22) }) },
+      );
+
+      expect(unknown.status).toBe(404);
+      expect(await unknown.text()).toBe('This link is no longer valid.');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('reserves the \'a\' public segment so no salon can claim it', async () => {
