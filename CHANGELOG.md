@@ -1,3 +1,11 @@
+## [1.115.2](https://github.com/SniperStopSniping/nailsalon/compare/v1.115.1...v1.115.2) (2026-09-17)
+
+
+### Bug Fixes
+
+* **billing:** isolate new-track events from the legacy webhook, with the owner-facing companion ([ed34299](https://github.com/SniperStopSniping/nailsalon/commit/ed342994d333baa6977fbb3c563d4d7742139122))
+* **billing:** keep the derived billing display out of the super-admin write path ([f215afc](https://github.com/SniperStopSniping/nailsalon/commit/f215afc9710886c2f6ffa04cc1ebda8407c3707b))
+
 ## [1.115.1](https://github.com/SniperStopSniping/nailsalon/compare/v1.115.0...v1.115.1) (2026-09-17)
 
 
