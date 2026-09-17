@@ -42,6 +42,13 @@
  *                         anything, so a real database is unreachable by
  *                         construction. LUSTER_GUARDED_DATABASE_URL must be
  *                         unset.
+ *  8. Spend ceiling     — --max-spend-usd / OWNER_ASSISTANT_EVAL_MAX_SPEND_USD
+ *                         must be a positive number of US dollars, at most $25
+ *                         (default $3.00, the Owner's 2026-09-16 authorisation).
+ *                         The configured model must also have a price-table
+ *                         entry in `contracts.ts` — otherwise the ceiling could
+ *                         not be enforced and the run refuses rather than
+ *                         spending unbounded. See §"THE SPEND CEILING" below.
  *
  * ---------------------------------------------------------------------------
  * WHY THE WORK STAGE RUNS UNDER VITEST
@@ -66,15 +73,36 @@
  *   npx tsx scripts/owner-assistant-eval.ts --out ./eval-reports
  *
  * Flags:
- *   --out <dir>   where to write the report (default ./eval-reports, gitignored)
- *   --model <id>  model id, overriding OWNER_ASSISTANT_MODEL
- *   --case <id>   run only these cases (repeatable: --case C1 --case G3)
+ *   --out <dir>            where to write the report (default ./eval-reports, gitignored)
+ *   --model <id>           model id, overriding OWNER_ASSISTANT_MODEL
+ *   --case <id>            run only these cases (repeatable: --case C1 --case G3)
+ *   --max-spend-usd <amt>  spend ceiling in US dollars, overriding
+ *                          OWNER_ASSISTANT_EVAL_MAX_SPEND_USD (default $3.00)
  *   --help
  *
  * No Redis and no dotenv file are needed: the work stage stubs the budget
  * reservation (it is proved exhaustively in CI, and an eval must not consume a
  * pilot salon's real daily allowance) and supplies its own placeholder values
  * for the unrelated variables `Env.ts` requires.
+ *
+ * ---------------------------------------------------------------------------
+ * THE SPEND CEILING (in addition to, never instead of, the provider's own limits)
+ * ---------------------------------------------------------------------------
+ * The work stage (`realModelRun.ts`) tracks the run's accumulated cost from
+ * the same price table `report.ts` uses, and stops BEFORE dispatching a turn
+ * whose accumulated cost plus a conservative estimate of that turn would meet
+ * or exceed the ceiling (`OWNER_ASSISTANT_EVAL_MAX_SPEND_USD`, default $3.00,
+ * $25 maximum), and again right after a turn's REAL cost is folded in if that
+ * alone reached the ceiling. Cases the ceiling stops before they ever run are
+ * reported as NOT RUN with the reason, never as passes; a case interrupted
+ * mid-way is reported as failed, since a skipped turn's expectations were
+ * never verified. This is a CLIENT-SIDE ESTIMATE computed locally between
+ * turns — it can never stop spend already in flight with the provider on a
+ * request that was already sent, and it is not a substitute for the
+ * non-production key's own provider-side budget, which remains the only real
+ * backstop for that. See `runnerGuards.ts` (`shouldStopForSpend`,
+ * `MAX_SPEND_INVALID`, `MODEL_PRICE_UNKNOWN`) and `harness.ts`
+ * (`EVAL_WORST_CASE_TURN_COST_MICROS`).
  *
  * ---------------------------------------------------------------------------
  * REHEARSING WITHOUT SPENDING ANYTHING
@@ -95,6 +123,7 @@ import {
   currentLocalDate,
   EVAL_RUNNER_USAGE,
   parseEvalRunnerArguments,
+  resolveEvalMaxSpendUsdRaw,
   resolveEvalModel,
 } from '../src/libs/ownerAssistant/__evals__/runnerGuards';
 
@@ -127,6 +156,7 @@ function main(argv: readonly string[]): void {
   const refusals = checkRealModelRunnerPreconditions(process.env, {
     today: currentLocalDate(),
     modelArgument: options.model,
+    maxSpendArgument: options.maxSpendUsd,
   });
 
   if (refusals.length > 0) {
@@ -152,6 +182,7 @@ function main(argv: readonly string[]): void {
       OWNER_ASSISTANT_MODEL: resolveEvalModel(process.env, options.model),
       OWNER_ASSISTANT_EVAL_OUT: options.outputDirectory,
       OWNER_ASSISTANT_EVAL_CASES: options.caseIds.join(','),
+      OWNER_ASSISTANT_EVAL_MAX_SPEND_USD: resolveEvalMaxSpendUsdRaw(process.env, options.maxSpendUsd),
     },
     stdio: 'inherit',
   });

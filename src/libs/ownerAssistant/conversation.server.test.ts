@@ -82,11 +82,25 @@ describe('sign and verify', () => {
     expect(() => verifyConversation(forged, BINDING)).toThrow(ConversationInvalidError);
   });
 
-  it('rejects a tampered signature of the same length', () => {
+  // base64url encodes 32 raw bytes into 43 characters, so the final character
+  // carries only 4 meaningful bits and the other 2 are slack: some character
+  // substitutions at that position decode to the SAME bytes. Mutate at the
+  // byte level instead of flipping a base64url character.
+  it.each(Array.from({ length: 32 }, (_unused, index) => index))('rejects a tampered signature byte at index %i', (index) => {
     const token = signConversation(createConversation(BINDING));
     const [encoded, signature] = token.split('.');
-    const flipped = `${(signature as string).slice(0, -1)}${(signature as string).endsWith('A') ? 'B' : 'A'}`;
+    const original = Buffer.from(signature as string, 'base64url');
 
+    expect(original).toHaveLength(32);
+
+    const mutated = Buffer.from(original);
+    mutated[index] = (mutated[index] ?? 0) ^ 0xFF;
+
+    expect(mutated.equals(original)).toBe(false);
+
+    const flipped = mutated.toString('base64url');
+
+    expect(flipped).toHaveLength((signature as string).length);
     expect(() => verifyConversation(`${encoded}.${flipped}`, BINDING)).toThrow(ConversationInvalidError);
   });
 

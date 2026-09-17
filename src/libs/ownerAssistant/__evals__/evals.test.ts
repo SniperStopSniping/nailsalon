@@ -138,22 +138,33 @@ const {
   isDialogueCase,
   mechanismCases,
   OWNER_ASSISTANT_EVAL_CASES,
+  realModelCases,
 } = await import('./cases');
 const {
   aggregate,
   computeUsageCostMicros,
   EVAL_CACHE_WRITE_MULTIPLIER,
+  EVAL_WORST_CASE_TURN_COST_MICROS,
   percentile,
   runEvalCase,
 } = await import('./harness');
 const {
+  centsToMicros,
   checkRealModelRunnerPreconditions,
   EVAL_CONFIRMATION_ENV,
+  EVAL_MAX_SPEND_ENV,
+  EVAL_MAX_SPEND_USD_CEILING,
+  EVAL_MAX_SPEND_USD_DEFAULT,
   EVAL_RUNNER_OUTPUT_DEFAULT,
+  parseEvalMaxSpendUsd,
   parseEvalRunnerArguments,
   resolveEvalBaseUrl,
+  resolveEvalMaxSpendCents,
+  resolveEvalMaxSpendUsdRaw,
+  shouldStopForSpend,
+  usdToWholeCents,
 } = await import('./runnerGuards');
-const { renderEvalMarkdown } = await import('./report');
+const { formatMicros, renderEvalMarkdown } = await import('./report');
 
 type ScriptedProvider = ReturnType<typeof createScriptedProvider>;
 type EvalDialogueCase = ReturnType<typeof dialogueCases>[number];
@@ -1242,6 +1253,218 @@ describe('real-model runner arguments', () => {
     expect(parseEvalRunnerArguments(['--help'])?.help).toBe(true);
     expect(parseEvalRunnerArguments(['-h'])?.help).toBe(true);
   });
+
+  it('parses --max-spend-usd alongside the existing flags', () => {
+    expect(parseEvalRunnerArguments(['--max-spend-usd', '1.50']))
+      .toEqual({ outputDirectory: EVAL_RUNNER_OUTPUT_DEFAULT, caseIds: [], help: false, maxSpendUsd: '1.50' });
+    expect(parseEvalRunnerArguments(['--out', '/tmp/x', '--max-spend-usd', '2', '--case', 'C1']))
+      .toEqual({ outputDirectory: '/tmp/x', caseIds: ['C1'], help: false, maxSpendUsd: '2' });
+  });
+
+  it('rejects --max-spend-usd with a missing value like every other flag', () => {
+    expect(parseEvalRunnerArguments(['--max-spend-usd'])).toBeNull();
+    expect(parseEvalRunnerArguments(['--max-spend-usd', '--model', 'm'])).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The spend ceiling (owner authorisation 2026-09-16: US$3.00 hard cap on the
+// whole run). Configuration/validation lives in `runnerGuards.ts`; the pure
+// stop decision is `shouldStopForSpend`, used both before a turn is
+// dispatched and after its real cost is known; the pre-first-turn estimate
+// constant is `harness.ts`'s `EVAL_WORST_CASE_TURN_COST_MICROS`, next to the
+// price table it is computed from. Everything here is pure, so none of it
+// touches the network, the database or a real provider.
+// ---------------------------------------------------------------------------
+
+describe('spend ceiling — configuration', () => {
+  it('defaults to $3.00 when neither the flag nor the env var is set', () => {
+    expect(resolveEvalMaxSpendUsdRaw({})).toBe(String(EVAL_MAX_SPEND_USD_DEFAULT));
+    expect(resolveEvalMaxSpendCents({})).toBe(300);
+  });
+
+  it('prefers the CLI argument, then the env var, then the default', () => {
+    expect(resolveEvalMaxSpendUsdRaw({ [EVAL_MAX_SPEND_ENV]: '2.50' })).toBe('2.50');
+    expect(resolveEvalMaxSpendUsdRaw({ [EVAL_MAX_SPEND_ENV]: '2.50' }, '1.25')).toBe('1.25');
+    expect(resolveEvalMaxSpendCents({ [EVAL_MAX_SPEND_ENV]: '2.50' })).toBe(250);
+    expect(resolveEvalMaxSpendCents({ [EVAL_MAX_SPEND_ENV]: '2.50' }, '1.25')).toBe(125);
+  });
+
+  it('parses a valid amount and rejects a non-positive, non-numeric or absurd one', () => {
+    expect(parseEvalMaxSpendUsd('3')).toBe(3);
+    expect(parseEvalMaxSpendUsd('0.01')).toBeCloseTo(0.01);
+    expect(parseEvalMaxSpendUsd(String(EVAL_MAX_SPEND_USD_CEILING))).toBe(EVAL_MAX_SPEND_USD_CEILING);
+
+    expect(parseEvalMaxSpendUsd('0')).toBeUndefined();
+    expect(parseEvalMaxSpendUsd('-1')).toBeUndefined();
+    expect(parseEvalMaxSpendUsd('not-a-number')).toBeUndefined();
+    expect(parseEvalMaxSpendUsd('NaN')).toBeUndefined();
+    expect(parseEvalMaxSpendUsd('Infinity')).toBeUndefined();
+    expect(parseEvalMaxSpendUsd(String(EVAL_MAX_SPEND_USD_CEILING + 0.01))).toBeUndefined();
+  });
+
+  it('converts dollars to whole cents, and cents to the costMicros unit', () => {
+    expect(usdToWholeCents(3)).toBe(300);
+    expect(usdToWholeCents(0.1)).toBe(10);
+    expect(usdToWholeCents(2.005)).toBe(201); // rounds, never truncates or drifts down
+    expect(centsToMicros(300)).toBe(3_000_000);
+    expect(formatMicros(centsToMicros(300))).toBe('$3.000000');
+  });
+});
+
+describe('spend ceiling — precondition refusals', () => {
+  const today = '2026-09-16';
+  const baseEnvironment = {
+    [EVAL_CONFIRMATION_ENV]: today,
+    OWNER_ASSISTANT_MODEL: MODEL,
+    OPENAI_API_KEY_OWNER: 'sk-not-a-real-key',
+    OWNER_ASSISTANT_TOOLS: 'list_services',
+  };
+  const check = (overrides: Record<string, string | undefined> = {}) =>
+    checkRealModelRunnerPreconditions({ ...baseEnvironment, ...overrides }, { today })
+      .map(refusal => refusal.code);
+
+  it('accepts the default ceiling unchanged (existing behaviour is not weakened)', () => {
+    expect(check()).toEqual([]);
+  });
+
+  it('refuses a non-positive, non-numeric or absurd max-spend value', () => {
+    expect(check({ [EVAL_MAX_SPEND_ENV]: '0' })).toContain('MAX_SPEND_INVALID');
+    expect(check({ [EVAL_MAX_SPEND_ENV]: '-5' })).toContain('MAX_SPEND_INVALID');
+    expect(check({ [EVAL_MAX_SPEND_ENV]: 'not-a-number' })).toContain('MAX_SPEND_INVALID');
+    expect(check({ [EVAL_MAX_SPEND_ENV]: '25.01' })).toContain('MAX_SPEND_INVALID');
+  });
+
+  it('accepts the ceiling boundary and small valid amounts', () => {
+    expect(check({ [EVAL_MAX_SPEND_ENV]: String(EVAL_MAX_SPEND_USD_CEILING) })).toEqual([]);
+    expect(check({ [EVAL_MAX_SPEND_ENV]: '0.01' })).toEqual([]);
+  });
+
+  it('refuses when the configured model has no price-table entry, rather than running unbounded', () => {
+    expect(check({ OWNER_ASSISTANT_MODEL: 'gpt-not-a-real-model' })).toContain('MODEL_PRICE_UNKNOWN');
+  });
+
+  it('does not double-report price when no model is configured at all', () => {
+    const codes = check({ OWNER_ASSISTANT_MODEL: undefined });
+
+    expect(codes).toContain('MODEL_REQUIRED');
+    expect(codes).not.toContain('MODEL_PRICE_UNKNOWN');
+  });
+
+  it('reports every reason at once, spend and price included', () => {
+    const codes = checkRealModelRunnerPreconditions({
+      CI: 'true',
+      OWNER_ASSISTANT_MODEL: 'gpt-not-a-real-model',
+      [EVAL_MAX_SPEND_ENV]: '-1',
+    }, { today });
+
+    expect(codes.map(refusal => refusal.code)).toEqual([
+      'CI_FORBIDDEN',
+      'CONFIRMATION_REQUIRED',
+      'API_KEY_REQUIRED',
+      'TOOLS_REQUIRED',
+      'MAX_SPEND_INVALID',
+      'MODEL_PRICE_UNKNOWN',
+    ]);
+  });
+});
+
+describe('spend ceiling — the stop decision (shouldStopForSpend)', () => {
+  it('stops before dispatching a turn whose conservative estimate would meet or exceed the ceiling', () => {
+    expect(shouldStopForSpend({ spentMicros: 2_900_000, ceilingMicros: 3_000_000, estimatedNextMicros: 200_000 })).toBe(true);
+    // Exactly at the boundary: "meet or exceed" stops too, not only "exceed".
+    expect(shouldStopForSpend({ spentMicros: 2_900_000, ceilingMicros: 3_000_000, estimatedNextMicros: 100_000 })).toBe(true);
+    expect(shouldStopForSpend({ spentMicros: 2_900_000, ceilingMicros: 3_000_000, estimatedNextMicros: 50_000 })).toBe(false);
+  });
+
+  it('stops after accumulating a real cost that has reached or exceeded the ceiling', () => {
+    // The "after a turn" shape: estimatedNextMicros is 0 because the cost is
+    // already real and already folded into spentMicros.
+    expect(shouldStopForSpend({ spentMicros: 3_500_000, ceilingMicros: 3_000_000, estimatedNextMicros: 0 })).toBe(true);
+    expect(shouldStopForSpend({ spentMicros: 3_000_000, ceilingMicros: 3_000_000, estimatedNextMicros: 0 })).toBe(true);
+    expect(shouldStopForSpend({ spentMicros: 2_999_999, ceilingMicros: 3_000_000, estimatedNextMicros: 0 })).toBe(false);
+  });
+
+  it('never stops a run that has spent nothing against a positive ceiling', () => {
+    expect(shouldStopForSpend({ spentMicros: 0, ceilingMicros: 3_000_000, estimatedNextMicros: 0 })).toBe(false);
+  });
+});
+
+describe('spend ceiling — the pre-first-turn worst-case estimate', () => {
+  it('is a positive figure derived from the loop\'s own limits, not a guess', () => {
+    expect(EVAL_WORST_CASE_TURN_COST_MICROS).toBeGreaterThan(0);
+    // It must stay well under the default ceiling, or the default ceiling
+    // would refuse to send even a single turn.
+    expect(EVAL_WORST_CASE_TURN_COST_MICROS).toBeLessThan(centsToMicros(resolveEvalMaxSpendCents({})));
+  });
+});
+
+describe('spend ceiling — wired into the turn loop (harness.runEvalCase)', () => {
+  it('does not send a turn once checkBeforeTurn signals a halt, and fails the case honestly', async () => {
+    const evalCase = dialogueCases().find(candidate => candidate.id === 'C2')!;
+
+    expect(evalCase.turns.length).toBeGreaterThanOrEqual(2);
+
+    const halt = { reason: 'test: pretend the ceiling is already spent', spentMicros: 1, ceilingMicros: 1 };
+    let calls = 0;
+    const spendGuard = {
+      checkBeforeTurn: () => {
+        calls += 1;
+        return calls > 1 ? halt : undefined;
+      },
+      recordTurnCost: () => undefined,
+    };
+
+    const record = await runEvalCase({
+      evalCase,
+      salon: salonFor(evalCase),
+      admin: EVAL_ADMIN,
+      provider: providerForCase(evalCase),
+      model: MODEL,
+      now: EVAL_NOW,
+      database: db,
+      checks: CI_CHECKS,
+      spendGuard,
+    });
+
+    expect(record.turns).toHaveLength(1);
+    expect(record.passed).toBe(false);
+    expect(record.haltedBySpendCeiling).toEqual(halt);
+    expect(record.failures.some(failure => failure.includes('not sent'))).toBe(true);
+  });
+
+  it('records a halt signalled after the last turn without failing a case whose turns all passed', async () => {
+    const evalCase = dialogueCases().find(candidate => candidate.id === 'C1')!;
+    const halt = { reason: 'test: pretend this turn tipped the ceiling', spentMicros: 999, ceilingMicros: 999 };
+    const spendGuard = {
+      checkBeforeTurn: () => undefined,
+      recordTurnCost: () => halt,
+    };
+
+    const record = await runEvalCase({
+      evalCase,
+      salon: salonFor(evalCase),
+      admin: EVAL_ADMIN,
+      provider: providerForCase(evalCase),
+      model: MODEL,
+      now: EVAL_NOW,
+      database: db,
+      checks: CI_CHECKS,
+      spendGuard,
+    });
+
+    expect(record.turns).toHaveLength(evalCase.turns.length);
+    expect(record.passed).toBe(true);
+    expect(record.failures).toEqual([]);
+    expect(record.haltedBySpendCeiling).toEqual(halt);
+  });
+
+  it('is a no-op when no spendGuard is supplied — existing CI behaviour is unchanged', async () => {
+    const evalCase = dialogueCases().find(candidate => candidate.id === 'C1')!;
+    const record = await runDialogue(evalCase);
+
+    expect(record.haltedBySpendCeiling).toBeUndefined();
+  });
 });
 
 describe('the real-model run stays out of CI', () => {
@@ -1304,12 +1527,27 @@ describe('report rendering', () => {
 });
 
 describe('group coverage', () => {
-  it('runs every conversation, grounding, security and failure case the set declares', () => {
+  it('runs every conversation, grounding, injection, security and failure case the set declares', () => {
     expect(casesInGroup('conversation').length).toBeGreaterThanOrEqual(15);
     expect(casesInGroup('grounding')).toHaveLength(8);
+    expect(casesInGroup('injection')).toHaveLength(5);
     expect(casesInGroup('security')).toHaveLength(14);
     expect(casesInGroup('failure')).toHaveLength(10);
     expect(OWNER_ASSISTANT_EVAL_CASES.filter(isDialogueCase).length)
-      .toBe(casesInGroup('conversation').length + casesInGroup('grounding').length);
+      .toBe(
+        casesInGroup('conversation').length
+        + casesInGroup('grounding').length
+        + casesInGroup('injection').length,
+      );
+  });
+
+  it('sends the injection group to the real model and never the security group', () => {
+    const realModelIds = new Set(realModelCases().map(evalCase => evalCase.id));
+
+    expect([...realModelIds].some(id => id.startsWith('P'))).toBe(true);
+
+    for (const securityCase of casesInGroup('security')) {
+      expect(realModelIds.has(securityCase.id)).toBe(false);
+    }
   });
 });

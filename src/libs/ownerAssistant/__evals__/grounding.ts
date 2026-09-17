@@ -14,11 +14,16 @@
  * meaningless.
  *
  * How support is decided (normalisation is the interesting part):
- *   - every number anywhere in the serialised tool results is support, whether
- *     it was a JSON number or a number inside a string (`"10:00–18:00"`,
- *     `"$45"`);
+ *   - every number anywhere in the serialised tool results is support for a
+ *     COUNT, whether it was a JSON number or a number inside a string
+ *     (`"10:00–18:00"`, `"$45"`);
+ *   - money and durations have their own pools, filled by the key the number
+ *     arrived under (`priceCents` ⇒ money, `durationMinutes` ⇒ duration) or by
+ *     an explicit unit in the text, which wins over the key;
  *   - money is matched in BOTH directions of the cents boundary, so `$45.00`
  *     is supported by `4500` (priceCents) and by `45`;
+ *   - a money or duration claim in a sentence that names exactly one known
+ *     entity must match THAT entity's own value, not merely some value;
  *   - durations are matched in minutes, and an answer that says hours is
  *     converted first (`"2 hours"` ⇒ 120);
  *   - a date key supports the weekday, day-of-month, month name and year that
@@ -38,35 +43,48 @@
  * function/determiner/adverb words (`SENTENCE_INITIAL_NON_ENTITY_WORDS`).
  *
  * ===========================================================================
- * KNOWN BLIND SPOTS — read before quoting a run's "invented facts: 0"
+ * WHAT THIS INSTRUMENT REACHES — read before quoting a run's "invented facts: 0"
  * ===========================================================================
- * These are limitations of the instrument, not of any particular run. Each is
- * pinned by a test in `grounding.test.ts` so it cannot close unnoticed, and
+ * These are properties of the instrument, not of any particular run. Each is
+ * pinned by a test in `grounding.test.ts` so it cannot change unnoticed, and
  * each is repeated in `docs/OWNER_ASSISTANT_EVALS.md` §2 and next to the
  * threshold table in §6.
  *
- *  1. ATTRIBUTION IS NOT CHECKED (A5). Support is VALUE-SET MEMBERSHIP: a fact
- *     is supported when its value occurs somewhere in the tool results, not
- *     when it occurs against the thing the answer attached it to. "Gel Manicure
- *     is $75." passes while 7500 is Gel-X's price and 4500 is Gel Manicure's.
- *     The gate therefore counts values that appear NOWHERE, not values attached
- *     to the WRONG THING. Price and duration attribution must be spot-checked
- *     BY HAND in the first real-model report.
- *  2. KINDS DO NOT SEPARATE (A2, partial). A number of one kind vouches for a
- *     claim of another: `"It costs $60."` is accepted from a `durationMinutes:
- *     60`, because money, counts and durations share one pool of numbers.
- *     Separating them needs typed numeric buckets and was deliberately NOT
- *     attempted here. The dangerous half of this WAS fixed: a day-of-month no
- *     longer falls back to "is this number anywhere" — see `isSupported`.
- *  3. LOWER-CASE NAMES ARE NOT EXTRACTED (A4). Entity extraction sees quoted
- *     strings and capitalised runs only, so `"Your paraffin dip is active."`
- *     is checked for no entity at all and passes against a menu that has no
- *     such add-on. Accepted for now: fixing it needs a real menu-vocabulary
- *     matcher rather than an orthographic rule.
+ * The three that used to head this list — attribution (A5), numeric kinds (A2)
+ * and lower-case names (A4) — are CLOSED. What closed them, and what each
+ * closure still does not reach:
  *
- * All three are FALSE-NEGATIVE shaped, which is the direction that matters:
- * the report may under-count invented facts. It cannot be read as proof that
- * the model invented nothing — only that these particular checks found nothing.
+ *  1. ATTRIBUTION (A5) is checked when the sentence names exactly ONE known
+ *     entity: the value must belong to THAT entity, so "Gel Manicure is $75."
+ *     is reported even though 7500 is a real price in the same result. A
+ *     sentence naming two services falls back to value-set membership, because
+ *     nothing at sentence level can say which number belongs to which. An
+ *     entity with no recorded value of that kind is never convicted: silence in
+ *     the tool result is not evidence against the answer.
+ *  2. NUMERIC KINDS (A2) separate. Money is checked against money, durations
+ *     against durations, so a `durationMinutes: 60` no longer vouches for
+ *     "It costs $60." Counts deliberately keep the union pool: a count's honest
+ *     support really is "that number occurs" (an array length, a filtered
+ *     subset size), and narrowing it would manufacture failures.
+ *  3. LOWER-CASE NAMES (A4) are reached through a closed lexicon of menu head
+ *     nouns. "Your paraffin dip is active." is now reported. It reads at most
+ *     ONE content word in front of the head noun, so an invention buried deeper
+ *     in a longer phrase can still slip through; a real item whose name uses a
+ *     head noun absent from the lexicon is not checked at all; and a head noun
+ *     that is also ordinary English (`fill`, `tips`, `art`, `polish`, `french`)
+ *     is reported only inside a phrase of two or more words.
+ *
+ * What remains open, and the direction it errs in:
+ *
+ *  - The lexicons (head nouns, phrase modifiers, sentence openers) are closed
+ *    sets. A missing modifier costs a FALSE POSITIVE, which a human reading the
+ *    report resolves; a missing head noun costs a false negative.
+ *  - Attribution needs the answer and the value to share a sentence. A price
+ *    stated one sentence away from the service it belongs to is not attributed.
+ *
+ * The residue is still mostly FALSE-NEGATIVE shaped, which is the direction
+ * that matters: the report may under-count invented facts. It cannot be read as
+ * proof that the model invented nothing — only that these checks found nothing.
  */
 
 export type GroundingFactKind
@@ -81,6 +99,14 @@ export type GroundingFact = {
   kind: GroundingFactKind;
   /** The text exactly as it appeared in the answer. */
   value: string;
+  /**
+   * Why this fact failed, when the bare value does not say it. Present only for
+   * the checks that can fail on something other than absence: a value that IS in
+   * the tool results but belongs to a different entity (`attribution`), and a
+   * value that is present only under a different kind (`kind`). A fact that is
+   * simply absent carries no note.
+   */
+  note?: string;
 };
 
 export type GroundingVerdict = {
@@ -427,8 +453,39 @@ type SupportDate = {
   weekday?: string;
 };
 
+/**
+ * What a number in a tool result MEANS, decided by the key it arrived under.
+ *
+ * Without this every number sat in one pool and vouched for every kind of
+ * claim, so a `durationMinutes: 60` supported the sentence "It costs $60."
+ * Money and duration now have their own pools and are checked against those
+ * pools only. Counts deliberately keep the union pool: a count is the one kind
+ * whose legitimate support really is "that number occurs" (an array length, a
+ * filtered subset size, a price repeated as a quantity), and narrowing it would
+ * manufacture false positives without closing a real hole.
+ */
+type NumericKind = 'money' | 'duration' | 'count';
+
+/** Numeric attributes one named thing in the tool results actually has. */
+type EntityAttributes = {
+  money: Set<number>;
+  duration: Set<number>;
+};
+
 type SupportIndex = {
   numbers: number[];
+  /** Numbers that arrived under a money key, plus their cents⇔units twin. */
+  money: number[];
+  /** Numbers that arrived under a duration key, in minutes. */
+  durations: number[];
+  /**
+   * Named thing ⇒ the numbers that belong to IT. Built from any object in the
+   * tool results that carries a name alongside its own numeric fields, which is
+   * the shape every menu tool returns (`{ name, priceCents, durationMinutes }`).
+   * This is what lets the checker reject a real price attached to the wrong
+   * service, rather than only a price that appears nowhere at all.
+   */
+  entityAttributes: Map<string, EntityAttributes>;
   weekdays: Set<string>;
   monthNumbers: Set<number>;
   years: Set<number>;
@@ -448,6 +505,9 @@ type SupportIndex = {
 function createEmptyIndex(): SupportIndex {
   return {
     numbers: [],
+    money: [],
+    durations: [],
+    entityAttributes: new Map(),
     weekdays: new Set(),
     monthNumbers: new Set(),
     years: new Set(),
@@ -458,7 +518,117 @@ function createEmptyIndex(): SupportIndex {
   };
 }
 
-function absorbString(index: SupportIndex, value: string, fragments: string[]): void {
+/**
+ * Words that make the key they appear in a MONEY key or a DURATION key.
+ *
+ * Closed lexicons on purpose, and matched against the de-camelCased key's whole
+ * words so `priceCents` and `depositAmountCents` are money while `slotInterval`
+ * is not. They are allowed to grow one word at a time when a real field is found
+ * missing; they must never be replaced by a substring rule, because a substring
+ * rule would make `pricingType` a money key and let a string vouch for a price.
+ */
+const MONEY_KEY_WORDS = new Set([
+  'price',
+  'prices',
+  'pricing',
+  'cost',
+  'costs',
+  'amount',
+  'amounts',
+  'fee',
+  'fees',
+  'deposit',
+  'deposits',
+  'cents',
+  'dollars',
+  'currency',
+  'subtotal',
+  'total',
+  'totals',
+  'revenue',
+  'charge',
+  'charges',
+  'balance',
+]);
+
+const DURATION_KEY_WORDS = new Set([
+  'duration',
+  'durations',
+  'minutes',
+  'minute',
+  'mins',
+  'hours',
+  'hour',
+  'buffer',
+  'buffers',
+  'interval',
+  'intervals',
+  'notice',
+  'lead',
+  'length',
+]);
+
+/** Keys whose string value names the thing the sibling numbers belong to. */
+const ENTITY_NAME_KEYS = new Set(['name', 'servicename', 'addonname', 'techniciername', 'techniciantname', 'technicianname', 'label', 'title', 'displayname']);
+
+function classifyKey(key: string): NumericKind | undefined {
+  const words = normalizeText(deCamelCase(key)).split(' ');
+  if (words.some(word => MONEY_KEY_WORDS.has(word))) {
+    return 'money';
+  }
+  if (words.some(word => DURATION_KEY_WORDS.has(word))) {
+    return 'duration';
+  }
+  return undefined;
+}
+
+/**
+ * Money is recorded on BOTH sides of the cents boundary, because a tool result
+ * says `priceCents: 4500` and an answer says `$45.00`. Recording the twin here,
+ * once, keeps `isSupported` from having to guess which side it is looking at.
+ *
+ * ONLY the divide-by-100 twin. A multiply-by-100 twin would admit a claim a
+ * hundred times too large — `priceCents: 4500` would vouch for "$450,000" —
+ * and supports nothing real, because the ambiguity is always "is this figure
+ * cents or units", never "is it cents times a hundred".
+ */
+function recordMoney(pool: Set<number> | number[], value: number): void {
+  const add = (candidate: number) => {
+    if (Array.isArray(pool)) {
+      pool.push(candidate);
+    } else {
+      pool.add(candidate);
+    }
+  };
+  add(value);
+  add(value / 100);
+}
+
+function routeNumber(index: SupportIndex, value: number, kind: NumericKind | undefined): void {
+  index.numbers.push(value);
+  if (kind === 'money') {
+    recordMoney(index.money, value);
+    return;
+  }
+  if (kind === 'duration') {
+    index.durations.push(value);
+  }
+}
+
+/**
+ * A number written inside a string carries its own kind: `"$45"` is money and
+ * `"90 min"` is a duration whatever key they arrived under. An explicit unit in
+ * the text WINS over the key, because the text is the more specific statement.
+ */
+const MONEY_IN_STRING_PATTERN = /[$€£]\s?(\d[\d,]*(?:\.\d{1,2})?)/g;
+const DURATION_IN_STRING_PATTERN = /\b(\d+(?:\.\d+)?)\s?(minutes?|mins?|hours?|hrs?)\b/gi;
+
+function absorbString(
+  index: SupportIndex,
+  value: string,
+  fragments: string[],
+  kind?: NumericKind,
+): void {
   fragments.push(normalizeText(value));
 
   for (const match of value.matchAll(DATE_KEY_PATTERN)) {
@@ -498,8 +668,37 @@ function absorbString(index: SupportIndex, value: string, fragments: string[]): 
     index.times.add(normalizeClock(Number(match[1]), Number(match[2])));
   }
 
+  // An explicit unit in the text is more specific than the key it arrived
+  // under, so `priceDisplayText: "45 minutes"` records a duration, not a price.
+  const explicitMoney = new Set<number>();
+  const explicitDuration = new Set<number>();
+  for (const match of value.matchAll(MONEY_IN_STRING_PATTERN)) {
+    explicitMoney.add(Number((match[1] ?? '').replace(/,/g, '')));
+  }
+  for (const match of value.matchAll(DURATION_IN_STRING_PATTERN)) {
+    const raw = Number(match[1]);
+    const isHours = (match[2] ?? '').toLowerCase().startsWith('h');
+    explicitDuration.add(raw);
+    explicitDuration.add(isHours ? raw * 60 : raw);
+  }
+
   for (const match of value.matchAll(NUMBER_IN_STRING_PATTERN)) {
-    index.numbers.push(Number(match[0]));
+    const parsed = Number(match[0]);
+    if (explicitMoney.has(parsed)) {
+      routeNumber(index, parsed, 'money');
+      continue;
+    }
+    if (explicitDuration.has(parsed)) {
+      routeNumber(index, parsed, 'duration');
+      continue;
+    }
+    routeNumber(index, parsed, kind);
+  }
+  // The CONVERTED figure ("2 hours" ⇒ 120) is duration support only. Routing it
+  // through `routeNumber` would also push it into the union count pool, so a
+  // tool result mentioning "24 hours" would vouch for "you have 1440 clients".
+  for (const minutes of explicitDuration) {
+    index.durations.push(minutes);
   }
 
   const normalized = normalizeText(value);
@@ -518,6 +717,7 @@ function absorbString(index: SupportIndex, value: string, fragments: string[]): 
  * selects ("2 of your 3 services are bookable").
  */
 function absorbArrayCounts(index: SupportIndex, items: readonly unknown[]): void {
+  // Array-derived numbers are counts by construction, never money or minutes.
   index.numbers.push(items.length);
 
   const trueCounts = new Map<string, number>();
@@ -543,13 +743,69 @@ function absorbArrayCounts(index: SupportIndex, items: readonly unknown[]): void
   }
 }
 
-function absorb(index: SupportIndex, value: unknown, fragments: string[]): void {
+/**
+ * Record `{ name, priceCents, durationMinutes }`-shaped objects so a value can
+ * be checked against the thing it belongs to and not merely against the salon.
+ *
+ * Only the object's OWN scalar fields are attributed to its name. A nested
+ * object keeps its own identity, so an add-on's price never becomes the parent
+ * service's price.
+ */
+function absorbEntityAttributes(index: SupportIndex, record: Record<string, unknown>): void {
+  let name: string | undefined;
+  for (const [key, nested] of Object.entries(record)) {
+    if (typeof nested === 'string' && ENTITY_NAME_KEYS.has(normalizeText(key).replace(/ /g, ''))) {
+      name = normalizeText(nested);
+      break;
+    }
+  }
+  if (name === undefined || name.length < 2) {
+    return;
+  }
+
+  const attributes = index.entityAttributes.get(name)
+    ?? { money: new Set<number>(), duration: new Set<number>() };
+
+  for (const [key, nested] of Object.entries(record)) {
+    const kind = classifyKey(key);
+    if (kind === undefined) {
+      continue;
+    }
+    const values: number[] = [];
+    if (typeof nested === 'number' && Number.isFinite(nested)) {
+      values.push(nested);
+    } else if (typeof nested === 'string') {
+      for (const match of nested.matchAll(NUMBER_IN_STRING_PATTERN)) {
+        values.push(Number(match[0]));
+      }
+    }
+    for (const value of values) {
+      if (kind === 'money') {
+        recordMoney(attributes.money, value);
+      } else {
+        attributes.duration.add(value);
+      }
+    }
+  }
+
+  // A name with no numbers of its own is still worth recording: it tells the
+  // attribution check that this IS a known entity, so a price stated next to it
+  // has something to be wrong about.
+  index.entityAttributes.set(name, attributes);
+}
+
+function absorb(
+  index: SupportIndex,
+  value: unknown,
+  fragments: string[],
+  kind?: NumericKind,
+): void {
   if (value === null || value === undefined) {
     return;
   }
   if (typeof value === 'number') {
     if (Number.isFinite(value)) {
-      index.numbers.push(value);
+      routeNumber(index, value, kind);
     }
     return;
   }
@@ -557,17 +813,18 @@ function absorb(index: SupportIndex, value: unknown, fragments: string[]): void 
     return;
   }
   if (typeof value === 'string') {
-    absorbString(index, value, fragments);
+    absorbString(index, value, fragments, kind);
     return;
   }
   if (Array.isArray(value)) {
     absorbArrayCounts(index, value);
     for (const item of value) {
-      absorb(index, item, fragments);
+      absorb(index, item, fragments, kind);
     }
     return;
   }
   if (typeof value === 'object') {
+    absorbEntityAttributes(index, value as Record<string, unknown>);
     for (const [key, nested] of Object.entries(value)) {
       // Keys carry real meaning here (`byDay.tuesday`, `googleCalendar`), so
       // they support WORDS. They deliberately never support numbers: a numeric
@@ -578,7 +835,10 @@ function absorb(index: SupportIndex, value: unknown, fragments: string[]): void 
       if (WEEKDAY_NAMES.includes(normalizedKey as (typeof WEEKDAY_NAMES)[number])) {
         index.weekdays.add(normalizedKey);
       }
-      absorb(index, nested, fragments);
+      // The key decides the kind of the numbers beneath it; an inner key that
+      // says nothing about kind inherits the enclosing one, so
+      // `pricing: { standard: 4500 }` is still money.
+      absorb(index, nested, fragments, classifyKey(key) ?? kind);
     }
   }
 }
@@ -600,6 +860,11 @@ export function buildSupportIndex(toolResults: readonly unknown[]): SupportIndex
 
 function hasNumber(index: SupportIndex, value: number): boolean {
   return index.numbers.some(candidate => Math.abs(candidate - value) < 1e-9);
+}
+
+function inPool(pool: readonly number[] | ReadonlySet<number>, value: number): boolean {
+  const candidates = Array.isArray(pool) ? pool : [...(pool as ReadonlySet<number>)];
+  return candidates.some(candidate => Math.abs(candidate - value) < 1e-9);
 }
 
 // ---------------------------------------------------------------------------
@@ -924,15 +1189,18 @@ function isSupported(fact: ExtractedFact, tools: SupportIndex, owner: SupportInd
 
   switch (probe.type) {
     case 'money':
-      // Both directions of the cents boundary: $45.00 ⇔ 4500 ⇔ 45.
-      return hasNumber(tools, probe.amount)
-        || hasNumber(tools, probe.amount * 100)
+      // MONEY POOL ONLY. Both directions of the cents boundary ($45.00 ⇔ 4500)
+      // are already recorded in the pool itself. The owner's own prose is
+      // untyped, so a figure the owner typed still counts wherever it sits.
+      return inPool(tools.money, probe.amount)
         || hasNumber(owner, probe.amount);
     case 'count':
       return hasNumber(tools, probe.amount) || hasNumber(owner, probe.amount);
     case 'duration':
-      return hasNumber(tools, probe.minutes)
-        || hasNumber(tools, probe.raw)
+      // DURATION POOL ONLY, for the same reason: a price must not vouch for a
+      // length, any more than a length may vouch for a price.
+      return inPool(tools.durations, probe.minutes)
+        || inPool(tools.durations, probe.raw)
         || hasNumber(owner, probe.minutes)
         || hasNumber(owner, probe.raw);
     case 'time':
@@ -977,6 +1245,358 @@ function isSupported(fact: ExtractedFact, tools: SupportIndex, owner: SupportInd
   }
 }
 
+// ---------------------------------------------------------------------------
+// Attribution — is the value attached to the RIGHT thing?
+// ---------------------------------------------------------------------------
+
+function splitSentences(answer: string): string[] {
+  return answer.split(/(?<=[.!?])\s+|\n+/).filter(sentence => sentence.trim().length > 0);
+}
+
+/** Boundary-aware word lookup in a support index's normalised haystack. */
+function hasWord(index: SupportIndex, word: string): boolean {
+  return index.text.includes(` ${word} `);
+}
+
+/**
+ * The one named thing this sentence is about, or undefined when it is about
+ * none or several.
+ *
+ * Attribution is only decidable when exactly ONE known entity is on the table.
+ * With two ("Gel Manicure is $45 and Gel-X is $75") a sentence-level check
+ * cannot say which number belongs to which, and guessing would invent failures;
+ * those sentences fall back to the value-set check alone. The longest match
+ * wins, so a menu holding both "Manicure" and "Gel Manicure" resolves the
+ * sentence "Gel Manicure is $45." to the specific one.
+ */
+function soleKnownEntity(sentence: string, tools: SupportIndex): string | undefined {
+  const haystack = ` ${normalizeText(sentence)} `;
+  const matched = [...tools.entityAttributes.keys()]
+    .filter(name => haystack.includes(` ${name} `));
+  const maximal = matched.filter(
+    name => !matched.some(other => other !== name && ` ${other} `.includes(` ${name} `)),
+  );
+  return maximal.length === 1 ? maximal[0] : undefined;
+}
+
+/**
+ * A value that IS somewhere in the tool results but does NOT belong to the
+ * thing the sentence attached it to. Returns the note to report, or undefined.
+ *
+ * An entity with no recorded value of that kind yields undefined: the tools
+ * never said what its price is, so the answer cannot be convicted of getting it
+ * wrong. Silence is not evidence.
+ */
+function attributionMismatch(
+  fact: ExtractedFact,
+  subject: string | undefined,
+  tools: SupportIndex,
+): string | undefined {
+  if (subject === undefined) {
+    return undefined;
+  }
+  const attributes = tools.entityAttributes.get(subject);
+  if (!attributes) {
+    return undefined;
+  }
+
+  if (fact.probe.type === 'money') {
+    if (attributes.money.size === 0 || inPool(attributes.money, fact.probe.amount)) {
+      return undefined;
+    }
+    return `not the price of "${subject}"`;
+  }
+
+  if (fact.probe.type === 'duration') {
+    const { minutes, raw } = fact.probe;
+    if (attributes.duration.size === 0
+      || inPool(attributes.duration, minutes)
+      || inPool(attributes.duration, raw)) {
+      return undefined;
+    }
+    return `not the duration of "${subject}"`;
+  }
+
+  return undefined;
+}
+
+// ---------------------------------------------------------------------------
+// Lower-case menu names
+// ---------------------------------------------------------------------------
+
+/**
+ * Head nouns a nail-salon menu item can end in. CLOSED LEXICON, allowed to grow
+ * one word at a time.
+ *
+ * Entity extraction sees quoted strings and capitalised runs, so it never saw
+ * "your paraffin dip is active" — an invented add-on in ordinary lower case
+ * passed against a menu that has no such thing. Anchoring on the head noun
+ * finds the phrase; the words around it are then checked one by one. Generic
+ * words ("nails", "treatment", "appointment") are deliberately NOT here: they
+ * occur in ordinary prose about a real menu and would manufacture failures.
+ */
+const SERVICE_HEAD_NOUNS_SPECIFIC = new Set([
+  'manicure',
+  'manicures',
+  'manicurist',
+  'pedicure',
+  'pedicures',
+  'gel',
+  'acrylic',
+  'acrylics',
+  'dip',
+  'dips',
+  'extension',
+  'extensions',
+  'overlay',
+  'overlays',
+  'paraffin',
+  'waxing',
+  'facial',
+  'facials',
+  'ombre',
+  'shellac',
+  'biab',
+  'refill',
+  'refills',
+]);
+
+/**
+ * Head nouns that are ALSO ordinary English an owner-assistant answer uses for
+ * something other than a menu item: "fill in your hours", "a few tips",
+ * "polish the description", "available in french". Alone they are not evidence
+ * of an invented item, so they are reported only inside a phrase of TWO OR MORE
+ * words ("dip powder", "nail art", "french tips").
+ *
+ * Reporting them alone produced eight false positives on ordinary, correct
+ * answers about the fixture salon, each of which would have cost a human
+ * adjudication on the one report the paid run exists to produce.
+ */
+const SERVICE_HEAD_NOUNS_AMBIGUOUS = new Set([
+  'powder',
+  'polish',
+  'fill',
+  'fills',
+  'removal',
+  'removals',
+  'wax',
+  'massage',
+  'art',
+  'french',
+  'chrome',
+  'tips',
+  'soak',
+]);
+
+const SERVICE_HEAD_NOUNS = new Set([
+  ...SERVICE_HEAD_NOUNS_SPECIFIC,
+  ...SERVICE_HEAD_NOUNS_AMBIGUOUS,
+]);
+
+/**
+ * Ordinary English that may sit directly in front of a head noun without being
+ * part of any menu name: generic qualifiers, and the verbs a sentence about the
+ * menu uses ("could not FIND paraffin dip", "you OFFER gel manicure").
+ *
+ * CLOSED LEXICON, same discipline as `SENTENCE_INITIAL_NON_ENTITY_WORDS`: it
+ * may grow one word at a time when a legitimate sentence is found failing, and
+ * must never be replaced by a part-of-speech rule. A word NOT in here is
+ * treated as part of the name, which is the reporting direction.
+ */
+const SERVICE_PHRASE_MODIFIERS = new Set([
+  // Generic qualifiers and quantifiers.
+  'quick',
+  'short',
+  'shorter',
+  'long',
+  'longer',
+  'standard',
+  'regular',
+  'basic',
+  'full',
+  'new',
+  'next',
+  'first',
+  'last',
+  'same',
+  'other',
+  'another',
+  'each',
+  'every',
+  'any',
+  'single',
+  'usual',
+  'normal',
+  'typical',
+  'extra',
+  'more',
+  'less',
+  'most',
+  'least',
+  'best',
+  'cheapest',
+  'quickest',
+  'longest',
+  'shortest',
+  'only',
+  'just',
+  'also',
+  'still',
+  'even',
+  'per',
+  'both',
+  'one',
+  'two',
+  'three',
+  'ones',
+  'few',
+  'some',
+  'several',
+  'many',
+  'couple',
+  // Connectives. Without these, "Gel Manicure is $45 while gel-x is $75"
+  // reports the phrase "while gel".
+  'while',
+  'unlike',
+  'versus',
+  'vs',
+  'than',
+  'whereas',
+  'plus',
+  'without',
+  // Verbs a sentence about the menu is built from. These are never name words.
+  'find',
+  'finds',
+  'found',
+  'offer',
+  'offers',
+  'offering',
+  'offered',
+  'book',
+  'books',
+  'booked',
+  'booking',
+  'add',
+  'adds',
+  'added',
+  'have',
+  'has',
+  'had',
+  'include',
+  'includes',
+  'including',
+  'want',
+  'wants',
+  'need',
+  'needs',
+  'get',
+  'gets',
+  'got',
+  'does',
+  'did',
+  'list',
+  'lists',
+  'show',
+  'shows',
+  'charge',
+  'charges',
+  'take',
+  'takes',
+  'took',
+  'run',
+  'runs',
+  'see',
+  'sees',
+  'say',
+  'says',
+  'know',
+  'knows',
+  'use',
+  'uses',
+  'set',
+  'sets',
+  'make',
+  'makes',
+  'called',
+  'named',
+  'like',
+  'priced',
+  'cost',
+  'costs',
+  'last',
+  'lasts',
+  'listed',
+  'called',
+]);
+
+/**
+ * Menu phrases written in lower case, checked word by word against the tool
+ * results. A phrase is reported when any content word in it appears nowhere.
+ */
+function extractLowercaseServiceFacts(
+  sentence: string,
+  tools: SupportIndex,
+  owner: SupportIndex,
+): GroundingFact[] {
+  const words = normalizeText(sentence).split(' ').filter(word => word.length > 0);
+  const facts: GroundingFact[] = [];
+  const seen = new Set<string>();
+
+  const isContentWord = (word: string): boolean => word.length > 1
+    && !ENTITY_STOPWORDS.has(word)
+    && !SERVICE_PHRASE_MODIFIERS.has(word)
+    && !isDateWord(word)
+    && !/^\d+$/.test(word);
+
+  for (const [position, word] of words.entries()) {
+    if (!SERVICE_HEAD_NOUNS.has(word)) {
+      continue;
+    }
+    // "paraffin dip" is ONE phrase. Let the rightmost head noun carry it, so an
+    // invented item is reported once rather than once per word.
+    if (SERVICE_HEAD_NOUNS.has(words[position + 1] ?? '')) {
+      continue;
+    }
+
+    // The head noun plus AT MOST ONE content word in front of it.
+    //
+    // A wider window swallows the sentence's verb ("could not find paraffin
+    // dip") and its filler ("the first one is gel"), and then reports the verb
+    // as an invented menu word. One word is enough for the shape that matters,
+    // because an invented item's own qualifier sits directly against its head
+    // noun: "paraffin dip", "stone massage", "dip powder".
+    const previous = words[position - 1] ?? '';
+    const phrase = isContentWord(previous) ? [previous, word] : [word];
+
+    const content = phrase.filter(isContentWord);
+    if (content.length === 0) {
+      continue;
+    }
+    if (content.every(token => hasWord(tools, token) || hasWord(owner, token))) {
+      continue;
+    }
+
+    // An ambiguous head noun standing alone is ordinary English, not a claim
+    // about the menu. Only a phrase carries enough signal to report.
+    if (phrase.length < 2 && SERVICE_HEAD_NOUNS_AMBIGUOUS.has(word)) {
+      continue;
+    }
+
+    const value = phrase.join(' ');
+    if (seen.has(value)) {
+      continue;
+    }
+    seen.add(value);
+    facts.push({
+      kind: 'entity',
+      value,
+      note: 'no menu item by that name',
+    });
+  }
+
+  return facts;
+}
+
 /**
  * The checker. `ok` is true only when every extracted fact is supported.
  */
@@ -984,24 +1604,49 @@ export function checkGrounding(input: GroundingInput): GroundingVerdict {
   const tools = buildSupportIndex(input.toolResults);
   const owner = buildSupportIndex(input.ownerMessages ?? []);
 
-  const facts = [
-    ...extractScalarFacts(input.answer),
-    ...extractEntityFacts(input.answer),
-  ];
-
   const unsupported: GroundingFact[] = [];
   const seen = new Set<string>();
 
-  for (const fact of facts) {
-    if (isSupported(fact, tools, owner)) {
-      continue;
-    }
+  const report = (fact: GroundingFact) => {
     const dedupeKey = `${fact.kind}:${fact.value.toLowerCase()}`;
     if (seen.has(dedupeKey)) {
-      continue;
+      return;
     }
     seen.add(dedupeKey);
-    unsupported.push({ kind: fact.kind, value: fact.value });
+    unsupported.push(fact);
+  };
+
+  // Capitalised and quoted names first, so a name that both passes catch is
+  // reported in the casing the answer actually used.
+  for (const fact of extractEntityFacts(input.answer)) {
+    if (!isSupported(fact, tools, owner)) {
+      report({ kind: fact.kind, value: fact.value });
+    }
+  }
+
+  // Scalars are scanned SENTENCE BY SENTENCE so each one can be judged against
+  // the thing its own sentence is about. Almost nothing changes about WHAT is
+  // extracted, because the patterns do not span sentences — the one exception
+  // is a number separated from its unit by a NEWLINE ("45\nminutes"), which
+  // `splitSentences` now cuts, so it degrades from a duration to a count and is
+  // checked against the wider pool.
+  for (const sentence of splitSentences(input.answer)) {
+    const subject = soleKnownEntity(sentence, tools);
+
+    for (const fact of extractScalarFacts(sentence)) {
+      if (!isSupported(fact, tools, owner)) {
+        report({ kind: fact.kind, value: fact.value });
+        continue;
+      }
+      const mismatch = attributionMismatch(fact, subject, tools);
+      if (mismatch !== undefined) {
+        report({ kind: fact.kind, value: fact.value, note: mismatch });
+      }
+    }
+
+    for (const fact of extractLowercaseServiceFacts(sentence, tools, owner)) {
+      report(fact);
+    }
   }
 
   return { ok: unsupported.length === 0, unsupported };
@@ -1012,5 +1657,9 @@ export function formatGroundingVerdict(verdict: GroundingVerdict): string {
   if (verdict.ok) {
     return 'grounded';
   }
-  return verdict.unsupported.map(fact => `${fact.kind}:${fact.value}`).join(', ');
+  return verdict.unsupported
+    .map(fact => (fact.note === undefined
+      ? `${fact.kind}:${fact.value}`
+      : `${fact.kind}:${fact.value} (${fact.note})`))
+    .join(', ');
 }

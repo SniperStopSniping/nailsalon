@@ -31,6 +31,7 @@ import {
   type ChatLink,
   type ChatTurnResponse,
   type ChatUnavailableReason,
+  OWNER_ASSISTANT_LIMITS,
   OWNER_ASSISTANT_MODEL_PRICES_MICROS_PER_MILLION,
   type OwnerAssistantToolName,
 } from '../contracts';
@@ -103,6 +104,35 @@ export type EvalCaseRecord = {
   failures: string[];
   /** Set when the case could not run at all (an unexpected throw). */
   error?: string;
+  /**
+   * Set when the run's spend ceiling (`runnerGuards.ts`) stopped this case,
+   * either before a turn was sent (`turns.length < evalCase.turns.length`,
+   * `passed: false` — that turn's expectations were never verified) or right
+   * after its last turn completed (every turn ran and was scored on its own
+   * merits; this only means no FURTHER case or turn will be attempted).
+   */
+  haltedBySpendCeiling?: EvalSpendCeilingHalt;
+};
+
+/** Why the spend guard stopped the run, and the numbers behind the decision. */
+export type EvalSpendCeilingHalt = {
+  reason: string;
+  spentMicros: number;
+  ceilingMicros: number;
+};
+
+/**
+ * Optional hook `runEvalCase` calls at each turn boundary so the caller (the
+ * real-model work stage) can enforce a run-wide spend ceiling without this
+ * module knowing anything about dollars, cents or `runnerGuards.ts` — it only
+ * knows "the guard said stop, or it didn't". Omitted entirely, behaviour is
+ * identical to before this existed (every existing caller in CI passes none).
+ */
+export type EvalSpendGuard = {
+  /** Called immediately before a turn would be sent. A returned halt means: do not send it. */
+  checkBeforeTurn: () => EvalSpendCeilingHalt | undefined;
+  /** Called once a turn's real cost is known and folded into the run's accumulator. */
+  recordTurnCost: (turnCostMicros: number) => EvalSpendCeilingHalt | undefined;
 };
 
 // ---------------------------------------------------------------------------
@@ -139,6 +169,37 @@ export function computeUsageCostMicros(
 
   return { costMicros: Math.round(micros / 1_000_000), priceKnown: true };
 }
+
+/**
+ * Conservative per-turn cost estimate for the eval runner's client-side spend
+ * ceiling (`runnerGuards.ts`'s `shouldStopForSpend`), used ONLY before any
+ * turn in the run has completed — once one has, the ceiling uses the maximum
+ * per-turn cost actually observed instead, which is real rather than assumed.
+ *
+ * Derived from limits this loop already enforces, not guessed:
+ *   - up to `OWNER_ASSISTANT_LIMITS.modelCallsPerTurn` (3) provider round
+ *     trips can happen inside one turn;
+ *   - each round trip's output is capped at
+ *     `OWNER_ASSISTANT_LIMITS.maxOutputTokens` (1200) by the loop itself;
+ *   - each round trip's input is conservatively sized at 4000 tokens — larger
+ *     than `maxOutputTokens` because the growing conversation window
+ *     (`conversationMaxBytes`: 16,384 bytes, ~4 chars/token ⇒ ~4096 tokens)
+ *     plus one tool result is what a later call in a multi-call turn is
+ *     actually carrying, and this must not undercount the last, fullest call;
+ *   - priced against `gpt-5.6-terra`, the most expensive model this runner
+ *     has a price for, so the estimate does not depend on the configured
+ *     model being the cheap one — it is a ceiling on the worst case, not a
+ *     prediction of the likely case.
+ * This is a token BUDGET run through the real price table, not a hardcoded
+ * dollar figure, so it tracks `OWNER_ASSISTANT_MODEL_PRICES_MICROS_PER_MILLION`
+ * automatically if that table changes.
+ */
+export const EVAL_WORST_CASE_TURN_COST_MICROS = computeUsageCostMicros('gpt-5.6-terra', {
+  inputTokens: 4000,
+  cachedInputTokens: 0,
+  cacheWriteInputTokens: 0,
+  outputTokens: OWNER_ASSISTANT_LIMITS.maxOutputTokens,
+}).costMicros * OWNER_ASSISTANT_LIMITS.modelCallsPerTurn;
 
 // ---------------------------------------------------------------------------
 // Provider instrumentation
@@ -270,6 +331,8 @@ export type RunEvalCaseArgs = {
   checks: EvalCheckOptions;
   /** Seam for tests; defaults to the production loop. */
   runTurn?: EvalTurnRunner;
+  /** Optional run-wide spend ceiling; see `EvalSpendGuard`. Absent in every CI caller. */
+  spendGuard?: EvalSpendGuard;
 };
 
 function resolveProvider(
@@ -297,6 +360,14 @@ export async function runEvalCase(args: RunEvalCaseArgs): Promise<EvalCaseRecord
   const ownerMessages: string[] = [];
 
   for (const [index, expectation] of args.evalCase.turns.entries()) {
+    const preTurnHalt = args.spendGuard?.checkBeforeTurn();
+    if (preTurnHalt) {
+      record.passed = false;
+      record.haltedBySpendCeiling = preTurnHalt;
+      record.failures.push(`turn ${index + 1} not sent: halted by spend ceiling (${preTurnHalt.reason})`);
+      break;
+    }
+
     const observation: TurnObservation = { modelCalls: 0, usage: emptyUsage(), toolCalls: [] };
     const provider = instrumentProvider(
       resolveProvider(args.provider, {
@@ -379,6 +450,15 @@ export async function runEvalCase(args: RunEvalCaseArgs): Promise<EvalCaseRecord
       conversationToken = response.conversation;
     } else if (response.conversation) {
       conversationToken = response.conversation;
+    }
+
+    const postTurnHalt = args.spendGuard?.recordTurnCost(turnRecord.costMicros);
+    if (postTurnHalt) {
+      // Unlike the pre-dispatch halt above, this turn already ran and was
+      // scored on its own merits — reaching the ceiling right after it
+      // completes is not this CASE's failure, only the run's last one.
+      record.haltedBySpendCeiling = postTurnHalt;
+      break;
     }
   }
 

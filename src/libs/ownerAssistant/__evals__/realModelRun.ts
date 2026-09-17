@@ -37,7 +37,8 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import * as schema from '@/models/Schema';
 
 import type { RunOwnerAssistantTurnArgs } from '../turn.server';
-import type { EvalCaseRecord } from './harness';
+import type { EvalCaseRecord, EvalSpendCeilingHalt, EvalSpendGuard } from './harness';
+import type { EvalReportSkip } from './report';
 
 vi.mock('server-only', () => ({}));
 
@@ -83,16 +84,19 @@ const {
   EVAL_WEST_SALON,
   seedEvalFixtures,
 } = await import('./fixtures.server');
-const { aggregate, runEvalCase } = await import('./harness');
+const { aggregate, EVAL_WORST_CASE_TURN_COST_MICROS, runEvalCase } = await import('./harness');
 const {
+  centsToMicros,
   checkRealModelRunnerPreconditions,
   currentLocalDate,
   EVAL_API_KEY_ENV,
   EVAL_RUNNER_OUTPUT_DEFAULT,
   resolveEvalBaseUrl,
+  resolveEvalMaxSpendCents,
   resolveEvalModel,
+  shouldStopForSpend,
 } = await import('./runnerGuards');
-const { writeEvalReport } = await import('./report');
+const { formatMicros, writeEvalReport } = await import('./report');
 
 const refusals = checkRealModelRunnerPreconditions(process.env, { today: currentLocalDate() });
 const model = resolveEvalModel(process.env);
@@ -110,6 +114,54 @@ const selected = realModelCases().filter(
 const records: EvalCaseRecord[] = [];
 let client: PGlite;
 
+// ---------------------------------------------------------------------------
+// Client-side spend ceiling (Owner authorisation, 2026-09-16: US$3.00 by
+// default). This is an ESTIMATE checked between turns, from the price table
+// in `contracts.ts` — it cannot un-spend anything already in flight with the
+// provider, and it is IN ADDITION to, never instead of, the non-production
+// key's own provider-side budget. See `runnerGuards.ts` for
+// `shouldStopForSpend` (the pure decision) and `harness.ts` for
+// `EVAL_WORST_CASE_TURN_COST_MICROS` (the conservative pre-first-turn
+// estimate). `MODEL_PRICE_UNKNOWN` in `checkRealModelRunnerPreconditions`
+// already refused to start if `model` has no price-table entry, so by the
+// time this runs the ceiling is always enforceable.
+// ---------------------------------------------------------------------------
+const spendCeilingMicros = centsToMicros(resolveEvalMaxSpendCents(process.env));
+let spentMicros = 0;
+let maxObservedTurnCostMicros: number | undefined;
+let spendHalt: EvalSpendCeilingHalt | undefined;
+/** Cases the case loop below never even started once `spendHalt` was set. */
+const notRunBySpendCeiling: EvalReportSkip[] = [];
+
+const spendGuard: EvalSpendGuard = {
+  checkBeforeTurn: () => {
+    if (spendHalt) {
+      return spendHalt;
+    }
+    const estimatedNextMicros = maxObservedTurnCostMicros ?? EVAL_WORST_CASE_TURN_COST_MICROS;
+    if (shouldStopForSpend({ spentMicros, ceilingMicros: spendCeilingMicros, estimatedNextMicros })) {
+      spendHalt = {
+        reason: `spent ${formatMicros(spentMicros)} of a ${formatMicros(spendCeilingMicros)} ceiling; the next turn's conservative estimate of ${formatMicros(estimatedNextMicros)} would meet or exceed it`,
+        spentMicros,
+        ceilingMicros: spendCeilingMicros,
+      };
+    }
+    return spendHalt;
+  },
+  recordTurnCost: (turnCostMicros: number) => {
+    spentMicros += turnCostMicros;
+    maxObservedTurnCostMicros = Math.max(maxObservedTurnCostMicros ?? 0, turnCostMicros);
+    if (!spendHalt && shouldStopForSpend({ spentMicros, ceilingMicros: spendCeilingMicros, estimatedNextMicros: 0 })) {
+      spendHalt = {
+        reason: `spent ${formatMicros(spentMicros)}, which has reached or exceeded the ${formatMicros(spendCeilingMicros)} ceiling`,
+        spentMicros,
+        ceilingMicros: spendCeilingMicros,
+      };
+    }
+    return spendHalt;
+  },
+};
+
 describe.skipIf(refusals.length > 0)('owner assistant — real model run', () => {
   beforeAll(async () => {
     client = new PGlite();
@@ -122,7 +174,10 @@ describe.skipIf(refusals.length > 0)('owner assistant — real model run', () =>
   }, 180_000);
 
   afterAll(async () => {
-    if (records.length > 0) {
+    // A stopped run still writes its report — that is the whole point of a
+    // client-side ceiling. `records.length` alone would miss a run halted
+    // before its very first case ever produced a record.
+    if (records.length > 0 || notRunBySpendCeiling.length > 0) {
       const summary = aggregate(records);
       const written = writeEvalReport({
         outputDirectory,
@@ -131,17 +186,25 @@ describe.skipIf(refusals.length > 0)('owner assistant — real model run', () =>
         summary,
         fixtureSlug: EVAL_SALON.slug,
         frozenNow: EVAL_NOW.toISOString(),
-        skipped: mechanismCases().map(evalCase => ({
-          id: evalCase.id,
-          group: evalCase.group,
-          title: evalCase.title,
-          reason: evalCase.group === 'security'
-            ? 'security cases are never sent to a live provider'
-            : 'the premise is an injected provider or infrastructure fault a live provider cannot be asked to produce',
-        })),
+        skipped: [
+          ...mechanismCases().map(evalCase => ({
+            id: evalCase.id,
+            group: evalCase.group,
+            title: evalCase.title,
+            reason: evalCase.group === 'security'
+              ? 'security cases are never sent to a live provider'
+              : 'the premise is an injected provider or infrastructure fault a live provider cannot be asked to produce',
+          })),
+          ...notRunBySpendCeiling,
+        ],
+        ...(spendHalt ? { haltedBySpendCeiling: spendHalt } : {}),
       });
 
       process.stdout.write(`\nWrote ${written.jsonPath}\nWrote ${written.markdownPath}\n`);
+      if (spendHalt) {
+        process.stdout.write(`\n[spend ceiling] ${spendHalt.reason}\n`);
+        process.stdout.write(`[spend ceiling] ${records.length} case(s) ran; ${notRunBySpendCeiling.length} case(s) not run.\n`);
+      }
     }
 
     await client?.close();
@@ -149,6 +212,18 @@ describe.skipIf(refusals.length > 0)('owner assistant — real model run', () =>
 
   for (const evalCase of selected) {
     it(`${evalCase.id} — ${evalCase.title}`, async () => {
+      // A case is never even ATTEMPTED once the ceiling has already been hit
+      // by an earlier case — it is reported as NOT RUN, never as a pass.
+      if (spendHalt) {
+        notRunBySpendCeiling.push({
+          id: evalCase.id,
+          group: evalCase.group,
+          title: evalCase.title,
+          reason: `not run: halted by spend ceiling (${spendHalt.reason})`,
+        });
+        return;
+      }
+
       const record = await runEvalCase({
         evalCase,
         salon: evalCase.salon === 'west' ? EVAL_WEST_SALON : EVAL_SALON,
@@ -164,7 +239,21 @@ describe.skipIf(refusals.length > 0)('owner assistant — real model run', () =>
         // The MODEL wrote these answers, so both the text expectations and the
         // grounding verdict are real evidence here — the opposite of CI.
         checks: { checkAnswerText: true, scoreGrounding: true },
+        spendGuard,
       });
+
+      // The ceiling was reached before this case's very first turn was sent:
+      // nothing about it was ever verified, so it belongs with the cases that
+      // never ran, not with a scored (and therefore failing) record.
+      if (record.haltedBySpendCeiling && record.turns.length === 0) {
+        notRunBySpendCeiling.push({
+          id: evalCase.id,
+          group: evalCase.group,
+          title: evalCase.title,
+          reason: `not run: halted by spend ceiling (${record.haltedBySpendCeiling.reason})`,
+        });
+        return;
+      }
 
       records.push(record);
 
@@ -197,6 +286,28 @@ describe('owner assistant — real model run (preconditions)', () => {
     expect(
       refusals.map(refusal => `[${refusal.code}] ${refusal.message}`),
       'the work stage was invoked but its preconditions are not met: nothing ran, nothing was scored',
+    ).toEqual([]);
+  });
+});
+
+/**
+ * The process's exit status must agree with the report.
+ *
+ * A case the ceiling stopped returns from its `it()` without asserting, which
+ * vitest scores as a PASS. So a run halted before its first case printed a
+ * screen of green ticks and exited 0, while the report it had just written said
+ * NOT RUN — the same "a run that looks like a pass" shape the preconditions
+ * block above exists to prevent. This block runs last and fails whenever the
+ * ceiling stopped anything, so an operator reading only the exit code is never
+ * told a halted run succeeded.
+ */
+describe('owner assistant — real model run (spend ceiling)', () => {
+  it('did not halt: every selected case was actually sent and scored', () => {
+    const halted = notRunBySpendCeiling.map(entry => `${entry.id}: ${entry.reason}`);
+
+    expect(
+      spendHalt === undefined ? [] : halted,
+      'the spend ceiling stopped this run: the cases above were never sent, so their expectations were never verified',
     ).toEqual([]);
   });
 });
