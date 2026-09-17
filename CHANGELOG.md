@@ -1,3 +1,11 @@
+## [1.115.1](https://github.com/SniperStopSniping/nailsalon/compare/v1.115.0...v1.115.1) (2026-09-17)
+
+
+### Bug Fixes
+
+* **owner-assistant:** address independent review of the eval hardening ([ac8a28d](https://github.com/SniperStopSniping/nailsalon/commit/ac8a28dd6e5d30368db6961a18b02351b59b7ddf))
+* **owner-assistant:** deterministic signature test, harder grounding, bounded eval spend ([5d36365](https://github.com/SniperStopSniping/nailsalon/commit/5d3636589e1ba2414154180e062909eed3f7c15d))
+
 # [1.115.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.114.0...v1.115.0) (2026-09-16)
 
 
