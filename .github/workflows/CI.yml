@@ -420,6 +420,9 @@ jobs:
               migrations/0076_deposit_shadow_evidence.sql) ;;
               # One-time review requests, disabled by default and without backfill.
               migrations/0077_review_requests.sql) ;;
+              # New-track Stripe customer identity: one durable customer per
+              # (salon, plan env). Additive, inert, no backfill.
+              migrations/0078_billing_customer.sql) ;;
               migrations/meta/_journal.json) ;;
               vercel.json) ;;
               *)
@@ -528,6 +531,8 @@ jobs:
               0075_onboarding_cover_media_role) ;;
               0076_deposit_shadow_evidence) ;;
               0077_review_requests) ;;
+              # New-track Stripe customer identity (billing_customer).
+              0078_billing_customer) ;;
               *)
                 echo "::error::Unauthorized migration journal entries: $tag"
                 exit 1
@@ -1219,7 +1224,7 @@ jobs:
             src/app/api/billing/checkout/topup/route.concurrency.integration.test.ts \
             src/libs/billing/subscriptionRefunds.concurrency.integration.test.ts \
             | tee billing-postgres-concurrency.log
-          grep -Fqx 'BILLING_REFUND_POSTGRES_TESTS_EXECUTED=18 BILLING_REFUND_POSTGRES_TESTS_SKIPPED=0' billing-postgres-concurrency.log
+          grep -Fqx 'BILLING_REFUND_POSTGRES_TESTS_EXECUTED=22 BILLING_REFUND_POSTGRES_TESTS_SKIPPED=0' billing-postgres-concurrency.log
           grep -Fqx 'BILLING_CREDIT_RESERVATION_POSTGRES_TESTS_EXECUTED=9 BILLING_CREDIT_RESERVATION_POSTGRES_TESTS_SKIPPED=0' billing-postgres-concurrency.log
           grep -Fqx 'BILLING_TOPUP_CHECKOUT_POSTGRES_TESTS_EXECUTED=3 BILLING_TOPUP_CHECKOUT_POSTGRES_TESTS_SKIPPED=0' billing-postgres-concurrency.log
 

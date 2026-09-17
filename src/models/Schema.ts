@@ -3352,6 +3352,13 @@ export const AUDIT_LOG_ACTIONS = [
   // Read together with `billing_subscription_refund_applied`; the highest
   // `seq` for an invoice is its effective state. Appended, never reordered.
   'billing_subscription_refund_evidence_resolved',
+  // PR-C/§3.2 — a `billing_customer` mapping was recorded for a salon, either
+  // freshly created in Stripe or adopted from environment-verified new-track
+  // subscription evidence. `audit_log` rows survive a salon purge with
+  // `salon_id` nulled, so this is how ops locates the Stripe Customer that
+  // outlives the mapping row (the Customer object is never deleted by code).
+  // Appended, never reordered.
+  'billing_customer_created',
 ] as const;
 export type AuditLogAction = (typeof AUDIT_LOG_ACTIONS)[number];
 
@@ -3875,6 +3882,48 @@ export const billingCreditWindowSchema = pgTable(
 );
 export type BillingCreditWindow = typeof billingCreditWindowSchema.$inferSelect;
 export type NewBillingCreditWindow = typeof billingCreditWindowSchema.$inferInsert;
+
+export const BILLING_CUSTOMER_SOURCES = ['created', 'adopted_subscription'] as const;
+export type BillingCustomerSource = (typeof BILLING_CUSTOMER_SOURCES)[number];
+
+/**
+ * Migration 0078 — the new track's canonical Stripe Customer per salon.
+ *
+ * `planEnv` is the runtime's `BILLING_PLAN_ENV`, and it is in the unique key on
+ * purpose: this deployment family shares ONE database between development and
+ * production, so a customer minted in test mode must never be reachable by a
+ * live-mode deployment. Every read filters by it.
+ *
+ * `stripeCustomerId` is globally unique — the tenant fence. One Stripe Customer
+ * belongs to exactly one salon, so a mis-supplied id fails loudly instead of
+ * quietly re-tenanting money. `salon.stripeCustomerId` (the legacy column) is
+ * never a source for this table.
+ */
+export const billingCustomerSchema = pgTable(
+  'billing_customer',
+  {
+    id: text('id').primaryKey(),
+    salonId: text('salon_id')
+      .notNull()
+      .references(() => salonSchema.id, { onDelete: 'cascade' }),
+    planEnv: text('plan_env').$type<'dev' | 'test' | 'prod'>().notNull(),
+    stripeCustomerId: text('stripe_customer_id').notNull(),
+    source: text('source').$type<BillingCustomerSource>().notNull(),
+    createdAt: timestamp('created_at', { mode: 'date', withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { mode: 'date', withTimezone: true })
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull(),
+  },
+  table => ({
+    // One canonical customer per (salon, plan env) — the environment fence.
+    salonEnvUniq: uniqueIndex('billing_customer_salon_env_uniq').on(table.salonId, table.planEnv),
+    // A Stripe Customer belongs to exactly one salon — the tenant fence.
+    stripeUniq: uniqueIndex('billing_customer_stripe_uniq').on(table.stripeCustomerId),
+  }),
+);
+export type BillingCustomer = typeof billingCustomerSchema.$inferSelect;
+export type NewBillingCustomer = typeof billingCustomerSchema.$inferInsert;
 
 export const billingBusinessIdentitySchema = pgTable('billing_business_identity', {
   id: text('id').primaryKey(),
