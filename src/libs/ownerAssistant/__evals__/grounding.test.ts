@@ -462,6 +462,35 @@ describe('regression — reviewer-constructed false negatives', () => {
     expect(verdict.ok).toBe(false);
   });
 
+  it('review F1: money is NOT recorded a hundredfold, so a huge figure is reported', () => {
+    // `priceCents: 4500` must vouch for "$45" and "$4500" and nothing else. A
+    // multiply-by-100 twin also admitted "$450,000", which is exactly the
+    // "silently pass a number that is absent" the module forbids itself.
+    expect(check('It is $450,000.', [SERVICES_RESULT]).ok).toBe(false);
+    expect(check('The package comes to $750,000.', [SERVICES_RESULT]).ok).toBe(false);
+    expect(check('Gel Manicure is $45.', [SERVICES_RESULT]).ok).toBe(true);
+  });
+
+  it('review F4: a duration converted from hours does not vouch for a count', () => {
+    // "24 hours" in a tool result must not make 1440 a supported count.
+    expect(check('You have 1440 clients on file.', [{ note: 'cancellation window is 24 hours' }]).ok).toBe(false);
+    expect(check('It takes 2 hours.', [{ note: 'lead time is 2 hours' }]).ok).toBe(true);
+  });
+
+  it.each([
+    'Here are a few tips to get more bookings.',
+    'I can add some tips below.',
+    'Try a longer fill next time.',
+    'You may want to polish the description first.',
+    'That is a nice bit of art.',
+    'The page is also available in french.',
+    'Gel Manicure is $45 while Gel-X Extensions is $75.',
+  ])('review F3: ordinary English is not reported as an invented item (%s)', (sentence) => {
+    // Head nouns that are also ordinary English are reported only inside a
+    // phrase of two or more words; connectives never glue onto one.
+    expect(check(sentence, [SERVICES_RESULT]).ok).toBe(true);
+  });
+
   it('A2 (CLOSED): counts deliberately keep the union pool', () => {
     // 3 is the length of `services`; this is the one kind whose legitimate
     // support really is "that number occurs".

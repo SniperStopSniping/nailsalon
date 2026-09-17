@@ -69,8 +69,10 @@
  *  3. LOWER-CASE NAMES (A4) are reached through a closed lexicon of menu head
  *     nouns. "Your paraffin dip is active." is now reported. It reads at most
  *     ONE content word in front of the head noun, so an invention buried deeper
- *     in a longer phrase can still slip through, and a real item whose name
- *     uses a head noun absent from the lexicon is not checked at all.
+ *     in a longer phrase can still slip through; a real item whose name uses a
+ *     head noun absent from the lexicon is not checked at all; and a head noun
+ *     that is also ordinary English (`fill`, `tips`, `art`, `polish`, `french`)
+ *     is reported only inside a phrase of two or more words.
  *
  * What remains open, and the direction it errs in:
  *
@@ -584,6 +586,11 @@ function classifyKey(key: string): NumericKind | undefined {
  * Money is recorded on BOTH sides of the cents boundary, because a tool result
  * says `priceCents: 4500` and an answer says `$45.00`. Recording the twin here,
  * once, keeps `isSupported` from having to guess which side it is looking at.
+ *
+ * ONLY the divide-by-100 twin. A multiply-by-100 twin would admit a claim a
+ * hundred times too large — `priceCents: 4500` would vouch for "$450,000" —
+ * and supports nothing real, because the ambiguity is always "is this figure
+ * cents or units", never "is it cents times a hundred".
  */
 function recordMoney(pool: Set<number> | number[], value: number): void {
   const add = (candidate: number) => {
@@ -595,7 +602,6 @@ function recordMoney(pool: Set<number> | number[], value: number): void {
   };
   add(value);
   add(value / 100);
-  add(value * 100);
 }
 
 function routeNumber(index: SupportIndex, value: number, kind: NumericKind | undefined): void {
@@ -688,8 +694,11 @@ function absorbString(
     }
     routeNumber(index, parsed, kind);
   }
+  // The CONVERTED figure ("2 hours" ⇒ 120) is duration support only. Routing it
+  // through `routeNumber` would also push it into the union count pool, so a
+  // tool result mentioning "24 hours" would vouch for "you have 1440 clients".
   for (const minutes of explicitDuration) {
-    routeNumber(index, minutes, 'duration');
+    index.durations.push(minutes);
   }
 
   const normalized = normalizeText(value);
@@ -1326,9 +1335,10 @@ function attributionMismatch(
  * words ("nails", "treatment", "appointment") are deliberately NOT here: they
  * occur in ordinary prose about a real menu and would manufacture failures.
  */
-const SERVICE_HEAD_NOUNS = new Set([
+const SERVICE_HEAD_NOUNS_SPECIFIC = new Set([
   'manicure',
   'manicures',
+  'manicurist',
   'pedicure',
   'pedicures',
   'gel',
@@ -1336,32 +1346,51 @@ const SERVICE_HEAD_NOUNS = new Set([
   'acrylics',
   'dip',
   'dips',
-  'powder',
-  'polish',
   'extension',
   'extensions',
-  'fill',
-  'fills',
   'overlay',
   'overlays',
-  'removal',
-  'removals',
   'paraffin',
-  'wax',
   'waxing',
   'facial',
   'facials',
+  'ombre',
+  'shellac',
+  'biab',
+  'refill',
+  'refills',
+]);
+
+/**
+ * Head nouns that are ALSO ordinary English an owner-assistant answer uses for
+ * something other than a menu item: "fill in your hours", "a few tips",
+ * "polish the description", "available in french". Alone they are not evidence
+ * of an invented item, so they are reported only inside a phrase of TWO OR MORE
+ * words ("dip powder", "nail art", "french tips").
+ *
+ * Reporting them alone produced eight false positives on ordinary, correct
+ * answers about the fixture salon, each of which would have cost a human
+ * adjudication on the one report the paid run exists to produce.
+ */
+const SERVICE_HEAD_NOUNS_AMBIGUOUS = new Set([
+  'powder',
+  'polish',
+  'fill',
+  'fills',
+  'removal',
+  'removals',
+  'wax',
   'massage',
   'art',
   'french',
-  'ombre',
   'chrome',
   'tips',
-  'refill',
-  'refills',
-  'shellac',
-  'biab',
   'soak',
+]);
+
+const SERVICE_HEAD_NOUNS = new Set([
+  ...SERVICE_HEAD_NOUNS_SPECIFIC,
+  ...SERVICE_HEAD_NOUNS_AMBIGUOUS,
 ]);
 
 /**
@@ -1420,6 +1449,21 @@ const SERVICE_PHRASE_MODIFIERS = new Set([
   'two',
   'three',
   'ones',
+  'few',
+  'some',
+  'several',
+  'many',
+  'couple',
+  // Connectives. Without these, "Gel Manicure is $45 while gel-x is $75"
+  // reports the phrase "while gel".
+  'while',
+  'unlike',
+  'versus',
+  'vs',
+  'than',
+  'whereas',
+  'plus',
+  'without',
   // Verbs a sentence about the menu is built from. These are never name words.
   'find',
   'finds',
@@ -1532,6 +1576,12 @@ function extractLowercaseServiceFacts(
       continue;
     }
 
+    // An ambiguous head noun standing alone is ordinary English, not a claim
+    // about the menu. Only a phrase carries enough signal to report.
+    if (phrase.length < 2 && SERVICE_HEAD_NOUNS_AMBIGUOUS.has(word)) {
+      continue;
+    }
+
     const value = phrase.join(' ');
     if (seen.has(value)) {
       continue;
@@ -1575,8 +1625,11 @@ export function checkGrounding(input: GroundingInput): GroundingVerdict {
   }
 
   // Scalars are scanned SENTENCE BY SENTENCE so each one can be judged against
-  // the thing its own sentence is about. The patterns never span a sentence
-  // boundary, so this changes nothing about what is extracted.
+  // the thing its own sentence is about. Almost nothing changes about WHAT is
+  // extracted, because the patterns do not span sentences — the one exception
+  // is a number separated from its unit by a NEWLINE ("45\nminutes"), which
+  // `splitSentences` now cuts, so it degrades from a duration to a count and is
+  // checked against the wider pool.
   for (const sentence of splitSentences(input.answer)) {
     const subject = soleKnownEntity(sentence, tools);
 

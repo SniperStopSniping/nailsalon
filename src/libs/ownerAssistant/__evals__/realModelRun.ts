@@ -289,3 +289,25 @@ describe('owner assistant — real model run (preconditions)', () => {
     ).toEqual([]);
   });
 });
+
+/**
+ * The process's exit status must agree with the report.
+ *
+ * A case the ceiling stopped returns from its `it()` without asserting, which
+ * vitest scores as a PASS. So a run halted before its first case printed a
+ * screen of green ticks and exited 0, while the report it had just written said
+ * NOT RUN — the same "a run that looks like a pass" shape the preconditions
+ * block above exists to prevent. This block runs last and fails whenever the
+ * ceiling stopped anything, so an operator reading only the exit code is never
+ * told a halted run succeeded.
+ */
+describe('owner assistant — real model run (spend ceiling)', () => {
+  it('did not halt: every selected case was actually sent and scored', () => {
+    const halted = notRunBySpendCeiling.map(entry => `${entry.id}: ${entry.reason}`);
+
+    expect(
+      spendHalt === undefined ? [] : halted,
+      'the spend ceiling stopped this run: the cases above were never sent, so their expectations were never verified',
+    ).toEqual([]);
+  });
+});
