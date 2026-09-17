@@ -103,7 +103,7 @@ Discharges the §16 Gate C exit condition (owner notice §2.1 above). Run 2026-0
 
 ## 4. Contract amendments (Rev 2.3) — (a), (b), (c) RATIFIED; (d) NOT ratified, NOT authorized
 
-Recorded for owner ratification only. Nothing below is implemented until the owner ratifies it (plan decision D19).
+Rows (a) and (b) were ratified 2026-09-14 and implemented. Row (c) was ratified 2026-09-16 in its NARROW form (the §5 isolation exception plus its display companion) and is implemented by this change. Row (d) is still recorded for owner ratification only and is NOT implemented.
 
 | # | Proposal | Contract text affected | Why |
 |---|---|---|---|

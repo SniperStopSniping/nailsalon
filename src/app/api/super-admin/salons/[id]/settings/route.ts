@@ -140,9 +140,13 @@ export async function PATCH(
 
     // 7. Return updated settings
     //
-    // D19c companion: the PATCH above still writes the LEGACY column — only the
-    // read below is derived, so the super-admin select shows the truth when a
-    // live `billing_subscription` row exists for this salon.
+    // D19c companion: the PATCH above writes the LEGACY column, and the
+    // response below reports BOTH meanings separately — `settings.billingMode`
+    // is that stored column (the editable select's value), `derivedBillingMode`
+    // is what the owner is actually shown. Do not collapse them: this select's
+    // Save submits `settings.billingMode` whether or not the operator touched
+    // it, so seeding it from the derived value would write the new track's
+    // answer back into the legacy column on an unrelated save.
     const billingDisplay = await resolveSalonBillingDisplay(db, updatedSalon);
     return Response.json({
       settings: {
@@ -152,6 +156,8 @@ export async function PATCH(
         billingMode: updatedSalon.billingMode ?? 'NONE',
       },
       derivedBillingMode: billingDisplay.billingMode,
+      // Derived, like `derivedBillingMode` and unlike `settings.billingMode`.
+      // No client echoes it back today; any future one must not start.
       subscriptionStatus: billingDisplay.subscriptionStatus,
       billingSource: billingDisplay.billingSource,
     });

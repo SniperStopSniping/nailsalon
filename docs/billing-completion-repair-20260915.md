@@ -574,7 +574,8 @@ error still answers 500 with the same Sentry shape. Neither side writes `salon.p
 
 **Freeze mechanics.** The `CI.yml` zero-diff pin on the route is replaced by a reviewed-postimage
 `case` block byte-mirroring the Billing Portal block, accepting exactly
-`00569f2ec18d57fa9abc3f8e2583fbefa3bb34d3` and failing with `must match a reviewed postimage.`
+`85990776e5a63a04397c6958092be0ec660f109c` (recomputed after the review fixes below) and failing with
+`must match a reviewed postimage.`
 otherwise. Nothing else in `CI.yml` changed.
 
 **Companion — owner-facing billing display.** Without it, Guard A would silently show a paying
@@ -587,11 +588,18 @@ billingSource: 'billing_subscription' }`, and otherwise returns today's legacy v
 `billingSource: 'legacy'`. It is wired into all three response sites of the admin settings route and
 all three of the super-admin route, and `billingSource` is added to those responses. The read is
 display-only: `canEditBillingMode` stays `false`, `billingMode` stays in `FORBIDDEN_FIELDS`, and the
-super-admin PATCH keeps writing the legacy column.
+super-admin PATCH keeps writing the legacy column. The two surfaces report it differently, for the
+reason recorded in the review section below: the owner-facing route returns the derived value as
+`billingMode`, because nothing echoes it back, while the super-admin route keeps `settings.billingMode`
+as the STORED column and reports the derived value separately as `derivedBillingMode`, because its
+panel's editable select is seeded from that field and submits it on every save.
 
-**Deliberate non-changes.** No `billing_customer` table is created or referenced (that is PR-3). The
-stale citations and, more importantly, stale NORMATIVE statements in `docs/luster-billing-remaining-work-plan.md` were left
-uncorrected: that file is outside this PR's allowed file list.
+**Deliberate non-changes.** No `billing_customer` table is created or referenced (that is PR-3).
+
+The stale citations and stale NORMATIVE statements in `docs/luster-billing-remaining-work-plan.md` were
+initially left uncorrected as out of scope. That was reversed after review: a tracked document asserting
+that this guard is BLOCKED, and a runbook telling the reader not to activate until it exists, are worse
+than a scope deviation. They are corrected in the review section below.
 
 ### Independent review of PR-A, and what it changed (2026-09-16)
 
@@ -638,4 +646,4 @@ frozen-surface row, the Gate C section title, and the runbook's §3 preamble, wh
 activate until a guard existed. The contract header is now Revision 2.3, with the filename unchanged so
 existing citations keep resolving.
 
-Legacy route postimage after these edits: `363bacbf563ed615e7a45a5200d3f68eddbba783`.
+Legacy route postimage after these edits: `85990776e5a63a04397c6958092be0ec660f109c`.

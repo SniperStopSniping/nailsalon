@@ -21,8 +21,9 @@
  *     creation by the two new-track checkout routes, so they are authoritative.
  *   - Guard B (local ownership): a Subscription for which a `billing_subscription`
  *     row already exists. Provably a no-op for genuine legacy subscriptions —
- *     such a row is only ever inserted for marker-carrying objects — so it only
- *     re-closes the leak when a marker was stripped or dashboard-edited.
+ *     the only insert into that table requires new-track metadata resolving to a
+ *     known offer — so it only re-closes the leak when a marker was stripped or
+ *     dashboard-edited. It backs up this function, not the checkout handler.
  *
  * AMBIGUITY RULE (normative): an object is new-track IFF Guard A or Guard B
  * fires. Otherwise this route behaves byte-identically to Rev 2.2. Fail toward
@@ -78,8 +79,9 @@ async function syncSubscription(subscriptionId: string): Promise<void> {
   // `billingOfferKey` plus `salonId`, resolving to a known offer — so a genuine
   // legacy subscription can never acquire a row and this is a no-op for it.
   // Note this backs up `syncSubscription` only: an unmarked Checkout Session
-  // still takes the legacy projection above, which is deliberate, since a
-  // checkout-time ownership read would race the sibling endpoint's own insert.
+  // still takes the full legacy projection in `handleCheckoutSessionCompleted`
+  // below. That is deliberate — a checkout-time ownership read would race the
+  // sibling endpoint's own insert for the very session being completed.
   const [ownedByBillingTrack] = await db
     .select({ id: billingSubscriptionSchema.id })
     .from(billingSubscriptionSchema)
