@@ -40,7 +40,7 @@ import { PGlite } from '@electric-sql/pglite';
 import { eq } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/pglite';
 import { migrate } from 'drizzle-orm/pglite/migrator';
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import * as schema from '@/models/Schema';
 
@@ -212,6 +212,12 @@ beforeAll(async () => {
 }, 120_000);
 
 beforeEach(() => {
+  // The scenario clock is part of every eval fixture, including production
+  // deadline and conversation-expiry checks. Mock Date only so those checks
+  // observe the same instant while real async timers retain their semantics.
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(EVAL_NOW);
+
   holder.db = db;
   redisHolder.client = { eval: vi.fn(async () => 0) };
   envHolder.NODE_ENV = 'test';
@@ -223,8 +229,16 @@ beforeEach(() => {
   envHolder.OWNER_ASSISTANT_JSON_MODE = undefined;
 });
 
+afterEach(() => {
+  vi.useRealTimers();
+});
+
 afterAll(async () => {
   await client.close();
+});
+
+it('uses the frozen scenario clock instead of the runner wall clock', () => {
+  expect(Date.now()).toBe(EVAL_NOW.getTime());
 });
 
 // ---------------------------------------------------------------------------
