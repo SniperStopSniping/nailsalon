@@ -36,6 +36,7 @@ import {
   getOwnerAssistantAvailability,
   getReasoningEffort,
 } from './enablement.server';
+import { type ExecutionNow, monotonicNowMs } from './executionClock';
 import { type LedgerModelCall, type LedgerToolCall, recordOwnerAssistantTurn } from './ledger.server';
 import {
   buildJsonModeInstruction,
@@ -78,6 +79,9 @@ export type RunOwnerAssistantTurnArgs = {
   conversationToken?: string;
   locale?: string;
   provider?: OwnerAssistantModelProvider;
+  /** Monotonic execution clock; injectable only for deterministic timeout tests. */
+  executionNow?: ExecutionNow;
+  /** Business/scenario time used for salon dates, budgets and conversation expiry. */
   now?: Date;
   database?: SalonAuditLogDatabase;
 };
@@ -214,7 +218,8 @@ export async function runOwnerAssistantTurn(
   args: RunOwnerAssistantTurnArgs,
 ): Promise<ChatTurnResponse> {
   const now = args.now ?? new Date();
-  const deadline = now.getTime() + OWNER_ASSISTANT_LIMITS.turnTimeoutMs;
+  const executionNow = args.executionNow ?? monotonicNowMs;
+  const deadline = executionNow() + OWNER_ASSISTANT_LIMITS.turnTimeoutMs;
   const locale = args.locale === 'fr' ? 'fr' : 'en';
 
   // 4 — availability (key, signing secret, redis client).
@@ -319,7 +324,7 @@ export async function runOwnerAssistantTurn(
   let executedToolCalls = 0;
 
   for (let call = 1; call <= OWNER_ASSISTANT_LIMITS.modelCallsPerTurn; call++) {
-    if (Date.now() >= deadline) {
+    if (executionNow() >= deadline) {
       return finish('turn_timeout');
     }
 
@@ -337,14 +342,14 @@ export async function runOwnerAssistantTurn(
       toolChoice: isLastCall ? 'none' : 'auto',
       reasoningEffort,
       maxOutputTokens: OWNER_ASSISTANT_LIMITS.maxOutputTokens,
-      timeoutMs: Math.max(1, Math.min(OWNER_ASSISTANT_LIMITS.modelCallTimeoutMs, deadline - Date.now())),
+      timeoutMs: Math.max(1, Math.min(OWNER_ASSISTANT_LIMITS.modelCallTimeoutMs, deadline - executionNow())),
       jsonMode,
       ...(jsonMode === 'schema'
         ? { jsonSchema: ASSISTANT_ANSWER_JSON_SCHEMA as unknown as Record<string, unknown> }
         : {}),
     };
 
-    const startedAt = Date.now();
+    const startedAt = executionNow();
     let response;
     try {
       response = await provider.createResponse(request);
@@ -355,13 +360,13 @@ export async function runOwnerAssistantTurn(
         cachedInputCount: 0,
         cacheWriteInputCount: 0,
         outputCount: 0,
-        latencyMs: Date.now() - startedAt,
+        latencyMs: executionNow() - startedAt,
       });
       const kind = error instanceof ModelProviderError ? error.kind : 'provider_error';
       // The per-call timeout is clamped to whatever is left of the whole-turn
       // deadline, so a call that aborts AT the deadline was cut short by the
       // turn, not by the provider. Report it as what it is.
-      return finish(kind === 'provider_timeout' && Date.now() >= deadline ? 'turn_timeout' : kind);
+      return finish(kind === 'provider_timeout' && executionNow() >= deadline ? 'turn_timeout' : kind);
     }
 
     modelCalls.push({
@@ -370,7 +375,7 @@ export async function runOwnerAssistantTurn(
       cachedInputCount: response.usage.cachedInputTokens,
       cacheWriteInputCount: response.usage.cacheWriteInputTokens ?? 0,
       outputCount: response.usage.outputTokens,
-      latencyMs: Date.now() - startedAt,
+      latencyMs: executionNow() - startedAt,
     });
 
     if (response.status === 'failed') {
@@ -434,7 +439,7 @@ export async function runOwnerAssistantTurn(
       }
       executedToolCalls += 1;
 
-      const toolStartedAt = Date.now();
+      const toolStartedAt = executionNow();
       const outcome = await executeOwnerAssistantTool({
         name: functionCall.name,
         argumentsJson: functionCall.argumentsJson,
@@ -442,7 +447,7 @@ export async function runOwnerAssistantTurn(
         enabledTools,
         now,
       });
-      const durationMs = Date.now() - toolStartedAt;
+      const durationMs = executionNow() - toolStartedAt;
 
       toolCalls.push(
         outcome.ok

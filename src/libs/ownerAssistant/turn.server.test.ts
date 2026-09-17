@@ -658,12 +658,13 @@ describe('availability and provider failures', () => {
 });
 
 describe('whole-turn deadline', () => {
-  it('reports turn_timeout when the turn is already past its deadline', async () => {
+  it('reports turn_timeout when the monotonic execution budget is exhausted', async () => {
     const provider = createScriptedProvider(fakeAnswer(ANSWER));
-    // `now` is the turn's own clock: starting one full turnTimeoutMs in the
-    // past means the deadline has already passed on the first iteration.
+    const executionNow = vi.fn()
+      .mockReturnValueOnce(0)
+      .mockReturnValue(OWNER_ASSISTANT_LIMITS.turnTimeoutMs + 1);
     const result = await run(provider, {
-      now: new Date(Date.now() - OWNER_ASSISTANT_LIMITS.turnTimeoutMs - 1_000),
+      executionNow,
     });
 
     expect(result.kind === 'unavailable' && result.reason).toBe('turn_timeout');
@@ -672,8 +673,11 @@ describe('whole-turn deadline', () => {
 
   it('writes a ledger row for the timed-out turn', async () => {
     await clearLedger();
+    const executionNow = vi.fn()
+      .mockReturnValueOnce(0)
+      .mockReturnValue(OWNER_ASSISTANT_LIMITS.turnTimeoutMs + 1);
     await run(createScriptedProvider(fakeAnswer(ANSWER)), {
-      now: new Date(Date.now() - OWNER_ASSISTANT_LIMITS.turnTimeoutMs - 1_000),
+      executionNow,
     });
 
     const value = ((await ledgerRows())[0]?.metadata as { newValue: { outcome: string } }).newValue;
@@ -683,7 +687,11 @@ describe('whole-turn deadline', () => {
 
   it('bounds each model call by whatever is left of the turn', async () => {
     const provider = createScriptedProvider(fakeAnswer(ANSWER));
-    await run(provider, { now: new Date(Date.now() - (OWNER_ASSISTANT_LIMITS.turnTimeoutMs - 5_000)) });
+    const elapsed = OWNER_ASSISTANT_LIMITS.turnTimeoutMs - 5_000;
+    const executionNow = vi.fn()
+      .mockReturnValueOnce(0)
+      .mockReturnValue(elapsed);
+    await run(provider, { executionNow });
 
     expect(provider.requests[0]?.timeoutMs).toBeLessThanOrEqual(5_000);
   });
@@ -693,6 +701,36 @@ describe('whole-turn deadline', () => {
     await run(provider);
 
     expect(provider.requests[0]?.timeoutMs).toBe(OWNER_ASSISTANT_LIMITS.modelCallTimeoutMs);
+  });
+
+  it('reports a provider timeout at the whole-turn deadline as turn_timeout', async () => {
+    const provider = createScriptedProvider(new ModelProviderError('provider_timeout'));
+    const executionNow = vi.fn()
+      .mockReturnValueOnce(0)
+      .mockReturnValueOnce(0)
+      .mockReturnValueOnce(0)
+      .mockReturnValueOnce(0)
+      .mockReturnValue(OWNER_ASSISTANT_LIMITS.turnTimeoutMs);
+
+    const result = await run(provider, { executionNow });
+
+    expect(result.kind === 'unavailable' && result.reason).toBe('turn_timeout');
+    expect(provider.requests[0]?.timeoutMs).toBe(OWNER_ASSISTANT_LIMITS.modelCallTimeoutMs);
+  });
+
+  it('keeps frozen business time separate from a much later wall clock', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      vi.setSystemTime(new Date('2030-01-01T00:00:00.000Z'));
+      const provider = createScriptedProvider(fakeAnswer(ANSWER));
+
+      const result = await run(provider, { now: new Date('2026-09-17T16:30:00.000Z') });
+
+      expect(result.kind).toBe('answer');
+      expect(provider.requests).toHaveLength(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

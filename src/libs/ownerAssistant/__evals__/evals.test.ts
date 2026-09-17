@@ -212,9 +212,9 @@ beforeAll(async () => {
 }, 120_000);
 
 beforeEach(() => {
-  // The scenario clock is part of every eval fixture, including production
-  // deadline and conversation-expiry checks. Mock Date only so those checks
-  // observe the same instant while real async timers retain their semantics.
+  // The scenario clock is part of every eval fixture's business-date and
+  // conversation-expiry checks. Execution deadlines use a separate monotonic
+  // clock, so freezing Date cannot expire a real request budget.
   vi.useFakeTimers({ toFake: ['Date'] });
   vi.setSystemTime(EVAL_NOW);
 
@@ -520,9 +520,10 @@ describe('what the loop decided, per case', () => {
 });
 
 describe('window carry-over on the availability follow-up (C16)', () => {
-  it('carries the Friday exchange AND re-runs the tool for Saturday', async () => {
+  it('carries Friday into Saturday even when wall time is years beyond the fixture', async () => {
     const evalCase = dialogueCases().find(candidate => candidate.id === 'C16')!;
     const secondTurnInputs: Array<Array<{ role?: string; content?: string }>> = [];
+    vi.setSystemTime(new Date('2030-01-01T00:00:00.000Z'));
 
     const record = await runEvalCase({
       evalCase,
