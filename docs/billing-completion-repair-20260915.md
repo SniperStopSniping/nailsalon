@@ -738,8 +738,8 @@ change and the owner's 2026-09-16 approval; no historical blob was removed, and 
 
 | File | New reviewed postimage |
 |---|---|
-| `src/app/api/billing/checkout/route.ts` | `76280b1bcaacc83342aeb8eb3979e2c89e10ed17` |
-| `src/app/api/billing/portal/route.ts` | `43a196f662a519f9fee7b4776de6e7e791246529` |
+| `src/app/api/billing/checkout/route.ts` | `a7a2e3cf55225ff923950fbbb2f59e7bda099ae2` |
+| `src/app/api/billing/portal/route.ts` | `9773fc739f9c251c77370d4902997fbc175a8558` |
 
 Every path this PR touches under `src/app/api/billing` is already on the step-1b allowlist, and no
 zero-diff surface (`src/app/api/webhooks/stripe/route.ts`, `migrations`, `vercel.json`, the dependency
@@ -763,7 +763,7 @@ manifests, `src/libs/salonPurge.ts`) was touched.
 differing-offer refusal with the pending attempt proved untouched and its session neither re-created nor
 expired, the same-offer-plus-promotion refusal burning no claim, the genuine live subscription keeping the
 unchanged code AND message, and the identical offer+promotion retry still reusing the same session — and
-three X5), `src/app/api/billing/portal/route.test.ts` 18 (10 pre-existing + 8: two Y1/OP-1 and six for the
+three X5), `src/app/api/billing/portal/route.test.ts` 19 (10 pre-existing + 9: two Y1/OP-1 and seven for the
 origin and `returnUrl` validation), `src/app/api/billing/checkout/topup/route.test.ts` 51 (50
 pre-existing + 1 Y1/OP-1), `src/libs/billing/checkoutAttempts.test.ts` 12,
 `src/libs/billing/billingAppOrigin.test.ts` 14 and `src/app/api/billing/topups/route.test.ts` 14 all
@@ -800,7 +800,8 @@ Five findings were fixed rather than deferred:
    test header, corrected.
 
 Both postimage pins were recomputed after these edits: checkout `a7a2e3cf55225ff923950fbbb2f59e7bda099ae2`,
-portal `42b02c3f6ca0e6be4904b590dc538e19901bdec1`.
+portal `9773fc739f9c251c77370d4902997fbc175a8558`. The tables above carry the same values; every earlier hash in this PR's history is
+superseded, and only blobs that exist on `origin/main` were preserved in the CI lists.
 
 **Merge precondition the reviewer raised, worth recording.** `admin_salon_membership.role` defaults to
 `'admin'`, and the super-admin invite path defaults `membershipRole` to `'admin'` when the caller omits it.

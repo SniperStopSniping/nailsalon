@@ -33,8 +33,9 @@
  *
  * X5 (final handoff §6): the `return_url` origin comes from
  * `resolveBillingAppOrigin()` (`src/libs/billing/billingAppOrigin.ts`), never
- * from an inline `|| 'http://localhost:3000'` fallback, and a caller-supplied
- * `returnUrl` is accepted only when it is same-origin with it.
+ * from an inline `|| 'http://localhost:3000'` fallback. A caller-supplied
+ * `returnUrl` is accepted only when it is BOTH same-origin with it and an
+ * `http(s)` URL, and is rebuilt from its path rather than forwarded as-is.
  */
 import * as Sentry from '@sentry/nextjs';
 import { and, desc, eq, sql } from 'drizzle-orm';
@@ -51,13 +52,25 @@ import { billingSubscriptionSchema, salonSchema } from '@/models/Schema';
  * X5: honour a caller-supplied `returnUrl` ONLY when it lands on this
  * deployment's own origin.
  *
- * The candidate is resolved against `appOrigin`, so a same-origin absolute
- * URL passes through unchanged and a relative path (`/admin?tab=settings`)
- * is accepted and returned absolute (Stripe requires an absolute
- * `return_url`). An absolute foreign origin, a protocol-relative
- * `//evil.example/x`, a non-`http(s)` scheme and anything unparseable all
- * fail the origin comparison and return `null`, which the caller replaces
- * with the default return URL.
+ * TWO independent tests, both required — the origin comparison alone is not
+ * enough. The candidate is resolved against `appOrigin`, so a relative path
+ * (`/admin?tab=settings`) is accepted and returned absolute, since Stripe
+ * requires an absolute `return_url`.
+ *
+ *   1. Same origin. An absolute foreign origin, a protocol-relative
+ *      `//evil.example/x` and anything unparseable fail here.
+ *   2. An `http(s)` protocol. This is NOT redundant with the first test:
+ *      `blob:https://app.test/x` reports OUR origin and passes test 1. Do not
+ *      remove it.
+ *
+ * The accepted value is REBUILT as origin + `pathname` + `search` + `hash`
+ * rather than returned as-is, so credentials in an otherwise same-origin
+ * `https://user:pass@app.test/x` cannot survive into the link Stripe renders.
+ * For `http(s)` URLs the WHATWG parser guarantees `pathname` starts with `/`
+ * and carries no raw `?` or `#`, so the reconstruction is exact.
+ *
+ * Anything rejected returns `null`, which the caller replaces with the
+ * default return URL.
  */
 function resolveSameOriginReturnUrl(candidate: unknown, appOrigin: string): string | null {
   if (typeof candidate !== 'string' || candidate.trim() === '') {

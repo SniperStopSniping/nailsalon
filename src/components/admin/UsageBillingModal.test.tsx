@@ -229,7 +229,8 @@ describe('UsageBillingModal', () => {
   // reported as "Please try again."
   it.each([
     ['OWNER_REQUIRED', 'Only the salon owner can buy credits.'],
-    ['CHECKOUT_IN_PROGRESS', 'A checkout for a different plan is already open for this salon.'],
+    ['CHECKOUT_IN_PROGRESS', 'Another checkout is already in progress for this salon.'],
+    ['CHECKOUT_PENDING_RECONCILIATION', 'Your checkout is pending verification. Another checkout cannot be started yet.'],
   ])('surfaces the %s refusal verbatim rather than a retry prompt', async (code, message) => {
     render(<UsageBillingModal salonSlug="salon-a" onClose={vi.fn()} />);
     const button = await screen.findByRole('button', { name: /100 credits — \$5\.99/ });

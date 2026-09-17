@@ -387,11 +387,12 @@ export function UsageBillingModal({ salonSlug, onClose }: UsageBillingModalProps
           ? { ...current, creditPurchasesAvailable: false, topupOffers: [] }
           : current);
       } else if (typeof body?.error?.message === 'string' && body.error.message !== ''
-        && ['OWNER_REQUIRED', 'CHECKOUT_IN_PROGRESS'].includes(body.error?.code)) {
-        // OP-1 / OP-2 (2026-09-16): these two refusals are rules, not faults.
-        // "Please try again" would be a lie for both — a collaborator will
-        // never succeed, and a caller with another checkout open must finish
-        // or outwait it. Show what the route actually said.
+        && ['OWNER_REQUIRED', 'CHECKOUT_IN_PROGRESS', 'CHECKOUT_PENDING_RECONCILIATION'].includes(body.error?.code)) {
+        // OP-1 / OP-2 (2026-09-16): these refusals are rules, not faults.
+        // "Please try again" would be a lie for all three — a collaborator
+        // will never succeed, and a caller with another checkout open or
+        // pending verification must finish or outwait it. Show what the route
+        // actually said.
         setBuyError(body.error.message);
       } else {
         setBuyError('Could not start the purchase. Please try again.');

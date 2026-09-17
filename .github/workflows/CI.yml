@@ -348,7 +348,7 @@ jobs:
               # + PR-B (owner approval 2026-09-16, O7/O10): requireAdminOwner,
               # the X5 return_url origin via resolveBillingAppOrigin(), and
               # same-origin validation of the caller-supplied returnUrl.
-              42b02c3f6ca0e6be4904b590dc538e19901bdec1) ;;
+              9773fc739f9c251c77370d4902997fbc175a8558) ;;
               *)
                 echo "::error::src/app/api/billing/portal/route.ts must match a reviewed postimage."
                 printf 'actual blob: %s\n' "$portal_blob"
