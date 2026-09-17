@@ -35,6 +35,7 @@ import {
   OWNER_ASSISTANT_MODEL_PRICES_MICROS_PER_MILLION,
   type OwnerAssistantToolName,
 } from '../contracts';
+import { type ExecutionNow, monotonicNowMs } from '../executionClock';
 import {
   type OwnerAssistantAdmin,
   type OwnerAssistantSalon,
@@ -328,6 +329,8 @@ export type RunEvalCaseArgs = {
   now?: Date;
   locale?: string;
   database?: SalonAuditLogDatabase;
+  /** Monotonic execution clock shared with the real turn loop. */
+  executionNow?: ExecutionNow;
   checks: EvalCheckOptions;
   /** Seam for tests; defaults to the production loop. */
   runTurn?: EvalTurnRunner;
@@ -344,6 +347,7 @@ function resolveProvider(
 
 export async function runEvalCase(args: RunEvalCaseArgs): Promise<EvalCaseRecord> {
   const runTurn = args.runTurn ?? runOwnerAssistantTurn;
+  const executionNow = args.executionNow ?? monotonicNowMs;
   const record: EvalCaseRecord = {
     caseId: args.evalCase.id,
     group: args.evalCase.group,
@@ -379,7 +383,7 @@ export async function runEvalCase(args: RunEvalCaseArgs): Promise<EvalCaseRecord
     );
 
     ownerMessages.push(expectation.message);
-    const startedAt = Date.now();
+    const startedAt = executionNow();
     let response: ChatTurnResponse;
     try {
       response = await runTurn({
@@ -389,6 +393,7 @@ export async function runEvalCase(args: RunEvalCaseArgs): Promise<EvalCaseRecord
         conversationToken,
         locale: args.locale,
         provider,
+        executionNow,
         now: args.now,
         database: args.database,
       });
@@ -398,7 +403,7 @@ export async function runEvalCase(args: RunEvalCaseArgs): Promise<EvalCaseRecord
       record.failures.push(`turn ${index + 1} threw (${record.error})`);
       return record;
     }
-    const latencyMs = Date.now() - startedAt;
+    const latencyMs = executionNow() - startedAt;
 
     for (const call of observation.toolCalls) {
       if (call.ok && call.result !== undefined) {
