@@ -541,3 +541,55 @@ note that approving O10 for the response code alone does not remove the wait.
   grandfathered legacy subscription on the same Stripe customer; §8.5 says to alert rather than
   choose, so this needs an operator acknowledgement marker rather than a code change.
 
+
+## PR-A (legacy / new-track isolation + the settings & Portal companion) — 2026-09-16
+
+Owner-ratified narrow D19c amendment (`docs/billing-owner-decisions-20260916.md` §5): isolate
+new-track checkout/subscription/invoice events from legacy mutation, preserve genuine legacy
+behaviour, and ship the settings/Portal companion. No migration, no `vercel.json`, no env value, no
+Stripe or Vercel call, no switch. Billing stays dark.
+
+**The two guards, inside the byte-frozen legacy route.** `src/app/api/webhooks/stripe/route.ts`
+gains exactly two early returns and one indexed read:
+
+- **Guard A**, in `handleCheckoutSessionCompleted` immediately after `const salonId =
+  session.metadata?.salonId`, returns on `metadata.purpose ∈ {plan_subscription, sms_topup}` before
+  the subscription/customer id extraction, before the salon update, before `logBillingModeChange`
+  and before `syncSubscription`. In `syncSubscription`, immediately after the existing
+  `stripe.subscriptions.retrieve` — whose result already carries the metadata, so no second Stripe
+  call is made — it returns on `metadata.purpose === 'plan_subscription'` before salon resolution
+  and before every write. That single point covers `customer.subscription.*` **and** both
+  `invoice.payment_*` types, because all of them funnel through that function.
+- **Guard B**, immediately after Guard A in `syncSubscription`, is one indexed read against
+  `billing_subscription_stripe_sub_uniq`. A row means this track already owns the subscription, so
+  the route returns. It is provably a no-op for genuine legacy subscriptions — such a row is only
+  ever inserted for marker-carrying objects — and exists so that a dashboard-edited or stripped
+  `metadata.purpose` cannot re-open the leak for a subscription the new track owns.
+
+**Ambiguity rule (now in the route's header comment and in Rev 2.3 §5):** an object is new-track iff
+Guard A or Guard B fires; otherwise the route behaves byte-identically to Rev 2.2. Fail toward
+legacy. A skipped event writes no salon row and no audit row, is logged without PII (session or
+subscription id plus the reason), and still answers HTTP 200 so Stripe does not retry it. A thrown
+error still answers 500 with the same Sentry shape. Neither side writes `salon.plan` or
+`salon.features`.
+
+**Freeze mechanics.** The `CI.yml` zero-diff pin on the route is replaced by a reviewed-postimage
+`case` block byte-mirroring the Billing Portal block, accepting exactly
+`00569f2ec18d57fa9abc3f8e2583fbefa3bb34d3` and failing with `must match a reviewed postimage.`
+otherwise. Nothing else in `CI.yml` changed.
+
+**Companion — owner-facing billing display.** Without it, Guard A would silently show a paying
+new-track subscriber "Cash / Offline billing enabled" and remove the Manage-billing button, because
+both settings routes read the legacy columns only. `src/libs/billing/salonBillingDisplay.ts`
+(`server-only`) resolves a live `billing_subscription` row — `status NOT IN ('canceled',
+'incomplete_expired')`, most recently updated among ties, the exact predicate the communications
+usage route already encodes — to `{ billingMode: 'STRIPE', subscriptionStatus: row.status,
+billingSource: 'billing_subscription' }`, and otherwise returns today's legacy values with
+`billingSource: 'legacy'`. It is wired into all three response sites of the admin settings route and
+all three of the super-admin route, and `billingSource` is added to those responses. The read is
+display-only: `canEditBillingMode` stays `false`, `billingMode` stays in `FORBIDDEN_FIELDS`, and the
+super-admin PATCH keeps writing the legacy column.
+
+**Deliberate non-changes.** No `billing_customer` table is created or referenced (that is PR-3). The
+four stale `CI.yml:219-221` citations in `docs/luster-billing-remaining-work-plan.md` were left
+uncorrected: that file is outside this PR's allowed file list.

@@ -101,7 +101,9 @@ Plan identity, billing cadence/price, and promotions are SEPARATE concepts. Serv
 
 ## 5. Legacy entitlement compatibility
 
-The new billing domain MUST NOT write `salon.plan`, `salon.features`, module entitlements, location/staff limits, or any existing production feature access. `legacyPlanAdapter.ts` exposes read-only `describeBillingState()` combining legacy plan (still authoritative for features via the three existing resolvers) with the new `billing_subscription` state. A salon MAY simultaneously be `starter_2026_08` (billing) and legacy `single_salon` (features). Feature-matrix migration is a separately approved future track. Legacy salon Stripe columns (`stripeCustomerId` etc.) remain compatibility projections owned by the existing `/api/webhooks/stripe` route, which stays byte-identical this track.
+The new billing domain MUST NOT write `salon.plan`, `salon.features`, module entitlements, location/staff limits, or any existing production feature access. `legacyPlanAdapter.ts` exposes read-only `describeBillingState()` combining legacy plan (still authoritative for features via the three existing resolvers) with the new `billing_subscription` state. A salon MAY simultaneously be `starter_2026_08` (billing) and legacy `single_salon` (features). Feature-matrix migration is a separately approved future track. Legacy salon Stripe columns (`stripeCustomerId` etc.) remain compatibility projections owned by the existing `/api/webhooks/stripe` route. That route stays frozen except for the single isolation exception below: it MUST NOT project onto any salon row (a) a Checkout Session whose `metadata.purpose` is `plan_subscription` or `sms_topup`, or (b) a Subscription — whether reached via a `customer.subscription.*` event or via an `invoice.*` event — whose `metadata.purpose` is `plan_subscription` **or** for which a `billing_subscription` row with that `stripe_subscription_id` exists. Objects matching neither condition are processed byte-identically to Rev 2.2. Skipped events are acknowledged with HTTP 200, write no salon row and no audit row, and are logged without PII. The route gains no other behaviour, no event-id table, and no shared state with `/api/webhooks/stripe-billing` (§8.2 independence is unchanged).
+
+Owner-facing and super-admin billing displays derive `billingMode`/`subscriptionStatus` from a live `billing_subscription` row (status not in `canceled`, `incomplete_expired`) when one exists, and from the legacy columns otherwise; the legacy column itself is not rewritten by the new track.
 
 ## 6. Subscription and annual-credit-window state machine
 
@@ -199,7 +201,7 @@ Credits are never adjusted upward post-send in any case.
 ## 8. Stripe billing-event state machine
 
 ### 8.1 Endpoint and secret
-New route **`/api/webhooks/stripe-billing`** (sibling naming per the landed `stripe-connect` convention) with dedicated **`STRIPE_BILLING_WEBHOOK_SECRET`**. The legacy `/api/webhooks/stripe` route and the deposits `stripe-connect` route are untouched. Own idempotency table `billing_stripe_event` (Migration A) — the deposits `stripe_webhook_event` table and its closed status vocabulary MUST NOT be reused.
+New route **`/api/webhooks/stripe-billing`** (sibling naming per the landed `stripe-connect` convention) with dedicated **`STRIPE_BILLING_WEBHOOK_SECRET`**. The deposits `stripe-connect` route is untouched. The legacy `/api/webhooks/stripe` route is untouched except for the §5 isolation exception. Own idempotency table `billing_stripe_event` (Migration A) — the deposits `stripe_webhook_event` table and its closed status vocabulary MUST NOT be reused.
 
 ### 8.2 Event claim and idempotency
 Signature verify → livemode gate vs `BILLING_PLAN_ENV` → `INSERT … ON CONFLICT (event_id) DO NOTHING RETURNING` claim → reclaim `failed_retryable` past backoff → else 200. Handler error ⇒ `failed_retryable` + exponential `available_at` + 500 (Stripe retries); ≥8 attempts ⇒ `poisoned` + Sentry + 200. Replay MUST NOT double-grant monthly/upgrade/top-up, double-redeem a promotion, or double-reverse.
@@ -425,7 +427,7 @@ Isla → 5 beta salons → 20 beta salons → paid-plan launch → Free starter 
 
 ## 24. Deferred / out-of-scope
 
-Promotional/marketing SMS, MMS, AI receptionist, two-way inbox, dedicated numbers, automatic toll-free migration, arbitrary free-form templates, uncontrolled overages, auto-top-up, US destinations, feature-matrix migration, automated menu-migration tooling, Smart Fit/deposit/catalog/Figma/broad-UI work, self-service partial annual refunds, legacy webhook route retirement (future cleanup), physical deletion of boilerplate residue (future cleanup).
+Promotional/marketing SMS, MMS, AI receptionist, two-way inbox, dedicated numbers, automatic toll-free migration, arbitrary free-form templates, uncontrolled overages, auto-top-up, US destinations, feature-matrix migration, automated menu-migration tooling, Smart Fit/deposit/catalog/Figma/broad-UI work, self-service partial annual refunds, legacy webhook route retirement (future cleanup), physical deletion of boilerplate residue (future cleanup). On that first item: the §5 isolation exception is not retirement of the legacy webhook route and does not advance it.
 
 ## 25. Review-feedback adjudication appendix
 

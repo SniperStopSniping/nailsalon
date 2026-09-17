@@ -16,6 +16,7 @@ import { z } from 'zod';
 
 import { requireAdmin } from '@/libs/adminAuth';
 import { logAuditEvent } from '@/libs/auditLog';
+import { resolveSalonBillingDisplay } from '@/libs/billing/salonBillingDisplay';
 import { bookingConfigSchema, getBookingConfigForSalon, resolveBookingConfigFromSettings } from '@/libs/bookingConfig';
 import {
   bookingExperienceAppearanceUpdateSchema,
@@ -278,6 +279,12 @@ export async function GET(request: Request): Promise<Response> {
 
     const sms = await getSalonSmsReadiness(salon.id);
 
+    // D19c companion: a LIVE `billing_subscription` row wins for DISPLAY, so the
+    // legacy route's §5 isolation exception cannot hide a paying new-track
+    // subscriber's plan or Manage-billing button. Read-only — the legacy column
+    // is not rewritten and `canEditBillingMode` stays false.
+    const billingDisplay = await resolveSalonBillingDisplay(db, salon);
+
     // 4. Return settings
     return Response.json({
       reviewsEnabled: salon.reviewsEnabled ?? true,
@@ -322,8 +329,9 @@ export async function GET(request: Request): Promise<Response> {
       emailChannelAvailable: notificationCapabilities.emailChannelAvailable,
       effectivePoints,
       defaults,
-      billingMode: salon.billingMode ?? 'NONE',
-      subscriptionStatus: salon.billingMode === 'STRIPE' ? salon.stripeSubscriptionStatus : null,
+      billingMode: billingDisplay.billingMode,
+      subscriptionStatus: billingDisplay.subscriptionStatus,
+      billingSource: billingDisplay.billingSource,
       // Indicate what the admin can/cannot edit
       canEditPoints: false,
       canEditBillingMode: false,
@@ -1219,6 +1227,8 @@ export async function PATCH(request: Request): Promise<Response> {
       });
 
       const sms = await getSalonSmsReadiness(salon.id);
+      // D19c companion (see the GET site).
+      const billingDisplay = await resolveSalonBillingDisplay(db, salon);
       return Response.json({
         sms,
         communications: resolveSalonCommunicationSettings(currentSettings, { senderMode: sms.senderMode, legacySmsEnabled: salon.smsRemindersEnabled }),
@@ -1242,8 +1252,9 @@ export async function PATCH(request: Request): Promise<Response> {
         emailChannelAvailable: notificationCapabilities.emailChannelAvailable,
         effectivePoints,
         defaults,
-        billingMode: salon.billingMode ?? 'NONE',
-        subscriptionStatus: salon.billingMode === 'STRIPE' ? salon.stripeSubscriptionStatus : null,
+        billingMode: billingDisplay.billingMode,
+        subscriptionStatus: billingDisplay.subscriptionStatus,
+        billingSource: billingDisplay.billingSource,
         canEditPoints: false,
         canEditBillingMode: false,
       });
@@ -1379,6 +1390,8 @@ export async function PATCH(request: Request): Promise<Response> {
         storedPlan: updatedSalon.plan,
         features: updatedSalon.features,
       });
+    // D19c companion (see the GET site).
+    const billingDisplay = await resolveSalonBillingDisplay(db, updatedSalon);
 
     return Response.json({
       reviewsEnabled: updatedSalon.reviewsEnabled ?? true,
@@ -1417,8 +1430,9 @@ export async function PATCH(request: Request): Promise<Response> {
       emailChannelAvailable: notificationCapabilities.emailChannelAvailable,
       effectivePoints,
       defaults,
-      billingMode: updatedSalon.billingMode ?? 'NONE',
-      subscriptionStatus: updatedSalon.billingMode === 'STRIPE' ? updatedSalon.stripeSubscriptionStatus : null,
+      billingMode: billingDisplay.billingMode,
+      subscriptionStatus: billingDisplay.subscriptionStatus,
+      billingSource: billingDisplay.billingSource,
       canEditPoints: false,
       canEditBillingMode: false,
     });

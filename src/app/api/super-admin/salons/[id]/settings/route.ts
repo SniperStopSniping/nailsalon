@@ -14,6 +14,7 @@ import { eq } from 'drizzle-orm';
 import { z } from 'zod';
 
 import { logAuditEvent } from '@/libs/auditLog';
+import { resolveSalonBillingDisplay } from '@/libs/billing/salonBillingDisplay';
 import { db } from '@/libs/DB';
 import { requireSuperAdmin } from '@/libs/superAdmin';
 import { salonSchema } from '@/models/Schema';
@@ -98,13 +99,15 @@ export async function PATCH(
 
     // 4. If no changes, return current state
     if (Object.keys(dbUpdates).length === 0) {
+      const billingDisplay = await resolveSalonBillingDisplay(db, existingSalon);
       return Response.json({
         settings: {
           reviewsEnabled: existingSalon.reviewsEnabled ?? true,
           rewardsEnabled: existingSalon.rewardsEnabled ?? true,
-          billingMode: existingSalon.billingMode ?? 'NONE',
+          billingMode: billingDisplay.billingMode,
         },
-        subscriptionStatus: existingSalon.billingMode === 'STRIPE' ? existingSalon.stripeSubscriptionStatus : null,
+        subscriptionStatus: billingDisplay.subscriptionStatus,
+        billingSource: billingDisplay.billingSource,
       });
     }
 
@@ -134,13 +137,19 @@ export async function PATCH(
     });
 
     // 7. Return updated settings
+    //
+    // D19c companion: the PATCH above still writes the LEGACY column — only the
+    // read below is derived, so the super-admin select shows the truth when a
+    // live `billing_subscription` row exists for this salon.
+    const billingDisplay = await resolveSalonBillingDisplay(db, updatedSalon);
     return Response.json({
       settings: {
         reviewsEnabled: updatedSalon.reviewsEnabled ?? true,
         rewardsEnabled: updatedSalon.rewardsEnabled ?? true,
-        billingMode: updatedSalon.billingMode ?? 'NONE',
+        billingMode: billingDisplay.billingMode,
       },
-      subscriptionStatus: updatedSalon.billingMode === 'STRIPE' ? updatedSalon.stripeSubscriptionStatus : null,
+      subscriptionStatus: billingDisplay.subscriptionStatus,
+      billingSource: billingDisplay.billingSource,
     });
   } catch (error) {
     console.error('Error updating salon settings:', error);
@@ -181,13 +190,16 @@ export async function GET(
       );
     }
 
+    const billingDisplay = await resolveSalonBillingDisplay(db, salon);
+
     return Response.json({
       settings: {
         reviewsEnabled: salon.reviewsEnabled ?? true,
         rewardsEnabled: salon.rewardsEnabled ?? true,
-        billingMode: salon.billingMode ?? 'NONE',
+        billingMode: billingDisplay.billingMode,
       },
-      subscriptionStatus: salon.billingMode === 'STRIPE' ? salon.stripeSubscriptionStatus : null,
+      subscriptionStatus: billingDisplay.subscriptionStatus,
+      billingSource: billingDisplay.billingSource,
     });
   } catch (error) {
     console.error('Error fetching salon settings:', error);
