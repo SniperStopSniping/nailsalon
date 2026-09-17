@@ -1,5 +1,10 @@
 # Luster Billing, Founding Plans, Shared SMS Credits & Communications
-# Canonical Architecture and Implementation Contract — Revision 2.2
+# Canonical Architecture and Implementation Contract — Revision 2.3
+
+> Revision 2.3 (owner-ratified 2026-09-16) is Revision 2.2 plus the narrow D19c
+> isolation exception in §5, its owner-facing display companion, and the matching
+> §8.1 and §24 clarifications. The filename is unchanged so existing citations
+> keep resolving. No other clause changed.
 
 ---
 

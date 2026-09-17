@@ -73,8 +73,13 @@ async function syncSubscription(subscriptionId: string): Promise<void> {
   }
 
   // 1b. Guard B (§5 isolation exception): local-ownership backstop, one indexed
-  // read on `billing_subscription_stripe_sub_uniq`. A row exists only for
-  // marker-carrying objects, so this is a no-op for genuine legacy subscriptions.
+  // read on `billing_subscription_stripe_sub_uniq`. The only insert into that
+  // table (`billingSubscriptionProjection.ts`) requires new-track metadata —
+  // `billingOfferKey` plus `salonId`, resolving to a known offer — so a genuine
+  // legacy subscription can never acquire a row and this is a no-op for it.
+  // Note this backs up `syncSubscription` only: an unmarked Checkout Session
+  // still takes the legacy projection above, which is deliberate, since a
+  // checkout-time ownership read would race the sibling endpoint's own insert.
   const [ownedByBillingTrack] = await db
     .select({ id: billingSubscriptionSchema.id })
     .from(billingSubscriptionSchema)

@@ -104,8 +104,10 @@ export async function PATCH(
         settings: {
           reviewsEnabled: existingSalon.reviewsEnabled ?? true,
           rewardsEnabled: existingSalon.rewardsEnabled ?? true,
-          billingMode: billingDisplay.billingMode,
+          // STORED, never derived — see the GET site for why.
+          billingMode: existingSalon.billingMode ?? 'NONE',
         },
+        derivedBillingMode: billingDisplay.billingMode,
         subscriptionStatus: billingDisplay.subscriptionStatus,
         billingSource: billingDisplay.billingSource,
       });
@@ -144,10 +146,12 @@ export async function PATCH(
     const billingDisplay = await resolveSalonBillingDisplay(db, updatedSalon);
     return Response.json({
       settings: {
+        // STORED, never derived — see the GET site for why.
         reviewsEnabled: updatedSalon.reviewsEnabled ?? true,
         rewardsEnabled: updatedSalon.rewardsEnabled ?? true,
-        billingMode: billingDisplay.billingMode,
+        billingMode: updatedSalon.billingMode ?? 'NONE',
       },
+      derivedBillingMode: billingDisplay.billingMode,
       subscriptionStatus: billingDisplay.subscriptionStatus,
       billingSource: billingDisplay.billingSource,
     });
@@ -193,11 +197,19 @@ export async function GET(
     const billingDisplay = await resolveSalonBillingDisplay(db, salon);
 
     return Response.json({
+      // `settings.billingMode` is the STORED legacy column, deliberately NOT
+      // the derived value. The super-admin panel seeds an EDITABLE select from
+      // this field and its Save button submits that state whether or not the
+      // operator touched the control, so returning the derived value here
+      // would let an unrelated save write `STRIPE` back into the legacy column
+      // for a new-track salon — silently, since the response re-derives the
+      // same answer. The derived truth is reported alongside, read-only.
       settings: {
         reviewsEnabled: salon.reviewsEnabled ?? true,
         rewardsEnabled: salon.rewardsEnabled ?? true,
-        billingMode: billingDisplay.billingMode,
+        billingMode: salon.billingMode ?? 'NONE',
       },
+      derivedBillingMode: billingDisplay.billingMode,
       subscriptionStatus: billingDisplay.subscriptionStatus,
       billingSource: billingDisplay.billingSource,
     });

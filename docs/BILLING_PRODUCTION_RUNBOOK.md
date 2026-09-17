@@ -166,7 +166,7 @@ Mark this configuration as the account's **default/active** configuration for th
 
 ## 3. Legacy endpoint hygiene (D7, ops-only — read this section fully before acting)
 
-**This section does not close G24. The code-level isolation guard requires owner ratification of D19 because the legacy webhook's byte-frozen checkout and subscription/invoice lifecycle behaviour is part of the approved contract. Do not activate new-track subscriptions until that guard or an owner-approved equivalent is in place; deleting retired legacy code remains separate P9 work.**
+**Updated 2026-09-16: the code-level isolation guard IS now in place.** The owner ratified the narrow D19c amendment and the legacy route carries the Rev 2.3 §5 isolation exception — a new-track Checkout Session or Subscription is never projected onto a salon row. G24 is closed in code. This section remains worth doing as defence in depth: ops-side event filtering means the legacy endpoint never even receives those events, so the guard is a backstop rather than the only line. Deleting retired legacy code remains separate P9 work, and the isolation exception does not advance it.**
 
 **Verification command (corrected, PR-4):** `git grep -n 'checkout.sessions.create' -- src/`. The original command in this row (`grep -rl 'stripe.checkout.sessions.create' src/app/api`) searched only the route tree and therefore missed the DEPOSIT creators in `src/libs/depositCheckout.ts` and `src/libs/depositHoldReaper.ts`. Those two are **not** a legacy-plan Checkout path — they create Sessions **on the connected account** for appointment deposits — but any verification of "what creates a Checkout Session" must see them, or the next person re-derives a false inventory.
 

@@ -101,7 +101,7 @@ Discharges the §16 Gate C exit condition (owner notice §2.1 above). Run 2026-0
 
 **Reading it.** Every seeded drift was detected and, per §8.6, repaired ONLY through the existing idempotent transitions (`applyInvoicePaymentSucceeded` for `sub_g30_a`'s paid-through lag; `projectSubscriptionSnapshot` for `sub_g30_b`'s status/cancellation drift; `applyInvoicePaymentSucceeded`'s pending-offer-application branch for `sub_g30_c`'s stuck downgrade) — `repaired: true` on each. All three rows also carry a `next_grant_drift` entry (`repaired: false`, report-only by design, §6.4): none of the three had ever been evaluated by `/api/billing/windows/evaluate` in this from-scratch seed, so `next_credit_grant_at` was `null` against a non-null computed window boundary — exactly the drift that field exists to surface. `duplicateRemoteCustomers: 0` because none of the three shared a Stripe customer id in this seed (the duplicate-alert path itself has its own dedicated seeded test in `src/app/api/billing/reconcile/route.test.ts`).
 
-## 4. PROPOSED contract amendments (Rev 2.3) — NOT ratified, NOT authorized
+## 4. Contract amendments (Rev 2.3) — (a), (b), (c) RATIFIED; (d) NOT ratified, NOT authorized
 
 Recorded for owner ratification only. Nothing below is implemented until the owner ratifies it (plan decision D19).
 

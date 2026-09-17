@@ -100,7 +100,10 @@ describe('LG-4 — super-admin GET derives the billing display', () => {
     const body = await response.json();
 
     expect(response.status).toBe(200);
-    expect(body.settings.billingMode).toBe('STRIPE');
+    // `settings.billingMode` is the STORED column, because the panel's editable
+    // select is seeded from it and its Save submits that state back.
+    expect(body.settings.billingMode).toBe('NONE');
+    expect(body.derivedBillingMode).toBe('STRIPE');
     expect(body.subscriptionStatus).toBe('past_due');
     expect(body.billingSource).toBe('billing_subscription');
 
@@ -157,7 +160,8 @@ describe('LG-4 — super-admin PATCH keeps writing the LEGACY column', () => {
 
     expect(response.status).toBe(200);
     expect(body.settings.reviewsEnabled).toBe(false);
-    expect(body.settings.billingMode).toBe('STRIPE');
+    expect(body.settings.billingMode).toBe('NONE');
+    expect(body.derivedBillingMode).toBe('STRIPE');
     expect(body.billingSource).toBe('billing_subscription');
 
     const [row] = await db.select().from(schema.salonSchema).where(eq(schema.salonSchema.id, 'sa_patch'));
@@ -200,10 +204,50 @@ describe('LG-4 — super-admin PATCH keeps writing the LEGACY column', () => {
     const body = await response.json();
 
     expect(response.status).toBe(200);
-    expect(body.settings.billingMode).toBe('STRIPE');
+    expect(body.settings.billingMode).toBe('NONE');
+    expect(body.derivedBillingMode).toBe('STRIPE');
     expect(body.subscriptionStatus).toBe('trialing');
     expect(body.billingSource).toBe('billing_subscription');
     expect(logAuditEvent).not.toHaveBeenCalled();
+  });
+
+  // The regression this pairing exists to prevent. `SalonDetailPanel` seeds its
+  // editable Billing Mode select from `settings.billingMode` and its Save
+  // button submits `{reviewsEnabled, rewardsEnabled, billingMode}` whether or
+  // not the operator touched the control. If the response returned the DERIVED
+  // value there, an operator toggling rewards on a new-track salon would write
+  // STRIPE into the legacy column — invisibly, since the response re-derives
+  // the same answer — and the "the legacy column is not rewritten by the new
+  // track" contract clause would be false.
+  it('a full panel save on a new-track salon does not write the derived mode into the legacy column', async () => {
+    await seedSalon('sa_roundtrip', 'NONE');
+    await seedSubscription('sa_roundtrip', 'active');
+
+    const getBody = await (await GET(new Request('http://localhost/x'), params('sa_roundtrip'))).json();
+
+    // Exactly what the panel echoes back after a GET: the value it was seeded with.
+    const response = await PATCH(
+      new Request('http://localhost/x', {
+        method: 'PATCH',
+        body: JSON.stringify({
+          reviewsEnabled: true,
+          rewardsEnabled: false,
+          billingMode: getBody.settings.billingMode,
+        }),
+      }),
+      params('sa_roundtrip'),
+    );
+
+    expect(response.status).toBe(200);
+
+    const [row] = await db.select().from(schema.salonSchema).where(eq(schema.salonSchema.id, 'sa_roundtrip'));
+
+    expect(row?.billingMode).toBe('NONE');
+
+    // And no billingMode audit entry was written for a field nobody edited.
+    const auditPayloads = logAuditEvent.mock.calls.map(call => JSON.stringify(call));
+
+    expect(auditPayloads.some(payload => payload.includes('billingMode'))).toBe(false);
   });
 
   it('still refuses an unauthenticated caller before touching anything', async () => {

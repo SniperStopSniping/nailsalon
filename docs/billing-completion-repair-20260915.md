@@ -541,7 +541,6 @@ note that approving O10 for the response code alone does not remove the wait.
   grandfathered legacy subscription on the same Stripe customer; §8.5 says to alert rather than
   choose, so this needs an operator acknowledgement marker rather than a code change.
 
-
 ## PR-A (legacy / new-track isolation + the settings & Portal companion) — 2026-09-16
 
 Owner-ratified narrow D19c amendment (`docs/billing-owner-decisions-20260916.md` §5): isolate
@@ -591,5 +590,52 @@ display-only: `canEditBillingMode` stays `false`, `billingMode` stays in `FORBID
 super-admin PATCH keeps writing the legacy column.
 
 **Deliberate non-changes.** No `billing_customer` table is created or referenced (that is PR-3). The
-four stale `CI.yml:219-221` citations in `docs/luster-billing-remaining-work-plan.md` were left
+stale citations and, more importantly, stale NORMATIVE statements in `docs/luster-billing-remaining-work-plan.md` were left
 uncorrected: that file is outside this PR's allowed file list.
+
+### Independent review of PR-A, and what it changed (2026-09-16)
+
+An independent reviewer checked head `d3f0781d` from a clean clone and returned **BLOCK** on one finding,
+confirming independently that all six handled event types reach a salon write only through the two guarded
+functions, that neither guard can fire on genuine legacy traffic, that the liveness predicate matches the
+usage route, the portal route, the partial unique index and reconcile's terminal-status set with no drift,
+that all six response sites were updated, and that the pinned blob matched.
+
+**The blocker: the derived display was being round-tripped back into the legacy column.**
+`SalonDetailPanel` seeds an *editable* Billing Mode select from `settings.billingMode` and its Save button
+submits `{reviewsEnabled, rewardsEnabled, billingMode}` whether or not the operator touched that control.
+Returning the derived value there meant a super-admin toggling rewards on a new-track salon would write
+`STRIPE` into the legacy column — invisibly, because the response re-derives the same answer — falsifying
+the Rev 2.3 §5 clause "the legacy column itself is not rewritten by the new track". The original test passed
+only because it PATCHed `{reviewsEnabled: false}`, a body the real client never sends.
+
+Fixed by splitting the two meanings apart: `settings.billingMode` is now the **stored** column at all three
+super-admin sites, the derived value is reported alongside as read-only `derivedBillingMode` plus
+`billingSource`, and the panel renders it as an explanatory line beside the unchanged select. A new test
+PATCHes exactly the body the panel sends after a GET and asserts both that the legacy column is untouched
+and that no `billingMode` audit entry is written for a field nobody edited. The owner-side admin route
+needed no change: `billingMode` is in `FORBIDDEN_FIELDS` and `SettingsModal` never echoes it back.
+
+Three further corrections:
+
+- **Guard B backs up `syncSubscription` only.** An unmarked Checkout Session still takes the full legacy
+  projection, so the single most damaging write has no ownership backstop. That is deliberate — a
+  checkout-time ownership read would race the sibling endpoint's own insert — and the contract text was
+  already accurate, scoping condition (b) to Subscriptions. The route comment now says so plainly.
+- **Guard B's no-op proof cited the wrong marker.** The insert is gated on `billingOfferKey` plus `salonId`
+  resolving to a known offer, not on `metadata.purpose`. The conclusion is unchanged; the stated proof now
+  matches the code.
+- **Deploy-order precondition, newly recorded.** This route postimage depends on the `billing_subscription`
+  table, so migration `0069_billing_credit_foundation` is a precondition for deploying it. An environment
+  deployed past this commit but not migrated would 500 on every legacy subscription and invoice event, and
+  Stripe would retry them for its full window. Production is well past 0069, but this repository has a
+  documented history of production running behind the migration tail because deploys never migrate.
+  Catching the error and falling through to legacy would be worse — it would reopen the leak.
+
+Stale normative statements in tracked documents were corrected rather than left contradicting the merged
+result: the D7 row, the D18 row and the D19 row of the remaining-work plan, the G24 mitigation cell, the
+frozen-surface row, the Gate C section title, and the runbook's §3 preamble, which told the reader not to
+activate until a guard existed. The contract header is now Revision 2.3, with the filename unchanged so
+existing citations keep resolving.
+
+Legacy route postimage after these edits: `363bacbf563ed615e7a45a5200d3f68eddbba783`.

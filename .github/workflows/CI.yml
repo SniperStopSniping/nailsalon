@@ -255,7 +255,7 @@ jobs:
             case "$legacy_webhook_blob" in
               # D19c: Guard A (metadata.purpose) + Guard B (billing_subscription
               # local-ownership backstop) and nothing else.
-              00569f2ec18d57fa9abc3f8e2583fbefa3bb34d3) ;;
+              363bacbf563ed615e7a45a5200d3f68eddbba783) ;;
               *)
                 echo "::error::src/app/api/webhooks/stripe/route.ts must match a reviewed postimage."
                 printf 'actual blob: %s\n' "$legacy_webhook_blob"
