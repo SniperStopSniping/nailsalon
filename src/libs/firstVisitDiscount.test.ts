@@ -1,5 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import {
+  FIRST_VISIT_DISCOUNT_TYPE,
+  isClientEligibleForFirstVisitDiscount,
+  resolveAutomaticBookingDiscount,
+} from './firstVisitDiscount';
+
 vi.mock('server-only', () => ({}));
 
 const {
@@ -9,7 +15,7 @@ const {
   db,
 } = vi.hoisted(() => {
   const queryResults: unknown[] = [];
-  const createQueryResult = <T,>(value: T) => {
+  const createQueryResult = <T>(value: T) => {
     const promise = Promise.resolve(value) as Promise<T> & {
       limit: ReturnType<typeof vi.fn>;
     };
@@ -44,12 +50,6 @@ vi.mock('@/libs/DB', () => ({
 vi.mock('@/libs/queries', () => ({
   getSalonClientByPhone,
 }));
-
-import {
-  FIRST_VISIT_DISCOUNT_TYPE,
-  isClientEligibleForFirstVisitDiscount,
-  resolveAutomaticBookingDiscount,
-} from './firstVisitDiscount';
 
 describe('resolveAutomaticBookingDiscount', () => {
   beforeEach(() => {
@@ -95,6 +95,53 @@ describe('resolveAutomaticBookingDiscount', () => {
     expect(result.firstVisit?.discountType).toBe(FIRST_VISIT_DISCOUNT_TYPE);
     expect(result.discountAmountCents).toBe(1000);
     expect(result.finalTotalCents).toBe(3000);
+  });
+
+  it('uses caller-owned config, clock, and read handle without the global config lookup', async () => {
+    queryResults.push([], []);
+    const contextDatabase = {
+      select: db.select,
+    };
+    const result = await resolveAutomaticBookingDiscount({
+      salonId: 'salon_1',
+      services: [{ id: 'svc_1', name: 'Gel Manicure', price: 4000 }],
+      subtotalBeforeDiscountCents: 4000,
+      salonClientId: 'client_1',
+      readContext: {
+        salonId: 'salon_1',
+        database: contextDatabase as never,
+        bookingConfig: {
+          bufferMinutes: 10,
+          slotIntervalMinutes: 15,
+          currency: 'CAD',
+          timezone: 'America/Toronto',
+          introPriceDefaultLabel: null,
+          firstVisitDiscountEnabled: true,
+          confirmationMode: 'instant',
+          minimumNoticeMinutes: 120,
+          clientChangeCutoffHours: 24,
+          enforceRequiredAddOns: false,
+        },
+        now: new Date('2030-01-01T00:00:00.000Z'),
+      },
+    });
+
+    expect(getBookingConfigForSalon).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ kind: 'first_visit', discountAmountCents: 1000 });
+  });
+
+  it('rejects a wrong-tenant caller-owned read context', async () => {
+    await expect(resolveAutomaticBookingDiscount({
+      salonId: 'salon_1',
+      services: [{ id: 'svc_1', name: 'Gel Manicure', price: 4000 }],
+      subtotalBeforeDiscountCents: 4000,
+      readContext: {
+        salonId: 'other_salon',
+        database: { select: db.select } as never,
+        bookingConfig: {} as never,
+        now: new Date(),
+      },
+    })).rejects.toThrow('BOOKING_READ_CONTEXT_SALON_MISMATCH');
   });
 
   it('lets an active reward win over the first-visit discount', async () => {

@@ -167,7 +167,7 @@ describe('§15 — isRequestBookableLeadTime (the preserved 120-minute edge)', (
 
 describe('§15 — minimum-notice structural parity with the platform fallback', () => {
   it.each([
-    'src/app/api/appointments/route.ts',
+    'src/libs/appointmentCreation.server.ts',
     'src/libs/publicBookingAvailability.server.ts',
   ])('%s consumes the salon booking configuration', (relativePath) => {
     const source = readFileSync(path.join(process.cwd(), relativePath), 'utf8');

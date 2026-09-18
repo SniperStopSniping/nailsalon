@@ -4,7 +4,7 @@ import type { ReactNode } from 'react';
 import { useEffect, useState } from 'react';
 
 import type { CustomerAssistantLocale } from '@/libs/customerAssistant/contracts';
-import type { CustomerReviewSnapshot } from '@/libs/customerAssistant/reviewContracts';
+import type { CustomerReadyReviewSnapshot, CustomerReviewSnapshot } from '@/libs/customerAssistant/reviewContracts';
 import { formatMoney } from '@/libs/formatMoney';
 import { formatDuration } from '@/utils/Helpers';
 
@@ -74,7 +74,7 @@ function Detail({ label, children }: { label: string; children: ReactNode }) {
   );
 }
 
-export function CustomerBookingReviewCard({ review, locale }: { review: CustomerReviewSnapshot; locale: CustomerAssistantLocale }) {
+export function CustomerBookingReviewCard({ review, locale }: { review: CustomerReviewSnapshot | CustomerReadyReviewSnapshot; locale: CustomerAssistantLocale }) {
   const text = copy[locale];
   const language = locale === 'fr' ? 'fr-CA' : 'en-CA';
   const money = (cents: number) => formatMoney(cents, review.financial.currency, language);
@@ -93,7 +93,7 @@ export function CustomerBookingReviewCard({ review, locale }: { review: Customer
   return (
     <section data-customer-review aria-label={text.title} className="space-y-4 rounded-2xl border border-black/10 bg-white p-4">
       <h3 className="text-base font-semibold text-neutral-950">{text.title}</h3>
-      <p role="status" className="rounded-xl bg-amber-50 p-3 text-sm leading-relaxed text-amber-950">{expired ? text.expired : text.pending}</p>
+      <p role="status" className="rounded-xl bg-amber-50 p-3 text-sm leading-relaxed text-amber-950">{expired ? text.expired : review.status === 'READY' ? (locale === 'fr' ? 'Vérifiez les détails avant de confirmer. Cette heure n’est pas encore retenue.' : 'Check these details before confirming. This time is not held yet.') : text.pending}</p>
       <dl className="space-y-4">
         <Detail label={text.salon}>{review.salon.name}</Detail>
         <Detail label={text.location}>{locationParts.length ? locationParts.join(', ') : text.privateLocation}</Detail>
@@ -103,10 +103,11 @@ export function CustomerBookingReviewCard({ review, locale }: { review: Customer
         <Detail label={text.date}>{`${date}, ${review.time} (${review.timeZone})`}</Detail>
         <Detail label={text.duration}>{formatDuration(review.durationMinutes)}</Detail>
         <Detail label={text.subtotal}>{money(review.financial.subtotalCents)}</Detail>
-        <Detail label={text.tax}>{money(review.financial.estimatedTaxCents)}</Detail>
-        <Detail label={text.total}>
-          <strong>{money(review.financial.estimatedTotalCents)}</strong>
-          <p className="mt-1 text-xs text-neutral-600">{text.priceNote}</p>
+        {review.status === 'READY' && review.financial.discountAmountCents > 0 && <Detail label={review.financial.discountLabel ?? (locale === 'fr' ? 'Rabais' : 'Discount')}>{money(-review.financial.discountAmountCents)}</Detail>}
+        <Detail label={review.status === 'READY' ? (locale === 'fr' ? 'Taxe' : 'Tax') : text.tax}>{money(review.status === 'READY' ? review.financial.taxAmountCents : review.financial.estimatedTaxCents)}</Detail>
+        <Detail label={review.status === 'READY' ? 'Total' : text.total}>
+          <strong>{money(review.status === 'READY' ? review.financial.totalDueCents : review.financial.estimatedTotalCents)}</strong>
+          {review.status !== 'READY' && <p className="mt-1 text-xs text-neutral-600">{text.priceNote}</p>}
         </Detail>
         <Detail label={text.deposit}>
           {review.deposit.status === 'required'
@@ -115,7 +116,13 @@ export function CustomerBookingReviewCard({ review, locale }: { review: Customer
           <p className="mt-1 text-xs text-neutral-600">{text.depositNote}</p>
         </Detail>
         <Detail label={text.mode}>{review.confirmationMode === 'request_approval' ? text.approval : text.instant}</Detail>
-        <Detail label={text.reminders}>{text.remindersPending}</Detail>
+        <Detail label={text.reminders}>
+          {review.status === 'READY'
+            ? (review.reminders.requestedEnabled
+                ? (locale === 'fr' ? 'Activés. Les désinscriptions STOP restent respectées.' : 'On. Existing STOP opt-outs remain respected.')
+                : (locale === 'fr' ? 'Désactivés' : 'Off'))
+            : text.remindersPending}
+        </Detail>
       </dl>
       {review.bookingPolicy.required && (
         <details className="rounded-xl bg-neutral-50 p-3">

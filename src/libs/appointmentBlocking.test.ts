@@ -369,7 +369,7 @@ describe('structural call-site drift', () => {
   const KNOWN_CALL_SITES = [
     'src/libs/bookingConflictGuard.ts',
     'src/libs/bookingPolicy.ts',
-    'src/app/api/appointments/route.ts',
+    'src/libs/appointmentCreation.server.ts',
   ];
 
   const files = readSourceFiles(KNOWN_CALL_SITES);

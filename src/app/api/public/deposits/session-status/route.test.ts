@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const { rows } = vi.hoisted(() => ({ rows: { current: [] as unknown[] } }));
 
+vi.mock('server-only', () => ({}));
 vi.mock('@/libs/DB', () => ({
   db: {
     select: () => ({

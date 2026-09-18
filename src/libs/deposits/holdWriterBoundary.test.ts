@@ -111,11 +111,18 @@ describe('the deposit hold-writer module boundary (§14 test 21, closing leg)', 
     expect(appointmentUpdateChains(code).some(movesAHold)).toBe(false);
   });
 
+  it('a customer recovery read cannot masquerade as a hold status writer', () => {
+    const source = codeOnly(readFileSync(path.join(BOUNDARY, 'resumeCustomerCheckout.ts'), 'utf8'));
+
+    expect(movesAHold(source)).toBe(true);
+    expect(appointmentUpdateChains(source)).toEqual([]);
+  });
+
   it('the boundary\'s writers are all status-guarded and use depositsTransaction', () => {
     const writerSources = walk(BOUNDARY)
       .filter(file => !isTestFile(file))
       .map(file => readFileSync(file, 'utf8'))
-      .filter(source => movesAHold(codeOnly(source)));
+      .filter(source => appointmentUpdateChains(codeOnly(source)).some(movesAHold));
 
     for (const source of writerSources) {
       // ONE transaction containing BOTH statements: a crash between two loose

@@ -252,11 +252,11 @@ describe('smsSender source hygiene (mechanical dark-by-default proof)', () => {
     // stubbed) dispatcher and the inbound webhook's sender-identity lookup.
     // Any importer beyond this reviewed list re-fails.
     expect(importers).toEqual([
-      // Booking reads sender identity to preserve provider STOP suppression.
-      'src/app/api/appointments/route.ts',
       'src/app/api/integrations/twilio/inbound/route.ts',
       'src/app/api/integrations/twilio/status/route.ts',
       'src/libs/SMS.ts',
+      // Booking reads sender identity to preserve provider STOP suppression.
+      'src/libs/appointmentCreation.server.ts',
       'src/libs/bookingSmsConsent.server.ts',
       'src/libs/communicationDispatcher.ts',
       'src/libs/integrationHealth.ts',

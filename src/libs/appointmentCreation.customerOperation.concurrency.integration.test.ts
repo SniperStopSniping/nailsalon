@@ -1,0 +1,491 @@
+/** Actual public booking authority against an attested disposable PostgreSQL pool. */
+import { randomUUID } from 'node:crypto';
+import path from 'node:path';
+
+import { eq } from 'drizzle-orm';
+import { drizzle } from 'drizzle-orm/node-postgres';
+import { migrate } from 'drizzle-orm/node-postgres/migrator';
+import pg from 'pg';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+
+import { buildDepositDisclosure } from '@/libs/depositPolicy';
+import { attestDisposableDatabaseSession, requireDisposableDatabaseTarget, resolveDisposableDatabaseServerExpectation } from '@/libs/disposableDatabaseTarget';
+import { buildTaxConfigurationSnapshot, resolveTaxConfig } from '@/libs/taxConfig';
+import * as schema from '@/models/Schema';
+
+import type { CustomerBookingMaterial } from './customerAssistant/bookingOperationContracts';
+
+const rawUrl = process.env.CONCURRENCY_TEST_DATABASE_URL;
+if (!rawUrl && process.env.CUSTOMER_BOOKING_PG_REQUIRED === 'true') {
+  throw new Error('Customer creator PostgreSQL gate requires an attested disposable target.');
+}
+const target = rawUrl ? requireDisposableDatabaseTarget({ ...process.env, DATABASE_URL: rawUrl }) : null;
+vi.mock('server-only', () => ({}));
+vi.mock('@/core/redis/redisClient', () => ({
+  redis: null,
+  isRedisAvailable: vi.fn(async () => false),
+}));
+
+const holder = vi.hoisted(() => ({
+  db: null as unknown,
+  withSession: null as unknown as (
+    work: (database: unknown) => Promise<unknown>,
+  ) => Promise<unknown>,
+}));
+const {
+  sendTransactionalEmail,
+  sendTransactionalEmailDetailed,
+  sendAppointmentReminder,
+  requireStaffSession,
+  requireAdmin,
+  requireAdminSalon,
+  requireClientApiSession,
+  requireAppointmentAccess,
+  requireAppointmentManagerAccess,
+  requireStaffAppointmentAccess,
+  recordGoogleEventReviewDecision,
+} = vi.hoisted(() => ({
+  sendTransactionalEmail: vi.fn(),
+  sendTransactionalEmailDetailed: vi.fn(),
+  sendAppointmentReminder: vi.fn(),
+  requireStaffSession: vi.fn(),
+  requireAdmin: vi.fn(),
+  requireAdminSalon: vi.fn(),
+  requireClientApiSession: vi.fn(),
+  requireAppointmentAccess: vi.fn(),
+  requireAppointmentManagerAccess: vi.fn(),
+  requireStaffAppointmentAccess: vi.fn(),
+  recordGoogleEventReviewDecision: vi.fn(),
+}));
+
+vi.mock('@/libs/DB', () => ({
+  get db() {
+    return holder.db;
+  },
+  usesRuntimePostgres: true,
+  DatabaseSessionReleaseError: class DatabaseSessionReleaseError extends Error {},
+  withDedicatedDatabaseSession: <T>(
+    work: (database: unknown) => Promise<T>,
+  ) => holder.withSession(work) as Promise<T>,
+}));
+
+vi.mock('@/libs/email', () => ({ sendTransactionalEmail, sendTransactionalEmailDetailed }));
+vi.mock('@/libs/staffAuth', () => ({ requireStaffSession }));
+vi.mock('@/libs/adminAuth', () => ({
+  // The client PATCH records the acting admin on its audit row (CP1 repair).
+  getAdminSession: vi.fn(async () => ({ id: 'admin_concurrency', phoneE164: null })),
+  requireAdmin,
+  requireAdminSalon,
+}));
+vi.mock('@/libs/clientApiGuards', async importOriginal => ({
+  ...(await importOriginal<typeof import('@/libs/clientApiGuards')>()),
+  requireClientApiSession,
+}));
+vi.mock('@/libs/routeAccessGuards', () => ({
+  requireAppointmentAccess,
+  requireAppointmentManagerAccess,
+}));
+vi.mock('@/libs/staffApiGuards', () => ({
+  requireStaffAppointmentAccess,
+}));
+vi.mock('@/libs/SMS', () => ({
+  sendBookingConfirmationToClient: vi.fn(),
+  sendCancellationNotificationToTech: vi.fn(),
+  sendRescheduleConfirmation: vi.fn(),
+  sendAppointmentReminder,
+}));
+vi.mock('@/libs/googleCalendar', async importOriginal => ({
+  ...(await importOriginal<typeof import('@/libs/googleCalendar')>()),
+  getGoogleCalendarBusyWindows: vi.fn(async () => []),
+  hasGoogleCalendarConflict: vi.fn(async () => false),
+}));
+vi.mock('@/libs/googleEventReview', () => ({
+  recordGoogleEventReviewDecision,
+}));
+
+const provider = vi.hoisted(() => ({ create: vi.fn(), retrieve: vi.fn(), expire: vi.fn(), readiness: vi.fn() }));
+vi.mock('@/libs/stripeConnect/readiness', async importOriginal => ({ ...(await importOriginal<typeof import('@/libs/stripeConnect/readiness')>()), refreshAccountReadiness: provider.readiness }));
+const SALON = 'synthetic-customer-creator-salon';
+const TECH = 'synthetic-customer-creator-tech';
+const SERVICE = 'synthetic-customer-creator-service';
+const ADDON = 'synthetic-customer-creator-addon';
+const SECRET = 'synthetic-customer-creator-signing-key-no-provider';
+const SETTINGS = { bookingExperience: { policy: { enabled: false } }, booking: { timezone: 'America/Toronto', slotIntervalMinutes: 15, bufferMinutes: 0 } };
+const START = '2099-09-01T15:00:00.000Z';
+const contact = (lastDigit = '1') => ({ name: 'Synthetic Customer', email: `synthetic${lastDigit}@example.invalid`, phone: `416555010${lastDigit}` });
+let pool: pg.Pool;
+let database: ReturnType<typeof drizzle<typeof schema>>;
+let executed = 0;
+const { prepareCustomerBookingOperation, customerBookingOperationReference, readCustomerBookingOperation } = await import('./customerAssistant/operationStore.server');
+const { __setDepositStripeClientForTests } = await import('./depositCheckout');
+const { resumeCustomerDepositCheckout } = await import('./deposits/resumeCustomerCheckout');
+const { readCustomerBookingStatus } = await import('./customerAssistant/bookingStatus.server');
+const { runCustomerBookingRecoveryAction } = await import('./customerAssistant/recoveryAction.server');
+const { createAppointmentFromRequest } = await import('./appointmentCreation.server');
+
+function material(): CustomerBookingMaterial {
+  return {
+    selection: { baseServiceId: SERVICE, selectedAddOns: [] },
+    preference: { date: '2099-09-01', earliest: '10:00', latest: '17:00' },
+    startTime: START,
+    technicianSelection: 'any',
+    smsConsent: { granted: true, selection: 'default_on', wordingVersion: 'booking-sms-reminders-v1' },
+    expectedTotalCents: 6500,
+    expectedDiscountType: null,
+    expectedBookingFinancialQuote: { currency: 'CAD', totalDueCents: 6500, taxConfigurationIdentity: buildTaxConfigurationSnapshot(resolveTaxConfig(SETTINGS, new Date())).configurationIdentity },
+    expectedDepositFingerprint: 'deposit-v1:none',
+    review: {
+      status: 'READY',
+      fingerprint: 'a'.repeat(64),
+      expiresAt: new Date(Date.now() + 300_000).toISOString(),
+      salon: { id: SALON, slug: SALON, name: 'Synthetic Creator Test Salon' },
+      location: null,
+      services: [{ id: SERVICE, name: 'Synthetic Creator Service', priceCents: 6500 }],
+      addOns: [],
+      technician: { kind: 'any_artist' },
+      date: '2099-09-01',
+      time: '11:00',
+      timeZone: 'America/Toronto',
+      durationMinutes: 60,
+      financial: { subtotalCents: 6500, discountAmountCents: 0, discountLabel: null, taxAmountCents: 0, totalDueCents: 6500, currency: 'CAD' },
+      deposit: { status: 'not_required', reason: 'policy_inactive' },
+      confirmationMode: 'instant',
+      bookingPolicy: { required: false },
+      reminders: { mode: 'default_on', selection: 'default_on', requestedEnabled: true },
+    },
+  };
+}
+async function prepare(person = contact(), value = material()) {
+  const operation = await prepareCustomerBookingOperation({ salonId: SALON, sessionId: randomUUID(), secret: SECRET, contact: person, material: value, expectedRevision: 0 });
+  return { operation, reference: customerBookingOperationReference(operation, SECRET), person };
+}
+async function create(prepared: Awaited<ReturnType<typeof prepare>>) {
+  const value = prepared.operation.material;
+  const request = new Request('https://app.luster.test/api/appointments', { method: 'POST', headers: { 'content-type': 'application/json', 'origin': 'https://app.luster.test' }, body: JSON.stringify({
+    salonSlug: SALON,
+    baseServiceId: value.selection.baseServiceId,
+    selectedAddOns: value.selection.selectedAddOns,
+    technicianId: null,
+    startTime: value.startTime,
+    clientName: prepared.person.name,
+    clientEmail: prepared.person.email,
+    clientPhone: prepared.person.phone,
+    smsConsent: value.smsConsent,
+    expectedTotalCents: value.expectedTotalCents,
+    expectedDiscountType: value.expectedDiscountType,
+    expectedBookingFinancialQuote: value.expectedBookingFinancialQuote,
+    expectedDepositFingerprint: value.expectedDepositFingerprint,
+  }) });
+  return createAppointmentFromRequest(request, { kind: 'anonymous_customer', salon: { id: SALON, slug: SALON }, contact: prepared.person, operation: { ...prepared.reference, secret: SECRET } });
+}
+
+(target ? describe : describe.skip)('customer operation uses actual public booking authority — PostgreSQL', () => {
+  beforeAll(async () => {
+    if (!target) {
+      throw new Error('Missing attested target');
+    }
+    pool = new pg.Pool({ connectionString: target.connectionString, max: 10 });
+    const connection = await pool.connect();
+    try {
+      await attestDisposableDatabaseSession(connection, target, resolveDisposableDatabaseServerExpectation(target));
+    } finally {
+      connection.release();
+    }
+    database = drizzle(pool, { schema });
+    holder.db = database;
+    holder.withSession = async (work) => {
+      const connection = await pool.connect();
+      try {
+        return await work(drizzle(connection, { schema }));
+      } finally {
+        connection.release();
+      }
+    };
+    await migrate(database, { migrationsFolder: path.join(process.cwd(), 'migrations') });
+    await database.insert(schema.salonSchema).values({ id: SALON, slug: SALON, name: 'Synthetic Creator Test Salon', ownerEmail: 'synthetic-owner@example.invalid', isActive: true, status: 'active', publicationStatus: 'published', settings: SETTINGS }).onConflictDoNothing();
+    await database.insert(schema.technicianSchema).values({ id: TECH, salonId: SALON, name: 'Synthetic Technician', isActive: true, weeklySchedule: Object.fromEntries(['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'].map(day => [day, { start: '00:00', end: '23:45' }])) }).onConflictDoNothing();
+    await database.insert(schema.serviceSchema).values({ id: SERVICE, salonId: SALON, name: 'Synthetic Creator Service', category: 'manicure', price: 6500, durationMinutes: 60, isActive: true }).onConflictDoNothing();
+    await database.insert(schema.addOnSchema).values({ id: ADDON, salonId: SALON, name: 'Synthetic Art', slug: 'synthetic-art', category: 'nail_art', priceCents: 500, durationMinutes: 10, pricingType: 'per_unit', maxQuantity: 5 }).onConflictDoNothing();
+    await database.insert(schema.serviceAddOnSchema).values({ id: 'synthetic-creator-addon-binding', salonId: SALON, serviceId: SERVICE, addOnId: ADDON, selectionMode: 'optional' }).onConflictDoNothing();
+    await database.insert(schema.technicianServicesSchema).values({ technicianId: TECH, serviceId: SERVICE, enabled: true }).onConflictDoNothing();
+  }, 120_000);
+
+  beforeEach(async () => {
+    vi.clearAllMocks();
+    __setDepositStripeClientForTests({ checkout: { sessions: provider } });
+    provider.create.mockRejectedValue(new Error('Unexpected provider request'));
+    await database.update(schema.salonSchema).set({ settings: SETTINGS, features: null }).where(eq(schema.salonSchema.id, SALON));
+    await database.delete(schema.salonStripeAccountSchema).where(eq(schema.salonStripeAccountSchema.salonId, SALON));
+    vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('External requests forbidden in synthetic booking verification'));
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    sendTransactionalEmail.mockResolvedValue(true);
+    sendTransactionalEmailDetailed.mockResolvedValue({ ok: true, errorCode: null, providerMessageId: 'synthetic' });
+    sendAppointmentReminder.mockResolvedValue(true);
+    await database.delete(schema.rewardSchema).where(eq(schema.rewardSchema.salonId, SALON));
+    await database.delete(schema.communicationConsentSchema).where(eq(schema.communicationConsentSchema.salonId, SALON));
+    await database.delete(schema.customerBookingOperationSchema).where(eq(schema.customerBookingOperationSchema.salonId, SALON));
+    await database.delete(schema.appointmentDepositSchema).where(eq(schema.appointmentDepositSchema.salonId, SALON));
+    await database.delete(schema.appointmentSchema).where(eq(schema.appointmentSchema.salonId, SALON));
+    await database.delete(schema.salonClientSchema).where(eq(schema.salonClientSchema.salonId, SALON));
+    executed += 1;
+  });
+
+  afterAll(async () => {
+    await pool?.end();
+
+    expect(executed).toBe(17);
+
+    process.stdout.write(`CUSTOMER_CREATOR_POSTGRES_TESTS_EXECUTED=${executed} CUSTOMER_CREATOR_POSTGRES_TESTS_SKIPPED=0\n`);
+  });
+
+  it('creates once through the public authority and recovers the original after a lost response', async () => {
+    const prepared = await prepare();
+    const response = await create(prepared);
+    const body = await response.json();
+
+    expect(response.status, JSON.stringify(body)).toBe(201);
+
+    const recovered = await readCustomerBookingOperation({ salonId: SALON, capability: prepared.reference.capability, secret: SECRET });
+
+    expect(recovered.appointmentId).toBeTruthy();
+    expect((await create(prepared)).status).toBe(200);
+    expect(await database.select().from(schema.appointmentSchema).where(eq(schema.appointmentSchema.salonId, SALON))).toHaveLength(1);
+    expect(requireStaffSession).not.toHaveBeenCalled();
+    expect(requireAdmin).not.toHaveBeenCalled();
+    expect(requireClientApiSession).not.toHaveBeenCalled();
+  });
+
+  it('serializes double confirm for one durable operation', async () => {
+    const prepared = await prepare();
+    const responses = await Promise.all([create(prepared), create(prepared)]);
+    const results = await Promise.all(responses.map(async response => ({ status: response.status, body: await response.json() })));
+
+    expect(results.map(result => result.status).sort()).toEqual([200, 201]);
+    expect(await database.select().from(schema.appointmentSchema).where(eq(schema.appointmentSchema.salonId, SALON))).toHaveLength(1);
+  });
+
+  it('permits only one of two different customers to claim the same slot', async () => {
+    const prepared = await Promise.all([prepare(contact('1')), prepare(contact('2'))]);
+    const responses = await Promise.all(prepared.map(create));
+    const results = await Promise.all(responses.map(async response => ({ status: response.status, body: await response.json() })));
+
+    expect(results.map(result => result.status).sort()).toEqual([201, 409]);
+    expect(await database.select().from(schema.appointmentSchema).where(eq(schema.appointmentSchema.salonId, SALON))).toHaveLength(1);
+  });
+
+  it.each(['default_on', 'explicit_off', 'explicit_on'] as const)('preserves canonical #245 preference %s through the actual authority', async (selection) => {
+    const value = material();
+    const granted = selection !== 'explicit_off';
+    value.smsConsent = { granted, selection, wordingVersion: 'booking-sms-reminders-v1' };
+    value.review.reminders = { mode: 'default_on', selection, requestedEnabled: granted };
+    const prepared = await prepare(contact(), value);
+    const response = await create(prepared);
+
+    expect(response.status, JSON.stringify(await response.json())).toBe(201);
+
+    const rows = await database.select().from(schema.communicationConsentSchema).where(eq(schema.communicationConsentSchema.salonId, SALON));
+
+    expect(rows).toEqual(expect.arrayContaining([expect.objectContaining({ purpose: 'appointment_reminders', status: granted ? 'granted' : 'revoked', metadata: expect.objectContaining({ selection, selectionWasExplicit: selection !== 'default_on' }) })]));
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+  });
+
+  it('keeps prior STOP suppressed despite a default-on booking', async () => {
+    await database.insert(schema.communicationConsentSchema).values({ id: randomUUID(), salonId: SALON, recipient: contact().phone, channel: 'sms', purpose: 'appointment_transactional', status: 'revoked', source: 'twilio_inbound', wordingVersion: 'STOP', revokedAt: new Date() });
+    const prepared = await prepare();
+    const response = await create(prepared);
+
+    expect(response.status, JSON.stringify(await response.json())).toBe(201);
+
+    const rows = await database.select().from(schema.communicationConsentSchema).where(eq(schema.communicationConsentSchema.salonId, SALON));
+
+    expect(rows).toEqual(expect.arrayContaining([expect.objectContaining({ source: 'twilio_inbound', status: 'revoked' }), expect.objectContaining({ purpose: 'appointment_reminders', status: 'revoked', metadata: expect.objectContaining({ selection: 'default_on', suppression: 'provider_opt_out' }) })]));
+    expect(rows.filter(item => item.status === 'granted')).toHaveLength(0);
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+  });
+
+  it('rolls back creation and newly resolved client when reviewed service duration changes', async () => {
+    const prepared = await prepare();
+    await database.update(schema.serviceSchema).set({ durationMinutes: 75 }).where(eq(schema.serviceSchema.id, SERVICE));
+    try {
+      const response = await create(prepared);
+
+      expect(response.status, JSON.stringify(await response.json())).toBe(409);
+      expect(await database.select().from(schema.appointmentSchema).where(eq(schema.appointmentSchema.salonId, SALON))).toHaveLength(0);
+      expect(await database.select().from(schema.salonClientSchema).where(eq(schema.salonClientSchema.salonId, SALON))).toHaveLength(0);
+    } finally {
+      await database.update(schema.serviceSchema).set({ durationMinutes: 60 }).where(eq(schema.serviceSchema.id, SERVICE));
+    }
+  });
+
+  it('commits exact per-unit add-on prices and duration snapshots', async () => {
+    const value = material();
+    value.selection.selectedAddOns = [{ addOnId: ADDON, quantity: 2 }];
+    value.expectedTotalCents = 7500;
+    value.expectedBookingFinancialQuote.totalDueCents = 7500;
+    value.review.addOns = [{ id: ADDON, name: 'Synthetic Art', quantity: 2, priceCents: 1000 }];
+    value.review.durationMinutes = 80;
+    value.review.financial.subtotalCents = 7500;
+    value.review.financial.totalDueCents = 7500;
+    const prepared = await prepare(contact(), value);
+    const response = await create(prepared);
+
+    expect(response.status, JSON.stringify(await response.json())).toBe(201);
+
+    const [appointment] = await database.select().from(schema.appointmentSchema).where(eq(schema.appointmentSchema.salonId, SALON));
+
+    expect(appointment).toMatchObject({ totalPrice: 7500, totalDurationMinutes: 80 });
+    expect(await database.select().from(schema.appointmentAddOnSchema).where(eq(schema.appointmentAddOnSchema.appointmentId, appointment!.id))).toEqual([expect.objectContaining({ quantitySnapshot: 2, lineTotalCentsSnapshot: 1000, lineDurationMinutesSnapshot: 20 })]);
+  });
+
+  it('uses the existing same-salon client without creating a duplicate identity', async () => {
+    await database.insert(schema.salonClientSchema).values({ id: 'synthetic-creator-returning', salonId: SALON, phone: contact().phone, fullName: 'Synthetic Existing Customer', email: contact().email });
+    const response = await create(await prepare());
+
+    expect(response.status, JSON.stringify(await response.json())).toBe(201);
+    expect(await database.select().from(schema.salonClientSchema).where(eq(schema.salonClientSchema.salonId, SALON))).toHaveLength(1);
+    expect(await database.select().from(schema.appointmentSchema).where(eq(schema.appointmentSchema.salonId, SALON))).toEqual([expect.objectContaining({ salonClientId: 'synthetic-creator-returning' })]);
+  });
+
+  it('creates nothing when another booking takes the reviewed slot before Confirm', async () => {
+    const waiting = await prepare(contact('1'));
+
+    expect((await create(await prepare(contact('2')))).status).toBe(201);
+
+    const response = await create(waiting);
+
+    expect(response.status).toBe(409);
+    expect((await readCustomerBookingOperation({ salonId: SALON, capability: waiting.reference.capability, secret: SECRET })).appointmentId).toBeNull();
+    expect(await database.select().from(schema.appointmentSchema).where(eq(schema.appointmentSchema.salonId, SALON))).toHaveLength(1);
+  });
+
+  it('rejects a capability bound to another salon before any booking write', async () => {
+    const prepared = await prepare();
+    const request = new Request('https://app.luster.test/api/appointments', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ salonSlug: 'other-synthetic-salon', baseServiceId: SERVICE, selectedAddOns: [], startTime: START, clientPhone: contact().phone, clientName: contact().name, clientEmail: contact().email }) });
+    const response = await createAppointmentFromRequest(request, { kind: 'anonymous_customer', salon: { id: 'other-synthetic-salon', slug: 'other-synthetic-salon' }, contact: prepared.person, operation: { ...prepared.reference, secret: SECRET } });
+
+    expect(response.status).toBeGreaterThanOrEqual(400);
+    expect(await database.select().from(schema.appointmentSchema).where(eq(schema.appointmentSchema.salonId, SALON))).toHaveLength(0);
+  });
+
+  it.each([
+    ['price', async () => database.update(schema.serviceSchema).set({ price: 7000 }).where(eq(schema.serviceSchema.id, SERVICE)), async () => database.update(schema.serviceSchema).set({ price: 6500 }).where(eq(schema.serviceSchema.id, SERVICE))],
+    ['reminder mode', async () => database.update(schema.salonSchema).set({ settings: { ...SETTINGS, communications: { sms: { bookingDefault: 'disabled' } } } }).where(eq(schema.salonSchema.id, SALON)), async () => database.update(schema.salonSchema).set({ settings: SETTINGS }).where(eq(schema.salonSchema.id, SALON))],
+  ] as const)('refuses a changed %s instead of silently accepting stale review', async (_name, change, restore) => {
+    const prepared = await prepare();
+    await change();
+    try {
+      const response = await create(prepared);
+
+      expect(response.status, JSON.stringify(await response.json())).toBe(409);
+      expect(await database.select().from(schema.appointmentSchema).where(eq(schema.appointmentSchema.salonId, SALON))).toHaveLength(0);
+    } finally {
+      await restore();
+    }
+  });
+
+  it('links a returning-client reward in the same durable appointment commit', async () => {
+    await database.insert(schema.rewardSchema).values({ id: 'synthetic-creator-reward', salonId: SALON, clientPhone: contact().phone, type: 'referral_referrer', discountType: 'fixed_amount', discountAmountCents: 500 });
+    const value = material();
+    value.expectedTotalCents = 6000;
+    value.expectedDiscountType = 'reward';
+    value.expectedBookingFinancialQuote.totalDueCents = 6000;
+    value.review.financial.discountAmountCents = 500;
+    value.review.financial.totalDueCents = 6000;
+    const prepared = await prepare(contact(), value);
+    const response = await create(prepared);
+
+    expect(response.status, JSON.stringify(await response.json())).toBe(201);
+
+    const operation = await readCustomerBookingOperation({ salonId: SALON, capability: prepared.reference.capability, secret: SECRET });
+
+    expect(await database.select().from(schema.rewardSchema).where(eq(schema.rewardSchema.salonId, SALON))).toEqual([expect.objectContaining({ status: 'active', usedInAppointmentId: operation.appointmentId })]);
+  });
+
+  it('recovers one guest management capability while AI is disabled, without reviving revoked links', async () => {
+    const prepared = await prepare();
+
+    expect((await create(prepared)).status).toBe(201);
+
+    vi.stubEnv('CUSTOMER_ASSISTANT_SIGNING_SECRET', SECRET);
+    vi.stubEnv('CUSTOMER_ASSISTANT_ENABLED', 'false');
+    const action = (salonId = SALON) => runCustomerBookingRecoveryAction(new Request('https://app.luster.test/api/public/customer-booking/recover/manage', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'origin': 'https://app.luster.test' },
+      body: JSON.stringify({ capability: prepared.reference.capability }),
+    }), salonId, 'manage');
+    try {
+      const first = await action();
+      const second = await action();
+
+      expect(first.status).toBe(200);
+      expect(await first.json()).toEqual(await second.json());
+      expect((await action('another-salon')).status).toBe(404);
+
+      const operation = await readCustomerBookingOperation({ salonId: SALON, capability: prepared.reference.capability, secret: SECRET });
+
+      expect(await database.select().from(schema.appointmentAccessTokenSchema).where(eq(schema.appointmentAccessTokenSchema.appointmentId, operation.appointmentId!))).toHaveLength(2);
+
+      await database.update(schema.appointmentAccessTokenSchema).set({ revokedAt: new Date() }).where(eq(schema.appointmentAccessTokenSchema.appointmentId, operation.appointmentId!));
+
+      expect((await action()).status).toBe(404);
+      expect(await database.select().from(schema.appointmentAccessTokenSchema).where(eq(schema.appointmentAccessTokenSchema.appointmentId, operation.appointmentId!))).toHaveLength(2);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it('recovers the original deposit checkout after a lost response without a duplicate hold or payment attempt', async () => {
+    await database.update(schema.salonSchema).set({ settings: { ...SETTINGS, payments: { deposit: { enabled: true, amountCents: 2500 } } }, features: { money: { deposits: true } } }).where(eq(schema.salonSchema.id, SALON));
+    const [binding] = await database.insert(schema.salonStripeAccountSchema).values({ id: 'synthetic-creator-account', salonId: SALON, stripeAccountId: 'acct_synthetic_creator', livemode: false, chargesEnabled: true, payoutsEnabled: true, detailsSubmitted: true, lastSyncedAt: new Date() }).returning();
+    provider.readiness.mockResolvedValue({ chargeReady: true, status: 'charge_ready', payoutsPending: false, binding });
+    let originalSession: unknown;
+    provider.create.mockImplementation(async (params, options) => {
+      const session = { id: 'cs_synthetic_original', url: 'https://checkout.stripe.com/c/pay/cs_synthetic_original', status: 'open', payment_status: 'unpaid', payment_intent: null, expires_at: params.expires_at, metadata: params.metadata, currency: 'cad', amount_total: 2500 };
+      if (!originalSession) {
+        originalSession = session;
+        throw new Error('Synthetic network timeout after checkout creation');
+      }
+
+      expect(options.idempotencyKey).toBe(provider.create.mock.calls[0]![1].idempotencyKey);
+      expect(params).toEqual(provider.create.mock.calls[0]![0]);
+
+      return session;
+    });
+    const value = material();
+    value.expectedDepositFingerprint = 'deposit-v1:cad:2500';
+    value.review.deposit = { status: 'required', amountCents: 2500, currency: 'CAD', label: buildDepositDisclosure({ required: true, amountCents: 2500, currency: 'cad' })!.label };
+    const prepared = await prepare(contact(), value);
+    const response = await create(prepared);
+
+    expect(response.status, JSON.stringify(await response.json())).toBe(503);
+
+    const operation = await readCustomerBookingOperation({ salonId: SALON, capability: prepared.reference.capability, secret: SECRET });
+
+    expect(operation.appointmentId).toBeTruthy();
+    expect((await readCustomerBookingStatus(operation, SECRET)).status).toBe('payment_required');
+    expect((await create(prepared)).status).toBe(200);
+    expect(provider.create).toHaveBeenCalledTimes(1);
+    expect(await resumeCustomerDepositCheckout({ salonId: SALON, appointmentId: operation.appointmentId! })).toBe('https://checkout.stripe.com/c/pay/cs_synthetic_original');
+    expect(provider.create).toHaveBeenCalledTimes(2);
+
+    // A stale unpaid provider response must not erase a payment intent already
+    // recorded by the webhook. Then reconcile the same session's paid result.
+    await database.update(schema.appointmentDepositSchema).set({ stripeCheckoutUrl: null, stripePaymentIntentId: 'pi_synthetic_original' }).where(eq(schema.appointmentDepositSchema.salonId, SALON));
+    provider.retrieve.mockResolvedValue(originalSession);
+    await resumeCustomerDepositCheckout({ salonId: SALON, appointmentId: operation.appointmentId! });
+    const [preserved] = await database.select().from(schema.appointmentDepositSchema).where(eq(schema.appointmentDepositSchema.salonId, SALON));
+
+    expect(preserved?.stripePaymentIntentId).toBe('pi_synthetic_original');
+
+    await database.update(schema.appointmentDepositSchema).set({ stripeCheckoutUrl: null }).where(eq(schema.appointmentDepositSchema.salonId, SALON));
+    provider.retrieve.mockResolvedValue({ ...(originalSession as Record<string, unknown>), status: 'complete', payment_status: 'paid', payment_intent: 'pi_synthetic_original', url: null });
+
+    expect(await resumeCustomerDepositCheckout({ salonId: SALON, appointmentId: operation.appointmentId! })).toBeNull();
+    expect((await readCustomerBookingStatus(operation, SECRET)).status).toBe('confirmed');
+    expect(provider.create).toHaveBeenCalledTimes(2);
+    expect(await database.select().from(schema.appointmentSchema).where(eq(schema.appointmentSchema.salonId, SALON))).toHaveLength(1);
+    expect(await database.select().from(schema.appointmentDepositSchema).where(eq(schema.appointmentDepositSchema.salonId, SALON))).toHaveLength(1);
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+  });
+});

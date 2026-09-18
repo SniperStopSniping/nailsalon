@@ -5,7 +5,7 @@ import 'server-only';
 import { notFound, redirect } from 'next/navigation';
 import { Suspense } from 'react';
 
-import { CustomerAssistantLauncher } from '@/components/customerAssistant/CustomerAssistantLauncher';
+import { CustomerAssistantLauncher, CustomerBookingRecovery } from '@/components/customerAssistant/CustomerAssistantLauncher';
 import type { PreviewBannerVariant } from '@/components/PreviewBanner';
 import { PublicSalonPageShell } from '@/components/PublicSalonPageShell';
 import { getBookingConfigForSalon, resolveIntroPriceLabel } from '@/libs/bookingConfig';
@@ -15,6 +15,7 @@ import { resolveBookingPageConfig } from '@/libs/bookingPageConfig';
 import { resolveBookingPageContent } from '@/libs/bookingPageContent';
 import { resolveBookingPagePresetPreviewSide } from '@/libs/bookingPagePresetPreview';
 import { repairBookingUrl, shouldRepairBookingUrl } from '@/libs/bookingParams';
+import { resolveBookingSmsMode } from '@/libs/bookingSmsConsent';
 import { getClientSession } from '@/libs/clientAuth';
 import { isCustomerAssistantEnabledForSalon } from '@/libs/customerAssistant/access.server';
 import { isClientEligibleForFirstVisitDiscount } from '@/libs/firstVisitDiscount';
@@ -469,8 +470,9 @@ export async function renderBookServicePage({
         : (
             <Suspense fallback={<div className="flex min-h-screen items-center justify-center"><div className="size-8 animate-spin rounded-full border-2 border-amber-500 border-t-transparent" /></div>}>
               {!ownerPreviewState.isPreviewing && isCustomerAssistantEnabledForSalon(salon.slug) && (
-                <CustomerAssistantLauncher salonSlug={salon.slug} locale={params?.locale === 'fr' ? 'fr' : 'en'} />
+                <CustomerAssistantLauncher smsMode={resolveBookingSmsMode(salon.settings)} salonId={salon.id} salonSlug={salon.slug} locale={params?.locale === 'fr' ? 'fr' : 'en'} />
               )}
+              {!ownerPreviewState.isPreviewing && <CustomerBookingRecovery salonId={salon.id} locale={params?.locale === 'fr' ? 'fr' : 'en'} />}
               {bookingContent}
             </Suspense>
           )}

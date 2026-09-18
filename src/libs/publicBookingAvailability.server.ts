@@ -41,7 +41,7 @@ import {
   getTechniciansBySalonId,
 } from '@/libs/queries';
 import { guardSalonApiRoute } from '@/libs/salonStatus';
-import { evaluateSmartFitSlot } from '@/libs/smartFit';
+import { evaluateSmartFitSlot, type SmartFitEvaluation } from '@/libs/smartFit';
 import {
   buildSmartFitClientKeys,
   buildSmartFitDayContext,
@@ -111,6 +111,9 @@ type AvailabilityAccess =
     /** Customer-assistant deadline; never used by the manual public route. */
     signal?: AbortSignal;
     timeoutMs?: number;
+    /** Internal contact identity only; it is never added to the request URL. */
+    trustedClientPhone?: string | null;
+    onSmartFitEvaluation?: (input: { startTime: string; evaluation: SmartFitEvaluation }) => void;
   };
 
 export type AnonymousCustomerAvailabilityInput = {
@@ -125,6 +128,10 @@ export type AnonymousCustomerAvailabilityInput = {
   durationMinutes?: number;
   signal?: AbortSignal;
   timeoutMs?: number;
+  /** Internal-only; do not add to URL params or response data. */
+  trustedClientPhone?: string | null;
+  /** Server-only callback; never serialized into the availability response. */
+  onSmartFitEvaluation?: (input: { startTime: string; evaluation: SmartFitEvaluation }) => void;
 };
 
 /**
@@ -160,7 +167,14 @@ export async function getAnonymousCustomerBookingAvailability(
 
   return getPublicBookingAvailability(
     new Request(`http://localhost/internal/public-booking-availability?${searchParams.toString()}`, { signal: input.signal }),
-    { kind: 'anonymous_customer_assistant', salon: input.salon, signal: input.signal, timeoutMs: input.timeoutMs },
+    {
+      kind: 'anonymous_customer_assistant',
+      salon: input.salon,
+      signal: input.signal,
+      timeoutMs: input.timeoutMs,
+      trustedClientPhone: input.trustedClientPhone ? normalizePhone(input.trustedClientPhone) : null,
+      onSmartFitEvaluation: input.onSmartFitEvaluation,
+    },
   );
 }
 
@@ -415,7 +429,7 @@ export async function getPublicBookingAvailability(
     let sessionPhonePromise: Promise<string | null> | null = null;
     const getSessionPhoneOnce = (): Promise<string | null> => {
       if (access.kind === 'anonymous_customer_assistant') {
-        return Promise.resolve(null);
+        return Promise.resolve(access.trustedClientPhone ?? null);
       }
       sessionPhonePromise ??= getClientSession().then(session => session?.phone ?? null);
       return sessionPhonePromise;
@@ -609,6 +623,9 @@ export async function getPublicBookingAvailability(
             },
             day: dayContext,
           });
+          if (access.kind === 'anonymous_customer_assistant') {
+            access.onSmartFitEvaluation?.({ startTime: startTime.toISOString(), evaluation });
+          }
           if (!evaluation.eligible) {
             continue;
           }

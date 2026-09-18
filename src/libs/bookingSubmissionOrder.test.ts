@@ -37,7 +37,7 @@ import { BOOKING_RECONCILIATION_ORDER } from './bookingSubmissionOrder';
 const ROOT = process.cwd();
 
 function readRouteSource(): string {
-  return readFileSync(path.join(ROOT, 'src/app/api/appointments/route.ts'), 'utf8');
+  return readFileSync(path.join(ROOT, 'src/libs/appointmentCreation.server.ts'), 'utf8');
 }
 
 describe('BOOKING_RECONCILIATION_ORDER — shape', () => {
@@ -107,7 +107,7 @@ describe('requestApprovalTerms after availability — the compiler-enforced depe
   it('finalPolicy (declared by the availability step) is declared BEFORE resolveExplicitRequestApprovalActivation reads it — the ONLY order TypeScript accepts in this scope', () => {
     const source = readRouteSource();
 
-    const finalPolicyDeclIndex = source.indexOf('const finalPolicy = await loadBookingPolicy({');
+    const finalPolicyDeclIndex = source.search(/(?:const|let) finalPolicy = await loadBookingPolicy\(\{/);
     const activationCallIndex = source.indexOf('resolveExplicitRequestApprovalActivation({');
 
     expect(finalPolicyDeclIndex).toBeGreaterThan(-1);

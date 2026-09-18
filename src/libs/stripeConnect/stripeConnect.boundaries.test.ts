@@ -131,7 +131,7 @@ describe('test 31 — module boundaries', () => {
       path.join(ROOT, 'src/app/api/integrations/stripe-connect/disconnect/route.ts'),
       // D4: creates the deposit row in the booking transaction, and fences a
       // reschedule that would strand a live deposit.
-      path.join(ROOT, 'src/app/api/appointments/route.ts'),
+      path.join(ROOT, 'src/libs/appointmentCreation.server.ts'),
       // D4: the read-only manage-token hold state and its server view.
       path.join(ROOT, 'src/app/[locale]/[slug]/manage/[token]/ManageAppointmentView.tsx'),
       path.join(ROOT, 'src/app/api/public/appointments/manage/[token]/route.ts'),
@@ -171,6 +171,10 @@ describe('test 31 — module boundaries', () => {
       path.join(ROOT, 'src/app/api/rewards/redeem/route.ts'),
       path.join(ROOT, 'src/app/api/rewards/redeem-points/route.ts'),
       path.join(ROOT, 'src/app/api/super-admin/organizations/[id]/export/route.ts'),
+      // Capability-authenticated customer status and original deposit recovery.
+      path.join(ROOT, 'src/libs/customerAssistant/bookingStatus.server.ts'),
+      path.join(ROOT, 'src/libs/deposits/recoveryBudget.ts'),
+      path.join(ROOT, 'src/libs/deposits/resumeCustomerCheckout.ts'),
       path.join(ROOT, 'src/libs/depositCredit.server.ts'),
       path.join(ROOT, 'src/libs/deposits/depositForfeiture.ts'),
       path.join(ROOT, 'src/libs/financialReportingServer.ts'),

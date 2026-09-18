@@ -26,8 +26,8 @@ type PreviewFixtureDatabase = {
 };
 const APPLICATION_NAME = 'luster-preview-service-image-fixtures-v1';
 const DATABASE_NAME = 'luster_preview';
-const FINAL_MIGRATION = '0079_billing_customer';
-const MIGRATION_COUNT = 79;
+const FINAL_MIGRATION = '0080_customer_booking_operation';
+const MIGRATION_COUNT = 80;
 const CONFIRM = 'CREATE_SYNTHETIC_PREVIEW_FIXTURES';
 const RESET_CONFIRM = 'DELETE_SYNTHETIC_PREVIEW_FIXTURES';
 const ADMIN_CONFIRM = 'MAP_SYNTHETIC_DEVELOPMENT_USER';
@@ -366,6 +366,8 @@ const EXPECTED_INCOMING_FOREIGN_KEYS = [
   // Migration 0079 — new-track Stripe customer identity. CASCADE: the mapping
   // is meaningless without the salon and is not money evidence, so the purge
   // needs no plan step for it.
+  // Durable customer booking operations belong only to their synthetic salon.
+  ['public', 'customer_booking_operation', 'customer_booking_operation_salon_id_salon_id_fk', ['salon_id'], 'public', 'salon', ['id'], 'NO ACTION', 'CASCADE'],
   ['public', 'billing_customer', 'billing_customer_salon_id_fkey', ['salon_id'], 'public', 'salon', ['id'], 'NO ACTION', 'CASCADE'],
   ['public', 'billing_promotion_claim', 'billing_promotion_claim_salon_id_fkey', ['salon_id'], 'public', 'salon', ['id'], 'NO ACTION', 'SET NULL'],
   ['public', 'billing_starter_grant', 'billing_starter_grant_salon_id_fkey', ['salon_id'], 'public', 'salon', ['id'], 'NO ACTION', 'SET NULL'],

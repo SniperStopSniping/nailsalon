@@ -456,7 +456,7 @@ describe('§12 ORDER — BEHAVIOURAL proof that catalog reconciliation precedes 
 describe('§12 ORDER — source-position signal (SECONDARY; the behavioural test above is authoritative)', () => {
   it('reconcileCatalogSelection is called BEFORE the preliminary policy determination, BEFORE assertCurrentBookingPolicyAcknowledgment, and BEFORE lockTechnicianAndAssertSlotFree', async () => {
     const fs = await import('node:fs');
-    const source = fs.readFileSync(path.join(process.cwd(), 'src/app/api/appointments/route.ts'), 'utf8');
+    const source = fs.readFileSync(path.join(process.cwd(), 'src/libs/appointmentCreation.server.ts'), 'utf8');
 
     const reconcileIndex = source.indexOf('const catalogOutcome = await reconcileCatalogSelection(');
     // The preliminary (pre-transaction) policy determination — step 2 of the
@@ -478,7 +478,7 @@ describe('§12 ORDER — source-position signal (SECONDARY; the behavioural test
 
   it('reconcileCatalogSelection is called OUTSIDE any transaction — it never receives a `tx` handle', async () => {
     const fs = await import('node:fs');
-    const source = fs.readFileSync(path.join(process.cwd(), 'src/app/api/appointments/route.ts'), 'utf8');
+    const source = fs.readFileSync(path.join(process.cwd(), 'src/libs/appointmentCreation.server.ts'), 'utf8');
 
     const reconcileCallStart = source.indexOf('const catalogOutcome = await reconcileCatalogSelection({');
     const reconcileCallEnd = source.indexOf('});', reconcileCallStart);

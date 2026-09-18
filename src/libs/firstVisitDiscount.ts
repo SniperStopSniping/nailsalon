@@ -2,12 +2,26 @@ import 'server-only';
 
 import { and, eq, inArray, isNull, ne, or } from 'drizzle-orm';
 
-import { getBookingConfigForSalon } from '@/libs/bookingConfig';
-import { db } from '@/libs/DB';
-import { getSalonClientByPhone } from '@/libs/queries';
+import { type BookingConfig, getBookingConfigForSalon } from '@/libs/bookingConfig';
+import { type db as Database, db } from '@/libs/DB';
 import { normalizePhone } from '@/libs/phone';
+import { getSalonClientByPhone } from '@/libs/queries';
 import { calculateRewardDiscountCents } from '@/libs/rewardRules';
-import { appointmentSchema, rewardSchema, type Service } from '@/models/Schema';
+import { appointmentSchema, rewardSchema, salonClientSchema, type Service } from '@/models/Schema';
+
+export type BookingDiscountReadContext = {
+  database: Pick<typeof Database, 'select'>;
+  salonId: string;
+  bookingConfig: BookingConfig;
+  now: Date;
+  salonClientId?: string | null;
+};
+
+function assertReadContextSalon(salonId: string, readContext?: BookingDiscountReadContext): void {
+  if (readContext && readContext.salonId !== salonId) {
+    throw new Error('BOOKING_READ_CONTEXT_SALON_MISMATCH');
+  }
+}
 
 export const FIRST_VISIT_DISCOUNT_TYPE = 'first_visit_25';
 export const FIRST_VISIT_DISCOUNT_LABEL = 'First visit discount';
@@ -32,33 +46,33 @@ export type FirstVisitDiscountSnapshot = {
 
 export type AutomaticBookingDiscountResult =
   | {
-      kind: 'none';
-      subtotalBeforeDiscountCents: number;
-      discountAmountCents: 0;
-      finalTotalCents: number;
-      reward: null;
-      firstVisit: null;
-    }
+    kind: 'none';
+    subtotalBeforeDiscountCents: number;
+    discountAmountCents: 0;
+    finalTotalCents: number;
+    reward: null;
+    firstVisit: null;
+  }
   | {
-      kind: 'reward';
-      subtotalBeforeDiscountCents: number;
+    kind: 'reward';
+    subtotalBeforeDiscountCents: number;
+    discountAmountCents: number;
+    finalTotalCents: number;
+    reward: {
+      id: string;
       discountAmountCents: number;
-      finalTotalCents: number;
-      reward: {
-        id: string;
-        discountAmountCents: number;
-        discountedServiceId: string | null;
-      };
-      firstVisit: null;
-    }
-  | {
-      kind: 'first_visit';
-      subtotalBeforeDiscountCents: number;
-      discountAmountCents: number;
-      finalTotalCents: number;
-      reward: null;
-      firstVisit: FirstVisitDiscountSnapshot;
+      discountedServiceId: string | null;
     };
+    firstVisit: null;
+  }
+  | {
+    kind: 'first_visit';
+    subtotalBeforeDiscountCents: number;
+    discountAmountCents: number;
+    finalTotalCents: number;
+    reward: null;
+    firstVisit: FirstVisitDiscountSnapshot;
+  };
 
 function buildClientPhoneVariants(phone: string | null | undefined): string[] {
   const normalized = normalizePhone(phone ?? '');
@@ -123,8 +137,10 @@ async function resolveFirstVisitDiscountEligibility(args: {
   clientPhone?: string | null;
   salonClientId?: string | null;
   originalAppointmentId?: string | null;
+  readContext?: BookingDiscountReadContext;
 }): Promise<FirstVisitDiscountEligibility> {
-  const bookingConfig = await getBookingConfigForSalon(args.salonId);
+  assertReadContextSalon(args.salonId, args.readContext);
+  const bookingConfig = args.readContext?.bookingConfig ?? await getBookingConfigForSalon(args.salonId);
   if (!bookingConfig.firstVisitDiscountEnabled) {
     return {
       enabled: false,
@@ -133,9 +149,12 @@ async function resolveFirstVisitDiscountEligibility(args: {
   }
 
   const phoneVariants = buildClientPhoneVariants(args.clientPhone);
-  const resolvedSalonClientId = args.salonClientId
+  const database = args.readContext?.database ?? db;
+  const resolvedSalonClientId = args.salonClientId ?? args.readContext?.salonClientId
     ?? (phoneVariants.length > 0
-      ? (await getSalonClientByPhone(args.salonId, phoneVariants[0]!))?.id ?? null
+      ? args.readContext
+        ? (await database.select({ id: salonClientSchema.id }).from(salonClientSchema).where(and(eq(salonClientSchema.salonId, args.salonId), eq(salonClientSchema.phone, phoneVariants[0]!))).limit(1))[0]?.id ?? null
+        : (await getSalonClientByPhone(args.salonId, phoneVariants[0]!))?.id ?? null
       : null);
 
   const clientIdentityCondition = buildClientIdentityCondition({
@@ -161,7 +180,7 @@ async function resolveFirstVisitDiscountEligibility(args: {
     completedVisitConditions.push(ne(appointmentSchema.id, args.originalAppointmentId));
   }
 
-  const completedVisit = await db
+  const completedVisit = await database
     .select({ id: appointmentSchema.id })
     .from(appointmentSchema)
     .where(and(...completedVisitConditions))
@@ -185,7 +204,7 @@ async function resolveFirstVisitDiscountEligibility(args: {
     activeReservationConditions.push(ne(appointmentSchema.id, args.originalAppointmentId));
   }
 
-  const activeReservation = await db
+  const activeReservation = await database
     .select({ id: appointmentSchema.id })
     .from(appointmentSchema)
     .where(and(...activeReservationConditions))
@@ -202,6 +221,7 @@ export async function isClientEligibleForFirstVisitDiscount(args: {
   clientPhone?: string | null;
   salonClientId?: string | null;
   originalAppointmentId?: string | null;
+  readContext?: BookingDiscountReadContext;
 }): Promise<boolean> {
   const result = await resolveFirstVisitDiscountEligibility(args);
   return result.eligible;
@@ -216,8 +236,10 @@ export async function resolveAutomaticBookingDiscount(args: {
   originalAppointmentId?: string | null;
   preserveFirstVisitDiscount?: boolean;
   now?: Date;
+  readContext?: BookingDiscountReadContext;
 }): Promise<AutomaticBookingDiscountResult> {
-  const now = args.now ?? new Date();
+  assertReadContextSalon(args.salonId, args.readContext);
+  const now = args.readContext?.now ?? args.now ?? new Date();
 
   if (args.subtotalBeforeDiscountCents <= 0) {
     return {
@@ -248,7 +270,7 @@ export async function resolveAutomaticBookingDiscount(args: {
 
   const phoneVariants = buildClientPhoneVariants(args.clientPhone);
   if (phoneVariants.length > 0) {
-    const activeRewards = await db
+    const activeRewards = await (args.readContext?.database ?? db)
       .select()
       .from(rewardSchema)
       .where(
@@ -295,6 +317,7 @@ export async function resolveAutomaticBookingDiscount(args: {
     clientPhone: args.clientPhone ?? null,
     salonClientId: args.salonClientId ?? null,
     originalAppointmentId: args.originalAppointmentId ?? null,
+    readContext: args.readContext,
   });
 
   if (!eligibility.enabled || !eligibility.eligible) {

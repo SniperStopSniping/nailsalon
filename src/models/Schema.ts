@@ -288,6 +288,33 @@ export const salonSchema = pgTable(
 // -----------------------------------------------------------------------------
 // Service - Services offered by a salon (scoped to tenant)
 // -----------------------------------------------------------------------------
+// A durable booking operation survives response loss and appointment deletion.
+// appointmentId deliberately has no ON DELETE SET NULL relationship: a linked
+// operation must never become a fresh creation opportunity after deletion.
+export const customerBookingOperationSchema = pgTable('customer_booking_operation', {
+  id: uuid('id').primaryKey(),
+  salonId: text('salon_id').notNull().references(() => salonSchema.id, { onDelete: 'cascade' }),
+  sessionId: uuid('session_id').notNull(),
+  keyVersion: integer('key_version').notNull().default(1),
+  revision: integer('revision').notNull().default(1),
+  requestHash: text('request_hash').notNull(),
+  contactBinding: text('contact_binding').notNull(),
+  material: jsonb('material').$type<import('@/libs/customerAssistant/bookingOperationContracts').CustomerBookingMaterial>().notNull(),
+  appointmentId: text('appointment_id'),
+  lastFailure: text('last_failure').$type<import('@/libs/customerAssistant/bookingOperationContracts').CustomerBookingFailure>(),
+  reviewExpiresAt: timestamp('review_expires_at', { withTimezone: true }).notNull(),
+  recoveryExpiresAt: timestamp('recovery_expires_at', { withTimezone: true }).notNull(),
+  committedAt: timestamp('committed_at', { withTimezone: true }),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+}, table => ({
+  sessionUnique: uniqueIndex('customer_booking_operation_session_unique').on(table.salonId, table.sessionId),
+  appointmentUnique: uniqueIndex('customer_booking_operation_appointment_unique').on(table.appointmentId),
+  revisionPositive: check('customer_booking_operation_revision_positive', sql`${table.revision} > 0`),
+  linkedState: check('customer_booking_operation_linked_state', sql`(${table.appointmentId} IS NULL) = (${table.committedAt} IS NULL)`),
+  expiryOrder: check('customer_booking_operation_expiry_order', sql`${table.recoveryExpiresAt} > ${table.reviewExpiresAt}`),
+}));
+
 export const serviceSchema = pgTable(
   'service',
   {
