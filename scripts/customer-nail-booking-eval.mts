@@ -1,0 +1,138 @@
+/**
+ * Opt-in real-model evaluation of natural-language interpretation against a
+ * synthetic Isla-like L1 catalog. It does not open a database, load a salon,
+ * create bookings, query availability, or send messages. The scorer resolves
+ * every proposed selection through catalogResolverCore; it never accepts a
+ * model-supplied price or duration.
+ *
+ * node --conditions=react-server --import tsx scripts/customer-nail-booking-eval.mts \
+ *   --run --key-file /absolute/private/key.env --key-name OPENAI_API_KEY_CUSTOMER
+ */
+
+import { createHash } from 'node:crypto';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { createRequire } from 'node:module';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const require = createRequire(import.meta.url);
+const { createOpenAiResponsesProvider } = require('../src/libs/ai/openaiResponses.server') as typeof import('../src/libs/ai/openaiResponses.server');
+const { customerInterpretationSchema, CUSTOMER_INTERPRETATION_JSON_SCHEMA, CUSTOMER_INTERPRETATION_PROMPT } = require('../src/libs/customerAssistant/interpretation') as typeof import('../src/libs/customerAssistant/interpretation');
+const { NAIL_BOOKING_EVAL_CASES, SYNTHETIC_NAIL_BOOKING_MENU } = require('../src/libs/customerAssistant/__evals__/nailBookingCases') as typeof import('../src/libs/customerAssistant/__evals__/nailBookingCases');
+const { scoreNailBookingInterpretation } = require('../src/libs/customerAssistant/__evals__/nailBookingScorer') as typeof import('../src/libs/customerAssistant/__evals__/nailBookingScorer');
+
+const model = 'gpt-5.6-luna';
+const maxOutputTokens = 1_200;
+const timeoutMs = 15_000;
+const maxSpendMicros = 100_000;
+const inputMicrosPerMillion = 200_000;
+const cachedInputMicrosPerMillion = 20_000;
+const outputMicrosPerMillion = 1_200_000;
+
+type Options = { run: boolean; keyFile: string | null; keyName: string | null; out: string | null };
+
+function options(argv: string[]): Options | null {
+  const parsed: Options = { run: false, keyFile: null, keyName: null, out: null };
+  for (let index = 0; index < argv.length; index += 1) {
+    const argument = argv[index];
+    if (argument === '--run') {
+      parsed.run = true;
+    } else if (argument === '--key-file' || argument === '--key-name' || argument === '--out') {
+      const value = argv[++index];
+      if (!value || value.startsWith('--')) {
+        return null;
+      }
+      if (argument === '--key-file') {
+        parsed.keyFile = value;
+      }
+      if (argument === '--key-name') {
+        parsed.keyName = value;
+      }
+      if (argument === '--out') {
+        parsed.out = value;
+      }
+    } else {
+      return null;
+    }
+  }
+  return parsed;
+}
+
+function readNamedEnv(contents: string, name: string): string | null {
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const match = contents.match(new RegExp(`^(?:export\\s+)?${escaped}\\s*=\\s*(.+?)\\s*$`, 'm'));
+  if (!match?.[1]) {
+    return null;
+  }
+  const value = match[1].trim();
+  return (value.startsWith('"') && value.endsWith('"')) || (value.startsWith('\'') && value.endsWith('\'')) ? value.slice(1, -1) : value;
+}
+
+function costMicros(usage: import('../src/libs/ai/provider').ModelProviderUsage | null): number | null {
+  if (!usage) {
+    return null;
+  }
+  const cached = usage.cachedInputTokens;
+  const cacheWrite = usage.cacheWriteInputTokens ?? 0;
+  const regular = usage.inputTokens - cached - cacheWrite;
+  if (regular < 0) {
+    return null;
+  }
+  return Math.ceil((regular * inputMicrosPerMillion + cached * cachedInputMicrosPerMillion + cacheWrite * 250_000 + usage.outputTokens * outputMicrosPerMillion) / 1_000_000);
+}
+
+function inputFor(testCase: (typeof NAIL_BOOKING_EVAL_CASES)[number]): string {
+  return JSON.stringify({ locale: 'en', menu: SYNTHETIC_NAIL_BOOKING_MENU, customerMessages: testCase.messages, lastShown: testCase.lastShown, today: '2026-09-18', timeZone: 'America/Toronto', bookingState: null });
+}
+
+async function main(): Promise<void> {
+  const parsed = options(process.argv.slice(2));
+  if (!parsed || !parsed.run || !parsed.keyFile || !parsed.keyName || !path.isAbsolute(parsed.keyFile) || !/^[A-Z][A-Z0-9_]*$/.test(parsed.keyName)) {
+    process.stderr.write('Refused: use --run --key-file <absolute path> --key-name <UPPERCASE_NAME>.\n');
+    process.exitCode = 1;
+    return;
+  }
+  const apiKey = readNamedEnv(await readFile(parsed.keyFile, 'utf8'), parsed.keyName);
+  if (!apiKey) {
+    process.stderr.write('Refused: the named credential was absent or blank.\n');
+    process.exitCode = 1;
+    return;
+  }
+  const provider = createOpenAiResponsesProvider({ apiKey });
+  const results: Array<Record<string, unknown>> = [];
+  let reservedMicros = 0;
+  for (const testCase of NAIL_BOOKING_EVAL_CASES) {
+    const data = inputFor(testCase);
+    const reservation = Math.ceil(((Buffer.byteLength(CUSTOMER_INTERPRETATION_PROMPT + data + JSON.stringify(CUSTOMER_INTERPRETATION_JSON_SCHEMA), 'utf8') + 4_096) * 250_000 + maxOutputTokens * outputMicrosPerMillion) / 1_000_000);
+    if (reservedMicros + reservation > maxSpendMicros) {
+      results.push({ id: testCase.id, status: 'not_run', reason: 'spend_ceiling_reservation' });
+      continue;
+    }
+    reservedMicros += reservation;
+    const started = performance.now();
+    try {
+      const response = await provider.createResponse({ model, input: [{ role: 'system', content: CUSTOMER_INTERPRETATION_PROMPT }, { role: 'user', content: data }], tools: [], toolChoice: 'none', reasoningEffort: 'low', jsonMode: 'schema', jsonSchema: CUSTOMER_INTERPRETATION_JSON_SCHEMA, maxOutputTokens, timeoutMs });
+      const text = response.items.filter(item => item.type === 'message').map(item => item.text).join('');
+      if (response.status !== 'completed' || response.items.some(item => item.type === 'function_call' || item.type === 'refusal') || text.length > 12_000) {
+        throw new Error('invalid_model_response');
+      }
+      const intent = customerInterpretationSchema.parse(JSON.parse(text));
+      const score = scoreNailBookingInterpretation(intent, testCase);
+      results.push({ id: testCase.id, status: score.passed ? 'passed' : 'failed', score, latencyMs: performance.now() - started, costMicros: costMicros(response.usage), intent });
+    } catch {
+      results.push({ id: testCase.id, status: 'failed', reason: 'invalid_model_response', latencyMs: performance.now() - started });
+    }
+  }
+  const report = { generatedAt: new Date().toISOString(), model, store: false, scope: 'synthetic L1 language interpretation and deterministic resolver scoring only; no database, booking, payment, availability, messaging, or production state', promptSha256: createHash('sha256').update(CUSTOMER_INTERPRETATION_PROMPT).digest('hex'), fixtureSha256: createHash('sha256').update(JSON.stringify(NAIL_BOOKING_EVAL_CASES)).digest('hex'), limits: { maxOutputTokens, timeoutMs, maxSpendMicros, reservedMicros }, summary: { dispatched: results.filter(result => result.status !== 'not_run').length, passed: results.filter(result => result.status === 'passed').length, providerReportedCostMicros: results.reduce((sum, result) => sum + (typeof result.costMicros === 'number' ? result.costMicros : 0), 0) }, results };
+  const output = path.resolve(root, parsed.out ?? 'artifacts/customer-assistant/nail-booking-evaluation');
+  await mkdir(output, { recursive: true });
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+  await writeFile(path.join(output, `evaluation-${stamp}.json`), `${JSON.stringify(report, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
+  process.stdout.write(`Synthetic L1 nail-booking evaluation complete: ${report.summary.passed}/${report.summary.dispatched} passed.\n`);
+}
+
+void main().catch(() => {
+  process.stderr.write('Synthetic L1 nail-booking evaluation failed before report generation.\n');
+  process.exitCode = 1;
+});
