@@ -125,7 +125,7 @@ describe('customer assistant incomplete review', () => {
     const response = await prepareCustomerAssistantReview(input());
 
     expect(response.result).toEqual({ kind: 'proposal', proposal });
-    expect(verifyCustomerConversation(response.conversation, 'salon-a', secret).booking).toBeUndefined();
+    expect(verifyCustomerConversation(response.conversation, 'salon-a', secret, Date.parse('2026-09-18T12:00:00Z')).booking).toBeUndefined();
   });
 
   it('offers refreshed alternatives rather than reviewing a disappeared slot', async () => {
@@ -134,7 +134,7 @@ describe('customer assistant incomplete review', () => {
     const response = await prepareCustomerAssistantReview(input());
 
     expect(response.result).toMatchObject({ kind: 'slots', slotDisappeared: true, slots: [alternative] });
-    expect(verifyCustomerConversation(response.conversation, 'salon-a', secret).booking?.selectedSlot).toBeNull();
+    expect(verifyCustomerConversation(response.conversation, 'salon-a', secret, Date.parse('2026-09-18T12:00:00Z')).booking?.selectedSlot).toBeNull();
   });
 
   it('fails closed on an undetermined deposit policy without logging contact', async () => {
@@ -197,7 +197,7 @@ describe('customer assistant incomplete review', () => {
     const response = await prepareCustomerAssistantReview(input());
 
     expect(response.result).toEqual({ kind: 'unavailable', reason: 'unavailable' });
-    expect(verifyCustomerConversation(response.conversation, 'salon-a', secret).turnIndex).toBe(1);
+    expect(verifyCustomerConversation(response.conversation, 'salon-a', secret, Date.parse('2026-09-18T12:00:00Z')).turnIndex).toBe(1);
   });
 
   it('signs a next state after booking configuration cannot be re-read', async () => {
@@ -205,6 +205,6 @@ describe('customer assistant incomplete review', () => {
     const response = await prepareCustomerAssistantReview(input());
 
     expect(response.result).toEqual({ kind: 'unavailable', reason: 'unavailable' });
-    expect(verifyCustomerConversation(response.conversation, 'salon-a', secret).turnIndex).toBe(1);
+    expect(verifyCustomerConversation(response.conversation, 'salon-a', secret, Date.parse('2026-09-18T12:00:00Z')).turnIndex).toBe(1);
   });
 });
