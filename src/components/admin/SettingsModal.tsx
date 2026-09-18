@@ -2363,6 +2363,7 @@ export function SettingsModal({
   const [communicationsForm, setCommunicationsForm] = useState<{
     emailEnabled: boolean;
     smsEnabled: boolean;
+    smsBookingDefault: 'default_on' | 'default_off' | 'disabled';
     killSwitch: boolean;
     quietHours: { enabled: boolean; start: string; end: string };
     rules: Array<{ id: string; offsetMinutes: number; channels: 'sms' | 'email' | 'both'; enabled: boolean }>;
@@ -2370,6 +2371,7 @@ export function SettingsModal({
   }>({
     emailEnabled: true,
     smsEnabled: false,
+    smsBookingDefault: 'default_on',
     killSwitch: false,
     quietHours: { enabled: true, start: '21:00', end: '09:00' },
     rules: [],
@@ -2582,6 +2584,7 @@ export function SettingsModal({
           setCommunicationsForm({
             emailEnabled: data.communications.email?.enabled !== false,
             smsEnabled: data.communications.sms?.enabled === true,
+            smsBookingDefault: data.communications.sms?.bookingDefault ?? 'default_on',
             killSwitch: data.communications.killSwitch === true,
             quietHours: {
               enabled: data.communications.quietHours?.enabled !== false,
@@ -3616,7 +3619,7 @@ export function SettingsModal({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           communications: {
-            sms: { enabled: communicationsForm.smsEnabled },
+            sms: { enabled: communicationsForm.smsEnabled, bookingDefault: communicationsForm.smsBookingDefault },
             killSwitch: communicationsForm.killSwitch,
             email: { enabled: communicationsForm.emailEnabled },
             quietHours: communicationsForm.quietHours,
@@ -3638,6 +3641,7 @@ export function SettingsModal({
         setCommunicationsForm({
           emailEnabled: data.communications.email?.enabled !== false,
           smsEnabled: data.communications.sms?.enabled === true,
+          smsBookingDefault: data.communications.sms?.bookingDefault ?? 'default_on',
           killSwitch: data.communications.killSwitch === true,
           quietHours: {
             enabled: data.communications.quietHours?.enabled !== false,
@@ -5110,6 +5114,24 @@ export function SettingsModal({
                     }}
                   />
                 </label>
+                <label className="block space-y-2 text-[15px] text-[var(--owner-ink)]">
+                  <span>SMS reminders during online booking</span>
+                  <select
+                    value={communicationsForm.smsBookingDefault}
+                    onChange={(event) => {
+                      setCommunicationsForm(current => ({ ...current, smsBookingDefault: event.target.value as 'default_on' | 'default_off' | 'disabled' }));
+                      setCommunicationsDirty(true);
+                    }}
+                    className="min-h-11 w-full rounded-lg border border-[var(--owner-line)] bg-[var(--owner-ground)] px-3"
+                  >
+                    <option value="default_on">Default ON</option>
+                    <option value="default_off">Default OFF</option>
+                    <option value="disabled">Disabled</option>
+                  </select>
+                </label>
+                <p className="text-[13px] leading-snug text-[var(--owner-muted,#706267)]">
+                  Sets the starting choice for new online bookings. Existing customer preferences and STOP requests are preserved. Promotional texts are separate.
+                </p>
                 <p className="text-[13px] leading-snug text-[var(--owner-muted,#706267)]">
                   Email confirmations and reminders are included with every plan.
                   SMS access is included with every plan and uses Luster SMS credits.

@@ -16,6 +16,7 @@ import { and, desc, eq, gte, inArray } from 'drizzle-orm';
 
 import { bookingEmailTaxLineLabel } from '@/libs/bookingEmailFinancialPresentation';
 import type { BookingEmailFinancialSummary } from '@/libs/bookingEmailFinancialSummary.server';
+import { isAppointmentSmsEligible } from '@/libs/bookingSmsConsent.server';
 import { db } from '@/libs/DB';
 import { Env } from '@/libs/Env';
 import { formatMoney } from '@/libs/formatMoney';
@@ -25,7 +26,7 @@ import { isSmsEnabled } from '@/libs/salonStatus';
 import { resolveByoSenderReadiness } from '@/libs/smsSender';
 import { formatDateInTimeZone, formatTimeInTimeZone } from '@/libs/timeZone';
 import { buildStatusCallbackUrl, sendViaTwilio } from '@/libs/twilioMessagingSend';
-import { appointmentSchema, communicationConsentSchema, notificationDeliverySchema, salonTwilioConnectionSchema } from '@/models/Schema';
+import { appointmentSchema, notificationDeliverySchema, salonTwilioConnectionSchema } from '@/models/Schema';
 
 // =============================================================================
 // TYPES
@@ -262,7 +263,7 @@ export async function sendSmartAppointmentReminder(
     };
   }
 
-  if (!await hasTransactionalSmsConsent(salonId, normalizedPhone)) {
+  if (!await isAppointmentSmsEligible({ salonId, phone: normalizedPhone, appointmentId: params.appointmentId })) {
     return {
       outcome: 'manual',
       phone: normalizedPhone,
@@ -433,22 +434,6 @@ export async function sendSmartAppointmentReminder(
   }
 }
 
-async function hasTransactionalSmsConsent(salonId: string, phone: string): Promise<boolean> {
-  const normalized = phone.replace(/\D/g, '').replace(/^1(?=\d{10}$)/, '');
-  const [consent] = await db
-    .select({ status: communicationConsentSchema.status })
-    .from(communicationConsentSchema)
-    .where(and(
-      eq(communicationConsentSchema.salonId, salonId),
-      eq(communicationConsentSchema.recipient, normalized),
-      eq(communicationConsentSchema.channel, 'sms'),
-      eq(communicationConsentSchema.purpose, 'appointment_transactional'),
-    ))
-    .orderBy(desc(communicationConsentSchema.createdAt))
-    .limit(1);
-  return consent?.status === 'granted';
-}
-
 function normalizeSmsRecipient(phone: string): string | null {
   const digits = phone.replace(/\D/g, '').replace(/^1(?=\d{10}$)/, '');
   return digits.length === 10 ? digits : null;
@@ -576,7 +561,7 @@ export async function sendBookingConfirmationToClient(
 
   const appointmentRange = formatAppointmentRange(startTime, 0, timeZone).replace(/-.+$/, '');
 
-  if (!await hasTransactionalSmsConsent(salonId, phone)) {
+  if (!await isAppointmentSmsEligible({ salonId, phone, appointmentId: params.appointmentId })) {
     console.warn('[SMS CONSENT MISSING] Booking confirmation skipped:', salonId);
     return;
   }
@@ -809,7 +794,7 @@ export async function sendAppointmentReminder(
     console.warn('[SMS DISABLED] SMS reminders not enabled for salon:', salonId);
     return false;
   }
-  if (!await hasTransactionalSmsConsent(salonId, params.phone)) {
+  if (!await isAppointmentSmsEligible({ salonId, phone: params.phone, appointmentId: params.appointmentId })) {
     console.warn('[SMS CONSENT MISSING] Appointment reminder skipped:', salonId);
     return false;
   }
@@ -841,7 +826,7 @@ export async function sendCancellationConfirmation(
     console.warn('[SMS DISABLED] SMS reminders not enabled for salon:', salonId);
     return;
   }
-  if (!await hasTransactionalSmsConsent(salonId, params.phone)) {
+  if (!await isAppointmentSmsEligible({ salonId, phone: params.phone, appointmentId: params.appointmentId })) {
     return;
   }
 
@@ -879,7 +864,7 @@ export async function sendRescheduleConfirmation(
     console.warn('[SMS DISABLED] SMS reminders not enabled for salon:', salonId);
     return;
   }
-  if (!await hasTransactionalSmsConsent(salonId, params.phone)) {
+  if (!await isAppointmentSmsEligible({ salonId, phone: params.phone, appointmentId: params.appointmentId })) {
     return;
   }
 

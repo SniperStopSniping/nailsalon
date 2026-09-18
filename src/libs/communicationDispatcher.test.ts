@@ -305,6 +305,37 @@ describe('dispatcher — dark by default, live only behind every switch', () => 
     expect(Number((entries.rows[0] as Record<string, unknown>).n)).toBe(0);
   });
 
+  it('durably suppresses a shared recipient when Twilio rejects it as opted out', async () => {
+    const { salonId, recipient } = await seedSalonWithConsent();
+    await grantCredits(salonId, 10);
+    await enableControl(true);
+    await enqueueSmsIntent(salonId, recipient, { dedupeKey: `sms:provider-opt-out:${salonId}` });
+    const intent = await claimOne(salonId);
+    const { dispatchClaimedIntent } = await import('./communicationDispatcher');
+
+    expect(await dispatchClaimedIntent(intent, vi.fn(async () => {
+      throw Object.assign(new Error('Recipient opted out'), { code: 21610 });
+    }), NOW)).toBe('failed');
+
+    const suppression = await db.execute(sql`
+      SELECT state, source, opt_out_type FROM sms_global_consent_event WHERE recipient = ${recipient}
+    `);
+    const delivery = await db.execute(sql`
+      SELECT error_code, retryable FROM notification_delivery WHERE intent_id = ${intent.id}
+    `);
+    const storedIntent = await db.execute(sql`
+      SELECT last_error FROM communication_intent WHERE id = ${intent.id}
+    `);
+
+    expect(suppression.rows[0]).toMatchObject({
+      state: 'suppressed',
+      source: 'twilio_advanced_opt_out',
+      opt_out_type: 'STOP',
+    });
+    expect(delivery.rows[0]).toMatchObject({ error_code: '21610', retryable: false });
+    expect(storedIntent.rows[0]).toMatchObject({ last_error: 'PROVIDER_OPT_OUT' });
+  });
+
   it('rate-limit unavailability defers closed (never sends unenforced)', async () => {
     const { salonId, recipient } = await seedSalonWithConsent();
     await grantCredits(salonId, 10);
@@ -657,5 +688,32 @@ describe('fresh reminder settings and actionable suppression', () => {
     const result = await db.execute(sql`SELECT last_error FROM communication_intent WHERE id = ${intent.id}`);
 
     expect(result.rows[0]).toMatchObject({ last_error: 'CONSENT_REQUIRED' });
+  });
+});
+
+describe('public booking reminder preference dispatch', () => {
+  it.each([['granted', 'sent'], ['revoked', 'suppressed']] as const)('honors a reminder-only %s after a historical grant', async (status, outcome) => {
+    const { salonId, recipient } = await seedSalonWithConsent();
+    const appointmentId = `booking-${salonId}`;
+    await db.insert(schema.appointmentSchema).values({ id: appointmentId, salonId, clientName: 'Guest', clientPhone: recipient, status: 'confirmed', startTime: new Date(NOW.getTime() + 3600000), endTime: new Date(NOW.getTime() + 7200000), totalPrice: 5000, totalDurationMinutes: 60 });
+    await db.insert(schema.communicationConsentSchema).values({ id: `reminder-${salonId}`, salonId, recipient, channel: 'sms', purpose: 'appointment_reminders', status, wordingVersion: 'booking-sms-reminders-v1', source: 'public_booking', metadata: { appointmentId, selection: status === 'granted' ? 'default_on' : 'explicit_off' } });
+    await grantCredits(salonId, 10);
+    await enableControl(true);
+    await enqueueSmsIntent(salonId, recipient, { appointmentId });
+    const intent = await claimOne(salonId);
+    const provider = vi.fn().mockResolvedValue({ sid: `SM_${salonId}` });
+    const { dispatchClaimedIntent } = await import('./communicationDispatcher');
+
+    expect(await dispatchClaimedIntent(intent, provider, NOW)).toBe(outcome);
+
+    if (status === 'granted') {
+      expect(provider).toHaveBeenCalledOnce();
+    } else {
+      expect(provider).not.toHaveBeenCalled();
+
+      const [stored] = await db.select().from(schema.communicationIntentSchema).where(eq(schema.communicationIntentSchema.id, intent.id));
+
+      expect(stored?.lastError).toBe('CUSTOMER_DISABLED');
+    }
   });
 });

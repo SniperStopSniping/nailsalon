@@ -20,9 +20,10 @@ export function normalizeConsentRecipient(raw: string): string {
 export async function hasGlobalSuppression(
   senderIdentity: string,
   recipient: string,
+  database: Pick<typeof db, 'select'> = db,
 ): Promise<boolean> {
   const normalized = normalizeConsentRecipient(recipient);
-  const rows = await db
+  const rows = await database
     .select({ state: smsGlobalConsentEventSchema.state })
     .from(smsGlobalConsentEventSchema)
     .where(and(

@@ -53,6 +53,16 @@ function input(overrides: Record<string, unknown> = {}) {
 }
 
 describe('durable manual client texting', () => {
+  it('reads reminder preferences only for the resolved salon client', async () => {
+    const { getClientSmsPreference } = await import('./clientMessaging');
+    await db.insert(schema.communicationConsentSchema).values({ id: 'owner-reminder-off', salonId: 'sms-salon', recipient: '4165550100', purpose: 'appointment_reminders', channel: 'sms', status: 'revoked', source: 'public_booking', wordingVersion: 'booking-sms-reminders-v1', metadata: { selection: 'explicit_off' } });
+
+    expect(await getClientSmsPreference({ salonId: 'sms-salon', clientId: 'sms-client' })).toMatchObject({ state: 'customer_disabled', selection: 'explicit_off' });
+    await expect(getClientSmsPreference({ salonId: 'sms-salon', clientId: 'other-client' })).rejects.toMatchObject({ code: 'CLIENT_NOT_FOUND' });
+
+    await db.delete(schema.communicationConsentSchema).where(eq(schema.communicationConsentSchema.id, 'owner-reminder-off'));
+  });
+
   it('dispatches a queued manual text through the shared sender with consent and credits', async () => {
     const { queueClientSms } = await import('./clientMessaging');
     const { dispatchClaimedIntent } = await import('./communicationDispatcher');

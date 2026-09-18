@@ -139,6 +139,176 @@ describe('Twilio delivery status callback (hardened)', () => {
     expect(row.rows[0]).toMatchObject({ status: 'undelivered', error_code: '30008', retryable: true });
   });
 
+  it('records a shared-provider 21610 as durable suppression, but leaves 30007 as delivery-only evidence', async () => {
+    const { LUSTER_DEFAULT_SENDER_IDENTITY } = await import('@/libs/smsSender');
+    const now = new Date('2026-09-17T12:00:00.000Z');
+    await db.insert(schema.communicationIntentSchema).values([
+      {
+        id: 'ci_callback_opt_out',
+        salonId: 'st1',
+        channel: 'sms',
+        eventType: 'booking_confirmation',
+        audience: 'client',
+        dedupeKey: 'callback-opt-out',
+        recipient: '4165553010',
+        templateKey: 'test',
+        templateVersion: 'v1',
+        schedulingRevision: 'v1',
+        scheduledFor: now,
+        notAfter: new Date(now.getTime() + 60 * 60 * 1000),
+      },
+      {
+        id: 'ci_callback_blocked',
+        salonId: 'st1',
+        channel: 'sms',
+        eventType: 'booking_confirmation',
+        audience: 'client',
+        dedupeKey: 'callback-blocked',
+        recipient: '4165553011',
+        templateKey: 'test',
+        templateVersion: 'v1',
+        schedulingRevision: 'v1',
+        scheduledFor: now,
+        notAfter: new Date(now.getTime() + 60 * 60 * 1000),
+      },
+    ]);
+    await db.insert(schema.notificationDeliverySchema).values([
+      {
+        id: 'nd_callback_opt_out',
+        salonId: 'st1',
+        channel: 'sms',
+        purpose: 'test',
+        dedupeKey: 'callback-opt-out-delivery',
+        intentId: 'ci_callback_opt_out',
+        senderIdentity: LUSTER_DEFAULT_SENDER_IDENTITY,
+        status: 'accepted',
+        statusRank: 20,
+      },
+      {
+        id: 'nd_callback_blocked',
+        salonId: 'st1',
+        channel: 'sms',
+        purpose: 'test',
+        dedupeKey: 'callback-blocked-delivery',
+        intentId: 'ci_callback_blocked',
+        senderIdentity: LUSTER_DEFAULT_SENDER_IDENTITY,
+        status: 'accepted',
+        statusRank: 20,
+      },
+    ]);
+    const { POST } = await import('./route');
+
+    expect((await POST(callbackRequest('nd_callback_opt_out', 'undelivered', {
+      To: '+14165553010',
+      ErrorCode: '21610',
+    }))).status).toBe(204);
+    expect((await POST(callbackRequest('nd_callback_blocked', 'undelivered', {
+      To: '+14165553011',
+      ErrorCode: '30007',
+    }))).status).toBe(204);
+
+    const suppressions = await db.execute(sql`
+      SELECT recipient, state, source FROM sms_global_consent_event
+      WHERE recipient IN ('4165553010', '4165553011') ORDER BY recipient
+    `);
+
+    expect(suppressions.rows).toEqual([
+      expect.objectContaining({
+        recipient: '4165553010',
+        state: 'suppressed',
+        source: 'twilio_advanced_opt_out',
+      }),
+    ]);
+  });
+
+  it('records a signed BYO 21610 as a tenant-scoped provider opt-out exactly once', async () => {
+    const now = new Date('2026-09-17T12:00:00.000Z');
+    await db.insert(schema.communicationIntentSchema).values({
+      id: 'ci_callback_byo_opt_out',
+      salonId: 'st1',
+      channel: 'sms',
+      eventType: 'booking_confirmation',
+      audience: 'client',
+      dedupeKey: 'callback-byo-opt-out',
+      recipient: '4165553012',
+      templateKey: 'test',
+      templateVersion: 'v1',
+      schedulingRevision: 'v1',
+      scheduledFor: now,
+      notAfter: new Date(now.getTime() + 60 * 60 * 1000),
+    });
+    await db.insert(schema.notificationDeliverySchema).values({
+      id: 'nd_callback_byo_opt_out',
+      salonId: 'st1',
+      channel: 'sms',
+      purpose: 'test',
+      dedupeKey: 'callback-byo-opt-out-delivery',
+      intentId: 'ci_callback_byo_opt_out',
+      senderIdentity: 'byo:AC00000000000000000000000000000000',
+      status: 'accepted',
+      statusRank: 20,
+    });
+    const { POST } = await import('./route');
+    const callback = () => callbackRequest('nd_callback_byo_opt_out', 'undelivered', {
+      To: '+14165553012',
+      ErrorCode: '21610',
+    });
+
+    expect((await POST(callback())).status).toBe(204);
+    expect((await POST(callback())).status).toBe(204);
+
+    const records = await db.execute(sql`
+      SELECT salon_id, recipient, status, source, metadata
+      FROM communication_consent
+      WHERE id = 'twilio:provider-21610:nd_callback_byo_opt_out:SM_cb_1'
+    `);
+
+    expect(records.rows).toEqual([
+      expect.objectContaining({
+        salon_id: 'st1',
+        recipient: '4165553012',
+        status: 'revoked',
+        source: 'twilio_inbound',
+        metadata: expect.objectContaining({ providerErrorCode: '21610' }),
+      }),
+    ]);
+  });
+
+  it('records a signed legacy BYO 21610 when its stored provider SID binds the callback recipient', async () => {
+    await db.insert(schema.notificationDeliverySchema).values({
+      id: 'nd_callback_legacy_byo_opt_out',
+      salonId: 'st1',
+      channel: 'sms',
+      purpose: 'appointment_reminder',
+      dedupeKey: 'callback-legacy-byo-opt-out-delivery',
+      providerMessageId: 'SM_cb_1',
+      senderIdentity: 'byo:AC00000000000000000000000000000000',
+      status: 'sent',
+    });
+    const { POST } = await import('./route');
+
+    expect((await POST(callbackRequest('nd_callback_legacy_byo_opt_out', 'undelivered', {
+      To: '+14165553013',
+      ErrorCode: '21610',
+    }))).status).toBe(204);
+
+    const records = await db.execute(sql`
+      SELECT salon_id, recipient, status, source, metadata
+      FROM communication_consent
+      WHERE id = 'twilio:provider-21610:nd_callback_legacy_byo_opt_out:SM_cb_1'
+    `);
+
+    expect(records.rows).toEqual([
+      expect.objectContaining({
+        salon_id: 'st1',
+        recipient: '4165553013',
+        status: 'revoked',
+        source: 'twilio_inbound',
+        metadata: expect.objectContaining({ providerErrorCode: '21610' }),
+      }),
+    ]);
+  });
+
   it('pipeline rows: duplicate terminal callbacks refund exactly once and enqueue one reconciliation', async () => {
     const { appendLotGrant, lockCreditAccount } = await import('@/libs/billing/creditLedger');
     const { reserveSmsCredits, settleReservationOnAccept } = await import('@/libs/billing/creditReservation');

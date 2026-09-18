@@ -5,6 +5,7 @@ const {
   create,
   db,
   isSmsEnabled,
+  eligible,
   queueInsertResults,
   queueSelectResults,
   twilio,
@@ -34,6 +35,7 @@ const {
       update: vi.fn(() => ({ set: updateSet })),
     },
     isSmsEnabled: vi.fn(),
+    eligible: vi.fn(),
     queueInsertResults: (...rows: unknown[][]) => {
       insertResults.splice(0, insertResults.length, ...rows);
     },
@@ -46,6 +48,7 @@ const {
 });
 
 vi.mock('server-only', () => ({}));
+vi.mock('@/libs/bookingSmsConsent.server', () => ({ isAppointmentSmsEligible: eligible }));
 vi.mock('@/libs/DB', () => ({ db }));
 vi.mock('@/libs/salonStatus', () => ({ isSmsEnabled }));
 vi.mock('@/libs/Env', () => ({
@@ -86,6 +89,7 @@ describe('sendSmartAppointmentReminder', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     isSmsEnabled.mockResolvedValue(true);
+    eligible.mockResolvedValue(true);
     create.mockResolvedValue({ sid: 'SM_reminder', status: 'accepted' });
     twilio.mockReturnValue({ messages: { create } });
     queueSelectResults();
@@ -94,7 +98,7 @@ describe('sendSmartAppointmentReminder', () => {
   });
 
   it.each([false, true])('returns an unsent draft for a retired active connection even with force=%s', async (force) => {
-    queueSelectResults([{ status: 'granted' }], [activeConnection]);
+    queueSelectResults([activeConnection]);
     const result = await sendSmartAppointmentReminder('salon_1', { ...params, force });
 
     expect(result).toMatchObject({ outcome: 'manual', reason: 'TWILIO_UNAVAILABLE', body: expect.stringContaining('BIAB Fill') });
@@ -105,7 +109,7 @@ describe('sendSmartAppointmentReminder', () => {
   });
 
   it('returns a draft when consent is unavailable without contacting any provider', async () => {
-    queueSelectResults([]);
+    eligible.mockResolvedValue(false);
 
     expect(await sendSmartAppointmentReminder('salon_1', params)).toMatchObject({ outcome: 'manual', reason: 'SMS_CONSENT_REQUIRED' });
     expect(twilio).not.toHaveBeenCalled();
@@ -113,7 +117,7 @@ describe('sendSmartAppointmentReminder', () => {
   });
 
   it('never falls back to the platform number when there is no connection', async () => {
-    queueSelectResults([{ status: 'granted' }], []);
+    queueSelectResults([]);
 
     expect(await sendSmartAppointmentReminder('salon_1', params)).toMatchObject({ outcome: 'manual', reason: 'TWILIO_UNAVAILABLE' });
     expect(twilio).not.toHaveBeenCalled();

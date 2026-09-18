@@ -994,6 +994,16 @@ test.describe('compact booking agreement and receipt', () => {
       await page.getByLabel('Customer email').fill('layout@example.invalid');
       await page.getByLabel('Customer phone').fill('4165550199');
 
+      // Public reminder preference remains visible on a compact phone even
+      // when a local fixture has no live SMS sender. Delivery stays server-
+      // gated, while this selection records the customer’s choice.
+      const textReminders = page.getByRole('checkbox', { name: 'Text reminders' });
+
+      await expect(textReminders).toBeChecked();
+      await expect.poll(() => textReminders.locator('..').evaluate(element => element.getBoundingClientRect().height)).toBeGreaterThanOrEqual(44);
+
+      await textReminders.uncheck();
+
       const agreement = page.getByTestId('booking-policy-before-confirmation');
       const checkbox = agreement.getByRole('checkbox');
       const confirm = page.getByRole('button', { name: /confirm appointment/i });
@@ -1021,6 +1031,11 @@ test.describe('compact booking agreement and receipt', () => {
       expect(submitted?.bookingPolicyAcknowledgment).toMatchObject({
         accepted: true,
         version: expect.stringMatching(/^policy-v1:/),
+      });
+      expect(submitted?.smsConsent).toEqual({
+        granted: false,
+        wordingVersion: 'booking-sms-reminders-v1',
+        selection: 'explicit_off',
       });
 
       const manage = page.getByRole('link', { name: 'Manage this appointment' });

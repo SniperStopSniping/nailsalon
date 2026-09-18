@@ -246,8 +246,11 @@
   },
   "BookingConfirmation": {
     "contact_description": "Votre confirmation et votre lien privé de réservation seront envoyés par courriel.",
-    "sms_label": "Recevoir les mises à jour par texto (facultatif)",
-    "sms_details": "De {salon}. La fréquence varie. Des frais de messagerie ou de données peuvent s’appliquer. Répondez STOP pour vous désabonner ou HELP pour obtenir de l’aide.",
+    "sms_label": "M’envoyer les confirmations et rappels de rendez-vous par texto",
+    "sms_details": "Vous pouvez désactiver cette option maintenant ou répondre STOP en tout temps.",
+    "sms_saved": "Votre préférence pour les rappels de rendez-vous par texto est enregistrée.",
+    "sms_off": "Les rappels par texto sont désactivés pour cette réservation.",
+    "sms_opted_out": "Ce numéro est désabonné des textos de rendez-vous. Aucun texto de rendez-vous ne sera envoyé.",
     "terms": "Conditions",
     "privacy": "Confidentialité",
     "offers_title": "Vos offres",

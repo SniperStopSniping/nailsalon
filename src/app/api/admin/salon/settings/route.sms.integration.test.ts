@@ -103,6 +103,20 @@ async function patch(body: unknown, id = SALON, snapshot?: Awaited<ReturnType<ty
 }
 
 describe('explicit canonical SMS preference reconciles the legacy module', () => {
+  it('changes the booking default without rewriting historical preferences or another salon', async () => {
+    const id = 'booking-default-historical-consent';
+    await database.insert(schema.communicationConsentSchema).values({ id, salonId: SALON, recipient: '4165550198', channel: 'sms', purpose: 'appointment_transactional', status: 'revoked', source: 'twilio_inbound', wordingVersion: 'stop' });
+    const before = await database.select().from(schema.communicationConsentSchema).where(eq(schema.communicationConsentSchema.id, id));
+    const other = await salonSnapshot(OTHER);
+    for (const bookingDefault of ['default_on', 'default_off', 'disabled']) {
+      expect((await patch({ communications: { sms: { bookingDefault } } })).status).toBe(200);
+      expect((await salonSnapshot()).settings?.communications?.sms).toMatchObject({ enabled: false, bookingDefault });
+      expect(await database.select().from(schema.communicationConsentSchema).where(eq(schema.communicationConsentSchema.id, id))).toEqual(before);
+      expect((await salonSnapshot(OTHER)).settings).toEqual(other.settings);
+    }
+    await database.delete(schema.communicationConsentSchema).where(eq(schema.communicationConsentSchema.id, id));
+  });
+
   it.each([true, false])('saves SMS=%s atomically without changing notification choices or activating delivery', async (enabled) => {
     await database.update(schema.salonSchema).set({ settings: sql`jsonb_set(jsonb_set(${schema.salonSchema.settings}, '{modules,smsReminders}', ${JSON.stringify(!enabled)}::jsonb), '{communications,sms,enabled}', ${JSON.stringify(!enabled)}::jsonb)` })
       .where(eq(schema.salonSchema.id, SALON));

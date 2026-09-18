@@ -369,30 +369,94 @@ describe('BookConfirmClient', () => {
     expect(screen.getByRole('link', { name: /manage this appointment/i })).toBeInTheDocument();
   });
 
-  it.each([true, false])('acknowledges the customer SMS choice without promising a reminder (consent=%s)', async (consent) => {
+  it('submits the checked default without mislabeling it as an explicit opt-in', async () => {
     fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({
       data: { appointment: { id: 'appt_confirmed', status: 'confirmed' } },
     }), { status: 201 }));
-    renderBasicConfirm({ smsEnabled: true });
-    if (consent) {
-      fireEvent.click(screen.getByRole('checkbox', { name: 'SMS consent' }));
-    }
+    renderBasicConfirm();
+
+    expect(screen.getByRole('checkbox', { name: 'Text reminders' })).toBeChecked();
+
     fireEvent.click(screen.getByRole('button', { name: /confirm appointment/i }));
 
     expect(await screen.findByRole('heading', { name: 'Appointment confirmed' })).toBeInTheDocument();
-
-    const acknowledgement = screen.queryByText('You\'ve agreed to receive appointment updates by text.');
-
-    if (consent) {
-      expect(acknowledgement).toBeInTheDocument();
-    } else {
-      expect(acknowledgement).not.toBeInTheDocument();
-    }
-
-    expect(screen.queryByText(/We’ll text you before your visit|We'll text you before your visit/)).not.toBeInTheDocument();
     expect(JSON.parse(fetchMock.mock.calls[0]?.[1]?.body)).toMatchObject({
-      smsConsent: { granted: consent, wordingVersion: 'booking-v2' },
+      smsConsent: {
+        granted: true,
+        wordingVersion: 'booking-sms-reminders-v1',
+        selection: 'default_on',
+      },
     });
+  });
+
+  it('records an unchecked reminder control as an explicit customer choice', async () => {
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({
+      data: { appointment: { id: 'appt_confirmed', status: 'confirmed' } },
+    }), { status: 201 }));
+    renderBasicConfirm();
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Text reminders' }));
+    fireEvent.click(screen.getByRole('button', { name: /confirm appointment/i }));
+
+    await screen.findByRole('heading', { name: 'Appointment confirmed' });
+
+    expect(JSON.parse(fetchMock.mock.calls[0]?.[1]?.body)).toMatchObject({
+      smsConsent: {
+        granted: false,
+        wordingVersion: 'booking-sms-reminders-v1',
+        selection: 'explicit_off',
+      },
+    });
+  });
+
+  it('starts unchecked for a default-off salon and captures an explicit enable', async () => {
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({
+      data: { appointment: { id: 'appt_confirmed', status: 'confirmed' } },
+    }), { status: 201 }));
+    renderBasicConfirm({ smsBookingDefault: 'default_off' });
+    const reminders = screen.getByRole('checkbox', { name: 'Text reminders' });
+
+    expect(reminders).not.toBeChecked();
+
+    fireEvent.click(reminders);
+    fireEvent.click(screen.getByRole('button', { name: /confirm appointment/i }));
+
+    await screen.findByRole('heading', { name: 'Appointment confirmed' });
+
+    expect(JSON.parse(fetchMock.mock.calls[0]?.[1]?.body)).toMatchObject({
+      smsConsent: { granted: true, selection: 'explicit_on' },
+    });
+  });
+
+  it('does not render or submit the SMS control when online booking reminders are disabled', async () => {
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({
+      data: { appointment: { id: 'appt_confirmed', status: 'confirmed' } },
+    }), { status: 201 }));
+    renderBasicConfirm({ smsBookingDefault: 'disabled' });
+
+    expect(screen.queryByRole('checkbox', { name: 'Text reminders' })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /confirm appointment/i }));
+
+    await screen.findByRole('heading', { name: 'Appointment confirmed' });
+
+    expect(JSON.parse(fetchMock.mock.calls[0]?.[1]?.body).smsConsent).toBeUndefined();
+  });
+
+  it('shows a post-submit STOP state without exposing it before the booking is created', async () => {
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({
+      data: {
+        appointment: { id: 'appt_confirmed', status: 'confirmed' },
+        smsReminderStatus: 'opted_out',
+      },
+    }), { status: 201 }));
+    renderBasicConfirm();
+
+    expect(screen.queryByText(/has opted out of appointment texts/i)).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /confirm appointment/i }));
+
+    expect(await screen.findByText(/has opted out of appointment texts/i)).toBeInTheDocument();
+    expect(screen.queryByText(/will be sent by text/i)).not.toBeInTheDocument();
   });
 
   it('renders an approval request as pending without confirmed/checkmark celebration semantics', async () => {
@@ -413,10 +477,9 @@ describe('BookConfirmClient', () => {
     }), { status: 201 }));
 
     const { container } = renderBasicConfirm({
-      smsEnabled: true,
       clientChangeCutoffHours: 48,
     });
-    fireEvent.click(screen.getByRole('checkbox', { name: 'SMS consent' }));
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Text reminders' }));
     fireEvent.click(screen.getByRole('button', { name: /confirm appointment/i }));
 
     expect(await screen.findByRole('heading', { name: 'Request received' })).toBeInTheDocument();

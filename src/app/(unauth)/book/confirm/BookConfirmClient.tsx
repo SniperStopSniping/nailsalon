@@ -93,6 +93,10 @@ export type LocationSummary = {
   zipCode: string | null;
 } | null;
 
+type SmsBookingDefault = 'default_on' | 'default_off' | 'disabled';
+type SmsConsentSelection = Exclude<SmsBookingDefault, 'disabled'> | 'explicit_on' | 'explicit_off';
+const SMS_CONSENT_WORDING_VERSION = 'booking-sms-reminders-v1';
+
 type BookConfirmClientProps = {
   services: ServiceSummary[];
   addOns?: AddOnSummary[];
@@ -135,8 +139,8 @@ type BookConfirmClientProps = {
   location: LocationSummary;
   /** Whether the salon's rewards program is enabled — hides points messaging when false */
   rewardsEnabled?: boolean;
-  /** Whether SMS reminders are enabled — hides "we'll text you" copy when false */
-  smsEnabled?: boolean;
+  /** Per-salon default for the public booking reminder control. */
+  smsBookingDefault?: SmsBookingDefault;
   clientChangeCutoffHours?: number;
   /** Salon phone for the "Call the salon" escape hatch on the duplicate-booking screen */
   salonPhone?: string | null;
@@ -191,6 +195,7 @@ const BOOKING_CONFIRM_FALLBACK_MESSAGE
   = 'We couldn\'t confirm this appointment just now. Please try again.';
 
 type BookingResultStatus = 'confirmed' | 'pending';
+type SmsReminderStatus = 'enabled' | 'customer_disabled' | 'opted_out' | 'salon_disabled';
 
 class CustomerSafeBookingError extends Error {
   constructor(message: string) {
@@ -1078,7 +1083,7 @@ const ConfirmContent = ({
   guestEmail,
   guestPhone,
   smsConsent,
-  smsEnabled,
+  smsBookingDefault,
   bookingError,
   onGuestNameChange,
   onGuestEmailChange,
@@ -1121,7 +1126,7 @@ const ConfirmContent = ({
   guestEmail: string;
   guestPhone: string;
   smsConsent: boolean;
-  smsEnabled: boolean;
+  smsBookingDefault: SmsBookingDefault;
   bookingError?: string | null;
   onGuestNameChange: (value: string) => void;
   onGuestEmailChange: (value: string) => void;
@@ -1377,10 +1382,10 @@ const ConfirmContent = ({
               </span>
               <input aria-label="Customer phone" required aria-required="true" type="tel" inputMode="tel" autoComplete="tel" disabled={isSubmitting} value={guestPhone} onChange={event => onGuestPhoneChange(event.target.value)} className="mt-1 w-full rounded-xl border border-[var(--n5-border)] bg-[var(--n5-bg-page)] p-3 text-sm text-[var(--n5-ink-main)] outline-none focus:border-[var(--n5-accent)] disabled:cursor-not-allowed disabled:opacity-60" />
             </label>
-            {smsEnabled && (
+            {smsBookingDefault !== 'disabled' && (
               <div className="space-y-1 text-xs leading-4 text-[var(--n5-ink-muted)]">
                 <label className="flex min-h-11 cursor-pointer items-center gap-2 text-[var(--n5-ink-main)]">
-                  <input aria-label="SMS consent" aria-describedby="booking-sms-details" type="checkbox" disabled={isSubmitting} checked={smsConsent} onChange={event => onSmsConsentChange(event.target.checked)} className="size-4 shrink-0 accent-[var(--n5-accent)] disabled:cursor-not-allowed" />
+                  <input aria-label="Text reminders" aria-describedby="booking-sms-details" type="checkbox" disabled={isSubmitting} checked={smsConsent} onChange={event => onSmsConsentChange(event.target.checked)} className="size-4 shrink-0 accent-[var(--n5-accent)] disabled:cursor-not-allowed" />
                   <span>{t('sms_label')}</span>
                 </label>
                 <p id="booking-sms-details">{t('sms_details', { salon: salonName })}</p>
@@ -1677,8 +1682,8 @@ const SuccessContent = ({
   onGoHome,
   location,
   rewardsEnabled,
-  smsEnabled,
   smsConsentGranted,
+  smsReminderStatus,
   manageUrl,
   findBookingUrl,
   canonicalStartTime,
@@ -1701,8 +1706,8 @@ const SuccessContent = ({
   onGoHome: () => void;
   location: LocationSummary;
   rewardsEnabled: boolean;
-  smsEnabled: boolean;
   smsConsentGranted: boolean;
+  smsReminderStatus: SmsReminderStatus | null;
   manageUrl: string | null;
   findBookingUrl: string;
   canonicalStartTime: string | null;
@@ -1710,6 +1715,7 @@ const SuccessContent = ({
   confirmationMessage: string | null;
   policy: ConfirmationPolicy;
 }) => {
+  const t = useTranslations('BookingConfirmation');
   const isPending = bookingStatus === 'pending';
   const directionsUrl = buildGoogleMapsDirectionsUrl(location);
   const calendarStart = canonicalStartTime ? new Date(canonicalStartTime) : null;
@@ -1924,13 +1930,25 @@ const SuccessContent = ({
             </span>
             {!isPending && <Sparkles className="size-4 text-[var(--n5-accent)]" />}
           </div>
+          <>
+            {smsReminderStatus === 'enabled' && smsConsentGranted && (
+              <p className="font-body text-xs text-[var(--n5-ink-muted)]">
+                {t('sms_saved')}
+              </p>
+            )}
+            {smsReminderStatus === 'customer_disabled' && (
+              <p className="font-body text-xs text-[var(--n5-ink-muted)]">
+                {t('sms_off')}
+              </p>
+            )}
+            {smsReminderStatus === 'opted_out' && (
+              <p className="font-body text-xs text-[var(--n5-ink-muted)]">
+                {t('sms_opted_out')}
+              </p>
+            )}
+          </>
           {!isPending && (
             <>
-              {smsEnabled && smsConsentGranted && (
-                <p className="font-body text-xs text-[var(--n5-ink-muted)]">
-                  You&apos;ve agreed to receive appointment updates by text.
-                </p>
-              )}
               <p className="font-body mt-0.5 text-xs text-[var(--n5-ink-muted)]">
                 You can change or cancel up to
                 {' '}
@@ -1975,7 +1993,7 @@ export function BookConfirmClient({
   bookingFlow: _bookingFlow,
   location,
   rewardsEnabled = true,
-  smsEnabled = true,
+  smsBookingDefault = 'default_on',
   clientChangeCutoffHours = 24,
   salonPhone = null,
   depositDisclosure = null,
@@ -2054,6 +2072,7 @@ export function BookConfirmClient({
   const [bookingComplete, setBookingComplete] = useState(false);
   const [bookingResultStatus, setBookingResultStatus]
     = useState<BookingResultStatus>('confirmed');
+  const [smsReminderStatus, setSmsReminderStatus] = useState<SmsReminderStatus | null>(null);
   const [bookingError, setBookingError] = useState<string | null>(null);
   const [slotTaken, setSlotTaken] = useState(false);
   const [smartFitStale, setSmartFitStale] = useState<{
@@ -2082,7 +2101,18 @@ export function BookConfirmClient({
   const [guestName, setGuestName] = useState('');
   const [guestEmail, setGuestEmail] = useState('');
   const [guestPhone, setGuestPhone] = useState('');
-  const [smsConsent, setSmsConsent] = useState(false);
+  // The default describes the salon's pre-selected choice, not a customer
+  // action. Keep its provenance separate so a checked, untouched control is
+  // never recorded as an explicit opt-in.
+  const [smsConsent, setSmsConsent] = useState(() => smsBookingDefault === 'default_on');
+  const [smsConsentSelection, setSmsConsentSelection] = useState<SmsConsentSelection>(() => (
+    smsBookingDefault === 'default_off' ? 'default_off' : 'default_on'
+  ));
+
+  const handleSmsConsentChange = useCallback((granted: boolean) => {
+    setSmsConsent(granted);
+    setSmsConsentSelection(granted ? 'explicit_on' : 'explicit_off');
+  }, []);
 
   // Contact details survive navigation and recoverable errors within this tab,
   // so a failed attempt or a trip back to the time step never re-asks for them.
@@ -2253,8 +2283,8 @@ export function BookConfirmClient({
     bookingSubject: 'guest',
     clientEmail: guestEmail.trim().toLowerCase(),
     clientPhone: guestPhone.replace(/\D/g, '').replace(/^1(?=\d{10}$)/, ''),
-    smsConsent: smsEnabled
-      ? { granted: smsConsent, wordingVersion: 'booking-v2' }
+    smsConsent: smsBookingDefault !== 'disabled'
+      ? { granted: smsConsent, wordingVersion: SMS_CONSENT_WORDING_VERSION, selection: smsConsentSelection }
       : null,
     canonicalStartTime,
     appointmentDate: dateStr,
@@ -2363,7 +2393,13 @@ export function BookConfirmClient({
         bookingSubject: 'guest' as const,
         clientEmail: guestEmail.trim().toLowerCase(),
         clientPhone: guestPhone.replace(/\D/g, '').replace(/^1(?=\d{10}$)/, ''),
-        ...(smsEnabled && { smsConsent: { granted: smsConsent, wordingVersion: 'booking-v2' } }),
+        ...(smsBookingDefault !== 'disabled' && {
+          smsConsent: {
+            granted: smsConsent,
+            wordingVersion: SMS_CONSENT_WORDING_VERSION,
+            selection: smsConsentSelection,
+          },
+        }),
         startTime: startTime.toISOString(),
         appointmentDate: dateStr,
         appointmentTime: timeStr,
@@ -2637,6 +2673,15 @@ export function BookConfirmClient({
 
       const resultStatus: BookingResultStatus
         = data?.data?.appointment?.status === 'pending' ? 'pending' : 'confirmed';
+      const returnedSmsReminderStatus = data?.data?.smsReminderStatus;
+      setSmsReminderStatus(
+        returnedSmsReminderStatus === 'enabled'
+        || returnedSmsReminderStatus === 'customer_disabled'
+        || returnedSmsReminderStatus === 'opted_out'
+        || returnedSmsReminderStatus === 'salon_disabled'
+          ? returnedSmsReminderStatus
+          : null,
+      );
       setManageUrl(data.data.manageUrl || null);
       setBookingResultStatus(resultStatus);
       setBookingComplete(true);
@@ -2665,7 +2710,7 @@ export function BookConfirmClient({
     } finally {
       setIsBooking(false);
     }
-  }, [acknowledgmentRequired, baseServiceId, bookingTotals, campaignPromotionPreview, campaignToken, canonicalStartTime, currency, dateStr, displayedDeposit?.label, displayedPolicy, guestEmail, guestName, guestPhone, location, manageToken, originalAppointmentId, policyAcknowledged, salonSlug, selectedAddOns, services, navigateToCheckout, smartFitOffer, smsConsent, smsEnabled, submittedDepositFingerprint, taxConfigurationIdentity, techId, timeStr]);
+  }, [acknowledgmentRequired, baseServiceId, bookingTotals, campaignPromotionPreview, campaignToken, canonicalStartTime, currency, dateStr, displayedDeposit?.label, displayedPolicy, guestEmail, guestName, guestPhone, location, manageToken, originalAppointmentId, policyAcknowledged, salonSlug, selectedAddOns, services, navigateToCheckout, smartFitOffer, smsConsent, smsConsentSelection, smsBookingDefault, submittedDepositFingerprint, taxConfigurationIdentity, techId, timeStr]);
 
   const handleOpenDirections = useCallback(() => {
     openGoogleMapsDirections(location);
@@ -2763,8 +2808,8 @@ export function BookConfirmClient({
         }))}
         location={location}
         rewardsEnabled={rewardsEnabled}
-        smsEnabled={smsEnabled}
         smsConsentGranted={smsConsent}
+        smsReminderStatus={smsReminderStatus}
         manageUrl={manageUrl}
         findBookingUrl={appendSalonSlug('/find-booking', salonSlug, {
           routeSalonSlug,
@@ -2813,12 +2858,12 @@ export function BookConfirmClient({
       guestEmail={guestEmail}
       guestPhone={guestPhone}
       smsConsent={smsConsent}
-      smsEnabled={smsEnabled}
+      smsBookingDefault={smsBookingDefault}
       bookingError={bookingError}
       onGuestNameChange={setGuestName}
       onGuestEmailChange={setGuestEmail}
       onGuestPhoneChange={setGuestPhone}
-      onSmsConsentChange={setSmsConsent}
+      onSmsConsentChange={handleSmsConsentChange}
       smartFitOffer={smartFitOffer}
       totalPriceDisplay={totalPriceDisplay}
       smartFitSuggestion={smartFitSuggestion}

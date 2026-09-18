@@ -69,6 +69,11 @@ import {
   getPublicTechnicianCompatibility,
   validatePublicBookingSelection,
 } from '@/libs/bookingQuote';
+import {
+  resolveBookingSmsConsentDecision,
+  resolveBookingSmsMode,
+  shouldRecordBookingSmsConsent,
+} from '@/libs/bookingSmsConsent';
 import type { CatalogSelectionInput } from '@/libs/catalogDomain';
 import {
   type CatalogConflictPayload,
@@ -173,6 +178,8 @@ import {
   type ReschedulePricingInputs,
   resolveSmartFitRescheduleDiscount,
 } from '@/libs/smartFitReschedulePolicy';
+import { hasGlobalSuppression, normalizeConsentRecipient } from '@/libs/smsConsentShared';
+import { readSharedSenderEnvConfig } from '@/libs/smsSender';
 import { requireStaffSession } from '@/libs/staffAuth';
 import {
   type ReadinessDecision,
@@ -203,6 +210,7 @@ import {
   rewardSchema,
   salonClientSchema,
   salonSchema,
+  salonTwilioConnectionSchema,
   type Service,
   serviceSchema,
   type WeeklySchedule,
@@ -307,6 +315,7 @@ const createAppointmentSchema = z.object({
   smsConsent: z.object({
     granted: z.boolean(),
     wordingVersion: z.string().min(1).max(50),
+    selection: z.enum(['default_on', 'default_off', 'explicit_on', 'explicit_off']).optional(),
   }).optional(),
   startTime: z.string().datetime({ message: 'Invalid datetime format. Use ISO 8601.' }),
   appointmentDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'appointmentDate must be YYYY-MM-DD').optional(),
@@ -381,6 +390,8 @@ type AppointmentResponse = {
     name: string;
     slug: string;
   };
+  /** Safe post-submit state only; never exposed by a phone-number lookup. */
+  smsReminderStatus?: 'enabled' | 'customer_disabled' | 'opted_out' | 'salon_disabled';
 };
 
 /**
@@ -1017,6 +1028,22 @@ export async function POST(request: Request): Promise<Response> {
     }
 
     const data: CreateAppointmentRequest = parsed.data;
+    // The previous confirm screen was default-off. Only its known wording
+    // versions can prove that `granted: true` came from a deliberate check;
+    // an unversioned/new payload without provenance is never upgraded to an
+    // explicit opt-in.
+    const isKnownDefaultOffLegacy = data.smsConsent?.wordingVersion === 'booking-v1'
+      || data.smsConsent?.wordingVersion === 'booking-v2';
+    const normalizedSmsConsent = data.smsConsent
+      ? {
+          ...data.smsConsent,
+          selection: data.smsConsent.selection
+            ?? (data.smsConsent.granted && isKnownDefaultOffLegacy ? 'explicit_on' as const : 'default_off' as const),
+          ...(data.smsConsent.selection === undefined && !data.smsConsent.granted
+            ? { legacyDefaultOff: true }
+            : {}),
+        }
+      : undefined;
 
     // 1b. NORMALIZE ALL INPUTS ONCE - reuse everywhere (hash, DB, lookups)
     // This ensures consistency between idempotency hash and actual data stored
@@ -1123,6 +1150,19 @@ export async function POST(request: Request): Promise<Response> {
     }
 
     const bookingConfig = await getBookingConfigForSalon(salon.id);
+    const bookingSmsMode = resolveBookingSmsMode(salon.settings);
+    const bookingSmsConsentDecision = resolveBookingSmsConsentDecision(
+      bookingSmsMode,
+      normalizedSmsConsent,
+    );
+    if (normalizedSmsConsent && bookingSmsMode !== 'disabled' && !bookingSmsConsentDecision) {
+      return Response.json({
+        error: {
+          code: 'SMS_CONSENT_INVALID',
+          message: 'The text reminder selection did not match this salon’s booking settings.',
+        },
+      } satisfies ErrorResponse, { status: 400 });
+    }
     // Smart Fit (P7.2): resolves to the inert disabled default unless the
     // salon explicitly enabled `settings.smartFit` — every smart-fit branch
     // below is skipped when disabled, keeping the legacy path unchanged.
@@ -1314,10 +1354,11 @@ export async function POST(request: Request): Promise<Response> {
       clientPhone: normalizedPhone,
       clientName: normalizedClientName,
       clientEmail: normalizedClientEmail,
-      smsConsent: data.smsConsent
+      smsConsent: normalizedSmsConsent
         ? {
-            granted: data.smsConsent.granted,
-            wordingVersion: data.smsConsent.wordingVersion,
+            granted: normalizedSmsConsent.granted,
+            wordingVersion: normalizedSmsConsent.wordingVersion,
+            selection: normalizedSmsConsent.selection,
           }
         : null,
       startTime: canonicalStartTime,
@@ -2857,6 +2898,129 @@ export async function POST(request: Request): Promise<Response> {
 
     type BookingTx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
+    let effectiveSmsConsentGranted = false;
+    let smsReminderStatus: NonNullable<AppointmentResponse['smsReminderStatus']> = bookingSmsMode === 'disabled'
+      ? 'salon_disabled'
+      : 'customer_disabled';
+
+    const recordBookingSmsConsentInTx = async (tx: BookingTx, args: {
+      appointmentId: string;
+      recipient: string;
+    }): Promise<void> => {
+      if (bookingSmsMode === 'disabled') {
+        // This is an appointment-scoped delivery gate, not a customer choice.
+        // It is appended so a deposit confirmed after the owner re-enables SMS
+        // cannot revive this booking's old consent.
+        await tx.insert(communicationConsentSchema).values({
+          id: crypto.randomUUID(),
+          salonId: salon.id,
+          recipient: normalizeConsentRecipient(args.recipient),
+          channel: 'sms',
+          purpose: 'appointment_reminders',
+          status: 'revoked',
+          wordingVersion: 'booking-sms-reminders-v1',
+          source: 'public_booking',
+          grantedAt: null,
+          revokedAt: new Date(),
+          metadata: {
+            appointmentId: args.appointmentId,
+            preferenceScope: 'appointment_reminders',
+            bookingSmsMode: 'disabled',
+            selection: null,
+          },
+        });
+        effectiveSmsConsentGranted = false;
+        smsReminderStatus = 'salon_disabled';
+        return;
+      }
+      if (!bookingSmsConsentDecision || !normalizedSmsConsent) {
+        return;
+      }
+
+      const recipient = normalizeConsentRecipient(args.recipient);
+      const [connection] = await tx
+        .select({ salonId: salonTwilioConnectionSchema.salonId })
+        .from(salonTwilioConnectionSchema)
+        .where(eq(salonTwilioConnectionSchema.salonId, salon.id))
+        .limit(1);
+      const sharedProviderOptOut = !connection
+        && await hasGlobalSuppression(readSharedSenderEnvConfig().senderIdentity, recipient, tx);
+      // A provider-originated STOP/START is evaluated independently of normal
+      // booking events. A later public-booking row must never obscure STOP.
+      const [providerPreference] = await tx
+        .select({ status: communicationConsentSchema.status })
+        .from(communicationConsentSchema)
+        .where(and(
+          eq(communicationConsentSchema.salonId, salon.id),
+          eq(communicationConsentSchema.recipient, recipient),
+          eq(communicationConsentSchema.channel, 'sms'),
+          eq(communicationConsentSchema.purpose, 'appointment_transactional'),
+          eq(communicationConsentSchema.source, 'twilio_inbound'),
+        ))
+        .orderBy(desc(communicationConsentSchema.createdAt))
+        .limit(1);
+      const providerOptedOut = sharedProviderOptOut || providerPreference?.status === 'revoked';
+
+      if (providerOptedOut) {
+        const now = new Date();
+        // Keep the provider STOP event intact while preserving this booking's
+        // submitted selection for audit. Readers must resolve provider events
+        // independently (as this route and the dispatcher do), never merely
+        // by taking the newest public-booking row.
+        await tx.insert(communicationConsentSchema).values({
+          id: crypto.randomUUID(),
+          salonId: salon.id,
+          recipient,
+          channel: 'sms',
+          purpose: 'appointment_reminders',
+          status: 'revoked',
+          wordingVersion: normalizedSmsConsent.wordingVersion,
+          source: 'public_booking',
+          grantedAt: null,
+          revokedAt: now,
+          metadata: {
+            appointmentId: args.appointmentId,
+            preferenceScope: 'appointment_reminders',
+            selection: bookingSmsConsentDecision.selection,
+            selectionWasExplicit: bookingSmsConsentDecision.isExplicit,
+            suppression: 'provider_opt_out',
+          },
+        });
+        effectiveSmsConsentGranted = false;
+        smsReminderStatus = 'opted_out';
+        return;
+      }
+
+      if (!shouldRecordBookingSmsConsent({
+        decision: bookingSmsConsentDecision,
+        providerOptedOut,
+      })) {
+        return;
+      }
+
+      const now = new Date();
+      await tx.insert(communicationConsentSchema).values({
+        id: crypto.randomUUID(),
+        salonId: salon.id,
+        recipient,
+        channel: 'sms',
+        purpose: 'appointment_reminders',
+        status: bookingSmsConsentDecision.status,
+        wordingVersion: normalizedSmsConsent.wordingVersion,
+        source: 'public_booking',
+        grantedAt: bookingSmsConsentDecision.status === 'granted' ? now : null,
+        revokedAt: bookingSmsConsentDecision.status === 'revoked' ? now : null,
+        metadata: {
+          appointmentId: args.appointmentId,
+          preferenceScope: 'appointment_reminders',
+          selection: bookingSmsConsentDecision.selection,
+          selectionWasExplicit: bookingSmsConsentDecision.isExplicit,
+        },
+      });
+      effectiveSmsConsentGranted = bookingSmsConsentDecision.status === 'granted';
+      smsReminderStatus = effectiveSmsConsentGranted ? 'enabled' : 'customer_disabled';
+    };
+
     const lockAndResolveRequiredBookingPolicyInTx = async (
       tx: BookingTx,
     ): Promise<LockedBookingFinancialConfiguration> => {
@@ -3554,6 +3718,12 @@ export async function POST(request: Request): Promise<Response> {
               appointmentEndTime: endTime,
               capability: managementCapability,
             });
+            // Public reschedules use the same confirm control. Persist its
+            // per-booking delivery decision on the replacement appointment.
+            await recordBookingSmsConsentInTx(tx, {
+              appointmentId: createdAppointment.id,
+              recipient: lockedSalonClient.phone,
+            });
             await tx.update(appointmentAccessTokenSchema)
               .set({ revokedAt: new Date() })
               .where(and(
@@ -4060,20 +4230,10 @@ export async function POST(request: Request): Promise<Response> {
               appointmentEndTime: endTime,
               capability: managementCapability,
             });
-            if (data.smsConsent?.granted) {
-              await tx.insert(communicationConsentSchema).values({
-                id: crypto.randomUUID(),
-                salonId: salon.id,
-                recipient: lockedSalonClient.phone,
-                channel: 'sms',
-                purpose: 'appointment_transactional',
-                status: 'granted',
-                wordingVersion: data.smsConsent.wordingVersion,
-                source: 'public_booking',
-                grantedAt: new Date(),
-                metadata: { appointmentId: createdAppointment.id },
-              });
-            }
+            await recordBookingSmsConsentInTx(tx, {
+              appointmentId: createdAppointment.id,
+              recipient: lockedSalonClient.phone,
+            });
 
             await insertSmartFitAuditRowInTx(tx, createdAppointment.id);
 
@@ -4552,7 +4712,7 @@ export async function POST(request: Request): Promise<Response> {
       totalDurationMinutes,
       timeZone: bookingConfig.timezone,
       manageUrl,
-      smsConsentGranted: data.smsConsent?.granted === true,
+      smsConsentGranted: effectiveSmsConsentGranted,
       appliedRewardId: appliedReward?.id ?? null,
       actorRole,
       originalAppointment,
@@ -4584,6 +4744,7 @@ export async function POST(request: Request): Promise<Response> {
           name: salon.name,
           slug: salon.slug,
         },
+        ...(normalizedSmsConsent ? { smsReminderStatus } : {}),
         // Part of the object that is BOTH cached and returned, so a replay
         // carries the checkout URL. Absent entirely when the policy is not
         // active; `{ required: false }` when it is active but this request was

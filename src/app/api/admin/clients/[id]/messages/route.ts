@@ -2,7 +2,7 @@ import { z } from 'zod';
 
 import { requireAdminSalon } from '@/libs/adminAuth';
 import { ClientLifecycleStabilizationError } from '@/libs/clientLifecycleStabilization';
-import { ClientMessagingError, getClientSmsHistory, queueClientSms, retryClientSms } from '@/libs/clientMessaging';
+import { ClientMessagingError, getClientSmsHistory, getClientSmsPreference, queueClientSms, retryClientSms } from '@/libs/clientMessaging';
 import { getSalonSmsReadiness } from '@/libs/integrationHealth';
 import { checkEndpointRateLimit, getClientIp, rateLimitResponse } from '@/libs/rateLimit';
 
@@ -38,11 +38,12 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
   }
   try {
     const { id } = await params;
-    const [history, sms] = await Promise.all([
+    const [history, sms, reminderPreference] = await Promise.all([
       getClientSmsHistory({ salonId: guard.salon.id, clientId: id, appointmentId: query.get('appointmentId') ?? undefined }),
       getSalonSmsReadiness(guard.salon.id),
+      getClientSmsPreference({ salonId: guard.salon.id, clientId: id, appointmentId: query.get('appointmentId') ?? undefined }),
     ]);
-    return Response.json({ data: { history, sms } }, NO_STORE);
+    return Response.json({ data: { history, sms, reminderPreference } }, NO_STORE);
   } catch (error) {
     return failure(error);
   }

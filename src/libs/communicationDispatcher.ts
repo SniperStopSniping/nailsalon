@@ -19,6 +19,7 @@ import {
   reserveSmsCredits,
   settleReservationOnAccept,
 } from '@/libs/billing/creditReservation';
+import { getAppointmentSmsDeliveryPreference } from '@/libs/bookingSmsConsent.server';
 import {
   claimDueIntents,
   expireStaleIntents,
@@ -33,7 +34,11 @@ import { db } from '@/libs/DB';
 import { Env } from '@/libs/Env';
 import { readCommunicationControlUncached } from '@/libs/platformCommunicationControl';
 import { isReminderEligibleAppointment } from '@/libs/reminderEligibility';
-import { hasGlobalSuppression, normalizeConsentRecipient } from '@/libs/smsConsentShared';
+import {
+  appendGlobalConsentEvent,
+  hasGlobalSuppression,
+  normalizeConsentRecipient,
+} from '@/libs/smsConsentShared';
 import { resolveSmsDestination } from '@/libs/smsDestination';
 import { calculateSmsSegments } from '@/libs/smsSegments';
 import {
@@ -82,18 +87,35 @@ export type DispatchSummary = {
   unknownOutcome: number;
 };
 
+function providerErrorCode(error: unknown): string | null {
+  return typeof error === 'object' && error !== null && 'code' in error
+    ? String(error.code)
+    : null;
+}
+
 async function hasSalonTransactionalConsent(salonId: string, recipient: string, requireGranted = true): Promise<boolean> {
-  const rows = await db
-    .select({ status: communicationConsentSchema.status })
-    .from(communicationConsentSchema)
-    .where(and(
+  const normalized = normalizeConsentRecipient(recipient);
+  const [rows, providerRows] = await Promise.all([
+    db.select({ status: communicationConsentSchema.status }).from(communicationConsentSchema).where(and(
       eq(communicationConsentSchema.salonId, salonId),
-      eq(communicationConsentSchema.recipient, normalizeConsentRecipient(recipient)),
+      eq(communicationConsentSchema.recipient, normalized),
       eq(communicationConsentSchema.channel, 'sms'),
       eq(communicationConsentSchema.purpose, 'appointment_transactional'),
-    ))
-    .orderBy(sql`${communicationConsentSchema.createdAt} DESC`)
-    .limit(1);
+    )).orderBy(sql`${communicationConsentSchema.createdAt} DESC`).limit(1),
+    // Booking selections append normal preference events. Provider STOP/START
+    // must retain its own authority even if an older implementation appended
+    // one of those events after a STOP callback.
+    db.select({ status: communicationConsentSchema.status }).from(communicationConsentSchema).where(and(
+      eq(communicationConsentSchema.salonId, salonId),
+      eq(communicationConsentSchema.recipient, normalized),
+      eq(communicationConsentSchema.channel, 'sms'),
+      eq(communicationConsentSchema.purpose, 'appointment_transactional'),
+      eq(communicationConsentSchema.source, 'twilio_inbound'),
+    )).orderBy(sql`${communicationConsentSchema.createdAt} DESC`).limit(1),
+  ]);
+  if (providerRows[0]?.status === 'revoked') {
+    return false;
+  }
   return requireGranted ? rows[0]?.status === 'granted' : rows[0]?.status !== 'revoked';
 }
 
@@ -492,7 +514,19 @@ export async function dispatchClaimedIntent(
   // FINAL pre-provider check (invariant I2): FRESH reads after TX1 committed.
   const finalControl = await readCommunicationControlUncached();
   const finalSuppressed = readiness.mode === 'shared_luster' && await hasGlobalSuppression(readiness.senderIdentity, destination.e164);
-  const finalConsent = await hasSalonTransactionalConsent(intent.salonId, intent.recipient, intent.audience === 'client');
+  const appointmentReminder = intent.audience === 'client' && intent.appointmentId !== null
+    && intent.eventType !== 'review_request' && intent.eventType !== 'manual_text';
+  const reminderPreference = appointmentReminder
+    ? await getAppointmentSmsDeliveryPreference({ salonId: intent.salonId, phone: intent.recipient, appointmentId: intent.appointmentId! })
+    : null;
+  const finalConsent = appointmentReminder
+    ? reminderPreference?.state === 'enabled'
+    : await hasSalonTransactionalConsent(intent.salonId, intent.recipient, intent.audience === 'client');
+  const consentFailure = reminderPreference?.state === 'opted_out'
+    ? 'PROVIDER_OPT_OUT'
+    : reminderPreference?.state === 'customer_disabled'
+      ? 'CUSTOMER_DISABLED'
+      : reminderPreference?.state === 'salon_disabled' ? 'BOOKING_SMS_DISABLED' : 'CONSENT_REQUIRED';
   const [freshSalon] = await db.select({ isActive: salonSchema.isActive, deletedAt: salonSchema.deletedAt, settings: salonSchema.settings, smsRemindersEnabled: salonSchema.smsRemindersEnabled })
     .from(salonSchema).where(eq(salonSchema.id, intent.salonId)).limit(1);
   const finalSettings = resolveSalonCommunicationSettings(freshSalon?.settings, { senderMode: mode, legacySmsEnabled: freshSalon?.smsRemindersEnabled });
@@ -515,7 +549,7 @@ export async function dispatchClaimedIntent(
     : finalSuppressed
       ? 'GLOBAL_OPT_OUT'
       : !finalConsent
-          ? 'CONSENT_REQUIRED'
+          ? consentFailure
           : !recipientCurrent
               ? 'RECIPIENT_CHANGED'
               : finalSettings.killSwitch
@@ -592,6 +626,20 @@ export async function dispatchClaimedIntent(
       await transitionIntent(intent.id, { to: 'send_outcome_unknown', lastError: 'PROVIDER_OUTCOME_UNKNOWN' }, now);
       return 'unknown_outcome';
     }
+    const errorCode = providerErrorCode(error);
+    const providerOptedOut = readiness.mode === 'shared_luster' && errorCode === '21610';
+    // Twilio has authoritatively rejected this recipient as opted out. Record
+    // it against the durable logical shared-sender identity before a later
+    // booking can select its default-on reminder checkbox.
+    if (providerOptedOut) {
+      await appendGlobalConsentEvent({
+        senderIdentity: readiness.senderIdentity,
+        recipient: destination.e164,
+        state: 'suppressed',
+        optOutType: 'STOP',
+        source: 'twilio_advanced_opt_out',
+      });
+    }
     if (reservation.reservationId) {
       await releaseReservation({ reservationId: reservation.reservationId, reason: 'PROVIDER_SYNC_REJECT', now });
     }
@@ -600,12 +648,12 @@ export async function dispatchClaimedIntent(
       .set({
         status: 'failed',
         settlementState: 'not_applicable',
-        errorCode: typeof error === 'object' && error !== null && 'code' in error ? String(error.code) : 'PROVIDER_SYNC_REJECT',
+        errorCode: errorCode ?? 'PROVIDER_SYNC_REJECT',
         errorMessage: 'The provider rejected this send before accepting a message.',
-        retryable: true,
+        retryable: !providerOptedOut,
       })
       .where(eq(notificationDeliverySchema.id, deliveryId));
-    await transitionIntent(intent.id, { to: 'failed', lastError: 'PROVIDER_SYNC_REJECT' }, now);
+    await transitionIntent(intent.id, { to: 'failed', lastError: providerOptedOut ? 'PROVIDER_OPT_OUT' : 'PROVIDER_SYNC_REJECT' }, now);
     return 'failed';
   }
 

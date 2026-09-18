@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { BookingEmailFinancialSummary } from './bookingEmailFinancialSummary.server';
 
-const { create, isSmsEnabled, twilio, db, queueSelectResults, enqueue } = vi.hoisted(() => {
+const { create, isSmsEnabled, twilio, db, queueSelectResults, enqueue, eligible } = vi.hoisted(() => {
   const selectResults: unknown[][] = [];
   const query = {
     from: vi.fn(() => query),
@@ -16,6 +16,7 @@ const { create, isSmsEnabled, twilio, db, queueSelectResults, enqueue } = vi.hoi
     enqueue: vi.fn(async () => ({ intentId: 'ci_test', created: true })),
     create: vi.fn(async (_input: { body: string }) => ({ sid: 'SM_referral' })),
     isSmsEnabled: vi.fn(),
+    eligible: vi.fn(),
     twilio: vi.fn(() => ({
       messages: {
         create: vi.fn(async () => ({ sid: 'SM_referral' })),
@@ -38,6 +39,7 @@ vi.mock('@/libs/communicationMaterialization', () => ({
   formatIntentStartTime: () => 'Wed Jun 10, 1:45 PM',
   resolveSalonCommunicationContext: async () => ({ smsEligible: true, timeZone: 'America/Toronto', settings: { sms: { enabled: true }, email: { enabled: true }, events: {}, killSwitch: false } }),
 }));
+vi.mock('@/libs/bookingSmsConsent.server', () => ({ isAppointmentSmsEligible: eligible }));
 vi.mock('@/libs/DB', () => ({ db }));
 
 vi.mock('twilio', () => ({
@@ -94,6 +96,7 @@ describe('SMS templates', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     isSmsEnabled.mockResolvedValue(true);
+    eligible.mockResolvedValue(false);
     twilio.mockReturnValue({
       messages: {
         create,
@@ -131,7 +134,8 @@ describe('SMS templates', () => {
   });
 
   it('does not send legacy customer confirmations through a salon-owned account', async () => {
-    queueSelectResults([{ status: 'granted' }], [{ connectAccountSid: 'AC00000000000000000000000000000000', messagingServiceSid: null, phoneNumber: '+14165559999', status: 'active' }]);
+    eligible.mockResolvedValue(true);
+    queueSelectResults([{ connectAccountSid: 'AC00000000000000000000000000000000', messagingServiceSid: null, phoneNumber: '+14165559999', status: 'active' }]);
     await sendBookingConfirmationToClient('salon_1', {
       phone: '4165550198',
       clientName: 'Bob',

@@ -28,7 +28,12 @@ const LABELS: Record<string, string> = {
   sending: 'Sending',
   sent: 'Sent',
   delivered: 'Delivered',
-  failed: 'Failed',
+  customer_disabled: 'Reminders disabled by customer',
+  booking_disabled: 'Disabled for this booking',
+  opted_out: 'STOP / opted out',
+  provider_blocked: 'Provider blocked',
+  failed: 'Send failed',
+  suppressed: 'Not sent',
   undelivered: 'Undelivered',
   cancelled: 'Cancelled',
   canceled: 'Cancelled',
@@ -83,6 +88,7 @@ export function LusterClientSms({
   showHistory?: boolean;
 }) {
   const [history, setHistory] = useState<Message[]>([]);
+  const [reminderPreference, setReminderPreference] = useState<string | null>(null);
   const [sms, setSms] = useState<SmsOperationalHealth | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -124,6 +130,7 @@ export function LusterClientSms({
       if (!signal?.aborted) {
         setHistory(Array.isArray(payload?.data?.history) ? payload.data.history : []);
         setSms(payload?.data?.sms ?? null);
+        setReminderPreference(payload?.data?.reminderPreference?.state ?? null);
         setLoadError(null);
       }
     } catch (cause) {
@@ -232,6 +239,9 @@ export function LusterClientSms({
       <Button type="button" variant="ghost" className="min-h-11" onClick={() => void load()}>Refresh delivery status</Button>
       {loading && <p className="text-xs text-stone-500" role="status">Loading messages…</p>}
       {loadError && <p className="text-sm text-red-800" role="alert">{loadError}</p>}
+      {!loading && !loadError && reminderPreference === 'salon_disabled' && <p className="mt-2 text-sm text-stone-700">SMS reminders were disabled for this online booking.</p>}
+      {!loading && !loadError && reminderPreference === 'customer_disabled' && <p className="mt-2 text-sm text-stone-700">Reminders disabled by customer</p>}
+      {!loading && !loadError && reminderPreference === 'opted_out' && <p className="mt-2 text-sm text-stone-700">STOP / opted out. A new booking cannot restart appointment texts.</p>}
       {!loading && !loadError && history.length === 0 && <p className="text-xs text-stone-500">No Luster texts for this client yet.</p>}
       <ol className="mt-2 space-y-2">
         {history.map(item => (

@@ -2,9 +2,10 @@ import 'server-only';
 
 import { and, desc, eq, inArray, isNull, or, sql } from 'drizzle-orm';
 
+import { getAppointmentSmsDeliveryPreference, getAppointmentSmsPreference } from '@/libs/bookingSmsConsent.server';
 import { getSalonClientLineageIdentityWithHandle, lockTerminalSalonClientWithHandle, resolveTerminalSalonClient } from '@/libs/clientLifecycleStabilization';
 import { enqueueCommunicationIntent } from '@/libs/communicationIntent';
-import { friendlyFailureReason, maskRecipient } from '@/libs/communicationMasking';
+import { friendlyFailureReason, maskRecipient, ownerSmsDeliveryStatus } from '@/libs/communicationMasking';
 import { applyQuietHours, computeSchedulingRevision } from '@/libs/communicationScheduling';
 import { resolveCommunicationSettingsFromSettings } from '@/libs/communicationSettings';
 import { COMMUNICATION_TEMPLATES } from '@/libs/communicationTemplates';
@@ -107,6 +108,23 @@ export async function queueClientSms(input: {
   });
 }
 
+export async function getClientSmsPreference(input: { salonId: string; clientId: string; appointmentId?: string }) {
+  const client = await resolveTerminalSalonClient({ salonId: input.salonId, clientId: input.clientId, allowArchived: true });
+  const identity = await getSalonClientLineageIdentityWithHandle(db, { salonId: input.salonId, terminalClientId: client.id, allowArchived: true });
+  if (input.appointmentId) {
+    const [appointment] = await db.select({ id: appointmentSchema.id }).from(appointmentSchema).where(and(
+      eq(appointmentSchema.id, input.appointmentId),
+      eq(appointmentSchema.salonId, input.salonId),
+      inArray(appointmentSchema.salonClientId, identity.clientIds),
+    )).limit(1);
+    if (!appointment) {
+      throw new ClientMessagingError('APPOINTMENT_NOT_FOUND', 'This appointment does not belong to this client.', 404);
+    }
+    return getAppointmentSmsDeliveryPreference({ salonId: input.salonId, phone: identity.terminal.phone ?? '', appointmentId: appointment.id });
+  }
+  return getAppointmentSmsPreference(input.salonId, identity.terminal.phone ?? '');
+}
+
 /** Both workflow histories show Twilio delivery state, not merely queue acceptance. */
 export async function getClientSmsHistory(input: { salonId: string; clientId: string; appointmentId?: string }) {
   const client = await resolveTerminalSalonClient({ salonId: input.salonId, clientId: input.clientId, allowArchived: true });
@@ -131,16 +149,17 @@ export function serializeSmsHistory(
   delivery: typeof notificationDeliverySchema.$inferSelect | null,
 ) {
   const pending = ['pending', 'claimed', 'sending', 'blocked_no_credit'].includes(intent.status);
-  const status = intent.status === 'sent'
+  const rawStatus = intent.status === 'sent'
     ? (delivery?.status ?? 'sent')
     : intent.status === 'send_outcome_unknown'
       ? 'checking_delivery'
       : pending
         ? 'queued'
-        : ['suppressed', 'expired'].includes(intent.status)
-            ? 'failed'
-            : intent.status === 'canceled' ? 'cancelled' : intent.status;
-  const canRetry = intent.eventType !== 'review_request' && Boolean(intent.variables.clientId) && intent.status === 'failed' && intent.lastError === 'PROVIDER_SYNC_REJECT'
+        : intent.status === 'expired'
+          ? 'failed'
+          : intent.status === 'canceled' ? 'cancelled' : intent.status;
+  const status = ownerSmsDeliveryStatus(rawStatus, intent.blockedReason, delivery?.errorCode, intent.lastError);
+  const canRetry = status !== 'opted_out' && intent.eventType !== 'review_request' && Boolean(intent.variables.clientId) && intent.status === 'failed' && intent.lastError === 'PROVIDER_SYNC_REJECT'
     && Boolean(delivery?.retryable && !delivery.providerMessageId && delivery.settlementState === 'not_applicable')
     && intent.notAfter.getTime() > Date.now();
   return {

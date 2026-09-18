@@ -1,7 +1,7 @@
 import 'server-only';
 
 import * as Sentry from '@sentry/nextjs';
-import { and, asc, desc, eq, sql } from 'drizzle-orm';
+import { and, asc, eq, sql } from 'drizzle-orm';
 
 import { buildAppointmentAuditRow } from '@/libs/appointmentAudit';
 import { listPayments } from '@/libs/appointmentCheckoutServer';
@@ -14,6 +14,7 @@ import { buildAppointmentManageUrl } from '@/libs/appointmentManageUrl';
 import { resolveAppointmentPaymentLedger } from '@/libs/appointmentPaymentLedger';
 import { validateAppointmentTaxSnapshotChain } from '@/libs/appointmentTaxSnapshot';
 import { mintAppointmentManageCapability } from '@/libs/bookingCommitEffects';
+import { isAppointmentSmsEligible } from '@/libs/bookingSmsConsent.server';
 import { derivePaymentStatus } from '@/libs/checkoutTotals';
 import {
   formatIntentStartTime,
@@ -30,7 +31,6 @@ import {
   appointmentAuditLogSchema,
   appointmentDepositSchema,
   appointmentSchema,
-  communicationConsentSchema,
   salonSchema,
   salonStripeAccountSchema,
 } from '@/models/Schema';
@@ -854,7 +854,7 @@ export async function enqueueDepositConfirmationEffectsInTx(args: {
     // from the booking request: the request that created the hold ended long
     // before this, and a client who revoked consent in between must not be
     // texted.
-    smsConsentGranted: await hasTransactionalSmsConsent(tx, salonId, args.clientPhone),
+    smsConsentGranted: await isAppointmentSmsEligible({ database: tx, salonId, phone: args.clientPhone, appointmentId: appointment.id }),
     // TRUE here, and the runner performs the calendar enqueue.
     //
     // The charter's preference is for TX-B to own that enqueue with the handle.
@@ -880,7 +880,7 @@ export async function enqueueDepositConfirmationEffectsInTx(args: {
   // sender modes. The deposit id dedupes webhook, return-page and reaper
   // replays. Confirmation email stays on its existing outbox delivery path.
   const communicationContext = await resolveSalonCommunicationContext(tx, salonId);
-  const smsConsentGranted = await hasTransactionalSmsConsent(tx, salonId, args.clientPhone);
+  const smsConsentGranted = await isAppointmentSmsEligible({ database: tx, salonId, phone: args.clientPhone, appointmentId: appointment.id });
   const [appointmentRow] = await tx
     .select({
       status: appointmentSchema.status,
@@ -929,33 +929,6 @@ export async function enqueueDepositConfirmationEffectsInTx(args: {
       });
     }
   }
-}
-
-/**
- * The persisted transactional-SMS consent for a phone number.
- *
- * Mirrors the predicate `src/libs/SMS.ts` applies before any transactional
- * send. Read here rather than imported because that helper is module-private,
- * and read on the TRANSACTION handle so it sees the same snapshot as the CAS.
- */
-async function hasTransactionalSmsConsent(
-  tx: ArmArgs['tx'],
-  salonId: string,
-  phone: string,
-): Promise<boolean> {
-  const normalized = phone.replace(/\D/g, '').replace(/^1(?=\d{10}$)/, '');
-  const [consent] = await tx
-    .select({ status: communicationConsentSchema.status })
-    .from(communicationConsentSchema)
-    .where(and(
-      eq(communicationConsentSchema.salonId, salonId),
-      eq(communicationConsentSchema.recipient, normalized),
-      eq(communicationConsentSchema.channel, 'sms'),
-      eq(communicationConsentSchema.purpose, 'appointment_transactional'),
-    ))
-    .orderBy(desc(communicationConsentSchema.createdAt))
-    .limit(1);
-  return consent?.status === 'granted';
 }
 
 /** Thrown to roll TX-B back when the appointment moved and the deposit did not. */

@@ -366,3 +366,24 @@ describe('communications safety and existing BYO continuity', () => {
     expect(resolveEventChannels(resolveDefaults(), 'manual_text')).toEqual([]);
   });
 });
+
+describe('online booking SMS defaults', () => {
+  it('defaults new and unconfigured salons to on independently of the sending master', () => {
+    expect(resolveDefaults().sms).toEqual({ enabled: false, bookingDefault: 'default_on' });
+  });
+
+  it.each(['default_on', 'default_off', 'disabled'] as const)('saves %s without changing delivery settings', (bookingDefault) => {
+    const current = resolveDefaults();
+    const before = structuredClone(current);
+    const update = communicationSettingsUpdateSchema.parse({ sms: { bookingDefault } });
+    const result = mergeCommunicationSettings(current, update);
+
+    expect(result.sms).toEqual({ enabled: false, bookingDefault });
+    expect(schedulingRelevantSettings(result)).toEqual(schedulingRelevantSettings(current));
+    expect(current).toEqual(before);
+  });
+
+  it('rejects an unknown booking mode', () => {
+    expect(communicationSettingsUpdateSchema.safeParse({ sms: { bookingDefault: 'yes' } }).success).toBe(false);
+  });
+});
