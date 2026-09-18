@@ -1,3 +1,10 @@
+## [1.116.2](https://github.com/SniperStopSniping/nailsalon/compare/v1.116.1...v1.116.2) (2026-09-18)
+
+
+### Bug Fixes
+
+* **owner-assistant:** separate eval execution clock ([2b407dc](https://github.com/SniperStopSniping/nailsalon/commit/2b407dc5c56cb3bfd124bae2d3a6131333faa4f9))
+
 ## [1.116.1](https://github.com/SniperStopSniping/nailsalon/compare/v1.116.0...v1.116.1) (2026-09-17)
 
 
