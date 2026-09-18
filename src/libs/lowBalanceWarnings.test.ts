@@ -476,7 +476,7 @@ describe('usage + history route (§10.1/§10.2/§10.4)', () => {
 
     expect(data.history.find((entry: { id: string }) => entry.id === 'ci_health_delivered')).toMatchObject({ status: 'delivered', creditsUsed: 2 });
     expect(data.history.find((entry: { id: string }) => entry.id === 'ci_health_byo')).toMatchObject({ status: 'sent', creditsUsed: 0 });
-    expect(data.history.find((entry: { id: string }) => entry.id === 'ci_health_failed')).toMatchObject({ status: 'undelivered', creditsUsed: 0, failureReason: 'This message could not be delivered.' });
+    expect(data.history.find((entry: { id: string }) => entry.id === 'ci_health_failed')).toMatchObject({ status: 'provider_blocked', creditsUsed: 0, failureReason: 'The texting provider or carrier blocked this message.' });
     expect(data.history.find((entry: { id: string }) => entry.id === 'ci_health_foreign')).toMatchObject({ status: 'sent', creditsUsed: 0 });
     expect(JSON.stringify(data)).not.toContain('private fixture data');
   });

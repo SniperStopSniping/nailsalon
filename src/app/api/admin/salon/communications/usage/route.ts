@@ -29,7 +29,7 @@ import { getPlanDefinition, getPublicPlanCatalog, type PlanDefinitionKey } from 
 import { getPromotion, isPromotionWindowOpen } from '@/libs/billing/promotions';
 import { BillingCatalogError, resolveStripePriceIdForTopup } from '@/libs/billing/stripePriceMap';
 import { listActiveTopupOffersForAudience } from '@/libs/billing/topupOffers';
-import { friendlyFailureReason, maskRecipient } from '@/libs/communicationMasking';
+import { friendlyFailureReason, maskRecipient, ownerSmsDeliveryStatus } from '@/libs/communicationMasking';
 import { db } from '@/libs/DB';
 import { Env } from '@/libs/Env';
 import { checkEndpointRateLimit, getClientIp, rateLimitResponse } from '@/libs/rateLimit';
@@ -300,7 +300,9 @@ export async function GET(request: NextRequest): Promise<Response> {
       eventType: row.eventType,
       appointmentId: row.appointmentId,
       recipient: maskRecipient(row.channel, row.recipient),
-      status: row.status === 'sent' && row.deliveryStatus ? row.deliveryStatus : row.status,
+      status: row.channel === 'sms'
+        ? ownerSmsDeliveryStatus(row.status === 'sent' && row.deliveryStatus ? row.deliveryStatus : row.status, row.blockedReason, row.deliveryErrorCode, row.lastError)
+        : row.status === 'sent' && row.deliveryStatus ? row.deliveryStatus : row.status,
       scheduledFor: row.scheduledFor.toISOString(),
       sentAt: row.status === 'sent' ? row.resolvedAt?.toISOString() ?? null : null,
       // Partial refunds leave the original delivery segment count

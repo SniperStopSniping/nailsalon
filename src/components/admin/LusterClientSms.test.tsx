@@ -27,6 +27,17 @@ beforeEach(() => {
 });
 
 describe('Luster SMS composer', () => {
+  it.each([
+    ['customer_disabled', 'Reminders disabled by customer'],
+    ['opted_out', 'STOP / opted out. A new booking cannot restart appointment texts.'],
+  ])('shows %s even when no SMS was queued', async (state, label) => {
+    fetchMock.mockResolvedValue(response({ data: { sms, history: [], reminderPreference: { state } } }));
+    renderComposer();
+
+    expect(await screen.findByText(label!)).toBeVisible();
+    expect(screen.queryByText('Send failed')).not.toBeInTheDocument();
+  });
+
   it('shows setup blockers and disables send when texting is unavailable', async () => {
     fetchMock.mockResolvedValue(response({ data: { sms: { ...sms, manualAvailable: false, detail: 'Texting is not set up yet.' }, history: [] } }));
     renderComposer();
@@ -111,7 +122,7 @@ describe('Luster SMS composer', () => {
     ] } }));
     renderComposer();
 
-    expect(await screen.findByText('Failed')).toBeVisible();
+    expect(await screen.findByText('Send failed')).toBeVisible();
     expect(screen.getAllByRole('button', { name: 'Retry text' })).toHaveLength(1);
     expect(screen.getByText('Checking delivery')).toBeVisible();
   });

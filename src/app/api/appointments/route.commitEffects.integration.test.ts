@@ -326,6 +326,7 @@ beforeEach(async () => {
   timeline.entries = [];
   vi.clearAllMocks();
   effects.automaticDiscount = null;
+  await db.update(schema.salonSchema).set({ settings: { bookingExperience: { policy: { enabled: false } } } }).where(eq(schema.salonSchema.id, SALON_ID));
 
   redisState.available = true;
   redisState.store.clear();
@@ -376,6 +377,8 @@ beforeEach(async () => {
   await db.delete(schema.notificationDeliverySchema);
   await db.delete(schema.appointmentServicesSchema);
   await db.delete(schema.appointmentAccessTokenSchema);
+  await db.delete(schema.communicationConsentSchema);
+  await db.delete(schema.salonTwilioConnectionSchema);
   await db.delete(schema.rewardSchema);
   await db.delete(schema.appointmentSchema);
   await db.delete(schema.salonClientSchema);
@@ -477,6 +480,144 @@ describe('D4.5 — the effects straddle the idempotency cache write', () => {
       .where(eq(schema.rewardSchema.id, rewardId));
 
     expect(reward!.usedInAppointmentId).toBeTruthy();
+  });
+});
+
+describe('public-booking appointment SMS preference', () => {
+  it('accepts an unchecked older booking form without inventing an explicit selection', async () => {
+    const phone = freshPhone();
+    await seedRewardFixture(phone);
+    holder.clientSession = { normalizedPhone: phone, phoneVariants: [phone, `+1${phone}`] };
+    const response = await postBooking({ startTime: at(futureDate(82), '10:00').toISOString(), smsConsent: { granted: false, wordingVersion: 'booking-v2' } });
+
+    expect(response.status).toBe(201);
+
+    const [consent] = await db.select().from(schema.communicationConsentSchema);
+
+    expect(consent).toMatchObject({ purpose: 'appointment_reminders', status: 'revoked', metadata: { selection: 'default_off', selectionWasExplicit: false } });
+  });
+
+  it('records an untouched default-on selection without calling it explicit', async () => {
+    const phone = freshPhone();
+    await seedRewardFixture(phone);
+    holder.clientSession = { normalizedPhone: phone, phoneVariants: [phone, `+1${phone}`] };
+
+    const response = await postBooking({
+      startTime: at(futureDate(83), '10:00').toISOString(),
+      smsConsent: {
+        granted: true,
+        wordingVersion: 'booking-sms-reminders-v1',
+        selection: 'default_on',
+      },
+    });
+
+    expect(response.status).toBe(201);
+
+    const [consent] = await db.select().from(schema.communicationConsentSchema);
+
+    expect(consent).toMatchObject({
+      salonId: SALON_ID,
+      recipient: phone,
+      purpose: 'appointment_reminders',
+      status: 'granted',
+      metadata: { selection: 'default_on', selectionWasExplicit: false },
+    });
+  });
+
+  it('records an explicit off selection after a historical grant', async () => {
+    const phone = freshPhone();
+    await seedRewardFixture(phone);
+    holder.clientSession = { normalizedPhone: phone, phoneVariants: [phone, `+1${phone}`] };
+    await db.insert(schema.communicationConsentSchema).values({
+      id: `legacy_${phone}`,
+      salonId: SALON_ID,
+      recipient: phone,
+      channel: 'sms',
+      purpose: 'appointment_transactional',
+      status: 'granted',
+      wordingVersion: 'legacy-v1',
+      source: 'public_booking',
+      grantedAt: new Date(),
+    });
+
+    const response = await postBooking({
+      startTime: at(futureDate(84), '10:00').toISOString(),
+      smsConsent: {
+        granted: false,
+        wordingVersion: 'booking-sms-reminders-v1',
+        selection: 'explicit_off',
+      },
+    });
+
+    expect(response.status).toBe(201);
+
+    const rows = await db.select().from(schema.communicationConsentSchema)
+      .where(eq(schema.communicationConsentSchema.purpose, 'appointment_reminders'));
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ status: 'revoked', metadata: { selection: 'explicit_off', selectionWasExplicit: true } });
+  });
+
+  it('preserves a provider STOP and reports opted out after booking', async () => {
+    const phone = freshPhone();
+    await seedRewardFixture(phone);
+    holder.clientSession = { normalizedPhone: phone, phoneVariants: [phone, `+1${phone}`] };
+    await db.insert(schema.salonTwilioConnectionSchema).values({
+      salonId: SALON_ID,
+      connectAccountSid: `AC_${phone}`,
+      status: 'active',
+    });
+    await db.insert(schema.communicationConsentSchema).values({
+      id: `stop_${phone}`,
+      salonId: SALON_ID,
+      recipient: phone,
+      channel: 'sms',
+      purpose: 'appointment_transactional',
+      status: 'revoked',
+      wordingVersion: 'twilio-stop-v1',
+      source: 'twilio_inbound',
+      revokedAt: new Date(),
+    });
+
+    const response = await postBooking({
+      startTime: at(futureDate(85), '10:00').toISOString(),
+      smsConsent: { granted: true, wordingVersion: 'booking-sms-reminders-v1', selection: 'default_on' },
+    });
+
+    expect(response.status).toBe(201);
+    expect((await response.json()).data.smsReminderStatus).toBe('opted_out');
+
+    const rows = await db.select().from(schema.communicationConsentSchema)
+      .where(eq(schema.communicationConsentSchema.recipient, phone));
+
+    expect(rows.some(row => row.source === 'twilio_inbound' && row.status === 'revoked')).toBe(true);
+    expect(rows.some(row => row.purpose === 'appointment_reminders' && row.status === 'granted')).toBe(false);
+  });
+
+  it('records a tenant-scoped appointment gate when booking SMS is disabled', async () => {
+    const phone = freshPhone();
+    await seedRewardFixture(phone);
+    holder.clientSession = { normalizedPhone: phone, phoneVariants: [phone, `+1${phone}`] };
+    await db.update(schema.salonSchema).set({
+      settings: { bookingExperience: { policy: { enabled: false } }, communications: { sms: { bookingDefault: 'disabled' } } },
+    }).where(eq(schema.salonSchema.id, SALON_ID));
+
+    const response = await postBooking({ startTime: at(futureDate(86), '10:00').toISOString(), smsConsent: undefined });
+
+    expect(response.status).toBe(201);
+
+    const [gate] = await db.select().from(schema.communicationConsentSchema);
+
+    expect(gate).toMatchObject({
+      salonId: SALON_ID,
+      recipient: phone,
+      purpose: 'appointment_reminders',
+      status: 'revoked',
+      metadata: { bookingSmsMode: 'disabled' },
+    });
+
+    await db.update(schema.salonSchema).set({ settings: { bookingExperience: { policy: { enabled: false } } } })
+      .where(eq(schema.salonSchema.id, SALON_ID));
   });
 });
 

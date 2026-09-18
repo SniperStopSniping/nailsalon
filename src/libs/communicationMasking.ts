@@ -50,6 +50,11 @@ const FRIENDLY_FAILURES: Record<string, string> = {
   NO_CREDITS: 'SMS credits were unavailable.',
   BLOCKED_NO_CREDIT: 'SMS credits were unavailable.',
   GLOBAL_OPT_OUT: 'This person has opted out of texts.',
+  PROVIDER_OPT_OUT: 'This person has opted out of texts. A booking cannot restart them.',
+  CUSTOMER_DISABLED: 'Appointment texts are disabled by the customer.',
+  BOOKING_SMS_DISABLED: 'SMS reminders were disabled for this online booking.',
+  21610: 'This person has opted out of texts. A booking cannot restart them.',
+  30007: 'The texting provider or carrier blocked this message.',
   CONSENT_REQUIRED: 'This person has not agreed to receive texts.',
   DESTINATION_NOT_SUPPORTED: 'Texts to this number are not supported yet.',
   RATE_LIMITED: 'Sending was briefly paused; the message expired.',
@@ -72,4 +77,25 @@ export function friendlyFailureReason(code: string | null | undefined): string |
   }
   return FRIENDLY_FAILURES[code] ?? FRIENDLY_FAILURES[code.split(':').at(-1) ?? '']
     ?? FRIENDLY_FAILURES[code.split(':')[0] ?? ''] ?? 'This message could not be delivered.';
+}
+
+/** Preserve suppression and provider outcomes instead of calling every non-send a failure. */
+export function ownerSmsDeliveryStatus(status: string, ...codes: Array<string | null | undefined>): string {
+  if (['sent', 'delivered', 'queued', 'accepted'].includes(status)) {
+    return status;
+  }
+  const evidence = codes.filter((code): code is string => Boolean(code));
+  if (evidence.some(code => ['GLOBAL_OPT_OUT', 'PROVIDER_OPT_OUT'].includes(code) || /(?:^|\D)21610(?:$|\D)/.test(code))) {
+    return 'opted_out';
+  }
+  if (evidence.includes('BOOKING_SMS_DISABLED')) {
+    return 'booking_disabled';
+  }
+  if (evidence.includes('CUSTOMER_DISABLED')) {
+    return 'customer_disabled';
+  }
+  if (evidence.some(code => /(?:^|\D)30007(?:$|\D)/.test(code))) {
+    return 'provider_blocked';
+  }
+  return status;
 }

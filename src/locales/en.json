@@ -246,8 +246,11 @@
   },
   "BookingConfirmation": {
     "contact_description": "Your confirmation and private booking link will arrive by email.",
-    "sms_label": "Text me appointment updates (optional)",
-    "sms_details": "From {salon}. Frequency varies. Msg/data rates may apply. Reply STOP to opt out or HELP for help.",
+    "sms_label": "Text me appointment confirmations and reminders",
+    "sms_details": "You can turn this off now or reply STOP at any time.",
+    "sms_saved": "Your appointment text reminder preference is saved.",
+    "sms_off": "Appointment text reminders are turned off for this booking.",
+    "sms_opted_out": "This number has opted out of appointment texts, so no appointment texts will be sent.",
     "terms": "Terms",
     "privacy": "Privacy",
     "offers_title": "Your offers",

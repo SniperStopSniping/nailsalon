@@ -972,7 +972,7 @@ test.describe('compact booking agreement and receipt', () => {
         // Exercise the receipt without creating an appointment or sending messages.
         await route.fulfill({
           status: 201,
-          json: { data: { appointment: { id: 'layout-fixture', status: 'confirmed' }, manageUrl } },
+          json: { data: { appointment: { id: 'layout-fixture', status: 'confirmed' }, manageUrl, smsReminderStatus: 'customer_disabled' } },
         });
       });
       const params = new URLSearchParams({
@@ -993,6 +993,22 @@ test.describe('compact booking agreement and receipt', () => {
       await name.fill('Layout Test');
       await page.getByLabel('Customer email').fill('layout@example.invalid');
       await page.getByLabel('Customer phone').fill('4165550199');
+
+      // Public reminder preference remains visible on a compact phone even
+      // when a local fixture has no live SMS sender. Delivery stays server-
+      // gated, while this selection records the customer’s choice.
+      const textReminders = page.getByRole('checkbox', { name: 'Text reminders' });
+
+      await expect(textReminders).toBeChecked();
+      await expect.poll(() => textReminders.locator('..').evaluate(element => element.getBoundingClientRect().height)).toBeGreaterThanOrEqual(44);
+      for (const name of ['Terms', 'Privacy']) {
+        const link = page.getByRole('link', { name, exact: true });
+        await expect.poll(() => link.evaluate(element => element.getBoundingClientRect().height)).toBeGreaterThanOrEqual(44);
+        await expect.poll(() => link.evaluate(element => element.getBoundingClientRect().width)).toBeGreaterThanOrEqual(44);
+      }
+      await page.screenshot({ path: testInfo.outputPath('reminders-default-on.png'), fullPage: true });
+
+      await textReminders.uncheck();
 
       const agreement = page.getByTestId('booking-policy-before-confirmation');
       const checkbox = agreement.getByRole('checkbox');
@@ -1021,6 +1037,11 @@ test.describe('compact booking agreement and receipt', () => {
       expect(submitted?.bookingPolicyAcknowledgment).toMatchObject({
         accepted: true,
         version: expect.stringMatching(/^policy-v1:/),
+      });
+      expect(submitted?.smsConsent).toEqual({
+        granted: false,
+        wordingVersion: 'booking-sms-reminders-v1',
+        selection: 'explicit_off',
       });
 
       const manage = page.getByRole('link', { name: 'Manage this appointment' });

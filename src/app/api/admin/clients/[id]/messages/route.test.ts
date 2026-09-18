@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('server-only', () => ({}));
-const mocks = vi.hoisted(() => ({ guard: vi.fn(), readiness: vi.fn(), queue: vi.fn(), history: vi.fn(), retry: vi.fn() }));
+const mocks = vi.hoisted(() => ({ guard: vi.fn(), readiness: vi.fn(), queue: vi.fn(), history: vi.fn(), preference: vi.fn(), retry: vi.fn() }));
 vi.mock('@/libs/adminAuth', () => ({ requireAdminSalon: mocks.guard }));
 vi.mock('@/libs/clientLifecycleStabilization', () => ({ ClientLifecycleStabilizationError: class extends Error {} }));
 vi.mock('@/libs/clientMessaging', () => ({
@@ -12,6 +12,7 @@ vi.mock('@/libs/clientMessaging', () => ({
   },
   queueClientSms: mocks.queue,
   getClientSmsHistory: mocks.history,
+  getClientSmsPreference: mocks.preference,
   retryClientSms: mocks.retry,
 }));
 vi.mock('@/libs/integrationHealth', () => ({ getSalonSmsReadiness: mocks.readiness }));
@@ -25,9 +26,27 @@ beforeEach(() => {
   mocks.readiness.mockResolvedValue({ manualAvailable: true });
   mocks.queue.mockResolvedValue({ intentId: 'ci-test', created: true });
   mocks.history.mockResolvedValue([]);
+  mocks.preference.mockResolvedValue({ state: 'customer_disabled', selection: 'explicit_off' });
 });
 
 describe('owner manual SMS route', () => {
+  it('returns the preference without requiring delivery history, scoped to the authorized salon', async () => {
+    const { GET } = await import('./route');
+    const response = await GET(new Request('https://luster.test/messages?salonSlug=salon-a'), ctx);
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ data: { history: [], reminderPreference: { state: 'customer_disabled' } } });
+    expect(mocks.preference).toHaveBeenCalledWith({ salonId: 'salon-from-session', clientId: 'client-a', appointmentId: undefined });
+  });
+
+  it('denies unauthorized preference reads', async () => {
+    const { GET } = await import('./route');
+    mocks.guard.mockResolvedValue({ salon: null, error: new Response(null, { status: 403 }) });
+
+    expect((await GET(new Request('https://luster.test/messages?salonSlug=other'), ctx)).status).toBe(403);
+    expect(mocks.preference).not.toHaveBeenCalled();
+  });
+
   it('denies unauthorized tenant access before reading settings or queuing', async () => {
     const { POST } = await import('./route');
     mocks.guard.mockResolvedValue({ salon: null, error: new Response(null, { status: 403 }) });

@@ -514,7 +514,7 @@ export type SalonSettings = {
   // (unknown) at the leaf level because the resolver revalidates everything
   // and malformed stored data must fall back to defaults, never throw.
   communications?: {
-    sms?: { enabled?: boolean };
+    sms?: { enabled?: boolean; bookingDefault?: 'default_on' | 'default_off' | 'disabled' };
     email?: { enabled?: boolean };
     killSwitch?: boolean;
     quietHours?: { enabled?: boolean; start?: string; end?: string };

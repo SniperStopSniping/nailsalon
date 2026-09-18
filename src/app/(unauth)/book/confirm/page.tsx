@@ -18,7 +18,6 @@ import {
 } from '@/libs/depositPolicy';
 import { getDepositPolicyForSalon } from '@/libs/depositPolicy.server';
 import { buildDirectionsDestination, resolveDirectionsLocation } from '@/libs/directions';
-import { getSalonSmsReadiness } from '@/libs/integrationHealth';
 import { resolveDraftSalonAccess } from '@/libs/ownerPreview';
 import { resolvePublicBookingTechnicianContext } from '@/libs/publicBookingTechnicians';
 import { resolvePublicRetentionCampaignPreview } from '@/libs/publicRetentionCampaign';
@@ -397,13 +396,13 @@ export default async function BookConfirmPage(
   const depositFingerprint = buildDepositDisclosureFingerprint(depositCharge);
   const depositNoticeSuppressed = isDepositGovernedBySystem(depositPolicy);
 
-  const [rewardsEnabled, smsReadiness] = await Promise.all([
-    isRewardsEnabled(salon.id),
-    getSalonSmsReadiness(salon.id),
-  ]);
-  // Public consent is offered only when this salon can send automatic texts.
-  // Provider configuration and credit details stay on the server.
-  const smsEnabled = smsReadiness.automaticEnabled;
+  const rewardsEnabled = await isRewardsEnabled(salon.id);
+  // This is a salon-level presentation default. It deliberately contains no
+  // client/phone lookup: a public booking page must not reveal whether a
+  // number has previously replied STOP. The booking API remains authoritative
+  // for that state after submission.
+  const smsBookingDefault = (salon.settings as SalonSettings | null | undefined)
+    ?.communications?.sms?.bookingDefault ?? 'default_on';
   const effectiveBookingFlow = resolvedTechnicianContext.shouldAutoSkipTech
     ? bookingFlow.filter(step => step !== 'tech')
     : bookingFlow;
@@ -454,7 +453,7 @@ export default async function BookConfirmPage(
           bookingFlow={effectiveBookingFlow}
           location={locationSummary}
           rewardsEnabled={rewardsEnabled}
-          smsEnabled={smsEnabled}
+          smsBookingDefault={smsBookingDefault}
           clientChangeCutoffHours={bookingConfig.clientChangeCutoffHours}
           // Post-launch privacy fix: this is the "call the salon" escape
           // hatch on the duplicate-booking screen (`ExistingAppointmentOptions`

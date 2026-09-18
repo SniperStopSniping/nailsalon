@@ -127,6 +127,18 @@ async function claim(intentId: string) {
 }
 
 describe('review requests through the dispatcher', () => {
+  it('does not treat a default-on appointment reminder as review-message consent', async () => {
+    const fixture = await seedReview();
+    const intent = await claim(fixture.request.intentId);
+    await db.update(schema.communicationConsentSchema).set({ status: 'revoked' }).where(eq(schema.communicationConsentSchema.salonId, fixture.salonId));
+    await db.insert(schema.communicationConsentSchema).values({ id: `reminder-only-${fixture.salonId}`, salonId: fixture.salonId, recipient: fixture.recipient, channel: 'sms', purpose: 'appointment_reminders', status: 'granted', source: 'public_booking', wordingVersion: 'booking-sms-reminders-v1', metadata: { selection: 'default_on', selectionWasExplicit: false } });
+    const provider = vi.fn();
+    const { dispatchClaimedIntent } = await import('./communicationDispatcher');
+
+    expect(await dispatchClaimedIntent(intent, provider, new Date())).toBe('suppressed');
+    expect(provider).not.toHaveBeenCalled();
+  });
+
   it('uses the current Google link at send time and persists the accepted SMS snapshot', async () => {
     const fixture = await seedReview();
     const intent = await claim(fixture.request.intentId);

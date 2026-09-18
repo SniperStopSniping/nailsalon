@@ -209,8 +209,9 @@ export const communicationSettingsSchema = z.object({
        * All three must be affirmative for a shared send (§9.4 step 2).
        */
       enabled: z.boolean().default(false),
+      bookingDefault: z.enum(['default_on', 'default_off', 'disabled']).default('default_on'),
     })
-    .default({ enabled: false }),
+    .default({ enabled: false, bookingDefault: 'default_on' }),
   email: z
     .object({
       /** Contract §3.6: email is independently configurable and default on. */
@@ -291,7 +292,7 @@ export type CommunicationSettings = z.infer<typeof communicationSettingsSchema>;
  */
 export const communicationSettingsUpdateSchema = z
   .object({
-    sms: z.object({ enabled: z.boolean() }).strict().optional(),
+    sms: z.object({ enabled: z.boolean().optional(), bookingDefault: z.enum(['default_on', 'default_off', 'disabled']).optional() }).strict().refine(value => value.enabled !== undefined || value.bookingDefault !== undefined, 'An SMS setting is required').optional(),
     email: z.object({ enabled: z.boolean() }).strict().optional(),
     killSwitch: z.boolean().optional(),
     quietHours: quietHoursSchema.strict().optional(),
@@ -351,7 +352,7 @@ export function resolveSalonCommunicationSettings(
   const resolved = resolveCommunicationSettingsFromSettings(settings);
   const namespace = (settings as { communications?: { sms?: unknown } } | null | undefined)?.communications;
   if (input.senderMode === 'connected_byo' && namespace?.sms === undefined && !resolved.killSwitch) {
-    return { ...resolved, sms: { enabled: input.legacySmsEnabled !== false } };
+    return { ...resolved, sms: { ...resolved.sms, enabled: input.legacySmsEnabled !== false } };
   }
   return resolved;
 }

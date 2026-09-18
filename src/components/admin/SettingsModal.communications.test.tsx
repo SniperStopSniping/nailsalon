@@ -116,6 +116,22 @@ describe('SettingsModal communications view', () => {
     expect(screen.getByRole('button', { name: /save communication settings/i })).toBeDisabled();
   });
 
+  it('saves the online booking default independently of the SMS sending master', async () => {
+    await openCommunications();
+    const select = screen.getByLabelText('SMS reminders during online booking');
+
+    expect(select).toHaveValue('default_on');
+
+    fireEvent.change(select, { target: { value: 'default_off' } });
+    fireEvent.click(screen.getByRole('button', { name: /save communication settings/i }));
+    await waitFor(() => {
+      const patch = fetchMock.mock.calls.find(([, init]) => init?.method === 'PATCH');
+
+      expect(patch).toBeDefined();
+      expect(JSON.parse(patch![1].body).communications.sms).toEqual({ enabled: false, bookingDefault: 'default_off' });
+    });
+  });
+
   it.each([42, null])('describes Luster SMS credits with a balance of %s', async (availableCredits) => {
     capability.sms = {
       providerReady: availableCredits !== null,
@@ -192,7 +208,7 @@ describe('SettingsModal communications view', () => {
 
       expect(body.communications.reminders.rules).toHaveLength(2);
       expect(body.communications.reminders.rules[0].id).toBe('crule_default_24h');
-      expect(body.communications.sms).toEqual({ enabled: false });
+      expect(body.communications.sms).toEqual({ enabled: false, bookingDefault: 'default_on' });
       expect(body.communications.quietHours).toEqual({ enabled: true, start: '21:00', end: '09:00' });
     });
   });

@@ -20,8 +20,16 @@ import { refundTerminalFailure } from '@/libs/billing/creditReservation';
 import { db } from '@/libs/DB';
 import { Env } from '@/libs/Env';
 import { enqueueTwilioCostReconciliation } from '@/libs/integrationOutbox';
+import { appendGlobalConsentEvent, normalizeConsentRecipient } from '@/libs/smsConsentShared';
+import { LUSTER_DEFAULT_SENDER_IDENTITY } from '@/libs/smsSender';
 import { validateTwilioWebhook } from '@/libs/twilioWebhook';
-import { communicationIntentSchema, notificationDeliverySchema, salonTwilioConnectionSchema } from '@/models/Schema';
+import {
+  appointmentSchema,
+  communicationConsentSchema,
+  communicationIntentSchema,
+  notificationDeliverySchema,
+  salonTwilioConnectionSchema,
+} from '@/models/Schema';
 
 const RETRYABLE_ERROR_CODES = new Set(['30001', '30008']);
 const DELIVERY_STATES = new Set([
@@ -99,6 +107,7 @@ export async function POST(request: Request) {
     || (delivery.messagingServiceSid && params.MessagingServiceSid !== delivery.messagingServiceSid)) {
     return Response.json({ error: 'Sender identity mismatch' }, { status: 403 });
   }
+  let intentRecipient: string | null = null;
   if (delivery.intentId) {
     const [intent] = await db.select({ recipient: communicationIntentSchema.recipient })
       .from(communicationIntentSchema).where(and(
@@ -109,10 +118,64 @@ export async function POST(request: Request) {
     if (!intent || !params.To || normalize(params.To) !== normalize(intent.recipient)) {
       return Response.json({ error: 'Recipient identity mismatch' }, { status: 403 });
     }
+    intentRecipient = intent.recipient;
+  } else if (delivery.providerMessageId === providerMessageId && params.To) {
+    // Legacy rows can predate intent linkage. A stored matching provider SID
+    // proves this signed callback belongs to the historical delivery, so its
+    // Twilio `To` field is sufficient opt-out evidence.
+    intentRecipient = params.To;
+  } else if (delivery.appointmentId && params.To) {
+    // A legacy row without a stored SID needs a tenant-bound recipient check
+    // before it can affect consent. Do not reject its historical status
+    // callback when it fails; simply withhold suppression evidence.
+    const [appointment] = await db.select({ clientPhone: appointmentSchema.clientPhone })
+      .from(appointmentSchema).where(and(
+        eq(appointmentSchema.id, delivery.appointmentId),
+        eq(appointmentSchema.salonId, delivery.salonId),
+      )).limit(1);
+    const normalize = (phone: string) => phone.replace(/\D/g, '').replace(/^1(?=\d{10}$)/, '');
+    if (appointment?.clientPhone && normalize(params.To) === normalize(appointment.clientPhone)) {
+      intentRecipient = appointment.clientPhone;
+    }
   }
 
   const rank = STATUS_RANK[providerStatus] ?? 0;
   const errorCode = params.ErrorCode || null;
+
+  // Error 21610 is Twilio's authoritative indication that this recipient has
+  // opted out. Callback retries use the provider MessageSid as the append-only
+  // log idempotency key. A carrier/provider block such as 30007 deliberately
+  // remains only delivery evidence and never changes consent.
+  const sharedSenderIdentity = Env.LUSTER_SMS_SENDER_IDENTITY || LUSTER_DEFAULT_SENDER_IDENTITY;
+  const isByoDelivery = delivery.senderIdentity?.startsWith('byo:')
+    || (!delivery.senderIdentity && connection?.connectAccountSid === expectedAccount);
+  if (errorCode === '21610' && intentRecipient !== null && delivery.senderIdentity === sharedSenderIdentity) {
+    await appendGlobalConsentEvent({
+      senderIdentity: sharedSenderIdentity,
+      recipient: intentRecipient,
+      state: 'suppressed',
+      optOutType: 'STOP',
+      source: 'twilio_advanced_opt_out',
+      providerSid: providerMessageId,
+    });
+  } else if (errorCode === '21610' && intentRecipient !== null && isByoDelivery) {
+    // A signed, identity-bound callback is authoritative provider evidence
+    // for this retired BYO sender's tenant only. Its deterministic id makes a
+    // callback replay harmless without treating a provider error as a shared
+    // Luster opt-out.
+    await db.insert(communicationConsentSchema).values({
+      id: `twilio:provider-21610:${deliveryId}:${providerMessageId}`,
+      salonId: delivery.salonId,
+      recipient: normalizeConsentRecipient(intentRecipient),
+      channel: 'sms',
+      purpose: 'appointment_transactional',
+      status: 'revoked',
+      wordingVersion: 'twilio-provider-21610-v1',
+      source: 'twilio_inbound',
+      revokedAt: new Date(),
+      metadata: { providerErrorCode: '21610', providerMessageId, deliveryId },
+    }).onConflictDoNothing();
+  }
 
   // Monotonic CAS: legacy NULL-rank rows accept their first callback (the
   // pre-Gate-B behavior, byte-identical), then become ordered. updated_at is
