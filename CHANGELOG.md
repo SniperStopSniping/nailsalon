@@ -1,3 +1,10 @@
+# [1.117.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.116.3...v1.117.0) (2026-09-18)
+
+
+### Features
+
+* add dark customer booking assistant catalogue pilot ([f09120c](https://github.com/SniperStopSniping/nailsalon/commit/f09120c1a175db48306a5501e4603bb8aaf34a99))
+
 ## [1.116.3](https://github.com/SniperStopSniping/nailsalon/compare/v1.116.2...v1.116.3) (2026-09-18)
 
 
