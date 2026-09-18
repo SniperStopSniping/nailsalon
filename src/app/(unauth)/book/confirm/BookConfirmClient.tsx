@@ -1390,8 +1390,8 @@ const ConfirmContent = ({
                 </label>
                 <p id="booking-sms-details">{t('sms_details', { salon: salonName })}</p>
                 <div className="flex gap-3">
-                  <a href={`/${locale}/terms`} target="_blank" rel="noreferrer" className="underline underline-offset-2">{t('terms')}</a>
-                  <a href={`/${locale}/privacy`} target="_blank" rel="noreferrer" className="underline underline-offset-2">{t('privacy')}</a>
+                  <a href={`/${locale}/terms`} target="_blank" rel="noreferrer" className="inline-flex min-h-11 min-w-11 items-center underline underline-offset-2">{t('terms')}</a>
+                  <a href={`/${locale}/privacy`} target="_blank" rel="noreferrer" className="inline-flex min-h-11 min-w-11 items-center underline underline-offset-2">{t('privacy')}</a>
                 </div>
               </div>
             )}

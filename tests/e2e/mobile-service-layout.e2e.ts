@@ -972,7 +972,7 @@ test.describe('compact booking agreement and receipt', () => {
         // Exercise the receipt without creating an appointment or sending messages.
         await route.fulfill({
           status: 201,
-          json: { data: { appointment: { id: 'layout-fixture', status: 'confirmed' }, manageUrl } },
+          json: { data: { appointment: { id: 'layout-fixture', status: 'confirmed' }, manageUrl, smsReminderStatus: 'customer_disabled' } },
         });
       });
       const params = new URLSearchParams({
@@ -1001,6 +1001,12 @@ test.describe('compact booking agreement and receipt', () => {
 
       await expect(textReminders).toBeChecked();
       await expect.poll(() => textReminders.locator('..').evaluate(element => element.getBoundingClientRect().height)).toBeGreaterThanOrEqual(44);
+      for (const name of ['Terms', 'Privacy']) {
+        const link = page.getByRole('link', { name, exact: true });
+        await expect.poll(() => link.evaluate(element => element.getBoundingClientRect().height)).toBeGreaterThanOrEqual(44);
+        await expect.poll(() => link.evaluate(element => element.getBoundingClientRect().width)).toBeGreaterThanOrEqual(44);
+      }
+      await page.screenshot({ path: testInfo.outputPath('reminders-default-on.png'), fullPage: true });
 
       await textReminders.uncheck();
 
