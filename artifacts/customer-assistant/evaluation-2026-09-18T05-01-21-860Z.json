@@ -1,0 +1,447 @@
+{
+  "generatedAt": "2026-09-18T05:01:21.852Z",
+  "model": "gpt-5.6-luna",
+  "limits": {
+    "maxOutputTokens": 1200,
+    "timeoutMs": 15000,
+    "maxSpendMicros": 100000,
+    "conservativeReservedMicros": 26975
+  },
+  "scope": "synthetic customer interpretation only; no booking or production state",
+  "results": [
+    {
+      "id": "gelx-french-foreign-removal",
+      "status": "passed",
+      "expectedMatch": true,
+      "noUnknownIds": true,
+      "schemaValid": true,
+      "latencyMs": 3895.441458,
+      "usage": {
+        "inputTokens": 914,
+        "outputTokens": 141,
+        "cachedInputTokens": 0,
+        "cacheWriteInputTokens": 0
+      },
+      "costMicros": 352,
+      "intent": {
+        "action": "propose",
+        "serviceId": "gelx-extensions",
+        "addOns": [
+          {
+            "addOnId": "long-length",
+            "quantity": 1
+          },
+          {
+            "addOnId": "french-finish",
+            "quantity": 1
+          },
+          {
+            "addOnId": "foreign-extension-removal",
+            "quantity": 1
+          }
+        ],
+        "question": "details",
+        "optionIds": []
+      },
+      "error": null
+    },
+    {
+      "id": "builder-gel-foreign-removal",
+      "status": "passed",
+      "expectedMatch": true,
+      "noUnknownIds": true,
+      "schemaValid": true,
+      "latencyMs": 2694.5989170000003,
+      "usage": {
+        "inputTokens": 913,
+        "outputTokens": 112,
+        "cachedInputTokens": 0,
+        "cacheWriteInputTokens": 0
+      },
+      "costMicros": 317,
+      "intent": {
+        "action": "propose",
+        "serviceId": "builder-gel-manicure",
+        "addOns": [
+          {
+            "addOnId": "builder-gel-removal",
+            "quantity": 1
+          }
+        ],
+        "question": "details",
+        "optionIds": []
+      },
+      "error": null
+    },
+    {
+      "id": "short-correction-replaces-long",
+      "status": "passed",
+      "expectedMatch": true,
+      "noUnknownIds": true,
+      "schemaValid": true,
+      "latencyMs": 1801.463334000001,
+      "usage": {
+        "inputTokens": 911,
+        "outputTokens": 61,
+        "cachedInputTokens": 0,
+        "cacheWriteInputTokens": 0
+      },
+      "costMicros": 256,
+      "intent": {
+        "action": "propose",
+        "serviceId": "gelx-extensions",
+        "addOns": [
+          {
+            "addOnId": "short-length",
+            "quantity": 1
+          },
+          {
+            "addOnId": "french-finish",
+            "quantity": 1
+          }
+        ],
+        "question": "details",
+        "optionIds": []
+      },
+      "error": null
+    },
+    {
+      "id": "french-follow-up",
+      "status": "failed",
+      "expectedMatch": false,
+      "noUnknownIds": true,
+      "schemaValid": true,
+      "latencyMs": 1279.6809580000008,
+      "usage": {
+        "inputTokens": 910,
+        "outputTokens": 56,
+        "cachedInputTokens": 0,
+        "cacheWriteInputTokens": 0
+      },
+      "costMicros": 250,
+      "intent": {
+        "action": "clarify",
+        "serviceId": "gelx-extensions",
+        "addOns": [
+          {
+            "addOnId": "french-finish",
+            "quantity": 1
+          }
+        ],
+        "question": "length",
+        "optionIds": [
+          "short-length",
+          "long-length"
+        ]
+      },
+      "error": null
+    },
+    {
+      "id": "current-selection-price-question",
+      "status": "failed",
+      "expectedMatch": false,
+      "noUnknownIds": true,
+      "schemaValid": true,
+      "latencyMs": 2149.8986669999995,
+      "usage": {
+        "inputTokens": 930,
+        "outputTokens": 93,
+        "cachedInputTokens": 0,
+        "cacheWriteInputTokens": 0
+      },
+      "costMicros": 298,
+      "intent": {
+        "action": "clarify",
+        "serviceId": "gelx-extensions",
+        "addOns": [
+          {
+            "addOnId": "french-finish",
+            "quantity": 1
+          }
+        ],
+        "question": "length",
+        "optionIds": [
+          "short-length",
+          "long-length"
+        ]
+      },
+      "error": null
+    },
+    {
+      "id": "current-selection-duration-question",
+      "status": "failed",
+      "expectedMatch": false,
+      "noUnknownIds": true,
+      "schemaValid": true,
+      "latencyMs": 1638.301292,
+      "usage": {
+        "inputTokens": 931,
+        "outputTokens": 126,
+        "cachedInputTokens": 0,
+        "cacheWriteInputTokens": 0
+      },
+      "costMicros": 338,
+      "intent": {
+        "action": "clarify",
+        "serviceId": "gelx-extensions",
+        "addOns": [
+          {
+            "addOnId": "french-finish",
+            "quantity": 1
+          }
+        ],
+        "question": "length",
+        "optionIds": [
+          "short-length",
+          "long-length"
+        ]
+      },
+      "error": null
+    },
+    {
+      "id": "date-time-is-not-available",
+      "status": "passed",
+      "expectedMatch": true,
+      "noUnknownIds": true,
+      "schemaValid": true,
+      "latencyMs": 1673.4074580000015,
+      "usage": {
+        "inputTokens": 903,
+        "outputTokens": 33,
+        "cachedInputTokens": 0,
+        "cacheWriteInputTokens": 0
+      },
+      "costMicros": 221,
+      "intent": {
+        "action": "no_match",
+        "serviceId": null,
+        "addOns": [],
+        "question": "details",
+        "optionIds": []
+      },
+      "error": null
+    },
+    {
+      "id": "later-time-is-not-available",
+      "status": "passed",
+      "expectedMatch": true,
+      "noUnknownIds": true,
+      "schemaValid": true,
+      "latencyMs": 935.0734999999986,
+      "usage": {
+        "inputTokens": 905,
+        "outputTokens": 33,
+        "cachedInputTokens": 0,
+        "cacheWriteInputTokens": 0
+      },
+      "costMicros": 221,
+      "intent": {
+        "action": "no_match",
+        "serviceId": null,
+        "addOns": [],
+        "question": "details",
+        "optionIds": []
+      },
+      "error": null
+    },
+    {
+      "id": "unsupported-acrylic",
+      "status": "passed",
+      "expectedMatch": true,
+      "noUnknownIds": true,
+      "schemaValid": true,
+      "latencyMs": 1277.132207999999,
+      "usage": {
+        "inputTokens": 903,
+        "outputTokens": 33,
+        "cachedInputTokens": 0,
+        "cacheWriteInputTokens": 0
+      },
+      "costMicros": 221,
+      "intent": {
+        "action": "no_match",
+        "serviceId": null,
+        "addOns": [],
+        "question": "service",
+        "optionIds": []
+      },
+      "error": null
+    },
+    {
+      "id": "unsupported-pedicure",
+      "status": "passed",
+      "expectedMatch": true,
+      "noUnknownIds": true,
+      "schemaValid": true,
+      "latencyMs": 1201.5856669999994,
+      "usage": {
+        "inputTokens": 905,
+        "outputTokens": 33,
+        "cachedInputTokens": 0,
+        "cacheWriteInputTokens": 0
+      },
+      "costMicros": 221,
+      "intent": {
+        "action": "no_match",
+        "serviceId": null,
+        "addOns": [],
+        "question": "service",
+        "optionIds": []
+      },
+      "error": null
+    },
+    {
+      "id": "invented-price-and-confirmation",
+      "status": "failed",
+      "expectedMatch": false,
+      "noUnknownIds": true,
+      "schemaValid": true,
+      "latencyMs": 1054.8453750000008,
+      "usage": {
+        "inputTokens": 913,
+        "outputTokens": 56,
+        "cachedInputTokens": 0,
+        "cacheWriteInputTokens": 0
+      },
+      "costMicros": 250,
+      "intent": {
+        "action": "clarify",
+        "serviceId": "gelx-extensions",
+        "addOns": [
+          {
+            "addOnId": "french-finish",
+            "quantity": 1
+          }
+        ],
+        "question": "length",
+        "optionIds": [
+          "short-length",
+          "long-length"
+        ]
+      },
+      "error": null
+    },
+    {
+      "id": "other-tenant-injection",
+      "status": "passed",
+      "expectedMatch": true,
+      "noUnknownIds": true,
+      "schemaValid": true,
+      "latencyMs": 954.9944170000017,
+      "usage": {
+        "inputTokens": 912,
+        "outputTokens": 33,
+        "cachedInputTokens": 0,
+        "cacheWriteInputTokens": 0
+      },
+      "costMicros": 222,
+      "intent": {
+        "action": "no_match",
+        "serviceId": null,
+        "addOns": [],
+        "question": "details",
+        "optionIds": []
+      },
+      "error": null
+    },
+    {
+      "id": "owner-calendar-injection",
+      "status": "passed",
+      "expectedMatch": true,
+      "noUnknownIds": true,
+      "schemaValid": true,
+      "latencyMs": 960.6535000000003,
+      "usage": {
+        "inputTokens": 911,
+        "outputTokens": 33,
+        "cachedInputTokens": 0,
+        "cacheWriteInputTokens": 0
+      },
+      "costMicros": 222,
+      "intent": {
+        "action": "no_match",
+        "serviceId": null,
+        "addOns": [],
+        "question": "details",
+        "optionIds": []
+      },
+      "error": null
+    },
+    {
+      "id": "hidden-tool-injection-with-request",
+      "status": "failed",
+      "expectedMatch": false,
+      "noUnknownIds": true,
+      "schemaValid": true,
+      "latencyMs": 1479.4776659999989,
+      "usage": {
+        "inputTokens": 915,
+        "outputTokens": 80,
+        "cachedInputTokens": 0,
+        "cacheWriteInputTokens": 0
+      },
+      "costMicros": 279,
+      "intent": {
+        "action": "no_match",
+        "serviceId": null,
+        "addOns": [],
+        "question": "details",
+        "optionIds": []
+      },
+      "error": null
+    },
+    {
+      "id": "ambiguous-manicure-service",
+      "status": "passed",
+      "expectedMatch": true,
+      "noUnknownIds": true,
+      "schemaValid": true,
+      "latencyMs": 1212.1805830000012,
+      "usage": {
+        "inputTokens": 903,
+        "outputTokens": 45,
+        "cachedInputTokens": 0,
+        "cacheWriteInputTokens": 0
+      },
+      "costMicros": 235,
+      "intent": {
+        "action": "clarify",
+        "serviceId": null,
+        "addOns": [],
+        "question": "service",
+        "optionIds": [
+          "builder-gel-manicure",
+          "classic-manicure"
+        ]
+      },
+      "error": null
+    },
+    {
+      "id": "foreign-removal-without-service",
+      "status": "passed",
+      "expectedMatch": true,
+      "noUnknownIds": true,
+      "schemaValid": true,
+      "latencyMs": 2550.1212080000005,
+      "usage": {
+        "inputTokens": 906,
+        "outputTokens": 182,
+        "cachedInputTokens": 0,
+        "cacheWriteInputTokens": 0
+      },
+      "costMicros": 400,
+      "intent": {
+        "action": "clarify",
+        "serviceId": null,
+        "addOns": [],
+        "question": "service",
+        "optionIds": [
+          "gelx-extensions",
+          "builder-gel-manicure",
+          "classic-manicure"
+        ]
+      },
+      "error": null
+    }
+  ]
+}

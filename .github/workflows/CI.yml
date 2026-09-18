@@ -727,6 +727,9 @@ jobs:
       - name: Verify review previews and delivery states in mobile browsers
         run: node node_modules/playwright/cli.js test --config tests/browser/reviews/playwright.config.ts --output=test-results/review-components
 
+      - name: Verify dark customer assistant proposal shell in mobile browsers
+        run: node node_modules/playwright/cli.js test --config tests/browser/customerAssistant/playwright.config.ts --output=test-results/customer-assistant-components
+
       - name: Run storybook tests
         run: npm run test-storybook:ci
 

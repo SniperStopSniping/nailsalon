@@ -1,0 +1,60 @@
+# Customer booking assistant — expanded implementation contract
+
+Refreshed 2026-09-18 against `origin/main` `1c4c0be2` (release 1.116.3). This is a targeted delta to the 2026-09-15 customer design and platform master plan, not a new architecture audit. Customer activation remains OFF; no Production configuration changes are authorized.
+
+## Superseded assumptions
+
+The customer design §§0–1, I3/I4/I6/I8, §§5–6, §10 and its handoff-only delivery plan, plus the master plan §5 customer boundary and customer rows in §§8/11/15, no longer stop after selection. The customer stays in a conversational booking flow through an explicit final review and booking result. Identity, booking creation, and secure deposit handoff are in scope for application code. Rescheduling, cancelling, group bookings, history, owner tools, and medical advice remain out of scope. The model cannot perform writes or assert booking success.
+
+The old “no AI provider exists” baseline is obsolete. `src/libs/ai/openaiResponses.server.ts` and `provider.ts` provide a credential-injected Responses API adapter with `store:false`, bounded output, abort deadlines, no retry, and sanitized failure/usage parsing. Reuse these primitives without importing `ownerAssistant/**`, owner tools, owner config, credentials, transcript signing, or owner budget counters. Start with `gpt-5.6-luna`, reasoning `low`; customer credentials, accounting and budget namespaces are separate.
+
+## Current authorities and required deltas
+
+- Public route context: resolve an explicit public page slug to a published, bookable salon. Issue a short-lived customer capability bound to the resolved salon and browser session; body/model text cannot select a tenant. Pilot admission is explicit server enablement AND `isla-nail-studio`. No active-owner cookie fallback.
+- Catalogue: active public services, active bound add-ons and public labels only. Mirror `BookServicePageServer.tsx` and `getPublicBookableServiceIds`; never give model raw database rows, private capability rules, notes, calendars, owner settings or clients.
+- Selection: `resolvePublicBookingSelection` / `validatePublicBookingSelection` and existing catalogue reconciliation remain authority. The model supplies constrained intent/candidates; code validates identifiers, bindings, required options, quantity and technician eligibility. Render all item names, money and durations from the server result. Revalidate on selection, availability, final review, and creation. Preserve current L1/legacy rules.
+- Availability: `src/app/api/appointments/availability/route.ts` is the parity specification; `src/libs/availability/engine.server.ts` is pure. The existing route calls `getGoogleCalendarBusyWindows`, whose error path can update integration state and send a disconnection email. Public AI must not call that side-effecting helper. Extract an explicitly read-only adapter while preserving the manual path's slot policy, hours, notice, buffers, conflicts, time off, locations, technician eligibility and Smart Fit behavior. No selected slot is held; only the existing booking/deposit authority can establish a hold.
+- Contact/review: current guest booking requires name, email AND phone (`appointments/route.ts`). Collect these in deterministic form controls, outside model input/state. Review includes current salon/location, items/quantities, technician, local date/time, duration, final identity-dependent pricing, deposit/payment and reminder/policy state. Material changes invalidate acceptance and require a fresh click.
+- Creation: keep `POST /api/appointments` as the single engine. Its actor role can derive from ambient admin/staff cookies even for `bookingSubject: guest`; the AI adapter must force the public customer authority explicitly and cannot rely on forwarding the ordinary handler under owner cookies.
+- Retry safety: existing general appointment idempotency is Redis-based and can fail open. `/api/public/appointments/recovery` sends email and is NOT an operation-status endpoint. Before enabling creation, add a durable customer operation/capability and atomic linkage to the engine's committed appointment/hold. Pin the review fingerprint and original operation key. Double taps, refresh, network timeouts and crashed responses query that operation; never create a new key to retry an ambiguous result. The required atomic engine integration must be coordinated after #245.
+- Deposits: retain current secure checkout and reconciliation. No card fields in chat/model. Return separate pending-payment, awaiting-confirmation, confirmed, failed and unknown-operation states according to the existing authoritative booking state; a payment redirect alone is not confirmation. Do not touch billing/subscription code.
+
+## #245 integration boundary
+
+PR #245 is OPEN at `52c48e78e6cdfffc6009ea68cea3eaca11deb43d`. Its reviewed contract owns required phone + `Text reminders`, `communications.sms.bookingDefault` (`default_on`/`default_off`/`disabled`), `smsConsent.selection` (`default_on`, `default_off`, `explicit_on`, `explicit_off`), preserved STOP/provider suppression and appointment-specific preferences. This assistant must consume that contract after merge; it must not copy or reimplement its consent helpers or edit `BookConfirmClient.tsx`, the confirmation page, appointment route, SMS modules or locale keys owned by that PR meanwhile. Contact/review can be prepared behind an adapter, but end-to-end creation is blocked on safe engine integration with #245. The PR currently documents a hosted Preview `STRIPE_KEY_MODE_MISMATCH` blocker. This task does not fix Stripe settings.
+
+## Customer-only limits and privacy
+
+Fail closed if customer configuration, Redis reservation, signing, ledger or authoritative state is unavailable. Use a separate `customer-booking-assistant` prefix, per-IP/session/turn/salon/global ceilings, fixed model/output/input ceilings, no provider retry, expiry and replay protection. Reserve a worst-case cost before a provider call and record validated usage afterward, treating missing usage as unknown spend. Conversation lifetime and turns are enforced by the server, not a client-supplied counter. Do not persist transcripts by default; retain only bounded signed state in the browser, short-lived replay markers, and sanitized usage rows. Explicitly scrub customer assistant request bodies/capabilities from telemetry. Repeated calls cannot consume owner or ordinary booking quota. Provide an operational kill switch independent of Owner Assistant.
+
+## Delivery stages
+
+1. Dark customer boundary, signed salon/session context, public catalogue reasoning, independent limits/ledger, conversation shell and manual escape. No booking write.
+2. Validated service/add-on proposals and deterministic price/duration, clarification controls and material-change review.
+3. Pure public availability adapter, parity proof, date/time preference interpretation and valid slot controls.
+4. Contact form plus deterministic final review consuming #245's merged contract.
+5. Durable idempotent operation and atomic existing-engine integration, explicit `CONFIRM BOOKING`, operation lookup/recovery.
+6. Existing deposit/payment handoff with truthful final status and interrupted-payment recovery.
+7. Synthetic model evaluation, prompt-injection/tenant/abuse/security coverage, mobile journey/screenshots, PostgreSQL concurrency proof and inactive Isla pilot runbook.
+
+Each PR is reviewed independently, checked at its exact head, preview-verified, and merged only when required gates pass. An external Preview/configuration gate cannot be bypassed. Independent subsequent modules may be prepared without modifying #245 or claiming completed delivery. Tests use disposable data and fake delivery/payment providers. Activation and Production migration/configuration, if required, remain a separate owner-authorized step.
+
+## Acceptance and activation report
+
+Report PRs/merged SHAs, capabilities actually implemented, mobile screenshots, wrong-tenant and prompt-injection evidence, real PostgreSQL races (PGlite is insufficient), real model quality/latency/cost separately from deterministic harness evidence, #245 integration status, and exact remaining activation steps. Pilot enablement requires all stages complete, no invented facts, explicit final-click authority, duplicate/ambiguous-timeout/deposit proofs and a dedicated customer provider budget. No activation is part of this implementation task.
+
+## Stage 1 delivery evidence (2026-09-18)
+
+Implemented behind default-OFF customer configuration: Isla-only public route admission, short-lived salon/session HMAC state, independent atomic Redis limits and spend reservation, pre-dispatch and sanitized outcome ledger rows, one Luna-low structured call with `store:false`, tenant-filtered public catalogue, validated selection and deterministic service subtotal/duration, clarification controls, bilingual mobile shell and manual escape. There is no appointment creation, availability offering, contact collection, final booking confirmation or payment operation in this stage. L1-enabled catalogues fail closed until their public eligibility rules are integrated; do not activate on such a salon.
+
+Independent high-risk source review found no remaining high-risk issue for this dark catalogue stage. Its Redis reply/parsing, terminal-turn, contextual follow-up, browser-storage and evaluation-usage findings were fixed. This review does not approve later creation, payment or activation.
+
+Local validation:
+- Customer/route/component/evaluation fixtures plus the previously timed-out database guard: 89 passed, 2 Redis-only tests skipped without explicit Redis URL.
+- Separate real Redis atomic/replay/rate-limit suite: 6 passed against a disposable local Redis.
+- Existing real PostgreSQL appointment concurrency suite: 56 passed, using a disposable local PostgreSQL cluster and mocked delivery. This proves the unchanged booking engine baseline, not a future AI creation adapter.
+- Appointment regression: 103 passed. Booking service page: 37 passed. Architecture/client-server boundary suites passed.
+- Type check and focused ESLint passed. Chromium and WebKit component-browser fixture: 4 passed at 390/320px and 200% text size; normal-size and zoom screenshots live under `artifacts/customer-assistant/`. Screenshots use synthetic response interception and are not full booking E2E evidence.
+- Full local Vitest run: 9,859 passed, 202 skipped, 1 todo; three existing database-guard tests timed out during concurrent heavy checks. All 38 database-guard tests passed in the isolated rerun. Exact-head CI must still pass its full suite before merge.
+
+Real Luna evaluation used synthetic menu data only. The first run was 11/16 strict intent matches ($0.004303). Clarified fixtures explicitly established required length and added contextual ordinal selection; the second run was 15/17 ($0.004921), with 17/17 no-unknown-menu-ID checks, p50 1450ms and p95 3810ms. Total provider-reported cost was $0.009224. Two second-run misses were unnecessary finish clarification and safe refusal of a mixed owner-tool-injection/service request. These small English synthetic sets do not establish production quality or French quality. Reports preserve both runs and their actual token usage. The offline runner now retains usage even if generated content fails validation and uses a stronger byte-based reservation for future runs; historical reservation estimates are preserved as recorded.
