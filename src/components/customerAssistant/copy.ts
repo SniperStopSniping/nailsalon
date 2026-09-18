@@ -13,6 +13,7 @@ type CustomerAssistantCopy = {
   retry: string;
   networkError: string;
   tokenError: string;
+  contactChanged: string;
   proposal: string;
   services: string;
   addOns: string;
@@ -37,6 +38,7 @@ export const customerAssistantCopy: Record<CustomerAssistantLocale, CustomerAssi
     retry: 'Try again',
     networkError: 'We could not reach the assistant. Your previous conversation was kept. Please try again.',
     tokenError: 'This conversation is no longer available. Start over to continue.',
+    contactChanged: 'Your contact details changed. Review the booking details again.',
     proposal: 'Suggested services',
     services: 'Service',
     addOns: 'Add-ons',
@@ -74,6 +76,7 @@ export const customerAssistantCopy: Record<CustomerAssistantLocale, CustomerAssi
     retry: 'Réessayer',
     networkError: 'Nous ne pouvons pas joindre l’assistant. Votre conversation précédente a été conservée. Réessayez.',
     tokenError: 'Cette conversation n’est plus disponible. Recommencez pour continuer.',
+    contactChanged: 'Vos coordonnées ont changé. Vérifiez les détails de réservation à nouveau.',
     proposal: 'Services suggérés',
     services: 'Service',
     addOns: 'Ajouts',

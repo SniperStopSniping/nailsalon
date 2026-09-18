@@ -31,11 +31,11 @@ describe('customer assistant privilege and privacy guards', () => {
     expect(customerChatRequestSchema.safeParse({ conversation: 'signed', message: 'hello', locale: 'en', salonId: 'other', role: 'owner', phone: '+15551234567' }).success).toBe(false);
   });
 
-  it('scrubs customer words and capabilities before Sentry while preserving other routes', () => {
-    const request = { url: 'https://app.test/api/public/customer-assistant/isla-nail-studio/chat?conversation=CAPABILITY', data: 'CUSTOMER_WORDS', cookies: 'COOKIE', headers: { Authorization: 'BEARER' } };
+  it.each(['chat', 'review'])('scrubs customer words, contact and capabilities before Sentry for %s', (endpoint) => {
+    const request = { url: `https://app.test/api/public/customer-assistant/isla-nail-studio/${endpoint}?conversation=CAPABILITY`, data: { message: 'CUSTOMER_WORDS', contact: { name: 'PRIVATE_CONTACT_NAME', email: 'private@example.test', phone: '4165550199' } }, cookies: 'COOKIE', headers: { Authorization: 'BEARER' } };
     const event = scrubSentryEvent({ request });
 
-    expect(JSON.stringify(event)).not.toMatch(/CAPABILITY|CUSTOMER_WORDS|COOKIE|BEARER/);
+    expect(JSON.stringify(event)).not.toMatch(/CAPABILITY|CUSTOMER_WORDS|PRIVATE_CONTACT_NAME|private@example|4165550199|COOKIE|BEARER/);
     expect(scrubSentryEvent({ request: { url: 'https://app.test/api/health', data: 'keep' } }).request.data).toBe('keep');
   });
 });

@@ -6,10 +6,14 @@ import { useEffect, useRef, useState } from 'react';
 
 import { DialogShell } from '@/components/ui/dialog-shell';
 import type { CustomerAssistantAction, CustomerAssistantLocale, CustomerAssistantResponse, CustomerAssistantResult } from '@/libs/customerAssistant/contracts';
+import type { CustomerReviewResponse } from '@/libs/customerAssistant/reviewContracts';
 import { formatMoney } from '@/libs/formatMoney';
 import { formatDuration } from '@/utils/Helpers';
 
+import type { CustomerContactValues } from './ContactDetailsForm';
+import { ContactDetailsForm } from './ContactDetailsForm';
 import { customerAssistantCopy } from './copy';
+import { CustomerBookingReviewCard } from './CustomerBookingReviewCard';
 import { AcceptSelection, ScheduleCards } from './ScheduleCards';
 
 type CustomerAssistantLauncherProps = {
@@ -52,7 +56,7 @@ function clearStoredConversation(salonSlug: string): void {
   }
 }
 
-function isConversationError(result: CustomerAssistantResult): boolean {
+function isConversationError(result: CustomerReviewResponse['result']): boolean {
   return result.kind === 'unavailable'
     && (result.reason === 'conversation_used' || result.reason === 'invalid_conversation');
 }
@@ -98,8 +102,16 @@ function ProposalCard({ result, locale }: { result: Extract<CustomerAssistantRes
   );
 }
 
-function AssistantResult({ result, locale, loading, onOption, onAction }: { result: CustomerAssistantResult; locale: CustomerAssistantLocale; loading: boolean; onOption: (option: string) => void; onAction: (action: CustomerAssistantAction) => void }) {
+function AssistantResult({ result, locale, loading, onOption, onAction, contact, onContactChange, onReview, reviewDirty }: { result: CustomerReviewResponse['result']; locale: CustomerAssistantLocale; loading: boolean; onOption: (option: string) => void; onAction: (action: CustomerAssistantAction) => void; contact: CustomerContactValues; onContactChange: (contact: CustomerContactValues) => void; onReview: () => void; reviewDirty: boolean }) {
   const copy = customerAssistantCopy[locale];
+  if (result.kind === 'review_prepared') {
+    return (
+      <div className="space-y-4">
+        {reviewDirty ? <p role="status" className="text-sm text-amber-950">{copy.contactChanged}</p> : <CustomerBookingReviewCard review={result.review} locale={locale} />}
+        <ContactDetailsForm locale={locale} contact={contact} disabled={loading} onChange={onContactChange} onReview={onReview} />
+      </div>
+    );
+  }
   if (result.kind === 'proposal') {
     return (
       <div>
@@ -109,7 +121,12 @@ function AssistantResult({ result, locale, loading, onOption, onAction }: { resu
     );
   }
   if (result.kind === 'date_prompt' || result.kind === 'slots' || result.kind === 'slot_selected') {
-    return <ScheduleCards result={result} locale={locale} disabled={loading} onAction={onAction} />;
+    return (
+      <div className="space-y-4">
+        <ScheduleCards result={result} locale={locale} disabled={loading} onAction={onAction} />
+        {result.kind === 'slot_selected' && <ContactDetailsForm locale={locale} contact={contact} disabled={loading} onChange={onContactChange} onReview={onReview} />}
+      </div>
+    );
   }
   if (result.kind === 'clarification') {
     return (
@@ -126,8 +143,10 @@ export function CustomerAssistantPanel({ salonSlug, locale, onClose }: CustomerA
   const copy = customerAssistantCopy[locale];
   const [conversation, setConversation] = useState<string | null>(null);
   const [messages, setMessages] = useState<DisplayMessage[]>([]);
-  const [result, setResult] = useState<CustomerAssistantResult | null>(null);
+  const [result, setResult] = useState<CustomerReviewResponse['result'] | null>(null);
   const [input, setInput] = useState('');
+  const [contact, setContact] = useState<CustomerContactValues>({ name: '', email: '', phone: '' });
+  const [reviewDirty, setReviewDirty] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<'network' | 'token' | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -137,7 +156,12 @@ export function CustomerAssistantPanel({ salonSlug, locale, onClose }: CustomerA
   useEffect(() => {
     const transcript = transcriptRef.current;
     if (transcript) {
-      transcript.scrollTop = transcript.scrollHeight;
+      const reviewCard = transcript.querySelector('[data-customer-review]');
+      if (result?.kind === 'review_prepared' && reviewCard && !loading) {
+        reviewCard.scrollIntoView?.({ block: 'start' });
+      } else {
+        transcript.scrollTop = transcript.scrollHeight;
+      }
     }
   }, [messages, result, loading, error]);
 
@@ -178,6 +202,8 @@ export function CustomerAssistantPanel({ salonSlug, locale, onClose }: CustomerA
     setConversation(null);
     setMessages([]);
     setResult(null);
+    setContact({ name: '', email: '', phone: '' });
+    setReviewDirty(false);
     void createSession();
   };
 
@@ -207,6 +233,7 @@ export function CustomerAssistantPanel({ salonSlug, locale, onClose }: CustomerA
       setConversation(data.conversation);
       storeConversation(salonSlug, data.conversation);
       setResult(data.result);
+      setReviewDirty(false);
       if (isConversationError(data.result)) {
         setError('token');
       }
@@ -243,6 +270,42 @@ export function CustomerAssistantPanel({ salonSlug, locale, onClose }: CustomerA
       setConversation(data.conversation);
       storeConversation(salonSlug, data.conversation);
       setResult(data.result);
+      setReviewDirty(false);
+      if (isConversationError(data.result)) {
+        setError('token');
+      }
+    } catch {
+      setError('network');
+    } finally {
+      inFlight.current = false;
+      setLoading(false);
+    }
+  };
+
+  const review = async () => {
+    if (loading || inFlight.current || !conversation || error === 'token') {
+      return;
+    }
+    inFlight.current = true;
+    setLoading(true);
+    setError(null);
+    try {
+      const response = await fetch(`${endpoint(salonSlug)}/review`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ conversation, contact }),
+      });
+      if (!response.ok) {
+        throw new Error('review request failed');
+      }
+      const data = await response.json() as CustomerReviewResponse;
+      if (!data.conversation || !data.result) {
+        throw new Error('invalid review response');
+      }
+      setConversation(data.conversation);
+      storeConversation(salonSlug, data.conversation);
+      setResult(data.result);
+      setReviewDirty(false);
       if (isConversationError(data.result)) {
         setError('token');
       }
@@ -281,7 +344,22 @@ export function CustomerAssistantPanel({ salonSlug, locale, onClose }: CustomerA
             <button type="button" onClick={restart} className="mt-2 min-h-11 font-medium underline underline-offset-4">{copy.restart}</button>
           </div>
         )}
-        {result && <AssistantResult result={result} locale={locale} loading={loading} onOption={option => void send(option)} onAction={action => void act(action)} />}
+        {result && (
+          <AssistantResult
+            result={result}
+            locale={locale}
+            loading={loading}
+            onOption={option => void send(option)}
+            onAction={action => void act(action)}
+            contact={contact}
+            onContactChange={(updated) => {
+              setContact(updated);
+              setReviewDirty(true);
+            }}
+            onReview={() => void review()}
+            reviewDirty={reviewDirty}
+          />
+        )}
       </div>
       <form onSubmit={handleSubmit} className="shrink-0 border-t border-black/10 p-4 sm:px-5">
         <label htmlFor="customer-assistant-message" className="sr-only">{copy.placeholder}</label>
