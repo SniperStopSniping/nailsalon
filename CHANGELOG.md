@@ -1,3 +1,10 @@
+# [1.118.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.117.0...v1.118.0) (2026-09-18)
+
+
+### Features
+
+* add dark conversational customer availability ([2dbef1f](https://github.com/SniperStopSniping/nailsalon/commit/2dbef1fd654531796b0d897cdb8e390ea6ffae99))
+
 # [1.117.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.116.3...v1.117.0) (2026-09-18)
 
 
