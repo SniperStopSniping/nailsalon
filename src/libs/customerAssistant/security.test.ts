@@ -15,14 +15,25 @@ function sourceFiles(directory: string): string[] {
 }
 
 describe('customer assistant privilege and privacy guards', () => {
-  it('cannot import owner tools, private actions or any appointment/payment write route', () => {
-    const files = ['src/libs/customerAssistant', 'src/components/customerAssistant', 'src/app/api/public/customer-assistant'].flatMap(sourceFiles);
-    const forbidden = /(?:from\s+|import\s*\()['"](?:@\/libs\/(?:ownerAssistant|adminAuth|staffAuth|SMS|deposits)|@\/app\/api\/(?:admin|appointments|billing))/;
+  it('cannot import owner tools or write routes; only explicit adapters reach booking and original checkout recovery', () => {
+    const files = ['src/libs/customerAssistant', 'src/components/customerAssistant', 'src/app/api/public/customer-assistant', 'src/app/api/public/customer-booking'].flatMap(sourceFiles);
+    const forbidden = /(?:from\s+|import\s*\()['"](?:@\/libs\/(?:ownerAssistant|adminAuth|staffAuth|SMS)|@\/app\/api\/(?:admin|appointments|billing))/;
 
     expect(forbidden.test('import { write } from \'@/libs/ownerAssistant/tools\';')).toBe(true);
 
     for (const file of files) {
-      expect(readFileSync(file, 'utf8'), file).not.toMatch(forbidden);
+      const source = readFileSync(file, 'utf8');
+
+      expect(source, file).not.toMatch(forbidden);
+
+      const writeImports = [...source.matchAll(/(?:from\s+|import\s*\()['"](@\/libs\/(?:deposits\/[^'"]+|appointmentCreation\.server|bookingCommitEffects))['"]/g)].map(match => match[1]);
+      const allowed = file === 'src/libs/customerAssistant/confirmBooking.server.ts'
+        ? ['@/libs/appointmentCreation.server']
+        : file === 'src/libs/customerAssistant/recoveryAction.server.ts'
+          ? ['@/libs/bookingCommitEffects', '@/libs/deposits/resumeCustomerCheckout']
+          : [];
+
+      expect(writeImports, file).toEqual(allowed);
     }
   });
 
@@ -37,5 +48,11 @@ describe('customer assistant privilege and privacy guards', () => {
 
     expect(JSON.stringify(event)).not.toMatch(/CAPABILITY|CUSTOMER_WORDS|PRIVATE_CONTACT_NAME|private@example|4165550199|COOKIE|BEARER/);
     expect(scrubSentryEvent({ request: { url: 'https://app.test/api/health', data: 'keep' } }).request.data).toBe('keep');
+  });
+
+  it.each(['status', 'resume', 'manage'])('scrubs durable recovery capability for %s', (action) => {
+    const request = { url: `https://app.test/api/public/customer-booking/synthetic/${action}?capability=PRIVATE_CAPABILITY`, data: { capability: 'PRIVATE_CAPABILITY' }, cookies: 'PRIVATE_COOKIE', headers: { Authorization: 'PRIVATE_BEARER' } };
+
+    expect(JSON.stringify(scrubSentryEvent({ request }))).not.toMatch(/PRIVATE_CAPABILITY|PRIVATE_COOKIE|PRIVATE_BEARER/);
   });
 });

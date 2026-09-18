@@ -379,7 +379,7 @@ describe('no uppercase currency literal survives in D4\'s own source (§14 test 
       'src/libs/depositCheckout.ts',
       'src/libs/depositHoldReaper.ts',
       'src/libs/deposits/holdWriters.ts',
-      'src/app/api/appointments/route.ts',
+      'src/libs/appointmentCreation.server.ts',
       'src/app/api/public/deposits/session-status/route.ts',
       'src/app/api/deposits/holds/reap/route.ts',
     ];

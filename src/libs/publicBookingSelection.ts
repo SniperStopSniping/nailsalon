@@ -1,13 +1,16 @@
+import { and, eq, inArray } from 'drizzle-orm';
+
 import { getBookingConfigForSalon, resolveIntroPriceLabel } from '@/libs/bookingConfig';
+import type { SelectedAddOnParam } from '@/libs/bookingParams';
+import { type BookingSelectionReadContext, validatePublicBookingSelection } from '@/libs/bookingQuote';
 import {
+  type AutomaticBookingDiscountResult,
+  type BookingDiscountReadContext,
   FIRST_VISIT_DISCOUNT_LABEL,
   FIRST_VISIT_DISCOUNT_PERCENT,
   resolveAutomaticBookingDiscount,
 } from '@/libs/firstVisitDiscount';
-import { type SelectedAddOnParam } from '@/libs/bookingParams';
-import { validatePublicBookingSelection } from '@/libs/bookingQuote';
-import { getServicesByIds } from '@/libs/queries';
-import type { AddOnCategory, AddOnPricingType, Service, ServiceCategory } from '@/models/Schema';
+import { type AddOnCategory, type AddOnPricingType, type Service, type ServiceCategory, serviceSchema } from '@/models/Schema';
 
 export type PublicBookingServiceSummary = {
   id: string;
@@ -56,6 +59,8 @@ export type ResolvedPublicBookingSelection = {
   visibleDurationMinutes: number;
   blockedDurationMinutes: number;
   bufferMinutes: number;
+  /** Canonical pricing authority for callers that need the committed result. */
+  automaticDiscount: AutomaticBookingDiscountResult;
 };
 
 function mapDescriptionItems(
@@ -84,8 +89,13 @@ export async function resolvePublicBookingSelection(args: {
   technicianId?: string | null;
   clientPhone?: string | null;
   originalAppointmentId?: string | null;
+  readContext?: BookingSelectionReadContext;
 }): Promise<ResolvedPublicBookingSelection> {
-  const bookingConfig = await getBookingConfigForSalon(args.salonId);
+  if (args.readContext && args.readContext.salonId !== args.salonId) {
+    throw new Error('BOOKING_READ_CONTEXT_SALON_MISMATCH');
+  }
+  const readContext: BookingDiscountReadContext | undefined = args.readContext;
+  const bookingConfig = readContext?.bookingConfig ?? await getBookingConfigForSalon(args.salonId);
   const baseServiceId = args.baseServiceId ?? null;
   const selectedAddOns = args.selectedAddOns ?? [];
 
@@ -97,6 +107,7 @@ export async function resolvePublicBookingSelection(args: {
         selectedAddOns,
       },
       technicianId: args.technicianId ?? null,
+      readContext,
     });
     const pricing = await resolveAutomaticBookingDiscount({
       salonId: args.salonId,
@@ -104,6 +115,7 @@ export async function resolvePublicBookingSelection(args: {
       subtotalBeforeDiscountCents: validated.quote.subtotalCents,
       clientPhone: args.clientPhone ?? null,
       originalAppointmentId: args.originalAppointmentId ?? null,
+      readContext,
     });
 
     return {
@@ -164,11 +176,14 @@ export async function resolvePublicBookingSelection(args: {
       visibleDurationMinutes: validated.quote.visibleDurationMinutes,
       blockedDurationMinutes: validated.quote.blockedDurationMinutes,
       bufferMinutes: validated.quote.bufferMinutes,
+      automaticDiscount: pricing,
     };
   }
 
   const serviceIds = args.serviceIds ?? [];
-  const services = await getServicesByIds(serviceIds, args.salonId);
+  const services = readContext
+    ? await readContext.database.select().from(serviceSchema).where(and(inArray(serviceSchema.id, serviceIds), eq(serviceSchema.salonId, args.salonId), eq(serviceSchema.isActive, true)))
+    : await (await import('@/libs/queries')).getServicesByIds(serviceIds, args.salonId);
 
   if (services.length !== serviceIds.length) {
     throw new Error('INVALID_SERVICES');
@@ -181,6 +196,7 @@ export async function resolvePublicBookingSelection(args: {
     subtotalBeforeDiscountCents,
     clientPhone: args.clientPhone ?? null,
     originalAppointmentId: args.originalAppointmentId ?? null,
+    readContext,
   });
 
   return {
@@ -219,5 +235,6 @@ export async function resolvePublicBookingSelection(args: {
     visibleDurationMinutes: services.reduce((sum, service) => sum + service.durationMinutes, 0),
     blockedDurationMinutes: services.reduce((sum, service) => sum + service.durationMinutes, 0) + bookingConfig.bufferMinutes,
     bufferMinutes: bookingConfig.bufferMinutes,
+    automaticDiscount: pricing,
   };
 }

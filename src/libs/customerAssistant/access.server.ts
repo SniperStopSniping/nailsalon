@@ -11,6 +11,12 @@ export type CustomerAssistantConfig = {
   signingSecret: string;
 };
 
+/** Existing booking recovery survives disabling the conversational pilot. */
+export function getCustomerBookingRecoverySecret(): string | null {
+  const secret = process.env.CUSTOMER_ASSISTANT_SIGNING_SECRET?.trim();
+  return secret && secret.length >= 32 ? secret : null;
+}
+
 /**
  * Customer AI has its own credentials and switch. It must never inherit an
  * owner credential or a permissive development fallback.

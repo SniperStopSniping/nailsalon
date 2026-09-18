@@ -3,6 +3,7 @@ import { z } from 'zod';
 
 import { mapAddOnToCatalogSummary, mapServiceAddOnRule, mapServiceToCatalogSummary } from '@/libs/bookingCatalog';
 import { getBookingConfigForSalon, resolveIntroPriceLabel } from '@/libs/bookingConfig';
+import type { BookingDiscountReadContext } from '@/libs/firstVisitDiscount';
 import {
   getPublicTechnicianCompatibility as resolveSharedPublicTechnicianCompatibility,
   type PublicRequestedService,
@@ -16,6 +17,8 @@ import {
   type Service,
   serviceAddOnSchema,
   type ServiceCategory,
+  serviceSchema,
+  technicianSchema,
   technicianServicesSchema,
 } from '@/models/Schema';
 
@@ -98,6 +101,14 @@ export type BookingQuote = {
   bufferMinutes: number;
   blockedDurationMinutes: number;
 };
+
+export type BookingSelectionReadContext = BookingDiscountReadContext;
+
+function assertReadContextSalon(salonId: string, readContext?: BookingSelectionReadContext): void {
+  if (readContext && readContext.salonId !== salonId) {
+    throw new Error('BOOKING_READ_CONTEXT_SALON_MISMATCH');
+  }
+}
 
 type ValidatedSelectionResult = {
   baseServiceRecord: Service;
@@ -225,9 +236,10 @@ export function getPublicTechnicianCompatibility(args: {
   return resolveSharedPublicTechnicianCompatibility(args);
 }
 
-export async function getAllowedAddOnsForService(salonId: string, serviceId: string) {
-  const { db } = await import('@/libs/DB');
-  const rules = await db
+export async function getAllowedAddOnsForService(salonId: string, serviceId: string, readContext?: BookingSelectionReadContext) {
+  assertReadContextSalon(salonId, readContext);
+  const database = readContext?.database ?? (await import('@/libs/DB')).db;
+  const rules = await database
     .select()
     .from(serviceAddOnSchema)
     .where(and(eq(serviceAddOnSchema.salonId, salonId), eq(serviceAddOnSchema.serviceId, serviceId)));
@@ -236,7 +248,7 @@ export async function getAllowedAddOnsForService(salonId: string, serviceId: str
     return [];
   }
 
-  const addOns = await db
+  const addOns = await database
     .select()
     .from(addOnSchema)
     .where(
@@ -326,8 +338,10 @@ export async function validatePublicBookingSelection(args: {
   salonId: string;
   selection: PublicBookingSelection;
   technicianId?: string | null;
+  readContext?: BookingSelectionReadContext;
 }): Promise<ValidatedSelectionResult> {
-  const { db } = await import('@/libs/DB');
+  assertReadContextSalon(args.salonId, args.readContext);
+  const database = args.readContext?.database ?? (await import('@/libs/DB')).db;
   const parsedSelection = publicBookingSelectionSchema.safeParse(args.selection);
   if (!parsedSelection.success) {
     throw new BookingSelectionError('invalid_service');
@@ -335,32 +349,36 @@ export async function validatePublicBookingSelection(args: {
   const selection = parsedSelection.data;
   const normalizedAddOns = mergeSelectedAddOns(selection.selectedAddOns);
 
-  const baseService = await db.query.serviceSchema.findFirst({
-    where: (service, { and, eq }) => and(
-      eq(service.id, selection.baseServiceId),
-      eq(service.salonId, args.salonId),
-      eq(service.isActive, true),
-    ),
-  });
+  const baseService = args.readContext
+    ? (await database.select().from(serviceSchema).where(and(eq(serviceSchema.id, selection.baseServiceId), eq(serviceSchema.salonId, args.salonId), eq(serviceSchema.isActive, true))).limit(1))[0]
+    : await (await import('@/libs/DB')).db.query.serviceSchema.findFirst({
+      where: (service, { and, eq }) => and(
+        eq(service.id, selection.baseServiceId),
+        eq(service.salonId, args.salonId),
+        eq(service.isActive, true),
+      ),
+    });
 
   if (!baseService) {
     throw new BookingSelectionError('invalid_service');
   }
 
   if (args.technicianId) {
-    const technician = await db.query.technicianSchema.findFirst({
-      where: (technician, { and, eq }) => and(
-        eq(technician.id, args.technicianId!),
-        eq(technician.salonId, args.salonId),
-        eq(technician.isActive, true),
-      ),
-    });
+    const technician = args.readContext
+      ? (await database.select().from(technicianSchema).where(and(eq(technicianSchema.id, args.technicianId), eq(technicianSchema.salonId, args.salonId), eq(technicianSchema.isActive, true))).limit(1))[0]
+      : await (await import('@/libs/DB')).db.query.technicianSchema.findFirst({
+        where: (technician, { and, eq }) => and(
+          eq(technician.id, args.technicianId!),
+          eq(technician.salonId, args.salonId),
+          eq(technician.isActive, true),
+        ),
+      });
 
     if (!technician) {
       throw new BookingSelectionError('unsupported_technician');
     }
 
-    const enabledAssignments = await db
+    const enabledAssignments = await database
       .select({ serviceId: technicianServicesSchema.serviceId })
       .from(technicianServicesSchema)
       .where(
@@ -386,7 +404,7 @@ export async function validatePublicBookingSelection(args: {
     }
   }
 
-  const rules = await db
+  const rules = await database
     .select()
     .from(serviceAddOnSchema)
     .where(and(eq(serviceAddOnSchema.salonId, args.salonId), eq(serviceAddOnSchema.serviceId, baseService.id)));
@@ -405,7 +423,7 @@ export async function validatePublicBookingSelection(args: {
   });
 
   if (normalizedAddOns.length === 0) {
-    const bookingConfig = await getBookingConfigForSalon(args.salonId);
+    const bookingConfig = args.readContext?.bookingConfig ?? await getBookingConfigForSalon(args.salonId);
 
     // Enforcement on the zero-add-on path. This is the path that matters most:
     // before stage (b) it never looked at `rules` at all, so it is where a
@@ -443,7 +461,7 @@ export async function validatePublicBookingSelection(args: {
   }
 
   const addOnIds = normalizedAddOns.map(addOn => addOn.addOnId);
-  const addOns = await db
+  const addOns = await database
     .select()
     .from(addOnSchema)
     .where(
@@ -488,7 +506,7 @@ export async function validatePublicBookingSelection(args: {
     };
   });
 
-  const bookingConfig = await getBookingConfigForSalon(args.salonId);
+  const bookingConfig = args.readContext?.bookingConfig ?? await getBookingConfigForSalon(args.salonId);
 
   // Enforcement on the populated-add-on path: selecting some other add-on must
   // not satisfy a required rule. Runs after the per-add-on validation above so

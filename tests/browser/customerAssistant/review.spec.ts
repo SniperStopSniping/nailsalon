@@ -126,3 +126,66 @@ for (const viewport of [{ width: 390, zoom: 100 }, { width: 320, zoom: 200 }]) {
     await expect(page.getByRole('dialog')).toHaveCount(0);
   });
 }
+
+test('synthetic READY review confirms and shows the durable status on mobile', async ({ page }, testInfo) => {
+  const readyReview = {
+    ...review,
+    status: 'READY',
+    financial: { subtotalCents: 10000, discountAmountCents: 0, discountLabel: null, taxAmountCents: 1300, totalDueCents: 11300, currency: 'CAD' },
+    reminders: { mode: 'default_on', selection: 'default_on', requestedEnabled: true },
+  };
+  const operation = { capability: 'synthetic-opaque-capability', revision: 1, fingerprint: 'b'.repeat(64), expiresAt: readyReview.expiresAt };
+  const confirmations: Record<string, unknown>[] = [];
+  let turn = 0;
+  const unexpected: string[] = [];
+  await page.route('**/*', async (route) => {
+    const request = route.request();
+    const url = new URL(request.url());
+    if (url.origin !== 'http://127.0.0.1:3130') {
+      unexpected.push(url.origin);
+      await route.abort();
+      return;
+    }
+    if (!url.pathname.startsWith('/api/')) {
+      await route.continue();
+      return;
+    }
+    const token = () => `synthetic-durable-${++turn}`;
+    const body = request.postDataJSON() as Record<string, unknown>;
+    if (url.pathname.endsWith('/session')) {
+      await route.fulfill({ json: { conversation: token() } });
+    } else if (url.pathname.endsWith('/chat')) {
+      await route.fulfill({ json: { conversation: token(), result: { kind: 'slot_selected', proposal, preference, timeZone, slot } } });
+    } else if (url.pathname.endsWith('/review')) {
+      await route.fulfill({ json: { conversation: token(), result: { kind: 'booking_review', review: readyReview, operation } } });
+    } else if (url.pathname.endsWith('/booking/confirm')) {
+      confirmations.push(body);
+
+      await route.fulfill({ json: { kind: 'booking_status', operation, status: 'confirmed', review: readyReview, appointment: { id: 'synthetic-appointment', startTime: slot.startTime, durationMinutes: 120, technicianName: null, reminderState: 'enabled' }, payment: null, lastFailure: null } });
+    } else {
+      unexpected.push(`${request.method()} ${url.pathname}`);
+      await route.abort();
+    }
+  });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Help me choose & book' }).tap();
+  await page.getByLabel('Describe the nails you want').fill('Gel-X');
+  await page.getByRole('button', { name: 'Send' }).tap();
+  await page.getByLabel('Full name').fill('Alex Test');
+  await page.getByLabel('Email address').fill('alex@example.test');
+  await page.getByLabel('Phone number').fill('4165550100');
+  await page.getByRole('button', { name: 'Review booking details' }).tap();
+  await page.getByLabel('I agree to the booking policy.').tap();
+  await page.getByRole('button', { name: 'Confirm booking' }).tap();
+
+  await expect(page.getByText('Your appointment is confirmed.')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Confirm booking' })).toHaveCount(0);
+  await expect(page.getByLabel('Full name')).toHaveCount(0);
+  await expect(page.getByLabel('Describe the nails you want')).toBeDisabled();
+  expect(confirmations).toContainEqual(expect.objectContaining({ action: 'confirm_booking', capability: operation.capability, revision: 1, fingerprint: operation.fingerprint }));
+
+  await page.screenshot({ path: path.resolve(__dirname, `../../../artifacts/customer-assistant/${testInfo.project.name}-synthetic-durable-confirmed.png`), fullPage: true });
+
+  expect(unexpected).toEqual([]);
+});

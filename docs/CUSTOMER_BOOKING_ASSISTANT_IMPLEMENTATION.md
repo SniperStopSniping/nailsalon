@@ -1,5 +1,7 @@
 # Customer booking assistant — expanded implementation contract
 
+> Durable final confirmation and recovery are documented in [Customer booking confirmation](CUSTOMER_BOOKING_DURABLE_CONFIRMATION.md); that document supersedes the earlier handoff-only limitations below.
+
 Refreshed 2026-09-18 against `origin/main` `1c4c0be2` (release 1.116.3). This is a targeted delta to the 2026-09-15 customer design and platform master plan, not a new architecture audit. Customer activation remains OFF; no Production configuration changes are authorized.
 
 ## Superseded assumptions

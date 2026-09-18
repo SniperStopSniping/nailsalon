@@ -1,11 +1,16 @@
 import { z } from 'zod';
 
+import { BOOKING_SMS_SELECTIONS, type BookingSmsMode, type BookingSmsSelection } from '@/libs/bookingSmsConsent';
+
+import type { CustomerBookingOperationReference } from './bookingOperationContracts';
 import { customerContactRequestSchema } from './contact';
 import type { CustomerAssistantResult } from './contracts';
 
 export const customerReviewRequestSchema = z.object({
   conversation: z.string().min(1).max(24_576),
   contact: customerContactRequestSchema,
+  expectedRevision: z.number().int().min(0).optional(),
+  smsConsent: z.object({ granted: z.boolean(), wordingVersion: z.literal('booking-sms-reminders-v1'), selection: z.enum(BOOKING_SMS_SELECTIONS) }).strict().optional(),
 }).strict();
 
 export type CustomerReviewRequest = z.infer<typeof customerReviewRequestSchema>;
@@ -59,9 +64,28 @@ export type CustomerReviewSnapshot = {
   blockers: ['reminder_integration', 'identity_pricing'];
 };
 
+/** Authoritative review for explicit confirmation; still not a slot hold. */
+export type CustomerReadyReviewSnapshot = Omit<CustomerReviewSnapshot, 'status' | 'blockers' | 'financial'> & {
+  status: 'READY';
+  financial: {
+    subtotalCents: number;
+    discountAmountCents: number;
+    discountLabel: string | null;
+    taxAmountCents: number;
+    totalDueCents: number;
+    currency: string;
+  };
+  reminders: {
+    mode: BookingSmsMode;
+    selection: BookingSmsSelection | null;
+    requestedEnabled: boolean;
+  };
+};
+
 export type CustomerReviewResponse = {
   conversation: string;
   result:
     | { kind: 'review_prepared'; review: CustomerReviewSnapshot }
+    | { kind: 'booking_review'; review: CustomerReadyReviewSnapshot; operation: CustomerBookingOperationReference }
     | CustomerAssistantResult;
 };

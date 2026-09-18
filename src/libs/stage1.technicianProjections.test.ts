@@ -168,7 +168,7 @@ describe('S5 — source-level guards for in-route projections', () => {
     },
     {
       label: 'api/appointments success-response technician',
-      file: 'src/app/api/appointments/route.ts',
+      file: 'src/libs/appointmentCreation.server.ts',
       start: '        technician: technician',
       end: '        salon: {',
     },

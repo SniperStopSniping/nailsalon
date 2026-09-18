@@ -42,6 +42,8 @@ export async function POST(request: Request, context: { params: Promise<{ salonS
     features: salon.features as SalonFeatures | null,
     conversation: body.data.conversation,
     contact,
+    smsConsent: body.data.smsConsent,
+    expectedRevision: body.data.expectedRevision,
     clientIp: getPublicBookingClientIp(request),
   });
   return Response.json(response, { headers: CUSTOMER_NO_STORE });

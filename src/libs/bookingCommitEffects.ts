@@ -762,6 +762,10 @@ type ManageCapabilityWriter = {
  * HASH is persisted, so a token minted later is additive: earlier tokens for
  * the same appointment keep working, because lookups are by hash.
  */
+export function appointmentManageCapabilityExpiry(appointmentEndTime: Date): Date {
+  return new Date(appointmentEndTime.getTime() + MANAGE_CAPABILITY_TTL_MS);
+}
+
 export async function mintAppointmentManageCapability(
   tx: ManageCapabilityWriter,
   args: {
@@ -773,7 +777,7 @@ export async function mintAppointmentManageCapability(
   },
 ): Promise<{ token: string; tokenHash: string; expiresAt: Date }> {
   const capability = args.capability ?? createOpaqueToken();
-  const expiresAt = new Date(args.appointmentEndTime.getTime() + MANAGE_CAPABILITY_TTL_MS);
+  const expiresAt = appointmentManageCapabilityExpiry(args.appointmentEndTime);
 
   await tx.insert(appointmentAccessTokenSchema).values({
     id: crypto.randomUUID(),

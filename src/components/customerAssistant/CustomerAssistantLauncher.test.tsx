@@ -2,7 +2,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { CustomerAssistantLauncher } from './CustomerAssistantLauncher';
+import { CustomerAssistantLauncher, CustomerBookingRecovery } from './CustomerAssistantLauncher';
 
 const sessionResponse = (conversation = 'signed-conversation') => new Response(JSON.stringify({ conversation }), { status: 200 });
 
@@ -230,7 +230,7 @@ describe('CustomerAssistantLauncher', () => {
     expect(await screen.findByRole('region', { name: 'Your booking details' })).toBeVisible();
     expect(fetchMock).toHaveBeenCalledTimes(3);
     expect(fetchMock).toHaveBeenLastCalledWith('/api/public/customer-assistant/isla-nail-studio/review', expect.objectContaining({
-      body: JSON.stringify({ conversation: 'selected-token', contact: { name: 'Alex Test', email: 'alex@example.test', phone: '4165550100' } }),
+      body: JSON.stringify({ conversation: 'selected-token', contact: { name: 'Alex Test', email: 'alex@example.test', phone: '4165550100' }, smsConsent: { granted: true, selection: 'default_on', wordingVersion: 'booking-sms-reminders-v1' }, expectedRevision: 0 }),
     }));
     expect(fetchMock.mock.calls[1]?.[1]?.body).not.toMatch(/Alex|alex@example|416555/);
     expect(JSON.stringify(sessionStorage)).not.toMatch(/Alex|alex@example|416555/);
@@ -242,5 +242,140 @@ describe('CustomerAssistantLauncher', () => {
     expect(screen.queryByRole('region', { name: 'Your booking details' })).not.toBeInTheDocument();
     expect(screen.getByText('Your contact details changed. Review the booking details again.')).toBeVisible();
     expect(screen.queryByRole('button', { name: /confirm booking/i })).not.toBeInTheDocument();
+  });
+
+  it('recovers a lost confirmation response with fresh alternatives for a definite lost slot', async () => {
+    const review = {
+      status: 'READY',
+      fingerprint: 'r'.repeat(64),
+      expiresAt: new Date(Date.now() + 300_000).toISOString(),
+      salon: { id: 'salon-id', slug: 'isla-nail-studio', name: 'Isla Nail Studio' },
+      location: null,
+      services: [{ id: 'gel-x', name: 'Gel-X', priceCents: 8500 }],
+      addOns: [],
+      technician: { kind: 'any_artist' },
+      date: '2026-09-19',
+      time: '13:00',
+      timeZone: 'America/Toronto',
+      durationMinutes: 90,
+      financial: { subtotalCents: 8500, discountAmountCents: 0, discountLabel: null, taxAmountCents: 1105, totalDueCents: 9605, currency: 'CAD' },
+      deposit: { status: 'not_required', reason: 'policy_inactive' },
+      confirmationMode: 'instant',
+      bookingPolicy: { required: true, title: 'Policy', text: 'Terms', acknowledgmentText: 'I agree to the terms.', version: 'policy-v1:test' },
+      reminders: { mode: 'default_on', selection: 'default_on', requestedEnabled: true },
+    };
+    const operation = { capability: 'opaque-capability', revision: 1, fingerprint: 'a'.repeat(64), expiresAt: review.expiresAt };
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(sessionResponse('session-token'))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ conversation: 'selected-token', result: { kind: 'slot_selected', proposal: { selection: { baseServiceId: 'gel-x', selectedAddOns: [] }, fingerprint: 'f'.repeat(64), service: review.services[0], addOns: [], currency: 'CAD', subtotalCents: 8500, durationMinutes: 90, expiresAt: review.expiresAt }, preference: { date: review.date, earliest: '12:00', latest: '17:00' }, timeZone: review.timeZone, slot: { time: review.time, startTime: '2026-09-19T17:00:00Z' } } })))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ conversation: 'review-token', result: { kind: 'booking_review', review, operation } })))
+      .mockRejectedValueOnce(new Error('connection closed after submit'))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ kind: 'booking_status', operation, status: 'not_created', review, appointment: null, payment: null, lastFailure: 'slot_unavailable' })))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ conversation: 'alternatives-token', result: { kind: 'unavailable', reason: 'unavailable' } })));
+    vi.stubGlobal('fetch', fetchMock);
+    const user = userEvent.setup();
+    render(<CustomerAssistantLauncher salonId="salon-id" salonSlug="isla-nail-studio" locale="en" />);
+    await user.click(screen.getByRole('button', { name: 'Help me choose & book' }));
+    await user.type(screen.getByLabelText('Describe the nails you want'), 'Gel-X');
+    await user.click(screen.getByRole('button', { name: 'Send' }));
+    await user.type(await screen.findByLabelText('Full name'), 'Alex Test');
+    await user.type(screen.getByLabelText('Email address'), 'alex@example.test');
+    await user.type(screen.getByLabelText('Phone number'), '4165550100');
+    await user.click(screen.getByRole('button', { name: 'Review booking details' }));
+    const confirm = await screen.findByRole('button', { name: 'Confirm booking' });
+
+    expect(confirm).toBeDisabled();
+
+    await user.click(screen.getByLabelText('I agree to the terms.'));
+    await user.click(confirm);
+
+    expect(fetchMock).toHaveBeenNthCalledWith(4, '/api/public/customer-assistant/isla-nail-studio/booking/confirm', expect.objectContaining({ body: JSON.stringify({ action: 'confirm_booking', capability: operation.capability, revision: 1, fingerprint: operation.fingerprint, contact: { name: 'Alex Test', email: 'alex@example.test', phone: '4165550100' }, policyAccepted: true }) }));
+    expect(JSON.parse(localStorage.getItem('luster.customer-booking.operation.salon-id') ?? '{}')).toEqual({ version: 1, salonId: 'salon-id', ...operation });
+    expect(JSON.stringify(localStorage)).not.toMatch(/Alex|alex@example|416555|9605/);
+    expect(await screen.findByText('That time is no longer available. Choose another time.')).toBeVisible();
+    expect(fetchMock).toHaveBeenLastCalledWith('/api/public/customer-assistant/isla-nail-studio/action', expect.objectContaining({ body: JSON.stringify({ conversation: 'review-token', action: 'choose_date', date: review.date }) }));
+  });
+
+  it('recovers an opaque operation without needing the assistant feature', async () => {
+    const operation = { version: 1, salonId: 'salon-id', capability: 'opaque-capability', revision: 1, fingerprint: 'a'.repeat(64), expiresAt: '2030-01-01T00:00:00.000Z' };
+    localStorage.setItem('luster.customer-booking.operation.salon-id', JSON.stringify(operation));
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      kind: 'booking_status',
+      operation,
+      status: 'awaiting_approval',
+      review: {},
+      appointment: null,
+      payment: null,
+      lastFailure: null,
+    })));
+    vi.stubGlobal('fetch', fetchMock);
+
+    render(<CustomerBookingRecovery salonId="salon-id" locale="en" />);
+
+    expect(await screen.findByText('Your booking request is awaiting salon approval.')).toBeVisible();
+    expect(fetchMock).toHaveBeenCalledWith('/api/public/customer-booking/salon-id/status', expect.objectContaining({
+      method: 'POST',
+      body: JSON.stringify({ capability: 'opaque-capability' }),
+    }));
+    expect(JSON.stringify(localStorage)).not.toContain('review');
+  });
+
+  it('posts the opaque capability to resume payment and renders French status copy', async () => {
+    const operation = { version: 1, salonId: 'salon-id', capability: 'opaque-capability', revision: 1, fingerprint: 'a'.repeat(64), expiresAt: '2030-01-01T00:00:00.000Z' };
+    localStorage.setItem('luster.customer-booking.operation.salon-id', JSON.stringify(operation));
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ kind: 'booking_status', operation, status: 'payment_required', review: {}, appointment: null, payment: { amountCents: 2500, currency: 'CAD', holdExpiresAt: '2030-01-01T00:00:00.000Z', canResume: true }, lastFailure: null })))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ url: 'https://invalid.example/checkout' })));
+    vi.stubGlobal('fetch', fetchMock);
+    const user = userEvent.setup();
+
+    render(<CustomerBookingRecovery salonId="salon-id" locale="fr" />);
+
+    expect(await screen.findByText('Un paiement est requis pour terminer cette réservation.')).toBeVisible();
+
+    await user.click(screen.getByRole('button', { name: 'Reprendre le paiement' }));
+    await waitFor(() => expect(fetchMock).toHaveBeenLastCalledWith('/api/public/customer-booking/salon-id/resume', expect.objectContaining({ body: JSON.stringify({ capability: operation.capability }) })));
+  });
+
+  it('refreshes a pending operation without creating a session, then retries its original capability', async () => {
+    const expiresAt = new Date(Date.now() + 300_000).toISOString();
+    const operation = { version: 1, salonId: 'salon-id', capability: 'original-capability', revision: 3, fingerprint: 'a'.repeat(64), expiresAt };
+    const review = {
+      status: 'READY',
+      fingerprint: 'r'.repeat(64),
+      expiresAt,
+      salon: { id: 'salon-id', slug: 'isla-nail-studio', name: 'Isla Nail Studio' },
+      location: null,
+      services: [{ id: 'gel-x', name: 'Gel-X', priceCents: 8500 }],
+      addOns: [],
+      technician: { kind: 'any_artist' },
+      date: '2026-09-19',
+      time: '13:00',
+      timeZone: 'America/Toronto',
+      durationMinutes: 90,
+      financial: { subtotalCents: 8500, discountAmountCents: 0, discountLabel: null, taxAmountCents: 1105, totalDueCents: 9605, currency: 'CAD' },
+      deposit: { status: 'not_required', reason: 'policy_inactive' },
+      confirmationMode: 'instant',
+      bookingPolicy: { required: false },
+      reminders: { mode: 'default_on', selection: 'default_on', requestedEnabled: true },
+    };
+    localStorage.setItem('luster.customer-booking.operation.salon-id', JSON.stringify(operation));
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ kind: 'booking_status', operation, status: 'not_created', review, appointment: null, payment: null, lastFailure: null })))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ kind: 'booking_status', operation, status: 'confirmed', review, appointment: { id: 'appointment', startTime: '2026-09-19T17:00:00Z', durationMinutes: 90, technicianName: null, reminderState: 'enabled' }, payment: null, lastFailure: null })));
+    vi.stubGlobal('fetch', fetchMock);
+    const user = userEvent.setup();
+    render(<CustomerAssistantLauncher salonId="salon-id" salonSlug="isla-nail-studio" locale="en" />);
+
+    await user.click(screen.getByRole('button', { name: 'Help me choose & book' }));
+    await screen.findByRole('button', { name: 'Confirm booking' });
+    await user.type(screen.getByLabelText('Full name'), 'Alex Test');
+    await user.type(screen.getByLabelText('Email address'), 'alex@example.test');
+    await user.type(screen.getByLabelText('Phone number'), '4165550100');
+    await user.click(screen.getByRole('button', { name: 'Confirm booking' }));
+
+    expect(fetchMock).not.toHaveBeenCalledWith('/api/public/customer-assistant/isla-nail-studio/session', expect.anything());
+    expect(fetchMock).not.toHaveBeenCalledWith('/api/public/customer-assistant/isla-nail-studio/review', expect.anything());
+    expect(fetchMock).toHaveBeenLastCalledWith('/api/public/customer-assistant/isla-nail-studio/booking/confirm', expect.objectContaining({ body: expect.stringContaining('original-capability') }));
   });
 });

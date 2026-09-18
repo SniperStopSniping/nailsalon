@@ -27,7 +27,12 @@ vi.mock('@/libs/DB', () => ({
 }));
 
 /* eslint-disable import/first */
-import { BookingSelectionError, validatePublicBookingSelection } from './bookingQuote';
+import {
+  BookingSelectionError,
+  type BookingSelectionReadContext,
+  validatePublicBookingSelection,
+} from './bookingQuote';
+import { resolvePublicBookingSelection } from './publicBookingSelection';
 /* eslint-enable import/first */
 
 const SALON_ID = 'salon_addon_gating';
@@ -85,6 +90,56 @@ afterAll(async () => {
 });
 
 describe('validatePublicBookingSelection — add-on gating', () => {
+  const readContext = (): BookingSelectionReadContext => ({
+    salonId: SALON_ID,
+    database: db,
+    bookingConfig: {
+      bufferMinutes: 10,
+      slotIntervalMinutes: 15,
+      confirmationMode: 'instant' as const,
+      minimumNoticeMinutes: 120,
+      currency: 'CAD' as const,
+      timezone: 'America/Toronto',
+      introPriceDefaultLabel: null,
+      firstVisitDiscountEnabled: false,
+      clientChangeCutoffHours: 24,
+      enforceRequiredAddOns: false,
+    },
+    now: new Date('2030-01-01T00:00:00.000Z'),
+  });
+
+  it('uses only the caller-owned handle for base-service and legacy baskets', async () => {
+    holder.db = {
+      select() {
+        throw new Error('GLOBAL_DB_READ');
+      },
+    };
+    try {
+      const context = readContext();
+      const base = await validatePublicBookingSelection({
+        ...select(MANICURE_ID, [LINKED_ADD_ON]),
+        readContext: context,
+      });
+      const legacy = await resolvePublicBookingSelection({
+        salonId: SALON_ID,
+        serviceIds: [MANICURE_ID],
+        readContext: context,
+      });
+
+      expect(base.quote.subtotalCents).toBe(5500);
+      expect(legacy.automaticDiscount.kind).toBe('none');
+    } finally {
+      holder.db = db;
+    }
+  });
+
+  it('rejects a caller-owned context for another salon before reading', async () => {
+    await expect(validatePublicBookingSelection({
+      ...select(MANICURE_ID, []),
+      readContext: { ...readContext(), salonId: 'other_salon' },
+    })).rejects.toThrow('BOOKING_READ_CONTEXT_SALON_MISMATCH');
+  });
+
   it('accepts an add-on linked to the chosen base service', async () => {
     const result = await validatePublicBookingSelection(select(MANICURE_ID, [LINKED_ADD_ON]));
 

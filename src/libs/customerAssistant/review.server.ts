@@ -2,26 +2,18 @@ import 'server-only';
 
 import { createHash } from 'node:crypto';
 
-import { getBookingConfigForSalon } from '@/libs/bookingConfig';
-import { resolveBookingPageContent } from '@/libs/bookingPageContent';
-import { resolveRequiredBookingPolicy } from '@/libs/bookingPolicyAcknowledgment';
-import { computeCheckoutTotals } from '@/libs/checkoutTotals';
-import { buildDepositDisclosure, resolveDepositChargeForTotal } from '@/libs/depositPolicy';
-import { getDepositPolicyForSalon } from '@/libs/depositPolicy.server';
-import { buildDirectionsDestination, resolveDirectionsLocation } from '@/libs/directions';
-import { getPrimaryLocation } from '@/libs/queries';
-import { applyLocationDisplayMode } from '@/libs/salonContent';
-import { resolveTaxConfig } from '@/libs/taxConfig';
-import type { SalonFeatures, SalonSettings } from '@/types/salonPolicy';
+import type { BookingSmsConsentInput } from '@/libs/bookingSmsConsent';
+import type { SalonFeatures } from '@/types/salonPolicy';
 
 import { getCustomerAssistantConfig } from './access.server';
 import { reserveCustomerAssistantTurn } from './budget.server';
 import type { CustomerContact } from './contact';
-import { createCustomerContactBinding } from './contact.server';
 import type { CustomerAssistantResult } from './contracts';
 import { signCustomerConversation, verifyCustomerConversation } from './conversation.server';
 import { recordCustomerAssistantUsage } from './ledger.server';
-import type { CustomerReviewResponse, CustomerReviewSnapshot } from './reviewContracts';
+import { customerBookingOperationReference, prepareCustomerBookingOperation } from './operationStore.server';
+import { prepareCustomerBookingQuote } from './prepareQuote.server';
+import type { CustomerReviewResponse } from './reviewContracts';
 import { lookupCustomerSlots } from './slots.server';
 
 type ReviewSalon = {
@@ -41,24 +33,15 @@ function unavailable(conversation: string, reason: Extract<CustomerAssistantResu
   return { conversation, result: { kind: 'unavailable', reason } };
 }
 
-function reviewFingerprint(args: { contactBinding: string; review: Omit<CustomerReviewSnapshot, 'fingerprint' | 'expiresAt'> }): string {
-  return createHash('sha256').update(JSON.stringify({
-    domain: 'luster.customer-review.v1',
-    contactBinding: args.contactBinding,
-    review: args.review,
-  }), 'utf8').digest('hex');
-}
-
-/**
- * Produces an explicitly incomplete review only. It does not create a hold,
- * appointment, customer record, payment session, message, or consent state.
- */
+/** Revalidates the final card and durably identifies an explicit future action. */
 export async function prepareCustomerAssistantReview(args: {
   salon: ReviewSalon;
   features: SalonFeatures | null;
   conversation: string;
   contact: CustomerContact;
   clientIp: string;
+  smsConsent?: BookingSmsConsentInput;
+  expectedRevision?: number;
   now?: Date;
 }): Promise<CustomerReviewResponse> {
   const config = getCustomerAssistantConfig();
@@ -136,100 +119,29 @@ export async function prepareCustomerAssistantReview(args: {
   }
 
   try {
-    const [bookingConfig, location, depositPolicy] = await Promise.all([
-      getBookingConfigForSalon(args.salon.id),
-      getPrimaryLocation(args.salon.id),
-      getDepositPolicyForSalon({ salonId: args.salon.id, salon: args.salon }),
-    ]);
-    if (bookingConfig.timezone !== fresh.timeZone || bookingConfig.currency !== fresh.proposal.currency || (!depositPolicy.active && depositPolicy.reason === 'undetermined')) {
-      return sign({ kind: 'unavailable', reason: 'unavailable' });
-    }
-    const displayMode = resolveBookingPageContent(args.salon.settings).live.locationDisplayMode;
-    const resolvedLocation = resolveDirectionsLocation(location);
-    const projectedLocation = resolvedLocation
-      ? applyLocationDisplayMode({
-        name: resolvedLocation.name,
-        address: resolvedLocation.address,
-        city: resolvedLocation.city,
-        state: resolvedLocation.state,
-        zipCode: resolvedLocation.zipCode,
-      }, displayMode)
-      : buildDirectionsDestination(args.salon)
-        ? applyLocationDisplayMode({
-          name: args.salon.name,
-          address: args.salon.address ?? null,
-          city: args.salon.city ?? null,
-          state: args.salon.state ?? null,
-          zipCode: args.salon.zipCode ?? null,
-        }, displayMode)
-        : null;
-    if (!projectedLocation) {
-      return sign({ kind: 'unavailable', reason: 'unavailable' });
-    }
-    const taxConfig = resolveTaxConfig((args.salon.settings as SalonSettings | null | undefined) ?? null, args.now ?? new Date());
-    const totals = computeCheckoutTotals({
-      items: [
-        { lineTotalCents: fresh.proposal.service.priceCents, taxable: taxConfig.taxServicesByDefault },
-        ...fresh.proposal.addOns.map(addOn => ({ lineTotalCents: addOn.priceCents, taxable: taxConfig.taxAddOnsByDefault })),
-      ],
-      taxConfig,
+    const material = await prepareCustomerBookingQuote({
+      salon: args.salon,
+      features: args.features,
+      selection,
+      preference,
+      startTime: fresh.selected.startTime,
+      contact: args.contact,
+      smsConsent: args.smsConsent,
+      now: args.now,
     });
-    // Deposits follow the authoritative booking path's post-discount service
-    // total, excluding tax. This review is explicitly undiscounted because it
-    // must not query anonymous identity/reward/Smart Fit eligibility.
-    const charge = resolveDepositChargeForTotal(depositPolicy, fresh.proposal.subtotalCents, { mode: 'disclosure' });
-    if (!charge.required && charge.reason === 'undetermined') {
-      return sign({ kind: 'unavailable', reason: 'unavailable' });
+    if (!material || material.review.timeZone !== fresh.timeZone || material.review.financial.currency !== fresh.proposal.currency) {
+      return sign({ kind: 'unavailable', reason: 'selection_changed' });
     }
-    const disclosure = buildDepositDisclosure(charge);
-    const contactBinding = createCustomerContactBinding({
-      secret: config.signingSecret,
+    const operation = await prepareCustomerBookingOperation({
       salonId: args.salon.id,
       sessionId: prior.sessionId,
+      secret: config.signingSecret,
       contact: args.contact,
+      material,
+      expectedRevision: args.expectedRevision ?? 0,
+      now: args.now,
     });
-    if (charge.required && !disclosure) {
-      return sign({ kind: 'unavailable', reason: 'unavailable' });
-    }
-    const deposit = charge.required
-      ? { status: 'required' as const, amountCents: charge.amountCents, currency: charge.currency.toUpperCase(), label: disclosure!.label }
-      : { status: 'not_required' as const, reason: charge.reason };
-    const base: Omit<CustomerReviewSnapshot, 'fingerprint' | 'expiresAt'> = {
-      status: 'INCOMPLETE',
-      salon: { id: args.salon.id, name: args.salon.name, slug: args.salon.slug },
-      location: projectedLocation,
-      services: [{ id: fresh.proposal.service.id, name: fresh.proposal.service.name, priceCents: fresh.proposal.service.priceCents }],
-      addOns: fresh.proposal.addOns.map(addOn => ({ id: addOn.id, name: addOn.name, quantity: addOn.quantity, priceCents: addOn.priceCents })),
-      technician: { kind: 'any_artist' },
-      date: preference.date,
-      time: fresh.selected.time,
-      timeZone: fresh.timeZone,
-      durationMinutes: fresh.proposal.durationMinutes,
-      financial: {
-        subtotalCents: fresh.proposal.subtotalCents,
-        estimatedTaxCents: totals.taxAmountCents,
-        estimatedTotalCents: totals.totalDueCents,
-        currency: bookingConfig.currency,
-      },
-      deposit,
-      confirmationMode: bookingConfig.confirmationMode,
-      bookingPolicy: (() => {
-        const policy = resolveRequiredBookingPolicy({
-          storedPlan: args.salon.plan ?? null,
-          features: args.features,
-          settings: (args.salon.settings as SalonSettings | null | undefined) ?? null,
-        });
-        return policy
-          ? { required: true as const, title: policy.title, text: policy.text, acknowledgmentText: policy.acknowledgment.text, version: policy.version }
-          : { required: false as const };
-      })(),
-      blockers: ['reminder_integration', 'identity_pricing'],
-    };
-    const review: CustomerReviewSnapshot = {
-      ...base,
-      fingerprint: reviewFingerprint({ contactBinding, review: base }),
-      expiresAt: new Date((args.now ?? new Date()).getTime() + 5 * 60_000).toISOString(),
-    };
+    const review = operation.material.review;
     try {
       await recordCustomerAssistantUsage({
         salonId: args.salon.id,
@@ -242,7 +154,7 @@ export async function prepareCustomerAssistantReview(args: {
     } catch {
       // Audit unavailability cannot turn a read-only preflight into a booking.
     }
-    return sign({ kind: 'review_prepared', review });
+    return sign({ kind: 'booking_review', review, operation: customerBookingOperationReference(operation, config.signingSecret) });
   } catch {
     return sign({ kind: 'unavailable', reason: 'unavailable' });
   }
