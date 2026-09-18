@@ -23,7 +23,7 @@ describe('CustomerAssistantLauncher', () => {
 
     expect(await screen.findByRole('heading', { name: 'Help me choose' })).toBeVisible();
     expect(fetchMock).toHaveBeenCalledWith('/api/public/customer-assistant/isla-nail-studio/session', { method: 'POST' });
-    expect(screen.getByText(/Booking comes next/)).toBeVisible();
+    expect(screen.getByText(/find an available time/)).toBeVisible();
 
     await user.click(screen.getByRole('button', { name: 'Continue manually' }));
     await waitFor(() => expect(screen.queryByRole('heading', { name: 'Help me choose' })).not.toBeInTheDocument());
@@ -139,5 +139,44 @@ describe('CustomerAssistantLauncher', () => {
     expect(fetchMock).toHaveBeenLastCalledWith('/api/public/customer-assistant/isla-nail-studio/chat', expect.objectContaining({
       body: JSON.stringify({ conversation: 'memory-token', message: 'Gel-X', locale: 'en' }),
     }));
+  });
+
+  it('sends one deterministic acceptance request for a double tap', async () => {
+    const fingerprint = 'f'.repeat(64);
+    let complete!: (response: Response) => void;
+    const pending = new Promise<Response>((resolve) => {
+      complete = resolve;
+    });
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(sessionResponse('session'))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ conversation: 'proposal-token', result: { kind: 'proposal', proposal: {
+        selection: { baseServiceId: 'gel-x', selectedAddOns: [] },
+        fingerprint,
+        service: { id: 'gel-x', name: 'Gel-X', priceCents: 8500 },
+        addOns: [],
+        currency: 'CAD',
+        subtotalCents: 8500,
+        durationMinutes: 90,
+        expiresAt: '2026-09-18T12:05:00Z',
+      } } })))
+      .mockReturnValueOnce(pending);
+    vi.stubGlobal('fetch', fetchMock);
+    const user = userEvent.setup();
+    render(<CustomerAssistantLauncher salonSlug="isla-nail-studio" locale="en" />);
+    await user.click(screen.getByRole('button', { name: 'Help me choose & book' }));
+    await user.type(screen.getByLabelText('Describe the nails you want'), 'Gel-X');
+    await user.click(screen.getByRole('button', { name: 'Send' }));
+    const accept = await screen.findByRole('button', { name: 'Choose these services' });
+    fireEvent.click(accept);
+    fireEvent.click(accept);
+
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(fetchMock).toHaveBeenLastCalledWith('/api/public/customer-assistant/isla-nail-studio/action', expect.objectContaining({
+      body: JSON.stringify({ conversation: 'proposal-token', action: 'accept_selection', fingerprint }),
+    }));
+
+    complete(new Response(JSON.stringify({ conversation: 'next-token', result: { kind: 'unavailable', reason: 'unavailable' } })));
+    await screen.findByRole('status');
+    await waitFor(() => expect(sessionStorage.getItem('luster.customer-assistant.conversation.isla-nail-studio')).toBe('next-token'));
   });
 });

@@ -13,10 +13,13 @@ import { CUSTOMER_ASSISTANT_MAX_INPUT_BYTES, CUSTOMER_ASSISTANT_MAX_OUTPUT_TOKEN
 import { signCustomerConversation, verifyCustomerConversation } from './conversation.server';
 import { CUSTOMER_INTERPRETATION_JSON_SCHEMA, CUSTOMER_INTERPRETATION_PROMPT, customerInterpretationSchema } from './interpretation';
 import { recordCustomerAssistantUsage } from './ledger.server';
+import { getCustomerAvailabilityContext, lookupCustomerSlots } from './slots.server';
 
 /** One bounded model call, no owner dispatcher, no writable model tool. */
 export async function runCustomerAssistantTurn(args: {
   salonId: string;
+  /** Route-resolved public slug; never supplied by model or request JSON. */
+  salonSlug: string;
   features: SalonFeatures | null;
   conversation: string;
   message: string;
@@ -70,7 +73,15 @@ export async function runCustomerAssistantTurn(args: {
         return { conversation: signCustomerConversation(nextState, config.signingSecret), result: { kind: 'unavailable', reason: 'selection_changed' } };
       }
     }
-    const data = JSON.stringify({ locale: args.locale, menu, customerMessages: messages, lastShown: conversation.context ?? null });
+    const availabilityContext = await getCustomerAvailabilityContext(args.salonId);
+    const data = JSON.stringify({
+      locale: args.locale,
+      menu,
+      customerMessages: messages,
+      lastShown: conversation.context ?? null,
+      bookingState: conversation.booking ?? null,
+      ...availabilityContext,
+    });
     if (Buffer.byteLength(CUSTOMER_INTERPRETATION_PROMPT + data, 'utf8') > CUSTOMER_ASSISTANT_MAX_INPUT_BYTES) {
       return { conversation: signCustomerConversation(nextState, config.signingSecret), result };
     }
@@ -103,16 +114,44 @@ export async function runCustomerAssistantTurn(args: {
         selectedAddOns: intent.addOns,
       });
       result = { kind: 'proposal', proposal };
+    } else if (intent.action === 'availability' && conversation.context?.selection && conversation.booking?.acceptedFingerprint && intent.datePreference) {
+      const fresh = await lookupCustomerSlots({
+        salon: { id: args.salonId, slug: args.salonSlug },
+        features: args.features,
+        selection: conversation.context.selection,
+        preference: intent.datePreference,
+      });
+      if (!fresh) {
+        result = { kind: 'unavailable', reason: 'unavailable' };
+      } else if (fresh.quoteChanged || fresh.proposal.fingerprint !== conversation.booking.acceptedFingerprint) {
+        nextState.booking = undefined;
+        result = { kind: 'proposal', proposal: fresh.proposal };
+      } else {
+        result = {
+          kind: 'slots',
+          proposal: fresh.proposal,
+          preference: intent.datePreference,
+          timeZone: fresh.timeZone,
+          slots: fresh.slots,
+          checkedAt: new Date().toISOString(),
+        };
+      }
+    } else if (intent.action === 'availability' && conversation.context?.selection && conversation.booking?.acceptedFingerprint) {
+      result = { kind: 'clarification', question: 'date', options: [] };
     } else if (intent.action === 'clarify') {
+      if (intent.question === 'date' && !(conversation.context?.selection && conversation.booking?.acceptedFingerprint)) {
+        result = { kind: 'unavailable', reason: 'no_match' };
+      } else {
       // Only current public labels can become chips. Unknown/cross-tenant IDs
       // and unrelated add-ons invalidate the answer instead of being echoed.
-      const eligibleAddOnIds = new Set(menu.bindings.filter(binding => binding.serviceId === intent.serviceId).map(binding => binding.addOnId));
-      const choices = [...menu.services, ...menu.addOns.filter(item => eligibleAddOnIds.has(item.id))];
-      const options = intent.optionIds.map(id => choices.find(item => item.id === id)?.name);
-      if (options.includes(undefined)) {
-        throw new Error('CUSTOMER_MODEL_INVALID');
+        const eligibleAddOnIds = new Set(menu.bindings.filter(binding => binding.serviceId === intent.serviceId).map(binding => binding.addOnId));
+        const choices = [...menu.services, ...menu.addOns.filter(item => eligibleAddOnIds.has(item.id))];
+        const options = intent.optionIds.map(id => choices.find(item => item.id === id)?.name);
+        if (options.includes(undefined)) {
+          throw new Error('CUSTOMER_MODEL_INVALID');
+        }
+        result = { kind: 'clarification', question: intent.question, options: options as string[] };
       }
-      result = { kind: 'clarification', question: intent.question, options: options as string[] };
     } else {
       result = { kind: 'unavailable', reason: 'no_match' };
     }
@@ -130,15 +169,34 @@ export async function runCustomerAssistantTurn(args: {
       attemptId,
       usage,
       latencyMs: performance.now() - started,
-      outcome: result.kind === 'unavailable' ? (result.reason === 'no_match' ? 'no_match' : 'failed') : result.kind,
+      outcome: result.kind === 'unavailable'
+        ? (result.reason === 'no_match' ? 'no_match' : 'failed')
+        : result.kind === 'slots'
+          ? 'availability'
+          : result.kind,
     });
   } catch {
     result = { kind: 'unavailable', reason: 'unavailable' };
   }
   if (result.kind === 'proposal') {
     nextState.context = { question: null, options: [], selection: result.proposal.selection };
+    if (conversation.booking?.acceptedFingerprint !== result.proposal.fingerprint) {
+      nextState.booking = undefined;
+    }
   } else if (result.kind === 'clarification') {
-    nextState.context = { question: result.question, options: result.options, selection: null };
+    nextState.context = {
+      question: result.question,
+      options: result.options,
+      selection: result.question === 'date' ? conversation.context?.selection ?? null : null,
+    };
+  }
+  if (result.kind === 'slots') {
+    nextState.booking = {
+      acceptedFingerprint: result.proposal.fingerprint,
+      datePreference: result.preference,
+      offeredSlots: result.slots,
+      selectedSlot: null,
+    };
   }
   try {
     return { conversation: signCustomerConversation(nextState, config.signingSecret), result };

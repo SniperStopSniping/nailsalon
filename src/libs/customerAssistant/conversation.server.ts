@@ -4,7 +4,7 @@ import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
 
 import { z } from 'zod';
 
-import { customerSelectionSchema } from './contracts';
+import { customerAvailableSlotSchema, customerDatePreferenceSchema, customerSelectionSchema } from './contracts';
 
 const CONVERSATION_TTL_MS = 30 * 60 * 1000;
 export const CUSTOMER_CONVERSATION_MAX_MESSAGES = 16;
@@ -14,9 +14,18 @@ export const CUSTOMER_CONVERSATION_MAX_TOKEN_BYTES = 24_576;
 const customerMessageSchema = z.string().min(1).max(CUSTOMER_CONVERSATION_MAX_MESSAGE_CHARS);
 
 const customerConversationContextSchema = z.object({
-  question: z.enum(['service', 'removal', 'length', 'finish', 'quantity', 'details']).nullable(),
+  question: z.enum(['service', 'removal', 'length', 'finish', 'quantity', 'details', 'date']).nullable(),
   options: z.array(z.string().min(1).max(160)).max(8),
   selection: customerSelectionSchema.nullable(),
+}).strict();
+
+// This is deliberately only a signed presentation capability.  It is not a
+// slot hold and contains no contact, payment, technician, or appointment data.
+const customerConversationBookingSchema = z.object({
+  acceptedFingerprint: z.string().length(64).nullable(),
+  datePreference: customerDatePreferenceSchema.nullable(),
+  offeredSlots: z.array(customerAvailableSlotSchema).max(8),
+  selectedSlot: customerAvailableSlotSchema.nullable(),
 }).strict();
 
 const conversationSchema = z.object({
@@ -31,6 +40,7 @@ const conversationSchema = z.object({
   turnIndex: z.number().int().min(0).max(12),
   messages: z.array(customerMessageSchema).max(CUSTOMER_CONVERSATION_MAX_MESSAGES),
   context: customerConversationContextSchema.optional(),
+  booking: customerConversationBookingSchema.optional(),
 }).strict().superRefine((value, context) => {
   if (value.expiresAtMs - value.issuedAtMs !== CONVERSATION_TTL_MS) {
     context.addIssue({ code: z.ZodIssueCode.custom, message: 'invalid conversation lifetime' });

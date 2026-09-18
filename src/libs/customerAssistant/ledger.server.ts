@@ -23,9 +23,10 @@ export function customerUsageCostMicros(usage: ModelProviderUsage | null): numbe
 export async function recordCustomerAssistantUsage(args: {
   salonId: string;
   attemptId: string;
-  outcome: 'reserved' | 'proposal' | 'clarification' | 'no_match' | 'failed';
+  outcome: 'reserved' | 'proposal' | 'clarification' | 'availability' | 'slot_selected' | 'no_match' | 'failed';
   usage: ModelProviderUsage | null;
   latencyMs: number;
+  deterministic?: boolean;
 }): Promise<void> {
   await writeSalonAuditRow(db, {
     salonId: args.salonId,
@@ -38,12 +39,13 @@ export async function recordCustomerAssistantUsage(args: {
       newValue: {
         attemptId: args.attemptId,
         outcome: args.outcome,
-        model: CUSTOMER_ASSISTANT_MODEL,
+        model: args.deterministic ? null : CUSTOMER_ASSISTANT_MODEL,
+        providerCall: !args.deterministic,
         inputCount: args.usage?.inputTokens ?? null,
         cachedInputCount: args.usage?.cachedInputTokens ?? null,
         cacheWriteInputCount: args.usage?.cacheWriteInputTokens ?? null,
         outputCount: args.usage?.outputTokens ?? null,
-        costMicros: customerUsageCostMicros(args.usage),
+        costMicros: args.deterministic ? 0 : customerUsageCostMicros(args.usage),
         reservedCostMicros: args.outcome === 'reserved' ? 20_000 : 0,
         latencyMs: Math.round(args.latencyMs),
       },

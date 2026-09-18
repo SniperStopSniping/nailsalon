@@ -1,6 +1,6 @@
-import { customerChatRequestSchema } from '@/libs/customerAssistant/contracts';
+import { runCustomerAssistantAction } from '@/libs/customerAssistant/action.server';
+import { customerActionRequestSchema } from '@/libs/customerAssistant/contracts';
 import { CUSTOMER_NO_STORE, isCustomerSameOrigin, readCustomerJson, resolveCustomerAssistantSalon } from '@/libs/customerAssistant/http.server';
-import { runCustomerAssistantTurn } from '@/libs/customerAssistant/turn.server';
 import { getPublicBookingClientIp } from '@/libs/publicBookingRateLimit.server';
 import type { SalonFeatures } from '@/types/salonPolicy';
 
@@ -17,15 +17,15 @@ export async function POST(request: Request, context: { params: Promise<{ salonS
   if (!isCustomerSameOrigin(request)) {
     return new Response(null, { status: 403, headers: CUSTOMER_NO_STORE });
   }
-  const body = customerChatRequestSchema.safeParse(await readCustomerJson(request));
+  const body = customerActionRequestSchema.safeParse(await readCustomerJson(request));
   if (!body.success) {
     return new Response(null, { status: 400, headers: CUSTOMER_NO_STORE });
   }
-  const response = await runCustomerAssistantTurn({
-    ...body.data,
-    salonId: salon.id,
-    salonSlug: salon.slug,
+  const response = await runCustomerAssistantAction({
+    salon: { id: salon.id, slug: salon.slug },
     features: salon.features as SalonFeatures | null,
+    conversation: body.data.conversation,
+    action: body.data,
     clientIp: getPublicBookingClientIp(request),
   });
   return Response.json(response, { headers: CUSTOMER_NO_STORE });

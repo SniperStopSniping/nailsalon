@@ -134,6 +134,9 @@ function expectedMatches(intent: Intent, testCase: CustomerInterpretationEvalCas
   if (intent.action !== testCase.expected.action || (testCase.expected.serviceId !== undefined && intent.serviceId !== testCase.expected.serviceId)) {
     return false;
   }
+  if (testCase.expected.datePreference !== undefined && JSON.stringify(intent.datePreference) !== JSON.stringify(testCase.expected.datePreference)) {
+    return false;
+  }
   if (!testCase.expected.addOnIds) {
     return true;
   }
@@ -150,7 +153,7 @@ function fixedError(error: unknown): string {
 }
 
 function makeInput(testCase: CustomerInterpretationEvalCase): string {
-  return JSON.stringify({ locale: 'en', menu: SYNTHETIC_CUSTOMER_MENU, customerMessages: testCase.messages, lastShown: testCase.lastShown });
+  return JSON.stringify({ locale: 'en', menu: SYNTHETIC_CUSTOMER_MENU, customerMessages: testCase.messages, lastShown: testCase.lastShown, today: testCase.today ?? '2026-09-18', timeZone: testCase.timeZone ?? 'America/Toronto', bookingState: testCase.bookingState ?? null });
 }
 
 function latencyPercentile(results: CaseResult[], percentile: number): number | null {

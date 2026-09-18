@@ -32,9 +32,35 @@ export type CustomerProposal = {
   expiresAt: string;
 };
 
+export const customerDatePreferenceSchema = z.object({
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  earliest: z.string().regex(/^\d{2}:\d{2}$/),
+  latest: z.string().regex(/^\d{2}:\d{2}$/),
+}).strict();
+export type CustomerDatePreference = z.infer<typeof customerDatePreferenceSchema>;
+
+export const customerAvailableSlotSchema = z.object({
+  time: z.string().min(1).max(80),
+  startTime: z.string().datetime(),
+}).strict();
+export type CustomerAvailableSlot = z.infer<typeof customerAvailableSlotSchema>;
+
+export const customerActionRequestSchema = z.discriminatedUnion('action', [
+  z.object({ conversation: z.string().min(1).max(24_576), action: z.literal('accept_selection'), fingerprint: z.string().length(64) }).strict(),
+  z.object({ conversation: z.string().min(1).max(24_576), action: z.literal('choose_date'), date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) }).strict(),
+  z.object({ conversation: z.string().min(1).max(24_576), action: z.literal('select_slot'), startTime: z.string().datetime() }).strict(),
+]);
+export type CustomerAssistantAction =
+  | { action: 'accept_selection'; fingerprint: string }
+  | { action: 'choose_date'; date: string }
+  | { action: 'select_slot'; startTime: string };
+
 export type CustomerAssistantResult =
   | { kind: 'proposal'; proposal: CustomerProposal }
-  | { kind: 'clarification'; question: 'service' | 'removal' | 'length' | 'finish' | 'quantity' | 'details'; options: string[] }
+  | { kind: 'date_prompt'; proposal: CustomerProposal; today: string; timeZone: string }
+  | { kind: 'slots'; proposal: CustomerProposal; preference: CustomerDatePreference; timeZone: string; slots: CustomerAvailableSlot[]; checkedAt: string; slotDisappeared?: boolean }
+  | { kind: 'slot_selected'; proposal: CustomerProposal; preference: CustomerDatePreference; timeZone: string; slot: CustomerAvailableSlot }
+  | { kind: 'clarification'; question: 'service' | 'removal' | 'length' | 'finish' | 'quantity' | 'details' | 'date'; options: string[] }
   | { kind: 'unavailable'; reason: 'no_match' | 'unavailable' | 'rate_limited' | 'conversation_used' | 'selection_changed' | 'invalid_conversation' };
 
 export type CustomerAssistantResponse = { conversation: string; result: CustomerAssistantResult };

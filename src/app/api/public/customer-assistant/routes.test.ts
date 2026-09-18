@@ -1,14 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const mocks = vi.hoisted(() => ({ salon: vi.fn(), guard: vi.fn(), online: vi.fn(), turn: vi.fn() }));
+const mocks = vi.hoisted(() => ({ salon: vi.fn(), guard: vi.fn(), online: vi.fn(), turn: vi.fn(), action: vi.fn() }));
 vi.mock('server-only', () => ({}));
 vi.mock('@/libs/queries', () => ({ getSalonBySlug: mocks.salon }));
 vi.mock('@/libs/salonStatus', () => ({ guardSalonApiRoute: mocks.guard, isOnlineBookingEnabled: mocks.online }));
 vi.mock('@/libs/customerAssistant/turn.server', () => ({ runCustomerAssistantTurn: mocks.turn }));
+vi.mock('@/libs/customerAssistant/action.server', () => ({ runCustomerAssistantAction: mocks.action }));
 vi.mock('@/libs/publicBookingRateLimit.server', () => ({ getPublicBookingClientIp: () => '192.0.2.5' }));
 
 const { POST: session } = await import('./[salonSlug]/session/route');
 const { POST: chat } = await import('./[salonSlug]/chat/route');
+const { POST: action } = await import('./[salonSlug]/action/route');
 const { verifyCustomerConversation } = await import('@/libs/customerAssistant/conversation.server');
 const context = (slug = 'isla-nail-studio') => ({ params: Promise.resolve({ salonSlug: slug }) });
 function request(body?: unknown, origin = 'https://app.test') {
@@ -28,6 +30,7 @@ beforeEach(() => {
   mocks.guard.mockResolvedValue(null);
   mocks.online.mockResolvedValue(true);
   mocks.turn.mockResolvedValue({ conversation: 'next', result: { kind: 'unavailable', reason: 'no_match' } });
+  mocks.action.mockResolvedValue({ conversation: 'next', result: { kind: 'unavailable', reason: 'no_match' } });
 });
 
 describe('customer assistant public routes', () => {
@@ -44,6 +47,7 @@ describe('customer assistant public routes', () => {
   it('returns indistinguishable 404 for the dark feature and other salons', async () => {
     expect((await session(request(), context('salon-b'))).status).toBe(404);
     expect((await chat(request(), context('salon-b'))).status).toBe(404);
+    expect((await action(request({ action: 'choose_date', conversation: 'signed', date: '2026-09-20' }), context('salon-b'))).status).toBe(404);
 
     vi.stubEnv('CUSTOMER_ASSISTANT_ENABLED', 'false');
 
@@ -55,6 +59,7 @@ describe('customer assistant public routes', () => {
 
   it('rejects foreign origins, tenant overrides, privileged state and oversized bodies', async () => {
     expect((await chat(request({}, 'https://attacker.test'), context())).status).toBe(403);
+    expect((await action(request({}, 'https://attacker.test'), context())).status).toBe(403);
     expect((await session(request({}, 'https://attacker.test'), context())).status).toBe(403);
     expect((await chat(request({ conversation: 'signed', message: 'hello', locale: 'en', salonId: 'salon-b' }), context())).status).toBe(400);
     expect((await chat(request({ message: 'x'.repeat(31_000) }), context())).status).toBe(400);
@@ -65,6 +70,19 @@ describe('customer assistant public routes', () => {
     const response = await chat(request({ conversation: 'signed', message: 'French', locale: 'en' }), context());
 
     expect(response.status).toBe(200);
-    expect(mocks.turn).toHaveBeenCalledWith({ salonId: 'salon-a', features: null, conversation: 'signed', message: 'French', locale: 'en', clientIp: '192.0.2.5' });
+    expect(mocks.turn).toHaveBeenCalledWith({ salonId: 'salon-a', salonSlug: 'isla-nail-studio', features: null, conversation: 'signed', message: 'French', locale: 'en', clientIp: '192.0.2.5' });
+  });
+
+  it('passes a signed action and only the route-resolved salon to deterministic availability', async () => {
+    const response = await action(request({ action: 'choose_date', conversation: 'signed', date: '2026-09-20' }), context());
+
+    expect(response.status).toBe(200);
+    expect(mocks.action).toHaveBeenCalledWith({
+      salon: { id: 'salon-a', slug: 'isla-nail-studio' },
+      features: null,
+      conversation: 'signed',
+      action: { action: 'choose_date', conversation: 'signed', date: '2026-09-20' },
+      clientIp: '192.0.2.5',
+    });
   });
 });

@@ -202,15 +202,20 @@ describe('GET /api/appointments/availability', () => {
     }]);
     selectResults.push([], [], [], []);
 
+    const controller = new AbortController();
     const response = await getAnonymousCustomerBookingAvailability({
       salon: { id: 'salon_1', slug: 'salon-a' },
       date: '2026-03-13',
       durationMinutes: 30,
+      signal: controller.signal,
+      timeoutMs: 8_000,
     });
 
     expect(response.status).toBe(200);
     expect(getGoogleCalendarBusyWindowsReadOnly).toHaveBeenCalledWith(expect.objectContaining({
       salonId: 'salon_1',
+      signal: controller.signal,
+      timeoutMs: 8_000,
     }));
     expect(getGoogleCalendarBusyWindows).not.toHaveBeenCalled();
     expect(getClientSession).not.toHaveBeenCalled();
