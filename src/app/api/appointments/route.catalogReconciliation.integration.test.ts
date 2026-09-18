@@ -400,6 +400,7 @@ describe('POST /api/appointments — catalog reconciliation (gate ON)', () => {
 
   it('the response payload carries no rule id, priority, note, params, or capability id anywhere', async () => {
     signInFreshClient();
+    await db.insert(schema.serviceSchema).values({ id: 'unbookable-recovery-sentinel', salonId: GATED_SALON_ID, name: 'HIDDEN_RECOVERY_SENTINEL', category: 'manicure', price: 9900, durationMinutes: 90 });
 
     const response = await postBooking(bookingBody({
       salonSlug: GATED_SALON_SLUG,
@@ -412,7 +413,7 @@ describe('POST /api/appointments — catalog reconciliation (gate ON)', () => {
     expect(response.status).toBe(409);
 
     const serialized = JSON.stringify(body);
-    for (const forbidden of ['ruleId', '"priority"', '"note"', 'capabilityId', 'rawParams']) {
+    for (const forbidden of ['HIDDEN_RECOVERY_SENTINEL', 'unbookable-recovery-sentinel', 'ruleId', '"priority"', '"note"', 'capabilityId', 'rawParams']) {
       expect(serialized).not.toContain(forbidden);
     }
   });

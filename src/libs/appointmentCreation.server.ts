@@ -600,18 +600,11 @@ function bookingFinancialQuoteChangedResponse(
   );
 }
 
-/**
- * L1 PR4 §13. `payload` is already public-safe end to end — allowlisted
- * `PublicCatalogSnapshot` / `ResolvedCatalogSelection` types plus bounded
- * `reason`/`recovery` strings; never a rule id, priority, note, raw params,
- * capability id, or the private rule graph (see
- * `catalogSubmissionReconciliation.server.ts`'s own privacy test for the
- * proof) — this builder adds nothing beyond the HTTP envelope and a
- * user-facing message.
- */
+/** Every public conflict carries only the selected service recovery context. */
 function catalogSelectionChangedResponse(
-  payload: CatalogConflictPayload,
+  authorityPayload: CatalogConflictPayload,
 ): Response {
+  const payload = projectL1ConflictPayload(authorityPayload);
   return Response.json(
     {
       error: {
