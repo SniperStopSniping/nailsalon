@@ -84,7 +84,10 @@ vi.mock('@/libs/Env', () => ({
   },
 }));
 
-import { getGoogleCalendarBusyWindows } from './googleCalendar';
+import {
+  getGoogleCalendarBusyWindows,
+  getGoogleCalendarBusyWindowsReadOnly,
+} from './googleCalendar';
 
 const SALON_ID = 'salon_1';
 
@@ -107,6 +110,15 @@ function tokenResponse(body: Record<string, unknown>, status = 200) {
 /** Drive the OAuth path by asking for busy windows. */
 async function runBusyWindows() {
   return getGoogleCalendarBusyWindows({
+    salonId: SALON_ID,
+    startTime: new Date('2026-06-10T04:00:00.000Z'),
+    endTime: new Date('2026-06-11T04:00:00.000Z'),
+    timeZone: 'America/Toronto',
+  });
+}
+
+async function runReadOnlyBusyWindows() {
+  return getGoogleCalendarBusyWindowsReadOnly({
     salonId: SALON_ID,
     startTime: new Date('2026-06-10T04:00:00.000Z'),
     endTime: new Date('2026-06-11T04:00:00.000Z'),
@@ -344,5 +356,107 @@ describe('customer-facing availability while disconnected', () => {
       lastError: null,
     }));
     expect(sendGoogleCalendarDisconnectedEmail).not.toHaveBeenCalled();
+  });
+});
+
+describe('read-only customer busy windows', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    resetConnectionRevision();
+    selectRows.length = 0;
+    vi.stubGlobal('fetch', fetchMock);
+  });
+
+  it('uses a tenant OAuth connection without persisting health or credentials', async () => {
+    selectRows.push([connectionRow()], []);
+    fetchMock.mockImplementation(async (url: string) =>
+      (String(url).includes('/token')
+        ? tokenResponse({ access_token: 'at', expires_in: 3600 })
+        : tokenResponse({ calendars: { primary: { busy: [] } } })));
+
+    await runReadOnlyBusyWindows();
+
+    expect(encryptIntegrationSecret).not.toHaveBeenCalled();
+    expect(updateSet).not.toHaveBeenCalled();
+    expect(db.transaction).not.toHaveBeenCalled();
+    expect(sendGoogleCalendarDisconnectedEmail).not.toHaveBeenCalled();
+  });
+
+  it('fails closed when OAuth supplies a rotated refresh token it cannot persist', async () => {
+    selectRows.push([connectionRow()]);
+    fetchMock.mockResolvedValue(tokenResponse({
+      access_token: 'at',
+      expires_in: 3600,
+      refresh_token: 'ROTATED-TOKEN',
+    }));
+
+    await expect(runReadOnlyBusyWindows()).rejects.toMatchObject({
+      name: 'GoogleCalendarAvailabilityError',
+      reconnectRequired: false,
+    });
+
+    expect(encryptIntegrationSecret).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(updateSet).not.toHaveBeenCalled();
+    expect(db.transaction).not.toHaveBeenCalled();
+  });
+
+  it('fails closed without recording connection health or sending an alert', async () => {
+    selectRows.push([connectionRow()]);
+    fetchMock.mockResolvedValue(tokenResponse({ error: 'invalid_grant' }, 400));
+
+    await expect(runReadOnlyBusyWindows()).rejects.toMatchObject({
+      name: 'GoogleCalendarAvailabilityError',
+      reconnectRequired: true,
+    });
+
+    expect(updateSet).not.toHaveBeenCalled();
+    expect(db.transaction).not.toHaveBeenCalled();
+    expect(sendGoogleCalendarDisconnectedEmail).not.toHaveBeenCalled();
+  });
+
+  it('rejects an already-aborted source signal before contacting Google', async () => {
+    const controller = new AbortController();
+    controller.abort(new Error('caller cancelled'));
+
+    await expect(getGoogleCalendarBusyWindowsReadOnly({
+      salonId: SALON_ID,
+      startTime: new Date('2026-06-10T04:00:00.000Z'),
+      endTime: new Date('2026-06-11T04:00:00.000Z'),
+      timeZone: 'America/Toronto',
+      signal: controller.signal,
+    })).rejects.toThrow('Google provider request was aborted');
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(updateSet).not.toHaveBeenCalled();
+    expect(db.transaction).not.toHaveBeenCalled();
+  });
+
+  it('enforces the aggregate read-only deadline during token acquisition', async () => {
+    vi.useFakeTimers();
+    selectRows.push([connectionRow()]);
+    fetchMock.mockImplementation((_url: string, init?: RequestInit) => new Promise((_, reject) => {
+      init?.signal?.addEventListener('abort', () => reject(new Error('aborted')), { once: true });
+    }));
+
+    const pending = getGoogleCalendarBusyWindowsReadOnly({
+      salonId: SALON_ID,
+      startTime: new Date('2026-06-10T04:00:00.000Z'),
+      endTime: new Date('2026-06-11T04:00:00.000Z'),
+      timeZone: 'America/Toronto',
+      timeoutMs: 10,
+    });
+    const outcome = pending.then(
+      () => null,
+      error => error,
+    );
+
+    await vi.advanceTimersByTimeAsync(10);
+
+    expect(await outcome).toMatchObject({ message: 'Google provider request was aborted' });
+    expect(updateSet).not.toHaveBeenCalled();
+    expect(db.transaction).not.toHaveBeenCalled();
+
+    vi.useRealTimers();
   });
 });

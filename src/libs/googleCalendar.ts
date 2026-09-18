@@ -164,7 +164,14 @@ export type GoogleCalendarListOptions = Pick<
 type GoogleCalendarRequestOptions = Pick<
   GoogleCalendarProviderOptions,
   'attemptFence' | 'dispatchFence' | 'requestTimeoutMs' | 'signal'
->;
+> & {
+  /**
+   * Public availability may read an already-configured tenant connection, but
+   * must never alter connection state, persist a rotated credential, or alert
+   * an owner. This is deliberately private to the availability reader below.
+   */
+  readOnly?: boolean;
+};
 
 type GoogleTokenResponse = {
   access_token?: string;
@@ -181,6 +188,44 @@ type GoogleFreeBusyResponse = {
     errors?: Array<{ reason?: string; message?: string }>;
   }>;
 };
+
+/**
+ * Decode only a complete, well-formed FreeBusy answer. Missing calendars or
+ * invalid intervals are provider failures, never evidence that time is free.
+ * Both manual and anonymous availability use this exact parser.
+ */
+function parseGoogleFreeBusyWindows(
+  context: GoogleCalendarRequestContext,
+  data: GoogleFreeBusyResponse,
+): GoogleCalendarBusyWindow[] {
+  return context.busyCalendarIds.flatMap((calendarId) => {
+    const calendar = data.calendars?.[calendarId];
+    if (!calendar) {
+      throw new GoogleCalendarApiError(502, `Google Calendar omitted requested calendar ${calendarId}`);
+    }
+    if (calendar.errors?.length) {
+      throw new GoogleCalendarApiError(
+        502,
+        calendar.errors.map(error => error.message ?? error.reason ?? 'calendar_error').join(', '),
+      );
+    }
+    if (!Array.isArray(calendar.busy)) {
+      throw new GoogleCalendarApiError(502, `Google Calendar omitted busy windows for ${calendarId}`);
+    }
+
+    return calendar.busy.map((window) => {
+      if (typeof window.start !== 'string' || typeof window.end !== 'string') {
+        throw new GoogleCalendarApiError(502, `Google Calendar returned non-string busy timestamps for ${calendarId}`);
+      }
+      const startTime = new Date(window.start);
+      const endTime = new Date(window.end);
+      if (Number.isNaN(startTime.getTime()) || Number.isNaN(endTime.getTime()) || startTime >= endTime) {
+        throw new GoogleCalendarApiError(502, `Google Calendar returned an invalid busy window for ${calendarId}`);
+      }
+      return { startTime, endTime };
+    });
+  });
+}
 
 type GoogleCalendarEventResponse = {
   etag?: string;
@@ -815,12 +860,14 @@ async function getGoogleCalendarRequestContext(
         throw new GoogleCalendarConnectionError(true);
       }
       if (!Env.GOOGLE_OAUTH_CLIENT_ID || !Env.GOOGLE_OAUTH_CLIENT_SECRET) {
-        await recordConnectionFailure(
-          salonId,
-          classifyMissingClientConfig(),
-          connection.revision,
-          options,
-        );
+        if (!options.readOnly) {
+          await recordConnectionFailure(
+            salonId,
+            classifyMissingClientConfig(),
+            connection.revision,
+            options,
+          );
+        }
         throw new GoogleCalendarConnectionError(false);
       }
 
@@ -831,12 +878,14 @@ async function getGoogleCalendarRequestContext(
         // Never reported as "reconnect" — a decrypt failure means the stored
         // secret cannot be read at all, which points at key configuration
         // rather than at the salon's authorization.
-        await recordConnectionFailure(
-          salonId,
-          classifyDecryptFailure(),
-          connection.revision,
-          options,
-        );
+        if (!options.readOnly) {
+          await recordConnectionFailure(
+            salonId,
+            classifyDecryptFailure(),
+            connection.revision,
+            options,
+          );
+        }
         throw new GoogleCalendarConnectionError(false);
       }
 
@@ -862,32 +911,44 @@ async function getGoogleCalendarRequestContext(
 
       if (!data) {
         const classification = failure ?? classifyNetworkFailure();
-        await recordConnectionFailure(
-          salonId,
-          classification,
-          connection.revision,
-          options,
-        );
+        if (!options.readOnly) {
+          await recordConnectionFailure(
+            salonId,
+            classification,
+            connection.revision,
+            options,
+          );
+        }
         throw new GoogleCalendarConnectionError(classification.requiresReconnect);
       }
 
+      // Google's documented refresh-token grant does not return a replacement
+      // refresh token. If a provider response unexpectedly does, a public
+      // request cannot persist it and must fail closed without claiming a
+      // recovery path for the possibly stale stored credential.
+      if (options.readOnly && data.refresh_token) {
+        throw new GoogleCalendarConnectionError(false);
+      }
+
       throwIfGoogleRequestAborted(options.signal);
-      const connectionWrite = await writeGoogleConnectionResult(
-        salonId,
-        connection.revision,
-        options,
-        () => ({
-          values: {
-            status: 'active',
-            lastError: null,
-            lastCheckedAt: new Date(),
-            tokenExpiresAt: new Date(Date.now() + (data.expires_in ?? 3600) * 1000),
-            // Google only returns a refresh token when it rotates one. Writing
-            // the absent case would blank the credential permanently.
-            ...buildRotatedTokenUpdate(data.refresh_token),
-          },
-        }),
-      );
+      const connectionWrite = options.readOnly
+        ? { applied: true, revision: connection.revision }
+        : await writeGoogleConnectionResult(
+          salonId,
+          connection.revision,
+          options,
+          () => ({
+            values: {
+              status: 'active',
+              lastError: null,
+              lastCheckedAt: new Date(),
+              tokenExpiresAt: new Date(Date.now() + (data.expires_in ?? 3600) * 1000),
+              // Google only returns a refresh token when it rotates one. Writing
+              // the absent case would blank the credential permanently.
+              ...buildRotatedTokenUpdate(data.refresh_token),
+            },
+          }),
+        );
       if (!connectionWrite.applied) {
         throw new GoogleCalendarConnectionWriteFenceError();
       }
@@ -907,6 +968,15 @@ async function getGoogleCalendarRequestContext(
   }
 
   const legacy = getGoogleCalendarConfig();
+  // A public request must be explicitly tenant-bound. The legacy integration
+  // is process-global, so silently using it when this salon has no connection
+  // could disclose another salon's calendar and produce invalid slots.
+  if (options.readOnly) {
+    if (legacy) {
+      throw new GoogleCalendarConnectionError(false);
+    }
+    return null;
+  }
   if (!legacy) {
     return null;
   }
@@ -945,7 +1015,9 @@ export async function listGoogleCalendarsForSalon(
 }
 
 function parseGoogleEventDate(value?: { dateTime?: string; date?: string }): Date | null {
-  const raw = value?.dateTime || (value?.date ? `${value.date}T00:00:00.000Z` : null);
+  const raw = typeof value?.dateTime === 'string'
+    ? value.dateTime
+    : (typeof value?.date === 'string' ? `${value.date}T00:00:00.000Z` : null);
   if (!raw) {
     return null;
   }
@@ -962,10 +1034,16 @@ type GoogleCalendarEventListArgs = {
   privateExtendedProperties?: string[];
 };
 
+type GoogleCalendarEventListReadOptions = GoogleCalendarRequestOptions & {
+  maxPages: number;
+  /** Ghost suppression needs a complete provider proof before releasing a window. */
+  strictProof?: boolean;
+};
+
 async function listGoogleCalendarEventsWithContext(
   context: GoogleCalendarRequestContext,
   args: GoogleCalendarEventListArgs,
-  options: GoogleCalendarRequestOptions & { maxPages: number },
+  options: GoogleCalendarEventListReadOptions,
 ): Promise<GoogleCalendarRemoteEvent[]> {
   const events: GoogleCalendarRemoteEvent[] = [];
   const calendarIds = [...new Set(args.calendarIds?.length ? args.calendarIds : [context.calendarId])];
@@ -1010,7 +1088,13 @@ async function listGoogleCalendarEventsWithContext(
         { method: 'GET' },
         options,
       );
+      if (options.strictProof && !Array.isArray(data.items)) {
+        throw new GoogleCalendarApiError(502, 'Google Calendar omitted events while checking a cancelled mirror');
+      }
       for (const item of data.items ?? []) {
+        if (options.strictProof && (!item || typeof item.id !== 'string' || item.id.length === 0)) {
+          throw new GoogleCalendarApiError(502, 'Google Calendar returned an unidentifiable event while checking a cancelled mirror');
+        }
         if (!item.id) {
           continue;
         }
@@ -1395,6 +1479,7 @@ async function suppressCancelledMirrorFreeBusyGhosts(args: {
   startTime: Date;
   endTime: Date;
   busyWindows: GoogleCalendarBusyWindow[];
+  requestOptions?: GoogleCalendarRequestOptions;
 }): Promise<GoogleCalendarBusyWindow[]> {
   if (args.context.connectionType !== 'oauth' || args.busyWindows.length === 0) {
     return args.busyWindows;
@@ -1430,7 +1515,17 @@ async function suppressCancelledMirrorFreeBusyGhosts(args: {
     calendarIds,
     startTime: args.startTime,
     endTime: args.endTime,
-  }, { maxPages: GOOGLE_EVENT_LIST_MAX_PAGES });
+  }, { maxPages: GOOGLE_EVENT_LIST_MAX_PAGES, ...args.requestOptions, strictProof: true });
+  // A malformed live event cannot prove that a FreeBusy window is a stale
+  // mirror. Retain all matching windows rather than accidentally opening a
+  // real conflict while the provider payload is incomplete.
+  if (liveEvents.some(event =>
+    event.status !== 'cancelled'
+    && event.transparency === 'busy'
+    && (!event.startTime || !event.endTime || event.startTime >= event.endTime),
+  )) {
+    return args.busyWindows;
+  }
   const liveBusyWindows = liveEvents.flatMap(event => (
     event.status !== 'cancelled'
     && event.transparency === 'busy'
@@ -1490,21 +1585,8 @@ export async function getGoogleCalendarBusyWindows(args: {
         }),
       },
     );
-    const busyWindows = context.busyCalendarIds.flatMap((calendarId) => {
-      const calendar = data.calendars?.[calendarId];
-      if (calendar?.errors?.length) {
-        throw new GoogleCalendarApiError(
-          502,
-          calendar.errors.map(error => error.message ?? error.reason ?? 'calendar_error').join(', '),
-        );
-      }
-      return (calendar?.busy ?? [])
-        .map(window => ({
-          startTime: new Date(window.start),
-          endTime: new Date(window.end),
-        }))
-        .filter(window => !ownMirrorWindow || !isSameWindow(window, ownMirrorWindow));
-    });
+    const busyWindows = parseGoogleFreeBusyWindows(context, data)
+      .filter(window => !ownMirrorWindow || !isSameWindow(window, ownMirrorWindow));
     return args.salonId
       ? await suppressCancelledMirrorFreeBusyGhosts({
         salonId: args.salonId,
@@ -1523,6 +1605,81 @@ export async function getGoogleCalendarBusyWindows(args: {
       await markGoogleAvailabilityFailure(args.salonId, error, requestContext);
     }
     throw new GoogleCalendarAvailabilityError(reconnectRequired);
+  }
+}
+
+/**
+ * Customer-facing, tenant-bound Google busy-window lookup. It returns only
+ * anonymous occupied windows and performs no connection-health writes,
+ * credential persistence, transaction, or owner notification.
+ */
+export async function getGoogleCalendarBusyWindowsReadOnly(args: {
+  salonId: string;
+  startTime: Date;
+  endTime: Date;
+  timeZone: string;
+  /** Bounds the complete read including token acquisition and ghost checks. */
+  signal?: AbortSignal;
+  timeoutMs?: number;
+}): Promise<GoogleCalendarBusyWindow[]> {
+  if (!args.salonId) {
+    throw new Error('salonId is required for read-only Google availability');
+  }
+
+  const timeoutMs = args.timeoutMs ?? GOOGLE_EVENT_LIST_TIMEOUT_MS;
+  const controller = new AbortController();
+  const abortFromSource = () => controller.abort(args.signal?.reason);
+  if (args.signal?.aborted) {
+    abortFromSource();
+  }
+  args.signal?.addEventListener('abort', abortFromSource, { once: true });
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  timeout.unref?.();
+
+  try {
+    const context = await getGoogleCalendarRequestContext(args.salonId, {
+      readOnly: true,
+      signal: controller.signal,
+      requestTimeoutMs: timeoutMs,
+    });
+    if (!context) {
+      return [];
+    }
+    const data = await googleCalendarFetchWithContext<GoogleFreeBusyResponse>(
+      context,
+      '/freeBusy',
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          timeMin: args.startTime.toISOString(),
+          timeMax: args.endTime.toISOString(),
+          timeZone: args.timeZone,
+          items: context.busyCalendarIds.map(id => ({ id })),
+        }),
+      },
+      { readOnly: true, signal: controller.signal, requestTimeoutMs: timeoutMs },
+    );
+    const busyWindows = parseGoogleFreeBusyWindows(context, data);
+    return await suppressCancelledMirrorFreeBusyGhosts({
+      salonId: args.salonId,
+      context,
+      startTime: args.startTime,
+      endTime: args.endTime,
+      busyWindows,
+      requestOptions: {
+        readOnly: true,
+        signal: controller.signal,
+        requestTimeoutMs: timeoutMs,
+      },
+    });
+  } catch (error) {
+    if (!(error instanceof GoogleCalendarApiError || error instanceof GoogleCalendarConnectionError)) {
+      throw error;
+    }
+    throw new GoogleCalendarAvailabilityError(isGoogleCalendarReconnectRequired(error));
+  } finally {
+    clearTimeout(timeout);
+    args.signal?.removeEventListener('abort', abortFromSource);
   }
 }
 

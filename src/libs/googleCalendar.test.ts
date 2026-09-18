@@ -93,6 +93,7 @@ import {
   deleteGoogleCalendarEventForAppointment,
   deterministicGoogleCalendarEventId,
   getGoogleCalendarBusyWindows,
+  getGoogleCalendarBusyWindowsReadOnly,
   isBusyWindowConflict,
   listGoogleCalendarEventsForSalon,
   syncGoogleCalendarEventForAppointment,
@@ -170,6 +171,55 @@ describe('googleCalendar', () => {
     );
   });
 
+  it.each([
+    ['omits a requested calendar', { calendars: {} }],
+    ['omits busy windows for a requested calendar', { calendars: { 'primary@example.com': {} } }],
+    ['returns an invalid busy timestamp', { calendars: { 'primary@example.com': { busy: [{ start: 'nope', end: '2026-06-10T18:45:00.000Z' }] } } }],
+    ['returns non-string busy timestamps', { calendars: { 'primary@example.com': { busy: [{ start: 0, end: 1 }] } } }],
+    ['returns a reversed busy interval', { calendars: { 'primary@example.com': { busy: [{ start: '2026-06-10T18:45:00.000Z', end: '2026-06-10T17:45:00.000Z' }] } } }],
+  ])('fails closed when Google %s', async (_scenario, body) => {
+    fetchMock.mockImplementation(async (url: string | URL) => {
+      if (String(url).includes('oauth2.googleapis.com/token')) {
+        return new Response(JSON.stringify({ access_token: 'google_token', expires_in: 3600 }), { status: 200 });
+      }
+      return new Response(JSON.stringify(body), { status: 200 });
+    });
+
+    await expect(getGoogleCalendarBusyWindows({
+      startTime: new Date('2026-06-10T04:00:00.000Z'),
+      endTime: new Date('2026-06-11T04:00:00.000Z'),
+      timeZone: 'America/Toronto',
+    })).rejects.toMatchObject({ name: 'GoogleCalendarAvailabilityError' });
+  });
+
+  it('accepts an explicit empty busy-window response', async () => {
+    fetchMock.mockImplementation(async (url: string | URL) => {
+      if (String(url).includes('oauth2.googleapis.com/token')) {
+        return new Response(JSON.stringify({ access_token: 'google_token', expires_in: 3600 }), { status: 200 });
+      }
+      return new Response(JSON.stringify({ calendars: { 'primary@example.com': { busy: [] } } }), { status: 200 });
+    });
+
+    await expect(getGoogleCalendarBusyWindows({
+      startTime: new Date('2026-06-10T04:00:00.000Z'),
+      endTime: new Date('2026-06-11T04:00:00.000Z'),
+      timeZone: 'America/Toronto',
+    })).resolves.toEqual([]);
+  });
+
+  it('never falls back to the process-global calendar for a tenant-bound public read', async () => {
+    await expect(getGoogleCalendarBusyWindowsReadOnly({
+      salonId: 'salon_without_connection',
+      startTime: new Date('2026-06-10T04:00:00.000Z'),
+      endTime: new Date('2026-06-11T04:00:00.000Z'),
+      timeZone: 'America/Toronto',
+    })).rejects.toMatchObject({ name: 'GoogleCalendarAvailabilityError' });
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(set).not.toHaveBeenCalled();
+    expect(db.transaction).not.toHaveBeenCalled();
+  });
+
   it('still blocks on the primary calendar while calendar setup is incomplete', async () => {
     // A connected salon with no saved blocking calendars (setup_incomplete)
     // must never be silently double-bookable: the safety floor consults the
@@ -185,6 +235,12 @@ describe('googleCalendar', () => {
       revision: 'rev_1',
       tokenExpiresAt: new Date(Date.now() + 3_600_000),
     }]);
+    fetchMock.mockImplementation(async (url: string | URL) => {
+      if (String(url).includes('oauth2.googleapis.com/token')) {
+        return new Response(JSON.stringify({ access_token: 'google_token', expires_in: 3600 }), { status: 200 });
+      }
+      return new Response(JSON.stringify({ calendars: { primary: { busy: [] } } }), { status: 200 });
+    });
 
     await getGoogleCalendarBusyWindows({
       salonId: 'salon_1',
@@ -1145,6 +1201,25 @@ describe('googleCalendar', () => {
       query.limit
         .mockResolvedValueOnce([CONNECTION])
         .mockResolvedValueOnce([CANCELLED_MIRROR]);
+      fetchMock.mockImplementation(async (url: string | URL) => {
+        const urlText = String(url);
+        if (urlText.includes('oauth2.googleapis.com/token')) {
+          return new Response(JSON.stringify({ access_token: 'google_token', expires_in: 3600 }), { status: 200 });
+        }
+        if (urlText.endsWith('/freeBusy')) {
+          return new Response(JSON.stringify({
+            calendars: {
+              'primary@example.com': {
+                busy: [{ start: BUSY_WINDOW.startTime.toISOString(), end: BUSY_WINDOW.endTime.toISOString() }],
+              },
+            },
+          }), { status: 200 });
+        }
+        if (urlText.includes('/events?')) {
+          return new Response(JSON.stringify({ items: [] }), { status: 200 });
+        }
+        return new Response('{}', { status: 200 });
+      });
 
       const windows = await getGoogleCalendarBusyWindows({
         salonId: 'salon_1',
@@ -1205,6 +1280,79 @@ describe('googleCalendar', () => {
       });
 
       expect(windows).toEqual([BUSY_WINDOW]);
+    });
+
+    it('keeps a matching window when the live ghost-check event has numeric bounds', async () => {
+      const query = db.select() as unknown as { limit: ReturnType<typeof vi.fn> };
+      query.limit
+        .mockResolvedValueOnce([CONNECTION])
+        .mockResolvedValueOnce([CANCELLED_MIRROR]);
+      fetchMock.mockImplementation(async (url: string | URL) => {
+        const urlText = String(url);
+        if (urlText.includes('oauth2.googleapis.com/token')) {
+          return new Response(JSON.stringify({ access_token: 'google_token', expires_in: 3600 }), { status: 200 });
+        }
+        if (urlText.endsWith('/freeBusy')) {
+          return new Response(JSON.stringify({
+            calendars: {
+              'primary@example.com': {
+                busy: [{ start: BUSY_WINDOW.startTime.toISOString(), end: BUSY_WINDOW.endTime.toISOString() }],
+              },
+            },
+          }), { status: 200 });
+        }
+        if (urlText.includes('/events?')) {
+          return new Response(JSON.stringify({
+            items: [{ id: 'malformed_live_event', status: 'confirmed', start: { dateTime: 1 }, end: { dateTime: 2 } }],
+          }), { status: 200 });
+        }
+        return new Response('{}', { status: 200 });
+      });
+
+      await expect(getGoogleCalendarBusyWindows({
+        salonId: 'salon_1',
+        startTime: new Date('2026-06-10T04:00:00.000Z'),
+        endTime: new Date('2026-06-11T04:00:00.000Z'),
+        timeZone: 'America/Toronto',
+      })).resolves.toEqual([BUSY_WINDOW]);
+    });
+
+    it.each([
+      ['omits the items array', {}],
+      ['returns an event without an id', {
+        items: [{ status: 'confirmed', start: { dateTime: BUSY_WINDOW.startTime.toISOString() }, end: { dateTime: BUSY_WINDOW.endTime.toISOString() } }],
+      }],
+    ])('fails closed when the ghost-check response %s', async (_scenario, eventsBody) => {
+      const query = db.select() as unknown as { limit: ReturnType<typeof vi.fn> };
+      query.limit
+        .mockResolvedValueOnce([CONNECTION])
+        .mockResolvedValueOnce([CANCELLED_MIRROR]);
+      fetchMock.mockImplementation(async (url: string | URL) => {
+        const urlText = String(url);
+        if (urlText.includes('oauth2.googleapis.com/token')) {
+          return new Response(JSON.stringify({ access_token: 'google_token', expires_in: 3600 }), { status: 200 });
+        }
+        if (urlText.endsWith('/freeBusy')) {
+          return new Response(JSON.stringify({
+            calendars: {
+              'primary@example.com': {
+                busy: [{ start: BUSY_WINDOW.startTime.toISOString(), end: BUSY_WINDOW.endTime.toISOString() }],
+              },
+            },
+          }), { status: 200 });
+        }
+        if (urlText.includes('/events?')) {
+          return new Response(JSON.stringify(eventsBody), { status: 200 });
+        }
+        return new Response('{}', { status: 200 });
+      });
+
+      await expect(getGoogleCalendarBusyWindows({
+        salonId: 'salon_1',
+        startTime: new Date('2026-06-10T04:00:00.000Z'),
+        endTime: new Date('2026-06-11T04:00:00.000Z'),
+        timeZone: 'America/Toronto',
+      })).rejects.toMatchObject({ name: 'GoogleCalendarAvailabilityError' });
     });
   });
 
