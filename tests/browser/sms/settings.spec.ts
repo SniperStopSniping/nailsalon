@@ -135,7 +135,7 @@ test('Features opens included SMS credits and paused Client communications with 
   expect(mutations).toEqual([{
     path: '/api/admin/salon/settings?salonSlug=sms-fixture',
     method: 'PATCH',
-    body: { communications: { sms: { enabled: true }, email: { enabled: true }, killSwitch: false, quietHours: { enabled: true, start: '21:00', end: '09:00' }, reminders: { rules: [] } } },
+    body: { communications: { sms: { enabled: true, bookingDefault: 'default_on' }, email: { enabled: true }, killSwitch: false, quietHours: { enabled: true, start: '21:00', end: '09:00' }, reminders: { rules: [] } } },
   }]);
   expect(unexpectedRequests).toEqual([]);
   expect(browserErrors).toEqual([]);

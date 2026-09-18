@@ -278,7 +278,7 @@ describe('BookConfirmPage directions fallback', () => {
     { reason: 'SMS_DISABLED', enabled: false },
     { reason: 'NO_CREDITS', enabled: false },
     { reason: null, enabled: true },
-  ])('uses operational SMS readiness for public consent ($reason, $enabled)', async ({ reason, enabled }) => {
+  ])('keeps the booking default independent from delivery readiness ($reason, $enabled)', async ({ reason, enabled }) => {
     getSalonSmsReadiness.mockResolvedValue({
       automaticEnabled: enabled,
       blockingReason: reason,
@@ -297,11 +297,25 @@ describe('BookConfirmPage directions fallback', () => {
 
     render(element);
 
-    expect(getSalonSmsReadiness).toHaveBeenCalledWith('salon_1');
-    expect(bookConfirmClientSpy).toHaveBeenCalledWith(expect.objectContaining({ smsEnabled: enabled }));
+    expect(getSalonSmsReadiness).not.toHaveBeenCalled();
+    expect(bookConfirmClientSpy).toHaveBeenCalledWith(expect.objectContaining({ smsBookingDefault: 'default_on' }));
     expect(bookConfirmClientSpy.mock.calls[0]?.[0]).not.toHaveProperty('smsReadiness');
     expect(bookConfirmClientSpy.mock.calls[0]?.[0]).not.toHaveProperty('availableCredits');
     expect(JSON.stringify(bookConfirmClientSpy.mock.calls[0]?.[0])).not.toContain('Owner-only setup detail');
+  });
+
+  it.each(['default_off', 'disabled'] as const)('passes salon booking default %s', async (bookingDefault) => {
+    const context = await getPublicPageContext();
+    getPublicPageContext.mockResolvedValue({
+      ...context,
+      salon: {
+        ...context.salon,
+        settings: { communications: { sms: { bookingDefault } } },
+      },
+    });
+    render(await BookConfirmPage({ searchParams: Promise.resolve({ salonSlug: 'salon-a', serviceIds: 'srv_1' }) }));
+
+    expect(bookConfirmClientSpy).toHaveBeenCalledWith(expect.objectContaining({ smsBookingDefault: bookingDefault }));
   });
 
   it('passes the primary active location to the confirmed screen instead of the stale salon root address', async () => {

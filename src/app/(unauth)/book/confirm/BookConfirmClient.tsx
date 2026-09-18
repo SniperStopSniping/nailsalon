@@ -1948,15 +1948,13 @@ const SuccessContent = ({
             )}
           </>
           {!isPending && (
-            <>
-              <p className="font-body mt-0.5 text-xs text-[var(--n5-ink-muted)]">
-                You can change or cancel up to
-                {' '}
-                {clientChangeCutoffHours}
-                {' '}
-                hours before
-              </p>
-            </>
+            <p className="font-body mt-0.5 text-xs text-[var(--n5-ink-muted)]">
+              You can change or cancel up to
+              {' '}
+              {clientChangeCutoffHours}
+              {' '}
+              hours before
+            </p>
           )}
         </motion.div>
       </main>
