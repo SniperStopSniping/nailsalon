@@ -94,9 +94,9 @@ const {
   resolveEvalBaseUrl,
   resolveEvalMaxSpendCents,
   resolveEvalModel,
-  shouldStopForSpend,
 } = await import('./runnerGuards');
-const { formatMicros, writeEvalReport } = await import('./report');
+const { writeEvalReport } = await import('./report');
+const { createEvalSpendGuard } = await import('./spendGuard');
 
 const refusals = checkRealModelRunnerPreconditions(process.env, { today: currentLocalDate() });
 const model = resolveEvalModel(process.env);
@@ -127,37 +127,18 @@ let client: PGlite;
 // time this runs the ceiling is always enforceable.
 // ---------------------------------------------------------------------------
 const spendCeilingMicros = centsToMicros(resolveEvalMaxSpendCents(process.env));
-let spentMicros = 0;
-let maxObservedTurnCostMicros: number | undefined;
 let spendHalt: EvalSpendCeilingHalt | undefined;
 /** Cases the case loop below never even started once `spendHalt` was set. */
 const notRunBySpendCeiling: EvalReportSkip[] = [];
 
+const accounting = createEvalSpendGuard(spendCeilingMicros, EVAL_WORST_CASE_TURN_COST_MICROS);
 const spendGuard: EvalSpendGuard = {
   checkBeforeTurn: () => {
-    if (spendHalt) {
-      return spendHalt;
-    }
-    const estimatedNextMicros = maxObservedTurnCostMicros ?? EVAL_WORST_CASE_TURN_COST_MICROS;
-    if (shouldStopForSpend({ spentMicros, ceilingMicros: spendCeilingMicros, estimatedNextMicros })) {
-      spendHalt = {
-        reason: `spent ${formatMicros(spentMicros)} of a ${formatMicros(spendCeilingMicros)} ceiling; the next turn's conservative estimate of ${formatMicros(estimatedNextMicros)} would meet or exceed it`,
-        spentMicros,
-        ceilingMicros: spendCeilingMicros,
-      };
-    }
+    spendHalt = accounting.checkBeforeTurn();
     return spendHalt;
   },
-  recordTurnCost: (turnCostMicros: number) => {
-    spentMicros += turnCostMicros;
-    maxObservedTurnCostMicros = Math.max(maxObservedTurnCostMicros ?? 0, turnCostMicros);
-    if (!spendHalt && shouldStopForSpend({ spentMicros, ceilingMicros: spendCeilingMicros, estimatedNextMicros: 0 })) {
-      spendHalt = {
-        reason: `spent ${formatMicros(spentMicros)}, which has reached or exceeded the ${formatMicros(spendCeilingMicros)} ceiling`,
-        spentMicros,
-        ceilingMicros: spendCeilingMicros,
-      };
-    }
+  recordTurnCost: (turnCostMicros) => {
+    spendHalt = accounting.recordTurnCost(turnCostMicros);
     return spendHalt;
   },
 };

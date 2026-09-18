@@ -42,8 +42,8 @@ export type EvalReportInput = {
   };
 };
 
-export function formatMicros(micros: number): string {
-  return `$${(micros / 1_000_000).toFixed(6)}`;
+export function formatMicros(micros: number | null): string {
+  return micros === null ? 'unknown' : `$${(micros / 1_000_000).toFixed(6)}`;
 }
 
 function markdownRow(cells: readonly string[]): string {
@@ -69,6 +69,7 @@ export function renderEvalMarkdown(input: EvalReportInput): string {
     `- Cases passed: **${input.summary.passed}/${input.summary.cases}** over ${input.summary.turns} turns`,
     `- Latency: p50 ${input.summary.latencyP50Ms} ms · p95 ${input.summary.latencyP95Ms} ms`,
     `- Cost per turn: mean ${formatMicros(input.summary.meanCostMicrosPerTurn)} · median ${formatMicros(input.summary.medianCostMicrosPerTurn)} (total ${formatMicros(input.summary.totalCostMicros)})`,
+    `- Known usage cost: ${formatMicros(input.summary.knownCostMicros)} · calls with unknown usage: ${input.summary.unknownUsageCalls}. Costs use provider-reported tokens and local prices; they are not an invoice.`,
     `- Grounded turns: ${input.summary.groundedTurns}/${input.summary.turns} · unsupported facts: ${input.summary.unsupportedFactCount}`,
     ...(input.haltedBySpendCeiling
       ? [
@@ -106,11 +107,13 @@ export function renderEvalMarkdown(input: EvalReportInput): string {
         turn.failures.length === 0 ? 'pass' : 'FAIL',
         turn.expectedTools.join(' + ') || 'none',
         executedToolNames(turn).join(' + ') || 'none',
-        turn.grounding.ok
-          ? 'grounded'
-          : turn.grounding.unsupported.map(fact => `${fact.kind}:${fact.value}`).join('; '),
+        turn.outcomeKind !== 'answer'
+          ? 'not scored'
+          : turn.grounding.ok
+            ? 'grounded'
+            : turn.grounding.unsupported.map(fact => `${fact.kind}:${fact.value}`).join('; '),
         String(turn.modelCalls),
-        `${turn.usage.inputTokens}/${turn.usage.cachedInputTokens}/${turn.usage.outputTokens}`,
+        turn.usage ? `${turn.usage.inputTokens}/${turn.usage.cachedInputTokens}/${turn.usage.outputTokens}` : 'unknown',
         `${turn.latencyMs} ms`,
         turn.priceKnown ? formatMicros(turn.costMicros) : 'unpriced',
       ]));

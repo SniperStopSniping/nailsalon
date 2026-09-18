@@ -120,6 +120,9 @@ const {
   fakeToolCalls,
 } = await import('@/libs/ai/providerFake');
 const { ModelProviderError } = await import('@/libs/ai/provider');
+const { createOpenAiResponsesProvider } = await import('@/libs/ai/openaiResponses.server');
+const { completedTextResponse, toolCallResponse, incompleteResponse, failedResponse, refusedResponse } = await import('@/libs/ai/__fixtures__/responses');
+const { createEvalSpendGuard } = await import('./spendGuard');
 
 const {
   EVAL_ADMIN,
@@ -231,6 +234,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.useRealTimers();
+  vi.unstubAllGlobals();
 });
 
 afterAll(async () => {
@@ -1098,6 +1102,107 @@ describe('failure handling', () => {
 // ---------------------------------------------------------------------------
 
 describe('harness accounting', () => {
+  const runApiFixture = async (
+    responses: unknown[],
+    spendGuard?: import('./harness').EvalSpendGuard,
+    runTurn?: import('./harness').EvalTurnRunner,
+  ) => {
+    const fetchMock = vi.fn();
+    for (const response of responses) {
+      fetchMock.mockResolvedValueOnce(new Response(JSON.stringify(response), { status: 200 }));
+    }
+    vi.stubGlobal('fetch', fetchMock);
+    const record = await runEvalCase({
+      evalCase: dialogueCases().find(candidate => candidate.id === 'C1')!,
+      salon: EVAL_SALON,
+      admin: EVAL_ADMIN,
+      database: db,
+      model: MODEL,
+      now: EVAL_NOW,
+      provider: createOpenAiResponsesProvider({ apiKey: 'synthetic-key', baseUrl: 'https://provider.test' }),
+      checks: { checkAnswerText: true, scoreGrounding: true },
+      spendGuard,
+      runTurn,
+    });
+    return { record, fetchMock };
+  };
+
+  it('runs real adapter tool → answer → usage → report with nullable wire fixtures after the business date', async () => {
+    vi.setSystemTime(new Date('2030-01-01T00:00:00Z'));
+    const { record, fetchMock } = await runApiFixture([toolCallResponse, completedTextResponse]);
+
+    expect(record.passed).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(record.turns[0]).toMatchObject({ modelCalls: 2, unknownUsageCalls: 0, usage: { inputTokens: 2200, outputTokens: 200 } });
+    expect(record.turns[0]?.toolCalls[0]).toMatchObject({ name: 'list_services', executed: true, ok: true });
+    expect(aggregate([record]).totalCostMicros).toBeGreaterThan(0);
+  });
+
+  it.each([
+    [{ ...completedTextResponse, output: null }, 'provider_error'],
+    [incompleteResponse, 'model_output_invalid'],
+    [refusedResponse, 'model_output_invalid'],
+    [{ ...completedTextResponse, output: [...completedTextResponse.output, ...refusedResponse.output] }, 'model_output_invalid'],
+    [{ ...failedResponse, usage: completedTextResponse.usage }, 'provider_error'],
+    [{ ...completedTextResponse, output: [{ type: 'message', content: [{ type: 'output_text', text: 'not JSON' }] }] }, 'model_output_invalid'],
+  ])('keeps usage through rejected envelopes and answers', async (fixture, reason) => {
+    const { record } = await runApiFixture([fixture]);
+
+    expect(record.turns[0]).toMatchObject({ outcomeKind: 'unavailable', unavailableReason: reason, usage: { inputTokens: 1100, outputTokens: 100 }, unknownUsageCalls: 0 });
+    expect(record.turns[0]?.costMicros).toBeGreaterThan(0);
+    expect(aggregate([record]).groundedTurns).toBe(0);
+
+    const rows = await db.select().from(schema.salonAuditLogSchema).where(eq(schema.salonAuditLogSchema.salonId, EVAL_SALON.id));
+
+    expect(rows.some(row => (row.metadata?.newValue as { modelCalls?: Array<{ inputCount: number }> })?.modelCalls?.some(call => call.inputCount === 1100))).toBe(true);
+  });
+
+  it('reports unknown usage as null, retains known calls, and stops further paid work', async () => {
+    const guard = createEvalSpendGuard(3_000_000, EVAL_WORST_CASE_TURN_COST_MICROS);
+    const { record } = await runApiFixture([toolCallResponse, { ...completedTextResponse, usage: null }], guard);
+
+    expect(record.turns[0]).toMatchObject({ usage: null, costMicros: null, knownUsage: { inputTokens: 1100, outputTokens: 100 }, unknownUsageCalls: 1 });
+    expect(aggregate([record])).toMatchObject({ totalCostMicros: null, unknownUsageCalls: 1 });
+    expect(record.haltedBySpendCeiling?.reason).toContain('unknown');
+    expect(guard.checkBeforeTurn()).toEqual(record.haltedBySpendCeiling);
+
+    const markdown = renderEvalMarkdown({
+      model: MODEL,
+      records: [record],
+      summary: aggregate([record]),
+      skipped: [],
+      fixtureSlug: EVAL_SALON.slug,
+      frozenNow: EVAL_NOW.toISOString(),
+    });
+
+    expect(markdown).toContain('total unknown');
+    expect(markdown).toContain('calls with unknown usage: 1');
+  });
+
+  it('accounts observed usage even if an unexpected turn failure follows the provider response', async () => {
+    const recordTurnCost = vi.fn(() => undefined);
+    const { record } = await runApiFixture([completedTextResponse], {
+      checkBeforeTurn: () => undefined,
+      recordTurnCost,
+    }, async (args) => {
+      await runOwnerAssistantTurn(args);
+      throw new Error('synthetic post-dispatch fault');
+    });
+
+    expect(record.passed).toBe(false);
+    expect(record.turns[0]?.usage?.inputTokens).toBe(1100);
+    expect(recordTurnCost).toHaveBeenCalledWith(record.turns[0]?.costMicros);
+    expect(record.turns[0]?.costMicros).toBeGreaterThan(0);
+  });
+
+  it('keeps the conservative next-turn reserve even after a cheap call', () => {
+    const guard = createEvalSpendGuard(EVAL_WORST_CASE_TURN_COST_MICROS + 2, EVAL_WORST_CASE_TURN_COST_MICROS);
+
+    expect(guard.checkBeforeTurn()).toBeUndefined();
+    expect(guard.recordTurnCost(3)).toBeUndefined();
+    expect(guard.checkBeforeTurn()).toBeDefined();
+  });
+
   it('costs a turn exactly the way the production ledger costs it', () => {
     const usage = { inputTokens: 4000, cachedInputTokens: 1000, cacheWriteInputTokens: 500, outputTokens: 300 };
     const harnessCost = computeUsageCostMicros(MODEL, usage);

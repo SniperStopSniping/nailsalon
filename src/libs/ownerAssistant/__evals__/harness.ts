@@ -19,15 +19,18 @@
  * This module never touches the network, the database or a key on its own. It
  * imports the turn loop (which is `server-only`) and nothing else that does.
  */
-import type {
-  ModelProviderInputItem,
-  ModelProviderRequest,
-  ModelProviderResponse,
-  OwnerAssistantModelProvider,
+import {
+  ModelProviderError,
+  type ModelProviderInputItem,
+  type ModelProviderRequest,
+  type ModelProviderResponse,
+  type ModelProviderUsage,
+  type OwnerAssistantModelProvider,
 } from '@/libs/ai/provider';
 import type { SalonAuditLogDatabase } from '@/libs/salonAuditLog.server';
 
 import {
+  CHAT_UNAVAILABLE_MESSAGES,
   type ChatLink,
   type ChatTurnResponse,
   type ChatUnavailableReason,
@@ -85,10 +88,14 @@ export type EvalTurnRecord = {
   toolCalls: EvalToolCallRecord[];
   /** Provider round trips attempted this turn, including one that threw. */
   modelCalls: number;
-  usage: EvalUsage;
+  /** null if any attempted call has unknown usage; known calls remain below. */
+  usage: EvalUsage | null;
+  knownUsage: EvalUsage;
+  unknownUsageCalls: number;
   /** Wall time of the whole turn, not of the provider call. */
   latencyMs: number;
-  costMicros: number;
+  costMicros: number | null;
+  knownCostMicros: number;
   priceKnown: boolean;
   grounding: GroundingVerdict;
   /** Empty when the turn met every expectation the case declared. */
@@ -133,7 +140,7 @@ export type EvalSpendGuard = {
   /** Called immediately before a turn would be sent. A returned halt means: do not send it. */
   checkBeforeTurn: () => EvalSpendCeilingHalt | undefined;
   /** Called once a turn's real cost is known and folded into the run's accumulator. */
-  recordTurnCost: (turnCostMicros: number) => EvalSpendCeilingHalt | undefined;
+  recordTurnCost: (turnCostMicros: number | null) => EvalSpendCeilingHalt | undefined;
 };
 
 // ---------------------------------------------------------------------------
@@ -173,9 +180,8 @@ export function computeUsageCostMicros(
 
 /**
  * Conservative per-turn cost estimate for the eval runner's client-side spend
- * ceiling (`runnerGuards.ts`'s `shouldStopForSpend`), used ONLY before any
- * turn in the run has completed — once one has, the ceiling uses the maximum
- * per-turn cost actually observed instead, which is real rather than assumed.
+ * ceiling (`runnerGuards.ts`'s `shouldStopForSpend`). This remains the minimum
+ * reserve even after a cheap turn; unknown usage halts further dispatch.
  *
  * Derived from limits this loop already enforces, not guessed:
  *   - up to `OWNER_ASSISTANT_LIMITS.modelCallsPerTurn` (3) provider round
@@ -209,6 +215,7 @@ export const EVAL_WORST_CASE_TURN_COST_MICROS = computeUsageCostMicros('gpt-5.6-
 type TurnObservation = {
   modelCalls: number;
   usage: EvalUsage;
+  unknownUsageCalls: number;
   toolCalls: EvalToolCallRecord[];
 };
 
@@ -253,11 +260,19 @@ function absorbRequest(observation: TurnObservation, request: ModelProviderReque
   }
 }
 
+function absorbUsage(observation: TurnObservation, usage: ModelProviderUsage | null): void {
+  if (!usage) {
+    observation.unknownUsageCalls += 1;
+    return;
+  }
+  observation.usage.inputTokens += usage.inputTokens;
+  observation.usage.cachedInputTokens += usage.cachedInputTokens;
+  observation.usage.cacheWriteInputTokens += usage.cacheWriteInputTokens ?? 0;
+  observation.usage.outputTokens += usage.outputTokens;
+}
+
 function absorbResponse(observation: TurnObservation, response: ModelProviderResponse): void {
-  observation.usage.inputTokens += response.usage.inputTokens;
-  observation.usage.cachedInputTokens += response.usage.cachedInputTokens;
-  observation.usage.cacheWriteInputTokens += response.usage.cacheWriteInputTokens ?? 0;
-  observation.usage.outputTokens += response.usage.outputTokens;
+  absorbUsage(observation, response.usage);
 
   for (const item of response.items) {
     if (item.type !== 'function_call') {
@@ -286,7 +301,13 @@ export function instrumentProvider(
     async createResponse(request, signal) {
       observation.modelCalls += 1;
       absorbRequest(observation, request);
-      const response = await provider.createResponse(request, signal);
+      let response: ModelProviderResponse;
+      try {
+        response = await provider.createResponse(request, signal);
+      } catch (error) {
+        absorbUsage(observation, error instanceof ModelProviderError ? error.usage : null);
+        throw error;
+      }
       absorbResponse(observation, response);
       return response;
     },
@@ -372,7 +393,7 @@ export async function runEvalCase(args: RunEvalCaseArgs): Promise<EvalCaseRecord
       break;
     }
 
-    const observation: TurnObservation = { modelCalls: 0, usage: emptyUsage(), toolCalls: [] };
+    const observation: TurnObservation = { modelCalls: 0, usage: emptyUsage(), unknownUsageCalls: 0, toolCalls: [] };
     const provider = instrumentProvider(
       resolveProvider(args.provider, {
         caseId: args.evalCase.id,
@@ -397,11 +418,13 @@ export async function runEvalCase(args: RunEvalCaseArgs): Promise<EvalCaseRecord
         now: args.now,
         database: args.database,
       });
-    } catch (error) {
+    } catch {
       record.passed = false;
-      record.error = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+      record.error = 'unexpected turn failure';
       record.failures.push(`turn ${index + 1} threw (${record.error})`);
-      return record;
+      // A failure after dispatch can still have billed usage. Finish the
+      // observation and spend-guard path rather than silently dropping it.
+      response = { kind: 'unavailable', reason: 'provider_error', message: CHAT_UNAVAILABLE_MESSAGES.provider_error };
     }
     const latencyMs = executionNow() - startedAt;
 
@@ -433,9 +456,12 @@ export async function runEvalCase(args: RunEvalCaseArgs): Promise<EvalCaseRecord
       needsClarification: response.kind === 'answer' ? response.needsClarification : false,
       toolCalls: observation.toolCalls,
       modelCalls: observation.modelCalls,
-      usage: observation.usage,
+      usage: observation.unknownUsageCalls === 0 ? observation.usage : null,
+      knownUsage: observation.usage,
+      unknownUsageCalls: observation.unknownUsageCalls,
       latencyMs,
-      costMicros,
+      costMicros: observation.unknownUsageCalls === 0 && priceKnown ? costMicros : null,
+      knownCostMicros: costMicros,
       priceKnown,
       grounding,
       failures: [],
@@ -593,9 +619,11 @@ export type EvalAggregate = {
   passRateByGroup: Record<string, { cases: number; passed: number; rate: number }>;
   latencyP50Ms: number;
   latencyP95Ms: number;
-  meanCostMicrosPerTurn: number;
-  medianCostMicrosPerTurn: number;
-  totalCostMicros: number;
+  meanCostMicrosPerTurn: number | null;
+  medianCostMicrosPerTurn: number | null;
+  totalCostMicros: number | null;
+  knownCostMicros: number;
+  unknownUsageCalls: number;
   groundedTurns: number;
   unsupportedFactCount: number;
 };
@@ -613,7 +641,8 @@ export function percentile(sorted: readonly number[], fraction: number): number 
 export function aggregate(records: readonly EvalCaseRecord[]): EvalAggregate {
   const turns = records.flatMap(record => record.turns);
   const latencies = turns.map(turn => turn.latencyMs).sort((a, b) => a - b);
-  const costs = turns.map(turn => turn.costMicros).sort((a, b) => a - b);
+  const costs = turns.flatMap(turn => turn.costMicros === null ? [] : [turn.costMicros]).sort((a, b) => a - b);
+  const costKnown = costs.length === turns.length;
   const passRateByGroup: EvalAggregate['passRateByGroup'] = {};
 
   for (const record of records) {
@@ -633,10 +662,12 @@ export function aggregate(records: readonly EvalCaseRecord[]): EvalAggregate {
     passRateByGroup,
     latencyP50Ms: percentile(latencies, 0.5),
     latencyP95Ms: percentile(latencies, 0.95),
-    meanCostMicrosPerTurn: turns.length === 0 ? 0 : Math.round(totalCostMicros / turns.length),
-    medianCostMicrosPerTurn: percentile(costs, 0.5),
-    totalCostMicros,
-    groundedTurns: turns.filter(turn => turn.grounding.ok).length,
+    meanCostMicrosPerTurn: !costKnown ? null : turns.length === 0 ? 0 : Math.round(totalCostMicros / turns.length),
+    medianCostMicrosPerTurn: costKnown ? percentile(costs, 0.5) : null,
+    totalCostMicros: costKnown ? totalCostMicros : null,
+    knownCostMicros: turns.reduce((total, turn) => total + turn.knownCostMicros, 0),
+    unknownUsageCalls: turns.reduce((total, turn) => total + turn.unknownUsageCalls, 0),
+    groundedTurns: turns.filter(turn => turn.outcomeKind === 'answer' && turn.grounding.ok).length,
     unsupportedFactCount: turns.reduce((total, turn) => total + turn.grounding.unsupported.length, 0),
   };
 }

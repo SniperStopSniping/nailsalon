@@ -7,6 +7,7 @@ import {
   type ModelProviderItem,
   type ModelProviderRequest,
   type ModelProviderResponse,
+  type ModelProviderUsage,
   type OwnerAssistantModelProvider,
 } from './provider';
 
@@ -19,44 +20,68 @@ import {
  *
  * Disclosure discipline: the request body, the response body, the API key and
  * any provider-authored text NEVER reach a log, an exception message or the
- * owner. Failures collapse into `ModelProviderError` carrying a kind and, at
- * most, an HTTP status code.
+ * owner. Failures carry only a kind, HTTP status and validated numeric usage.
  */
 
 const DEFAULT_BASE_URL = 'https://api.openai.com';
 
-/** Only the subset the turn loop reads; unknown item types are ignored. */
+/**
+ * Responses API contract: error, incomplete_details and usage are nullable.
+ * Unused nullable metadata is deliberately outside this projection.
+ * https://developers.openai.com/api/reference/typescript/resources/responses
+ */
 const responseSchema = z.object({
   id: z.string().optional(),
-  status: z.string().optional(),
-  output: z.array(z.unknown()).optional(),
-  usage: z.object({
-    input_tokens: z.number().optional(),
-    input_tokens_details: z.object({
-      cached_tokens: z.number().optional(),
-      cache_write_tokens: z.number().optional(),
-    }).partial().optional(),
-    output_tokens: z.number().optional(),
-  }).partial().optional(),
-  incomplete_details: z.object({ reason: z.string().optional() }).partial().optional(),
+  status: z.enum(['completed', 'incomplete', 'failed', 'cancelled', 'queued', 'in_progress']),
+  output: z.array(z.unknown()),
+  error: z.object({ code: z.string(), message: z.string() }).nullish(),
+  incomplete_details: z.object({ reason: z.string().optional() }).nullish(),
 });
+
+const countSchema = z.number().int().nonnegative().safe();
+const usageSchema = z.object({
+  input_tokens: countSchema,
+  output_tokens: countSchema,
+  input_tokens_details: z.object({
+    cached_tokens: countSchema.optional(),
+    cache_write_tokens: countSchema.optional(),
+  }).nullish(),
+}).refine(usage => (usage.input_tokens_details?.cached_tokens ?? 0)
+  + (usage.input_tokens_details?.cache_write_tokens ?? 0) <= usage.input_tokens);
+
+/** Extract independently, before validating any generated content. */
+function parseUsage(payload: unknown): ModelProviderUsage | null {
+  const envelope = z.object({ usage: usageSchema }).safeParse(payload);
+  if (!envelope.success) {
+    return null;
+  }
+  const usage = envelope.data.usage;
+  return {
+    inputTokens: usage.input_tokens,
+    outputTokens: usage.output_tokens,
+    cachedInputTokens: usage.input_tokens_details?.cached_tokens ?? 0,
+    cacheWriteInputTokens: usage.input_tokens_details?.cache_write_tokens ?? 0,
+  };
+}
 
 const functionCallItemSchema = z.object({
   type: z.literal('function_call'),
   call_id: z.string(),
   name: z.string(),
   arguments: z.string(),
+  status: z.literal('completed').optional(),
 });
 
 const messageItemSchema = z.object({
   type: z.literal('message'),
-  content: z.array(z.unknown()).optional(),
+  content: z.array(z.unknown()),
+  status: z.literal('completed').optional(),
 });
 
 const outputTextPartSchema = z.object({ type: z.literal('output_text'), text: z.string() });
-const refusalPartSchema = z.object({ type: z.literal('refusal') });
+const refusalPartSchema = z.object({ type: z.literal('refusal'), refusal: z.string() });
 
-function parseItems(output: unknown[]): ModelProviderItem[] {
+function parseItems(output: unknown[], usage: ModelProviderUsage | null): ModelProviderItem[] {
   const items: ModelProviderItem[] = [];
 
   for (const raw of output) {
@@ -80,8 +105,15 @@ function parseItems(output: unknown[]): ModelProviderItem[] {
       continue;
     }
 
+    if (raw && typeof raw === 'object' && (raw as { type?: unknown }).type === 'function_call') {
+      throw new ModelProviderError('provider_error', 200, usage);
+    }
+
     const message = messageItemSchema.safeParse(raw);
     if (!message.success) {
+      if (raw && typeof raw === 'object' && (raw as { type?: unknown }).type === 'message') {
+        throw new ModelProviderError('provider_error', 200, usage);
+      }
       // Reasoning items and anything else the API adds later are ignored by
       // design: this adapter must not break when the provider grows a type.
       continue;
@@ -98,6 +130,10 @@ function parseItems(output: unknown[]): ModelProviderItem[] {
       }
       if (refusalPartSchema.safeParse(part).success) {
         items.push({ type: 'refusal' });
+        continue;
+      }
+      if (part && typeof part === 'object' && ['output_text', 'refusal'].includes(String((part as { type?: unknown }).type))) {
+        throw new ModelProviderError('provider_error', 200, usage);
       }
     }
     if (texts.length > 0) {
@@ -198,26 +234,23 @@ export function createOpenAiResponsesProvider(options: {
         signal?.removeEventListener('abort', abortOuter);
       }
 
+      const usage = parseUsage(payload);
       const parsed = responseSchema.safeParse(payload);
       if (!parsed.success) {
-        throw new ModelProviderError('provider_error', response.status);
+        throw new ModelProviderError('provider_error', response.status, usage);
       }
 
+      const status = parsed.data.error != null || !['completed', 'incomplete'].includes(parsed.data.status)
+        ? 'failed'
+        : parsed.data.status === 'incomplete' || parsed.data.incomplete_details != null
+          ? 'incomplete'
+          : parsed.data.status === 'completed' ? 'completed' : 'failed';
       return {
-        items: parseItems(parsed.data.output ?? []),
-        usage: {
-          inputTokens: parsed.data.usage?.input_tokens ?? 0,
-          cachedInputTokens: parsed.data.usage?.input_tokens_details?.cached_tokens ?? 0,
-          outputTokens: parsed.data.usage?.output_tokens ?? 0,
-          cacheWriteInputTokens: parsed.data.usage?.input_tokens_details?.cache_write_tokens ?? 0,
-        },
+        items: status === 'completed' ? parseItems(parsed.data.output, usage) : [],
+        usage,
         // Anything other than completed/incomplete (failed, cancelled, queued)
         // is a provider-side failure, not a malformed answer.
-        status: parsed.data.status === 'incomplete'
-          ? 'incomplete'
-          : parsed.data.status === undefined || parsed.data.status === 'completed'
-            ? 'completed'
-            : 'failed',
+        status,
         incompleteReason: parsed.data.incomplete_details?.reason,
       };
     },

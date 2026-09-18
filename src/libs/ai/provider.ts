@@ -69,7 +69,8 @@ export type ModelProviderUsage = {
 
 export type ModelProviderResponse = {
   items: ModelProviderItem[];
-  usage: ModelProviderUsage;
+  /** null means the provider did not supply valid usage, never zero spend. */
+  usage: ModelProviderUsage | null;
   status: 'completed' | 'incomplete' | 'failed';
   /** Provider's own reason when `status` is 'incomplete' (e.g. 'max_output_tokens'). */
   incompleteReason?: string;
@@ -77,18 +78,21 @@ export type ModelProviderResponse = {
 
 /**
  * The only failure shape the turn loop understands. Provider text, response
- * bodies and the API key never travel on it — `message` is a fixed string and
- * `status` is an HTTP status code at most.
+ * bodies and the API key never travel on it — only fixed codes and validated
+ * numeric usage may accompany the fixed message.
  */
 export class ModelProviderError extends Error {
   readonly kind: 'provider_error' | 'provider_timeout';
   readonly status?: number;
+  /** Valid numeric usage survives response/answer validation failures. */
+  readonly usage: ModelProviderUsage | null;
 
-  constructor(kind: 'provider_error' | 'provider_timeout', status?: number) {
+  constructor(kind: 'provider_error' | 'provider_timeout', status?: number, usage: ModelProviderUsage | null = null) {
     super(kind);
     this.name = 'ModelProviderError';
     this.kind = kind;
     this.status = status;
+    this.usage = usage;
   }
 }
 

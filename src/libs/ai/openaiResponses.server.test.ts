@@ -7,6 +7,8 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { completedTextResponse, failedResponse, incompleteResponse, refusedResponse, toolCallResponse } from './__fixtures__/responses';
+
 vi.mock('server-only', () => ({}));
 
 const { createOpenAiResponsesProvider } = await import('./openaiResponses.server');
@@ -201,11 +203,11 @@ describe('response parsing', () => {
     expect((await provider().createResponse(REQUEST)).items).toEqual([{ type: 'message', text: 'hi' }]);
   });
 
-  it('defaults missing usage counters to zero', async () => {
+  it('reports missing usage as unknown', async () => {
     fetchMock.mockResolvedValue(jsonResponse({ status: 'completed', output: [] }));
 
     expect((await provider().createResponse(REQUEST)).usage)
-      .toEqual({ inputTokens: 0, cachedInputTokens: 0, outputTokens: 0, cacheWriteInputTokens: 0 });
+      .toBeNull();
   });
 });
 
@@ -219,7 +221,7 @@ describe('reasoning, cache writes, tool choice and provider status', () => {
 
     const result = await provider().createResponse(REQUEST);
 
-    expect(result.usage.cacheWriteInputTokens).toBe(2048);
+    expect(result.usage?.cacheWriteInputTokens).toBe(2048);
     expect(result.items).toEqual([{ type: 'passthrough', raw: { type: 'reasoning', id: 'rs_1', encrypted_content: 'opaque' } }]);
   });
 
@@ -268,6 +270,88 @@ describe('reasoning, cache writes, tool choice and provider status', () => {
     ));
 
     await expect(provider().createResponse({ ...REQUEST, timeoutMs: 20 })).rejects.toMatchObject({ kind: 'provider_timeout' });
+  });
+});
+
+describe('sanitized API contract fixtures', () => {
+  it.each([null, undefined])('accepts completed text with null/omitted details (%s)', async (details) => {
+    fetchMock.mockResolvedValue(jsonResponse({ ...completedTextResponse, incomplete_details: details, error: details }));
+    const result = await provider().createResponse(REQUEST);
+
+    expect(result.status).toBe('completed');
+    expect(result.items).toEqual([{ type: 'message', text: completedTextResponse.output[0]!.content[0]!.text }]);
+    expect(result.usage).toEqual({ inputTokens: 1100, cachedInputTokens: 800, cacheWriteInputTokens: 100, outputTokens: 100 });
+  });
+
+  it('accepts a completed tool call with nullable adjacent metadata', async () => {
+    fetchMock.mockResolvedValue(jsonResponse(toolCallResponse));
+    const result = await provider().createResponse(REQUEST);
+
+    expect(result.items[1]).toMatchObject({ type: 'function_call', callId: 'call_synthetic', argumentsJson: '{"includeInactive":false}' });
+  });
+
+  it.each([
+    [incompleteResponse, 'incomplete'],
+    [failedResponse, 'failed'],
+    [{ ...completedTextResponse, error: failedResponse.error }, 'failed'],
+    [{ ...completedTextResponse, incomplete_details: { reason: 'content_filter' } }, 'incomplete'],
+  ])('never promotes a non-success envelope to an answer', async (fixture, status) => {
+    fetchMock.mockResolvedValue(jsonResponse(fixture));
+
+    await expect(provider().createResponse(REQUEST)).resolves.toMatchObject({ status, items: [] });
+  });
+
+  it('keeps refusals distinct and retains their billed usage', async () => {
+    fetchMock.mockResolvedValue(jsonResponse(refusedResponse));
+
+    await expect(provider().createResponse(REQUEST)).resolves.toMatchObject({ items: [{ type: 'refusal' }], usage: { inputTokens: 1100, outputTokens: 100 } });
+  });
+
+  it.each([
+    undefined,
+    null,
+    {},
+    { input_tokens: 1 },
+    { input_tokens: -1, output_tokens: 2 },
+    { input_tokens: 10, output_tokens: 2, input_tokens_details: { cached_tokens: 11 } },
+    { input_tokens: 10, output_tokens: 2, input_tokens_details: { cached_tokens: 8, cache_write_tokens: 3 } },
+  ])('never invents missing or invalid usage (%j)', async (usage) => {
+    fetchMock.mockResolvedValue(jsonResponse({ ...completedTextResponse, usage }));
+
+    expect((await provider().createResponse(REQUEST)).usage).toBeNull();
+  });
+
+  it.each([null, undefined])('accepts unavailable optional token breakdowns (%s)', async (details) => {
+    fetchMock.mockResolvedValue(jsonResponse({
+      ...completedTextResponse,
+      usage: { ...completedTextResponse.usage, input_tokens_details: details, output_tokens_details: details },
+    }));
+
+    expect((await provider().createResponse(REQUEST)).usage).toEqual({ inputTokens: 1100, outputTokens: 100, cachedInputTokens: 0, cacheWriteInputTokens: 0 });
+  });
+
+  it.each([
+    { status: null },
+    { status: undefined },
+    { status: 'bogus' },
+    { output: null },
+    { output: undefined },
+    { output: {} },
+    { incomplete_details: 'wrong' },
+    { error: 'wrong' },
+    { output: [{ type: 'function_call', name: 'list_services', call_id: 'call_synthetic', arguments: {} }] },
+    { output: [{ type: 'message', content: null }] },
+    { output: [{ type: 'message', content: [{ type: 'output_text', text: 42 }] }] },
+    { output: [{ ...completedTextResponse.output[0], status: 'incomplete' }] },
+    { output: [{ ...toolCallResponse.output[1], status: 'in_progress' }] },
+  ])('rejects malformed response fields but preserves numeric usage (%j)', async (patch) => {
+    fetchMock.mockResolvedValue(jsonResponse({ ...completedTextResponse, ...patch }));
+
+    await expect(provider().createResponse(REQUEST)).rejects.toMatchObject({
+      kind: 'provider_error',
+      status: 200,
+      usage: { inputTokens: 1100, outputTokens: 100, cachedInputTokens: 800, cacheWriteInputTokens: 100 },
+    });
   });
 });
 

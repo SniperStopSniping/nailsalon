@@ -828,14 +828,14 @@ describe('ledger row', () => {
     }
   });
 
-  it('records an unknown model at zero cost rather than guessing', async () => {
+  it('records an unknown model cost as unknown', async () => {
     await clearLedger();
     envHolder.OWNER_ASSISTANT_MODEL = 'gpt-not-in-the-price-table';
     await run(createScriptedProvider(fakeAnswer(ANSWER)));
 
     const value = ((await ledgerRows())[0]?.metadata as { newValue: { costMicros: number; priceKnown: boolean } }).newValue;
 
-    expect(value).toMatchObject({ costMicros: 0, priceKnown: false });
+    expect(value).toMatchObject({ costMicros: null, priceKnown: false });
   });
 
   it('records the errorCode of a failed tool call', async () => {
