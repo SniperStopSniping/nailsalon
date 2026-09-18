@@ -147,6 +147,8 @@ export async function POST(request: Request) {
   // log idempotency key. A carrier/provider block such as 30007 deliberately
   // remains only delivery evidence and never changes consent.
   const sharedSenderIdentity = Env.LUSTER_SMS_SENDER_IDENTITY || LUSTER_DEFAULT_SENDER_IDENTITY;
+  const isByoDelivery = delivery.senderIdentity?.startsWith('byo:')
+    || (!delivery.senderIdentity && connection?.connectAccountSid === expectedAccount);
   if (errorCode === '21610' && intentRecipient !== null && delivery.senderIdentity === sharedSenderIdentity) {
     await appendGlobalConsentEvent({
       senderIdentity: sharedSenderIdentity,
@@ -156,7 +158,7 @@ export async function POST(request: Request) {
       source: 'twilio_advanced_opt_out',
       providerSid: providerMessageId,
     });
-  } else if (errorCode === '21610' && intentRecipient !== null && delivery.senderIdentity?.startsWith('byo:')) {
+  } else if (errorCode === '21610' && intentRecipient !== null && isByoDelivery) {
     // A signed, identity-bound callback is authoritative provider evidence
     // for this retired BYO sender's tenant only. Its deterministic id makes a
     // callback replay harmless without treating a provider error as a shared

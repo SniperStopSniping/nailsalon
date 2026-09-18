@@ -309,6 +309,50 @@ describe('Twilio delivery status callback (hardened)', () => {
     ]);
   });
 
+  it('persists tenant-only opt-out for real legacy BYO rows without sender identity or intent', async () => {
+    await db.insert(schema.salonSchema).values({ id: 'legacy_byo', name: 'Legacy', slug: 'legacy-byo' });
+    await db.insert(schema.salonTwilioConnectionSchema).values({
+      salonId: 'legacy_byo',
+      connectAccountSid: 'AC_legacy_byo',
+      status: 'active',
+    });
+    await db.insert(schema.notificationDeliverySchema).values({
+      id: 'nd_null_identity_byo',
+      salonId: 'legacy_byo',
+      channel: 'sms',
+      purpose: 'appointment_reminder',
+      dedupeKey: 'null-identity-byo',
+      providerMessageId: 'SM_cb_1',
+      status: 'sent',
+    });
+    const { POST } = await import('./route');
+    const callback = { AccountSid: 'AC_legacy_byo', To: '+14165553014', ErrorCode: '21610' };
+
+    expect((await POST(callbackRequest('nd_null_identity_byo', 'undelivered', {
+      ...callback,
+      AccountSid: 'AC_wrong_tenant',
+    }))).status).toBe(403);
+    expect((await POST(callbackRequest('nd_null_identity_byo', 'undelivered', callback))).status).toBe(204);
+    expect((await POST(callbackRequest('nd_null_identity_byo', 'undelivered', callback))).status).toBe(204);
+
+    const records = await db.execute(sql`
+      SELECT salon_id, recipient, status, source FROM communication_consent
+      WHERE recipient = '4165553014'
+    `);
+
+    expect(records.rows).toEqual([{
+      salon_id: 'legacy_byo',
+      recipient: '4165553014',
+      status: 'revoked',
+      source: 'twilio_inbound',
+    }]);
+
+    const { hasGlobalSuppression } = await import('@/libs/smsConsentShared');
+    const { LUSTER_DEFAULT_SENDER_IDENTITY } = await import('@/libs/smsSender');
+
+    expect(await hasGlobalSuppression(LUSTER_DEFAULT_SENDER_IDENTITY, '+14165553014')).toBe(false);
+  });
+
   it('pipeline rows: duplicate terminal callbacks refund exactly once and enqueue one reconciliation', async () => {
     const { appendLotGrant, lockCreditAccount } = await import('@/libs/billing/creditLedger');
     const { reserveSmsCredits, settleReservationOnAccept } = await import('@/libs/billing/creditReservation');
