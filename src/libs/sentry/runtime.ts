@@ -42,8 +42,16 @@ export type SentryRuntimeConfig =
  * — is untouched, and every other route is untouched too.
  */
 export const OWNER_ASSISTANT_SCRUBBED_PATH = '/api/admin/owner-assistant/';
+export const CUSTOMER_ASSISTANT_SCRUBBED_PATH = '/api/public/customer-assistant/';
 
 export function scrubSentryEvent<T extends ScrubbableSentryEvent>(event: T): T {
+  if (event.request?.url?.includes(CUSTOMER_ASSISTANT_SCRUBBED_PATH)) {
+    // Customer utterances and bearer conversation state are never telemetry.
+    delete event.request.data;
+    delete event.request.cookies;
+    delete event.request.headers;
+    event.request.url = event.request.url.split('?')[0];
+  }
   if (event.request?.url?.includes(OWNER_ASSISTANT_SCRUBBED_PATH)) {
     delete event.request.data;
     delete event.request.cookies;

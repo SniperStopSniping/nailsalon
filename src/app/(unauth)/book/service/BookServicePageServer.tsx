@@ -5,6 +5,7 @@ import 'server-only';
 import { notFound, redirect } from 'next/navigation';
 import { Suspense } from 'react';
 
+import { CustomerAssistantLauncher } from '@/components/customerAssistant/CustomerAssistantLauncher';
 import type { PreviewBannerVariant } from '@/components/PreviewBanner';
 import { PublicSalonPageShell } from '@/components/PublicSalonPageShell';
 import { getBookingConfigForSalon, resolveIntroPriceLabel } from '@/libs/bookingConfig';
@@ -15,6 +16,7 @@ import { resolveBookingPageContent } from '@/libs/bookingPageContent';
 import { resolveBookingPagePresetPreviewSide } from '@/libs/bookingPagePresetPreview';
 import { repairBookingUrl, shouldRepairBookingUrl } from '@/libs/bookingParams';
 import { getClientSession } from '@/libs/clientAuth';
+import { isCustomerAssistantEnabledForSalon } from '@/libs/customerAssistant/access.server';
 import { isClientEligibleForFirstVisitDiscount } from '@/libs/firstVisitDiscount';
 import { resolveDraftSalonAccess } from '@/libs/ownerPreview';
 import { listPublicPortfolioPhotosByIds } from '@/libs/portfolioMedia.server';
@@ -466,6 +468,9 @@ export async function renderBookServicePage({
         ? bookingContent
         : (
             <Suspense fallback={<div className="flex min-h-screen items-center justify-center"><div className="size-8 animate-spin rounded-full border-2 border-amber-500 border-t-transparent" /></div>}>
+              {!ownerPreviewState.isPreviewing && isCustomerAssistantEnabledForSalon(salon.slug) && (
+                <CustomerAssistantLauncher salonSlug={salon.slug} locale={params?.locale === 'fr' ? 'fr' : 'en'} />
+              )}
               {bookingContent}
             </Suspense>
           )}
