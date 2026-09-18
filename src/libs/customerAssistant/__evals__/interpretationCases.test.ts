@@ -4,7 +4,7 @@ import { CUSTOMER_INTERPRETATION_EVAL_CASES, SYNTHETIC_CUSTOMER_MENU } from './i
 
 describe('customer interpretation synthetic eval fixtures', () => {
   it('contains the required representative customer and injection cases', () => {
-    expect(CUSTOMER_INTERPRETATION_EVAL_CASES).toHaveLength(17);
+    expect(CUSTOMER_INTERPRETATION_EVAL_CASES).toHaveLength(23);
     expect(CUSTOMER_INTERPRETATION_EVAL_CASES.map(item => item.id)).toEqual(expect.arrayContaining([
       'gelx-french-foreign-removal',
       'builder-gel-foreign-removal',
@@ -15,6 +15,10 @@ describe('customer interpretation synthetic eval fixtures', () => {
       'invented-price-and-confirmation',
       'other-tenant-injection',
       'owner-calendar-injection',
+      'accepted-saturday-afternoon',
+      'accepted-after-five',
+      'accepted-anything-later',
+      'dst-date-explicit',
     ]));
   });
 

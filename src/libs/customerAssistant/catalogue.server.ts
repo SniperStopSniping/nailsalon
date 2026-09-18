@@ -104,7 +104,10 @@ export async function buildCustomerProposal(salonId: string, features: SalonFeat
   };
   return {
     ...material,
-    fingerprint: createHash('sha256').update(JSON.stringify({ salonId, ...material })).digest('hex'),
+    // The visible proposal does not disclose an internal time-zone setting,
+    // but it is booking authority: a changed zone invalidates offered UTC
+    // times across turns and must therefore invalidate acceptance too.
+    fingerprint: createHash('sha256').update(JSON.stringify({ salonId, timeZone: config.timezone, ...material })).digest('hex'),
     expiresAt: new Date(Date.now() + 5 * 60_000).toISOString(),
   };
 }

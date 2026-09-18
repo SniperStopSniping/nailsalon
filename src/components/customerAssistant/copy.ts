@@ -29,7 +29,7 @@ export const customerAssistantCopy: Record<CustomerAssistantLocale, CustomerAssi
     title: 'Help me choose',
     close: 'Close assistant',
     continueManually: 'Continue manually',
-    introduction: 'Tell us what you would like. I can help you choose services and show the current service total. Booking comes next.',
+    introduction: 'Tell us what you would like. I can help you choose services and find an available time.',
     placeholder: 'Describe the nails you want',
     send: 'Send',
     loading: 'Finding the best match…',
@@ -44,6 +44,7 @@ export const customerAssistantCopy: Record<CustomerAssistantLocale, CustomerAssi
     subtotal: 'Subtotal',
     subtotalNote: 'Before tax and any conditional discounts.',
     questions: {
+      date: 'What day works for you?',
       service: 'Which service are you looking for?',
       removal: 'Do you need a removal?',
       length: 'What length would you like?',
@@ -65,7 +66,7 @@ export const customerAssistantCopy: Record<CustomerAssistantLocale, CustomerAssi
     title: 'M’aider à choisir',
     close: 'Fermer l’assistant',
     continueManually: 'Continuer manuellement',
-    introduction: 'Dites-nous ce que vous souhaitez. Je peux vous aider à choisir des services et afficher le total actuel. La réservation viendra ensuite.',
+    introduction: 'Dites-nous ce que vous souhaitez. Je peux vous aider à choisir des services et à trouver une heure disponible.',
     placeholder: 'Décrivez les ongles que vous voulez',
     send: 'Envoyer',
     loading: 'Recherche de la meilleure option…',
@@ -80,6 +81,7 @@ export const customerAssistantCopy: Record<CustomerAssistantLocale, CustomerAssi
     subtotal: 'Sous-total',
     subtotalNote: 'Avant les taxes et les rabais conditionnels.',
     questions: {
+      date: 'Quel jour vous convient ?',
       service: 'Quel service recherchez-vous?',
       removal: 'Avez-vous besoin d’un retrait?',
       length: 'Quelle longueur souhaitez-vous?',

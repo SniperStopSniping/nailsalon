@@ -15,7 +15,7 @@ beforeEach(() => {
   mocks.addOns.mockResolvedValue([{ id: 'french', name: 'French', category: 'art', pricingType: 'fixed', isActive: true }]);
   mocks.rules.mockResolvedValue([{ serviceId: 'gelx', addOnId: 'french', selectionMode: 'optional' }]);
   mocks.bookable.mockResolvedValue(new Set(['gelx']));
-  mocks.config.mockResolvedValue({ currency: 'CAD' });
+  mocks.config.mockResolvedValue({ currency: 'CAD', timezone: 'America/Toronto' });
   mocks.validate.mockResolvedValue({ quote: {
     baseService: { id: 'gelx', name: 'Gel-X', priceCents: 6500 },
     addOns: [{ addOnId: 'french', name: 'French', quantity: 1, lineTotalCents: 1500 }],
@@ -63,5 +63,15 @@ describe('public customer catalogue authority', () => {
     const menu = await loadCustomerMenu('salon-a', null);
 
     expect(menu).toEqual({ services: [], addOns: [], bindings: [] });
+  });
+
+  it('invalidates acceptance when booking timezone authority changes', async () => {
+    const selection = { baseServiceId: 'gelx', selectedAddOns: [{ addOnId: 'french', quantity: 1 }] };
+    const toronto = await buildCustomerProposal('salon-a', null, selection);
+    mocks.config.mockResolvedValue({ currency: 'CAD', timezone: 'America/Vancouver' });
+
+    const vancouver = await buildCustomerProposal('salon-a', null, selection);
+
+    expect(vancouver.fingerprint).not.toEqual(toronto.fingerprint);
   });
 });

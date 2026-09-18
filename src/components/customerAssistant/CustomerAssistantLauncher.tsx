@@ -5,11 +5,12 @@ import type { FormEvent } from 'react';
 import { useEffect, useRef, useState } from 'react';
 
 import { DialogShell } from '@/components/ui/dialog-shell';
-import type { CustomerAssistantLocale, CustomerAssistantResponse, CustomerAssistantResult } from '@/libs/customerAssistant/contracts';
+import type { CustomerAssistantAction, CustomerAssistantLocale, CustomerAssistantResponse, CustomerAssistantResult } from '@/libs/customerAssistant/contracts';
 import { formatMoney } from '@/libs/formatMoney';
 import { formatDuration } from '@/utils/Helpers';
 
 import { customerAssistantCopy } from './copy';
+import { AcceptSelection, ScheduleCards } from './ScheduleCards';
 
 type CustomerAssistantLauncherProps = {
   salonSlug: string;
@@ -97,10 +98,18 @@ function ProposalCard({ result, locale }: { result: Extract<CustomerAssistantRes
   );
 }
 
-function AssistantResult({ result, locale, loading, onOption }: { result: CustomerAssistantResult; locale: CustomerAssistantLocale; loading: boolean; onOption: (option: string) => void }) {
+function AssistantResult({ result, locale, loading, onOption, onAction }: { result: CustomerAssistantResult; locale: CustomerAssistantLocale; loading: boolean; onOption: (option: string) => void; onAction: (action: CustomerAssistantAction) => void }) {
   const copy = customerAssistantCopy[locale];
   if (result.kind === 'proposal') {
-    return <ProposalCard result={result} locale={locale} />;
+    return (
+      <div>
+        <ProposalCard result={result} locale={locale} />
+        <AcceptSelection fingerprint={result.proposal.fingerprint} locale={locale} disabled={loading} onAction={onAction} />
+      </div>
+    );
+  }
+  if (result.kind === 'date_prompt' || result.kind === 'slots' || result.kind === 'slot_selected') {
+    return <ScheduleCards result={result} locale={locale} disabled={loading} onAction={onAction} />;
   }
   if (result.kind === 'clarification') {
     return (
@@ -123,6 +132,7 @@ export function CustomerAssistantPanel({ salonSlug, locale, onClose }: CustomerA
   const [error, setError] = useState<'network' | 'token' | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const transcriptRef = useRef<HTMLDivElement>(null);
+  const inFlight = useRef(false);
 
   useEffect(() => {
     const transcript = transcriptRef.current;
@@ -173,9 +183,10 @@ export function CustomerAssistantPanel({ salonSlug, locale, onClose }: CustomerA
 
   const send = async (message: string) => {
     const trimmedMessage = message.trim();
-    if (!trimmedMessage || loading || !conversation) {
+    if (!trimmedMessage || loading || inFlight.current || !conversation) {
       return;
     }
+    inFlight.current = true;
     setLoading(true);
     setError(null);
     setInput('');
@@ -203,8 +214,43 @@ export function CustomerAssistantPanel({ salonSlug, locale, onClose }: CustomerA
       setInput(trimmedMessage);
       setError('network');
     } finally {
+      inFlight.current = false;
       setLoading(false);
       inputRef.current?.focus();
+    }
+  };
+
+  const act = async (action: CustomerAssistantAction) => {
+    if (loading || inFlight.current || !conversation || error === 'token') {
+      return;
+    }
+    inFlight.current = true;
+    setLoading(true);
+    setError(null);
+    try {
+      const response = await fetch(`${endpoint(salonSlug)}/action`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ conversation, ...action }),
+      });
+      if (!response.ok) {
+        throw new Error('action request failed');
+      }
+      const data = await response.json() as CustomerAssistantResponse;
+      if (!data.conversation || !data.result) {
+        throw new Error('invalid action response');
+      }
+      setConversation(data.conversation);
+      storeConversation(salonSlug, data.conversation);
+      setResult(data.result);
+      if (isConversationError(data.result)) {
+        setError('token');
+      }
+    } catch {
+      setError('network');
+    } finally {
+      inFlight.current = false;
+      setLoading(false);
     }
   };
 
@@ -235,7 +281,7 @@ export function CustomerAssistantPanel({ salonSlug, locale, onClose }: CustomerA
             <button type="button" onClick={restart} className="mt-2 min-h-11 font-medium underline underline-offset-4">{copy.restart}</button>
           </div>
         )}
-        {result && <AssistantResult result={result} locale={locale} loading={loading} onOption={option => void send(option)} />}
+        {result && <AssistantResult result={result} locale={locale} loading={loading} onOption={option => void send(option)} onAction={action => void act(action)} />}
       </div>
       <form onSubmit={handleSubmit} className="shrink-0 border-t border-black/10 p-4 sm:px-5">
         <label htmlFor="customer-assistant-message" className="sr-only">{copy.placeholder}</label>

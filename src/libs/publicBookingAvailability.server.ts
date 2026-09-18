@@ -108,6 +108,9 @@ type AvailabilityAccess =
     kind: 'anonymous_customer_assistant';
     /** Bound by the public booking page/server caller; never model-provided. */
     salon: { id: string; slug: string };
+    /** Customer-assistant deadline; never used by the manual public route. */
+    signal?: AbortSignal;
+    timeoutMs?: number;
   };
 
 export type AnonymousCustomerAvailabilityInput = {
@@ -120,6 +123,8 @@ export type AnonymousCustomerAvailabilityInput = {
   baseServiceId?: string;
   selectedAddOns?: string;
   durationMinutes?: number;
+  signal?: AbortSignal;
+  timeoutMs?: number;
 };
 
 /**
@@ -154,8 +159,8 @@ export async function getAnonymousCustomerBookingAvailability(
   }
 
   return getPublicBookingAvailability(
-    new Request(`http://localhost/internal/public-booking-availability?${searchParams.toString()}`),
-    { kind: 'anonymous_customer_assistant', salon: input.salon },
+    new Request(`http://localhost/internal/public-booking-availability?${searchParams.toString()}`, { signal: input.signal }),
+    { kind: 'anonymous_customer_assistant', salon: input.salon, signal: input.signal, timeoutMs: input.timeoutMs },
   );
 }
 
@@ -452,18 +457,25 @@ export async function getPublicBookingAvailability(
       endOfDay,
       excludedAppointmentId,
     });
-    const googleBusyWindows = await (access.kind === 'anonymous_customer_assistant'
-      ? getGoogleCalendarBusyWindowsReadOnly
-      : getGoogleCalendarBusyWindows)({
-      salonId: salon.id,
-      startTime: startOfDay,
-      endTime: endOfDay,
-      timeZone: bookingConfig.timezone,
-      // Same authorization as the database-side exclusion above: only an
-      // appointment proven to belong to this requester (session or manage
-      // token) suppresses its own mirrored calendar event.
-      excludeAppointmentId: excludedAppointmentId,
-    });
+    const googleBusyWindows = access.kind === 'anonymous_customer_assistant'
+      ? await getGoogleCalendarBusyWindowsReadOnly({
+        salonId: salon.id,
+        startTime: startOfDay,
+        endTime: endOfDay,
+        timeZone: bookingConfig.timezone,
+        signal: access.signal,
+        timeoutMs: access.timeoutMs,
+      })
+      : await getGoogleCalendarBusyWindows({
+        salonId: salon.id,
+        startTime: startOfDay,
+        endTime: endOfDay,
+        timeZone: bookingConfig.timezone,
+        // Same authorization as the database-side exclusion above: only an
+        // appointment proven to belong to this requester (session or manage
+        // token) suppresses its own mirrored calendar event.
+        excludeAppointmentId: excludedAppointmentId,
+      });
 
     // Smart Fit (P7.2): annotate qualifying slots from data already in scope.
     // Everything below is inert unless the salon enabled `settings.smartFit`.
