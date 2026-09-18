@@ -558,6 +558,22 @@ describe('BookServiceClient', () => {
     vi.restoreAllMocks();
   });
 
+  it('tells a returning customer to review the catalog after a stale confirmation', () => {
+    navigationMock.searchParams = new URLSearchParams('salonSlug=salon-a&catalogChanged=1');
+
+    render(
+      <BookServiceClient
+        services={services}
+        bookingFlow={['service', 'tech', 'time', 'confirm']}
+        locations={[]}
+      />,
+    );
+
+    expect(screen.getByTestId('catalog-changed-notice')).toHaveTextContent(
+      'Booking options changed. Review your service and options, then choose a new time.',
+    );
+  });
+
   it('shows a clear empty state when the salon has no active services', () => {
     render(
       <BookServiceClient
@@ -2262,6 +2278,37 @@ describe('BookServiceClient', () => {
     expect(selectedCard.querySelector('svg')).toBeNull();
     expect(selectedCard.getAttribute('style')).not.toContain('outline');
     expect(screen.queryByTestId('service-card-addon-cue-svc-2')).not.toBeInTheDocument();
+  });
+
+  it('keeps an L1 required choice selectable and gates Continue from the shared resolver', () => {
+    navigationMock.searchParams = new URLSearchParams('salonSlug=salon-a&baseServiceId=svc-1');
+    const l1Snapshot = {
+      revision: { canonical: 'l1', fingerprint: 'a'.repeat(64) },
+      generatedAt: new Date().toISOString(),
+      currency: 'CAD',
+      services: [{ id: 'svc-1', kind: 'legacy', name: 'Colour Change', slug: null, category: 'manicure', descriptionItems: [], priceCents: 4000, priceDisplayText: null, durationMinutes: 30, isIntroPrice: false, introPriceLabel: null, introPriceExpiresAt: null, parentServiceId: null, variantLabel: null, variantKind: null, selectionMode: null, effectiveConfirmationMode: 'instant', explicitConfirmationMode: null, rangeSummary: null }],
+      addOnGroups: [{ id: 'required-group', name: 'Required choices', slug: 'required', description: null, minSelections: 1, maxSelections: 1, isSingleSelect: true, sortOrder: 0 }],
+      addOns: [
+        { id: 'addon-1', name: 'Chrome Finish', slug: 'chrome', category: 'nail_art', descriptionItems: [], priceCents: 1500, priceDisplayText: null, durationMinutes: 10, pricingType: 'fixed', unitLabel: null, baseMaxQuantity: 1, groupId: 'required-group' },
+        { id: 'addon-2', name: 'French Tip', slug: 'french', category: 'nail_art', descriptionItems: [], priceCents: 1000, priceDisplayText: null, durationMinutes: 5, pricingType: 'fixed', unitLabel: null, baseMaxQuantity: 1, groupId: null },
+      ],
+      serviceAddOnBindings: [{ serviceId: 'svc-1', addOnId: 'addon-1', selectionMode: 'required', defaultQuantity: null, effectiveMaxQuantity: 1, displayOrder: 1 }],
+      ruleProjections: [{ projectionKey: 'auto', effect: 'auto_add', trigger: { subjectKind: 'service', subjectId: 'svc-1' }, serviceScopeId: 'svc-1', targetAddOnId: 'addon-2', reasonCode: 'include', reasonText: null, presentation: 'surface' }],
+    } as never;
+    render(<BookServiceClient l1Snapshot={l1Snapshot} services={services} addOns={addOns} bookingFlow={['service', 'tech', 'time', 'confirm']} locations={[]} />);
+    const continueButton = screen.getByTestId('service-continue-button');
+
+    expect(continueButton).toBeDisabled();
+
+    const add = screen.getByRole('button', { name: 'Add Chrome Finish' });
+
+    expect(add).toBeEnabled();
+
+    fireEvent.click(add);
+
+    expect(continueButton).toBeEnabled();
+    expect(screen.getByTestId('service-sticky-bar')).toHaveTextContent('$65');
+    expect(screen.getByTestId('service-sticky-bar')).toHaveTextContent('45 min');
   });
 
   it('describes required-only and mixed add-on groups without calling required choices optional', () => {

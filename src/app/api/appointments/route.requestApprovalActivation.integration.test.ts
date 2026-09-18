@@ -175,6 +175,11 @@ function signInFreshClient(): void {
 }
 
 async function postBooking(body: Record<string, unknown>): Promise<Response> {
+  if (body.salonSlug === GATED_SALON_SLUG && typeof body.baseServiceId === 'string') {
+    const { resolveL1BookingAuthority } = await import('@/libs/l1BookingAuthority.server');
+    const resolved = await resolveL1BookingAuthority({ salonId: GATED_SALON_ID, selection: { serviceId: body.baseServiceId, selectedAddOns: [], technicianId: TECH_ID } });
+    body = { ...body, catalogAcknowledgment: { serviceId: body.baseServiceId, resolutionFingerprint: resolved!.fingerprint } };
+  }
   return POST(new Request('http://localhost/api/appointments', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

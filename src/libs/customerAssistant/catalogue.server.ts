@@ -5,6 +5,9 @@ import { createHash } from 'node:crypto';
 import { resolveCatalogDomainView } from '@/libs/bookingCatalog';
 import { getBookingConfigForSalon } from '@/libs/bookingConfig';
 import { validatePublicBookingSelection } from '@/libs/bookingQuote';
+import type { PublicCatalogSnapshot } from '@/libs/catalogDomain';
+import { resolvePublicCatalogSnapshot } from '@/libs/catalogResolver.server';
+import { projectPublicBookingCatalog } from '@/libs/publicBookingCatalog';
 import { getActiveAddOnsBySalonId, getServiceAddOnRulesBySalonId, getServicesBySalonId } from '@/libs/queries';
 import { getPublicBookableServiceIds } from '@/libs/serviceAssignments';
 import type { SalonFeatures } from '@/types/salonPolicy';
@@ -12,6 +15,14 @@ import type { SalonFeatures } from '@/types/salonPolicy';
 import type { CustomerProposal, CustomerSelection } from './contracts';
 
 export type CustomerMenu = {
+  // The model receives a reachable projection only. In particular, it never
+  // receives `revision.canonical`, which serializes the full authority snapshot.
+  l1?: {
+    services: Array<Pick<PublicCatalogSnapshot['services'][number], 'id' | 'kind' | 'parentServiceId' | 'variantLabel' | 'selectionMode'>>;
+    addOns: Array<Pick<PublicCatalogSnapshot['addOns'][number], 'id' | 'groupId'>>;
+    addOnGroups: PublicCatalogSnapshot['addOnGroups'];
+    ruleProjections: PublicCatalogSnapshot['ruleProjections'];
+  };
   services: { id: string; name: string; description: string; category: string }[];
   addOns: { id: string; name: string; description: string; category: string; pricingType: string; maxQuantity: number }[];
   bindings: { serviceId: string; addOnId: string; required: boolean; defaultQuantity: number; maxQuantity: number }[];
@@ -19,10 +30,32 @@ export type CustomerMenu = {
 
 /** Exact public-menu sources; raw rows never leave this module. */
 export async function loadCustomerMenu(salonId: string, features: SalonFeatures | null): Promise<CustomerMenu> {
-  // L1 has extra capability rules. Refuse until the public eligibility adapter
-  // is integrated; never silently downgrade its rules to the legacy menu.
-  if (resolveCatalogDomainView(features) !== 'legacy') {
-    throw new Error('CUSTOMER_CATALOGUE_UNAVAILABLE');
+  if (resolveCatalogDomainView(features) === 'l1') {
+    const [result, bookable] = await Promise.all([
+      resolvePublicCatalogSnapshot({ salonId, requestedSource: 'live' }),
+      getPublicBookableServiceIds(salonId),
+    ]);
+    if (!result.ok) {
+      throw new Error('CUSTOMER_CATALOGUE_UNAVAILABLE');
+    }
+    const snapshot = result.snapshot;
+    const l1 = projectPublicBookingCatalog(snapshot, bookable);
+    if (l1.services.length > 60 || l1.addOns.length > 80 || l1.serviceAddOnBindings.length > 160) {
+      throw new Error('CUSTOMER_CATALOGUE_UNAVAILABLE');
+    }
+    return {
+      // Interpretation needs identities and constraints, not duplicate names,
+      // prices, durations or revision material. Final totals come from the quote.
+      l1: {
+        services: l1.services.map(({ id, kind, parentServiceId, variantLabel, selectionMode }) => ({ id, kind, parentServiceId, variantLabel, selectionMode })),
+        addOns: l1.addOns.map(({ id, groupId }) => ({ id, groupId })),
+        addOnGroups: l1.addOnGroups,
+        ruleProjections: l1.ruleProjections,
+      },
+      services: l1.services.map(service => ({ id: service.id, name: service.parentServiceId ? `${l1.services.find(parent => parent.id === service.parentServiceId)?.name ?? ''} · ${service.variantLabel ?? service.name}` : service.name, description: (service.descriptionItems ?? []).join('\n').slice(0, 600), category: service.category })),
+      addOns: l1.addOns.map(addOn => ({ id: addOn.id, name: addOn.name, description: (addOn.descriptionItems ?? []).join('\n').slice(0, 400), category: addOn.category, pricingType: addOn.pricingType, maxQuantity: addOn.baseMaxQuantity })),
+      bindings: l1.serviceAddOnBindings.map(binding => ({ serviceId: binding.serviceId, addOnId: binding.addOnId, required: binding.selectionMode === 'required', defaultQuantity: binding.defaultQuantity ?? 1, maxQuantity: binding.effectiveMaxQuantity })),
+    };
   }
   const [services, addOns, rules, bookable] = await Promise.all([
     getServicesBySalonId(salonId),
@@ -73,16 +106,16 @@ export function validateCustomerMenuSelection(menu: CustomerMenu, selection: Cus
   for (const choice of selection.selectedAddOns) {
     const addOn = menu.addOns.find(item => item.id === choice.addOnId);
     const binding = menu.bindings.find(item => item.serviceId === selection.baseServiceId && item.addOnId === choice.addOnId);
-    if (!addOn || !binding || ids.has(choice.addOnId)
+    if (!addOn || (!binding && !menu.l1) || ids.has(choice.addOnId)
       || !Number.isInteger(choice.quantity) || choice.quantity < 1
-      || choice.quantity > binding.maxQuantity || (addOn.pricingType !== 'per_unit' && choice.quantity !== 1)) {
+      || choice.quantity > (binding?.maxQuantity ?? addOn.maxQuantity) || (addOn.pricingType !== 'per_unit' && choice.quantity !== 1)) {
       throw new Error('CUSTOMER_SELECTION_CHANGED');
     }
     ids.add(choice.addOnId);
   }
   // Match the service page's required-option defaults, but never silently add
   // or clamp a model choice. Ask again if the proposed set is incomplete.
-  if (menu.bindings.some(binding => binding.serviceId === selection.baseServiceId && binding.required && !ids.has(binding.addOnId))) {
+  if (!menu.l1 && menu.bindings.some(binding => binding.serviceId === selection.baseServiceId && binding.required && !ids.has(binding.addOnId))) {
     throw new Error('CUSTOMER_SELECTION_CHANGED');
   }
 }
@@ -90,7 +123,7 @@ export function validateCustomerMenuSelection(menu: CustomerMenu, selection: Cus
 export async function buildCustomerProposal(salonId: string, features: SalonFeatures | null, selection: CustomerSelection): Promise<CustomerProposal> {
   const menu = await loadCustomerMenu(salonId, features);
   validateCustomerMenuSelection(menu, selection);
-  const [{ quote }, config] = await Promise.all([
+  const [{ quote, l1 }, config] = await Promise.all([
     validatePublicBookingSelection({ salonId, selection }),
     getBookingConfigForSalon(salonId),
   ]);
@@ -107,7 +140,7 @@ export async function buildCustomerProposal(salonId: string, features: SalonFeat
     // The visible proposal does not disclose an internal time-zone setting,
     // but it is booking authority: a changed zone invalidates offered UTC
     // times across turns and must therefore invalidate acceptance too.
-    fingerprint: createHash('sha256').update(JSON.stringify({ salonId, timeZone: config.timezone, ...material })).digest('hex'),
+    fingerprint: createHash('sha256').update(JSON.stringify({ salonId, timeZone: config.timezone, catalogFingerprint: l1?.fingerprint ?? null, ...material })).digest('hex'),
     expiresAt: new Date(Date.now() + 5 * 60_000).toISOString(),
   };
 }

@@ -53,6 +53,7 @@ export async function confirmCustomerBooking(args: {
       clientEmail: args.contact.email,
       clientPhone: args.contact.phone,
       smsConsent: material.smsConsent,
+      catalogAcknowledgment: material.catalogAcknowledgment,
       expectedTotalCents: material.expectedTotalCents,
       expectedDiscountType: material.expectedDiscountType,
       expectedBookingFinancialQuote: material.expectedBookingFinancialQuote,
@@ -86,7 +87,7 @@ export async function confirmCustomerBooking(args: {
     const code = typeof body?.error === 'string' ? body.error : body?.error?.code;
     const reason = code && ['TIME_CONFLICT', 'OUTSIDE_SCHEDULE', 'PAST_TIME', 'NO_AVAILABLE_TECHNICIAN'].includes(code)
       ? 'slot_unavailable'
-      : code && ['SMART_FIT_CHANGED', 'BOOKING_FINANCIAL_QUOTE_CHANGED', 'DEPOSIT_CHANGED', 'BOOKING_POLICY_CHANGED', 'CUSTOMER_BOOKING_REVIEW_CHANGED'].includes(code)
+      : code && ['CATALOG_SELECTION_CHANGED', 'SMART_FIT_CHANGED', 'BOOKING_FINANCIAL_QUOTE_CHANGED', 'DEPOSIT_CHANGED', 'BOOKING_POLICY_CHANGED', 'CUSTOMER_BOOKING_REVIEW_CHANGED'].includes(code)
         ? 'review_changed'
         : code === 'EXISTING_APPOINTMENT'
           ? 'existing_appointment'

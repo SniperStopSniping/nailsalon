@@ -160,6 +160,15 @@ describe('invariant 5 — the L1 PR3 catalog core has zero UNAUTHORIZED producti
    * directly, which stay DB-free and browser-safe per ADR 0004).
    */
   const AUTHORIZED_PRODUCTION_IMPORTS: ReadonlyArray<{ importer: string; imports: string }> = [
+    { importer: 'src/libs/publicBookingCatalog.ts', imports: 'src/libs/catalogFingerprint.ts' },
+    { importer: 'src/libs/bookingQuote.ts', imports: 'src/libs/catalogResolverCore.ts' },
+    // Shared L1 booking authority: server decisions and the browser's pure
+    // presentation resolver share the same catalog implementation.
+    { importer: 'src/libs/l1BookingAuthority.server.ts', imports: 'src/libs/catalogResolver.server.ts' },
+    { importer: 'src/libs/l1BookingReconciliation.server.ts', imports: 'src/libs/catalogResolver.server.ts' },
+    { importer: 'src/libs/customerAssistant/catalogue.server.ts', imports: 'src/libs/catalogResolver.server.ts' },
+    { importer: 'src/app/(unauth)/book/service/BookServicePageServer.tsx', imports: 'src/libs/catalogResolver.server.ts' },
+    { importer: 'src/app/(unauth)/book/service/BookServiceClient.tsx', imports: 'src/libs/catalogResolverCore.ts' },
     {
       importer: 'src/libs/catalogSubmissionReconciliation.server.ts',
       imports: 'src/libs/catalogResolver.server.ts',

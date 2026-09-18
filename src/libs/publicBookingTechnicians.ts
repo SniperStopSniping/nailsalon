@@ -95,7 +95,7 @@ export async function resolvePublicBookingTechnicianContext(args: {
   );
 
   const compatibleTechnicians = activeTechnicians.filter(technician =>
-    getPublicTechnicianCompatibility({
+    (!resolvedSelection.eligibleTechnicianIds || resolvedSelection.eligibleTechnicianIds.includes(technician.id)) && getPublicTechnicianCompatibility({
       selectionMode: resolvedSelection.mode,
       technician,
       requestedServices: resolvedSelection.requestedServices,

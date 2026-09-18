@@ -1,0 +1,103 @@
+import { z } from 'zod';
+
+import type { SalonSettings } from '@/types/salonPolicy';
+
+export const SUPPORTED_BOOKING_SLOT_INTERVALS = [5, 10, 15, 30] as const;
+export const SUPPORTED_BOOKING_CURRENCIES = ['CAD', 'USD'] as const;
+export const DEFAULT_BOOKING_CONFIG = {
+  bufferMinutes: 10,
+  slotIntervalMinutes: 15,
+  minimumNoticeMinutes: 120,
+  confirmationMode: 'instant',
+  currency: 'CAD',
+  timezone: 'America/Toronto',
+  introPriceDefaultLabel: null,
+  firstVisitDiscountEnabled: false,
+  clientChangeCutoffHours: 24,
+  // Required-add-on hard enforcement is OFF by default (PR 1 stage e). Absent,
+  // null, or malformed settings must always resolve to false: a salon can only
+  // get enforcement by opting in explicitly.
+  enforceRequiredAddOns: false,
+} as const;
+
+export const bookingConfigSchema = z.object({
+  bufferMinutes: z.number().int().min(0).max(60).default(DEFAULT_BOOKING_CONFIG.bufferMinutes),
+  slotIntervalMinutes: z.union(SUPPORTED_BOOKING_SLOT_INTERVALS.map(value => z.literal(value)) as [
+    z.ZodLiteral<5>,
+    z.ZodLiteral<10>,
+    z.ZodLiteral<15>,
+    z.ZodLiteral<30>,
+  ]).default(DEFAULT_BOOKING_CONFIG.slotIntervalMinutes),
+  confirmationMode: z.enum(['instant', 'request_approval']).default(DEFAULT_BOOKING_CONFIG.confirmationMode),
+  minimumNoticeMinutes: z.number().int().min(0).max(525_600)
+    .default(DEFAULT_BOOKING_CONFIG.minimumNoticeMinutes),
+  currency: z.union(SUPPORTED_BOOKING_CURRENCIES.map(value => z.literal(value)) as [
+    z.ZodLiteral<'CAD'>,
+    z.ZodLiteral<'USD'>,
+  ]).default(DEFAULT_BOOKING_CONFIG.currency),
+  timezone: z.string().default(DEFAULT_BOOKING_CONFIG.timezone).refine((value) => {
+    try {
+      Intl.DateTimeFormat(undefined, { timeZone: value });
+      return true;
+    } catch {
+      return false;
+    }
+  }, 'Invalid timezone'),
+  introPriceDefaultLabel: z.string().trim().max(120).nullable().default(DEFAULT_BOOKING_CONFIG.introPriceDefaultLabel),
+  firstVisitDiscountEnabled: z.boolean().default(DEFAULT_BOOKING_CONFIG.firstVisitDiscountEnabled),
+  clientChangeCutoffHours: z.number().int().min(0).max(168).default(DEFAULT_BOOKING_CONFIG.clientChangeCutoffHours),
+  enforceRequiredAddOns: z.boolean().default(DEFAULT_BOOKING_CONFIG.enforceRequiredAddOns),
+});
+
+export type BookingConfig = z.infer<typeof bookingConfigSchema>;
+
+export function getClientChangePolicy(startTime: Date, config: BookingConfig, now = new Date()) {
+  const cutoffAt = new Date(startTime.getTime() - config.clientChangeCutoffHours * 60 * 60 * 1000);
+  return {
+    cutoffAt,
+    canChange: config.clientChangeCutoffHours === 0 || now < cutoffAt,
+  };
+}
+
+export function resolveBookingConfigFromSettings(settings: SalonSettings | null | undefined): BookingConfig {
+  const parsed = bookingConfigSchema.safeParse(settings?.booking ?? {});
+  if (parsed.success) {
+    return parsed.data;
+  }
+
+  return bookingConfigSchema.parse({
+    // A malformed unrelated setting must not turn an owner's review choice off.
+    confirmationMode: settings?.booking?.confirmationMode === 'request_approval' ? 'request_approval' : 'instant',
+  });
+}
+
+export function resolveIntroPriceLabel(args: {
+  isIntroPrice?: boolean | null;
+  introPriceExpiresAt?: Date | null;
+  introPriceLabel?: string | null;
+  bookingConfig: BookingConfig;
+  now?: Date;
+}): string | null {
+  const {
+    isIntroPrice = false,
+    introPriceExpiresAt = null,
+    introPriceLabel = null,
+    bookingConfig,
+    now = new Date(),
+  } = args;
+
+  if (!isIntroPrice) {
+    return null;
+  }
+
+  if (introPriceExpiresAt && introPriceExpiresAt.getTime() < now.getTime()) {
+    return null;
+  }
+
+  const serviceLabel = introPriceLabel?.trim() || null;
+  if (serviceLabel) {
+    return serviceLabel;
+  }
+
+  return bookingConfig.introPriceDefaultLabel?.trim() || null;
+}

@@ -16,9 +16,18 @@ import {
   finalizeCatalogResolutionFingerprint,
   resolveCatalogSelection,
 } from '@/libs/catalogResolverCore';
+import type { db as Database } from '@/libs/DB';
 import { resolveOwnerPreviewContext } from '@/libs/ownerPreview';
 import type { CatalogRule } from '@/models/Schema';
-import { addOnGroupSchema, catalogRuleSchema, technicianCapabilitySchema } from '@/models/Schema';
+import {
+  addOnGroupSchema,
+  addOnSchema,
+  catalogRuleSchema,
+  salonSchema,
+  serviceAddOnSchema,
+  serviceSchema,
+  technicianCapabilitySchema,
+} from '@/models/Schema';
 import type { SalonSettings } from '@/types/salonPolicy';
 
 /**
@@ -154,6 +163,8 @@ export type ResolvePublicCatalogSnapshotArgs = {
    */
   requestedSource: CatalogSourceSelection;
   now?: Date;
+  /** A tenant-bound transaction/read handle for authoritative booking checks. */
+  readContext?: { database: Pick<typeof Database, 'select'>; salonId: string };
 };
 
 /**
@@ -180,22 +191,20 @@ export type ResolvePublicCatalogSnapshotArgs = {
 export async function resolvePublicCatalogSnapshot(
   args: ResolvePublicCatalogSnapshotArgs,
 ): Promise<CatalogSnapshotResult> {
+  if (args.readContext && args.readContext.salonId !== args.salonId) {
+    throw new Error('CATALOG_READ_CONTEXT_SALON_MISMATCH');
+  }
   await authorizeCatalogSource(args.salonId, args.requestedSource);
 
   const { db } = await import('@/libs/DB');
-  const {
-    getAllAddOnsBySalonId,
-    getAllServicesBySalonId,
-    getSalonById,
-    getServiceAddOnRulesBySalonId,
-  } = await import('@/libs/queries');
+  const database = args.readContext?.database ?? db;
 
   const [salon, services, addOns, serviceAddOnBindings, addOnGroups, rules] = await Promise.all([
-    getSalonById(args.salonId),
-    getAllServicesBySalonId(args.salonId),
-    getAllAddOnsBySalonId(args.salonId),
-    getServiceAddOnRulesBySalonId(args.salonId),
-    db.select().from(addOnGroupSchema).where(eq(addOnGroupSchema.salonId, args.salonId)),
+    database.select().from(salonSchema).where(eq(salonSchema.id, args.salonId)).limit(1).then(rows => rows[0] ?? null),
+    database.select().from(serviceSchema).where(eq(serviceSchema.salonId, args.salonId)),
+    database.select().from(addOnSchema).where(eq(addOnSchema.salonId, args.salonId)),
+    database.select().from(serviceAddOnSchema).where(eq(serviceAddOnSchema.salonId, args.salonId)),
+    database.select().from(addOnGroupSchema).where(eq(addOnGroupSchema.salonId, args.salonId)),
     // Ordered defensively, matching the ratified `(priority, id)` evaluation
     // order — but this is belt-and-suspenders, not the load-bearing fix:
     // `buildPublicCatalogSnapshot` (`catalogResolverCore.ts`) sorts `rules`
@@ -204,7 +213,7 @@ export async function resolvePublicCatalogSnapshot(
     // is unspecified and can shift with plan changes on an unchanged
     // catalog), and the core must be correct regardless of what order its
     // caller hands it rules in.
-    db.select().from(catalogRuleSchema).where(eq(catalogRuleSchema.salonId, args.salonId))
+    database.select().from(catalogRuleSchema).where(eq(catalogRuleSchema.salonId, args.salonId))
       .orderBy(catalogRuleSchema.priority, catalogRuleSchema.id),
   ]);
 
@@ -227,6 +236,7 @@ type DeriveCatalogEligibilityArgs = {
   salonId: string;
   serviceId: string;
   technicianId: string | null;
+  database?: Pick<typeof Database, 'select'>;
   /**
    * Every add-on id actually in play for this selection — the client's own
    * picks UNION whatever `include`-with-`autoAdd` added on top. Capability
@@ -249,8 +259,9 @@ async function deriveCatalogEligibility(
   args: DeriveCatalogEligibilityArgs,
 ): Promise<CatalogEligibilityInput> {
   const { db } = await import('@/libs/DB');
+  const database = args.database ?? db;
 
-  const capabilityRules = await db
+  const capabilityRules = await database
     .select()
     .from(catalogRuleSchema)
     .where(
@@ -297,7 +308,7 @@ async function deriveCatalogEligibility(
       .filter((id): id is string => id !== null),
   );
 
-  const held = await db
+  const held = await database
     .select({ capabilityId: technicianCapabilitySchema.capabilityId })
     .from(technicianCapabilitySchema)
     .where(
@@ -316,6 +327,7 @@ export type ResolveCatalogSelectionForSalonArgs = {
   salonId: string;
   snapshot: PublicCatalogSnapshot;
   selection: CatalogSelectionInput;
+  readContext?: { database: Pick<typeof Database, 'select'>; salonId: string };
 };
 
 /**
@@ -338,6 +350,9 @@ export type ResolveCatalogSelectionForSalonArgs = {
 export async function resolveCatalogSelectionForSalon(
   args: ResolveCatalogSelectionForSalonArgs,
 ): Promise<CatalogResolutionResult> {
+  if (args.readContext && args.readContext.salonId !== args.salonId) {
+    throw new Error('CATALOG_READ_CONTEXT_SALON_MISMATCH');
+  }
   const provisional = resolveCatalogSelection(args.snapshot, args.selection, {});
   if (!provisional.ok) {
     return provisional;
@@ -347,6 +362,7 @@ export async function resolveCatalogSelectionForSalon(
     salonId: args.salonId,
     serviceId: args.selection.serviceId,
     technicianId: args.selection.technicianId ?? null,
+    database: args.readContext?.database,
     finalAddOnIds: provisional.selection.addOns.map(line => line.addOnId),
   });
 

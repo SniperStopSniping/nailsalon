@@ -98,6 +98,7 @@ type SmsConsentSelection = Exclude<SmsBookingDefault, 'disabled'> | 'explicit_on
 const SMS_CONSENT_WORDING_VERSION = 'booking-sms-reminders-v1';
 
 type BookConfirmClientProps = {
+  catalogAcknowledgment?: { serviceId: string; resolutionFingerprint: string };
   services: ServiceSummary[];
   addOns?: AddOnSummary[];
   baseServiceId?: string | null;
@@ -1966,6 +1967,7 @@ const SuccessContent = ({
 // --- Main Component ---
 
 export function BookConfirmClient({
+  catalogAcknowledgment,
   services,
   addOns = EMPTY_ADD_ONS,
   baseServiceId = null,
@@ -2382,6 +2384,7 @@ export function BookConfirmClient({
           ? {
               baseServiceId,
               selectedAddOns,
+              catalogAcknowledgment,
             }
           : {
               serviceIds: services.map(s => s.id),
@@ -2469,6 +2472,12 @@ export function BookConfirmClient({
         const errorCode = typeof errorData?.error === 'string'
           ? errorData.error
           : errorData?.error?.code;
+        if (errorCode === 'CATALOG_SELECTION_CHANGED') {
+          const serviceUrl = appendSalonSlug('/book/service', salonSlug, { routeSalonSlug, locale });
+          router.push(`${serviceUrl}${serviceUrl.includes('?') ? '&' : '?'}catalogChanged=1`);
+          bookingInitiatedRef.current = false;
+          return;
+        }
         if (
           errorCode === 'BOOKING_POLICY_CHANGED'
           || errorCode === 'BOOKING_POLICY_ACKNOWLEDGMENT_REQUIRED'
@@ -2708,7 +2717,7 @@ export function BookConfirmClient({
     } finally {
       setIsBooking(false);
     }
-  }, [acknowledgmentRequired, baseServiceId, bookingTotals, campaignPromotionPreview, campaignToken, canonicalStartTime, currency, dateStr, displayedDeposit?.label, displayedPolicy, guestEmail, guestName, guestPhone, location, manageToken, originalAppointmentId, policyAcknowledged, salonSlug, selectedAddOns, services, navigateToCheckout, smartFitOffer, smsConsent, smsConsentSelection, smsBookingDefault, submittedDepositFingerprint, taxConfigurationIdentity, techId, timeStr]);
+  }, [locale, routeSalonSlug, router, catalogAcknowledgment, acknowledgmentRequired, baseServiceId, bookingTotals, campaignPromotionPreview, campaignToken, canonicalStartTime, currency, dateStr, displayedDeposit?.label, displayedPolicy, guestEmail, guestName, guestPhone, location, manageToken, originalAppointmentId, policyAcknowledged, salonSlug, selectedAddOns, services, navigateToCheckout, smartFitOffer, smsConsent, smsConsentSelection, smsBookingDefault, submittedDepositFingerprint, taxConfigurationIdentity, techId, timeStr]);
 
   const handleOpenDirections = useCallback(() => {
     openGoogleMapsDirections(location);

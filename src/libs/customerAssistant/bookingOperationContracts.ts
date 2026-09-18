@@ -6,6 +6,7 @@ import type { CustomerReadyReviewSnapshot } from './reviewContracts';
 /** Server-built material only. Contact and bearer capabilities are never stored here. */
 export type CustomerBookingMaterial = {
   selection: CustomerSelection;
+  catalogAcknowledgment?: { serviceId: string; resolutionFingerprint: string };
   preference: CustomerDatePreference;
   startTime: string;
   technicianSelection: 'any';

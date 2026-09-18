@@ -428,7 +428,8 @@ export default async function BookConfirmPage(
             duration: addOn.lineDurationMinutes,
           }))}
           baseServiceId={resolvedTechnicianContext.resolvedSelection.baseServiceId}
-          selectedAddOns={resolvedTechnicianContext.resolvedSelection.selectedAddOns}
+          selectedAddOns={resolvedTechnicianContext.resolvedSelection.requestedSelectedAddOns ?? resolvedTechnicianContext.resolvedSelection.selectedAddOns}
+          catalogAcknowledgment={resolvedTechnicianContext.resolvedSelection.catalogAcknowledgment}
           subtotalBeforeDiscount={subtotalBeforeDiscountCents / 100}
           discountAmount={discountAmountCents / 100}
           firstVisitDiscountPreview={campaignPreview
@@ -475,7 +476,7 @@ export default async function BookConfirmPage(
           depositNoticeSuppressed={depositNoticeSuppressed}
           depositFingerprint={depositFingerprint}
           // Use the same canonical booking setting as the appointment writer.
-          salonConfirmsManually={bookingConfig.confirmationMode === 'request_approval'}
+          salonConfirmsManually={bookingConfig.confirmationMode === 'request_approval' || (!depositCharge.required && resolvedTechnicianContext.resolvedSelection.l1ConfirmationMode === 'request_approval')}
         />
       </Suspense>
     </PublicSalonPageShell>

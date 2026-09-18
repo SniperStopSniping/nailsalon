@@ -79,9 +79,8 @@ import {
   shouldRecordBookingSmsConsent,
 } from '@/libs/bookingSmsConsent';
 import type { CatalogSelectionInput } from '@/libs/catalogDomain';
-import {
-  type CatalogConflictPayload,
-  reconcileCatalogSelection,
+import type {
+  CatalogConflictPayload,
 } from '@/libs/catalogSubmissionReconciliation.server';
 import { computeCheckoutTotals } from '@/libs/checkoutTotals';
 import { requireClientApiSession } from '@/libs/clientApiGuards';
@@ -140,6 +139,7 @@ import {
   enqueueGoogleCalendarAppointmentMutation,
   enqueueGoogleCalendarDeleteInTx,
 } from '@/libs/integrationOutbox';
+import { L1SelectionChangedError, projectL1ConflictPayload, reconcileAuthoritativeL1Selection as reconcileCatalogSelection } from '@/libs/l1BookingReconciliation.server';
 import { createOpaqueToken } from '@/libs/lusterSecurity';
 import {
   checkPublicBookingRateLimit,
@@ -600,18 +600,11 @@ function bookingFinancialQuoteChangedResponse(
   );
 }
 
-/**
- * L1 PR4 §13. `payload` is already public-safe end to end — allowlisted
- * `PublicCatalogSnapshot` / `ResolvedCatalogSelection` types plus bounded
- * `reason`/`recovery` strings; never a rule id, priority, note, raw params,
- * capability id, or the private rule graph (see
- * `catalogSubmissionReconciliation.server.ts`'s own privacy test for the
- * proof) — this builder adds nothing beyond the HTTP envelope and a
- * user-facing message.
- */
+/** Every public conflict carries only the selected service recovery context. */
 function catalogSelectionChangedResponse(
-  payload: CatalogConflictPayload,
+  authorityPayload: CatalogConflictPayload,
 ): Response {
+  const payload = projectL1ConflictPayload(authorityPayload);
   return Response.json(
     {
       error: {
@@ -1409,15 +1402,9 @@ export async function createAppointmentFromRequest(
     && !googleReviewEvent;
     const requestedPolicyAcknowledgment = data.bookingPolicyAcknowledgment;
 
-    // L1 PR4 §13 — the selection catalog reconciliation resolves against.
-    // `null` for a legacy multi-service basket (`serviceIds[]`, no single
-    // `baseServiceId`) or a reschedule/Google-event-conversion request — the
-    // L1 catalog model has no multi-service concept, and catalog
-    // reconciliation is scoped to new public bookings only (see
-    // `catalogSubmissionReconciliation.server.ts`'s doc comment).
-    // `reconcileCatalogSelection` itself is additionally gated on
-    // `resolveCatalogDomainView`, so this is a second, independent reason
-    // this stays inert for every real salon today, not the only one.
+    // New public L1 bookings require a single authoritative selection and review.
+    // Legacy baskets remain supported for non-L1 salons; existing reschedules
+    // retain their established stored-appointment workflow.
     const catalogSelectionInput: CatalogSelectionInput | null = (isNewPublicBooking && normalizedBaseServiceId)
       ? {
           serviceId: normalizedBaseServiceId,
@@ -1656,24 +1643,10 @@ export async function createAppointmentFromRequest(
       throw error;
     }
 
-    // L1 PR4 §12/§13 — catalog selection reconciliation runs FIRST, ahead of
-    // every check below (see `bookingSubmissionOrder.ts`). This runs
-    // PRE-TRANSACTION deliberately: `reconcileCatalogSelection`
-    // (`catalogSubmissionReconciliation.server.ts`) calls the PR3-frozen
-    // `resolvePublicCatalogSnapshot` / `resolveCatalogSelectionForSalon`
-    // (`catalogResolver.server.ts`), which run their own top-level DB calls
-    // via `@/libs/DB` and were never built to accept a caller's `tx` —
-    // invoking them from inside `runSerializedBookingTransaction`'s callback
-    // deadlocks this suite's single-connection PGlite harness (confirmed
-    // while building this PR) and would, under real Postgres, read through a
-    // second, un-scoped connection regardless. `reconcileCatalogSelection`
-    // short-circuits to `not_applicable` (no DB read at all) unless this
-    // salon has explicitly opted into the dark `catalog.*` L1 feature keys —
-    // true for every real salon today, which is what makes this call a
-    // provable no-op for current production traffic.
+    // Fresh preflight resolution; repeated through the same authority inside the transaction.
     const catalogOutcome = await reconcileCatalogSelection({
       salonId: salon.id,
-      features: (salon.features as SalonFeatures | null | undefined) ?? null,
+      features: isNewPublicBooking ? (salon.features as SalonFeatures | null | undefined) ?? null : null,
       selection: catalogSelectionInput,
       clientAcknowledgment: requestedCatalogAcknowledgment,
     });
@@ -1681,6 +1654,9 @@ export async function createAppointmentFromRequest(
       return catalogSelectionChangedResponse(catalogOutcome.payload);
     }
     if (catalogOutcome.status === 'unavailable') {
+      if (catalogOutcome.failure === 'L1_SELECTION_REQUIRED') {
+        return Response.json({ error: { code: 'CATALOG_SELECTION_CHANGED', message: 'Choose a service and review its options before booking.', details: { refreshCatalog: true } } }, { status: 409 });
+      }
       console.error(
         '[Catalog] resolution failed closed during booking submission',
         { salonId: salon.id, failure: catalogOutcome.failure },
@@ -1766,6 +1742,7 @@ export async function createAppointmentFromRequest(
     let bufferMinutes = bookingConfig.bufferMinutes;
     let blockedDurationMinutes = 0;
     let resolvedIntroPriceLabel: string | null = null;
+    let l1SelectionFingerprint: string | null = null;
     let subtotalBeforeDiscountCents = 0;
     let discountAmountCents = 0;
     let appointmentDiscountType: string | null = null;
@@ -1805,6 +1782,10 @@ export async function createAppointmentFromRequest(
         bufferMinutes = validatedSelection.quote.bufferMinutes;
         blockedDurationMinutes = validatedSelection.quote.blockedDurationMinutes;
         resolvedIntroPriceLabel = validatedSelection.quote.baseService.resolvedIntroPriceLabel;
+        l1SelectionFingerprint = validatedSelection.l1?.fingerprint ?? null;
+        if (catalogOutcome.status === 'ok' && l1SelectionFingerprint !== catalogOutcome.resolutionFingerprint) {
+          return catalogSelectionChangedResponse({ reason: 'material_change', recovery: 'reload_catalog_and_reselect', snapshot: catalogOutcome.snapshot, resolution: catalogOutcome.resolution, resolutionFingerprint: catalogOutcome.resolutionFingerprint });
+        }
 
         // Observation (PR 1 stage b) — this booking is not blocked, and this
         // write can never make it fail: logAuditEvent is fire-and-forget by
@@ -2390,6 +2371,9 @@ export async function createAppointmentFromRequest(
     // active CRM appointment.
     const bypassAvailabilityGate = Boolean(googleReviewEvent);
 
+    if (catalogOutcome.status === 'ok') {
+      candidateTechnicians = candidateTechnicians.filter(tech => catalogOutcome.eligibleTechnicianIds.includes(tech.id));
+    }
     if (normalizedBaseServiceId) {
       candidateTechnicians = candidateTechnicians.filter(tech =>
         getPublicTechnicianCompatibility({
@@ -2799,21 +2783,8 @@ export async function createAppointmentFromRequest(
       }
     }
 
-    // L1 PR4 §14/§15 — explicit request-approval activation. Dark-gated
-    // twice over: `catalogOutcome.status === 'ok'` alone requires
-    // `resolveCatalogDomainView(features) === 'l1'` (unreachable for any
-    // real salon — see catalogSubmissionReconciliation.server.ts), and this
-    // ALSO requires the resolved service's `confirmationMode` to be
-    // EXPLICITLY `'request_approval'`. S6 (Stage 1) comment correction: this
-    // previously said that was "impossible today — no owner editor exists to
-    // set it, PR6". The second half is now false — PR6 shipped the owner
-    // editor and the value persists. The path is still unreachable, but for
-    // the FIRST reason alone: `resolveCatalogDomainView(features)` is
-    // `'legacy'` for every real salon. Computed PRE-TRANSACTION, before every other
-    // check below, so an ineligible/not-request-bookable slot is rejected
-    // "before creating anything" (§15) — matches where catalog
-    // reconciliation (§13) already runs, for the same reason (PR3's
-    // resolver functions cannot run nested inside a transaction).
+    // Preserve the existing explicit request-approval workflow for the
+    // authoritative service; its material is checked again before creation.
     const resolvedCatalogService = catalogOutcome.status === 'ok'
       ? catalogOutcome.snapshot.services.find(s => s.id === catalogOutcome.resolution.serviceId)
       : undefined;
@@ -3521,7 +3492,7 @@ export async function createAppointmentFromRequest(
       const canonicalAddOns = selection.quote.addOns.map(addOn => ({ addOnId: addOn.addOnId, quantity: addOn.quantity }));
       if (
         material.selection.baseServiceId !== selection.baseServiceRecord.id
-        || !isDeepStrictEqual(material.selection.selectedAddOns, canonicalAddOns)
+        || (!selection.l1 && !isDeepStrictEqual(material.selection.selectedAddOns, canonicalAddOns))
         || material.startTime !== canonicalStartTime
         || material.technicianSelection !== 'any'
         || material.review.services.length !== 1
@@ -3537,7 +3508,7 @@ export async function createAppointmentFromRequest(
         )
         || material.review.timeZone !== lockedBookingConfig.timezone
         || material.review.financial.currency !== lockedBookingConfig.currency
-        || material.review.confirmationMode !== lockedBookingConfig.confirmationMode
+        || material.review.confirmationMode !== (material.review.deposit.status === 'not_required' && selection.l1?.confirmationMode === 'request_approval' ? 'request_approval' : lockedBookingConfig.confirmationMode)
         || material.review.bookingPolicy.required !== Boolean(configuration.requiredPolicy)
         || (
           configuration.requiredPolicy !== null
@@ -3550,6 +3521,7 @@ export async function createAppointmentFromRequest(
         || material.review.reminders.mode !== resolveBookingSmsMode(configuration.settings)
         || material.review.reminders.selection !== (normalizedSmsConsent?.selection ?? null)
         || material.expectedDepositFingerprint !== data.expectedDepositFingerprint
+        || ((selection.l1?.fingerprint ?? null) !== l1SelectionFingerprint)
       ) {
         throw new CustomerBookingOperationError('review_changed');
       }
@@ -3635,6 +3607,40 @@ export async function createAppointmentFromRequest(
                 lockedCustomerBookingOperation = locked.operation;
               }
               const salonClient = await resolveBookingSalonClientInTx(tx, expectedTerminalClientId);
+              if (catalogOutcome.status === 'ok' && catalogSelectionInput) {
+                const configuration = await lockAndResolveRequiredBookingPolicyInTx(tx);
+                const current = await reconcileCatalogSelection({
+                  salonId: salon.id,
+                  features: configuration.features,
+                  selection: { ...catalogSelectionInput, technicianId: technician?.id ?? null },
+                  clientAcknowledgment: requestedCatalogAcknowledgment,
+                  readContext: { database: tx, salonId: salon.id },
+                });
+                if (current.status !== 'ok') {
+                  throw new L1SelectionChangedError(current.status === 'conflict' ? current.payload : null);
+                }
+                const freshQuote = await validatePublicBookingSelection({
+                  salonId: salon.id,
+                  selection: { baseServiceId: catalogSelectionInput.serviceId, selectedAddOns: catalogSelectionInput.selectedAddOns },
+                  technicianId: technician?.id,
+                  readContext: { database: tx, salonId: salon.id, bookingConfig: resolveBookingConfigFromSettings(configuration.settings), now: configuration.capturedAt, salonClientId: salonClient.id },
+                }).catch((error: unknown) => {
+                  if (error instanceof BookingSelectionError) {
+                    throw new L1SelectionChangedError(null);
+                  }
+                  throw error;
+                });
+                if (freshQuote.l1?.fingerprint !== l1SelectionFingerprint
+                  || freshQuote.quote.bufferMinutes !== bufferMinutes
+                  || freshQuote.quote.blockedDurationMinutes !== blockedDurationMinutes) {
+                  throw new L1SelectionChangedError(projectL1ConflictPayload({ reason: 'material_change', recovery: 'reload_catalog_and_reselect', snapshot: current.snapshot, resolution: current.resolution, resolutionFingerprint: current.resolutionFingerprint }));
+                }
+                if (current.resolutionFingerprint !== catalogOutcome.resolutionFingerprint
+                  || current.resolution.subtotalCents !== catalogOutcome.resolution.subtotalCents
+                  || current.resolution.totalDurationMinutes !== catalogOutcome.resolution.totalDurationMinutes) {
+                  throw new L1SelectionChangedError(projectL1ConflictPayload({ reason: 'material_change', recovery: 'reload_catalog_and_reselect', snapshot: current.snapshot, resolution: current.resolution, resolutionFingerprint: current.resolutionFingerprint }));
+                }
+              }
               if (access.kind === 'anonymous_customer') {
                 const configuration = await lockAndResolveRequiredBookingPolicyInTx(tx);
                 await revalidateAnonymousMaterialInTx(tx, salonClient, configuration);
@@ -3663,7 +3669,7 @@ export async function createAppointmentFromRequest(
               }
               return result;
             };
-            return access.kind === 'anonymous_customer'
+            return access.kind === 'anonymous_customer' || catalogOutcome.status === 'ok'
               ? db.transaction(transaction, { isolationLevel: 'serializable' })
               : db.transaction(transaction);
           });
@@ -4753,6 +4759,11 @@ export async function createAppointmentFromRequest(
           respondDepositNotRequired = true;
         }
       } catch (error) {
+        if (error instanceof L1SelectionChangedError) {
+          return error.payload
+            ? catalogSelectionChangedResponse(error.payload)
+            : Response.json({ error: { code: 'CATALOG_SELECTION_CHANGED', message: 'Booking options changed. Choose your service and time again.', details: { refreshCatalog: true } } }, { status: 409 });
+        }
         if (error instanceof CustomerBookingOperationReplay) {
           return Response.json({ code: 'CUSTOMER_BOOKING_OPERATION_LINKED' }, { status: 200 });
         }
