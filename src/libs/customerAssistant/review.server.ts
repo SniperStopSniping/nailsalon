@@ -8,6 +8,7 @@ import { resolveRequiredBookingPolicy } from '@/libs/bookingPolicyAcknowledgment
 import { computeCheckoutTotals } from '@/libs/checkoutTotals';
 import { buildDepositDisclosure, resolveDepositChargeForTotal } from '@/libs/depositPolicy';
 import { getDepositPolicyForSalon } from '@/libs/depositPolicy.server';
+import { buildDirectionsDestination, resolveDirectionsLocation } from '@/libs/directions';
 import { getPrimaryLocation } from '@/libs/queries';
 import { applyLocationDisplayMode } from '@/libs/salonContent';
 import { resolveTaxConfig } from '@/libs/taxConfig';
@@ -30,6 +31,10 @@ type ReviewSalon = {
   settings?: unknown;
   features?: unknown;
   plan?: unknown;
+  address?: string | null;
+  city?: string | null;
+  state?: string | null;
+  zipCode?: string | null;
 };
 
 function unavailable(conversation: string, reason: Extract<CustomerAssistantResult, { kind: 'unavailable' }>['reason']): CustomerReviewResponse {
@@ -136,17 +141,31 @@ export async function prepareCustomerAssistantReview(args: {
       getPrimaryLocation(args.salon.id),
       getDepositPolicyForSalon({ salonId: args.salon.id, salon: args.salon }),
     ]);
-    if (!location || bookingConfig.timezone !== fresh.timeZone || bookingConfig.currency !== fresh.proposal.currency || (!depositPolicy.active && depositPolicy.reason === 'undetermined')) {
+    if (bookingConfig.timezone !== fresh.timeZone || bookingConfig.currency !== fresh.proposal.currency || (!depositPolicy.active && depositPolicy.reason === 'undetermined')) {
       return sign({ kind: 'unavailable', reason: 'unavailable' });
     }
     const displayMode = resolveBookingPageContent(args.salon.settings).live.locationDisplayMode;
-    const projectedLocation = applyLocationDisplayMode({
-      name: location.name,
-      address: location.address,
-      city: location.city,
-      state: location.state,
-      zipCode: location.zipCode,
-    }, displayMode);
+    const resolvedLocation = resolveDirectionsLocation(location);
+    const projectedLocation = resolvedLocation
+      ? applyLocationDisplayMode({
+        name: resolvedLocation.name,
+        address: resolvedLocation.address,
+        city: resolvedLocation.city,
+        state: resolvedLocation.state,
+        zipCode: resolvedLocation.zipCode,
+      }, displayMode)
+      : buildDirectionsDestination(args.salon)
+        ? applyLocationDisplayMode({
+          name: args.salon.name,
+          address: args.salon.address ?? null,
+          city: args.salon.city ?? null,
+          state: args.salon.state ?? null,
+          zipCode: args.salon.zipCode ?? null,
+        }, displayMode)
+        : null;
+    if (!projectedLocation) {
+      return sign({ kind: 'unavailable', reason: 'unavailable' });
+    }
     const taxConfig = resolveTaxConfig((args.salon.settings as SalonSettings | null | undefined) ?? null, args.now ?? new Date());
     const totals = computeCheckoutTotals({
       items: [

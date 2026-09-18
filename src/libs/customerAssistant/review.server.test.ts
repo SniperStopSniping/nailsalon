@@ -39,7 +39,7 @@ const conversation = () => signCustomerConversation({
   booking: { acceptedFingerprint: fingerprint, datePreference: { date: '2026-09-20', earliest: '12:00', latest: '17:00' }, offeredSlots: [slot], selectedSlot: slot },
 }, secret);
 const input = (token = conversation()) => ({
-  salon: { id: 'salon-a', slug: 'isla-nail-studio', name: 'Isla Nail Studio', settings: {}, features: null },
+  salon: { id: 'salon-a', slug: 'isla-nail-studio', name: 'Isla Nail Studio', settings: {}, features: null, address: null as string | null, city: null as string | null, state: null as string | null, zipCode: null as string | null },
   features: null,
   conversation: token,
   contact: { name: 'Ava Client', email: 'ava@example.com', phone: '4165550101' },
@@ -83,6 +83,41 @@ describe('customer assistant incomplete review', () => {
 
     expect(response.result).toMatchObject({ kind: 'review_prepared', review: { location: { address: null, zipCode: null, city: 'Toronto' } } });
     expect(JSON.stringify(response)).not.toContain('123 Private St');
+  });
+
+  it('uses the manual-booking salon-address fallback when no location row exists', async () => {
+    mocks.location.mockResolvedValueOnce(null);
+    const fallbackInput = input();
+    fallbackInput.salon = { ...fallbackInput.salon, address: '10 Salon Lane', city: 'Toronto', state: 'ON', zipCode: 'M5V 2A1' };
+
+    const response = await prepareCustomerAssistantReview(fallbackInput);
+
+    expect(response.result).toMatchObject({ kind: 'review_prepared', review: { location: { name: 'Isla Nail Studio', address: '10 Salon Lane', city: 'Toronto', zipCode: 'M5V 2A1' } } });
+  });
+
+  it('redacts private salon-address fallback before serialization', async () => {
+    mocks.location.mockResolvedValueOnce(null);
+    const fallbackInput = input();
+    fallbackInput.salon = {
+      ...fallbackInput.salon,
+      address: '10 Salon Lane',
+      city: 'Toronto',
+      state: 'ON',
+      zipCode: 'M5V 2A1',
+      settings: { bookingPageContent: { live: { locationDisplayMode: 'after_booking' } } },
+    };
+
+    const response = await prepareCustomerAssistantReview(fallbackInput);
+
+    expect(response.result).toMatchObject({ kind: 'review_prepared', review: { location: { address: null, zipCode: null, city: 'Toronto' } } });
+    expect(JSON.stringify(response)).not.toContain('10 Salon Lane');
+  });
+
+  it('fails closed when neither a location row nor a salon address can form a destination', async () => {
+    mocks.location.mockResolvedValueOnce(null);
+    const response = await prepareCustomerAssistantReview(input());
+
+    expect(response.result).toEqual({ kind: 'unavailable', reason: 'unavailable' });
   });
 
   it('returns a fresh proposal and clears acceptance when quote authority changed', async () => {

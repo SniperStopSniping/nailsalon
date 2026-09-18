@@ -35,7 +35,7 @@ describe('CustomerBookingReviewCard', () => {
     expect(screen.getByText('Any available artist')).toBeVisible();
     expect(screen.getByText(/salon must approve/)).toBeVisible();
     expect(screen.getByText(/final amount is not yet confirmed/)).toBeVisible();
-    expect(screen.getByText(/Location details are shared/)).toBeVisible();
+    expect(screen.getByText(/Location details are not shown here/)).toBeVisible();
     expect(screen.queryByRole('button', { name: /confirm/i })).not.toBeInTheDocument();
     expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
   });
