@@ -1,3 +1,10 @@
+## [1.116.3](https://github.com/SniperStopSniping/nailsalon/compare/v1.116.2...v1.116.3) (2026-09-18)
+
+
+### Bug Fixes
+
+* **owner-assistant:** accept nullable responses and retain usage ([f1a68cd](https://github.com/SniperStopSniping/nailsalon/commit/f1a68cdd2c01113a6f64543a36aaa99dca6cf3eb))
+
 ## [1.116.2](https://github.com/SniperStopSniping/nailsalon/compare/v1.116.1...v1.116.2) (2026-09-18)
 
 
