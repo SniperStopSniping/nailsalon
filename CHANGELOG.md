@@ -1,3 +1,16 @@
+# [1.119.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.118.0...v1.119.0) (2026-09-18)
+
+
+### Bug Fixes
+
+* preserve public location fallback in customer review ([251cb92](https://github.com/SniperStopSniping/nailsalon/commit/251cb9235a0d98ead3126db2f407900200faeab7))
+
+
+### Features
+
+* **customer-booking:** add durable explicit confirmation and recovery ([a18a5ce](https://github.com/SniperStopSniping/nailsalon/commit/a18a5cea4d366f8a2cae5e905c58d2024d456f2b))
+* prepare dark customer booking contact and review ([19b4d3f](https://github.com/SniperStopSniping/nailsalon/commit/19b4d3f39fbc035aaf6d7f88079d274ddceb8c99))
+
 # [1.118.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.117.0...v1.118.0) (2026-09-18)
 
 
