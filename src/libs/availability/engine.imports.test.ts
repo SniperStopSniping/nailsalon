@@ -37,6 +37,8 @@ import {
 const ENGINE = 'src/libs/availability/engine.server.ts';
 /** The route legitimately imports all of these — it is the non-vacuousness control. */
 const ROUTE = 'src/app/api/appointments/availability/route.ts';
+/** The route wrapper delegates its direct identity imports to this handler. */
+const AVAILABILITY_HANDLER = 'src/libs/publicBookingAvailability.server.ts';
 
 /**
  * Every module that makes the engine's promise to an OWNER: "this answers what
@@ -173,6 +175,7 @@ describe('availability engine import boundary', () => {
 
     expect(Array.from(ALL_SOURCE_FILES).some(file => FORBIDDEN_PREFIX.test(file))).toBe(true);
     expect(exists(ROUTE)).toBe(true);
+    expect(exists(AVAILABILITY_HANDLER)).toBe(true);
 
     for (const { file } of GUARDED) {
       expect(exists(file), `guarded file missing: ${file}`).toBe(true);
@@ -205,8 +208,8 @@ describe('availability engine import boundary', () => {
   it.each(GUARDED)('never binds an identity symbol in the import statements of $file', ({ file }) => {
     const bound = importedBindings(file);
 
-    // The control: the route binds them, so an empty/broken extractor fails here.
-    const routeBindings = importedBindings(ROUTE);
+    // The control: the route's handler binds them, so an empty/broken extractor fails here.
+    const routeBindings = importedBindings(AVAILABILITY_HANDLER);
 
     expect(FORBIDDEN_SYMBOLS.filter(symbol => routeBindings.has(symbol)).sort())
       .toEqual([...FORBIDDEN_SYMBOLS].sort());

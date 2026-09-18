@@ -15,6 +15,7 @@ const {
   guardSalonApiRoute,
   GoogleCalendarAvailabilityError,
   getGoogleCalendarBusyWindows,
+  getGoogleCalendarBusyWindowsReadOnly,
   isBusyWindowConflict,
   selectResults,
   findService,
@@ -72,6 +73,7 @@ const {
     guardSalonApiRoute: vi.fn(),
     GoogleCalendarAvailabilityError,
     getGoogleCalendarBusyWindows: vi.fn(),
+    getGoogleCalendarBusyWindowsReadOnly: vi.fn(),
     isBusyWindowConflict: vi.fn((startTime: Date, endTime: Date, busyWindows: Array<{ startTime: Date; endTime: Date }>) =>
       busyWindows.some(window => startTime < window.endTime && endTime > window.startTime),
     ),
@@ -122,6 +124,7 @@ vi.mock('@/libs/DB', () => ({
 vi.mock('@/libs/googleCalendar', () => ({
   GoogleCalendarAvailabilityError,
   getGoogleCalendarBusyWindows,
+  getGoogleCalendarBusyWindowsReadOnly,
   isBusyWindowConflict,
 }));
 
@@ -133,6 +136,11 @@ vi.mock('@sentry/nextjs', () => ({
 // identity-aware Smart Fit annotation (P7.5); none of these fixtures enable
 // Smart Fit, so no identity resolution runs in this suite.
 vi.mock('server-only', () => ({}));
+
+import {
+  getAnonymousCustomerBookingAvailability,
+  getPublicBookingAvailability,
+} from '@/libs/publicBookingAvailability.server';
 
 import { GET } from './route';
 
@@ -174,12 +182,52 @@ describe('GET /api/appointments/availability', () => {
     verifyAppointmentAccessToken.mockResolvedValue(null);
     guardSalonApiRoute.mockResolvedValue(null);
     getGoogleCalendarBusyWindows.mockResolvedValue([]);
+    getGoogleCalendarBusyWindowsReadOnly.mockResolvedValue([]);
     findService.mockResolvedValue(null);
     findTechnician.mockResolvedValue(null);
   });
 
   afterEach(() => {
     vi.restoreAllMocks();
+  });
+
+  it('uses only the tenant-bound read-only calendar reader for an anonymous assistant', async () => {
+    getTechniciansBySalonId.mockResolvedValue([{
+      id: 'tech_1',
+      weeklySchedule: { friday: { start: '09:00', end: '18:00' } },
+      enabledServiceIds: [],
+      serviceIds: [],
+      specialties: [],
+      primaryLocationId: null,
+    }]);
+    selectResults.push([], [], [], []);
+
+    const response = await getAnonymousCustomerBookingAvailability({
+      salon: { id: 'salon_1', slug: 'salon-a' },
+      date: '2026-03-13',
+      durationMinutes: 30,
+    });
+
+    expect(response.status).toBe(200);
+    expect(getGoogleCalendarBusyWindowsReadOnly).toHaveBeenCalledWith(expect.objectContaining({
+      salonId: 'salon_1',
+    }));
+    expect(getGoogleCalendarBusyWindows).not.toHaveBeenCalled();
+    expect(getClientSession).not.toHaveBeenCalled();
+    expect(getAppointmentById).not.toHaveBeenCalled();
+    expect(verifyAppointmentAccessToken).not.toHaveBeenCalled();
+  });
+
+  it('rejects reschedule parameters before the anonymous adapter can read tenant data', async () => {
+    const response = await getPublicBookingAvailability(
+      new Request('http://localhost/api/appointments/availability?date=2026-03-13&salonSlug=salon-a&originalAppointmentId=appt_other'),
+      { kind: 'anonymous_customer_assistant', salon: { id: 'salon_1', slug: 'salon-a' } },
+    );
+
+    expect(response.status).toBe(400);
+    expect(getSalonBySlug).not.toHaveBeenCalled();
+    expect(getAppointmentById).not.toHaveBeenCalled();
+    expect(verifyAppointmentAccessToken).not.toHaveBeenCalled();
   });
 
   it('blocks late-day slots when the requested service duration no longer fits the schedule', async () => {
