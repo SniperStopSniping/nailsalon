@@ -1,3 +1,10 @@
+## [1.119.1](https://github.com/SniperStopSniping/nailsalon/compare/v1.119.0...v1.119.1) (2026-09-18)
+
+
+### Bug Fixes
+
+* **booking:** share authoritative L1 selection across public booking and AI ([#251](https://github.com/SniperStopSniping/nailsalon/issues/251)) ([1bcae9a](https://github.com/SniperStopSniping/nailsalon/commit/1bcae9a6998ad01b621915608b4158af1f300bab))
+
 # [1.119.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.118.0...v1.119.0) (2026-09-18)
 
 
