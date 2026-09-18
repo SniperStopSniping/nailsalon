@@ -5,6 +5,7 @@ import * as Sentry from '@sentry/nextjs';
 import { verifyAppointmentAccessToken } from '@/libs/appointmentAccess';
 import type { AnnotateSlot } from '@/libs/availability/engine.server';
 import { computeDaySlots, preflightDayAvailability } from '@/libs/availability/engine.server';
+import { resolveCatalogDomainView } from '@/libs/bookingCatalog';
 import { getBookingConfigForSalon } from '@/libs/bookingConfig';
 import { parseSelectedAddOnsParam } from '@/libs/bookingParams';
 import type { RequestedService } from '@/libs/bookingPolicy';
@@ -242,6 +243,9 @@ export async function getPublicBookingAvailability(
       );
     }
 
+    if (!baseServiceId && !originalAppointmentId && resolveCatalogDomainView(salon.features) === 'l1') {
+      return Response.json({ error: { code: 'INVALID_SERVICE', message: 'Choose a service and its options before selecting a time.' } }, { status: 400 });
+    }
     const statusGuard = await guardSalonApiRoute(salon.id);
     if (statusGuard) {
       return statusGuard;
@@ -280,6 +284,7 @@ export async function getPublicBookingAvailability(
     });
     const effectiveLocationId = hoursCeiling.locationId;
 
+    let l1EligibleTechnicianIds: string[] | undefined;
     let requestedServices: RequestedService[] = [];
     // Same records with pricing, for the automatic-discount resolution below.
     let pricedRequestedServices: Array<{ id: string; name: string; price: number }> = [];
@@ -298,6 +303,7 @@ export async function getPublicBookingAvailability(
           technicianId: technicianId && technicianId !== 'any' ? technicianId : null,
         });
 
+        l1EligibleTechnicianIds = validatedSelection.l1?.eligibleTechnicianIds;
         requestedServices = [validatedSelection.baseServiceRecord];
         pricedRequestedServices = [validatedSelection.baseServiceRecord];
         visibleDurationMinutes = validatedSelection.quote.visibleDurationMinutes;
@@ -311,8 +317,13 @@ export async function getPublicBookingAvailability(
         const technicians = error.code === 'unsupported_technician'
           ? await getTechniciansBySalonId(salon.id)
           : [];
-        const canReselectTechnician = technicians.some(technician =>
-          technician.id !== technicianId
+        const l1AlternativesRequired = resolveCatalogDomainView(salon.features) === 'l1';
+        const alternativeSelection = l1AlternativesRequired && technicians.length
+          ? await validatePublicBookingSelection({ salonId: salon.id, selection: { baseServiceId, selectedAddOns } }).catch(() => null)
+          : null;
+        const canReselectTechnician = (!l1AlternativesRequired || alternativeSelection !== null) && technicians.some(technician =>
+          (!alternativeSelection?.l1 || alternativeSelection.l1.eligibleTechnicianIds.includes(technician.id))
+          && technician.id !== technicianId
           && technician.enabledServiceIds?.includes(baseServiceId)
           && technicianSupportsPublicLocation({ technician, locationId: effectiveLocationId }),
         );
@@ -392,7 +403,7 @@ export async function getPublicBookingAvailability(
     const preflight = preflightDayAvailability({
       technicians,
       compatibility: tech =>
-        getPublicTechnicianCompatibility({
+        (!l1EligibleTechnicianIds || l1EligibleTechnicianIds.includes(tech.id)) && getPublicTechnicianCompatibility({
           selectionMode: baseServiceId ? 'base-service' : 'legacy',
           technician: tech,
           requestedServices: requestedServices as RequestedService[],

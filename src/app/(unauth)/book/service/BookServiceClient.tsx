@@ -20,6 +20,8 @@ import { type BookingStep, getFirstStep, getNextStep, getPrevStep } from '@/libs
 import { getFeaturedServices, sortServicesForCategory } from '@/libs/bookingMerchandising';
 import type { SectionId } from '@/libs/bookingPageConfig';
 import { buildBookingUrl, parseSelectedAddOnsParam, type SelectedAddOnParam, serializeSelectedAddOns } from '@/libs/bookingParams';
+import type { PublicCatalogSnapshot } from '@/libs/catalogDomain';
+import { resolveCatalogSelection } from '@/libs/catalogResolverCore';
 import {
   getCustomerSitePresentationCssVariables,
   resolveCustomerSitePalettePreset,
@@ -122,6 +124,8 @@ export type LocationData = {
 type TechnicianPreviewData = PublicTechnicianPreview;
 
 type BookServiceClientProps = {
+  l1Snapshot?: PublicCatalogSnapshot;
+  enforceRequiredAddOns?: boolean;
   services: ServiceData[];
   addOns?: AddOnData[];
   serviceAddOnRules?: ServiceAddOnRule[];
@@ -276,6 +280,8 @@ const SOCIAL_LINKS = [
 ] as const;
 
 export function BookServiceClient({
+  l1Snapshot,
+  enforceRequiredAddOns = false,
   services,
   addOns = EMPTY_ADD_ONS,
   serviceAddOnRules = EMPTY_ADD_ON_RULES,
@@ -418,6 +424,7 @@ export function BookServiceClient({
   const urlBaseServiceId = searchParams.get('baseServiceId');
   const urlTechId = searchParams.get('techId');
   const urlSelectedAddOns = parseSelectedAddOnsParam(searchParams.get('selectedAddOns'));
+  const catalogChanged = searchParams.get('catalogChanged') === '1';
   const legacyServiceIds = searchParams.get('serviceIds')?.split(',').filter(Boolean) ?? [];
 
   const {
@@ -454,13 +461,18 @@ export function BookServiceClient({
     = BOOKING_CATEGORIES.find(category =>
       services.some(service => service.bookingCategory === category)) ?? 'manicure';
   const initialCategory: BookingCategory = initialSelectedService?.bookingCategory ?? firstNonEmptyCategory;
+  // L1 keeps the URL's explicit customer picks verbatim. The resolver owns
+  // inherited bindings and auto additions; applying legacy defaults here would
+  // turn a customer choice into a synthetic explicit pick before review.
   const initialSelectedAddOns = initialBaseServiceId
-    ? buildDefaultSelectedAddOns(
-      initialBaseServiceId,
-      serviceAddOnRules,
-      addOns,
-      urlSelectedAddOns,
-    )
+    ? l1Snapshot
+      ? urlSelectedAddOns
+      : buildDefaultSelectedAddOns(
+        initialBaseServiceId,
+        serviceAddOnRules,
+        addOns,
+        urlSelectedAddOns,
+      )
     : [];
 
   const [selectedCategory, setSelectedCategory] = useState<BookingCategory>(initialCategory);
@@ -874,12 +886,14 @@ export function BookServiceClient({
       return;
     }
 
-    const normalized = buildDefaultSelectedAddOns(
-      selectedBaseServiceId,
-      serviceAddOnRules,
-      addOns,
-      selectedAddOnsState,
-    );
+    const normalized = l1Snapshot
+      ? selectedAddOnsState
+      : buildDefaultSelectedAddOns(
+        selectedBaseServiceId,
+        serviceAddOnRules,
+        addOns,
+        selectedAddOnsState,
+      );
 
     const sameSelection = normalized.length === selectedAddOnsState.length
       && normalized.every((item, index) => (
@@ -894,7 +908,7 @@ export function BookServiceClient({
     setBaseServiceId(selectedBaseServiceId);
     setServiceIds([selectedBaseServiceId]);
     setSelectedAddOns(normalized);
-  }, [addOns, isHydrated, selectedAddOnsState, selectedBaseServiceId, serviceAddOnRules, setBaseServiceId, setSelectedAddOns, setServiceIds]);
+  }, [l1Snapshot, addOns, isHydrated, selectedAddOnsState, selectedBaseServiceId, serviceAddOnRules, setBaseServiceId, setSelectedAddOns, setServiceIds]);
 
   useEffect(() => {
     if (!isHydrated) {
@@ -943,10 +957,23 @@ export function BookServiceClient({
     );
 
   const selectedService = services.find(service => service.id === selectedBaseServiceId) ?? null;
+  // L1 binding fields are already effective after inherited/default/rule
+  // resolution. Adapt them only to the legacy control shape; do not repeat
+  // precedence or pricing logic in the browser.
   const selectedRules = selectedBaseServiceId
-    ? serviceAddOnRules
-      .filter(rule => rule.serviceId === selectedBaseServiceId)
-      .sort((a, b) => a.displayOrder - b.displayOrder)
+    ? (l1Snapshot
+        ? l1Snapshot.serviceAddOnBindings.map(binding => ({
+          id: `l1:${binding.serviceId}:${binding.addOnId}`,
+          serviceId: binding.serviceId,
+          addOnId: binding.addOnId,
+          selectionMode: binding.selectionMode,
+          defaultQuantity: binding.defaultQuantity,
+          maxQuantityOverride: binding.effectiveMaxQuantity,
+          displayOrder: binding.displayOrder,
+        }))
+        : serviceAddOnRules)
+        .filter(rule => rule.serviceId === selectedBaseServiceId)
+        .sort((a, b) => a.displayOrder - b.displayOrder)
     : [];
   const addOnsById = new Map(addOns.map(addOn => [addOn.id, addOn]));
   const selectedAddOnsById = new Map(selectedAddOnsState.map(item => [item.addOnId, item.quantity ?? 1]));
@@ -1082,24 +1109,39 @@ export function BookServiceClient({
     technicianSelectionSource,
   ]);
 
-  const totalPriceCents = (selectedService?.priceCents ?? 0) + allowedAddOns.reduce(
-    (sum, item) => {
-      if (!item || item.quantity <= 0) {
-        return sum;
-      }
-      return sum + (item.addOn.priceCents * item.quantity);
-    },
-    0,
-  );
-  const totalDurationMinutes = (selectedService?.durationMinutes ?? 0) + allowedAddOns.reduce(
-    (sum, item) => {
-      if (!item || item.quantity <= 0) {
-        return sum;
-      }
-      return sum + (item.addOn.durationMinutes * item.quantity);
-    },
-    0,
-  );
+  // The shared, DB-free resolver is the public catalog authority for this
+  // snapshot. It supplies all rule-driven additions, totals, and blockers;
+  // this component does not recreate those rules.
+  const l1Result = l1Snapshot && selectedBaseServiceId
+    ? resolveCatalogSelection(l1Snapshot, {
+      serviceId: selectedBaseServiceId,
+      selectedAddOns: selectedAddOnsState,
+    })
+    : null;
+  const l1Selection = l1Result?.ok ? l1Result.selection : null;
+  const l1Blocked = Boolean(l1Snapshot && (!l1Selection || l1Selection.blocksContinue || (enforceRequiredAddOns && selectedRules.some(rule => rule.selectionMode === 'required' && !l1Selection.addOns.some(addOn => addOn.addOnId === rule.addOnId)))));
+  const totalPriceCents = l1Snapshot
+    ? l1Selection?.subtotalCents ?? 0
+    : ((selectedService?.priceCents ?? 0) + allowedAddOns.reduce(
+        (sum, item) => {
+          if (!item || item.quantity <= 0) {
+            return sum;
+          }
+          return sum + (item.addOn.priceCents * item.quantity);
+        },
+        0,
+      ));
+  const totalDurationMinutes = l1Snapshot
+    ? l1Selection?.totalDurationMinutes ?? 0
+    : ((selectedService?.durationMinutes ?? 0) + allowedAddOns.reduce(
+        (sum, item) => {
+          if (!item || item.quantity <= 0) {
+            return sum;
+          }
+          return sum + (item.addOn.durationMinutes * item.quantity);
+        },
+        0,
+      ));
   const totalPriceLabel = formatMoney(totalPriceCents, currency);
   const totalDurationLabel = formatDuration(totalDurationMinutes);
 
@@ -1204,7 +1246,7 @@ export function BookServiceClient({
   };
 
   const handleContinue = () => {
-    if (!selectedBaseServiceId) {
+    if (l1Blocked || !selectedBaseServiceId) {
       return;
     }
 
@@ -1249,7 +1291,9 @@ export function BookServiceClient({
       ];
     }
 
-    const normalized = buildDefaultSelectedAddOns(selectedBaseServiceId, serviceAddOnRules, addOns, nextSelected)
+    const normalized = (l1Snapshot
+      ? nextSelected
+      : buildDefaultSelectedAddOns(selectedBaseServiceId, serviceAddOnRules, addOns, nextSelected))
       .sort((a, b) => {
         const orderA = selectedRules.find(ruleItem => ruleItem.addOnId === a.addOnId)?.displayOrder ?? 0;
         const orderB = selectedRules.find(ruleItem => ruleItem.addOnId === b.addOnId)?.displayOrder ?? 0;
@@ -1325,6 +1369,17 @@ export function BookServiceClient({
             menuVariant: 'list' | 'grouped_categories';
           }) => (
             <>
+              {catalogChanged && (
+                <div
+                  role="status"
+                  data-testid="catalog-changed-notice"
+                  className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-sm text-amber-950"
+                >
+                  {locale === 'fr'
+                    ? 'Les options de réservation ont changé. Vérifiez votre service et vos options, puis choisissez une nouvelle heure.'
+                    : 'Booking options changed. Review your service and options, then choose a new time.'}
+                </div>
+              )}
               {(shouldRenderSection(sectionPlan, 'announcement') || (
                 !compactQuickBookProfileEnabled && shouldRenderSection(sectionPlan, 'bookingFacts')
               )) && (
@@ -2105,24 +2160,24 @@ export function BookServiceClient({
                                                       : (
                                                           <button
                                                             type="button"
-                                                            aria-label={isRequired
+                                                            aria-label={isRequired && isSelected
                                                               ? `${addOn.name} included`
                                                               : `${isSelected ? 'Remove' : 'Add'} ${addOn.name}`}
                                                             onClick={() => handleAddOnToggle(addOn.id)}
-                                                            disabled={isRequired}
+                                                            disabled={isRequired && isSelected}
                                                             className="min-h-11 min-w-11 rounded-lg px-2.5 py-1 text-[11px] font-semibold transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 disabled:cursor-not-allowed motion-reduce:transition-none"
                                                             style={{
-                                                              backgroundColor: isSelected || isRequired
+                                                              backgroundColor: isSelected
                                                                 ? hasBookingBrandColor
                                                                   ? 'var(--booking-brand-primary)'
                                                                   : themeVars.primary
                                                                 : '#f5f5f5',
-                                                              color: isSelected || isRequired
+                                                              color: isSelected
                                                                 ? bookingBrandForeground ?? '#171717'
                                                                 : '#404040',
                                                             }}
                                                           >
-                                                            {isRequired ? 'Included' : isSelected ? 'Added' : 'Add'}
+                                                            {isRequired && isSelected ? 'Included' : isSelected ? 'Added' : 'Add'}
                                                           </button>
                                                         )}
                                                   </div>
@@ -2147,6 +2202,45 @@ export function BookServiceClient({
 
               {socialLinksSlot}
 
+              {l1Snapshot && l1Selection && (
+                <div className="mx-auto max-w-lg px-4 py-3" aria-live="polite" data-testid="l1-selection-summary">
+                  {l1Snapshot.addOnGroups
+                    .filter(group => selectedRules.some(rule => (
+                      l1Snapshot.addOns.find(addOn => addOn.id === rule.addOnId)?.groupId === group.id
+                    )))
+                    .map(group => (
+                      <p key={group.id}>
+                        {group.name}
+                        :
+                        {' '}
+                        {locale === 'fr' ? 'choisissez' : 'choose'}
+                        {' '}
+                        {group.minSelections}
+                        {group.maxSelections === null
+                          ? locale === 'fr' ? ' ou plus' : ' or more'
+                          : `–${group.maxSelections}`}
+                      </p>
+                    ))}
+                  {l1Selection.addOns.filter(line => line.autoAdded).map(line => (
+                    <p key={line.addOnId}>
+                      {locale === 'fr' ? 'Ajouté automatiquement :' : 'Added automatically:'}
+                      {' '}
+                      {l1Snapshot.addOns.find(addOn => addOn.id === line.addOnId)?.name}
+                      {' '}
+                      ×
+                      {' '}
+                      {line.quantity}
+                    </p>
+                  ))}
+                  {l1Selection.violations.map(violation => (
+                    <p key={`${violation.code}:${JSON.stringify(violation.anchor)}`} role="alert">
+                      {locale === 'fr'
+                        ? 'Vérifiez les options requises et les limites de cette sélection.'
+                        : 'Review the required options and selection limits.'}
+                    </p>
+                  ))}
+                </div>
+              )}
               {selectedService && (
                 <div
                   data-testid="service-sticky-spacer"
@@ -2803,6 +2897,7 @@ export function BookServiceClient({
               type="button"
               onClick={handleContinue}
               data-testid="service-continue-button"
+              disabled={l1Blocked}
               className={`flex min-h-11 shrink-0 items-center gap-1.5 rounded-full px-3.5 py-1.5 text-[14px] font-bold shadow-md transition-all hover:scale-[1.02] hover:shadow-lg focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 active:scale-[0.98] motion-reduce:transition-none motion-reduce:hover:transform-none motion-reduce:active:transform-none sm:gap-2 sm:px-5 sm:py-2.5 sm:text-[15px] ${
                 hasBookingBrandColor
                   ? 'text-[var(--booking-brand-foreground)]'

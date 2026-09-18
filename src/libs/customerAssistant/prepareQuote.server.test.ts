@@ -91,6 +91,39 @@ describe('prepareCustomerBookingQuote', () => {
     expect(material?.review.bookingPolicy).toMatchObject({ acknowledgmentText: expect.any(String), version: expect.any(String) });
   });
 
+  it('uses an L1 service request-approval mode when no deposit is required', async () => {
+    mocks.deposit.mockResolvedValue({ active: false, reason: 'not_required' });
+    mocks.selection.mockResolvedValue({
+      services: [{ id: 'svc', name: 'Gel', priceCents: 5000 }],
+      addOns: [],
+      subtotalBeforeDiscountCents: 5000,
+      visibleDurationMinutes: 60,
+      automaticDiscount: { kind: 'none', subtotalBeforeDiscountCents: 5000, discountAmountCents: 0, finalTotalCents: 5000, reward: null, firstVisit: null },
+      l1ConfirmationMode: 'request_approval',
+    });
+
+    const material = await prepareCustomerBookingQuote(input({ salon: { ...salon, settings: { ...salon.settings, booking: { ...salon.settings.booking, confirmationMode: 'instant' } } } }));
+
+    expect(material?.review.confirmationMode).toBe('request_approval');
+    expect(material?.review.deposit).toMatchObject({ status: 'not_required' });
+  });
+
+  it('keeps deposit-required confirmation under the booking policy despite an L1 request-approval service', async () => {
+    mocks.selection.mockResolvedValue({
+      services: [{ id: 'svc', name: 'Gel', priceCents: 5000 }],
+      addOns: [],
+      subtotalBeforeDiscountCents: 5000,
+      visibleDurationMinutes: 60,
+      automaticDiscount: { kind: 'none', subtotalBeforeDiscountCents: 5000, discountAmountCents: 0, finalTotalCents: 5000, reward: null, firstVisit: null },
+      l1ConfirmationMode: 'request_approval',
+    });
+
+    const material = await prepareCustomerBookingQuote(input({ salon: { ...salon, settings: { ...salon.settings, booking: { ...salon.settings.booking, confirmationMode: 'instant' } } } }));
+
+    expect(material?.review.deposit).toMatchObject({ status: 'required', amountCents: 2500 });
+    expect(material?.review.confirmationMode).toBe('instant');
+  });
+
   it('keeps an explicit SMS off selection distinct from the salon default', async () => {
     const material = await prepareCustomerBookingQuote(input({
       smsConsent: { granted: false, wordingVersion: 'booking-sms-reminders-v1', selection: 'explicit_off' },

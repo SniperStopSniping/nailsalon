@@ -176,7 +176,7 @@ describe('§15 — minimum-notice structural parity with the platform fallback',
   });
 
   it('keeps the established 120-minute fallback for legacy salon settings', () => {
-    const source = readFileSync(path.join(process.cwd(), 'src/libs/bookingConfig.ts'), 'utf8');
+    const source = readFileSync(path.join(process.cwd(), 'src/libs/bookingConfig.shared.ts'), 'utf8');
 
     expect(source).toMatch(/minimumNoticeMinutes:\s*120/);
   });

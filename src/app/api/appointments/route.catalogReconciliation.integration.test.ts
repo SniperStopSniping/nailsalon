@@ -8,7 +8,7 @@
  *   - gate OFF (every salon today): a `catalogAcknowledgment` is accepted
  *     but has NO effect — even a deliberately wrong one — booking succeeds
  *     exactly as before this PR (legacy parity, §18).
- *   - gate ON, no acknowledgment: booking succeeds (nothing to compare).
+ *   - gate ON, no acknowledgment: requires authoritative review before creation.
  *   - gate ON, a matching acknowledgment: booking succeeds.
  *   - gate ON, a STALE acknowledgment: 409 CATALOG_SELECTION_CHANGED, ZERO
  *     persistence — no appointment row, no deposit row, no policy-ack row —
@@ -331,7 +331,7 @@ describe('POST /api/appointments — catalog reconciliation legacy parity (gate 
 });
 
 describe('POST /api/appointments — catalog reconciliation (gate ON)', () => {
-  it('no acknowledgment supplied: books normally (fresh resolution computed, nothing to compare)', async () => {
+  it('no acknowledgment supplied: requires explicit review of authoritative L1 selection', async () => {
     signInFreshClient();
 
     const response = await postBooking(bookingBody({
@@ -341,8 +341,20 @@ describe('POST /api/appointments — catalog reconciliation (gate ON)', () => {
     }));
     const body = await response.json();
 
-    expect(response.status).toBe(201);
-    expect(body.data.appointmentId).toBeTruthy();
+    expect(response.status).toBe(409);
+    expect(body.error.code).toBe('CATALOG_SELECTION_CHANGED');
+    expect(body.data?.appointmentId).toBeUndefined();
+  });
+
+  it('rejects the legacy basket shape on an L1 salon without creating an appointment', async () => {
+    signInFreshClient();
+    const before = await appointmentCount(GATED_SALON_ID);
+    const body = bookingBody({ salonSlug: GATED_SALON_SLUG, salonId: GATED_SALON_ID, offsetDays: 19 });
+    const response = await postBooking(JSON.stringify({ ...JSON.parse(body), baseServiceId: undefined, serviceIds: [serviceId(GATED_SALON_ID)] }));
+
+    expect(response.status).toBe(409);
+    expect((await response.json()).error.code).toBe('CATALOG_SELECTION_CHANGED');
+    expect(await appointmentCount(GATED_SALON_ID)).toBe(before);
   });
 
   it('a MATCHING acknowledgment: books normally', async () => {

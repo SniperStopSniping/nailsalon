@@ -43,6 +43,10 @@ export type PublicBookingAddOnSummary = {
 
 export type ResolvedPublicBookingSelection = {
   mode: 'base-service' | 'legacy';
+  l1ConfirmationMode?: 'instant' | 'request_approval' | 'consultation' | null;
+  catalogAcknowledgment?: { serviceId: string; resolutionFingerprint: string };
+  eligibleTechnicianIds?: string[];
+  requestedSelectedAddOns?: SelectedAddOnParam[];
   baseServiceId: string | null;
   selectedAddOns: SelectedAddOnParam[];
   requestedServices: Service[];
@@ -120,6 +124,7 @@ export async function resolvePublicBookingSelection(args: {
 
     return {
       mode: 'base-service',
+      ...(validated.l1 ? { l1ConfirmationMode: validated.l1.confirmationMode, catalogAcknowledgment: { serviceId: baseServiceId, resolutionFingerprint: validated.l1.fingerprint }, eligibleTechnicianIds: validated.l1.eligibleTechnicianIds, requestedSelectedAddOns: selectedAddOns } : {}),
       baseServiceId,
       selectedAddOns: validated.quote.addOns.map(addOn => ({
         addOnId: addOn.addOnId,
@@ -134,9 +139,9 @@ export async function resolvePublicBookingSelection(args: {
           validated.baseServiceRecord.descriptionItems ?? null,
           validated.baseServiceRecord.description ?? null,
         ),
-        priceCents: validated.baseServiceRecord.price,
+        priceCents: validated.quote.baseService.priceCents,
         priceDisplayText: validated.baseServiceRecord.priceDisplayText ?? null,
-        durationMinutes: validated.baseServiceRecord.durationMinutes,
+        durationMinutes: validated.quote.baseService.durationMinutes,
         category: validated.baseServiceRecord.category,
         imageUrl: validated.baseServiceRecord.imageUrl ?? null,
         resolvedIntroPriceLabel: validated.quote.baseService.resolvedIntroPriceLabel,

@@ -1,5 +1,5 @@
 import { normalizeDescriptionItems } from '@/libs/bookingCatalog';
-import { resolveBookingConfigFromSettings } from '@/libs/bookingConfig';
+import { resolveBookingConfigFromSettings } from '@/libs/bookingConfig.shared';
 import {
   CATALOG_RESOLUTION_FINGERPRINT_SCHEMA_VERSION,
   CATALOG_RULE_REASON_TEXT,
@@ -428,6 +428,11 @@ function getStaticQuantityCaps(map: StaticQuantityCapsByService, serviceId: stri
   return map.get(serviceId)?.get(addOnId) ?? [];
 }
 
+/** Keep raw required bindings even when their target is inactive. */
+export function resolveCatalogBindingSourceRows<T>(ownRows: T[], inheritedRows: T[]): T[] {
+  return ownRows.length > 0 ? ownRows : inheritedRows;
+}
+
 function buildBindingsForService(
   serviceId: string,
   sourceRows: ServiceAddOn[],
@@ -611,9 +616,7 @@ export function buildPublicCatalogSnapshot(input: BuildPublicCatalogSnapshotInpu
     // `reconcileSalonServiceAddOnCompatibility` already applies to the
     // add-on-side legacy reconciliation path).
     const ownRows = bindingsByServiceId.get(service.id) ?? [];
-    const sourceRows = ownRows.length > 0
-      ? ownRows
-      : (kind === 'child' && parent ? bindingsByServiceId.get(parent.id) ?? [] : []);
+    const sourceRows = resolveCatalogBindingSourceRows(ownRows, kind === 'child' && parent ? bindingsByServiceId.get(parent.id) ?? [] : []);
 
     serviceAddOnBindings.push(
       ...buildBindingsForService(service.id, sourceRows, addOnById, staticQuantityCapsByService),

@@ -1780,12 +1780,15 @@ describe('L1 PR4 §14 — deposit priority over explicit request-approval activa
   }, 30_000);
 
   async function postRequestApprovalBooking(body: Record<string, unknown>): Promise<Response> {
+    const { resolveL1BookingAuthority } = await import('@/libs/l1BookingAuthority.server');
+    const selection = await resolveL1BookingAuthority({ salonId: RA_SALON_ID, selection: { serviceId: RA_SERVICE_ID, technicianId: RA_TECH_ID, selectedAddOns: [] } });
     return POST(new Request('http://localhost/api/appointments', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         salonSlug: RA_SALON_SLUG,
         baseServiceId: RA_SERVICE_ID,
+        catalogAcknowledgment: { serviceId: RA_SERVICE_ID, resolutionFingerprint: selection!.fingerprint },
         technicianId: RA_TECH_ID,
         locationId: RA_LOCATION_ID,
         ...body,

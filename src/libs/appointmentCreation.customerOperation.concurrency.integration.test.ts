@@ -8,8 +8,10 @@ import { migrate } from 'drizzle-orm/node-postgres/migrator';
 import pg from 'pg';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { validatePublicBookingSelection } from '@/libs/bookingQuote';
 import { buildDepositDisclosure } from '@/libs/depositPolicy';
 import { attestDisposableDatabaseSession, requireDisposableDatabaseTarget, resolveDisposableDatabaseServerExpectation } from '@/libs/disposableDatabaseTarget';
+import { resolvePublicBookingSelection } from '@/libs/publicBookingSelection';
 import { buildTaxConfigurationSnapshot, resolveTaxConfig } from '@/libs/taxConfig';
 import * as schema from '@/models/Schema';
 
@@ -109,7 +111,10 @@ const SALON = 'synthetic-customer-creator-salon';
 const TECH = 'synthetic-customer-creator-tech';
 const SERVICE = 'synthetic-customer-creator-service';
 const ADDON = 'synthetic-customer-creator-addon';
+const L1_CAPABILITY = 'synthetic-customer-creator-l1-capability';
+const L1_SORTED_ADDON = 'aaa-synthetic-customer-creator-addon';
 const SECRET = 'synthetic-customer-creator-signing-key-no-provider';
+const L1_FEATURES = { catalog: { variantsV1: true, addOnGroupsV1: false, bookingModesV1: false } };
 const SETTINGS = { bookingExperience: { policy: { enabled: false } }, booking: { timezone: 'America/Toronto', slotIntervalMinutes: 15, bufferMinutes: 0 } };
 const START = '2099-09-01T15:00:00.000Z';
 const contact = (lastDigit = '1') => ({ name: 'Synthetic Customer', email: `synthetic${lastDigit}@example.invalid`, phone: `416555010${lastDigit}` });
@@ -175,8 +180,56 @@ async function create(prepared: Awaited<ReturnType<typeof prepare>>) {
     expectedDiscountType: value.expectedDiscountType,
     expectedBookingFinancialQuote: value.expectedBookingFinancialQuote,
     expectedDepositFingerprint: value.expectedDepositFingerprint,
+    catalogAcknowledgment: value.catalogAcknowledgment,
   }) });
   return createAppointmentFromRequest(request, { kind: 'anonymous_customer', salon: { id: SALON, slug: SALON }, contact: prepared.person, operation: { ...prepared.reference, secret: SECRET } });
+}
+
+async function prepareL1Material({ requiresCapability = false, depositsEnabled = false }: { requiresCapability?: boolean; depositsEnabled?: boolean } = {}): Promise<CustomerBookingMaterial> {
+  if (!requiresCapability) {
+    await database.delete(schema.technicianCapabilitySchema).where(eq(schema.technicianCapabilitySchema.id, 'synthetic-creator-l1-capability-assignment'));
+    await database.delete(schema.catalogRuleSchema).where(eq(schema.catalogRuleSchema.id, 'synthetic-creator-l1-capability-rule'));
+  }
+  await database.update(schema.catalogRuleSchema).set({ isActive: true }).where(eq(schema.catalogRuleSchema.id, 'synthetic-creator-l1-auto'));
+  await database.update(schema.salonSchema).set({ features: depositsEnabled ? { ...L1_FEATURES, money: { deposits: true } } : L1_FEATURES }).where(eq(schema.salonSchema.id, SALON));
+  await database.update(schema.serviceSchema).set({ price: 6500, durationMinutes: 45 }).where(eq(schema.serviceSchema.id, SERVICE));
+  await database.update(schema.addOnSchema).set({ priceCents: 500, durationMinutes: 5 }).where(eq(schema.addOnSchema.id, ADDON));
+  await database.insert(schema.catalogRuleSchema).values({
+    id: 'synthetic-creator-l1-auto',
+    salonId: SALON,
+    serviceId: SERVICE,
+    ruleType: 'include',
+    subjectServiceId: SERVICE,
+    subjectAddOnId: null,
+    objectAddOnId: ADDON,
+    capabilityId: null,
+    params: { autoAdd: true },
+    priority: 0,
+    isActive: true,
+    note: null,
+  }).onConflictDoNothing();
+  if (requiresCapability) {
+    await database.insert(schema.capabilitySchema).values({ id: L1_CAPABILITY, salonId: SALON, slug: L1_CAPABILITY, name: 'Synthetic L1 capability' }).onConflictDoNothing();
+    await database.insert(schema.technicianCapabilitySchema).values({ id: 'synthetic-creator-l1-capability-assignment', salonId: SALON, technicianId: TECH, capabilityId: L1_CAPABILITY }).onConflictDoNothing();
+    await database.insert(schema.catalogRuleSchema).values({ id: 'synthetic-creator-l1-capability-rule', salonId: SALON, serviceId: SERVICE, ruleType: 'requires_capability', subjectServiceId: SERVICE, subjectAddOnId: null, objectAddOnId: null, capabilityId: L1_CAPABILITY, params: {}, priority: 1, isActive: true, note: null }).onConflictDoNothing();
+  }
+  const current = await validatePublicBookingSelection({
+    salonId: SALON,
+    selection: { baseServiceId: SERVICE, selectedAddOns: [] },
+  });
+  if (!current.l1?.fingerprint) {
+    throw new Error('Synthetic L1 catalog acknowledgment was unavailable');
+  }
+  const value = material();
+  value.catalogAcknowledgment = { serviceId: SERVICE, resolutionFingerprint: current.l1.fingerprint };
+  value.expectedTotalCents = current.quote.subtotalCents;
+  value.expectedBookingFinancialQuote.totalDueCents = current.quote.subtotalCents;
+  value.review.services = [{ id: SERVICE, name: 'Synthetic Creator Service', priceCents: 6500 }];
+  value.review.addOns = current.quote.addOns.map(addOn => ({ id: addOn.addOnId, name: addOn.name, quantity: addOn.quantity, priceCents: addOn.lineTotalCents }));
+  value.review.durationMinutes = current.quote.visibleDurationMinutes;
+  value.review.financial.subtotalCents = current.quote.subtotalCents;
+  value.review.financial.totalDueCents = current.quote.subtotalCents;
+  return value;
 }
 
 (target ? describe : describe.skip)('customer operation uses actual public booking authority — PostgreSQL', () => {
@@ -215,6 +268,8 @@ async function create(prepared: Awaited<ReturnType<typeof prepare>>) {
     __setDepositStripeClientForTests({ checkout: { sessions: provider } });
     provider.create.mockRejectedValue(new Error('Unexpected provider request'));
     await database.update(schema.salonSchema).set({ settings: SETTINGS, features: null }).where(eq(schema.salonSchema.id, SALON));
+    await database.update(schema.serviceSchema).set({ price: 6500, durationMinutes: 60 }).where(eq(schema.serviceSchema.id, SERVICE));
+    await database.update(schema.addOnSchema).set({ priceCents: 500, durationMinutes: 10 }).where(eq(schema.addOnSchema.id, ADDON));
     await database.delete(schema.salonStripeAccountSchema).where(eq(schema.salonStripeAccountSchema.salonId, SALON));
     vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('External requests forbidden in synthetic booking verification'));
     vi.spyOn(console, 'warn').mockImplementation(() => {});
@@ -234,9 +289,164 @@ async function create(prepared: Awaited<ReturnType<typeof prepare>>) {
   afterAll(async () => {
     await pool?.end();
 
-    expect(executed).toBe(17);
+    expect(executed).toBe(26);
 
     process.stdout.write(`CUSTOMER_CREATOR_POSTGRES_TESTS_EXECUTED=${executed} CUSTOMER_CREATOR_POSTGRES_TESTS_SKIPPED=0\n`);
+  });
+
+  it('accepts an L1 review whose canonical add-on order differs from raw database insertion order', async () => {
+    await database.insert(schema.addOnSchema).values({ id: L1_SORTED_ADDON, salonId: SALON, name: 'AAA Synthetic Art', slug: L1_SORTED_ADDON, category: 'nail_art', priceCents: 200, durationMinutes: 2, pricingType: 'fixed', maxQuantity: 1, isActive: true }).onConflictDoNothing();
+    await database.insert(schema.serviceAddOnSchema).values({ id: 'synthetic-creator-l1-sorted-binding', salonId: SALON, serviceId: SERVICE, addOnId: L1_SORTED_ADDON, selectionMode: 'optional' }).onConflictDoNothing();
+    const value = await prepareL1Material();
+    value.selection.selectedAddOns = [{ addOnId: ADDON, quantity: 1 }, { addOnId: L1_SORTED_ADDON, quantity: 1 }];
+    const current = await validatePublicBookingSelection({ salonId: SALON, selection: value.selection });
+    const publicSelection = await resolvePublicBookingSelection({ salonId: SALON, baseServiceId: SERVICE, selectedAddOns: value.selection.selectedAddOns });
+
+    expect(publicSelection.addOns.map(addOn => addOn.id)).toEqual(current.quote.addOns.map(addOn => addOn.addOnId));
+
+    value.catalogAcknowledgment = { serviceId: SERVICE, resolutionFingerprint: current.l1!.fingerprint! };
+    value.expectedTotalCents = publicSelection.totalPriceCents;
+    value.expectedBookingFinancialQuote.totalDueCents = publicSelection.totalPriceCents;
+    value.review.addOns = publicSelection.addOns.map(addOn => ({ id: addOn.id, name: addOn.name, quantity: addOn.quantity, priceCents: addOn.lineTotalCents }));
+    value.review.durationMinutes = publicSelection.visibleDurationMinutes;
+    value.review.financial.subtotalCents = publicSelection.totalPriceCents;
+    value.review.financial.totalDueCents = publicSelection.totalPriceCents;
+    const response = await create(await prepare(contact(), value));
+
+    expect(response.status, JSON.stringify(await response.json())).toBe(201);
+
+    const [appointment] = await database.select().from(schema.appointmentSchema).where(eq(schema.appointmentSchema.salonId, SALON));
+
+    expect(appointment).toMatchObject({ totalPrice: 7200, totalDurationMinutes: 52 });
+    expect(await database.select().from(schema.appointmentAddOnSchema).where(eq(schema.appointmentAddOnSchema.appointmentId, appointment!.id))).toHaveLength(2);
+  });
+
+  it('uses the L1 acknowledgment to persist the authoritative five-minute automatic add-on', async () => {
+    const value = await prepareL1Material();
+    const response = await create(await prepare(contact(), value));
+
+    expect(response.status, JSON.stringify(await response.json())).toBe(201);
+
+    const [appointment] = await database.select().from(schema.appointmentSchema).where(eq(schema.appointmentSchema.salonId, SALON));
+
+    expect(appointment).toMatchObject({ totalPrice: 7000, totalDurationMinutes: 50 });
+    expect(await database.select().from(schema.appointmentAddOnSchema).where(eq(schema.appointmentAddOnSchema.appointmentId, appointment!.id))).toEqual([
+      expect.objectContaining({ addOnId: ADDON, quantitySnapshot: 1, lineTotalCentsSnapshot: 500, lineDurationMinutesSnapshot: 5 }),
+    ]);
+  });
+
+  it.each([
+    ['price', async () => database.update(schema.serviceSchema).set({ price: 7100 }).where(eq(schema.serviceSchema.id, SERVICE))],
+    ['duration', async () => database.update(schema.serviceSchema).set({ durationMinutes: 46 }).where(eq(schema.serviceSchema.id, SERVICE))],
+  ] as const)('rejects stale L1 %s before client or appointment writes', async (_name, change) => {
+    const value = await prepareL1Material();
+    await change();
+    const response = await create(await prepare(contact(), value));
+
+    expect(response.status, JSON.stringify(await response.json())).toBe(409);
+    expect(await database.select().from(schema.appointmentSchema).where(eq(schema.appointmentSchema.salonId, SALON))).toHaveLength(0);
+    expect(await database.select().from(schema.salonClientSchema).where(eq(schema.salonClientSchema.salonId, SALON))).toHaveLength(0);
+  });
+
+  it('rejects a catalog mutation after preflight and before the booking transaction', async () => {
+    const value = await prepareL1Material();
+    const prepared = await prepare(contact(), value);
+    const originalTransaction = database.transaction.bind(database);
+    const changedBeforeTransaction: typeof database.transaction = async (callback, config) => {
+      await database.update(schema.addOnSchema).set({ durationMinutes: 10 }).where(eq(schema.addOnSchema.id, ADDON));
+      return originalTransaction(callback, config);
+    };
+    const interception = vi.spyOn(database, 'transaction').mockImplementationOnce(changedBeforeTransaction);
+    try {
+      const response = await create(prepared);
+
+      expect(interception).toHaveBeenCalled();
+      expect(response.status).toBe(409);
+      expect((await response.json()).error.code).toBe('CATALOG_SELECTION_CHANGED');
+      expect(await database.select().from(schema.appointmentSchema).where(eq(schema.appointmentSchema.salonId, SALON))).toHaveLength(0);
+      expect(await database.select().from(schema.salonClientSchema).where(eq(schema.salonClientSchema.salonId, SALON))).toHaveLength(0);
+      expect((await readCustomerBookingOperation({ salonId: SALON, capability: prepared.reference.capability, secret: SECRET })).appointmentId).toBeNull();
+    } finally {
+      interception.mockRestore();
+    }
+  });
+
+  it('rejects an L1 capability removal before client or appointment writes', async () => {
+    const value = await prepareL1Material({ requiresCapability: true });
+    await database.delete(schema.technicianCapabilitySchema).where(eq(schema.technicianCapabilitySchema.id, 'synthetic-creator-l1-capability-assignment'));
+    const response = await create(await prepare(contact(), value));
+
+    expect(response.status, JSON.stringify(await response.json())).toBe(409);
+    expect(await database.select().from(schema.appointmentSchema).where(eq(schema.appointmentSchema.salonId, SALON))).toHaveLength(0);
+    expect(await database.select().from(schema.salonClientSchema).where(eq(schema.salonClientSchema.salonId, SALON))).toHaveLength(0);
+  });
+
+  it('rejects an L1 automatic-rule mutation before client or appointment writes', async () => {
+    const value = await prepareL1Material();
+    await database.update(schema.catalogRuleSchema).set({ isActive: false }).where(eq(schema.catalogRuleSchema.id, 'synthetic-creator-l1-auto'));
+    const response = await create(await prepare(contact(), value));
+
+    expect(response.status, JSON.stringify(await response.json())).toBe(409);
+    expect(await database.select().from(schema.appointmentSchema).where(eq(schema.appointmentSchema.salonId, SALON))).toHaveLength(0);
+    expect(await database.select().from(schema.salonClientSchema).where(eq(schema.salonClientSchema.salonId, SALON))).toHaveLength(0);
+  });
+
+  it('uses the L1 automatic-add-on total for a required deposit and replays without a duplicate checkout', async () => {
+    await database.update(schema.salonSchema).set({
+      settings: { ...SETTINGS, payments: { deposit: { enabled: true, amountCents: 10000 } } },
+    }).where(eq(schema.salonSchema.id, SALON));
+    const [binding] = await database.insert(schema.salonStripeAccountSchema).values({
+      id: 'synthetic-creator-l1-deposit-account',
+      salonId: SALON,
+      stripeAccountId: 'acct_synthetic_creator_l1_deposit',
+      livemode: false,
+      chargesEnabled: true,
+      payoutsEnabled: true,
+      detailsSubmitted: true,
+      lastSyncedAt: new Date(),
+    }).returning();
+    provider.readiness.mockResolvedValue({ chargeReady: true, status: 'charge_ready', payoutsPending: false, binding });
+    provider.create.mockResolvedValue({
+      id: 'cs_synthetic_l1_deposit',
+      url: 'https://checkout.stripe.com/c/pay/cs_synthetic_l1_deposit',
+      status: 'open',
+      payment_status: 'unpaid',
+      payment_intent: null,
+      currency: 'cad',
+      amount_total: 7000,
+    });
+    const value = await prepareL1Material({ depositsEnabled: true });
+    value.expectedDepositFingerprint = 'deposit-v1:cad:7000';
+    value.review.deposit = {
+      status: 'required',
+      amountCents: 7000,
+      currency: 'CAD',
+      label: buildDepositDisclosure({ required: true, amountCents: 7000, currency: 'cad' })!.label,
+    };
+    const prepared = await prepare(contact(), value);
+    const first = await create(prepared);
+
+    expect(first.status, JSON.stringify(await first.json())).toBe(201);
+    expect(await database.select().from(schema.appointmentDepositSchema).where(eq(schema.appointmentDepositSchema.salonId, SALON))).toEqual([
+      expect.objectContaining({ amountCents: 7000, currency: 'cad' }),
+    ]);
+    expect(provider.create).toHaveBeenCalledTimes(1);
+    expect((await create(prepared)).status).toBe(200);
+    expect(provider.create).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps L1 durable replay and same-slot contention atomic', async () => {
+    const value = await prepareL1Material();
+    const first = await prepare(contact('1'), value);
+    const same = await Promise.all([create(first), create(first)]);
+
+    expect((await Promise.all(same.map(response => response.json().then((_body: unknown) => response.status)))).sort()).toEqual([200, 201]);
+    expect(await database.select().from(schema.appointmentSchema).where(eq(schema.appointmentSchema.salonId, SALON))).toHaveLength(1);
+
+    const secondCustomer = await prepare(contact('2'), value);
+
+    expect((await create(secondCustomer)).status).toBe(409);
+    expect(await database.select().from(schema.appointmentSchema).where(eq(schema.appointmentSchema.salonId, SALON))).toHaveLength(1);
   });
 
   it('creates once through the public authority and recovers the original after a lost response', async () => {

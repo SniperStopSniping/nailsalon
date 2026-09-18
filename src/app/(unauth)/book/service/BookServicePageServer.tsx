@@ -8,6 +8,7 @@ import { Suspense } from 'react';
 import { CustomerAssistantLauncher, CustomerBookingRecovery } from '@/components/customerAssistant/CustomerAssistantLauncher';
 import type { PreviewBannerVariant } from '@/components/PreviewBanner';
 import { PublicSalonPageShell } from '@/components/PublicSalonPageShell';
+import { resolveCatalogDomainView } from '@/libs/bookingCatalog';
 import { getBookingConfigForSalon, resolveIntroPriceLabel } from '@/libs/bookingConfig';
 import { resolveBookingExperience } from '@/libs/bookingExperience';
 import { type BookingStep, normalizeBookingFlow } from '@/libs/bookingFlow';
@@ -16,11 +17,13 @@ import { resolveBookingPageContent } from '@/libs/bookingPageContent';
 import { resolveBookingPagePresetPreviewSide } from '@/libs/bookingPagePresetPreview';
 import { repairBookingUrl, shouldRepairBookingUrl } from '@/libs/bookingParams';
 import { resolveBookingSmsMode } from '@/libs/bookingSmsConsent';
+import { resolvePublicCatalogSnapshot } from '@/libs/catalogResolver.server';
 import { getClientSession } from '@/libs/clientAuth';
 import { isCustomerAssistantEnabledForSalon } from '@/libs/customerAssistant/access.server';
 import { isClientEligibleForFirstVisitDiscount } from '@/libs/firstVisitDiscount';
 import { resolveDraftSalonAccess } from '@/libs/ownerPreview';
 import { listPublicPortfolioPhotosByIds } from '@/libs/portfolioMedia.server';
+import { projectPublicBookingCatalog } from '@/libs/publicBookingCatalog';
 import { mapPublicTechnician } from '@/libs/publicBookingTechnicians';
 import { getActiveAddOnsBySalonId, getActiveLocationsBySalonId, getServiceAddOnRulesBySalonId, getServicesBySalonId, getTechniciansBySalonId } from '@/libs/queries';
 import { getRetentionSettingsForSalon } from '@/libs/retentionSettings.server';
@@ -423,9 +426,25 @@ export async function renderBookServicePage({
     })
     : undefined;
 
+  const l1SnapshotResult = resolveCatalogDomainView(salon.features) === 'l1'
+    ? await resolvePublicCatalogSnapshot({ salonId: salon.id, requestedSource: 'live' })
+    : null;
+  if (l1SnapshotResult && !l1SnapshotResult.ok) {
+    throw new Error('PUBLIC_CATALOGUE_UNAVAILABLE');
+  }
+  const l1Snapshot = l1SnapshotResult?.ok ? projectPublicBookingCatalog(l1SnapshotResult.snapshot, publicBookableServiceIds) : undefined;
+
   const bookingContent = (
     <BookServiceClient
-      services={services}
+      l1Snapshot={l1Snapshot}
+      enforceRequiredAddOns={bookingConfig.enforceRequiredAddOns}
+      services={l1Snapshot
+        ? services.filter(service => l1Snapshot.services.some(item => item.id === service.id && item.effectiveConfirmationMode !== 'consultation')).map((service) => {
+          const entry = l1Snapshot.services.find(item => item.id === service.id)!;
+          const parent = entry.parentServiceId ? l1Snapshot.services.find(item => item.id === entry.parentServiceId) : null;
+          return { ...service, name: parent ? `${parent.name} · ${entry.variantLabel ?? entry.name}` : entry.name };
+        })
+        : services}
       addOns={addOns}
       serviceAddOnRules={serviceAddOnRules}
       bookingFlow={bookingFlow}

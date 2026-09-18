@@ -132,6 +132,8 @@ type ValidatedSelectionResult = {
    * opted in.
    */
   observedRequiredAddOnGaps: string[];
+  l1?: { confirmationMode: 'instant' | 'request_approval' | 'consultation' | null; fingerprint: string; eligibleTechnicianIds: string[]; requestedSelection: PublicBookingSelection };
+
 };
 
 export function mergeSelectedAddOns(selectedAddOns: SelectedAddOnInput[]): SelectedAddOnInput[] {
@@ -402,6 +404,72 @@ export async function validatePublicBookingSelection(args: {
     if (!compatibility.bookable) {
       throw new BookingSelectionError('unsupported_technician');
     }
+  }
+
+  const { resolveL1BookingAuthority, L1BookingAuthorityError } = await import('@/libs/l1BookingAuthority.server');
+  const l1 = await resolveL1BookingAuthority({
+    salonId: args.salonId,
+    selection: { serviceId: selection.baseServiceId, selectedAddOns: selection.selectedAddOns, technicianId: args.technicianId },
+    readContext: args.readContext,
+  }).catch((error: unknown) => {
+    if (error instanceof L1BookingAuthorityError && error.code !== 'unavailable') {
+      throw new BookingSelectionError(error.code === 'unsupported_technician' ? 'unsupported_technician' : 'invalid_add_on');
+    }
+    throw error;
+  });
+  if (l1) {
+    const config = args.readContext?.bookingConfig ?? await getBookingConfigForSalon(args.salonId);
+    const ids = l1.resolution.addOns.map(line => line.addOnId);
+    const records = ids.length
+      ? await database.select().from(addOnSchema).where(and(
+        eq(addOnSchema.salonId, args.salonId),
+        eq(addOnSchema.isActive, true),
+        inArray(addOnSchema.id, ids),
+      ))
+      : [];
+    if (records.length !== ids.length) {
+      throw new BookingSelectionError('invalid_add_on');
+    }
+    // Review and transaction comparisons use the resolver's canonical order.
+    records.sort((left, right) => ids.indexOf(left.id) - ids.indexOf(right.id));
+    const { resolveCatalogBindingSourceRows } = await import('@/libs/catalogResolverCore');
+    const parentId = l1.snapshot.services.find(service => service.id === baseService.id)?.parentServiceId;
+    const rawRules = await database.select().from(serviceAddOnSchema).where(and(
+      eq(serviceAddOnSchema.salonId, args.salonId),
+      inArray(serviceAddOnSchema.serviceId, parentId ? [baseService.id, parentId] : [baseService.id]),
+    ));
+    const requiredAddOnEvaluation = evaluateRequiredAddOnRules({
+      rules: resolveCatalogBindingSourceRows(rawRules.filter(rule => rule.serviceId === baseService.id), parentId ? rawRules.filter(rule => rule.serviceId === parentId) : []),
+      selectedAddOnIds: ids,
+    });
+    assertRequiredAddOnsSatisfied({ enforceRequiredAddOns: config.enforceRequiredAddOns, evaluation: requiredAddOnEvaluation });
+    const bufferMinutes = Math.max(config.bufferMinutes, baseService.preparationBufferMinutes + baseService.cleanupBufferMinutes);
+    const summary = mapServiceToCatalogSummary(baseService);
+    const lines = l1.resolution.addOns.map((line) => {
+      const record = records.find(item => item.id === line.addOnId)!;
+      return { addOnId: line.addOnId, name: record.name, category: record.category, pricingType: record.pricingType, quantity: line.quantity, unitPriceCents: line.unitPriceCents, lineTotalCents: line.lineTotalCents, unitDurationMinutes: line.unitDurationMinutes, lineDurationMinutes: line.lineDurationMinutes };
+    });
+    return {
+      baseServiceRecord: baseService,
+      addOnRecords: records,
+      baseService: summary,
+      addOns: records.map((record) => {
+        const line = l1.resolution.addOns.find(item => item.addOnId === record.id)!;
+        return { ...mapAddOnToCatalogSummary(record), quantity: line.quantity, lineTotalCents: line.lineTotalCents, lineDurationMinutes: line.lineDurationMinutes };
+      }),
+      quote: {
+        baseService: { id: baseService.id, name: baseService.name, category: baseService.category, priceCents: l1.resolution.basePriceCents, durationMinutes: l1.resolution.baseDurationMinutes, resolvedIntroPriceLabel: resolveIntroPriceLabel({ ...baseService, bookingConfig: config }) },
+        addOns: lines,
+        subtotalCents: l1.resolution.subtotalCents,
+        baseDurationMinutes: l1.resolution.baseDurationMinutes,
+        addOnsDurationMinutes: l1.resolution.totalDurationMinutes - l1.resolution.baseDurationMinutes,
+        visibleDurationMinutes: l1.resolution.totalDurationMinutes,
+        bufferMinutes,
+        blockedDurationMinutes: l1.resolution.totalDurationMinutes + bufferMinutes,
+      },
+      observedRequiredAddOnGaps: requiredAddOnEvaluation.missingRequiredAddOnIds,
+      l1: { confirmationMode: l1.snapshot.services.find(service => service.id === baseService.id)?.explicitConfirmationMode ?? null, fingerprint: l1.fingerprint, eligibleTechnicianIds: l1.eligibleTechnicianIds, requestedSelection: selection },
+    };
   }
 
   const rules = await database

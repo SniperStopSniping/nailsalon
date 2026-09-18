@@ -653,6 +653,15 @@ jobs:
           LUSTER_DISPOSABLE_POSTGRES_NETWORK: ${{ job.services.postgres.network }}
         run: npm run test:e2e -- tests/e2e/mobile-staff-uiqi.e2e.ts tests/e2e/booking-layout-variants.e2e.ts tests/e2e/account-gate-contrast.e2e.ts tests/e2e/booking-page-hub.e2e.ts tests/e2e/review-requests.e2e.ts
 
+      - name: Verify authoritative L1 public booking in mobile Chromium and WebKit
+        env:
+          CONCURRENCY_TEST_DATABASE_URL: postgresql://luster_e2e_ci:luster-e2e-ci-only-password@127.0.0.1:55432/luster_e2e_ci_disposable?application_name=luster-e2e-ci-disposable
+          LUSTER_DISPOSABLE_POSTGRES_CONTAINER_ID: ${{ job.services.postgres.id }}
+          LUSTER_DISPOSABLE_POSTGRES_NETWORK: ${{ job.services.postgres.network }}
+          NEXT_PUBLIC_APP_URL: http://localhost:3101
+          APP_URL: http://localhost:3101
+        run: npx playwright test --config tests/browser/l1-public-booking/playwright.config.ts
+
       - name: Run E2E with trusted-main Percy coverage
         if: github.event_name == 'push'
         env:
@@ -1177,7 +1186,7 @@ jobs:
             src/libs/appointmentCreation.customerOperation.concurrency.integration.test.ts \
             | tee customer-booking-postgres.log
           grep -Fqx 'CUSTOMER_OPERATION_POSTGRES_TESTS_EXECUTED=8 CUSTOMER_OPERATION_POSTGRES_TESTS_SKIPPED=0' customer-booking-postgres.log
-          grep -Fqx 'CUSTOMER_CREATOR_POSTGRES_TESTS_EXECUTED=17 CUSTOMER_CREATOR_POSTGRES_TESTS_SKIPPED=0' customer-booking-postgres.log
+          grep -Fqx 'CUSTOMER_CREATOR_POSTGRES_TESTS_EXECUTED=26 CUSTOMER_CREATOR_POSTGRES_TESTS_SKIPPED=0' customer-booking-postgres.log
 
       - name: Install mobile browser engines for the real customer booking journey
         run: npx playwright install --with-deps chromium webkit
@@ -1192,7 +1201,7 @@ jobs:
           set -euo pipefail
           export CUSTOMER_BOOKING_BROWSER_DATABASE_URL="$CONCURRENCY_TEST_DATABASE_URL"
           npx vitest run src/libs/customerAssistant/backendJourney.integration.test.ts | tee customer-booking-browser.log
-          grep -Fqx 'CUSTOMER_BACKEND_BROWSER_TESTS_EXECUTED=2 CUSTOMER_BACKEND_BROWSER_TESTS_SKIPPED=0' customer-booking-browser.log
+          grep -Fqx 'CUSTOMER_BACKEND_BROWSER_TESTS_EXECUTED=4 CUSTOMER_BACKEND_BROWSER_TESTS_SKIPPED=0' customer-booking-browser.log
 
 
   communications-dispatch-postgres:
