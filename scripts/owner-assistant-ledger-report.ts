@@ -64,17 +64,17 @@ type ReportOptions = {
 };
 
 type LedgerModelCall = {
-  inputCount?: number;
-  cachedInputCount?: number;
-  cacheWriteInputCount?: number;
-  outputCount?: number;
+  inputCount?: number | null;
+  cachedInputCount?: number | null;
+  cacheWriteInputCount?: number | null;
+  outputCount?: number | null;
   latencyMs?: number;
 };
 
 type LedgerNewValue = {
   outcome?: string;
   model?: string;
-  costMicros?: number;
+  costMicros?: number | null;
   priceKnown?: boolean;
   modelCalls?: LedgerModelCall[];
   toolCalls?: Array<{ name?: string; ok?: boolean }>;
@@ -212,6 +212,8 @@ function summarize(rows: readonly LedgerRow[]): void {
   let outputTokens = 0;
   let costMicros = 0;
   let unpricedTurns = 0;
+  let unknownUsageCalls = 0;
+  let unknownCostTurns = 0;
 
   for (const row of rows) {
     const value = row.metadata?.newValue ?? {};
@@ -227,6 +229,9 @@ function summarize(rows: readonly LedgerRow[]): void {
 
     let turnLatency = 0;
     for (const call of value.modelCalls ?? []) {
+      if (call.inputCount == null || call.outputCount == null) {
+        unknownUsageCalls += 1;
+      }
       inputTokens += call.inputCount ?? 0;
       cachedInputTokens += call.cachedInputCount ?? 0;
       cacheWriteTokens += call.cacheWriteInputCount ?? 0;
@@ -249,6 +254,9 @@ function summarize(rows: readonly LedgerRow[]): void {
     }
 
     costMicros += value.costMicros ?? 0;
+    if (value.costMicros == null || value.priceKnown === false) {
+      unknownCostTurns += 1;
+    }
     if (value.priceKnown === false) {
       unpricedTurns += 1;
     }
@@ -286,7 +294,7 @@ function summarize(rows: readonly LedgerRow[]): void {
   write(`  p95 ${percentile(sortedLatencies, 0.95)} ms`);
 
   write('');
-  write('Tokens');
+  write(unknownUsageCalls > 0 ? `Known tokens only (${unknownUsageCalls} call(s) have unknown usage)` : 'Tokens');
   write(`  input        ${inputTokens}`);
   write(`  cached input ${cachedInputTokens}`);
   write(`  cache writes ${cacheWriteTokens}`);
@@ -294,10 +302,11 @@ function summarize(rows: readonly LedgerRow[]): void {
 
   write('');
   write('Cost (as the ledger recorded it)');
-  write(`  total     ${formatMicros(costMicros)}`);
-  write(`  per turn  ${rows.length === 0 ? formatMicros(0) : formatMicros(Math.round(costMicros / rows.length))}`);
+  write(`  total     ${unknownCostTurns > 0 ? 'unknown' : formatMicros(costMicros)}`);
+  write(`  known subtotal ${formatMicros(costMicros)}`);
+  write(`  per turn  ${unknownCostTurns > 0 ? 'unknown' : rows.length === 0 ? formatMicros(0) : formatMicros(Math.round(costMicros / rows.length))}`);
   if (unpricedTurns > 0) {
-    write(`  ${unpricedTurns} turn(s) ran on a model with no price-table entry and are costed as 0.`);
+    write(`  ${unpricedTurns} turn(s) ran on a model with no price-table entry; their costs are unknown.`);
   }
 }
 

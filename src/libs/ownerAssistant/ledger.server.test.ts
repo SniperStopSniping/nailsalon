@@ -34,7 +34,12 @@ describe('computeCostMicros', () => {
   });
 
   it('reports an unknown model as unpriced', () => {
-    expect(computeCostMicros('some-future-model', [call({ inputCount: 10 })])).toEqual({ costMicros: 0, priceKnown: false });
+    expect(computeCostMicros('some-future-model', [call({ inputCount: 10 })])).toEqual({ costMicros: null, priceKnown: false });
+  });
+
+  it('does not report missing provider usage as free', () => {
+    expect(computeCostMicros('gpt-5.6-luna', [{ ...call({}), inputCount: null, outputCount: null }]))
+      .toEqual({ costMicros: null, priceKnown: true });
   });
 });
 

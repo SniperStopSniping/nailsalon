@@ -27,11 +27,11 @@ export const OWNER_ASSISTANT_AUDIT_ACTION = 'owner_assistant_turn';
 
 export type LedgerModelCall = {
   index: number;
-  inputCount: number;
-  cachedInputCount: number;
+  inputCount: number | null;
+  cachedInputCount: number | null;
   /** Prefix tokens written to the prompt cache (billed at 1.25× the input rate). */
-  cacheWriteInputCount: number;
-  outputCount: number;
+  cacheWriteInputCount: number | null;
+  outputCount: number | null;
   latencyMs: number;
 };
 
@@ -66,25 +66,28 @@ export type RecordOwnerAssistantTurnArgs = {
 export function computeCostMicros(
   model: string,
   modelCalls: readonly LedgerModelCall[],
-): { costMicros: number; priceKnown: boolean } {
+): { costMicros: number | null; priceKnown: boolean } {
   const price = OWNER_ASSISTANT_MODEL_PRICES_MICROS_PER_MILLION[model];
   if (!price) {
-    return { costMicros: 0, priceKnown: false };
+    return { costMicros: null, priceKnown: false };
+  }
+  if (modelCalls.some(call => call.inputCount === null || call.outputCount === null)) {
+    return { costMicros: null, priceKnown: true };
   }
 
   const micros = modelCalls.reduce((total, call) => {
     // Cached input is billed at the cached rate, cache WRITES at 1.25× the
     // input rate, and the remainder at the full rate. A provider that reports
     // more cached/written than input tokens must not produce a negative charge.
-    const input = Math.max(call.inputCount, 0);
-    const cached = Math.min(Math.max(call.cachedInputCount, 0), input);
+    const input = Math.max(call.inputCount ?? 0, 0);
+    const cached = Math.min(Math.max(call.cachedInputCount ?? 0, 0), input);
     const cacheWrite = Math.min(Math.max(call.cacheWriteInputCount ?? 0, 0), input - cached);
     const uncached = input - cached - cacheWrite;
     return total
       + (uncached * price.input)
       + (cached * price.cachedInput)
       + (cacheWrite * price.input * CACHE_WRITE_MULTIPLIER)
-      + (Math.max(call.outputCount, 0) * price.output);
+      + (Math.max(call.outputCount ?? 0, 0) * price.output);
   }, 0);
 
   return { costMicros: Math.round(micros / 1_000_000), priceKnown: true };

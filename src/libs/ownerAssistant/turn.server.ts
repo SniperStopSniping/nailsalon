@@ -354,12 +354,13 @@ export async function runOwnerAssistantTurn(
     try {
       response = await provider.createResponse(request);
     } catch (error) {
+      const usage = error instanceof ModelProviderError ? error.usage : null;
       modelCalls.push({
         index: call,
-        inputCount: 0,
-        cachedInputCount: 0,
-        cacheWriteInputCount: 0,
-        outputCount: 0,
+        inputCount: usage?.inputTokens ?? null,
+        cachedInputCount: usage?.cachedInputTokens ?? null,
+        cacheWriteInputCount: usage ? usage.cacheWriteInputTokens ?? 0 : null,
+        outputCount: usage?.outputTokens ?? null,
         latencyMs: executionNow() - startedAt,
       });
       const kind = error instanceof ModelProviderError ? error.kind : 'provider_error';
@@ -371,10 +372,10 @@ export async function runOwnerAssistantTurn(
 
     modelCalls.push({
       index: call,
-      inputCount: response.usage.inputTokens,
-      cachedInputCount: response.usage.cachedInputTokens,
-      cacheWriteInputCount: response.usage.cacheWriteInputTokens ?? 0,
-      outputCount: response.usage.outputTokens,
+      inputCount: response.usage?.inputTokens ?? null,
+      cachedInputCount: response.usage?.cachedInputTokens ?? null,
+      cacheWriteInputCount: response.usage ? response.usage.cacheWriteInputTokens ?? 0 : null,
+      outputCount: response.usage?.outputTokens ?? null,
       latencyMs: executionNow() - startedAt,
     });
 
