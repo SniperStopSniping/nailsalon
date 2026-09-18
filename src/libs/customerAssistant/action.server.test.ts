@@ -46,7 +46,7 @@ describe('customer assistant deterministic availability actions', () => {
     const response = await runCustomerAssistantAction(input(state(), { action: 'accept_selection', fingerprint }));
 
     expect(response.result).toMatchObject({ kind: 'date_prompt', proposal: { fingerprint } });
-    expect(verifyCustomerConversation(response.conversation, 'salon-a', secret).booking).toMatchObject({ acceptedFingerprint: fingerprint, offeredSlots: [] });
+    expect(verifyCustomerConversation(response.conversation, 'salon-a', secret, Date.parse('2026-09-18T12:00:00Z')).booking).toMatchObject({ acceptedFingerprint: fingerprint, offeredSlots: [] });
     expect(mocks.lookup).not.toHaveBeenCalled();
   });
 
@@ -54,7 +54,7 @@ describe('customer assistant deterministic availability actions', () => {
     const response = await runCustomerAssistantAction(input(state(), { action: 'accept_selection', fingerprint: 'b'.repeat(64) }));
 
     expect(response.result).toEqual({ kind: 'proposal', proposal });
-    expect(verifyCustomerConversation(response.conversation, 'salon-a', secret).booking).toBeUndefined();
+    expect(verifyCustomerConversation(response.conversation, 'salon-a', secret, Date.parse('2026-09-18T12:00:00Z')).booking).toBeUndefined();
   });
 
   it('revalidates a chosen day and signs only whitelisted available slots', async () => {
@@ -63,7 +63,7 @@ describe('customer assistant deterministic availability actions', () => {
 
     expect(mocks.lookup).toHaveBeenCalledWith(expect.objectContaining({ salon: { id: 'salon-a', slug: 'isla-nail-studio' }, selection }));
     expect(response.result).toMatchObject({ kind: 'slots', slots: [slot] });
-    expect(verifyCustomerConversation(response.conversation, 'salon-a', secret).booking?.offeredSlots).toEqual([slot]);
+    expect(verifyCustomerConversation(response.conversation, 'salon-a', secret, Date.parse('2026-09-18T12:00:00Z')).booking?.offeredSlots).toEqual([slot]);
   });
 
   it('never accepts a forged slot and refreshes alternatives when a slot disappears', async () => {
@@ -85,7 +85,7 @@ describe('customer assistant deterministic availability actions', () => {
     const response = await runCustomerAssistantAction(input(accepted, { action: 'select_slot', startTime: slot.startTime }));
 
     expect(response.result).toMatchObject({ kind: 'slot_selected', slot });
-    expect(verifyCustomerConversation(response.conversation, 'salon-a', secret).booking?.selectedSlot).toEqual(slot);
+    expect(verifyCustomerConversation(response.conversation, 'salon-a', secret, Date.parse('2026-09-18T12:00:00Z')).booking?.selectedSlot).toEqual(slot);
   });
 
   it('signs an unavailable next state after an availability dependency failure', async () => {
@@ -95,7 +95,7 @@ describe('customer assistant deterministic availability actions', () => {
     const response = await runCustomerAssistantAction(input(accepted, { action: 'choose_date', date: '2026-09-20' }));
 
     expect(response.result).toEqual({ kind: 'unavailable', reason: 'unavailable' });
-    expect(verifyCustomerConversation(response.conversation, 'salon-a', secret).turnIndex).toBe(1);
+    expect(verifyCustomerConversation(response.conversation, 'salon-a', secret, Date.parse('2026-09-18T12:00:00Z')).turnIndex).toBe(1);
   });
 
   it('clears acceptance when the post-read authority reports a same-fingerprint context change', async () => {
@@ -105,7 +105,7 @@ describe('customer assistant deterministic availability actions', () => {
     const response = await runCustomerAssistantAction(input(accepted, { action: 'choose_date', date: '2026-09-20' }));
 
     expect(response.result).toEqual({ kind: 'proposal', proposal });
-    expect(verifyCustomerConversation(response.conversation, 'salon-a', secret).booking).toBeUndefined();
+    expect(verifyCustomerConversation(response.conversation, 'salon-a', secret, Date.parse('2026-09-18T12:00:00Z')).booking).toBeUndefined();
   });
 
   it('rejects a cross-tenant signed state before it uses the shared quota', async () => {
