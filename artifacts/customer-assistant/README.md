@@ -5,3 +5,7 @@ The mobile screenshots in this directory are produced by `tests/browser/customer
 They document the read-only proposal shell and manual escape only; they are not full end-to-end booking evidence.
 
 The scheduling screenshots add explicit service acceptance, natural-language date entry, synthetic available times, stale-slot alternatives and an unreserved selected time. API responses remain intercepted; live authority/parity and concurrency are verified separately in server tests. These screenshots do not show contact collection, a final booking review, an appointment or payment.
+
+## Contact and review preparation
+
+The `*-review-*` images exercise deterministic contact and incomplete-review controls with synthetic intercepted API responses. The 390px/100% and 320px/200% Chromium/WebKit fixtures verify form submission, contact exclusion from chat/storage, estimate and unreserved-state wording, edited-review invalidation, and manual exit. They do not demonstrate appointment creation, a final authoritative quote, reminder consent, deposits or payment completion. `*-review-price-*` captures the estimate section inside the scrollable dialog.
