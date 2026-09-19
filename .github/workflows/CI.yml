@@ -395,6 +395,9 @@ jobs:
               e62b6f637ee0c90f995657c15dd7ea4138bc102f) ;;
               # Review requests: add the tenant-scoped review_request purge step.
               3c824ab5a65b2376af76d105f9fb5f555b22b1ff) ;;
+              # Review-automation trigger contract: purge review_request before
+              # its NO ACTION trigger reference, then remove the trigger row.
+              27fd38cdd3e1ae7dbb0b5ec5f4180febb6a50584) ;;
               *)
                 echo "::error::Unauthorized change outside the reviewed salon-purge postimages."
                 printf 'actual blob: %s\n' "$salon_purge_blob"
@@ -433,7 +436,11 @@ jobs:
               migrations/0079_billing_customer.sql) ;;
               # Dark customer booking operation; no billing or appointment rewrites.
               migrations/0080_customer_booking_operation.sql) ;;
+              # Inert review-automation policy and durable trigger contract;
+              # no appointment scan, delivery, or activation behavior.
+              migrations/0081_review_request_automation_contract.sql) ;;
               migrations/meta/0079_snapshot.json) ;;
+              migrations/meta/0081_snapshot.json) ;;
               migrations/meta/_journal.json) ;;
               vercel.json) ;;
               *)
@@ -545,6 +552,8 @@ jobs:
               # New-track Stripe customer identity (billing_customer).
               0079_billing_customer) ;;
               0080_customer_booking_operation) ;;
+              # Inert review-automation policy and durable trigger contract.
+              0081_review_request_automation_contract) ;;
               *)
                 echo "::error::Unauthorized migration journal entries: $tag"
                 exit 1
