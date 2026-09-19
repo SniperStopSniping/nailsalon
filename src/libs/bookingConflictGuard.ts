@@ -1,9 +1,9 @@
 import 'server-only';
 
-import { and, eq, isNull, lt, ne, sql } from 'drizzle-orm';
+import { and, eq, gt, isNull, lt, ne, sql } from 'drizzle-orm';
 
 import { blockingAppointmentCondition } from '@/libs/appointmentBlocking';
-import { appointmentSchema } from '@/models/Schema';
+import { appointmentSchema, technicianBlockedSlotSchema } from '@/models/Schema';
 
 /**
  * Appointment statuses that occupy a technician's time, independent of any
@@ -36,6 +36,17 @@ type ConflictGuardTx = {
   select: typeof import('@/libs/DB').db.select;
 };
 
+export async function lockTechnicianSchedule(tx: ConflictGuardTx, salonId: string, technicianId: string) {
+  await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${salonId}), hashtext(${technicianId}))`);
+  // An advisory lock does not refresh a SERIALIZABLE transaction's snapshot.
+  // Writing a separate barrier row forces stale snapshots to retry, without
+  // upgrading the technician FOR SHARE lock used by Customer AI authorization.
+  await tx.execute(sql`INSERT INTO technician_schedule_guard (salon_id, technician_id, revision)
+    VALUES (${salonId}, ${technicianId}, 1)
+    ON CONFLICT (salon_id, technician_id) DO UPDATE
+    SET revision = technician_schedule_guard.revision + 1`);
+}
+
 /**
  * Serializes booking writes per technician and re-validates the requested
  * window against committed appointments, inside the booking transaction.
@@ -62,12 +73,11 @@ export async function lockTechnicianAndAssertSlotFree(
     startTime: Date;
     blockedEndTime: Date;
     excludedAppointmentId?: string | null;
+    excludedBlockId?: string | null;
     now?: Date;
   },
 ): Promise<void> {
-  await tx.execute(
-    sql`SELECT pg_advisory_xact_lock(hashtext(${args.salonId}), hashtext(${args.technicianId}))`,
-  );
+  await lockTechnicianSchedule(tx, args.salonId, args.technicianId);
 
   const conditions = [
     eq(appointmentSchema.salonId, args.salonId),
@@ -95,6 +105,23 @@ export async function lockTechnicianAndAssertSlotFree(
     .limit(1);
 
   if (conflict) {
+    throw new SlotConflictError();
+  }
+
+  // Same per-technician lock as Block Time writers. Re-read after acquiring
+  // it so a block saved while a booking was being reviewed wins safely.
+  const blockConditions = [
+    eq(technicianBlockedSlotSchema.salonId, args.salonId),
+    eq(technicianBlockedSlotSchema.technicianId, args.technicianId),
+    lt(technicianBlockedSlotSchema.startsAt, args.blockedEndTime),
+    gt(technicianBlockedSlotSchema.endsAt, args.startTime),
+  ];
+  if (args.excludedBlockId) {
+    blockConditions.push(ne(technicianBlockedSlotSchema.id, args.excludedBlockId));
+  }
+  const [block] = await tx.select({ id: technicianBlockedSlotSchema.id })
+    .from(technicianBlockedSlotSchema).where(and(...blockConditions)).limit(1);
+  if (block) {
     throw new SlotConflictError();
   }
 }

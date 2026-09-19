@@ -21,10 +21,18 @@ vi.mock('./QuickActionsWidget', () => ({
 
 const fetchMock = vi.fn();
 
+const todayDate = new Intl.DateTimeFormat('en-CA', {
+  timeZone: 'America/Toronto',
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+}).format(new Date());
+
 const todayPayload = {
   data: {
-    date: '2026-07-17',
+    date: todayDate,
     timeZone: 'America/Toronto',
+    technicians: [],
     appointments: [],
     dueClients: [],
     failedConfirmations: [],
@@ -969,10 +977,12 @@ describe('OwnerTodayWorkspace first fold', () => {
       status: string;
     }>>,
     integrationOverrides?: Record<string, unknown>,
+    technicians = [{ id: 'tech_daniela', name: 'Daniela' }],
   ) {
     return {
       data: {
         ...todayPayload.data,
+        technicians,
         appointments: appointmentOverrides.map((appointment, index) => ({
           id: appointment.id ?? `appt_${index}`,
           clientName: appointment.clientName ?? `Client ${index}`,
@@ -982,6 +992,7 @@ describe('OwnerTodayWorkspace first fold', () => {
           totalPrice: 8000,
           totalDurationMinutes: 60,
           technicianName: 'Daniela',
+          technicianId: 'tech_daniela',
           services: ['Gel manicure'],
           clientSensitivities: null,
         })),
@@ -1130,7 +1141,7 @@ describe('OwnerTodayWorkspace first fold', () => {
     expect(utilities).toHaveTextContent('Manage integrations');
   });
 
-  it('keeps the hero out of Rest of Today while retaining schedule rows', async () => {
+  it('keeps the hero and urgent request out of Rest of Today while retaining ordinary schedule rows', async () => {
     mockWorkspace(todayWith([
       { id: 'a', status: 'confirmed' },
       { id: 'b', status: 'confirmed' },
@@ -1141,9 +1152,88 @@ describe('OwnerTodayWorkspace first fold', () => {
 
     const agenda = await screen.findByTestId('owner-today-agenda');
 
-    await waitFor(() => expect(within(agenda).getAllByText(/Client [12]/)).toHaveLength(2));
+    await waitFor(() => expect(within(agenda).getAllByText('Client 1')).toHaveLength(1));
 
     expect(within(agenda).queryByText('Client 0')).not.toBeInTheDocument();
+    expect(within(agenda).queryByText('Client 2')).not.toBeInTheDocument();
+  });
+
+  it('uses the active roster for the team filter, even when names duplicate', async () => {
+    const technicians = [
+      { id: 'tech_avery_one', name: 'Avery' },
+      { id: 'tech_avery_two', name: 'Avery' },
+    ];
+    const today = todayWith([
+      { id: 'one', clientName: 'First Avery client' },
+      { id: 'two', clientName: 'Second Avery client' },
+    ], undefined, technicians);
+    today.data.appointments[0]!.technicianId = 'tech_avery_one';
+    today.data.appointments[1]!.technicianId = 'tech_avery_two';
+    mockWorkspace(today);
+
+    renderWorkspace();
+
+    await screen.findByTestId('owner-today-agenda');
+    const filters = screen.getByLabelText('Filter schedule by technician');
+    const averyFilters = within(filters).getAllByRole('button', { name: 'Avery' });
+
+    expect(averyFilters).toHaveLength(2);
+
+    await userEvent.click(averyFilters[0]!);
+
+    expect(averyFilters[0]).toHaveAttribute('aria-pressed', 'true');
+    expect(averyFilters[1]).toHaveAttribute('aria-pressed', 'false');
+
+    const hero = screen.getByTestId('owner-current-next-appointment');
+
+    expect(hero).toHaveTextContent('First Avery client');
+    expect(hero).not.toHaveTextContent('Second Avery client');
+  });
+
+  it('does not create a team filter from a single appointment name', async () => {
+    mockWorkspace(todayWith([
+      { id: 'only', clientName: 'One client' },
+    ], undefined, [{ id: 'tech_one', name: 'Avery' }]));
+
+    renderWorkspace();
+
+    const agenda = await screen.findByTestId('owner-today-agenda');
+
+    expect(within(agenda).queryByLabelText('Filter schedule by technician')).not.toBeInTheDocument();
+  });
+
+  it('keeps a quiet team simple when there are no appointments to filter', async () => {
+    mockWorkspace(todayWith([], undefined, [
+      { id: 'tech_one', name: 'Avery' },
+      { id: 'tech_two', name: 'Blair' },
+    ]));
+
+    renderWorkspace();
+
+    await screen.findByTestId('owner-today-agenda');
+
+    expect(screen.queryByLabelText('Filter schedule by technician')).not.toBeInTheDocument();
+  });
+
+  it('keeps pending and unresolved appointments out of Rest of Today after surfacing them in urgent attention', async () => {
+    const pastStart = new Date(Date.now() - 7_200_000).toISOString();
+    const pastEnd = new Date(Date.now() - 3_600_000).toISOString();
+    mockWorkspace(todayWith([
+      { id: 'unresolved', clientName: 'Earlier client', status: 'confirmed', startTime: pastStart, endTime: pastEnd },
+      { id: 'pending', clientName: 'Requested client', status: 'pending' },
+      { id: 'next', clientName: 'Later client', status: 'confirmed' },
+    ]));
+
+    renderWorkspace();
+
+    const urgent = await screen.findByTestId('owner-urgent-attention');
+    const agenda = screen.getByTestId('owner-today-agenda');
+
+    expect(urgent).toHaveTextContent('Earlier client needs an update');
+    expect(urgent).toHaveTextContent('Booking request from Requested client');
+    expect(within(agenda).queryByText('Earlier client')).not.toBeInTheDocument();
+    expect(within(agenda).queryByText('Requested client')).not.toBeInTheDocument();
+    expect(screen.getByTestId('owner-current-next-appointment')).toHaveTextContent('Later client');
   });
 
   it('shows an authoritative in-progress appointment as Current and keeps a past-ended confirmed appointment actionable', async () => {

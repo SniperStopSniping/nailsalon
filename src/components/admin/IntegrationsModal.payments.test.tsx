@@ -12,7 +12,7 @@
  * So: the Connect source errors, and the Google Calendar card must still render
  * its REAL status, with no global error banner.
  */
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { IntegrationsModal } from './IntegrationsModal';
@@ -127,5 +127,27 @@ describe('test 28 — the Connect block is isolated from the rest of the modal',
     expect(screen.queryByText(/could not be loaded/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/something went wrong/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/unable to load/i)).not.toBeInTheDocument();
+  });
+});
+
+describe('Payments wayfinding', () => {
+  it('keeps Integrations as a connection-status shortcut into canonical Payments', async () => {
+    const onOpenPayments = vi.fn();
+    mockEndpoints({
+      salonId: 'salon_1',
+      visible: true,
+      status: 'charge_ready',
+      chargeReady: true,
+      payoutsPending: false,
+      hasBindingHistory: true,
+      lastSyncedAt: '2026-09-19T12:00:00.000Z',
+    });
+
+    render(<IntegrationsModal onClose={vi.fn()} salonSlug="salon-a" onOpenPayments={onOpenPayments} />);
+
+    fireEvent.click(await screen.findByTestId('integration-card-payments'));
+
+    expect(onOpenPayments).toHaveBeenCalledOnce();
+    expect(screen.queryByTestId('payments-setup-button')).not.toBeInTheDocument();
   });
 });

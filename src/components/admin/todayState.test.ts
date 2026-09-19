@@ -36,6 +36,24 @@ describe('getTodayOperationalState', () => {
     expect(result.pendingRequests.map(item => item.id)).toEqual(['pending']);
   });
 
+  it('drops a confirmed appointment from Next once its scheduled start passes without inferring a new status', () => {
+    const scheduled = appointment(
+      'scheduled',
+      'confirmed',
+      '2026-09-19T14:00:15.000Z',
+      '2026-09-19T15:00:15.000Z',
+    );
+
+    expect(getTodayOperationalState([scheduled], now).nextConfirmedAppointment?.id).toBe('scheduled');
+
+    const afterScheduledStart = new Date('2026-09-19T14:00:30.000Z').getTime();
+    const afterStart = getTodayOperationalState([scheduled], afterScheduledStart);
+
+    expect(afterStart.nextConfirmedAppointment).toBeNull();
+    expect(afterStart.currentAppointment).toBeNull();
+    expect(afterStart.unresolvedAppointments).toEqual([]);
+  });
+
   it('flags only past-ended confirmed or pending appointments as unresolved', () => {
     const result = getTodayOperationalState([
       appointment('past-confirmed', 'confirmed', '2026-09-19T10:00:00.000Z', '2026-09-19T11:00:00.000Z'),

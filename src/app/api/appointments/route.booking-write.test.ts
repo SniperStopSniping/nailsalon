@@ -2053,6 +2053,15 @@ describe('POST /api/appointments booking policy', () => {
                 })),
               })),
             }))
+            // The intraday Block Time guard follows the appointment overlap
+            // probe. These reschedule fixtures have no saved block conflict.
+            .mockImplementationOnce(() => ({
+              from: vi.fn(() => ({
+                where: vi.fn(() => ({
+                  limit: vi.fn(async () => []),
+                })),
+              })),
+            }))
             .mockImplementationOnce(() => ({
               from: vi.fn(() => ({
                 where: vi.fn(() => ({
@@ -2232,6 +2241,15 @@ describe('POST /api/appointments booking policy', () => {
                 })),
               })),
             }))
+            // The intraday Block Time guard follows the appointment overlap
+            // probe. These reschedule fixtures have no saved block conflict.
+            .mockImplementationOnce(() => ({
+              from: vi.fn(() => ({
+                where: vi.fn(() => ({
+                  limit: vi.fn(async () => []),
+                })),
+              })),
+            }))
             .mockImplementationOnce(() => ({
               from: vi.fn(() => ({
                 where: vi.fn(() => ({
@@ -2388,6 +2406,15 @@ describe('POST /api/appointments booking policy', () => {
                 })),
               })),
             }))
+            // The intraday Block Time guard follows the appointment overlap
+            // probe. These reschedule fixtures have no saved block conflict.
+            .mockImplementationOnce(() => ({
+              from: vi.fn(() => ({
+                where: vi.fn(() => ({
+                  limit: vi.fn(async () => []),
+                })),
+              })),
+            }))
             .mockImplementationOnce(() => ({
               from: vi.fn(() => ({
                 where: vi.fn(() => ({
@@ -2490,6 +2517,9 @@ describe('POST /api/appointments booking policy', () => {
         execute: vi.fn(async () => undefined),
         select: vi.fn(selectionAwareSelect(
           vi.fn()
+            .mockImplementationOnce(() => mockSelectRows([]))
+            // The Block Time guard shares the booking lock and must see no
+            // conflict before this campaign fixture continues.
             .mockImplementationOnce(() => mockSelectRows([]))
             .mockImplementationOnce(() => mockSelectRows([campaign])),
         )),
@@ -2604,6 +2634,9 @@ describe('POST /api/appointments booking policy', () => {
     db.select.mockImplementation(selectionAwareSelect(
       vi.fn()
         .mockImplementationOnce(() => mockSelectRows([campaign]))
+        .mockImplementationOnce(() => mockSelectRows([]))
+        // The intraday Block Time lookup follows the appointment overlap
+        // lookup inside the same booking transaction.
         .mockImplementationOnce(() => mockSelectRows([]))
         .mockImplementationOnce(() => mockSelectRows([campaign])),
     ));

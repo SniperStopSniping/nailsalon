@@ -73,12 +73,10 @@ describe('owner dashboard app hubs', () => {
     expect(query.get('view')).toBe('working-hours');
   });
 
-  it('keeps client-payment behavior together and hands Stripe setup to Integrations', () => {
-    const onOpenIntegrations = vi.fn();
+  it('keeps Stripe setup in the canonical Payments destination', async () => {
     render(
       <PaymentsModal
         onClose={vi.fn()}
-        onOpenIntegrations={onOpenIntegrations}
         salonSlug="studio"
       />,
     );
@@ -90,7 +88,9 @@ describe('owner dashboard app hubs', () => {
 
     fireEvent.click(screen.getByText('Stripe / Payouts'));
 
-    expect(onOpenIntegrations).toHaveBeenCalledOnce();
+    expect(screen.getByRole('heading', { name: 'Stripe & Payouts' })).toBeInTheDocument();
+
+    await screen.findByRole('status');
   });
 
   it('combines rewards, referrals, reviews and offer rules without bypassing gates', () => {

@@ -1348,7 +1348,7 @@ export function MarketingModal({
                             <h2 className="text-[18px] font-semibold text-[var(--owner-ink)]">Win-back sequence</h2>
                           </div>
                           <p className="mt-1 text-[13px] leading-relaxed text-[var(--owner-muted)]">
-                            Two staged offers. Clients appear in Client Insights at each
+                            Two staged offers. Clients appear in Insights & Follow-ups at each
                             stage; you review and text every message yourself.
                           </p>
                         </div>

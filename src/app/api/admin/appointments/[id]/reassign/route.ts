@@ -15,6 +15,7 @@ import { z } from 'zod';
 
 import { getAdminSession, requireAdminSalon } from '@/libs/adminAuth';
 import { logAdminOverride, logTechReassignment } from '@/libs/appointmentAudit';
+import { isSlotConstraintViolation, lockTechnicianAndAssertSlotFree, lockTechnicianSchedule, SlotConflictError } from '@/libs/bookingConflictGuard';
 import { db } from '@/libs/DB';
 import { enqueueGoogleCalendarAppointmentMutation } from '@/libs/integrationOutbox';
 import {
@@ -255,11 +256,16 @@ export async function PUT(
 
     // 9. Update the appointment
     const reassignment = await db.transaction(async (tx) => {
+      // Match appointment management's schedule-before-appointment lock order.
+      // A stale technician assignment must be retried from a fresh snapshot.
+      for (const id of [...new Set([appointment.technicianId, technicianId].filter((id): id is string => Boolean(id)))].sort()) {
+        await lockTechnicianSchedule(tx, salon.id, id);
+      }
       const [locked] = await tx.select().from(appointmentSchema).where(and(
         eq(appointmentSchema.id, appointmentId),
         eq(appointmentSchema.salonId, salon.id),
       )).for('update').limit(1);
-      if (!locked) {
+      if (!locked || locked.technicianId !== appointment.technicianId) {
         return { kind: 'stale' as const };
       }
       if (locked.status === 'awaiting_payment') {
@@ -272,6 +278,13 @@ export async function PUT(
       if (locked.lockedAt && !overrideLock) {
         return { kind: 'locked' as const };
       }
+      await lockTechnicianAndAssertSlotFree(tx, {
+        salonId: salon.id,
+        technicianId,
+        startTime: locked.startTime,
+        blockedEndTime: new Date(Math.max(locked.endTime.getTime(), locked.startTime.getTime() + (locked.blockedDurationMinutes ?? (locked.totalDurationMinutes + (locked.bufferMinutes ?? BUFFER_MINUTES))) * 60000)),
+        excludedAppointmentId: locked.id,
+      });
       const [winner] = await tx
         .update(appointmentSchema)
         .set({
@@ -382,6 +395,9 @@ export async function PUT(
       },
     });
   } catch (error) {
+    if (error instanceof SlotConflictError || isSlotConstraintViolation(error)) {
+      return Response.json({ error: { code: 'TECHNICIAN_UNAVAILABLE', message: 'This technician has an overlapping appointment, buffer, or blocked time.' } }, { status: 409 });
+    }
     console.error('Error reassigning appointment:', error);
     return Response.json(
       {

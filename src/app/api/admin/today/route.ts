@@ -40,7 +40,7 @@ export async function GET(request: Request) {
   const bounds = getZonedDayBounds(dateKey, bookingConfig.timezone);
   const endExclusive = new Date(bounds.endOfDay.getTime() + 1);
 
-  const [appointments, dueClients, failedDeliveries, [googleReviewCount], integrationHealth] = await Promise.all([
+  const [appointments, dueClients, failedDeliveries, [googleReviewCount], integrationHealth, technicians] = await Promise.all([
     db
       .select({
         id: appointmentSchema.id,
@@ -52,6 +52,7 @@ export async function GET(request: Request) {
         totalPrice: appointmentSchema.totalPrice,
         totalDurationMinutes: appointmentSchema.totalDurationMinutes,
         technicianName: technicianSchema.name,
+        technicianId: appointmentSchema.technicianId,
         // Sensitivities/allergies must be visible before the appointment
         // without opening the client record.
         clientSensitivities: salonClientSchema.sensitivities,
@@ -118,6 +119,7 @@ export async function GET(request: Request) {
         gte(googleCalendarEventSchema.endTime, now),
       )),
     getSalonIntegrationHealth(salon.id),
+    db.select({ id: technicianSchema.id, name: technicianSchema.name }).from(technicianSchema).where(and(eq(technicianSchema.salonId, salon.id), eq(technicianSchema.isActive, true))).orderBy(asc(technicianSchema.name)),
   ]);
 
   const appointmentIds = appointments.map(appointment => appointment.id);
@@ -146,6 +148,7 @@ export async function GET(request: Request) {
     data: {
       date: dateKey,
       timeZone: bookingConfig.timezone,
+      technicians,
       appointments: appointments.map(appointment => ({
         ...appointment,
         startTime: appointment.startTime.toISOString(),

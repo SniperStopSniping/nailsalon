@@ -11,7 +11,7 @@
  * - Callbacks for each action
  */
 
-import { motion } from 'framer-motion';
+import { motion, useReducedMotion } from 'framer-motion';
 import type { LucideIcon } from 'lucide-react';
 import { CalendarPlus, MessageSquare, UserPlus } from 'lucide-react';
 
@@ -27,7 +27,7 @@ type QuickAction = {
 const QUICK_ACTIONS: QuickAction[] = [
   {
     id: 'new-appointment',
-    label: 'New Appt',
+    label: 'New Appointment',
     icon: CalendarPlus,
     gradient: 'from-rose-800 to-rose-500',
     shadowColor: '#9f1239',
@@ -55,6 +55,7 @@ type QuickActionButtonProps = {
 
 function QuickActionButton({ action, onTap }: QuickActionButtonProps) {
   const Icon = action.icon;
+  const reducedMotion = useReducedMotion();
 
   return (
     // The caption lives INSIDE the button so the control carries its own
@@ -64,8 +65,8 @@ function QuickActionButton({ action, onTap }: QuickActionButtonProps) {
       type="button"
       data-testid={`quick-action-${action.id}`}
       onClick={() => onTap(action.id)}
-      whileTap={{ scale: 0.9 }}
-      whileHover={{ scale: 1.05 }}
+      whileTap={reducedMotion ? undefined : { scale: 0.9 }}
+      whileHover={reducedMotion ? undefined : { scale: 1.05 }}
       transition={{ type: 'spring', stiffness: 400, damping: 17 }}
       className="flex flex-col items-center gap-1.5 rounded-[18px] p-1 outline-none focus-visible:ring-2 focus-visible:ring-[var(--owner-focus,#b85075)] focus-visible:ring-offset-2"
     >

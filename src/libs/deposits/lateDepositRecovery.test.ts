@@ -13,6 +13,7 @@ import { drizzle } from 'drizzle-orm/pglite';
 import { migrate } from 'drizzle-orm/pglite/migrator';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { lockTechnicianAndAssertSlotFree, SlotConflictError } from '@/libs/bookingConflictGuard';
 import * as schema from '@/models/Schema';
 
 vi.mock('server-only', () => ({}));
@@ -31,6 +32,11 @@ const sentry = vi.hoisted(() => ({
 }));
 
 vi.mock('@sentry/nextjs', () => sentry);
+
+vi.mock('@/libs/bookingConflictGuard', async importOriginal => ({
+  ...(await importOriginal<typeof import('@/libs/bookingConflictGuard')>()),
+  lockTechnicianAndAssertSlotFree: vi.fn(async () => undefined),
+}));
 
 /**
  * Harness H4 — the Stripe SDK mocked at the MODULE boundary.
@@ -94,6 +100,7 @@ async function seedDeposit(input: {
   refundKeyEpoch?: number;
   refundTerminalFailureCount?: number;
   startTimeOffsetMs?: number;
+  technicianId?: string | null;
 }) {
   seq += 1;
   const appointmentId = `appt_r_${seq}`;
@@ -108,6 +115,7 @@ async function seedDeposit(input: {
     // A real canonical client, because the restore path locks it before it
     // reads the lineage gate — that lock is the reason the gate is safe.
     salonClientId: SALON_CLIENT,
+    technicianId: input.technicianId ?? null,
     startTime,
     endTime: new Date(startTime.getTime() + 3_600_000),
     status: input.appointmentStatus ?? 'cancelled',
@@ -332,6 +340,36 @@ describe('runLateDepositRecovery dispatch', () => {
     const result = await runLateDepositRecovery({ depositId: seeded.depositId, salonId: SALON });
 
     expect(result.disposition).toBe('refunded');
+  });
+
+  it('refunds exactly once instead of restoring when an exact Block Time wins the late-payment slot', async () => {
+    await db.insert(schema.technicianSchema).values({
+      id: 'tech_blocked_recovery',
+      salonId: SALON,
+      name: 'Blocked Recovery Technician',
+      isActive: true,
+    });
+    const seeded = await seedDeposit({ status: 'expired', technicianId: 'tech_blocked_recovery' });
+    vi.mocked(lockTechnicianAndAssertSlotFree).mockRejectedValueOnce(new SlotConflictError());
+
+    const first = await runLateDepositRecovery({ depositId: seeded.depositId, salonId: SALON });
+    const second = await runLateDepositRecovery({ depositId: seeded.depositId, salonId: SALON });
+
+    expect(first.disposition).toBe('refunded');
+    expect(second).toEqual({ disposition: 'noop', depositId: seeded.depositId, note: 'already_refunded' });
+    expect(lockTechnicianAndAssertSlotFree).toHaveBeenCalledTimes(1);
+    expect(stripeMock.refunds.create).toHaveBeenCalledTimes(1);
+    expect((await readDeposit(seeded.depositId))?.status).toBe('refunded');
+    expect((await db.select().from(schema.appointmentSchema)
+      .where(eq(schema.appointmentSchema.id, seeded.appointmentId)))[0]?.status).toBe('cancelled');
+
+    const confirmationJobs = await db.select().from(schema.integrationOutboxSchema)
+      .where(eq(schema.integrationOutboxSchema.operation, 'booking_confirmed_side_effects'));
+    const refundJobs = await db.select().from(schema.integrationOutboxSchema)
+      .where(eq(schema.integrationOutboxSchema.operation, 'deposit_refund_notices'));
+
+    expect(confirmationJobs).toHaveLength(0);
+    expect(refundJobs).toHaveLength(1);
   });
 
   it('RESTORES a reaper-released hold whose slot is still free', async () => {

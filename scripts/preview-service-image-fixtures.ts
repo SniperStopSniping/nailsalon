@@ -26,8 +26,8 @@ type PreviewFixtureDatabase = {
 };
 const APPLICATION_NAME = 'luster-preview-service-image-fixtures-v1';
 const DATABASE_NAME = 'luster_preview';
-const FINAL_MIGRATION = '0084_review_request_repeat_cooldown';
-const MIGRATION_COUNT = 84;
+const FINAL_MIGRATION = '0085_calendar_intraday_blocks';
+const MIGRATION_COUNT = 85;
 const CONFIRM = 'CREATE_SYNTHETIC_PREVIEW_FIXTURES';
 const RESET_CONFIRM = 'DELETE_SYNTHETIC_PREVIEW_FIXTURES';
 const ADMIN_CONFIRM = 'MAP_SYNTHETIC_DEVELOPMENT_USER';
@@ -385,6 +385,8 @@ const EXPECTED_INCOMING_FOREIGN_KEYS = [
   ['public', 'staff_session', 'staff_session_salon_id_fkey', ['salon_id'], 'public', 'salon', ['id'], 'NO ACTION', 'CASCADE'],
   ['public', 'technician', 'technician_salon_id_salon_id_fk', ['salon_id'], 'public', 'salon', ['id'], 'NO ACTION', 'CASCADE'],
   ['public', 'technician_blocked_slot', 'technician_blocked_slot_salon_id_fkey', ['salon_id'], 'public', 'salon', ['id'], 'NO ACTION', 'CASCADE'],
+  // 0085 serializes booking and intraday-block writes per technician.
+  ['public', 'technician_schedule_guard', 'technician_schedule_guard_salon_id_salon_id_fk', ['salon_id'], 'public', 'salon', ['id'], 'NO ACTION', 'CASCADE'],
   ['public', 'technician_schedule_override', 'technician_schedule_override_salon_id_fkey', ['salon_id'], 'public', 'salon', ['id'], 'NO ACTION', 'CASCADE'],
   ['public', 'technician_time_off', 'technician_time_off_salon_id_fkey', ['salon_id'], 'public', 'salon', ['id'], 'NO ACTION', 'CASCADE'],
   ['public', 'time_off_request', 'time_off_request_salon_id_fkey', ['salon_id'], 'public', 'salon', ['id'], 'NO ACTION', 'CASCADE'],
@@ -405,6 +407,7 @@ const EXPECTED_INCOMING_FOREIGN_KEYS = [
   ['public', 'salon_portfolio_photo', 'salon_portfolio_photo_technician_id_fkey', ['technician_id'], 'public', 'technician', ['id'], 'NO ACTION', 'SET NULL'],
   ['public', 'staff_session', 'staff_session_technician_id_fkey', ['technician_id'], 'public', 'technician', ['id'], 'NO ACTION', 'CASCADE'],
   ['public', 'technician_blocked_slot', 'technician_blocked_slot_technician_id_fkey', ['technician_id'], 'public', 'technician', ['id'], 'NO ACTION', 'CASCADE'],
+  ['public', 'technician_schedule_guard', 'technician_schedule_guard_salon_technician_fk', ['salon_id', 'technician_id'], 'public', 'technician', ['salon_id', 'id'], 'NO ACTION', 'CASCADE'],
   ['public', 'technician_schedule_override', 'technician_schedule_override_technician_id_fkey', ['technician_id'], 'public', 'technician', ['id'], 'NO ACTION', 'CASCADE'],
   ['public', 'technician_services', 'technician_services_technician_id_technician_id_fk', ['technician_id'], 'public', 'technician', ['id'], 'NO ACTION', 'NO ACTION'],
   ['public', 'technician_time_off', 'technician_time_off_technician_id_fkey', ['technician_id'], 'public', 'technician', ['id'], 'NO ACTION', 'CASCADE'],

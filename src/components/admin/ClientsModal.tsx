@@ -2635,6 +2635,7 @@ export function ClientsModal({
   const { salonSlug, salonName } = useSalon();
   const searchParams = useSearchParams();
   const requestedView = searchParams?.get('view');
+  const messageIntent = requestedView === 'message';
   const shouldOpenInsights = initialView === 'insights' || requestedView === 'insights';
   const [clients, setClients] = useState<ClientSummary[]>([]);
   const [loading, setLoading] = useState(true);
@@ -3203,7 +3204,7 @@ export function ClientsModal({
         />
         <div className="space-y-3 px-4 pb-3">
           <div className="flex rounded-[10px] bg-[var(--owner-blush,#f6e7ec)] p-0.5" role="tablist" aria-label="Clients or Insights and Follow-ups">
-            {([['clients', 'Clients'], ['insights', 'Insights & Follow-ups']] as const).map(([id, label]) => (
+            {([['clients', messageIntent ? 'Choose a client to message' : 'Clients'], ['insights', 'Insights & Follow-ups']] as const).map(([id, label]) => (
               <button
                 key={id}
                 type="button"

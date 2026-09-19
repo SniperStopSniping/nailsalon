@@ -665,7 +665,8 @@ describe('AdminDashboardPage', () => {
         hiddenIds?: string[];
       };
 
-      expect(latestProps.hiddenIds).toContain('analytics');
+      // Entitled but disabled features remain discoverable at their natural home.
+      expect(latestProps.hiddenIds).not.toContain('analytics');
       expect(latestProps.hiddenIds).not.toContain('marketing');
     });
   });

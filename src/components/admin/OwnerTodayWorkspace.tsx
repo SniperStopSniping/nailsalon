@@ -27,6 +27,7 @@ import {
 } from '@/libs/dashboardEvents';
 import type { ReportingProvenance } from '@/libs/financialReporting';
 import { formatMoney } from '@/libs/formatMoney';
+import { getDateKeyInTimeZone } from '@/libs/timeZone';
 import type { OwnerFinancialSummary } from '@/types/ownerFinancialSummary';
 import type { RetentionStage } from '@/types/retention';
 
@@ -42,6 +43,7 @@ type AppointmentGlance = {
 type TodayData = {
   date: string;
   timeZone: string;
+  technicians?: Array<{ id: string; name: string }>;
   appointments: Array<{
     id: string;
     clientName: string | null;
@@ -51,6 +53,7 @@ type TodayData = {
     totalPrice: number;
     totalDurationMinutes: number;
     technicianName: string | null;
+    technicianId?: string | null;
     services: string[];
     clientSensitivities?: string | null;
   }>;
@@ -288,7 +291,7 @@ export function OwnerTodayWorkspace({
   const [revenueBreakdownOpen, setRevenueBreakdownOpen] = useState(false);
   const [utilitiesOpen, setUtilitiesOpen] = useState(false);
   const [completedOpen, setCompletedOpen] = useState(false);
-  const [selectedTechnicianName, setSelectedTechnicianName] = useState<string | null>(null);
+  const [selectedTechnicianId, setSelectedTechnicianId] = useState<string | null>(null);
   const financialSummaryCacheRef = useRef<
     Record<string, OwnerFinancialSummary>
   >({});
@@ -519,33 +522,45 @@ export function OwnerTodayWorkspace({
   const legacyDueClients
     = !retention && retentionError ? (today?.dueClients ?? []) : [];
 
-  const operationalState = useMemo(
-    () => getTodayOperationalState(today?.appointments ?? [], Date.now()),
-    [today],
-  );
-  const technicianNames = useMemo(
-    () => [...new Set(
-      (today?.appointments ?? [])
-        .map(appointment => appointment.technicianName)
-        .filter((name): name is string => Boolean(name)),
-    )],
-    [today],
-  );
+  const [clockNow, setClockNow] = useState(() => Date.now());
   useEffect(() => {
-    if (selectedTechnicianName && !technicianNames.includes(selectedTechnicianName)) {
-      setSelectedTechnicianName(null);
+    const tick = () => setClockNow(Date.now());
+    const timer = window.setInterval(tick, 30000);
+    document.addEventListener('visibilitychange', tick);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', tick);
+    };
+  }, []);
+  const todayDate = today?.date;
+  const todayTimeZone = today?.timeZone;
+  useEffect(() => {
+    if (todayDate && todayTimeZone && getDateKeyInTimeZone(new Date(clockNow), todayTimeZone) !== todayDate) {
+      void loadToday();
+      void loadFinancialSummary();
     }
-  }, [selectedTechnicianName, technicianNames]);
-  const displayedAppointments = (today?.appointments ?? []).filter(appointment =>
-    !selectedTechnicianName || appointment.technicianName === selectedTechnicianName,
+  }, [clockNow, todayDate, todayTimeZone, loadToday, loadFinancialSummary]);
+  const operationalState = useMemo(
+    () => getTodayOperationalState(today?.appointments ?? [], clockNow),
+    [today, clockNow],
   );
-  const displayedOperationalState = getTodayOperationalState(displayedAppointments, Date.now());
+  const technicians = useMemo(() => today?.technicians ?? [], [today?.technicians]);
+  useEffect(() => {
+    if (selectedTechnicianId && !technicians.some(tech => tech.id === selectedTechnicianId)) {
+      setSelectedTechnicianId(null);
+    }
+  }, [selectedTechnicianId, technicians]);
+  const displayedAppointments = (today?.appointments ?? []).filter(appointment =>
+    !selectedTechnicianId || appointment.technicianId === selectedTechnicianId,
+  );
+  const displayedOperationalState = getTodayOperationalState(displayedAppointments, clockNow);
   const currentOrNextAppointment = displayedOperationalState.currentAppointment
     ?? displayedOperationalState.nextConfirmedAppointment;
   const restOfToday = displayedAppointments.filter(
     appointment => appointment.id !== currentOrNextAppointment?.id,
   );
-  const visibleRestOfToday = restOfToday.filter(appointment => appointment.status !== 'completed');
+  const urgentIds = new Set([...operationalState.unresolvedAppointments, ...operationalState.pendingRequests].map(appointment => appointment.id));
+  const visibleRestOfToday = restOfToday.filter(appointment => appointment.status !== 'completed' && !urgentIds.has(appointment.id));
   const completedAppointments = restOfToday.filter(appointment => appointment.status === 'completed');
 
   const integrationNeedsAttention = Boolean(
@@ -654,6 +669,7 @@ export function OwnerTodayWorkspace({
                 <span className="min-w-0 flex-1">
                   <span className="block truncate font-semibold">
                     Booking request from
+                    {' '}
                     {appointment.clientName || 'Guest client'}
                   </span>
                   <span className="mt-0.5 block text-xs opacity-80">{formatTime(appointment.startTime)}</span>
@@ -732,6 +748,29 @@ export function OwnerTodayWorkspace({
       data-testid="owner-today-workspace"
     >
       {urgentSection}
+      {technicians.length > 1 && Boolean(today?.appointments.length) && (
+        <div className="flex gap-2 overflow-x-auto border-b border-stone-100 px-4 py-3" aria-label="Filter schedule by technician">
+          <button
+            type="button"
+            onClick={() => setSelectedTechnicianId(null)}
+            aria-pressed={!selectedTechnicianId}
+            className={`min-h-11 shrink-0 rounded-full px-3 text-xs font-semibold ${!selectedTechnicianId ? 'bg-[var(--owner-accent,#8f3155)] text-white' : 'bg-stone-100 text-stone-700'}`}
+          >
+            All technicians
+          </button>
+          {technicians.map(tech => (
+            <button
+              key={tech.id}
+              type="button"
+              onClick={() => setSelectedTechnicianId(tech.id)}
+              aria-pressed={selectedTechnicianId === tech.id}
+              className={`min-h-11 shrink-0 rounded-full px-3 text-xs font-semibold ${selectedTechnicianId === tech.id ? 'bg-[var(--owner-accent,#8f3155)] text-white' : 'bg-stone-100 text-stone-700'}`}
+            >
+              {tech.name}
+            </button>
+          ))}
+        </div>
+      )}
 
       {currentOrNextAppointment
         ? (
@@ -837,29 +876,6 @@ export function OwnerTodayWorkspace({
             : today?.appointments.length
               ? (
                   <div className="divide-y divide-stone-100">
-                    {technicianNames.length > 1 && (
-                      <div className="flex gap-2 overflow-x-auto border-b border-stone-100 px-4 py-3" aria-label="Filter schedule by technician">
-                        <button
-                          type="button"
-                          onClick={() => setSelectedTechnicianName(null)}
-                          aria-pressed={!selectedTechnicianName}
-                          className={`min-h-11 shrink-0 rounded-full px-3 text-xs font-semibold ${!selectedTechnicianName ? 'bg-[var(--owner-accent,#8f3155)] text-white' : 'bg-stone-100 text-stone-700'}`}
-                        >
-                          All
-                        </button>
-                        {technicianNames.map(name => (
-                          <button
-                            key={name}
-                            type="button"
-                            onClick={() => setSelectedTechnicianName(name)}
-                            aria-pressed={selectedTechnicianName === name}
-                            className={`min-h-11 shrink-0 rounded-full px-3 text-xs font-semibold ${selectedTechnicianName === name ? 'bg-[var(--owner-accent,#8f3155)] text-white' : 'bg-stone-100 text-stone-700'}`}
-                          >
-                            {name}
-                          </button>
-                        ))}
-                      </div>
-                    )}
                     {visibleRestOfToday.length === 0 && completedAppointments.length === 0 && (
                       <div className="px-5 py-7 text-center">
                         <p className="text-sm font-semibold text-stone-700">No more appointments scheduled today</p>

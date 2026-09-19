@@ -67,7 +67,7 @@ describe('OwnerScheduleEditor', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Add' }));
 
-    expect(screen.getByRole('dialog', { name: 'Add Time Off' })).toBeInTheDocument();
+    expect(screen.getByRole('dialog', { name: 'Add Days Off' })).toBeInTheDocument();
   });
 
   it('never substitutes another person for an invalid record-specific deep link', async () => {

@@ -334,7 +334,7 @@ describe('migration 0068 — D6.1 invoice and tax snapshot foundation', () => {
       readFileSync(path.join(process.cwd(), 'migrations/meta/_journal.json'), 'utf8'),
     ) as { entries: { idx: number; when: number; tag: string }[] };
 
-    expect(journal.entries).toHaveLength(84);
+    expect(journal.entries).toHaveLength(85);
     // The Stripe prerequisite keeps its own identity assertion as the tail
     // grows: 0078 appends, it does not displace what 0076 pinned.
     expect(journal.entries[76]).toMatchObject({
@@ -357,6 +357,7 @@ describe('migration 0068 — D6.1 invoice and tax snapshot foundation', () => {
     expect(journal.entries[81]).toMatchObject({ idx: 81, when: 1789809175297, tag: '0082_review_request_nullable_contract' });
     expect(journal.entries[82]).toMatchObject({ idx: 82, when: 1789815155287, tag: '0083_review_request_manual_contract' });
     expect(journal.entries[83]).toMatchObject({ idx: 83, when: 1789816376999, tag: '0084_review_request_repeat_cooldown' });
+    expect(journal.entries[84]).toMatchObject({ idx: 84, when: 1789847765426, tag: '0085_calendar_intraday_blocks' });
     expect(createHash('sha256')
       .update(readFileSync(path.join(process.cwd(), 'migrations/0076_deposit_shadow_evidence.sql')))
       .digest('hex')).toBe('3626d5427a18d1762ae6e4807cb9a31f8dc093c22cc700b7a6a712a4945f1765');
@@ -366,7 +367,7 @@ describe('migration 0068 — D6.1 invoice and tax snapshot foundation', () => {
     [76, '0075'],
     [77, 'Stripe 0076'],
     [78, 'Review 0077'],
-  ])('upgrades a %s ledger through review request contracts 0082 through 0084', async (existingCount) => {
+  ])('upgrades a %s ledger through review request contracts and intraday blocks 0082 through 0085', async (existingCount) => {
     const upgradeClient = new PGlite();
     const upgradeDb = drizzle(upgradeClient);
     const migrationsFolder = path.join(process.cwd(), 'migrations');
@@ -384,12 +385,13 @@ describe('migration 0068 — D6.1 invoice and tax snapshot foundation', () => {
         'SELECT hash, created_at FROM drizzle.__drizzle_migrations ORDER BY created_at, id',
       );
 
-      expect(rows.rows).toHaveLength(84);
+      expect(rows.rows).toHaveLength(85);
       expect(Number(rows.rows[76]?.created_at)).toBe(1787476392670);
       expect(Number(rows.rows[77]?.created_at)).toBe(1787562792670);
       expect(Number(rows.rows[78]?.created_at)).toBe(1787649192670);
       expect(Number(rows.rows[82]?.created_at)).toBe(1789815155287);
       expect(Number(rows.rows[83]?.created_at)).toBe(1789816376999);
+      expect(Number(rows.rows[84]?.created_at)).toBe(1789847765426);
     } finally {
       await upgradeClient.close();
     }

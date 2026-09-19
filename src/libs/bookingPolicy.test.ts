@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import {
   canTechnicianTakeAppointment,
+  hasBlockedSlotConflict,
   hasBufferedConflict,
   resolveBookingHoursCeiling,
   resolveTechnicianCapabilityMode,
@@ -110,6 +111,16 @@ describe('bookingPolicy', () => {
       available: false,
       reason: 'blocked_slot',
     });
+  });
+
+  it('checks exact blocks using occupied end, with no double buffer for engine callers', () => {
+    const blockedSlots = [{ startTime: '10:00', endTime: '11:00', label: 'Break', startsAt: new Date('2026-03-16T14:00:00Z'), endsAt: new Date('2026-03-16T15:00:00Z') }];
+    const request = { startTime: new Date('2026-03-16T13:00:00Z'), endTime: new Date('2026-03-16T14:00:00Z'), blockedSlots };
+
+    expect(hasBlockedSlotConflict(request)).toBe(false);
+    expect(hasBlockedSlotConflict({ ...request, bufferMinutes: 15 })).toBe(true);
+    expect(hasBlockedSlotConflict({ ...request, endTime: new Date('2026-03-16T14:15:00Z'), bufferMinutes: 0 })).toBe(true);
+    expect(hasBlockedSlotConflict({ ...request, startTime: new Date('2026-03-16T15:00:00Z'), endTime: new Date('2026-03-16T16:00:00Z'), bufferMinutes: 15 })).toBe(false);
   });
 
   it('enforces technician service capability when structured service assignments exist', () => {

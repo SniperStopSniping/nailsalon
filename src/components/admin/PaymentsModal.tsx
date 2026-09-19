@@ -6,11 +6,12 @@ import { useEffect, useRef, useState } from 'react';
 
 import { OwnerAppHub, type OwnerAppHubItem } from './OwnerAppHub';
 import { SettingsModal } from './SettingsModal';
+import { StripeConnectPanel } from './StripeConnectPanel';
 
 type PaymentsView = 'home' | 'deposits' | 'methods' | 'taxes' | 'stripe' | 'currency';
 
 function normalizeView(value: string | null | undefined): PaymentsView {
-  return ['deposits', 'methods', 'taxes', 'currency'].includes(value ?? '') ? value as PaymentsView : 'home';
+  return ['deposits', 'methods', 'taxes', 'stripe', 'currency'].includes(value ?? '') ? value as PaymentsView : 'home';
 }
 
 const PAYMENT_ITEMS: ReadonlyArray<OwnerAppHubItem<Exclude<PaymentsView, 'home'>>> = [
@@ -26,13 +27,11 @@ export function PaymentsModal({
   salonSlug,
   salonId,
   isFreeSolo,
-  onOpenIntegrations,
 }: {
   onClose: () => void;
   salonSlug: string | null;
   salonId?: string | null;
   isFreeSolo?: boolean;
-  onOpenIntegrations?: () => void;
 }) {
   const router = useRouter();
   const params = useParams();
@@ -62,15 +61,40 @@ export function PaymentsModal({
         items={PAYMENT_ITEMS}
         onBack={onClose}
         onOpen={(next) => {
-          if (next === 'stripe') {
-            onOpenIntegrations?.();
-            return;
-          }
           setView(next);
           pushed.current = true;
           router.push(href(next), { scroll: false });
         }}
       />
+    );
+  }
+
+  if (view === 'stripe') {
+    return (
+      <div className="flex min-h-full flex-col bg-[var(--owner-ground)]">
+        <div className="sticky top-0 z-20 bg-[var(--owner-ground)]">
+          <button
+            type="button"
+            onClick={() => {
+              setView('home');
+              if (pushed.current) {
+                pushed.current = false;
+                router.back();
+              } else {
+                router.replace(href('home'), { scroll: false });
+              }
+            }}
+            className="min-h-11 px-4 text-sm font-semibold"
+          >
+            Back to Payments
+          </button>
+        </div>
+        <main className="grow px-4 pb-10">
+          <h2 className="mb-1 text-xl font-bold">Stripe & Payouts</h2>
+          <p className="mb-4 text-sm text-[var(--owner-muted)]">Deposit collection and payout readiness.</p>
+          <StripeConnectPanel salonSlug={salonSlug} />
+        </main>
+      </div>
     );
   }
 
@@ -80,7 +104,7 @@ export function PaymentsModal({
       initialView={view === 'currency' ? 'currency' : 'payments'}
       leafOnly
       leafBackLabel="Payments"
-      paymentFocus={view === 'stripe' || view === 'currency' ? undefined : view}
+      paymentFocus={view === 'currency' ? undefined : view}
       onClose={() => {
         setView('home');
         if (pushed.current) {
@@ -93,7 +117,6 @@ export function PaymentsModal({
       salonId={salonId}
       salonSlug={salonSlug}
       isFreeSolo={isFreeSolo}
-      onOpenApp={appId => appId === 'integrations' && onOpenIntegrations?.()}
     />
   );
 }

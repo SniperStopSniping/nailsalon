@@ -454,6 +454,8 @@ type AppGridProps = {
   badges?: Record<string, number>;
   onAppTap?: (appId: string) => void;
   hiddenIds?: string[];
+  /** Actual active team composition controls priority, never entitlement. */
+  isTeamSalon?: boolean;
   /**
    * When provided, the More tab carries the Account row under the tiles:
    * identity plus Log out behind a named confirmation. Omitted where there is
@@ -465,9 +467,14 @@ type AppGridProps = {
 const EMPTY_BADGES: Record<string, number> = {};
 const EMPTY_HIDDEN_IDS: string[] = [];
 
-export function AppGrid({ theme = 'apple', badges = EMPTY_BADGES, onAppTap, hiddenIds = EMPTY_HIDDEN_IDS, account }: AppGridProps) {
+export function AppGrid({ theme = 'apple', badges = EMPTY_BADGES, onAppTap, hiddenIds = EMPTY_HIDDEN_IDS, isTeamSalon = false, account }: AppGridProps) {
   const appById = new Map(APPS.map(app => [app.id, app]));
   const visibleGroups = MORE_GROUPS.map(group => ({
+    ...group,
+    appIds: group.id === 'business'
+      ? isTeamSalon ? ['team', 'analytics', 'payments', 'integrations'] : ['analytics', 'payments', 'integrations']
+      : group.appIds,
+  })).map(group => ({
     ...group,
     apps: group.appIds.flatMap((appId) => {
       const app = appById.get(appId);

@@ -4,6 +4,7 @@ import { CalendarPlus, Clock3, Mail, MapPin, UserRound, X } from 'lucide-react';
 import Image from 'next/image';
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
+import { OwnerPhotoRulesLink } from '@/components/appointments/OwnerPhotoRulesLink';
 import { ReviewRequestAction } from '@/components/appointments/ReviewRequestAction';
 import { UpcomingAppointmentActions } from '@/components/appointments/UpcomingAppointmentActions';
 import { buttonVariants } from '@/components/ui/buttonVariants';
@@ -149,6 +150,7 @@ export function AppointmentQuickEditSheet({
   const actionErrorDetail = useMemo(() => (
     <>
       <div>{actionError}</div>
+      {actionError && /photo/i.test(actionError) && <OwnerPhotoRulesLink salonSlug={detail?.appointment.salonSlug} />}
       {attemptedTimeLabel && (
         <div className="mt-1">
           Attempted time:
@@ -157,7 +159,7 @@ export function AppointmentQuickEditSheet({
         </div>
       )}
     </>
-  ), [actionError, attemptedTimeLabel]);
+  ), [actionError, attemptedTimeLabel, detail?.appointment.salonSlug]);
 
   const handleSaveEdits = useCallback(async () => {
     try {

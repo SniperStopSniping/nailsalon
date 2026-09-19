@@ -127,7 +127,7 @@ export function OwnerManagementModal({ app, salonSlug, salonId, isFreeSolo, team
     const scheduleSection = view === 'working-hours' ? 'hours' : view === 'time-off' ? 'time-off' : null;
     return (
       <div className="min-h-full bg-[var(--owner-ground)] pb-10 text-[var(--owner-ink)]">
-        <ModalHeader title={scheduleSection === 'hours' ? 'Working hours' : scheduleSection === 'time-off' ? 'Time off' : 'Hours & Availability'} subtitle="Regular hours and exceptions to your schedule" leftAction={<BackButton onClick={() => leave(scheduleSection ? back : onClose)} label={scheduleSection ? 'Hours & Availability' : 'More'} />} />
+        <ModalHeader title={scheduleSection === 'hours' ? 'Working hours' : scheduleSection === 'time-off' ? 'Days Off' : 'Hours & Availability'} subtitle="Regular hours and exceptions to your schedule" leftAction={<BackButton onClick={() => leave(scheduleSection ? back : onClose)} label={scheduleSection ? 'Hours & Availability' : 'More'} />} />
         <div className="space-y-4 px-4">
           {salonSlug
             ? scheduleSection
@@ -137,7 +137,7 @@ export function OwnerManagementModal({ app, salonSlug, salonId, isFreeSolo, team
           {!scheduleSection && (
             <>
               <button type="button" className="min-h-11 w-full rounded-xl border border-[var(--owner-line)] p-3 text-left" onClick={() => leave(() => open('working-hours'))}>Working hours</button>
-              <button type="button" className="min-h-11 w-full rounded-xl border border-[var(--owner-line)] p-3 text-left" onClick={() => leave(() => open('time-off'))}>Time off</button>
+              <button type="button" className="min-h-11 w-full rounded-xl border border-[var(--owner-line)] p-3 text-left" onClick={() => leave(() => open('time-off'))}>Days Off</button>
               {teamAvailable && <button type="button" className="min-h-11 w-full rounded-xl border border-[var(--owner-line)] p-3 text-left" onClick={() => leave(() => open('requests'))}>Team time-off requests</button>}
             </>
           )}
@@ -198,11 +198,23 @@ export function OwnerManagementModal({ app, salonSlug, salonId, isFreeSolo, team
       title="Help & Resources"
       subtitle="Guidance for running your workspace"
       onBack={onClose}
-      onOpen={id => onOpenApp?.(id)}
+      onOpen={(id) => {
+        if (id === 'terms') {
+          router.push(`/${locale}/terms`);
+          return;
+        }
+        if (id === 'privacy') {
+          router.push(`/${locale}/privacy`);
+          return;
+        }
+        onOpenApp?.(id);
+      }}
       items={[
         { id: 'workspace-tour', title: 'Workspace tour', description: 'Replay the guide to Today, Calendar, Clients and Services', icon: HelpCircle },
         { id: 'luster', title: 'Luster resources', description: 'Products, offers, education and email preferences', icon: BookOpen },
-        { id: 'settings', title: 'Account & settings', description: 'Owner account, workspace preferences and legal information', icon: Users },
+        { id: 'settings', title: 'Account & settings', description: 'Owner account, alerts and optional features', icon: Users },
+        { id: 'terms', title: 'Terms of Service', description: 'The terms for using Luster', icon: Shield },
+        { id: 'privacy', title: 'Privacy Policy', description: 'How Luster handles information', icon: Shield },
       ]}
     />
   );

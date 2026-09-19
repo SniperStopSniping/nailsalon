@@ -253,6 +253,9 @@ async function bridge(url: URL, method: string, body: string | null): Promise<Re
 
   beforeEach(async () => {
     vi.clearAllMocks();
+    // This explicitly disposable fixture can already exist after a prior run.
+    // Reset its test policy so no previous fixture changes alter this proof.
+    await database.update(schema.salonSchema).set({ settings: SETTINGS }).where(eq(schema.salonSchema.id, SALON));
     vi.spyOn(console, 'warn').mockImplementation(() => {});
     model.createResponse.mockResolvedValue({ status: 'completed', usage: { inputTokens: 1, outputTokens: 1, cachedInputTokens: 0, cacheWriteInputTokens: 0 }, items: [{ type: 'message', text: JSON.stringify({ factUpdates: { schemaVersion: 1, treatment: null, desiredApplication: null, maintenance: null, length: null, french: null, existingProduct: null, origin: null, removal: null, repairCount: null }, action: 'propose', serviceId: SERVICE, addOns: [], question: 'details', optionIds: [], datePreference: null }) }] });
     await database.delete(schema.reviewRequestSchema).where(eq(schema.reviewRequestSchema.salonId, SALON));

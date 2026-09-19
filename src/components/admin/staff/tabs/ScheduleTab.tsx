@@ -435,7 +435,7 @@ export function ScheduleTab({ salonSlug, technicianId, weeklySchedule, onUpdate,
         <div className="pt-4">
           <div className="mb-2 flex items-center justify-between px-1">
             <h3 className="text-[13px] font-semibold uppercase text-[#8E8E93]">
-              Time Off
+              Days Off
             </h3>
             <button
               type="button"
@@ -485,7 +485,7 @@ export function ScheduleTab({ salonSlug, technicianId, weeklySchedule, onUpdate,
       >
         <div role="dialog" aria-modal="true" aria-labelledby="add-time-off-title">
           <div className="mb-4 flex items-center justify-between">
-            <h3 id="add-time-off-title" className="text-[20px] font-bold text-[#1C1C1E]">Add Time Off</h3>
+            <h3 id="add-time-off-title" className="text-[20px] font-bold text-[#1C1C1E]">Add Days Off</h3>
             <button
               type="button"
               onClick={() => setShowAddTimeOff(false)}
@@ -620,7 +620,7 @@ function TimeOffRow({
 
   const getReasonLabel = (reason: string | null) => {
     const option = REASON_OPTIONS.find(r => r.value === reason);
-    return option?.label ?? 'Time Off';
+    return option?.label ?? 'Day off';
   };
 
   const getReasonColor = (reason: string | null) => {

@@ -1216,6 +1216,20 @@ export async function PATCH(request: Request, props: { params: Promise<{ id: str
         return reactivationConflictResponse(transition.conflictStatus);
       }
       updatedAppointment = transition.appointment;
+    } else if (!data.status) {
+      const [result] = await db.update(appointmentSchema).set({
+        cancelReason: data.cancelReason,
+        updatedAt: new Date(Math.max(Date.now(), existingAppointment.updatedAt.getTime() + 1)),
+      }).where(and(
+        eq(appointmentSchema.id, appointmentId),
+        eq(appointmentSchema.salonId, existingAppointment.salonId),
+        eq(appointmentSchema.status, existingAppointment.status),
+        eq(appointmentSchema.updatedAt, existingAppointment.updatedAt),
+      )).returning();
+      if (!result) {
+        return Response.json({ error: { code: 'APPOINTMENT_CHANGED', message: 'This appointment changed while you were editing. Refresh it and try again.' } }, { status: 409 });
+      }
+      updatedAppointment = result;
     } else {
       const result = await updateAppointmentStatus(
         appointmentId,

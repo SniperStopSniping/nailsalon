@@ -10,7 +10,7 @@ describe('QuickActionsWidget', () => {
   it('exposes every quick action as a named button', () => {
     render(<QuickActionsWidget />);
 
-    for (const name of ['New Appt', 'Walk-in', 'Message Client']) {
+    for (const name of ['New Appointment', 'Walk-in', 'Message Client']) {
       expect(screen.getByRole('button', { name })).toBeInTheDocument();
     }
   });

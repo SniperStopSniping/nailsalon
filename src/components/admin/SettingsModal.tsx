@@ -1832,7 +1832,7 @@ const VIEW_TITLES: Record<SettingsView, string> = {
   'notifications': 'Notifications',
   'communications': 'Client communications',
   'review-requests': 'Review requests',
-  'features': 'Features & plan',
+  'features': 'Optional Features',
   'visibility': 'Staff visibility',
 };
 
@@ -3823,9 +3823,8 @@ export function SettingsModal({
           <SettingsCardGrid items={[
             { title: 'Account', description: 'Your profile and sign-in details', icon: User, onClick: () => openView('account') },
             { title: 'Owner & Staff Alerts', description: 'New booking and cancellation alerts', icon: Bell, onClick: () => openView('notifications') },
-            { title: 'Workspace Features', description: 'Turn included Luster modules on or off', icon: Boxes, onClick: () => openView('features') },
             { title: 'Appointment Photo Rules', description: 'Before and after photo requirements', icon: Camera, onClick: () => router.push(`/${locale}/admin/policies${salonSlug ? `?salon=${encodeURIComponent(salonSlug)}&section=photos` : '?section=photos'}`) },
-            { title: 'Advanced', description: 'Legacy themes, previews and legal information', icon: Palette, onClick: () => openView('advanced') },
+            { title: 'Advanced', description: 'Optional features and legacy page themes', icon: Palette, onClick: () => openView('advanced') },
           ]}
           />
         )}
@@ -3865,11 +3864,9 @@ export function SettingsModal({
 
         {view === 'advanced' && (
           <SettingsCardGrid items={[
+            { title: 'Optional Features', description: 'Turn included Luster modules on or off', icon: Boxes, onClick: () => openView('features') },
             { title: 'Legacy Page Themes', description: 'Existing themes for older booking and profile pages', icon: Palette, onClick: () => openView('legacy-themes') },
-            { title: 'Appointment Photo Rules', description: 'Before and after photo requirements', icon: Camera, onClick: () => router.push(`/${locale}/admin/policies${salonSlug ? `?salon=${encodeURIComponent(salonSlug)}&section=photos` : '?section=photos'}`) },
             ...(sectionLibraryV1Enabled ? [{ title: 'Section gallery (preview)', description: 'Early look at new page sections', icon: LayoutTemplate, onClick: () => router.push(`/${locale}/admin/site-builder/section-gallery`) }] : []),
-            { title: 'Terms of Service', description: 'The terms for using Luster', icon: Boxes, onClick: () => router.push(`/${locale}/terms`) },
-            { title: 'Privacy Policy', description: 'How Luster handles information', icon: Shield, onClick: () => router.push(`/${locale}/privacy`) },
           ]}
           />
         )}
@@ -3910,7 +3907,7 @@ export function SettingsModal({
           >
             <div className="space-y-3 p-4" data-testid="settings-booking-experience-handoff">
               <p className="text-sm text-[var(--owner-muted)]">Booking messages, social links and confirmation text are managed on Booking Page.</p>
-              {bookingPageHubHref && <a className="inline-flex min-h-11 items-center rounded-[10px] bg-[var(--owner-accent)] px-4 text-sm font-semibold text-white" href={`${bookingPageHubHref}&panel=experience`}>Open Public Booking Experience</a>}
+              {bookingPageHubHref && <a className="inline-flex min-h-11 items-center rounded-[10px] bg-[var(--owner-accent)] px-4 text-sm font-semibold text-white" href={`${bookingPageHubHref}&panel=experience`}>Open Booking Messages & Social Links</a>}
             </div>
           </Section>
         )}
@@ -5617,8 +5614,8 @@ export function SettingsModal({
           <>
             {/* Modules (Step 16.3) */}
             <Section
-              title="Modules"
-              footer="Enable or disable features for your salon. Disabled modules won't be available to staff. Locked features are not included in your current plan yet."
+              title="Optional Features"
+              footer="Enable or disable features for your salon. Disabled features won't be available to staff. Locked features are not included in your current plan yet."
             >
               {modulesLoading
                 ? (
@@ -5702,6 +5699,14 @@ export function SettingsModal({
                     </>
                   )}
             </Section>
+
+            {(!isFreeSolo || (entitledModules.scheduleOverrides && modules.scheduleOverrides) || (entitledModules.staffEarnings && modules.staffEarnings)) && (
+              <Section title="Growing your team" footer="Add or reactivate a technician in Team. Working hours and services keep their existing editors.">
+                <button type="button" className="min-h-11 px-4 py-3 text-left text-sm font-semibold underline focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)]" onClick={() => openWorkspaceApp('team')}>
+                  Manage Team Members
+                </button>
+              </Section>
+            )}
 
             {/* Programs (Step 21E) */}
             {hasClientPrograms && (

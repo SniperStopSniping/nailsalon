@@ -173,6 +173,8 @@ type IntegrationsModalProps = {
   initialNotice?: string | null;
   /** Optional hop to the Settings app (used by the Email/Texting views). */
   onOpenSettings?: () => void;
+  /** Stripe setup is owned by Payments; this remains a connection-status shortcut. */
+  onOpenPayments?: () => void;
 };
 
 export function IntegrationsModal({
@@ -181,6 +183,7 @@ export function IntegrationsModal({
   initialView = 'home',
   initialNotice = null,
   onOpenSettings,
+  onOpenPayments,
 }: IntegrationsModalProps) {
   const [view, setView] = useState<IntegrationsView>(initialView);
   const [health, setHealth] = useState<Health | null>(null);
@@ -199,7 +202,6 @@ export function IntegrationsModal({
   const [confirmingDisconnect, setConfirmingDisconnect] = useState(false);
 
   const [smsCapableDevice, setSmsCapableDevice] = useState(true);
-  const [paymentsBusy, setPaymentsBusy] = useState(false);
 
   useEffect(() => {
     setSmsCapableDevice(isNativeSmsCapableDevice(navigator.userAgent));
@@ -331,35 +333,6 @@ export function IntegrationsModal({
   const connect = health?.stripeConnect ?? null;
   const showPaymentsCard = connect?.visible === true;
 
-  /**
-   * Starts or resumes Stripe-hosted onboarding. The server mints a single-use
-   * Account Link and we navigate straight to it — the URL is never stored.
-   */
-  const startPaymentsSetup = async () => {
-    if (!connect || paymentsBusy) {
-      return;
-    }
-    setPaymentsBusy(true);
-    setMessage(null);
-    try {
-      const response = await fetch('/api/integrations/stripe-connect/onboard', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ salonId: connect.salonId }),
-      });
-      const payload = await response.json().catch(() => null);
-      if (!response.ok || !payload?.url) {
-        setMessage('Payment setup could not be started. Try again shortly.');
-        setPaymentsBusy(false);
-        return;
-      }
-      window.location.href = payload.url;
-    } catch {
-      setMessage('Payment setup could not be started. Try again shortly.');
-      setPaymentsBusy(false);
-    }
-  };
-
   const homeRows: Array<{
     id: IntegrationsView;
     icon: typeof CalendarDays;
@@ -489,84 +462,22 @@ export function IntegrationsModal({
               );
             })}
             {showPaymentsCard && connect && (
-              <div className={card} data-testid="integration-card-payments">
-                <div className="flex items-center gap-3">
-                  <span className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-emerald-100 text-emerald-800">
-                    <CreditCard size={22} />
+              <button
+                type="button"
+                data-testid="integration-card-payments"
+                onClick={onOpenPayments}
+                className={`${card} flex w-full items-center gap-3 text-left outline-none focus-visible:ring-2 focus-visible:ring-rose-400`}
+              >
+                <span className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-emerald-100 text-emerald-800"><CreditCard size={22} /></span>
+                <span className="min-w-0 grow">
+                  <span className="flex flex-wrap items-center gap-2">
+                    <span className="text-[15px] font-semibold">Payments & Payouts</span>
+                    <StatusPill label={CONNECT_STATUS_LABELS[connect.status]} tone={connectStatusTone(connect.status)} />
                   </span>
-                  <span className="min-w-0 grow">
-                    <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                      <span className="text-[15px] font-semibold text-[var(--owner-ink)]">Payments</span>
-                      <StatusPill
-                        label={CONNECT_STATUS_LABELS[connect.status]}
-                        tone={connectStatusTone(connect.status)}
-                      />
-                    </span>
-                    <span className="mt-0.5 block text-[13px] text-[var(--owner-muted)]">
-                      Connect your own Stripe account so you can take deposits later.
-                    </span>
-                  </span>
-                </div>
-
-                {connect.status === 'charge_ready' && connect.payoutsPending && (
-                  <p className="mt-3 rounded-xl bg-amber-50 p-3 text-[13px] text-amber-900">
-                    Payouts are not switched on yet. Stripe is still reviewing your
-                    bank details.
-                  </p>
-                )}
-
-                {(connect.status === 'restricted'
-                  || connect.status === 'action_needed_soon'
-                  || connect.status === 'onboarding_incomplete') && (
-                  <ul className="mt-3 list-disc space-y-1 pl-5 text-[13px] text-[var(--owner-muted)]">
-                    {(connect.requirements?.pastDue ?? [])
-                      .concat(connect.requirements?.currentlyDue ?? [])
-                      .slice(0, 5)
-                      .map(item => <li key={item}>{item.replaceAll('_', ' ').replaceAll('.', ' → ')}</li>)}
-                  </ul>
-                )}
-
-                {connect.status === 'mode_mismatch' && (
-                  <p className="mt-3 rounded-xl bg-red-50 p-3 text-[13px] text-red-800">
-                    Payments are unavailable in this environment. Contact support.
-                  </p>
-                )}
-
-                {/* `blocked_needs_support` is a DEAD END: everything was submitted
-                    and nothing is outstanding, so "Resume onboarding" would loop. */}
-                {connect.status === 'blocked_needs_support' && (
-                  <p className="mt-3 rounded-xl bg-red-50 p-3 text-[13px] text-red-800">
-                    Stripe cannot finish verifying this account automatically.
-                    Contact support and we will take it from here.
-                  </p>
-                )}
-
-                {(connect.status === 'not_connected'
-                  || connect.status === 'onboarding_incomplete'
-                  || connect.status === 'action_needed_soon'
-                  || connect.status === 'restricted'
-                  || connect.status === 'revoked') && (
-                  <button
-                    type="button"
-                    data-testid="payments-setup-button"
-                    onClick={() => void startPaymentsSetup()}
-                    disabled={paymentsBusy}
-                    className="mt-3 w-full rounded-xl bg-stone-900 px-4 py-2.5 text-[14px] font-semibold text-white outline-none transition-colors focus-visible:ring-2 focus-visible:ring-rose-400 active:bg-stone-800 disabled:opacity-60"
-                  >
-                    {connect.status === 'not_connected'
-                      ? 'Set up payments'
-                      : connect.status === 'revoked'
-                        ? 'Reconnect'
-                        : 'Resume onboarding'}
-                  </button>
-                )}
-
-                {connect.lastSyncedAt === null && connect.hasBindingHistory && (
-                  <p className="mt-2 text-[12px] text-[var(--owner-line-strong)]">
-                    Status not confirmed yet.
-                  </p>
-                )}
-              </div>
+                  <span className="mt-0.5 block text-[13px] text-[var(--owner-muted)]">Manage Stripe, deposits, and payout readiness in Payments.</span>
+                </span>
+                <ChevronRight size={18} className="shrink-0 text-[var(--owner-line-strong)]" />
+              </button>
             )}
 
             {!showPaymentsCard && (

@@ -15,16 +15,16 @@ const PREVIEW_RETURN_HASH = '#preview-draft';
 
 const EDITORS = [
   { id: 'business', title: 'Business Information', description: 'Salon name, contact, address and arrival details', icon: Building2 },
-  { id: 'layouts', title: 'Layout', description: '22 website layouts and the booking menu', icon: LayoutTemplate },
+  { id: 'information', title: 'What Clients See', description: 'Choose which saved business details customers see', icon: UserRound },
+  { id: 'text', title: 'About & Website Text', description: 'Your introduction and bio', icon: Type },
+  { id: 'gallery', title: 'Photos & Gallery', description: 'Logo, profile, cover and shared Portfolio', icon: Images },
+  { id: 'layouts', title: 'Layout & Menu', description: 'Page layout and how your booking menu appears', icon: LayoutTemplate },
   // Fonts are named here on purpose. Each style preset now carries its own
   // display typeface, and "the look you chose during setup" gave an owner
   // looking for their fonts nothing to aim at.
   { id: 'appearance', title: 'Style & Colours', description: 'Fonts, colours and overall look', icon: Palette },
-  { id: 'information', title: 'Business Info Display', description: 'Choose which saved business details customers see', icon: UserRound },
-  { id: 'text', title: 'About & Website Text', description: 'Your introduction and bio', icon: Type },
-  { id: 'gallery', title: 'Photos & Gallery', description: 'Logo, profile, cover and shared Portfolio', icon: Images },
   { id: 'policies', title: 'Policies Display', description: 'Show policies and open their canonical editor', icon: ShieldCheck },
-  { id: 'experience', title: 'Public Booking Experience', description: 'Booking message, social links and confirmation text', icon: MessageSquare },
+  { id: 'experience', title: 'Booking Messages & Social Links', description: 'Booking message, social links and confirmation text', icon: MessageSquare },
   { id: 'publish', title: 'Preview & Publish', description: 'Preview the draft, publish changes or view the live site', icon: Check },
 ] as const;
 
