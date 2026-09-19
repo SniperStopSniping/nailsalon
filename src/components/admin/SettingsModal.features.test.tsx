@@ -113,7 +113,7 @@ function mockEndpoints(entitled: Partial<Record<string, boolean>>) {
 async function openFeaturesView() {
   render(<SettingsModal initialView="features" leafOnly onClose={vi.fn()} salonSlug="salon-b" userName="Daniela" />);
 
-  return screen.findByText('Modules');
+  return screen.findByRole('heading', { name: 'Optional Features', level: 1 });
 }
 
 describe('SettingsModal — Features view entitlement states', () => {
