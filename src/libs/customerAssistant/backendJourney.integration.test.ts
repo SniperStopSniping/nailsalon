@@ -168,7 +168,7 @@ async function bridge(url: URL, method: string, body: string | null): Promise<Re
   beforeEach(async () => {
     vi.clearAllMocks();
     vi.spyOn(console, 'warn').mockImplementation(() => {});
-    model.createResponse.mockResolvedValue({ status: 'completed', usage: { inputTokens: 1, outputTokens: 1, cachedInputTokens: 0, cacheWriteInputTokens: 0 }, items: [{ type: 'message', text: JSON.stringify({ action: 'propose', serviceId: SERVICE, addOns: [], question: 'details', optionIds: [], datePreference: null }) }] });
+    model.createResponse.mockResolvedValue({ status: 'completed', usage: { inputTokens: 1, outputTokens: 1, cachedInputTokens: 0, cacheWriteInputTokens: 0 }, items: [{ type: 'message', text: JSON.stringify({ factUpdates: { schemaVersion: 1, treatment: null, desiredApplication: null, maintenance: null, length: null, french: null, existingProduct: null, origin: null, removal: null, repairCount: null }, action: 'propose', serviceId: SERVICE, addOns: [], question: 'details', optionIds: [], datePreference: null }) }] });
     await database.delete(schema.communicationConsentSchema).where(eq(schema.communicationConsentSchema.salonId, SALON));
     await database.delete(schema.customerBookingOperationSchema).where(eq(schema.customerBookingOperationSchema.salonId, SALON));
     await database.delete(schema.appointmentDepositSchema).where(eq(schema.appointmentDepositSchema.salonId, SALON));
@@ -198,7 +198,7 @@ async function bridge(url: URL, method: string, body: string | null): Promise<Re
     const expected = l1
       ? { subtotalCents: 6000, durationMinutes: 60, addOnIds: [L1_AUTO, L1_OPTIONAL] }
       : { subtotalCents: 6500, durationMinutes: 60, addOnIds: [] as string[] };
-    model.createResponse.mockResolvedValue({ status: 'completed', usage: { inputTokens: 1, outputTokens: 1, cachedInputTokens: 0, cacheWriteInputTokens: 0 }, items: [{ type: 'message', text: JSON.stringify({ action: 'propose', serviceId, addOns: requestedAddOns, question: 'details', optionIds: [], datePreference: null }) }] });
+    model.createResponse.mockResolvedValue({ status: 'completed', usage: { inputTokens: 1, outputTokens: 1, cachedInputTokens: 0, cacheWriteInputTokens: 0 }, items: [{ type: 'message', text: JSON.stringify({ factUpdates: { schemaVersion: 1, treatment: null, desiredApplication: null, maintenance: null, length: null, french: null, existingProduct: null, origin: null, removal: null, repairCount: null }, action: 'propose', serviceId, addOns: requestedAddOns, question: 'details', optionIds: [], datePreference: null }) }] });
     browser = await (engine === 'chromium' ? chromium : webkit).launch();
     const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
     const unexpected: string[] = [];

@@ -16,10 +16,11 @@ import { fileURLToPath } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const require = createRequire(import.meta.url);
+const { ModelProviderError } = require('../src/libs/ai/provider') as typeof import('../src/libs/ai/provider');
 const { createOpenAiResponsesProvider } = require('../src/libs/ai/openaiResponses.server') as typeof import('../src/libs/ai/openaiResponses.server');
 const { CUSTOMER_INTERPRETATION_JSON_SCHEMA, CUSTOMER_INTERPRETATION_PROMPT, customerInterpretationSchema } = require('../src/libs/customerAssistant/interpretation') as typeof import('../src/libs/customerAssistant/interpretation');
 const { SEMANTIC_EVAL_CASES, SEMANTIC_L1_MENU, candidateForSemanticSelection, matchesExpectedSemanticSelection, resolveSyntheticSemanticFixture } = require('../src/libs/customerAssistant/__evals__/semanticCases') as typeof import('../src/libs/customerAssistant/__evals__/semanticCases');
-const { emptyFacts, mergeFacts } = require('../src/libs/customerAssistant/semanticFacts') as typeof import('../src/libs/customerAssistant/semanticFacts');
+const { emptyFacts, hasKnownClarificationAnswer, mergeFacts } = require('../src/libs/customerAssistant/semanticFacts') as typeof import('../src/libs/customerAssistant/semanticFacts');
 const { resolveSemanticSelection } = require('../src/libs/customerAssistant/semanticSelection') as typeof import('../src/libs/customerAssistant/semanticSelection');
 
 const model = 'gpt-5.6-luna';
@@ -88,10 +89,6 @@ function reservationFor(input: string): number {
   return Math.ceil(((Buffer.byteLength(CUSTOMER_INTERPRETATION_PROMPT + input + JSON.stringify(CUSTOMER_INTERPRETATION_JSON_SCHEMA), 'utf8') + 4_096) * 250_000 + maxOutputTokens * outputMicrosPerMillion) / 1_000_000);
 }
 
-function hasKnownFacts(facts: import('../src/libs/customerAssistant/semanticFacts').Facts): boolean {
-  return JSON.stringify(facts) !== JSON.stringify(emptyFacts());
-}
-
 function expectedPatch(expected: Record<string, unknown>): import('../src/libs/customerAssistant/semanticFacts').Patch {
   return {
     schemaVersion: 1,
@@ -126,6 +123,7 @@ async function main(): Promise<void> {
   const results: Array<Record<string, unknown>> = [];
   let reservedMicros = 0;
   let stopped = false;
+  let stoppedOnCritical = false;
   for (const testCase of SEMANTIC_EVAL_CASES) {
     let facts = emptyFacts();
     let goldenFacts = emptyFacts();
@@ -169,7 +167,7 @@ async function main(): Promise<void> {
         const intent = customerInterpretationSchema.parse(JSON.parse(text));
         facts = mergeFacts(facts, intent.factUpdates);
         const shouldResolveService = intent.action === 'propose'
-          || (intent.action === 'clarify' && intent.question !== 'date' && hasKnownFacts(facts));
+          || (intent.action === 'clarify' && hasKnownClarificationAnswer(intent.question, facts));
         const semantic = shouldResolveService
           ? resolveSemanticSelection({
             menu: SEMANTIC_L1_MENU,
@@ -217,10 +215,13 @@ async function main(): Promise<void> {
           lastShown = { question: resolved.question, options: semantic.kind === 'clarification' ? semantic.optionIds : [], selection: null };
         }
         if (critical) {
+          stoppedOnCritical = true;
           stopped = true;
         }
-      } catch {
-        results.push({ caseId: testCase.id, turn: turnIndex + 1, status: 'failed', category: 'invalid_model_response' satisfies SafeCategory, latencyMs: Math.round(performance.now() - started) });
+      } catch (error) {
+        const providerFailure = error instanceof ModelProviderError;
+        results.push({ caseId: testCase.id, turn: turnIndex + 1, status: 'failed', category: providerFailure ? 'provider_failure' : 'invalid_model_response', providerStatus: providerFailure ? error.status : undefined, latencyMs: Math.round(performance.now() - started) });
+        stopped = true;
       }
     }
   }
@@ -232,7 +233,7 @@ async function main(): Promise<void> {
     promptSha256: createHash('sha256').update(CUSTOMER_INTERPRETATION_PROMPT).digest('hex'),
     fixtureSha256: createHash('sha256').update(JSON.stringify(SEMANTIC_EVAL_CASES)).digest('hex'),
     limits: { maxOutputTokens, timeoutMs, maxSpendMicros, reservedMicros },
-    summary: { dispatched: results.filter(result => result.status !== 'not_run').length, passed: results.filter(result => result.status === 'passed').length, stoppedOnCritical: stopped, providerReportedCostMicros: results.reduce((sum, result) => sum + (typeof result.costMicros === 'number' ? result.costMicros : 0), 0) },
+    summary: { dispatched: results.filter(result => result.status !== 'not_run').length, passed: results.filter(result => result.status === 'passed').length, stoppedOnCritical, providerReportedCostMicros: results.reduce((sum, result) => sum + (typeof result.costMicros === 'number' ? result.costMicros : 0), 0) },
     results,
   };
   const output = path.resolve(root, options.out ?? 'artifacts/customer-assistant/semantic-evaluation');

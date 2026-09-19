@@ -60,7 +60,7 @@ export type CustomerAssistantResult =
   | { kind: 'date_prompt'; proposal: CustomerProposal; today: string; timeZone: string }
   | { kind: 'slots'; proposal: CustomerProposal; preference: CustomerDatePreference; timeZone: string; slots: CustomerAvailableSlot[]; checkedAt: string; slotDisappeared?: boolean }
   | { kind: 'slot_selected'; proposal: CustomerProposal; preference: CustomerDatePreference; timeZone: string; slot: CustomerAvailableSlot }
-  | { kind: 'clarification'; question: 'service' | 'removal' | 'length' | 'finish' | 'quantity' | 'details' | 'date'; options: string[] }
+  | { kind: 'clarification'; question: 'service' | 'removal' | 'product' | 'origin' | 'length' | 'finish' | 'quantity' | 'details' | 'date'; options: string[] }
   | { kind: 'unavailable'; reason: 'no_match' | 'unavailable' | 'rate_limited' | 'conversation_used' | 'selection_changed' | 'invalid_conversation' };
 
 export type CustomerAssistantResponse = { conversation: string; result: CustomerAssistantResult };

@@ -49,6 +49,8 @@ export const customerAssistantCopy: Record<CustomerAssistantLocale, CustomerAssi
       date: 'What day works for you?',
       service: 'Which service are you looking for?',
       removal: 'Do you need a removal?',
+      product: 'What product is currently on your nails?',
+      origin: 'Was your existing set done here or at another salon?',
       length: 'What length would you like?',
       finish: 'Which finish would you like?',
       quantity: 'How many would you like?',
@@ -84,6 +86,8 @@ export const customerAssistantCopy: Record<CustomerAssistantLocale, CustomerAssi
     subtotal: 'Sous-total',
     subtotalNote: 'Avant les taxes et les rabais conditionnels.',
     questions: {
+      product: 'Quel produit avez-vous actuellement sur les ongles ?',
+      origin: 'Votre pose actuelle a-t-elle été faite ici ou dans un autre salon ?',
       date: 'Quel jour vous convient ?',
       service: 'Quel service recherchez-vous?',
       removal: 'Avez-vous besoin d’un retrait?',

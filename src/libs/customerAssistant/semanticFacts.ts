@@ -60,7 +60,7 @@ export const patchJSONSchema = {
     existingProduct: { type: ['string', 'null'], enum: ['none', 'gel_polish', 'builder_gel', 'gel_x', 'acrylic', 'unknown', null] },
     origin: { type: ['string', 'null'], enum: ['this_salon', 'other_salon', 'unknown', null] },
     removal: { type: ['string', 'null'], enum: ['yes', 'no', 'unknown', null] },
-    repairCount: { anyOf: [{ type: 'integer', minimum: 0, maximum: 20 }, { const: 'unknown' }, { type: 'null' }] },
+    repairCount: { anyOf: [{ type: 'integer', minimum: 0, maximum: 20 }, { type: 'string', const: 'unknown' }, { type: 'null' }] },
   },
 } as const;
 
@@ -95,4 +95,16 @@ export function mergeFacts(previous: Facts, patch: Patch): Facts {
     removal: next.removal ?? current.removal,
     repairCount: next.repairCount ?? current.repairCount,
   });
+}
+
+/** Only these bounded facts can make a clarification demonstrably redundant. */
+export function hasKnownClarificationAnswer(question: string, facts: Facts): boolean {
+  switch (question) {
+    case 'length': return facts.length !== 'unknown';
+    case 'quantity': return facts.repairCount !== 'unknown';
+    case 'removal': return facts.removal !== 'unknown';
+    case 'product': return facts.existingProduct !== 'unknown';
+    case 'origin': return facts.origin !== 'unknown';
+    default: return false;
+  }
 }

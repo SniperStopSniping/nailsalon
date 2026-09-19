@@ -26,9 +26,9 @@ function patchFor(expected: Record<string, unknown>): Patch {
 
 describe('customer semantic evaluation cases', () => {
   it('keeps synthetic salon identity and covers critical semantic categories', () => {
-    expect(SEMANTIC_EVAL_CASES).toHaveLength(23);
+    expect(SEMANTIC_EVAL_CASES).toHaveLength(28);
     expect(SEMANTIC_EVAL_CASES.every(testCase => testCase.trustedBookingSalon.slug.startsWith('synthetic-'))).toBe(true);
-    expect(SEMANTIC_EVAL_CASES.map(testCase => testCase.id)).toEqual(expect.arrayContaining(['gelx-removal-other-salon', 'gelx-fill-here', 'gel-manicure-french-original-smoke', 'couple-repairs', 'length-correction', 'unsupported-acrylic']));
+    expect(SEMANTIC_EVAL_CASES.map(testCase => testCase.id)).toEqual(expect.arrayContaining(['gelx-exact-pilot-regression', 'gelx-removal-other-salon', 'gelx-fill-here', 'gel-manicure-french-original-smoke', 'couple-repairs', 'length-correction', 'unsupported-acrylic']));
   });
 
   it('keeps each clarification distinguishable from a critical proposal failure', () => {
@@ -52,7 +52,9 @@ describe('customer semantic evaluation cases', () => {
           expect(result.kind, `${testCase.id}: ${turn.message}`).toBe('proposal');
           expect(matchesExpectedSemanticSelection(result, turn.expectedSelection, facts), testCase.id).toBe(true);
         } else if (turn.expectedAction === 'clarify') {
-          expect(result.kind, `${testCase.id}: ${turn.message}`).toBe('clarification');
+          // Missing required L1 choices are rejected by quote authority; the turn
+          // handler must preserve the model's genuine clarification instead.
+          expect(['clarification', 'invalid'], `${testCase.id}: ${turn.message}`).toContain(result.kind);
         } else {
           // The fact mapper has no public acrylic service to bind, so it can
           // only return a safe clarification. The real-model scorer still

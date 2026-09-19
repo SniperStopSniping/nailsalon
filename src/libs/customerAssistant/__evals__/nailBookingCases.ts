@@ -29,7 +29,7 @@ export type NailInterpretation = {
   action: 'propose' | 'clarify' | 'availability' | 'no_match';
   serviceId: string | null;
   addOns: Array<{ addOnId: string; quantity: number }>;
-  question: 'service' | 'removal' | 'length' | 'finish' | 'quantity' | 'details' | 'date';
+  question: 'service' | 'removal' | 'product' | 'origin' | 'length' | 'finish' | 'quantity' | 'details' | 'date';
   optionIds: string[];
   datePreference: { date: string; earliest: string; latest: string } | null;
 };

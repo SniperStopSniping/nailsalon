@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { CUSTOMER_INTERPRETATION_JSON_SCHEMA, customerInterpretationSchema } from './interpretation';
 
 const gelFrench = {
+  factUpdates: { schemaVersion: 1, treatment: null, desiredApplication: null, maintenance: null, length: null, french: null, existingProduct: null, origin: null, removal: null, repairCount: null },
   action: 'propose',
   serviceId: 'svc_synthetic_gel-manicure',
   addOns: [{ addOnId: 'addon_synthetic_french-tips', quantity: 1 }],
