@@ -439,8 +439,11 @@ jobs:
               # Inert review-automation policy and durable trigger contract;
               # no appointment scan, delivery, or activation behavior.
               migrations/0081_review_request_automation_contract.sql) ;;
+              # Reviewed nullable review contract, retaining lifetime indexes.
+              migrations/0082_review_request_nullable_contract.sql) ;;
               migrations/meta/0079_snapshot.json) ;;
               migrations/meta/0081_snapshot.json) ;;
+              migrations/meta/0082_snapshot.json) ;;
               migrations/meta/_journal.json) ;;
               vercel.json) ;;
               *)
@@ -554,6 +557,7 @@ jobs:
               0080_customer_booking_operation) ;;
               # Inert review-automation policy and durable trigger contract.
               0081_review_request_automation_contract) ;;
+              0082_review_request_nullable_contract) ;;
               *)
                 echo "::error::Unauthorized migration journal entries: $tag"
                 exit 1

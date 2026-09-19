@@ -619,6 +619,12 @@ export async function reviewRequestSendContext(salonId: string, intentId: string
   if (!row?.appointmentId) {
     return null;
   }
+  // Nullable completion is schema preparation only. No existing delivery path
+  // may dispatch an uncompleted request until a future kind-aware producer and
+  // sender branch prove its trigger belongs to this appointment and salon.
+  if (!row.completedAt) {
+    return null;
+  }
   const ctx = await context(db, salonId, row.appointmentId);
   if (row.triggerId) {
     const [trigger] = await db.select().from(reviewRequestTriggerSchema).where(and(

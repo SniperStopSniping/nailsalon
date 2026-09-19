@@ -109,6 +109,22 @@ async function triggerRows(salonId: string) {
 }
 
 describe('review request production', () => {
+  it('keeps the nullable preparation reader closed until kind-aware dispatch is implemented', async () => {
+    const fixture = await seed();
+    const [appointment] = await db.select().from(schema.appointmentSchema).where(eq(schema.appointmentSchema.id, fixture.appointmentId));
+    const { recordCompletedReviewTrigger, materializeCompletedReviewTriggers, reviewRequestSendContext } = await import('./reviewRequests.server');
+    await db.transaction(tx => recordCompletedReviewTrigger(tx, appointment!, completion));
+    await materializeCompletedReviewTriggers({ database: db, now: completion });
+    const [request] = await rows(fixture.salonId);
+
+    expect(request?.triggerId).toBeTruthy();
+    expect(await reviewRequestSendContext(fixture.salonId, request!.intentId)).not.toBeNull();
+
+    await db.update(schema.reviewRequestSchema).set({ completedAt: null }).where(eq(schema.reviewRequestSchema.id, request!.id));
+
+    expect(await reviewRequestSendContext(fixture.salonId, request!.intentId)).toBeNull();
+  });
+
   it('records an idempotent durable completion trigger without allocating a review request', async () => {
     const fixture = await seed();
     const [appointment] = await db.select().from(schema.appointmentSchema)

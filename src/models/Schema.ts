@@ -5254,7 +5254,7 @@ export const reviewRequestSchema = pgTable('review_request', {
   status: text('status').$type<'scheduled' | 'cancelled'>().notNull().default('scheduled'),
   triggerId: text('trigger_id').references(() => reviewRequestTriggerSchema.id),
   intentId: text('intent_id').notNull().unique(),
-  completedAt: timestamp('completed_at', { mode: 'date', withTimezone: true }).notNull(),
+  completedAt: timestamp('completed_at', { mode: 'date', withTimezone: true }),
   scheduledFor: timestamp('scheduled_for', { mode: 'date', withTimezone: true }).notNull(),
   cancelledAt: timestamp('cancelled_at', { mode: 'date', withTimezone: true }),
   createdAt: timestamp('created_at', { mode: 'date', withTimezone: true }).notNull().defaultNow(),
@@ -5263,4 +5263,8 @@ export const reviewRequestSchema = pgTable('review_request', {
   clientOnce: uniqueIndex('review_request_client_once').on(table.salonId, table.clientId).where(sql`${table.status} <> 'cancelled'`),
   phoneOnce: uniqueIndex('review_request_phone_once').on(table.salonId, table.recipient).where(sql`${table.status} <> 'cancelled'`),
   triggerOnce: uniqueIndex('review_request_trigger_once').on(table.triggerId),
+  appointmentActiveOnce: uniqueIndex('review_request_appointment_active_once').on(table.salonId, table.appointmentId).where(sql`${table.status} <> 'cancelled' and ${table.appointmentId} is not null`),
+  salonClientCreated: index('review_request_salon_client_created_idx').on(table.salonId, table.clientId, table.createdAt),
+  salonRecipientCreated: index('review_request_salon_recipient_created_idx').on(table.salonId, table.recipient, table.createdAt),
+  completedOrTriggered: check('review_request_completed_or_triggered', sql`${table.completedAt} is not null or ${table.triggerId} is not null`),
 }));

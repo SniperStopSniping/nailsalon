@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import path from 'node:path';
 
 import { PGlite } from '@electric-sql/pglite';
@@ -170,7 +171,7 @@ describe('migration 0081 — review request automation contract', () => {
     );
   });
 
-  it('retains the legacy review-request uniqueness and completion constraints', async () => {
+  it('makes completion nullable only for trigger-backed records while retaining legacy indexes', async () => {
     const result = await db.execute(sql`
       select is_nullable
       from information_schema.columns
@@ -187,11 +188,56 @@ describe('migration 0081 — review request automation contract', () => {
     `);
     const names = (indexes as unknown as { rows?: { indexname: string }[] }).rows?.map(row => row.indexname) ?? [];
 
-    expect(completedAt).toEqual([{ is_nullable: 'NO' }]);
+    expect(completedAt).toEqual([{ is_nullable: 'YES' }]);
     expect(names).toEqual(expect.arrayContaining([
       'review_request_client_once',
       'review_request_phone_once',
+      'review_request_appointment_active_once',
+      'review_request_salon_client_created_idx',
+      'review_request_salon_recipient_created_idx',
     ]));
+
+    await expectSqlState(
+      db.insert(schema.reviewRequestSchema).values({
+        id: 'review_automation_schema_unanchored_request',
+        salonId: SALON_ID,
+        clientId: 'review_automation_schema_unanchored_client',
+        recipient: '+14165550177',
+        source: 'automatic',
+        intentId: 'review_automation_schema_unanchored_intent',
+        scheduledFor: new Date('2026-09-19T16:00:00Z'),
+      }),
+      CHECK_VIOLATION,
+    );
+
+    const appointmentId = 'review_automation_schema_active_appointment';
+    await db.insert(schema.reviewRequestTriggerSchema).values({ ...triggerValues('review_automation_schema_active_trigger_one'), appointmentId });
+    await db.insert(schema.reviewRequestTriggerSchema).values({ ...triggerValues('review_automation_schema_active_trigger_two'), appointmentId, appointmentStartAt: new Date('2026-09-19T13:00:00Z') });
+    await db.insert(schema.reviewRequestSchema).values({
+      id: 'review_automation_schema_active_request_one',
+      salonId: SALON_ID,
+      clientId: 'review_automation_schema_active_client_one',
+      appointmentId,
+      recipient: '+14165550171',
+      source: 'automatic',
+      triggerId: 'review_automation_schema_active_trigger_one',
+      intentId: 'review_automation_schema_active_intent_one',
+      scheduledFor: new Date('2026-09-19T16:00:00Z'),
+    });
+    await expectSqlState(
+      db.insert(schema.reviewRequestSchema).values({
+        id: 'review_automation_schema_active_request_two',
+        salonId: SALON_ID,
+        clientId: 'review_automation_schema_active_client_two',
+        appointmentId,
+        recipient: '+14165550172',
+        source: 'automatic',
+        triggerId: 'review_automation_schema_active_trigger_two',
+        intentId: 'review_automation_schema_active_intent_two',
+        scheduledFor: new Date('2026-09-19T16:00:00Z'),
+      }),
+      UNIQUE_VIOLATION,
+    );
   });
 
   it('requires its durable review record to be removed before its trigger', async () => {
@@ -218,5 +264,26 @@ describe('migration 0081 — review request automation contract', () => {
         .where(sql`${schema.reviewRequestTriggerSchema.id} = ${triggerId}`),
       FOREIGN_KEY_VIOLATION,
     );
+  });
+
+  it('preflight rejects duplicate pre-existing active appointment history without rewriting it', async () => {
+    await db.execute(sql`drop index review_request_appointment_active_once`);
+    const appointmentId = 'review_automation_schema_preflight_duplicate';
+    await db.insert(schema.reviewRequestTriggerSchema).values({ ...triggerValues('review_automation_schema_preflight_trigger_one'), appointmentId });
+    await db.insert(schema.reviewRequestTriggerSchema).values({ ...triggerValues('review_automation_schema_preflight_trigger_two'), appointmentId, appointmentStartAt: new Date('2026-09-19T12:00:00Z') });
+    await db.insert(schema.reviewRequestSchema).values([
+      { id: 'review_automation_schema_preflight_request_one', salonId: SALON_ID, clientId: 'review_automation_schema_preflight_client_one', appointmentId, recipient: '+14165550181', source: 'automatic', triggerId: 'review_automation_schema_preflight_trigger_one', intentId: 'review_automation_schema_preflight_intent_one', completedAt: new Date('2026-09-19T15:00:00Z'), scheduledFor: new Date('2026-09-19T16:00:00Z') },
+      { id: 'review_automation_schema_preflight_request_two', salonId: SALON_ID, clientId: 'review_automation_schema_preflight_client_two', appointmentId, recipient: '+14165550182', source: 'automatic', triggerId: 'review_automation_schema_preflight_trigger_two', intentId: 'review_automation_schema_preflight_intent_two', completedAt: new Date('2026-09-19T15:00:00Z'), scheduledFor: new Date('2026-09-19T16:00:00Z') },
+    ]);
+    const before = await db.select().from(schema.reviewRequestSchema).where(sql`${schema.reviewRequestSchema.appointmentId} = ${appointmentId}`).orderBy(schema.reviewRequestSchema.id);
+    const migration = readFileSync(path.join(process.cwd(), 'migrations/0082_review_request_nullable_contract.sql'), 'utf8');
+    const preflight = migration.match(/DO \$\$[\s\S]*?END \$\$;/)?.[0];
+
+    expect(preflight).toBeDefined();
+    await expect(db.execute(sql.raw(preflight!))).rejects.toThrow();
+
+    const after = await db.select().from(schema.reviewRequestSchema).where(sql`${schema.reviewRequestSchema.appointmentId} = ${appointmentId}`).orderBy(schema.reviewRequestSchema.id);
+
+    expect(after).toEqual(before);
   });
 });
