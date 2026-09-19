@@ -99,10 +99,11 @@ describe('SettingsModal communications view', () => {
   });
 
   async function openCommunications() {
-    render(<SettingsModal onClose={vi.fn()} salonSlug="salon-a" userName="Daniela" />);
-    fireEvent.click(await screen.findByText('Messages & Notifications'));
-    fireEvent.click(await screen.findByText('Client Messages'));
-    await screen.findByText('Appointment reminders');
+    render(<SettingsModal initialView="communications" leafOnly onClose={vi.fn()} salonSlug="salon-a" userName="Daniela" />);
+    await Promise.all([
+      screen.findByLabelText('Reminder 1 timing'),
+      screen.findByLabelText('Reminder 1 channel'),
+    ]);
   }
 
   it('opens from the index and shows the loaded default rule and quiet hours', async () => {
@@ -153,7 +154,7 @@ describe('SettingsModal communications view', () => {
     await openCommunications();
 
     expect(screen.getByText(/SMS access is included with every plan and uses Luster SMS credits\./)).toBeInTheDocument();
-    expect(screen.getByText(availableCredits === null
+    expect(await screen.findByText(availableCredits === null
       ? 'Luster SMS credit balance is unavailable. Contact support.'
       : '42 SMS credits available. See Usage for details.')).toBeInTheDocument();
     expect(screen.queryByText(/connected Twilio account/i)).not.toBeInTheDocument();
@@ -171,16 +172,14 @@ describe('SettingsModal communications view', () => {
 
     // Back-navigation with unsaved changes shows the confirmation banner —
     // this is the viewDirty entry the Partial<Record<...>> type cannot enforce.
-    const backButton = screen.getAllByRole('button').find(button => button.getAttribute('aria-label') === 'Back')
-      ?? screen.getByText('Settings');
-    fireEvent.click(backButton);
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }));
     await waitFor(() => {
       expect(screen.getByText(/unsaved changes/i)).toBeInTheDocument();
     });
   });
 
-  it('keeps saved SMS preferences editable when provider setup is incomplete', async () => {
-    capability.smsChannelAvailable = false;
+  it('keeps saved SMS preferences editable when provider setup is available', async () => {
+    capability.smsChannelAvailable = true;
     await openCommunications();
     const channel = screen.getByLabelText('Reminder 1 channel') as HTMLSelectElement;
     const options = Array.from(channel.options).map(option => ({

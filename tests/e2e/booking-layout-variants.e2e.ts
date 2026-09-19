@@ -638,6 +638,29 @@ async function applyBuilderOperationFromPage(
   return JSON.parse(responseText) as BuilderApiState;
 }
 
+async function applyBookingMenuLayoutFromPage(
+  page: Page,
+  serviceMenuLayout: ServiceMenuLayout,
+  action: () => Promise<void>,
+): Promise<BuilderApiState> {
+  const responsePromise = page.waitForResponse((response) => {
+    const url = new URL(response.url());
+    return response.request().method() === 'PATCH'
+      && url.pathname === '/api/admin/booking-page';
+  });
+
+  await action();
+
+  const response = await responsePromise;
+  const responseText = await response.text();
+
+  expect(response.ok(), responseText).toBe(true);
+  expect(response.request().postDataJSON()).toEqual({ config: { serviceMenuLayout } });
+  await expect(page.locator('div[role="status"][aria-live="polite"]')).toHaveText('Saved');
+
+  return JSON.parse(responseText) as BuilderApiState;
+}
+
 async function fetchBuilderApiState(
   page: Page,
 ): Promise<BuilderApiState> {
@@ -2259,7 +2282,7 @@ test('Production-split DRAFT Signature / LIVE Quick Book previews stay visible, 
         const exerciseViewOnlyInput = testInfo.project.name === 'mobile-webkit'
           || scenario === OWNER_PREVIEW_VIEWPORT_SCENARIOS[0];
         const response = await page.goto(
-          `${appPath('/admin/booking-page')}?salon=${encodeURIComponent(SYNTHETIC_SALON_SLUG)}&ownerPreviewEvidence=${encodeURIComponent(scenario.label)}`,
+          `${appPath('/admin/booking-page')}?salon=${encodeURIComponent(SYNTHETIC_SALON_SLUG)}&panel=layouts&ownerPreviewEvidence=${encodeURIComponent(scenario.label)}`,
           { waitUntil: 'domcontentloaded' },
         );
 
@@ -2902,7 +2925,7 @@ test('scriptless embedded and dialog previews remain visible across mobile and z
 
         const page = await context.newPage();
         const response = await page.goto(
-          `${appPath('/admin/booking-page')}?salon=${encodeURIComponent(SYNTHETIC_SALON_SLUG)}&ownerPreviewEvidence=${encodeURIComponent(scenario.label)}`,
+          `${appPath('/admin/booking-page')}?salon=${encodeURIComponent(SYNTHETIC_SALON_SLUG)}&panel=layouts&ownerPreviewEvidence=${encodeURIComponent(scenario.label)}`,
           { waitUntil: 'domcontentloaded' },
         );
 
@@ -3120,7 +3143,8 @@ test('unpublished non-free-solo owner previews survive separate layout and salon
         return result.rows[0]!;
       }
 
-      const response = await builder.goto(appPath('/admin/booking-page'), { waitUntil: 'domcontentloaded' });
+      const layoutsPath = `${appPath('/admin/booking-page')}?salon=${encodeURIComponent(SYNTHETIC_SALON_SLUG)}&panel=layouts`;
+      const response = await builder.goto(layoutsPath, { waitUntil: 'domcontentloaded' });
 
       expect(response?.status()).toBe(200);
       await expect(builder.getByTestId('salon-publish-banner')).toBeVisible();
@@ -3172,6 +3196,7 @@ test('unpublished non-free-solo owner previews survive separate layout and salon
       await expect(fullPreview.getByTestId(`service-card-${e2eConfig.serviceId}`)).toBeVisible();
 
       const sourceBeforeSalonPublish = await iframe.getAttribute('src');
+
       const [salonPublish] = await Promise.all([
         builder.waitForResponse(result => new URL(result.url()).pathname === '/api/admin/salon/publish'
           && result.request().method() === 'POST'),
@@ -3354,8 +3379,10 @@ test('owner preset draft, full-page preview, publish, and fresh public state sta
       });
 
       const builderPage = await ownerContext.newPage();
+      // Omit the salon query so bootstrap reads the intercepted account data,
+      // including its deliberately cross-host public booking URL.
       const builderResponse = await builderPage.goto(
-        `${appPath('/admin/booking-page')}?ownerPublishEvidence=1`,
+        `${appPath('/admin/booking-page')}?panel=layouts&ownerPublishEvidence=1`,
         { waitUntil: 'domcontentloaded' },
       );
 
@@ -3504,6 +3531,13 @@ test('owner preset draft, full-page preview, publish, and fresh public state sta
           await unpublishedContext.close();
         }
 
+        const publishResponse = await builderPage.goto(
+          `${appPath('/admin/booking-page')}?salon=${encodeURIComponent(SYNTHETIC_SALON_SLUG)}&panel=publish&ownerPublishEvidence=1`,
+          { waitUntil: 'domcontentloaded' },
+        );
+
+        expect(publishResponse?.ok(), await publishResponse?.text()).toBe(true);
+
         await builderPage.getByTestId('booking-page-publish').click();
 
         await expect(builderPage.getByText(
@@ -3525,6 +3559,11 @@ test('owner preset draft, full-page preview, publish, and fresh public state sta
           live: appliedState.config.draft,
           livePresetBase: appliedState.config.draftPresetBase,
         });
+
+        await builderPage.goto(
+          `${appPath('/admin/booking-page')}?salon=${encodeURIComponent(SYNTHETIC_SALON_SLUG)}&panel=layouts&ownerPublishEvidence=1`,
+          { waitUntil: 'domcontentloaded' },
+        );
 
         const publishedContext = await browser.newContext({
           baseURL,
@@ -3783,7 +3822,7 @@ test('sparse Signature and Quick Book may converge visibly while every preview s
 
       const builderPage = await ownerContext.newPage();
       const builderResponse = await builderPage.goto(
-        `${appPath('/admin/booking-page')}?salon=${encodeURIComponent(SYNTHETIC_SALON_SLUG)}&sparsePresetEvidence=1`,
+        `${appPath('/admin/booking-page')}?salon=${encodeURIComponent(SYNTHETIC_SALON_SLUG)}&panel=layouts&sparsePresetEvidence=1`,
         { waitUntil: 'domcontentloaded' },
       );
 
@@ -4172,7 +4211,7 @@ test('Stage 7 owner preset confirmation updates only the real draft preview and 
         });
 
         const response = await page.goto(
-          `${appPath('/admin/booking-page')}?salon=${encodeURIComponent(SYNTHETIC_SALON_SLUG)}&stage7Evidence=${encodeURIComponent(scenario.label)}`,
+          `${appPath('/admin/booking-page')}?salon=${encodeURIComponent(SYNTHETIC_SALON_SLUG)}&panel=layouts&stage7Evidence=${encodeURIComponent(scenario.label)}`,
           { waitUntil: 'domcontentloaded' },
         );
 
@@ -4435,19 +4474,20 @@ test('Stage 7 owner preset confirmation updates only the real draft preview and 
           'Policies moved to position 3 of 4 movable sections.',
         );
 
-        const groupedOperation = {
-          type: 'set_variant',
-          sectionId: 'serviceMenu',
-          variant: 'grouped_categories',
-        } as const;
-
-        const groupedState = await applyBuilderOperationFromPage(
+        const bookingMenuLayout = page.getByRole('group', { name: 'Booking menu layout' });
+        const categoryMenu = bookingMenuLayout.getByRole('button', { name: /^Category Menu/ });
+        const groupedState = await applyBookingMenuLayoutFromPage(
           page,
-          groupedOperation,
-          () => page.getByTestId('builder-variant-serviceMenu').selectOption('grouped_categories'),
+          'category_menu',
+          () => categoryMenu.click(),
         );
 
         expect(groupedState.config.draft.serviceMenuLayout).toBe('category_menu');
+        expect(groupedState.config.draft).toEqual({ ...movedState.config.draft, serviceMenuLayout: 'category_menu' });
+        expect(groupedState.config.draft.sectionVariants).toEqual(movedState.config.draft.sectionVariants);
+        expect(groupedState.config.live).toEqual(livePresentation);
+        expect(groupedState.content).toEqual(canonicalContent);
+        await expect(categoryMenu).toHaveAttribute('aria-pressed', 'true');
         await expect(preview.getByTestId('service-menu-grouped-categories')).toBeVisible();
         await expect(preview.getByTestId('service-menu-list')).toHaveCount(0);
         await expect(preview.locator('h2', { hasText: /^Services$/ })).toHaveCount(1);
@@ -4490,7 +4530,7 @@ test('Stage 7 owner preset confirmation updates only the real draft preview and 
         await expect(page.getByTestId('builder-reset-all')).toBeDisabled();
         expect(resetState.config.draft.serviceMenuLayout).toBe('category_menu');
         await expect(preview.getByTestId('service-menu-grouped-categories')).toBeVisible();
-        await expect(page.getByTestId('builder-variant-serviceMenu')).toHaveValue('grouped_categories');
+        await expect(categoryMenu).toHaveAttribute('aria-pressed', 'true');
         await expect(preview.getByTestId('technician-profile-cards')).toBeVisible();
         await expect(preview.getByTestId('location-cards')).toBeVisible();
 
@@ -4508,6 +4548,8 @@ test('Stage 7 owner preset confirmation updates only the real draft preview and 
         );
 
         expect(resetServicesState.config.draft.serviceMenuLayout).toBe('visual_grid');
+        await expect(bookingMenuLayout.getByRole('button', { name: /^Visual Grid/ }))
+          .toHaveAttribute('aria-pressed', 'true');
         await expect(preview.getByTestId('service-menu-list')).toHaveAttribute('data-booking-menu-layout', 'visual_grid');
         await expect(preview.getByTestId('service-menu-grouped-categories')).toHaveCount(0);
 
@@ -4544,11 +4586,11 @@ test('Stage 7 owner preset confirmation updates only the real draft preview and 
         expect(allowedBuilderPatches).toEqual([
           { builderOperation: applyPresetOperation },
           { builderOperation: moveOperation },
-          { builderOperation: groupedOperation },
+          { config: { serviceMenuLayout: 'category_menu' } },
           { builderOperation: resetOperation },
           { builderOperation: { type: 'reset_section', sectionId: 'serviceMenu' } },
         ]);
-        expect(blockedWrites, 'The owner builder lane must not attempt any non-builder browser mutation.').toEqual([]);
+        expect(blockedWrites, 'The owner layout editor must not attempt any other browser mutation.').toEqual([]);
         expect(externalRequests, 'The owner builder lane must make no unexpected hosted requests.').toEqual([]);
 
         await expectNoHorizontalOverflow(page);

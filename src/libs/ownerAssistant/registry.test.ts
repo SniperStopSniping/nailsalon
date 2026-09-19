@@ -24,6 +24,10 @@ import {
 
 /** Source: `URL_APP_IDS` in src/app/[locale]/admin/page.tsx. */
 const URL_APP_IDS = [
+  'hours',
+  'booking-rules',
+  'plan-usage',
+  'help',
   'bookings',
   'schedule',
   'settings',
@@ -51,13 +55,17 @@ const SETTINGS_VIEW_IDS = [
   'messages',
   'advanced',
   'account',
+  'plan-billing',
   'location',
   'branding',
+  'booking-experience',
+  'legacy-themes',
   'booking',
   'booking-policy',
   'booking-flow',
   'smart-fit',
   'payments',
+  'currency',
   'notifications',
   'communications',
   'review-requests',
@@ -67,12 +75,15 @@ const SETTINGS_VIEW_IDS = [
 
 /** Source: the `panel` allowlist in src/app/[locale]/admin/booking-page/page.tsx. */
 const BOOKING_PAGE_PANEL_IDS = [
+  'business',
   'layouts',
   'appearance',
   'information',
   'text',
   'gallery',
   'policies',
+  'experience',
+  'flow',
   'publish',
 ] as const;
 
@@ -105,7 +116,7 @@ describe('the duplicated allowlists still match their source files', () => {
     }
 
     expect(source).toContain(
-      `['layouts', 'appearance', 'information', 'text', 'gallery', 'policies', 'publish'].includes(`,
+      `['business', 'layouts', 'appearance', 'information', 'text', 'gallery', 'policies', 'experience', 'flow', 'publish'].includes(`,
     );
   });
 });
@@ -129,7 +140,13 @@ describe('every registry target resolves against the shell allowlists', () => {
           // for `permissions`, which is not a Settings view id.
           const allowed = entry.target.app === 'settings'
             ? (SETTINGS_VIEW_IDS as readonly string[])
-            : ['permissions'];
+            : entry.target.app === 'booking-rules'
+              ? ['rules', 'policies']
+              : entry.target.app === 'hours'
+                ? ['working-hours', 'time-off', 'requests']
+                : entry.target.app === 'marketing'
+                  ? ['reviews', 'messages', 'smart-fit']
+                  : entry.target.app === 'plan-usage' ? ['billing', 'usage', 'plans'] : ['permissions'];
 
           expect(allowed).toContain(entry.target.view);
         }
@@ -189,6 +206,8 @@ describe('searchRegistry answers the questions this slice must handle', () => {
     ['upload my logo', 'page_gallery'],
     ['hours', 'business_hours'],
     ['minimum notice', 'booking_rules'],
+    ['address privacy', 'page_information'],
+    ['hide address', 'page_information'],
     ['publish', 'page_publish'],
   ])('%s → %s', (query, expectedKey) => {
     expect(searchRegistry(query)[0]?.key).toBe(expectedKey);
@@ -212,5 +231,24 @@ describe('searchRegistry answers the questions this slice must handle', () => {
   it('is deterministic for the same query', () => {
     expect(searchRegistry('hours').map(entry => entry.key))
       .toEqual(searchRegistry('hours').map(entry => entry.key));
+  });
+});
+
+describe('owner IA stable destination keys', () => {
+  it.each([
+    ['business_hours', 'hours', null],
+    ['booking_rules', 'booking-rules', 'rules'],
+    ['settings_booking_policy', 'booking-rules', 'policies'],
+    ['settings_review_requests', 'marketing', 'reviews'],
+    ['settings_smart_fit', 'marketing', 'smart-fit'],
+    ['settings_communications', 'marketing', 'messages'],
+  ])('resolves %s to its canonical screen without changing the key', (key, app, view) => {
+    const href = buildRegistryHref(key!, { locale: 'fr', salonSlug: 'studio & nails' });
+    const url = new URL(href!, 'https://luster.test');
+
+    expect(url.pathname).toBe('/fr/admin');
+    expect(url.searchParams.get('salon')).toBe('studio & nails');
+    expect(url.searchParams.get('app')).toBe(app);
+    expect(url.searchParams.get('view')).toBe(view);
   });
 });

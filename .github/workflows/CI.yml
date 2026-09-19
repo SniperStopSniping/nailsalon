@@ -743,6 +743,21 @@ jobs:
       - name: Verify dark customer assistant proposal shell in mobile browsers
         run: node node_modules/playwright/cli.js test --config tests/browser/customerAssistant/playwright.config.ts --output=test-results/customer-assistant-components
 
+      - name: Verify owner destinations and Hours in mobile browsers
+        run: node node_modules/playwright/cli.js test --config tests/browser/ownerNavigation/playwright.config.ts --output=test-results/owner-navigation-components
+
+      - name: Verify owner Marketing destinations in mobile browsers
+        run: node node_modules/playwright/cli.js test --config tests/browser/ownerMarketing/playwright.config.ts --output=test-results/owner-marketing-components
+
+      - name: Verify Booking Page business information in mobile browsers
+        run: node node_modules/playwright/cli.js test --config tests/browser/ownerBusinessInformation/playwright.config.ts --output=test-results/owner-business-information-components
+
+      - name: Verify Booking Page experience and flow in mobile browsers
+        run: node node_modules/playwright/cli.js test --config tests/browser/ownerBookingExperience/playwright.config.ts --output=test-results/owner-booking-experience-components
+
+      - name: Verify Settings and Plan destinations in mobile browsers
+        run: node node_modules/playwright/cli.js test --config tests/browser/ownerSettingsPlan/playwright.config.ts --output=test-results/owner-settings-plan-components
+
       - name: Run storybook tests
         run: npm run test-storybook:ci
 

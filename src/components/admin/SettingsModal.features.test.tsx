@@ -111,11 +111,7 @@ function mockEndpoints(entitled: Partial<Record<string, boolean>>) {
 }
 
 async function openFeaturesView() {
-  const user = userEvent.setup();
-  render(<SettingsModal onClose={vi.fn()} salonSlug="salon-b" userName="Daniela" />);
-
-  const row = await screen.findByText('Features');
-  await user.click(row);
+  render(<SettingsModal initialView="features" leafOnly onClose={vi.fn()} salonSlug="salon-b" userName="Daniela" />);
 
   return screen.findByText('Modules');
 }
@@ -208,7 +204,7 @@ describe('SettingsModal — Features view entitlement states', () => {
     await openFeaturesView();
     const user = userEvent.setup();
 
-    await user.click(screen.getByTestId('settings-sms-communications'));
+    await user.click(await screen.findByTestId('settings-sms-communications'));
 
     expect(await screen.findByRole('heading', { name: 'Client communications' })).toBeInTheDocument();
     expect(screen.getByText('100 SMS credits available. See Usage for details.')).toBeInTheDocument();
