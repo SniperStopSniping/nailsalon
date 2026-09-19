@@ -15,6 +15,7 @@ vi.mock('@/libs/DB', () => ({
   get db() {
     return holder.db;
   },
+  usesRuntimePostgres: false,
 }));
 
 let client: PGlite;
@@ -39,6 +40,7 @@ async function seed(input: {
   phone?: string | null;
   googleReviewUrl?: string | null;
   automaticEnabled?: boolean;
+  automationMode?: 'manual' | 'marked_completed' | 'scheduled_end' | null;
   enabledAt?: Date | null;
   suppressed?: boolean;
   clientId?: string;
@@ -90,6 +92,7 @@ async function seed(input: {
     salonId,
     googleReviewUrl: input.googleReviewUrl === undefined ? 'https://g.page/r/luster-review' : input.googleReviewUrl,
     automaticReviewRequests: input.automaticEnabled ?? true,
+    reviewRequestAutomationMode: input.automationMode ?? null,
     reviewRequestsEnabledAt: input.enabledAt === undefined ? new Date('2030-09-01T00:00:00.000Z') : input.enabledAt,
     reviewRequestDelayMinutes: 60,
   });
@@ -100,7 +103,196 @@ async function rows(salonId: string) {
   return db.select().from(schema.reviewRequestSchema).where(eq(schema.reviewRequestSchema.salonId, salonId));
 }
 
+async function triggerRows(salonId: string) {
+  return db.select().from(schema.reviewRequestTriggerSchema)
+    .where(eq(schema.reviewRequestTriggerSchema.salonId, salonId));
+}
+
 describe('review request production', () => {
+  it('keeps the nullable preparation reader closed until kind-aware dispatch is implemented', async () => {
+    const fixture = await seed();
+    const [appointment] = await db.select().from(schema.appointmentSchema).where(eq(schema.appointmentSchema.id, fixture.appointmentId));
+    const { recordCompletedReviewTrigger, materializeCompletedReviewTriggers, reviewRequestSendContext } = await import('./reviewRequests.server');
+    await db.transaction(tx => recordCompletedReviewTrigger(tx, appointment!, completion));
+    await materializeCompletedReviewTriggers({ database: db, now: completion });
+    const [request] = await rows(fixture.salonId);
+
+    expect(request?.triggerId).toBeTruthy();
+    expect(await reviewRequestSendContext(fixture.salonId, request!.intentId)).not.toBeNull();
+
+    await db.update(schema.reviewRequestSchema).set({ completedAt: null }).where(eq(schema.reviewRequestSchema.id, request!.id));
+
+    expect(await reviewRequestSendContext(fixture.salonId, request!.intentId)).toBeNull();
+  });
+
+  it('records an idempotent durable completion trigger without allocating a review request', async () => {
+    const fixture = await seed();
+    const [appointment] = await db.select().from(schema.appointmentSchema)
+      .where(eq(schema.appointmentSchema.id, fixture.appointmentId));
+    const { recordCompletedReviewTrigger } = await import('./reviewRequests.server');
+
+    await db.transaction(tx => recordCompletedReviewTrigger(tx, appointment!, completion));
+    await db.transaction(tx => recordCompletedReviewTrigger(tx, appointment!, completion));
+
+    expect(await rows(fixture.salonId)).toEqual([]);
+    expect(await triggerRows(fixture.salonId)).toMatchObject([{
+      salonId: fixture.salonId,
+      appointmentId: fixture.appointmentId,
+      kind: 'completed',
+      triggerAt: completion,
+      appointmentStartAt: new Date(completion.getTime() - 3_600_000),
+      appointmentEndAt: completion,
+      policyRevision: 0,
+      scheduledFor: new Date('2030-09-12T20:30:00.000Z'),
+      expiresAt: new Date('2030-09-13T20:30:00.000Z'),
+      state: 'pending',
+    }]);
+  });
+
+  it('records no completion trigger for manual or scheduled-end policies', async () => {
+    const manual = await seed({ automaticEnabled: false });
+    const scheduledEnd = await seed({ automationMode: 'scheduled_end' });
+    const { recordCompletedReviewTrigger } = await import('./reviewRequests.server');
+
+    for (const fixture of [manual, scheduledEnd]) {
+      const [appointment] = await db.select().from(schema.appointmentSchema)
+        .where(eq(schema.appointmentSchema.id, fixture.appointmentId));
+      await db.transaction(tx => recordCompletedReviewTrigger(tx, appointment!, completion));
+
+      expect(await triggerRows(fixture.salonId)).toEqual([]);
+    }
+  });
+
+  it('rolls its durable completion trigger back with the enclosing completion transaction', async () => {
+    const fixture = await seed();
+    const [appointment] = await db.select().from(schema.appointmentSchema)
+      .where(eq(schema.appointmentSchema.id, fixture.appointmentId));
+    const { recordCompletedReviewTrigger } = await import('./reviewRequests.server');
+
+    await expect(db.transaction(async (tx) => {
+      await recordCompletedReviewTrigger(tx, appointment!, completion);
+      throw new Error('ROLL_BACK_REVIEW_TRIGGER');
+    })).rejects.toThrow('ROLL_BACK_REVIEW_TRIGGER');
+
+    expect(await triggerRows(fixture.salonId)).toEqual([]);
+  });
+
+  it('materializes a due completion trigger into one existing review request and intent', async () => {
+    const fixture = await seed();
+    const [appointment] = await db.select().from(schema.appointmentSchema)
+      .where(eq(schema.appointmentSchema.id, fixture.appointmentId));
+    const { materializeCompletedReviewTriggers, recordCompletedReviewTrigger } = await import('./reviewRequests.server');
+    await db.transaction(tx => recordCompletedReviewTrigger(tx, appointment!, completion));
+
+    const result = await materializeCompletedReviewTriggers({
+      database: db,
+      now: new Date('2030-09-12T20:30:00.000Z'),
+    });
+
+    expect(result.materialized).toBeGreaterThan(0);
+
+    expect(await triggerRows(fixture.salonId)).toMatchObject([{ state: 'materialized' }]);
+    expect(await rows(fixture.salonId)).toMatchObject([{
+      salonId: fixture.salonId,
+      appointmentId: fixture.appointmentId,
+      source: 'automatic',
+      triggerId: expect.any(String),
+    }]);
+  });
+
+  it('shows this appointment\'s durable pending trigger before the worker creates an intent', async () => {
+    const fixture = await seed();
+    const [appointment] = await db.select().from(schema.appointmentSchema)
+      .where(eq(schema.appointmentSchema.id, fixture.appointmentId));
+    const { getAppointmentReviewState, recordCompletedReviewTrigger } = await import('./reviewRequests.server');
+    await db.transaction(tx => recordCompletedReviewTrigger(tx, appointment!, completion));
+
+    await expect(getAppointmentReviewState(fixture.salonId, fixture.appointmentId)).resolves.toMatchObject({
+      status: 'scheduled',
+      scheduledFor: '2030-09-12T20:30:00.000Z',
+    });
+  });
+
+  it('prefers this appointment\'s manual request over its pending automatic trigger', async () => {
+    const fixture = await seed();
+    const [appointment] = await db.select().from(schema.appointmentSchema)
+      .where(eq(schema.appointmentSchema.id, fixture.appointmentId));
+    const { getAppointmentReviewState, materializeCompletedReviewTriggers, recordCompletedReviewTrigger, scheduleReviewRequest } = await import('./reviewRequests.server');
+    await db.transaction(tx => recordCompletedReviewTrigger(tx, appointment!, completion));
+    await scheduleReviewRequest(db, fixture.salonId, fixture.appointmentId, false);
+
+    const [request] = await rows(fixture.salonId);
+    const [intent] = await db.select().from(schema.communicationIntentSchema)
+      .where(eq(schema.communicationIntentSchema.id, request!.intentId));
+
+    expect(intent!.availableAt.getTime()).toBeLessThan(new Date('2030-09-12T20:30:00.000Z').getTime());
+    expect(request).toMatchObject({ source: 'manual', appointmentId: fixture.appointmentId });
+
+    await materializeCompletedReviewTriggers({ database: db, now: completion });
+    await db.update(schema.communicationIntentSchema).set({ status: 'sent', resolvedAt: completion })
+      .where(eq(schema.communicationIntentSchema.id, intent!.id));
+
+    await expect(getAppointmentReviewState(fixture.salonId, fixture.appointmentId)).resolves.toMatchObject({
+      status: 'sent',
+      sentAt: completion.toISOString(),
+    });
+  });
+
+  it('fails closed before send when a linked trigger appointment snapshot changes', async () => {
+    const fixture = await seed();
+    const [appointment] = await db.select().from(schema.appointmentSchema)
+      .where(eq(schema.appointmentSchema.id, fixture.appointmentId));
+    const { materializeCompletedReviewTriggers, recordCompletedReviewTrigger, reviewRequestSendContext } = await import('./reviewRequests.server');
+    await db.transaction(tx => recordCompletedReviewTrigger(tx, appointment!, completion));
+    await materializeCompletedReviewTriggers({ database: db, now: completion });
+    const [request] = await rows(fixture.salonId);
+
+    await expect(reviewRequestSendContext(fixture.salonId, request!.intentId)).resolves.toEqual(expect.objectContaining({ message: expect.any(String) }));
+
+    await db.update(schema.appointmentSchema).set({ startTime: new Date(completion.getTime() - 7_200_000) })
+      .where(eq(schema.appointmentSchema.id, fixture.appointmentId));
+
+    await expect(reviewRequestSendContext(fixture.salonId, request!.intentId)).resolves.toBeNull();
+  });
+
+  it.each([
+    ['mode', { automaticReviewRequests: true, reviewRequestAutomationMode: 'manual' }],
+    ['activation epoch', { reviewRequestsEnabledAt: new Date('2030-09-13T00:00:00.000Z') }],
+    ['policy revision', { reviewRequestPolicyRevision: 1 }],
+  ] as const)('fails closed before send when linked trigger %s changes', async (_name, update) => {
+    const fixture = await seed();
+    const [appointment] = await db.select().from(schema.appointmentSchema)
+      .where(eq(schema.appointmentSchema.id, fixture.appointmentId));
+    const { materializeCompletedReviewTriggers, recordCompletedReviewTrigger, reviewRequestSendContext } = await import('./reviewRequests.server');
+    await db.transaction(tx => recordCompletedReviewTrigger(tx, appointment!, completion));
+    await materializeCompletedReviewTriggers({ database: db, now: completion });
+    const [request] = await rows(fixture.salonId);
+    await db.update(schema.salonRetentionSettingsSchema).set(update)
+      .where(eq(schema.salonRetentionSettingsSchema.salonId, fixture.salonId));
+
+    await expect(reviewRequestSendContext(fixture.salonId, request!.intentId)).resolves.toBeNull();
+  });
+
+  it('skips an expired completion trigger without refreshing its original due time', async () => {
+    const fixture = await seed();
+    const [appointment] = await db.select().from(schema.appointmentSchema)
+      .where(eq(schema.appointmentSchema.id, fixture.appointmentId));
+    const { materializeCompletedReviewTriggers, recordCompletedReviewTrigger } = await import('./reviewRequests.server');
+    await db.transaction(tx => recordCompletedReviewTrigger(tx, appointment!, completion));
+
+    await materializeCompletedReviewTriggers({
+      database: db,
+      now: new Date('2030-09-13T20:30:00.000Z'),
+    });
+
+    expect(await triggerRows(fixture.salonId)).toMatchObject([{
+      state: 'skipped',
+      reasonCode: 'EXPIRED',
+      scheduledFor: new Date('2030-09-12T20:30:00.000Z'),
+    }]);
+    expect(await rows(fixture.salonId)).toEqual([]);
+  });
+
   it('schedules only a newly qualifying completed appointment from its actual completion time', async () => {
     const fixture = await seed();
     const { scheduleReviewRequest } = await import('./reviewRequests.server');

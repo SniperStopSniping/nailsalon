@@ -1307,8 +1307,8 @@ export async function PATCH(request: Request, props: { params: Promise<{ id: str
       }
       await tx.insert(appointmentAuditLogSchema).values(auditRows);
 
-      const { scheduleReviewRequest } = await import('@/libs/reviewRequests.server');
-      await scheduleReviewRequest(tx, existingAppointment.salonId, appointmentId);
+      const { recordCompletedReviewTrigger } = await import('@/libs/reviewRequests.server');
+      await recordCompletedReviewTrigger(tx, completedAppointment, now);
 
       // NOTE: client stats (visits/spend/points) are recomputed AFTER this
       // transaction commits — see handleSuccessfulCompletion. Doing it here
