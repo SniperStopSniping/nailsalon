@@ -1,7 +1,7 @@
 import path from 'node:path';
 
 import { PGlite } from '@electric-sql/pglite';
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/pglite';
 import { migrate } from 'drizzle-orm/pglite/migrator';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
@@ -107,6 +107,159 @@ async function triggerRows(salonId: string) {
   return db.select().from(schema.reviewRequestTriggerSchema)
     .where(eq(schema.reviewRequestTriggerSchema.salonId, salonId));
 }
+
+async function laterAppointment(fixture: Awaited<ReturnType<typeof seed>>) {
+  const [original] = await db.select().from(schema.appointmentSchema).where(eq(schema.appointmentSchema.id, fixture.appointmentId));
+  const id = `${fixture.appointmentId}-later`;
+  await db.insert(schema.appointmentSchema).values({ ...original!, id });
+  return id;
+}
+
+describe('repeat-review coordinator preparation', () => {
+  it('matches another client identity with the same normalized durable recipient', async () => {
+    const fixture = await seed();
+    const { scheduleReviewRequest, getAppointmentReviewState } = await import('./reviewRequests.server');
+    await scheduleReviewRequest(db, fixture.salonId, fixture.appointmentId, false);
+    const [first] = await rows(fixture.salonId);
+    await db.update(schema.communicationIntentSchema).set({ status: 'send_outcome_unknown' }).where(eq(schema.communicationIntentSchema.id, first!.intentId));
+    const newClientId = `${fixture.clientId}-same-recipient`;
+    await db.insert(schema.salonClientSchema).values({ id: newClientId, salonId: fixture.salonId, fullName: 'Reimported client', phone: `+1${first!.recipient}` });
+    const nextId = await laterAppointment(fixture);
+    await db.update(schema.appointmentSchema).set({ salonClientId: newClientId }).where(eq(schema.appointmentSchema.id, nextId));
+
+    // Inspect the reader before any insert: a database unique constraint alone
+    // cannot satisfy this identity assertion.
+    expect(await getAppointmentReviewState(fixture.salonId, nextId)).toMatchObject({ status: 'sending' });
+  });
+
+  it('does not use another salon\'s durable history for the same recipient', async () => {
+    const firstSalon = await seed();
+    const { scheduleReviewRequest, getAppointmentReviewState } = await import('./reviewRequests.server');
+    await scheduleReviewRequest(db, firstSalon.salonId, firstSalon.appointmentId, false);
+    const [request] = await rows(firstSalon.salonId);
+    const secondSalon = await seed({ phone: request!.recipient });
+
+    expect(await getAppointmentReviewState(secondSalon.salonId, secondSalon.appointmentId)).toMatchObject({ status: 'eligible' });
+
+    await scheduleReviewRequest(db, secondSalon.salonId, secondSalon.appointmentId, false);
+
+    expect(await rows(secondSalon.salonId)).toHaveLength(1);
+    expect(await rows(firstSalon.salonId)).toHaveLength(1);
+  });
+
+  it('retains legacy same-appointment evidence after the booking is reassigned', async () => {
+    const fixture = await seed();
+    const { scheduleReviewRequest } = await import('./reviewRequests.server');
+    await db.insert(schema.clientCommunicationSchema).values({ id: `${fixture.clientId}-legacy`, salonId: fixture.salonId, salonClientId: fixture.clientId, appointmentId: fixture.appointmentId, kind: 'google_review', status: 'converted', markedSentAt: new Date() });
+    const newClientId = `${fixture.clientId}-reassigned`;
+    const phone = '4165559841';
+    await db.insert(schema.salonClientSchema).values({ id: newClientId, salonId: fixture.salonId, fullName: 'Reassigned client', phone });
+    await db.insert(schema.communicationConsentSchema).values({ id: `${newClientId}-consent`, salonId: fixture.salonId, recipient: phone, channel: 'sms', purpose: 'appointment_transactional', status: 'granted', source: 'test', wordingVersion: 'test' });
+    await db.update(schema.appointmentSchema).set({ salonClientId: newClientId, clientPhone: phone }).where(eq(schema.appointmentSchema.id, fixture.appointmentId));
+    await scheduleReviewRequest(db, fixture.salonId, fixture.appointmentId, false);
+
+    expect(await rows(fixture.salonId)).toHaveLength(0);
+  });
+
+  it('allows a later visit after 90 days once the separately gated lifetime indexes are retired', async () => {
+    const fixture = await seed();
+    const { scheduleReviewRequest } = await import('./reviewRequests.server');
+    await scheduleReviewRequest(db, fixture.salonId, fixture.appointmentId, false);
+    const [first] = await rows(fixture.salonId);
+    await db.update(schema.communicationIntentSchema).set({ status: 'sent', resolvedAt: new Date(Date.now() - 91 * 86_400_000) }).where(eq(schema.communicationIntentSchema.id, first!.intentId));
+    await db.update(schema.salonRetentionSettingsSchema).set({ reviewRequestRepeatCooldownDays: 90 }).where(eq(schema.salonRetentionSettingsSchema.salonId, fixture.salonId));
+    const nextId = await laterAppointment(fixture);
+
+    // This isolated transaction proves the future coordinator contract. It
+    // rolls back its index changes; this PR does not retire production indexes.
+    await expect(db.transaction(async (tx) => {
+      await tx.execute(sql`drop index review_request_client_once`);
+      await tx.execute(sql`drop index review_request_phone_once`);
+      await scheduleReviewRequest(tx, fixture.salonId, nextId, false);
+      const requests = await tx.select().from(schema.reviewRequestSchema).where(eq(schema.reviewRequestSchema.salonId, fixture.salonId));
+
+      expect(requests).toHaveLength(2);
+      expect(requests.find(row => row.id === first!.id)).toMatchObject({ status: 'scheduled', appointmentId: fixture.appointmentId });
+
+      throw new Error('ROLL_BACK_FUTURE_INDEX_FIXTURE');
+    })).rejects.toThrow('ROLL_BACK_FUTURE_INDEX_FIXTURE');
+    expect(await rows(fixture.salonId)).toHaveLength(1);
+  });
+
+  it('counts a recent accepted request even if its business row was canceled', async () => {
+    const fixture = await seed();
+    const { scheduleReviewRequest } = await import('./reviewRequests.server');
+    await scheduleReviewRequest(db, fixture.salonId, fixture.appointmentId, false);
+    const [first] = await rows(fixture.salonId);
+    await db.update(schema.communicationIntentSchema).set({ status: 'sent', resolvedAt: new Date() }).where(eq(schema.communicationIntentSchema.id, first!.intentId));
+    await db.update(schema.reviewRequestSchema).set({ status: 'cancelled' }).where(eq(schema.reviewRequestSchema.id, first!.id));
+    await db.update(schema.salonRetentionSettingsSchema).set({ reviewRequestRepeatCooldownDays: 90 }).where(eq(schema.salonRetentionSettingsSchema.salonId, fixture.salonId));
+    await scheduleReviewRequest(db, fixture.salonId, await laterAppointment(fixture), false);
+
+    expect(await rows(fixture.salonId)).toHaveLength(1);
+  });
+
+  it('does not accelerate another appointment when the owner requests this visit manually', async () => {
+    const fixture = await seed();
+    const { scheduleReviewRequest } = await import('./reviewRequests.server');
+    await scheduleReviewRequest(db, fixture.salonId, fixture.appointmentId);
+    const [first] = await rows(fixture.salonId);
+    const [before] = await db.select().from(schema.communicationIntentSchema).where(eq(schema.communicationIntentSchema.id, first!.intentId));
+    await scheduleReviewRequest(db, fixture.salonId, await laterAppointment(fixture), false);
+    const [after] = await db.select().from(schema.communicationIntentSchema).where(eq(schema.communicationIntentSchema.id, first!.intentId));
+
+    expect(after!.availableAt).toEqual(before!.availableAt);
+    expect(await rows(fixture.salonId)).toHaveLength(1);
+  });
+
+  it('does not accelerate the former recipient after an appointment is reassigned', async () => {
+    const fixture = await seed();
+    const { scheduleReviewRequest } = await import('./reviewRequests.server');
+    await scheduleReviewRequest(db, fixture.salonId, fixture.appointmentId);
+    const [first] = await rows(fixture.salonId);
+    const [before] = await db.select().from(schema.communicationIntentSchema).where(eq(schema.communicationIntentSchema.id, first!.intentId));
+    const newClientId = `${fixture.clientId}-replacement`;
+    const phone = '4165559876';
+    await db.insert(schema.salonClientSchema).values({ id: newClientId, salonId: fixture.salonId, fullName: 'Different client', phone });
+    await db.insert(schema.communicationConsentSchema).values({ id: `${newClientId}-consent`, salonId: fixture.salonId, recipient: phone, channel: 'sms', purpose: 'appointment_transactional', status: 'granted', source: 'test', wordingVersion: 'test' });
+    await db.update(schema.appointmentSchema).set({ salonClientId: newClientId, clientPhone: phone }).where(eq(schema.appointmentSchema.id, fixture.appointmentId));
+    await scheduleReviewRequest(db, fixture.salonId, fixture.appointmentId, false);
+    const [after] = await db.select().from(schema.communicationIntentSchema).where(eq(schema.communicationIntentSchema.id, first!.intentId));
+
+    expect(after!.availableAt).toEqual(before!.availableAt);
+    expect(await rows(fixture.salonId)).toHaveLength(1);
+  });
+
+  it.each(['converted', 'dismissed', 'marked_sent'])('retains recent legacy send evidence after status becomes %s', async (status) => {
+    const fixture = await seed();
+    const { scheduleReviewRequest } = await import('./reviewRequests.server');
+    await db.update(schema.salonRetentionSettingsSchema).set({ reviewRequestRepeatCooldownDays: 90 }).where(eq(schema.salonRetentionSettingsSchema.salonId, fixture.salonId));
+    await db.insert(schema.clientCommunicationSchema).values({ id: `${fixture.clientId}-legacy`, salonId: fixture.salonId, salonClientId: fixture.clientId, kind: 'google_review', status, markedSentAt: new Date() });
+    await scheduleReviewRequest(db, fixture.salonId, fixture.appointmentId, false);
+
+    expect(await rows(fixture.salonId)).toHaveLength(0);
+  });
+
+  it('fails closed for a legacy marked-sent row without a timestamp', async () => {
+    const fixture = await seed();
+    const { scheduleReviewRequest } = await import('./reviewRequests.server');
+    await db.update(schema.salonRetentionSettingsSchema).set({ reviewRequestRepeatCooldownDays: 90 }).where(eq(schema.salonRetentionSettingsSchema.salonId, fixture.salonId));
+    await db.insert(schema.clientCommunicationSchema).values({ id: `${fixture.clientId}-legacy`, salonId: fixture.salonId, salonClientId: fixture.clientId, kind: 'google_review', status: 'marked_sent', markedSentAt: null });
+    await scheduleReviewRequest(db, fixture.salonId, fixture.appointmentId, false);
+
+    expect(await rows(fixture.salonId)).toHaveLength(0);
+  });
+
+  it('rechecks legacy history recorded after scheduling and before dispatch', async () => {
+    const fixture = await seed();
+    const { scheduleReviewRequest, reviewRequestSendContext } = await import('./reviewRequests.server');
+    await scheduleReviewRequest(db, fixture.salonId, fixture.appointmentId, false);
+    const [first] = await rows(fixture.salonId);
+    await db.insert(schema.clientCommunicationSchema).values({ id: `${fixture.clientId}-legacy`, salonId: fixture.salonId, salonClientId: fixture.clientId, kind: 'google_review', status: 'converted', markedSentAt: new Date() });
+
+    expect(await reviewRequestSendContext(fixture.salonId, first!.intentId)).toBeNull();
+  });
+});
 
 describe('review request production', () => {
   it('keeps the nullable preparation reader closed until kind-aware dispatch is implemented', async () => {
