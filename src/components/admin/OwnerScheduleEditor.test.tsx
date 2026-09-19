@@ -158,6 +158,8 @@ describe('OwnerScheduleEditor', () => {
   });
 
   it('keeps unsaved hours when the owner cancels a person switch', async () => {
+    const user = userEvent.setup();
+    const onDirtyChange = vi.fn();
     const secondPerson = { ...person, id: 'tech_2', name: 'Alex' };
     fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
       if (String(input).startsWith('/api/admin/technicians?')) {
@@ -171,17 +173,21 @@ describe('OwnerScheduleEditor', () => {
       }
       throw new Error(`Unexpected request ${input}`);
     });
-    render(<OwnerScheduleEditor salonSlug="salon-a" section="hours" />);
-    fireEvent.change(await screen.findByLabelText('Monday start time'), { target: { value: '10:00' } });
-    fireEvent.change(screen.getByLabelText('Whose schedule?'), { target: { value: 'tech_2' } });
+    render(<OwnerScheduleEditor salonSlug="salon-a" section="hours" onDirtyChange={onDirtyChange} />);
+    await user.selectOptions(await screen.findByLabelText('Monday start time'), '10:00');
+    await waitFor(() => expect(onDirtyChange).toHaveBeenLastCalledWith(true));
+
+    expect(screen.getByLabelText('Monday start time')).toHaveValue('10:00');
+
+    await user.selectOptions(screen.getByLabelText('Whose schedule?'), 'tech_2');
     await screen.findByRole('alertdialog');
-    fireEvent.click(screen.getByRole('button', { name: 'Keep editing' }));
+    await user.click(screen.getByRole('button', { name: 'Keep editing' }));
 
     expect(screen.getByLabelText('Whose schedule?')).toHaveValue('tech_1');
     expect(screen.getByLabelText('Monday start time')).toHaveValue('10:00');
 
-    fireEvent.change(screen.getByLabelText('Whose schedule?'), { target: { value: 'tech_2' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Discard changes' }));
+    await user.selectOptions(screen.getByLabelText('Whose schedule?'), 'tech_2');
+    await user.click(screen.getByRole('button', { name: 'Discard changes' }));
     await waitFor(() => expect(screen.getByLabelText('Whose schedule?')).toHaveValue('tech_2'));
   });
 });
