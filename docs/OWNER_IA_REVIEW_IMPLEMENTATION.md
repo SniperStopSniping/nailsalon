@@ -133,3 +133,17 @@ editing and the separate Time off view. Independent review caught and verified
 the legacy-schedule resolution fix. New tests cover legacy weekend/evening hours,
 failed detail loading and stale responses after switching salons. These are local
 checks; exact-head CI and deployed verification remain release gates.
+
+Business information consolidation: Booking Page now owns the existing business
+identity/contact/address editor and arrival instructions. Published-page address
+privacy remains a separate draft/publish control. The previous Settings entry
+and stable Assistant destinations resolve to the canonical editor; Hours remains
+a contextual shortcut. Arrival instructions retain explicit Save behavior and
+never save during navigation or a retry of another editor's failed save.
+
+This slice passed 231 focused unit/regression tests, TypeScript, focused ESLint
+with no errors, and 8 actual-route component-browser cases at 390px Chromium and
+320px WebKit. The browser cases cover same-mounted salon switches, dirty
+navigation, explicit discard and failed-save retry. Independent source review
+approved the slice. These isolated mocked-network journeys do not constitute an
+authenticated hosted Preview check; that release gate remains outstanding.

@@ -1,6 +1,6 @@
 'use client';
 
-import { ArrowLeft, Check, Copy, Images, LayoutTemplate, Lock, Palette, Scissors, ShieldCheck, Type, UserRound } from 'lucide-react';
+import { ArrowLeft, Building2, Check, Copy, Images, LayoutTemplate, Lock, Palette, Scissors, ShieldCheck, Type, UserRound } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 
 /**
@@ -12,6 +12,7 @@ import { useEffect, useRef, useState } from 'react';
 const PREVIEW_RETURN_HASH = '#preview-draft';
 
 const EDITORS = [
+  { id: 'business', title: 'Business Information', description: 'Salon name, contact, address and arrival details', icon: Building2 },
   { id: 'layouts', title: 'Layout', description: '22 website layouts and the booking menu', icon: LayoutTemplate },
   // Fonts are named here on purpose. Each style preset now carries its own
   // display typeface, and "the look you chose during setup" gave an owner

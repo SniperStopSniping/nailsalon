@@ -71,6 +71,7 @@ const SETTINGS_VIEW_IDS = [
 
 /** Source: the `panel` allowlist in src/app/[locale]/admin/booking-page/page.tsx. */
 const BOOKING_PAGE_PANEL_IDS = [
+  'business',
   'layouts',
   'appearance',
   'information',
@@ -109,7 +110,7 @@ describe('the duplicated allowlists still match their source files', () => {
     }
 
     expect(source).toContain(
-      `['layouts', 'appearance', 'information', 'text', 'gallery', 'policies', 'publish'].includes(`,
+      `['business', 'layouts', 'appearance', 'information', 'text', 'gallery', 'policies', 'publish'].includes(`,
     );
   });
 });
@@ -197,6 +198,8 @@ describe('searchRegistry answers the questions this slice must handle', () => {
     ['upload my logo', 'page_gallery'],
     ['hours', 'business_hours'],
     ['minimum notice', 'booking_rules'],
+    ['address privacy', 'page_information'],
+    ['hide address', 'page_information'],
     ['publish', 'page_publish'],
   ])('%s → %s', (query, expectedKey) => {
     expect(searchRegistry(query)[0]?.key).toBe(expectedKey);

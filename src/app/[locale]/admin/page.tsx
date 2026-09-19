@@ -40,7 +40,7 @@ import { LuckyCharmLoader } from '@/components/loading/LuckyCharmLoader';
 import { buttonVariants } from '@/components/ui/buttonVariants';
 import { WorkspacePageHeader } from '@/components/ui/workspace-page-header';
 import { formatMoney } from '@/libs/formatMoney';
-import { resolveOwnerNavigationAlias } from '@/libs/ownerNavigation';
+import { resolveOwnerNavigationAlias, resolveOwnerNavigationPathAlias } from '@/libs/ownerNavigation';
 // =============================================================================
 // Main Page Component
 // =============================================================================
@@ -1390,6 +1390,21 @@ function AdminDashboardContent() {
       return;
     }
     const appParam = searchParams.get('app');
+
+    // Some retired Settings editors now have full-page canonical homes. Keep
+    // their original query context while replacing the old history entry.
+    const pathAlias = resolveOwnerNavigationPathAlias(
+      `/${locale}/admin`,
+      new URLSearchParams(searchParams.toString()),
+    );
+    if (pathAlias) {
+      const salon = pathAlias.query.get('salon') ?? activeDashboardSalonSlug;
+      if (salon) {
+        pathAlias.query.set('salon', salon);
+      }
+      router.replace(`${pathAlias.pathname}?${pathAlias.query.toString()}`);
+      return;
+    }
 
     // Keep old bookmarked Settings destinations working while giving each
     // control one canonical app. Replace (rather than push) so Back does not

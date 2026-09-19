@@ -47,3 +47,25 @@ export function resolveOwnerNavigationAlias(query: URLSearchParams): URLSearchPa
   }
   return next;
 }
+
+/**
+ * A few retired Settings editors now have a canonical full-page home. Unlike
+ * query-only aliases, this changes the pathname while preserving every query
+ * key (salon, locale-derived route context, return target, record selection).
+ */
+export function resolveOwnerNavigationPathAlias(
+  pathname: string,
+  query: URLSearchParams,
+): { pathname: string; query: URLSearchParams } | null {
+  const app = query.get('app');
+  const view = query.get('view');
+  const isAdminDashboard = /\/(?:en|fr)\/admin$/.test(pathname);
+  if (!isAdminDashboard || app !== 'settings' || !['business-profile', 'location'].includes(view ?? '')) {
+    return null;
+  }
+  const next = new URLSearchParams(query);
+  next.delete('app');
+  next.delete('view');
+  next.set('panel', 'business');
+  return { pathname: `${pathname}/booking-page`, query: next };
+}

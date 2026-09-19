@@ -4,6 +4,7 @@ import {
   isOwnerManagementApp,
   ownerManagementView,
   resolveOwnerNavigationAlias,
+  resolveOwnerNavigationPathAlias,
 } from './ownerNavigation';
 
 describe('owner navigation aliases', () => {
@@ -43,5 +44,22 @@ describe('owner navigation aliases', () => {
     expect(ownerManagementView('booking-rules', 'usage')).toBe('home');
     expect(ownerManagementView('plan-usage', 'plans')).toBe('plans');
     expect(ownerManagementView('help', 'anything')).toBe('home');
+  });
+});
+
+describe('owner navigation path aliases', () => {
+  it.each(['business-profile', 'location'])('moves legacy Settings %s to Business Information without losing context', (view) => {
+    const alias = resolveOwnerNavigationPathAlias(
+      '/en/admin',
+      new URLSearchParams(`salon=isla&returnTo=calendar&technician=tech_1&app=settings&view=${view}`),
+    );
+
+    expect(alias?.pathname).toBe('/en/admin/booking-page');
+    expect(alias?.query.toString()).toBe('salon=isla&returnTo=calendar&technician=tech_1&panel=business');
+  });
+
+  it('leaves query-only aliases and unrelated paths alone', () => {
+    expect(resolveOwnerNavigationPathAlias('/en/admin', new URLSearchParams('app=settings&view=booking-policy'))).toBeNull();
+    expect(resolveOwnerNavigationPathAlias('/en/admin/booking-page', new URLSearchParams('app=settings&view=location'))).toBeNull();
   });
 });

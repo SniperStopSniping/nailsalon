@@ -207,26 +207,32 @@ describe('BookingPageInformationEditor', () => {
     expect(calls.some(call => call.url.includes('/api/admin/profile'))).toBe(false);
   });
 
-  it('keeps business values read-only in Booking Page and links to their canonical Settings homes', async () => {
+  it('keeps business values read-only in Booking Page and links to their canonical Business Information home', async () => {
     renderEditor({ mode: 'booking' });
 
     expect(await screen.findByText('Current Studio')).toBeVisible();
     expect(screen.queryByTestId('information-business-name')).not.toBeInTheDocument();
-    expect(screen.getByRole('link', { name: /Edit business profile/ })).toHaveAttribute('href', '/en/admin?salon=salon-a&app=settings&view=business-profile');
+    expect(screen.getByRole('link', { name: /Edit business profile/ })).toHaveAttribute('href', '/en/admin/booking-page?salon=salon-a&panel=business');
 
     await userEvent.click(screen.getByText('Location', { exact: true }));
 
     expect(screen.queryByTestId('information-address-street')).not.toBeInTheDocument();
-    expect(screen.getByRole('link', { name: /Edit salon address/ })).toHaveAttribute('href', '/en/admin?salon=salon-a&app=settings&view=location');
+    expect(screen.getByRole('link', { name: /Edit salon address/ })).toHaveAttribute('href', '/en/admin/booking-page?salon=salon-a&panel=business');
   });
 
-  it('keeps public photo controls out of Business Profile and links to their canonical Booking Page home', async () => {
+  it('keeps public photo controls out of Business Information and links to their canonical Booking Page home', async () => {
     renderEditor({ mode: 'business' });
 
     expect(await screen.findByTestId('business-profile-photo-summary')).toBeVisible();
     expect(screen.queryByTestId('information-logo-upload')).not.toBeInTheDocument();
     expect(screen.queryByTestId('information-tech-photo')).not.toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Manage photos →' })).toHaveAttribute('href', '/en/admin/booking-page?salon=salon-a&panel=gallery');
+    expect(screen.queryByTestId('information-hours-monday-open')).not.toBeInTheDocument();
+    expect(screen.queryByRole('radiogroup', { name: 'Address privacy' })).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByText('Location', { exact: true }));
+
+    expect(screen.getByRole('link', { name: 'Parking & arrival instructions' })).toHaveAttribute('href', '#parking-arrival');
   });
 
   it('saves the business name through the salon writer and the nail tech name through the technician writer', async () => {

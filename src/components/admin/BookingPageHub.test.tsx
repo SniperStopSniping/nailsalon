@@ -13,12 +13,13 @@ describe('Booking Page hub', () => {
     expect(screen.getByRole('link', { name: 'Open live site' })).toHaveAttribute('href', 'https://another-studio.example/');
   });
 
-  it('shows seven focused editors, the actual owner and an authenticated draft preview', () => {
+  it('shows eight focused editors, the actual owner and an authenticated draft preview', () => {
     render(<BookingPageHub {...props} />);
 
     expect(screen.getByText(props.salonName)).toBeVisible();
-    expect(screen.getByRole('navigation', { name: 'Booking Page editors' }).querySelectorAll('a')).toHaveLength(7);
+    expect(screen.getByRole('navigation', { name: 'Booking Page editors' }).querySelectorAll('a')).toHaveLength(8);
     expect(screen.getByRole('link', { name: 'Preview draft' })).toHaveAttribute('href', '/en/admin/booking-page/preview/another-studio');
+    expect(screen.getByRole('link', { name: /Business Information/ })).toHaveAttribute('href', '/en/admin/booking-page?salon=another-studio&panel=business');
     expect(screen.getByRole('link', { name: /Layout 22 website layouts/ })).toHaveAttribute('href', '/en/admin/booking-page?salon=another-studio&panel=layouts');
     expect(screen.getByRole('link', { name: /Photos & Gallery/ })).toHaveAttribute('href', '/en/admin/booking-page?salon=another-studio&panel=gallery');
     expect(screen.getByText('Live · All changes published')).toBeVisible();
@@ -44,7 +45,7 @@ describe('Booking Page hub', () => {
     expect(screen.getByText('Publishing is owner only')).toBeVisible();
     // Everything else the collaborator legitimately uses stays put.
     expect(screen.getByRole('link', { name: 'Preview draft' })).toBeVisible();
-    expect(screen.getByRole('navigation', { name: 'Booking Page editors' }).querySelectorAll('a')).toHaveLength(7);
+    expect(screen.getByRole('navigation', { name: 'Booking Page editors' }).querySelectorAll('a')).toHaveLength(8);
   });
 
   it('keeps the publish CTA for the owner', () => {
