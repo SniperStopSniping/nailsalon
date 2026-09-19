@@ -74,7 +74,16 @@ test('legacy Booking Page links replace to the hub and Layouts owns presentation
 
     await expect(page.getByRole('heading', { level: 1, name: 'Layouts', exact: true })).toBeVisible();
     await expect(page.getByTestId('booking-page-preset-picker')).toBeVisible();
-    await expect(page.getByText('Business type')).toBeVisible();
+
+    const advancedBusinessSetup = page.getByTestId('business-type-advanced');
+
+    await expect(advancedBusinessSetup).not.toHaveAttribute('open', '');
+    await expect(advancedBusinessSetup.getByTestId('business-mode-option-solo')).toBeHidden();
+
+    await advancedBusinessSetup.locator('summary').click();
+
+    await expect(advancedBusinessSetup).toHaveAttribute('open', '');
+    await expect(advancedBusinessSetup.getByTestId('business-mode-option-solo')).toBeVisible();
     await expect(page.getByTestId('booking-page-builder')).toBeVisible();
     await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   }

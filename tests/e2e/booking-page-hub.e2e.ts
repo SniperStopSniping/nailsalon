@@ -39,9 +39,15 @@ for (const viewport of [{ width: 320, height: 568 }, { width: 375, height: 667 }
     await expect(page.getByRole('heading', { level: 1, name: 'Layouts', exact: true })).toBeVisible();
     await expect(page.getByTestId('booking-page-preset-picker')).toBeVisible();
 
-    await page.locator('details').filter({ has: page.getByText('Business type', { exact: true }) }).locator('summary').click();
+    const advancedBusinessSetup = page.getByTestId('business-type-advanced');
 
-    await expect(page.getByText('Business type', { exact: true })).toBeVisible();
+    await expect(advancedBusinessSetup).not.toHaveAttribute('open', '');
+    await expect(advancedBusinessSetup.getByTestId('business-mode-option-solo')).toBeHidden();
+
+    await advancedBusinessSetup.locator('summary').click();
+
+    await expect(advancedBusinessSetup).toHaveAttribute('open', '');
+    await expect(advancedBusinessSetup.getByTestId('business-mode-option-solo')).toBeVisible();
     await expect(page.getByTestId('booking-page-builder')).toBeVisible();
     expect(await noHorizontalOverflow()).toBe(true);
 
@@ -66,7 +72,7 @@ for (const viewport of [{ width: 320, height: 568 }, { width: 375, height: 667 }
 
     await page.getByRole('button', { name: 'Save & next step' }).click();
 
-    await expect(page.getByRole('heading', { name: 'Policies & Booking Rules', exact: true })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Policies Display', exact: true })).toBeVisible();
     await expect(page).toHaveURL(/panel=policies&guided=1/);
 
     await page.goto(hubUrl);

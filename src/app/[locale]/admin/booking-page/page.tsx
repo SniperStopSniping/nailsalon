@@ -1250,7 +1250,7 @@ function BookingPageOwnerSurfaceContent() {
         <div className="mt-6 flex flex-wrap items-start justify-between gap-4">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.25em] text-[var(--owner-accent)]">Booking Page</p>
-            <h1 className="mt-2 text-3xl font-semibold">{({ business: 'Business Information', layouts: 'Layouts', appearance: 'Style & Colours', information: 'Business Info Display', text: 'About & Website Text', gallery: 'Photos & Gallery', policies: 'Policies & Booking Rules', experience: 'Public Booking Experience', flow: 'Booking Flow', publish: 'Review & Publish' } as Record<string, string>)[panel ?? ''] ?? 'Layout, style and content'}</h1>
+            <h1 className="mt-2 text-3xl font-semibold">{({ business: 'Business Information', layouts: 'Layouts', appearance: 'Style & Colours', information: 'Business Info Display', text: 'About & Website Text', gallery: 'Photos & Gallery', policies: 'Policies Display', experience: 'Public Booking Experience', flow: 'Booking Flow', publish: 'Review & Publish' } as Record<string, string>)[panel ?? ''] ?? 'Layout, style and content'}</h1>
             <p className="mt-2 text-[var(--owner-muted)]" data-testid="booking-page-panel-subtitle">{PANEL_SUBTITLES[panel ?? ''] ?? DRAFT_PANEL_SUBTITLE}</p>
             {reviewIndex >= 0 && (
               <p className="mt-2 text-sm font-semibold text-[var(--owner-accent)]">

@@ -2259,7 +2259,7 @@ test('Production-split DRAFT Signature / LIVE Quick Book previews stay visible, 
         const exerciseViewOnlyInput = testInfo.project.name === 'mobile-webkit'
           || scenario === OWNER_PREVIEW_VIEWPORT_SCENARIOS[0];
         const response = await page.goto(
-          `${appPath('/admin/booking-page')}?salon=${encodeURIComponent(SYNTHETIC_SALON_SLUG)}&ownerPreviewEvidence=${encodeURIComponent(scenario.label)}`,
+          `${appPath('/admin/booking-page')}?salon=${encodeURIComponent(SYNTHETIC_SALON_SLUG)}&panel=layouts&ownerPreviewEvidence=${encodeURIComponent(scenario.label)}`,
           { waitUntil: 'domcontentloaded' },
         );
 
@@ -2902,7 +2902,7 @@ test('scriptless embedded and dialog previews remain visible across mobile and z
 
         const page = await context.newPage();
         const response = await page.goto(
-          `${appPath('/admin/booking-page')}?salon=${encodeURIComponent(SYNTHETIC_SALON_SLUG)}&ownerPreviewEvidence=${encodeURIComponent(scenario.label)}`,
+          `${appPath('/admin/booking-page')}?salon=${encodeURIComponent(SYNTHETIC_SALON_SLUG)}&panel=layouts&ownerPreviewEvidence=${encodeURIComponent(scenario.label)}`,
           { waitUntil: 'domcontentloaded' },
         );
 
@@ -3120,7 +3120,8 @@ test('unpublished non-free-solo owner previews survive separate layout and salon
         return result.rows[0]!;
       }
 
-      const response = await builder.goto(appPath('/admin/booking-page'), { waitUntil: 'domcontentloaded' });
+      const layoutsPath = `${appPath('/admin/booking-page')}?salon=${encodeURIComponent(SYNTHETIC_SALON_SLUG)}&panel=layouts`;
+      const response = await builder.goto(layoutsPath, { waitUntil: 'domcontentloaded' });
 
       expect(response?.status()).toBe(200);
       await expect(builder.getByTestId('salon-publish-banner')).toBeVisible();
@@ -3172,6 +3173,7 @@ test('unpublished non-free-solo owner previews survive separate layout and salon
       await expect(fullPreview.getByTestId(`service-card-${e2eConfig.serviceId}`)).toBeVisible();
 
       const sourceBeforeSalonPublish = await iframe.getAttribute('src');
+
       const [salonPublish] = await Promise.all([
         builder.waitForResponse(result => new URL(result.url()).pathname === '/api/admin/salon/publish'
           && result.request().method() === 'POST'),
@@ -3355,7 +3357,7 @@ test('owner preset draft, full-page preview, publish, and fresh public state sta
 
       const builderPage = await ownerContext.newPage();
       const builderResponse = await builderPage.goto(
-        `${appPath('/admin/booking-page')}?ownerPublishEvidence=1`,
+        `${appPath('/admin/booking-page')}?salon=${encodeURIComponent(SYNTHETIC_SALON_SLUG)}&panel=layouts&ownerPublishEvidence=1`,
         { waitUntil: 'domcontentloaded' },
       );
 
@@ -3504,6 +3506,13 @@ test('owner preset draft, full-page preview, publish, and fresh public state sta
           await unpublishedContext.close();
         }
 
+        const publishResponse = await builderPage.goto(
+          `${appPath('/admin/booking-page')}?salon=${encodeURIComponent(SYNTHETIC_SALON_SLUG)}&panel=publish&ownerPublishEvidence=1`,
+          { waitUntil: 'domcontentloaded' },
+        );
+
+        expect(publishResponse?.ok(), await publishResponse?.text()).toBe(true);
+
         await builderPage.getByTestId('booking-page-publish').click();
 
         await expect(builderPage.getByText(
@@ -3525,6 +3534,11 @@ test('owner preset draft, full-page preview, publish, and fresh public state sta
           live: appliedState.config.draft,
           livePresetBase: appliedState.config.draftPresetBase,
         });
+
+        await builderPage.goto(
+          `${appPath('/admin/booking-page')}?salon=${encodeURIComponent(SYNTHETIC_SALON_SLUG)}&panel=layouts&ownerPublishEvidence=1`,
+          { waitUntil: 'domcontentloaded' },
+        );
 
         const publishedContext = await browser.newContext({
           baseURL,
@@ -3783,7 +3797,7 @@ test('sparse Signature and Quick Book may converge visibly while every preview s
 
       const builderPage = await ownerContext.newPage();
       const builderResponse = await builderPage.goto(
-        `${appPath('/admin/booking-page')}?salon=${encodeURIComponent(SYNTHETIC_SALON_SLUG)}&sparsePresetEvidence=1`,
+        `${appPath('/admin/booking-page')}?salon=${encodeURIComponent(SYNTHETIC_SALON_SLUG)}&panel=layouts&sparsePresetEvidence=1`,
         { waitUntil: 'domcontentloaded' },
       );
 
@@ -4172,7 +4186,7 @@ test('Stage 7 owner preset confirmation updates only the real draft preview and 
         });
 
         const response = await page.goto(
-          `${appPath('/admin/booking-page')}?salon=${encodeURIComponent(SYNTHETIC_SALON_SLUG)}&stage7Evidence=${encodeURIComponent(scenario.label)}`,
+          `${appPath('/admin/booking-page')}?salon=${encodeURIComponent(SYNTHETIC_SALON_SLUG)}&panel=layouts&stage7Evidence=${encodeURIComponent(scenario.label)}`,
           { waitUntil: 'domcontentloaded' },
         );
 
